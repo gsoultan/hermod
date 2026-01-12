@@ -1,0 +1,23 @@
+{
+  "name": "hermod",
+  "version": "1.0.0",
+  "description": "Hermod is a high-performance, messaging system designed with SOLID principles and zero-allocation in mind.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "ui:build": "cd ui && npm run build && cd .. && powershell -Command \"Copy-Item -Recurse -Force ui/dist/* internal/api/static/\"",
+    "build": "npm run ui:build && go build -o hermod cmd/hermod/main.go"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gsoultan/Hermod.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/gsoultan/Hermod/issues"
+  },
+  "homepage": "https://github.com/gsoultan/Hermod#readme"
+}
