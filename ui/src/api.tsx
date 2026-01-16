@@ -45,11 +45,36 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
     
     // Only show notification if it's not a background check
     if (!url.includes('/api/config/status') && !url.includes('/api/vhosts')) {
+      const isToggle = url.includes('/toggle');
+      let connectionID = '';
+      if (isToggle) {
+        const parts = url.split('/');
+        // URL is something like /api/connections/ID/toggle
+        const connIndex = parts.indexOf('connections');
+        if (connIndex !== -1 && parts[connIndex + 1]) {
+          connectionID = parts[connIndex + 1];
+        }
+      }
+
       notifications.show({
         title: 'Error',
-        message: errorMessage,
+        message: (
+          <div>
+            <div>{errorMessage}</div>
+            {connectionID && (
+              <div style={{ marginTop: '8px' }}>
+                <a 
+                  href={`/logs?connection_id=${connectionID}`} 
+                  style={{ color: 'white', fontWeight: 'bold', textDecoration: 'underline' }}
+                >
+                  View Connection Logs
+                </a>
+              </div>
+            )}
+          </div>
+        ),
         color: 'red',
-        autoClose: 5000,
+        autoClose: connectionID ? 15000 : 5000,
       });
     }
     
