@@ -15,8 +15,8 @@ type mockStorage struct {
 	storage.Storage
 }
 
-func (m *mockStorage) ListUsers(ctx context.Context) ([]storage.User, error) {
-	return nil, nil
+func (m *mockStorage) ListUsers(ctx context.Context, filter storage.CommonFilter) ([]storage.User, int, error) {
+	return nil, 0, nil
 }
 
 func (m *mockStorage) GetUserByUsername(ctx context.Context, username string) (storage.User, error) {
@@ -53,6 +53,12 @@ func TestAuthMiddleware(t *testing.T) {
 			name:           "Protected API should be unauthorized",
 			method:         "GET",
 			path:           "/api/sources",
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:           "Connection status API should be unauthorized without token",
+			method:         "GET",
+			path:           "/api/connections/status",
 			expectedStatus: http.StatusUnauthorized,
 		},
 	}

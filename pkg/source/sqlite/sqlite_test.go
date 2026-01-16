@@ -53,3 +53,37 @@ func TestSQLiteSource_Ping(t *testing.T) {
 		t.Fatalf("failed to ping SQLiteSource: %v", err)
 	}
 }
+
+func TestSQLiteSource_Sample(t *testing.T) {
+	dbPath := "test_sample.db"
+	defer os.Remove(dbPath)
+
+	s := NewSQLiteSource(dbPath, nil)
+	defer s.Close()
+
+	ctx := context.Background()
+	// Using Ping to initialize
+	if err := s.Ping(ctx); err != nil {
+		t.Fatalf("failed to init db: %v", err)
+	}
+
+	_, err := s.db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	_, err = s.db.Exec("INSERT INTO users (id, name) VALUES (1, 'John Doe')")
+	if err != nil {
+		t.Fatalf("failed to insert data: %v", err)
+	}
+
+	msg, err := s.Sample(ctx, "users")
+	if err != nil {
+		t.Fatalf("failed to sample table: %v", err)
+	}
+
+	data := msg.Data()
+	if data["name"] != "John Doe" {
+		t.Errorf("expected name John Doe, got %v", data["name"])
+	}
+}

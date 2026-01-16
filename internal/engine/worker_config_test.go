@@ -14,8 +14,8 @@ type mockConfigStorage struct {
 	connections []storage.Connection
 }
 
-func (m *mockConfigStorage) ListConnections(ctx context.Context) ([]storage.Connection, error) {
-	return m.connections, nil
+func (m *mockConfigStorage) ListConnections(ctx context.Context, filter storage.CommonFilter) ([]storage.Connection, int, error) {
+	return m.connections, len(m.connections), nil
 }
 
 func (m *mockConfigStorage) GetSource(ctx context.Context, id string) (storage.Source, error) {

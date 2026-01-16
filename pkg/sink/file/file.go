@@ -28,7 +28,15 @@ func NewFileSink(filename string, formatter hermod.Formatter) (*FileSink, error)
 }
 
 func (s *FileSink) Write(ctx context.Context, msg hermod.Message) error {
-	data, err := s.formatter.Format(msg)
+	var data []byte
+	var err error
+
+	if s.formatter != nil {
+		data, err = s.formatter.Format(msg)
+	} else {
+		data = msg.Payload()
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to format message: %w", err)
 	}

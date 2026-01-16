@@ -60,20 +60,30 @@ func (c *WorkerAPIClient) CreateWorker(ctx context.Context, w storage.Worker) er
 	return nil
 }
 
-func (c *WorkerAPIClient) ListConnections(ctx context.Context) ([]storage.Connection, error) {
-	resp, err := c.doRequest(ctx, "GET", "/api/connections", nil)
+func (c *WorkerAPIClient) ListConnections(ctx context.Context, filter storage.CommonFilter) ([]storage.Connection, int, error) {
+	url := "/api/connections"
+	if filter.Limit > 0 {
+		url = fmt.Sprintf("%s?page=%d&limit=%d&search=%s", url, filter.Page, filter.Limit, filter.Search)
+	} else if filter.Limit == -1 {
+		url = fmt.Sprintf("%s?limit=0", url) // 0 means no limit in our storage implementation
+	}
+
+	resp, err := c.doRequest(ctx, "GET", url, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error: %s", resp.Status)
+		return nil, 0, fmt.Errorf("API error: %s", resp.Status)
 	}
 
-	var connections []storage.Connection
-	err = json.NewDecoder(resp.Body).Decode(&connections)
-	return connections, err
+	var res struct {
+		Data  []storage.Connection `json:"data"`
+		Total int                  `json:"total"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&res)
+	return res.Data, res.Total, err
 }
 
 func (c *WorkerAPIClient) GetSource(ctx context.Context, id string) (storage.Source, error) {
@@ -106,6 +116,93 @@ func (c *WorkerAPIClient) GetSink(ctx context.Context, id string) (storage.Sink,
 	var s storage.Sink
 	err = json.NewDecoder(resp.Body).Decode(&s)
 	return s, err
+}
+
+func (c *WorkerAPIClient) ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error) {
+	url := "/api/sources"
+	if filter.Limit > 0 {
+		url = fmt.Sprintf("%s?page=%d&limit=%d&search=%s", url, filter.Page, filter.Limit, filter.Search)
+	}
+
+	resp, err := c.doRequest(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, 0, fmt.Errorf("API error: %s", resp.Status)
+	}
+
+	var res struct {
+		Data  []storage.Source `json:"data"`
+		Total int              `json:"total"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&res)
+	return res.Data, res.Total, err
+}
+
+func (c *WorkerAPIClient) ListSinks(ctx context.Context, filter storage.CommonFilter) ([]storage.Sink, int, error) {
+	url := "/api/sinks"
+	if filter.Limit > 0 {
+		url = fmt.Sprintf("%s?page=%d&limit=%d&search=%s", url, filter.Page, filter.Limit, filter.Search)
+	}
+
+	resp, err := c.doRequest(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, 0, fmt.Errorf("API error: %s", resp.Status)
+	}
+
+	var res struct {
+		Data  []storage.Sink `json:"data"`
+		Total int            `json:"total"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&res)
+	return res.Data, res.Total, err
+}
+
+func (c *WorkerAPIClient) UpdateSource(ctx context.Context, src storage.Source) error {
+	resp, err := c.doRequest(ctx, "PUT", fmt.Sprintf("/api/sources/%s", src.ID), src)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("API error: %s", resp.Status)
+	}
+	return nil
+}
+
+func (c *WorkerAPIClient) UpdateSink(ctx context.Context, snk storage.Sink) error {
+	resp, err := c.doRequest(ctx, "PUT", fmt.Sprintf("/api/sinks/%s", snk.ID), snk)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("API error: %s", resp.Status)
+	}
+	return nil
+}
+
+func (c *WorkerAPIClient) UpdateWorkerHeartbeat(ctx context.Context, id string) error {
+	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/api/workers/%s/heartbeat", id), nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("API error: %s", resp.Status)
+	}
+	return nil
 }
 
 func (c *WorkerAPIClient) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {

@@ -1,7 +1,9 @@
 import { Title, Text, Stack, Paper, Select, TextInput, Button, Group } from '@mantine/core'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { apiFetch } from '../api'
+import { IconDownload, IconUpload } from '@tabler/icons-react'
+import { notifications } from '@mantine/notifications'
 
 export function SettingsPage() {
   const [dbType, setDbType] = useState<string | null>('sqlite')
@@ -35,6 +37,50 @@ export function SettingsPage() {
     setMessage(null)
     saveMutation.mutate({ type: dbType, conn: dbConn })
   }
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = async () => {
+    try {
+      const response = await apiFetch('/api/backup/export');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `hermod-config-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      notifications.show({ title: 'Export Failed', message: 'Failed to download backup', color: 'red' });
+    }
+  };
+
+  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const content = e.target?.result as string;
+        const response = await apiFetch('/api/backup/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: content
+        });
+        if (response.ok) {
+          notifications.show({ title: 'Import Successful', message: 'Configuration has been restored.', color: 'green' });
+        } else {
+          throw new Error('Import failed');
+        }
+      } catch (err) {
+        notifications.show({ title: 'Import Failed', message: 'Failed to upload or parse backup', color: 'red' });
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = ''; // Reset input
+  };
 
   return (
     <Stack>
@@ -73,6 +119,31 @@ export function SettingsPage() {
             <Button onClick={handleSave} loading={saveMutation.isPending}>
               Save Changes
             </Button>
+          </Group>
+        </Stack>
+      </Paper>
+
+      <Paper withBorder p="md" radius="md">
+        <Title order={4} mb="md">Maintenance & Backup</Title>
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Export your entire configuration including Sources, Sinks, Connections, and Transformations.
+            You can then import this file to another Hermod instance.
+          </Text>
+          <Group>
+            <Button variant="outline" leftSection={<IconDownload size="1rem" />} onClick={handleExport}>
+              Export Configuration
+            </Button>
+            <Button variant="outline" color="orange" leftSection={<IconUpload size="1rem" />} onClick={() => fileInputRef.current?.click()}>
+              Import Configuration
+            </Button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              accept=".json"
+              onChange={handleImport}
+            />
           </Group>
         </Stack>
       </Paper>

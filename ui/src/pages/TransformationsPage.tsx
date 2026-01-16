@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Container, Title, Button, Group, Table, ActionIcon, Text, Badge, Paper, Stack, TextInput } from '@mantine/core';
+import { Container, Title, Button, Group, Table, ActionIcon, Text, Badge, Paper, Stack, TextInput, Pagination } from '@mantine/core';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { IconPlus, IconTrash, IconEdit, IconSearch, IconArrowsDiff, IconFilter, IconTableAlias, IconWand, IconWorld, IconDatabase, IconRoute } from '@tabler/icons-react';
+import { IconPlus, IconTrash, IconEdit, IconSearch, IconArrowsDiff, IconFilter, IconWand, IconWorld, IconDatabase, IconRoute } from '@tabler/icons-react';
 import { Link } from '@tanstack/react-router';
 import { apiFetch } from '../api';
 
@@ -10,14 +10,19 @@ const API_BASE = '/api';
 export default function TransformationsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [activePage, setPage] = useState(1);
+  const itemsPerPage = 30;
 
-  const { data: transformations, isLoading } = useQuery<any[]>({
-    queryKey: ['transformations'],
+  const { data: transformationsResponse, isLoading } = useQuery<any>({
+    queryKey: ['transformations', activePage, search],
     queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/transformations`);
+      const res = await apiFetch(`${API_BASE}/transformations?page=${activePage}&limit=${itemsPerPage}&search=${search}`);
       return res.json();
     }
   });
+
+  const transformations = transformationsResponse?.data || [];
+  const totalItems = transformationsResponse?.total || 0;
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -28,15 +33,12 @@ export default function TransformationsPage() {
     }
   });
 
-  const filtered = transformations?.filter(t => 
-    t.name.toLowerCase().includes(search.toLowerCase()) || 
-    t.type.toLowerCase().includes(search.toLowerCase())
-  );
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case 'rename_table': return <IconTableAlias size="1.2rem" />;
-      case 'filter_operation': return <IconFilter size="1.2rem" color="orange" />;
+      case 'filter_operation':
+      case 'filter_data': return <IconFilter size="1.2rem" color="red" />;
       case 'mapping': return <IconArrowsDiff size="1.2rem" color="blue" />;
       case 'advanced': return <IconWand size="1.2rem" color="indigo" />;
       case 'http': return <IconWorld size="1.2rem" color="teal" />;
@@ -62,7 +64,10 @@ export default function TransformationsPage() {
               placeholder="Search transformations..." 
               leftSection={<IconSearch size="1rem" />} 
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
             />
 
             <Table verticalSpacing="sm">
@@ -77,9 +82,9 @@ export default function TransformationsPage() {
               <Table.Tbody>
                 {isLoading ? (
                   <Table.Tr><Table.Td colSpan={4}><Text ta="center" py="xl" c="dimmed">Loading transformations...</Text></Table.Td></Table.Tr>
-                ) : filtered?.length === 0 ? (
-                  <Table.Tr><Table.Td colSpan={4}><Text ta="center" py="xl" c="dimmed">No transformations found</Text></Table.Td></Table.Tr>
-                ) : filtered?.map((t) => (
+                ) : transformations?.length === 0 ? (
+                  <Table.Tr><Table.Td colSpan={4}><Text ta="center" py="xl" c="dimmed">{search ? 'No transformations match your search' : 'No transformations found'}</Text></Table.Td></Table.Tr>
+                ) : transformations?.map((t: any) => (
                   <Table.Tr key={t.id}>
                     <Table.Td>
                       <Group gap="sm">
@@ -91,9 +96,10 @@ export default function TransformationsPage() {
                       <Badge variant="light" color={
                         t.type === 'pipeline' ? 'grape' : 
                         t.type === 'advanced' ? 'indigo' : 
-                        t.type === 'http' ? 'teal' : 'gray'
+                        t.type === 'http' ? 'teal' : 
+                        (t.type === 'filter_data' || t.type === 'filter_operation') ? 'red' : 'gray'
                       }>
-                        {t.type.replace('_', ' ')}
+                        {t.type === 'filter_data' ? 'filter' : t.type.replace('_', ' ')}
                       </Badge>
                     </Table.Td>
                     <Table.Td>
@@ -125,6 +131,11 @@ export default function TransformationsPage() {
                 ))}
               </Table.Tbody>
             </Table>
+            {totalPages > 1 && (
+              <Group justify="center" p="md" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
+                <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
+              </Group>
+            )}
           </Stack>
         </Paper>
       </Stack>

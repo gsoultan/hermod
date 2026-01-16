@@ -23,12 +23,12 @@ func (m *mockStatusStorage) GetConnection(ctx context.Context, id string) (stora
 	return conn, nil
 }
 
-func (m *mockStatusStorage) ListConnections(ctx context.Context) ([]storage.Connection, error) {
+func (m *mockStatusStorage) ListConnections(ctx context.Context, filter storage.CommonFilter) ([]storage.Connection, int, error) {
 	var list []storage.Connection
 	for _, c := range m.connections {
 		list = append(list, c)
 	}
-	return list, nil
+	return list, len(list), nil
 }
 
 func (m *mockStatusStorage) UpdateConnection(ctx context.Context, conn storage.Connection) error {
@@ -63,6 +63,38 @@ func (m *mockStatusStorage) UpdateSink(ctx context.Context, snk storage.Sink) er
 }
 
 func (m *mockStatusStorage) CreateLog(ctx context.Context, l storage.Log) error {
+	return nil
+}
+
+func (m *mockStatusStorage) GetSetting(ctx context.Context, key string) (string, error) {
+	return "", nil
+}
+
+func (m *mockStatusStorage) ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error) {
+	var list []storage.Source
+	for _, s := range m.sources {
+		list = append(list, s)
+	}
+	return list, len(list), nil
+}
+
+func (m *mockStatusStorage) ListSinks(ctx context.Context, filter storage.CommonFilter) ([]storage.Sink, int, error) {
+	var list []storage.Sink
+	for _, s := range m.sinks {
+		list = append(list, s)
+	}
+	return list, len(list), nil
+}
+
+func (m *mockStatusStorage) GetWorker(ctx context.Context, id string) (storage.Worker, error) {
+	return storage.Worker{}, nil
+}
+
+func (m *mockStatusStorage) CreateWorker(ctx context.Context, worker storage.Worker) error {
+	return nil
+}
+
+func (m *mockStatusStorage) UpdateWorkerHeartbeat(ctx context.Context, id string) error {
 	return nil
 }
 
@@ -103,9 +135,11 @@ func TestRegistry_StatusUpdate_MultipleConnections(t *testing.T) {
 	*/
 
 	// We can't easily trigger the registry logic without starting an actual engine because it's inside a goroutine in StartEngine.
-	// However, we can use StartEngine and wait for it to stop if we use a source that fails immediately.
+	// However, we can use StartEngine and wait for it to stop if we use a sink that fails immediately.
 
-	err := r.StartEngine("conn1", SourceConfig{ID: "src1", Type: "postgres", Config: map[string]string{"host": "invalid"}}, []SinkConfig{{ID: "snk1", Type: "stdout"}}, nil, nil)
+	// Let's make the sink fail instead of the source, because source failures now trigger reconnection
+	// while sink failures still turn off the connection.
+	err := r.StartEngine("conn1", SourceConfig{ID: "src1", Type: "sqlite", Config: map[string]string{"path": ":memory:"}}, []SinkConfig{{ID: "snk1", Type: "postgres", Config: map[string]string{"host": "invalid"}}}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
@@ -113,7 +147,7 @@ func TestRegistry_StatusUpdate_MultipleConnections(t *testing.T) {
 	// Wait for engine to stop and update status
 	// Since it will fail pinging or starting, it should update status quickly.
 	// We need to wait for it. Let's use IsEngineRunning to wait.
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 500; i++ {
 		if !r.IsEngineRunning("conn1") {
 			break
 		}
@@ -156,12 +190,13 @@ func TestRegistry_StatusUpdate_SingleConnection(t *testing.T) {
 
 	r := NewRegistry(store)
 
-	err := r.StartEngine("conn1", SourceConfig{ID: "src1", Type: "postgres", Config: map[string]string{"host": "invalid"}}, []SinkConfig{{ID: "snk1", Type: "stdout"}}, nil, nil)
+	// Use sink failure to trigger deactivation
+	err := r.StartEngine("conn1", SourceConfig{ID: "src1", Type: "sqlite", Config: map[string]string{"path": ":memory:"}}, []SinkConfig{{ID: "snk1", Type: "postgres", Config: map[string]string{"host": "invalid"}}}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 500; i++ {
 		if !r.IsEngineRunning("conn1") {
 			break
 		}

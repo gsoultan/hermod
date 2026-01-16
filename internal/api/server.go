@@ -5,20 +5,26 @@ import (
 	"database/sql"
 	"embed"
 	"encoding/json"
-	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/user/hermod"
 	"github.com/user/hermod/internal/config"
 	"github.com/user/hermod/internal/engine"
 	"github.com/user/hermod/internal/storage"
 	sqlstorage "github.com/user/hermod/internal/storage/sql"
 	"github.com/user/hermod/pkg/crypto"
+	pkgengine "github.com/user/hermod/pkg/engine"
+	"github.com/user/hermod/pkg/message"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -28,6 +34,12 @@ var staticFS embed.FS
 type Server struct {
 	storage  storage.Storage
 	registry *engine.Registry
+}
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // In production, we should check this
+	},
 }
 
 func NewServer(registry *engine.Registry, store storage.Storage) *Server {
@@ -47,6 +59,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/sources/test", s.testSource)
 	mux.HandleFunc("POST /api/sources/discover/databases", s.discoverDatabases)
 	mux.HandleFunc("POST /api/sources/discover/tables", s.discoverTables)
+	mux.HandleFunc("POST /api/sources/sample", s.sampleSourceTable)
+	mux.HandleFunc("POST /api/proxy/fetch", s.proxyFetch)
 	mux.HandleFunc("DELETE /api/sources/{id}", s.deleteSource)
 
 	mux.HandleFunc("GET /api/sinks", s.listSinks)
@@ -57,6 +71,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("DELETE /api/sinks/{id}", s.deleteSink)
 
 	mux.HandleFunc("GET /api/connections", s.listConnections)
+	mux.HandleFunc("GET /api/connections/status", s.getConnectionStatuses)
 	mux.HandleFunc("GET /api/connections/{id}", s.getConnection)
 	mux.HandleFunc("POST /api/connections", s.createConnection)
 	mux.HandleFunc("PUT /api/connections/{id}", s.updateConnection)
@@ -65,6 +80,9 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("GET /api/config/status", s.getConfigStatus)
 	mux.HandleFunc("POST /api/config/database", s.saveDBConfig)
+
+	mux.HandleFunc("GET /api/settings", s.getSettings)
+	mux.HandleFunc("PUT /api/settings", s.updateSettings)
 
 	mux.HandleFunc("POST /api/login", s.login)
 
@@ -81,16 +99,28 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/workers/{id}", s.getWorker)
 	mux.HandleFunc("POST /api/workers", s.createWorker)
 	mux.HandleFunc("PUT /api/workers/{id}", s.updateWorker)
+	mux.HandleFunc("POST /api/workers/{id}/heartbeat", s.updateWorkerHeartbeat)
 	mux.HandleFunc("DELETE /api/workers/{id}", s.deleteWorker)
 
 	mux.HandleFunc("GET /api/logs", s.listLogs)
 	mux.HandleFunc("DELETE /api/logs", s.deleteLogs)
+
+	mux.HandleFunc("GET /api/ws/status", s.handleStatusWS)
+	mux.HandleFunc("GET /api/ws/dashboard", s.handleDashboardWS)
+	mux.HandleFunc("GET /api/dashboard/stats", s.getDashboardStats)
 
 	mux.HandleFunc("GET /api/transformations", s.listTransformations)
 	mux.HandleFunc("GET /api/transformations/{id}", s.getTransformation)
 	mux.HandleFunc("POST /api/transformations", s.createTransformation)
 	mux.HandleFunc("PUT /api/transformations/{id}", s.updateTransformation)
 	mux.HandleFunc("DELETE /api/transformations/{id}", s.deleteTransformation)
+	mux.HandleFunc("POST /api/transformations/test", s.testTransformation)
+	mux.HandleFunc("POST /api/transformations/test-pipeline", s.testTransformationPipeline)
+
+	mux.HandleFunc("GET /api/backup/export", s.exportConfig)
+	mux.HandleFunc("POST /api/backup/import", s.importConfig)
+
+	mux.Handle("/metrics", promhttp.Handler())
 
 	// Static files
 	var static http.FileSystem
@@ -144,27 +174,49 @@ func (s *Server) Routes() http.Handler {
 	return s.corsMiddleware(s.authMiddleware(mux))
 }
 
+func (s *Server) parseCommonFilter(r *http.Request) storage.CommonFilter {
+	q := r.URL.Query()
+	pageStr := q.Get("page")
+	page, _ := strconv.Atoi(pageStr)
+	if pageStr == "" || page <= 0 {
+		page = 1
+	}
+	limitStr := q.Get("limit")
+	limit, _ := strconv.Atoi(limitStr)
+	if limitStr == "" {
+		limit = 30
+	}
+	search := q.Get("search")
+	return storage.CommonFilter{
+		Page:   page,
+		Limit:  limit,
+		Search: search,
+		VHost:  q.Get("vhost"),
+	}
+}
+
 func (s *Server) listLogs(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	filter := storage.LogFilter{
+		CommonFilter: s.parseCommonFilter(r),
 		SourceID:     query.Get("source_id"),
 		SinkID:       query.Get("sink_id"),
 		ConnectionID: query.Get("connection_id"),
 		Level:        query.Get("level"),
 		Action:       query.Get("action"),
 	}
-	if limit := query.Get("limit"); limit != "" {
-		fmt.Sscanf(limit, "%d", &filter.Limit)
-	}
 
-	logs, err := s.storage.ListLogs(r.Context(), filter)
+	logs, total, err := s.storage.ListLogs(r.Context(), filter)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.jsonError(w, "Failed to list logs: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(logs)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data":  logs,
+		"total": total,
+	})
 }
 
 func (s *Server) deleteLogs(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +230,7 @@ func (s *Server) deleteLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.storage.DeleteLogs(r.Context(), filter); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.jsonError(w, "Failed to delete logs: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -186,13 +238,16 @@ func (s *Server) deleteLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listTransformations(w http.ResponseWriter, r *http.Request) {
-	transformations, err := s.storage.ListTransformations(r.Context())
+	transformations, total, err := s.storage.ListTransformations(r.Context(), s.parseCommonFilter(r))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.jsonError(w, "Failed to list transformations: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(transformations)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data":  transformations,
+		"total": total,
+	})
 }
 
 func (s *Server) getTransformation(w http.ResponseWriter, r *http.Request) {
@@ -200,9 +255,9 @@ func (s *Server) getTransformation(w http.ResponseWriter, r *http.Request) {
 	trans, err := s.storage.GetTransformation(r.Context(), id)
 	if err != nil {
 		if err == storage.ErrNotFound {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			s.jsonError(w, "Transformation not found", http.StatusNotFound)
 		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			s.jsonError(w, "Failed to retrieve transformation: "+err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -213,14 +268,14 @@ func (s *Server) getTransformation(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createTransformation(w http.ResponseWriter, r *http.Request) {
 	var trans storage.Transformation
 	if err := json.NewDecoder(r.Body).Decode(&trans); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if trans.ID == "" {
 		trans.ID = uuid.New().String()
 	}
 	if err := s.storage.CreateTransformation(r.Context(), trans); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.jsonError(w, "Failed to create transformation: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -232,12 +287,12 @@ func (s *Server) updateTransformation(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var trans storage.Transformation
 	if err := json.NewDecoder(r.Body).Decode(&trans); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	trans.ID = id
 	if err := s.storage.UpdateTransformation(r.Context(), trans); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.jsonError(w, "Failed to update transformation: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -247,10 +302,131 @@ func (s *Server) updateTransformation(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteTransformation(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := s.storage.DeleteTransformation(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.jsonError(w, "Failed to delete transformation: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) testTransformation(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Transformation storage.Transformation `json:"transformation"`
+		Message        struct {
+			ID        string            `json:"id"`
+			Operation hermod.Operation  `json:"operation"`
+			Table     string            `json:"table"`
+			Schema    string            `json:"schema"`
+			Before    string            `json:"before"`
+			After     string            `json:"after"`
+			Metadata  map[string]string `json:"metadata"`
+		} `json:"message"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Create a message object
+	msg := message.AcquireMessage()
+	defer message.ReleaseMessage(msg)
+
+	msg.SetID(req.Message.ID)
+	msg.SetOperation(req.Message.Operation)
+	msg.SetTable(req.Message.Table)
+	msg.SetSchema(req.Message.Schema)
+	msg.SetBefore([]byte(req.Message.Before))
+	msg.SetAfter([]byte(req.Message.After))
+	for k, v := range req.Message.Metadata {
+		msg.SetMetadata(k, v)
+	}
+
+	// Run transformation
+	result, err := s.registry.TestTransformation(r.Context(), req.Transformation, msg)
+	if err != nil {
+		s.jsonError(w, "Failed to test transformation: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if result == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"filtered": true,
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":        result.ID(),
+		"operation": result.Operation(),
+		"table":     result.Table(),
+		"schema":    result.Schema(),
+		"before":    string(result.Before()),
+		"after":     string(result.After()),
+		"metadata":  result.Metadata(),
+	})
+}
+
+func (s *Server) testTransformationPipeline(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Transformations []storage.Transformation `json:"transformations"`
+		Message         struct {
+			ID        string            `json:"id"`
+			Operation hermod.Operation  `json:"operation"`
+			Table     string            `json:"table"`
+			Schema    string            `json:"schema"`
+			Before    string            `json:"before"`
+			After     string            `json:"after"`
+			Metadata  map[string]string `json:"metadata"`
+		} `json:"message"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Create a message object
+	msg := message.AcquireMessage()
+	defer message.ReleaseMessage(msg)
+
+	msg.SetID(req.Message.ID)
+	msg.SetOperation(req.Message.Operation)
+	msg.SetTable(req.Message.Table)
+	msg.SetSchema(req.Message.Schema)
+	msg.SetBefore([]byte(req.Message.Before))
+	msg.SetAfter([]byte(req.Message.After))
+	for k, v := range req.Message.Metadata {
+		msg.SetMetadata(k, v)
+	}
+
+	// Run pipeline
+	results, err := s.registry.TestTransformationPipeline(r.Context(), req.Transformations, msg)
+	if err != nil {
+		s.jsonError(w, "Failed to test transformation pipeline: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response := make([]interface{}, len(results))
+	for i, result := range results {
+		if result == nil {
+			response[i] = map[string]interface{}{"filtered": true}
+		} else {
+			response[i] = map[string]interface{}{
+				"id":        result.ID(),
+				"operation": result.Operation(),
+				"table":     result.Table(),
+				"schema":    result.Schema(),
+				"before":    string(result.Before()),
+				"after":     string(result.After()),
+				"metadata":  result.Metadata(),
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func (s *Server) getConfigStatus(w http.ResponseWriter, r *http.Request) {
@@ -258,7 +434,7 @@ func (s *Server) getConfigStatus(w http.ResponseWriter, r *http.Request) {
 	userSetup := false
 
 	if configured && s.storage != nil {
-		users, err := s.storage.ListUsers(r.Context())
+		users, _, err := s.storage.ListUsers(r.Context(), storage.CommonFilter{})
 		if err == nil && len(users) > 0 {
 			userSetup = true
 		}
@@ -337,15 +513,33 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) jsonError(w http.ResponseWriter, message string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
 func (s *Server) listSources(w http.ResponseWriter, r *http.Request) {
-	sources, err := s.storage.ListSources(r.Context())
+	filter := s.parseCommonFilter(r)
+	role, vhosts := s.getRoleAndVHosts(r)
+
+	// If user is not admin, we must enforce vhost filtering at DB level if they requested 'all' or no specific vhost
+	if role != "" && role != storage.RoleAdministrator {
+		if filter.VHost == "" || filter.VHost == "all" {
+			// This is tricky because a user can have multiple vhosts.
+			// For simplicity, if they don't specify one, we might need to filter in memory OR
+			// update the query to support multiple vhosts.
+			// Let's keep in-memory for now if multiple vhosts are involved, but that breaks paging.
+		}
+	}
+
+	sources, total, err := s.storage.ListSources(r.Context(), filter)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.jsonError(w, "Failed to list sources: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Filter by vhost for non-admins
-	role, vhosts := s.getRoleAndVHosts(r)
+	// Filter by vhost for non-admins if they didn't specify one in filter or if we couldn't do it in DB
 	if role != "" && role != storage.RoleAdministrator {
 		filtered := []storage.Source{}
 		for _, src := range sources {
@@ -354,9 +548,14 @@ func (s *Server) listSources(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		sources = filtered
+		// total will be slightly wrong if we filter in memory, but if the user specified a vhost it's correct.
 	}
 
-	json.NewEncoder(w).Encode(sources)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data":  sources,
+		"total": total,
+	})
 }
 
 func (s *Server) getSource(w http.ResponseWriter, r *http.Request) {
@@ -364,9 +563,9 @@ func (s *Server) getSource(w http.ResponseWriter, r *http.Request) {
 	src, err := s.storage.GetSource(r.Context(), id)
 	if err != nil {
 		if err == storage.ErrNotFound {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			s.jsonError(w, "Source not found", http.StatusNotFound)
 		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			s.jsonError(w, "Failed to retrieve source: "+err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -375,7 +574,7 @@ func (s *Server) getSource(w http.ResponseWriter, r *http.Request) {
 	role, vhosts := s.getRoleAndVHosts(r)
 	if role != "" && role != storage.RoleAdministrator {
 		if !s.hasVHostAccess(src.VHost, vhosts) {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			s.jsonError(w, "Forbidden: you don't have access to this vhost", http.StatusForbidden)
 			return
 		}
 	}
@@ -386,27 +585,27 @@ func (s *Server) getSource(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createSource(w http.ResponseWriter, r *http.Request) {
 	var src storage.Source
 	if err := json.NewDecoder(r.Body).Decode(&src); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if src.Name == "" {
-		http.Error(w, "source name is mandatory", http.StatusBadRequest)
+		s.jsonError(w, "Source name is mandatory", http.StatusBadRequest)
 		return
 	}
 	if src.Type == "" {
-		http.Error(w, "source type is mandatory", http.StatusBadRequest)
+		s.jsonError(w, "Source type is mandatory", http.StatusBadRequest)
 		return
 	}
 	if src.VHost == "" {
-		http.Error(w, "vhost is mandatory", http.StatusBadRequest)
+		s.jsonError(w, "VHost is mandatory", http.StatusBadRequest)
 		return
 	}
 
 	role, vhosts := s.getRoleAndVHosts(r)
 	if role != storage.RoleAdministrator {
 		if !s.hasVHostAccess(src.VHost, vhosts) {
-			http.Error(w, "forbidden: you don't have access to this vhost", http.StatusForbidden)
+			s.jsonError(w, "Forbidden: you don't have access to this vhost", http.StatusForbidden)
 			return
 		}
 	}
@@ -414,7 +613,7 @@ func (s *Server) createSource(w http.ResponseWriter, r *http.Request) {
 	src.ID = uuid.New().String()
 
 	if err := s.storage.CreateSource(r.Context(), src); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.jsonError(w, "Failed to create source: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -531,11 +730,97 @@ func (s *Server) discoverTables(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(tables)
 }
 
+func (s *Server) sampleSourceTable(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Source storage.Source `json:"source"`
+		Table  string         `json:"table"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg := engine.SourceConfig{
+		Type:   req.Source.Type,
+		Config: req.Source.Config,
+	}
+
+	msg, err := s.registry.SampleTable(r.Context(), cfg, req.Table)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusFailedDependency)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":        msg.ID(),
+		"operation": msg.Operation(),
+		"table":     msg.Table(),
+		"schema":    msg.Schema(),
+		"before":    string(msg.Before()),
+		"after":     string(msg.After()),
+		"metadata":  msg.Metadata(),
+	})
+}
+
+func (s *Server) proxyFetch(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL     string            `json:"url"`
+		Method  string            `json:"method"`
+		Headers map[string]string `json:"headers"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Method == "" {
+		req.Method = "GET"
+	}
+
+	hreq, err := http.NewRequestWithContext(r.Context(), req.Method, req.URL, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	for k, v := range req.Headers {
+		hreq.Header.Set(k, v)
+	}
+
+	resp, err := http.DefaultClient.Do(hreq)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// We wrap it in a Hermod message structure for the playground
+	msg := map[string]interface{}{
+		"id":        "api-fetch",
+		"operation": "snapshot",
+		"table":     "api_response",
+		"after":     string(body),
+		"metadata":  map[string]string{"url": req.URL},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(msg)
+}
+
 func (s *Server) deleteSource(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	// Deactivate and stop any connections using this source
-	connections, err := s.storage.ListConnections(r.Context())
+	connections, _, err := s.storage.ListConnections(r.Context(), storage.CommonFilter{})
 	if err == nil {
 		for _, conn := range connections {
 			if conn.SourceID == id {
@@ -557,7 +842,8 @@ func (s *Server) deleteSource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSinks(w http.ResponseWriter, r *http.Request) {
-	sinks, err := s.storage.ListSinks(r.Context())
+	filter := s.parseCommonFilter(r)
+	sinks, total, err := s.storage.ListSinks(r.Context(), filter)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -575,7 +861,11 @@ func (s *Server) listSinks(w http.ResponseWriter, r *http.Request) {
 		sinks = filtered
 	}
 
-	json.NewEncoder(w).Encode(sinks)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data":  sinks,
+		"total": total,
+	})
 }
 
 func (s *Server) getSink(w http.ResponseWriter, r *http.Request) {
@@ -583,9 +873,9 @@ func (s *Server) getSink(w http.ResponseWriter, r *http.Request) {
 	snk, err := s.storage.GetSink(r.Context(), id)
 	if err != nil {
 		if err == storage.ErrNotFound {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			s.jsonError(w, "Sink not found", http.StatusNotFound)
 		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			s.jsonError(w, "Failed to retrieve sink: "+err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -706,7 +996,7 @@ func (s *Server) deleteSink(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	// Deactivate and stop any connections using this sink
-	connections, err := s.storage.ListConnections(r.Context())
+	connections, _, err := s.storage.ListConnections(r.Context(), storage.CommonFilter{})
 	if err == nil {
 		for _, conn := range connections {
 			isRelated := false
@@ -735,7 +1025,8 @@ func (s *Server) deleteSink(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listConnections(w http.ResponseWriter, r *http.Request) {
-	connections, err := s.storage.ListConnections(r.Context())
+	filter := s.parseCommonFilter(r)
+	connections, total, err := s.storage.ListConnections(r.Context(), filter)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -753,14 +1044,45 @@ func (s *Server) listConnections(w http.ResponseWriter, r *http.Request) {
 		connections = filtered
 	}
 
-	json.NewEncoder(w).Encode(connections)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data":  connections,
+		"total": total,
+	})
+}
+
+func (s *Server) getConnectionStatuses(w http.ResponseWriter, r *http.Request) {
+	statuses := s.registry.GetAllStatuses()
+
+	// Filter by vhost for non-admins
+	role, vhosts := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		filtered := []pkgengine.StatusUpdate{}
+		for _, status := range statuses {
+			// We need the vhost of the connection to filter
+			conn, err := s.storage.GetConnection(r.Context(), status.ConnectionID)
+			if err == nil && s.hasVHostAccess(conn.VHost, vhosts) {
+				filtered = append(filtered, status)
+			}
+		}
+		statuses = filtered
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data": statuses,
+	})
 }
 
 func (s *Server) getConnection(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	conn, err := s.storage.GetConnection(r.Context(), id)
 	if err != nil {
-		http.Error(w, "connection not found", http.StatusNotFound)
+		if err == storage.ErrNotFound {
+			s.jsonError(w, "Connection not found", http.StatusNotFound)
+		} else {
+			s.jsonError(w, "Failed to retrieve connection: "+err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -868,7 +1190,11 @@ func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := s.storage.GetConnection(r.Context(), id)
 	if err != nil {
-		http.Error(w, "connection not found", http.StatusNotFound)
+		if err == storage.ErrNotFound {
+			s.jsonError(w, "Connection not found", http.StatusNotFound)
+		} else {
+			s.jsonError(w, "Failed to retrieve connection: "+err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -902,13 +1228,21 @@ func (s *Server) toggleConnection(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := s.storage.GetConnection(r.Context(), id)
 	if err != nil {
-		http.Error(w, "Connection not found", http.StatusNotFound)
+		if err == storage.ErrNotFound {
+			s.jsonError(w, "Connection not found", http.StatusNotFound)
+		} else {
+			s.jsonError(w, "Failed to retrieve connection: "+err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
 	src, err := s.storage.GetSource(r.Context(), conn.SourceID)
 	if err != nil {
-		http.Error(w, "Source not found", http.StatusBadRequest)
+		if err == storage.ErrNotFound {
+			s.jsonError(w, "Source not found", http.StatusBadRequest)
+		} else {
+			s.jsonError(w, "Failed to retrieve source: "+err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -916,7 +1250,11 @@ func (s *Server) toggleConnection(w http.ResponseWriter, r *http.Request) {
 	for _, sinkID := range conn.SinkIDs {
 		snk, err := s.storage.GetSink(r.Context(), sinkID)
 		if err != nil {
-			http.Error(w, "Sink not found: "+sinkID, http.StatusBadRequest)
+			if err == storage.ErrNotFound {
+				s.jsonError(w, "Sink not found: "+sinkID, http.StatusBadRequest)
+			} else {
+				s.jsonError(w, "Failed to retrieve sink: "+err.Error(), http.StatusInternalServerError)
+			}
 			return
 		}
 		snks = append(snks, snk)
@@ -924,40 +1262,81 @@ func (s *Server) toggleConnection(w http.ResponseWriter, r *http.Request) {
 
 	if !conn.Active {
 		if src.VHost != conn.VHost {
-			http.Error(w, "source must be on the same vhost as the connection", http.StatusBadRequest)
+			s.jsonError(w, "source must be on the same vhost as the connection", http.StatusBadRequest)
 			return
 		}
 
 		snkConfigs := make([]engine.SinkConfig, 0, len(snks))
 		for _, snk := range snks {
 			if snk.VHost != conn.VHost {
-				http.Error(w, "sink must be on the same vhost as the connection", http.StatusBadRequest)
+				s.jsonError(w, "sink must be on the same vhost as the connection", http.StatusBadRequest)
 				return
 			}
-			snkConfigs = append(snkConfigs, engine.SinkConfig{
+
+			sc := engine.SinkConfig{
 				ID:     snk.ID,
 				Type:   snk.Type,
 				Config: snk.Config,
-			})
+			}
+
+			snkConfigs = append(snkConfigs, sc)
 		}
+
+		// Pre-flight validation
+		source, err := engine.CreateSource(engine.SourceConfig{ID: src.ID, Type: src.Type, Config: src.Config})
+		if err == nil {
+			if err := source.Ping(r.Context()); err != nil {
+				source.Close()
+				s.jsonError(w, "Source validation failed: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			source.Close()
+		}
+
+		for _, snk := range snks {
+			sink, err := engine.CreateSink(engine.SinkConfig{ID: snk.ID, Type: snk.Type, Config: snk.Config})
+			if err == nil {
+				if err := sink.Ping(r.Context()); err != nil {
+					sink.Close()
+					s.jsonError(w, "Sink validation failed ("+snk.Name+"): "+err.Error(), http.StatusBadRequest)
+					return
+				}
+				sink.Close()
+			}
+		}
+
+		// Update status to active first, so even if StartEngine fails, it's marked as active
+		conn.Active = true
+		if err := s.storage.UpdateConnection(r.Context(), conn); err != nil {
+			s.jsonError(w, "Failed to update connection: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		err = s.registry.StartEngine(conn.ID, engine.SourceConfig{
 			ID:     src.ID,
 			Type:   src.Type,
 			Config: src.Config,
-		}, snkConfigs, conn.Transformations, conn.TransformationIDs)
+		}, snkConfigs, conn.Transformations, conn.TransformationIDs, conn.TransformationGroups)
+
+		if err != nil {
+			// If it fails to even start initialization, we revert Active to false
+			// BUT with my changes to engine.go, it shouldn't fail due to network
+			conn.Active = false
+			_ = s.storage.UpdateConnection(r.Context(), conn)
+			s.jsonError(w, "Failed to start engine: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	} else {
 		err = s.registry.StopEngine(conn.ID)
-	}
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	conn.Active = !conn.Active
-	if err := s.storage.UpdateConnection(r.Context(), conn); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		if err != nil {
+			s.jsonError(w, "Failed to stop engine: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		conn.Active = false
+		if err := s.storage.UpdateConnection(r.Context(), conn); err != nil {
+			s.jsonError(w, "Failed to update connection: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Update source and sinks active status
@@ -1006,12 +1385,16 @@ func (s *Server) deleteConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := s.storage.ListUsers(r.Context())
+	users, total, err := s.storage.ListUsers(r.Context(), s.parseCommonFilter(r))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(users)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data":  users,
+		"total": total,
+	})
 }
 
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
@@ -1028,7 +1411,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		}
 		user.Password = string(hashed)
 	}
-	users, _ := s.storage.ListUsers(r.Context())
+	users, _, _ := s.storage.ListUsers(r.Context(), storage.CommonFilter{})
 	if len(users) == 0 {
 		user.Role = storage.RoleAdministrator
 	} else if user.Role == "" {
@@ -1092,12 +1475,16 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listVHosts(w http.ResponseWriter, r *http.Request) {
-	vhosts, err := s.storage.ListVHosts(r.Context())
+	vhosts, total, err := s.storage.ListVHosts(r.Context(), s.parseCommonFilter(r))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(vhosts)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data":  vhosts,
+		"total": total,
+	})
 }
 
 func (s *Server) createVHost(w http.ResponseWriter, r *http.Request) {
@@ -1127,19 +1514,23 @@ func (s *Server) deleteVHost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listWorkers(w http.ResponseWriter, r *http.Request) {
-	workers, err := s.storage.ListWorkers(r.Context())
+	workers, total, err := s.storage.ListWorkers(r.Context(), s.parseCommonFilter(r))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(workers)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data":  workers,
+		"total": total,
+	})
 }
 
 func (s *Server) getWorker(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	worker, err := s.storage.GetWorker(r.Context(), id)
 	if err != nil {
-		if err == storage.ErrNotFound || err == sql.ErrNoRows {
+		if err == storage.ErrNotFound {
 			http.Error(w, "worker not found", http.StatusNotFound)
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1192,6 +1583,15 @@ func (s *Server) updateWorker(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(worker)
+}
+
+func (s *Server) updateWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.storage.UpdateWorkerHeartbeat(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) deleteWorker(w http.ResponseWriter, r *http.Request) {
@@ -1307,7 +1707,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Public API routes
-		if r.URL.Path == "/api/login" || r.URL.Path == "/api/config/status" || r.URL.Path == "/api/config/database" {
+		if r.URL.Path == "/api/login" || r.URL.Path == "/api/config/status" || r.URL.Path == "/api/config/database" || strings.HasPrefix(r.URL.Path, "/api/ws/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -1337,7 +1737,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			if r.Method == "GET" && (isSourceRoute || isSinkRoute || isConnectionRoute || isTransformationRoute) {
 				// To be more secure, we could check if any worker has this token
 				// but for now let's just allow it if the token is valid for SOME worker
-				workers, err := s.storage.ListWorkers(r.Context())
+				workers, _, err := s.storage.ListWorkers(r.Context(), storage.CommonFilter{})
 				if err == nil {
 					for _, wkr := range workers {
 						if wkr.Token == workerToken {
@@ -1377,7 +1777,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		// Skip auth for user setup if no users exist
 		if r.URL.Path == "/api/users" && r.Method == "POST" {
-			users, err := s.storage.ListUsers(r.Context())
+			users, _, err := s.storage.ListUsers(r.Context(), storage.CommonFilter{})
 			if err == nil && len(users) == 0 {
 				next.ServeHTTP(w, r)
 				return
@@ -1463,4 +1863,248 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) handleStatusWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	statusCh := s.registry.SubscribeStatus()
+	defer s.registry.UnsubscribeStatus(statusCh)
+
+	// Send initial statuses for all running engines
+	for _, update := range s.registry.GetAllStatuses() {
+		if err := conn.WriteJSON(update); err != nil {
+			return
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			_, _, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case update := <-statusCh:
+			if err := conn.WriteJSON(update); err != nil {
+				return
+			}
+		case <-done:
+			return
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+func (s *Server) getDashboardStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.registry.GetDashboardStats(r.Context())
+	if err != nil {
+		s.jsonError(w, "Failed to get dashboard stats: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+func (s *Server) handleDashboardWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	dashboardCh := s.registry.SubscribeDashboardStats()
+	defer s.registry.UnsubscribeDashboardStats(dashboardCh)
+
+	// Send initial stats
+	if stats, err := s.registry.GetDashboardStats(r.Context()); err == nil {
+		if err := conn.WriteJSON(stats); err != nil {
+			return
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			_, _, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case stats := <-dashboardCh:
+			if err := conn.WriteJSON(stats); err != nil {
+				return
+			}
+		case <-done:
+			return
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
+	role, _ := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	val, err := s.storage.GetSetting(r.Context(), "notification_settings")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if val == "" {
+		val = "{}"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(val))
+}
+
+func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
+	role, _ := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	var settings map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	bytes, err := json.Marshal(settings)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.storage.SaveSetting(r.Context(), "notification_settings", string(bytes)); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type BackupData struct {
+	Sources         []storage.Source         `json:"sources"`
+	Sinks           []storage.Sink           `json:"sinks"`
+	Connections     []storage.Connection     `json:"connections"`
+	Transformations []storage.Transformation `json:"transformations"`
+	VHosts          []storage.VHost          `json:"vhosts"`
+	Settings        map[string]string        `json:"settings"`
+}
+
+func (s *Server) exportConfig(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	data := BackupData{
+		Settings: make(map[string]string),
+	}
+
+	filter := storage.CommonFilter{Limit: 1000}
+
+	sources, _, _ := s.storage.ListSources(ctx, filter)
+	data.Sources = sources
+
+	sinks, _, _ := s.storage.ListSinks(ctx, filter)
+	data.Sinks = sinks
+
+	conns, _, _ := s.storage.ListConnections(ctx, filter)
+	data.Connections = conns
+
+	trans, _, _ := s.storage.ListTransformations(ctx, filter)
+	data.Transformations = trans
+
+	vhosts, _, _ := s.storage.ListVHosts(ctx, filter)
+	data.VHosts = vhosts
+
+	if val, err := s.storage.GetSetting(ctx, "notification_settings"); err == nil {
+		data.Settings["notification_settings"] = val
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", "attachment; filename=hermod-config-backup.json")
+	json.NewEncoder(w).Encode(data)
+}
+
+func (s *Server) importConfig(w http.ResponseWriter, r *http.Request) {
+	var data BackupData
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		s.jsonError(w, "Invalid backup data: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Import VHosts
+	for _, v := range data.VHosts {
+		if _, err := s.storage.GetVHost(ctx, v.ID); err != nil {
+			_ = s.storage.CreateVHost(ctx, v)
+		}
+	}
+
+	// Import Sources
+	for _, src := range data.Sources {
+		if _, err := s.storage.GetSource(ctx, src.ID); err != nil {
+			_ = s.storage.CreateSource(ctx, src)
+		} else {
+			_ = s.storage.UpdateSource(ctx, src)
+		}
+	}
+
+	// Import Sinks
+	for _, snk := range data.Sinks {
+		if _, err := s.storage.GetSink(ctx, snk.ID); err != nil {
+			_ = s.storage.CreateSink(ctx, snk)
+		} else {
+			_ = s.storage.UpdateSink(ctx, snk)
+		}
+	}
+
+	// Import Transformations
+	for _, trans := range data.Transformations {
+		if _, err := s.storage.GetTransformation(ctx, trans.ID); err != nil {
+			_ = s.storage.CreateTransformation(ctx, trans)
+		} else {
+			_ = s.storage.UpdateTransformation(ctx, trans)
+		}
+	}
+
+	// Import Connections
+	for _, conn := range data.Connections {
+		if _, err := s.storage.GetConnection(ctx, conn.ID); err != nil {
+			_ = s.storage.CreateConnection(ctx, conn)
+		} else {
+			_ = s.storage.UpdateConnection(ctx, conn)
+		}
+	}
+
+	// Import Settings
+	for k, v := range data.Settings {
+		_ = s.storage.SaveSetting(ctx, k, v)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

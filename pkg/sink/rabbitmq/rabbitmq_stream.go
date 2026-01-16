@@ -2,7 +2,6 @@ package rabbitmq
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/amqp"
@@ -14,48 +13,55 @@ import (
 type RabbitMQStreamSink struct {
 	env       *stream.Environment
 	producer  *stream.Producer
+	url       string
 	stream    string
 	formatter hermod.Formatter
 }
 
 // NewRabbitMQStreamSink creates a new RabbitMQ Stream sink.
 func NewRabbitMQStreamSink(url string, streamName string, formatter hermod.Formatter) (*RabbitMQStreamSink, error) {
-	env, err := stream.NewEnvironment(stream.NewEnvironmentOptions().SetUri(url))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create RabbitMQ stream environment: %w", err)
-	}
-
-	producer, err := env.NewProducer(streamName, nil)
-	if err != nil {
-		env.Close()
-		return nil, fmt.Errorf("failed to create RabbitMQ stream producer: %w", err)
-	}
-
 	return &RabbitMQStreamSink{
-		env:       env,
-		producer:  producer,
+		url:       url,
 		stream:    streamName,
 		formatter: formatter,
 	}, nil
 }
 
+func (s *RabbitMQStreamSink) ensureConnected() error {
+	if s.env != nil && !s.env.IsClosed() && s.producer != nil {
+		return nil
+	}
+
+	env, err := stream.NewEnvironment(stream.NewEnvironmentOptions().SetUri(s.url))
+	if err != nil {
+		return fmt.Errorf("failed to create RabbitMQ stream environment: %w", err)
+	}
+
+	producer, err := env.NewProducer(s.stream, nil)
+	if err != nil {
+		env.Close()
+		return fmt.Errorf("failed to create RabbitMQ stream producer: %w", err)
+	}
+
+	s.env = env
+	s.producer = producer
+	return nil
+}
+
 // Write sends a message to RabbitMQ Stream.
 func (s *RabbitMQStreamSink) Write(ctx context.Context, msg hermod.Message) error {
+	if err := s.ensureConnected(); err != nil {
+		return err
+	}
+
 	var data []byte
 	var err error
 
 	if s.formatter != nil {
 		data, err = s.formatter.Format(msg)
 	} else {
-		data, err = json.Marshal(map[string]interface{}{
-			"id":        msg.ID(),
-			"operation": msg.Operation(),
-			"table":     msg.Table(),
-			"schema":    msg.Schema(),
-			"before":    json.RawMessage(msg.Before()),
-			"after":     json.RawMessage(msg.After()),
-			"metadata":  msg.Metadata(),
-		})
+		// Fallback to Payload-only if no formatter provided
+		data = msg.Payload()
 	}
 
 	if err != nil {
@@ -72,22 +78,16 @@ func (s *RabbitMQStreamSink) Write(ctx context.Context, msg hermod.Message) erro
 
 // Ping checks if the RabbitMQ connection is alive.
 func (s *RabbitMQStreamSink) Ping(ctx context.Context) error {
-	if s.env == nil {
-		return fmt.Errorf("rabbitmq environment is nil")
-	}
-	// The client doesn't have a direct Ping, but we can check if it's closed
-	if s.env.IsClosed() {
-		return fmt.Errorf("rabbitmq environment is closed")
-	}
-	return nil
+	return s.ensureConnected()
 }
 
 // Close closes the RabbitMQ stream producer and environment.
 func (s *RabbitMQStreamSink) Close() error {
-	err := s.producer.Close()
-	if err != nil {
-		s.env.Close()
-		return fmt.Errorf("failed to close RabbitMQ stream producer: %w", err)
+	if s.producer != nil {
+		s.producer.Close()
 	}
-	return s.env.Close()
+	if s.env != nil {
+		return s.env.Close()
+	}
+	return nil
 }

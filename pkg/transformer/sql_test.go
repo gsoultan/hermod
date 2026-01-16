@@ -13,6 +13,7 @@ import (
 func TestSqlTransformer(t *testing.T) {
 	ctx := context.Background()
 	dbFile := "test_transformer.db"
+	os.Remove(dbFile)
 	defer os.Remove(dbFile)
 
 	db, err := sql.Open("sqlite", dbFile)
@@ -36,6 +37,7 @@ func TestSqlTransformer(t *testing.T) {
 		Conn:   dbFile,
 		Query:  "SELECT name, email FROM users WHERE id = :user_id",
 	}
+	defer trans.Close()
 
 	msg := message.AcquireMessage()
 	defer message.ReleaseMessage(msg)

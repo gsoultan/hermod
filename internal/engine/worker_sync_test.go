@@ -49,6 +49,6 @@ type panickingStorage struct {
 	WorkerStorage
 }
 
-func (m *panickingStorage) ListConnections(ctx context.Context) ([]storage.Connection, error) {
+func (m *panickingStorage) ListConnections(ctx context.Context, filter storage.CommonFilter) ([]storage.Connection, int, error) {
 	panic("database failure simulation")
 }

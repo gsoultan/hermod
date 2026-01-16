@@ -1,6 +1,7 @@
-import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack } from '@mantine/core'
+import { useState } from 'react'
+import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, TextInput, Pagination } from '@mantine/core'
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { IconTrash, IconPlus, IconServer, IconEdit } from '@tabler/icons-react'
+import { IconTrash, IconPlus, IconServer, IconEdit, IconSearch } from '@tabler/icons-react'
 import { apiFetch } from '../api'
 import { useNavigate } from '@tanstack/react-router'
 
@@ -13,15 +14,21 @@ interface VHost {
 export function VHostsPage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const [search, setSearch] = useState('')
+  const [activePage, setPage] = useState(1)
+  const itemsPerPage = 30
 
-  const { data: vhosts } = useSuspenseQuery<VHost[]>({
-    queryKey: ['vhosts'],
+  const { data: vhostsResponse } = useSuspenseQuery<any>({
+    queryKey: ['vhosts', activePage, search],
     queryFn: async () => {
-      const res = await apiFetch('/api/vhosts')
+      const res = await apiFetch(`/api/vhosts?page=${activePage}&limit=${itemsPerPage}&search=${search}`)
       if (!res.ok) throw new Error('Failed to fetch vhosts')
       return res.json()
     }
   })
+
+  const vhosts = vhostsResponse?.data || []
+  const totalItems = vhostsResponse?.total || 0
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -33,7 +40,9 @@ export function VHostsPage() {
     }
   })
 
-  const rows = vhosts?.map((vhost) => (
+  const totalPages = Math.ceil(totalItems / itemsPerPage)
+
+  const rows = vhosts.map((vhost: VHost) => (
     <Table.Tr key={vhost.id}>
       <Table.Td fw={500}>{vhost.name}</Table.Td>
       <Table.Td>{vhost.description || '-'}</Table.Td>
@@ -66,19 +75,31 @@ export function VHostsPage() {
       </style>
       <Stack gap="lg">
         <Paper p="md" withBorder radius="md" bg="gray.0">
-          <Group gap="sm">
-            <IconServer size="2rem" color="var(--mantine-color-blue-filled)" />
-            <Box style={{ flex: 1 }}>
-              <Title order={2} fw={800}>Virtual Hosts</Title>
-              <Text size="sm" c="dimmed">
-                Virtual Hosts (VHosts) provide logical isolation for your data flows. 
-                Use them to separate different environments, projects, or teams within a single Hermod instance.
-              </Text>
-            </Box>
-            <Button leftSection={<IconPlus size="1.2rem" />} onClick={() => navigate({ to: '/vhosts/new' })}>
-              Add VHost
-            </Button>
-          </Group>
+          <Stack gap="md">
+            <Group gap="sm">
+              <IconServer size="2rem" color="var(--mantine-color-blue-filled)" />
+              <Box style={{ flex: 1 }}>
+                <Title order={2} fw={800}>Virtual Hosts</Title>
+                <Text size="sm" c="dimmed">
+                  Virtual Hosts (VHosts) provide logical isolation for your data flows. 
+                  Use them to separate different environments, projects, or teams within a single Hermod instance.
+                </Text>
+              </Box>
+              <Button leftSection={<IconPlus size="1.2rem" />} onClick={() => navigate({ to: '/vhosts/new' })}>
+                Add VHost
+              </Button>
+            </Group>
+            <TextInput
+              placeholder="Search virtual hosts by name or description..."
+              leftSection={<IconSearch size="1rem" stroke={1.5} />}
+              value={search}
+              onChange={(event) => {
+                setSearch(event.currentTarget.value)
+                setPage(1)
+              }}
+              radius="md"
+            />
+          </Stack>
         </Paper>
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
@@ -92,15 +113,20 @@ export function VHostsPage() {
             </Table.Thead>
             <Table.Tbody>
               {rows}
-              {vhosts?.length === 0 && (
+              {vhosts.length === 0 && (
                 <Table.Tr>
                   <Table.Td colSpan={3} py="xl">
-                    <Text c="dimmed" ta="center">No virtual hosts created yet</Text>
+                    <Text c="dimmed" ta="center">{search ? 'No virtual hosts match your search' : 'No virtual hosts created yet'}</Text>
                   </Table.Td>
                 </Table.Tr>
               )}
             </Table.Tbody>
           </Table>
+          {totalPages > 1 && (
+            <Group justify="center" p="md" bg="gray.0" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
+              <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
+            </Group>
+          )}
         </Paper>
       </Stack>
     </Box>

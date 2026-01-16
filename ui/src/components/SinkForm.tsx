@@ -9,14 +9,10 @@ import { useNavigate } from '@tanstack/react-router';
 const API_BASE = '/api';
 
 const SINK_TYPES = [
-  'nats', 'rabbitmq', 'rabbitmq_queue', 'redis', 'file', 'kafka', 'pulsar', 'kinesis', 'pubsub', 'fcm', 'http', 'stdout',
+  'nats', 'rabbitmq', 'rabbitmq_queue', 'redis', 'file', 'kafka', 'pulsar', 'kinesis', 'pubsub', 'fcm', 'smtp', 'telegram', 'http', 'stdout',
   'postgres', 'mysql', 'cassandra', 'sqlite', 'clickhouse', 'mongodb'
 ];
 
-interface Worker {
-  id: string;
-  name: string;
-}
 
 interface SinkFormProps {
   initialData?: any;
@@ -46,26 +42,35 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
     }
   }, [initialData]);
 
-  const { data: vhosts } = useSuspenseQuery<any[]>({
+  useEffect(() => {
+    if (sink.type === 'stdout') {
+      setTestResult({ status: 'ok', message: 'Stdout is always active' });
+    }
+  }, [sink.type]);
+
+  const { data: vhostsResponse } = useSuspenseQuery<any>({
     queryKey: ['vhosts'],
     queryFn: async () => {
       const res = await apiFetch(`${API_BASE}/vhosts`);
       if (res.ok) return res.json();
-      return [];
+      return { data: [], total: 0 };
     }
   });
 
-  const { data: workers } = useSuspenseQuery<Worker[]>({
+  const { data: workersResponse } = useSuspenseQuery<any>({
     queryKey: ['workers'],
     queryFn: async () => {
       const res = await apiFetch(`${API_BASE}/workers`);
       if (res.ok) return res.json();
-      return [];
+      return { data: [], total: 0 };
     }
   });
 
+  const vhosts = vhostsResponse?.data || [];
+  const workers = workersResponse?.data || [];
+
   const availableVHostsList = role === 'Administrator' 
-    ? (vhosts || []).map(v => v.name)
+    ? (vhosts || []).map((v: any) => v.name)
     : availableVHosts;
 
   const testMutation = useMutation({
@@ -209,6 +214,37 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
       case 'fcm':
         return (
           <TextInput label="Credentials JSON" placeholder="Service account JSON content" value={sink.config.credentials_json || ''} onChange={(e) => updateConfig('credentials_json', e.target.value)} required />
+        );
+      case 'smtp':
+        return (
+          <>
+            <Group grow>
+              <TextInput label="Host" placeholder="smtp.example.com" value={sink.config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} required />
+              <TextInput label="Port" placeholder="587" value={sink.config.port || ''} onChange={(e) => updateConfig('port', e.target.value)} required />
+            </Group>
+            <Group grow>
+              <TextInput label="Username" placeholder="user@example.com" value={sink.config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} required />
+              <TextInput label="Password" type="password" placeholder="password" value={sink.config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} required />
+            </Group>
+            <Select 
+                label="SSL" 
+                placeholder="Select SSL" 
+                data={[{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }]} 
+                value={sink.config.ssl || 'false'} 
+                onChange={(value) => updateConfig('ssl', value || 'false')} 
+                required 
+            />
+            <TextInput label="From" placeholder="sender@example.com" value={sink.config.from || ''} onChange={(e) => updateConfig('from', e.target.value)} required />
+            <TextInput label="To" placeholder="recipient1@example.com, recipient2@example.com" value={sink.config.to || ''} onChange={(e) => updateConfig('to', e.target.value)} required />
+            <TextInput label="Subject" placeholder="CDC Alert" value={sink.config.subject || ''} onChange={(e) => updateConfig('subject', e.target.value)} required />
+          </>
+        );
+      case 'telegram':
+        return (
+          <>
+            <TextInput label="Bot Token" placeholder="123456789:ABCDEF..." value={sink.config.token || ''} onChange={(e) => updateConfig('token', e.target.value)} required />
+            <TextInput label="Chat ID" placeholder="-100123456789" value={sink.config.chat_id || ''} onChange={(e) => updateConfig('chat_id', e.target.value)} required />
+          </>
         );
       case 'http':
         return (
@@ -442,6 +478,31 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
             </List>
           </Stack>
         );
+      case 'smtp':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>SMTP Sink</Title>
+            <Text size="sm">Sends CDC messages as emails using the gsmail library.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Configure your SMTP server host and port</List.Item>
+              <List.Item>Provide valid username and password for authentication</List.Item>
+              <List.Item>Multiple recipients in "To" field should be comma-separated</List.Item>
+              <List.Item>SSL/TLS is supported</List.Item>
+            </List>
+          </Stack>
+        );
+      case 'telegram':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>Telegram Sink</Title>
+            <Text size="sm">Sends CDC events as messages to a Telegram chat.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Create a bot via <Code>@BotFather</Code> to get a Token</List.Item>
+              <List.Item>Get your Chat ID (you can use <Code>@userinfobot</Code> or similar)</List.Item>
+              <List.Item>The bot must be a member of the chat if it's a group</List.Item>
+            </List>
+          </Stack>
+        );
       case 'http':
         return (
           <Stack gap="xs">
@@ -509,7 +570,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
             <Select 
               label="Worker (Optional)" 
               placeholder="Assign to a specific worker" 
-              data={(workers || []).map(w => ({ value: w.id, label: w.name || w.id }))}
+              data={(workers || []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
               value={sink.worker_id}
               onChange={(val) => handleSinkChange({ worker_id: val || '' })}
               clearable
@@ -525,9 +586,28 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
           
           <Divider label="Configuration" labelPosition="center" />
           {renderConfigFields()}
+
+          <Divider label="Reliability" labelPosition="center" mt="md" />
+          <Group grow>
+            <TextInput 
+              label="Max Retries" 
+              placeholder="3" 
+              description="Maximum number of retry attempts for failed writes."
+              value={sink.config.max_retries || ''} 
+              onChange={(e) => updateConfig('max_retries', e.target.value)} 
+            />
+            <TextInput 
+              label="Retry Interval" 
+              placeholder="100ms, 1s, 1d" 
+              description="Interval(s) between retry attempts. Can be multiple values separated by comma (e.g. 100ms, 1s, 1d). If less than Max Retries, the last interval will be used indefinitely."
+              value={sink.config.retry_interval || ''} 
+              onChange={(e) => updateConfig('retry_interval', e.target.value)} 
+            />
+          </Group>
+
           <Select 
             label="Format" 
-            data={['json']} 
+            data={['json', 'payload']} 
             value={sink.config.format || 'json'}
             onChange={(val) => setSink({ ...sink, config: { ...sink.config, format: val || 'json' } })}
           />
@@ -535,7 +615,11 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
 
           <Group justify="flex-end" mt="xl">
             {!embedded && <Button variant="outline" onClick={() => navigate({ to: '/sinks' })}>Cancel</Button>}
-            <Button variant="outline" color="blue" onClick={() => testMutation.mutate(sink)} loading={testMutation.isPending}>Test Connection</Button>
+            {sink.type !== 'stdout' && (
+              <Button variant="outline" color="blue" onClick={() => testMutation.mutate(sink)} loading={testMutation.isPending}>
+                Test Connection
+              </Button>
+            )}
             <Button 
               disabled={testResult?.status !== 'ok' || !sink.name || (!embedded && !sink.vhost)}
               onClick={() => {

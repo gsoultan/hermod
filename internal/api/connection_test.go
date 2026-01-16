@@ -26,6 +26,10 @@ func (m *connectionMockStorage) UpdateConnection(ctx context.Context, conn stora
 	return nil
 }
 
+func (m *connectionMockStorage) GetSetting(ctx context.Context, key string) (string, error) {
+	return "", nil
+}
+
 type fullMockStorage struct {
 	storage.Storage
 	connections map[string]storage.Connection
@@ -41,12 +45,12 @@ func (m *fullMockStorage) GetConnection(ctx context.Context, id string) (storage
 	return c, nil
 }
 
-func (m *fullMockStorage) ListConnections(ctx context.Context) ([]storage.Connection, error) {
+func (m *fullMockStorage) ListConnections(ctx context.Context, filter storage.CommonFilter) ([]storage.Connection, int, error) {
 	var list []storage.Connection
 	for _, c := range m.connections {
 		list = append(list, c)
 	}
-	return list, nil
+	return list, len(list), nil
 }
 
 func (m *fullMockStorage) UpdateConnection(ctx context.Context, conn storage.Connection) error {
@@ -82,6 +86,10 @@ func (m *fullMockStorage) UpdateSink(ctx context.Context, snk storage.Sink) erro
 
 func (m *fullMockStorage) CreateLog(ctx context.Context, l storage.Log) error {
 	return nil
+}
+
+func (m *fullMockStorage) GetSetting(ctx context.Context, key string) (string, error) {
+	return "", nil
 }
 
 func TestToggleConnection_MultipleConnections(t *testing.T) {
@@ -120,7 +128,7 @@ func TestToggleConnection_MultipleConnections(t *testing.T) {
 
 	t.Run("Toggle conn1 off - shared source/sink should stay active", func(t *testing.T) {
 		// Start engine first so toggle (stop) works
-		_ = registry.StartEngine("conn1", engine.SourceConfig{ID: "src1", Type: "sqlite", Config: map[string]string{"path": "test.db"}}, []engine.SinkConfig{{ID: "snk1", Type: "stdout"}}, nil, nil)
+		_ = registry.StartEngine("conn1", engine.SourceConfig{ID: "src1", Type: "sqlite", Config: map[string]string{"path": "test.db"}}, []engine.SinkConfig{{ID: "snk1", Type: "stdout"}}, nil, nil, nil)
 
 		req := httptest.NewRequest("POST", "/api/connections/conn1/toggle", nil)
 		req.SetPathValue("id", "conn1")

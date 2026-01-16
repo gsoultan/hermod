@@ -1,9 +1,37 @@
 package message
 
 import (
-	"github.com/user/hermod"
+	"encoding/json"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/user/hermod"
 )
+
+func TestDefaultMessage_Payload(t *testing.T) {
+	msg := AcquireMessage()
+	defer ReleaseMessage(msg)
+
+	// 1. Explicit payload
+	msg.SetPayload([]byte("explicit"))
+	if string(msg.Payload()) != "explicit" {
+		t.Errorf("expected explicit, got %s", string(msg.Payload()))
+	}
+
+	// 2. Fallback to After
+	msg.ClearPayloads()
+	msg.SetAfter([]byte("after"))
+	if string(msg.Payload()) != "after" {
+		t.Errorf("expected after, got %s", string(msg.Payload()))
+	}
+
+	// 3. Fallback to Data
+	msg.ClearPayloads()
+	msg.SetData("foo", "bar")
+	if string(msg.Payload()) != `{"foo":"bar"}` {
+		t.Errorf("expected {\"foo\":\"bar\"}, got %s", string(msg.Payload()))
+	}
+}
 
 func TestAcquireRelease(t *testing.T) {
 	msg := AcquireMessage()
@@ -69,7 +97,8 @@ func TestDefaultMessage_MarshalJSON(t *testing.T) {
 		t.Fatalf("MarshalJSON failed: %v", err)
 	}
 
-	expected := `{"id":"test-id","operation":"update","table":"consumer","schema":"dbo","before":{"id":1,"name":"John Doe"},"after":{"id":1,"name":"Johnathan Doe"},"metadata":{"source":"mssql"}}`
+	// map keys are sorted alphabetically when marshaled
+	expected := `{"before":{"id":1,"name":"John Doe"},"id":"test-id","metadata":{"source":"mssql"},"name":"Johnathan Doe","operation":"update","schema":"dbo","table":"consumer"}`
 	if string(data) != expected {
 		t.Errorf("expected %s, got %s", expected, string(data))
 	}
@@ -81,9 +110,153 @@ func TestDefaultMessage_MarshalJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarshalJSON failed: %v", err)
 	}
-	expected = `{"id":"test-id-2","operation":"","table":"","schema":""}`
+	expected = `{"id":"test-id-2"}`
 	if string(data) != expected {
 		t.Errorf("expected %s, got %s", expected, string(data))
+	}
+
+	// Test dynamic data
+	msg.Reset()
+	msg.SetID("dyn-id")
+	msg.SetData("foo", "bar")
+	msg.SetData("num", 123)
+	data, err = msg.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON failed: %v", err)
+	}
+	expected = `{"foo":"bar","id":"dyn-id","num":123}`
+	if string(data) != expected {
+		t.Errorf("expected %s, got %s", expected, string(data))
+	}
+}
+
+func TestSanitizeValue(t *testing.T) {
+	id := uuid.New()
+
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected interface{}
+	}{
+		{
+			name:     "string",
+			input:    "test",
+			expected: "test",
+		},
+		{
+			name:     "int",
+			input:    123,
+			expected: 123,
+		},
+		{
+			name:     "uuid.UUID",
+			input:    id,
+			expected: id.String(),
+		},
+		{
+			name:     "byte slice (uuid)",
+			input:    id[:],
+			expected: id.String(),
+		},
+		{
+			name:     "byte array (uuid)",
+			input:    [16]byte(id),
+			expected: id.String(),
+		},
+		{
+			name:     "pointer to uuid",
+			input:    &id,
+			expected: id.String(),
+		},
+		{
+			name:     "nil",
+			input:    nil,
+			expected: nil,
+		},
+		{
+			name:     "byte slice (not uuid)",
+			input:    []byte{1, 2, 3},
+			expected: []byte{1, 2, 3},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SanitizeValue(tt.input)
+			if tt.name == "byte slice (not uuid)" {
+				// Special case because slice comparison is tricky
+				if string(got.([]byte)) != string(tt.expected.([]byte)) {
+					t.Errorf("SanitizeValue() = %v, want %v", got, tt.expected)
+				}
+				return
+			}
+			if got != tt.expected {
+				t.Errorf("SanitizeValue() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSanitizeMap(t *testing.T) {
+	id1 := uuid.New()
+	id2 := uuid.New()
+
+	input := map[string]interface{}{
+		"id":    id1,
+		"raw":   id2[:],
+		"name":  "test",
+		"count": 10,
+	}
+
+	sanitized := SanitizeMap(input)
+
+	if sanitized["id"] != id1.String() {
+		t.Errorf("id not sanitized: got %v, want %v", sanitized["id"], id1.String())
+	}
+	if sanitized["raw"] != id2.String() {
+		t.Errorf("raw not sanitized: got %v, want %v", sanitized["raw"], id2.String())
+	}
+	if sanitized["name"] != "test" {
+		t.Errorf("name changed: got %v, want %v", sanitized["name"], "test")
+	}
+}
+
+func TestMessageSetDataSanitization(t *testing.T) {
+	id := uuid.New()
+	msg := AcquireMessage()
+	defer ReleaseMessage(msg)
+
+	msg.SetData("uuid", id)
+	msg.SetData("bytes", id[:])
+
+	data := msg.Data()
+	if data["uuid"] != id.String() {
+		t.Errorf("SetData didn't sanitize uuid: got %v, want %v", data["uuid"], id.String())
+	}
+	if data["bytes"] != id.String() {
+		t.Errorf("SetData didn't sanitize bytes: got %v, want %v", data["bytes"], id.String())
+	}
+}
+
+func TestMessageMarshalJSONSanitization(t *testing.T) {
+	id := uuid.New()
+	msg := AcquireMessage()
+	defer ReleaseMessage(msg)
+
+	msg.SetData("user_id", [16]byte(id))
+
+	bz, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("failed to marshal message: %v", err)
+	}
+
+	var res map[string]interface{}
+	if err := json.Unmarshal(bz, &res); err != nil {
+		t.Fatalf("failed to unmarshal result: %v", err)
+	}
+
+	if res["user_id"] != id.String() {
+		t.Errorf("JSON output not sanitized: got %v, want %v", res["user_id"], id.String())
 	}
 }
 
@@ -104,7 +277,6 @@ func BenchmarkNoPool(b *testing.B) {
 			table:     "users",
 			schema:    "public",
 			before:    []byte("before"),
-			after:     []byte("after"),
 			payload:   []byte("payload"),
 			metadata:  map[string]string{"key": "value"},
 		}

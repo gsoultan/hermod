@@ -1,6 +1,7 @@
-import { Title, Table, Button, Group, ActionIcon, Box, Paper, Text, Stack } from '@mantine/core'
+import { useState } from 'react'
+import { Title, Table, Button, Group, ActionIcon, Box, Paper, Text, Stack, TextInput, Pagination } from '@mantine/core'
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { IconTrash, IconUserPlus, IconUsers, IconEdit } from '@tabler/icons-react'
+import { IconTrash, IconUserPlus, IconUsers, IconEdit, IconSearch } from '@tabler/icons-react'
 import { apiFetch } from '../api'
 import { useNavigate } from '@tanstack/react-router'
 
@@ -19,15 +20,21 @@ interface User {
 export function UsersPage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const [search, setSearch] = useState('')
+  const [activePage, setPage] = useState(1)
+  const itemsPerPage = 30
 
-  const { data: users } = useSuspenseQuery<User[]>({
-    queryKey: ['users'],
+  const { data: usersResponse } = useSuspenseQuery<any>({
+    queryKey: ['users', activePage, search],
     queryFn: async () => {
-      const res = await apiFetch('/api/users')
+      const res = await apiFetch(`/api/users?page=${activePage}&limit=${itemsPerPage}&search=${search}`)
       if (!res.ok) throw new Error('Failed to fetch users')
       return res.json()
     }
   })
+
+  const users = usersResponse?.data || []
+  const totalItems = usersResponse?.total || 0
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -39,7 +46,9 @@ export function UsersPage() {
     }
   })
 
-  const rows = users?.map((user) => (
+  const totalPages = Math.ceil(totalItems / itemsPerPage)
+
+  const rows = users.map((user: User) => (
     <Table.Tr key={user.id}>
       <Table.Td>{user.username}</Table.Td>
       <Table.Td>{user.full_name}</Table.Td>
@@ -75,19 +84,31 @@ export function UsersPage() {
       </style>
       <Stack gap="lg">
         <Paper p="md" withBorder radius="md" bg="gray.0">
-          <Group gap="sm">
-            <IconUsers size="2rem" color="var(--mantine-color-blue-filled)" />
-            <Box style={{ flex: 1 }}>
-              <Title order={2} fw={800}>User Management</Title>
-              <Text size="sm" c="dimmed">
-                Manage system users, their roles, and access to virtual hosts. 
-                Administrators can create and edit users to control platform access.
-              </Text>
-            </Box>
-            <Button leftSection={<IconUserPlus size="1.2rem" />} onClick={() => navigate({ to: '/users/new' })}>
-              Add User
-            </Button>
-          </Group>
+          <Stack gap="md">
+            <Group gap="sm">
+              <IconUsers size="2rem" color="var(--mantine-color-blue-filled)" />
+              <Box style={{ flex: 1 }}>
+                <Title order={2} fw={800}>User Management</Title>
+                <Text size="sm" c="dimmed">
+                  Manage system users, their roles, and access to virtual hosts. 
+                  Administrators can create and edit users to control platform access.
+                </Text>
+              </Box>
+              <Button leftSection={<IconUserPlus size="1.2rem" />} onClick={() => navigate({ to: '/users/new' })}>
+                Add User
+              </Button>
+            </Group>
+            <TextInput
+              placeholder="Search users by username, name, email or role..."
+              leftSection={<IconSearch size="1rem" stroke={1.5} />}
+              value={search}
+              onChange={(event) => {
+                setSearch(event.currentTarget.value)
+                setPage(1)
+              }}
+              radius="md"
+            />
+          </Stack>
         </Paper>
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
@@ -102,8 +123,22 @@ export function UsersPage() {
                 <Table.Th style={{ textAlign: 'right' }}>Actions</Table.Th>
               </Table.Tr>
             </Table.Thead>
-            <Table.Tbody>{rows}</Table.Tbody>
+            <Table.Tbody>
+              {rows}
+              {users.length === 0 && (
+                <Table.Tr>
+                  <Table.Td colSpan={6} py="xl">
+                    <Text c="dimmed" ta="center">{search ? 'No users match your search' : 'No users found'}</Text>
+                  </Table.Td>
+                </Table.Tr>
+              )}
+            </Table.Tbody>
           </Table>
+          {totalPages > 1 && (
+            <Group justify="center" p="md" bg="gray.0" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
+              <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
+            </Group>
+          )}
         </Paper>
       </Stack>
     </Box>

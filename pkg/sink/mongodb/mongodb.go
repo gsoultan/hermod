@@ -32,19 +32,36 @@ func (s *MongoDBSink) Write(ctx context.Context, msg hermod.Message) error {
 
 	collection := s.client.Database(s.database).Collection(msg.Table())
 
-	var data interface{}
-	if err := bson.Unmarshal(msg.After(), &data); err != nil {
-		// If not BSON, try to use it as a raw value
-		data = bson.M{"data": msg.After()}
+	op := msg.Operation()
+	if op == "" {
+		op = hermod.OpCreate
 	}
 
-	filter := bson.M{"_id": msg.ID()}
-	update := bson.M{"$set": data}
-	opts := options.Update().SetUpsert(true)
+	switch op {
+	case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
+		var data bson.M
+		// Try to unmarshal from JSON first as it's common in Hermod
+		if err := bson.UnmarshalExtJSON(msg.Payload(), true, &data); err != nil {
+			// Fallback to raw bytes if not valid JSON
+			data = bson.M{"data": msg.Payload()}
+		}
 
-	_, err := collection.UpdateOne(ctx, filter, update, opts)
-	if err != nil {
-		return fmt.Errorf("failed to write to mongodb: %w", err)
+		filter := bson.M{"_id": msg.ID()}
+		update := bson.M{"$set": data}
+		opts := options.Update().SetUpsert(true)
+
+		_, err := collection.UpdateOne(ctx, filter, update, opts)
+		if err != nil {
+			return fmt.Errorf("failed to write to mongodb: %w", err)
+		}
+	case hermod.OpDelete:
+		filter := bson.M{"_id": msg.ID()}
+		_, err := collection.DeleteOne(ctx, filter)
+		if err != nil {
+			return fmt.Errorf("failed to delete from mongodb: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported operation: %s", op)
 	}
 
 	return nil

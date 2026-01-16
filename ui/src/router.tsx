@@ -30,6 +30,7 @@ import TransformationsPage from './pages/TransformationsPage'
 import AddTransformationPage from './pages/AddTransformationPage'
 import EditTransformationPage from './pages/EditTransformationPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { NotificationSettingsPage } from './pages/NotificationSettingsPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { LogsPage } from './pages/LogsPage'
 import { SetupPage } from './pages/SetupPage'
@@ -304,6 +305,17 @@ const settingsRoute = createRoute({
   }
 })
 
+const notificationSettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/notifications',
+  component: NotificationSettingsPage,
+  beforeLoad: () => {
+    if (getRoleFromToken() !== 'Administrator') {
+      throw redirect({ to: '/' })
+    }
+  }
+})
+
 const logsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/logs',
@@ -393,6 +405,7 @@ const routeTree = rootRoute.addChildren([
     editUserRoute,
   ]),
   settingsRoute,
+  notificationSettingsRoute,
   logsRoute,
   loginRoute,
   setupRoute,

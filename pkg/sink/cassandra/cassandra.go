@@ -30,7 +30,7 @@ func (s *CassandraSink) Write(ctx context.Context, msg hermod.Message) error {
 	}
 
 	query := fmt.Sprintf("INSERT INTO %s.%s (id, data) VALUES (?, ?)", s.keyspace, msg.Table())
-	err := s.session.Query(query, msg.ID(), msg.After()).WithContext(ctx).Exec()
+	err := s.session.Query(query, msg.ID(), msg.Payload()).WithContext(ctx).Exec()
 	if err != nil {
 		return fmt.Errorf("failed to write to cassandra: %w", err)
 	}

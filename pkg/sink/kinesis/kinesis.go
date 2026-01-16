@@ -3,6 +3,7 @@ package kinesis
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -15,39 +16,65 @@ type KinesisSink struct {
 	client     *kinesis.Client
 	streamName string
 	formatter  hermod.Formatter
+	region     string
+	accessKey  string
+	secretKey  string
+	mu         sync.Mutex
 }
 
 func NewKinesisSink(region string, streamName string, accessKey, secretKey string, formatter hermod.Formatter) (*KinesisSink, error) {
-	opts := []func(*config.LoadOptions) error{
-		config.WithRegion(region),
-	}
-
-	if accessKey != "" && secretKey != "" {
-		opts = append(opts, config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")))
-	}
-
-	cfg, err := config.LoadDefaultConfig(context.TODO(), opts...)
-	if err != nil {
-		return nil, fmt.Errorf("unable to load SDK config: %w", err)
-	}
-
-	client := kinesis.NewFromConfig(cfg)
-
 	return &KinesisSink{
-		client:     client,
+		region:     region,
 		streamName: streamName,
+		accessKey:  accessKey,
+		secretKey:  secretKey,
 		formatter:  formatter,
 	}, nil
 }
 
+func (s *KinesisSink) ensureConnected(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.client != nil {
+		return nil
+	}
+
+	opts := []func(*config.LoadOptions) error{
+		config.WithRegion(s.region),
+	}
+
+	if s.accessKey != "" && s.secretKey != "" {
+		opts = append(opts, config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(s.accessKey, s.secretKey, "")))
+	}
+
+	cfg, err := config.LoadDefaultConfig(ctx, opts...)
+	if err != nil {
+		return fmt.Errorf("unable to load SDK config: %w", err)
+	}
+
+	s.client = kinesis.NewFromConfig(cfg)
+	return nil
+}
+
 func (s *KinesisSink) Write(ctx context.Context, msg hermod.Message) error {
-	data, err := s.formatter.Format(msg)
+	if err := s.ensureConnected(ctx); err != nil {
+		return err
+	}
+
+	var data []byte
+	var err error
+
+	if s.formatter != nil {
+		data, err = s.formatter.Format(msg)
+	} else {
+		data = msg.Payload()
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to format message: %w", err)
 	}
 
-	// We can use the table name or some other attribute as part of the partition key if needed
-	// but msg.ID() is usually a good default for ordering within a shard.
 	partitionKey := msg.ID()
 	if partitionKey == "" {
 		partitionKey = "default"
@@ -66,6 +93,10 @@ func (s *KinesisSink) Write(ctx context.Context, msg hermod.Message) error {
 }
 
 func (s *KinesisSink) Ping(ctx context.Context) error {
+	if err := s.ensureConnected(ctx); err != nil {
+		return err
+	}
+
 	_, err := s.client.DescribeStream(ctx, &kinesis.DescribeStreamInput{
 		StreamName: aws.String(s.streamName),
 	})

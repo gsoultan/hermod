@@ -2,48 +2,176 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
 )
 
 // RedisSource implements the hermod.Source interface for Redis Streams.
 type RedisSource struct {
-	addr   string
-	stream string
-	group  string
+	addr     string
+	password string
+	stream   string
+	group    string
+	consumer string
+	client   *redis.Client
 }
 
 func NewRedisSource(addr string, password string, stream string, group string) *RedisSource {
 	return &RedisSource{
-		addr:   addr,
-		stream: stream,
-		group:  group,
+		addr:     addr,
+		password: password,
+		stream:   stream,
+		group:    group,
+		consumer: "hermod-consumer",
 	}
+}
+
+func (s *RedisSource) init(ctx context.Context) error {
+	s.client = redis.NewClient(&redis.Options{
+		Addr:     s.addr,
+		Password: s.password,
+	})
+
+	// Create consumer group if it doesn't exist
+	err := s.client.XGroupCreateMkStream(ctx, s.stream, s.group, "0").Err()
+	if err != nil && err.Error() != "BUSYGROUP Consumer Group name already exists" {
+		return fmt.Errorf("failed to create redis consumer group: %w", err)
+	}
+
+	return s.client.Ping(ctx).Err()
 }
 
 func (s *RedisSource) Read(ctx context.Context) (hermod.Message, error) {
-	// Simulated implementation for Redis Streams.
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(100 * time.Millisecond):
-		msg := message.AcquireMessage()
-		msg.SetID("redis-stream-1")
-		msg.SetMetadata("redis_stream", s.stream)
-		return msg, nil
+	if s.client == nil {
+		if err := s.init(ctx); err != nil {
+			return nil, err
+		}
 	}
+
+	streams, err := s.client.XReadGroup(ctx, &redis.XReadGroupArgs{
+		Group:    s.group,
+		Consumer: s.consumer,
+		Streams:  []string{s.stream, ">"},
+		Count:    1,
+		Block:    time.Second,
+	}).Result()
+
+	if err != nil {
+		if err == redis.Nil {
+			return nil, nil // No new data
+		}
+		return nil, fmt.Errorf("failed to read from redis stream: %w", err)
+	}
+
+	if len(streams) == 0 || len(streams[0].Messages) == 0 {
+		return nil, nil
+	}
+
+	xmsg := streams[0].Messages[0]
+	msg := message.AcquireMessage()
+	msg.SetID(xmsg.ID)
+
+	if data, ok := xmsg.Values["data"].(string); ok {
+		msg.SetPayload([]byte(data))
+		// Try to unmarshal JSON into Data() for dynamic structure
+		var jsonData map[string]interface{}
+		if err := json.Unmarshal([]byte(data), &jsonData); err == nil {
+			for k, v := range jsonData {
+				msg.SetData(k, v)
+			}
+		} else {
+			msg.SetAfter([]byte(data)) // Fallback for non-JSON
+		}
+	} else if dataBytes, ok := xmsg.Values["data"].([]byte); ok {
+		msg.SetPayload(dataBytes)
+		// Try to unmarshal JSON into Data() for dynamic structure
+		var jsonData map[string]interface{}
+		if err := json.Unmarshal(dataBytes, &jsonData); err == nil {
+			for k, v := range jsonData {
+				msg.SetData(k, v)
+			}
+		} else {
+			msg.SetAfter(dataBytes) // Fallback for non-JSON
+		}
+	}
+
+	msg.SetMetadata("redis_stream", s.stream)
+	msg.SetMetadata("redis_group", s.group)
+
+	return msg, nil
 }
 
 func (s *RedisSource) Ack(ctx context.Context, msg hermod.Message) error {
-	return nil
+	if s.client == nil {
+		return fmt.Errorf("redis client not initialized")
+	}
+	return s.client.XAck(ctx, s.stream, s.group, msg.ID()).Err()
 }
 
 func (s *RedisSource) Ping(ctx context.Context) error {
-	return nil
+	if s.client == nil {
+		return s.init(ctx)
+	}
+	return s.client.Ping(ctx).Err()
+}
+
+func (s *RedisSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	if s.client == nil {
+		if err := s.init(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	// Use XRevRange to get the latest message from the stream without affecting consumer groups
+	msgs, err := s.client.XRevRangeN(ctx, s.stream, "+", "-", 1).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to peek redis stream: %w", err)
+	}
+
+	if len(msgs) == 0 {
+		return nil, fmt.Errorf("redis stream is empty")
+	}
+
+	xmsg := msgs[0]
+	msg := message.AcquireMessage()
+	msg.SetID(xmsg.ID)
+
+	if data, ok := xmsg.Values["data"].(string); ok {
+		msg.SetPayload([]byte(data))
+		var jsonData map[string]interface{}
+		if err := json.Unmarshal([]byte(data), &jsonData); err == nil {
+			for k, v := range jsonData {
+				msg.SetData(k, v)
+			}
+		} else {
+			msg.SetAfter([]byte(data))
+		}
+	} else if dataBytes, ok := xmsg.Values["data"].([]byte); ok {
+		msg.SetPayload(dataBytes)
+		var jsonData map[string]interface{}
+		if err := json.Unmarshal(dataBytes, &jsonData); err == nil {
+			for k, v := range jsonData {
+				msg.SetData(k, v)
+			}
+		} else {
+			msg.SetAfter(dataBytes)
+		}
+	}
+
+	msg.SetMetadata("redis_stream", s.stream)
+	msg.SetMetadata("sample", "true")
+
+	return msg, nil
 }
 
 func (s *RedisSource) Close() error {
+	if s.client != nil {
+		return s.client.Close()
+	}
 	return nil
 }

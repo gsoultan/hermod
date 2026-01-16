@@ -18,17 +18,20 @@ func NewStdoutSink(formatter hermod.Formatter) *StdoutSink {
 }
 
 func (s *StdoutSink) Write(ctx context.Context, msg hermod.Message) error {
+	var data []byte
+	var err error
+
 	if s.formatter != nil {
-		data, err := s.formatter.Format(msg)
-		if err != nil {
-			return fmt.Errorf("failed to format message: %w", err)
-		}
-		fmt.Println(string(data))
-		return nil
+		data, err = s.formatter.Format(msg)
+	} else {
+		data = msg.Payload()
 	}
 
-	fmt.Printf("CDC Message [%s] - ID: %s, Table: %s.%s, Before: %s, After: %s, Metadata: %v\n",
-		msg.Operation(), msg.ID(), msg.Schema(), msg.Table(), string(msg.Before()), string(msg.After()), msg.Metadata())
+	if err != nil {
+		return fmt.Errorf("failed to format message: %w", err)
+	}
+
+	fmt.Println(string(data))
 	return nil
 }
 

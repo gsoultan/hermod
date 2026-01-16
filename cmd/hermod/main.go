@@ -19,6 +19,7 @@ import (
 	"github.com/user/hermod/internal/engine"
 	"github.com/user/hermod/internal/storage"
 	storagesql "github.com/user/hermod/internal/storage/sql"
+	enginePkg "github.com/user/hermod/pkg/engine"
 	_ "modernc.org/sqlite"
 )
 
@@ -90,6 +91,21 @@ func main() {
 		}
 
 		registry := engine.NewRegistry(store)
+
+		// Load engine config
+		if cfg, err := config.LoadConfig("config.yaml"); err == nil {
+			engCfg := enginePkg.DefaultConfig()
+			if cfg.Engine.MaxRetries > 0 {
+				engCfg.MaxRetries = cfg.Engine.MaxRetries
+			}
+			if cfg.Engine.RetryInterval > 0 {
+				engCfg.RetryInterval = cfg.Engine.RetryInterval
+			}
+			if cfg.Engine.ReconnectInterval > 0 {
+				engCfg.ReconnectInterval = cfg.Engine.ReconnectInterval
+			}
+			registry.SetConfig(engCfg)
+		}
 
 		// Graceful shutdown
 		ctx, cancel := context.WithCancel(context.Background())

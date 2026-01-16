@@ -1,0 +1,14 @@
+/hermod
+/.idea/go.imports.xml
+/hermod.db
+/hermod.exe
+/.idea/Hermod.iml
+/main.exe
+/examples/http-sink/auth/main.go
+/examples/http-sink/simple/main.go
+/.idea/modules.xml
+/internal/engine/new.db
+/internal/engine/old.db
+/internal/api/test.db
+/.idea/vcs.xml
+

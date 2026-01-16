@@ -21,8 +21,11 @@ type Message interface {
 	Schema() string
 	Before() []byte
 	After() []byte
-	Payload() []byte // Deprecated: use Before/After for CDC
+	Payload() []byte // Primary data payload
 	Metadata() map[string]string
+	Data() map[string]interface{}
+	Clone() Message
+	ClearPayloads()
 }
 
 // Producer defines the interface for sending messages.
@@ -51,6 +54,11 @@ type Discoverer interface {
 	DiscoverTables(ctx context.Context) ([]string, error)
 }
 
+// Sampler defines an optional interface for fetching a sample record from a table.
+type Sampler interface {
+	Sample(ctx context.Context, table string) (Message, error)
+}
+
 // Sink defines the interface for writing data to a message stream provider.
 type Sink interface {
 	Write(ctx context.Context, msg Message) error
@@ -66,6 +74,7 @@ type Formatter interface {
 // Transformer defines the interface for transforming messages.
 type Transformer interface {
 	Transform(ctx context.Context, msg Message) (Message, error)
+	Close() error
 }
 
 // Logger defines the interface for logging in Hermod.

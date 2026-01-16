@@ -17,13 +17,16 @@ type mockMessage struct {
 	metadata  map[string]string
 }
 
-func (m *mockMessage) ID() string                  { return m.id }
-func (m *mockMessage) Operation() hermod.Operation { return m.operation }
-func (m *mockMessage) Table() string               { return m.table }
-func (m *mockMessage) Schema() string              { return m.schema }
-func (m *mockMessage) Before() []byte              { return nil }
-func (m *mockMessage) After() []byte               { return []byte(`{"foo":"bar"}`) }
-func (m *mockMessage) Metadata() map[string]string { return m.metadata }
+func (m *mockMessage) ID() string                   { return m.id }
+func (m *mockMessage) Operation() hermod.Operation  { return m.operation }
+func (m *mockMessage) Table() string                { return m.table }
+func (m *mockMessage) Schema() string               { return m.schema }
+func (m *mockMessage) Before() []byte               { return nil }
+func (m *mockMessage) After() []byte                { return []byte(`{"foo":"bar"}`) }
+func (m *mockMessage) Metadata() map[string]string  { return m.metadata }
+func (m *mockMessage) Data() map[string]interface{} { return nil }
+func (m *mockMessage) Clone() hermod.Message        { return m }
+func (m *mockMessage) ClearPayloads()               {}
 
 func TestFCMSink_Write_Error(t *testing.T) {
 	// We can't easily test a successful Send without a real service account

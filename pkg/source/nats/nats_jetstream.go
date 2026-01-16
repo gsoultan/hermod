@@ -2,7 +2,10 @@ package nats
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/user/hermod"
@@ -10,11 +13,15 @@ import (
 )
 
 type NatsJetStreamSource struct {
-	nc      *nats.Conn
-	js      nats.JetStreamContext
-	sub     *nats.Subscription
-	subject string
-	queue   string
+	nc          *nats.Conn
+	js          nats.JetStreamContext
+	sub         *nats.Subscription
+	url         string
+	opts        []nats.Option
+	subject     string
+	queue       string
+	unackedMsgs map[string]*nats.Msg
+	mu          sync.Mutex
 }
 
 func NewNatsJetStreamSource(url, subject, queue, username, password, token string) (*NatsJetStreamSource, error) {
@@ -25,32 +32,48 @@ func NewNatsJetStreamSource(url, subject, queue, username, password, token strin
 		opts = append(opts, nats.UserInfo(username, password))
 	}
 
-	nc, err := nats.Connect(url, opts...)
+	return &NatsJetStreamSource{
+		url:         url,
+		opts:        opts,
+		subject:     subject,
+		queue:       queue,
+		unackedMsgs: make(map[string]*nats.Msg),
+	}, nil
+}
+
+func (s *NatsJetStreamSource) ensureConnected() error {
+	if s.nc != nil && s.nc.IsConnected() {
+		return nil
+	}
+
+	nc, err := nats.Connect(s.url, s.opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
+		return fmt.Errorf("failed to connect to NATS: %w", err)
 	}
 
 	js, err := nc.JetStream()
 	if err != nil {
 		nc.Close()
-		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
+		return fmt.Errorf("failed to create JetStream context: %w", err)
 	}
 
-	return &NatsJetStreamSource{
-		nc:      nc,
-		js:      js,
-		subject: subject,
-		queue:   queue,
-	}, nil
+	s.nc = nc
+	s.js = js
+	s.sub = nil
+	return nil
 }
 
 func (s *NatsJetStreamSource) Read(ctx context.Context) (hermod.Message, error) {
+	if err := s.ensureConnected(); err != nil {
+		return nil, err
+	}
+
 	if s.sub == nil {
 		var err error
 		if s.queue != "" {
-			s.sub, err = s.js.QueueSubscribeSync(s.subject, s.queue)
+			s.sub, err = s.js.QueueSubscribeSync(s.subject, s.queue, nats.ManualAck())
 		} else {
-			s.sub, err = s.js.SubscribeSync(s.subject)
+			s.sub, err = s.js.SubscribeSync(s.subject, nats.ManualAck())
 		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to subscribe to NATS: %w", err)
@@ -63,27 +86,108 @@ func (s *NatsJetStreamSource) Read(ctx context.Context) (hermod.Message, error) 
 	}
 
 	msg := message.AcquireMessage()
-	// In a real scenario, we'd unmarshal the payload.
-	// For now, keeping it simple like KafkaSource.
+	// Use NATS sequence as ID if possible, otherwise generate one
+	msgID := m.Subject // Subject is not unique, but just for example
+	// Better: use metadata or some unique property
+	metadata, _ := m.Metadata()
+	if metadata != nil {
+		msgID = fmt.Sprintf("%d", metadata.Sequence.Stream)
+	}
+	if msgID == "" {
+		msgID = m.Subject + "_" + fmt.Sprintf("%x", m.Data)
+	}
+
+	msg.SetID(msgID)
 	msg.SetPayload(m.Data)
+
+	// Try to unmarshal JSON into Data() for dynamic structure
+	var jsonData map[string]interface{}
+	if err := json.Unmarshal(m.Data, &jsonData); err == nil {
+		for k, v := range jsonData {
+			msg.SetData(k, v)
+		}
+	} else {
+		msg.SetAfter(m.Data) // Fallback for non-JSON
+	}
+
 	msg.SetMetadata("nats_subject", m.Subject)
+
+	s.mu.Lock()
+	s.unackedMsgs[msg.ID()] = m
+	s.mu.Unlock()
 
 	return msg, nil
 }
 
 func (s *NatsJetStreamSource) Ack(ctx context.Context, msg hermod.Message) error {
-	// NATS JetStream sync subscription requires manual ack if configured,
-	// but default is often auto-ack for sync subs or handled via NextMsg.
-	// Actually, for JS you should call m.Ack().
-	// To support this, we'd need to keep track of nats.Msg.
-	return nil
+	s.mu.Lock()
+	m, ok := s.unackedMsgs[msg.ID()]
+	if ok {
+		delete(s.unackedMsgs, msg.ID())
+	}
+	s.mu.Unlock()
+
+	if !ok {
+		return fmt.Errorf("message not found for ack: %s", msg.ID())
+	}
+
+	return m.Ack(nats.Context(ctx))
 }
 
 func (s *NatsJetStreamSource) Ping(ctx context.Context) error {
-	if s.nc == nil || !s.nc.IsConnected() {
-		return fmt.Errorf("nats not connected")
+	return s.ensureConnected()
+}
+
+func (s *NatsJetStreamSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	if err := s.ensureConnected(); err != nil {
+		return nil, err
 	}
-	return nil
+
+	// We set a timeout to avoid blocking forever if the subject is empty
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// For sampling, we create an ephemeral subscription to avoid affecting existing consumer groups
+	sub, err := s.js.SubscribeSync(s.subject, nats.ManualAck(), nats.Context(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("failed to subscribe for sampling: %w", err)
+	}
+	defer sub.Unsubscribe()
+
+	m, err := sub.NextMsgWithContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch sample message from NATS: %w", err)
+	}
+
+	msg := message.AcquireMessage()
+	// Use NATS sequence as ID if possible
+	msgID := m.Subject
+	metadata, _ := m.Metadata()
+	if metadata != nil {
+		msgID = fmt.Sprintf("%d", metadata.Sequence.Stream)
+	}
+	if msgID == "" {
+		msgID = m.Subject + "_" + fmt.Sprintf("%x", m.Data)
+	}
+
+	msg.SetID(msgID)
+	msg.SetPayload(m.Data)
+
+	var jsonData map[string]interface{}
+	if err := json.Unmarshal(m.Data, &jsonData); err == nil {
+		for k, v := range jsonData {
+			msg.SetData(k, v)
+		}
+	} else {
+		msg.SetAfter(m.Data)
+	}
+
+	msg.SetMetadata("nats_subject", m.Subject)
+	msg.SetMetadata("sample", "true")
+
+	// Note: We DON'T ack the message when sampling
+
+	return msg, nil
 }
 
 func (s *NatsJetStreamSource) Close() error {

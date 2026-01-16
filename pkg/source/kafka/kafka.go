@@ -2,9 +2,11 @@ package kafka
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/user/hermod"
@@ -14,6 +16,10 @@ import (
 type KafkaSource struct {
 	reader    *kafka.Reader
 	transport *kafka.Transport
+	brokers   []string
+	topic     string
+	username  string
+	password  string
 }
 
 func NewKafkaSource(brokers []string, topic, groupID string, username, password string) *KafkaSource {
@@ -47,18 +53,33 @@ func NewKafkaSource(brokers []string, topic, groupID string, username, password 
 			Dialer:  dialer,
 		}),
 		transport: transport,
+		brokers:   brokers,
+		topic:     topic,
+		username:  username,
+		password:  password,
 	}
 }
 
 func (s *KafkaSource) Read(ctx context.Context) (hermod.Message, error) {
-	m, err := s.reader.ReadMessage(ctx)
+	m, err := s.reader.FetchMessage(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read message from kafka: %w", err)
+		return nil, fmt.Errorf("failed to fetch message from kafka: %w", err)
 	}
 
 	msg := message.AcquireMessage()
 	msg.SetID(string(m.Key))
 	msg.SetPayload(m.Value)
+
+	// Try to unmarshal JSON into Data() for dynamic structure
+	var jsonData map[string]interface{}
+	if err := json.Unmarshal(m.Value, &jsonData); err == nil {
+		for k, v := range jsonData {
+			msg.SetData(k, v)
+		}
+	} else {
+		msg.SetAfter(m.Value) // Fallback for non-JSON
+	}
+
 	msg.SetMetadata("kafka_topic", m.Topic)
 	msg.SetMetadata("kafka_partition", fmt.Sprintf("%d", m.Partition))
 	msg.SetMetadata("kafka_offset", fmt.Sprintf("%d", m.Offset))
@@ -67,15 +88,45 @@ func (s *KafkaSource) Read(ctx context.Context) (hermod.Message, error) {
 }
 
 func (s *KafkaSource) Ack(ctx context.Context, msg hermod.Message) error {
-	// kafka-go reader with GroupID automatically commits offsets on ReadMessage
-	// unless explicitly disabled. For a more robust CDC-like behavior,
-	// we might want FetchMessage + CommitMessages.
+	topic := msg.Metadata()["kafka_topic"]
+	partitionStr := msg.Metadata()["kafka_partition"]
+	offsetStr := msg.Metadata()["kafka_offset"]
+
+	if topic == "" || partitionStr == "" || offsetStr == "" {
+		return fmt.Errorf("missing kafka metadata in message")
+	}
+
+	var partition int
+	var offset int64
+	fmt.Sscanf(partitionStr, "%d", &partition)
+	fmt.Sscanf(offsetStr, "%d", &offset)
+
+	err := s.reader.CommitMessages(ctx, kafka.Message{
+		Topic:     topic,
+		Partition: partition,
+		Offset:    offset,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to commit kafka offset: %w", err)
+	}
 	return nil
 }
 
 func (s *KafkaSource) Ping(ctx context.Context) error {
 	// Similar to KafkaSink Ping
 	return nil
+}
+
+func (s *KafkaSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	// Create a one-off reader with a random group ID to avoid affecting existing consumers
+	sampler := NewKafkaSource(s.brokers, s.topic, "hermod-sampler-"+uuid.New().String(), s.username, s.password)
+	defer sampler.Close()
+
+	// We set a timeout to avoid blocking forever if the topic is empty
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	return sampler.Read(ctx)
 }
 
 func (s *KafkaSource) Close() error {

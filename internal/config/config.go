@@ -15,8 +15,9 @@ type Config struct {
 }
 
 type EngineConfig struct {
-	MaxRetries    int           `json:"max_retries" yaml:"max_retries"`
-	RetryInterval time.Duration `json:"retry_interval" yaml:"retry_interval"`
+	MaxRetries        int           `json:"max_retries" yaml:"max_retries"`
+	RetryInterval     time.Duration `json:"retry_interval" yaml:"retry_interval"`
+	ReconnectInterval time.Duration `json:"reconnect_interval" yaml:"reconnect_interval"`
 }
 
 type BufferConfig struct {

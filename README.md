@@ -8,7 +8,8 @@ Hermod includes a web-based management platform built with React 19, Mantine UI,
 - Configuring Sources and Sinks.
 - Creating and managing Connections.
 - Visualizing data flow and monitoring logs.
-- **Interactive Transformer Configuration**: Easily set up data transformations with built-in help and examples for renaming tables, filtering operations, and advanced field mapping.
+- **Interactive Transformer Configuration**: Easily set up data transformations with built-in help, field autocomplete, and step reordering.
+- **Import from Sample**: Quickly populate transformations by fetching live data from your database tables or external APIs, and easily manage large mappings with search and filtering.
 
 ### Getting Started with UI
 
@@ -32,6 +33,9 @@ The management platform will be available at `http://localhost:5173`.
 ## Key Features
 
 - **Multi-Tenant Support**: Support for multiple sources (via multiple engine instances) and broadcasting to multiple sinks per engine instance.
+- **Parallel Processing**: Sinks are processed in parallel within each connection, optimizing throughput for multi-sink configurations.
+- **Observability**: Built-in Prometheus metrics for monitoring throughput, latency, and error rates.
+- **Reliability (DLQ)**: Support for Dead Letter Queues (DLQ) to preserve messages that fail all retry attempts.
 - **SOLID Principles**: Designed with clean interfaces and separation of concerns.
 - **Reversible Roles**: Sinks can be sources and vice versa. Support for message brokers as sources and databases as sinks.
 - **Zero Allocation**: Utilizes `sync.Pool` for message recycling to minimize GC pressure.
@@ -45,10 +49,10 @@ The management platform will be available at `http://localhost:5173`.
 - `pkg/engine`: Engine that orchestrates data flow from `Source` to `Sink`.
 - `pkg/message`: Implementation of recyclable messages.
 - `pkg/source`: CDC and message broker source implementations.
-  - Databases: PostgreSQL, MSSQL, MySQL, Oracle, DB2, MongoDB, MariaDB, Cassandra, Yugabyte, ScyllaDB, ClickHouse, SQLite.
+  - Databases: PostgreSQL, MSSQL, MySQL, Oracle, DB2, MongoDB, MariaDB, Cassandra, Yugabyte, ScyllaDB, ClickHouse, SQLite, CSV.
   - Brokers: Kafka, NATS JetStream, Redis Streams, RabbitMQ Stream.
 - `pkg/sink`: Message stream and database sink implementations.
-  - Brokers/Streams: Stdout, File, NATS JetStream, RabbitMQ Stream, Redis, HTTP, Kafka, Pulsar, Pub/Sub, Kinesis, FCM.
+  - Brokers/Streams: Stdout, File, NATS JetStream, RabbitMQ Stream, Redis, HTTP, Kafka, Pulsar, Pub/Sub, Kinesis, FCM, SMTP.
   - Databases: PostgreSQL, MySQL, Cassandra, SQLite, ClickHouse, MongoDB.
 
 ### Source Specifics
@@ -73,6 +77,20 @@ Optional notification fields can also be provided in metadata:
 - `fcm_notification_title`: Title of the notification.
 - `fcm_notification_body`: Body of the notification.
 
+#### SMTP
+
+The SMTP sink allows sending emails using the [gsmail](https://github.com/gsoultan/gsmail) library.
+
+Configuration:
+- `host`: SMTP server host.
+- `port`: SMTP server port.
+- `username`: SMTP username.
+- `password`: SMTP password.
+- `ssl`: Use SSL/TLS (`true` or `false`).
+- `from`: Sender email address.
+- `to`: Recipient email addresses (comma-separated).
+- `subject`: Email subject.
+
 - `pkg/formatter`: Message formatters (JSON).
 - `internal/buffer`: High-performance in-memory and persistent messaging buffers.
 
@@ -85,18 +103,41 @@ Transformations can be defined independently and reused across multiple connecti
 
 ### Multi-Step Pipelines
 A transformation can consist of multiple steps executed in sequence:
-1. **Filter**: Drop messages based on criteria (e.g., operation type).
+1. **Filter**: Drop messages based on criteria (e.g., operation type or field values).
 2. **Enrich**: Call external APIs or query databases to add more data to the message.
 3. **Map**: Restructure the data into a new format.
+
+### Data Object Transformation
+Hermod follows the principle that data can be transformed from one object structure to a completely different one. When a transformation is marked as `strict` (available in Mapping and Advanced transformers), the output will be a **new object** containing only the mapped fields. Original CDC metadata like the "before" state will be cleared to ensure that the sink receives a clean, new object. This ensures that the data written to the sink can be entirely different from the data received from the source.
 
 ### Supported Transformers
 
 - **Rename Table**: Renames the table or collection name in the message.
-- **Filter Operation**: Filters messages based on the operation type (create, update, delete, snapshot).
+- **Filter Operation**: Filters messages based on the operation type (create, update, delete, snapshot). Unchecked operations are dropped.
+- **Data Filter**: Keeps messages only if they meet specific field value criteria (e.g., `status == completed`). If the condition is false, the message is dropped.
 - **Mapping**: Transforms the message payload (JSON) by renaming or selecting specific fields.
 - **Advanced Mapping**: Powerful mapper supporting dotted paths, system variables (now, uuid), and constants.
 - **HTTP Transformer**: Calls an external REST API. Supports template replacement in URL using message fields (e.g., `/users/{id}`).
 - **SQL Transformer**: Queries a database to enrich the message. Supports parameter replacement (e.g., `SELECT * FROM profiles WHERE user_id = :id`).
+- **Lua Transformer**: Executes a custom Lua script for complex, programmable transformations.
+- **JSON Schema**: Validates the message payload against a JSON schema.
+
+### Sink Formatting
+Hermod allows you to configure the output format for stream-based sinks (RabbitMQ, NATS, Kafka, Redis, etc.). By default, messages are sent in a unified **JSON** format that includes both data fields and system metadata. You can change this using the `format` configuration in the sink:
+
+- `format: json` (Default): Sends the unified message including system fields (`id`, `operation`, `table`, `schema`, `metadata`, `before`) and all data fields at the root level.
+- `format: payload`: Sends only the primary data payload (the result of transformation) as a raw JSON object. This is useful when the downstream system does not expect metadata.
+
+Example configuration for `payload` format:
+```yaml
+sinks:
+  - id: my_rabbitmq
+    type: rabbitmq_queue
+    config:
+      url: "amqp://guest:guest@localhost:5672/"
+      queue_name: "my_queue"
+      format: "payload"
+```
 
 Example configuration for a multi-step Pipeline:
 ```yaml
@@ -284,6 +325,24 @@ Hermod is designed to minimize data loss during operation and shutdown:
 - **Memory Safety**: Uses a bounded `RingBuffer` to prevent out-of-memory issues under high pressure.
 
 **Important Note**: Since the default `RingBuffer` is in-memory, sudden process termination (e.g., `SIGKILL` or power failure) can result in the loss of messages currently held in the buffer. For use cases requiring absolute durability, consider implementing a persistent `Producer`/`Consumer` (buffer) interface (e.g., using a file-backed queue or a dedicated message broker).
+
+## Observability
+
+Hermod provides built-in Prometheus metrics to monitor your data pipelines. Metrics are exposed via the `/metrics` endpoint on the API server.
+
+Key Metrics:
+- `hermod_engine_messages_processed_total`: Total messages successfully processed.
+- `hermod_engine_messages_filtered_total`: Messages dropped by filters.
+- `hermod_engine_message_errors_total`: Processing errors categorized by stage (read, transform, sink).
+- `hermod_engine_sink_writes_total`: Successful writes per sink.
+- `hermod_engine_sink_write_errors_total`: Failed writes per sink.
+- `hermod_engine_processing_duration_seconds`: End-to-end processing latency.
+- `hermod_engine_dead_letter_total`: Messages sent to the Dead Letter Sink.
+
+Worker Metrics:
+- `hermod_worker_sync_duration_seconds`: Time taken for a worker synchronization cycle.
+- `hermod_worker_active_connections_total`: Number of active connections currently managed by the worker.
+- `hermod_worker_sync_errors_total`: Total number of worker synchronization errors or connection start failures.
 
 ## Benchmarks
 

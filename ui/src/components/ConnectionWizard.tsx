@@ -1,15 +1,26 @@
-import { useState } from 'react';
-import { Stepper, Button, Group, TextInput, Select, Stack, Paper, Text, Radio, Divider, Alert, MultiSelect } from '@mantine/core';
+import React, { useState } from 'react';
+import { Stepper, Button, Group, TextInput, Select, Stack, Paper, Text, Radio, Divider, Alert, MultiSelect, Accordion, Box, ActionIcon, Badge } from '@mantine/core';
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { apiFetch, getRoleFromToken } from '../api';
 import { useVHost } from '../context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
 import { SourceForm } from './SourceForm';
 import { SinkForm } from './SinkForm';
-import { IconFilter } from '@tabler/icons-react';
+import { IconDatabase, IconFilter, IconPlus, IconRefresh, IconRoute, IconTrash } from '@tabler/icons-react';
 import { TransformationManager } from './TransformationManager';
+import { notifications } from '@mantine/notifications';
 
 const API_BASE = '/api';
+
+const DEFAULT_SAMPLE_MESSAGE = JSON.stringify({
+  id: "msg_1",
+  operation: "create",
+  table: "users",
+  schema: "public",
+  before: "",
+  after: JSON.stringify({ id: 1, name: "John Doe", email: "john@example.com" }),
+  metadata: {}
+}, null, 2);
 
 export function ConnectionWizard() {
   const navigate = useNavigate();
@@ -22,8 +33,15 @@ export function ConnectionWizard() {
     vhost: '',
     source_id: '',
     sink_ids: [],
-    transformations: []
+    worker_id: '',
+    transformation_ids: [],
+    transformations: [],
+    transformation_groups: []
   });
+
+  const [sampleMessage, setSampleMessage] = useState(DEFAULT_SAMPLE_MESSAGE);
+  const [isSampling, setIsSampling] = useState(false);
+  const [selectedSampleTable, setSelectedSampleTable] = useState('');
 
   const [sourceMode, setSourceMode] = useState<'existing' | 'new'>('existing');
   const [sinkMode, setSinkMode] = useState<'existing' | 'new'>('existing');
@@ -31,17 +49,25 @@ export function ConnectionWizard() {
   const [newSource, setNewSource] = useState<any>(null);
   const [newSink, setNewSink] = useState<any>(null);
 
-
-  const { data: vhosts } = useSuspenseQuery<any[]>({
+  const { data: vhostsResponse } = useSuspenseQuery<any>({
     queryKey: ['vhosts'],
     queryFn: async () => {
       const res = await apiFetch(`${API_BASE}/vhosts`);
       if (res.ok) return res.json();
-      return [];
+      return { data: [], total: 0 };
     }
   });
 
-  const { data: sources } = useSuspenseQuery({
+  const { data: workersResponse } = useSuspenseQuery<any>({
+    queryKey: ['workers'],
+    queryFn: async () => {
+      const res = await apiFetch(`${API_BASE}/workers`);
+      if (res.ok) return res.json();
+      return { data: [], total: 0 };
+    }
+  });
+
+  const { data: sourcesResponse } = useSuspenseQuery<any>({
     queryKey: ['sources'],
     queryFn: async () => {
       const res = await apiFetch(`${API_BASE}/sources`);
@@ -50,7 +76,7 @@ export function ConnectionWizard() {
     }
   });
 
-  const { data: sinks } = useSuspenseQuery({
+  const { data: sinksResponse } = useSuspenseQuery<any>({
     queryKey: ['sinks'],
     queryFn: async () => {
       const res = await apiFetch(`${API_BASE}/sinks`);
@@ -59,8 +85,79 @@ export function ConnectionWizard() {
     }
   });
 
+  const { data: transformationsResponse } = useSuspenseQuery<any>({
+    queryKey: ['transformations'],
+    queryFn: async () => {
+      const res = await apiFetch(`${API_BASE}/transformations`);
+      if (!res.ok) throw new Error('Failed to fetch transformations');
+      return res.json();
+    }
+  });
+
+  const vhosts = vhostsResponse?.data || [];
+  const workers = workersResponse?.data || [];
+  const sources = sourcesResponse?.data || [];
+  const sinks = sinksResponse?.data || [];
+  const transformations = transformationsResponse?.data || [];
+
+  const selectedSource = sourceMode === 'existing' 
+    ? sources.find((s: any) => s.id === connectionData.source_id)
+    : newSource;
+
+  const availableTables = React.useMemo(() => {
+    const config = selectedSource?.config;
+    if (!config) return [];
+    if (config.tables) return config.tables.split(',').map((t: string) => t.trim()).filter(Boolean);
+    if (config.topic) return [config.topic];
+    if (config.subject) return [config.subject];
+    if (config.stream) return [config.stream];
+    if (config.queue) return [config.queue];
+    return [];
+  }, [selectedSource]);
+
+  const fetchSample = async () => {
+    if (!selectedSource || !selectedSampleTable) return;
+
+    setIsSampling(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/sources/sample`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: selectedSource,
+          table: selectedSampleTable
+        }),
+      });
+
+      if (res.ok) {
+        const msg = await res.json();
+        setSampleMessage(JSON.stringify(msg, null, 2));
+        notifications.show({
+          title: 'Sample Loaded',
+          message: `Successfully loaded sample from table ${selectedSampleTable}`,
+          color: 'green'
+        });
+      } else {
+        const err = await res.json();
+        notifications.show({
+          title: 'Sample Failed',
+          message: err.error || 'Failed to fetch sample from source',
+          color: 'red'
+        });
+      }
+    } catch (e: any) {
+      notifications.show({
+        title: 'Error',
+        message: e.message,
+        color: 'red'
+      });
+    } finally {
+      setIsSampling(false);
+    }
+  };
+
   const availableVHostsList = role === 'Administrator' 
-    ? (vhosts || []).map(v => v.name)
+    ? (vhosts || []).map((v: any) => v.name)
     : availableVHosts;
 
   const filteredSources = sources?.filter((s: any) => 
@@ -115,7 +212,13 @@ export function ConnectionWizard() {
           vhost: connectionData.vhost,
           source_id: sourceId,
           sink_ids: sinkId ? [sinkId] : connectionData.sink_ids,
+          worker_id: connectionData.worker_id,
+          transformation_ids: connectionData.transformation_ids,
           transformations: connectionData.transformations,
+          transformation_groups: connectionData.transformation_groups.map((tg: any) => ({
+             ...tg,
+             sink_ids: tg.sink_ids.map((sid: string) => sid === 'new_sink_placeholder' ? sinkId : sid)
+          })),
         }),
       });
       if (!res.ok) {
@@ -159,6 +262,14 @@ export function ConnectionWizard() {
               onChange={(val) => setConnectionData({ ...connectionData, vhost: val || '' })}
               required
             />
+            <Select 
+              label="Worker (Optional)" 
+              placeholder="Assign to a specific worker" 
+              data={(workers || []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
+              value={connectionData.worker_id}
+              onChange={(val) => setConnectionData({ ...connectionData, worker_id: val || '' })}
+              clearable
+            />
           </Stack>
         </Stepper.Step>
 
@@ -200,20 +311,6 @@ export function ConnectionWizard() {
           </Stack>
         </Stepper.Step>
 
-        <Stepper.Step label="Transform" description="Data transformation">
-           <Stack mt="md">
-              <Alert color="blue" icon={<IconFilter size="1rem" />}>
-                Configure data transformations for this connection. 
-                Transformations apply to all incoming data from the source before being sent to sinks.
-              </Alert>
-              <TransformationManager 
-                title="Transformations" 
-                transformations={connectionData.transformations} 
-                onChange={(next) => setConnectionData({ ...connectionData, transformations: next })}
-              />
-           </Stack>
-        </Stepper.Step>
-
         <Stepper.Step label="Sink" description="Choose destination">
            <Stack mt="md">
             <Radio.Group
@@ -252,6 +349,152 @@ export function ConnectionWizard() {
           </Stack>
         </Stepper.Step>
 
+        <Stepper.Step label="Transform" description="Data transformation">
+           <Stack mt="md">
+              <Alert color="blue" icon={<IconFilter size="1rem" />}>
+                Configure data transformations for this connection. 
+                You can set global transformations that apply to all sinks, or create transformation branches for specific sinks.
+              </Alert>
+              
+              <Paper withBorder p="md">
+                <Text fw={600} mb="xs">Sample Data Selection</Text>
+                <Text size="xs" c="dimmed" mb="md">Fetch a real message from your source to help with transformation mapping.</Text>
+                <Group align="flex-end">
+                   <Select 
+                     label="Select Table" 
+                     placeholder="Pick a table to sample"
+                     data={availableTables}
+                     value={selectedSampleTable}
+                     onChange={(val) => setSelectedSampleTable(val || '')}
+                     style={{ flex: 1 }}
+                     leftSection={<IconDatabase size="1rem" />}
+                   />
+                   <Button 
+                     onClick={fetchSample} 
+                     loading={isSampling} 
+                     disabled={!selectedSampleTable}
+                     variant="light"
+                     leftSection={<IconRefresh size="1rem" />}
+                   >
+                     Fetch Sample
+                   </Button>
+                </Group>
+              </Paper>
+
+              <Paper withBorder p="md">
+                <Text fw={600} mb="xs">Predefined Transformations</Text>
+                <Text size="xs" c="dimmed" mb="md">Select reusable transformations to apply globally.</Text>
+                <MultiSelect 
+                  label="Available Transformations" 
+                  placeholder="Select reusable transformations"
+                  data={(transformations || []).map((t: any) => ({ value: t.id, label: t.name }))}
+                  value={connectionData.transformation_ids}
+                  onChange={(val) => setConnectionData({ ...connectionData, transformation_ids: val })}
+                  clearable
+                />
+              </Paper>
+
+              <Paper withBorder p="md">
+                <Text fw={600} mb="xs">Global Transformations</Text>
+                <Text size="xs" c="dimmed" mb="md">Applied to all messages before they are branched.</Text>
+                <TransformationManager 
+                  title="Global Transforms" 
+                  transformations={connectionData.transformations} 
+                  onChange={(next) => setConnectionData({ ...connectionData, transformations: next })}
+                  sampleMessage={sampleMessage}
+                  onSampleMessageChange={setSampleMessage}
+                />
+              </Paper>
+
+              <Divider label="Transformation Branches" labelPosition="center" my="md" />
+
+              <Group justify="space-between" mb="xs">
+                  <Text size="sm" fw={500}>Define custom transformation flows for groups of sinks.</Text>
+                  <Button 
+                    size="xs" 
+                    variant="outline"
+                    leftSection={<IconPlus size="1rem" />}
+                    onClick={() => {
+                        const nextGroups = [...(connectionData.transformation_groups || [])];
+                        nextGroups.push({ name: `Branch ${nextGroups.length + 1}`, sink_ids: [], transformations: [] });
+                        setConnectionData({ ...connectionData, transformation_groups: nextGroups });
+                    }}
+                  >
+                    Add Branch
+                  </Button>
+              </Group>
+
+              <Accordion variant="separated">
+                {(connectionData.transformation_groups || []).map((group: any, index: number) => {
+                  return (
+                    <Accordion.Item key={index} value={`group-${index}`}>
+                      <Accordion.Control icon={<IconRoute size="1rem" />}>
+                        <Group justify="space-between" pr="md">
+                            <Box>
+                                <Text fw={500}>{group.name || `Branch ${index + 1}`}</Text>
+                                <Text size="xs" c="dimmed">
+                                    {group.sink_ids.length} sinks · {group.transformations.length} transforms
+                                </Text>
+                            </Box>
+                            <ActionIcon 
+                                color="red" 
+                                variant="subtle" 
+                                onClick={(e: React.MouseEvent) => {
+                                    e.stopPropagation();
+                                    const nextGroups = connectionData.transformation_groups.filter((_: any, i: number) => i !== index);
+                                    setConnectionData({ ...connectionData, transformation_groups: nextGroups });
+                                }}
+                            >
+                                <IconTrash size="1rem" />
+                            </ActionIcon>
+                        </Group>
+                      </Accordion.Control>
+                      <Accordion.Panel>
+                        <Stack gap="md">
+                            <TextInput 
+                                label="Branch Name" 
+                                placeholder="E.g. External API, Data Warehouse"
+                                value={group.name}
+                                onChange={(e) => {
+                                    const nextGroups = [...connectionData.transformation_groups];
+                                    nextGroups[index] = { ...group, name: e.target.value };
+                                    setConnectionData({ ...connectionData, transformation_groups: nextGroups });
+                                }}
+                            />
+                            <MultiSelect 
+                                label="Target Sinks"
+                                description="Messages in this branch will be sent to these sinks."
+                                data={(sinkMode === 'existing' ? connectionData.sink_ids : ['new_sink_placeholder']).map((id: string) => {
+                                    const s = sinks.find((sink: any) => sink.id === id);
+                                    return { value: id, label: id === 'new_sink_placeholder' ? (newSink?.name || 'New Sink') : (s?.name || id) };
+                                })}
+                                value={group.sink_ids}
+                                onChange={(val) => {
+                                    const nextGroups = [...connectionData.transformation_groups];
+                                    nextGroups[index] = { ...group, sink_ids: val };
+                                    setConnectionData({ ...connectionData, transformation_groups: nextGroups });
+                                }}
+                            />
+                            <TransformationManager
+                                title="Branch Transformations"
+                                transformations={group.transformations}
+                                onChange={(next) => {
+                                    const nextGroups = [...connectionData.transformation_groups];
+                                    nextGroups[index] = { ...group, transformations: next };
+                                    setConnectionData({ ...connectionData, transformation_groups: nextGroups });
+                                }}
+                                sampleMessage={sampleMessage}
+                                onSampleMessageChange={setSampleMessage}
+                            />
+                        </Stack>
+                      </Accordion.Panel>
+                    </Accordion.Item>
+                  );
+                })}
+              </Accordion>
+           </Stack>
+        </Stepper.Step>
+
         <Stepper.Completed>
           <Stack mt="md">
              <Alert color="blue">
@@ -262,8 +505,29 @@ export function ConnectionWizard() {
                 <Text>VHost: {connectionData.vhost}</Text>
                 <Divider my="sm" />
                 <Text fw={500}>Source: {sourceMode === 'existing' ? filteredSources?.find((s:any)=>s.id===connectionData.source_id)?.name : `New (${newSource?.name})`}</Text>
-                <Text fw={500}>Sinks: {sinkMode === 'existing' ? connectionData.sink_ids.map((id:string) => filteredSinks?.find((s:any)=>s.id===id)?.name).join(', ') : `New (${newSink?.name})`}</Text>
-                <Text size="sm" mt="xs">Transformations: {connectionData.transformations.length} steps</Text>
+                <Text fw={500} mt="xs">Global Transformations: {connectionData.transformations.length} steps</Text>
+                <Divider my="sm" variant="dotted" />
+                <Text fw={600} size="sm" mb="xs">Transformation Branches:</Text>
+                {connectionData.transformation_groups.length === 0 ? (
+                    <Text size="xs" c="dimmed">No custom branches defined. All sinks will receive messages with global transformations.</Text>
+                ) : connectionData.transformation_groups.map((tg: any, idx: number) => {
+                   return (
+                     <Box key={idx} mb="xs">
+                        <Group gap="xs">
+                            <IconRoute size="0.8rem" />
+                            <Text size="sm" fw={500}>{tg.name || `Branch ${idx + 1}`}</Text>
+                            <Badge size="xs" variant="outline">{tg.transformations.length} transforms</Badge>
+                        </Group>
+                        <Group gap={4} ml="lg" mt={2}>
+                            {tg.sink_ids.map((sid: string) => (
+                                <Badge key={sid} size="xs" color="gray" variant="dot">
+                                    {sid === 'new_sink_placeholder' ? (newSink?.name || 'New Sink') : (filteredSinks?.find((s:any)=>s.id===sid)?.name || sid)}
+                                </Badge>
+                            ))}
+                        </Group>
+                     </Box>
+                   )
+                })}
              </Paper>
           </Stack>
         </Stepper.Completed>
@@ -280,8 +544,8 @@ export function ConnectionWizard() {
             (active === 0 && (!connectionData.name || !connectionData.vhost)) ||
             (active === 1 && sourceMode === 'existing' && !connectionData.source_id) ||
             (active === 1 && sourceMode === 'new' && !newSource) ||
-            (active === 3 && sinkMode === 'existing' && (!connectionData.sink_ids || connectionData.sink_ids.length === 0)) ||
-            (active === 3 && sinkMode === 'new' && !newSink)
+            (active === 2 && sinkMode === 'existing' && (!connectionData.sink_ids || connectionData.sink_ids.length === 0)) ||
+            (active === 2 && sinkMode === 'new' && !newSink)
           }>
             Next step
           </Button>

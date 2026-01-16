@@ -1,10 +1,11 @@
-import { AppShell, Burger, Group, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea } from '@mantine/core';
+import { AppShell, Burger, Group, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea, Badge, ActionIcon, useMantineColorScheme } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconDashboard, IconSettings, IconList, IconActivity, IconArrowsExchange, IconUsers, IconLogout, IconWorld, IconHierarchy, IconRocket, IconServer, IconChevronLeft, IconChevronRight, IconHistory, IconRoute } from '@tabler/icons-react';
-import React, { useEffect } from 'react';
+import { IconDashboard, IconSettings, IconList, IconActivity, IconArrowsExchange, IconUsers, IconLogout, IconWorld, IconHierarchy, IconRocket, IconServer, IconChevronLeft, IconChevronRight, IconHistory, IconRoute, IconBell, IconSun, IconMoon } from '@tabler/icons-react';
+import React, { useEffect, useRef } from 'react';
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router';
 import { useVHost } from '../context/VHostContext';
 import { apiFetch, getRoleFromToken } from '../api';
+import { notifications } from '@mantine/notifications';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -18,15 +19,45 @@ export function Layout({ children }: LayoutProps) {
   const activePage = routerState.location.pathname;
   const role = getRoleFromToken();
   const isAdmin = role === 'Administrator';
+  const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const dark = colorScheme === 'dark';
 
-  const SideLink = ({ to, label, icon: Icon }: { to: string; label: string; icon: React.FC<any> }) => {
+  const [dashboardStats, setDashboardStats] = React.useState<any>(null);
+
+  useEffect(() => {
+    // Initial fetch for dashboard stats
+    if (activePage !== '/login' && activePage !== '/setup') {
+      apiFetch('/api/dashboard/stats')
+        .then(res => res.json())
+        .then(data => setDashboardStats(data))
+        .catch(err => console.error('Failed to fetch initial stats in layout', err));
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/dashboard`;
+    const ws = new WebSocket(wsUrl);
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        setDashboardStats(data);
+      } catch (err) {
+        console.error('Failed to parse dashboard stats in layout', err);
+      }
+    };
+
+    return () => ws.close();
+  }, []);
+
+  const SideLink = ({ to, label, icon: Icon, badge, children }: { to: string; label: string; icon: React.FC<any>; badge?: React.ReactNode; children?: React.ReactNode }) => {
     const link = (
       <NavLink
         component={Link}
         to={to}
         label={desktopOpened ? label : null}
         leftSection={<Icon size="1.1rem" stroke={1.5} />}
-        active={activePage === to}
+        rightSection={desktopOpened ? badge : null}
+        active={activePage === to || (to !== '/' && activePage.startsWith(to))}
         variant="light"
         styles={{
           root: {
@@ -34,7 +65,7 @@ export function Layout({ children }: LayoutProps) {
             paddingLeft: desktopOpened ? 'var(--mantine-spacing-sm)' : 0,
             paddingRight: desktopOpened ? 'var(--mantine-spacing-sm)' : 0,
             borderRadius: 'var(--mantine-radius-md)',
-            height: '40px',
+            marginBottom: '4px',
             transition: 'all 0.2s ease',
           },
           section: {
@@ -45,7 +76,9 @@ export function Layout({ children }: LayoutProps) {
             fontSize: 'var(--mantine-font-size-sm)',
           }
         }}
-      />
+      >
+        {desktopOpened && children}
+      </NavLink>
     );
 
     if (desktopOpened) {
@@ -61,13 +94,52 @@ export function Layout({ children }: LayoutProps) {
 
   const isLoading = useRouterState({ select: (s) => s.status === 'pending' });
   const { selectedVHost, setSelectedVHost, availableVHosts, setAvailableVHosts } = useVHost();
+  const lastStatusRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    const checkStatuses = async () => {
+      try {
+        const res = await apiFetch('/api/connections/status');
+        if (!res.ok) return;
+        const data = await res.json();
+        const statuses = data?.data || [];
+        
+        statuses.forEach((update: any) => {
+          const connId = update.connection_id;
+          const status = update.engine_status;
+          const prevStatus = lastStatusRef.current[connId];
+
+          if ((status.includes('error') || status.includes('reconnecting')) && status !== prevStatus) {
+            // Only notify if not on the page or if it's a new error
+            const isOnConnectionPage = activePage.includes(`/connections/${connId}`) || activePage === '/connections';
+            
+            if (!isOnConnectionPage) {
+              notifications.show({
+                title: 'Connection Issue',
+                message: `Connection ${connId} is ${status}`,
+                color: 'red',
+                autoClose: 10000,
+              });
+            }
+          }
+          lastStatusRef.current[connId] = status;
+        });
+      } catch (err) {
+        console.error('Failed to poll statuses', err);
+      }
+    };
+
+    const interval = setInterval(checkStatuses, 10000);
+    return () => clearInterval(interval);
+  }, [activePage]);
 
   useEffect(() => {
     const fetchVHosts = async () => {
       try {
         const res = await apiFetch('/api/vhosts');
         if (res.ok) {
-          const vhosts = await res.json();
+          const vhostsResponse = await res.json();
+          const vhosts = vhostsResponse?.data || [];
           setAvailableVHosts(vhosts.map((v: any) => v.name).sort());
         } else {
             // Fallback to extraction if vhosts API fails or not allowed
@@ -75,8 +147,10 @@ export function Layout({ children }: LayoutProps) {
               apiFetch('/api/sources'),
               apiFetch('/api/sinks')
             ]);
-            const sources = await sourcesRes.json();
-            const sinks = await sinksRes.json();
+            const sourcesResponse = await sourcesRes.json();
+            const sinksResponse = await sinksRes.json();
+            const sources = sourcesResponse?.data || [];
+            const sinks = sinksResponse?.data || [];
             
             const vhosts = new Set<string>();
             sources.forEach((s: any) => { if (s.vhost) vhosts.add(s.vhost) });
@@ -144,6 +218,15 @@ export function Layout({ children }: LayoutProps) {
               variant="filled"
               style={{ width: 180 }}
             />
+            <ActionIcon
+              variant="subtle"
+              color={dark ? 'yellow' : 'gray'}
+              onClick={() => toggleColorScheme()}
+              title="Toggle color scheme"
+              size="lg"
+            >
+              {dark ? <IconSun size="1.2rem" /> : <IconMoon size="1.2rem" />}
+            </ActionIcon>
             <Button 
               variant="subtle" 
               color="gray" 
@@ -169,9 +252,15 @@ export function Layout({ children }: LayoutProps) {
             )}
             
             <SideLink to="/" label="Dashboard" icon={IconDashboard} />
-            <SideLink to="/sources" label="Sources" icon={IconList} />
-            <SideLink to="/sinks" label="Sinks" icon={IconActivity} />
-            <SideLink to="/connections" label="Connections" icon={IconArrowsExchange} />
+            <SideLink to="/sources" label="Sources" icon={IconList} 
+              badge={dashboardStats?.active_sources > 0 && <Badge size="xs" variant="filled" color="indigo">{dashboardStats.active_sources}</Badge>} 
+            />
+            <SideLink to="/sinks" label="Sinks" icon={IconActivity} 
+              badge={dashboardStats?.active_sinks > 0 && <Badge size="xs" variant="filled" color="orange">{dashboardStats.active_sinks}</Badge>}
+            />
+            <SideLink to="/connections" label="Connections" icon={IconArrowsExchange} 
+              badge={dashboardStats?.active_connections > 0 && <Badge size="xs" variant="filled" color="teal">{dashboardStats.active_connections}</Badge>}
+            />
             <SideLink to="/transformations" label="Transformations" icon={IconRoute} />
             <SideLink to="/logs" label="Logs" icon={IconHistory} />
             
@@ -196,7 +285,9 @@ export function Layout({ children }: LayoutProps) {
                   </Box>
                 )}
                 
-                <SideLink to="/settings" label="Settings" icon={IconSettings} />
+                <SideLink to="/settings" label="Settings" icon={IconSettings}>
+                  <SideLink to="/settings/notifications" label="Notifications" icon={IconBell} />
+                </SideLink>
                 <SideLink to="/setup" label="Run Setup" icon={IconRocket} />
               </>
             )}

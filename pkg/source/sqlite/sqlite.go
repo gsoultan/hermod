@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
@@ -40,8 +41,6 @@ func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
 		// Placeholder logic for SQLite "CDC"
 		msg := message.AcquireMessage()
 		msg.SetID("sqlite-1")
-		msg.SetOperation(hermod.OpCreate)
-		msg.SetTable(s.tables[0]) // Assume at least one table for placeholder
 		msg.SetMetadata("source", "sqlite")
 		return msg, nil
 	}
@@ -106,4 +105,58 @@ func (s *SQLiteSource) DiscoverTables(ctx context.Context) ([]string, error) {
 		tables = append(tables, name)
 	}
 	return tables, nil
+}
+
+func (s *SQLiteSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	if s.db == nil {
+		if err := s.init(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", table))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query sample record: %w", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, fmt.Errorf("no records found in table %s", table)
+	}
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	columns := make([]interface{}, len(cols))
+	columnPointers := make([]interface{}, len(cols))
+	for i := range columns {
+		columnPointers[i] = &columns[i]
+	}
+
+	if err := rows.Scan(columnPointers...); err != nil {
+		return nil, err
+	}
+
+	record := make(map[string]interface{})
+	for i, colName := range cols {
+		val := columns[i]
+		if b, ok := val.([]byte); ok {
+			record[colName] = string(b)
+		} else {
+			record[colName] = val
+		}
+	}
+
+	msg := message.AcquireMessage()
+	msg.SetID(fmt.Sprintf("sample-%s-%d", table, time.Now().Unix()))
+	msg.SetOperation(hermod.OpSnapshot)
+	for k, v := range message.SanitizeMap(record) {
+		msg.SetData(k, v)
+	}
+	msg.SetMetadata("source", "sqlite")
+	msg.SetMetadata("sample", "true")
+
+	return msg, nil
 }

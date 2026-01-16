@@ -29,7 +29,7 @@ func (s *ClickHouseSink) Write(ctx context.Context, msg hermod.Message) error {
 	}
 
 	query := fmt.Sprintf("INSERT INTO %s.%s (id, data) VALUES (?, ?)", s.database, msg.Table())
-	err := s.conn.Exec(ctx, query, msg.ID(), string(msg.After()))
+	err := s.conn.Exec(ctx, query, msg.ID(), string(msg.Payload()))
 	if err != nil {
 		return fmt.Errorf("failed to write to clickhouse: %w", err)
 	}

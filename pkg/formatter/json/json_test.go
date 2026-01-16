@@ -8,35 +8,58 @@ import (
 )
 
 func TestJSONFormatter(t *testing.T) {
-	formatter := NewJSONFormatter()
+	t.Run("Full Mode", func(t *testing.T) {
+		formatter := NewJSONFormatter()
 
-	msg := message.AcquireMessage()
-	msg.SetID("test-id")
-	msg.SetTable("users")
-	msg.SetSchema("public")
-	msg.SetAfter([]byte(`{"name":"john"}`))
+		msg := message.AcquireMessage()
+		msg.SetID("test-id")
+		msg.SetTable("users")
+		msg.SetSchema("public")
+		msg.SetAfter([]byte(`{"name":"john"}`))
 
-	data, err := formatter.Format(msg)
-	if err != nil {
-		t.Fatalf("failed to format message: %v", err)
-	}
+		data, err := formatter.Format(msg)
+		if err != nil {
+			t.Fatalf("failed to format message: %v", err)
+		}
 
-	var parsed map[string]interface{}
-	err = json.Unmarshal(data, &parsed)
-	if err != nil {
-		t.Fatalf("failed to unmarshal JSON: %v", err)
-	}
+		var parsed map[string]interface{}
+		err = json.Unmarshal(data, &parsed)
+		if err != nil {
+			t.Fatalf("failed to unmarshal JSON: %v", err)
+		}
 
-	if parsed["id"] != "test-id" {
-		t.Errorf("expected id test-id, got %v", parsed["id"])
-	}
-	if parsed["table"] != "users" {
-		t.Errorf("expected table users, got %v", parsed["table"])
-	}
+		if parsed["id"] != "test-id" {
+			t.Errorf("expected id test-id, got %v", parsed["id"])
+		}
+		if parsed["table"] != "users" {
+			t.Errorf("expected table users, got %v", parsed["table"])
+		}
 
-	// Verify if 'after' is a map (object) or string (base64)
-	after := parsed["after"]
-	if _, ok := after.(map[string]interface{}); !ok {
-		t.Errorf("expected 'after' to be a map[string]interface{}, got %T", after)
-	}
+		// Verify that data fields are merged into root
+		if parsed["name"] != "john" {
+			t.Errorf("expected name john at root, got %v", parsed["name"])
+		}
+
+		// Verify that 'after' key is NOT present (unified format)
+		if _, ok := parsed["after"]; ok {
+			t.Error("expected 'after' key to be absent in unified format")
+		}
+	})
+
+	t.Run("Payload Mode", func(t *testing.T) {
+		formatter := NewJSONFormatter()
+		formatter.SetMode(ModePayload)
+
+		msg := message.AcquireMessage()
+		msg.SetAfter([]byte(`{"name":"john"}`))
+
+		data, err := formatter.Format(msg)
+		if err != nil {
+			t.Fatalf("failed to format message: %v", err)
+		}
+
+		if string(data) != `{"name":"john"}` {
+			t.Errorf("expected payload, got %s", string(data))
+		}
+	})
 }

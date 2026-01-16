@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, Modal, List, ThemeIcon } from '@mantine/core';
-import { IconTrash, IconPlus, IconExternalLink, IconEdit, IconAlertCircle } from '@tabler/icons-react';
+import { useEffect, useState } from 'react';
+import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, Modal, List, ThemeIcon, TextInput, Pagination } from '@mantine/core';
+import { IconTrash, IconPlus, IconExternalLink, IconEdit, IconAlertCircle, IconSearch, IconActivity } from '@tabler/icons-react';
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, getRoleFromToken } from '../api';
 import { useVHost } from '../context/VHostContext';
@@ -17,48 +17,97 @@ export function SinksPage() {
   const navigate = useNavigate();
   const [opened, { open, close }] = useDisclosure(false);
   const [sinkToDelete, setSinkToDelete] = useState<any>(null);
+  const [search, setSearch] = useState('');
+  const [activePage, setPage] = useState(1);
+  const itemsPerPage = 30;
 
-  const { data: sinks } = useSuspenseQuery({
-    queryKey: ['sinks'],
+  const [liveStatuses, setLiveStatuses] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/status`;
+    const ws = new WebSocket(wsUrl);
+    
+    ws.onmessage = (event) => {
+      try {
+        const update = JSON.parse(event.data);
+        setLiveStatuses(prev => ({
+          ...prev,
+          [update.connection_id]: update
+        }));
+      } catch (err) {
+        console.error('Failed to parse status update', err);
+      }
+    };
+
+    return () => ws.close();
+  }, []);
+
+  const { data: sinksResponse } = useSuspenseQuery({
+    queryKey: ['sinks', activePage, search, selectedVHost],
     queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/sinks`);
+      const vhostParam = selectedVHost !== 'all' ? `&vhost=${selectedVHost}` : '';
+      const res = await apiFetch(`${API_BASE}/sinks?page=${activePage}&limit=${itemsPerPage}&search=${search}${vhostParam}`);
       if (!res.ok) throw new Error('Failed to fetch sinks');
       return res.json();
     },
     refetchInterval: 5000,
   });
 
-  const { data: connections } = useSuspenseQuery({
-    queryKey: ['connections'],
+  const sinks = (sinksResponse as any)?.data || [];
+  const totalItems = (sinksResponse as any)?.total || 0;
+
+  const { data: connectionsResponse } = useSuspenseQuery({
+    queryKey: ['connections-all'],
     queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/connections`);
+      const res = await apiFetch(`${API_BASE}/connections?limit=1000`);
       if (res.ok) return res.json();
-      return [];
+      return { data: [], total: 0 };
     },
     refetchInterval: 5000,
   });
+  const connections = (connectionsResponse as any)?.data || [];
 
   const activeConnectionsUsingSink = sinkToDelete 
     ? (connections as any[])?.filter(c => c.sink_ids?.includes(sinkToDelete.id) && c.active)
     : [];
 
-  const { data: workers } = useSuspenseQuery({
-    queryKey: ['workers'],
+  const { data: workersResponse } = useSuspenseQuery({
+    queryKey: ['workers-all'],
     queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/workers`);
+      const res = await apiFetch(`${API_BASE}/workers?limit=1000`);
       if (res.ok) return res.json();
-      return [];
+      return { data: [], total: 0 };
     }
   });
+  const workers = (workersResponse as any)?.data || [];
 
   const getWorkerName = (id: string) => {
     const worker = (workers as any[])?.find(w => w.id === id);
     return worker ? worker.name : id;
   };
 
-  const filteredSinks = (sinks || []).filter((s: any) => 
-    selectedVHost === 'all' || s.vhost === selectedVHost
-  );
+  const getSinkLiveStatus = (sinkId: string) => {
+    const relevantStatuses: string[] = [];
+    Object.values(liveStatuses).forEach((s: any) => {
+      if (s.sink_id === sinkId && s.sink_status) {
+        relevantStatuses.push(s.sink_status);
+      }
+      if (s.sink_statuses && s.sink_statuses[sinkId]) {
+        relevantStatuses.push(s.sink_statuses[sinkId]);
+      }
+    });
+
+    if (relevantStatuses.length === 0) return null;
+    
+    if (relevantStatuses.some(status => status === 'error')) return 'error';
+    if (relevantStatuses.some(status => status === 'reconnecting')) return 'reconnecting';
+    if (relevantStatuses.some(status => status === 'connecting')) return 'connecting';
+    if (relevantStatuses.some(status => status === 'running')) return 'running';
+    return relevantStatuses[0];
+  };
+
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -82,21 +131,33 @@ export function SinksPage() {
       </style>
       <Stack gap="lg">
         <Paper p="md" withBorder radius="md" bg="gray.0">
-          <Group gap="sm">
-            <IconExternalLink size="2rem" color="var(--mantine-color-blue-filled)" />
-            <Box style={{ flex: 1 }}>
-              <Title order={2} fw={800}>Sinks</Title>
-              <Text size="sm" c="dimmed">
-                Sinks are the destinations for your data. Configure output targets like NATS, RabbitMQ, Redis, 
-                or Kafka to receive the data streams processed by Hermod.
-              </Text>
-            </Box>
-            {!isViewer && (
-              <Button leftSection={<IconPlus size="1rem" />} onClick={() => navigate({ to: '/sinks/new' })} radius="md">
-                Add Sink
-              </Button>
-            )}
-          </Group>
+          <Stack gap="md">
+            <Group gap="sm">
+              <IconExternalLink size="2rem" color="var(--mantine-color-blue-filled)" />
+              <Box style={{ flex: 1 }}>
+                <Title order={2} fw={800}>Sinks</Title>
+                <Text size="sm" c="dimmed">
+                  Sinks are the destinations for your data. Configure output targets like NATS, RabbitMQ, Redis, 
+                  or Kafka to receive the data streams processed by Hermod.
+                </Text>
+              </Box>
+              {!isViewer && (
+                <Button leftSection={<IconPlus size="1rem" />} onClick={() => navigate({ to: '/sinks/new' })} radius="md">
+                  Add Sink
+                </Button>
+              )}
+            </Group>
+            <TextInput
+              placeholder="Search sinks by name or type..."
+              leftSection={<IconSearch size="1rem" stroke={1.5} />}
+              value={search}
+              onChange={(event) => {
+                setSearch(event.currentTarget.value);
+                setPage(1);
+              }}
+              radius="md"
+            />
+          </Stack>
         </Paper>
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
@@ -112,7 +173,7 @@ export function SinksPage() {
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {filteredSinks?.map((snk: any) => (
+            {sinks?.map((snk: any) => (
               <Table.Tr key={snk.id}>
                 <Table.Td fw={500}>{snk.name}</Table.Td>
                 <Table.Td>
@@ -122,14 +183,53 @@ export function SinksPage() {
                 </Table.Td>
                 <Table.Td>{snk.vhost || '-'}</Table.Td>
                 <Table.Td>
-                  <Badge 
-                    variant="light" 
-                    color={snk.active ? 'green' : 'gray'}
-                    size="sm"
-                    radius="sm"
-                  >
-                    {snk.active ? 'Active' : 'Inactive'}
-                  </Badge>
+                  {(() => {
+                    const liveStatus = getSinkLiveStatus(snk.id);
+                    const status = liveStatus || snk.status;
+
+                    if (!snk.active && !liveStatus && !snk.status) {
+                      return (
+                        <Badge variant="filled" color="red" size="sm" radius="sm">
+                          Shutdown
+                        </Badge>
+                      );
+                    }
+                    
+                    if (status === 'running') {
+                      return (
+                        <Badge variant="filled" color="green" size="sm" radius="sm" leftSection={<IconActivity size="0.7rem" />}>
+                          Online
+                        </Badge>
+                      );
+                    }
+                    if (status === 'error' || (status && status.startsWith('error'))) {
+                      return (
+                        <Badge variant="filled" color="red" size="sm" radius="sm" leftSection={<IconActivity size="0.7rem" />}>
+                          Offline
+                        </Badge>
+                      );
+                    }
+                    if (status === 'reconnecting') {
+                      return (
+                        <Badge variant="filled" color="orange" size="sm" radius="sm" leftSection={<IconActivity size="0.7rem" />}>
+                          Reconnecting
+                        </Badge>
+                      );
+                    }
+                    if (status === 'connecting') {
+                      return (
+                        <Badge variant="filled" color="orange" size="sm" radius="sm" leftSection={<IconActivity size="0.7rem" />}>
+                          Connecting
+                        </Badge>
+                      );
+                    }
+                    
+                    return (
+                      <Badge variant="light" color="blue" size="sm" radius="sm">
+                        {status || 'Active'}
+                      </Badge>
+                    );
+                  })()}
                 </Table.Td>
                 <Table.Td>
                   {snk.worker_id ? (
@@ -155,15 +255,20 @@ export function SinksPage() {
                 </Table.Td>
               </Table.Tr>
             ))}
-            {filteredSinks?.length === 0 && (
+            {sinks?.length === 0 && (
               <Table.Tr>
-                <Table.Td colSpan={5} py="xl">
-                  <Text c="dimmed" ta="center">No sinks found</Text>
+                <Table.Td colSpan={6} py="xl">
+                  <Text c="dimmed" ta="center">{search ? 'No sinks match your search' : 'No sinks found'}</Text>
                 </Table.Td>
               </Table.Tr>
             )}
           </Table.Tbody>
         </Table>
+        {totalPages > 1 && (
+          <Group justify="center" p="md" bg="gray.0" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
+            <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
+          </Group>
+        )}
       </Paper>
     </Stack>
 

@@ -1,21 +1,31 @@
-import { Title, Table, Group, Stack, Badge, Paper, Text, Box, ActionIcon, Tooltip, Select, TextInput } from '@mantine/core';
-import { IconActivity, IconRefresh, IconSearch, IconTrash } from '@tabler/icons-react';
+import { Title, Table, Group, Stack, Badge, Paper, Text, Box, ActionIcon, Tooltip, Select, TextInput, Pagination, Modal, ScrollArea, Code, Divider, Button } from '@mantine/core';
+import { IconActivity, IconRefresh, IconSearch, IconTrash, IconEye } from '@tabler/icons-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../api';
 import { useState } from 'react';
+import { useDisclosure } from '@mantine/hooks';
 
 const API_BASE = '/api';
 
 export function LogsPage() {
   const queryClient = useQueryClient();
-  const [limit, setLimit] = useState<string>('100');
   const [connectionId, setConnectionId] = useState<string>('');
   const [level, setLevel] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [activePage, setPage] = useState(1);
+  const itemsPerPage = 30;
+  const [selectedLog, setSelectedLog] = useState<any>(null);
+  const [opened, { open, close }] = useDisclosure(false);
 
-  const { data: logs, isFetching } = useQuery({
-    queryKey: ['logs', connectionId, level, limit],
+  const viewDetails = (log: any) => {
+    setSelectedLog(log);
+    open();
+  };
+
+  const { data: logsResponse, isFetching } = useQuery({
+    queryKey: ['logs', connectionId, level, search, activePage],
     queryFn: async () => {
-      let url = `${API_BASE}/logs?limit=${limit}`;
+      let url = `${API_BASE}/logs?page=${activePage}&limit=${itemsPerPage}&search=${search}`;
       if (connectionId) url += `&connection_id=${connectionId}`;
       if (level) url += `&level=${level}`;
       const res = await apiFetch(url);
@@ -24,6 +34,9 @@ export function LogsPage() {
     },
     refetchInterval: 5000, // Refresh every 5 seconds
   });
+
+  const logs = (logsResponse as any)?.data || [];
+  const totalItems = (logsResponse as any)?.total || 0;
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
@@ -34,6 +47,8 @@ export function LogsPage() {
       queryClient.invalidateQueries({ queryKey: ['logs'] });
     }
   });
+
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   const getLevelColor = (level: string) => {
     switch (level) {
@@ -75,28 +90,38 @@ export function LogsPage() {
         <Paper p="md" withBorder radius="md">
           <Group align="flex-end" gap="md">
             <TextInput 
-              label="Filter by Connection ID" 
-              placeholder="Enter ID..." 
-              value={connectionId} 
-              onChange={(e) => setConnectionId(e.currentTarget.value)}
+              label="Search Logs" 
+              placeholder="Search in message, data, IDs..." 
+              value={search} 
+              onChange={(e) => {
+                setSearch(e.currentTarget.value);
+                setPage(1);
+              }}
               leftSection={<IconSearch size="1rem" />}
               style={{ flex: 1 }}
+            />
+            <TextInput 
+              label="Connection ID" 
+              placeholder="Filter by ID..." 
+              value={connectionId} 
+              onChange={(e) => {
+                setConnectionId(e.currentTarget.value);
+                setPage(1);
+              }}
+              leftSection={<IconSearch size="1rem" />}
+              style={{ width: 200 }}
             />
             <Select 
               label="Level" 
               placeholder="All levels"
               data={['INFO', 'WARN', 'ERROR', 'DEBUG']}
               value={level}
-              onChange={setLevel}
+              onChange={(val) => {
+                setLevel(val);
+                setPage(1);
+              }}
               clearable
-              style={{ width: 150 }}
-            />
-            <Select 
-              label="Limit" 
-              data={['50', '100', '200', '500']}
-              value={limit}
-              onChange={(val) => setLimit(val || '100')}
-              style={{ width: 100 }}
+              style={{ width: 120 }}
             />
           </Group>
         </Paper>
@@ -105,18 +130,19 @@ export function LogsPage() {
           <Table verticalSpacing="sm" highlightOnHover>
             <Table.Thead bg="gray.0">
               <Table.Tr>
-                <Table.Th style={{ width: 200 }}>Timestamp</Table.Th>
+                <Table.Th style={{ width: 180 }}>Timestamp</Table.Th>
                 <Table.Th style={{ width: 100 }}>Level</Table.Th>
+                <Table.Th style={{ width: 150 }}>Action</Table.Th>
                 <Table.Th>Message</Table.Th>
-                <Table.Th>Connection / Source / Sink</Table.Th>
-                <Table.Th>Details</Table.Th>
+                <Table.Th style={{ width: 220 }}>Connection / Source / Sink</Table.Th>
+                <Table.Th style={{ width: 80 }}>Details</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {logs?.length === 0 ? (
                 <Table.Tr>
-                  <Table.Td colSpan={5} style={{ textAlign: 'center', padding: '40px' }}>
-                    <Text c="dimmed">No logs found matching the criteria.</Text>
+                  <Table.Td colSpan={6} style={{ textAlign: 'center', padding: '40px' }}>
+                    <Text c="dimmed">{search || connectionId || level ? 'No logs found matching the criteria.' : 'No logs found.'}</Text>
                   </Table.Td>
                 </Table.Tr>
               ) : (
@@ -129,6 +155,15 @@ export function LogsPage() {
                       <Badge color={getLevelColor(log.level)} variant="light" size="sm">
                         {log.level}
                       </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      {log.action ? (
+                        <Badge variant="outline" color="blue" size="sm" radius="xs" style={{ textTransform: 'none' }}>
+                          {log.action}
+                        </Badge>
+                      ) : (
+                        <Text size="xs" c="dimmed">-</Text>
+                      )}
                     </Table.Td>
                     <Table.Td>
                       <Text size="sm" fw={500}>{log.message}</Text>
@@ -156,27 +191,113 @@ export function LogsPage() {
                       </Stack>
                     </Table.Td>
                     <Table.Td>
-                      {log.data && (
-                        <Tooltip label={log.data} multiline w={400} withArrow>
-                          <Text size="xs" c="dimmed" style={{ 
-                            maxWidth: 200, 
-                            whiteSpace: 'nowrap', 
-                            overflow: 'hidden', 
-                            textOverflow: 'ellipsis',
-                            cursor: 'help'
-                          }}>
-                            {log.data}
-                          </Text>
-                        </Tooltip>
-                      )}
+                      <Tooltip label="View Full Details">
+                        <ActionIcon variant="light" color="blue" onClick={() => viewDetails(log)}>
+                          <IconEye size="1.1rem" />
+                        </ActionIcon>
+                      </Tooltip>
                     </Table.Td>
                   </Table.Tr>
                 ))
               )}
             </Table.Tbody>
           </Table>
+          {totalPages > 1 && (
+            <Group justify="center" p="md" bg="gray.0" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
+              <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
+            </Group>
+          )}
         </Paper>
       </Stack>
+      
+      <Modal 
+        opened={opened} 
+        onClose={close} 
+        title={<Text fw={700}>Log Entry Details</Text>}
+        size="lg"
+        radius="md"
+      >
+        {selectedLog && (
+          <Stack gap="md">
+            <Group justify="space-between">
+              <Box>
+                <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }}>Timestamp</Text>
+                <Text size="sm">{new Date(selectedLog.timestamp).toLocaleString()}</Text>
+              </Box>
+              <Box>
+                <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} ta="right">Level</Text>
+                <Badge color={getLevelColor(selectedLog.level)} variant="light">
+                  {selectedLog.level}
+                </Badge>
+              </Box>
+            </Group>
+
+            <Divider />
+
+            <Box>
+              <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} mb={4}>Message</Text>
+              <Paper withBorder p="xs" bg="gray.0">
+                <Text size="sm" fw={500}>{selectedLog.message}</Text>
+              </Paper>
+            </Box>
+
+            {selectedLog.action && (
+              <Box>
+                <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} mb={4}>Action</Text>
+                <Badge variant="outline" color="blue" radius="xs" style={{ textTransform: 'none' }}>
+                  {selectedLog.action}
+                </Badge>
+              </Box>
+            )}
+
+            <Group grow>
+              {selectedLog.connection_id && (
+                <Box>
+                  <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }}>Connection ID</Text>
+                  <Code block fz="xs">{selectedLog.connection_id}</Code>
+                </Box>
+              )}
+              {selectedLog.source_id && (
+                <Box>
+                  <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }}>Source ID</Text>
+                  <Code block fz="xs">{selectedLog.source_id}</Code>
+                </Box>
+              )}
+              {selectedLog.sink_id && (
+                <Box>
+                  <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }}>Sink ID</Text>
+                  <Code block fz="xs">{selectedLog.sink_id}</Code>
+                </Box>
+              )}
+            </Group>
+
+            {selectedLog.data && (
+              <Box>
+                <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} mb={4}>Action Data / Payload</Text>
+                <ScrollArea.Autosize mah={400} type="always">
+                  <Paper withBorder p="xs" bg="gray.0">
+                    <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                      {(() => {
+                        try {
+                          // Try to format as JSON if it looks like JSON
+                          if (selectedLog.data.trim().startsWith('{') || selectedLog.data.trim().startsWith('[')) {
+                            return JSON.stringify(JSON.parse(selectedLog.data), null, 2);
+                          }
+                        } catch (e) {}
+                        return selectedLog.data;
+                      })()}
+                    </Code>
+                  </Paper>
+                </ScrollArea.Autosize>
+              </Box>
+            )}
+
+            <Group justify="flex-end" mt="md">
+              <Button onClick={close} variant="light">Close</Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
     </Box>
   );
 }

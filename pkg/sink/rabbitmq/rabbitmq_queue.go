@@ -2,7 +2,6 @@ package rabbitmq
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -13,62 +12,69 @@ import (
 type RabbitMQQueueSink struct {
 	conn      *amqp.Connection
 	channel   *amqp.Channel
+	url       string
 	queue     string
 	formatter hermod.Formatter
 }
 
 // NewRabbitMQQueueSink creates a new RabbitMQ Queue sink.
 func NewRabbitMQQueueSink(url string, queueName string, formatter hermod.Formatter) (*RabbitMQQueueSink, error) {
-	conn, err := amqp.Dial(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
-	}
-
-	ch, err := conn.Channel()
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("failed to open a channel: %w", err)
-	}
-
-	_, err = ch.QueueDeclare(
-		queueName, // name
-		true,      // durable
-		false,     // delete when unused
-		false,     // exclusive
-		false,     // no-wait
-		nil,       // arguments
-	)
-	if err != nil {
-		ch.Close()
-		conn.Close()
-		return nil, fmt.Errorf("failed to declare a queue: %w", err)
-	}
-
 	return &RabbitMQQueueSink{
-		conn:      conn,
-		channel:   ch,
+		url:       url,
 		queue:     queueName,
 		formatter: formatter,
 	}, nil
 }
 
+func (s *RabbitMQQueueSink) ensureConnected() error {
+	if s.conn != nil && !s.conn.IsClosed() && s.channel != nil {
+		return nil
+	}
+
+	conn, err := amqp.Dial(s.url)
+	if err != nil {
+		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
+	}
+
+	ch, err := conn.Channel()
+	if err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to open a channel: %w", err)
+	}
+
+	_, err = ch.QueueDeclare(
+		s.queue, // name
+		true,    // durable
+		false,   // delete when unused
+		false,   // exclusive
+		false,   // no-wait
+		nil,     // arguments
+	)
+	if err != nil {
+		ch.Close()
+		conn.Close()
+		return fmt.Errorf("failed to declare a queue: %w", err)
+	}
+
+	s.conn = conn
+	s.channel = ch
+	return nil
+}
+
 // Write sends a message to RabbitMQ Queue.
 func (s *RabbitMQQueueSink) Write(ctx context.Context, msg hermod.Message) error {
+	if err := s.ensureConnected(); err != nil {
+		return err
+	}
+
 	var data []byte
 	var err error
 
 	if s.formatter != nil {
 		data, err = s.formatter.Format(msg)
 	} else {
-		data, err = json.Marshal(map[string]interface{}{
-			"id":        msg.ID(),
-			"operation": msg.Operation(),
-			"table":     msg.Table(),
-			"schema":    msg.Schema(),
-			"before":    json.RawMessage(msg.Before()),
-			"after":     json.RawMessage(msg.After()),
-			"metadata":  msg.Metadata(),
-		})
+		// Fallback to Payload-only if no formatter provided
+		data = msg.Payload()
 	}
 
 	if err != nil {
@@ -93,10 +99,7 @@ func (s *RabbitMQQueueSink) Write(ctx context.Context, msg hermod.Message) error
 
 // Ping checks if the RabbitMQ connection is alive.
 func (s *RabbitMQQueueSink) Ping(ctx context.Context) error {
-	if s.conn == nil || s.conn.IsClosed() {
-		return fmt.Errorf("rabbitmq not connected")
-	}
-	return nil
+	return s.ensureConnected()
 }
 
 // Close closes the RabbitMQ channel and connection.

@@ -448,7 +448,7 @@ func (m *MSSQLSource) mapToMessage(table string, op int, lsn []byte, data map[st
 	msg.SetMetadata("lsn", lsnHex)
 	msg.SetMetadata("source", "mssql")
 
-	jsonBytes, _ := json.Marshal(data)
+	jsonBytes, _ := json.Marshal(message.SanitizeMap(data))
 	m.setMsgOperation(msg, op, jsonBytes)
 
 	return msg
@@ -506,7 +506,43 @@ func (m *MSSQLSource) Ping(ctx context.Context) error {
 		}
 		m.db = db
 	}
-	return m.db.PingContext(ctx)
+	if err := m.db.PingContext(ctx); err != nil {
+		return err
+	}
+
+	// Also check if CDC is enabled on the database
+	var isCDCEnabled bool
+	err := m.db.QueryRowContext(ctx, queryCheckDatabaseCDC).Scan(&isCDCEnabled)
+	if err != nil {
+		return fmt.Errorf("failed to check database CDC status: %w", err)
+	}
+	if !isCDCEnabled {
+		return fmt.Errorf("CDC is not enabled on database")
+	}
+
+	// If we have specific tables, check if CDC is enabled for them
+	if len(m.tables) > 0 {
+		for _, table := range m.tables {
+			var isTableCDCEnabled int
+			info, err := m.resolveTable(ctx, table)
+			if err != nil {
+				return fmt.Errorf("failed to resolve table %s: %w", table, err)
+			}
+
+			err = m.db.QueryRowContext(ctx, queryCheckTableCDC, info.objectID).Scan(&isTableCDCEnabled)
+			if err != nil {
+				if err == sql.ErrNoRows {
+					return fmt.Errorf("CDC is not enabled for table %s", table)
+				}
+				return fmt.Errorf("failed to check CDC status for table %s: %w", table, err)
+			}
+			if isTableCDCEnabled != 1 {
+				return fmt.Errorf("CDC is not enabled for table %s", table)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (m *MSSQLSource) Close() error {
@@ -559,4 +595,57 @@ func (m *MSSQLSource) DiscoverTables(ctx context.Context) ([]string, error) {
 		tables = append(tables, name)
 	}
 	return tables, nil
+}
+
+func (m *MSSQLSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	if err := m.Ping(ctx); err != nil {
+		return nil, err
+	}
+
+	rows, err := m.db.QueryContext(ctx, fmt.Sprintf("SELECT TOP 1 * FROM %s", table))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query sample record: %w", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, fmt.Errorf("no records found in table %s", table)
+	}
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	columns := make([]interface{}, len(cols))
+	columnPointers := make([]interface{}, len(cols))
+	for i := range columns {
+		columnPointers[i] = &columns[i]
+	}
+
+	if err := rows.Scan(columnPointers...); err != nil {
+		return nil, err
+	}
+
+	record := make(map[string]interface{})
+	for i, colName := range cols {
+		val := columns[i]
+		if b, ok := val.([]byte); ok {
+			record[colName] = string(b)
+		} else {
+			record[colName] = val
+		}
+	}
+
+	afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+	msg := message.AcquireMessage()
+	msg.SetID(fmt.Sprintf("sample-%s-%d", table, time.Now().Unix()))
+	msg.SetOperation(hermod.OpSnapshot)
+	msg.SetTable(table)
+	msg.SetAfter(afterJSON)
+	msg.SetMetadata("source", "mssql")
+	msg.SetMetadata("sample", "true")
+
+	return msg, nil
 }

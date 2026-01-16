@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, Modal, List, ThemeIcon } from '@mantine/core';
-import { IconTrash, IconPlus, IconDatabaseImport, IconEdit, IconAlertCircle } from '@tabler/icons-react';
+import { useEffect, useState } from 'react';
+import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, Modal, List, ThemeIcon, TextInput, Pagination } from '@mantine/core';
+import { IconTrash, IconPlus, IconDatabaseImport, IconEdit, IconAlertCircle, IconSearch, IconActivity } from '@tabler/icons-react';
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, getRoleFromToken } from '../api';
 import { useVHost } from '../context/VHostContext';
@@ -17,48 +17,88 @@ export function SourcesPage() {
   const navigate = useNavigate();
   const [opened, { open, close }] = useDisclosure(false);
   const [sourceToDelete, setSourceToDelete] = useState<any>(null);
+  const [search, setSearch] = useState('');
+  const [activePage, setPage] = useState(1);
+  const itemsPerPage = 30;
 
-  const { data: sources } = useSuspenseQuery({
-    queryKey: ['sources'],
+  const [liveStatuses, setLiveStatuses] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/status`;
+    const ws = new WebSocket(wsUrl);
+    
+    ws.onmessage = (event) => {
+      try {
+        const update = JSON.parse(event.data);
+        setLiveStatuses(prev => ({
+          ...prev,
+          [update.connection_id]: update
+        }));
+      } catch (err) {
+        console.error('Failed to parse status update', err);
+      }
+    };
+
+    return () => ws.close();
+  }, []);
+
+  const { data: sourcesResponse } = useSuspenseQuery({
+    queryKey: ['sources', activePage, search, selectedVHost],
     queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/sources`);
+      const vhostParam = selectedVHost !== 'all' ? `&vhost=${selectedVHost}` : '';
+      const res = await apiFetch(`${API_BASE}/sources?page=${activePage}&limit=${itemsPerPage}&search=${search}${vhostParam}`);
       if (!res.ok) throw new Error('Failed to fetch sources');
       return res.json();
     },
     refetchInterval: 5000,
   });
 
-  const { data: connections } = useSuspenseQuery({
-    queryKey: ['connections'],
+  const sources = (sourcesResponse as any)?.data || [];
+  const totalItems = (sourcesResponse as any)?.total || 0;
+
+  const { data: connectionsResponse } = useSuspenseQuery({
+    queryKey: ['connections-all'],
     queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/connections`);
+      const res = await apiFetch(`${API_BASE}/connections?limit=1000`);
       if (res.ok) return res.json();
-      return [];
+      return { data: [], total: 0 };
     },
     refetchInterval: 5000,
   });
+  const connections = (connectionsResponse as any)?.data || [];
 
   const activeConnectionsUsingSource = sourceToDelete 
     ? (connections as any[])?.filter(c => c.source_id === sourceToDelete.id && c.active)
     : [];
 
-  const { data: workers } = useSuspenseQuery({
-    queryKey: ['workers'],
+  const { data: workersResponse } = useSuspenseQuery({
+    queryKey: ['workers-all'],
     queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/workers`);
+      const res = await apiFetch(`${API_BASE}/workers?limit=1000`);
       if (res.ok) return res.json();
-      return [];
+      return { data: [], total: 0 };
     }
   });
+  const workers = (workersResponse as any)?.data || [];
 
   const getWorkerName = (id: string) => {
     const worker = (workers as any[])?.find(w => w.id === id);
     return worker ? worker.name : id;
   };
 
-  const filteredSources = (sources || []).filter((s: any) => 
-    selectedVHost === 'all' || s.vhost === selectedVHost
-  );
+  const getSourceLiveStatus = (sourceId: string) => {
+    const relevantStatuses = Object.values(liveStatuses).filter((s: any) => s.source_id === sourceId);
+    if (relevantStatuses.length === 0) return null;
+    
+    if (relevantStatuses.some((s: any) => s.source_status === 'error')) return 'error';
+    if (relevantStatuses.some((s: any) => s.source_status === 'reconnecting')) return 'reconnecting';
+    if (relevantStatuses.some((s: any) => s.source_status === 'connecting')) return 'connecting';
+    if (relevantStatuses.some((s: any) => s.source_status === 'running')) return 'running';
+    return relevantStatuses[0].source_status;
+  };
+
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -81,21 +121,33 @@ export function SourcesPage() {
       </style>
       <Stack gap="lg">
         <Paper p="md" withBorder radius="md" bg="gray.0">
-          <Group gap="sm">
-            <IconDatabaseImport size="2rem" color="var(--mantine-color-blue-filled)" />
-            <Box style={{ flex: 1 }}>
-              <Title order={2} fw={800}>Sources</Title>
-              <Text size="sm" c="dimmed">
-                Sources are the origin of your data. Configure database connections like PostgreSQL, MySQL, or MongoDB 
-                to capture changes (CDC) and stream them through Hermod.
-              </Text>
-            </Box>
-            {!isViewer && (
-              <Button leftSection={<IconPlus size="1rem" />} onClick={() => navigate({ to: '/sources/new' })} radius="md">
-                Add Source
-              </Button>
-            )}
-          </Group>
+          <Stack gap="md">
+            <Group gap="sm">
+              <IconDatabaseImport size="2rem" color="var(--mantine-color-blue-filled)" />
+              <Box style={{ flex: 1 }}>
+                <Title order={2} fw={800}>Sources</Title>
+                <Text size="sm" c="dimmed">
+                  Sources are the origin of your data. Configure database connections like PostgreSQL, MySQL, or MongoDB 
+                  to capture changes (CDC) and stream them through Hermod.
+                </Text>
+              </Box>
+              {!isViewer && (
+                <Button leftSection={<IconPlus size="1rem" />} onClick={() => navigate({ to: '/sources/new' })} radius="md">
+                  Add Source
+                </Button>
+              )}
+            </Group>
+            <TextInput
+              placeholder="Search sources by name or type..."
+              leftSection={<IconSearch size="1rem" stroke={1.5} />}
+              value={search}
+              onChange={(event) => {
+                setSearch(event.currentTarget.value);
+                setPage(1);
+              }}
+              radius="md"
+            />
+          </Stack>
         </Paper>
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
@@ -111,7 +163,7 @@ export function SourcesPage() {
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {filteredSources?.map((src: any) => (
+            {sources?.map((src: any) => (
               <Table.Tr key={src.id}>
                 <Table.Td fw={500}>{src.name}</Table.Td>
                 <Table.Td>
@@ -121,14 +173,53 @@ export function SourcesPage() {
                 </Table.Td>
                 <Table.Td>{src.vhost || '-'}</Table.Td>
                 <Table.Td>
-                  <Badge 
-                    variant="light" 
-                    color={src.active ? 'green' : 'gray'}
-                    size="sm"
-                    radius="sm"
-                  >
-                    {src.active ? 'Active' : 'Inactive'}
-                  </Badge>
+                  {(() => {
+                    const liveStatus = getSourceLiveStatus(src.id);
+                    const status = liveStatus || src.status;
+                    
+                    if (!src.active && !liveStatus && !src.status) {
+                      return (
+                        <Badge variant="filled" color="red" size="sm" radius="sm">
+                          Shutdown
+                        </Badge>
+                      );
+                    }
+                    
+                    if (status === 'running') {
+                      return (
+                        <Badge variant="filled" color="green" size="sm" radius="sm" leftSection={<IconActivity size="0.7rem" />}>
+                          Online
+                        </Badge>
+                      );
+                    }
+                    if (status === 'error' || (status && status.startsWith('error'))) {
+                      return (
+                        <Badge variant="filled" color="red" size="sm" radius="sm" leftSection={<IconActivity size="0.7rem" />}>
+                          Offline
+                        </Badge>
+                      );
+                    }
+                    if (status === 'reconnecting') {
+                      return (
+                        <Badge variant="filled" color="orange" size="sm" radius="sm" leftSection={<IconActivity size="0.7rem" />}>
+                          Reconnecting
+                        </Badge>
+                      );
+                    }
+                    if (status === 'connecting') {
+                      return (
+                        <Badge variant="filled" color="orange" size="sm" radius="sm" leftSection={<IconActivity size="0.7rem" />}>
+                          Connecting
+                        </Badge>
+                      );
+                    }
+                    
+                    return (
+                      <Badge variant="light" color="blue" size="sm" radius="sm">
+                        {status || 'Active'}
+                      </Badge>
+                    );
+                  })()}
                 </Table.Td>
                 <Table.Td>
                   {src.worker_id ? (
@@ -156,13 +247,18 @@ export function SourcesPage() {
             ))}
             {sources?.length === 0 && (
               <Table.Tr>
-                <Table.Td colSpan={5} py="xl">
-                  <Text c="dimmed" ta="center">No sources configured yet</Text>
+                <Table.Td colSpan={6} py="xl">
+                  <Text c="dimmed" ta="center">{search ? 'No sources match your search' : 'No sources configured yet'}</Text>
                 </Table.Td>
               </Table.Tr>
             )}
           </Table.Tbody>
         </Table>
+        {totalPages > 1 && (
+          <Group justify="center" p="md" bg="gray.0" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
+            <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
+          </Group>
+        )}
       </Paper>
     </Stack>
 

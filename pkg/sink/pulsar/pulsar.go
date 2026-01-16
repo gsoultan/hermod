@@ -3,6 +3,7 @@ package pulsar
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/apache/pulsar-client-go/pulsar"
 	"github.com/user/hermod"
@@ -12,37 +13,68 @@ type PulsarSink struct {
 	client    pulsar.Client
 	producer  pulsar.Producer
 	formatter hermod.Formatter
+	url       string
+	topic     string
+	token     string
+	mu        sync.Mutex
 }
 
 func NewPulsarSink(url string, topic string, token string, formatter hermod.Formatter) (*PulsarSink, error) {
-	opts := pulsar.ClientOptions{
-		URL: url,
-	}
-	if token != "" {
-		opts.Authentication = pulsar.NewAuthenticationToken(token)
-	}
-	client, err := pulsar.NewClient(opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create pulsar client: %w", err)
-	}
-
-	producer, err := client.CreateProducer(pulsar.ProducerOptions{
-		Topic: topic,
-	})
-	if err != nil {
-		client.Close()
-		return nil, fmt.Errorf("failed to create pulsar producer: %w", err)
-	}
-
 	return &PulsarSink{
-		client:    client,
-		producer:  producer,
+		url:       url,
+		topic:     topic,
+		token:     token,
 		formatter: formatter,
 	}, nil
 }
 
+func (s *PulsarSink) ensureConnected() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.client != nil && s.producer != nil {
+		return nil
+	}
+
+	opts := pulsar.ClientOptions{
+		URL: s.url,
+	}
+	if s.token != "" {
+		opts.Authentication = pulsar.NewAuthenticationToken(s.token)
+	}
+
+	client, err := pulsar.NewClient(opts)
+	if err != nil {
+		return fmt.Errorf("failed to create pulsar client: %w", err)
+	}
+
+	producer, err := client.CreateProducer(pulsar.ProducerOptions{
+		Topic: s.topic,
+	})
+	if err != nil {
+		client.Close()
+		return fmt.Errorf("failed to create pulsar producer: %w", err)
+	}
+
+	s.client = client
+	s.producer = producer
+	return nil
+}
+
 func (s *PulsarSink) Write(ctx context.Context, msg hermod.Message) error {
-	data, err := s.formatter.Format(msg)
+	if err := s.ensureConnected(); err != nil {
+		return err
+	}
+
+	var data []byte
+	var err error
+
+	if s.formatter != nil {
+		data, err = s.formatter.Format(msg)
+	} else {
+		data = msg.Payload()
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to format message: %w", err)
 	}
@@ -59,19 +91,18 @@ func (s *PulsarSink) Write(ctx context.Context, msg hermod.Message) error {
 }
 
 func (s *PulsarSink) Ping(ctx context.Context) error {
-	// Send an empty message with properties to check connectivity if Send is too heavy
-	// Actually Pulsar client doesn't have a simple Ping.
-	// We can check if the producer is ready by trying to flush or just use a simple check.
-	// For now, let's just return nil as the client handles reconnection.
-	// But we can check if the client is not nil.
-	if s.client == nil || s.producer == nil {
-		return fmt.Errorf("pulsar client or producer is not initialized")
-	}
-	return nil
+	return s.ensureConnected()
 }
 
 func (s *PulsarSink) Close() error {
-	s.producer.Close()
-	s.client.Close()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.producer != nil {
+		s.producer.Close()
+	}
+	if s.client != nil {
+		s.client.Close()
+	}
 	return nil
 }

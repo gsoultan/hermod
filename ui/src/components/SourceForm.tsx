@@ -9,14 +9,10 @@ import { useNavigate } from '@tanstack/react-router';
 const API_BASE = '/api';
 
 const SOURCE_TYPES = [
-  'postgres', 'mysql', 'mssql', 'oracle', 'mongodb', 'cassandra', 'yugabyte', 'scylladb', 'clickhouse', 'sqlite',
+  'postgres', 'mysql', 'mssql', 'oracle', 'mongodb', 'cassandra', 'yugabyte', 'scylladb', 'clickhouse', 'sqlite', 'csv',
   'kafka', 'nats', 'redis', 'rabbitmq', 'rabbitmq_queue'
 ];
 
-interface Worker {
-  id: string;
-  name: string;
-}
 
 interface SourceFormProps {
   initialData?: any;
@@ -45,7 +41,8 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
       tables: '',
       sslmode: 'disable',
       slot_name: 'hermod_slot',
-      publication_name: 'hermod_pub'
+      publication_name: 'hermod_pub',
+      reconnect_interval: '30s'
     }
   });
 
@@ -105,31 +102,35 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
         ...initialData,
         config: {
           ...initialData.config,
+          reconnect_interval: initialData.config?.reconnect_interval || '30s',
         }
       });
     }
   }, [initialData]);
 
-  const { data: vhosts } = useSuspenseQuery<any[]>({
+  const { data: vhostsResponse } = useSuspenseQuery<any>({
     queryKey: ['vhosts'],
     queryFn: async () => {
       const res = await apiFetch(`${API_BASE}/vhosts`);
       if (res.ok) return res.json();
-      return [];
+      return { data: [], total: 0 };
     }
   });
 
-  const { data: workers } = useSuspenseQuery<Worker[]>({
+  const { data: workersResponse } = useSuspenseQuery<any>({
     queryKey: ['workers'],
     queryFn: async () => {
       const res = await apiFetch(`${API_BASE}/workers`);
       if (res.ok) return res.json();
-      return [];
+      return { data: [], total: 0 };
     }
   });
 
+  const vhosts = vhostsResponse?.data || [];
+  const workers = workersResponse?.data || [];
+
   const availableVHostsList = role === 'Administrator' 
-    ? (vhosts || []).map(v => v.name)
+    ? (vhosts || []).map((v: any) => v.name)
     : availableVHosts;
 
   const testMutation = useMutation({
@@ -249,6 +250,23 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
         <>
           <TextInput label="DB Path" placeholder="/path/to/hermod.db" value={source.config.path} onChange={(e) => updateConfig('path', e.target.value)} />
           {tablesInput}
+        </>
+      );
+    }
+
+    if (source.type === 'csv') {
+      return (
+        <>
+          <TextInput label="File Path" placeholder="/path/to/data.csv" value={source.config.file_path} onChange={(e) => updateConfig('file_path', e.target.value)} required />
+          <Group grow>
+            <TextInput label="Delimiter" placeholder="," value={source.config.delimiter} onChange={(e) => updateConfig('delimiter', e.target.value)} maxLength={1} />
+            <Checkbox 
+              label="Has Header" 
+              checked={source.config.has_header === 'true'} 
+              onChange={(e) => updateConfig('has_header', e.target.checked ? 'true' : 'false')} 
+              style={{ marginTop: 24 }}
+            />
+          </Group>
         </>
       );
     }
@@ -512,6 +530,18 @@ GO`}
             </List>
           </Stack>
         );
+      case 'csv':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>CSV Source</Title>
+            <Text size="sm">Reads data from a CSV file.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Specify the full path to the .csv file</List.Item>
+              <List.Item>You can configure the delimiter (default is comma)</List.Item>
+              <List.Item>If "Has Header" is enabled, first row will be used as field names</List.Item>
+            </List>
+          </Stack>
+        );
       default:
         return (
           <Group gap="xs" c="dimmed">
@@ -558,7 +588,7 @@ GO`}
             <Select 
               label="Worker (Optional)" 
               placeholder="Assign to a specific worker" 
-              data={(workers || []).map(w => ({ value: w.id, label: w.name || w.id }))}
+              data={(workers || []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
               value={source.worker_id}
               onChange={(val) => handleSourceChange({ worker_id: val || '' })}
               clearable
@@ -574,6 +604,17 @@ GO`}
           
           <Divider label="Configuration" labelPosition="center" />
           {renderConfigFields()}
+
+          <Divider label="Reliability" labelPosition="center" mt="md" />
+          <Group grow>
+            <TextInput 
+              label="Reconnect Interval" 
+              placeholder="1s, 2m, 1d" 
+              description="Interval(s) between reconnection attempts. Can be multiple values separated by comma (e.g. 1s, 2m, 1d). The last interval will be used indefinitely."
+              value={source.config.reconnect_interval || ''} 
+              onChange={(e) => updateConfig('reconnect_interval', e.target.value)} 
+            />
+          </Group>
 
           <Group justify="flex-end" mt="xl">
             {!embedded && <Button variant="outline" onClick={() => navigate({ to: '/sources' })}>Cancel</Button>}

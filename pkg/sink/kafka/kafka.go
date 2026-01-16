@@ -41,7 +41,16 @@ func NewKafkaSink(brokers []string, topic string, username, password string, for
 }
 
 func (s *KafkaSink) Write(ctx context.Context, msg hermod.Message) error {
-	data, err := s.formatter.Format(msg)
+	var data []byte
+	var err error
+
+	if s.formatter != nil {
+		data, err = s.formatter.Format(msg)
+	} else {
+		// Fallback to Payload-only if no formatter provided
+		data = msg.Payload()
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to format message: %w", err)
 	}
