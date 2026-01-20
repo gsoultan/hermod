@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -24,14 +25,16 @@ type MSSQLSource struct {
 	tables        []string
 	pollInterval  time.Duration
 	autoEnableCDC bool
+	useCDC        bool
 
-	mu       sync.Mutex
-	lastLSN  []byte
-	buffer   []hermod.Message
-	captures map[string]string // table name -> capture instance name
+	mu        sync.Mutex
+	tableLSNs map[string][]byte // table name -> last acked LSN
+	buffer    []hermod.Message
+	captures  map[string]string // table name -> capture instance name
+	logger    hermod.Logger
 }
 
-func NewMSSQLSource(connString string, tables []string, autoEnableCDC bool) *MSSQLSource {
+func NewMSSQLSource(connString string, tables []string, autoEnableCDC bool, useCDC bool) *MSSQLSource {
 	normalizedTables := make([]string, len(tables))
 	for i, t := range tables {
 		normalizedTables[i] = normalizeTableName(t)
@@ -42,7 +45,42 @@ func NewMSSQLSource(connString string, tables []string, autoEnableCDC bool) *MSS
 		tables:        normalizedTables,
 		pollInterval:  5 * time.Second,
 		autoEnableCDC: autoEnableCDC,
+		useCDC:        useCDC,
+		tableLSNs:     make(map[string][]byte),
 		captures:      make(map[string]string),
+	}
+}
+
+func (m *MSSQLSource) SetLogger(logger hermod.Logger) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.logger = logger
+}
+
+func (m *MSSQLSource) log(level, msg string, keysAndValues ...interface{}) {
+	m.mu.Lock()
+	logger := m.logger
+	m.mu.Unlock()
+
+	if logger == nil {
+		// Fallback to standard log if no structured logger is set, to ensure timestamps
+		if len(keysAndValues) > 0 {
+			log.Printf("[%s] %s %v", level, msg, keysAndValues)
+		} else {
+			log.Printf("[%s] %s", level, msg)
+		}
+		return
+	}
+
+	switch level {
+	case "DEBUG":
+		logger.Debug(msg, keysAndValues...)
+	case "INFO":
+		logger.Info(msg, keysAndValues...)
+	case "WARN":
+		logger.Warn(msg, keysAndValues...)
+	case "ERROR":
+		logger.Error(msg, keysAndValues...)
 	}
 }
 
@@ -61,9 +99,16 @@ type tableInfo struct {
 }
 
 func (m *MSSQLSource) resolveTable(ctx context.Context, table string) (*tableInfo, error) {
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("database connection not initialized")
+	}
+
 	var info tableInfo
 	// OBJECT_ID is collation-aware and handles 1, 2, or 3 part names.
-	err := m.db.QueryRowContext(ctx, queryResolveTableByID, table).Scan(&info.objectID, &info.schema, &info.name)
+	err := db.QueryRowContext(ctx, queryResolveTableByID, table).Scan(&info.objectID, &info.schema, &info.name)
 
 	if err == nil {
 		return &info, nil
@@ -80,9 +125,9 @@ func (m *MSSQLSource) resolveTable(ctx context.Context, table string) (*tableInf
 	var rows *sql.Rows
 	if len(parts) >= 2 {
 		schemaName := parts[len(parts)-2]
-		rows, err = m.db.QueryContext(ctx, queryResolveTableByFullQualifiedName, schemaName, tableName)
+		rows, err = db.QueryContext(ctx, queryResolveTableByFullQualifiedName, schemaName, tableName)
 	} else {
-		rows, err = m.db.QueryContext(ctx, queryResolveTableByNameOnly, tableName)
+		rows, err = db.QueryContext(ctx, queryResolveTableByNameOnly, tableName)
 	}
 
 	if err != nil {
@@ -101,6 +146,10 @@ func (m *MSSQLSource) resolveTable(ctx context.Context, table string) (*tableInf
 }
 
 func (m *MSSQLSource) Read(ctx context.Context) (hermod.Message, error) {
+	if !m.useCDC {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	for {
 		m.mu.Lock()
 		if len(m.buffer) > 0 {
@@ -134,6 +183,13 @@ func (m *MSSQLSource) poll(ctx context.Context) error {
 		return err
 	}
 
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return fmt.Errorf("database connection not initialized")
+	}
+
 	if len(m.captures) == 0 {
 		if err := m.discoverCaptures(ctx); err != nil {
 			return err
@@ -141,7 +197,7 @@ func (m *MSSQLSource) poll(ctx context.Context) error {
 	}
 
 	var maxLSN []byte
-	err := m.db.QueryRowContext(ctx, queryGetMaxLSN).Scan(&maxLSN)
+	err := db.QueryRowContext(ctx, queryGetMaxLSN).Scan(&maxLSN)
 	if err != nil {
 		return fmt.Errorf("failed to get max lsn: %w", err)
 	}
@@ -154,6 +210,9 @@ func (m *MSSQLSource) poll(ctx context.Context) error {
 	for table, capture := range m.captures {
 		msgs, err := m.pollTable(ctx, table, capture, maxLSN)
 		if err != nil {
+			m.mu.Lock()
+			m.captures = make(map[string]string)
+			m.mu.Unlock()
 			return err
 		}
 		allMessages = append(allMessages, msgs...)
@@ -178,18 +237,47 @@ func (m *MSSQLSource) sortAndBufferMessages(msgs []hermod.Message) {
 }
 
 func (m *MSSQLSource) discoverCaptures(ctx context.Context) error {
-	configToID, resolveErrors, err := m.resolveTables(ctx)
-	if err != nil {
-		return err
+	var configToID map[string]int32
+	var resolveErrors map[string]error
+	var err error
+
+	// Retry discovery a few times as CDC enablement is asynchronous in MSSQL
+	for attempt := 1; attempt <= 5; attempt++ {
+		configToID, resolveErrors, err = m.resolveTables(ctx)
+		if err != nil {
+			return err
+		}
+
+		m.mu.Lock()
+		db := m.db
+		m.mu.Unlock()
+		if db == nil {
+			return fmt.Errorf("database connection not initialized")
+		}
+
+		rows, err := db.QueryContext(ctx, queryDiscoverCaptures)
+		if err != nil {
+			return fmt.Errorf("failed to discover capture instances: %w", err)
+		}
+
+		err = m.assignCaptures(rows, configToID, resolveErrors)
+		rows.Close()
+
+		if err == nil {
+			return nil
+		}
+
+		if attempt < 5 {
+			m.log("WARN", "Capture instances not ready yet, retrying...", "attempt", attempt, "error", err)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
+		}
 	}
 
-	rows, err := m.db.QueryContext(ctx, queryDiscoverCaptures)
-	if err != nil {
-		return fmt.Errorf("failed to discover capture instances: %w", err)
-	}
-	defer rows.Close()
-
-	return m.assignCaptures(rows, configToID, resolveErrors)
+	return err
 }
 
 func (m *MSSQLSource) resolveTables(ctx context.Context) (map[string]int32, map[string]error, error) {
@@ -306,18 +394,25 @@ func (m *MSSQLSource) matchTable(configured, physicalSchema, physicalTable strin
 }
 
 func (m *MSSQLSource) ensureDatabaseCDC(ctx context.Context) error {
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return fmt.Errorf("database connection not initialized")
+	}
+
 	var isCDCEnabled bool
-	err := m.db.QueryRowContext(ctx, queryCheckDatabaseCDC).Scan(&isCDCEnabled)
+	err := db.QueryRowContext(ctx, queryCheckDatabaseCDC).Scan(&isCDCEnabled)
 	if err != nil {
 		return fmt.Errorf("failed to check if CDC is enabled on database: %w", err)
 	}
 
 	if !isCDCEnabled {
-		_, err = m.db.ExecContext(ctx, queryEnableDatabaseCDC)
+		_, err = db.ExecContext(ctx, queryEnableDatabaseCDC)
 		if err != nil {
 			return fmt.Errorf("failed to enable CDC on database: %w", err)
 		}
-		fmt.Println("Enabled CDC on database")
+		m.log("INFO", "Enabled CDC on database")
 	}
 	return nil
 }
@@ -325,6 +420,13 @@ func (m *MSSQLSource) ensureDatabaseCDC(ctx context.Context) error {
 func (m *MSSQLSource) ensureTableCDC(ctx context.Context, table string) (*tableInfo, error) {
 	if err := m.ensureDatabaseCDC(ctx); err != nil {
 		return nil, err
+	}
+
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("database connection not initialized")
 	}
 
 	info, err := m.resolveTable(ctx, table)
@@ -335,7 +437,7 @@ func (m *MSSQLSource) ensureTableCDC(ctx context.Context, table string) (*tableI
 	// Check if CDC is already enabled for the table and has a capture instance.
 	// We check both sys.tables and cdc.change_tables to be sure.
 	var isTracked bool
-	err = m.db.QueryRowContext(ctx, queryCheckTableCDC, info.objectID).Scan(&isTracked)
+	err = db.QueryRowContext(ctx, queryCheckTableCDC, info.objectID).Scan(&isTracked)
 
 	if err != nil && err != sql.ErrNoRows {
 		return nil, fmt.Errorf("failed to check if CDC is enabled on table %s.%s: %w", info.schema, info.name, err)
@@ -343,38 +445,46 @@ func (m *MSSQLSource) ensureTableCDC(ctx context.Context, table string) (*tableI
 
 	if err == sql.ErrNoRows || !isTracked {
 		// Use named parameters for clarity and set supports_net_changes to 0 for better compatibility
-		_, err = m.db.ExecContext(ctx, queryEnableTableCDC, info.schema, info.name)
+		_, err = db.ExecContext(ctx, queryEnableTableCDC, info.schema, info.name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to enable CDC on table %s.%s: %w", info.schema, info.name, err)
 		}
-		fmt.Printf("Enabled CDC on table %s.%s\n", info.schema, info.name)
+		m.log("INFO", "Enabled CDC on table", "schema", info.schema, "table", info.name)
 	}
 
 	return info, nil
 }
 
 func (m *MSSQLSource) pollTable(ctx context.Context, table, capture string, maxLSN []byte) ([]hermod.Message, error) {
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("database connection not initialized")
+	}
+
 	var minLSN []byte
-	err := m.db.QueryRowContext(ctx, queryGetMinLSN, capture).Scan(&minLSN)
+	err := db.QueryRowContext(ctx, queryGetMinLSN, capture).Scan(&minLSN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get min lsn for %s: %w", capture, err)
 	}
 
 	m.mu.Lock()
-	fromLSN := m.lastLSN
+	fromLSN := m.tableLSNs[table]
 	m.mu.Unlock()
 
 	if fromLSN == nil {
 		fromLSN = minLSN
 	} else {
-		err = m.db.QueryRowContext(ctx, queryIncrementLSN, fromLSN).Scan(&fromLSN)
-		if err != nil {
-			return nil, fmt.Errorf("failed to increment lsn: %w", err)
+		// Use the max of lastLSN and minLSN to handle log truncation
+		if bytes.Compare(fromLSN, minLSN) < 0 {
+			fromLSN = minLSN
+		} else {
+			err = db.QueryRowContext(ctx, queryIncrementLSN, fromLSN).Scan(&fromLSN)
+			if err != nil {
+				return nil, fmt.Errorf("failed to increment lsn: %w", err)
+			}
 		}
-	}
-
-	if bytes.Compare(fromLSN, minLSN) < 0 {
-		fromLSN = minLSN
 	}
 
 	if bytes.Compare(fromLSN, maxLSN) > 0 {
@@ -382,7 +492,7 @@ func (m *MSSQLSource) pollTable(ctx context.Context, table, capture string, maxL
 	}
 
 	query := fmt.Sprintf(queryGetTableChangesFormat, capture)
-	rows, err := m.db.QueryContext(ctx, query, fromLSN, maxLSN)
+	rows, err := db.QueryContext(ctx, query, fromLSN, maxLSN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query changes for %s: %w", capture, err)
 	}
@@ -398,6 +508,8 @@ func (m *MSSQLSource) processChangeRows(table string, rows *sql.Rows) ([]hermod.
 	}
 
 	var msgs []hermod.Message
+	var lastBeforeMsg *message.DefaultMessage
+
 	for rows.Next() {
 		values := make([]interface{}, len(columns))
 		valuePtrs := make([]interface{}, len(columns))
@@ -411,11 +523,15 @@ func (m *MSSQLSource) processChangeRows(table string, rows *sql.Rows) ([]hermod.
 
 		entry := make(map[string]interface{})
 		var rowLSN []byte
+		var rowSeq []byte
 		var operation int
 		for i, colName := range columns {
 			val := values[i]
 			if b, ok := val.([]byte); ok && colName == "__$start_lsn" {
 				rowLSN = b
+			}
+			if b, ok := val.([]byte); ok && colName == "__$seqval" {
+				rowSeq = b
 			}
 			if colName == "__$operation" {
 				if v, ok := val.(int64); ok {
@@ -430,13 +546,47 @@ func (m *MSSQLSource) processChangeRows(table string, rows *sql.Rows) ([]hermod.
 			}
 		}
 
-		msgs = append(msgs, m.mapToMessage(table, operation, rowLSN, entry))
+		msg := m.mapToMessage(table, operation, rowLSN, rowSeq, entry)
+
+		// Merge Update Before (3) and After (4) if they have same LSN and Seq
+		if operation == 3 {
+			if lastBeforeMsg != nil {
+				msgs = append(msgs, lastBeforeMsg)
+			}
+			lastBeforeMsg = msg
+			continue
+		}
+
+		if operation == 4 && lastBeforeMsg != nil {
+			if lastBeforeMsg.Metadata()["lsn"] == msg.Metadata()["lsn"] &&
+				lastBeforeMsg.Metadata()["seqval"] == msg.Metadata()["seqval"] {
+				msg.SetBefore(lastBeforeMsg.Before())
+				msgs = append(msgs, msg)
+				message.ReleaseMessage(lastBeforeMsg)
+				lastBeforeMsg = nil
+				continue
+			} else {
+				msgs = append(msgs, lastBeforeMsg)
+				lastBeforeMsg = nil
+			}
+		}
+
+		if lastBeforeMsg != nil {
+			msgs = append(msgs, lastBeforeMsg)
+			lastBeforeMsg = nil
+		}
+
+		msgs = append(msgs, msg)
+	}
+
+	if lastBeforeMsg != nil {
+		msgs = append(msgs, lastBeforeMsg)
 	}
 
 	return msgs, nil
 }
 
-func (m *MSSQLSource) mapToMessage(table string, op int, lsn []byte, data map[string]interface{}) hermod.Message {
+func (m *MSSQLSource) mapToMessage(table string, op int, lsn []byte, seq []byte, data map[string]interface{}) *message.DefaultMessage {
 	msg := message.AcquireMessage()
 
 	schema, tableName := parseTableParts(table)
@@ -444,8 +594,10 @@ func (m *MSSQLSource) mapToMessage(table string, op int, lsn []byte, data map[st
 	msg.SetTable(tableName)
 
 	lsnHex := hex.EncodeToString(lsn)
-	msg.SetID(lsnHex)
+	seqHex := hex.EncodeToString(seq)
+	msg.SetID(fmt.Sprintf("%s-%s-%d", lsnHex, seqHex, op))
 	msg.SetMetadata("lsn", lsnHex)
+	msg.SetMetadata("seqval", seqHex)
 	msg.SetMetadata("source", "mssql")
 
 	jsonBytes, _ := json.Marshal(message.SanitizeMap(data))
@@ -481,7 +633,33 @@ func (m *MSSQLSource) setMsgOperation(msg *message.DefaultMessage, op int, data 
 	}
 }
 
+func (m *MSSQLSource) SetState(state map[string]string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.tableLSNs == nil {
+		m.tableLSNs = make(map[string][]byte)
+	}
+	for table, lsnHex := range state {
+		if lsn, err := hex.DecodeString(lsnHex); err == nil {
+			m.tableLSNs[table] = lsn
+		}
+	}
+}
+
+func (m *MSSQLSource) GetState() map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state := make(map[string]string)
+	for table, lsn := range m.tableLSNs {
+		state[table] = hex.EncodeToString(lsn)
+	}
+	return state
+}
+
 func (m *MSSQLSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
 	lsnHex := msg.Metadata()["lsn"]
 	if lsnHex == "" {
 		return nil
@@ -492,27 +670,87 @@ func (m *MSSQLSource) Ack(ctx context.Context, msg hermod.Message) error {
 		return fmt.Errorf("failed to parse LSN: %w", err)
 	}
 
+	table := msg.Table()
+	schema := msg.Schema()
+	fullTable := table
+	if schema != "" {
+		fullTable = schema + "." + table
+	}
+
 	m.mu.Lock()
-	m.lastLSN = lsn
-	m.mu.Unlock()
+	defer m.mu.Unlock()
+
+	if m.tableLSNs == nil {
+		m.tableLSNs = make(map[string][]byte)
+	}
+
+	current := m.tableLSNs[fullTable]
+	if current == nil || bytes.Compare(lsn, current) > 0 {
+		m.tableLSNs[fullTable] = lsn
+	}
+
 	return nil
 }
 
 func (m *MSSQLSource) Ping(ctx context.Context) error {
+	// For health checks, we only want to verify connectivity, not full CDC status
+	// which might trigger auto-enabling CDC or heavy metadata queries.
+	return m.ping(ctx, false)
+}
+
+func (m *MSSQLSource) IsReady(ctx context.Context) error {
+	// For readiness checks used by the engine, we perform a deep check of CDC status
+	return m.ping(ctx, true)
+}
+
+func (m *MSSQLSource) ping(ctx context.Context, checkCDC bool) error {
+	m.mu.Lock()
 	if m.db == nil {
 		db, err := sql.Open("sqlserver", m.connString)
 		if err != nil {
+			m.mu.Unlock()
 			return fmt.Errorf("failed to open mssql connection: %w", err)
 		}
 		m.db = db
 	}
-	if err := m.db.PingContext(ctx); err != nil {
+	db := m.db
+	m.mu.Unlock()
+
+	if err := db.PingContext(ctx); err != nil {
+		m.mu.Lock()
+		if m.db == db {
+			db.Close()
+			m.db = nil
+		}
+		m.mu.Unlock()
 		return err
+	}
+
+	if !checkCDC {
+		return nil
+	}
+
+	if m.autoEnableCDC {
+		m.mu.Lock()
+		needsCheck := len(m.captures) == 0
+		m.mu.Unlock()
+
+		if needsCheck {
+			if err := m.ensureDatabaseCDC(ctx); err != nil {
+				return err
+			}
+			for _, table := range m.tables {
+				if _, err := m.ensureTableCDC(ctx, table); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	}
 
 	// Also check if CDC is enabled on the database
 	var isCDCEnabled bool
-	err := m.db.QueryRowContext(ctx, queryCheckDatabaseCDC).Scan(&isCDCEnabled)
+	err := db.QueryRowContext(ctx, queryCheckDatabaseCDC).Scan(&isCDCEnabled)
 	if err != nil {
 		return fmt.Errorf("failed to check database CDC status: %w", err)
 	}
@@ -529,7 +767,7 @@ func (m *MSSQLSource) Ping(ctx context.Context) error {
 				return fmt.Errorf("failed to resolve table %s: %w", table, err)
 			}
 
-			err = m.db.QueryRowContext(ctx, queryCheckTableCDC, info.objectID).Scan(&isTableCDCEnabled)
+			err = db.QueryRowContext(ctx, queryCheckTableCDC, info.objectID).Scan(&isTableCDCEnabled)
 			if err != nil {
 				if err == sql.ErrNoRows {
 					return fmt.Errorf("CDC is not enabled for table %s", table)
@@ -546,19 +784,30 @@ func (m *MSSQLSource) Ping(ctx context.Context) error {
 }
 
 func (m *MSSQLSource) Close() error {
-	fmt.Println("Closing MSSQLSource")
+	m.log("INFO", "Closing MSSQLSource", "tables", m.tables)
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.db != nil {
-		return m.db.Close()
+		err := m.db.Close()
+		m.db = nil
+		return err
 	}
 	return nil
 }
 
 func (m *MSSQLSource) DiscoverDatabases(ctx context.Context) ([]string, error) {
-	if err := m.Ping(ctx); err != nil {
+	if err := m.ping(ctx, false); err != nil {
 		return nil, err
 	}
 
-	rows, err := m.db.QueryContext(ctx, queryDiscoverDatabases)
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("database connection not initialized")
+	}
+
+	rows, err := db.QueryContext(ctx, queryDiscoverDatabases)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query databases: %w", err)
 	}
@@ -576,11 +825,18 @@ func (m *MSSQLSource) DiscoverDatabases(ctx context.Context) ([]string, error) {
 }
 
 func (m *MSSQLSource) DiscoverTables(ctx context.Context) ([]string, error) {
-	if err := m.Ping(ctx); err != nil {
+	if err := m.ping(ctx, false); err != nil {
 		return nil, err
 	}
 
-	rows, err := m.db.QueryContext(ctx, queryDiscoverTables)
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("database connection not initialized")
+	}
+
+	rows, err := db.QueryContext(ctx, queryDiscoverTables)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
@@ -598,11 +854,18 @@ func (m *MSSQLSource) DiscoverTables(ctx context.Context) ([]string, error) {
 }
 
 func (m *MSSQLSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
-	if err := m.Ping(ctx); err != nil {
+	if err := m.ping(ctx, false); err != nil {
 		return nil, err
 	}
 
-	rows, err := m.db.QueryContext(ctx, fmt.Sprintf("SELECT TOP 1 * FROM %s", table))
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("database connection not initialized")
+	}
+
+	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT TOP 1 * FROM %s", table))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sample record: %w", err)
 	}

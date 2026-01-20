@@ -24,44 +24,62 @@ func NewMongoDBSink(uri, database string) *MongoDBSink {
 }
 
 func (s *MongoDBSink) Write(ctx context.Context, msg hermod.Message) error {
+	return s.WriteBatch(ctx, []hermod.Message{msg})
+}
+
+func (s *MongoDBSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
+	// Filter nil messages
+	filtered := make([]hermod.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m != nil {
+			filtered = append(filtered, m)
+		}
+	}
+	msgs = filtered
+
+	if len(msgs) == 0 {
+		return nil
+	}
 	if s.client == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
 	}
 
-	collection := s.client.Database(s.database).Collection(msg.Table())
+	// Group messages by collection (table)
+	byCollection := make(map[string][]mongo.WriteModel)
+	for _, msg := range msgs {
+		op := msg.Operation()
+		if op == "" {
+			op = hermod.OpCreate
+		}
 
-	op := msg.Operation()
-	if op == "" {
-		op = hermod.OpCreate
+		var model mongo.WriteModel
+		switch op {
+		case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
+			var data bson.M
+			if err := bson.UnmarshalExtJSON(msg.Payload(), true, &data); err != nil {
+				data = bson.M{"data": msg.Payload()}
+			}
+			model = mongo.NewUpdateOneModel().
+				SetFilter(bson.M{"_id": msg.ID()}).
+				SetUpdate(bson.M{"$set": data}).
+				SetUpsert(true)
+		case hermod.OpDelete:
+			model = mongo.NewDeleteOneModel().
+				SetFilter(bson.M{"_id": msg.ID()})
+		default:
+			return fmt.Errorf("unsupported operation: %s", op)
+		}
+		byCollection[msg.Table()] = append(byCollection[msg.Table()], model)
 	}
 
-	switch op {
-	case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
-		var data bson.M
-		// Try to unmarshal from JSON first as it's common in Hermod
-		if err := bson.UnmarshalExtJSON(msg.Payload(), true, &data); err != nil {
-			// Fallback to raw bytes if not valid JSON
-			data = bson.M{"data": msg.Payload()}
-		}
-
-		filter := bson.M{"_id": msg.ID()}
-		update := bson.M{"$set": data}
-		opts := options.Update().SetUpsert(true)
-
-		_, err := collection.UpdateOne(ctx, filter, update, opts)
+	for collName, models := range byCollection {
+		collection := s.client.Database(s.database).Collection(collName)
+		_, err := collection.BulkWrite(ctx, models)
 		if err != nil {
-			return fmt.Errorf("failed to write to mongodb: %w", err)
+			return fmt.Errorf("failed to bulk write to mongodb collection %s: %w", collName, err)
 		}
-	case hermod.OpDelete:
-		filter := bson.M{"_id": msg.ID()}
-		_, err := collection.DeleteOne(ctx, filter)
-		if err != nil {
-			return fmt.Errorf("failed to delete from mongodb: %w", err)
-		}
-	default:
-		return fmt.Errorf("unsupported operation: %s", op)
 	}
 
 	return nil
@@ -90,4 +108,23 @@ func (s *MongoDBSink) Close() error {
 		return s.client.Disconnect(context.Background())
 	}
 	return nil
+}
+
+func (s *MongoDBSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
+	if s.client == nil {
+		if err := s.init(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return s.client.ListDatabaseNames(ctx, bson.M{})
+}
+
+func (s *MongoDBSink) DiscoverTables(ctx context.Context) ([]string, error) {
+	if s.client == nil {
+		if err := s.init(ctx); err != nil {
+			return nil, err
+		}
+	}
+	db := s.client.Database(s.database)
+	return db.ListCollectionNames(ctx, bson.M{})
 }

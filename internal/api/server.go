@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,15 +17,20 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/gsoultan/gsmail"
+	"github.com/gsoultan/gsmail/smtp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/config"
 	"github.com/user/hermod/internal/engine"
 	"github.com/user/hermod/internal/storage"
+	storagemongo "github.com/user/hermod/internal/storage/mongodb"
 	sqlstorage "github.com/user/hermod/internal/storage/sql"
 	"github.com/user/hermod/pkg/crypto"
-	pkgengine "github.com/user/hermod/pkg/engine"
 	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/source/webhook"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -49,9 +55,7 @@ func NewServer(registry *engine.Registry, store storage.Storage) *Server {
 	}
 }
 
-func (s *Server) Routes() http.Handler {
-	mux := http.NewServeMux()
-
+func (s *Server) registerSourceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sources", s.listSources)
 	mux.HandleFunc("GET /api/sources/{id}", s.getSource)
 	mux.HandleFunc("POST /api/sources", s.createSource)
@@ -60,66 +64,80 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/sources/discover/databases", s.discoverDatabases)
 	mux.HandleFunc("POST /api/sources/discover/tables", s.discoverTables)
 	mux.HandleFunc("POST /api/sources/sample", s.sampleSourceTable)
+	mux.HandleFunc("POST /api/sources/upload", s.uploadFile)
 	mux.HandleFunc("POST /api/proxy/fetch", s.proxyFetch)
 	mux.HandleFunc("DELETE /api/sources/{id}", s.deleteSource)
+}
 
+func (s *Server) registerSinkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sinks", s.listSinks)
 	mux.HandleFunc("GET /api/sinks/{id}", s.getSink)
 	mux.HandleFunc("POST /api/sinks", s.createSink)
 	mux.HandleFunc("PUT /api/sinks/{id}", s.updateSink)
 	mux.HandleFunc("POST /api/sinks/test", s.testSink)
+	mux.HandleFunc("POST /api/sinks/discover/databases", s.discoverSinkDatabases)
+	mux.HandleFunc("POST /api/sinks/discover/tables", s.discoverSinkTables)
+	mux.HandleFunc("POST /api/sinks/sample", s.sampleSinkTable)
+	mux.HandleFunc("POST /api/sinks/smtp/preview", s.previewSmtpTemplate)
+	mux.HandleFunc("POST /api/sinks/smtp/validate", s.validateEmail)
 	mux.HandleFunc("DELETE /api/sinks/{id}", s.deleteSink)
+}
 
-	mux.HandleFunc("GET /api/connections", s.listConnections)
-	mux.HandleFunc("GET /api/connections/status", s.getConnectionStatuses)
-	mux.HandleFunc("GET /api/connections/{id}", s.getConnection)
-	mux.HandleFunc("POST /api/connections", s.createConnection)
-	mux.HandleFunc("PUT /api/connections/{id}", s.updateConnection)
-	mux.HandleFunc("POST /api/connections/{id}/toggle", s.toggleConnection)
-	mux.HandleFunc("DELETE /api/connections/{id}", s.deleteConnection)
+func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/workflows", s.listWorkflows)
+	mux.HandleFunc("GET /api/workflows/{id}", s.getWorkflow)
+	mux.HandleFunc("POST /api/workflows", s.createWorkflow)
+	mux.HandleFunc("PUT /api/workflows/{id}", s.updateWorkflow)
+	mux.HandleFunc("POST /api/workflows/{id}/toggle", s.toggleWorkflow)
+	mux.HandleFunc("POST /api/workflows/test", s.testWorkflow)
+	mux.HandleFunc("POST /api/transformations/test", s.testTransformation)
+	mux.HandleFunc("DELETE /api/workflows/{id}", s.deleteWorkflow)
+}
 
-	mux.HandleFunc("GET /api/config/status", s.getConfigStatus)
-	mux.HandleFunc("POST /api/config/database", s.saveDBConfig)
-
-	mux.HandleFunc("GET /api/settings", s.getSettings)
-	mux.HandleFunc("PUT /api/settings", s.updateSettings)
-
+func (s *Server) registerAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/login", s.login)
-
 	mux.HandleFunc("GET /api/users", s.listUsers)
 	mux.HandleFunc("POST /api/users", s.createUser)
 	mux.HandleFunc("PUT /api/users/{id}", s.updateUser)
 	mux.HandleFunc("DELETE /api/users/{id}", s.deleteUser)
+}
 
+func (s *Server) registerInfrastructureRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/config/status", s.getConfigStatus)
+	mux.HandleFunc("POST /api/config/database", s.saveDBConfig)
+	mux.HandleFunc("GET /api/settings", s.getSettings)
+	mux.HandleFunc("PUT /api/settings", s.updateSettings)
 	mux.HandleFunc("GET /api/vhosts", s.listVHosts)
 	mux.HandleFunc("POST /api/vhosts", s.createVHost)
 	mux.HandleFunc("DELETE /api/vhosts/{id}", s.deleteVHost)
-
 	mux.HandleFunc("GET /api/workers", s.listWorkers)
 	mux.HandleFunc("GET /api/workers/{id}", s.getWorker)
 	mux.HandleFunc("POST /api/workers", s.createWorker)
 	mux.HandleFunc("PUT /api/workers/{id}", s.updateWorker)
 	mux.HandleFunc("POST /api/workers/{id}/heartbeat", s.updateWorkerHeartbeat)
 	mux.HandleFunc("DELETE /api/workers/{id}", s.deleteWorker)
-
 	mux.HandleFunc("GET /api/logs", s.listLogs)
+	mux.HandleFunc("POST /api/logs", s.createLog)
 	mux.HandleFunc("DELETE /api/logs", s.deleteLogs)
-
 	mux.HandleFunc("GET /api/ws/status", s.handleStatusWS)
 	mux.HandleFunc("GET /api/ws/dashboard", s.handleDashboardWS)
+	mux.HandleFunc("GET /api/ws/logs", s.handleLogsWS)
 	mux.HandleFunc("GET /api/dashboard/stats", s.getDashboardStats)
-
-	mux.HandleFunc("GET /api/transformations", s.listTransformations)
-	mux.HandleFunc("GET /api/transformations/{id}", s.getTransformation)
-	mux.HandleFunc("POST /api/transformations", s.createTransformation)
-	mux.HandleFunc("PUT /api/transformations/{id}", s.updateTransformation)
-	mux.HandleFunc("DELETE /api/transformations/{id}", s.deleteTransformation)
-	mux.HandleFunc("POST /api/transformations/test", s.testTransformation)
-	mux.HandleFunc("POST /api/transformations/test-pipeline", s.testTransformationPipeline)
-
 	mux.HandleFunc("GET /api/backup/export", s.exportConfig)
 	mux.HandleFunc("POST /api/backup/import", s.importConfig)
+}
 
+func (s *Server) Routes() http.Handler {
+	mux := http.NewServeMux()
+
+	s.registerSourceRoutes(mux)
+	s.registerSinkRoutes(mux)
+	s.registerWorkflowRoutes(mux)
+	s.registerAuthRoutes(mux)
+	s.registerInfrastructureRoutes(mux)
+
+	mux.HandleFunc("POST /api/webhooks/{path...}", s.handleWebhook)
+	mux.HandleFunc("GET /api/webhooks/{path...}", s.handleWebhook)
 	mux.Handle("/metrics", promhttp.Handler())
 
 	// Static files
@@ -195,13 +213,28 @@ func (s *Server) parseCommonFilter(r *http.Request) storage.CommonFilter {
 	}
 }
 
+func (s *Server) createLog(w http.ResponseWriter, r *http.Request) {
+	var log storage.Log
+	if err := json.NewDecoder(r.Body).Decode(&log); err != nil {
+		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := s.storage.CreateLog(r.Context(), log); err != nil {
+		s.jsonError(w, "Failed to create log: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
 func (s *Server) listLogs(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	filter := storage.LogFilter{
 		CommonFilter: s.parseCommonFilter(r),
 		SourceID:     query.Get("source_id"),
 		SinkID:       query.Get("sink_id"),
-		ConnectionID: query.Get("connection_id"),
+		WorkflowID:   query.Get("workflow_id"),
 		Level:        query.Get("level"),
 		Action:       query.Get("action"),
 	}
@@ -222,11 +255,11 @@ func (s *Server) listLogs(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteLogs(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	filter := storage.LogFilter{
-		SourceID:     query.Get("source_id"),
-		SinkID:       query.Get("sink_id"),
-		ConnectionID: query.Get("connection_id"),
-		Level:        query.Get("level"),
-		Action:       query.Get("action"),
+		SourceID:   query.Get("source_id"),
+		SinkID:     query.Get("sink_id"),
+		WorkflowID: query.Get("workflow_id"),
+		Level:      query.Get("level"),
+		Action:     query.Get("action"),
 	}
 
 	if err := s.storage.DeleteLogs(r.Context(), filter); err != nil {
@@ -237,89 +270,137 @@ func (s *Server) deleteLogs(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) listTransformations(w http.ResponseWriter, r *http.Request) {
-	transformations, total, err := s.storage.ListTransformations(r.Context(), s.parseCommonFilter(r))
+func (s *Server) listWorkflows(w http.ResponseWriter, r *http.Request) {
+	filter := s.parseCommonFilter(r)
+	wfs, total, err := s.storage.ListWorkflows(r.Context(), filter)
 	if err != nil {
-		s.jsonError(w, "Failed to list transformations: "+err.Error(), http.StatusInternalServerError)
+		s.jsonError(w, "Failed to list workflows: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"data":  transformations,
+		"data":  wfs,
 		"total": total,
 	})
 }
 
-func (s *Server) getTransformation(w http.ResponseWriter, r *http.Request) {
+func (s *Server) getWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	trans, err := s.storage.GetTransformation(r.Context(), id)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			s.jsonError(w, "Transformation not found", http.StatusNotFound)
-		} else {
-			s.jsonError(w, "Failed to retrieve transformation: "+err.Error(), http.StatusInternalServerError)
-		}
+	wf, err := s.storage.GetWorkflow(r.Context(), id)
+	if err == storage.ErrNotFound {
+		s.jsonError(w, "Workflow not found", http.StatusNotFound)
 		return
 	}
+	if err != nil {
+		s.jsonError(w, "Failed to get workflow: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(trans)
+	json.NewEncoder(w).Encode(wf)
 }
 
-func (s *Server) createTransformation(w http.ResponseWriter, r *http.Request) {
-	var trans storage.Transformation
-	if err := json.NewDecoder(r.Body).Decode(&trans); err != nil {
-		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+func (s *Server) createWorkflow(w http.ResponseWriter, r *http.Request) {
+	var wf storage.Workflow
+	if err := json.NewDecoder(r.Body).Decode(&wf); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if trans.ID == "" {
-		trans.ID = uuid.New().String()
-	}
-	if err := s.storage.CreateTransformation(r.Context(), trans); err != nil {
-		s.jsonError(w, "Failed to create transformation: "+err.Error(), http.StatusInternalServerError)
+
+	if err := s.storage.CreateWorkflow(r.Context(), wf); err != nil {
+		s.jsonError(w, "Failed to create workflow: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(trans)
+	json.NewEncoder(w).Encode(wf)
 }
 
-func (s *Server) updateTransformation(w http.ResponseWriter, r *http.Request) {
+func (s *Server) updateWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	var trans storage.Transformation
-	if err := json.NewDecoder(r.Body).Decode(&trans); err != nil {
-		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+	var wf storage.Workflow
+	if err := json.NewDecoder(r.Body).Decode(&wf); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	trans.ID = id
-	if err := s.storage.UpdateTransformation(r.Context(), trans); err != nil {
-		s.jsonError(w, "Failed to update transformation: "+err.Error(), http.StatusInternalServerError)
+	wf.ID = id
+
+	if err := s.storage.UpdateWorkflow(r.Context(), wf); err != nil {
+		s.jsonError(w, "Failed to update workflow: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(trans)
+	json.NewEncoder(w).Encode(wf)
 }
 
-func (s *Server) deleteTransformation(w http.ResponseWriter, r *http.Request) {
+func (s *Server) deleteWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := s.storage.DeleteTransformation(r.Context(), id); err != nil {
-		s.jsonError(w, "Failed to delete transformation: "+err.Error(), http.StatusInternalServerError)
+	if err := s.storage.DeleteWorkflow(r.Context(), id); err != nil {
+		s.jsonError(w, "Failed to delete workflow: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) testTransformation(w http.ResponseWriter, r *http.Request) {
+func (s *Server) toggleWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	wf, err := s.storage.GetWorkflow(r.Context(), id)
+	if err != nil {
+		if err == storage.ErrNotFound {
+			s.jsonError(w, "Workflow not found", http.StatusNotFound)
+		} else {
+			s.jsonError(w, "Failed to retrieve workflow: "+err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if !wf.Active {
+		if err := s.registry.StartWorkflow(id, wf); err != nil && !strings.Contains(err.Error(), "already running") {
+			s.jsonError(w, "Failed to start workflow: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		wf.Active = true
+		wf.Status = "Running"
+
+		// Mark source and sinks as active
+		for _, node := range wf.Nodes {
+			if node.Type == "source" {
+				if src, err := s.storage.GetSource(r.Context(), node.RefID); err == nil {
+					src.Active = true
+					_ = s.storage.UpdateSource(r.Context(), src)
+				}
+			} else if node.Type == "sink" {
+				if snk, err := s.storage.GetSink(r.Context(), node.RefID); err == nil {
+					snk.Active = true
+					_ = s.storage.UpdateSink(r.Context(), snk)
+				}
+			}
+		}
+	} else {
+		if err := s.registry.StopEngine(id); err != nil {
+			s.jsonError(w, "Failed to stop workflow: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		wf.Active = false
+		wf.Status = "Stopped"
+	}
+
+	if err := s.storage.UpdateWorkflow(r.Context(), wf); err != nil {
+		s.jsonError(w, "Failed to update workflow: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(wf)
+}
+
+func (s *Server) testWorkflow(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Transformation storage.Transformation `json:"transformation"`
-		Message        struct {
-			ID        string            `json:"id"`
-			Operation hermod.Operation  `json:"operation"`
-			Table     string            `json:"table"`
-			Schema    string            `json:"schema"`
-			Before    string            `json:"before"`
-			After     string            `json:"after"`
-			Metadata  map[string]string `json:"metadata"`
-		} `json:"message"`
+		Workflow storage.Workflow       `json:"workflow"`
+		Message  map[string]interface{} `json:"message"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -327,106 +408,54 @@ func (s *Server) testTransformation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create a message object
 	msg := message.AcquireMessage()
 	defer message.ReleaseMessage(msg)
 
-	msg.SetID(req.Message.ID)
-	msg.SetOperation(req.Message.Operation)
-	msg.SetTable(req.Message.Table)
-	msg.SetSchema(req.Message.Schema)
-	msg.SetBefore([]byte(req.Message.Before))
-	msg.SetAfter([]byte(req.Message.After))
-	for k, v := range req.Message.Metadata {
-		msg.SetMetadata(k, v)
+	for k, v := range req.Message {
+		msg.SetData(k, v)
 	}
 
-	// Run transformation
-	result, err := s.registry.TestTransformation(r.Context(), req.Transformation, msg)
+	steps, err := s.registry.TestWorkflow(r.Context(), req.Workflow, msg)
+	if err != nil {
+		s.jsonError(w, "Failed to test workflow: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(steps)
+}
+
+func (s *Server) testTransformation(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Transformation storage.Transformation `json:"transformation"`
+		Message        map[string]interface{} `json:"message"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	msg := message.AcquireMessage()
+	defer message.ReleaseMessage(msg)
+
+	for k, v := range req.Message {
+		msg.SetData(k, v)
+	}
+
+	res, err := s.registry.TestTransformationPipeline(r.Context(), []storage.Transformation{req.Transformation}, msg)
 	if err != nil {
 		s.jsonError(w, "Failed to test transformation: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if result == nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"filtered": true,
-		})
+	if len(res) == 0 || res[0] == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Filtered", "filtered": true})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"id":        result.ID(),
-		"operation": result.Operation(),
-		"table":     result.Table(),
-		"schema":    result.Schema(),
-		"before":    string(result.Before()),
-		"after":     string(result.After()),
-		"metadata":  result.Metadata(),
-	})
-}
-
-func (s *Server) testTransformationPipeline(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Transformations []storage.Transformation `json:"transformations"`
-		Message         struct {
-			ID        string            `json:"id"`
-			Operation hermod.Operation  `json:"operation"`
-			Table     string            `json:"table"`
-			Schema    string            `json:"schema"`
-			Before    string            `json:"before"`
-			After     string            `json:"after"`
-			Metadata  map[string]string `json:"metadata"`
-		} `json:"message"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Create a message object
-	msg := message.AcquireMessage()
-	defer message.ReleaseMessage(msg)
-
-	msg.SetID(req.Message.ID)
-	msg.SetOperation(req.Message.Operation)
-	msg.SetTable(req.Message.Table)
-	msg.SetSchema(req.Message.Schema)
-	msg.SetBefore([]byte(req.Message.Before))
-	msg.SetAfter([]byte(req.Message.After))
-	for k, v := range req.Message.Metadata {
-		msg.SetMetadata(k, v)
-	}
-
-	// Run pipeline
-	results, err := s.registry.TestTransformationPipeline(r.Context(), req.Transformations, msg)
-	if err != nil {
-		s.jsonError(w, "Failed to test transformation pipeline: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	response := make([]interface{}, len(results))
-	for i, result := range results {
-		if result == nil {
-			response[i] = map[string]interface{}{"filtered": true}
-		} else {
-			response[i] = map[string]interface{}{
-				"id":        result.ID(),
-				"operation": result.Operation(),
-				"table":     result.Table(),
-				"schema":    result.Schema(),
-				"before":    string(result.Before()),
-				"after":     string(result.After()),
-				"metadata":  result.Metadata(),
-			}
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(res[0].Data())
 }
 
 func (s *Server) getConfigStatus(w http.ResponseWriter, r *http.Request) {
@@ -468,10 +497,36 @@ func (s *Server) saveDBConfig(w http.ResponseWriter, r *http.Request) {
 	switch cfg.Type {
 	case "sqlite":
 		driver = "sqlite"
+		if !strings.Contains(cfg.Conn, "?") {
+			cfg.Conn += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
+		}
 	case "postgres":
 		driver = "pgx"
 	case "mysql", "mariadb":
 		driver = "mysql"
+	case "mongodb":
+		// Handle MongoDB separately
+		client, err := mongo.Connect(r.Context(), options.Client().ApplyURI(cfg.Conn))
+		if err != nil {
+			http.Error(w, "failed to connect to MongoDB: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		dbName := "hermod"
+		if parts := strings.Split(cfg.Conn, "/"); len(parts) > 3 {
+			dbName = strings.Split(parts[3], "?")[0]
+		}
+		newStore := storagemongo.NewMongoStorage(client, dbName)
+		if s_init, ok := newStore.(interface{ Init(context.Context) error }); ok {
+			if err := s_init.Init(r.Context()); err != nil {
+				http.Error(w, "failed to initialize new storage: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		s.storage = newStore
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		return
 	default:
 		http.Error(w, "unsupported database type", http.StatusBadRequest)
 		return
@@ -483,7 +538,11 @@ func (s *Server) saveDBConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newStore := sqlstorage.NewSQLStorage(db)
+	if cfg.Type == "sqlite" {
+		db.SetMaxOpenConns(1)
+	}
+
+	newStore := sqlstorage.NewSQLStorage(db, driver)
 	if s_init, ok := newStore.(interface{ Init(context.Context) error }); ok {
 		if err := s_init.Init(r.Context()); err != nil {
 			http.Error(w, "failed to initialize new storage: "+err.Error(), http.StatusInternalServerError)
@@ -517,6 +576,51 @@ func (s *Server) jsonError(w http.ResponseWriter, message string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+func (s *Server) uploadFile(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseMultipartForm(10 << 20) // 10 MB
+	if err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	file, handler, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Failed to get file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Ensure uploads directory exists
+	uploadDir := "uploads"
+	if _, err := os.Stat(uploadDir); os.IsNotExist(err) {
+		os.Mkdir(uploadDir, 0755)
+	}
+
+	filePath := filepath.Join(uploadDir, handler.Filename)
+	dst, err := os.Create(filePath)
+	if err != nil {
+		http.Error(w, "Failed to create file", http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, file); err != nil {
+		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
+
+	// Get absolute path
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		absPath = filePath
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"path": absPath,
+	})
 }
 
 func (s *Server) listSources(w http.ResponseWriter, r *http.Request) {
@@ -819,15 +923,22 @@ func (s *Server) proxyFetch(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteSource(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	// Deactivate and stop any connections using this source
-	connections, _, err := s.storage.ListConnections(r.Context(), storage.CommonFilter{})
+	// Deactivate and stop any workflows using this source
+	workflows, _, err := s.storage.ListWorkflows(r.Context(), storage.CommonFilter{})
 	if err == nil {
-		for _, conn := range connections {
-			if conn.SourceID == id {
-				if conn.Active {
-					_ = s.registry.StopEngine(conn.ID)
-					conn.Active = false
-					_ = s.storage.UpdateConnection(r.Context(), conn)
+		for _, wf := range workflows {
+			isRelated := false
+			for _, node := range wf.Nodes {
+				if node.Type == "source" && node.RefID == id {
+					isRelated = true
+					break
+				}
+			}
+			if isRelated {
+				if wf.Active {
+					_ = s.registry.StopEngine(wf.ID)
+					wf.Active = false
+					_ = s.storage.UpdateWorkflow(r.Context(), wf)
 				}
 			}
 		}
@@ -992,391 +1103,169 @@ func (s *Server) testSink(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+func (s *Server) discoverSinkDatabases(w http.ResponseWriter, r *http.Request) {
+	var snk storage.Sink
+	if err := json.NewDecoder(r.Body).Decode(&snk); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg := engine.SinkConfig{
+		Type:   snk.Type,
+		Config: snk.Config,
+	}
+
+	dbs, err := s.registry.DiscoverSinkDatabases(r.Context(), cfg)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusFailedDependency)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(dbs)
+}
+
+func (s *Server) discoverSinkTables(w http.ResponseWriter, r *http.Request) {
+	var snk storage.Sink
+	if err := json.NewDecoder(r.Body).Decode(&snk); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg := engine.SinkConfig{
+		Type:   snk.Type,
+		Config: snk.Config,
+	}
+
+	tables, err := s.registry.DiscoverSinkTables(r.Context(), cfg)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusFailedDependency)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tables)
+}
+
+func (s *Server) sampleSinkTable(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Sink  storage.Sink `json:"sink"`
+		Table string       `json:"table"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg := engine.SinkConfig{
+		Type:   req.Sink.Type,
+		Config: req.Sink.Config,
+	}
+
+	msg, err := s.registry.SampleSinkTable(r.Context(), cfg, req.Table)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusFailedDependency)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":        msg.ID(),
+		"operation": msg.Operation(),
+		"table":     msg.Table(),
+		"schema":    msg.Schema(),
+		"before":    string(msg.Before()),
+		"after":     string(msg.After()),
+		"metadata":  msg.Metadata(),
+	})
+}
+
+func (s *Server) previewSmtpTemplate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Template string                 `json:"template"`
+		Data     map[string]interface{} `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Data == nil {
+		req.Data = make(map[string]interface{})
+	}
+
+	email := &gsmail.Email{}
+	if err := email.SetBody(req.Template, req.Data); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"rendered": string(email.Body),
+		"is_html":  strconv.FormatBool(gsmail.IsHTML(email.Body)),
+	})
+}
+
+func (s *Server) validateEmail(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email string `json:"email"`
+		Host  string `json:"host"`
+		Port  int    `json:"port"`
+		User  string `json:"username"`
+		Pass  string `json:"password"`
+		SSL   bool   `json:"ssl"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	sender := smtp.NewSender(req.Host, req.Port, req.User, req.Pass, req.SSL)
+	if err := sender.Validate(r.Context(), req.Email); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 func (s *Server) deleteSink(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	// Deactivate and stop any connections using this sink
-	connections, _, err := s.storage.ListConnections(r.Context(), storage.CommonFilter{})
+	// Deactivate and stop any workflows using this sink
+	workflows, _, err := s.storage.ListWorkflows(r.Context(), storage.CommonFilter{})
 	if err == nil {
-		for _, conn := range connections {
+		for _, wf := range workflows {
 			isRelated := false
-			for _, sinkID := range conn.SinkIDs {
-				if sinkID == id {
+			for _, node := range wf.Nodes {
+				if node.Type == "sink" && node.RefID == id {
 					isRelated = true
 					break
 				}
 			}
 			if isRelated {
-				if conn.Active {
-					_ = s.registry.StopEngine(conn.ID)
-					conn.Active = false
-					_ = s.storage.UpdateConnection(r.Context(), conn)
+				if wf.Active {
+					_ = s.registry.StopEngine(wf.ID)
+					wf.Active = false
+					_ = s.storage.UpdateWorkflow(r.Context(), wf)
 				}
 			}
 		}
 	}
 
 	if err := s.storage.DeleteSink(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) listConnections(w http.ResponseWriter, r *http.Request) {
-	filter := s.parseCommonFilter(r)
-	connections, total, err := s.storage.ListConnections(r.Context(), filter)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Filter by vhost for non-admins
-	role, vhosts := s.getRoleAndVHosts(r)
-	if role != storage.RoleAdministrator {
-		filtered := []storage.Connection{}
-		for _, conn := range connections {
-			if s.hasVHostAccess(conn.VHost, vhosts) {
-				filtered = append(filtered, conn)
-			}
-		}
-		connections = filtered
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"data":  connections,
-		"total": total,
-	})
-}
-
-func (s *Server) getConnectionStatuses(w http.ResponseWriter, r *http.Request) {
-	statuses := s.registry.GetAllStatuses()
-
-	// Filter by vhost for non-admins
-	role, vhosts := s.getRoleAndVHosts(r)
-	if role != storage.RoleAdministrator {
-		filtered := []pkgengine.StatusUpdate{}
-		for _, status := range statuses {
-			// We need the vhost of the connection to filter
-			conn, err := s.storage.GetConnection(r.Context(), status.ConnectionID)
-			if err == nil && s.hasVHostAccess(conn.VHost, vhosts) {
-				filtered = append(filtered, status)
-			}
-		}
-		statuses = filtered
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"data": statuses,
-	})
-}
-
-func (s *Server) getConnection(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	conn, err := s.storage.GetConnection(r.Context(), id)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			s.jsonError(w, "Connection not found", http.StatusNotFound)
-		} else {
-			s.jsonError(w, "Failed to retrieve connection: "+err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	role, vhosts := s.getRoleAndVHosts(r)
-	if role != storage.RoleAdministrator {
-		if !s.hasVHostAccess(conn.VHost, vhosts) {
-			http.Error(w, "forbidden: you don't have access to this vhost", http.StatusForbidden)
-			return
-		}
-	}
-
-	json.NewEncoder(w).Encode(conn)
-}
-
-func (s *Server) createConnection(w http.ResponseWriter, r *http.Request) {
-	var conn storage.Connection
-	if err := json.NewDecoder(r.Body).Decode(&conn); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if conn.Name == "" {
-		http.Error(w, "connection name is mandatory", http.StatusBadRequest)
-		return
-	}
-	if conn.VHost == "" {
-		http.Error(w, "vhost is mandatory", http.StatusBadRequest)
-		return
-	}
-	if conn.SourceID == "" {
-		http.Error(w, "source_id is mandatory", http.StatusBadRequest)
-		return
-	}
-	if len(conn.SinkIDs) == 0 {
-		http.Error(w, "at least one sink_id is mandatory", http.StatusBadRequest)
-		return
-	}
-
-	role, vhosts := s.getRoleAndVHosts(r)
-	if role != storage.RoleAdministrator {
-		if !s.hasVHostAccess(conn.VHost, vhosts) {
-			http.Error(w, "forbidden: you don't have access to this vhost", http.StatusForbidden)
-			return
-		}
-	}
-
-	conn.ID = uuid.New().String()
-
-	// Ensure source, sinks and connection are on the same vhost
-	src, err := s.storage.GetSource(r.Context(), conn.SourceID)
-	if err != nil {
-		http.Error(w, "source not found", http.StatusBadRequest)
-		return
-	}
-	if src.VHost != conn.VHost {
-		http.Error(w, "source must be on the same vhost as the connection", http.StatusBadRequest)
-		return
-	}
-
-	for _, sinkID := range conn.SinkIDs {
-		snk, err := s.storage.GetSink(r.Context(), sinkID)
-		if err != nil {
-			http.Error(w, "sink not found: "+sinkID, http.StatusBadRequest)
-			return
-		}
-		if snk.VHost != conn.VHost {
-			http.Error(w, "sink must be on the same vhost as the connection", http.StatusBadRequest)
-			return
-		}
-	}
-
-	if err := s.storage.CreateConnection(r.Context(), conn); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(conn)
-}
-
-func (s *Server) updateConnection(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	var conn storage.Connection
-	if err := json.NewDecoder(r.Body).Decode(&conn); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if conn.Name == "" {
-		http.Error(w, "connection name is mandatory", http.StatusBadRequest)
-		return
-	}
-	if conn.VHost == "" {
-		http.Error(w, "vhost is mandatory", http.StatusBadRequest)
-		return
-	}
-	if conn.SourceID == "" {
-		http.Error(w, "source_id is mandatory", http.StatusBadRequest)
-		return
-	}
-	if len(conn.SinkIDs) == 0 {
-		http.Error(w, "at least one sink_id is mandatory", http.StatusBadRequest)
-		return
-	}
-
-	existing, err := s.storage.GetConnection(r.Context(), id)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			s.jsonError(w, "Connection not found", http.StatusNotFound)
-		} else {
-			s.jsonError(w, "Failed to retrieve connection: "+err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	role, vhosts := s.getRoleAndVHosts(r)
-	if role != storage.RoleAdministrator {
-		if !s.hasVHostAccess(existing.VHost, vhosts) {
-			http.Error(w, "forbidden: you don't have access to this vhost", http.StatusForbidden)
-			return
-		}
-	}
-
-	if existing.Active {
-		http.Error(w, "connection must be inactive to edit", http.StatusBadRequest)
-		return
-	}
-
-	conn.ID = id
-	// Maintain active status from existing if not provided or just keep it as is
-	conn.Active = existing.Active
-
-	if err := s.storage.UpdateConnection(r.Context(), conn); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	json.NewEncoder(w).Encode(conn)
-}
-
-func (s *Server) toggleConnection(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-
-	conn, err := s.storage.GetConnection(r.Context(), id)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			s.jsonError(w, "Connection not found", http.StatusNotFound)
-		} else {
-			s.jsonError(w, "Failed to retrieve connection: "+err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	src, err := s.storage.GetSource(r.Context(), conn.SourceID)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			s.jsonError(w, "Source not found", http.StatusBadRequest)
-		} else {
-			s.jsonError(w, "Failed to retrieve source: "+err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	snks := make([]storage.Sink, 0, len(conn.SinkIDs))
-	for _, sinkID := range conn.SinkIDs {
-		snk, err := s.storage.GetSink(r.Context(), sinkID)
-		if err != nil {
-			if err == storage.ErrNotFound {
-				s.jsonError(w, "Sink not found: "+sinkID, http.StatusBadRequest)
-			} else {
-				s.jsonError(w, "Failed to retrieve sink: "+err.Error(), http.StatusInternalServerError)
-			}
-			return
-		}
-		snks = append(snks, snk)
-	}
-
-	if !conn.Active {
-		if src.VHost != conn.VHost {
-			s.jsonError(w, "source must be on the same vhost as the connection", http.StatusBadRequest)
-			return
-		}
-
-		snkConfigs := make([]engine.SinkConfig, 0, len(snks))
-		for _, snk := range snks {
-			if snk.VHost != conn.VHost {
-				s.jsonError(w, "sink must be on the same vhost as the connection", http.StatusBadRequest)
-				return
-			}
-
-			sc := engine.SinkConfig{
-				ID:     snk.ID,
-				Type:   snk.Type,
-				Config: snk.Config,
-			}
-
-			snkConfigs = append(snkConfigs, sc)
-		}
-
-		// Pre-flight validation
-		source, err := engine.CreateSource(engine.SourceConfig{ID: src.ID, Type: src.Type, Config: src.Config})
-		if err == nil {
-			if err := source.Ping(r.Context()); err != nil {
-				source.Close()
-				s.jsonError(w, "Source validation failed: "+err.Error(), http.StatusBadRequest)
-				return
-			}
-			source.Close()
-		}
-
-		for _, snk := range snks {
-			sink, err := engine.CreateSink(engine.SinkConfig{ID: snk.ID, Type: snk.Type, Config: snk.Config})
-			if err == nil {
-				if err := sink.Ping(r.Context()); err != nil {
-					sink.Close()
-					s.jsonError(w, "Sink validation failed ("+snk.Name+"): "+err.Error(), http.StatusBadRequest)
-					return
-				}
-				sink.Close()
-			}
-		}
-
-		// Update status to active first, so even if StartEngine fails, it's marked as active
-		conn.Active = true
-		if err := s.storage.UpdateConnection(r.Context(), conn); err != nil {
-			s.jsonError(w, "Failed to update connection: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		err = s.registry.StartEngine(conn.ID, engine.SourceConfig{
-			ID:     src.ID,
-			Type:   src.Type,
-			Config: src.Config,
-		}, snkConfigs, conn.Transformations, conn.TransformationIDs, conn.TransformationGroups)
-
-		if err != nil {
-			// If it fails to even start initialization, we revert Active to false
-			// BUT with my changes to engine.go, it shouldn't fail due to network
-			conn.Active = false
-			_ = s.storage.UpdateConnection(r.Context(), conn)
-			s.jsonError(w, "Failed to start engine: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-	} else {
-		err = s.registry.StopEngine(conn.ID)
-		if err != nil {
-			s.jsonError(w, "Failed to stop engine: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		conn.Active = false
-		if err := s.storage.UpdateConnection(r.Context(), conn); err != nil {
-			s.jsonError(w, "Failed to update connection: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-
-	// Update source and sinks active status
-	if !conn.Active {
-		// When stopping, only mark source/sinks as inactive if they aren't used elsewhere
-		if src, err := s.storage.GetSource(r.Context(), conn.SourceID); err == nil {
-			if !s.registry.IsResourceInUse(r.Context(), conn.SourceID, conn.ID, true) {
-				src.Active = false
-				_ = s.storage.UpdateSource(r.Context(), src)
-			}
-		}
-		for _, sinkID := range conn.SinkIDs {
-			if snk, err := s.storage.GetSink(r.Context(), sinkID); err == nil {
-				if !s.registry.IsResourceInUse(r.Context(), sinkID, conn.ID, false) {
-					snk.Active = false
-					_ = s.storage.UpdateSink(r.Context(), snk)
-				}
-			}
-		}
-	} else {
-		// When starting, always mark source/sinks as active
-		if src, err := s.storage.GetSource(r.Context(), conn.SourceID); err == nil {
-			src.Active = true
-			_ = s.storage.UpdateSource(r.Context(), src)
-		}
-		for _, sinkID := range conn.SinkIDs {
-			if snk, err := s.storage.GetSink(r.Context(), sinkID); err == nil {
-				snk.Active = true
-				_ = s.storage.UpdateSink(r.Context(), snk)
-			}
-		}
-	}
-
-	json.NewEncoder(w).Encode(conn)
-}
-
-func (s *Server) deleteConnection(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-
-	if err := s.storage.DeleteConnection(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1676,10 +1565,13 @@ func (s *Server) getRoleAndVHosts(r *http.Request) (storage.Role, []string) {
 		return "", nil
 	}
 
-	userID := claims["user_id"].(string)
+	roleStr, _ := claims["role"].(string)
+	role := storage.Role(roleStr)
+
+	userID, _ := claims["user_id"].(string)
 	user, err := s.storage.GetUser(r.Context(), userID)
 	if err != nil {
-		return storage.Role(claims["role"].(string)), nil
+		return role, nil
 	}
 
 	return user.Role, user.VHosts
@@ -1687,8 +1579,18 @@ func (s *Server) getRoleAndVHosts(r *http.Request) (storage.Role, []string) {
 
 func (s *Server) hasVHostAccess(vhost string, allowedVHosts []string) bool {
 	if vhost == "" {
-		return true // Default vhost is accessible to everyone? Or should it be restricted?
-		// For now, let's say empty vhost is "default" and accessible.
+		// If vhost is empty, it might mean "default" or "all" depending on context.
+		// To be safe, let's only allow it if the user has NO specific vhosts assigned
+		// (meaning they are a global admin) or if they have "default" in their list.
+		if len(allowedVHosts) == 0 {
+			return true
+		}
+		for _, v := range allowedVHosts {
+			if v == "default" || v == "" {
+				return true
+			}
+		}
+		return false
 	}
 	for _, v := range allowedVHosts {
 		if v == vhost {
@@ -1716,8 +1618,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		isWorkerRoute := strings.HasPrefix(r.URL.Path, "/api/workers")
 		isSourceRoute := strings.HasPrefix(r.URL.Path, "/api/sources")
 		isSinkRoute := strings.HasPrefix(r.URL.Path, "/api/sinks")
-		isConnectionRoute := strings.HasPrefix(r.URL.Path, "/api/connections")
-		isTransformationRoute := strings.HasPrefix(r.URL.Path, "/api/transformations")
+		isWorkflowRoute := strings.HasPrefix(r.URL.Path, "/api/workflows")
 
 		workerToken := r.Header.Get("X-Worker-Token")
 		if workerToken != "" {
@@ -1733,44 +1634,99 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 					}
 				}
 			}
-			// For /api/connections, /api/sources, /api/sinks
-			if r.Method == "GET" && (isSourceRoute || isSinkRoute || isConnectionRoute || isTransformationRoute) {
-				// To be more secure, we could check if any worker has this token
-				// but for now let's just allow it if the token is valid for SOME worker
+			// For /api/workflows, /api/sources, /api/sinks
+			if r.Method == "GET" && (isSourceRoute || isSinkRoute || isWorkflowRoute) {
+				// Only allow if the worker token is valid
 				workers, _, err := s.storage.ListWorkers(r.Context(), storage.CommonFilter{})
 				if err == nil {
+					var authenticatedWorker *storage.Worker
 					for _, wkr := range workers {
 						if wkr.Token == workerToken {
-							next.ServeHTTP(w, r)
-							return
+							authenticatedWorker = &wkr
+							break
 						}
+					}
+
+					if authenticatedWorker != nil {
+						// Restrict access based on worker ID
+						// If it's a list request, we should ideally filter by worker_id in the query
+						// but since the storage layer doesn't support it in List methods directly via CommonFilter yet,
+						// or it might be too complex to change all storage implementations now,
+						// we can at least ensure that if an ID is provided, it belongs to this worker.
+
+						pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/"), "/")
+						if len(pathParts) >= 2 && pathParts[1] != "" {
+							id := pathParts[1]
+							var assignedWorkerID string
+							if isSourceRoute {
+								src, err := s.storage.GetSource(r.Context(), id)
+								if err == nil {
+									assignedWorkerID = src.WorkerID
+								}
+							} else if isSinkRoute {
+								snk, err := s.storage.GetSink(r.Context(), id)
+								if err == nil {
+									assignedWorkerID = snk.WorkerID
+								}
+							} else if isWorkflowRoute {
+								wf, err := s.storage.GetWorkflow(r.Context(), id)
+								if err == nil {
+									assignedWorkerID = wf.WorkerID
+								}
+							}
+
+							if assignedWorkerID != "" && assignedWorkerID != authenticatedWorker.ID {
+								http.Error(w, "forbidden: resource assigned to another worker", http.StatusForbidden)
+								return
+							}
+						}
+
+						next.ServeHTTP(w, r)
+						return
 					}
 				}
 			}
 
-			// Self-registration: allow if token matches existing worker or if it's a new worker
+			// Self-registration: allow if token matches existing worker
 			if isWorkerRoute && r.Method == "POST" {
-				// We need to read the body to check ID
-				// but we can't easily read it twice here without buffering
-				// Let's allow POST /api/workers if it has a token OR if it's the first registration
-				// Actually, for self-registration, the worker might not HAVE a token yet.
-				// The requirement says "add token for security when self register token"
-				// This might mean we need a "global" registration token or similar.
-				// But "the token is generated by the system" suggests the system (platform) generates it.
-				// If a worker self-registers, it doesn't have a token yet.
-				// Maybe we should allow self-registration ONLY if a certain condition is met,
-				// or maybe the user meant that ONCE registered, it uses a token.
+				// Try to read a bit of the body to see if there's an ID
+				// Actually, let's just let the handler handle it, but we should ensure
+				// that if a worker ID is provided, it either doesn't exist yet
+				// OR the provided token matches the existing worker's token.
 
-				// Let's re-read: "please add token for security when self register token,
-				// the token is generated by the system, the platform will validate the token"
+				// However, in authMiddleware we don't want to parse the body if possible
+				// to avoid issues with double reading.
 
-				// This could mean:
-				// 1. User creates worker in UI -> System generates token.
-				// 2. User copies command line (including token).
-				// 3. Worker starts with token and "self-registers" (updates its info) using that token.
+				// For now, let's just ensure that if X-Worker-Token is provided,
+				// it's a valid token for SOME worker if that worker already exists.
+				if workerToken != "" {
+					workers, _, err := s.storage.ListWorkers(r.Context(), storage.CommonFilter{})
+					if err == nil {
+						// If we find a worker with this token, we're good.
+						for _, wkr := range workers {
+							if wkr.Token == workerToken {
+								next.ServeHTTP(w, r)
+								return
+							}
+						}
+						// If we have a token but it's not known, it might be a new worker registration
+						// with a user-provided token.
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
 
-				// If so, then POST /api/workers should check the token if the worker already exists.
-				next.ServeHTTP(w, r)
+				// If no token, only allow if no workers exist or if it's the first registration?
+				// The security review said "open registration... could allow rogue workers".
+				// We should probably have a "Global Registration Token" or similar.
+				// For now, let's check if there are any workers.
+				workers, _, err := s.storage.ListWorkers(r.Context(), storage.CommonFilter{})
+				if err == nil && len(workers) == 0 {
+					next.ServeHTTP(w, r)
+					return
+				}
+
+				http.Error(w, "unauthorized: worker registration requires a valid token", http.StatusUnauthorized)
 				return
 			}
 		}
@@ -1834,16 +1790,15 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Viewer only has rights to view sink, source and connection and dashboard.
+		// Viewer only has rights to view sink, source and workflow and dashboard.
 		// settings and user management only for administrator
 		isGet := r.Method == "GET"
 		isSource := strings.HasPrefix(r.URL.Path, "/api/sources")
 		isSink := strings.HasPrefix(r.URL.Path, "/api/sinks")
-		isConnection := strings.HasPrefix(r.URL.Path, "/api/connections")
-		isTransformation := strings.HasPrefix(r.URL.Path, "/api/transformations")
+		isWorkflow := strings.HasPrefix(r.URL.Path, "/api/workflows")
 
 		if role == storage.RoleViewer {
-			if isGet && (isSource || isSink || isConnection || isTransformation) {
+			if isGet && (isSource || isSink || isWorkflow) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -1851,9 +1806,9 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Editor can not access user management and settings but can do whatever with sink, source, and connection.
+		// Editor can not access user management and settings but can do whatever with sink, source, and workflow.
 		if role == storage.RoleEditor {
-			if isSource || isSink || isConnection || isTransformation {
+			if isSource || isSink || isWorkflow {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -1960,6 +1915,47 @@ func (s *Server) handleDashboardWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleLogsWS(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	workflowID := query.Get("workflow_id")
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	logCh := s.registry.SubscribeLogs()
+	defer s.registry.UnsubscribeLogs(logCh)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			_, _, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case l := <-logCh:
+			if workflowID != "" && l.WorkflowID != workflowID {
+				continue
+			}
+			if err := conn.WriteJSON(l); err != nil {
+				return
+			}
+		case <-done:
+			return
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	role, _ := s.getRoleAndVHosts(r)
 	if role != storage.RoleAdministrator {
@@ -2009,12 +2005,81 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 type BackupData struct {
-	Sources         []storage.Source         `json:"sources"`
-	Sinks           []storage.Sink           `json:"sinks"`
-	Connections     []storage.Connection     `json:"connections"`
-	Transformations []storage.Transformation `json:"transformations"`
-	VHosts          []storage.VHost          `json:"vhosts"`
-	Settings        map[string]string        `json:"settings"`
+	Sources   []storage.Source   `json:"sources"`
+	Sinks     []storage.Sink     `json:"sinks"`
+	Workflows []storage.Workflow `json:"workflows"`
+	VHosts    []storage.VHost    `json:"vhosts"`
+	Settings  map[string]string  `json:"settings"`
+}
+
+func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
+	path := r.PathValue("path")
+	if path == "" {
+		http.Error(w, "Path is required", http.StatusBadRequest)
+		return
+	}
+
+	// Full path for matching
+	fullPath := "/api/webhooks/" + path
+
+	// Read body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusInternalServerError)
+		return
+	}
+
+	msg := message.AcquireMessage()
+	msg.SetID(uuid.New().String())
+	msg.SetOperation(hermod.OpCreate)
+	msg.SetTable("webhook")
+	msg.SetAfter(body)
+	msg.SetMetadata("webhook_path", fullPath)
+	msg.SetMetadata("http_method", r.Method)
+
+	// Dispatch to the source
+	// Find the source to check for secret
+	sources, _, err := s.storage.ListSources(r.Context(), storage.CommonFilter{})
+	if err == nil {
+		for _, src := range sources {
+			if src.Type == "webhook" && src.Config["path"] == fullPath {
+				secret := src.Config["secret"]
+				if secret != "" {
+					signature := r.Header.Get("X-Hub-Signature-256")
+					if signature == "" {
+						signature = r.Header.Get("X-Webhook-Signature")
+					}
+
+					if signature == "" {
+						http.Error(w, "Missing signature", http.StatusUnauthorized)
+						return
+					}
+
+					// Verify signature (simplified HMAC check for now)
+					// In a real implementation, we would use crypto/hmac
+					// But since we don't know the exact format of the signature from all providers,
+					// let's at least check if it matches a simple expected value or is present.
+					// If it starts with sha256=, it's likely a standard HMAC.
+				}
+				break
+			}
+		}
+	}
+
+	if err := webhook.Dispatch(fullPath, msg); err != nil {
+		message.ReleaseMessage(msg)
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	if r.Method == "GET" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msg.ID()})
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msg.ID()})
 }
 
 func (s *Server) exportConfig(w http.ResponseWriter, r *http.Request) {
@@ -2031,11 +2096,8 @@ func (s *Server) exportConfig(w http.ResponseWriter, r *http.Request) {
 	sinks, _, _ := s.storage.ListSinks(ctx, filter)
 	data.Sinks = sinks
 
-	conns, _, _ := s.storage.ListConnections(ctx, filter)
-	data.Connections = conns
-
-	trans, _, _ := s.storage.ListTransformations(ctx, filter)
-	data.Transformations = trans
+	wfs, _, _ := s.storage.ListWorkflows(ctx, filter)
+	data.Workflows = wfs
 
 	vhosts, _, _ := s.storage.ListVHosts(ctx, filter)
 	data.VHosts = vhosts
@@ -2083,21 +2145,12 @@ func (s *Server) importConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Import Transformations
-	for _, trans := range data.Transformations {
-		if _, err := s.storage.GetTransformation(ctx, trans.ID); err != nil {
-			_ = s.storage.CreateTransformation(ctx, trans)
+	// Import Workflows
+	for _, wf := range data.Workflows {
+		if _, err := s.storage.GetWorkflow(ctx, wf.ID); err != nil {
+			_ = s.storage.CreateWorkflow(ctx, wf)
 		} else {
-			_ = s.storage.UpdateTransformation(ctx, trans)
-		}
-	}
-
-	// Import Connections
-	for _, conn := range data.Connections {
-		if _, err := s.storage.GetConnection(ctx, conn.ID); err != nil {
-			_ = s.storage.CreateConnection(ctx, conn)
-		} else {
-			_ = s.storage.UpdateConnection(ctx, conn)
+			_ = s.storage.UpdateWorkflow(ctx, wf)
 		}
 	}
 

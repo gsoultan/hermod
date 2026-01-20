@@ -9,11 +9,17 @@ import (
 	"io"
 )
 
-var masterKey = []byte("hermod-default-master-key-32bytes") // 32 bytes for AES-256
+var masterKey = []byte("hermod-default-master-key-32byte") // 32 bytes for AES-256
 
 func SetMasterKey(key string) {
 	if len(key) >= 32 {
 		masterKey = []byte(key[:32])
+	} else if len(key) > 0 {
+		// If key is shorter than 32 bytes, pad it or use as is if it was 16 or 24?
+		// AES supports 16, 24, 32. Let's force 32 for Hermod.
+		newKey := make([]byte, 32)
+		copy(newKey, key)
+		masterKey = newKey
 	}
 }
 

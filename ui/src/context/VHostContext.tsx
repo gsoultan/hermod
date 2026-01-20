@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, type ReactNode, type FC } from 'react';
 
 interface VHostContextType {
   selectedVHost: string; // 'all' or specific vhost name
@@ -9,7 +9,7 @@ interface VHostContextType {
 
 const VHostContext = createContext<VHostContextType | undefined>(undefined);
 
-export const VHostProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const VHostProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [selectedVHost, setSelectedVHostState] = useState<string>(() => {
     return localStorage.getItem('hermod_selected_vhost') || 'all';
   });

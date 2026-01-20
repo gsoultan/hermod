@@ -3,6 +3,7 @@ package rabbitmq
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/user/hermod"
@@ -15,6 +16,7 @@ type RabbitMQQueueSink struct {
 	url       string
 	queue     string
 	formatter hermod.Formatter
+	mu        sync.Mutex
 }
 
 // NewRabbitMQQueueSink creates a new RabbitMQ Queue sink.
@@ -26,7 +28,10 @@ func NewRabbitMQQueueSink(url string, queueName string, formatter hermod.Formatt
 	}, nil
 }
 
-func (s *RabbitMQQueueSink) ensureConnected() error {
+func (s *RabbitMQQueueSink) ensureConnected(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.conn != nil && !s.conn.IsClosed() && s.channel != nil {
 		return nil
 	}
@@ -63,8 +68,19 @@ func (s *RabbitMQQueueSink) ensureConnected() error {
 
 // Write sends a message to RabbitMQ Queue.
 func (s *RabbitMQQueueSink) Write(ctx context.Context, msg hermod.Message) error {
-	if err := s.ensureConnected(); err != nil {
+	if msg == nil {
+		return nil
+	}
+	if err := s.ensureConnected(ctx); err != nil {
 		return err
+	}
+
+	s.mu.Lock()
+	ch := s.channel
+	s.mu.Unlock()
+
+	if ch == nil {
+		return fmt.Errorf("rabbitmq channel not connected")
 	}
 
 	var data []byte
@@ -81,7 +97,7 @@ func (s *RabbitMQQueueSink) Write(ctx context.Context, msg hermod.Message) error
 		return fmt.Errorf("failed to format message: %w", err)
 	}
 
-	err = s.channel.PublishWithContext(ctx,
+	err = ch.PublishWithContext(ctx,
 		"",      // exchange
 		s.queue, // routing key
 		false,   // mandatory
@@ -99,16 +115,21 @@ func (s *RabbitMQQueueSink) Write(ctx context.Context, msg hermod.Message) error
 
 // Ping checks if the RabbitMQ connection is alive.
 func (s *RabbitMQQueueSink) Ping(ctx context.Context) error {
-	return s.ensureConnected()
+	return s.ensureConnected(ctx)
 }
 
 // Close closes the RabbitMQ channel and connection.
 func (s *RabbitMQQueueSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.channel != nil {
 		s.channel.Close()
+		s.channel = nil
 	}
 	if s.conn != nil {
 		s.conn.Close()
+		s.conn = nil
 	}
 	return nil
 }

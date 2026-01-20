@@ -6,10 +6,10 @@ Hermod is a high-performance, messaging system designed with SOLID principles an
 
 Hermod includes a web-based management platform built with React 19, Mantine UI, and Tailwind CSS. It provides a user-friendly interface for:
 - Configuring Sources and Sinks.
-- Creating and managing Connections.
+- **Visual Workflow Editor**: Build complex data pipelines using a drag-and-drop graph editor with support for transformations and conditional branching.
+- **Sample Library**: Jumpstart development with pre-built templates for common scenarios like "GDPR Masking & High-Value Routing" or "Webhook to Slack".
 - Visualizing data flow and monitoring logs.
-- **Interactive Transformer Configuration**: Easily set up data transformations with built-in help, field autocomplete, and step reordering.
-- **Import from Sample**: Quickly populate transformations by fetching live data from your database tables or external APIs, and easily manage large mappings with search and filtering.
+- **Advanced Transformations**: Filter, map, and transform data using a rich set of built-in functions.
 
 ### Getting Started with UI
 
@@ -33,14 +33,14 @@ The management platform will be available at `http://localhost:5173`.
 ## Key Features
 
 - **Multi-Tenant Support**: Support for multiple sources (via multiple engine instances) and broadcasting to multiple sinks per engine instance.
-- **Parallel Processing**: Sinks are processed in parallel within each connection, optimizing throughput for multi-sink configurations.
+- **Parallel Processing**: Sinks are processed in parallel within each engine instance, optimizing throughput for multi-sink configurations.
 - **Observability**: Built-in Prometheus metrics for monitoring throughput, latency, and error rates.
 - **Reliability (DLQ)**: Support for Dead Letter Queues (DLQ) to preserve messages that fail all retry attempts.
 - **SOLID Principles**: Designed with clean interfaces and separation of concerns.
 - **Reversible Roles**: Sinks can be sources and vice versa. Support for message brokers as sources and databases as sinks.
 - **Zero Allocation**: Utilizes `sync.Pool` for message recycling to minimize GC pressure.
 - **High Performance**: Optimized for heavy peak loads using efficient buffering.
-- **Production Ready**: Built-in structured logging, retries with backoff, and health checks (Ping).
+- **Production Ready**: Built-in structured logging, retries with backoff, and health checks (Ping). Reconnection intervals and backoff strategies are configurable per source.
 - **Programming by Interface**: Easy to extend and test with mockable interfaces.
 
 ## Project Structure
@@ -61,6 +61,8 @@ The management platform will be available at `http://localhost:5173`.
 The MSSQL source supports automatically enabling CDC on the database and tables. This feature is enabled by default. To disable it, set `auto_enable_cdc: "false"` in the source configuration. This will:
 1. Enable CDC on the database if not already enabled.
 2. Enable CDC on each specified table if not already enabled.
+
+The system verifies and re-enables CDC automatically during "Test Connection" and periodically while the workflow is running to ensure continuous data capture.
 
 ### Sink Specifics
 
@@ -94,91 +96,44 @@ Configuration:
 - `pkg/formatter`: Message formatters (JSON).
 - `internal/buffer`: High-performance in-memory and persistent messaging buffers.
 
-## Transformations
+### Sample Library
 
-Hermod supports a powerful transformation system that can be applied after reading from a source or before writing to a sink. Transformations can be simple operations or complex multi-step pipelines.
+The UI includes a library of common patterns to help you get started:
 
-### Independent Transformations
-Transformations can be defined independently and reused across multiple connections. This allows for centralizing logic like data masking, enrichment, or complex filtering.
+#### GDPR Masking & High-Value Routing ("World Case")
+This advanced template demonstrates a multi-step pipeline:
+1.  **Source**: PostgreSQL CDC monitoring an `orders` table.
+2.  **Transformation (Pipeline)**: 
+    - **Masking**: Sanitizes `customer_email` for GDPR compliance.
+    - **Mapping**: Converts internal `status_id` (1, 2, 3) to readable strings ("PENDING", "PAID", etc.).
+    - **Enrichment**: Adds metadata like `processed_by`.
+3.  **Condition**: Branches the flow based on `total_amount > 1000`.
+4.  **High-Value Branch**: Adds a `priority` flag and multicasts to **Telegram** (for alerts) and **Kafka** (for downstream processing).
+5.  **Standard Branch**: Archives the message to **MongoDB**.
 
-### Multi-Step Pipelines
-A transformation can consist of multiple steps executed in sequence:
-1. **Filter**: Drop messages based on criteria (e.g., operation type or field values).
-2. **Enrich**: Call external APIs or query databases to add more data to the message.
-3. **Map**: Restructure the data into a new format.
+### Installation on Ubuntu (Linux)
 
-### Data Object Transformation
-Hermod follows the principle that data can be transformed from one object structure to a completely different one. When a transformation is marked as `strict` (available in Mapping and Advanced transformers), the output will be a **new object** containing only the mapped fields. Original CDC metadata like the "before" state will be cleared to ensure that the sink receives a clean, new object. This ensures that the data written to the sink can be entirely different from the data received from the source.
+For a quick and automated installation on Ubuntu, you can use the provided installation script:
 
-### Supported Transformers
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/youruser/hermod.git
+   cd hermod
+   ```
 
-- **Rename Table**: Renames the table or collection name in the message.
-- **Filter Operation**: Filters messages based on the operation type (create, update, delete, snapshot). Unchecked operations are dropped.
-- **Data Filter**: Keeps messages only if they meet specific field value criteria (e.g., `status == completed`). If the condition is false, the message is dropped.
-- **Mapping**: Transforms the message payload (JSON) by renaming or selecting specific fields.
-- **Advanced Mapping**: Powerful mapper supporting dotted paths, system variables (now, uuid), and constants.
-- **HTTP Transformer**: Calls an external REST API. Supports template replacement in URL using message fields (e.g., `/users/{id}`).
-- **SQL Transformer**: Queries a database to enrich the message. Supports parameter replacement (e.g., `SELECT * FROM profiles WHERE user_id = :id`).
-- **Lua Transformer**: Executes a custom Lua script for complex, programmable transformations.
-- **JSON Schema**: Validates the message payload against a JSON schema.
+2. **Run the installation script**:
+   ```bash
+   chmod +x scripts/install_hermod.sh
+   sudo ./scripts/install_hermod.sh
+   ```
 
-### Sink Formatting
-Hermod allows you to configure the output format for stream-based sinks (RabbitMQ, NATS, Kafka, Redis, etc.). By default, messages are sent in a unified **JSON** format that includes both data fields and system metadata. You can change this using the `format` configuration in the sink:
+The script will:
+- Install system dependencies (Go, Node.js, NPM).
+- Create a dedicated `hermod` user.
+- Build the UI and the Go binary.
+- Configure and start a `systemd` service.
 
-- `format: json` (Default): Sends the unified message including system fields (`id`, `operation`, `table`, `schema`, `metadata`, `before`) and all data fields at the root level.
-- `format: payload`: Sends only the primary data payload (the result of transformation) as a raw JSON object. This is useful when the downstream system does not expect metadata.
-
-Example configuration for `payload` format:
-```yaml
-sinks:
-  - id: my_rabbitmq
-    type: rabbitmq_queue
-    config:
-      url: "amqp://guest:guest@localhost:5672/"
-      queue_name: "my_queue"
-      format: "payload"
-```
-
-Example configuration for a multi-step Pipeline:
-```yaml
-transformations:
-  - type: pipeline
-    steps:
-      - type: filter_operation
-        config:
-          create: "true"
-      - type: http
-        config:
-          url: "https://api.example.com/users/{user_id}"
-          method: "GET"
-          header.Authorization: "Bearer token"
-      - type: advanced
-        config:
-          column.user_name: source.name
-          column.user_role: source.role
-          column.app: const.Hermod
-```
-
-Example configuration for Mapping transformer:
-```yaml
-transformations:
-  - type: mapping
-    config:
-      map.old_field_name: new_field_name
-      map.another_field: target_field
-```
-
-Example configuration for Advanced Mapping transformer:
-```yaml
-transformations:
-  - type: advanced
-    config:
-      column.id: source.user_id
-      column.full_name: source.name
-      column.created_at: system.now
-      column.app_name: const.Hermod
-      column.status: const.1
-```
+---
 
 ## Architecture
 
@@ -252,7 +207,7 @@ Hermod can be run as a standalone application. By default, it starts in **API Mo
    go run cmd/hermod/main.go --port=8080 --db-type=sqlite --db-conn=hermod.db
    ```
 
-   Hermod supports multiple databases for storing its state (Sources, Sinks, Connections):
+   Hermod supports multiple databases for storing its state (Sources, Sinks, Workflows):
    - **SQLite**: `--db-type=sqlite --db-conn=hermod.db`
    - **PostgreSQL**: `--db-type=postgres --db-conn="postgres://user:pass@localhost:5432/hermod?sslmode=disable"`
    - **MySQL/MariaDB**: `--db-type=mysql --db-conn="user:pass@tcp(localhost:3306)/hermod"`
@@ -278,10 +233,10 @@ Hermod can be run as a standalone application. By default, it starts in **API Mo
    - `--worker-id`: The unique ID of this worker (starting from 0).
    - `--total-workers`: The total number of workers in the cluster.
 
-   Connections are automatically assigned to workers based on a hash of their ID. If the number of workers changes, the connections will be re-sharded across the available workers.
+   Workflows are automatically assigned to workers based on a hash of their ID. If the number of workers changes, the workflows will be re-sharded across the available workers.
 
    #### Explicit Worker Assignment
-   You can also register workers in the Hermod platform and explicitly assign Sources, Sinks, and Connections to a specific worker. This is useful when workers are running on different servers or in different vhosts.
+   You can also register workers in the Hermod platform and explicitly assign Sources, Sinks, and Workflows to a specific worker. This is useful when workers are running on different servers or in different vhosts.
 
    1. Register a worker via the API or UI. Each worker should have a unique GUID.
    2. Start the worker process with the `--worker-guid` and `--platform-url` flags:
@@ -302,7 +257,7 @@ Hermod can be run as a standalone application. By default, it starts in **API Mo
 
    If a worker with the provided `--worker-guid` is not found in the database, it will be automatically created using the provided information. Name will default to the GUID.
 
-   3. When creating or updating a Source, Sink, or Connection, specify the `worker_id` to pin it to that worker.
+   3. When creating or updating a Source, Sink, or Workflow, specify the `worker_id` to pin it to that worker.
 
    If a component has a `worker_id` assigned, only the worker with the matching `--worker-guid` will process it. If no `worker_id` is assigned, the component is subject to the default hash-based sharding.
 
@@ -339,10 +294,14 @@ Key Metrics:
 - `hermod_engine_processing_duration_seconds`: End-to-end processing latency.
 - `hermod_engine_dead_letter_total`: Messages sent to the Dead Letter Sink.
 
+Workflow Metrics:
+- `hermod_workflow_node_processed_total`: Number of messages processed by a specific workflow node.
+- `hermod_workflow_node_errors_total`: Number of errors encountered in a specific workflow node.
+
 Worker Metrics:
 - `hermod_worker_sync_duration_seconds`: Time taken for a worker synchronization cycle.
-- `hermod_worker_active_connections_total`: Number of active connections currently managed by the worker.
-- `hermod_worker_sync_errors_total`: Total number of worker synchronization errors or connection start failures.
+- `hermod_worker_active_workflows_total`: Number of active workflows currently managed by the worker.
+- `hermod_worker_sync_errors_total`: Total number of worker synchronization errors or workflow start failures.
 
 ## Benchmarks
 

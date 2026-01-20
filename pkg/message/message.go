@@ -3,6 +3,7 @@ package message
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -15,6 +16,14 @@ func SanitizeValue(v interface{}) interface{} {
 		return nil
 	}
 
+	// Fast path for common types
+	switch val := v.(type) {
+	case string, int, int32, int64, float32, float64, bool, uint32, uint64:
+		return v
+	case uuid.UUID:
+		return val.String()
+	}
+
 	rv := reflect.ValueOf(v)
 	if rv.Kind() == reflect.Ptr {
 		if rv.IsNil() {
@@ -22,21 +31,26 @@ func SanitizeValue(v interface{}) interface{} {
 		}
 		rv = rv.Elem()
 		v = rv.Interface()
-	}
-
-	// Handle standard UUID types
-	if u, ok := v.(uuid.UUID); ok {
-		return u.String()
+		// Re-check for common types after de-referencing
+		switch val := v.(type) {
+		case string, int, int32, int64, float32, float64, bool, uint32, uint64:
+			return v
+		case uuid.UUID:
+			return val.String()
+		}
 	}
 
 	// Handle byte slices and arrays that might be UUIDs
 	if (rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array) && rv.Len() == 16 && rv.Type().Elem().Kind() == reflect.Uint8 {
 		var b [16]byte
-		for i := 0; i < 16; i++ {
-			b[i] = uint8(rv.Index(i).Uint())
+		if rv.Kind() == reflect.Slice {
+			copy(b[:], rv.Bytes())
+		} else {
+			for i := 0; i < 16; i++ {
+				b[i] = uint8(rv.Index(i).Uint())
+			}
 		}
 		// We only convert if it looks like a valid UUID to avoid false positives
-		// but for CDC it's usually safe to assume 16-byte binary is a UUID or something that should be hex/string
 		u, err := uuid.FromBytes(b[:])
 		if err == nil {
 			return u.String()
@@ -57,6 +71,7 @@ func SanitizeMap(m map[string]interface{}) map[string]interface{} {
 // DefaultMessage is a concrete implementation of the hermod.Message interface.
 // It uses a sync.Pool to minimize allocations.
 type DefaultMessage struct {
+	mu        sync.RWMutex
 	id        string
 	operation hermod.Operation
 	table     string
@@ -68,51 +83,89 @@ type DefaultMessage struct {
 }
 
 func (m *DefaultMessage) ID() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.id
 }
 
 func (m *DefaultMessage) Operation() hermod.Operation {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.operation
 }
 
 func (m *DefaultMessage) Table() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.table
 }
 
 func (m *DefaultMessage) Schema() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.schema
 }
 
 func (m *DefaultMessage) Before() []byte {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.before
 }
 
 func (m *DefaultMessage) After() []byte {
-	return m.payload
+	return m.Payload()
 }
 
 func (m *DefaultMessage) Payload() []byte {
+	m.mu.RLock()
+	if len(m.payload) > 0 {
+		defer m.mu.RUnlock()
+		return m.payload
+	}
+	m.mu.RUnlock()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Re-check after acquiring write lock
 	if len(m.payload) > 0 {
 		return m.payload
 	}
+
+	// If payload is not set, try to marshal data
 	if len(m.data) > 0 {
-		// Cache this? For now just marshal.
-		// In production, we might want to avoid marshaling here if possible.
-		b, _ := json.Marshal(m.data)
-		return b
+		m.payload, _ = json.Marshal(m.data)
+		return m.payload
 	}
 	return m.payload
 }
 
 func (m *DefaultMessage) Metadata() map[string]string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.metadata
 }
 
 func (m *DefaultMessage) Data() map[string]interface{} {
+	m.mu.RLock()
+	if len(m.data) > 0 || len(m.payload) == 0 {
+		defer m.mu.RUnlock()
+		return m.data
+	}
+	m.mu.RUnlock()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.data) == 0 && len(m.payload) > 0 {
+		_ = json.Unmarshal(m.payload, &m.data)
+	}
 	return m.data
 }
 
 func (m *DefaultMessage) Clone() hermod.Message {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	clone := AcquireMessage()
 	clone.id = m.id
 	clone.operation = m.operation
@@ -130,6 +183,9 @@ func (m *DefaultMessage) Clone() hermod.Message {
 }
 
 func (m *DefaultMessage) MarshalJSON() ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	res := make(map[string]interface{})
 
 	// 1. Merge data fields into root
@@ -167,11 +223,14 @@ func (m *DefaultMessage) MarshalJSON() ([]byte, error) {
 
 // Reset clears the message state so it can be reused.
 func (m *DefaultMessage) Reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.id = ""
 	m.operation = ""
 	m.table = ""
 	m.schema = ""
-	m.ClearPayloads()
+	m.clearPayloads()
 	for k := range m.metadata {
 		delete(m.metadata, k)
 	}
@@ -179,11 +238,24 @@ func (m *DefaultMessage) Reset() {
 
 // ClearPayloads clears the data content of the message but keeps metadata/system fields.
 func (m *DefaultMessage) ClearPayloads() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.clearPayloads()
+}
+
+func (m *DefaultMessage) clearPayloads() {
 	m.before = m.before[:0]
 	m.payload = m.payload[:0]
 	for k := range m.data {
 		delete(m.data, k)
 	}
+}
+
+// ClearCachedPayload clears only the marshaled payload bytes.
+func (m *DefaultMessage) ClearCachedPayload() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.payload = m.payload[:0]
 }
 
 var messagePool = sync.Pool{
@@ -208,22 +280,32 @@ func ReleaseMessage(m *DefaultMessage) {
 
 // Setters for DefaultMessage
 func (m *DefaultMessage) SetID(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.id = id
 }
 
 func (m *DefaultMessage) SetOperation(op hermod.Operation) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.operation = op
 }
 
 func (m *DefaultMessage) SetTable(table string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.table = table
 }
 
 func (m *DefaultMessage) SetSchema(schema string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.schema = schema
 }
 
 func (m *DefaultMessage) SetBefore(before []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.before = append(m.before[:0], before...)
 }
 
@@ -232,6 +314,8 @@ func (m *DefaultMessage) SetAfter(after []byte) {
 }
 
 func (m *DefaultMessage) SetPayload(payload []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.payload = append(m.payload[:0], payload...)
 	// Clear data map to keep it in sync
 	for k := range m.data {
@@ -240,11 +324,31 @@ func (m *DefaultMessage) SetPayload(payload []byte) {
 }
 
 func (m *DefaultMessage) SetMetadata(key, value string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.metadata[key] = value
 }
 
 func (m *DefaultMessage) SetData(key string, value interface{}) {
-	m.data[key] = SanitizeValue(value)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if strings.Contains(key, ".") {
+		parts := strings.Split(key, ".")
+		current := m.data
+		for i := 0; i < len(parts)-1; i++ {
+			next, ok := current[parts[i]].(map[string]interface{})
+			if !ok {
+				// Try to see if it's another type of map or if it needs to be created
+				next = make(map[string]interface{})
+				current[parts[i]] = next
+			}
+			current = next
+		}
+		current[parts[len(parts)-1]] = SanitizeValue(value)
+	} else {
+		m.data[key] = SanitizeValue(value)
+	}
 	// Clear payload bytes as they are now stale
 	m.payload = m.payload[:0]
 }

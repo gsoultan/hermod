@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"firebase.google.com/go/v4/messaging"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/formatter/json"
 )
@@ -34,7 +35,7 @@ func TestFCMSink_Write_Error(t *testing.T) {
 
 	formatter := json.NewJSONFormatter()
 	sink := &FCMSink{
-		client:    nil, // client is nil, but we check metadata first
+		client:    &messaging.Client{}, // Mock client to bypass ensureConnected or just set it
 		formatter: formatter,
 	}
 
@@ -70,10 +71,12 @@ func TestFCMSink_Write_Error(t *testing.T) {
 }
 
 func TestNewFCMSink(t *testing.T) {
-	// This will fail because of invalid credentials, but it checks the initialization flow
 	formatter := json.NewJSONFormatter()
-	_, err := NewFCMSink(`{"type": "service_account"}`, formatter)
-	if err == nil {
-		t.Error("expected error for invalid credentials, got nil")
+	sink, err := NewFCMSink(`{"type": "service_account"}`, formatter)
+	if err != nil {
+		t.Errorf("expected no error from lazy NewFCMSink, got %v", err)
+	}
+	if sink.credentialsJSON != `{"type": "service_account"}` {
+		t.Errorf("credentialsJSON not set correctly")
 	}
 }

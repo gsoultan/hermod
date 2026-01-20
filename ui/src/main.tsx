@@ -5,6 +5,7 @@ import { Notifications } from '@mantine/notifications'
 import '@mantine/notifications/styles.css'
 import './index.css'
 import App from './App.tsx'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 const theme = createTheme({
   primaryColor: 'indigo',
@@ -40,9 +41,11 @@ const theme = createTheme({
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <MantineProvider theme={theme}>
-      <Notifications position="top-right" zIndex={2000} />
-      <App />
-    </MantineProvider>
+    <ErrorBoundary>
+      <MantineProvider theme={theme}>
+        <Notifications position="top-right" zIndex={2000} />
+        <App />
+      </MantineProvider>
+    </ErrorBoundary>
   </StrictMode>,
 )

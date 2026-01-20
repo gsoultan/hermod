@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
 	pkgengine "github.com/user/hermod/pkg/engine"
 )
@@ -16,7 +17,9 @@ import (
 type WorkerStorage interface {
 	GetWorker(ctx context.Context, id string) (storage.Worker, error)
 	CreateWorker(ctx context.Context, worker storage.Worker) error
-	ListConnections(ctx context.Context, filter storage.CommonFilter) ([]storage.Connection, int, error)
+	ListWorkflows(ctx context.Context, filter storage.CommonFilter) ([]storage.Workflow, int, error)
+	GetWorkflow(ctx context.Context, id string) (storage.Workflow, error)
+	UpdateWorkflow(ctx context.Context, wf storage.Workflow) error
 	GetSource(ctx context.Context, id string) (storage.Source, error)
 	GetSink(ctx context.Context, id string) (storage.Sink, error)
 	ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error)
@@ -24,9 +27,10 @@ type WorkerStorage interface {
 	UpdateSource(ctx context.Context, src storage.Source) error
 	UpdateSink(ctx context.Context, snk storage.Sink) error
 	UpdateWorkerHeartbeat(ctx context.Context, id string) error
+	CreateLog(ctx context.Context, log storage.Log) error
 }
 
-// Worker syncs the state of connections from storage to the registry.
+// Worker syncs the state of workflows from storage to the registry.
 type Worker struct {
 	storage           WorkerStorage
 	registry          *Registry
@@ -85,7 +89,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
-	log.Println("Engine worker started. Checking for active connections to resume...")
+	log.Println("Engine worker started. Checking for active workflows to resume...")
 
 	// Initial sync
 	w.sync(ctx, true)
@@ -145,9 +149,9 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 		}
 	}()
 
-	connections, _, err := w.storage.ListConnections(ctx, storage.CommonFilter{})
+	workflows, _, err := w.storage.ListWorkflows(ctx, storage.CommonFilter{})
 	if err != nil {
-		log.Printf("Worker: failed to list connections: %v", err)
+		log.Printf("Worker: failed to list workflows: %v", err)
 		pkgengine.WorkerSyncErrors.WithLabelValues(workerID).Inc()
 		return
 	}
@@ -174,15 +178,14 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 	}
 
 	assignedActiveCount := 0
-	for _, c := range connections {
-		if c.Active {
-			// Check if assigned to this worker
+	for _, wf := range workflows {
+		if wf.Active {
 			assigned := false
-			if c.WorkerID != "" {
-				if w.workerGUID != "" && c.WorkerID == w.workerGUID {
+			if wf.WorkerID != "" {
+				if w.workerGUID != "" && wf.WorkerID == w.workerGUID {
 					assigned = true
 				}
-			} else if w.isAssigned(c.ID) {
+			} else if w.isAssigned(wf.ID) {
 				assigned = true
 			}
 			if assigned {
@@ -190,23 +193,24 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 			}
 		}
 	}
-	pkgengine.WorkerActiveConnections.WithLabelValues(workerID).Set(float64(assignedActiveCount))
+	pkgengine.WorkerActiveWorkflows.WithLabelValues(workerID).Set(float64(assignedActiveCount))
 
 	if initial {
-		log.Printf("Worker: found %d connections in storage assigned to this worker", assignedActiveCount)
+		log.Printf("Worker: found %d active workflows assigned to this worker", assignedActiveCount)
 	}
 
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 10) // Limit to 10 concurrent sync operations
-	for i := range connections {
-		conn := connections[i]
+
+	for i := range workflows {
+		wf := workflows[i]
 		wg.Add(1)
-		go func(c storage.Connection) {
+		go func(wf storage.Workflow) {
 			defer wg.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			w.syncConnection(ctx, c, sourceMap, sinkMap, workerID)
-		}(conn)
+			w.syncWorkflow(ctx, wf, workerID, sourceMap, sinkMap)
+		}(wf)
 	}
 	wg.Wait()
 
@@ -215,154 +219,102 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 	}
 }
 
-func (w *Worker) syncConnection(ctx context.Context, conn storage.Connection, sourceMap map[string]storage.Source, sinkMap map[string]storage.Sink, workerID string) {
+func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID string, sourceMap map[string]storage.Source, sinkMap map[string]storage.Sink) {
 	// Assignment logic:
-	// 1. If workerID (GUID) is set in connection, only that worker processes it.
-	// 2. If no workerID is set, use hash-based sharding for unassigned connections.
+	// 1. If workerID (GUID) is set in workflow, only that worker processes it.
+	// 2. If no workerID is set, use hash-based sharding for unassigned workflows.
 	assigned := false
-	if conn.WorkerID != "" {
-		if w.workerGUID != "" && conn.WorkerID == w.workerGUID {
+	if wf.WorkerID != "" {
+		if w.workerGUID != "" && wf.WorkerID == w.workerGUID {
 			assigned = true
 		}
 	} else {
-		if w.isAssigned(conn.ID) {
+		if w.isAssigned(wf.ID) {
 			assigned = true
 		}
 	}
 
 	if !assigned {
 		// If it's running but no longer assigned, stop it
-		if w.registry.IsEngineRunning(conn.ID) {
-			log.Printf("Worker: stopping connection %s (no longer assigned to this worker)", conn.ID)
-			_ = w.registry.StopEngine(conn.ID)
+		if w.registry.IsEngineRunning(wf.ID) {
+			log.Printf("Worker: stopping workflow %s (no longer assigned to this worker)", wf.ID)
+			_ = w.registry.StopEngineWithoutUpdate(wf.ID)
 		}
 		return
 	}
 
-	isRunning := w.registry.IsEngineRunning(conn.ID)
+	isRunning := w.registry.IsEngineRunning(wf.ID)
 	if isRunning {
-		if !conn.Active {
-			log.Printf("Worker: stopping connection %s (%s)", conn.ID, conn.Name)
-			err := w.registry.StopEngine(conn.ID)
-			if err != nil {
-				log.Printf("Worker: failed to stop engine for connection %s: %v", conn.ID, err)
-			}
-			return
-		}
-
-		// Check if configuration has changed
-		curSrcCfg, curSnkConfigs, curTransformations, curTransformationIDs, ok := w.registry.GetEngineConfigs(conn.ID)
-		if ok {
-			// Fetch latest source and sink configs from map
-			src, ok := sourceMap[conn.SourceID]
-			if !ok {
-				log.Printf("Worker: source %s not found for connection %s", conn.SourceID, conn.ID)
-				return
-			}
-
-			newSrcCfg := SourceConfig{
-				ID:     src.ID,
-				Type:   src.Type,
-				Config: src.Config,
-			}
-
-			newSnkConfigs := make([]SinkConfig, 0, len(conn.SinkIDs))
-			skipConfigCheck := false
-			for _, sinkID := range conn.SinkIDs {
-				snk, ok := sinkMap[sinkID]
-				if !ok {
-					log.Printf("Worker: sink %s not found for connection %s", sinkID, conn.ID)
-					skipConfigCheck = true
-					break
+		if !wf.Active {
+			log.Printf("Worker: stopping workflow %s (marked inactive in storage)", wf.ID)
+			_ = w.registry.StopEngine(wf.ID)
+		} else {
+			// Check if configuration has changed
+			curWf, ok := w.registry.GetWorkflowConfig(wf.ID)
+			if ok {
+				configChanged := !reflect.DeepEqual(curWf.Nodes, wf.Nodes) || !reflect.DeepEqual(curWf.Edges, wf.Edges) || curWf.Name != wf.Name
+				if !configChanged {
+					// Check if underlying sources or sinks have changed
+					if w.hasResourceConfigChanged(wf.ID, sourceMap, sinkMap) {
+						configChanged = true
+					}
 				}
-				newSnkConfigs = append(newSnkConfigs, SinkConfig{
-					ID:     snk.ID,
-					Type:   snk.Type,
-					Config: snk.Config,
-				})
-			}
 
-			if !skipConfigCheck && (!reflect.DeepEqual(curSrcCfg, newSrcCfg) || !reflect.DeepEqual(curSnkConfigs, newSnkConfigs) || !reflect.DeepEqual(curTransformations, conn.Transformations) || !reflect.DeepEqual(curTransformationIDs, conn.TransformationIDs)) {
-				log.Printf("Worker: configuration changed for connection %s (%s), restarting...", conn.ID, conn.Name)
-				_ = w.registry.StopEngine(conn.ID)
-				// Fall through to start logic below by setting isRunning to false
-				isRunning = false
-			} else if skipConfigCheck {
-				return
-			} else {
-				// Configuration is the same, no action needed
-				return
+				if configChanged {
+					log.Printf("Worker: configuration changed for workflow %s, restarting...", wf.ID)
+					_ = w.registry.StopEngineWithoutUpdate(wf.ID)
+					isRunning = false
+				}
 			}
 		}
 	}
 
-	if conn.Active && !isRunning {
-		log.Printf("Worker: starting connection %s (%s)", conn.ID, conn.Name)
-
-		src, ok := sourceMap[conn.SourceID]
-		if !ok {
-			log.Printf("Worker: source %s not found for connection %s", conn.SourceID, conn.ID)
-			return
-		}
-
-		// If source is assigned to another worker, this connection shouldn't run here
-		if src.WorkerID != "" && w.workerGUID != "" && src.WorkerID != w.workerGUID {
-			log.Printf("Worker: skipping connection %s because source %s is assigned to worker %s", conn.ID, src.ID, src.WorkerID)
-			return
-		}
-
-		snkConfigs := make([]SinkConfig, 0, len(conn.SinkIDs))
-		skipConnection := false
-		for _, sinkID := range conn.SinkIDs {
-			snk, ok := sinkMap[sinkID]
-			if !ok {
-				log.Printf("Worker: sink %s not found for connection %s", sinkID, conn.ID)
-				continue
-			}
-
-			// If any sink is assigned to another worker, skip this connection for now
-			if snk.WorkerID != "" && w.workerGUID != "" && snk.WorkerID != w.workerGUID {
-				log.Printf("Worker: skipping connection %s because sink %s is assigned to worker %s", conn.ID, snk.ID, snk.WorkerID)
-				skipConnection = true
-				break
-			}
-
-			sc := SinkConfig{
-				ID:     snk.ID,
-				Type:   snk.Type,
-				Config: snk.Config,
-			}
-
-			snkConfigs = append(snkConfigs, sc)
-		}
-
-		if skipConnection {
-			return
-		}
-
-		err := w.registry.StartEngine(conn.ID, SourceConfig{
-			ID:     src.ID,
-			Type:   src.Type,
-			Config: src.Config,
-		}, snkConfigs, conn.Transformations, conn.TransformationIDs, conn.TransformationGroups)
+	if wf.Active && !isRunning {
+		log.Printf("Worker: starting workflow %s...", wf.ID)
+		err := w.registry.StartWorkflow(wf.ID, wf)
 		if err != nil {
-			log.Printf("Worker: failed to start engine for connection %s: %v", conn.ID, err)
+			log.Printf("Worker: failed to start workflow %s: %v", wf.ID, err)
 			pkgengine.WorkerSyncErrors.WithLabelValues(workerID).Inc()
 		}
 	}
 }
 
-func (w *Worker) isAssigned(connectionID string) bool {
+func (w *Worker) isAssigned(workflowID string) bool {
 	if w.totalWorkers <= 1 {
 		return true
 	}
 
 	// Use FNV-1a for better distribution
 	h := fnv.New32a()
-	h.Write([]byte(connectionID))
+	h.Write([]byte(workflowID))
 	hash := h.Sum32()
 
 	return int(hash)%w.totalWorkers == w.workerID
+}
+
+func (w *Worker) hasResourceConfigChanged(workflowID string, sourceMap map[string]storage.Source, sinkMap map[string]storage.Sink) bool {
+	srcConfigs, ok := w.registry.GetSourceConfigs(workflowID)
+	if ok {
+		for _, sc := range srcConfigs {
+			if dbSrc, exists := sourceMap[sc.ID]; exists {
+				if !reflect.DeepEqual(dbSrc.Config, sc.Config) || dbSrc.Type != sc.Type {
+					return true
+				}
+			}
+		}
+	}
+
+	snkConfigs, ok := w.registry.GetSinkConfigs(workflowID)
+	if ok {
+		for _, sc := range snkConfigs {
+			if dbSnk, exists := sinkMap[sc.ID]; exists {
+				if !reflect.DeepEqual(dbSnk.Config, sc.Config) || dbSnk.Type != sc.Type {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (w *Worker) checkHealth(ctx context.Context) {
@@ -440,7 +392,14 @@ func (w *Worker) checkSourceHealth(ctx context.Context, src storage.Source) {
 	if err != nil {
 		status = "error"
 	} else {
-		if err := s.Ping(ctx); err != nil {
+		var pingErr error
+		if readyChecker, ok := s.(hermod.ReadyChecker); ok {
+			pingErr = readyChecker.IsReady(ctx)
+		} else {
+			pingErr = s.Ping(ctx)
+		}
+
+		if pingErr != nil {
 			status = "error"
 		}
 		s.Close()

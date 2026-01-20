@@ -2,7 +2,7 @@ package mariadb
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
@@ -11,15 +11,21 @@ import (
 // MariaDBSource implements the hermod.Source interface for MariaDB CDC.
 type MariaDBSource struct {
 	connString string
+	useCDC     bool
 }
 
-func NewMariaDBSource(connString string) *MariaDBSource {
+func NewMariaDBSource(connString string, useCDC bool) *MariaDBSource {
 	return &MariaDBSource{
 		connString: connString,
+		useCDC:     useCDC,
 	}
 }
 
 func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
+	if !m.useCDC {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	// TODO: Implement binlog replication.
 	select {
 	case <-ctx.Done():
@@ -45,6 +51,6 @@ func (m *MariaDBSource) Ping(ctx context.Context) error {
 }
 
 func (m *MariaDBSource) Close() error {
-	fmt.Println("Closing MariaDBSource")
+	log.Println("Closing MariaDBSource")
 	return nil
 }

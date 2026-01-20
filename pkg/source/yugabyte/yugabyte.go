@@ -2,7 +2,7 @@ package yugabyte
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
@@ -11,15 +11,21 @@ import (
 // YugabyteSource implements the hermod.Source interface for YugabyteDB CDC.
 type YugabyteSource struct {
 	connString string
+	useCDC     bool
 }
 
-func NewYugabyteSource(connString string) *YugabyteSource {
+func NewYugabyteSource(connString string, useCDC bool) *YugabyteSource {
 	return &YugabyteSource{
 		connString: connString,
+		useCDC:     useCDC,
 	}
 }
 
 func (y *YugabyteSource) Read(ctx context.Context) (hermod.Message, error) {
+	if !y.useCDC {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	// TODO: Implement CDC using Yugabyte's CDC service.
 	select {
 	case <-ctx.Done():
@@ -45,6 +51,6 @@ func (y *YugabyteSource) Ping(ctx context.Context) error {
 }
 
 func (y *YugabyteSource) Close() error {
-	fmt.Println("Closing YugabyteSource")
+	log.Println("Closing YugabyteSource")
 	return nil
 }

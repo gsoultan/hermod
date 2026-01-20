@@ -32,7 +32,7 @@ type NotificationSettings struct {
 }
 
 type Provider interface {
-	Send(ctx context.Context, title, message string, conn storage.Connection) error
+	Send(ctx context.Context, title, message string, wf storage.Workflow) error
 	Type() string
 }
 
@@ -54,9 +54,9 @@ func (s *Service) AddProvider(p Provider) {
 	s.providers = append(s.providers, p)
 }
 
-func (s *Service) Notify(ctx context.Context, title, message string, conn storage.Connection) {
+func (s *Service) Notify(ctx context.Context, title, message string, wf storage.Workflow) {
 	s.mu.Lock()
-	key := conn.ID + ":" + title
+	key := wf.ID + ":" + title
 	if last, ok := s.lastSent[key]; ok {
 		if time.Since(last) < 5*time.Minute {
 			s.mu.Unlock()
@@ -67,7 +67,7 @@ func (s *Service) Notify(ctx context.Context, title, message string, conn storag
 	s.mu.Unlock()
 
 	for _, p := range s.providers {
-		err := p.Send(ctx, title, message, conn)
+		err := p.Send(ctx, title, message, wf)
 		if err != nil {
 			fmt.Printf("Failed to send notification via %s: %v\n", p.Type(), err)
 		}
@@ -82,14 +82,14 @@ func NewUINotificationProvider(s storage.Storage) *UINotificationProvider {
 	return &UINotificationProvider{storage: s}
 }
 
-func (p *UINotificationProvider) Send(ctx context.Context, title, message string, conn storage.Connection) error {
+func (p *UINotificationProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
 	log := storage.Log{
-		Timestamp:    time.Now(),
-		Level:        "ERROR",
-		Message:      message,
-		Action:       "NOTIFICATION",
-		ConnectionID: conn.ID,
-		Data:         title,
+		Timestamp:  time.Now(),
+		Level:      "ERROR",
+		Message:    message,
+		Action:     "NOTIFICATION",
+		WorkflowID: wf.ID,
+		Data:       title,
 	}
 	return p.storage.CreateLog(ctx, log)
 }
@@ -106,7 +106,7 @@ func NewEmailNotificationProvider(s storage.Storage) *EmailNotificationProvider 
 	return &EmailNotificationProvider{storage: s}
 }
 
-func (p *EmailNotificationProvider) Send(ctx context.Context, title, message string, conn storage.Connection) error {
+func (p *EmailNotificationProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
 	val, err := p.storage.GetSetting(ctx, "notification_settings")
 	if err != nil || val == "" {
 		return nil
@@ -127,7 +127,7 @@ func (p *EmailNotificationProvider) Send(ctx context.Context, title, message str
 		From:    settings.SMTPFrom,
 		To:      []string{settings.DefaultEmail},
 		Subject: title,
-		Body:    []byte(message),
+		Body:    []byte(fmt.Sprintf("%s\n\nWorkflow: %s (%s)", message, wf.Name, wf.ID)),
 	}
 
 	return sender.Send(ctx, email)
@@ -145,7 +145,7 @@ func NewTelegramNotificationProvider(s storage.Storage) *TelegramNotificationPro
 	return &TelegramNotificationProvider{storage: s}
 }
 
-func (p *TelegramNotificationProvider) Send(ctx context.Context, title, message string, conn storage.Connection) error {
+func (p *TelegramNotificationProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
 	val, err := p.storage.GetSetting(ctx, "notification_settings")
 	if err != nil || val == "" {
 		return nil
@@ -163,7 +163,7 @@ func (p *TelegramNotificationProvider) Send(ctx context.Context, title, message 
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", settings.TelegramToken)
 	body, _ := json.Marshal(map[string]string{
 		"chat_id":    settings.TelegramChatID,
-		"text":       fmt.Sprintf("*%s*\n%s\nConnection: %s", title, message, conn.Name),
+		"text":       fmt.Sprintf("*%s*\n%s\nWorkflow: %s", title, message, wf.Name),
 		"parse_mode": "Markdown",
 	})
 
@@ -200,7 +200,7 @@ func NewSlackNotificationProvider(s storage.Storage) *SlackNotificationProvider 
 	return &SlackNotificationProvider{storage: s}
 }
 
-func (p *SlackNotificationProvider) Send(ctx context.Context, title, message string, conn storage.Connection) error {
+func (p *SlackNotificationProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
 	val, err := p.storage.GetSetting(ctx, "notification_settings")
 	if err != nil || val == "" {
 		return nil
@@ -216,13 +216,13 @@ func (p *SlackNotificationProvider) Send(ctx context.Context, title, message str
 	}
 
 	body, _ := json.Marshal(map[string]interface{}{
-		"text": fmt.Sprintf("*%s*\n%s\nConnection: %s", title, message, conn.Name),
+		"text": fmt.Sprintf("*%s*\n%s\nWorkflow: %s", title, message, wf.Name),
 		"attachments": []map[string]interface{}{
 			{
 				"color": "#ff0000",
 				"fields": []map[string]interface{}{
-					{"title": "Connection", "value": conn.Name, "short": true},
-					{"title": "ID", "value": conn.ID, "short": true},
+					{"title": "Workflow", "value": wf.Name, "short": true},
+					{"title": "ID", "value": wf.ID, "short": true},
 					{"title": "Status", "value": "Error", "short": true},
 				},
 			},
@@ -260,7 +260,7 @@ func NewDiscordNotificationProvider(s storage.Storage) *DiscordNotificationProvi
 	return &DiscordNotificationProvider{storage: s}
 }
 
-func (p *DiscordNotificationProvider) Send(ctx context.Context, title, message string, conn storage.Connection) error {
+func (p *DiscordNotificationProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
 	val, err := p.storage.GetSetting(ctx, "notification_settings")
 	if err != nil || val == "" {
 		return nil
@@ -276,15 +276,15 @@ func (p *DiscordNotificationProvider) Send(ctx context.Context, title, message s
 	}
 
 	body, _ := json.Marshal(map[string]interface{}{
-		"content": fmt.Sprintf("**%s**\n%s\nConnection: %s", title, message, conn.Name),
+		"content": fmt.Sprintf("**%s**\n%s\nWorkflow: %s", title, message, wf.Name),
 		"embeds": []map[string]interface{}{
 			{
 				"title":       title,
 				"description": message,
 				"color":       16711680, // Red
 				"fields": []map[string]interface{}{
-					{"name": "Connection", "value": conn.Name, "inline": true},
-					{"name": "ID", "value": conn.ID, "inline": true},
+					{"name": "Workflow", "value": wf.Name, "inline": true},
+					{"name": "ID", "value": wf.ID, "inline": true},
 				},
 			},
 		},
@@ -321,7 +321,7 @@ func NewGenericWebhookProvider(s storage.Storage) *GenericWebhookProvider {
 	return &GenericWebhookProvider{storage: s}
 }
 
-func (p *GenericWebhookProvider) Send(ctx context.Context, title, message string, conn storage.Connection) error {
+func (p *GenericWebhookProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
 	val, err := p.storage.GetSetting(ctx, "notification_settings")
 	if err != nil || val == "" {
 		return nil
@@ -337,11 +337,11 @@ func (p *GenericWebhookProvider) Send(ctx context.Context, title, message string
 	}
 
 	body, _ := json.Marshal(map[string]interface{}{
-		"title":         title,
-		"message":       message,
-		"connection_id": conn.ID,
-		"name":          conn.Name,
-		"timestamp":     time.Now().Format(time.RFC3339),
+		"title":       title,
+		"message":     message,
+		"workflow_id": wf.ID,
+		"name":        wf.Name,
+		"timestamp":   time.Now().Format(time.RFC3339),
 	})
 
 	req, err := http.NewRequestWithContext(ctx, "POST", settings.WebhookURL, bytes.NewBuffer(body))

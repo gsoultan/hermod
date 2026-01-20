@@ -35,7 +35,7 @@ func NewNatsJetStreamSink(url string, subject string, username, password, token 
 	}, nil
 }
 
-func (s *NatsJetStreamSink) ensureConnected() error {
+func (s *NatsJetStreamSink) ensureConnected(ctx context.Context) error {
 	if s.nc != nil && s.nc.IsConnected() {
 		return nil
 	}
@@ -58,7 +58,10 @@ func (s *NatsJetStreamSink) ensureConnected() error {
 
 // Write publishes a message to NATS JetStream.
 func (s *NatsJetStreamSink) Write(ctx context.Context, msg hermod.Message) error {
-	if err := s.ensureConnected(); err != nil {
+	if msg == nil {
+		return nil
+	}
+	if err := s.ensureConnected(ctx); err != nil {
 		return err
 	}
 	var data []byte
@@ -85,7 +88,7 @@ func (s *NatsJetStreamSink) Write(ctx context.Context, msg hermod.Message) error
 
 // Ping checks if the NATS connection is alive.
 func (s *NatsJetStreamSink) Ping(ctx context.Context) error {
-	return s.ensureConnected()
+	return s.ensureConnected(ctx)
 }
 
 // Close closes the NATS connection.

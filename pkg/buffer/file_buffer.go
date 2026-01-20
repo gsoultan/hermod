@@ -96,7 +96,12 @@ func (b *FileBuffer) saveState() error {
 	return err
 }
 
-func (b *FileBuffer) Produce(ctx context.Context, msg hermod.Message) error {
+func (b *FileBuffer) Produce(ctx context.Context, msg hermod.Message) (err error) {
+	// Ensure message is released after production (since it's encoded/copied)
+	if dm, ok := msg.(*message.DefaultMessage); ok {
+		defer message.ReleaseMessage(dm)
+	}
+
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -212,10 +217,8 @@ func (b *FileBuffer) consumeWithOffsets(ctx context.Context, f *os.File, handler
 			}
 
 			if err := handler(ctx, msg); err != nil {
-				message.ReleaseMessage(msg)
 				return err
 			}
-			message.ReleaseMessage(msg)
 
 			b.mu.Lock()
 			b.consumeCount++

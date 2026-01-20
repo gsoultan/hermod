@@ -2,6 +2,8 @@ package csv
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 )
@@ -118,5 +120,41 @@ func TestCSVSourceSample(t *testing.T) {
 	data := msg.Data()
 	if data["id"] != "1" {
 		t.Errorf("Expected id 1, got %v", data["id"])
+	}
+}
+
+func TestHTTPCSVSource(t *testing.T) {
+	// Create a mock http server
+	content := "id,name,age\n1,John,30\n2,Jane,25\n"
+	server := http.NewServeMux()
+	server.HandleFunc("/data.csv", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Test") != "value" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv")
+		w.Write([]byte(content))
+	})
+
+	ts := httptest.NewServer(server)
+	defer ts.Close()
+
+	headers := map[string]string{"X-Test": "value"}
+	source := NewHTTPCSVSource(ts.URL+"/data.csv", ',', true, headers)
+	defer source.Close()
+
+	ctx := context.Background()
+	msg, err := source.Read(ctx)
+	if err != nil {
+		t.Fatalf("Failed to read from http: %v", err)
+	}
+
+	if msg == nil {
+		t.Fatal("Expected message, got nil")
+	}
+
+	data := msg.Data()
+	if data["name"] != "John" {
+		t.Errorf("Expected John, got %v", data["name"])
 	}
 }

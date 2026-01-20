@@ -2,7 +2,7 @@ package clickhouse
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
@@ -11,15 +11,21 @@ import (
 // ClickHouseSource implements the hermod.Source interface for ClickHouse CDC.
 type ClickHouseSource struct {
 	connString string
+	useCDC     bool
 }
 
-func NewClickHouseSource(connString string) *ClickHouseSource {
+func NewClickHouseSource(connString string, useCDC bool) *ClickHouseSource {
 	return &ClickHouseSource{
 		connString: connString,
+		useCDC:     useCDC,
 	}
 }
 
 func (c *ClickHouseSource) Read(ctx context.Context) (hermod.Message, error) {
+	if !c.useCDC {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	// TODO: Implement CDC using ClickHouse's MySQL/PostgreSQL replication or polling.
 	select {
 	case <-ctx.Done():
@@ -45,6 +51,6 @@ func (c *ClickHouseSource) Ping(ctx context.Context) error {
 }
 
 func (c *ClickHouseSource) Close() error {
-	fmt.Println("Closing ClickHouseSource")
+	log.Println("Closing ClickHouseSource")
 	return nil
 }

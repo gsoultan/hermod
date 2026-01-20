@@ -35,6 +35,9 @@ func (s *RedisSink) init(ctx context.Context) error {
 }
 
 func (s *RedisSink) Write(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
 	if s.client == nil {
 		if err := s.init(ctx); err != nil {
 			return err

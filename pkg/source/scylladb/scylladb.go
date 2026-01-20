@@ -2,7 +2,7 @@ package scylladb
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
@@ -10,16 +10,22 @@ import (
 
 // ScyllaDBSource implements the hermod.Source interface for ScyllaDB CDC.
 type ScyllaDBSource struct {
-	hosts []string
+	hosts  []string
+	useCDC bool
 }
 
-func NewScyllaDBSource(hosts []string) *ScyllaDBSource {
+func NewScyllaDBSource(hosts []string, useCDC bool) *ScyllaDBSource {
 	return &ScyllaDBSource{
-		hosts: hosts,
+		hosts:  hosts,
+		useCDC: useCDC,
 	}
 }
 
 func (s *ScyllaDBSource) Read(ctx context.Context) (hermod.Message, error) {
+	if !s.useCDC {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	// TODO: Implement CDC by querying CDC log tables.
 	select {
 	case <-ctx.Done():
@@ -45,6 +51,6 @@ func (s *ScyllaDBSource) Ping(ctx context.Context) error {
 }
 
 func (s *ScyllaDBSource) Close() error {
-	fmt.Println("Closing ScyllaDBSource")
+	log.Println("Closing ScyllaDBSource")
 	return nil
 }

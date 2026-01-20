@@ -60,8 +60,8 @@ func (c *WorkerAPIClient) CreateWorker(ctx context.Context, w storage.Worker) er
 	return nil
 }
 
-func (c *WorkerAPIClient) ListConnections(ctx context.Context, filter storage.CommonFilter) ([]storage.Connection, int, error) {
-	url := "/api/connections"
+func (c *WorkerAPIClient) ListWorkflows(ctx context.Context, filter storage.CommonFilter) ([]storage.Workflow, int, error) {
+	url := "/api/workflows"
 	if filter.Limit > 0 {
 		url = fmt.Sprintf("%s?page=%d&limit=%d&search=%s", url, filter.Page, filter.Limit, filter.Search)
 	} else if filter.Limit == -1 {
@@ -79,11 +79,40 @@ func (c *WorkerAPIClient) ListConnections(ctx context.Context, filter storage.Co
 	}
 
 	var res struct {
-		Data  []storage.Connection `json:"data"`
-		Total int                  `json:"total"`
+		Data  []storage.Workflow `json:"data"`
+		Total int                `json:"total"`
 	}
 	err = json.NewDecoder(resp.Body).Decode(&res)
 	return res.Data, res.Total, err
+}
+
+func (c *WorkerAPIClient) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
+	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/workflows/%s", id), nil)
+	if err != nil {
+		return storage.Workflow{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return storage.Workflow{}, fmt.Errorf("API error: %s", resp.Status)
+	}
+
+	var wf storage.Workflow
+	err = json.NewDecoder(resp.Body).Decode(&wf)
+	return wf, err
+}
+
+func (c *WorkerAPIClient) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error {
+	resp, err := c.doRequest(ctx, "PUT", fmt.Sprintf("/api/workflows/%s", wf.ID), wf)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("API error: %s", resp.Status)
+	}
+	return nil
 }
 
 func (c *WorkerAPIClient) GetSource(ctx context.Context, id string) (storage.Source, error) {
@@ -200,6 +229,19 @@ func (c *WorkerAPIClient) UpdateWorkerHeartbeat(ctx context.Context, id string) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("API error: %s", resp.Status)
+	}
+	return nil
+}
+
+func (c *WorkerAPIClient) CreateLog(ctx context.Context, log storage.Log) error {
+	resp, err := c.doRequest(ctx, "POST", "/api/logs", log)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("API error: %s", resp.Status)
 	}
 	return nil

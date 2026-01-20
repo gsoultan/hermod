@@ -1,5 +1,5 @@
 import { Title, Text, SimpleGrid, Paper, Group, ThemeIcon, Box, Stack, Grid, Badge, Table, ScrollArea, Divider, ActionIcon, Tooltip, Button } from '@mantine/core'
-import { IconDatabase, IconArrowsExchange, IconBroadcast, IconLayoutDashboard, IconPlug, IconList, IconActivity, IconExternalLink, IconAlertTriangle } from '@tabler/icons-react'
+import { IconDatabase, IconArrowsExchange, IconBroadcast, IconLayoutDashboard, IconPlug, IconList, IconActivity, IconExternalLink, IconAlertTriangle, IconGitBranch } from '@tabler/icons-react'
 import { useState, useEffect, useRef } from 'react'
 import { apiFetch } from '../api'
 import { useNavigate } from '@tanstack/react-router'
@@ -29,12 +29,12 @@ export function DashboardPage() {
   const [stats, setStats] = useState({
     active_sources: 0,
     active_sinks: 0,
-    active_connections: 0,
+    active_workflows: 0,
     total_processed: 0
   })
 
   const [recentLogs, setRecentLogs] = useState<any[]>([])
-  const [connections, setConnections] = useState<any[]>([])
+  const [workflows, setWorkflows] = useState<any[]>([])
   const [mps, setMps] = useState(0)
   const [mpsHistory, setMpsHistory] = useState<number[]>(new Array(30).fill(0))
 
@@ -55,10 +55,10 @@ export function DashboardPage() {
       .then(data => setRecentLogs(data.data || []))
       .catch(err => console.error('Failed to fetch recent logs', err));
 
-    apiFetch('/api/connections?limit=100')
+    apiFetch('/api/workflows?limit=100')
       .then(res => res.json())
-      .then(data => setConnections(data.data || []))
-      .catch(err => console.error('Failed to fetch connections', err));
+      .then(data => setWorkflows(data.data || []))
+      .catch(err => console.error('Failed to fetch workflows', err));
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/api/ws/dashboard`;
@@ -103,7 +103,7 @@ export function DashboardPage() {
     }
   };
 
-  const statusCount = connections.reduce((acc: any, curr: any) => {
+  const statusCount = workflows.reduce((acc: any, curr: any) => {
     const status = curr.status || 'stopped';
     acc[status] = (acc[status] || 0) + 1;
     return acc;
@@ -135,10 +135,10 @@ export function DashboardPage() {
 
           <Paper p="xl" radius="md" withBorder>
             <Group justify="space-between">
-              <Text size="xs" c="dimmed" fw={700} tt="uppercase">Active Connections</Text>
+              <Text size="xs" c="dimmed" fw={700} tt="uppercase">Active Workflows</Text>
               <ThemeIcon color="teal" variant="light" size="lg" radius="md"><IconPlug size="1.2rem" /></ThemeIcon>
             </Group>
-            <Text fw={800} size="32px" mt="md">{stats.active_connections}</Text>
+            <Text fw={800} size="32px" mt="md">{stats.active_workflows}</Text>
           </Paper>
 
           <Paper p="xl" radius="md" withBorder>
@@ -172,7 +172,7 @@ export function DashboardPage() {
                   <IconList size="1.2rem" />
                   <Title order={4}>Recent Activity</Title>
                 </Group>
-                <Button variant="subtle" size="xs" onClick={() => navigate({ to: '/connections' })}>View All</Button>
+                <Button variant="subtle" size="xs" onClick={() => navigate({ to: '/logs' })}>View All</Button>
               </Group>
               <ScrollArea h={350}>
                 {recentLogs.length > 0 ? (
@@ -181,20 +181,20 @@ export function DashboardPage() {
                       <Table.Tr>
                         <Table.Th>Time</Table.Th>
                         <Table.Th>Level</Table.Th>
-                        <Table.Th>Connection</Table.Th>
+                        <Table.Th>Workflow</Table.Th>
                         <Table.Th>Message</Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
                       {recentLogs.map((log) => (
                         <Table.Tr key={log.id}>
-                          <Table.Td><Text size="xs">{new Date(log.created_at).toLocaleTimeString()}</Text></Table.Td>
+                          <Table.Td><Text size="xs">{new Date(log.timestamp).toLocaleTimeString()}</Text></Table.Td>
                           <Table.Td><Badge color={getLevelColor(log.level)} size="xs" variant="light">{log.level}</Badge></Table.Td>
                           <Table.Td>
                             <Group gap={4}>
-                              <Text size="xs" fw={500}>{log.connection_id?.split('-')[0]}</Text>
-                              <Tooltip label="View Connection">
-                                <ActionIcon variant="subtle" size="xs" onClick={() => navigate({ to: `/connections/${log.connection_id}` })}>
+                              <Text size="xs" fw={500}>{log.workflow_id?.split('-')[0]}</Text>
+                              <Tooltip label="View Workflow">
+                                <ActionIcon variant="subtle" size="xs" onClick={() => navigate({ to: `/workflows/${log.workflow_id}` })}>
                                   <IconExternalLink size="0.8rem" />
                                 </ActionIcon>
                               </Tooltip>
@@ -240,8 +240,8 @@ export function DashboardPage() {
                   </Group>
                 </Stack>
                 <Divider my="md" />
-                <Button fullWidth variant="light" leftSection={<IconPlug size="1rem" />} onClick={() => navigate({ to: '/connections' })}>
-                  Manage Connections
+                <Button fullWidth variant="light" leftSection={<IconGitBranch size="1rem" />} onClick={() => navigate({ to: '/workflows' })}>
+                  Manage Workflows
                 </Button>
               </Paper>
 
@@ -251,7 +251,7 @@ export function DashboardPage() {
                   <Text fw={700} size="sm" c="blue.9">Pro Tip</Text>
                 </Group>
                 <Text size="xs" c="blue.8">
-                  Use "Branches" in your connections to route data to different sinks with specific transformations.
+                  Use nodes and edges in workflows to create complex data processing pipelines.
                 </Text>
               </Paper>
             </Stack>

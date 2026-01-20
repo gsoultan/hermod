@@ -3,6 +3,7 @@ package fcm
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/messaging"
@@ -11,34 +12,53 @@ import (
 )
 
 type FCMSink struct {
-	client    *messaging.Client
-	formatter hermod.Formatter
+	client          *messaging.Client
+	formatter       hermod.Formatter
+	credentialsJSON string
+	mu              sync.Mutex
 }
 
 func NewFCMSink(credentialsJSON string, formatter hermod.Formatter) (*FCMSink, error) {
-	ctx := context.Background()
+	return &FCMSink{
+		formatter:       formatter,
+		credentialsJSON: credentialsJSON,
+	}, nil
+}
+
+func (s *FCMSink) ensureConnected(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.client != nil {
+		return nil
+	}
+
 	var opts []option.ClientOption
-	if credentialsJSON != "" {
-		opts = append(opts, option.WithCredentialsJSON([]byte(credentialsJSON)))
+	if s.credentialsJSON != "" {
+		opts = append(opts, option.WithCredentialsJSON([]byte(s.credentialsJSON)))
 	}
 
 	app, err := firebase.NewApp(ctx, nil, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize firebase app: %w", err)
+		return fmt.Errorf("failed to initialize firebase app: %w", err)
 	}
 
 	client, err := app.Messaging(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create fcm client: %w", err)
+		return fmt.Errorf("failed to create fcm client: %w", err)
 	}
 
-	return &FCMSink{
-		client:    client,
-		formatter: formatter,
-	}, nil
+	s.client = client
+	return nil
 }
 
 func (s *FCMSink) Write(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
+	if err := s.ensureConnected(ctx); err != nil {
+		return err
+	}
 	var data []byte
 	var err error
 
@@ -102,14 +122,22 @@ func (s *FCMSink) Write(ctx context.Context, msg hermod.Message) error {
 }
 
 func (s *FCMSink) Ping(ctx context.Context) error {
-	// FCM doesn't have a direct ping, but we can try to send a dry run message
-	// or just check if the client is initialized.
-	// Since we don't have a valid token here, a dry run might fail.
-	// For now, we just check if client is not nil.
-	if s.client == nil {
-		return fmt.Errorf("fcm client is not initialized")
+	if err := s.ensureConnected(ctx); err != nil {
+		return err
 	}
-	return nil
+	// Dry run with a dummy message to check if client/auth is working
+	// In firebase-admin-go v4, we can use client.Send(ctx, msg) and it might fail with "registration-token-not-registered"
+	// which actually means the client and auth are working fine.
+	_, err := s.client.Send(ctx, &messaging.Message{
+		Token: "dry-run-token",
+	})
+
+	// If the error is about invalid token, it means we reached FCM, so "ping" is successful.
+	if err != nil && (messaging.IsRegistrationTokenNotRegistered(err) || messaging.IsInvalidArgument(err)) {
+		return nil
+	}
+
+	return err
 }
 
 func (s *FCMSink) Close() error {

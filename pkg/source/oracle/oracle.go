@@ -2,7 +2,7 @@ package oracle
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
@@ -11,15 +11,21 @@ import (
 // OracleSource implements the hermod.Source interface for Oracle CDC.
 type OracleSource struct {
 	connString string
+	useCDC     bool
 }
 
-func NewOracleSource(connString string) *OracleSource {
+func NewOracleSource(connString string, useCDC bool) *OracleSource {
 	return &OracleSource{
 		connString: connString,
+		useCDC:     useCDC,
 	}
 }
 
 func (o *OracleSource) Read(ctx context.Context) (hermod.Message, error) {
+	if !o.useCDC {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	// TODO: Implement CDC polling or LogMiner integration.
 	select {
 	case <-ctx.Done():
@@ -45,6 +51,6 @@ func (o *OracleSource) Ping(ctx context.Context) error {
 }
 
 func (o *OracleSource) Close() error {
-	fmt.Println("Closing OracleSource")
+	log.Println("Closing OracleSource")
 	return nil
 }

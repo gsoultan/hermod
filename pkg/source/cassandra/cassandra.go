@@ -2,7 +2,7 @@ package cassandra
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
@@ -10,16 +10,22 @@ import (
 
 // CassandraSource implements the hermod.Source interface for Cassandra CDC.
 type CassandraSource struct {
-	hosts []string
+	hosts  []string
+	useCDC bool
 }
 
-func NewCassandraSource(hosts []string) *CassandraSource {
+func NewCassandraSource(hosts []string, useCDC bool) *CassandraSource {
 	return &CassandraSource{
-		hosts: hosts,
+		hosts:  hosts,
+		useCDC: useCDC,
 	}
 }
 
 func (c *CassandraSource) Read(ctx context.Context) (hermod.Message, error) {
+	if !c.useCDC {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	// TODO: Implement CDC by reading commit logs or using a CDC agent.
 	select {
 	case <-ctx.Done():
@@ -45,6 +51,6 @@ func (c *CassandraSource) Ping(ctx context.Context) error {
 }
 
 func (c *CassandraSource) Close() error {
-	fmt.Println("Closing CassandraSource")
+	log.Println("Closing CassandraSource")
 	return nil
 }

@@ -3,25 +3,35 @@ package engine
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/user/hermod/internal/storage"
 )
 
-type DatabaseLogger struct {
-	storage storage.Storage
-	ctx     context.Context
+type LogCreator interface {
+	CreateLog(ctx context.Context, log storage.Log) error
 }
 
-func NewDatabaseLogger(ctx context.Context, s storage.Storage) *DatabaseLogger {
+type DatabaseLogger struct {
+	storage    LogCreator
+	ctx        context.Context
+	workflowID string
+}
+
+func NewDatabaseLogger(ctx context.Context, s LogCreator, workflowID string) *DatabaseLogger {
 	return &DatabaseLogger{
-		storage: s,
-		ctx:     ctx,
+		storage:    s,
+		ctx:        ctx,
+		workflowID: workflowID,
 	}
 }
 
 func (l *DatabaseLogger) log(level string, msg string, keysAndValues ...interface{}) {
 	log := storage.Log{
-		Level:   level,
-		Message: msg,
+		Timestamp:  time.Now(),
+		Level:      level,
+		Message:    msg,
+		WorkflowID: l.workflowID,
 	}
 
 	for i := 0; i < len(keysAndValues); i += 2 {
@@ -36,8 +46,8 @@ func (l *DatabaseLogger) log(level string, msg string, keysAndValues ...interfac
 		valStr := fmt.Sprintf("%v", val)
 
 		switch key {
-		case "connection_id":
-			log.ConnectionID = valStr
+		case "workflow_id":
+			log.WorkflowID = valStr
 		case "source_id":
 			log.SourceID = valStr
 		case "sink_id":

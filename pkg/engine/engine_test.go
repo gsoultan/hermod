@@ -22,7 +22,10 @@ func (s *mockSource) Read(ctx context.Context) (hermod.Message, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-time.After(10 * time.Millisecond):
-		return s.msg, nil
+		if s.msg == nil {
+			return nil, nil
+		}
+		return s.msg.Clone(), nil
 	}
 }
 
@@ -49,136 +52,6 @@ func (s *mockSink) Write(ctx context.Context, msg hermod.Message) error {
 func (s *mockSink) Ping(ctx context.Context) error { return nil }
 
 func (s *mockSink) Close() error { return nil }
-
-type mockTransformer struct {
-	suffix string
-}
-
-func (t *mockTransformer) Transform(ctx context.Context, msg hermod.Message) (hermod.Message, error) {
-	// Try to cast to DefaultMessage to use SetPayload
-	if dm, ok := msg.(*message.DefaultMessage); ok {
-		dm.SetPayload([]byte(string(dm.Payload()) + t.suffix))
-	}
-	return msg, nil
-}
-
-func (t *mockTransformer) Close() error { return nil }
-
-func TestEngineBranching(t *testing.T) {
-	msg := message.AcquireMessage()
-	msg.SetID("test-branching")
-	msg.SetPayload([]byte("base"))
-
-	source := &mockSource{msg: msg}
-	sink1 := &mockSink{received: make(chan hermod.Message, 1)}
-	sink2 := &mockSink{received: make(chan hermod.Message, 1)}
-	sink3 := &mockSink{received: make(chan hermod.Message, 1)}
-	rb := buffer.NewRingBuffer(10)
-
-	eng := NewEngine(source, []hermod.Sink{sink1, sink2, sink3}, rb)
-	eng.SetIDs("conn1", "src1", []string{"sink1", "sink2", "sink3"})
-
-	// Branch 1: sinks 1 & 2 get suffix "-b1"
-	// Branch 2: sink 3 gets suffix "-b2"
-	eng.SetTransformationGroups([]TransformationGroup{
-		{
-			Transformer: &mockTransformer{suffix: "-b1"},
-			Sinks:       []hermod.Sink{sink1, sink2},
-			SinkIDs:     []string{"sink1", "sink2"},
-		},
-		{
-			Transformer: &mockTransformer{suffix: "-b2"},
-			Sinks:       []hermod.Sink{sink3},
-			SinkIDs:     []string{"sink3"},
-		},
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-
-	go func() {
-		_ = eng.Start(ctx)
-	}()
-
-	var r1, r2, r3 hermod.Message
-	select {
-	case r1 = <-sink1.received:
-	case <-ctx.Done():
-		t.Fatal("timeout sink1")
-	}
-	select {
-	case r2 = <-sink2.received:
-	case <-ctx.Done():
-		t.Fatal("timeout sink2")
-	}
-	select {
-	case r3 = <-sink3.received:
-	case <-ctx.Done():
-		t.Fatal("timeout sink3")
-	}
-
-	if string(r1.Payload()) != "base-b1" {
-		t.Errorf("expected base-b1, got %s", string(r1.Payload()))
-	}
-	if string(r2.Payload()) != "base-b1" {
-		t.Errorf("expected base-b1, got %s", string(r2.Payload()))
-	}
-	if string(r3.Payload()) != "base-b2" {
-		t.Errorf("expected base-b2, got %s", string(r3.Payload()))
-	}
-}
-
-func TestEnginePerSinkTransformations(t *testing.T) {
-	msg := message.AcquireMessage()
-	msg.SetID("test-1")
-	msg.SetPayload([]byte("base"))
-
-	source := &mockSource{msg: msg}
-	sink1 := &mockSink{received: make(chan hermod.Message, 1)}
-	sink2 := &mockSink{received: make(chan hermod.Message, 1)}
-	rb := buffer.NewRingBuffer(10)
-
-	eng := NewEngine(source, []hermod.Sink{sink1, sink2}, rb)
-	eng.SetIDs("conn1", "src1", []string{"sink1", "sink2"})
-	eng.SetTransformationGroups([]TransformationGroup{
-		{
-			Transformer: &mockTransformer{suffix: "-s1"},
-			Sinks:       []hermod.Sink{sink1},
-			SinkIDs:     []string{"sink1"},
-		},
-		{
-			Transformer: &mockTransformer{suffix: "-s2"},
-			Sinks:       []hermod.Sink{sink2},
-			SinkIDs:     []string{"sink2"},
-		},
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-
-	go func() {
-		_ = eng.Start(ctx)
-	}()
-
-	var received1, received2 hermod.Message
-	select {
-	case received1 = <-sink1.received:
-	case <-ctx.Done():
-		t.Fatal("timeout waiting for sink1")
-	}
-	select {
-	case received2 = <-sink2.received:
-	case <-ctx.Done():
-		t.Fatal("timeout waiting for sink2")
-	}
-
-	if string(received1.Payload()) != "base-s1" {
-		t.Errorf("expected base-s1, got %s", string(received1.Payload()))
-	}
-	if string(received2.Payload()) != "base-s2" {
-		t.Errorf("expected base-s2, got %s", string(received2.Payload()))
-	}
-}
 
 type mockSourceWithLimit struct {
 	limit int
@@ -555,7 +428,7 @@ func TestEngineSourceReconnect(t *testing.T) {
 
 	eng := NewEngine(source, []hermod.Sink{sink}, rb)
 	// Set very short reconnect interval for test
-	eng.SetSourceConfig(SourceConfig{ReconnectInterval: 10 * time.Millisecond})
+	eng.SetSourceConfig(SourceConfig{ReconnectIntervals: []time.Duration{10 * time.Millisecond}})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()

@@ -18,6 +18,9 @@ func NewStdoutSink(formatter hermod.Formatter) *StdoutSink {
 }
 
 func (s *StdoutSink) Write(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
 	var data []byte
 	var err error
 

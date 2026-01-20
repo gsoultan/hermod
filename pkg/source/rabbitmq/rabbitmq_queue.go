@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/user/hermod"
@@ -19,6 +20,7 @@ type RabbitMQQueueSource struct {
 	messages chan hermod.Message
 	errs     chan error
 	cancel   context.CancelFunc
+	mu       sync.Mutex
 }
 
 func NewRabbitMQQueueSource(url string, queueName string) (*RabbitMQQueueSource, error) {
@@ -31,6 +33,9 @@ func NewRabbitMQQueueSource(url string, queueName string) (*RabbitMQQueueSource,
 }
 
 func (s *RabbitMQQueueSource) ensureConnected() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.conn != nil && !s.conn.IsClosed() {
 		return nil
 	}
@@ -63,7 +68,7 @@ func (s *RabbitMQQueueSource) ensureConnected() error {
 	msgs, err := ch.Consume(
 		q.Name, // queue
 		"",     // consumer
-		false,  // auto-ack (changed to false for production readiness)
+		false,  // auto-ack
 		false,  // exclusive
 		false,  // no-local
 		false,  // no-wait
@@ -85,17 +90,17 @@ func (s *RabbitMQQueueSource) ensureConnected() error {
 	s.msgs = msgs
 	s.cancel = cancel
 
-	go s.run(ctx)
+	go s.run(ctx, msgs)
 
 	return nil
 }
 
-func (s *RabbitMQQueueSource) run(ctx context.Context) {
+func (s *RabbitMQQueueSource) run(ctx context.Context, msgs <-chan amqp.Delivery) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case d, ok := <-s.msgs:
+		case d, ok := <-msgs:
 			if !ok {
 				s.errs <- fmt.Errorf("rabbitmq channel closed")
 				return
@@ -136,13 +141,20 @@ func (s *RabbitMQQueueSource) Read(ctx context.Context) (hermod.Message, error) 
 	case err := <-s.errs:
 		// Attempt to reconnect on error
 		if err.Error() == "rabbitmq channel closed" {
-			s.conn.Close() // Force reconnection on next Read
+			s.mu.Lock()
+			if s.conn != nil {
+				s.conn.Close() // Force reconnection on next Read
+			}
+			s.mu.Unlock()
 		}
 		return nil, err
 	}
 }
 
 func (s *RabbitMQQueueSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
 	tagStr := msg.Metadata()["delivery_tag"]
 	if tagStr == "" {
 		return fmt.Errorf("missing delivery_tag in message metadata")
@@ -153,26 +165,50 @@ func (s *RabbitMQQueueSource) Ack(ctx context.Context, msg hermod.Message) error
 		return fmt.Errorf("invalid delivery_tag: %w", err)
 	}
 
-	if s.channel == nil {
+	s.mu.Lock()
+	ch := s.channel
+	s.mu.Unlock()
+
+	if ch == nil {
 		return fmt.Errorf("rabbitmq channel not connected")
 	}
 
-	return s.channel.Ack(tag, false)
+	return ch.Ack(tag, false)
 }
 
 func (s *RabbitMQQueueSource) Ping(ctx context.Context) error {
-	return s.ensureConnected()
+	s.mu.Lock()
+	conn := s.conn
+	s.mu.Unlock()
+
+	if conn != nil && !conn.IsClosed() {
+		return nil
+	}
+
+	// Just try to dial, don't open channels or declare queues
+	conn, err := amqp.Dial(s.url)
+	if err != nil {
+		return fmt.Errorf("failed to dial RabbitMQ for ping: %w", err)
+	}
+	conn.Close()
+	return nil
 }
 
 func (s *RabbitMQQueueSource) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.cancel != nil {
 		s.cancel()
+		s.cancel = nil
 	}
 	if s.channel != nil {
 		s.channel.Close()
+		s.channel = nil
 	}
 	if s.conn != nil {
 		s.conn.Close()
+		s.conn = nil
 	}
 	return nil
 }

@@ -2,7 +2,7 @@ package db2
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
@@ -11,15 +11,21 @@ import (
 // DB2Source implements the hermod.Source interface for DB2 CDC.
 type DB2Source struct {
 	connString string
+	useCDC     bool
 }
 
-func NewDB2Source(connString string) *DB2Source {
+func NewDB2Source(connString string, useCDC bool) *DB2Source {
 	return &DB2Source{
 		connString: connString,
+		useCDC:     useCDC,
 	}
 }
 
 func (d *DB2Source) Read(ctx context.Context) (hermod.Message, error) {
+	if !d.useCDC {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	// TODO: Implement CDC using DB2 read log API or polling.
 	select {
 	case <-ctx.Done():
@@ -45,6 +51,6 @@ func (d *DB2Source) Ping(ctx context.Context) error {
 }
 
 func (d *DB2Source) Close() error {
-	fmt.Println("Closing DB2Source")
+	log.Println("Closing DB2Source")
 	return nil
 }

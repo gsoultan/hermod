@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -23,21 +24,65 @@ type PostgresSource struct {
 	slotName        string
 	publicationName string
 	tables          []string
+	useCDC          bool
 	conn            *pgx.Conn // Standard connection for metadata
 	replConn        *pgx.Conn // Replication connection for streaming
 	typeMap         *pgtype.Map
 	relations       map[uint32]*pglogrepl.RelationMessage
 	mu              sync.Mutex
 	initialized     bool
+	lastReceivedLSN pglogrepl.LSN
+	lastAckedLSN    pglogrepl.LSN
+	msgChan         chan hermod.Message
+	errChan         chan error
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	logger          hermod.Logger
 }
 
-func NewPostgresSource(connString, slotName, publicationName string, tables []string) *PostgresSource {
+func NewPostgresSource(connString, slotName, publicationName string, tables []string, useCDC bool) *PostgresSource {
 	return &PostgresSource{
 		connString:      connString,
 		slotName:        slotName,
 		publicationName: publicationName,
 		tables:          tables,
+		useCDC:          useCDC,
 		relations:       make(map[uint32]*pglogrepl.RelationMessage),
+		msgChan:         make(chan hermod.Message, 1000),
+		errChan:         make(chan error, 10),
+	}
+}
+
+func (p *PostgresSource) SetLogger(logger hermod.Logger) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.logger = logger
+}
+
+func (p *PostgresSource) log(level, msg string, keysAndValues ...interface{}) {
+	p.mu.Lock()
+	logger := p.logger
+	p.mu.Unlock()
+
+	if logger == nil {
+		// Fallback to standard log if no structured logger is set, to ensure timestamps
+		if len(keysAndValues) > 0 {
+			log.Printf("[%s] %s %v", level, msg, keysAndValues)
+		} else {
+			log.Printf("[%s] %s", level, msg)
+		}
+		return
+	}
+
+	switch level {
+	case "DEBUG":
+		logger.Debug(msg, keysAndValues...)
+	case "INFO":
+		logger.Info(msg, keysAndValues...)
+	case "WARN":
+		logger.Warn(msg, keysAndValues...)
+	case "ERROR":
+		logger.Error(msg, keysAndValues...)
 	}
 }
 
@@ -58,7 +103,7 @@ func (p *PostgresSource) ensurePublication(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to create publication: %w", err)
 		}
-		fmt.Printf("Created publication %s\n", p.publicationName)
+		p.log("INFO", "Created publication", "publication", p.publicationName)
 		return nil
 	}
 
@@ -75,7 +120,7 @@ func (p *PostgresSource) ensurePublication(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("failed to set publication to ALL TABLES: %w", err)
 			}
-			fmt.Printf("Updated publication %s to ALL TABLES\n", p.publicationName)
+			p.log("INFO", "Updated publication to ALL TABLES", "publication", p.publicationName)
 		}
 		return nil
 	}
@@ -87,7 +132,7 @@ func (p *PostgresSource) ensurePublication(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to update publication from ALL TABLES to specific tables: %w", err)
 		}
-		fmt.Printf("Updated publication %s from ALL TABLES to specific tables\n", p.publicationName)
+		p.log("INFO", "Updated publication from ALL TABLES to specific tables", "publication", p.publicationName)
 		return nil
 	}
 
@@ -122,7 +167,7 @@ func (p *PostgresSource) ensurePublication(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to update publication tables: %w", err)
 		}
-		fmt.Printf("Updated publication %s with tables: %s\n", p.publicationName, strings.Join(p.tables, ", "))
+		p.log("INFO", "Updated publication tables", "publication", p.publicationName, "tables", strings.Join(p.tables, ", "))
 	}
 
 	return nil
@@ -140,226 +185,254 @@ func (p *PostgresSource) ensureReplicationSlot(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to create replication slot: %w", err)
 		}
-		fmt.Printf("Created replication slot %s\n", p.slotName)
+		p.log("INFO", "Created replication slot", "slot", p.slotName)
 	}
 	return nil
 }
 
 func (p *PostgresSource) Read(ctx context.Context) (hermod.Message, error) {
-	if p.replConn == nil {
-		if err := p.init(ctx); err != nil {
-			return nil, err
-		}
+	if err := p.init(ctx); err != nil {
+		return nil, err
+	}
+
+	if !p.useCDC {
+		<-ctx.Done()
+		return nil, ctx.Err()
 	}
 
 	for {
-		p.mu.Lock()
-		if p.replConn == nil {
-			p.mu.Unlock()
-			if err := p.init(ctx); err != nil {
-				return nil, err
-			}
+		select {
+		case msg := <-p.msgChan:
+			return msg, nil
+		case err := <-p.errChan:
+			return nil, err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(1 * time.Second):
+			// Check if we are still initialized
 			p.mu.Lock()
-		}
-		conn := p.replConn.PgConn()
-		p.mu.Unlock()
-
-		msg, err := conn.ReceiveMessage(ctx)
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return nil, err
+			init := p.initialized
+			p.mu.Unlock()
+			if !init {
+				if err := p.init(ctx); err != nil {
+					return nil, err
+				}
 			}
-
-			// Reconnect on connection errors
-			fmt.Printf("Error receiving replication message: %v. Attempting to reconnect...\n", err)
-			p.Close()
-
-			// Wait a bit before reconnecting to avoid tight loop
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(2 * time.Second):
-			}
-
-			if initErr := p.init(ctx); initErr != nil {
-				return nil, fmt.Errorf("failed to re-init after connection loss: %w (original error: %v)", initErr, err)
-			}
-			continue
-		}
-
-		switch m := msg.(type) {
-		case *pgproto3.ErrorResponse:
-			return nil, fmt.Errorf("received error response from postgres: %s", m.Message)
-		case *pgproto3.CopyData:
-			switch m.Data[0] {
-			case 'k': // Primary Keepalive Message
-				pka, err := pglogrepl.ParsePrimaryKeepaliveMessage(m.Data[1:])
-				if err != nil {
-					return nil, fmt.Errorf("failed to parse primary keepalive message: %w", err)
-				}
-				if pka.ReplyRequested {
-					// Send standby status update
-					p.mu.Lock()
-					err = pglogrepl.SendStandbyStatusUpdate(ctx, p.replConn.PgConn(), pglogrepl.StandbyStatusUpdate{
-						WALWritePosition: pka.ServerWALEnd,
-						WALFlushPosition: pka.ServerWALEnd,
-						WALApplyPosition: pka.ServerWALEnd,
-					})
-					p.mu.Unlock()
-					if err != nil {
-						fmt.Printf("Error sending keepalive standby status update: %v. Attempting to reconnect...\n", err)
-						p.Close()
-						if initErr := p.init(ctx); initErr != nil {
-							return nil, fmt.Errorf("failed to re-init after connection loss during keepalive: %w (original error: %v)", initErr, err)
-						}
-						continue
-					}
-				}
-				continue
-			case 'w': // XLogData
-				xld, err := pglogrepl.ParseXLogData(m.Data[1:])
-				if err != nil {
-					return nil, fmt.Errorf("failed to parse xlog data: %w", err)
-				}
-				logicalMsg, err := pglogrepl.Parse(xld.WALData)
-				if err != nil {
-					return nil, fmt.Errorf("failed to parse logical replication message: %w", err)
-				}
-
-				switch lm := logicalMsg.(type) {
-				case *pglogrepl.RelationMessage:
-					fmt.Printf("Received RelationMessage: %s (%d)\n", lm.RelationName, lm.RelationID)
-					p.mu.Lock()
-					p.relations[lm.RelationID] = lm
-					p.mu.Unlock()
-					continue
-				case *pglogrepl.InsertMessage:
-					fmt.Printf("Received InsertMessage for relation %d\n", lm.RelationID)
-					res := message.AcquireMessage()
-					res.SetID(xld.WALStart.String())
-					res.SetOperation(hermod.OpCreate)
-					res.SetMetadata("source", "postgres")
-					res.SetMetadata("lsn", xld.WALStart.String())
-
-					p.mu.Lock()
-					rel, ok := p.relations[lm.RelationID]
-					p.mu.Unlock()
-
-					if ok {
-						res.SetTable(rel.RelationName)
-						res.SetSchema(rel.Namespace)
-
-						data := make(map[string]interface{})
-						for i, col := range lm.Tuple.Columns {
-							if i < len(rel.Columns) {
-								data[rel.Columns[i].Name] = string(col.Data)
-							}
-						}
-						jsonBytes, _ := json.Marshal(data)
-						res.SetAfter(jsonBytes)
-					} else {
-						fmt.Printf("Warning: No relation info for ID %d\n", lm.RelationID)
-					}
-
-					return res, nil
-				case *pglogrepl.UpdateMessage:
-					fmt.Printf("Received UpdateMessage for relation %d\n", lm.RelationID)
-					res := message.AcquireMessage()
-					res.SetID(xld.WALStart.String())
-					res.SetOperation(hermod.OpUpdate)
-					res.SetMetadata("source", "postgres")
-					res.SetMetadata("lsn", xld.WALStart.String())
-
-					p.mu.Lock()
-					rel, ok := p.relations[lm.RelationID]
-					p.mu.Unlock()
-
-					if ok {
-						res.SetTable(rel.RelationName)
-						res.SetSchema(rel.Namespace)
-
-						// Set Before data if available (requires REPLICA IDENTITY FULL)
-						if lm.OldTuple != nil {
-							beforeData := make(map[string]interface{})
-							for i, col := range lm.OldTuple.Columns {
-								if i < len(rel.Columns) {
-									beforeData[rel.Columns[i].Name] = string(col.Data)
-								}
-							}
-							beforeBytes, _ := json.Marshal(beforeData)
-							res.SetBefore(beforeBytes)
-						}
-
-						data := make(map[string]interface{})
-						for i, col := range lm.NewTuple.Columns {
-							if i < len(rel.Columns) {
-								data[rel.Columns[i].Name] = string(col.Data)
-							}
-						}
-						jsonBytes, _ := json.Marshal(data)
-						res.SetAfter(jsonBytes)
-					} else {
-						fmt.Printf("Warning: No relation info for ID %d\n", lm.RelationID)
-					}
-
-					return res, nil
-				case *pglogrepl.DeleteMessage:
-					fmt.Printf("Received DeleteMessage for relation %d\n", lm.RelationID)
-					res := message.AcquireMessage()
-					res.SetID(xld.WALStart.String())
-					res.SetOperation(hermod.OpDelete)
-					res.SetMetadata("source", "postgres")
-					res.SetMetadata("lsn", xld.WALStart.String())
-
-					p.mu.Lock()
-					rel, ok := p.relations[lm.RelationID]
-					p.mu.Unlock()
-
-					if ok {
-						res.SetTable(rel.RelationName)
-						res.SetSchema(rel.Namespace)
-
-						// Set Before data if available (requires REPLICA IDENTITY FULL or USING INDEX)
-						if lm.OldTuple != nil {
-							beforeData := make(map[string]interface{})
-							for i, col := range lm.OldTuple.Columns {
-								if i < len(rel.Columns) {
-									beforeData[rel.Columns[i].Name] = string(col.Data)
-								}
-							}
-							beforeBytes, _ := json.Marshal(beforeData)
-							res.SetBefore(beforeBytes)
-						}
-					} else {
-						fmt.Printf("Warning: No relation info for ID %d\n", lm.RelationID)
-					}
-
-					return res, nil
-				case *pglogrepl.BeginMessage:
-					// fmt.Printf("Received BeginMessage\n")
-					continue
-				case *pglogrepl.CommitMessage:
-					// fmt.Printf("Received CommitMessage\n")
-					continue
-				case *pglogrepl.OriginMessage, *pglogrepl.TypeMessage:
-					continue
-				default:
-					fmt.Printf("Unknown logical replication message: %T\n", lm)
-					continue
-				}
-			default:
-				continue
-			}
-		default:
+			// Small timeout to allow checking context and re-init
 			continue
 		}
 	}
 }
 
-func (p *PostgresSource) ensureConn(ctx context.Context) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (p *PostgresSource) streamLoop(ctx context.Context) {
+	defer p.wg.Done()
+	defer func() {
+		p.mu.Lock()
+		p.initialized = false
+		if p.replConn != nil {
+			p.replConn.Close(context.Background())
+			p.replConn = nil
+		}
+		p.mu.Unlock()
+	}()
+	p.log("INFO", "Starting streamLoop", "slot", p.slotName)
 
+	for {
+		p.mu.Lock()
+		conn := p.replConn
+		p.mu.Unlock()
+
+		if conn == nil || conn.IsClosed() {
+			return
+		}
+
+		msg, err := conn.PgConn().ReceiveMessage(ctx)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				fmt.Printf("Replication stream error for slot %s: %v\n", p.slotName, err)
+				select {
+				case p.errChan <- err:
+				case <-ctx.Done():
+				}
+			}
+			return
+		}
+
+		switch m := msg.(type) {
+		case *pgproto3.ErrorResponse:
+			fmt.Printf("Postgres error response for slot %s: %s\n", p.slotName, m.Message)
+			select {
+			case p.errChan <- fmt.Errorf("postgres error: %s", m.Message):
+			case <-ctx.Done():
+			}
+			return
+		case *pgproto3.CopyData:
+			switch m.Data[0] {
+			case 'k': // Primary Keepalive Message
+				pka, err := pglogrepl.ParsePrimaryKeepaliveMessage(m.Data[1:])
+				if err != nil {
+					fmt.Printf("Failed to parse keepalive: %v\n", err)
+					continue
+				}
+
+				p.mu.Lock()
+				p.lastReceivedLSN = pka.ServerWALEnd
+				if pka.ReplyRequested {
+					err = pglogrepl.SendStandbyStatusUpdate(ctx, conn.PgConn(), pglogrepl.StandbyStatusUpdate{
+						WALWritePosition: p.lastReceivedLSN,
+						WALFlushPosition: p.lastAckedLSN,
+						WALApplyPosition: p.lastAckedLSN,
+					})
+				}
+				p.mu.Unlock()
+
+				if err != nil {
+					if !errors.Is(err, context.Canceled) {
+						fmt.Printf("Failed to send keepalive response: %v\n", err)
+						select {
+						case p.errChan <- err:
+						case <-ctx.Done():
+						}
+					}
+					return
+				}
+			case 'w': // XLogData
+				xld, err := pglogrepl.ParseXLogData(m.Data[1:])
+				if err != nil {
+					fmt.Printf("Failed to parse xlog data: %v\n", err)
+					continue
+				}
+
+				p.mu.Lock()
+				p.lastReceivedLSN = xld.WALStart
+				p.mu.Unlock()
+
+				logicalMsg, err := pglogrepl.Parse(xld.WALData)
+				if err != nil {
+					fmt.Printf("Failed to parse logical msg: %v\n", err)
+					continue
+				}
+
+				switch lm := logicalMsg.(type) {
+				case *pglogrepl.RelationMessage:
+					p.mu.Lock()
+					p.relations[lm.RelationID] = lm
+					p.mu.Unlock()
+				case *pglogrepl.InsertMessage:
+					select {
+					case p.msgChan <- p.handleInsert(xld.WALStart, lm):
+					case <-ctx.Done():
+						return
+					}
+				case *pglogrepl.UpdateMessage:
+					select {
+					case p.msgChan <- p.handleUpdate(xld.WALStart, lm):
+					case <-ctx.Done():
+						return
+					}
+				case *pglogrepl.DeleteMessage:
+					select {
+					case p.msgChan <- p.handleDelete(xld.WALStart, lm):
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+		}
+	}
+}
+
+func (p *PostgresSource) handleInsert(lsn pglogrepl.LSN, lm *pglogrepl.InsertMessage) hermod.Message {
+	res := message.AcquireMessage()
+	res.SetID(lsn.String())
+	res.SetOperation(hermod.OpCreate)
+	res.SetMetadata("source", "postgres")
+	res.SetMetadata("lsn", lsn.String())
+
+	p.mu.Lock()
+	rel, ok := p.relations[lm.RelationID]
+	p.mu.Unlock()
+
+	if ok {
+		res.SetTable(rel.RelationName)
+		res.SetSchema(rel.Namespace)
+		data := make(map[string]interface{})
+		for i, col := range lm.Tuple.Columns {
+			if i < len(rel.Columns) {
+				data[rel.Columns[i].Name] = string(col.Data)
+			}
+		}
+		jsonBytes, _ := json.Marshal(data)
+		res.SetAfter(jsonBytes)
+	}
+	return res
+}
+
+func (p *PostgresSource) handleUpdate(lsn pglogrepl.LSN, lm *pglogrepl.UpdateMessage) hermod.Message {
+	res := message.AcquireMessage()
+	res.SetID(lsn.String())
+	res.SetOperation(hermod.OpUpdate)
+	res.SetMetadata("source", "postgres")
+	res.SetMetadata("lsn", lsn.String())
+
+	p.mu.Lock()
+	rel, ok := p.relations[lm.RelationID]
+	p.mu.Unlock()
+
+	if ok {
+		res.SetTable(rel.RelationName)
+		res.SetSchema(rel.Namespace)
+		if lm.OldTuple != nil {
+			beforeData := make(map[string]interface{})
+			for i, col := range lm.OldTuple.Columns {
+				if i < len(rel.Columns) {
+					beforeData[rel.Columns[i].Name] = string(col.Data)
+				}
+			}
+			beforeBytes, _ := json.Marshal(beforeData)
+			res.SetBefore(beforeBytes)
+		}
+		data := make(map[string]interface{})
+		for i, col := range lm.NewTuple.Columns {
+			if i < len(rel.Columns) {
+				data[rel.Columns[i].Name] = string(col.Data)
+			}
+		}
+		jsonBytes, _ := json.Marshal(data)
+		res.SetAfter(jsonBytes)
+	}
+	return res
+}
+
+func (p *PostgresSource) handleDelete(lsn pglogrepl.LSN, lm *pglogrepl.DeleteMessage) hermod.Message {
+	res := message.AcquireMessage()
+	res.SetID(lsn.String())
+	res.SetOperation(hermod.OpDelete)
+	res.SetMetadata("source", "postgres")
+	res.SetMetadata("lsn", lsn.String())
+
+	p.mu.Lock()
+	rel, ok := p.relations[lm.RelationID]
+	p.mu.Unlock()
+
+	if ok {
+		res.SetTable(rel.RelationName)
+		res.SetSchema(rel.Namespace)
+		if lm.OldTuple != nil {
+			beforeData := make(map[string]interface{})
+			for i, col := range lm.OldTuple.Columns {
+				if i < len(rel.Columns) {
+					beforeData[rel.Columns[i].Name] = string(col.Data)
+				}
+			}
+			beforeBytes, _ := json.Marshal(beforeData)
+			res.SetBefore(beforeBytes)
+		}
+	}
+	return res
+}
+
+func (p *PostgresSource) ensureConnNoLock(ctx context.Context) error {
 	if p.conn != nil && !p.conn.IsClosed() {
 		return nil
 	}
@@ -382,10 +455,13 @@ func (p *PostgresSource) ensureConn(ctx context.Context) error {
 	return nil
 }
 
-func (p *PostgresSource) ensureReplConn(ctx context.Context) error {
+func (p *PostgresSource) ensureConn(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.ensureConnNoLock(ctx)
+}
 
+func (p *PostgresSource) ensureReplConnNoLock(ctx context.Context) error {
 	if p.replConn != nil && !p.replConn.IsClosed() {
 		return nil
 	}
@@ -406,15 +482,13 @@ func (p *PostgresSource) ensureReplConn(ctx context.Context) error {
 	return nil
 }
 
+func (p *PostgresSource) ensureReplConn(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.ensureReplConnNoLock(ctx)
+}
+
 func (p *PostgresSource) init(ctx context.Context) error {
-	if err := p.ensureConn(ctx); err != nil {
-		return err
-	}
-
-	if err := p.ensureReplConn(ctx); err != nil {
-		return err
-	}
-
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -422,21 +496,47 @@ func (p *PostgresSource) init(ctx context.Context) error {
 		return nil
 	}
 
-	fmt.Printf("Initializing PostgresSource for slot %s and publication %s\n", p.slotName, p.publicationName)
-
-	if err := p.ensurePublication(ctx); err != nil {
+	if err := p.ensureConnNoLock(ctx); err != nil {
 		return err
 	}
 
-	if err := p.ensureReplicationSlot(ctx); err != nil {
+	if !p.useCDC {
+		p.initialized = true
+		return nil
+	}
+
+	if err := p.ensureReplConnNoLock(ctx); err != nil {
+		return err
+	}
+
+	fmt.Printf("Initializing PostgresSource for slot %s and publication %s\n", p.slotName, p.publicationName)
+
+	// Retry initialization a few times as some operations might take time or fail transiently
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if err = p.ensurePublication(ctx); err == nil {
+			if err = p.ensureReplicationSlot(ctx); err == nil {
+				break
+			}
+		}
+		if attempt < 3 {
+			p.log("WARN", "Postgres initialization failed, retrying...", "attempt", attempt, "error", err)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
+		}
+	}
+	if err != nil {
 		return err
 	}
 
 	p.typeMap = pgtype.NewMap()
 
-	// Start replication
-	fmt.Printf("Starting replication for slot %s...\n", p.slotName)
-	err := pglogrepl.StartReplication(ctx, p.replConn.PgConn(), p.slotName, 0, pglogrepl.StartReplicationOptions{
+	// Start replication from LSN 0 (standard for logical slots to resume from where they left off)
+	fmt.Printf("Starting replication for slot %s from LSN 0...\n", p.slotName)
+	err = pglogrepl.StartReplication(ctx, p.replConn.PgConn(), p.slotName, 0, pglogrepl.StartReplicationOptions{
 		PluginArgs: []string{
 			"proto_version '1'",
 			"publication_names '" + p.publicationName + "'",
@@ -445,20 +545,21 @@ func (p *PostgresSource) init(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to start replication: %w", err)
 	}
+
 	fmt.Println("Replication started successfully")
 	p.initialized = true
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancel = cancel
+	p.wg.Add(1)
+	go p.streamLoop(ctx)
 
 	return nil
 }
 
 func (p *PostgresSource) Ack(ctx context.Context, msg hermod.Message) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.replConn == nil {
+	if msg == nil {
 		return nil
 	}
-
 	lsnStr := msg.Metadata()["lsn"]
 	if lsnStr == "" {
 		return nil
@@ -469,32 +570,17 @@ func (p *PostgresSource) Ack(ctx context.Context, msg hermod.Message) error {
 		return fmt.Errorf("failed to parse LSN: %w", err)
 	}
 
-	err = pglogrepl.SendStandbyStatusUpdate(ctx, p.replConn.PgConn(), pglogrepl.StandbyStatusUpdate{
-		WALWritePosition: lsn,
-		WALFlushPosition: lsn,
-		WALApplyPosition: lsn,
-	})
-	if err != nil {
-		p.initialized = false
-		if p.replConn != nil {
-			p.replConn.Close(context.Background())
-			p.replConn = nil
-		}
-		return fmt.Errorf("failed to send standby status update: %w", err)
-	}
+	p.mu.Lock()
+	p.lastAckedLSN = lsn
+	p.mu.Unlock()
 
 	return nil
 }
 
 func (p *PostgresSource) Ping(ctx context.Context) error {
-	p.mu.Lock()
-	initialized := p.initialized && p.replConn != nil && !p.replConn.IsClosed()
-	p.mu.Unlock()
-
-	if !initialized {
-		if err := p.init(ctx); err != nil {
-			return err
-		}
+	// Just ensure the metadata connection is alive, don't trigger full CDC init
+	if err := p.ensureConn(ctx); err != nil {
+		return err
 	}
 
 	p.mu.Lock()
@@ -505,28 +591,69 @@ func (p *PostgresSource) Ping(ctx context.Context) error {
 	return p.conn.Ping(ctx)
 }
 
-func (p *PostgresSource) Close() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (p *PostgresSource) IsReady(ctx context.Context) error {
+	if err := p.Ping(ctx); err != nil {
+		return err
+	}
 
+	if !p.useCDC {
+		return nil
+	}
+
+	// Deep check for replication readiness
+	config, err := pgx.ParseConfig(p.connString)
+	if err != nil {
+		return err
+	}
+	if config.RuntimeParams == nil {
+		config.RuntimeParams = make(map[string]string)
+	}
+	config.RuntimeParams["replication"] = "database"
+
+	// Try to establish a temporary replication connection to verify CDC readiness
+	conn, err := pgx.ConnectConfig(ctx, config)
+	if err != nil {
+		return fmt.Errorf("replication readiness check failed: %w", err)
+	}
+	defer conn.Close(context.Background())
+
+	return conn.Ping(ctx)
+}
+
+func (p *PostgresSource) Close() error {
+	p.log("INFO", "Closing PostgresSource", "slot", p.slotName, "publication", p.publicationName)
+	p.mu.Lock()
+	if !p.initialized {
+		p.mu.Unlock()
+		return nil
+	}
 	p.initialized = false
-	var errs []string
+
+	if p.cancel != nil {
+		p.cancel()
+	}
+
+	// Close connections to unblock ReceiveMessage if context cancel doesn't
 	if p.replConn != nil {
-		if err := p.replConn.Close(context.Background()); err != nil {
-			errs = append(errs, fmt.Sprintf("failed to close replication connection: %v", err))
-		}
-		p.replConn = nil
+		p.replConn.Close(context.Background())
 	}
 	if p.conn != nil {
-		if err := p.conn.Close(context.Background()); err != nil {
-			errs = append(errs, fmt.Sprintf("failed to close connection: %v", err))
-		}
-		p.conn = nil
+		p.conn.Close(context.Background())
 	}
+	p.mu.Unlock()
 
-	if len(errs) > 0 {
-		return errors.New(strings.Join(errs, "; "))
-	}
+	// Wait for streamLoop to finish
+	p.wg.Wait()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lastReceivedLSN = 0
+	p.lastAckedLSN = 0
+	p.relations = make(map[uint32]*pglogrepl.RelationMessage)
+
+	p.replConn = nil
+	p.conn = nil
+
 	return nil
 }
 

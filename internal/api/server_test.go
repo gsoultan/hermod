@@ -56,9 +56,9 @@ func TestAuthMiddleware(t *testing.T) {
 			expectedStatus: http.StatusUnauthorized,
 		},
 		{
-			name:           "Connection status API should be unauthorized without token",
+			name:           "Workflow API should be unauthorized without token",
 			method:         "GET",
-			path:           "/api/connections/status",
+			path:           "/api/workflows",
 			expectedStatus: http.StatusUnauthorized,
 		},
 	}

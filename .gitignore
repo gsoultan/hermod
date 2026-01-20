@@ -11,4 +11,14 @@
 /internal/engine/old.db
 /internal/api/test.db
 /.idea/vcs.xml
-
+.junie
+.idea
+/node_modules/
+/hermod
+/hermod.db-shm
+/hermod.db-wal
+/hermod.exe
+/hermod_test.exe
+/main.exe
+/package-lock.json
+/test_output.txt

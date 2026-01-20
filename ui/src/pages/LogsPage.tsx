@@ -2,14 +2,16 @@ import { Title, Table, Group, Stack, Badge, Paper, Text, Box, ActionIcon, Toolti
 import { IconActivity, IconRefresh, IconSearch, IconTrash, IconEye } from '@tabler/icons-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../api';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useDisclosure } from '@mantine/hooks';
+import { useSearch } from '@tanstack/react-router';
 
 const API_BASE = '/api';
 
 export function LogsPage() {
+  const searchParams = useSearch({ from: '/logs' }) as any;
   const queryClient = useQueryClient();
-  const [connectionId, setConnectionId] = useState<string>('');
+  const [workflowId, setWorkflowId] = useState<string>(searchParams.workflow_id || '');
   const [level, setLevel] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [activePage, setPage] = useState(1);
@@ -17,16 +19,20 @@ export function LogsPage() {
   const [selectedLog, setSelectedLog] = useState<any>(null);
   const [opened, { open, close }] = useDisclosure(false);
 
+  useEffect(() => {
+    setWorkflowId(searchParams.workflow_id || '');
+  }, [searchParams.workflow_id]);
+
   const viewDetails = (log: any) => {
     setSelectedLog(log);
     open();
   };
 
   const { data: logsResponse, isFetching } = useQuery({
-    queryKey: ['logs', connectionId, level, search, activePage],
+    queryKey: ['logs', workflowId, level, search, activePage],
     queryFn: async () => {
       let url = `${API_BASE}/logs?page=${activePage}&limit=${itemsPerPage}&search=${search}`;
-      if (connectionId) url += `&connection_id=${connectionId}`;
+      if (workflowId) url += `&workflow_id=${workflowId}`;
       if (level) url += `&level=${level}`;
       const res = await apiFetch(url);
       if (!res.ok) throw new Error('Failed to fetch logs');
@@ -101,11 +107,11 @@ export function LogsPage() {
               style={{ flex: 1 }}
             />
             <TextInput 
-              label="Connection ID" 
+              label="Workflow ID" 
               placeholder="Filter by ID..." 
-              value={connectionId} 
+              value={workflowId} 
               onChange={(e) => {
-                setConnectionId(e.currentTarget.value);
+                setWorkflowId(e.currentTarget.value);
                 setPage(1);
               }}
               leftSection={<IconSearch size="1rem" />}
@@ -134,7 +140,7 @@ export function LogsPage() {
                 <Table.Th style={{ width: 100 }}>Level</Table.Th>
                 <Table.Th style={{ width: 150 }}>Action</Table.Th>
                 <Table.Th>Message</Table.Th>
-                <Table.Th style={{ width: 220 }}>Connection / Source / Sink</Table.Th>
+                <Table.Th style={{ width: 220 }}>Workflow / Source / Sink</Table.Th>
                 <Table.Th style={{ width: 80 }}>Details</Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -142,7 +148,7 @@ export function LogsPage() {
               {logs?.length === 0 ? (
                 <Table.Tr>
                   <Table.Td colSpan={6} style={{ textAlign: 'center', padding: '40px' }}>
-                    <Text c="dimmed">{search || connectionId || level ? 'No logs found matching the criteria.' : 'No logs found.'}</Text>
+                    <Text c="dimmed">{search || workflowId || level ? 'No logs found matching the criteria.' : 'No logs found.'}</Text>
                   </Table.Td>
                 </Table.Tr>
               ) : (
@@ -170,10 +176,10 @@ export function LogsPage() {
                     </Table.Td>
                     <Table.Td>
                       <Stack gap={2}>
-                        {log.connection_id && (
+                        {log.workflow_id && (
                           <Group gap={4}>
-                            <Text size="xs" c="dimmed" fw={700}>Conn:</Text>
-                            <Text size="xs" style={{ fontFamily: 'monospace' }}>{log.connection_id.substring(0, 8)}...</Text>
+                            <Text size="xs" c="dimmed" fw={700}>WF:</Text>
+                            <Text size="xs" style={{ fontFamily: 'monospace' }}>{log.workflow_id.substring(0, 8)}...</Text>
                           </Group>
                         )}
                         {log.source_id && (
@@ -251,10 +257,10 @@ export function LogsPage() {
             )}
 
             <Group grow>
-              {selectedLog.connection_id && (
+              {selectedLog.workflow_id && (
                 <Box>
-                  <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }}>Connection ID</Text>
-                  <Code block fz="xs">{selectedLog.connection_id}</Code>
+                  <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }}>Workflow ID</Text>
+                  <Code block fz="xs">{selectedLog.workflow_id}</Code>
                 </Box>
               )}
               {selectedLog.source_id && (

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/user/hermod"
@@ -17,17 +18,29 @@ import (
 type SQLiteSource struct {
 	dbPath string
 	tables []string
+	useCDC bool
 	db     *sql.DB
 }
 
-func NewSQLiteSource(dbPath string, tables []string) *SQLiteSource {
+func NewSQLiteSource(dbPath string, tables []string, useCDC bool) *SQLiteSource {
 	return &SQLiteSource{
 		dbPath: dbPath,
 		tables: tables,
+		useCDC: useCDC,
 	}
 }
 
 func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
+	if !s.useCDC {
+		if s.db == nil {
+			if err := s.init(ctx); err != nil {
+				return nil, err
+			}
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
 	if s.db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
@@ -41,17 +54,27 @@ func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
 		// Placeholder logic for SQLite "CDC"
 		msg := message.AcquireMessage()
 		msg.SetID("sqlite-1")
+		msg.SetOperation(hermod.OpCreate)
+		if len(s.tables) > 0 {
+			msg.SetTable(s.tables[0])
+		}
 		msg.SetMetadata("source", "sqlite")
 		return msg, nil
 	}
 }
 
 func (s *SQLiteSource) init(ctx context.Context) error {
-	db, err := sql.Open("sqlite", s.dbPath)
+	dsn := s.dbPath
+	if !strings.Contains(dsn, "?") {
+		dsn += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
+	}
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return fmt.Errorf("failed to open sqlite database: %w", err)
 	}
+	db.SetMaxOpenConns(1)
 	if err := db.PingContext(ctx); err != nil {
+		db.Close()
 		return fmt.Errorf("failed to ping sqlite database: %w", err)
 	}
 	s.db = db

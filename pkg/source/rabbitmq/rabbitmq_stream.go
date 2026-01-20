@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"sync"
 
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/amqp"
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/stream"
@@ -19,6 +21,8 @@ type RabbitMQStreamSource struct {
 	consumerName string
 	messages     chan hermod.Message
 	errs         chan error
+	mu           sync.Mutex
+	lastOffset   int64
 }
 
 func NewRabbitMQStreamSource(url string, streamName string, consumerName string) (*RabbitMQStreamSource, error) {
@@ -28,11 +32,15 @@ func NewRabbitMQStreamSource(url string, streamName string, consumerName string)
 		consumerName: consumerName,
 		messages:     make(chan hermod.Message, 100),
 		errs:         make(chan error, 1),
+		lastOffset:   -1,
 	}, nil
 }
 
 func (s *RabbitMQStreamSource) ensureConnected() error {
-	if s.env != nil && !s.env.IsClosed() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.env != nil && !s.env.IsClosed() && s.consumer != nil {
 		return nil
 	}
 
@@ -42,9 +50,17 @@ func (s *RabbitMQStreamSource) ensureConnected() error {
 	}
 
 	handleMessages := func(consumerContext stream.ConsumerContext, amqpMsg *amqp.Message) {
+		if amqpMsg == nil {
+			return
+		}
+
 		hmsg := message.AcquireMessage()
 		data := amqpMsg.GetData()
 		hmsg.SetPayload(data)
+
+		if consumerContext.Consumer != nil {
+			hmsg.SetMetadata("rabbitmq_stream_offset", strconv.FormatInt(consumerContext.Consumer.GetOffset(), 10))
+		}
 
 		// Try to unmarshal JSON into Data() for dynamic structure
 		var jsonData map[string]interface{}
@@ -59,10 +75,26 @@ func (s *RabbitMQStreamSource) ensureConnected() error {
 		s.messages <- hmsg
 	}
 
-	consumer, err := env.NewConsumer(s.stream, handleMessages, stream.NewConsumerOptions().SetConsumerName(s.consumerName))
+	opts := stream.NewConsumerOptions().SetConsumerName(s.consumerName)
+	if s.lastOffset >= 0 {
+		opts.SetOffset(stream.OffsetSpecification{}.Offset(s.lastOffset + 1))
+	} else {
+		// If we have a consumer name, RabbitMQ will try to use the stored offset.
+		// If not, we start from the last message.
+		opts.SetOffset(stream.OffsetSpecification{}.Last())
+	}
+
+	consumer, err := env.NewConsumer(s.stream, handleMessages, opts)
 	if err != nil {
 		env.Close()
 		return fmt.Errorf("failed to create RabbitMQ stream consumer: %w", err)
+	}
+
+	if s.consumer != nil {
+		s.consumer.Close()
+	}
+	if s.env != nil {
+		s.env.Close()
 	}
 
 	s.env = env
@@ -85,19 +117,58 @@ func (s *RabbitMQStreamSource) Read(ctx context.Context) (hermod.Message, error)
 }
 
 func (s *RabbitMQStreamSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
+	offsetStr := msg.Metadata()["rabbitmq_stream_offset"]
+	if offsetStr == "" {
+		return nil
+	}
+
+	offset, err := strconv.ParseInt(offsetStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("failed to parse rabbitmq stream offset: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.lastOffset = offset
+	if s.consumer != nil {
+		return s.consumer.StoreCustomOffset(offset)
+	}
 	return nil
 }
 
 func (s *RabbitMQStreamSource) Ping(ctx context.Context) error {
-	return s.ensureConnected()
+	s.mu.Lock()
+	env := s.env
+	s.mu.Unlock()
+
+	if env != nil && !env.IsClosed() {
+		return nil
+	}
+
+	// Just try to create environment and close it immediately
+	env, err := stream.NewEnvironment(stream.NewEnvironmentOptions().SetUri(s.url))
+	if err != nil {
+		return fmt.Errorf("failed to dial RabbitMQ Stream for ping: %w", err)
+	}
+	env.Close()
+	return nil
 }
 
 func (s *RabbitMQStreamSource) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.consumer != nil {
 		s.consumer.Close()
+		s.consumer = nil
 	}
 	if s.env != nil {
 		s.env.Close()
+		s.env = nil
 	}
 	return nil
 }

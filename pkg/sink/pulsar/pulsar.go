@@ -28,7 +28,7 @@ func NewPulsarSink(url string, topic string, token string, formatter hermod.Form
 	}, nil
 }
 
-func (s *PulsarSink) ensureConnected() error {
+func (s *PulsarSink) ensureConnected(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -62,7 +62,10 @@ func (s *PulsarSink) ensureConnected() error {
 }
 
 func (s *PulsarSink) Write(ctx context.Context, msg hermod.Message) error {
-	if err := s.ensureConnected(); err != nil {
+	if msg == nil {
+		return nil
+	}
+	if err := s.ensureConnected(ctx); err != nil {
 		return err
 	}
 
@@ -91,7 +94,7 @@ func (s *PulsarSink) Write(ctx context.Context, msg hermod.Message) error {
 }
 
 func (s *PulsarSink) Ping(ctx context.Context) error {
-	return s.ensureConnected()
+	return s.ensureConnected(ctx)
 }
 
 func (s *PulsarSink) Close() error {

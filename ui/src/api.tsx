@@ -46,13 +46,13 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
     // Only show notification if it's not a background check
     if (!url.includes('/api/config/status') && !url.includes('/api/vhosts')) {
       const isToggle = url.includes('/toggle');
-      let connectionID = '';
+      let workflowID = '';
       if (isToggle) {
         const parts = url.split('/');
-        // URL is something like /api/connections/ID/toggle
-        const connIndex = parts.indexOf('connections');
-        if (connIndex !== -1 && parts[connIndex + 1]) {
-          connectionID = parts[connIndex + 1];
+        // URL is something like /api/workflows/ID/toggle
+        const wfIndex = parts.indexOf('workflows');
+        if (wfIndex !== -1 && parts[wfIndex + 1]) {
+          workflowID = parts[wfIndex + 1];
         }
       }
 
@@ -61,20 +61,20 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
         message: (
           <div>
             <div>{errorMessage}</div>
-            {connectionID && (
+            {workflowID && (
               <div style={{ marginTop: '8px' }}>
                 <a 
-                  href={`/logs?connection_id=${connectionID}`} 
+                  href={`/logs?workflow_id=${workflowID}`} 
                   style={{ color: 'white', fontWeight: 'bold', textDecoration: 'underline' }}
                 >
-                  View Connection Logs
+                  View Workflow Logs
                 </a>
               </div>
             )}
           </div>
         ),
         color: 'red',
-        autoClose: connectionID ? 15000 : 5000,
+        autoClose: workflowID ? 15000 : 5000,
       });
     }
     

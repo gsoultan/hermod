@@ -24,6 +24,8 @@ type Message interface {
 	Payload() []byte // Primary data payload
 	Metadata() map[string]string
 	Data() map[string]interface{}
+	SetMetadata(key, value string)
+	SetData(key string, value interface{})
 	Clone() Message
 	ClearPayloads()
 }
@@ -48,10 +50,21 @@ type Source interface {
 	Close() error
 }
 
+// ReadyChecker is an optional interface for sources that support deep readiness checks.
+type ReadyChecker interface {
+	IsReady(ctx context.Context) error
+}
+
 // Discoverer defines an optional interface for discovering databases and tables.
 type Discoverer interface {
 	DiscoverDatabases(ctx context.Context) ([]string, error)
 	DiscoverTables(ctx context.Context) ([]string, error)
+}
+
+// Stateful defines an optional interface for sources and sinks that have persistent state.
+type Stateful interface {
+	GetState() map[string]string
+	SetState(state map[string]string)
 }
 
 // Sampler defines an optional interface for fetching a sample record from a table.
@@ -66,15 +79,15 @@ type Sink interface {
 	Close() error
 }
 
+// BatchSink is an optional interface for sinks that support batch writes.
+type BatchSink interface {
+	Sink
+	WriteBatch(ctx context.Context, msgs []Message) error
+}
+
 // Formatter defines the interface for formatting messages before they are written to a sink.
 type Formatter interface {
 	Format(msg Message) ([]byte, error)
-}
-
-// Transformer defines the interface for transforming messages.
-type Transformer interface {
-	Transform(ctx context.Context, msg Message) (Message, error)
-	Close() error
 }
 
 // Logger defines the interface for logging in Hermod.
@@ -83,6 +96,11 @@ type Logger interface {
 	Info(msg string, keysAndValues ...interface{})
 	Warn(msg string, keysAndValues ...interface{})
 	Error(msg string, keysAndValues ...interface{})
+}
+
+// Loggable defines an optional interface for things that support structured logging.
+type Loggable interface {
+	SetLogger(Logger)
 }
 
 // Handler is a function type for processing received messages.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -19,6 +20,7 @@ type RedisSource struct {
 	group    string
 	consumer string
 	client   *redis.Client
+	mu       sync.Mutex
 }
 
 func NewRedisSource(addr string, password string, stream string, group string) *RedisSource {
@@ -32,28 +34,49 @@ func NewRedisSource(addr string, password string, stream string, group string) *
 }
 
 func (s *RedisSource) init(ctx context.Context) error {
-	s.client = redis.NewClient(&redis.Options{
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.client != nil {
+		return nil
+	}
+
+	client := redis.NewClient(&redis.Options{
 		Addr:     s.addr,
 		Password: s.password,
 	})
 
 	// Create consumer group if it doesn't exist
-	err := s.client.XGroupCreateMkStream(ctx, s.stream, s.group, "0").Err()
+	err := client.XGroupCreateMkStream(ctx, s.stream, s.group, "0").Err()
 	if err != nil && err.Error() != "BUSYGROUP Consumer Group name already exists" {
+		client.Close()
 		return fmt.Errorf("failed to create redis consumer group: %w", err)
 	}
 
-	return s.client.Ping(ctx).Err()
+	if err := client.Ping(ctx).Err(); err != nil {
+		client.Close()
+		return err
+	}
+
+	s.client = client
+	return nil
 }
 
 func (s *RedisSource) Read(ctx context.Context) (hermod.Message, error) {
-	if s.client == nil {
+	s.mu.Lock()
+	client := s.client
+	s.mu.Unlock()
+
+	if client == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		client = s.client
+		s.mu.Unlock()
 	}
 
-	streams, err := s.client.XReadGroup(ctx, &redis.XReadGroupArgs{
+	streams, err := client.XReadGroup(ctx, &redis.XReadGroupArgs{
 		Group:    s.group,
 		Consumer: s.consumer,
 		Streams:  []string{s.stream, ">"},
@@ -107,28 +130,50 @@ func (s *RedisSource) Read(ctx context.Context) (hermod.Message, error) {
 }
 
 func (s *RedisSource) Ack(ctx context.Context, msg hermod.Message) error {
-	if s.client == nil {
+	if msg == nil {
+		return nil
+	}
+	s.mu.Lock()
+	client := s.client
+	s.mu.Unlock()
+
+	if client == nil {
 		return fmt.Errorf("redis client not initialized")
 	}
-	return s.client.XAck(ctx, s.stream, s.group, msg.ID()).Err()
+	return client.XAck(ctx, s.stream, s.group, msg.ID()).Err()
 }
 
 func (s *RedisSource) Ping(ctx context.Context) error {
-	if s.client == nil {
-		return s.init(ctx)
+	s.mu.Lock()
+	client := s.client
+	s.mu.Unlock()
+
+	if client == nil {
+		client = redis.NewClient(&redis.Options{
+			Addr:     s.addr,
+			Password: s.password,
+		})
+		defer client.Close()
 	}
-	return s.client.Ping(ctx).Err()
+	return client.Ping(ctx).Err()
 }
 
 func (s *RedisSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
-	if s.client == nil {
+	s.mu.Lock()
+	client := s.client
+	s.mu.Unlock()
+
+	if client == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		client = s.client
+		s.mu.Unlock()
 	}
 
 	// Use XRevRange to get the latest message from the stream without affecting consumer groups
-	msgs, err := s.client.XRevRangeN(ctx, s.stream, "+", "-", 1).Result()
+	msgs, err := client.XRevRangeN(ctx, s.stream, "+", "-", 1).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to peek redis stream: %w", err)
 	}
@@ -170,8 +215,13 @@ func (s *RedisSource) Sample(ctx context.Context, table string) (hermod.Message,
 }
 
 func (s *RedisSource) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.client != nil {
-		return s.client.Close()
+		err := s.client.Close()
+		s.client = nil
+		return err
 	}
 	return nil
 }

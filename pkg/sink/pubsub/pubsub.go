@@ -53,6 +53,9 @@ func (s *PubSubSink) ensureConnected(ctx context.Context) error {
 }
 
 func (s *PubSubSink) Write(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
 	if err := s.ensureConnected(ctx); err != nil {
 		return err
 	}

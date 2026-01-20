@@ -56,14 +56,23 @@ func decryptConfig(config map[string]string) map[string]string {
 }
 
 type sqlStorage struct {
-	db *sql.DB
+	db     *sql.DB
+	driver string
 }
 
-func NewSQLStorage(db *sql.DB) storage.Storage {
-	return &sqlStorage{db: db}
+func NewSQLStorage(db *sql.DB, driver string) storage.Storage {
+	return &sqlStorage{db: db, driver: driver}
 }
 
 func (s *sqlStorage) Init(ctx context.Context) error {
+	// SQLite specific optimizations
+	if s.driver == "sqlite" {
+		_, _ = s.db.ExecContext(ctx, "PRAGMA journal_mode=WAL")
+		_, _ = s.db.ExecContext(ctx, "PRAGMA busy_timeout=5000")
+		_, _ = s.db.ExecContext(ctx, "PRAGMA synchronous=NORMAL")
+		_, _ = s.db.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+	}
+
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS sources (
 			id TEXT PRIMARY KEY,
@@ -73,7 +82,8 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 			active BOOLEAN DEFAULT 0,
 			status TEXT,
 			worker_id TEXT,
-			config TEXT
+			config TEXT,
+			state TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS sinks (
 			id TEXT PRIMARY KEY,
@@ -84,19 +94,6 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 			status TEXT,
 			worker_id TEXT,
 			config TEXT
-		)`,
-		`CREATE TABLE IF NOT EXISTS connections (
-			id TEXT PRIMARY KEY,
-			name TEXT,
-			vhost TEXT,
-			source_id TEXT,
-			sink_ids TEXT,
-			transformation_groups TEXT,
-			active BOOLEAN,
-			status TEXT,
-			worker_id TEXT,
-			transformation_ids TEXT,
-			transformations TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS users (
 			id TEXT PRIMARY KEY,
@@ -129,22 +126,19 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 			action TEXT,
 			source_id TEXT,
 			sink_id TEXT,
-			connection_id TEXT,
+			workflow_id TEXT,
 			data TEXT
 		)`,
-		`CREATE TABLE IF NOT EXISTS transformations (
+		`CREATE TABLE IF NOT EXISTS workflows (
 			id TEXT PRIMARY KEY,
 			name TEXT,
-			type TEXT,
-			steps TEXT,
-			config TEXT,
-			on_failure TEXT,
-			execute_if TEXT
+			vhost TEXT,
+			active BOOLEAN,
+			status TEXT,
+			worker_id TEXT,
+			nodes TEXT,
+			edges TEXT
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_logs_connection_id ON logs(connection_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_logs_source_id ON logs(source_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_logs_sink_id ON logs(sink_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp)`,
 	}
 
 	for _, q := range queries {
@@ -155,28 +149,35 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 
 	// Migrations: Add new columns if missing
 	migrationQueries := []string{
-		"ALTER TABLE sources ADD COLUMN transformations TEXT",
-		"ALTER TABLE sinks ADD COLUMN transformations TEXT",
 		"ALTER TABLE sources ADD COLUMN worker_id TEXT",
 		"ALTER TABLE sinks ADD COLUMN worker_id TEXT",
-		"ALTER TABLE connections ADD COLUMN worker_id TEXT",
-		"ALTER TABLE connections ADD COLUMN transformations TEXT",
-		"ALTER TABLE connections ADD COLUMN transformation_ids TEXT",
-		"ALTER TABLE connections ADD COLUMN transformation_groups TEXT",
-		"ALTER TABLE connections ADD COLUMN status TEXT",
 		"ALTER TABLE workers ADD COLUMN token TEXT",
 		"ALTER TABLE workers ADD COLUMN last_seen DATETIME",
 		"ALTER TABLE sources ADD COLUMN active BOOLEAN DEFAULT 0",
 		"ALTER TABLE sinks ADD COLUMN active BOOLEAN DEFAULT 0",
 		"ALTER TABLE logs ADD COLUMN action TEXT",
-		"ALTER TABLE transformations ADD COLUMN on_failure TEXT",
-		"ALTER TABLE transformations ADD COLUMN execute_if TEXT",
+		"ALTER TABLE logs ADD COLUMN workflow_id TEXT",
 		"ALTER TABLE sources ADD COLUMN status TEXT",
 		"ALTER TABLE sinks ADD COLUMN status TEXT",
+		"ALTER TABLE sources ADD COLUMN sample TEXT",
+		"ALTER TABLE sources ADD COLUMN state TEXT",
 	}
 
 	for _, q := range migrationQueries {
 		// Ignore errors as the column might already exist
+		_, _ = s.db.ExecContext(ctx, q)
+	}
+
+	// Indexes: Create indexes after columns are ensured to exist
+	indexQueries := []string{
+		"CREATE INDEX IF NOT EXISTS idx_logs_workflow_id ON logs(workflow_id)",
+		"CREATE INDEX IF NOT EXISTS idx_logs_source_id ON logs(source_id)",
+		"CREATE INDEX IF NOT EXISTS idx_logs_sink_id ON logs(sink_id)",
+		"CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp)",
+	}
+
+	for _, q := range indexQueries {
+		// Ignore errors as the index might already exist
 		_, _ = s.db.ExecContext(ctx, q)
 	}
 
@@ -194,7 +195,7 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 }
 
 func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error) {
-	baseQuery := "SELECT id, name, type, vhost, active, status, worker_id, config FROM sources"
+	baseQuery := "SELECT id, name, type, vhost, active, status, worker_id, config, sample, state FROM sources"
 	countQuery := "SELECT COUNT(*) FROM sources"
 	var args []interface{}
 	var where []string
@@ -238,8 +239,8 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 	var sources []storage.Source
 	for rows.Next() {
 		var src storage.Source
-		var status, workerID, configStr sql.NullString
-		if err := rows.Scan(&src.ID, &src.Name, &src.Type, &src.VHost, &src.Active, &status, &workerID, &configStr); err != nil {
+		var status, workerID, configStr, sample, stateStr sql.NullString
+		if err := rows.Scan(&src.ID, &src.Name, &src.Type, &src.VHost, &src.Active, &status, &workerID, &configStr, &sample, &stateStr); err != nil {
 			return nil, 0, err
 		}
 		if status.Valid {
@@ -247,6 +248,14 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 		}
 		if workerID.Valid {
 			src.WorkerID = workerID.String
+		}
+		if sample.Valid {
+			src.Sample = sample.String
+		}
+		if stateStr.Valid {
+			if err := json.Unmarshal([]byte(stateStr.String), &src.State); err != nil {
+				return nil, 0, err
+			}
 		}
 		if configStr.Valid {
 			if err := json.Unmarshal([]byte(configStr.String), &src.Config); err != nil {
@@ -264,8 +273,9 @@ func (s *sqlStorage) CreateSource(ctx context.Context, src storage.Source) error
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, "INSERT INTO sources (id, name, type, vhost, active, status, worker_id, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		src.ID, src.Name, src.Type, src.VHost, src.Active, src.Status, src.WorkerID, string(configBytes))
+	stateBytes, _ := json.Marshal(src.State)
+	_, err = s.db.ExecContext(ctx, "INSERT INTO sources (id, name, type, vhost, active, status, worker_id, config, sample, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		src.ID, src.Name, src.Type, src.VHost, src.Active, src.Status, src.WorkerID, string(configBytes), src.Sample, string(stateBytes))
 	return err
 }
 
@@ -274,8 +284,18 @@ func (s *sqlStorage) UpdateSource(ctx context.Context, src storage.Source) error
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, "UPDATE sources SET name = ?, type = ?, vhost = ?, active = ?, status = ?, worker_id = ?, config = ? WHERE id = ?",
-		src.Name, src.Type, src.VHost, src.Active, src.Status, src.WorkerID, string(configBytes), src.ID)
+	stateBytes, _ := json.Marshal(src.State)
+	_, err = s.db.ExecContext(ctx, "UPDATE sources SET name = ?, type = ?, vhost = ?, active = ?, status = ?, worker_id = ?, config = ?, sample = ?, state = ? WHERE id = ?",
+		src.Name, src.Type, src.VHost, src.Active, src.Status, src.WorkerID, string(configBytes), src.Sample, string(stateBytes), src.ID)
+	return err
+}
+
+func (s *sqlStorage) UpdateSourceState(ctx context.Context, id string, state map[string]string) error {
+	stateBytes, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, "UPDATE sources SET state = ? WHERE id = ?", string(stateBytes), id)
 	return err
 }
 
@@ -286,9 +306,9 @@ func (s *sqlStorage) DeleteSource(ctx context.Context, id string) error {
 
 func (s *sqlStorage) GetSource(ctx context.Context, id string) (storage.Source, error) {
 	var src storage.Source
-	var status, workerID, configStr sql.NullString
-	err := s.db.QueryRowContext(ctx, "SELECT id, name, type, vhost, active, status, worker_id, config FROM sources WHERE id = ?", id).
-		Scan(&src.ID, &src.Name, &src.Type, &src.VHost, &src.Active, &status, &workerID, &configStr)
+	var status, workerID, configStr, sample, stateStr sql.NullString
+	err := s.db.QueryRowContext(ctx, "SELECT id, name, type, vhost, active, status, worker_id, config, sample, state FROM sources WHERE id = ?", id).
+		Scan(&src.ID, &src.Name, &src.Type, &src.VHost, &src.Active, &status, &workerID, &configStr, &sample, &stateStr)
 	if err == sql.ErrNoRows {
 		return storage.Source{}, storage.ErrNotFound
 	}
@@ -300,6 +320,14 @@ func (s *sqlStorage) GetSource(ctx context.Context, id string) (storage.Source, 
 	}
 	if workerID.Valid {
 		src.WorkerID = workerID.String
+	}
+	if sample.Valid {
+		src.Sample = sample.String
+	}
+	if stateStr.Valid {
+		if err := json.Unmarshal([]byte(stateStr.String), &src.State); err != nil {
+			return storage.Source{}, err
+		}
 	}
 	if configStr.Valid {
 		if err := json.Unmarshal([]byte(configStr.String), &src.Config); err != nil {
@@ -425,145 +453,6 @@ func (s *sqlStorage) GetSink(ctx context.Context, id string) (storage.Sink, erro
 		snk.Config = decryptConfig(snk.Config)
 	}
 	return snk, nil
-}
-
-func (s *sqlStorage) ListConnections(ctx context.Context, filter storage.CommonFilter) ([]storage.Connection, int, error) {
-	baseQuery := "SELECT id, name, vhost, source_id, sink_ids, transformation_groups, active, status, worker_id, transformation_ids, transformations FROM connections"
-	countQuery := "SELECT COUNT(*) FROM connections"
-	var args []interface{}
-	var where []string
-
-	if filter.Search != "" {
-		search := "%" + filter.Search + "%"
-		where = append(where, "(id LIKE ? OR name LIKE ? OR vhost LIKE ? OR source_id LIKE ? OR sink_ids LIKE ? OR status LIKE ?)")
-		args = append(args, search, search, search, search, search, search)
-	}
-
-	if filter.VHost != "" {
-		where = append(where, "vhost = ?")
-		args = append(args, filter.VHost)
-	}
-
-	if len(where) > 0 {
-		baseQuery += " WHERE " + strings.Join(where, " AND ")
-		countQuery += " WHERE " + strings.Join(where, " AND ")
-	}
-
-	var total int
-	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
-		return nil, 0, err
-	}
-
-	if filter.Limit > 0 {
-		baseQuery += " LIMIT ?"
-		args = append(args, filter.Limit)
-		if filter.Page > 0 {
-			baseQuery += " OFFSET ?"
-			args = append(args, (filter.Page-1)*filter.Limit)
-		}
-	}
-
-	rows, err := s.db.QueryContext(ctx, baseQuery, args...)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-
-	var connections []storage.Connection
-	for rows.Next() {
-		var conn storage.Connection
-		var sinkIDsStr, transGroupsStr, status, workerID, transIDsStr, transStr sql.NullString
-		if err := rows.Scan(&conn.ID, &conn.Name, &conn.VHost, &conn.SourceID, &sinkIDsStr, &transGroupsStr, &conn.Active, &status, &workerID, &transIDsStr, &transStr); err != nil {
-			return nil, 0, err
-		}
-		if status.Valid {
-			conn.Status = status.String
-		}
-		if workerID.Valid {
-			conn.WorkerID = workerID.String
-		}
-		if sinkIDsStr.Valid {
-			if err := json.Unmarshal([]byte(sinkIDsStr.String), &conn.SinkIDs); err != nil {
-				return nil, 0, err
-			}
-		}
-		if transGroupsStr.Valid && transGroupsStr.String != "" {
-			json.Unmarshal([]byte(transGroupsStr.String), &conn.TransformationGroups)
-		}
-		if transIDsStr.Valid && transIDsStr.String != "" {
-			json.Unmarshal([]byte(transIDsStr.String), &conn.TransformationIDs)
-		}
-		if transStr.Valid && transStr.String != "" {
-			json.Unmarshal([]byte(transStr.String), &conn.Transformations)
-		}
-		connections = append(connections, conn)
-	}
-	return connections, total, nil
-}
-
-func (s *sqlStorage) CreateConnection(ctx context.Context, conn storage.Connection) error {
-	sinkIDsBytes, err := json.Marshal(conn.SinkIDs)
-	if err != nil {
-		return err
-	}
-	transGroupsBytes, _ := json.Marshal(conn.TransformationGroups)
-	transIDsBytes, _ := json.Marshal(conn.TransformationIDs)
-	transBytes, _ := json.Marshal(conn.Transformations)
-	_, err = s.db.ExecContext(ctx, "INSERT INTO connections (id, name, vhost, source_id, sink_ids, transformation_groups, active, status, worker_id, transformation_ids, transformations) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		conn.ID, conn.Name, conn.VHost, conn.SourceID, string(sinkIDsBytes), string(transGroupsBytes), conn.Active, conn.Status, conn.WorkerID, string(transIDsBytes), string(transBytes))
-	return err
-}
-
-func (s *sqlStorage) UpdateConnection(ctx context.Context, conn storage.Connection) error {
-	sinkIDsBytes, err := json.Marshal(conn.SinkIDs)
-	if err != nil {
-		return err
-	}
-	transGroupsBytes, _ := json.Marshal(conn.TransformationGroups)
-	transIDsBytes, _ := json.Marshal(conn.TransformationIDs)
-	transBytes, _ := json.Marshal(conn.Transformations)
-	_, err = s.db.ExecContext(ctx, "UPDATE connections SET name = ?, vhost = ?, source_id = ?, sink_ids = ?, transformation_groups = ?, active = ?, status = ?, worker_id = ?, transformation_ids = ?, transformations = ? WHERE id = ?",
-		conn.Name, conn.VHost, conn.SourceID, string(sinkIDsBytes), string(transGroupsBytes), conn.Active, conn.Status, conn.WorkerID, string(transIDsBytes), string(transBytes), conn.ID)
-	return err
-}
-
-func (s *sqlStorage) DeleteConnection(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM connections WHERE id = ?", id)
-	return err
-}
-
-func (s *sqlStorage) GetConnection(ctx context.Context, id string) (storage.Connection, error) {
-	var conn storage.Connection
-	var sinkIDsStr, transGroupsStr, status, workerID, transIDsStr, transStr sql.NullString
-	err := s.db.QueryRowContext(ctx, "SELECT id, name, vhost, source_id, sink_ids, transformation_groups, active, status, worker_id, transformation_ids, transformations FROM connections WHERE id = ?", id).
-		Scan(&conn.ID, &conn.Name, &conn.VHost, &conn.SourceID, &sinkIDsStr, &transGroupsStr, &conn.Active, &status, &workerID, &transIDsStr, &transStr)
-	if err == sql.ErrNoRows {
-		return storage.Connection{}, storage.ErrNotFound
-	}
-	if err != nil {
-		return storage.Connection{}, err
-	}
-	if status.Valid {
-		conn.Status = status.String
-	}
-	if workerID.Valid {
-		conn.WorkerID = workerID.String
-	}
-	if sinkIDsStr.Valid {
-		if err := json.Unmarshal([]byte(sinkIDsStr.String), &conn.SinkIDs); err != nil {
-			return storage.Connection{}, err
-		}
-	}
-	if transGroupsStr.Valid && transGroupsStr.String != "" {
-		json.Unmarshal([]byte(transGroupsStr.String), &conn.TransformationGroups)
-	}
-	if transIDsStr.Valid && transIDsStr.String != "" {
-		json.Unmarshal([]byte(transIDsStr.String), &conn.TransformationIDs)
-	}
-	if transStr.Valid && transStr.String != "" {
-		json.Unmarshal([]byte(transStr.String), &conn.Transformations)
-	}
-	return conn, nil
 }
 
 func (s *sqlStorage) ListUsers(ctx context.Context, filter storage.CommonFilter) ([]storage.User, int, error) {
@@ -760,114 +649,104 @@ func (s *sqlStorage) GetVHost(ctx context.Context, id string) (storage.VHost, er
 	return vhost, nil
 }
 
-func (s *sqlStorage) ListTransformations(ctx context.Context, filter storage.CommonFilter) ([]storage.Transformation, int, error) {
-	baseQuery := "SELECT id, name, type, steps, config, on_failure, execute_if FROM transformations"
-	countQuery := "SELECT COUNT(*) FROM transformations"
-	var args []interface{}
-	var where []string
+func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFilter) ([]storage.Workflow, int, error) {
+	query := "SELECT id, name, vhost, active, status, worker_id, nodes, edges FROM workflows WHERE 1=1"
+	args := []interface{}{}
 
-	if filter.Search != "" {
-		search := "%" + filter.Search + "%"
-		where = append(where, "(id LIKE ? OR name LIKE ? OR type LIKE ?)")
-		args = append(args, search, search, search)
+	if filter.VHost != "" {
+		query += " AND vhost = ?"
+		args = append(args, filter.VHost)
 	}
 
-	if len(where) > 0 {
-		baseQuery += " WHERE " + strings.Join(where, " AND ")
-		countQuery += " WHERE " + strings.Join(where, " AND ")
+	if filter.Search != "" {
+		query += " AND name LIKE ?"
+		args = append(args, "%"+filter.Search+"%")
 	}
 
 	var total int
+	countQuery := strings.Replace(query, "id, name, vhost, active, status, worker_id, nodes, edges", "COUNT(*)", 1)
 	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	if filter.Limit > 0 {
-		baseQuery += " LIMIT ?"
+		query += " LIMIT ?"
 		args = append(args, filter.Limit)
 		if filter.Page > 0 {
-			baseQuery += " OFFSET ?"
+			query += " OFFSET ?"
 			args = append(args, (filter.Page-1)*filter.Limit)
 		}
 	}
 
-	rows, err := s.db.QueryContext(ctx, baseQuery, args...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
 
-	var transformations []storage.Transformation
+	var wfs []storage.Workflow
 	for rows.Next() {
-		var trans storage.Transformation
-		var stepsStr, configStr, onFailureStr, executeIfStr sql.NullString
-		if err := rows.Scan(&trans.ID, &trans.Name, &trans.Type, &stepsStr, &configStr, &onFailureStr, &executeIfStr); err != nil {
+		var wf storage.Workflow
+		var nodesJSON, edgesJSON sql.NullString
+		if err := rows.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &nodesJSON, &edgesJSON); err != nil {
 			return nil, 0, err
 		}
-
-		if stepsStr.Valid {
-			_ = json.Unmarshal([]byte(stepsStr.String), &trans.Steps)
+		if nodesJSON.Valid && nodesJSON.String != "" {
+			json.Unmarshal([]byte(nodesJSON.String), &wf.Nodes)
 		}
-		if configStr.Valid {
-			_ = json.Unmarshal([]byte(configStr.String), &trans.Config)
+		if edgesJSON.Valid && edgesJSON.String != "" {
+			json.Unmarshal([]byte(edgesJSON.String), &wf.Edges)
 		}
-		if onFailureStr.Valid {
-			trans.OnFailure = onFailureStr.String
-		}
-		if executeIfStr.Valid {
-			trans.ExecuteIf = executeIfStr.String
-		}
-		transformations = append(transformations, trans)
+		wfs = append(wfs, wf)
 	}
-	return transformations, total, nil
+	return wfs, total, nil
 }
 
-func (s *sqlStorage) CreateTransformation(ctx context.Context, trans storage.Transformation) error {
-	stepsJSON, _ := json.Marshal(trans.Steps)
-	configJSON, _ := json.Marshal(trans.Config)
-	_, err := s.db.ExecContext(ctx, "INSERT INTO transformations (id, name, type, steps, config, on_failure, execute_if) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		trans.ID, trans.Name, trans.Type, string(stepsJSON), string(configJSON), trans.OnFailure, trans.ExecuteIf)
+func (s *sqlStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) error {
+	nodesJSON, _ := json.Marshal(wf.Nodes)
+	edgesJSON, _ := json.Marshal(wf.Edges)
+	if wf.ID == "" {
+		wf.ID = uuid.New().String()
+	}
+	_, err := s.db.ExecContext(ctx,
+		"INSERT INTO workflows (id, name, vhost, active, status, worker_id, nodes, edges) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		wf.ID, wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON),
+	)
 	return err
 }
 
-func (s *sqlStorage) UpdateTransformation(ctx context.Context, trans storage.Transformation) error {
-	stepsJSON, _ := json.Marshal(trans.Steps)
-	configJSON, _ := json.Marshal(trans.Config)
-	_, err := s.db.ExecContext(ctx, "UPDATE transformations SET name = ?, type = ?, steps = ?, config = ?, on_failure = ?, execute_if = ? WHERE id = ?",
-		trans.Name, trans.Type, string(stepsJSON), string(configJSON), trans.OnFailure, trans.ExecuteIf, trans.ID)
+func (s *sqlStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error {
+	nodesJSON, _ := json.Marshal(wf.Nodes)
+	edgesJSON, _ := json.Marshal(wf.Edges)
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE workflows SET name = ?, vhost = ?, active = ?, status = ?, worker_id = ?, nodes = ?, edges = ? WHERE id = ?",
+		wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.ID,
+	)
 	return err
 }
 
-func (s *sqlStorage) DeleteTransformation(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM transformations WHERE id = ?", id)
+func (s *sqlStorage) DeleteWorkflow(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM workflows WHERE id = ?", id)
 	return err
 }
 
-func (s *sqlStorage) GetTransformation(ctx context.Context, id string) (storage.Transformation, error) {
-	var trans storage.Transformation
-	var stepsStr, configStr, onFailureStr, executeIfStr sql.NullString
-	err := s.db.QueryRowContext(ctx, "SELECT id, name, type, steps, config, on_failure, execute_if FROM transformations WHERE id = ?", id).
-		Scan(&trans.ID, &trans.Name, &trans.Type, &stepsStr, &configStr, &onFailureStr, &executeIfStr)
-	if err == sql.ErrNoRows {
-		return trans, storage.ErrNotFound
+func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
+	row := s.db.QueryRowContext(ctx, "SELECT id, name, vhost, active, status, worker_id, nodes, edges FROM workflows WHERE id = ?", id)
+	var wf storage.Workflow
+	var nodesJSON, edgesJSON sql.NullString
+	if err := row.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &nodesJSON, &edgesJSON); err != nil {
+		if err == sql.ErrNoRows {
+			return storage.Workflow{}, storage.ErrNotFound
+		}
+		return storage.Workflow{}, err
 	}
-	if err != nil {
-		return trans, err
+	if nodesJSON.Valid && nodesJSON.String != "" {
+		json.Unmarshal([]byte(nodesJSON.String), &wf.Nodes)
 	}
-
-	if stepsStr.Valid {
-		_ = json.Unmarshal([]byte(stepsStr.String), &trans.Steps)
+	if edgesJSON.Valid && edgesJSON.String != "" {
+		json.Unmarshal([]byte(edgesJSON.String), &wf.Edges)
 	}
-	if configStr.Valid {
-		_ = json.Unmarshal([]byte(configStr.String), &trans.Config)
-	}
-	if onFailureStr.Valid {
-		trans.OnFailure = onFailureStr.String
-	}
-	if executeIfStr.Valid {
-		trans.ExecuteIf = executeIfStr.String
-	}
-	return trans, nil
+	return wf, nil
 }
 
 func (s *sqlStorage) ListWorkers(ctx context.Context, filter storage.CommonFilter) ([]storage.Worker, int, error) {
@@ -981,9 +860,9 @@ func (s *sqlStorage) ListLogs(ctx context.Context, filter storage.LogFilter) ([]
 		query += " AND sink_id = ?"
 		args = append(args, filter.SinkID)
 	}
-	if filter.ConnectionID != "" {
-		query += " AND connection_id = ?"
-		args = append(args, filter.ConnectionID)
+	if filter.WorkflowID != "" {
+		query += " AND workflow_id = ?"
+		args = append(args, filter.WorkflowID)
 	}
 	if filter.Level != "" {
 		query += " AND level = ?"
@@ -995,7 +874,7 @@ func (s *sqlStorage) ListLogs(ctx context.Context, filter storage.LogFilter) ([]
 	}
 	if filter.Search != "" {
 		search := "%" + filter.Search + "%"
-		query += " AND (message LIKE ? OR data LIKE ? OR source_id LIKE ? OR sink_id LIKE ? OR connection_id LIKE ?)"
+		query += " AND (message LIKE ? OR data LIKE ? OR source_id LIKE ? OR sink_id LIKE ? OR workflow_id LIKE ?)"
 		args = append(args, search, search, search, search, search)
 	}
 
@@ -1017,7 +896,7 @@ func (s *sqlStorage) ListLogs(ctx context.Context, filter storage.LogFilter) ([]
 		query += " LIMIT 100"
 	}
 
-	rows, err := s.db.QueryContext(ctx, "SELECT id, timestamp, level, message, action, source_id, sink_id, connection_id, data"+query, args...)
+	rows, err := s.db.QueryContext(ctx, "SELECT id, timestamp, level, message, action, source_id, sink_id, workflow_id, data"+query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1026,8 +905,8 @@ func (s *sqlStorage) ListLogs(ctx context.Context, filter storage.LogFilter) ([]
 	var logs []storage.Log
 	for rows.Next() {
 		var l storage.Log
-		var action, sourceID, sinkID, connectionID, data sql.NullString
-		if err := rows.Scan(&l.ID, &l.Timestamp, &l.Level, &l.Message, &action, &sourceID, &sinkID, &connectionID, &data); err != nil {
+		var action, sourceID, sinkID, workflowID, data sql.NullString
+		if err := rows.Scan(&l.ID, &l.Timestamp, &l.Level, &l.Message, &action, &sourceID, &sinkID, &workflowID, &data); err != nil {
 			return nil, 0, err
 		}
 		if action.Valid {
@@ -1039,8 +918,8 @@ func (s *sqlStorage) ListLogs(ctx context.Context, filter storage.LogFilter) ([]
 		if sinkID.Valid {
 			l.SinkID = sinkID.String
 		}
-		if connectionID.Valid {
-			l.ConnectionID = connectionID.String
+		if workflowID.Valid {
+			l.WorkflowID = workflowID.String
 		}
 		if data.Valid {
 			l.Data = data.String
@@ -1058,12 +937,12 @@ func (s *sqlStorage) CreateLog(ctx context.Context, l storage.Log) error {
 		l.Timestamp = time.Now()
 	}
 
-	_, err := s.db.ExecContext(ctx, "INSERT INTO logs (id, timestamp, level, message, action, source_id, sink_id, connection_id, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	_, err := s.db.ExecContext(ctx, "INSERT INTO logs (id, timestamp, level, message, action, source_id, sink_id, workflow_id, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		l.ID, l.Timestamp, l.Level, l.Message,
 		sql.NullString{String: l.Action, Valid: l.Action != ""},
 		sql.NullString{String: l.SourceID, Valid: l.SourceID != ""},
 		sql.NullString{String: l.SinkID, Valid: l.SinkID != ""},
-		sql.NullString{String: l.ConnectionID, Valid: l.ConnectionID != ""},
+		sql.NullString{String: l.WorkflowID, Valid: l.WorkflowID != ""},
 		sql.NullString{String: l.Data, Valid: l.Data != ""},
 	)
 	return err
@@ -1081,9 +960,9 @@ func (s *sqlStorage) DeleteLogs(ctx context.Context, filter storage.LogFilter) e
 		query += " AND sink_id = ?"
 		args = append(args, filter.SinkID)
 	}
-	if filter.ConnectionID != "" {
-		query += " AND connection_id = ?"
-		args = append(args, filter.ConnectionID)
+	if filter.WorkflowID != "" {
+		query += " AND workflow_id = ?"
+		args = append(args, filter.WorkflowID)
 	}
 	if filter.Level != "" {
 		query += " AND level = ?"
@@ -1108,6 +987,13 @@ func (s *sqlStorage) GetSetting(ctx context.Context, key string) (string, error)
 }
 
 func (s *sqlStorage) SaveSetting(ctx context.Context, key string, value string) error {
-	_, err := s.db.ExecContext(ctx, "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value)
+	var query string
+	switch s.driver {
+	case "mysql", "mariadb":
+		query = "INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)"
+	default:
+		query = "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+	}
+	_, err := s.db.ExecContext(ctx, query, key, value)
 	return err
 }

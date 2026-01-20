@@ -3,6 +3,7 @@ package rabbitmq
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/amqp"
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/stream"
@@ -16,6 +17,7 @@ type RabbitMQStreamSink struct {
 	url       string
 	stream    string
 	formatter hermod.Formatter
+	mu        sync.Mutex
 }
 
 // NewRabbitMQStreamSink creates a new RabbitMQ Stream sink.
@@ -27,7 +29,10 @@ func NewRabbitMQStreamSink(url string, streamName string, formatter hermod.Forma
 	}, nil
 }
 
-func (s *RabbitMQStreamSink) ensureConnected() error {
+func (s *RabbitMQStreamSink) ensureConnected(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.env != nil && !s.env.IsClosed() && s.producer != nil {
 		return nil
 	}
@@ -50,8 +55,19 @@ func (s *RabbitMQStreamSink) ensureConnected() error {
 
 // Write sends a message to RabbitMQ Stream.
 func (s *RabbitMQStreamSink) Write(ctx context.Context, msg hermod.Message) error {
-	if err := s.ensureConnected(); err != nil {
+	if msg == nil {
+		return nil
+	}
+	if err := s.ensureConnected(ctx); err != nil {
 		return err
+	}
+
+	s.mu.Lock()
+	producer := s.producer
+	s.mu.Unlock()
+
+	if producer == nil {
+		return fmt.Errorf("rabbitmq stream producer not connected")
 	}
 
 	var data []byte
@@ -68,7 +84,7 @@ func (s *RabbitMQStreamSink) Write(ctx context.Context, msg hermod.Message) erro
 		return fmt.Errorf("failed to format message: %w", err)
 	}
 
-	err = s.producer.Send(amqp.NewMessage(data))
+	err = producer.Send(amqp.NewMessage(data))
 	if err != nil {
 		return fmt.Errorf("failed to send message to RabbitMQ Stream: %w", err)
 	}
@@ -78,16 +94,22 @@ func (s *RabbitMQStreamSink) Write(ctx context.Context, msg hermod.Message) erro
 
 // Ping checks if the RabbitMQ connection is alive.
 func (s *RabbitMQStreamSink) Ping(ctx context.Context) error {
-	return s.ensureConnected()
+	return s.ensureConnected(ctx)
 }
 
 // Close closes the RabbitMQ stream producer and environment.
 func (s *RabbitMQStreamSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.producer != nil {
 		s.producer.Close()
+		s.producer = nil
 	}
 	if s.env != nil {
-		return s.env.Close()
+		err := s.env.Close()
+		s.env = nil
+		return err
 	}
 	return nil
 }

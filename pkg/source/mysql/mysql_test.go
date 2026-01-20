@@ -9,7 +9,7 @@ import (
 )
 
 func TestMySQLSource_Read(t *testing.T) {
-	s := NewMySQLSource("root:password@tcp(localhost:3306)/inventory")
+	s := NewMySQLSource("root:password@tcp(localhost:3306)/inventory", true)
 	defer s.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

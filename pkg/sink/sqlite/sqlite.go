@@ -3,9 +3,13 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/message"
 	_ "modernc.org/sqlite"
 )
 
@@ -22,6 +26,9 @@ func NewSQLiteSink(dbPath string) *SQLiteSink {
 }
 
 func (s *SQLiteSink) Write(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
 	if s.db == nil {
 		if err := s.init(ctx); err != nil {
 			return err
@@ -53,10 +60,15 @@ func (s *SQLiteSink) Write(ctx context.Context, msg hermod.Message) error {
 }
 
 func (s *SQLiteSink) init(ctx context.Context) error {
-	db, err := sql.Open("sqlite", s.dbPath)
+	dsn := s.dbPath
+	if !strings.Contains(dsn, "?") {
+		dsn += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
+	}
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return fmt.Errorf("failed to open sqlite db: %w", err)
 	}
+	db.SetMaxOpenConns(1)
 	s.db = db
 	return s.db.PingContext(ctx)
 }
@@ -75,4 +87,88 @@ func (s *SQLiteSink) Close() error {
 		return s.db.Close()
 	}
 	return nil
+}
+
+func (s *SQLiteSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
+	return []string{"main"}, nil
+}
+
+func (s *SQLiteSink) DiscoverTables(ctx context.Context) ([]string, error) {
+	if s.db == nil {
+		if err := s.init(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	rows, err := s.db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var table string
+		if err := rows.Scan(&table); err != nil {
+			return nil, err
+		}
+		tables = append(tables, table)
+	}
+	return tables, nil
+}
+
+func (s *SQLiteSink) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	if s.db == nil {
+		if err := s.init(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	query := fmt.Sprintf("SELECT * FROM %s LIMIT 1", table)
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, fmt.Errorf("no data found in table %s", table)
+	}
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	values := make([]interface{}, len(cols))
+	valuePtrs := make([]interface{}, len(cols))
+	for i := range values {
+		valuePtrs[i] = &values[i]
+	}
+
+	if err := rows.Scan(valuePtrs...); err != nil {
+		return nil, err
+	}
+
+	record := make(map[string]interface{})
+	for i, col := range cols {
+		val := values[i]
+		if b, ok := val.([]byte); ok {
+			record[col] = string(b)
+		} else {
+			record[col] = val
+		}
+	}
+
+	afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+	msg := message.AcquireMessage()
+	msg.SetID(fmt.Sprintf("sample-%s-%d", table, time.Now().Unix()))
+	msg.SetOperation(hermod.OpSnapshot)
+	msg.SetTable(table)
+	msg.SetAfter(afterJSON)
+	msg.SetMetadata("source", "sqlite_sink")
+	msg.SetMetadata("sample", "true")
+
+	return msg, nil
 }

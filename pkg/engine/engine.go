@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/message"
 )
 
 // DefaultLogger is a simple logger that uses zerolog for zero-allocation structured logging.
@@ -52,24 +53,29 @@ func (l *DefaultLogger) Error(msg string, keysAndValues ...interface{}) {
 	l.log(l.logger.Error(), msg, keysAndValues...)
 }
 
+type RoutedMessage struct {
+	SinkIndex int
+	Message   hermod.Message
+}
+
+type RouterFunc func(ctx context.Context, msg hermod.Message) ([]RoutedMessage, error)
+
 // Engine orchestrates the data flow from Source to Sinks.
 type Engine struct {
-	source               hermod.Source
-	sinks                []hermod.Sink
-	buffer               hermod.Producer // Using Producer as a buffer
-	logger               hermod.Logger
-	config               Config
-	sinkConfigs          []SinkConfig
-	sourceConfig         SourceConfig
-	transforms           hermod.Transformer
-	transformationGroups []TransformationGroup
-	groupsMu             sync.RWMutex
-	deadLetterSink       hermod.Sink
+	source         hermod.Source
+	sinks          []hermod.Sink
+	buffer         hermod.Producer // Using Producer as a buffer
+	logger         hermod.Logger
+	config         Config
+	sinkConfigs    []SinkConfig
+	sourceConfig   SourceConfig
+	deadLetterSink hermod.Sink
+	router         RouterFunc
 
-	connectionID string
-	sourceID     string
-	sinkIDs      []string
-	sinkTypes    []string
+	workflowID string
+	sourceID   string
+	sinkIDs    []string
+	sinkTypes  []string
 
 	onStatusChange func(StatusUpdate)
 
@@ -80,23 +86,64 @@ type Engine struct {
 	engineStatus      string
 	lastMsgTime       time.Time
 	processedMessages uint64
+	nodeMetrics       map[string]uint64
+	nodeSamples       map[string]interface{}
+	nodeMetricsMu     sync.RWMutex
+
+	// Async Sink Writers
+	sinkWriters []*sinkWriter
+}
+
+type sinkWriter struct {
+	engine *Engine
+	sink   hermod.Sink
+	sinkID string
+	index  int
+	config SinkConfig
+
+	ch chan *pendingMessage
+}
+
+type pendingMessage struct {
+	msg  hermod.Message
+	done chan error
+}
+
+var pendingMessagePool = sync.Pool{
+	New: func() interface{} {
+		return &pendingMessage{
+			done: make(chan error, 1),
+		}
+	},
+}
+
+func acquirePendingMessage(msg hermod.Message) *pendingMessage {
+	pm := pendingMessagePool.Get().(*pendingMessage)
+	pm.msg = msg
+	return pm
+}
+
+func releasePendingMessage(pm *pendingMessage) {
+	pm.msg = nil
+	// Reset the done channel by reading if it has anything (should be empty though)
+	select {
+	case <-pm.done:
+	default:
+	}
+	pendingMessagePool.Put(pm)
 }
 
 type StatusUpdate struct {
-	ConnectionID   string            `json:"connection_id,omitempty"`
-	EngineStatus   string            `json:"engine_status,omitempty"`
-	SourceStatus   string            `json:"source_status,omitempty"`
-	SourceID       string            `json:"source_id,omitempty"`
-	SinkStatuses   map[string]string `json:"sink_statuses,omitempty"`
-	SinkID         string            `json:"sink_id,omitempty"`
-	SinkStatus     string            `json:"sink_status,omitempty"`
-	ProcessedCount uint64            `json:"processed_count"`
-}
-
-type TransformationGroup struct {
-	Transformer hermod.Transformer
-	Sinks       []hermod.Sink
-	SinkIDs     []string
+	WorkflowID     string                 `json:"workflow_id,omitempty"`
+	EngineStatus   string                 `json:"engine_status,omitempty"`
+	SourceStatus   string                 `json:"source_status,omitempty"`
+	SourceID       string                 `json:"source_id,omitempty"`
+	SinkStatuses   map[string]string      `json:"sink_statuses,omitempty"`
+	SinkID         string                 `json:"sink_id,omitempty"`
+	SinkStatus     string                 `json:"sink_status,omitempty"`
+	ProcessedCount uint64                 `json:"processed_count"`
+	NodeMetrics    map[string]uint64      `json:"node_metrics,omitempty"`
+	NodeSamples    map[string]interface{} `json:"node_samples,omitempty"`
 }
 
 // Config holds configuration for the Engine.
@@ -111,10 +158,11 @@ type SinkConfig struct {
 	MaxRetries     int             `json:"max_retries"`
 	RetryInterval  time.Duration   `json:"retry_interval"`
 	RetryIntervals []time.Duration `json:"retry_intervals"`
+	BatchSize      int             `json:"batch_size"`
+	BatchTimeout   time.Duration   `json:"batch_timeout"`
 }
 
 type SourceConfig struct {
-	ReconnectInterval  time.Duration   `json:"reconnect_interval"`
 	ReconnectIntervals []time.Duration `json:"reconnect_intervals"`
 }
 
@@ -129,7 +177,7 @@ func DefaultConfig() Config {
 }
 
 func NewEngine(source hermod.Source, sinks []hermod.Sink, buffer hermod.Producer) *Engine {
-	return &Engine{
+	e := &Engine{
 		source:       source,
 		sinks:        sinks,
 		buffer:       buffer,
@@ -137,6 +185,8 @@ func NewEngine(source hermod.Source, sinks []hermod.Sink, buffer hermod.Producer
 		config:       DefaultConfig(),
 		sinkStatuses: make(map[string]string),
 	}
+	e.SetLogger(e.logger)
+	return e
 }
 
 // SetConfig sets the configuration for the engine.
@@ -157,28 +207,30 @@ func (e *Engine) SetSourceConfig(config SourceConfig) {
 // SetLogger sets the logger for the engine.
 func (e *Engine) SetLogger(logger hermod.Logger) {
 	e.logger = logger
-}
-
-// SetTransformations sets the transformations to be applied to messages.
-func (e *Engine) SetTransformations(t hermod.Transformer) {
-	e.transforms = t
-}
-
-// SetTransformationGroups sets the transformation groups for the engine.
-func (e *Engine) SetTransformationGroups(groups []TransformationGroup) {
-	e.groupsMu.Lock()
-	defer e.groupsMu.Unlock()
-	e.transformationGroups = groups
+	if l, ok := e.source.(hermod.Loggable); ok {
+		l.SetLogger(logger)
+	}
+	for _, snk := range e.sinks {
+		if l, ok := snk.(hermod.Loggable); ok {
+			l.SetLogger(logger)
+		}
+	}
+	if l, ok := e.deadLetterSink.(hermod.Loggable); ok {
+		l.SetLogger(logger)
+	}
 }
 
 // SetDeadLetterSink sets the dead letter sink for the engine.
 func (e *Engine) SetDeadLetterSink(sink hermod.Sink) {
 	e.deadLetterSink = sink
+	if l, ok := sink.(hermod.Loggable); ok {
+		l.SetLogger(e.logger)
+	}
 }
 
-// SetIDs sets the IDs for connection, source and sinks.
-func (e *Engine) SetIDs(connectionID string, sourceID string, sinkIDs []string) {
-	e.connectionID = connectionID
+// SetIDs sets the IDs for workflow, source and sinks.
+func (e *Engine) SetIDs(workflowID string, sourceID string, sinkIDs []string) {
+	e.workflowID = workflowID
 	e.sourceID = sourceID
 	e.sinkIDs = sinkIDs
 }
@@ -191,6 +243,40 @@ func (e *Engine) SetSinkTypes(sinkTypes []string) {
 // SetOnStatusChange sets the callback for status changes.
 func (e *Engine) SetOnStatusChange(f func(StatusUpdate)) {
 	e.onStatusChange = f
+}
+
+// SetRouter sets the router function for the engine.
+func (e *Engine) SetRouter(router RouterFunc) {
+	e.router = router
+}
+
+// UpdateNodeMetric updates the processed count for a specific workflow node.
+func (e *Engine) UpdateNodeMetric(nodeID string, count uint64) {
+	e.nodeMetricsMu.Lock()
+	if e.nodeMetrics == nil {
+		e.nodeMetrics = make(map[string]uint64)
+	}
+	e.nodeMetrics[nodeID] += count
+	e.nodeMetricsMu.Unlock()
+}
+
+// UpdateNodeSample updates the last data sample for a specific workflow node.
+func (e *Engine) UpdateNodeSample(nodeID string, data map[string]interface{}) {
+	if data == nil {
+		return
+	}
+	e.nodeMetricsMu.Lock()
+	if e.nodeSamples == nil {
+		e.nodeSamples = make(map[string]interface{})
+	}
+	// Shallow copy of the map to avoid external modifications affecting the sample
+	// or vice versa. Deep copy would be safer but more expensive.
+	sample := make(map[string]interface{})
+	for k, v := range data {
+		sample[k] = v
+	}
+	e.nodeSamples[nodeID] = sample
+	e.nodeMetricsMu.Unlock()
 }
 
 func (e *Engine) setStatus(status string) {
@@ -230,6 +316,9 @@ func (e *Engine) setSinkStatus(sinkID string, status string) {
 }
 
 func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Message, sinkID string, i int) error {
+	if msg == nil {
+		return nil
+	}
 	// Retry mechanism for Sink Write
 	var lastErr error
 
@@ -248,10 +337,10 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 	for j := 0; j < maxRetries; j++ {
 		if err := snk.Write(ctx, msg); err != nil {
 			lastErr = err
-			SinkWriteErrors.WithLabelValues(e.connectionID, sinkID).Inc()
+			SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Inc()
 			e.setSinkStatus(sinkID, "reconnecting")
 			e.setStatus("reconnecting:sink:" + sinkID)
-			e.logger.Warn("Sink write error, retrying", "connection_id", e.connectionID, "attempt", j+1, "sink_id", sinkID, "error", err)
+			e.logger.Warn("Sink write error, retrying", "workflow_id", e.workflowID, "attempt", j+1, "sink_id", sinkID, "error", err)
 
 			var interval time.Duration
 			if i >= 0 && i < len(e.sinkConfigs) && len(e.sinkConfigs[i].RetryIntervals) > 0 {
@@ -272,11 +361,11 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 			}
 		}
 		if j > 0 {
-			e.logger.Info("Sink reconnected successfully", "connection_id", e.connectionID, "sink_id", sinkID, "action", "reconnect")
+			e.logger.Info("Sink reconnected successfully", "workflow_id", e.workflowID, "sink_id", sinkID, "action", "reconnect")
 		}
-		SinkWriteCount.WithLabelValues(e.connectionID, sinkID).Inc()
+		SinkWriteCount.WithLabelValues(e.workflowID, sinkID).Inc()
 		e.logger.Info("Message written to sink",
-			"connection_id", e.connectionID,
+			"workflow_id", e.workflowID,
 			"sink_id", sinkID,
 			"action", "write",
 			"message_id", msg.ID(),
@@ -288,12 +377,12 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		break
 	}
 	if lastErr != nil {
-		e.logger.Error("Sink write failed after retries", "connection_id", e.connectionID, "sink_id", sinkID, "error", lastErr)
+		e.logger.Error("Sink write failed after retries", "workflow_id", e.workflowID, "sink_id", sinkID, "error", lastErr)
 		if e.deadLetterSink != nil {
-			e.logger.Info("Sending message to Dead Letter Sink", "connection_id", e.connectionID, "sink_id", sinkID, "message_id", msg.ID())
-			DeadLetterCount.WithLabelValues(e.connectionID, sinkID).Inc()
+			e.logger.Info("Sending message to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID())
+			DeadLetterCount.WithLabelValues(e.workflowID, sinkID).Inc()
 			if err := e.deadLetterSink.Write(ctx, msg); err != nil {
-				e.logger.Error("Failed to write to Dead Letter Sink", "connection_id", e.connectionID, "error", err)
+				e.logger.Error("Failed to write to Dead Letter Sink", "workflow_id", e.workflowID, "error", err)
 				return fmt.Errorf("sink write error (and DLQ failed): %w", lastErr)
 			}
 			return nil // Message preserved in DLQ
@@ -322,7 +411,7 @@ func (e *Engine) GetStatus() StatusUpdate {
 	defer e.statusMu.RUnlock()
 
 	update := StatusUpdate{
-		ConnectionID:   e.connectionID,
+		WorkflowID:     e.workflowID,
 		EngineStatus:   e.engineStatus,
 		SourceStatus:   e.sourceStatus,
 		SourceID:       e.sourceID,
@@ -332,15 +421,197 @@ func (e *Engine) GetStatus() StatusUpdate {
 	for k, v := range e.sinkStatuses {
 		update.SinkStatuses[k] = v
 	}
+
+	e.nodeMetricsMu.RLock()
+	if len(e.nodeMetrics) > 0 {
+		update.NodeMetrics = make(map[string]uint64)
+		for k, v := range e.nodeMetrics {
+			update.NodeMetrics[k] = v
+		}
+	}
+	if len(e.nodeSamples) > 0 {
+		update.NodeSamples = make(map[string]interface{})
+		for k, v := range e.nodeSamples {
+			update.NodeSamples[k] = v
+		}
+	}
+	e.nodeMetricsMu.RUnlock()
+
 	return update
+}
+
+func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msgs []hermod.Message, sinkID string, i int) error {
+	// Filter nil messages
+	filtered := make([]hermod.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m != nil {
+			filtered = append(filtered, m)
+		}
+	}
+	msgs = filtered
+
+	if len(msgs) == 0 {
+		return nil
+	}
+	if len(msgs) == 1 {
+		return e.writeToSink(ctx, snk, msgs[0], sinkID, i)
+	}
+
+	// Retry mechanism for Sink WriteBatch
+	var lastErr error
+
+	maxRetries := e.config.MaxRetries
+	retryInterval := e.config.RetryInterval
+
+	if i >= 0 && i < len(e.sinkConfigs) {
+		if e.sinkConfigs[i].MaxRetries > 0 {
+			maxRetries = e.sinkConfigs[i].MaxRetries
+		}
+		if e.sinkConfigs[i].RetryInterval > 0 {
+			retryInterval = e.sinkConfigs[i].RetryInterval
+		}
+	}
+
+	for j := 0; j < maxRetries; j++ {
+		if err := snk.WriteBatch(ctx, msgs); err != nil {
+			lastErr = err
+			SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Add(float64(len(msgs)))
+			e.setSinkStatus(sinkID, "reconnecting")
+			e.setStatus("reconnecting:sink:" + sinkID)
+			e.logger.Warn("Sink batch write error, retrying", "workflow_id", e.workflowID, "attempt", j+1, "sink_id", sinkID, "batch_size", len(msgs), "error", err)
+
+			var interval time.Duration
+			if i >= 0 && i < len(e.sinkConfigs) && len(e.sinkConfigs[i].RetryIntervals) > 0 {
+				if j < len(e.sinkConfigs[i].RetryIntervals) {
+					interval = e.sinkConfigs[i].RetryIntervals[j]
+				} else {
+					interval = e.sinkConfigs[i].RetryIntervals[len(e.sinkConfigs[i].RetryIntervals)-1]
+				}
+			} else {
+				interval = time.Duration(j+1) * retryInterval
+			}
+
+			select {
+			case <-time.After(interval):
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		if j > 0 {
+			e.logger.Info("Sink reconnected successfully", "workflow_id", e.workflowID, "sink_id", sinkID, "action", "reconnect")
+		}
+		SinkWriteCount.WithLabelValues(e.workflowID, sinkID).Add(float64(len(msgs)))
+		e.logger.Info("Batch written to sink",
+			"workflow_id", e.workflowID,
+			"sink_id", sinkID,
+			"action", "write_batch",
+			"batch_size", len(msgs),
+		)
+		lastErr = nil
+		break
+	}
+
+	if lastErr != nil {
+		e.logger.Error("Sink batch write failed after retries", "workflow_id", e.workflowID, "sink_id", sinkID, "error", lastErr)
+		return fmt.Errorf("sink batch write error: %w", lastErr)
+	}
+	return nil
+}
+
+func (w *sinkWriter) run(ctx context.Context) {
+	batchSize := w.config.BatchSize
+	if batchSize < 1 {
+		batchSize = 1
+	}
+
+	batchTimeout := w.config.BatchTimeout
+	if batchTimeout == 0 {
+		batchTimeout = 100 * time.Millisecond
+	}
+
+	batch := make([]*pendingMessage, 0, batchSize)
+	ticker := time.NewTicker(batchTimeout)
+	defer ticker.Stop()
+
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+
+		msgs := make([]hermod.Message, len(batch))
+		for i, pm := range batch {
+			msgs[i] = pm.msg
+		}
+
+		var err error
+		if bs, ok := w.sink.(hermod.BatchSink); ok && len(msgs) > 1 {
+			err = w.engine.writeBatchToSink(ctx, bs, msgs, w.sinkID, w.index)
+		} else {
+			for _, m := range msgs {
+				if e := w.engine.writeToSink(ctx, w.sink, m, w.sinkID, w.index); e != nil {
+					err = e
+				}
+			}
+		}
+
+		for _, pm := range batch {
+			pm.done <- err
+		}
+		batch = batch[:0]
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			flush()
+			return
+		case pm, ok := <-w.ch:
+			if !ok {
+				flush()
+				return
+			}
+			batch = append(batch, pm)
+			if len(batch) >= batchSize {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
+		}
+	}
 }
 
 // Start begins the data transfer process.
 func (e *Engine) Start(ctx context.Context) error {
+	// Initialize Sink Writers
+	e.sinkWriters = make([]*sinkWriter, len(e.sinks))
+	for i, snk := range e.sinks {
+		sinkID := ""
+		if i < len(e.sinkIDs) {
+			sinkID = e.sinkIDs[i]
+		}
+
+		cfg := SinkConfig{}
+		if i < len(e.sinkConfigs) {
+			cfg = e.sinkConfigs[i]
+		}
+
+		sw := &sinkWriter{
+			engine: e,
+			sink:   snk,
+			sinkID: sinkID,
+			index:  i,
+			config: cfg,
+			ch:     make(chan *pendingMessage, 1000),
+		}
+		e.sinkWriters[i] = sw
+		go sw.run(ctx)
+	}
+
 	var wg sync.WaitGroup
 	errCh := make(chan error, 2)
 
-	e.logger.Info("Starting Hermod Engine", "connection_id", e.connectionID)
+	e.logger.Info("Starting Hermod Engine", "workflow_id", e.workflowID)
 	e.setStatus("connecting")
 	ActiveEngines.Inc()
 	defer ActiveEngines.Dec()
@@ -349,7 +620,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	go func() {
 		interval := e.config.StatusInterval
 		if interval == 0 {
-			interval = 5 * time.Second
+			interval = 1 * time.Second
 		}
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -358,7 +629,14 @@ func (e *Engine) Start(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := e.source.Ping(ctx); err != nil {
+				var err error
+				if readyChecker, ok := e.source.(hermod.ReadyChecker); ok {
+					err = readyChecker.IsReady(ctx)
+				} else {
+					err = e.source.Ping(ctx)
+				}
+
+				if err != nil {
 					e.statusMu.RLock()
 					recentActivity := !e.lastMsgTime.IsZero() && time.Since(e.lastMsgTime) < interval*2
 					e.statusMu.RUnlock()
@@ -400,15 +678,16 @@ func (e *Engine) Start(ctx context.Context) error {
 				}
 				if allSinksOk && e.sourceStatus == "running" {
 					if e.engineStatus != "running" && strings.HasPrefix(e.engineStatus, "reconnecting") {
-						e.logger.Info("System reconnected successfully", "connection_id", e.connectionID, "action", "reconnect")
+						e.logger.Info("System reconnected successfully", "workflow_id", e.workflowID, "action", "reconnect")
 					}
 					e.setStatus("running")
 				}
+				e.notifyStatusChange()
 			}
 		}
 	}()
 
-	// Pre-flight checks for Sinks (Sink failure turns off connection)
+	// Pre-flight checks for Sinks (Sink failure turns off workflow)
 	for i, snk := range e.sinks {
 		sinkID := ""
 		if i < len(e.sinkIDs) {
@@ -429,7 +708,7 @@ func (e *Engine) Start(ctx context.Context) error {
 		for attempt := 1; attempt <= 3; attempt++ {
 			if err := snk.Ping(ctx); err != nil {
 				e.setSinkStatus(sinkID, "reconnecting")
-				e.logger.Warn("Sink ping failed during startup", "connection_id", e.connectionID, "sink_id", sinkID, "attempt", attempt, "error", err)
+				e.logger.Warn("Sink ping failed during startup", "workflow_id", e.workflowID, "sink_id", sinkID, "attempt", attempt, "error", err)
 				if attempt < 3 {
 					select {
 					case <-ctx.Done():
@@ -469,10 +748,17 @@ func (e *Engine) Start(ctx context.Context) error {
 			e.statusMu.RUnlock()
 
 			if needsPing {
-				if err := e.source.Ping(ctx); err != nil {
+				var err error
+				if readyChecker, ok := e.source.(hermod.ReadyChecker); ok {
+					err = readyChecker.IsReady(ctx)
+				} else {
+					err = e.source.Ping(ctx)
+				}
+
+				if err != nil {
 					e.setSourceStatus("reconnecting")
 					e.setStatus("reconnecting:source")
-					e.logger.Warn("Source ping failed, entering reconnecting state", "connection_id", e.connectionID, "error", err)
+					e.logger.Warn("Source health check failed, entering reconnecting state", "workflow_id", e.workflowID, "error", err)
 
 					var interval time.Duration
 					if len(e.sourceConfig.ReconnectIntervals) > 0 {
@@ -481,8 +767,6 @@ func (e *Engine) Start(ctx context.Context) error {
 						} else {
 							interval = e.sourceConfig.ReconnectIntervals[len(e.sourceConfig.ReconnectIntervals)-1]
 						}
-					} else if e.sourceConfig.ReconnectInterval > 0 {
-						interval = e.sourceConfig.ReconnectInterval
 					} else {
 						interval = e.config.ReconnectInterval
 					}
@@ -505,20 +789,20 @@ func (e *Engine) Start(ctx context.Context) error {
 			e.statusMu.RUnlock()
 			if currentStatus == "reconnecting:source" || currentStatus == "connecting" {
 				if currentStatus == "reconnecting:source" {
-					e.logger.Info("Source reconnected successfully", "connection_id", e.connectionID, "source_id", e.sourceID, "action", "reconnect")
+					e.logger.Info("Source reconnected successfully", "workflow_id", e.workflowID, "source_id", e.sourceID, "action", "reconnect")
 				}
 				e.setStatus("running")
 			}
 
 			select {
 			case <-ctx.Done():
-				e.logger.Info("Source-to-Buffer worker stopping due to context cancellation", "connection_id", e.connectionID)
+				e.logger.Info("Source-to-Buffer worker stopping due to context cancellation", "workflow_id", e.workflowID)
 				return
 			default:
 				msg, err := e.source.Read(ctx)
 				if err != nil {
 					if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-						e.logger.Error("Source read error, attempting to reconnect", "connection_id", e.connectionID, "error", err)
+						e.logger.Error("Source read error, attempting to reconnect", "workflow_id", e.workflowID, "error", err)
 						e.setSourceStatus("reconnecting")
 						e.setStatus("reconnecting:source")
 						reconnectAttempts++
@@ -534,50 +818,16 @@ func (e *Engine) Start(ctx context.Context) error {
 				}
 
 				e.logger.Info("Message received from source",
-					"connection_id", e.connectionID,
+					"workflow_id", e.workflowID,
 					"source_id", e.sourceID,
 					"action", "read",
 					"message_id", msg.ID(),
-					"table", msg.Table(),
-					"operation", msg.Operation(),
-					"payload", string(msg.Payload()),
-					"before", string(msg.Before()),
-					"after", string(msg.After()),
+					"payload_len", len(msg.Payload()),
 				)
 
-				originalID := msg.ID()
-				if e.transforms != nil {
-					msg, err = e.transforms.Transform(ctx, msg)
-					if err != nil {
-						e.logger.Error("Transformation error", "connection_id", e.connectionID, "error", err)
-						MessageErrors.WithLabelValues(e.connectionID, e.sourceID, "transform").Inc()
-						// Continue or stop? Let's stop for safety if transformation fails
-						errCh <- fmt.Errorf("transformation error: %w", err)
-						return
-					}
-					if msg == nil {
-						MessagesFiltered.WithLabelValues(e.connectionID, e.sourceID).Inc()
-						e.logger.Info("Message filtered out by transformation",
-							"connection_id", e.connectionID,
-							"source_id", e.sourceID,
-							"action", "filter",
-							"message_id", originalID,
-						)
-						continue
-					}
-					e.logger.Info("Message transformed",
-						"connection_id", e.connectionID,
-						"source_id", e.sourceID,
-						"action", "transform",
-						"message_id", msg.ID(),
-						"payload", string(msg.Payload()),
-						"before", string(msg.Before()),
-						"after", string(msg.After()),
-					)
-				}
 				if err := e.buffer.Produce(ctx, msg); err != nil {
 					if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-						e.logger.Error("Buffer produce error", "connection_id", e.connectionID, "error", err)
+						e.logger.Error("Buffer produce error", "workflow_id", e.workflowID, "error", err)
 						errCh <- fmt.Errorf("buffer produce error: %w", err)
 					}
 					return
@@ -592,7 +842,7 @@ func (e *Engine) Start(ctx context.Context) error {
 		// If buffer implements Closer, close it to signal Consumer that no more messages are coming
 		if closer, ok := e.buffer.(interface{ Close() error }); ok {
 			if err := closer.Close(); err != nil {
-				e.logger.Error("Error closing buffer", "connection_id", e.connectionID, "error", err)
+				e.logger.Error("Error closing buffer", "workflow_id", e.workflowID, "error", err)
 			}
 		}
 	}()
@@ -604,138 +854,135 @@ func (e *Engine) Start(ctx context.Context) error {
 		defer sinkWg.Done()
 		consumer, ok := e.buffer.(hermod.Consumer)
 		if !ok {
-			e.logger.Error("Buffer does not implement Consumer interface", "connection_id", e.connectionID)
+			e.logger.Error("Buffer does not implement Consumer interface", "workflow_id", e.workflowID)
 			errCh <- fmt.Errorf("buffer does not implement Consumer interface")
 			return
 		}
+
+		// Semaphore to limit in-flight messages (backpressure)
+		inFlightSem := make(chan struct{}, 1000)
+		var inFlightWg sync.WaitGroup
 
 		// Use a separate context for draining to ensure we don't get stuck if sink is slow,
 		// but also allow it to finish even if main context is cancelled.
 		drainCtx := context.Background()
 
 		err := consumer.Consume(drainCtx, func(drainCtx context.Context, msg hermod.Message) error {
-			start := time.Now()
-			defer func() {
-				ProcessingLatency.WithLabelValues(e.connectionID).Observe(time.Since(start).Seconds())
-			}()
+			inFlightSem <- struct{}{}
+			inFlightWg.Add(1)
 
-			e.groupsMu.RLock()
-			groups := e.transformationGroups
-			e.groupsMu.RUnlock()
-
-			// Map for tracking sink index for configs
-			sinkIndexMap := make(map[string]int)
-			for i, id := range e.sinkIDs {
-				sinkIndexMap[id] = i
-			}
-
-			// If no groups defined, use default behavior (all sinks receive the message)
-			if len(groups) == 0 {
-				var swg sync.WaitGroup
-				serrCh := make(chan error, len(e.sinks))
-				for i, snk := range e.sinks {
-					sinkID := ""
-					if i < len(e.sinkIDs) {
-						sinkID = e.sinkIDs[i]
+			go func(m hermod.Message) {
+				defer func() {
+					<-inFlightSem
+					inFlightWg.Done()
+					// Release the message back to the pool
+					if dm, ok := m.(*message.DefaultMessage); ok {
+						message.ReleaseMessage(dm)
 					}
-					swg.Add(1)
-					go func(snk hermod.Sink, sinkID string, i int) {
-						defer swg.Done()
-						if err := e.writeToSink(drainCtx, snk, msg, sinkID, i); err != nil {
-							serrCh <- err
-						}
-					}(snk, sinkID, i)
+				}()
+
+				if m == nil {
+					return
 				}
-				swg.Wait()
-				close(serrCh)
-				for err := range serrCh {
+
+				start := time.Now()
+				defer func() {
+					ProcessingLatency.WithLabelValues(e.workflowID).Observe(time.Since(start).Seconds())
+				}()
+
+				var routed []RoutedMessage
+				if e.router != nil {
+					var err error
+					routed, err = e.router(drainCtx, m)
 					if err != nil {
-						MessageErrors.WithLabelValues(e.connectionID, e.sourceID, "sink").Inc()
-						return err
+						e.logger.Error("Router error", "workflow_id", e.workflowID, "error", err)
+						MessageErrors.WithLabelValues(e.workflowID, e.sourceID, "router").Inc()
+						return
+					}
+				} else {
+					// Default: send to all sinks
+					routed = make([]RoutedMessage, len(e.sinks))
+					for i := range e.sinks {
+						routed[i] = RoutedMessage{SinkIndex: i, Message: m}
 					}
 				}
-			} else {
-				var swg sync.WaitGroup
-				serrCh := make(chan error, len(groups))
-				for _, group := range groups {
-					swg.Add(1)
-					go func(group TransformationGroup) {
-						defer swg.Done()
-						groupMsg := msg
-						if group.Transformer != nil {
-							var err error
-							groupMsg = msg.Clone()
-							groupMsg, err = group.Transformer.Transform(drainCtx, groupMsg)
-							if err != nil {
-								e.logger.Error("Group transformation error", "connection_id", e.connectionID, "error", err)
-								MessageErrors.WithLabelValues(e.connectionID, e.sourceID, "group_transform").Inc()
-								serrCh <- fmt.Errorf("group transformation error: %w", err)
-								return
-							}
-							if groupMsg == nil {
-								MessagesFiltered.WithLabelValues(e.connectionID, e.sourceID).Inc()
-								return
-							}
+
+				if len(routed) == 0 {
+					e.logger.Debug("Message filtered by router, skipping sinks", "workflow_id", e.workflowID, "message_id", m.ID())
+				} else {
+					var swg sync.WaitGroup
+					serrCh := make(chan error, len(routed))
+					for _, rm := range routed {
+						if rm.SinkIndex < 0 || rm.SinkIndex >= len(e.sinkWriters) {
+							continue
 						}
 
-						var sswg sync.WaitGroup
-						sserrCh := make(chan error, len(group.Sinks))
-						for i, snk := range group.Sinks {
-							sinkID := group.SinkIDs[i]
-							sinkIdx := sinkIndexMap[sinkID]
-							sswg.Add(1)
-							go func(snk hermod.Sink, sinkID string, sinkIdx int) {
-								defer sswg.Done()
-								if err := e.writeToSink(drainCtx, snk, groupMsg, sinkID, sinkIdx); err != nil {
-									sserrCh <- err
+						swg.Add(1)
+						go func(i int, m hermod.Message) {
+							defer swg.Done()
+							sw := e.sinkWriters[i]
+							pm := acquirePendingMessage(m)
+
+							select {
+							case sw.ch <- pm:
+								select {
+								case err := <-pm.done:
+									if err != nil {
+										serrCh <- err
+									}
+									releasePendingMessage(pm)
+								case <-ctx.Done():
+									serrCh <- ctx.Err()
 								}
-							}(snk, sinkID, sinkIdx)
-						}
-						sswg.Wait()
-						close(sserrCh)
-						for err := range sserrCh {
-							if err != nil {
-								serrCh <- err
-								return
+							case <-ctx.Done():
+								releasePendingMessage(pm)
+								serrCh <- ctx.Err()
 							}
+						}(rm.SinkIndex, rm.Message)
+					}
+					swg.Wait()
+					close(serrCh)
+					for err := range serrCh {
+						if err != nil {
+							MessageErrors.WithLabelValues(e.workflowID, e.sourceID, "sink").Inc()
+							e.logger.Error("Sink write error", "workflow_id", e.workflowID, "error", err)
+							return
 						}
-					}(group)
-				}
-				swg.Wait()
-				close(serrCh)
-				for err := range serrCh {
-					if err != nil {
-						MessageErrors.WithLabelValues(e.connectionID, e.sourceID, "sink").Inc()
-						return err
 					}
 				}
-			}
 
-			// Acknowledge the message to the source after all successful sink writes
-			if err := e.source.Ack(drainCtx, msg); err != nil {
-				e.logger.Error("Source acknowledgement failed", "connection_id", e.connectionID, "error", err)
-				MessageErrors.WithLabelValues(e.connectionID, e.sourceID, "ack").Inc()
-				return fmt.Errorf("source acknowledgement failed: %w", err)
-			}
+				// Acknowledge the message to the source after all successful sink writes
+				if err := e.source.Ack(drainCtx, m); err != nil {
+					e.logger.Error("Source acknowledgement failed", "workflow_id", e.workflowID, "error", err)
+					MessageErrors.WithLabelValues(e.workflowID, e.sourceID, "ack").Inc()
+					return
+				}
 
-			MessagesProcessed.WithLabelValues(e.connectionID, e.sourceID).Inc()
+				MessagesProcessed.WithLabelValues(e.workflowID, e.sourceID).Inc()
 
-			e.statusMu.Lock()
-			e.processedMessages++
-			e.statusMu.Unlock()
-			e.notifyStatusChange()
+				e.statusMu.Lock()
+				e.processedMessages++
+				e.statusMu.Unlock()
+			}(msg)
 
 			return nil
 		})
+		inFlightWg.Wait()
+
 		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			e.logger.Error("Buffer-to-Sink worker error", "connection_id", e.connectionID, "error", err)
+			e.logger.Error("Buffer-to-Sink worker error", "workflow_id", e.workflowID, "error", err)
 			errCh <- err
 		} else {
-			e.logger.Info("Buffer-to-Sink worker stopping", "connection_id", e.connectionID)
+			e.logger.Info("Buffer-to-Sink worker stopping", "workflow_id", e.workflowID)
 		}
 	}()
 
 	sinkWg.Wait()
+	for _, sw := range e.sinkWriters {
+		if sw != nil && sw.ch != nil {
+			close(sw.ch)
+		}
+	}
 	close(errCh)
 
 	var lastErr error
@@ -746,10 +993,10 @@ func (e *Engine) Start(ctx context.Context) error {
 	}
 
 	if lastErr != nil {
-		e.logger.Error("Hermod Engine stopped with error", "connection_id", e.connectionID, "error", lastErr)
+		e.logger.Error("Hermod Engine stopped with error", "workflow_id", e.workflowID, "error", lastErr)
 		return lastErr
 	}
 
-	e.logger.Info("Hermod Engine stopped gracefully", "connection_id", e.connectionID)
+	e.logger.Info("Hermod Engine stopped gracefully", "workflow_id", e.workflowID)
 	return nil
 }

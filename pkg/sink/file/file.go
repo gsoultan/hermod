@@ -10,24 +10,43 @@ import (
 )
 
 type FileSink struct {
+	filename  string
 	file      *os.File
 	formatter hermod.Formatter
 	mu        sync.Mutex
 }
 
 func NewFileSink(filename string, formatter hermod.Formatter) (*FileSink, error) {
-	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
-	}
-
 	return &FileSink{
-		file:      f,
+		filename:  filename,
 		formatter: formatter,
 	}, nil
 }
 
+func (s *FileSink) ensureConnected() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.file != nil {
+		return nil
+	}
+
+	f, err := os.OpenFile(s.filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %w", err)
+	}
+
+	s.file = f
+	return nil
+}
+
 func (s *FileSink) Write(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
+	if err := s.ensureConnected(); err != nil {
+		return err
+	}
 	var data []byte
 	var err error
 
@@ -56,10 +75,7 @@ func (s *FileSink) Write(ctx context.Context, msg hermod.Message) error {
 }
 
 func (s *FileSink) Ping(ctx context.Context) error {
-	if s.file == nil {
-		return fmt.Errorf("file is not open")
-	}
-	return nil
+	return s.ensureConnected()
 }
 
 func (s *FileSink) Close() error {

@@ -34,8 +34,7 @@ const (
 
 	queryCheckTableCDC = `
 		SELECT 1 FROM sys.tables t 
-		WHERE t.object_id = @p1 AND t.is_tracked_by_cdc = 1 
-		AND EXISTS (SELECT 1 FROM cdc.change_tables WHERE source_object_id = t.object_id)`
+		WHERE t.object_id = @p1 AND t.is_tracked_by_cdc = 1`
 
 	queryEnableTableCDC = "EXEC sys.sp_cdc_enable_table @source_schema = @p1, @source_name = @p2, @role_name = NULL, @supports_net_changes = 0"
 
@@ -43,7 +42,7 @@ const (
 
 	queryIncrementLSN = "SELECT sys.fn_cdc_increment_lsn(@p1)"
 
-	queryGetTableChangesFormat = "SELECT * FROM cdc.fn_cdc_get_all_changes_%s(@p1, @p2, 'all')"
+	queryGetTableChangesFormat = "SELECT * FROM cdc.fn_cdc_get_all_changes_%s(@p1, @p2, 'all') ORDER BY __$start_lsn, __$seqval"
 	queryDiscoverDatabases     = "SELECT name FROM sys.databases WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb')"
-	queryDiscoverTables        = "SELECT s.name + '.' + t.name FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id"
+	queryDiscoverTables        = "SELECT s.name + '.' + t.name FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE s.name NOT IN ('sys', 'information_schema', 'cdc')"
 )

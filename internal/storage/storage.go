@@ -9,15 +9,15 @@ import (
 var ErrNotFound = errors.New("not found")
 
 type Log struct {
-	ID           string    `json:"id"`
-	Timestamp    time.Time `json:"timestamp"`
-	Level        string    `json:"level"`
-	Message      string    `json:"message"`
-	Action       string    `json:"action,omitempty"`
-	SourceID     string    `json:"source_id,omitempty"`
-	SinkID       string    `json:"sink_id,omitempty"`
-	ConnectionID string    `json:"connection_id,omitempty"`
-	Data         string    `json:"data,omitempty"`
+	ID         string    `json:"id"`
+	Timestamp  time.Time `json:"timestamp"`
+	Level      string    `json:"level"`
+	Message    string    `json:"message"`
+	Action     string    `json:"action,omitempty"`
+	SourceID   string    `json:"source_id,omitempty"`
+	SinkID     string    `json:"sink_id,omitempty"`
+	WorkflowID string    `json:"workflow_id,omitempty"`
+	Data       string    `json:"data,omitempty"`
 }
 
 type CommonFilter struct {
@@ -29,11 +29,11 @@ type CommonFilter struct {
 
 type LogFilter struct {
 	CommonFilter
-	SourceID     string
-	SinkID       string
-	ConnectionID string
-	Level        string
-	Action       string
+	SourceID   string
+	SinkID     string
+	WorkflowID string
+	Level      string
+	Action     string
 }
 
 type Source struct {
@@ -45,6 +45,8 @@ type Source struct {
 	Status   string            `json:"status,omitempty"`
 	WorkerID string            `json:"worker_id"`
 	Config   map[string]string `json:"config"`
+	Sample   string            `json:"sample,omitempty"`
+	State    map[string]string `json:"state,omitempty"`
 }
 
 type Sink struct {
@@ -59,34 +61,35 @@ type Sink struct {
 }
 
 type Transformation struct {
-	ID        string            `json:"id"`
-	Name      string            `json:"name"`
-	Type      string            `json:"type"`
-	Steps     []Transformation  `json:"steps,omitempty"`
-	Config    map[string]string `json:"config"`
-	OnFailure string            `json:"on_failure,omitempty"`
-	ExecuteIf string            `json:"execute_if,omitempty"`
+	Type   string            `json:"type"`
+	Config map[string]string `json:"config"`
 }
 
-type Connection struct {
-	ID                   string                `json:"id"`
-	Name                 string                `json:"name"`
-	VHost                string                `json:"vhost"`
-	SourceID             string                `json:"source_id"`
-	SinkIDs              []string              `json:"sink_ids"`
-	Active               bool                  `json:"active"`
-	Status               string                `json:"status,omitempty"`
-	WorkerID             string                `json:"worker_id"`
-	TransformationIDs    []string              `json:"transformation_ids"`
-	Transformations      []Transformation      `json:"transformations"`
-	TransformationGroups []TransformationGroup `json:"transformation_groups"`
+type WorkflowNode struct {
+	ID     string                 `json:"id"`
+	Type   string                 `json:"type"`             // source, sink, transformer, condition, etc.
+	RefID  string                 `json:"ref_id,omitempty"` // ID of the source, sink, or transformation
+	Config map[string]interface{} `json:"config,omitempty"`
+	X      float64                `json:"x"`
+	Y      float64                `json:"y"`
 }
 
-type TransformationGroup struct {
-	Name              string           `json:"name,omitempty"`
-	SinkIDs           []string         `json:"sink_ids"`
-	TransformationIDs []string         `json:"transformation_ids"`
-	Transformations   []Transformation `json:"transformations"`
+type WorkflowEdge struct {
+	ID       string                 `json:"id"`
+	SourceID string                 `json:"source_id"`
+	TargetID string                 `json:"target_id"`
+	Config   map[string]interface{} `json:"config,omitempty"`
+}
+
+type Workflow struct {
+	ID       string         `json:"id"`
+	Name     string         `json:"name"`
+	VHost    string         `json:"vhost"`
+	Active   bool           `json:"active"`
+	Status   string         `json:"status,omitempty"`
+	WorkerID string         `json:"worker_id"`
+	Nodes    []WorkflowNode `json:"nodes"`
+	Edges    []WorkflowEdge `json:"edges"`
 }
 
 type Worker struct {
@@ -127,6 +130,7 @@ type Storage interface {
 	ListSources(ctx context.Context, filter CommonFilter) ([]Source, int, error)
 	CreateSource(ctx context.Context, src Source) error
 	UpdateSource(ctx context.Context, src Source) error
+	UpdateSourceState(ctx context.Context, id string, state map[string]string) error
 	DeleteSource(ctx context.Context, id string) error
 	GetSource(ctx context.Context, id string) (Source, error)
 
@@ -135,12 +139,6 @@ type Storage interface {
 	UpdateSink(ctx context.Context, snk Sink) error
 	DeleteSink(ctx context.Context, id string) error
 	GetSink(ctx context.Context, id string) (Sink, error)
-
-	ListConnections(ctx context.Context, filter CommonFilter) ([]Connection, int, error)
-	CreateConnection(ctx context.Context, conn Connection) error
-	UpdateConnection(ctx context.Context, conn Connection) error
-	DeleteConnection(ctx context.Context, id string) error
-	GetConnection(ctx context.Context, id string) (Connection, error)
 
 	ListUsers(ctx context.Context, filter CommonFilter) ([]User, int, error)
 	CreateUser(ctx context.Context, user User) error
@@ -154,11 +152,11 @@ type Storage interface {
 	DeleteVHost(ctx context.Context, id string) error
 	GetVHost(ctx context.Context, id string) (VHost, error)
 
-	ListTransformations(ctx context.Context, filter CommonFilter) ([]Transformation, int, error)
-	CreateTransformation(ctx context.Context, trans Transformation) error
-	UpdateTransformation(ctx context.Context, trans Transformation) error
-	DeleteTransformation(ctx context.Context, id string) error
-	GetTransformation(ctx context.Context, id string) (Transformation, error)
+	ListWorkflows(ctx context.Context, filter CommonFilter) ([]Workflow, int, error)
+	CreateWorkflow(ctx context.Context, wf Workflow) error
+	UpdateWorkflow(ctx context.Context, wf Workflow) error
+	DeleteWorkflow(ctx context.Context, id string) error
+	GetWorkflow(ctx context.Context, id string) (Workflow, error)
 
 	ListWorkers(ctx context.Context, filter CommonFilter) ([]Worker, int, error)
 	CreateWorker(ctx context.Context, worker Worker) error

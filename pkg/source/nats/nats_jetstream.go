@@ -20,11 +20,12 @@ type NatsJetStreamSource struct {
 	opts        []nats.Option
 	subject     string
 	queue       string
+	durable     string
 	unackedMsgs map[string]*nats.Msg
 	mu          sync.Mutex
 }
 
-func NewNatsJetStreamSource(url, subject, queue, username, password, token string) (*NatsJetStreamSource, error) {
+func NewNatsJetStreamSource(url, subject, queue, durable, username, password, token string) (*NatsJetStreamSource, error) {
 	opts := []nats.Option{}
 	if token != "" {
 		opts = append(opts, nats.Token(token))
@@ -37,11 +38,15 @@ func NewNatsJetStreamSource(url, subject, queue, username, password, token strin
 		opts:        opts,
 		subject:     subject,
 		queue:       queue,
+		durable:     durable,
 		unackedMsgs: make(map[string]*nats.Msg),
 	}, nil
 }
 
 func (s *NatsJetStreamSource) ensureConnected() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.nc != nil && s.nc.IsConnected() {
 		return nil
 	}
@@ -68,20 +73,33 @@ func (s *NatsJetStreamSource) Read(ctx context.Context) (hermod.Message, error) 
 		return nil, err
 	}
 
+	s.mu.Lock()
 	if s.sub == nil {
 		var err error
+		var subOpts []nats.SubOpt
+		subOpts = append(subOpts, nats.ManualAck())
+		if s.durable != "" {
+			subOpts = append(subOpts, nats.Durable(s.durable))
+		}
+
 		if s.queue != "" {
-			s.sub, err = s.js.QueueSubscribeSync(s.subject, s.queue, nats.ManualAck())
+			s.sub, err = s.js.QueueSubscribeSync(s.subject, s.queue, subOpts...)
 		} else {
-			s.sub, err = s.js.SubscribeSync(s.subject, nats.ManualAck())
+			s.sub, err = s.js.SubscribeSync(s.subject, subOpts...)
 		}
 		if err != nil {
+			s.mu.Unlock()
 			return nil, fmt.Errorf("failed to subscribe to NATS: %w", err)
 		}
 	}
+	sub := s.sub
+	s.mu.Unlock()
 
-	m, err := s.sub.NextMsgWithContext(ctx)
+	m, err := sub.NextMsgWithContext(ctx)
 	if err != nil {
+		if err == nats.ErrTimeout {
+			return nil, nil // Return nil msg on timeout to allow loop to continue
+		}
 		return nil, err
 	}
 
@@ -120,6 +138,9 @@ func (s *NatsJetStreamSource) Read(ctx context.Context) (hermod.Message, error) 
 }
 
 func (s *NatsJetStreamSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
 	s.mu.Lock()
 	m, ok := s.unackedMsgs[msg.ID()]
 	if ok {
@@ -135,7 +156,21 @@ func (s *NatsJetStreamSource) Ack(ctx context.Context, msg hermod.Message) error
 }
 
 func (s *NatsJetStreamSource) Ping(ctx context.Context) error {
-	return s.ensureConnected()
+	s.mu.Lock()
+	nc := s.nc
+	s.mu.Unlock()
+
+	if nc != nil && nc.IsConnected() {
+		return nil
+	}
+
+	// Just try to connect and close immediately, don't trigger JS context or subscriptions
+	nc, err := nats.Connect(s.url, s.opts...)
+	if err != nil {
+		return fmt.Errorf("failed to connect to NATS for ping: %w", err)
+	}
+	nc.Close()
+	return nil
 }
 
 func (s *NatsJetStreamSource) Sample(ctx context.Context, table string) (hermod.Message, error) {

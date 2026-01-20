@@ -28,6 +28,9 @@ func NewTelegramSink(token, chatID string, formatter hermod.Formatter) *Telegram
 
 // Write sends a message to Telegram.
 func (s *TelegramSink) Write(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
 	var data []byte
 	var err error
 
@@ -67,6 +70,23 @@ func (s *TelegramSink) Write(ctx context.Context, msg hermod.Message) error {
 		return fmt.Errorf("telegram api returned status: %d, error: %v", resp.StatusCode, result["description"])
 	}
 
+	return nil
+}
+
+func (s *TelegramSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
+	for _, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			if err := s.Write(ctx, msg); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

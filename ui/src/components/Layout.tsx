@@ -1,11 +1,10 @@
 import { AppShell, Burger, Group, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea, Badge, ActionIcon, useMantineColorScheme } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconDashboard, IconSettings, IconList, IconActivity, IconArrowsExchange, IconUsers, IconLogout, IconWorld, IconHierarchy, IconRocket, IconServer, IconChevronLeft, IconChevronRight, IconHistory, IconRoute, IconBell, IconSun, IconMoon } from '@tabler/icons-react';
-import React, { useEffect, useRef } from 'react';
+import { IconDashboard, IconSettings, IconList, IconActivity, IconUsers, IconLogout, IconWorld, IconHierarchy, IconRocket, IconServer, IconChevronLeft, IconChevronRight, IconHistory, IconBell, IconSun, IconMoon, IconGitBranch } from '@tabler/icons-react';
+import React, { useEffect } from 'react';
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router';
 import { useVHost } from '../context/VHostContext';
 import { apiFetch, getRoleFromToken } from '../api';
-import { notifications } from '@mantine/notifications';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -94,44 +93,6 @@ export function Layout({ children }: LayoutProps) {
 
   const isLoading = useRouterState({ select: (s) => s.status === 'pending' });
   const { selectedVHost, setSelectedVHost, availableVHosts, setAvailableVHosts } = useVHost();
-  const lastStatusRef = useRef<Record<string, string>>({});
-
-  useEffect(() => {
-    const checkStatuses = async () => {
-      try {
-        const res = await apiFetch('/api/connections/status');
-        if (!res.ok) return;
-        const data = await res.json();
-        const statuses = data?.data || [];
-        
-        statuses.forEach((update: any) => {
-          const connId = update.connection_id;
-          const status = update.engine_status;
-          const prevStatus = lastStatusRef.current[connId];
-
-          if ((status.includes('error') || status.includes('reconnecting')) && status !== prevStatus) {
-            // Only notify if not on the page or if it's a new error
-            const isOnConnectionPage = activePage.includes(`/connections/${connId}`) || activePage === '/connections';
-            
-            if (!isOnConnectionPage) {
-              notifications.show({
-                title: 'Connection Issue',
-                message: `Connection ${connId} is ${status}`,
-                color: 'red',
-                autoClose: 10000,
-              });
-            }
-          }
-          lastStatusRef.current[connId] = status;
-        });
-      } catch (err) {
-        console.error('Failed to poll statuses', err);
-      }
-    };
-
-    const interval = setInterval(checkStatuses, 10000);
-    return () => clearInterval(interval);
-  }, [activePage]);
 
   useEffect(() => {
     const fetchVHosts = async () => {
@@ -258,10 +219,7 @@ export function Layout({ children }: LayoutProps) {
             <SideLink to="/sinks" label="Sinks" icon={IconActivity} 
               badge={dashboardStats?.active_sinks > 0 && <Badge size="xs" variant="filled" color="orange">{dashboardStats.active_sinks}</Badge>}
             />
-            <SideLink to="/connections" label="Connections" icon={IconArrowsExchange} 
-              badge={dashboardStats?.active_connections > 0 && <Badge size="xs" variant="filled" color="teal">{dashboardStats.active_connections}</Badge>}
-            />
-            <SideLink to="/transformations" label="Transformations" icon={IconRoute} />
+            <SideLink to="/workflows" label="Workflows" icon={IconGitBranch} />
             <SideLink to="/logs" label="Logs" icon={IconHistory} />
             
             {isAdmin && (

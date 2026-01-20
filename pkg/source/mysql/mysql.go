@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
+	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -15,16 +17,60 @@ import (
 // MySQLSource implements the hermod.Source interface for MySQL CDC.
 type MySQLSource struct {
 	connString string
+	useCDC     bool
 	db         *sql.DB
+	mu         sync.Mutex
+	logger     hermod.Logger
 }
 
-func NewMySQLSource(connString string) *MySQLSource {
+func NewMySQLSource(connString string, useCDC bool) *MySQLSource {
 	return &MySQLSource{
 		connString: connString,
+		useCDC:     useCDC,
+	}
+}
+
+func (m *MySQLSource) SetLogger(logger hermod.Logger) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.logger = logger
+}
+
+func (m *MySQLSource) log(level, msg string, keysAndValues ...interface{}) {
+	m.mu.Lock()
+	logger := m.logger
+	m.mu.Unlock()
+
+	if logger == nil {
+		// Fallback to standard log if no structured logger is set, to ensure timestamps
+		if len(keysAndValues) > 0 {
+			log.Printf("[%s] %s %v", level, msg, keysAndValues)
+		} else {
+			log.Printf("[%s] %s", level, msg)
+		}
+		return
+	}
+
+	switch level {
+	case "DEBUG":
+		logger.Debug(msg, keysAndValues...)
+	case "INFO":
+		logger.Info(msg, keysAndValues...)
+	case "WARN":
+		logger.Warn(msg, keysAndValues...)
+	case "ERROR":
+		logger.Error(msg, keysAndValues...)
 	}
 }
 
 func (m *MySQLSource) init(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.db != nil {
+		return nil
+	}
+
 	db, err := sql.Open("mysql", m.connString)
 	if err != nil {
 		return fmt.Errorf("failed to connect to mysql: %w", err)
@@ -34,7 +80,21 @@ func (m *MySQLSource) init(ctx context.Context) error {
 }
 
 func (m *MySQLSource) Read(ctx context.Context) (hermod.Message, error) {
-	if m.db == nil {
+	if !m.useCDC {
+		if m.db == nil {
+			if err := m.init(ctx); err != nil {
+				return nil, err
+			}
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+
+	if db == nil {
 		if err := m.init(ctx); err != nil {
 			return nil, err
 		}
@@ -56,15 +116,32 @@ func (m *MySQLSource) Ack(ctx context.Context, msg hermod.Message) error {
 }
 
 func (m *MySQLSource) Ping(ctx context.Context) error {
-	if m.db == nil {
-		return m.init(ctx)
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+
+	if db == nil {
+		// Just connect and ping, don't trigger anything else if m.init was heavier
+		// In this case m.init is already light, but we should be consistent
+		db, err := sql.Open("mysql", m.connString)
+		if err != nil {
+			return fmt.Errorf("failed to open mysql connection for ping: %w", err)
+		}
+		defer db.Close()
+		return db.PingContext(ctx)
 	}
-	return m.db.PingContext(ctx)
+	return db.PingContext(ctx)
 }
 
 func (m *MySQLSource) Close() error {
+	m.log("INFO", "Closing MySQLSource")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if m.db != nil {
-		return m.db.Close()
+		err := m.db.Close()
+		m.db = nil
+		return err
 	}
 	return nil
 }

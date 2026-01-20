@@ -9,14 +9,14 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func TestSQLStorage_ConnectionStatus(t *testing.T) {
+func TestSQLStorage_WorkflowStatus(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("failed to open sqlite: %v", err)
 	}
 	defer db.Close()
 
-	s := NewSQLStorage(db)
+	s := NewSQLStorage(db, "sqlite")
 	ctx := context.Background()
 
 	if initer, ok := s.(interface{ Init(context.Context) error }); ok {
@@ -27,36 +27,34 @@ func TestSQLStorage_ConnectionStatus(t *testing.T) {
 		t.Fatal("storage does not implement Init")
 	}
 
-	conn := storage.Connection{
-		ID:       "conn1",
-		Name:     "Test Connection",
-		SourceID: "src1",
-		SinkIDs:  []string{"snk1"},
-		Active:   true,
-		Status:   "reconnecting",
+	wf := storage.Workflow{
+		ID:     "wf1",
+		Name:   "Test Workflow",
+		Active: true,
+		Status: "reconnecting",
 	}
 
-	if err := s.CreateConnection(ctx, conn); err != nil {
-		t.Fatalf("failed to create connection: %v", err)
+	if err := s.CreateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("failed to create workflow: %v", err)
 	}
 
-	got, err := s.GetConnection(ctx, "conn1")
+	got, err := s.GetWorkflow(ctx, "wf1")
 	if err != nil {
-		t.Fatalf("failed to get connection: %v", err)
+		t.Fatalf("failed to get workflow: %v", err)
 	}
 
 	if got.Status != "reconnecting" {
 		t.Errorf("expected status reconnecting, got %s", got.Status)
 	}
 
-	conn.Status = "running"
-	if err := s.UpdateConnection(ctx, conn); err != nil {
-		t.Fatalf("failed to update connection: %v", err)
+	wf.Status = "running"
+	if err := s.UpdateWorkflow(ctx, wf); err != nil {
+		t.Fatalf("failed to update workflow: %v", err)
 	}
 
-	got, err = s.GetConnection(ctx, "conn1")
+	got, err = s.GetWorkflow(ctx, "wf1")
 	if err != nil {
-		t.Fatalf("failed to get connection: %v", err)
+		t.Fatalf("failed to get workflow: %v", err)
 	}
 
 	if got.Status != "running" {

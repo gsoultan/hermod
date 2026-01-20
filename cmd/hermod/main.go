@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -18,8 +19,12 @@ import (
 	"github.com/user/hermod/internal/config"
 	"github.com/user/hermod/internal/engine"
 	"github.com/user/hermod/internal/storage"
+	storagemongo "github.com/user/hermod/internal/storage/mongodb"
 	storagesql "github.com/user/hermod/internal/storage/sql"
+	"github.com/user/hermod/pkg/crypto"
 	enginePkg "github.com/user/hermod/pkg/engine"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	_ "modernc.org/sqlite"
 )
 
@@ -35,9 +40,17 @@ func main() {
 	workerDescription := flag.String("worker-description", "", "description of the worker for self-registration")
 	buildUI := flag.Bool("build-ui", false, "build UI before starting")
 	port := flag.Int("port", 8080, "port for API server")
-	dbType := flag.String("db-type", "sqlite", "database type: sqlite, postgres, mysql, mariadb")
+	dbType := flag.String("db-type", "sqlite", "database type: sqlite, postgres, mysql, mariadb, mongodb")
 	dbConn := flag.String("db-conn", "hermod.db", "database connection string")
+	masterKey := flag.String("master-key", "", "Master key for encryption (32 bytes)")
 	flag.Parse()
+
+	// Set master key from environment or flag
+	if *masterKey != "" {
+		crypto.SetMasterKey(*masterKey)
+	} else if envKey := os.Getenv("HERMOD_MASTER_KEY"); envKey != "" {
+		crypto.SetMasterKey(envKey)
+	}
 
 	if *buildUI || !config.IsUIBuilt() {
 		if err := config.BuildUI(); err != nil {
@@ -56,6 +69,9 @@ func main() {
 			if err == nil {
 				dbTypeVal = cfg.Type
 				dbConnVal = cfg.Conn
+				if cfg.CryptoMasterKey != "" && *masterKey == "" && os.Getenv("HERMOD_MASTER_KEY") == "" {
+					crypto.SetMasterKey(cfg.CryptoMasterKey)
+				}
 			}
 		}
 
@@ -67,20 +83,41 @@ func main() {
 			switch dbTypeVal {
 			case "sqlite":
 				driver = "sqlite"
+				if !strings.Contains(dbConnVal, "?") {
+					dbConnVal += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
+				}
 			case "postgres":
 				driver = "pgx"
 			case "mysql", "mariadb":
 				driver = "mysql"
+			case "mongodb":
+				// Handle MongoDB separately
+				client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(dbConnVal))
+				if err != nil {
+					log.Fatalf("Failed to connect to MongoDB: %v", err)
+				}
+				dbName := "hermod"
+				if parts := strings.Split(dbConnVal, "/"); len(parts) > 3 {
+					dbName = strings.Split(parts[3], "?")[0]
+				}
+				store = storagemongo.NewMongoStorage(client, dbName)
 			default:
 				log.Fatalf("Unsupported database type: %s", dbTypeVal)
 			}
 
-			db, err := sql.Open(driver, dbConnVal)
-			if err != nil {
-				log.Fatalf("Failed to open database: %v", err)
+			if dbTypeVal != "mongodb" {
+				db, err := sql.Open(driver, dbConnVal)
+				if err != nil {
+					log.Fatalf("Failed to open database: %v", err)
+				}
+
+				if dbTypeVal == "sqlite" {
+					db.SetMaxOpenConns(1)
+				}
+
+				store = storagesql.NewSQLStorage(db, driver)
 			}
 
-			store = storagesql.NewSQLStorage(db)
 			if s, ok := store.(interface{ Init(context.Context) error }); ok {
 				if err := s.Init(context.Background()); err != nil {
 					// If initialization fails, we might still want to start the API

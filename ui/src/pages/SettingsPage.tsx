@@ -97,6 +97,7 @@ export function SettingsPage() {
               { value: 'postgres', label: 'PostgreSQL' },
               { value: 'mysql', label: 'MySQL' },
               { value: 'mariadb', label: 'MariaDB' },
+              { value: 'mongodb', label: 'MongoDB' },
             ]}
             value={dbType}
             onChange={setDbType}
@@ -127,7 +128,7 @@ export function SettingsPage() {
         <Title order={4} mb="md">Maintenance & Backup</Title>
         <Stack gap="md">
           <Text size="sm" c="dimmed">
-            Export your entire configuration including Sources, Sinks, Connections, and Transformations.
+            Export your entire configuration including Sources, Sinks, Workflows, and Transformations.
             You can then import this file to another Hermod instance.
           </Text>
           <Group>

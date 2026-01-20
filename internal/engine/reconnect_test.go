@@ -50,27 +50,27 @@ func (m *mockSink) Close() error {
 
 type mockSimpleStorage struct {
 	storage.Storage
-	conn storage.Connection
-	mu   sync.Mutex
+	wf storage.Workflow
+	mu sync.Mutex
 }
 
-func (m *mockSimpleStorage) GetConnection(ctx context.Context, id string) (storage.Connection, error) {
+func (m *mockSimpleStorage) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.conn, nil
+	return m.wf, nil
 }
 
-func (m *mockSimpleStorage) UpdateConnection(ctx context.Context, conn storage.Connection) error {
+func (m *mockSimpleStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.conn = conn
+	m.wf = wf
 	return nil
 }
 
 func TestEngineReconnect(t *testing.T) {
 	src := &mockSource{pingErr: errors.New("connection refused")}
 	store := &mockSimpleStorage{
-		conn: storage.Connection{ID: "test-conn", Active: true},
+		wf: storage.Workflow{ID: "test-wf", Active: true},
 	}
 
 	r := NewRegistry(store)

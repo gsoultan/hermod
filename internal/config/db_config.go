@@ -6,9 +6,10 @@ import (
 )
 
 type DBConfig struct {
-	Type      string `yaml:"type" json:"type"`
-	Conn      string `yaml:"conn" json:"conn"`
-	JWTSecret string `yaml:"jwt_secret" json:"jwt_secret"`
+	Type            string `yaml:"type" json:"type"`
+	Conn            string `yaml:"conn" json:"conn"`
+	JWTSecret       string `yaml:"jwt_secret" json:"jwt_secret"`
+	CryptoMasterKey string `yaml:"crypto_master_key" json:"crypto_master_key"`
 }
 
 const DBConfigPath = "db_config.yaml"

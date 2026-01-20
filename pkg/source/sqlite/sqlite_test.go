@@ -13,7 +13,7 @@ func TestSQLiteSource_Read(t *testing.T) {
 	dbPath := "test.db"
 	defer os.Remove(dbPath)
 
-	s := NewSQLiteSource(dbPath, []string{"test_table"})
+	s := NewSQLiteSource(dbPath, []string{"test_table"}, true)
 	defer s.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -45,7 +45,7 @@ func TestSQLiteSource_Ping(t *testing.T) {
 	dbPath := "test_ping.db"
 	defer os.Remove(dbPath)
 
-	s := NewSQLiteSource(dbPath, nil)
+	s := NewSQLiteSource(dbPath, nil, false)
 	defer s.Close()
 
 	ctx := context.Background()
@@ -58,7 +58,7 @@ func TestSQLiteSource_Sample(t *testing.T) {
 	dbPath := "test_sample.db"
 	defer os.Remove(dbPath)
 
-	s := NewSQLiteSource(dbPath, nil)
+	s := NewSQLiteSource(dbPath, nil, false)
 	defer s.Close()
 
 	ctx := context.Background()

@@ -9,7 +9,7 @@ import (
 func TestPostgresSource_Read(t *testing.T) {
 	// Skip test if no postgres is running
 	t.Skip("Skipping test that requires a running Postgres instance")
-	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "test_slot", "test_pub", nil)
+	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "test_slot", "test_pub", nil, true)
 	defer s.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

@@ -33,7 +33,7 @@ export function SourcesPage() {
         const update = JSON.parse(event.data);
         setLiveStatuses(prev => ({
           ...prev,
-          [update.connection_id]: update
+          [update.workflow_id]: update
         }));
       } catch (err) {
         console.error('Failed to parse status update', err);
@@ -57,19 +57,19 @@ export function SourcesPage() {
   const sources = (sourcesResponse as any)?.data || [];
   const totalItems = (sourcesResponse as any)?.total || 0;
 
-  const { data: connectionsResponse } = useSuspenseQuery({
-    queryKey: ['connections-all'],
+  const { data: workflowsResponse } = useSuspenseQuery({
+    queryKey: ['workflows-all'],
     queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/connections?limit=1000`);
+      const res = await apiFetch(`${API_BASE}/workflows?limit=1000`);
       if (res.ok) return res.json();
       return { data: [], total: 0 };
     },
     refetchInterval: 5000,
   });
-  const connections = (connectionsResponse as any)?.data || [];
+  const workflows = (workflowsResponse as any)?.data || [];
 
-  const activeConnectionsUsingSource = sourceToDelete 
-    ? (connections as any[])?.filter(c => c.source_id === sourceToDelete.id && c.active)
+  const activeWorkflowsUsingSource = sourceToDelete 
+    ? (workflows as any[])?.filter(wf => wf.nodes?.some((n: any) => n.type === 'source' && n.ref_id === sourceToDelete.id) && wf.active)
     : [];
 
   const { data: workersResponse } = useSuspenseQuery({
@@ -275,14 +275,14 @@ export function SourcesPage() {
             Are you sure you want to delete source <b>{sourceToDelete?.name}</b>? This action cannot be undone.
           </Text>
           
-          {activeConnectionsUsingSource.length > 0 && (
+          {activeWorkflowsUsingSource.length > 0 && (
             <Paper withBorder p="sm" bg="red.0" style={{ borderColor: 'var(--mantine-color-red-2)' }}>
               <Group gap="xs" mb="xs">
                 <IconAlertCircle size="1.2rem" color="var(--mantine-color-red-6)" />
-                <Text size="sm" fw={600} c="red.9">Warning: Related active connections</Text>
+                <Text size="sm" fw={600} c="red.9">Warning: Related active workflows</Text>
               </Group>
               <Text size="xs" c="red.8" mb="sm">
-                The following active connections use this source and will be <b>deactivated</b>:
+                The following active workflows use this source and will be <b>deactivated</b>:
               </Text>
               <List
                 size="xs"
@@ -293,9 +293,9 @@ export function SourcesPage() {
                   </ThemeIcon>
                 }
               >
-                {activeConnectionsUsingSource.map((c: any) => (
-                  <List.Item key={c.id}>
-                    <Text size="xs" component="span" fw={500}>{c.name}</Text>
+                {activeWorkflowsUsingSource.map((wf: any) => (
+                  <List.Item key={wf.id}>
+                    <Text size="xs" component="span" fw={500}>{wf.name}</Text>
                   </List.Item>
                 ))}
               </List>

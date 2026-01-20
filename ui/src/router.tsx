@@ -13,10 +13,6 @@ import { EditSourcePage } from './pages/EditSourcePage'
 import { SinksPage } from './pages/SinksPage'
 import { AddSinkPage } from './pages/AddSinkPage'
 import { EditSinkPage } from './pages/EditSinkPage'
-import { ConnectionsPage } from './pages/ConnectionsPage'
-import { ConnectionDetailPage } from './pages/ConnectionDetailPage'
-import { AddConnectionPage } from './pages/AddConnectionPage'
-import { EditConnectionPage } from './pages/EditConnectionPage'
 import { UsersPage } from './pages/UsersPage'
 import { AddUserPage } from './pages/AddUserPage'
 import { EditUserPage } from './pages/EditUserPage'
@@ -26,9 +22,9 @@ import { EditVHostPage } from './pages/EditVHostPage'
 import { WorkersPage } from './pages/WorkersPage'
 import { AddWorkerPage } from './pages/AddWorkerPage'
 import { EditWorkerPage } from './pages/EditWorkerPage'
-import TransformationsPage from './pages/TransformationsPage'
-import AddTransformationPage from './pages/AddTransformationPage'
-import EditTransformationPage from './pages/EditTransformationPage'
+import WorkflowsPage from './pages/WorkflowsPage'
+import WorkflowEditorPage from './pages/WorkflowEditorPage'
+import { WorkflowDetailPage } from './pages/WorkflowDetailPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { NotificationSettingsPage } from './pages/NotificationSettingsPage'
 import { DashboardPage } from './pages/DashboardPage'
@@ -158,35 +154,6 @@ const editSinkRoute = createRoute({
   component: EditSinkPage,
 })
 
-const connectionsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/connections',
-})
-
-const connectionsIndexRoute = createRoute({
-  getParentRoute: () => connectionsRoute,
-  path: '/',
-  component: ConnectionsPage,
-})
-
-const connectionDetailRoute = createRoute({
-  getParentRoute: () => connectionsRoute,
-  path: '$connectionId',
-  component: ConnectionDetailPage,
-})
-
-const addConnectionRoute = createRoute({
-  getParentRoute: () => connectionsRoute,
-  path: 'new',
-  component: AddConnectionPage,
-})
-
-const editConnectionRoute = createRoute({
-  getParentRoute: () => connectionsRoute,
-  path: '$connectionId/edit',
-  component: EditConnectionPage,
-})
-
 const vhostsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/vhosts',
@@ -243,27 +210,29 @@ const editWorkerRoute = createRoute({
   component: EditWorkerPage,
 })
 
-const transformationsRoute = createRoute({
+
+const workflowsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/transformations',
+  path: '/workflows',
+  component: WorkflowsPage,
 })
 
-const transformationsIndexRoute = createRoute({
-  getParentRoute: () => transformationsRoute,
-  path: '/',
-  component: TransformationsPage,
+const workflowDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/workflows/$id',
+  component: WorkflowDetailPage,
 })
 
-const addTransformationRoute = createRoute({
-  getParentRoute: () => transformationsRoute,
-  path: 'new',
-  component: AddTransformationPage,
+const workflowEditorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/workflows/$id/edit',
+  component: WorkflowEditorPage,
 })
 
-const editTransformationRoute = createRoute({
-  getParentRoute: () => transformationsRoute,
-  path: '$id/edit',
-  component: EditTransformationPage,
+const addWorkflowRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/workflows/new',
+  component: WorkflowEditorPage,
 })
 
 const usersRoute = createRoute({
@@ -320,6 +289,11 @@ const logsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/logs',
   component: LogsPage,
+  validateSearch: (search: Record<string, unknown>): { workflow_id?: string } => {
+    return {
+      workflow_id: (search.workflow_id as string) || undefined,
+    }
+  },
 })
 
 const loginRoute = createRoute({
@@ -378,12 +352,6 @@ const routeTree = rootRoute.addChildren([
     addSinkRoute,
     editSinkRoute,
   ]),
-  connectionsRoute.addChildren([
-    connectionsIndexRoute,
-    editConnectionRoute,
-    addConnectionRoute,
-    connectionDetailRoute,
-  ]),
   vhostsRoute.addChildren([
     vhostsIndexRoute,
     addVHostRoute,
@@ -394,11 +362,10 @@ const routeTree = rootRoute.addChildren([
     addWorkerRoute,
     editWorkerRoute,
   ]),
-  transformationsRoute.addChildren([
-    transformationsIndexRoute,
-    addTransformationRoute,
-    editTransformationRoute,
-  ]),
+  workflowsRoute,
+  workflowDetailRoute,
+  workflowEditorRoute,
+  addWorkflowRoute,
   usersRoute.addChildren([
     usersIndexRoute,
     addUserRoute,

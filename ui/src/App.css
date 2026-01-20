@@ -40,3 +40,18 @@
 .read-the-docs {
   color: #888;
 }
+
+/* n8n style handles */
+.n8n-handle {
+  transition: all 0.2s ease !important;
+}
+
+.n8n-handle:hover {
+  transform: scale(1.2);
+  background-color: var(--handle-color, #228be6) !important;
+  box-shadow: 0 0 10px rgba(0,0,0,0.2) !important;
+}
+
+.n8n-handle:hover svg {
+  color: white !important;
+}

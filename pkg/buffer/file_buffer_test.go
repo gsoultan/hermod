@@ -36,7 +36,6 @@ func TestFileBuffer(t *testing.T) {
 		if err := fb.Produce(ctx, msg); err != nil {
 			t.Errorf("failed to produce message %d: %v", i, err)
 		}
-		message.ReleaseMessage(msg)
 	}
 
 	// Consume messages
@@ -44,6 +43,9 @@ func TestFileBuffer(t *testing.T) {
 	consumeCtx, consumeCancel := context.WithCancel(ctx)
 
 	err = fb.Consume(consumeCtx, func(ctx context.Context, msg hermod.Message) error {
+		if dm, ok := msg.(*message.DefaultMessage); ok {
+			defer message.ReleaseMessage(dm)
+		}
 		expectedID := fmt.Sprintf("msg-%d", consumedCount)
 		if msg.ID() != expectedID {
 			t.Errorf("expected ID %s, got %s", expectedID, msg.ID())
@@ -83,7 +85,6 @@ func TestFileBuffer_Persistence(t *testing.T) {
 		if err := fb.Produce(context.Background(), msg); err != nil {
 			t.Fatalf("failed to produce message: %v", err)
 		}
-		message.ReleaseMessage(msg)
 		fb.Close()
 	}
 
@@ -100,6 +101,9 @@ func TestFileBuffer_Persistence(t *testing.T) {
 		defer cancel()
 
 		err = fb.Consume(ctx, func(ctx context.Context, msg hermod.Message) error {
+			if dm, ok := msg.(*message.DefaultMessage); ok {
+				defer message.ReleaseMessage(dm)
+			}
 			if msg.ID() != "persisted-msg" {
 				t.Errorf("expected ID persisted-msg, got %s", msg.ID())
 			}

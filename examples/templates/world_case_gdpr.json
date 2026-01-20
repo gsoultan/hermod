@@ -1,0 +1,118 @@
+{
+  "name": "World Case: GDPR Masking & High-Value Routing",
+  "vhost": "default",
+  "nodes": [
+    {
+      "id": "node_postgres",
+      "type": "source",
+      "config": {
+        "label": "PostgreSQL CDC (Orders)",
+        "type": "postgres",
+        "ref_id": "new"
+      },
+      "x": 100,
+      "y": 250
+    },
+    {
+      "id": "node_transform",
+      "type": "transformation",
+      "config": {
+        "label": "GDPR & Format",
+        "transType": "pipeline",
+        "steps": "[{\"transType\": \"mask\", \"field\": \"customer_email\", \"maskType\": \"email\"}, {\"transType\": \"mapping\", \"field\": \"status_id\", \"mapping\": \"{\\\"1\\\": \\\"PENDING\\\", \\\"2\\\": \\\"PAID\\\", \\\"3\\\": \\\"CANCELLED\\\"}\"}, {\"transType\": \"set\", \"column.processed_by\": \"Hermod-Worker-01\"}]"
+      },
+      "x": 400,
+      "y": 250
+    },
+    {
+      "id": "node_condition",
+      "type": "condition",
+      "config": {
+        "label": "High Value? (> 1000)",
+        "field": "total_amount",
+        "operator": ">",
+        "value": "1000"
+      },
+      "x": 700,
+      "y": 250
+    },
+    {
+      "id": "node_set_priority",
+      "type": "transformation",
+      "config": {
+        "label": "Mark Priority",
+        "transType": "set",
+        "column.priority": "true"
+      },
+      "x": 950,
+      "y": 150
+    },
+    {
+      "id": "node_telegram",
+      "type": "sink",
+      "config": {
+        "label": "Telegram Alert",
+        "type": "telegram",
+        "ref_id": "new"
+      },
+      "x": 1200,
+      "y": 100
+    },
+    {
+      "id": "node_kafka",
+      "type": "sink",
+      "config": {
+        "label": "Kafka High Priority",
+        "type": "kafka",
+        "ref_id": "new"
+      },
+      "x": 1200,
+      "y": 200
+    },
+    {
+      "id": "node_mongodb",
+      "type": "sink",
+      "config": {
+        "label": "MongoDB Archive",
+        "type": "mongodb",
+        "ref_id": "new"
+      },
+      "x": 1200,
+      "y": 400
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_1",
+      "source_id": "node_postgres",
+      "target_id": "node_transform"
+    },
+    {
+      "id": "edge_2",
+      "source_id": "node_transform",
+      "target_id": "node_condition"
+    },
+    {
+      "id": "edge_3",
+      "source_id": "node_condition",
+      "target_id": "node_set_priority",
+      "config": { "label": "true" }
+    },
+    {
+      "id": "edge_4",
+      "source_id": "node_set_priority",
+      "target_id": "node_telegram"
+    },
+    {
+      "id": "edge_5",
+      "source_id": "node_set_priority",
+      "target_id": "node_kafka"
+    },
+    {
+      "id": "edge_6",
+      "source_id": "node_condition",
+      "target_id": "node_mongodb",
+      "config": { "label": "false" }
+    }
+  ]
+}

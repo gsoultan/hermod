@@ -27,6 +27,9 @@ func (f *JSONFormatter) SetMode(mode JSONMode) {
 }
 
 func (f *JSONFormatter) Format(msg hermod.Message) ([]byte, error) {
+	if msg == nil {
+		return nil, fmt.Errorf("message is nil")
+	}
 	if f.Mode == ModePayload {
 		payload := msg.Payload()
 		if len(payload) == 0 {

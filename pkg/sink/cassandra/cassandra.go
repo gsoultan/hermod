@@ -23,6 +23,9 @@ func NewCassandraSink(hosts []string, keyspace string) *CassandraSink {
 }
 
 func (s *CassandraSink) Write(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
 	if s.session == nil {
 		if err := s.init(); err != nil {
 			return err
@@ -55,8 +58,8 @@ func (s *CassandraSink) Ping(ctx context.Context) error {
 			return err
 		}
 	}
-	// No direct Ping, but we can check if session is closed
-	return nil
+	// Try a simple query to check if session is alive
+	return s.session.Query("SELECT now() FROM system.local").WithContext(ctx).Exec()
 }
 
 func (s *CassandraSink) Close() error {

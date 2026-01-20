@@ -179,7 +179,7 @@ export function NotificationSettingsPage() {
             value={settings.webhook_url}
             onChange={(e) => setSettings({ ...settings, webhook_url: e.target.value })}
           />
-          <Text size="xs" c="dimmed">Hermod will send a POST request with JSON payload to this URL when a connection status changes.</Text>
+          <Text size="xs" c="dimmed">Hermod will send a POST request with JSON payload to this URL when a workflow status changes.</Text>
         </Stack>
       </Paper>
 

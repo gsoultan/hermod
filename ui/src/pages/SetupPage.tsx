@@ -112,6 +112,7 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
                     { value: 'postgres', label: 'PostgreSQL' },
                     { value: 'mysql', label: 'MySQL' },
                     { value: 'mariadb', label: 'MariaDB' },
+                    { value: 'mongodb', label: 'MongoDB' },
                   ]}
                   value={dbType}
                   onChange={setDbType}
