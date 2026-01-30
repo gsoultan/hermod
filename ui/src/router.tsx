@@ -13,7 +13,7 @@ import { EditSourcePage } from './pages/EditSourcePage'
 import { SinksPage } from './pages/SinksPage'
 import { AddSinkPage } from './pages/AddSinkPage'
 import { EditSinkPage } from './pages/EditSinkPage'
-import { UsersPage } from './pages/UsersPage'
+const UsersPage = lazy(async () => ({ default: (await import('./pages/UsersPage')).UsersPage }))
 import { AddUserPage } from './pages/AddUserPage'
 import { EditUserPage } from './pages/EditUserPage'
 import { VHostsPage } from './pages/VHostsPage'
@@ -22,15 +22,20 @@ import { EditVHostPage } from './pages/EditVHostPage'
 import { WorkersPage } from './pages/WorkersPage'
 import { AddWorkerPage } from './pages/AddWorkerPage'
 import { EditWorkerPage } from './pages/EditWorkerPage'
-import WorkflowsPage from './pages/WorkflowsPage'
-import WorkflowEditorPage from './pages/WorkflowEditorPage'
-import { WorkflowDetailPage } from './pages/WorkflowDetailPage'
-import { SettingsPage } from './pages/SettingsPage'
+import { lazy, Suspense } from 'react'
+// Lazy routes to reduce initial bundle size
+const WorkflowsPage = lazy(() => import('./pages/WorkflowsPage'))
+// Lazy-load heavy editor page for better initial load performance
+const WorkflowEditorPage = lazy(() => import('./pages/WorkflowEditorPage'))
+const WorkflowDetailPage = lazy(async () => ({ default: (await import('./pages/WorkflowDetailPage')).WorkflowDetailPage }))
+const SettingsPage = lazy(async () => ({ default: (await import('./pages/SettingsPage')).SettingsPage }))
 import { NotificationSettingsPage } from './pages/NotificationSettingsPage'
-import { DashboardPage } from './pages/DashboardPage'
-import { LogsPage } from './pages/LogsPage'
+const DashboardPage = lazy(async () => ({ default: (await import('./pages/DashboardPage')).DashboardPage }))
+const LogsPage = lazy(async () => ({ default: (await import('./pages/LogsPage')).LogsPage }))
+const AuditLogsPage = lazy(async () => ({ default: (await import('./pages/AuditLogsPage')).AuditLogsPage }))
 import { SetupPage } from './pages/SetupPage'
 import { LoginPage } from './pages/LoginPage'
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { ErrorPage } from './pages/ErrorPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { Center, Loader } from '@mantine/core'
@@ -41,6 +46,30 @@ interface RouterContext {
     configured: boolean
     user_setup: boolean
   }
+}
+
+// Simple cache for config status to avoid fetching on every navigation
+const CONFIG_STATUS_CACHE_KEY = 'hermod_config_status_cache_v1'
+const CONFIG_STATUS_TTL_MS = 30_000
+
+async function getCachedConfigStatus() {
+  try {
+    const raw = sessionStorage.getItem(CONFIG_STATUS_CACHE_KEY)
+    if (raw) {
+      const cached = JSON.parse(raw) as { ts: number; data: { configured: boolean; user_setup: boolean } }
+      if (cached && Date.now() - cached.ts < CONFIG_STATUS_TTL_MS) {
+        return cached.data
+      }
+    }
+  } catch {}
+
+  const res = await apiFetch('/api/config/status')
+  if (!res.ok) throw new Error('Failed to fetch config status')
+  const data = await res.json()
+  try {
+    sessionStorage.setItem(CONFIG_STATUS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data }))
+  } catch {}
+  return data
 }
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
@@ -63,21 +92,18 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
   },
   beforeLoad: async ({ location }: { location: any }) => {
     // Skip config check for setup page to avoid infinite redirect
-    if (location.pathname === '/setup' || location.pathname === '/login') {
+    if (location.pathname === '/setup' || location.pathname === '/login' || location.pathname === '/forgot-password') {
       return
     }
 
     try {
-      const res = await apiFetch('/api/config/status')
-      if (!res.ok) throw new Error('Failed to fetch config status')
-      const data = await res.json()
+      const data = await getCachedConfigStatus()
 
       if (!data.configured || !data.user_setup) {
         throw redirect({
           to: '/setup',
           search: {
             isConfigured: data.configured,
-            isUserSetup: data.user_setup,
           }
         })
       }
@@ -214,25 +240,41 @@ const editWorkerRoute = createRoute({
 const workflowsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/workflows',
-  component: WorkflowsPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <WorkflowsPage />
+    </Suspense>
+  )
 })
 
 const workflowDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/workflows/$id',
-  component: WorkflowDetailPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <WorkflowDetailPage />
+    </Suspense>
+  ),
 })
 
 const workflowEditorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/workflows/$id/edit',
-  component: WorkflowEditorPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <WorkflowEditorPage />
+    </Suspense>
+  ),
 })
 
 const addWorkflowRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/workflows/new',
-  component: WorkflowEditorPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <WorkflowEditorPage />
+    </Suspense>
+  ),
 })
 
 const usersRoute = createRoute({
@@ -248,7 +290,11 @@ const usersRoute = createRoute({
 const usersIndexRoute = createRoute({
   getParentRoute: () => usersRoute,
   path: '/',
-  component: UsersPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <UsersPage />
+    </Suspense>
+  ),
 })
 
 const addUserRoute = createRoute({
@@ -266,7 +312,11 @@ const editUserRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
-  component: SettingsPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <SettingsPage />
+    </Suspense>
+  ),
   beforeLoad: () => {
     if (getRoleFromToken() !== 'Administrator') {
       throw redirect({ to: '/' })
@@ -288,10 +338,29 @@ const notificationSettingsRoute = createRoute({
 const logsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/logs',
-  component: LogsPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <LogsPage />
+    </Suspense>
+  ),
   validateSearch: (search: Record<string, unknown>): { workflow_id?: string } => {
     return {
       workflow_id: (search.workflow_id as string) || undefined,
+    }
+  },
+})
+
+const auditLogsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/audit-logs',
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <AuditLogsPage />
+    </Suspense>
+  ),
+  beforeLoad: () => {
+    if (getRoleFromToken() !== 'Administrator') {
+      throw redirect({ to: '/' })
     }
   },
 })
@@ -315,29 +384,43 @@ const loginRoute = createRoute({
   },
 })
 
+const forgotPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/forgot-password',
+  component: ForgotPasswordPage,
+})
+
+function SetupRouteComponent() {
+  const { isConfigured } = setupRoute.useSearch()
+  const navigate = useNavigate()
+  
+  return (
+    <SetupPage
+      isConfigured={isConfigured}
+      onConfigured={() => {
+        navigate({ to: '/' })
+      }}
+    />
+  )
+}
+
 const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/setup',
   validateSearch: (search: Record<string, unknown>) => {
     return {
       isConfigured: (search.isConfigured as boolean) || false,
-      isUserSetup: (search.isUserSetup as boolean) || false,
     }
   },
-  component: () => {
-    const { isConfigured, isUserSetup } = setupRoute.useSearch()
-    const navigate = useNavigate()
-    
-    return (
-      <SetupPage
-        isConfigured={isConfigured}
-        isUserSetup={isUserSetup}
-        onConfigured={() => {
-          navigate({ to: '/' })
-        }}
-      />
-    )
+  beforeLoad: async () => {
+    const data = await getCachedConfigStatus()
+    if (data.configured && data.user_setup) {
+      throw redirect({
+        to: '/',
+      })
+    }
   },
+  component: SetupRouteComponent,
 })
 
 const routeTree = rootRoute.addChildren([
@@ -374,7 +457,9 @@ const routeTree = rootRoute.addChildren([
   settingsRoute,
   notificationSettingsRoute,
   logsRoute,
+  auditLogsRoute,
   loginRoute,
+  forgotPasswordRoute,
   setupRoute,
 ])
 

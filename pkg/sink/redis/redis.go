@@ -3,6 +3,8 @@ package redis
 import (
 	"context"
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/user/hermod"
@@ -15,6 +17,9 @@ type RedisSink struct {
 	stream    string
 	formatter hermod.Formatter
 	client    *redis.Client
+	// idempotency reporting (last write outcome)
+	lastDedup    bool
+	lastConflict bool
 }
 
 func NewRedisSink(addr string, password string, stream string, formatter hermod.Formatter) (*RedisSink, error) {
@@ -43,6 +48,33 @@ func (s *RedisSink) Write(ctx context.Context, msg hermod.Message) error {
 			return err
 		}
 	}
+	// reset last outcome
+	s.lastDedup = false
+	s.lastConflict = false
+
+	// Idempotency via SETNX with TTL: if message has an ID, use it to dedupe
+	if id := msg.ID(); id != "" {
+		ttl := 24 * time.Hour
+		if v := os.Getenv("HERMOD_IDEMPOTENCY_TTL"); v != "" {
+			if d, err := time.ParseDuration(v); err == nil && d > 0 {
+				ttl = d
+			}
+		}
+		ns := os.Getenv("HERMOD_IDEMPOTENCY_NAMESPACE")
+		if ns == "" {
+			ns = "hermod:idemp"
+		}
+		key := fmt.Sprintf("%s:%s:%s", ns, s.stream, id)
+		ok, err := s.client.SetNX(ctx, key, "1", ttl).Result()
+		if err != nil {
+			return fmt.Errorf("redis idempotency setnx error: %w", err)
+		}
+		if !ok {
+			// Duplicate message; treat as handled without re-publishing
+			s.lastDedup = true
+			return nil
+		}
+	}
 
 	var data []byte
 	var err error
@@ -67,6 +99,12 @@ func (s *RedisSink) Write(ctx context.Context, msg hermod.Message) error {
 	}
 
 	return nil
+}
+
+// LastWriteIdempotent reports whether the last Write call resulted in a dedup skip
+// or a conflict. Redis sink only reports dedup (conflicts are not applicable).
+func (s *RedisSink) LastWriteIdempotent() (bool, bool) {
+	return s.lastDedup, s.lastConflict
 }
 
 func (s *RedisSink) Ping(ctx context.Context) error {

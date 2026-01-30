@@ -1,16 +1,28 @@
-import { useState, useEffect } from 'react';
-import { Button, Group, TextInput, Select, Stack, Alert, Divider, Paper, Text, Grid, Title, Code, List, Tabs, Textarea, ActionIcon, Tooltip, Modal, Card, ScrollArea, Badge, Autocomplete } from '@mantine/core';
-import { IconCheck, IconAlertCircle, IconInfoCircle, IconTemplate, IconLink, IconCloud, IconPlayerPlay, IconAt, IconSettings, IconBraces, IconRefresh } from '@tabler/icons-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Button, Group, TextInput, Select, Stack, Alert, Divider, Text, Grid, Title, Code, List, ActionIcon, Modal, Card, ScrollArea, Badge, Autocomplete, Box, Switch } from '@mantine/core';
+import { IconCheck, IconAlertCircle, IconInfoCircle, IconSettings, IconBraces, IconRefresh, IconDatabase, IconList, IconCode, IconPlus } from '@tabler/icons-react';
+import { notifications } from '@mantine/notifications';
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
+import { useForm, useStore } from '@tanstack/react-form';
 import { apiFetch, getRoleFromToken } from '../api';
 import { useVHost } from '../context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
+import { RetryPolicyFields } from './Sink/RetryPolicyFields';
+import { SinkBasics } from './Sink/SinkBasics';
+import { PostgresSinkConfig } from './Sink/PostgresSinkConfig';
+import { QueueSinkConfig } from './Sink/QueueSinkConfig';
+import { FTPSinkConfig } from './Sink/FTPSinkConfig';
+import { GoogleSheetsSinkConfig } from './Sink/GoogleSheetsSinkConfig';
+import { SMTPSinkConfig } from './Sink/SMTPSinkConfig';
+import { ElasticsearchSinkConfig } from './Sink/ElasticsearchSinkConfig';
+import { FailoverSinkConfig } from './Sink/FailoverSinkConfig';
+import { FieldExplorer } from './Transformation/FieldExplorer';
 
 const API_BASE = '/api';
 
 const SINK_TYPES = [
-  'nats', 'rabbitmq', 'rabbitmq_queue', 'redis', 'file', 'kafka', 'pulsar', 'kinesis', 'pubsub', 'fcm', 'smtp', 'telegram', 'http', 'stdout',
-  'postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'yugabyte', 'cassandra', 'sqlite', 'clickhouse', 'mongodb'
+  'nats', 'rabbitmq', 'rabbitmq_queue', 'redis', 'file', 'kafka', 'pulsar', 'kinesis', 'pubsub', 's3', 's3-parquet', 'fcm', 'smtp', 'telegram', 'http', 'stdout',
+  'postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'yugabyte', 'cassandra', 'sqlite', 'clickhouse', 'mongodb', 'elasticsearch', 'googlesheets', 'ftp', 'failover', 'eventstore'
 ];
 
 
@@ -21,51 +33,79 @@ interface SinkFormProps {
   onSave?: (data: any) => void;
   vhost?: string;
   workerID?: string;
+  availableFields?: string[];
+  incomingPayload?: any;
+  sinks?: any[];
 }
 
-export function SinkForm({ initialData, isEditing = false, embedded = false, onSave, vhost, workerID }: SinkFormProps) {
+export function SinkForm({ initialData, isEditing = false, embedded = false, onSave, vhost, workerID, availableFields = [], incomingPayload, sinks }: SinkFormProps) {
   const navigate = useNavigate();
   const { availableVHosts } = useVHost();
   const role = getRoleFromToken();
   const [testResult, setTestResult] = useState<{ status: 'ok' | 'error', message: string } | null>(null);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewResult, setPreviewResult] = useState<{ rendered: string, is_html: boolean } | null>(null);
+  // Accessibility: IDs for modal title/description
+  const previewTitleId = 'sink-preview-modal-title';
+  const previewDescId = 'sink-preview-modal-desc';
   const [previewLoading, setPreviewLoading] = useState(false);
   const [validateEmailLoading, setValidateEmailLoading] = useState(false);
-  const [sink, setSink] = useState<any>({ 
-    name: '', 
-    type: 'stdout', 
-    vhost: '', 
-    worker_id: '',
-    config: { format: 'json', max_retries: '3', retry_interval: '1s' }
+  const form = useForm({
+    defaultValues: {
+      name: initialData?.name || '', 
+      type: initialData?.type || 'stdout', 
+      vhost: (embedded ? vhost : (initialData?.vhost || vhost)) || '', 
+      worker_id: (embedded ? workerID : (initialData?.worker_id || workerID)) || '',
+      config: { 
+        format: 'json', 
+        max_retries: '3', 
+        retry_interval: '1s',
+        ...(initialData?.config || {})
+      },
+      ...(initialData?.id ? { id: initialData.id } : {})
+    }
   });
+
+  const sink = useStore(form.store, (state) => state.values);
 
   const [tables, setTables] = useState<string[]>([]);
   const [loadingTables, setLoadingTables] = useState(false);
   const [tablesError, setTablesError] = useState<string | null>(null);
-
   const [discoveredDatabases, setDiscoveredDatabases] = useState<string[]>([]);
   const [isFetchingDBs, setIsFetchingDBs] = useState(false);
 
+  const dbAbortRef = useRef<AbortController | null>(null);
+  const tablesAbortRef = useRef<AbortController | null>(null);
+  const previewAbortRef = useRef<AbortController | null>(null);
+
   const fetchDatabases = async () => {
+    if (dbAbortRef.current) dbAbortRef.current.abort();
+    const controller = new AbortController();
+    dbAbortRef.current = controller;
     setIsFetchingDBs(true);
     try {
       const res = await apiFetch(`${API_BASE}/sinks/discover/databases`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sink),
+        signal: controller.signal,
       });
       const dbs = await res.json();
       if (!res.ok) throw new Error(dbs.error || 'Failed to discover databases');
       setDiscoveredDatabases(dbs || []);
     } catch (err: any) {
-      setTestResult({ status: 'error', message: err.message });
+      if (err?.name !== 'AbortError') {
+        setTestResult({ status: 'error', message: err.message });
+      }
     } finally {
       setIsFetchingDBs(false);
     }
   };
 
-  const discoverTables = async () => {
+  const discoverTables = useCallback(async () => {
+    if (tablesAbortRef.current) tablesAbortRef.current.abort();
+    const controller = new AbortController();
+    tablesAbortRef.current = controller;
     setLoadingTables(true);
     setTablesError(null);
     try {
@@ -73,57 +113,83 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sink),
+        signal: controller.signal,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to discover tables');
       setTables(data || []);
     } catch (err: any) {
-      setTablesError(err.message);
+      if (err?.name !== 'AbortError') {
+        setTablesError(err.message);
+      }
     } finally {
       setLoadingTables(false);
     }
-  };
+  }, [sink]);
+
+  const sinkType = sink.type;
+  const host = sink.config?.host;
+  const connectionString = sink.config?.connection_string;
+  const uri = sink.config?.uri;
+  const dbPath = sink.config?.db_path;
+  const discoverTablesCb = useCallback(() => discoverTables(), [discoverTables]);
 
   useEffect(() => {
     const dbTypes = ['postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'yugabyte', 'cassandra', 'sqlite', 'clickhouse', 'mongodb'];
-    if (dbTypes.includes(sink.type) && sink.config.host || sink.config.connection_string || sink.config.uri || sink.config.db_path) {
-      // Small delay to allow user to finish typing
+    const hasConn = Boolean(host || connectionString || uri || dbPath);
+    if (dbTypes.includes(sinkType) && hasConn) {
       const timer = setTimeout(() => {
-         discoverTables();
-      }, 1000);
-      return () => clearTimeout(timer);
+        discoverTablesCb();
+      }, 600);
+      return () => {
+        clearTimeout(timer);
+        if (tablesAbortRef.current) tablesAbortRef.current.abort();
+      };
     }
-  }, [sink.type, sink.config.host, sink.config.connection_string, sink.config.uri, sink.config.db_path]);
+  }, [sinkType, host, connectionString, uri, dbPath, discoverTablesCb]);
+
+  const lastInitialDataId = useRef<string | null>(null);
 
   useEffect(() => {
     if (initialData) {
-      setSink((prev: any) => {
-        // Only update if the ID changed or we are initializing a new sink
-        if (prev.id !== initialData.id || (prev.name === '' && !prev.id)) {
-          return {
-            ...prev,
-            ...initialData,
-            config: {
-              ...(prev.config || {}),
-              ...(initialData.config || {})
-            }
-          };
-        }
-        return prev;
-      });
+      // Use ref to ensure we only reset when initialData actually changes its identity or ID
+      if (lastInitialDataId.current !== (initialData.id || 'new')) {
+        const newValues = {
+          ...sink,
+          ...initialData,
+          config: {
+            ...(sink.config || {}),
+            ...(initialData.config || {})
+          }
+        };
+        form.reset(newValues);
+        lastInitialDataId.current = initialData.id || 'new';
+      }
     }
-  }, [initialData]);
+  }, [initialData, form]);
 
   useEffect(() => {
-    if (sink.type === 'stdout') {
+    if (sinkType === 'stdout') {
       setTestResult({ status: 'ok', message: 'Stdout is always active' });
+    } else {
+      setTestResult(prev => (prev?.message === 'Stdout is always active' ? null : prev));
     }
-  }, [sink.type]);
+  }, [sinkType]);
 
   const { data: vhostsResponse } = useSuspenseQuery<any>({
     queryKey: ['vhosts'],
     queryFn: async () => {
       const res = await apiFetch(`${API_BASE}/vhosts`);
+      if (res.ok) return res.json();
+      return { data: [], total: 0 };
+    }
+  });
+
+  const { data: sinksResponse } = useSuspenseQuery<any>({
+    queryKey: ['sinks', vhost],
+    queryFn: async () => {
+      const vhostParam = (vhost && vhost !== 'all') ? `?vhost=${vhost}` : '';
+      const res = await apiFetch(`${API_BASE}/sinks${vhostParam}`);
       if (res.ok) return res.json();
       return { data: [], total: 0 };
     }
@@ -138,8 +204,8 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
     }
   });
 
-  const vhosts = vhostsResponse?.data || [];
-  const workers = workersResponse?.data || [];
+  const vhosts = Array.isArray(vhostsResponse?.data) ? vhostsResponse.data : [];
+  const workers = Array.isArray(workersResponse?.data) ? workersResponse.data : [];
 
   const availableVHostsList = role === 'Administrator' 
     ? (vhosts || []).map((v: any) => v.name)
@@ -191,27 +257,33 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
 
   useEffect(() => {
     if (embedded) {
-      if (vhost) setSink((prev: any) => ({ ...prev, vhost }));
-      if (workerID) setSink((prev: any) => ({ ...prev, worker_id: workerID }));
+      if (vhost && form.getFieldValue('vhost') !== vhost) {
+        form.setFieldValue('vhost', vhost);
+      }
+      if (workerID && form.getFieldValue('worker_id') !== workerID) {
+        form.setFieldValue('worker_id', workerID);
+      }
     }
-  }, [embedded, vhost, workerID]);
+  }, [embedded, vhost, workerID, form]);
 
   const handleSinkChange = (updates: any) => {
-    setSink({ ...sink, ...updates });
+    Object.entries(updates).forEach(([key, value]) => {
+      form.setFieldValue(key as any, value);
+    });
     setTestResult(null);
   };
 
-  const updateConfig = (key: string, value: string) => {
-    setSink({
-      ...sink,
-      config: { ...sink.config, [key]: value }
-    });
+  const updateConfig = (key: string, value: any) => {
+    form.setFieldValue(`config.${key}` as any, value);
     setTestResult(null);
   };
 
 
   const handlePreview = async () => {
     if (!sink.config?.template && sink.config?.template_source === 'inline') return;
+    if (previewAbortRef.current) previewAbortRef.current.abort();
+    const controller = new AbortController();
+    previewAbortRef.current = controller;
     setPreviewLoading(true);
     try {
       const res = await apiFetch(`${API_BASE}/sinks/smtp/preview`, {
@@ -219,13 +291,32 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           template: sink.config?.template,
+          outlook_compatible: sink.config?.outlook_compatible === 'true',
           data: {
             id: "123",
-            name: "John Doe",
-            order_id: "ORD-999",
-            status: "Shipped"
+            operation: "create",
+            table: "orders",
+            schema: "public",
+            is_priority: true,
+            after: JSON.stringify({
+              id: 999,
+              customer_name: "John Doe",
+              status: "Shipped",
+              total_amount: 139.99
+            }),
+            before: null,
+            items: [
+              { name: "Wireless Mouse", price: 25.99, qty: 1 },
+              { name: "Mechanical Keyboard", price: 89.00, qty: 1 },
+              { name: "USB-C Cable", price: 12.50, qty: 2 }
+            ],
+            metadata: {
+              ip: "192.168.1.1",
+              source: "postgres"
+            }
           }
         }),
+        signal: controller.signal,
       });
       const data = await res.json();
       if (res.ok) {
@@ -235,11 +326,21 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
         setTestResult({ status: 'error', message: data.error || 'Failed to preview template' });
       }
     } catch (error: any) {
-      setTestResult({ status: 'error', message: error.message });
+      if (error?.name !== 'AbortError') {
+        setTestResult({ status: 'error', message: error.message });
+      }
     } finally {
       setPreviewLoading(false);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (dbAbortRef.current) dbAbortRef.current.abort();
+      if (tablesAbortRef.current) tablesAbortRef.current.abort();
+      if (previewAbortRef.current) previewAbortRef.current.abort();
+    };
+  }, []);
 
   const handleValidateEmail = async (email: string) => {
     if (!email) return;
@@ -276,178 +377,109 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
 
     switch (type) {
       case 'nats':
-        return (
-          <>
-            <TextInput label="URL" placeholder="nats://localhost:4222" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
-            <TextInput label="Subject" placeholder="hermod.data" value={config.subject || ''} onChange={(e) => updateConfig('subject', e.target.value)} required />
-            <Group grow>
-              <TextInput label="Username" placeholder="Optional" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
-              <TextInput label="Password" type="password" placeholder="Optional" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
-            </Group>
-            <TextInput label="Token" placeholder="Optional" value={config.token || ''} onChange={(e) => updateConfig('token', e.target.value)} />
-          </>
-        );
       case 'rabbitmq':
-        return (
-          <>
-            <TextInput label="URL" placeholder="rabbitmq-stream://guest:guest@localhost:5552" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
-            <TextInput label="Stream Name" placeholder="hermod-stream" value={config.stream_name || ''} onChange={(e) => updateConfig('stream_name', e.target.value)} required />
-          </>
-        );
       case 'rabbitmq_queue':
-        return (
-          <>
-            <TextInput label="URL" placeholder="amqp://guest:guest@localhost:5672" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
-            <TextInput label="Queue Name" placeholder="hermod-queue" value={config.queue_name || ''} onChange={(e) => updateConfig('queue_name', e.target.value)} required />
-          </>
-        );
       case 'redis':
-        return (
-          <>
-            <TextInput label="Address" placeholder="localhost:6379" value={config.addr || ''} onChange={(e) => updateConfig('addr', e.target.value)} required />
-            <TextInput label="Password" type="password" placeholder="Optional" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
-            <TextInput label="Stream" placeholder="hermod-stream" value={config.stream || ''} onChange={(e) => updateConfig('stream', e.target.value)} required />
-          </>
-        );
+      case 'kafka':
+      case 'pulsar':
+      case 'kinesis':
+      case 'pubsub':
+        return <QueueSinkConfig type={type} config={config} updateConfig={updateConfig} />;
       case 'file':
         return (
           <TextInput label="Filename" placeholder="/tmp/hermod.log" value={config.filename || ''} onChange={(e) => updateConfig('filename', e.target.value)} required />
         );
-      case 'kafka':
+      case 's3-parquet':
         return (
           <>
-            <TextInput label="Brokers" placeholder="localhost:9092,localhost:9093" value={config.brokers || ''} onChange={(e) => updateConfig('brokers', e.target.value)} required />
-            <TextInput label="Topic" placeholder="hermod-topic" value={config.topic || ''} onChange={(e) => updateConfig('topic', e.target.value)} required />
             <Group grow>
-              <TextInput label="Username (SASL)" placeholder="Optional" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
-              <TextInput label="Password (SASL)" type="password" placeholder="Optional" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
+              <TextInput label="Region" placeholder="us-east-1" value={config.region || ''} onChange={(e) => updateConfig('region', e.target.value)} required />
+              <TextInput label="Bucket" placeholder="my-bucket" value={config.bucket || ''} onChange={(e) => updateConfig('bucket', e.target.value)} required />
             </Group>
-          </>
-        );
-      case 'pulsar':
-        return (
-          <>
-            <TextInput label="URL" placeholder="pulsar://localhost:6650" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
-            <TextInput label="Topic" placeholder="persistent://public/default/hermod" value={config.topic || ''} onChange={(e) => updateConfig('topic', e.target.value)} required />
-            <TextInput label="Token" placeholder="Optional" value={config.token || ''} onChange={(e) => updateConfig('token', e.target.value)} />
-          </>
-        );
-      case 'kinesis':
-        return (
-          <>
-            <TextInput label="Region" placeholder="us-east-1" value={config.region || ''} onChange={(e) => updateConfig('region', e.target.value)} required />
-            <TextInput label="Stream Name" placeholder="hermod-stream" value={config.stream_name || ''} onChange={(e) => updateConfig('stream_name', e.target.value)} required />
+            <TextInput label="Key Prefix" placeholder="events/" value={config.key_prefix || ''} onChange={(e) => updateConfig('key_prefix', e.target.value)} />
+            <TextInput label="Endpoint (S3-compatible)" placeholder="e.g. http://localhost:9000" value={config.endpoint || ''} onChange={(e) => updateConfig('endpoint', e.target.value)} />
             <Group grow>
               <TextInput label="Access Key" placeholder="Optional" value={config.access_key || ''} onChange={(e) => updateConfig('access_key', e.target.value)} />
               <TextInput label="Secret Key" type="password" placeholder="Optional" value={config.secret_key || ''} onChange={(e) => updateConfig('secret_key', e.target.value)} />
             </Group>
+            <TextInput 
+              label="Parquet Schema (JSON)" 
+              placeholder='{"Tag": "name=parquet_go_root, instanceid=1", "Fields": [{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8"}]}' 
+              value={config.schema || ''} 
+              onChange={(e) => updateConfig('schema', e.target.value)} 
+              required
+              description="Define the Parquet schema in xitongsys/parquet-go JSON format."
+            />
+            <TextInput 
+              label="Parallelizer" 
+              placeholder="4" 
+              value={config.parallelizer || ''} 
+              onChange={(e) => updateConfig('parallelizer', e.target.value)} 
+              description="Number of parallel goroutines for Parquet writing."
+            />
           </>
         );
-      case 'pubsub':
+      case 's3':
         return (
           <>
-            <TextInput label="Project ID" placeholder="my-project" value={config.project_id || ''} onChange={(e) => updateConfig('project_id', e.target.value)} required />
-            <TextInput label="Topic ID" placeholder="hermod-topic" value={config.topic_id || ''} onChange={(e) => updateConfig('topic_id', e.target.value)} required />
-            <TextInput label="Credentials JSON" placeholder="Optional service account JSON content" value={config.credentials_json || ''} onChange={(e) => updateConfig('credentials_json', e.target.value)} />
+            <Group grow>
+              <TextInput label="Region" placeholder="us-east-1" value={config.region || ''} onChange={(e) => updateConfig('region', e.target.value)} required />
+              <TextInput label="Bucket" placeholder="my-bucket" value={config.bucket || ''} onChange={(e) => updateConfig('bucket', e.target.value)} required />
+            </Group>
+            <TextInput label="Key Prefix" placeholder="events/" value={config.key_prefix || ''} onChange={(e) => updateConfig('key_prefix', e.target.value)} />
+            <TextInput label="Endpoint (S3-compatible)" placeholder="e.g. http://localhost:9000" value={config.endpoint || ''} onChange={(e) => updateConfig('endpoint', e.target.value)} />
+            <Group grow>
+              <TextInput label="Access Key" placeholder="Optional" value={config.access_key || ''} onChange={(e) => updateConfig('access_key', e.target.value)} />
+              <TextInput label="Secret Key" type="password" placeholder="Optional" value={config.secret_key || ''} onChange={(e) => updateConfig('secret_key', e.target.value)} />
+            </Group>
+            <Group grow>
+              <TextInput 
+                label="File Extension"
+                placeholder=".json or .csv"
+                value={config.suffix || ''}
+                onChange={(e) => updateConfig('suffix', e.target.value)}
+                description="Set to .csv to store CSV content with .csv keys. Leave empty to default to .json."
+              />
+              <TextInput 
+                label="Content Type"
+                placeholder="e.g. text/csv or application/json"
+                value={config.content_type || ''}
+                onChange={(e) => updateConfig('content_type', e.target.value)}
+                description="Optional. Sets the S3 Content-Type metadata."
+              />
+            </Group>
+            <Text size="sm" c="dimmed">
+              Tip: To upload CSV bytes as-is, leave Format empty (pass-through) in the Advanced section and set File Extension to .csv.
+            </Text>
           </>
         );
       case 'fcm':
         return (
           <TextInput label="Credentials JSON" placeholder="Service account JSON content" value={config.credentials_json || ''} onChange={(e) => updateConfig('credentials_json', e.target.value)} required />
         );
+      case 'googlesheets':
+        return <GoogleSheetsSinkConfig config={config} updateConfig={updateConfig} />;
       case 'smtp':
         return (
-          <>
-            <Group grow>
-              <TextInput label="Host" placeholder="smtp.example.com" value={config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} required />
-              <TextInput label="Port" placeholder="587" value={config.port || ''} onChange={(e) => updateConfig('port', e.target.value)} required />
-            </Group>
-            <Group grow>
-              <TextInput label="Username" placeholder="user@example.com" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} required />
-              <TextInput label="Password" type="password" placeholder="password" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} required />
-            </Group>
-            <Select 
-                label="SSL" 
-                placeholder="Select SSL" 
-                data={[{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }]} 
-                value={config.ssl || 'false'} 
-                onChange={(value) => updateConfig('ssl', value || 'false')} 
-                required 
-            />
-            <TextInput 
-              label="From" 
-              placeholder="sender@example.com" 
-              value={config.from || ''} 
-              onChange={(e) => updateConfig('from', e.target.value)} 
-              required 
-              rightSection={
-                <Tooltip label="Validate email address">
-                  <ActionIcon onClick={() => handleValidateEmail(config.from)} loading={validateEmailLoading} variant="subtle" color="blue">
-                    <IconAt size="1rem" />
-                  </ActionIcon>
-                </Tooltip>
-              }
-            />
-            <TextInput label="To" placeholder="recipient1@example.com, recipient2@example.com" value={config.to || ''} onChange={(e) => updateConfig('to', e.target.value)} required />
-            <TextInput label="Subject" placeholder="CDC Alert" value={config.subject || ''} onChange={(e) => updateConfig('subject', e.target.value)} required />
-            
-            <Divider label="Template Settings" labelPosition="center" my="md" />
-
-            <Tabs defaultValue={config.template_source || 'inline'} onChange={(value) => updateConfig('template_source', value || 'inline')}>
-              <Tabs.List grow>
-                <Tabs.Tab value="inline" leftSection={<IconTemplate size="1rem" />}>Inline</Tabs.Tab>
-                <Tabs.Tab value="url" leftSection={<IconLink size="1rem" />}>URL</Tabs.Tab>
-                <Tabs.Tab value="s3" leftSection={<IconCloud size="1rem" />}>Amazon S3</Tabs.Tab>
-              </Tabs.List>
-
-              <Tabs.Panel value="inline" pt="md">
-                <Stack gap="xs">
-                  <Textarea 
-                    label="Template" 
-                    placeholder="Hello {{.name}}, your order #{{.order_id}} has been processed." 
-                    value={config.template || ''} 
-                    onChange={(e) => updateConfig('template', e.target.value)} 
-                    autosize
-                    minRows={12}
-                    description="Supports Go template syntax. Both HTML and Plain Text are automatically detected."
-                  />
-                  <Button 
-                    variant="light" 
-                    leftSection={<IconPlayerPlay size="1rem" />} 
-                    onClick={handlePreview}
-                    loading={previewLoading}
-                    disabled={!config.template}
-                  >
-                    Preview Template
-                  </Button>
-                </Stack>
-              </Tabs.Panel>
-
-              <Tabs.Panel value="url" pt="md">
-                <TextInput 
-                  label="Template URL" 
-                  placeholder="https://example.com/templates/welcome.html" 
-                  value={config.template_url || ''} 
-                  onChange={(e) => updateConfig('template_url', e.target.value)} 
-                />
-              </Tabs.Panel>
-
-              <Tabs.Panel value="s3" pt="md">
-                <Stack gap="xs">
-                  <Group grow>
-                    <TextInput label="Region" placeholder="us-east-1" value={config.s3_region || ''} onChange={(e) => updateConfig('s3_region', e.target.value)} />
-                    <TextInput label="Bucket" placeholder="my-templates" value={config.s3_bucket || ''} onChange={(e) => updateConfig('s3_bucket', e.target.value)} />
-                  </Group>
-                  <TextInput label="Key (Path)" placeholder="emails/welcome.html" value={config.s3_key || ''} onChange={(e) => updateConfig('s3_key', e.target.value)} />
-                  <TextInput label="Endpoint" placeholder="Optional (for S3 compatible storage)" value={config.s3_endpoint || ''} onChange={(e) => updateConfig('s3_endpoint', e.target.value)} />
-                  <Group grow>
-                    <TextInput label="Access Key" value={config.s3_access_key || ''} onChange={(e) => updateConfig('s3_access_key', e.target.value)} />
-                    <TextInput label="Secret Key" type="password" value={config.s3_secret_key || ''} onChange={(e) => updateConfig('s3_secret_key', e.target.value)} />
-                  </Group>
-                </Stack>
-              </Tabs.Panel>
-            </Tabs>
-          </>
+          <SMTPSinkConfig
+            config={config}
+            updateConfig={updateConfig}
+            validateEmailLoading={validateEmailLoading}
+            handleValidateEmail={handleValidateEmail}
+            handlePreview={handlePreview}
+            previewLoading={previewLoading}
+          />
+        );
+      case 'ftp':
+        return <FTPSinkConfig config={config} updateConfig={updateConfig} />;
+      case 'failover':
+        return (
+          <FailoverSinkConfig 
+            config={config} 
+            sinks={sinks || []} 
+            currentSinkId={initialData?.id} 
+            updateConfig={updateConfig} 
+          />
         );
       case 'telegram':
         return (
@@ -461,14 +493,40 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
           <>
             <TextInput label="URL" placeholder="http://localhost:8080/webhook" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
             <TextInput label="Headers" placeholder="Authorization: Bearer token, X-Custom: value" value={config.headers || ''} onChange={(e) => updateConfig('headers', e.target.value)} />
+            <Select
+              label="Compression"
+              placeholder="Select compression"
+              data={[
+                { value: '', label: 'None' },
+                { value: 'lz4', label: 'LZ4' },
+                { value: 'snappy', label: 'Snappy' },
+                { value: 'zstd', label: 'Zstd' },
+              ]}
+              value={config.compression || ''}
+              onChange={(val) => updateConfig('compression', val || '')}
+            />
           </>
         );
       case 'postgres':
+      case 'yugabyte':
+        return (
+          <PostgresSinkConfig
+            type={type}
+            config={config}
+            tables={tables}
+            discoveredDatabases={discoveredDatabases}
+            isFetchingDBs={isFetchingDBs}
+            loadingTables={loadingTables}
+            tablesError={tablesError}
+            updateConfig={updateConfig}
+            fetchDatabases={fetchDatabases}
+            discoverTables={discoverTables}
+          />
+        );
       case 'mysql':
       case 'mariadb':
       case 'mssql':
       case 'oracle':
-      case 'yugabyte':
         return (
           <>
             <Group grow>
@@ -476,7 +534,6 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
               <TextInput 
                 label="Port" 
                 placeholder={
-                  type === 'postgres' || type === 'yugabyte' ? "5432" : 
                   type === 'mysql' || type === 'mariadb' ? "3306" : 
                   type === 'mssql' ? "1433" : 
                   type === 'oracle' ? "1521" : "5432"
@@ -503,7 +560,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
                 required 
                 style={{ flex: 1 }}
               />
-              <ActionIcon variant="light" size="lg" onClick={() => fetchDatabases()} loading={isFetchingDBs} title="Discover Databases">
+              <ActionIcon aria-label="Discover databases" variant="light" size="lg" onClick={() => fetchDatabases()} loading={isFetchingDBs} title="Discover Databases">
                 <IconRefresh size="1.2rem" />
               </ActionIcon>
             </Group>
@@ -519,18 +576,16 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
                 error={tablesError}
                 style={{ flex: 1 }}
               />
-              <ActionIcon variant="light" size="lg" onClick={() => discoverTables()} loading={loadingTables} title="Refresh Tables">
+              <ActionIcon aria-label="Refresh tables" variant="light" size="lg" onClick={() => discoverTables()} loading={loadingTables} title="Refresh Tables">
                 <IconRefresh size="1.2rem" />
               </ActionIcon>
             </Group>
-            {(type === 'postgres' || type === 'yugabyte') && <TextInput label="SSL Mode" placeholder="disable" value={config.sslmode || ''} onChange={(e) => updateConfig('sslmode', e.target.value)} />}
             <TextInput 
               label="OR Connection String" 
               placeholder={
-                type === 'postgres' || type === 'yugabyte' ? "postgres://..." : 
                 type === 'mysql' || type === 'mariadb' ? "user:pass@tcp(host:port)/dbname" : 
                 type === 'mssql' ? "sqlserver://..." :
-                type === 'oracle' ? "oracle://..." : "postgres://..."
+                type === 'oracle' ? "oracle://..." : ""
               } 
               value={config.connection_string || ''} 
               onChange={(e) => updateConfig('connection_string', e.target.value)} 
@@ -560,10 +615,47 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
                 error={tablesError}
                 style={{ flex: 1 }}
               />
-              <ActionIcon variant="light" size="lg" onClick={() => discoverTables()} loading={loadingTables} title="Refresh Tables">
+              <ActionIcon aria-label="Refresh tables" variant="light" size="lg" onClick={() => discoverTables()} loading={loadingTables} title="Refresh Tables">
                 <IconRefresh size="1.2rem" />
               </ActionIcon>
             </Group>
+          </>
+        );
+      case 'eventstore':
+        return (
+          <>
+            <Select
+              label="Driver"
+              placeholder="Select database driver"
+              data={[
+                { value: 'postgres', label: 'PostgreSQL' },
+                { value: 'mysql', label: 'MySQL' },
+                { value: 'sqlite', label: 'SQLite' },
+                { value: 'mssql', label: 'SQL Server' }
+              ]}
+              value={config.driver || ''}
+              onChange={(val) => updateConfig('driver', val || '')}
+              required
+            />
+            {config.driver === 'sqlite' ? (
+              <TextInput label="DB Path" placeholder="eventstore.db" value={config.dsn || ''} onChange={(e) => updateConfig('dsn', e.target.value)} required />
+            ) : (
+              <TextInput label="DSN / Connection String" placeholder="postgres://user:pass@localhost:5432/eventstore" value={config.dsn || ''} onChange={(e) => updateConfig('dsn', e.target.value)} required />
+            )}
+            <TextInput 
+              label="Stream ID Template" 
+              placeholder="{{.table}}:{{.id}}" 
+              value={config.stream_id_tpl || ''} 
+              onChange={(e) => updateConfig('stream_id_tpl', e.target.value)} 
+              description="Leave empty for default (table:id)"
+            />
+            <TextInput 
+              label="Event Type Template" 
+              placeholder="{{.operation}}" 
+              value={config.event_type_tpl || ''} 
+              onChange={(e) => updateConfig('event_type_tpl', e.target.value)} 
+              description="Leave empty for default (operation)"
+            />
           </>
         );
       case 'clickhouse':
@@ -583,7 +675,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
                 required 
                 style={{ flex: 1 }}
               />
-              <ActionIcon variant="light" size="lg" onClick={() => fetchDatabases()} loading={isFetchingDBs} title="Discover Databases">
+              <ActionIcon aria-label="Discover databases" variant="light" size="lg" onClick={() => fetchDatabases()} loading={isFetchingDBs} title="Discover Databases">
                 <IconRefresh size="1.2rem" />
               </ActionIcon>
             </Group>
@@ -647,6 +739,20 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
             </Group>
           </>
         );
+      case 'elasticsearch':
+        return (
+          <ElasticsearchSinkConfig 
+            config={config} 
+            updateConfig={updateConfig} 
+            indices={tables}
+            discoveredDatabases={discoveredDatabases}
+            isFetchingDBs={isFetchingDBs}
+            loadingIndices={loadingTables}
+            indicesError={tablesError}
+            fetchDatabases={fetchDatabases}
+            discoverIndices={discoverTables}
+          />
+        );
       case 'stdout':
       default:
         return <Text size="sm" c="dimmed">No additional configuration required for stdout.</Text>;
@@ -701,6 +807,18 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
             <List size="sm" withPadding>
               <List.Item>Specify the collection in the transformation or use the source table name</List.Item>
               <List.Item>URI format: <Code>mongodb://user:pass@host:27017</Code></List.Item>
+            </List>
+          </Stack>
+        );
+      case 'elasticsearch':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>Elasticsearch Sink</Title>
+            <Text size="sm">Indexes documents into Elasticsearch.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Addresses should be a comma-separated list of nodes</List.Item>
+              <List.Item>Index name supports Go templates (e.g. <Code>logs-{"{{.table}}"}</Code>)</List.Item>
+              <List.Item>Supports Basic Auth or API Key authentication</List.Item>
             </List>
           </Stack>
         );
@@ -823,6 +941,31 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
             </List>
           </Stack>
         );
+      case 's3-parquet':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>AWS S3 Parquet Sink</Title>
+            <Text size="sm">Persists events as Parquet files to an AWS S3 bucket.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Writes messages in batches to optimized Parquet files</List.Item>
+              <List.Item>Requires a JSON schema definition for the Parquet format</List.Item>
+              <List.Item>Supports S3-compatible storage like MinIO via Endpoint URL</List.Item>
+            </List>
+          </Stack>
+        );
+      case 's3':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>AWS S3 Sink</Title>
+            <Text size="sm">Persists events to an AWS S3 bucket.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Provide the region and bucket name</List.Item>
+              <List.Item>Key Prefix is optional (e.g. <Code>events/</Code>)</List.Item>
+              <List.Item>Supports S3-compatible storage like MinIO via Endpoint URL</List.Item>
+              <List.Item>Supports Environment Variables substitution: <Code>{'${AWS_ACCESS_KEY_ID}'}</Code></List.Item>
+            </List>
+          </Stack>
+        );
       case 'fcm':
         return (
           <Stack gap="xs">
@@ -843,7 +986,62 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
               <List.Item>Configure your SMTP server host and port</List.Item>
               <List.Item>Provide valid username and password for authentication</List.Item>
               <List.Item>Multiple recipients in "To" field should be comma-separated</List.Item>
-              <List.Item>SSL/TLS is supported</List.Item>
+              <List.Item>
+                <Text size="sm" fw={500}>Go Template Support:</Text>
+                <Text size="xs" c="dimmed" mb={5}>You can use full Go template syntax in Subject and Body.</Text>
+                <Code block style={{ fontSize: '11px', marginBottom: '8px' }}>
+{`Hello {{.name}},
+
+Here are your items:
+{{range .items}}
+- {{.product}}: {{.price}}
+{{else}}
+- No items found
+{{end}}`}
+                </Code>
+                <Text size="xs" fw={500} c="dimmed" mb={5}>Conditional Logic (If/Else):</Text>
+                <Code block style={{ fontSize: '11px' }}>
+{`{{if .is_priority}}
+[URGENT] High priority order!
+{{else}}
+Regular order processing.
+{{end}}
+
+{{if eq .operation "delete"}}
+Record was removed from {{.table}}.
+{{else}}
+Record was {{.operation}}d in {{.table}}.
+{{end}}`}
+                </Code>
+              </List.Item>
+              <List.Item>Dynamic Recipients: Use <Code>{"{{.email_field}}"}</Code> in the "To" field.</List.Item>
+              <List.Item>CDC Support: Fields in <Code>after</Code> and <Code>before</Code> JSON strings are automatically unmarshaled and available directly (e.g., <Code>{"{{.id}}"}</Code> instead of <Code>{"{{.after.id}}"}</Code>).</List.Item>
+            </List>
+          </Stack>
+        );
+      case 'ftp':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>FTP / FTPS Sink</Title>
+            <Text size="sm">Uploads each message as a file to an FTP/FTPS server.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Set Host and Port (default <Code>21</Code>). Enable <Code>TLS</Code> for FTPS if your server supports it.</List.Item>
+              <List.Item>Optional authentication via Username/Password (leave empty for anonymous if allowed).</List.Item>
+              <List.Item>
+                Destination path supports Go templates. Examples:
+                <Code block style={{ fontSize: '11px', marginTop: 6 }}>
+{`Path: {{.schema}}/{{.table}}
+File: {{.table}}-{{.id}}.json`}
+                </Code>
+              </List.Item>
+              <List.Item>
+                Write Mode: <Code>overwrite</Code> replaces existing files; <Code>append</Code> appends to existing files.
+              </List.Item>
+              <List.Item>
+                Enable "Create Missing Directories" to recursively create folders under <Code>Root Directory</Code>.
+              </List.Item>
+              <List.Item>Timeout accepts Go duration strings (e.g., <Code>30s</Code>).</List.Item>
+              <List.Item>Security: FTPS currently uses <Code>InsecureSkipVerify=true</Code>; configure per your policy.</List.Item>
             </List>
           </Stack>
         );
@@ -890,91 +1088,445 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
     }
   };
 
+  if (embedded) {
+    return (
+      <>
+      <Grid gutter="lg" style={{ minHeight: 'calc(100vh - 180px)' }}>
+        {/* Column 1: Source Data */}
+        <Grid.Col span={{ base: 12, md: 4, lg: 3 }}>
+          <Stack gap="md" h="100%">
+            <Group gap="xs" px="xs">
+              <IconDatabase size="1.2rem" color="var(--mantine-color-blue-6)" />
+              <Text size="sm" fw={700} c="dimmed">1. SOURCE DATA</Text>
+            </Group>
+            
+            <Alert icon={<IconInfoCircle size="1rem" />} color="blue" variant="light">
+              <Text size="xs">Use fields from upstream nodes. Click <IconPlus size="0.7rem" /> to copy as Go template variable.</Text>
+            </Alert>
+
+            <Card withBorder padding="xs" radius="md">
+              <Group justify="space-between" mb="xs">
+                <Group gap="xs">
+                  <IconList size="1rem" color="var(--mantine-color-gray-6)" />
+                  <Text size="xs" fw={700}>AVAILABLE FIELDS</Text>
+                </Group>
+                <Badge size="xs" variant="light">{availableFields.length}</Badge>
+              </Group>
+              <FieldExplorer
+                availableFields={availableFields}
+                incomingPayload={incomingPayload}
+                onAdd={(path) => {
+                  const val = `{{.${path}}}`;
+                  navigator.clipboard.writeText(val);
+                  notifications.show({
+                    title: 'Field copied',
+                    message: `Copied ${val} to clipboard`,
+                    color: 'blue',
+                  });
+                }}
+              />
+            </Card>
+
+            <Card withBorder padding="xs" radius="md" bg="gray.0">
+               <Group gap="xs" mb={4}>
+                  <IconCode size="1rem" color="dimmed" />
+                  <Text size="10px" fw={700} c="dimmed">RAW PAYLOAD</Text>
+               </Group>
+               <ScrollArea.Autosize mah={300}>
+                  <Code block style={{ fontSize: '10px' }}>
+                     {incomingPayload ? JSON.stringify(incomingPayload, null, 2) : 'No input sample available'}
+                  </Code>
+               </ScrollArea.Autosize>
+            </Card>
+          </Stack>
+        </Grid.Col>
+
+        {/* Column 2: Configuration */}
+        <Grid.Col span={{ base: 12, md: 8, lg: 5 }}>
+          <Card withBorder shadow="md" radius="md" p="md" h="100%" style={{ display: 'flex', flexDirection: 'column' }}>
+            <Stack h="100%" gap="md">
+              <Group justify="space-between" px="xs">
+                <Group gap="xs">
+                  <IconSettings size="1.2rem" color="var(--mantine-color-blue-6)" />
+                  <Text size="sm" fw={700}>2. CONFIGURATION</Text>
+                </Group>
+                <Badge variant="light" color="blue" size="lg" style={{ textTransform: 'uppercase' }}>{sink.type}</Badge>
+              </Group>
+              <Divider />
+              <ScrollArea flex={1} mx="-md" px="md">
+                <Stack gap="md" py="xs">
+                  <SinkBasics
+                    embedded={embedded}
+                    name={sink.name}
+                    onChangeName={(val: string) => handleSinkChange({ name: val })}
+                    vhost={sink.vhost}
+                    onChangeVHost={(val: string) => handleSinkChange({ vhost: val })}
+                    workerId={sink.worker_id}
+                    onChangeWorkerId={(val: string) => handleSinkChange({ worker_id: val })}
+                    type={sink.type}
+                    onChangeType={(val: string) => handleSinkChange({ type: val, config: { ...(sink.config || {}), format: (sink.config || {}).format || 'json' } })}
+                    vhostOptions={availableVHostsList}
+                    workerOptions={(workers || []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
+                    typeOptions={SINK_TYPES}
+                  />
+                  
+                  <Divider label="Parameters" labelPosition="center" />
+                  {renderConfigFields()}
+                  
+                  <Select 
+                    label="Output Format" 
+                    data={['json', 'payload']} 
+                    value={(sink.config || {}).format || 'json'}
+                    onChange={(val) => updateConfig('format', val || 'json')}
+                  />
+                  
+                  <Divider label="Reliability & Batching" labelPosition="center" />
+                  <RetryPolicyFields
+                    maxRetries={(sink.config || {}).max_retries}
+                    retryInterval={(sink.config || {}).retry_interval}
+                    onChangeMaxRetries={(val) => updateConfig('max_retries', val)}
+                    onChangeRetryInterval={(val) => updateConfig('retry_interval', val)}
+                  />
+
+                  <Grid gutter="xs">
+                    <Grid.Col span={4}>
+                      <TextInput 
+                        label="Circuit Threshold" 
+                        placeholder="5" 
+                        size="xs"
+                        description="Failures before opening"
+                        value={(sink.config || {}).circuit_threshold || ''} 
+                        onChange={(e) => updateConfig('circuit_threshold', e.target.value)} 
+                      />
+                    </Grid.Col>
+                    <Grid.Col span={4}>
+                      <TextInput 
+                        label="Circuit Interval" 
+                        placeholder="1m" 
+                        size="xs"
+                        description="Failure window"
+                        value={(sink.config || {}).circuit_interval || ''} 
+                        onChange={(e) => updateConfig('circuit_interval', e.target.value)} 
+                      />
+                    </Grid.Col>
+                    <Grid.Col span={4}>
+                      <TextInput 
+                        label="Circuit Cool-off" 
+                        placeholder="30s" 
+                        size="xs"
+                        description="Time before retry"
+                        value={(sink.config || {}).circuit_cool_off || ''} 
+                        onChange={(e) => updateConfig('circuit_cool_off', e.target.value)} 
+                      />
+                    </Grid.Col>
+                  </Grid>
+
+                  <Grid gutter="xs">
+                    <Grid.Col span={6}>
+                      <TextInput 
+                        label="Batch Size" 
+                        placeholder="1" 
+                        size="xs"
+                        value={(sink.config || {}).batch_size || ''} 
+                        onChange={(e) => updateConfig('batch_size', e.target.value)} 
+                      />
+                    </Grid.Col>
+                    <Grid.Col span={6}>
+                      <TextInput 
+                        label="Batch Timeout" 
+                        placeholder="100ms" 
+                        size="xs"
+                        value={(sink.config || {}).batch_timeout || ''} 
+                        onChange={(e) => updateConfig('batch_timeout', e.target.value)} 
+                      />
+                    </Grid.Col>
+                  </Grid>
+
+                  <Switch 
+                    label="Adaptive Batching" 
+                    size="xs"
+                    description="Dynamically adjust batch size based on sink performance"
+                    checked={(sink.config || {}).adaptive_batching || false} 
+                    onChange={(e) => updateConfig('adaptive_batching', e.currentTarget.checked)} 
+                  />
+
+                  <Divider label="Backpressure" labelPosition="center" />
+
+                  <Select
+                    label="Backpressure Strategy"
+                    placeholder="Block (Default)"
+                    size="xs"
+                    data={[
+                      { label: 'Block (Wait)', value: 'block' },
+                      { label: 'Drop Oldest', value: 'drop_oldest' },
+                      { label: 'Drop Newest', value: 'drop_newest' },
+                      { label: 'Sampling', value: 'sampling' },
+                      { label: 'Spill to Disk', value: 'spill_to_disk' },
+                    ]}
+                    value={(sink.config || {}).backpressure_strategy || 'block'}
+                    onChange={(val) => updateConfig('backpressure_strategy', val || 'block')}
+                  />
+
+                  <Grid gutter="xs">
+                    <Grid.Col span={6}>
+                      <TextInput 
+                        label="Buffer Size" 
+                        placeholder="1000" 
+                        size="xs"
+                        description="Max queued messages"
+                        value={(sink.config || {}).backpressure_buffer || ''} 
+                        onChange={(e) => updateConfig('backpressure_buffer', e.target.value)} 
+                      />
+                    </Grid.Col>
+                    <Grid.Col span={6}>
+                      {(sink.config || {}).backpressure_strategy === 'sampling' && (
+                        <TextInput 
+                          label="Sampling Rate" 
+                          placeholder="0.5" 
+                          size="xs"
+                          description="0.0 to 1.0 (Keep %)"
+                          value={(sink.config || {}).sampling_rate || ''} 
+                          onChange={(e) => updateConfig('sampling_rate', e.target.value)} 
+                        />
+                      )}
+                      {(sink.config || {}).backpressure_strategy === 'spill_to_disk' && (
+                        <TextInput 
+                          label="Spill Max Size" 
+                          placeholder="104857600" 
+                          size="xs"
+                          description="Max spill size in bytes"
+                          value={(sink.config || {}).spill_max_size || ''} 
+                          onChange={(e) => updateConfig('spill_max_size', e.target.value)} 
+                        />
+                      )}
+                    </Grid.Col>
+                  </Grid>
+
+                  {(sink.config || {}).backpressure_strategy === 'spill_to_disk' && (
+                    <TextInput 
+                      label="Spill Path" 
+                      placeholder=".hermod-spill" 
+                      size="xs"
+                      description="Directory for spill files"
+                      value={(sink.config || {}).spill_path || ''} 
+                      onChange={(e) => updateConfig('spill_path', e.target.value)} 
+                    />
+                  )}
+
+                  <Select
+                    label="Dead Letter Sink"
+                    placeholder="None"
+                    size="xs"
+                    data={(sinksResponse?.data || [])
+                      .filter((s: any) => s.id !== initialData?.id)
+                      .map((s: any) => ({ label: s.name, value: s.id }))}
+                    value={(sink.config || {}).dlq_sink_id || ''}
+                    onChange={(val) => updateConfig('dlq_sink_id', val || '')}
+                    clearable
+                  />
+                </Stack>
+              </ScrollArea>
+              
+              <Divider mt="md" />
+              <Group justify="flex-end" pt="xs">
+                {sink.type !== 'stdout' && (
+                  <Button variant="outline" color="blue" size="xs" onClick={() => testMutation.mutate(sink)} loading={testMutation.isPending}>
+                    Test Connection
+                  </Button>
+                )}
+                <Button 
+                  size="xs"
+                  disabled={!sink.name}
+                  onClick={() => {
+                    submitMutation.mutate(sink);
+                  }} 
+                  loading={submitMutation.isPending}
+                >
+                  Confirm Configuration
+                </Button>
+              </Group>
+            </Stack>
+          </Card>
+        </Grid.Col>
+
+        {/* Column 3: Guide / Results */}
+        <Grid.Col span={{ base: 12, md: 12, lg: 4 }}>
+          <Card withBorder shadow="sm" radius="md" p="md" h="100%" bg="var(--mantine-color-gray-0)">
+            <Stack h="100%">
+              <Group gap="xs" px="xs">
+                <IconInfoCircle size="1.2rem" color="var(--mantine-color-blue-6)" />
+                <Text size="sm" fw={700} c="dimmed">3. SETUP GUIDE & STATUS</Text>
+              </Group>
+              <Divider />
+              {testResult && (
+                <Alert 
+                  icon={testResult.status === 'ok' ? <IconCheck size="1rem" /> : <IconAlertCircle size="1rem" />} 
+                  title={testResult.status === 'ok' ? "Connection Success" : "Connection Error"} 
+                  color={testResult.status === 'ok' ? "green" : "red"}
+                  withCloseButton
+                  onClose={() => setTestResult(null)}
+                >
+                  {testResult.message}
+                </Alert>
+              )}
+              <ScrollArea flex={1}>
+                {renderSetupInstructions()}
+              </ScrollArea>
+            </Stack>
+          </Card>
+        </Grid.Col>
+      </Grid>
+
+      <Modal 
+        opened={previewModalOpen} 
+        onClose={() => setPreviewModalOpen(false)} 
+        title={<Text id={previewTitleId} fw={600}>Template Preview</Text>} 
+        aria-labelledby={previewTitleId}
+        aria-describedby={previewDescId}
+        fullScreen
+        withCloseButton
+      >
+        <Stack h="calc(100vh - 80px)">
+          <Text id={previewDescId} size="sm" c="dimmed">
+            This is a preview of your template rendered with sample data.
+          </Text>
+          {previewResult?.is_html ? (
+            <Box flex={1} style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 'var(--mantine-radius-md)', overflow: 'hidden' }}>
+              <iframe 
+                srcDoc={previewResult.rendered} 
+                title="Preview" 
+                style={{ width: '100%', height: '100%', border: 'none' }} 
+              />
+            </Box>
+          ) : (
+            <ScrollArea flex={1} style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 'var(--mantine-radius-md)' }}>
+              <Code block>{previewResult?.rendered}</Code>
+            </ScrollArea>
+          )}
+          <Group justify="flex-end">
+            <Button onClick={() => setPreviewModalOpen(false)}>Close</Button>
+          </Group>
+        </Stack>
+      </Modal>
+      </>
+    );
+  }
+
   return (
     <>
-      <Grid gutter="md" grow style={{ minHeight: 'calc(100vh - 160px)' }}>
-        <Grid.Col span={{ base: 12, md: 4 }}>
+      <Grid gutter="lg" style={{ minHeight: 'calc(100vh - 160px)' }}>
+        <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
           <Card withBorder shadow="sm" radius="md" p="md" h="100%">
             <Stack h="100%">
-              <Group gap="xs">
-                <IconSettings size="1.2rem" color="var(--mantine-color-gray-7)" />
-                <Text size="sm" fw={700}>1. GENERAL SETTINGS</Text>
+              <Group gap="xs" px="xs">
+                <IconSettings size="1.2rem" color="var(--mantine-color-blue-6)" />
+                <Text size="sm" fw={700} c="dimmed">1. GENERAL SETTINGS</Text>
               </Group>
               <Divider />
               <Stack gap="sm">
-                <TextInput 
-                  label="Name" 
-                  placeholder="NATS Sink" 
-                  value={sink.name}
-                  onChange={(e) => handleSinkChange({ name: e.target.value })}
-                  required
+                <SinkBasics
+                  embedded={embedded}
+                  name={sink.name}
+                  onChangeName={(val: string) => handleSinkChange({ name: val })}
+                  vhost={sink.vhost}
+                  onChangeVHost={(val: string) => handleSinkChange({ vhost: val })}
+                  workerId={sink.worker_id}
+                  onChangeWorkerId={(val: string) => handleSinkChange({ worker_id: val })}
+                  type={sink.type}
+                  onChangeType={(val: string) => handleSinkChange({ type: val, config: { ...(sink.config || {}), format: (sink.config || {}).format || 'json' } })}
+                  vhostOptions={availableVHostsList}
+                  workerOptions={(workers || []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
+                  typeOptions={SINK_TYPES}
                 />
-                {!embedded && (
-                  <Select 
-                    label="VHost" 
-                    placeholder="Select a virtual host" 
-                    data={availableVHostsList}
-                    value={sink.vhost}
-                    onChange={(val) => handleSinkChange({ vhost: val || '' })}
-                    required
-                  />
-                )}
-                {!embedded && (
-                  <Select 
-                    label="Worker (Optional)" 
-                    placeholder="Assign to a specific worker" 
-                    data={(workers || []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
-                    value={sink.worker_id}
-                    onChange={(val) => handleSinkChange({ worker_id: val || '' })}
-                    clearable
-                  />
-                )}
-                <Select 
-                  label="Type" 
-                  data={SINK_TYPES} 
-                  value={sink.type}
-                  onChange={(val) => handleSinkChange({ type: val || '', config: { ...(sink.config || {}), format: (sink.config || {}).format || 'json' } })}
-                  required
+                
+                <Divider label="Reliability & Batching" labelPosition="center" />
+                <RetryPolicyFields
+                  maxRetries={(sink.config || {}).max_retries}
+                  retryInterval={(sink.config || {}).retry_interval}
+                  onChangeMaxRetries={(val) => updateConfig('max_retries', val)}
+                  onChangeRetryInterval={(val) => updateConfig('retry_interval', val)}
                 />
 
-                <Divider label="Reliability & Batching" labelPosition="center" />
                 <Group grow>
                   <TextInput 
-                    label="Max Retries" 
-                    placeholder="3" 
+                    label="Circuit Threshold" 
+                    placeholder="5" 
                     size="xs"
-                    value={(sink.config || {}).max_retries || ''} 
-                    onChange={(e) => updateConfig('max_retries', e.target.value)} 
+                    description="Failures before opening"
+                    value={(sink.config || {}).circuit_threshold || ''} 
+                    onChange={(e) => updateConfig('circuit_threshold', e.target.value)} 
+                  />
+                  <TextInput 
+                    label="Circuit Window" 
+                    placeholder="1m" 
+                    size="xs"
+                    description="Error sliding window"
+                    value={(sink.config || {}).circuit_interval || ''} 
+                    onChange={(e) => updateConfig('circuit_interval', e.target.value)} 
+                  />
+                </Group>
+
+                <Group grow>
+                  <TextInput 
+                    label="Circuit Cool-off" 
+                    placeholder="30s" 
+                    size="xs"
+                    description="Time before retry"
+                    value={(sink.config || {}).circuit_cool_off || ''} 
+                    onChange={(e) => updateConfig('circuit_cool_off', e.target.value)} 
                   />
                   <TextInput 
                     label="Batch Size" 
                     placeholder="1" 
                     size="xs"
+                    description="Max messages per write"
                     value={(sink.config || {}).batch_size || ''} 
                     onChange={(e) => updateConfig('batch_size', e.target.value)} 
                   />
                 </Group>
-                <TextInput 
-                  label="Retry Interval" 
-                  placeholder="100ms, 1s, 1d" 
-                  size="xs"
-                  value={(sink.config || {}).retry_interval || ''} 
-                  onChange={(e) => updateConfig('retry_interval', e.target.value)} 
+
+                <Group grow>
+                  <TextInput 
+                    label="Batch Timeout" 
+                    placeholder="100ms" 
+                    size="xs"
+                    description="Max wait for batch"
+                    value={(sink.config || {}).batch_timeout || ''} 
+                    onChange={(e) => updateConfig('batch_timeout', e.target.value)} 
+                  />
+                  <Select
+                    label="Dead Letter Sink"
+                    placeholder="None"
+                    size="xs"
+                    description="Target for failed msgs"
+                    data={(sinksResponse?.data || [])
+                      .filter((s: any) => s.id !== initialData?.id)
+                      .map((s: any) => ({ label: s.name, value: s.id }))}
+                    value={(sink.config || {}).dlq_sink_id || ''}
+                    onChange={(val) => updateConfig('dlq_sink_id', val || '')}
+                    clearable
+                  />
+                </Group>
+                <Switch 
+                    label="Adaptive Batching" 
+                    size="xs"
+                    checked={(sink.config || {}).adaptive_batching || false} 
+                    onChange={(e) => updateConfig('adaptive_batching', e.currentTarget.checked)} 
                 />
               </Stack>
             </Stack>
           </Card>
         </Grid.Col>
 
-        <Grid.Col span={{ base: 12, md: 4 }}>
-          <Card withBorder shadow="sm" radius="md" p="md" h="100%">
+        <Grid.Col span={{ base: 12, md: 6, lg: 4 }}>
+          <Card withBorder shadow="md" radius="md" p="md" h="100%">
             <Stack h="100%">
-              <Group justify="space-between">
+              <Group justify="space-between" px="xs">
                 <Group gap="xs">
                   <IconBraces size="1.2rem" color="var(--mantine-color-blue-6)" />
                   <Text size="sm" fw={700}>2. PARAMETERS</Text>
                 </Group>
-                <Badge variant="dot" color="blue" style={{ textTransform: 'uppercase' }}>{sink.type}</Badge>
+                <Badge variant="light" color="blue" size="lg" style={{ textTransform: 'uppercase' }}>{sink.type}</Badge>
               </Group>
               <Divider />
               <ScrollArea flex={1} mx="-md" px="md">
@@ -995,7 +1547,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
                     label="Output Format" 
                     data={['json', 'payload']} 
                     value={(sink.config || {}).format || 'json'}
-                    onChange={(val) => setSink({ ...sink, config: { ...(sink.config || {}), format: val || 'json' } })}
+                    onChange={(val) => updateConfig('format', val || 'json')}
                   />
                 </Stack>
               </ScrollArea>
@@ -1023,12 +1575,12 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
           </Card>
         </Grid.Col>
 
-        <Grid.Col span={{ base: 12, md: 4 }}>
-          <Card withBorder shadow="sm" radius="md" p="md" h="100%" bg="gray.0">
+        <Grid.Col span={{ base: 12, md: 12, lg: 4 }}>
+          <Card withBorder shadow="sm" radius="md" p="md" h="100%" bg="var(--mantine-color-gray-0)">
             <Stack h="100%">
-              <Group gap="xs">
+              <Group gap="xs" px="xs">
                 <IconInfoCircle size="1.2rem" color="var(--mantine-color-blue-6)" />
-                <Text size="sm" fw={700}>3. SETUP GUIDE</Text>
+                <Text size="sm" fw={700} c="dimmed">3. SETUP GUIDE</Text>
               </Group>
               <Divider />
               <ScrollArea flex={1}>
@@ -1042,20 +1594,30 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
       <Modal 
         opened={previewModalOpen} 
         onClose={() => setPreviewModalOpen(false)} 
-        title="Template Preview" 
-        size="lg"
+        // Provide explicit labelling for screen readers
+        title={<Text id={previewTitleId} fw={600}>Template Preview</Text>} 
+        aria-labelledby={previewTitleId}
+        aria-describedby={previewDescId}
+        fullScreen
+        withCloseButton
       >
-        <Stack>
-          <Text size="sm" c="dimmed">
+        <Stack h="calc(100vh - 80px)">
+          <Text id={previewDescId} size="sm" c="dimmed">
             This is a preview of your template rendered with sample data.
           </Text>
-          <Paper withBorder p="md" bg="gray.0">
-            {previewResult?.is_html ? (
-              <div dangerouslySetInnerHTML={{ __html: previewResult.rendered }} />
-            ) : (
+          {previewResult?.is_html ? (
+            <Box flex={1} style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 'var(--mantine-radius-md)', overflow: 'hidden' }}>
+              <iframe 
+                srcDoc={previewResult.rendered} 
+                title="Preview" 
+                style={{ width: '100%', height: '100%', border: 'none' }} 
+              />
+            </Box>
+          ) : (
+            <ScrollArea flex={1} style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 'var(--mantine-radius-md)' }}>
               <Code block>{previewResult?.rendered}</Code>
-            )}
-          </Paper>
+            </ScrollArea>
+          )}
           <Group justify="flex-end">
             <Button onClick={() => setPreviewModalOpen(false)}>Close</Button>
           </Group>

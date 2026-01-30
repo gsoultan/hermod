@@ -28,6 +28,9 @@ type WorkerStorage interface {
 	UpdateSink(ctx context.Context, snk storage.Sink) error
 	UpdateWorkerHeartbeat(ctx context.Context, id string) error
 	CreateLog(ctx context.Context, log storage.Log) error
+	AcquireWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error)
+	RenewWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error)
+	ReleaseWorkflowLease(ctx context.Context, workflowID, ownerID string) error
 }
 
 // Worker syncs the state of workflows from storage to the registry.
@@ -44,17 +47,22 @@ type Worker struct {
 	workerPort        int
 	workerDescription string
 	lastHealthCheck   time.Time
+	leaseTTLSeconds   int
+	renewMu           sync.Mutex
+	renewCancel       map[string]context.CancelFunc
 }
 
 // NewWorker creates a new worker.
 func NewWorker(storage WorkerStorage, registry *Registry) *Worker {
 	return &Worker{
-		storage:      storage,
-		registry:     registry,
-		interval:     10 * time.Second,
-		workerID:     0,
-		totalWorkers: 1,
-		workerGUID:   "",
+		storage:         storage,
+		registry:        registry,
+		interval:        10 * time.Second,
+		workerID:        0,
+		totalWorkers:    1,
+		workerGUID:      "",
+		leaseTTLSeconds: 30,
+		renewCancel:     make(map[string]context.CancelFunc),
 	}
 }
 
@@ -67,6 +75,23 @@ func (w *Worker) SetWorkerConfig(workerID, totalWorkers int, workerGUID string, 
 	w.totalWorkers = totalWorkers
 	w.workerGUID = workerGUID
 	w.workerToken = workerToken
+}
+
+// SetLeaseTTL allows configuring the lease TTL in seconds (default 30).
+func (w *Worker) SetLeaseTTL(ttlSeconds int) {
+	if ttlSeconds <= 0 {
+		ttlSeconds = 30
+	}
+	w.leaseTTLSeconds = ttlSeconds
+}
+
+// SetSyncInterval sets how often the worker reconciles workflows from storage.
+// Useful for tests and tuning; values below 200ms are coerced to 200ms.
+func (w *Worker) SetSyncInterval(d time.Duration) {
+	if d < 200*time.Millisecond {
+		d = 200 * time.Millisecond
+	}
+	w.interval = d
 }
 
 // SetRegistrationInfo sets the information used for self-registration.
@@ -178,6 +203,7 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 	}
 
 	assignedActiveCount := 0
+	ownedLeases := 0
 	for _, wf := range workflows {
 		if wf.Active {
 			assigned := false
@@ -190,10 +216,14 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 			}
 			if assigned {
 				assignedActiveCount++
+				if w.workerGUID != "" && wf.OwnerID == w.workerGUID && wf.LeaseUntil != nil && time.Now().Before(*wf.LeaseUntil) {
+					ownedLeases++
+				}
 			}
 		}
 	}
 	pkgengine.WorkerActiveWorkflows.WithLabelValues(workerID).Set(float64(assignedActiveCount))
+	pkgengine.WorkerLeasesOwned.WithLabelValues(workerID).Set(float64(ownedLeases))
 
 	if initial {
 		log.Printf("Worker: found %d active workflows assigned to this worker", assignedActiveCount)
@@ -235,19 +265,57 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 	}
 
 	if !assigned {
-		// If it's running but no longer assigned, stop it
+		// If it's running but no longer assigned, stop it and release lease if owned
 		if w.registry.IsEngineRunning(wf.ID) {
 			log.Printf("Worker: stopping workflow %s (no longer assigned to this worker)", wf.ID)
 			_ = w.registry.StopEngineWithoutUpdate(wf.ID)
+			w.stopLeaseRenewal(wf.ID)
+			if w.workerGUID != "" {
+				_ = w.storage.ReleaseWorkflowLease(ctx, wf.ID, w.workerGUID)
+			}
 		}
 		return
 	}
 
 	isRunning := w.registry.IsEngineRunning(wf.ID)
+
+	// Lease-based ownership: only attempt if worker has GUID
+	if w.workerGUID != "" {
+		owned := wf.OwnerID == w.workerGUID && wf.LeaseUntil != nil && time.Now().Before(*wf.LeaseUntil)
+		if !owned {
+			// Try to acquire (may steal if expired)
+			acquired, err := w.storage.AcquireWorkflowLease(ctx, wf.ID, w.workerGUID, w.leaseTTLSeconds)
+			if err != nil {
+				log.Printf("Worker: lease acquire error for %s: %v", wf.ID, err)
+			}
+			if acquired {
+				if wf.OwnerID != "" && wf.OwnerID != w.workerGUID {
+					pkgengine.LeaseStealTotal.WithLabelValues(workerID).Inc()
+				} else {
+					pkgengine.LeaseAcquireTotal.WithLabelValues(workerID).Inc()
+				}
+				owned = true
+			}
+		}
+
+		if !owned {
+			// We don't own the workflow; ensure it's not running here
+			if isRunning {
+				log.Printf("Worker: stopping workflow %s (lease not owned by this worker)", wf.ID)
+				_ = w.registry.StopEngineWithoutUpdate(wf.ID)
+				w.stopLeaseRenewal(wf.ID)
+			}
+			return
+		}
+	}
 	if isRunning {
 		if !wf.Active {
 			log.Printf("Worker: stopping workflow %s (marked inactive in storage)", wf.ID)
 			_ = w.registry.StopEngine(wf.ID)
+			w.stopLeaseRenewal(wf.ID)
+			if w.workerGUID != "" {
+				_ = w.storage.ReleaseWorkflowLease(ctx, wf.ID, w.workerGUID)
+			}
 		} else {
 			// Check if configuration has changed
 			curWf, ok := w.registry.GetWorkflowConfig(wf.ID)
@@ -270,13 +338,72 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 	}
 
 	if wf.Active && !isRunning {
+		if wf.Status == "Parked" {
+			// Do not start parked workflows automatically.
+			// They will be woken up on-demand.
+			return
+		}
 		log.Printf("Worker: starting workflow %s...", wf.ID)
 		err := w.registry.StartWorkflow(wf.ID, wf)
 		if err != nil {
 			log.Printf("Worker: failed to start workflow %s: %v", wf.ID, err)
 			pkgengine.WorkerSyncErrors.WithLabelValues(workerID).Inc()
+		} else if w.workerGUID != "" {
+			w.startLeaseRenewal(wf.ID)
 		}
 	}
+}
+
+func (w *Worker) startLeaseRenewal(workflowID string) {
+	w.renewMu.Lock()
+	if cancel, ok := w.renewCancel[workflowID]; ok && cancel != nil {
+		// already running
+		w.renewMu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	w.renewCancel[workflowID] = cancel
+	ttl := w.leaseTTLSeconds
+	if ttl <= 0 {
+		ttl = 30
+	}
+	interval := time.Duration(ttl/2) * time.Second
+	if interval < 5*time.Second {
+		interval = 5 * time.Second
+	}
+	w.renewMu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if w.workerGUID == "" {
+					continue
+				}
+				ok, err := w.storage.RenewWorkflowLease(context.Background(), workflowID, w.workerGUID, w.leaseTTLSeconds)
+				if err != nil || !ok {
+					pkgengine.LeaseRenewErrorsTotal.WithLabelValues(w.workerGUID).Inc()
+					log.Printf("Worker: lease renew failed for %s (ok=%v err=%v), stopping engine", workflowID, ok, err)
+					_ = w.registry.StopEngineWithoutUpdate(workflowID)
+					w.stopLeaseRenewal(workflowID)
+					return
+				}
+			}
+		}
+	}()
+}
+
+func (w *Worker) stopLeaseRenewal(workflowID string) {
+	w.renewMu.Lock()
+	if cancel, ok := w.renewCancel[workflowID]; ok && cancel != nil {
+		cancel()
+		delete(w.renewCancel, workflowID)
+	}
+	w.renewMu.Unlock()
 }
 
 func (w *Worker) isAssigned(workflowID string) bool {

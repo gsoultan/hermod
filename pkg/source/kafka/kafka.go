@@ -112,8 +112,37 @@ func (s *KafkaSource) Ack(ctx context.Context, msg hermod.Message) error {
 	return nil
 }
 
+func (s *KafkaSource) IsReady(ctx context.Context) error {
+	if err := s.Ping(ctx); err != nil {
+		return fmt.Errorf("kafka connection failed: %w", err)
+	}
+
+	// Check if brokers are reachable and topic exists
+	conn, err := s.reader.Config().Dialer.DialContext(ctx, "tcp", s.brokers[0])
+	if err != nil {
+		return fmt.Errorf("failed to dial kafka broker %s: %w", s.brokers[0], err)
+	}
+	defer conn.Close()
+
+	partitions, err := conn.ReadPartitions(s.topic)
+	if err != nil {
+		return fmt.Errorf("failed to read partitions for topic '%s': %w. Ensure topic exists and user has permissions", s.topic, err)
+	}
+
+	if len(partitions) == 0 {
+		return fmt.Errorf("kafka topic '%s' has no partitions", s.topic)
+	}
+
+	return nil
+}
+
 func (s *KafkaSource) Ping(ctx context.Context) error {
-	// Similar to KafkaSink Ping
+	// Try to dial first broker
+	conn, err := s.reader.Config().Dialer.DialContext(ctx, "tcp", s.brokers[0])
+	if err != nil {
+		return fmt.Errorf("kafka ping failed for broker %s: %w", s.brokers[0], err)
+	}
+	conn.Close()
 	return nil
 }
 

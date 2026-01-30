@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -21,9 +22,10 @@ type EngineConfig struct {
 }
 
 type BufferConfig struct {
-	Type string `json:"type" yaml:"type"`
-	Size int    `json:"size" yaml:"size"`
-	Path string `json:"path" yaml:"path"`
+	Type        string `json:"type" yaml:"type"`
+	Size        int    `json:"size" yaml:"size"`
+	Path        string `json:"path" yaml:"path"`
+	Compression string `json:"compression" yaml:"compression"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -43,4 +45,16 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+var envRegex = regexp.MustCompile(`\${(\w+)}`)
+
+func SubstituteEnvVars(input string) string {
+	return envRegex.ReplaceAllStringFunc(input, func(m string) string {
+		envVar := envRegex.FindStringSubmatch(m)[1]
+		if val, ok := os.LookupEnv(envVar); ok {
+			return val
+		}
+		return m
+	})
 }

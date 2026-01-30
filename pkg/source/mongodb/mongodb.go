@@ -249,6 +249,45 @@ func (m *MongoDBSource) Ack(ctx context.Context, msg hermod.Message) error {
 	return nil
 }
 
+func (m *MongoDBSource) IsReady(ctx context.Context) error {
+	if err := m.Ping(ctx); err != nil {
+		return fmt.Errorf("mongodb connection failed: %w", err)
+	}
+
+	if !m.useCDC {
+		return nil
+	}
+
+	m.mu.Lock()
+	client := m.client
+	m.mu.Unlock()
+
+	var err error
+	if client == nil {
+		client, err = GetClient(m.uri)
+		if err != nil {
+			return fmt.Errorf("failed to connect to mongodb for readiness check: %w", err)
+		}
+	}
+
+	// Check if it's a replica set or sharded cluster (required for Change Streams)
+	var isMaster bson.M
+	err = client.Database("admin").RunCommand(ctx, bson.D{{Key: "isMaster", Value: 1}}).Decode(&isMaster)
+	if err != nil {
+		return fmt.Errorf("failed to run isMaster command: %w", err)
+	}
+
+	_, hasSetName := isMaster["setName"]
+	msg, hasMsg := isMaster["msg"]
+	isSharded := hasMsg && msg == "isdbgrid"
+
+	if !hasSetName && !isSharded {
+		return fmt.Errorf("mongodb change streams require a replica set or sharded cluster. Current deployment is a standalone instance")
+	}
+
+	return nil
+}
+
 func (m *MongoDBSource) Ping(ctx context.Context) error {
 	m.mu.Lock()
 	client := m.client

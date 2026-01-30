@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -9,7 +10,15 @@ import (
 )
 
 func TestMySQLSource_Read(t *testing.T) {
-	s := NewMySQLSource("root:password@tcp(localhost:3306)/inventory", true)
+	if os.Getenv("HERMOD_INTEGRATION") != "1" {
+		t.Skip("skipping integration test; set HERMOD_INTEGRRATION=1 to run")
+	}
+	dsn := os.Getenv("MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("integration test: set MYSQL_DSN to run")
+	}
+
+	s := NewMySQLSource(dsn, true)
 	defer s.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

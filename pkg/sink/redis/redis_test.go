@@ -1,7 +1,11 @@
+//go:build integration
+// +build integration
+
 package redis
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/user/hermod"
@@ -9,7 +13,21 @@ import (
 )
 
 func TestRedisSink_Write(t *testing.T) {
-	snk, err := NewRedisSink("localhost:6379", "", "cdc-stream", nil)
+	if os.Getenv("HERMOD_INTEGRATION") != "1" {
+		t.Skip("skipping integration test; set HERMOD_INTEGRATION=1 to run")
+	}
+	addr := os.Getenv("REDIS_ADDR")
+	if addr == "" {
+		t.Skip("integration test: set REDIS_ADDR to run")
+	}
+
+	password := os.Getenv("REDIS_PASSWORD")
+	stream := os.Getenv("REDIS_STREAM")
+	if stream == "" {
+		stream = "cdc-stream"
+	}
+
+	snk, err := NewRedisSink(addr, password, stream, nil)
 	if err != nil {
 		t.Fatalf("failed to create RedisSink: %v", err)
 	}

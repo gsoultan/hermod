@@ -5,7 +5,7 @@ import { apiFetch } from '../api'
 import { useNavigate } from '@tanstack/react-router'
 
 function Sparkline({ data, height = 30, color = 'blue' }: { data: number[], height?: number, color?: string }) {
-  if (!data || data.length === 0) return null;
+  if (!Array.isArray(data) || data.length === 0) return null;
   const max = Math.max(...data, 1);
   const width = data.length * 10;
   const points = data.map((v, i) => `${i === 0 ? '' : 'L'} ${i * 10} ${height - (v / (max || 1)) * height}`).join(' ');
@@ -30,7 +30,8 @@ export function DashboardPage() {
     active_sources: 0,
     active_sinks: 0,
     active_workflows: 0,
-    total_processed: 0
+    total_processed: 0,
+    total_lag: 0
   })
 
   const [recentLogs, setRecentLogs] = useState<any[]>([])
@@ -160,6 +161,22 @@ export function DashboardPage() {
             </Group>
             <Box mt="sm" h={30}>
               <Sparkline data={mpsHistory} color="cyan" />
+            </Box>
+          </Paper>
+
+          <Paper p="xl" radius="md" withBorder>
+            <Group justify="space-between">
+              <Text size="xs" c="dimmed" fw={700} tt="uppercase">System Lag</Text>
+              <ThemeIcon color="red" variant="light" size="lg" radius="md"><IconActivity size="1.2rem" /></ThemeIcon>
+            </Group>
+            <Group align="flex-end" gap="xs">
+              <Text fw={800} size="32px" mt="md">{formatNumber(stats.total_lag || 0)}</Text>
+              <Text size="xs" c="dimmed" mb="xs">events</Text>
+            </Group>
+            <Box mt="xs">
+               <Badge color={stats.total_lag > 1000 ? 'red' : 'green'} variant="dot" size="xs">
+                 {stats.total_lag > 1000 ? 'High Latency' : 'Real-time'}
+               </Badge>
             </Box>
           </Paper>
         </SimpleGrid>

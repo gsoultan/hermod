@@ -22,3 +22,5 @@
 /main.exe
 /package-lock.json
 /test_output.txt
+/internal/api/static/*
+!/internal/api/static/.gitkeep

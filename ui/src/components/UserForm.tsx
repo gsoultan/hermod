@@ -36,12 +36,17 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
     if (initialData) {
       setUser({
         ...initialData,
+        username: initialData.username || '',
+        full_name: initialData.full_name || '',
+        email: initialData.email || '',
+        role: initialData.role || 'Viewer',
+        vhosts: initialData.vhosts || [],
         password: '', // Don't populate password field
       });
     }
   }, [initialData]);
 
-  const { data: vhosts } = useSuspenseQuery<any[]>({
+  const { data: vhostsResponse } = useSuspenseQuery<any>({
     queryKey: ['vhosts'],
     queryFn: async () => {
       const res = await apiFetch('/api/vhosts');
@@ -49,6 +54,8 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
       return res.json();
     }
   });
+
+  const vhosts = Array.isArray(vhostsResponse?.data) ? vhostsResponse.data : [];
 
   const submitMutation = useMutation({
     mutationFn: async (userData: User) => {
@@ -76,13 +83,14 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
         value={user.username}
         onChange={(e) => setUser({ ...user, username: e.currentTarget.value })}
       />
-      <PasswordInput
-        label="Password"
-        required={!isEditing}
-        placeholder={isEditing ? "Leave blank to keep current" : ""}
-        value={user.password}
-        onChange={(e) => setUser({ ...user, password: e.currentTarget.value })}
-      />
+      {!isEditing && (
+        <PasswordInput
+          label="Password"
+          required
+          value={user.password}
+          onChange={(e) => setUser({ ...user, password: e.currentTarget.value })}
+        />
+      )}
       <TextInput
         label="Full Name"
         value={user.full_name}
@@ -102,7 +110,7 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
       <MultiSelect
         label="Assigned VHosts"
         placeholder="Pick vhosts"
-        data={vhosts?.map(v => v.name) || []}
+        data={vhosts?.map((v: { name: string }) => v.name) || []}
         value={user.vhosts}
         maxValues={user.role === 'Administrator' ? undefined : 1}
         onChange={(value) => setUser({ ...user, vhosts: value })}

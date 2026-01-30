@@ -9,12 +9,17 @@ import (
 
 type StdoutSink struct {
 	formatter hermod.Formatter
+	logger    hermod.Logger
 }
 
 func NewStdoutSink(formatter hermod.Formatter) *StdoutSink {
 	return &StdoutSink{
 		formatter: formatter,
 	}
+}
+
+func (s *StdoutSink) SetLogger(l hermod.Logger) {
+	s.logger = l
 }
 
 func (s *StdoutSink) Write(ctx context.Context, msg hermod.Message) error {
@@ -34,7 +39,12 @@ func (s *StdoutSink) Write(ctx context.Context, msg hermod.Message) error {
 		return fmt.Errorf("failed to format message: %w", err)
 	}
 
-	fmt.Println(string(data))
+	output := string(data)
+	fmt.Println(output)
+
+	if s.logger != nil {
+		s.logger.Info(output)
+	}
 	return nil
 }
 

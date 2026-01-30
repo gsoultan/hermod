@@ -29,6 +29,49 @@ type NotificationSettings struct {
 	SlackWebhook   string `json:"slack_webhook"`
 	DiscordWebhook string `json:"discord_webhook"`
 	WebhookURL     string `json:"webhook_url"`
+	BaseURL        string `json:"base_url"`
+}
+
+type TestResult struct {
+	Channel string `json:"channel"`
+	Status  string `json:"status"` // ok | skipped | error
+	Error   string `json:"error,omitempty"`
+}
+
+func (ns NotificationSettings) Test(ctx context.Context) []TestResult {
+	wf := storage.Workflow{ID: "test", Name: "Test Notification"}
+	results := make([]TestResult, 0, 5)
+
+	// Helper to execute and capture result
+	exec := func(ch string, enabled bool, send func() error) {
+		if !enabled {
+			results = append(results, TestResult{Channel: ch, Status: "skipped"})
+			return
+		}
+		if err := send(); err != nil {
+			results = append(results, TestResult{Channel: ch, Status: "error", Error: err.Error()})
+		} else {
+			results = append(results, TestResult{Channel: ch, Status: "ok"})
+		}
+	}
+
+	exec("email", ns.SMTPHost != "" && ns.DefaultEmail != "", func() error {
+		return ns.SendEmail(ctx, "Hermod Test", "This is a test notification.", wf)
+	})
+	exec("slack", ns.SlackWebhook != "", func() error {
+		return ns.SendSlack(ctx, "Hermod Test", "This is a test notification.", wf)
+	})
+	exec("discord", ns.DiscordWebhook != "", func() error {
+		return ns.SendDiscord(ctx, "Hermod Test", "This is a test notification.", wf)
+	})
+	exec("webhook", ns.WebhookURL != "", func() error {
+		return ns.SendGenericWebhook(ctx, "Hermod Test", "This is a test notification.", wf)
+	})
+	exec("telegram", ns.TelegramToken != "" && ns.TelegramChatID != "", func() error {
+		return ns.SendTelegram(ctx, "Hermod Test", "This is a test notification.", wf)
+	})
+
+	return results
 }
 
 type Provider interface {
@@ -117,17 +160,26 @@ func (p *EmailNotificationProvider) Send(ctx context.Context, title, message str
 		return err
 	}
 
-	if settings.SMTPHost == "" || settings.DefaultEmail == "" {
+	return settings.SendEmail(ctx, title, message, wf)
+}
+
+func (ns NotificationSettings) SendEmail(ctx context.Context, title, message string, wf storage.Workflow) error {
+	if ns.SMTPHost == "" || ns.DefaultEmail == "" {
 		return nil
 	}
 
-	sender := smtp.NewSender(settings.SMTPHost, settings.SMTPPort, settings.SMTPUser, settings.SMTPPassword, settings.SMTPSSL)
+	sender := smtp.NewSender(ns.SMTPHost, ns.SMTPPort, ns.SMTPUser, ns.SMTPPassword, ns.SMTPSSL)
+
+	body := fmt.Sprintf("%s\n\nWorkflow: %s (%s)", message, wf.Name, wf.ID)
+	if ns.BaseURL != "" {
+		body += fmt.Sprintf("\nDetails: %s/workflows/%s", ns.BaseURL, wf.ID)
+	}
 
 	email := gsmail.Email{
-		From:    settings.SMTPFrom,
-		To:      []string{settings.DefaultEmail},
+		From:    ns.SMTPFrom,
+		To:      []string{ns.DefaultEmail},
 		Subject: title,
-		Body:    []byte(fmt.Sprintf("%s\n\nWorkflow: %s (%s)", message, wf.Name, wf.ID)),
+		Body:    []byte(body),
 	}
 
 	return sender.Send(ctx, email)
@@ -156,14 +208,23 @@ func (p *TelegramNotificationProvider) Send(ctx context.Context, title, message 
 		return err
 	}
 
-	if settings.TelegramToken == "" || settings.TelegramChatID == "" {
+	return settings.SendTelegram(ctx, title, message, wf)
+}
+
+func (ns NotificationSettings) SendTelegram(ctx context.Context, title, message string, wf storage.Workflow) error {
+	if ns.TelegramToken == "" || ns.TelegramChatID == "" {
 		return nil
 	}
 
-	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", settings.TelegramToken)
+	text := fmt.Sprintf("*%s*\n%s\nWorkflow: %s", title, message, wf.Name)
+	if ns.BaseURL != "" {
+		text += fmt.Sprintf("\n[View Details](%s/workflows/%s)", ns.BaseURL, wf.ID)
+	}
+
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", ns.TelegramToken)
 	body, _ := json.Marshal(map[string]string{
-		"chat_id":    settings.TelegramChatID,
-		"text":       fmt.Sprintf("*%s*\n%s\nWorkflow: %s", title, message, wf.Name),
+		"chat_id":    ns.TelegramChatID,
+		"text":       text,
 		"parse_mode": "Markdown",
 	})
 
@@ -211,12 +272,21 @@ func (p *SlackNotificationProvider) Send(ctx context.Context, title, message str
 		return err
 	}
 
-	if settings.SlackWebhook == "" {
+	return settings.SendSlack(ctx, title, message, wf)
+}
+
+func (ns NotificationSettings) SendSlack(ctx context.Context, title, message string, wf storage.Workflow) error {
+	if ns.SlackWebhook == "" {
 		return nil
 	}
 
+	text := fmt.Sprintf("*%s*\n%s\nWorkflow: %s", title, message, wf.Name)
+	if ns.BaseURL != "" {
+		text += fmt.Sprintf("\n<%s/workflows/%s|View Details>", ns.BaseURL, wf.ID)
+	}
+
 	body, _ := json.Marshal(map[string]interface{}{
-		"text": fmt.Sprintf("*%s*\n%s\nWorkflow: %s", title, message, wf.Name),
+		"text": text,
 		"attachments": []map[string]interface{}{
 			{
 				"color": "#ff0000",
@@ -229,7 +299,7 @@ func (p *SlackNotificationProvider) Send(ctx context.Context, title, message str
 		},
 	})
 
-	req, err := http.NewRequestWithContext(ctx, "POST", settings.SlackWebhook, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", ns.SlackWebhook, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -271,12 +341,21 @@ func (p *DiscordNotificationProvider) Send(ctx context.Context, title, message s
 		return err
 	}
 
-	if settings.DiscordWebhook == "" {
+	return settings.SendDiscord(ctx, title, message, wf)
+}
+
+func (ns NotificationSettings) SendDiscord(ctx context.Context, title, message string, wf storage.Workflow) error {
+	if ns.DiscordWebhook == "" {
 		return nil
 	}
 
+	content := fmt.Sprintf("**%s**\n%s\nWorkflow: %s", title, message, wf.Name)
+	if ns.BaseURL != "" {
+		content += fmt.Sprintf("\n[View Details](%s/workflows/%s)", ns.BaseURL, wf.ID)
+	}
+
 	body, _ := json.Marshal(map[string]interface{}{
-		"content": fmt.Sprintf("**%s**\n%s\nWorkflow: %s", title, message, wf.Name),
+		"content": content,
 		"embeds": []map[string]interface{}{
 			{
 				"title":       title,
@@ -290,7 +369,7 @@ func (p *DiscordNotificationProvider) Send(ctx context.Context, title, message s
 		},
 	})
 
-	req, err := http.NewRequestWithContext(ctx, "POST", settings.DiscordWebhook, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", ns.DiscordWebhook, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -332,19 +411,29 @@ func (p *GenericWebhookProvider) Send(ctx context.Context, title, message string
 		return err
 	}
 
-	if settings.WebhookURL == "" {
+	return settings.SendGenericWebhook(ctx, title, message, wf)
+}
+
+func (ns NotificationSettings) SendGenericWebhook(ctx context.Context, title, message string, wf storage.Workflow) error {
+	if ns.WebhookURL == "" {
 		return nil
 	}
 
-	body, _ := json.Marshal(map[string]interface{}{
+	data := map[string]interface{}{
 		"title":       title,
 		"message":     message,
 		"workflow_id": wf.ID,
 		"name":        wf.Name,
 		"timestamp":   time.Now().Format(time.RFC3339),
-	})
+	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", settings.WebhookURL, bytes.NewBuffer(body))
+	if ns.BaseURL != "" {
+		data["details_url"] = fmt.Sprintf("%s/workflows/%s", ns.BaseURL, wf.ID)
+	}
+
+	body, _ := json.Marshal(data)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", ns.WebhookURL, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}

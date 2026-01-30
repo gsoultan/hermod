@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, Modal, List, ThemeIcon, TextInput, Pagination } from '@mantine/core';
 import { IconTrash, IconPlus, IconDatabaseImport, IconEdit, IconAlertCircle, IconSearch, IconActivity } from '@tabler/icons-react';
-import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, getRoleFromToken } from '../api';
 import { useVHost } from '../context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
@@ -43,28 +43,34 @@ export function SourcesPage() {
     return () => ws.close();
   }, []);
 
-  const { data: sourcesResponse } = useSuspenseQuery({
+  const { data: sourcesResponse } = useQuery({
     queryKey: ['sources', activePage, search, selectedVHost],
     queryFn: async () => {
       const vhostParam = selectedVHost !== 'all' ? `&vhost=${selectedVHost}` : '';
-      const res = await apiFetch(`${API_BASE}/sources?page=${activePage}&limit=${itemsPerPage}&search=${search}${vhostParam}`);
+      const res = await apiFetch(`${API_BASE}/sources?page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(search)}${vhostParam}`);
       if (!res.ok) throw new Error('Failed to fetch sources');
       return res.json();
     },
-    refetchInterval: 5000,
+    // Avoid aggressive background refetching to reduce backend pressure
+    staleTime: 30_000,
+    refetchInterval: false,
   });
 
   const sources = (sourcesResponse as any)?.data || [];
   const totalItems = (sourcesResponse as any)?.total || 0;
 
-  const { data: workflowsResponse } = useSuspenseQuery({
-    queryKey: ['workflows-all'],
+  // Fetch workflows only when needed (e.g., when confirming deletion)
+  const { data: workflowsResponse } = useQuery({
+    queryKey: ['workflows-for-delete', selectedVHost],
+    enabled: !!sourceToDelete,
     queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/workflows?limit=1000`);
+      const vhostParam = selectedVHost && selectedVHost !== 'all' ? `&vhost=${selectedVHost}` : '';
+      const res = await apiFetch(`${API_BASE}/workflows?limit=200${vhostParam}`);
       if (res.ok) return res.json();
-      return { data: [], total: 0 };
+      return { data: [], total: 0 } as any;
     },
-    refetchInterval: 5000,
+    staleTime: 60_000,
+    refetchInterval: false,
   });
   const workflows = (workflowsResponse as any)?.data || [];
 
@@ -72,13 +78,17 @@ export function SourcesPage() {
     ? (workflows as any[])?.filter(wf => wf.nodes?.some((n: any) => n.type === 'source' && n.ref_id === sourceToDelete.id) && wf.active)
     : [];
 
-  const { data: workersResponse } = useSuspenseQuery({
-    queryKey: ['workers-all'],
+  // Workers list can be large; only fetch when necessary (e.g., to render names)
+  const { data: workersResponse } = useQuery({
+    queryKey: ['workers-lite'],
+    enabled: true,
     queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/workers?limit=1000`);
+      const res = await apiFetch(`${API_BASE}/workers?limit=200`);
       if (res.ok) return res.json();
-      return { data: [], total: 0 };
-    }
+      return { data: [], total: 0 } as any;
+    },
+    staleTime: 60_000,
+    refetchInterval: false,
   });
   const workers = (workersResponse as any)?.data || [];
 
@@ -163,7 +173,7 @@ export function SourcesPage() {
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {sources?.map((src: any) => (
+            {(Array.isArray(sources) ? sources : []).map((src: any) => (
               <Table.Tr key={src.id}>
                 <Table.Td fw={500}>{src.name}</Table.Td>
                 <Table.Td>

@@ -21,18 +21,29 @@ func BuildUI() error {
 	uiDir := filepath.Join(cwd, "ui")
 	staticDir := filepath.Join(cwd, "internal", "api", "static")
 
-	// 2. npm install in ui directory
-	if err := runCommand(uiDir, "npm", "install"); err != nil {
-		return fmt.Errorf("npm install failed: %w", err)
+	// 2. Ensure Bun is installed and use it
+	if err := ensureBun(); err != nil {
+		return fmt.Errorf("bun preparation failed: %w", err)
 	}
 
-	// 3. npm run build in ui directory
-	if err := runCommand(uiDir, "npm", "run", "build"); err != nil {
-		return fmt.Errorf("npm run build failed: %w", err)
+	// 3. bun install in ui directory
+	fmt.Println("Running 'bun install' in ui directory...")
+	if err := runCommand(uiDir, "bun", "install"); err != nil {
+		return fmt.Errorf("bun install failed: %w", err)
 	}
 
-	// 4. Copy ui/dist/* to internal/api/static/
+	// 4. bun run build in ui directory
+	fmt.Println("Running 'bun run build' in ui directory...")
+	if err := runCommand(uiDir, "bun", "run", "build"); err != nil {
+		return fmt.Errorf("bun run build failed: %w", err)
+	}
+
+	// 5. Copy ui/dist/* to internal/api/static/
 	distDir := filepath.Join(uiDir, "dist")
+	if _, err := os.Stat(distDir); os.IsNotExist(err) {
+		return fmt.Errorf("build succeeded but dist directory not found at %s", distDir)
+	}
+	fmt.Printf("Copying assets from %s to %s...\n", distDir, staticDir)
 
 	// Create static directory if it doesn't exist
 	if err := os.MkdirAll(staticDir, 0755); err != nil {
@@ -43,11 +54,19 @@ func BuildUI() error {
 	files, err := os.ReadDir(staticDir)
 	if err == nil {
 		for _, f := range files {
+			if f.Name() == ".gitkeep" {
+				continue
+			}
 			os.RemoveAll(filepath.Join(staticDir, f.Name()))
 		}
 	}
 
-	return copyDir(distDir, staticDir)
+	if err := copyDir(distDir, staticDir); err != nil {
+		return fmt.Errorf("failed to copy assets: %w", err)
+	}
+
+	fmt.Println("UI built successfully.")
+	return nil
 }
 
 // IsUIBuilt checks if the UI assets have been built and copied to the static directory.
@@ -63,9 +82,23 @@ func IsUIBuilt() bool {
 
 func runCommand(dir string, name string, args ...string) error {
 	cmdName := name
-	if runtime.GOOS == "windows" {
-		// On Windows, npm is a cmd/ps1 script
+	if name == "npm" && runtime.GOOS == "windows" {
 		cmdName = "npm.cmd"
+	} else if name == "bun" {
+		// Check if bun is in PATH
+		if _, err := exec.LookPath("bun"); err != nil {
+			// Try common install location
+			home, _ := os.UserHomeDir()
+			var bunPath string
+			if runtime.GOOS == "windows" {
+				bunPath = filepath.Join(home, ".bun", "bin", "bun.exe")
+			} else {
+				bunPath = filepath.Join(home, ".bun", "bin", "bun")
+			}
+			if _, err := os.Stat(bunPath); err == nil {
+				cmdName = bunPath
+			}
+		}
 	}
 
 	cmd := exec.Command(cmdName, args...)
@@ -73,6 +106,41 @@ func runCommand(dir string, name string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func ensureBun() error {
+	_, err := exec.LookPath("bun")
+	if err == nil {
+		return nil
+	}
+
+	// Try common install location before installing
+	home, _ := os.UserHomeDir()
+	var bunPath string
+	if runtime.GOOS == "windows" {
+		bunPath = filepath.Join(home, ".bun", "bin", "bun.exe")
+	} else {
+		bunPath = filepath.Join(home, ".bun", "bin", "bun")
+	}
+	if _, err := os.Stat(bunPath); err == nil {
+		return nil
+	}
+
+	fmt.Println("Bun not found. Installing Bun...")
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("powershell", "-Command", "irm https://bun.sh/install.ps1 | iex")
+	} else {
+		cmd = exec.Command("sh", "-c", "curl -fsSL https://bun.sh/install | bash")
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to install Bun: %w", err)
+	}
+
+	return nil
 }
 
 func copyDir(src, dst string) error {

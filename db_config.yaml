@@ -1,3 +1,0 @@
-type: sqlite
-conn: hermod.db
-jwt_secret: add08d41-63af-4efe-8bc9-b898a6237748

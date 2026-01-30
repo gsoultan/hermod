@@ -72,6 +72,11 @@ type Sampler interface {
 	Sample(ctx context.Context, table string) (Message, error)
 }
 
+// Browser defines an optional interface for browsing multiple records from a table.
+type Browser interface {
+	Browse(ctx context.Context, table string, limit int) ([]Message, error)
+}
+
 // Sink defines the interface for writing data to a message stream provider.
 type Sink interface {
 	Write(ctx context.Context, msg Message) error
@@ -83,6 +88,22 @@ type Sink interface {
 type BatchSink interface {
 	Sink
 	WriteBatch(ctx context.Context, msgs []Message) error
+}
+
+// IdempotencyReporter is an optional interface for sinks to report whether the
+// last successful Write/WriteBatch resulted in a deduplicated (skipped) write
+// and/or a payload conflict. Engines can use this to emit standardized metrics.
+type IdempotencyReporter interface {
+	// LastWriteIdempotent returns true when the latest write was treated as a
+	// duplicate (no-op), and true for conflict when a key collision with a
+	// differing payload was detected (when supported by the sink).
+	LastWriteIdempotent() (dedup bool, conflict bool)
+}
+
+// ValidatingSink is an optional interface for sinks that support pre-write validation.
+type ValidatingSink interface {
+	Sink
+	Validate(ctx context.Context, msg Message) error
 }
 
 // Formatter defines the interface for formatting messages before they are written to a sink.
@@ -102,6 +123,19 @@ type Logger interface {
 type Loggable interface {
 	SetLogger(Logger)
 }
+
+// StateStore defines an interface for persistent key-value storage used by transformers.
+type StateStore interface {
+	Get(ctx context.Context, key string) ([]byte, error)
+	Set(ctx context.Context, key string, value []byte) error
+	Delete(ctx context.Context, key string) error
+}
+
+type contextKey string
+
+const (
+	StateStoreKey contextKey = "stateStore"
+)
 
 // Handler is a function type for processing received messages.
 type Handler func(ctx context.Context, msg Message) error

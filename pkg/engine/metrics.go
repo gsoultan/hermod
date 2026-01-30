@@ -58,6 +58,26 @@ var (
 		Help: "The total number of worker sync errors",
 	}, []string{"worker_id"})
 
+	WorkerLeasesOwned = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "hermod_worker_leases_owned_total",
+		Help: "The number of workflow leases currently owned by the worker",
+	}, []string{"worker_id"})
+
+	LeaseAcquireTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_lease_acquire_total",
+		Help: "Number of workflow leases successfully acquired",
+	}, []string{"worker_id"})
+
+	LeaseStealTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_lease_steal_total",
+		Help: "Number of workflow leases stolen after TTL expiry",
+	}, []string{"worker_id"})
+
+	LeaseRenewErrorsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_lease_renew_errors_total",
+		Help: "Number of errors while renewing workflow leases",
+	}, []string{"worker_id"})
+
 	WorkflowNodeProcessed = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "hermod_workflow_node_processed_total",
 		Help: "The total number of messages processed by a workflow node",
@@ -67,4 +87,46 @@ var (
 		Name: "hermod_workflow_node_errors_total",
 		Help: "The total number of errors in a workflow node",
 	}, []string{"workflow_id", "node_id", "node_type"})
+
+	PostgresSlotLag = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "hermod_postgres_slot_lag_bytes",
+		Help: "The replication lag in bytes for a Postgres slot",
+	}, []string{"workflow_id", "slot_name"})
+
+	// Idempotency metrics
+	IdempotencyKeysTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_idempotency_keys_total",
+		Help: "Total messages observed with an idempotency key",
+	}, []string{"workflow_id"})
+
+	IdempotencyMissingTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_idempotency_missing_total",
+		Help: "Total messages missing an idempotency key",
+	}, []string{"workflow_id"})
+
+	IdempotencyDedupTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_idempotency_dedup_total",
+		Help: "Total duplicate messages detected and skipped at sinks",
+	}, []string{"workflow_id", "sink_id"})
+
+	IdempotencyConflictsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_idempotency_conflicts_total",
+		Help: "Total idempotency conflicts (e.g., key collision with differing payloads)",
+	}, []string{"workflow_id", "sink_id"})
+
+	IdempotencyLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "hermod_idempotency_latency_seconds",
+		Help:    "Latency added by idempotency checks per sink write",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"workflow_id", "sink_id"})
+
+	BackpressureDropTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_engine_backpressure_drop_total",
+		Help: "Total messages dropped due to backpressure strategies",
+	}, []string{"workflow_id", "sink_id", "strategy"})
+
+	BackpressureSpillTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_engine_backpressure_spill_total",
+		Help: "Total messages spilled to disk due to backpressure",
+	}, []string{"workflow_id", "sink_id"})
 )

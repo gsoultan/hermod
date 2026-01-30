@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/compression"
 )
 
 type HttpSink struct {
@@ -15,6 +16,7 @@ type HttpSink struct {
 	formatter  hermod.Formatter
 	headers    map[string]string
 	pingMethod string
+	compressor compression.Compressor
 }
 
 func NewHttpSink(url string, formatter hermod.Formatter, headers map[string]string) *HttpSink {
@@ -25,6 +27,10 @@ func NewHttpSink(url string, formatter hermod.Formatter, headers map[string]stri
 		headers:    headers,
 		pingMethod: "HEAD",
 	}
+}
+
+func (s *HttpSink) SetCompressor(comp compression.Compressor) {
+	s.compressor = comp
 }
 
 func (s *HttpSink) SetPingMethod(method string) {
@@ -48,9 +54,22 @@ func (s *HttpSink) Write(ctx context.Context, msg hermod.Message) error {
 		return fmt.Errorf("failed to format message: %w", err)
 	}
 
+	encoding := ""
+	if s.compressor != nil && len(data) > 1024 {
+		compressed, err := s.compressor.Compress(data)
+		if err == nil && len(compressed) < len(data) {
+			data = compressed
+			encoding = string(s.compressor.Algorithm())
+		}
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "POST", s.url, bytes.NewBuffer(data))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if encoding != "" {
+		req.Header.Set("Content-Encoding", encoding)
 	}
 
 	for k, v := range s.headers {
@@ -129,9 +148,22 @@ func (s *HttpSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error 
 		payload = buf.Bytes()
 	}
 
+	encoding := ""
+	if s.compressor != nil && len(payload) > 1024 {
+		compressed, err := s.compressor.Compress(payload)
+		if err == nil && len(compressed) < len(payload) {
+			payload = compressed
+			encoding = string(s.compressor.Algorithm())
+		}
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "POST", s.url, bytes.NewBuffer(payload))
 	if err != nil {
 		return fmt.Errorf("failed to create batch request: %w", err)
+	}
+
+	if encoding != "" {
+		req.Header.Set("Content-Encoding", encoding)
 	}
 
 	for k, v := range s.headers {

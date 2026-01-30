@@ -10,6 +10,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/sqlutil"
 )
 
 // MySQLSink implements the hermod.Sink interface for MySQL.
@@ -25,7 +26,11 @@ func NewMySQLSink(connString string) *MySQLSink {
 }
 
 func (s *MySQLSink) Write(ctx context.Context, msg hermod.Message) error {
-	if msg == nil {
+	return s.WriteBatch(ctx, []hermod.Message{msg})
+}
+
+func (s *MySQLSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
+	if len(msgs) == 0 {
 		return nil
 	}
 	if s.db == nil {
@@ -34,39 +39,44 @@ func (s *MySQLSink) Write(ctx context.Context, msg hermod.Message) error {
 		}
 	}
 
-	// More production-ready implementation:
-	// Handle different operations and don't assume a fixed schema.
-	table := msg.Table()
-	if msg.Schema() != "" {
-		table = fmt.Sprintf("%s.%s", msg.Schema(), table)
-	}
-
-	op := msg.Operation()
-	if op == "" {
-		op = hermod.OpCreate
-	}
-
-	switch op {
-	case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
-		return s.upsert(ctx, table, msg)
-	case hermod.OpDelete:
-		query := fmt.Sprintf("DELETE FROM %s WHERE id = ?", table)
-		_, err := s.db.ExecContext(ctx, query, msg.ID())
-		return err
-	default:
-		return fmt.Errorf("unsupported operation: %s", op)
-	}
-}
-
-func (s *MySQLSink) upsert(ctx context.Context, table string, msg hermod.Message) error {
-	// For a truly generic sink, we would need to parse the JSON and build the query.
-	// As a compromise for production readiness without a full ORM, we'll assume 'id' exists.
-	query := fmt.Sprintf("INSERT INTO %s (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data)", table)
-	_, err := s.db.ExecContext(ctx, query, msg.ID(), msg.Payload())
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to write to mysql: %w", err)
+		return fmt.Errorf("failed to begin mysql transaction: %w", err)
 	}
-	return nil
+	defer tx.Rollback()
+
+	for _, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+
+		table := msg.Table()
+		if msg.Schema() != "" {
+			table = fmt.Sprintf("%s.%s", msg.Schema(), table)
+		}
+
+		op := msg.Operation()
+		if op == "" {
+			op = hermod.OpCreate
+		}
+
+		switch op {
+		case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
+			query := fmt.Sprintf("INSERT INTO %s (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data)", table)
+			_, err = tx.ExecContext(ctx, query, msg.ID(), msg.Payload())
+		case hermod.OpDelete:
+			query := fmt.Sprintf("DELETE FROM %s WHERE id = ?", table)
+			_, err = tx.ExecContext(ctx, query, msg.ID())
+		default:
+			err = fmt.Errorf("unsupported operation: %s", op)
+		}
+
+		if err != nil {
+			return fmt.Errorf("mysql batch write error on message %s: %w", msg.ID(), err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (s *MySQLSink) init(ctx context.Context) error {
@@ -143,57 +153,72 @@ func (s *MySQLSink) DiscoverTables(ctx context.Context) ([]string, error) {
 }
 
 func (s *MySQLSink) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	msgs, err := s.Browse(ctx, table, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(msgs) == 0 {
+		return nil, fmt.Errorf("no data found in table %s", table)
+	}
+	return msgs[0], nil
+}
+
+func (s *MySQLSink) Browse(ctx context.Context, table string, limit int) ([]hermod.Message, error) {
 	if s.db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
 	}
 
-	query := fmt.Sprintf("SELECT * FROM %s LIMIT 1", table)
+	quoted, err := sqlutil.QuoteIdent("mysql", table)
+	if err != nil {
+		return nil, fmt.Errorf("invalid table name: %w", err)
+	}
+	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d", quoted, limit)
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	if !rows.Next() {
-		return nil, fmt.Errorf("no data found in table %s", table)
-	}
-
-	cols, err := rows.Columns()
-	if err != nil {
-		return nil, err
-	}
-
-	values := make([]interface{}, len(cols))
-	valuePtrs := make([]interface{}, len(cols))
-	for i := range values {
-		valuePtrs[i] = &values[i]
-	}
-
-	if err := rows.Scan(valuePtrs...); err != nil {
-		return nil, err
-	}
-
-	record := make(map[string]interface{})
-	for i, col := range cols {
-		val := values[i]
-		if b, ok := val.([]byte); ok {
-			record[col] = string(b)
-		} else {
-			record[col] = val
+	var msgs []hermod.Message
+	for rows.Next() {
+		cols, err := rows.Columns()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get columns: %w", err)
 		}
+
+		values := make([]interface{}, len(cols))
+		valuePtrs := make([]interface{}, len(cols))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return nil, err
+		}
+
+		record := make(map[string]interface{})
+		for i, col := range cols {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				record[col] = string(b)
+			} else {
+				record[col] = val
+			}
+		}
+
+		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+		msg := message.AcquireMessage()
+		msg.SetID(fmt.Sprintf("sample-%s-%d-%d", table, time.Now().Unix(), len(msgs)))
+		msg.SetOperation(hermod.OpSnapshot)
+		msg.SetTable(table)
+		msg.SetAfter(afterJSON)
+		msg.SetMetadata("source", "mysql_sink")
+		msg.SetMetadata("sample", "true")
+		msgs = append(msgs, msg)
 	}
 
-	afterJSON, _ := json.Marshal(message.SanitizeMap(record))
-
-	msg := message.AcquireMessage()
-	msg.SetID(fmt.Sprintf("sample-%s-%d", table, time.Now().Unix()))
-	msg.SetOperation(hermod.OpSnapshot)
-	msg.SetTable(table)
-	msg.SetAfter(afterJSON)
-	msg.SetMetadata("source", "mysql_sink")
-	msg.SetMetadata("sample", "true")
-
-	return msg, nil
+	return msgs, nil
 }

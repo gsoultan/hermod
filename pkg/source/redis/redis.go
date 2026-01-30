@@ -143,6 +143,45 @@ func (s *RedisSource) Ack(ctx context.Context, msg hermod.Message) error {
 	return client.XAck(ctx, s.stream, s.group, msg.ID()).Err()
 }
 
+func (s *RedisSource) IsReady(ctx context.Context) error {
+	if err := s.Ping(ctx); err != nil {
+		return fmt.Errorf("redis connection failed: %w", err)
+	}
+
+	s.mu.Lock()
+	client := s.client
+	s.mu.Unlock()
+
+	var err error
+	if client == nil {
+		client = redis.NewClient(&redis.Options{
+			Addr:     s.addr,
+			Password: s.password,
+		})
+		defer client.Close()
+	}
+
+	// Check if stream exists
+	exists, err := client.Exists(ctx, s.stream).Result()
+	if err != nil {
+		return fmt.Errorf("failed to check redis stream '%s': %w", s.stream, err)
+	}
+	if exists == 0 {
+		return fmt.Errorf("redis stream '%s' does not exist", s.stream)
+	}
+
+	// Check if it's actually a stream
+	typeInfo, err := client.Type(ctx, s.stream).Result()
+	if err != nil {
+		return fmt.Errorf("failed to check redis key type for '%s': %w", s.stream, err)
+	}
+	if typeInfo != "stream" {
+		return fmt.Errorf("redis key '%s' exists but is not a stream (type is '%s')", s.stream, typeInfo)
+	}
+
+	return nil
+}
+
 func (s *RedisSource) Ping(ctx context.Context) error {
 	s.mu.Lock()
 	client := s.client

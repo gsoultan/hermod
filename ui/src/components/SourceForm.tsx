@@ -1,18 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button, Group, TextInput, Select, Stack, Alert, Divider, Text, Grid, Title, Code, List, Checkbox, TagsInput, ActionIcon, JsonInput, Badge, Loader, Modal, Card, ScrollArea, Switch } from '@mantine/core';
-import { IconCheck, IconInfoCircle, IconRefresh, IconFileImport, IconLink, IconCloud, IconUpload, IconAlertCircle, IconBraces, IconCopy, IconSettings, IconPlayerPlay } from '@tabler/icons-react';
+import { IconCheck, IconInfoCircle, IconRefresh, IconFileImport, IconLink, IconCloud, IconUpload, IconAlertCircle, IconBraces, IconCopy, IconSettings, IconPlayerPlay, IconPlus, IconHistory, IconChevronRight } from '@tabler/icons-react';
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
+import { useForm, useStore } from '@tanstack/react-form';
 import { apiFetch, getRoleFromToken } from '../api';
 import { useVHost } from '../context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
 import { Tabs, FileButton } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { GenerateToken } from './GenerateToken';
 
 const API_BASE = '/api';
 
 const SOURCE_TYPES = [
   'postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'db2', 'mongodb', 'cassandra', 'yugabyte', 'scylladb', 'clickhouse', 'sqlite', 'csv',
-  'kafka', 'nats', 'redis', 'rabbitmq', 'rabbitmq_queue', 'webhook', 'cron'
+  'kafka', 'nats', 'redis', 'rabbitmq', 'rabbitmq_queue', 'webhook', 'form', 'cron', 'googlesheets', 'batch_sql', 'eventstore', 'graphql', 'grpc'
 ];
 
 
@@ -31,26 +33,32 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
   const { availableVHosts } = useVHost();
   const role = getRoleFromToken();
   const [testResult, setTestResult] = useState<{ status: 'ok' | 'error', message: string } | null>(null);
-  const [source, setSource] = useState<any>({ 
-    name: '', 
-    type: 'postgres', 
-    vhost: '',
-    worker_id: '',
-    config: { 
-      connection_string: '',
-      host: '',
-      port: '',
-      user: '',
-      password: '',
-      dbname: '',
-      tables: '',
-      use_cdc: 'true',
-      sslmode: 'disable',
-      slot_name: 'hermod_slot',
-      publication_name: 'hermod_pub',
-      reconnect_intervals: '30s'
+  const form = useForm({
+    defaultValues: {
+      name: initialData?.name || '', 
+      type: initialData?.type || 'postgres', 
+      vhost: (embedded ? vhost : (initialData?.vhost || vhost)) || '', 
+      worker_id: (embedded ? workerID : (initialData?.worker_id || workerID)) || '',
+      config: { 
+        connection_string: '',
+        host: '',
+        port: '',
+        user: '',
+        password: '',
+        dbname: '',
+        tables: '',
+        use_cdc: 'true',
+        sslmode: 'disable',
+        slot_name: 'hermod_slot',
+        publication_name: 'hermod_pub',
+        reconnect_intervals: '30s',
+        ...(initialData?.config || {})
+      },
+      ...(initialData?.id ? { id: initialData.id } : {})
     }
   });
+
+  const source = useStore(form.store, (state) => state.values);
 
   const [discoveredDatabases, setDiscoveredDatabases] = useState<string[]>([]);
   const [discoveredTables, setDiscoveredTables] = useState<string[]>([]);
@@ -63,12 +71,20 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
   const [testInput, setTestInput] = useState<string>('');
   const [selectedSampleTable, setSelectedSampleTable] = useState<string>('');
   const [showSetup, setShowSetup] = useState(false);
+  // Accessibility: IDs for setup modal title/description
+  const setupTitleId = 'source-setup-modal-title';
+  const setupDescId = 'source-setup-modal-desc';
+  // CDC reuse prompt state (PostgreSQL)
+  const [cdcReusePrompt, setCdcReusePrompt] = useState<null | {
+    slot?: { name: string; exists: boolean; active?: boolean; hermod_in_use: boolean };
+    publication?: { name: string; exists: boolean; hermod_in_use: boolean };
+  }>(null);
 
   const isCDC = (type: string) => {
     return ['postgres', 'mysql', 'mssql', 'oracle', 'mongodb', 'cassandra', 'yugabyte', 'scylladb', 'clickhouse', 'sqlite', 'mariadb', 'db2', 'csv'].includes(type);
   };
 
-  const useCDCChecked = source.config.use_cdc !== 'false';
+  const useCDCChecked = source.config?.use_cdc !== 'false';
 
   const fetchSample = async (s: any) => {
     let table = selectedSampleTable;
@@ -155,7 +171,7 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
         ...source, 
         config: { 
           ...source.config, 
-          dbname: dbName || source.config.dbname || source.config.path // SQLite uses path
+          dbname: dbName || source.config?.dbname || source.config?.path // SQLite uses path
         } 
       };
       const res = await apiFetch(`${API_BASE}/sources/discover/tables`, {
@@ -174,23 +190,23 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
     }
   };
 
+  const lastInitialDataId = useRef<string | null>(null);
+
   useEffect(() => {
     if (initialData) {
-      setSource((prev: any) => {
-        // Only update if the ID changed or we are initializing a new source
-        if (prev.id !== initialData.id || (prev.name === '' && !prev.id)) {
-          return {
-            ...prev,
-            ...initialData,
-            config: {
-              ...(prev.config || {}),
-              ...(initialData.config || {}),
-              reconnect_intervals: initialData.config?.reconnect_intervals || initialData.config?.reconnect_interval || prev.config?.reconnect_intervals || '30s',
-            }
-          };
-        }
-        return prev;
-      });
+      if (lastInitialDataId.current !== (initialData.id || 'new')) {
+        const newValues = {
+          ...source,
+          ...initialData,
+          config: {
+            ...(source.config || {}),
+            ...(initialData.config || {}),
+            reconnect_intervals: initialData.config?.reconnect_intervals || initialData.config?.reconnect_interval || source.config?.reconnect_intervals || '30s',
+          }
+        };
+        form.reset(newValues);
+        lastInitialDataId.current = initialData.id || 'new';
+      }
       if (initialData.sample) {
         try {
           setSampleData(JSON.parse(initialData.sample));
@@ -199,14 +215,18 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
         }
       }
     }
-  }, [initialData]);
+  }, [initialData, form]);
 
   useEffect(() => {
     if (embedded) {
-      if (vhost) setSource((prev: any) => ({ ...prev, vhost }));
-      if (workerID) setSource((prev: any) => ({ ...prev, worker_id: workerID }));
+      if (vhost && form.getFieldValue('vhost') !== vhost) {
+        form.setFieldValue('vhost', vhost);
+      }
+      if (workerID && form.getFieldValue('worker_id') !== workerID) {
+        form.setFieldValue('worker_id', workerID);
+      }
     }
-  }, [embedded, vhost, workerID]);
+  }, [embedded, vhost, workerID, form]);
 
   const { data: vhostsResponse } = useSuspenseQuery<any>({
     queryKey: ['vhosts'],
@@ -226,8 +246,18 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
     }
   });
 
-  const vhosts = vhostsResponse?.data || [];
-  const workers = workersResponse?.data || [];
+  const { data: sourcesResponse } = useSuspenseQuery<any>({
+    queryKey: ['sources'],
+    queryFn: async () => {
+      const res = await apiFetch(`${API_BASE}/sources`);
+      if (res.ok) return res.json();
+      return { data: [], total: 0 };
+    }
+  });
+
+  const vhosts = Array.isArray(vhostsResponse?.data) ? vhostsResponse.data : [];
+  const workers = Array.isArray(workersResponse?.data) ? workersResponse.data : [];
+  const allSources = Array.isArray(sourcesResponse?.data) ? sourcesResponse.data : [];
 
   const availableVHostsList = role === 'Administrator' 
     ? (vhosts || []).map((v: any) => v.name)
@@ -249,7 +279,12 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
       setTestResult({ status: 'ok', message: 'Connection successful!' });
       fetchSample(variables);
     },
-    onError: () => {
+    onError: (e: any) => {
+      const data = e?.data;
+      if (e?.status === 409 && data?.code === 'CDC_REUSE_PROMPT') {
+        setCdcReusePrompt({ slot: data.slot, publication: data.publication });
+        return;
+      }
       setTestResult(null); // apiFetch handles notification
       setSampleData(null);
     }
@@ -286,7 +321,9 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
 
   const handleSourceChange = (updates: any) => {
     const typeChanged = updates.type && updates.type !== source.type;
-    setSource({ ...source, ...updates });
+    Object.entries(updates).forEach(([key, value]) => {
+      form.setFieldValue(key as any, value);
+    });
     setTestResult(null);
     setSampleData(null);
     if (typeChanged) {
@@ -296,10 +333,7 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
   };
 
   const updateConfig = (key: string, value: string) => {
-    setSource({
-      ...source,
-      config: { ...source.config, [key]: value }
-    });
+    form.setFieldValue(`config.${key}` as any, value);
     setTestResult(null);
     setSampleData(null);
   };
@@ -330,7 +364,7 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
           searchable
           onSearchChange={(val) => updateConfig('dbname', val)}
         />
-        <ActionIcon variant="light" size="lg" onClick={() => fetchDatabases()} loading={isFetchingDBs} title="Fetch Databases">
+        <ActionIcon aria-label="Discover databases" variant="light" size="lg" onClick={() => fetchDatabases()} loading={isFetchingDBs} title="Fetch Databases">
           <IconRefresh size="1.2rem" />
         </ActionIcon>
       </Group>
@@ -347,17 +381,33 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
           onChange={(val) => updateConfig('tables', val.join(', '))} 
           clearable
         />
-        <ActionIcon variant="light" size="lg" onClick={() => fetchTables()} loading={isFetchingTables} disabled={!source.config.dbname && source.type !== 'sqlite'} title="Fetch Tables">
+        <ActionIcon aria-label="Refresh tables" variant="light" size="lg" onClick={() => fetchTables()} loading={isFetchingTables} disabled={!source.config.dbname && source.type !== 'sqlite'} title="Fetch Tables">
           <IconRefresh size="1.2rem" />
         </ActionIcon>
       </Group>
     );
 
-    const isDatabase = ['postgres', 'mysql', 'mssql', 'oracle', 'mongodb', 'yugabyte', 'mariadb', 'db2', 'cassandra', 'scylladb', 'clickhouse', 'sqlite'].includes(source.type);
+    const isDatabase = ['postgres', 'mysql', 'mssql', 'oracle', 'mongodb', 'yugabyte', 'mariadb', 'db2', 'cassandra', 'scylladb', 'clickhouse', 'sqlite', 'eventstore'].includes(source.type);
 
     const commonFields = (
       <>
-        {isDatabase && cdcSwitch}
+        {isDatabase && source.type !== 'eventstore' && cdcSwitch}
+        {source.type === 'eventstore' && (
+          <Select
+            label="Driver"
+            placeholder="Select database driver"
+            data={[
+              { value: 'postgres', label: 'PostgreSQL' },
+              { value: 'mysql', label: 'MySQL' },
+              { value: 'sqlite', label: 'SQLite' },
+              { value: 'sqlserver', label: 'SQL Server' },
+            ]}
+            value={source.config.driver}
+            onChange={(val) => updateConfig('driver', val || '')}
+            required
+            mb="md"
+          />
+        )}
         <Group grow>
           <TextInput label="Host" placeholder="localhost" value={source.config.host} onChange={(e) => updateConfig('host', e.target.value)} />
           <TextInput label="Port" placeholder="5432" value={source.config.port} onChange={(e) => updateConfig('port', e.target.value)} />
@@ -367,7 +417,28 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
           <TextInput label="Password" type="password" placeholder="password" value={source.config.password} onChange={(e) => updateConfig('password', e.target.value)} />
         </Group>
         {databaseInput}
-        {tablesInput}
+        {source.type === 'eventstore' ? (
+          <>
+            <TextInput 
+              label="From Offset" 
+              placeholder="0" 
+              value={source.config.from_offset} 
+              onChange={(e) => updateConfig('from_offset', e.target.value)} 
+            />
+            <TextInput 
+              label="Stream ID Filter" 
+              placeholder="Leave empty for all streams" 
+              value={source.config.stream_id} 
+              onChange={(e) => updateConfig('stream_id', e.target.value)} 
+            />
+            <TextInput 
+              label="Poll Interval" 
+              placeholder="1s" 
+              value={source.config.poll_interval} 
+              onChange={(e) => updateConfig('poll_interval', e.target.value)} 
+            />
+          </>
+        ) : (source.type !== 'eventstore' && tablesInput)}
       </>
     );
 
@@ -381,6 +452,89 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
       );
     }
 
+    if (source.type === 'googlesheets') {
+      return (
+        <>
+          <TextInput 
+            label="Spreadsheet ID" 
+            placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms" 
+            value={source.config.spreadsheet_id} 
+            onChange={(e) => updateConfig('spreadsheet_id', e.target.value)} 
+            required 
+          />
+          <TextInput 
+            label="Range" 
+            placeholder="Sheet1!A1:Z" 
+            value={source.config.range} 
+            onChange={(e) => updateConfig('range', e.target.value)} 
+            required 
+          />
+          <JsonInput
+            label="Credentials JSON"
+            placeholder='{ "type": "service_account", ... }'
+            value={source.config.credentials_json}
+            onChange={(val: string) => updateConfig('credentials_json', val)}
+            required
+            minRows={5}
+            formatOnBlur
+          />
+          <TextInput 
+            label="Poll Interval" 
+            placeholder="1m" 
+            value={source.config.poll_interval} 
+            onChange={(e) => updateConfig('poll_interval', e.target.value)} 
+          />
+        </>
+      );
+    }
+
+    if (source.type === 'batch_sql') {
+      return (
+        <>
+          <Select 
+            label="Database Source" 
+            placeholder="Select source to run queries against"
+            data={allSources
+              .filter((s: any) => ['postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'sqlite', 'clickhouse'].includes(s.type))
+              .map((s: any) => ({ value: s.id, label: `${s.name} (${s.type})` }))}
+            value={source.config.source_id}
+            onChange={(val) => updateConfig('source_id', val || '')}
+            required
+            mb="md"
+          />
+          <TextInput 
+            label="Cron Schedule" 
+            placeholder="*/5 * * * *" 
+            value={source.config.cron} 
+            onChange={(e) => updateConfig('cron', e.target.value)} 
+            required
+            description="Standard cron expression (e.g. */5 * * * * for every 5 minutes)"
+            mb="md"
+          />
+          <TextInput 
+            label="Incremental Column" 
+            placeholder="id or created_at" 
+            value={source.config.incremental_column} 
+            onChange={(e) => updateConfig('incremental_column', e.target.value)} 
+            description="Column used to track progress between runs"
+            mb="md"
+          />
+          <Stack gap="xs">
+            <Text size="sm" fw={500}>SQL Queries</Text>
+            <Text size="xs" c="dimmed">Use {"{{.last_value}}"} to reference the last seen value from the incremental column.</Text>
+            <JsonInput
+              placeholder='["SELECT * FROM users WHERE id > {{.last_value}}", "SELECT * FROM orders WHERE id > {{.last_value}}"]'
+              value={source.config.queries}
+              onChange={(val) => updateConfig('queries', val)}
+              minRows={4}
+              formatOnBlur
+              mb="md"
+            />
+          </Stack>
+        </>
+      );
+    }
+
     if (source.type === 'webhook') {
       return (
         <>
@@ -389,7 +543,7 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
             placeholder="/api/webhooks/my-source" 
             value={source.config.path} 
             onChange={(e) => updateConfig('path', e.target.value)} 
-            description="Relative path for the webhook. Full URL will be: http://hermod-host:8080/api/webhooks/YOUR_PATH"
+            description="Relative path for the webhook. Full URL will be: http://hermod-host:8080/api/webhooks/YOUR_PATH. Supports LZ4, Snappy, and Zstd compression via Content-Encoding header."
             required 
           />
           <Select 
@@ -398,13 +552,143 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
             value={source.config.method || 'POST'} 
             onChange={(val) => updateConfig('method', val || 'POST')} 
           />
+          <Stack gap="xs">
+            <GenerateToken 
+              label="API Key (Optional)"
+              value={source.config.api_key || ''}
+              onChange={(val) => updateConfig('api_key', val)}
+            />
+            <Text size="xs" c="dimmed">If provided, requests must include 'X-API-Key' header with this value.</Text>
+          </Stack>
+        </>
+      );
+    }
+
+    if (source.type === 'graphql') {
+      return (
+        <>
           <TextInput 
-            label="API Key (Optional)" 
-            placeholder="Header X-API-Key value" 
-            value={source.config.api_key} 
-            onChange={(e) => updateConfig('api_key', e.target.value)} 
-            description="If provided, requests must include 'X-API-Key' header with this value."
+            label="GraphQL Path" 
+            placeholder="/api/graphql/my-source" 
+            value={source.config.path} 
+            onChange={(e) => updateConfig('path', e.target.value)} 
+            description="Relative path for the GraphQL endpoint. Full URL will be: http://hermod-host:8080/api/graphql/YOUR_PATH"
+            required 
           />
+          <Stack gap="xs">
+            <GenerateToken 
+              label="API Key (Optional)"
+              value={source.config.api_key || ''}
+              onChange={(val) => updateConfig('api_key', val)}
+            />
+            <Text size="xs" c="dimmed">If provided, requests must include 'X-API-Key' header with this value.</Text>
+          </Stack>
+        </>
+      );
+    }
+
+    if (source.type === 'grpc') {
+      return (
+        <>
+          <TextInput 
+            label="gRPC Source Path" 
+            placeholder="/grpc/default" 
+            value={source.config.path} 
+            onChange={(e) => updateConfig('path', e.target.value)} 
+            description="Logical path used to route gRPC Publish calls. Set this in your PublishRequest.path field."
+            required 
+          />
+          <TextInput 
+            label="gRPC Address" 
+            value="hermod-host:50051" 
+            readOnly
+            description="The gRPC server is listening on port 50051. Use service 'hermod.source.grpc.v1.SourceService' and method 'Publish'."
+          />
+        </>
+      );
+    }
+
+    if (source.type === 'form') {
+      return (
+        <>
+          <TextInput 
+            label="Form Endpoint Path" 
+            placeholder="/api/forms/contact-us" 
+            value={source.config.path} 
+            onChange={(e) => updateConfig('path', e.target.value)} 
+            description="Relative path for the form endpoint. Full URL will be: http://hermod-host:8080/api/forms/YOUR_PATH"
+            required 
+          />
+          <Select 
+            label="HTTP Method" 
+            data={['POST', 'GET']} 
+            value={source.config.method || 'POST'} 
+            onChange={(val) => updateConfig('method', val || 'POST')} 
+          />
+          <Stack gap="xs">
+            <GenerateToken 
+              label="Secret (Optional)"
+              value={source.config.secret || ''}
+              onChange={(val) => updateConfig('secret', val)}
+            />
+            <Text size="xs" c="dimmed">If provided, requests should include 'X-Form-Signature' header. JSON, x-www-form-urlencoded, and multipart are supported.</Text>
+            <Text size="xs" c="dimmed">Example cURL: curl -X POST -F name=John -F email=john@example.com http://localhost:8080{source.config.path || '/api/forms/your-path'}</Text>
+          </Stack>
+
+          <Divider my="md" label="Public Form (Auto-generated)" />
+          <Stack gap="sm">
+            <Text size="sm" c="dimmed">Configure fields below; Hermod will generate a beautiful public form at the URL shown. You can embed or share it.</Text>
+
+            {/* Field Builder */}
+            <FieldBuilder 
+              value={safeParseJSON(source.config.fields) || []}
+              onChange={(list) => updateConfig('fields', JSON.stringify(list))}
+            />
+
+            <Grid>
+              <Grid.Col span={{ base: 12, sm: 6 }}>
+                <Switch 
+                  label="Allow public submissions (no signature required)"
+                  checked={(source.config.allow_public_form || 'false') === 'true'}
+                  onChange={(e) => updateConfig('allow_public_form', e.currentTarget.checked ? 'true' : 'false')}
+                />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, sm: 6 }}>
+                <Switch 
+                  label="Bot protection (token + honeypot)"
+                  checked={(source.config.enable_bot_protection ?? 'true') !== 'false'}
+                  onChange={(e) => updateConfig('enable_bot_protection', e.currentTarget.checked ? 'true' : 'false')}
+                />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, sm: 6 }}>
+                <TextInput 
+                  label="Redirect URL (optional)" 
+                  placeholder="https://example.com/thanks" 
+                  value={source.config.redirect_url || ''}
+                  onChange={(e) => updateConfig('redirect_url', e.target.value)}
+                />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, sm: 6 }}>
+                <TextInput 
+                  label="Min submit time (ms)"
+                  placeholder="1200"
+                  value={source.config.bot_min_submit_ms ?? ''}
+                  onChange={(e) => updateConfig('bot_min_submit_ms', e.target.value)}
+                  description="Helps block bots by requiring a minimal time before submit."
+                />
+              </Grid.Col>
+              <Grid.Col span={12}>
+                <TextInput 
+                  label="Success Message" 
+                  placeholder="Thank you! Your submission has been received."
+                  value={source.config.success_message || ''}
+                  onChange={(e) => updateConfig('success_message', e.target.value)}
+                />
+              </Grid.Col>
+            </Grid>
+
+            <PublicFormLink path={source.config.path} />
+          </Stack>
         </>
       );
     }
@@ -913,6 +1197,18 @@ GO`}
             </List>
           </Stack>
         );
+      case 'eventstore':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>Event Store Source</Title>
+            <Text size="sm">Replays events from the Hermod Event Store.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Used for rebuilding projections (CQRS)</List.Item>
+              <List.Item>Select the database driver and connection details</List.Item>
+              <List.Item>Specify <Code>From Offset</Code> to start replaying from a specific point</List.Item>
+            </List>
+          </Stack>
+        );
       default:
         return (
           <Group gap="xs" c="dimmed">
@@ -928,19 +1224,28 @@ GO`}
       <Modal 
         opened={showSetup} 
         onClose={() => setShowSetup(false)} 
-        title={`${source.type.toUpperCase()} Setup Instructions`}
+        // Provide explicit labelling for screen readers
+        title={<Text id={setupTitleId} fw={600}>{`${source.type.toUpperCase()} Setup Instructions`}</Text>}
+        aria-labelledby={setupTitleId}
+        aria-describedby={setupDescId}
         size="lg"
         radius="md"
+        withCloseButton
       >
-        {renderSetupInstructions()}
+        <Stack>
+          <Text id={setupDescId} size="sm" c="dimmed">
+            Follow these steps to configure the selected source type.
+          </Text>
+          {renderSetupInstructions()}
+        </Stack>
       </Modal>
-      <Grid gutter="md" style={{ minHeight: 'calc(100vh - 160px)' }}>
-        <Grid.Col span={{ base: 12, md: 4 }}>
+      <Grid gutter="lg" style={{ minHeight: 'calc(100vh - 180px)' }}>
+        <Grid.Col span={{ base: 12, md: 4, lg: 3 }}>
           <Card withBorder shadow="sm" radius="md" p="md" h="100%">
             <Stack h="100%">
-              <Group gap="xs">
+              <Group gap="xs" px="xs">
                 <IconBraces size="1.2rem" color="var(--mantine-color-blue-6)" />
-                <Text size="sm" fw={700}>1. SAMPLE INPUT</Text>
+                <Text size="sm" fw={700} c="dimmed">1. SAMPLE INPUT</Text>
               </Group>
               <Divider />
               {isCDC(source.type) ? (
@@ -990,15 +1295,15 @@ GO`}
           </Card>
         </Grid.Col>
 
-        <Grid.Col span={{ base: 12, md: 4 }}>
-          <Card withBorder shadow="sm" radius="md" p="md" h="100%">
-            <Stack h="100%">
-              <Group justify="space-between">
+        <Grid.Col span={{ base: 12, md: 8, lg: 5 }}>
+          <Card withBorder shadow="md" radius="md" p="md" h="100%" style={{ display: 'flex', flexDirection: 'column' }}>
+            <Stack h="100%" gap="md">
+              <Group justify="space-between" px="xs">
                 <Group gap="xs">
-                  <IconSettings size="1.2rem" color="var(--mantine-color-gray-7)" />
+                  <IconSettings size="1.2rem" color="var(--mantine-color-blue-6)" />
                   <Text size="sm" fw={700}>2. CONFIGURATION</Text>
                 </Group>
-                <Badge variant="dot" color="blue" style={{ textTransform: 'uppercase' }}>{source.type}</Badge>
+                <Badge variant="light" color="blue" size="lg" style={{ textTransform: 'uppercase' }}>{source.type}</Badge>
               </Group>
               <Divider />
               <ScrollArea flex={1} mx="-md" px="md">
@@ -1093,87 +1398,549 @@ GO`}
           </Card>
         </Grid.Col>
 
-        <Grid.Col span={{ base: 12, md: 4 }}>
-          <Card withBorder shadow="sm" radius="md" p="md" h="100%">
-            <Stack h="100%">
-              <Group justify="space-between">
-                <Group gap="xs">
-                  <IconFileImport size="1.2rem" color="var(--mantine-color-green-6)" />
-                  <Text size="sm" fw={700}>3. LIVE PREVIEW</Text>
+        <Grid.Col span={{ base: 12, md: 12, lg: 4 }}>
+          {source.type === 'webhook' && source.config.path ? (
+            <WebhookHistory 
+              path={source.config.path} 
+              onReplaySuccess={() => {
+                notifications.show({ title: 'Replayed', message: 'Webhook replayed successfully.', color: 'green' });
+              }}
+              onSelectSample={(body) => {
+                 try {
+                    setSampleData(JSON.parse(body));
+                 } catch (e) {
+                    setSampleData(body);
+                 }
+              }}
+            />
+          ) : (
+            <Card withBorder shadow="sm" radius="md" p="md" h="100%" bg="var(--mantine-color-gray-0)">
+              <Stack h="100%">
+                <Group justify="space-between" px="xs">
+                  <Group gap="xs">
+                    <IconFileImport size="1.2rem" color="var(--mantine-color-green-6)" />
+                    <Text size="sm" fw={700} c="dimmed">3. LIVE PREVIEW</Text>
+                  </Group>
+                  {sampleData && <Badge color="green" variant="light">Captured</Badge>}
                 </Group>
-                {sampleData && <Badge color="green" variant="light">Captured</Badge>}
-              </Group>
-              <Divider />
-              
-              {isFetchingSample ? (
-                <Stack align="center" py="xl" gap="sm" style={{ flex: 1, justifyContent: 'center' }}>
-                  <Loader size="sm" />
-                  <Text size="xs" c="dimmed">Fetching sample data...</Text>
-                </Stack>
-              ) : sampleError ? (
-                <Stack align="center" py="md" gap="xs" style={{ flex: 1, justifyContent: 'center' }}>
-                  <IconAlertCircle size="1.5rem" color="red" />
-                  <Text size="xs" c="red" ta="center">{sampleError}</Text>
-                  <Button size="xs" variant="subtle" color="red" onClick={() => fetchSample(source)}>Retry</Button>
-                </Stack>
-              ) : sampleData ? (
-                <Stack gap="xs" style={{ flex: 1 }}>
-                  <Group justify="space-between" align="flex-end">
-                    <Text size="sm" fw={500}>Sample Output (JSON)</Text>
-                    <Group gap="xs">
-                      <Button 
-                        size="compact-xs" 
-                        variant="subtle" 
-                        leftSection={<IconRefresh size="0.8rem" />}
-                        onClick={() => fetchSample(source)}
-                      >
-                        Refresh
-                      </Button>
-                      <Button 
-                        size="compact-xs" 
-                        variant="subtle" 
-                        leftSection={<IconCopy size="0.8rem" />}
-                        onClick={() => {
-                          navigator.clipboard.writeText(JSON.stringify(sampleData, null, 2));
-                          notifications.show({ title: 'Copied', message: 'Sample data copied to clipboard.', color: 'blue' });
-                        }}
-                      >
-                        Copy
-                      </Button>
-                      {onRunSimulation && (
+                <Divider />
+                
+                {isFetchingSample ? (
+                  <Stack align="center" py="xl" gap="sm" style={{ flex: 1, justifyContent: 'center' }}>
+                    <Loader size="sm" />
+                    <Text size="xs" c="dimmed">Fetching sample data...</Text>
+                  </Stack>
+                ) : sampleError ? (
+                  <Stack align="center" py="md" gap="xs" style={{ flex: 1, justifyContent: 'center' }}>
+                    <IconAlertCircle size="1.5rem" color="red" />
+                    <Text size="xs" c="red" ta="center">{sampleError}</Text>
+                    <Button size="xs" variant="subtle" color="red" onClick={() => fetchSample(source)}>Retry</Button>
+                  </Stack>
+                ) : sampleData ? (
+                  <Stack gap="xs" style={{ flex: 1 }}>
+                    <Group justify="space-between" align="flex-end">
+                      <Text size="sm" fw={500}>Sample Output (JSON)</Text>
+                      <Group gap="xs">
                         <Button 
                           size="compact-xs" 
-                          variant="light" 
-                          color="green"
-                          leftSection={<IconPlayerPlay size="0.8rem" />}
-                          onClick={() => onRunSimulation(sampleData)}
+                          variant="subtle" 
+                          leftSection={<IconRefresh size="0.8rem" />}
+                          onClick={() => fetchSample(source)}
                         >
-                          Run Simulation
+                          Refresh
                         </Button>
-                      )}
+                        <Button 
+                          size="compact-xs" 
+                          variant="subtle" 
+                          leftSection={<IconCopy size="0.8rem" />}
+                          onClick={() => {
+                            navigator.clipboard.writeText(JSON.stringify(sampleData, null, 2));
+                            notifications.show({ title: 'Copied', message: 'Sample data copied to clipboard.', color: 'blue' });
+                          }}
+                        >
+                          Copy
+                        </Button>
+                        {onRunSimulation && (
+                          <Button 
+                            size="compact-xs" 
+                            variant="light" 
+                            color="green"
+                            leftSection={<IconPlayerPlay size="0.8rem" />}
+                            onClick={() => onRunSimulation(sampleData)}
+                          >
+                            Run Simulation
+                          </Button>
+                        )}
+                      </Group>
                     </Group>
-                  </Group>
-                  <JsonInput 
-                    value={JSON.stringify(sampleData, null, 2)}
-                    readOnly
-                    styles={{ 
-                      root: { flex: 1, display: 'flex', flexDirection: 'column' },
-                      wrapper: { flex: 1, display: 'flex', flexDirection: 'column' },
-                      input: { flex: 1, fontFamily: 'monospace', fontSize: '11px', backgroundColor: 'var(--mantine-color-gray-0)' } 
-                    }}
-                  />
-                </Stack>
-              ) : (
-                <Stack align="center" py="xl" gap="sm" style={{ flex: 1, justifyContent: 'center' }}>
-                  <IconInfoCircle size="2rem" color="var(--mantine-color-gray-4)" />
-                  <Text size="xs" c="dimmed" ta="center">Test connection to see sample data from your source.</Text>
-                  <Button size="xs" variant="light" onClick={() => fetchSample(source)}>Fetch Sample Now</Button>
-                </Stack>
-              )}
-            </Stack>
-          </Card>
+                    <JsonInput 
+                      value={JSON.stringify(sampleData, null, 2)}
+                      readOnly
+                      styles={{ 
+                        root: { flex: 1, display: 'flex', flexDirection: 'column' },
+                        wrapper: { flex: 1, display: 'flex', flexDirection: 'column' },
+                        input: { flex: 1, fontFamily: 'monospace', fontSize: '11px', backgroundColor: 'var(--mantine-color-gray-0)' } 
+                      }}
+                    />
+                  </Stack>
+                ) : (
+                  <Stack align="center" py="xl" gap="sm" style={{ flex: 1, justifyContent: 'center' }}>
+                    <IconInfoCircle size="2rem" color="var(--mantine-color-gray-4)" />
+                    <Text size="xs" c="dimmed" ta="center">Test connection to see sample data from your source.</Text>
+                    <Button size="xs" variant="light" onClick={() => fetchSample(source)}>Fetch Sample Now</Button>
+                  </Stack>
+                )}
+              </Stack>
+            </Card>
+          )}
         </Grid.Col>
       </Grid>
+      <Modal
+        opened={!!cdcReusePrompt}
+        onClose={() => setCdcReusePrompt(null)}
+        title="Reuse existing CDC objects?"
+      >
+        <Stack>
+          <Text size="sm">
+            We found CDC objects in your database matching the provided names. You can reuse them or cancel and change the names.
+          </Text>
+          {cdcReusePrompt?.slot?.exists && (
+            <Alert color={cdcReusePrompt.slot.active ? 'yellow' : 'blue'} title="Replication Slot">
+              Name: <Code>{cdcReusePrompt.slot.name}</Code><br />
+              Active: {String(!!cdcReusePrompt.slot.active)}<br />
+              Referenced by Hermod: {String(!!cdcReusePrompt.slot.hermod_in_use)}
+            </Alert>
+          )}
+          {cdcReusePrompt?.publication?.exists && (
+            <Alert color="blue" title="Publication">
+              Name: <Code>{cdcReusePrompt.publication.name}</Code><br />
+              Referenced by Hermod: {String(!!cdcReusePrompt.publication.hermod_in_use)}
+            </Alert>
+          )}
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setCdcReusePrompt(null)}>
+              Cancel
+            </Button>
+            <Button
+              color="blue"
+              onClick={() => {
+                // Accept reuse: keep current names, mark test OK, and fetch sample
+                setCdcReusePrompt(null);
+                setTestResult({ status: 'ok', message: 'Using existing slot/publication.' });
+                fetchSample(source);
+              }}
+            >
+              Use existing
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </>
+  );
+}
+
+// ----------------- Helpers for Form Source -----------------
+type FormFieldItem = {
+  // Common
+  type:
+    | 'text'
+    | 'number'
+    | 'date'
+    | 'datetime'
+    | 'image'
+    | 'multiple'
+    | 'one'
+    | 'email'
+    | 'date_range'
+    | 'scale'
+    // Layout-only items
+    | 'heading'
+    | 'text_block'
+    | 'divider'
+    | 'page_break';
+
+  // Input fields
+  name?: string;
+  label?: string;
+  required?: boolean;
+  options?: string[];
+  placeholder?: string;
+  help?: string;
+  number_kind?: 'integer' | 'float';
+  render?: 'select' | 'radio';
+  // email options
+  verify_email?: boolean;
+  reject_if_invalid?: boolean;
+  // scale options
+  min?: number;
+  max?: number;
+  step?: number;
+  // date_range labels
+  start_label?: string;
+  end_label?: string;
+
+  // Layout metadata
+  section?: string; // logical group label (shown as heading when changes)
+  width?: 'auto' | 'half' | 'full'; // affects public form grid
+
+  // Layout-only content
+  content?: string; // for heading/text_block
+  level?: 1 | 2 | 3; // for heading size
+};
+
+function safeParseJSON(input: any): any {
+  if (!input) return null;
+  if (typeof input === 'object') return input;
+  try {
+    return JSON.parse(String(input));
+  } catch {
+    return null;
+  }
+}
+
+function FieldBuilder({ value, onChange }: { value: FormFieldItem[]; onChange: (v: FormFieldItem[]) => void }) {
+  const [draft, setDraft] = useState<FormFieldItem>({
+    type: 'text',
+    name: '',
+    label: '',
+    required: false,
+    options: [],
+    number_kind: 'float',
+    render: 'select',
+    verify_email: false,
+    reject_if_invalid: false,
+    section: '',
+    width: 'auto',
+    content: '',
+    level: 2,
+  });
+
+  const isLayoutOnly = (t: FormFieldItem['type']) => ['heading', 'text_block', 'divider', 'page_break'].includes(t);
+
+  const addField = () => {
+    // For input fields, name is required; for layout-only items it's not
+    if (!isLayoutOnly(draft.type) && !draft.name) return;
+    const list = [...(value || []), { ...draft, options: draft.options || [] }];
+    onChange(list);
+    setDraft({
+      type: 'text',
+      name: '',
+      label: '',
+      required: false,
+      options: [],
+      number_kind: 'float',
+      render: 'select',
+      verify_email: false,
+      reject_if_invalid: false,
+      section: '',
+      width: 'auto',
+      content: '',
+      level: 2,
+    });
+  };
+  const removeAt = (idx: number) => {
+    const list = [...(value || [])];
+    list.splice(idx, 1);
+    onChange(list);
+  };
+
+  const moveUp = (idx: number) => {
+    if (idx <= 0) return;
+    const list = [...(value || [])];
+    const tmp = list[idx - 1];
+    list[idx - 1] = list[idx];
+    list[idx] = tmp;
+    onChange(list);
+  };
+  const moveDown = (idx: number) => {
+    const list = [...(value || [])];
+    if (idx >= list.length - 1) return;
+    const tmp = list[idx + 1];
+    list[idx + 1] = list[idx];
+    list[idx] = tmp;
+    onChange(list);
+  };
+
+  return (
+    <Stack gap="sm">
+      <Stack gap={6}>
+        <Title order={5}>Fields</Title>
+        {(value && value.length > 0) ? (
+          <Stack gap={8}>
+            {value.map((f, i) => (
+              <Group key={i} justify="space-between" align="center">
+                <Group gap="xs">
+                  <Badge variant="light">{f.type}</Badge>
+                  {(['heading','text_block','divider','page_break'] as const).includes(f.type as any) ? (
+                    <>
+                      {f.type === 'heading' && <Text fw={700}>Heading: {f.content || '(empty)'}</Text>}
+                      {f.type === 'text_block' && <Text c="dimmed">Text: {f.content || '(empty)'}</Text>}
+                      {f.type === 'divider' && <Text c="dimmed">Divider</Text>}
+                      {f.type === 'page_break' && <Badge color="violet">Page Break</Badge>}
+                    </>
+                  ) : (
+                    <>
+                      <Text fw={600}>{f.label || f.name}</Text>
+                      <Text c="dimmed" size="sm">name: <Code>{f.name}</Code></Text>
+                      {f.required && <Badge color="red" variant="filled">required</Badge>}
+                      {f.section && <Badge variant="dot" color="gray">section: {f.section}</Badge>}
+                      {f.width && f.width !== 'auto' && <Badge variant="light">{f.width}</Badge>}
+                    </>
+                  )}
+                </Group>
+                <Group gap={4}>
+                  <ActionIcon variant="subtle" onClick={() => moveUp(i)} aria-label="Move up">↑</ActionIcon>
+                  <ActionIcon variant="subtle" onClick={() => moveDown(i)} aria-label="Move down">↓</ActionIcon>
+                  <ActionIcon color="red" variant="subtle" onClick={() => removeAt(i)} aria-label="Remove">✕</ActionIcon>
+                </Group>
+              </Group>
+            ))}
+          </Stack>
+        ) : (
+          <Text size="sm" c="dimmed">No fields yet. Add your first field below.</Text>
+        )}
+      </Stack>
+
+      <Divider label="Add Field or Layout" />
+      <Grid>
+        <Grid.Col span={{ base: 12, sm: 6 }}>
+          <Select
+            label="Type"
+            data={[
+              { value: 'text', label: 'Text' },
+              { value: 'number', label: 'Number' },
+              { value: 'date', label: 'Date' },
+              { value: 'datetime', label: 'Date & Time' },
+              { value: 'image', label: 'Image Upload' },
+              { value: 'multiple', label: 'Multiple Choice (multi-select)' },
+              { value: 'one', label: 'Single Choice' },
+              { value: 'email', label: 'Email' },
+              { value: 'date_range', label: 'Date Range' },
+              { value: 'scale', label: 'Linear Scale' },
+              { value: 'heading', label: 'Heading (layout)' },
+              { value: 'text_block', label: 'Text block (layout)' },
+              { value: 'divider', label: 'Divider (layout)' },
+              { value: 'page_break', label: 'Page break (layout)' },
+            ]}
+            value={draft.type}
+            onChange={(val) => setDraft({ ...draft, type: (val as any) || 'text' })}
+            required
+          />
+        </Grid.Col>
+        {!isLayoutOnly(draft.type) && (
+          <>
+            <Grid.Col span={{ base: 12, sm: 6 }}>
+              <TextInput label="Name" placeholder="full_name" value={draft.name || ''} onChange={(e) => setDraft({ ...draft, name: e.target.value })} required />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 6 }}>
+              <TextInput label="Label" placeholder="Full Name" value={draft.label || ''} onChange={(e) => setDraft({ ...draft, label: e.target.value })} />
+            </Grid.Col>
+          </>
+        )}
+        {draft.type === 'heading' && (
+          <>
+            <Grid.Col span={{ base: 12, sm: 8 }}>
+              <TextInput label="Heading text" placeholder="Section title" value={draft.content || ''} onChange={(e) => setDraft({ ...draft, content: e.target.value })} required />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 4 }}>
+              <Select label="Level" data={[{ value: '1', label: 'H1' }, { value: '2', label: 'H2' }, { value: '3', label: 'H3' }]} value={String(draft.level || 2)} onChange={(v) => setDraft({ ...draft, level: (v ? Number(v) : 2) as 1|2|3 })} />
+            </Grid.Col>
+          </>
+        )}
+        {draft.type === 'text_block' && (
+          <Grid.Col span={12}>
+            <TextInput label="Text content" placeholder="Some helpful text for users" value={draft.content || ''} onChange={(e) => setDraft({ ...draft, content: e.target.value })} />
+          </Grid.Col>
+        )}
+        {draft.type === 'number' && (
+          <Grid.Col span={{ base: 12, sm: 6 }}>
+            <Select label="Number Kind" data={[{ value: 'integer', label: 'Integer' }, { value: 'float', label: 'Float' }]} value={draft.number_kind} onChange={(v) => setDraft({ ...draft, number_kind: (v as any) || 'float' })} />
+          </Grid.Col>
+        )}
+        {draft.type === 'email' && (
+          <>
+            <Grid.Col span={{ base: 12, sm: 6 }}>
+              <Checkbox mt={26} label="Verify mailbox exists (SMTP)" checked={!!draft.verify_email} onChange={(e) => setDraft({ ...draft, verify_email: e.currentTarget.checked })} />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 6 }}>
+              <Checkbox mt={26} label="Reject if invalid" checked={!!draft.reject_if_invalid} onChange={(e) => setDraft({ ...draft, reject_if_invalid: e.currentTarget.checked })} />
+            </Grid.Col>
+          </>
+        )}
+        {draft.type === 'date_range' && (
+          <>
+            <Grid.Col span={{ base: 12, sm: 6 }}>
+              <TextInput label="Start label" placeholder="Start" value={draft.start_label || ''} onChange={(e) => setDraft({ ...draft, start_label: e.target.value })} />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 6 }}>
+              <TextInput label="End label" placeholder="End" value={draft.end_label || ''} onChange={(e) => setDraft({ ...draft, end_label: e.target.value })} />
+            </Grid.Col>
+          </>
+        )}
+        {draft.type === 'scale' && (
+          <>
+            <Grid.Col span={{ base: 12, sm: 4 }}>
+              <TextInput type="number" label="Min" placeholder="0" value={draft.min as any || ''} onChange={(e) => setDraft({ ...draft, min: e.target.value === '' ? undefined : Number(e.target.value) })} />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 4 }}>
+              <TextInput type="number" label="Max" placeholder="10" value={draft.max as any || ''} onChange={(e) => setDraft({ ...draft, max: e.target.value === '' ? undefined : Number(e.target.value) })} />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 4 }}>
+              <TextInput type="number" label="Step" placeholder="1" value={draft.step as any || ''} onChange={(e) => setDraft({ ...draft, step: e.target.value === '' ? undefined : Number(e.target.value) })} />
+            </Grid.Col>
+          </>
+        )}
+        {(draft.type === 'one' || draft.type === 'multiple') && (
+          <Grid.Col span={12}>
+            <TagsInput label="Options" placeholder="Add options" value={draft.options || []} onChange={(opts) => setDraft({ ...draft, options: opts })} />
+          </Grid.Col>
+        )}
+        {draft.type === 'one' && (
+          <Grid.Col span={{ base: 12, sm: 6 }}>
+            <Select label="Single Choice UI" data={[{ value: 'select', label: 'Dropdown' }, { value: 'radio', label: 'Radio buttons' }]} value={draft.render || 'select'} onChange={(v) => setDraft({ ...draft, render: (v as any) || 'select' })} />
+          </Grid.Col>
+        )}
+        {!isLayoutOnly(draft.type) && (
+          <>
+            <Grid.Col span={{ base: 12, sm: 6 }}>
+              <TextInput label="Placeholder" placeholder="Enter value…" value={draft.placeholder || ''} onChange={(e) => setDraft({ ...draft, placeholder: e.target.value })} />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 6 }}>
+              <Checkbox mt={26} label="Required" checked={!!draft.required} onChange={(e) => setDraft({ ...draft, required: e.currentTarget.checked })} />
+            </Grid.Col>
+            <Grid.Col span={12}>
+              <TextInput label="Help text" placeholder="Shown under the field to help users." value={draft.help || ''} onChange={(e) => setDraft({ ...draft, help: e.target.value })} />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 6 }}>
+              <TextInput label="Section (optional)" placeholder="e.g., Contact Info" value={draft.section || ''} onChange={(e) => setDraft({ ...draft, section: e.target.value })} />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 6 }}>
+              <Select label="Width" data={[{ value: 'auto', label: 'Auto' }, { value: 'half', label: 'Half (2-column)' }, { value: 'full', label: 'Full' }]} value={draft.width || 'auto'} onChange={(v) => setDraft({ ...draft, width: (v as any) || 'auto' })} />
+            </Grid.Col>
+          </>
+        )}
+      </Grid>
+
+      <Group justify="flex-end">
+        <Button leftSection={<IconPlus size={16} />} onClick={addField}>Add field</Button>
+      </Group>
+    </Stack>
+  );
+}
+
+function PublicFormLink({ path }: { path?: string }) {
+  const publicPath = (path || '').startsWith('/api/forms/') ? (path || '').slice('/api/forms/'.length) : (path || '').replace(/^\//, '');
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const url = publicPath ? `${origin}/forms/${publicPath}` : '';
+  return (
+    <Stack gap={6}>
+      <Text size="sm" fw={600}>Public Form URL</Text>
+      <Group wrap="nowrap">
+        <TextInput readOnly value={url || 'Set the endpoint path to see the URL'} style={{ flex: 1 }} />
+        <Group gap={8}>
+          <Button variant="light" disabled={!url} onClick={() => { if (url) navigator.clipboard.writeText(url); notifications.show({ message: 'Copied form URL', color: 'green' }); }}>Copy</Button>
+          <Button variant="outline" disabled={!url} onClick={() => { if (url) window.open(url, '_blank'); }}>Open</Button>
+        </Group>
+      </Group>
+      <Text size="xs" c="dimmed">Users can submit the form without custom headers when "Allow public submissions" is enabled.</Text>
+    </Stack>
+  );
+}
+
+function WebhookHistory({ 
+  path, 
+  onReplaySuccess, 
+  onSelectSample 
+}: { 
+  path: string, 
+  onReplaySuccess: () => void, 
+  onSelectSample: (body: string) => void 
+}) {
+  const { data: history, refetch, isLoading } = useSuspenseQuery({
+    queryKey: ['webhook-history', path],
+    queryFn: async () => {
+      const res = await apiFetch(`${API_BASE}/webhooks/requests?path=${encodeURIComponent(path)}&limit=10`);
+      return res.json();
+    }
+  });
+
+  const replayMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiFetch(`${API_BASE}/webhooks/requests/${id}/replay`, {
+        method: 'POST'
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      onReplaySuccess();
+    }
+  });
+
+  const requests = history?.data || [];
+
+  return (
+    <Card withBorder shadow="sm" radius="md" p="md" h="100%" bg="var(--mantine-color-gray-0)">
+      <Stack h="100%">
+        <Group justify="space-between" px="xs">
+          <Group gap="xs">
+            <IconHistory size="1.2rem" color="var(--mantine-color-blue-6)" />
+            <Text size="sm" fw={700} c="dimmed">3. WEBHOOK HISTORY</Text>
+          </Group>
+          <ActionIcon variant="subtle" size="sm" onClick={() => refetch()} loading={isLoading}>
+            <IconRefresh size="1rem" />
+          </ActionIcon>
+        </Group>
+        <Divider />
+        
+        {requests.length === 0 ? (
+          <Stack align="center" py="xl" gap="sm" style={{ flex: 1, justifyContent: 'center' }}>
+            <IconInfoCircle size="2rem" color="var(--mantine-color-gray-4)" />
+            <Text size="xs" c="dimmed" ta="center">No recent webhook requests found for this path.</Text>
+          </Stack>
+        ) : (
+          <ScrollArea flex={1}>
+            <Stack gap="xs">
+              {requests.map((req: any) => (
+                <Card key={req.id} withBorder p="xs" radius="sm">
+                  <Stack gap={4}>
+                    <Group justify="space-between">
+                      <Group gap={6}>
+                        <Badge size="xs" color="blue" variant="filled">{req.method}</Badge>
+                        <Text size="xs" fw={700}>{new Date(req.timestamp).toLocaleString()}</Text>
+                      </Group>
+                      <Group gap={4}>
+                        <ActionIcon 
+                          size="xs" 
+                          variant="light" 
+                          color="green" 
+                          onClick={() => replayMutation.mutate(req.id)}
+                          loading={replayMutation.isPending && replayMutation.variables === req.id}
+                          title="Replay"
+                        >
+                          <IconPlayerPlay size="0.8rem" />
+                        </ActionIcon>
+                        <ActionIcon 
+                          size="xs" 
+                          variant="light" 
+                          color="blue" 
+                          onClick={() => onSelectSample(req.body)}
+                          title="Use as Sample"
+                        >
+                          <IconChevronRight size="0.8rem" />
+                        </ActionIcon>
+                      </Group>
+                    </Group>
+                    <Code block style={{ fontSize: '9px', maxHeight: '100px', overflow: 'hidden' }}>
+                      {typeof req.body === 'string' ? req.body : JSON.stringify(req.body, null, 2)}
+                    </Code>
+                  </Stack>
+                </Card>
+              ))}
+            </Stack>
+          </ScrollArea>
+        )}
+      </Stack>
+    </Card>
   );
 }

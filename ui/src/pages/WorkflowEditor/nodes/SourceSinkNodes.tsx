@@ -2,15 +2,22 @@ import { Position } from 'reactflow';
 import { 
   IconWorld, IconSettingsAutomation, IconFileSpreadsheet, 
   IconCircles, IconDatabase, IconCloudUpload, IconMail, IconDeviceFloppy,
-  IconMessage, IconTerminal2
+  IconMessage, IconTerminal2, IconSearch, IconArrowsExchange
 } from '@tabler/icons-react';
+import { Button, Stack } from '@mantine/core';
 import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
+import { useWorkflowStore } from '../store/useWorkflowStore';
+import { useParams } from '@tanstack/react-router';
+import { apiFetch } from '../../../api';
+import { notifications } from '@mantine/notifications';
+import { useState } from 'react';
 
 export const SourceNode = ({ id, data }: any) => {
   const getIcon = () => {
-    if (data.type === 'webhook') return IconWorld;
+    if (data.type === 'webhook' || data.type === 'form' || data.type === 'graphql') return IconWorld;
     if (data.type === 'cron') return IconSettingsAutomation;
-    if (data.type === 'csv') return IconFileSpreadsheet;
+    if (data.type === 'csv' || data.type === 'googlesheets') return IconFileSpreadsheet;
+    if (data.type === 'grpc') return IconTerminal2;
     if (['kafka', 'nats', 'rabbitmq', 'rabbitmq_queue', 'redis'].includes(data.type)) return IconCircles;
     return IconDatabase;
   };
@@ -23,6 +30,10 @@ export const SourceNode = ({ id, data }: any) => {
 };
 
 export const SinkNode = ({ id, data }: any) => {
+  const { id: workflowId } = useParams({ strict: false }) as any;
+  const store = useWorkflowStore();
+  const [isDraining, setIsDraining] = useState(false);
+
   const getIcon = () => {
     if (['postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'mongodb', 'cassandra', 'sqlite', 'clickhouse', 'yugabyte'].includes(data.type)) return IconDatabase;
     if (data.type === 'api' || data.type === 'http') return IconCloudUpload;
@@ -31,12 +42,64 @@ export const SinkNode = ({ id, data }: any) => {
     if (data.type === 'file') return IconDeviceFloppy;
     if (data.type === 'stdout') return IconTerminal2;
     if (['kafka', 'nats', 'rabbitmq', 'rabbitmq_queue', 'redis', 'pubsub', 'kinesis', 'pulsar'].includes(data.type)) return IconCircles;
+    if (data.type === 's3' || data.type === 's3-parquet' || data.type === 'ftp') return IconCloudUpload;
     return IconDatabase;
+  };
+
+  const handleInspect = (e: any) => {
+    e.stopPropagation();
+    store.setDlqInspectorSink({ id: data.ref_id, type: data.type, name: data.label, config: data });
+    store.setDlqInspectorOpened(true);
+  };
+
+  const handleDrain = async (e: any) => {
+    e.stopPropagation();
+    if (!workflowId || workflowId === 'new') return;
+    setIsDraining(true);
+    try {
+      const res = await apiFetch(`/api/workflows/${workflowId}/drain`, { method: 'POST' });
+      if (res.ok) {
+        notifications.show({ title: 'DLQ Draining', message: 'The engine will now prioritize messages from this sink.', color: 'blue' });
+      } else {
+        const err = await res.json();
+        notifications.show({ title: 'Drain Failed', message: err.error || 'Failed to trigger drain', color: 'red' });
+      }
+    } catch (err: any) {
+      notifications.show({ title: 'Error', message: err.message, color: 'red' });
+    } finally {
+      setIsDraining(false);
+    }
   };
 
   return (
     <BaseNode id={id} type="Sink" color="green" icon={getIcon()} data={data}>
       <TargetHandle position={Position.Left} color="green" />
+      {data.isDLQ && (
+        <Stack gap="xs" mt="xs">
+          <Button 
+            variant="light" 
+            color="orange" 
+            size="compact-xs" 
+            fullWidth 
+            leftSection={<IconSearch size="0.7rem" />}
+            onClick={handleInspect}
+          >
+            Inspect DLQ
+          </Button>
+          <Button 
+            variant="outline" 
+            color="blue" 
+            size="compact-xs" 
+            fullWidth 
+            leftSection={<IconArrowsExchange size="0.7rem" />}
+            onClick={handleDrain}
+            loading={isDraining}
+            disabled={!store.active}
+          >
+            Drain Now
+          </Button>
+        </Stack>
+      )}
     </BaseNode>
   );
 };

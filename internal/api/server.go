@@ -2,52 +2,83 @@ package api
 
 import (
 	"context"
-	"database/sql"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
-	"github.com/gsoultan/gsmail"
-	"github.com/gsoultan/gsmail/smtp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/config"
 	"github.com/user/hermod/internal/engine"
 	"github.com/user/hermod/internal/storage"
-	storagemongo "github.com/user/hermod/internal/storage/mongodb"
-	sqlstorage "github.com/user/hermod/internal/storage/sql"
+	"github.com/user/hermod/pkg/compression"
 	"github.com/user/hermod/pkg/crypto"
 	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/source/form"
+	"github.com/user/hermod/pkg/source/graphql"
+	grpcsource "github.com/user/hermod/pkg/source/grpc"
+	"github.com/user/hermod/pkg/source/grpc/proto"
 	"github.com/user/hermod/pkg/source/webhook"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"golang.org/x/crypto/bcrypt"
+	"github.com/user/hermod/pkg/util"
+	googlegrpc "google.golang.org/grpc"
 )
+
+type FormField struct {
+	// Input fields
+	Name            string   `json:"name"`
+	Label           string   `json:"label"`
+	Type            string   `json:"type"`
+	Required        bool     `json:"required"`
+	Options         []string `json:"options"`
+	Placeholder     string   `json:"placeholder"`
+	Help            string   `json:"help"`
+	NumberKind      string   `json:"number_kind"`
+	Render          string   `json:"render"`
+	VerifyEmail     bool     `json:"verify_email"`
+	RejectIfInvalid bool     `json:"reject_if_invalid"`
+	Min             float64  `json:"min"`
+	Max             float64  `json:"max"`
+	Step            float64  `json:"step"`
+	StartLabel      string   `json:"start_label"`
+	EndLabel        string   `json:"end_label"`
+	// Layout metadata
+	Section string `json:"section"`
+	Width   string `json:"width"` // auto | half | full
+	// Layout-only content
+	Content string `json:"content"` // for heading/text_block
+	Level   int    `json:"level"`   // 1..3 for heading
+}
 
 //go:embed all:static
 var staticFS embed.FS
 
+// Server is the HTTP API server for Hermod.
+// It wires routing, middleware, and access to the storage and engine registry.
 type Server struct {
 	storage  storage.Storage
 	registry *engine.Registry
+	// readiness debounce state
+	readyMu            sync.Mutex
+	lastReadyStatus    bool
+	lastReadyStatusSet bool
+	lastReadyStatusAt  time.Time
+	// storeMu guards concurrent reads/writes to storage during hot-swap.
+	storeMu sync.RWMutex
 }
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // In production, we should check this
-	},
-}
-
+// NewServer constructs a new Server with the provided engine registry and storage backend.
 func NewServer(registry *engine.Registry, store storage.Storage) *Server {
 	return &Server{
 		storage:  store,
@@ -55,61 +86,139 @@ func NewServer(registry *engine.Registry, store storage.Storage) *Server {
 	}
 }
 
-func (s *Server) registerSourceRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/sources", s.listSources)
-	mux.HandleFunc("GET /api/sources/{id}", s.getSource)
-	mux.HandleFunc("POST /api/sources", s.createSource)
-	mux.HandleFunc("PUT /api/sources/{id}", s.updateSource)
-	mux.HandleFunc("POST /api/sources/test", s.testSource)
-	mux.HandleFunc("POST /api/sources/discover/databases", s.discoverDatabases)
-	mux.HandleFunc("POST /api/sources/discover/tables", s.discoverTables)
-	mux.HandleFunc("POST /api/sources/sample", s.sampleSourceTable)
-	mux.HandleFunc("POST /api/sources/upload", s.uploadFile)
-	mux.HandleFunc("POST /api/proxy/fetch", s.proxyFetch)
-	mux.HandleFunc("DELETE /api/sources/{id}", s.deleteSource)
+func (s *Server) wakeUpWorkflow(ctx context.Context, resourceType string, path string) bool {
+	// 1. Find the source with this path
+	sources, _, err := s.storage.ListSources(ctx, storage.CommonFilter{})
+	if err != nil {
+		return false
+	}
+
+	var sourceID string
+	for _, src := range sources {
+		if src.Type == resourceType && src.Config["path"] == path {
+			sourceID = src.ID
+			break
+		}
+	}
+
+	if sourceID == "" {
+		return false
+	}
+
+	// 2. Find workflows using this source
+	workflows, _, err := s.storage.ListWorkflows(ctx, storage.CommonFilter{})
+	if err != nil {
+		return false
+	}
+
+	wokeUp := false
+	for _, wf := range workflows {
+		if wf.Status != "Parked" {
+			continue
+		}
+
+		for _, node := range wf.Nodes {
+			if node.Type == "source" && node.RefID == sourceID {
+				// Wake it up!
+				wf.Status = ""
+				_ = s.storage.UpdateWorkflow(ctx, wf)
+				wokeUp = true
+
+				// Start it immediately in the local registry to minimize latency
+				if s.registry != nil {
+					_ = s.registry.StartWorkflow(wf.ID, wf)
+				}
+			}
+		}
+	}
+
+	return wokeUp
 }
 
-func (s *Server) registerSinkRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/sinks", s.listSinks)
-	mux.HandleFunc("GET /api/sinks/{id}", s.getSink)
-	mux.HandleFunc("POST /api/sinks", s.createSink)
-	mux.HandleFunc("PUT /api/sinks/{id}", s.updateSink)
-	mux.HandleFunc("POST /api/sinks/test", s.testSink)
-	mux.HandleFunc("POST /api/sinks/discover/databases", s.discoverSinkDatabases)
-	mux.HandleFunc("POST /api/sinks/discover/tables", s.discoverSinkTables)
-	mux.HandleFunc("POST /api/sinks/sample", s.sampleSinkTable)
-	mux.HandleFunc("POST /api/sinks/smtp/preview", s.previewSmtpTemplate)
-	mux.HandleFunc("POST /api/sinks/smtp/validate", s.validateEmail)
-	mux.HandleFunc("DELETE /api/sinks/{id}", s.deleteSink)
+func (s *Server) recordAuditLog(r *http.Request, level, message, action string, workflowID, sourceID, sinkID string, data interface{}) {
+	ctx := r.Context()
+	l := storage.Log{
+		Timestamp:  time.Now(),
+		Level:      level,
+		Message:    message,
+		Action:     action,
+		WorkflowID: workflowID,
+		SourceID:   sourceID,
+		SinkID:     sinkID,
+	}
+
+	user, _ := ctx.Value(userContextKey).(*storage.User)
+	if user != nil {
+		l.UserID = user.ID
+		l.Username = user.Username
+	}
+
+	var payloadStr string
+	if data != nil {
+		if str, ok := data.(string); ok {
+			l.Data = str
+			payloadStr = str
+		} else {
+			if b, err := json.Marshal(data); err == nil {
+				l.Data = string(b)
+				payloadStr = string(b)
+			}
+		}
+	}
+
+	_ = s.storage.CreateLog(ctx, l)
+
+	// Also write to dedicated audit_logs table
+	entityType := ""
+	entityID := ""
+	if workflowID != "" {
+		entityType = "workflow"
+		entityID = workflowID
+	} else if sourceID != "" {
+		entityType = "source"
+		entityID = sourceID
+	} else if sinkID != "" {
+		entityType = "sink"
+		entityID = sinkID
+	}
+
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if ip == "" {
+		ip = r.RemoteAddr
+	}
+
+	audit := storage.AuditLog{
+		Timestamp:  time.Now(),
+		UserID:     l.UserID,
+		Username:   l.Username,
+		Action:     action,
+		EntityType: entityType,
+		EntityID:   entityID,
+		Payload:    payloadStr,
+		IP:         ip,
+	}
+	_ = s.storage.CreateAuditLog(ctx, audit)
 }
 
-func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/workflows", s.listWorkflows)
-	mux.HandleFunc("GET /api/workflows/{id}", s.getWorkflow)
-	mux.HandleFunc("POST /api/workflows", s.createWorkflow)
-	mux.HandleFunc("PUT /api/workflows/{id}", s.updateWorkflow)
-	mux.HandleFunc("POST /api/workflows/{id}/toggle", s.toggleWorkflow)
-	mux.HandleFunc("POST /api/workflows/test", s.testWorkflow)
-	mux.HandleFunc("POST /api/transformations/test", s.testTransformation)
-	mux.HandleFunc("DELETE /api/workflows/{id}", s.deleteWorkflow)
-}
-
-func (s *Server) registerAuthRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/login", s.login)
-	mux.HandleFunc("GET /api/users", s.listUsers)
-	mux.HandleFunc("POST /api/users", s.createUser)
-	mux.HandleFunc("PUT /api/users/{id}", s.updateUser)
-	mux.HandleFunc("DELETE /api/users/{id}", s.deleteUser)
-}
+// maintenance logic moved to maintenance.go
 
 func (s *Server) registerInfrastructureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/config/status", s.getConfigStatus)
 	mux.HandleFunc("POST /api/config/database", s.saveDBConfig)
+	mux.HandleFunc("POST /api/config/database/test", s.testDBConfig)
+	// List databases on a target server for setup wizard
+	mux.HandleFunc("POST /api/config/databases", s.listDatabases)
+	// One-shot initial setup endpoint (first run only)
+	mux.HandleFunc("POST /api/config/setup", s.finalizeInitialSetup)
+	mux.HandleFunc("PUT /api/config/crypto", s.updateCryptoMasterKey)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.updateSettings)
-	mux.HandleFunc("GET /api/vhosts", s.listVHosts)
-	mux.HandleFunc("POST /api/vhosts", s.createVHost)
-	mux.HandleFunc("DELETE /api/vhosts/{id}", s.deleteVHost)
+	mux.HandleFunc("POST /api/settings/test", s.testNotificationSettings)
+	mux.HandleFunc("POST /api/settings/test-config", s.testNotificationConfig)
+	// Utilities
+	mux.HandleFunc("POST /api/utils/token", s.generateToken)
+	// Prefill DB settings & test notifications
+	mux.HandleFunc("GET /api/config/database", s.getDBConfig)
 	mux.HandleFunc("GET /api/workers", s.listWorkers)
 	mux.HandleFunc("GET /api/workers/{id}", s.getWorker)
 	mux.HandleFunc("POST /api/workers", s.createWorker)
@@ -119,12 +228,56 @@ func (s *Server) registerInfrastructureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/logs", s.listLogs)
 	mux.HandleFunc("POST /api/logs", s.createLog)
 	mux.HandleFunc("DELETE /api/logs", s.deleteLogs)
+	mux.HandleFunc("GET /api/audit-logs", s.listAuditLogs)
 	mux.HandleFunc("GET /api/ws/status", s.handleStatusWS)
 	mux.HandleFunc("GET /api/ws/dashboard", s.handleDashboardWS)
 	mux.HandleFunc("GET /api/ws/logs", s.handleLogsWS)
 	mux.HandleFunc("GET /api/dashboard/stats", s.getDashboardStats)
 	mux.HandleFunc("GET /api/backup/export", s.exportConfig)
 	mux.HandleFunc("POST /api/backup/import", s.importConfig)
+}
+
+// updateCryptoMasterKey sets or rotates the crypto master key stored in db_config.yaml (Admin only).
+// The provided key must be at least 16 characters. This endpoint does not return the key.
+func (s *Server) updateCryptoMasterKey(w http.ResponseWriter, r *http.Request) {
+	role, _ := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if !config.IsDBConfigured() {
+		http.Error(w, "database is not configured", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		CryptoMasterKey string `json:"crypto_master_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	key := strings.TrimSpace(req.CryptoMasterKey)
+	if len(key) < 16 {
+		http.Error(w, "crypto_master_key must be at least 16 characters", http.StatusBadRequest)
+		return
+	}
+
+	cfg, err := config.LoadDBConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	cfg.CryptoMasterKey = key
+	if err := config.SaveDBConfig(cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	crypto.SetMasterKey(key)
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) Routes() http.Handler {
@@ -136,8 +289,19 @@ func (s *Server) Routes() http.Handler {
 	s.registerAuthRoutes(mux)
 	s.registerInfrastructureRoutes(mux)
 
+	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
+	mux.HandleFunc("GET /livez", s.handleLiveness)
+	mux.HandleFunc("GET /readyz", s.handleReadiness)
+
 	mux.HandleFunc("POST /api/webhooks/{path...}", s.handleWebhook)
 	mux.HandleFunc("GET /api/webhooks/{path...}", s.handleWebhook)
+	mux.HandleFunc("POST /api/graphql/{path...}", s.handleGraphQL)
+
+	// Form submissions endpoint
+	mux.HandleFunc("POST /api/forms/{path...}", s.handleForm)
+	mux.HandleFunc("GET /api/forms/{path...}", s.handleForm)
+	// Public generated form page
+	mux.HandleFunc("GET /forms/{path...}", s.serveFormPage)
 	mux.Handle("/metrics", promhttp.Handler())
 
 	// Static files
@@ -151,11 +315,13 @@ func (s *Server) Routes() http.Handler {
 	}
 
 	if useDisk {
-		// Serve from disk to avoid stale embedded assets during development or first run
+		fmt.Println("Serving static assets from disk: internal/api/static")
 		static = http.Dir("internal/api/static")
 	} else {
+		fmt.Println("Serving static assets from embedded filesystem")
 		sub, err := fs.Sub(staticFS, "static")
 		if err != nil {
+			fmt.Printf("Warning: failed to create sub-filesystem for static assets: %v\n", err)
 			return mux
 		}
 		static = http.FS(sub)
@@ -167,6 +333,20 @@ func (s *Server) Routes() http.Handler {
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path == "" {
 			path = "index.html"
+		}
+
+		// On first-time setup, redirect any HTML request to /setup (except the setup page itself)
+		if s.isFirstRun(r.Context()) {
+			if wantsHTML(r) && path != "setup" && path != "setup/" && !strings.HasPrefix(path, "api/") {
+				http.Redirect(w, r, "/setup", http.StatusFound)
+				return
+			}
+		} else {
+			// If already configured, don't allow access to /setup
+			if (path == "setup" || path == "setup/") && wantsHTML(r) {
+				http.Redirect(w, r, "/", http.StatusFound)
+				return
+			}
 		}
 
 		f, err := static.Open(path)
@@ -181,1685 +361,30 @@ func (s *Server) Routes() http.Handler {
 
 		// If not found and not an API request, serve index.html for SPA routing
 		if !strings.HasPrefix(r.URL.Path, "/api/") {
-			r.URL.Path = "/"
-			fileServer.ServeHTTP(w, r)
-			return
+			// Serve index.html for SPA routing
+			f, err := static.Open("index.html")
+			if err == nil {
+				f.Close()
+				r.URL.Path = "/"
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+			// If index.html is also missing, return 404
 		}
 
 		http.NotFound(w, r)
 	})
 
-	return s.corsMiddleware(s.authMiddleware(mux))
-}
-
-func (s *Server) parseCommonFilter(r *http.Request) storage.CommonFilter {
-	q := r.URL.Query()
-	pageStr := q.Get("page")
-	page, _ := strconv.Atoi(pageStr)
-	if pageStr == "" || page <= 0 {
-		page = 1
-	}
-	limitStr := q.Get("limit")
-	limit, _ := strconv.Atoi(limitStr)
-	if limitStr == "" {
-		limit = 30
-	}
-	search := q.Get("search")
-	return storage.CommonFilter{
-		Page:   page,
-		Limit:  limit,
-		Search: search,
-		VHost:  q.Get("vhost"),
-	}
-}
-
-func (s *Server) createLog(w http.ResponseWriter, r *http.Request) {
-	var log storage.Log
-	if err := json.NewDecoder(r.Body).Decode(&log); err != nil {
-		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if err := s.storage.CreateLog(r.Context(), log); err != nil {
-		s.jsonError(w, "Failed to create log: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-}
-
-func (s *Server) listLogs(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	filter := storage.LogFilter{
-		CommonFilter: s.parseCommonFilter(r),
-		SourceID:     query.Get("source_id"),
-		SinkID:       query.Get("sink_id"),
-		WorkflowID:   query.Get("workflow_id"),
-		Level:        query.Get("level"),
-		Action:       query.Get("action"),
-	}
-
-	logs, total, err := s.storage.ListLogs(r.Context(), filter)
-	if err != nil {
-		s.jsonError(w, "Failed to list logs: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"data":  logs,
-		"total": total,
-	})
-}
-
-func (s *Server) deleteLogs(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	filter := storage.LogFilter{
-		SourceID:   query.Get("source_id"),
-		SinkID:     query.Get("sink_id"),
-		WorkflowID: query.Get("workflow_id"),
-		Level:      query.Get("level"),
-		Action:     query.Get("action"),
-	}
-
-	if err := s.storage.DeleteLogs(r.Context(), filter); err != nil {
-		s.jsonError(w, "Failed to delete logs: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) listWorkflows(w http.ResponseWriter, r *http.Request) {
-	filter := s.parseCommonFilter(r)
-	wfs, total, err := s.storage.ListWorkflows(r.Context(), filter)
-	if err != nil {
-		s.jsonError(w, "Failed to list workflows: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"data":  wfs,
-		"total": total,
-	})
-}
-
-func (s *Server) getWorkflow(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	wf, err := s.storage.GetWorkflow(r.Context(), id)
-	if err == storage.ErrNotFound {
-		s.jsonError(w, "Workflow not found", http.StatusNotFound)
-		return
-	}
-	if err != nil {
-		s.jsonError(w, "Failed to get workflow: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(wf)
-}
-
-func (s *Server) createWorkflow(w http.ResponseWriter, r *http.Request) {
-	var wf storage.Workflow
-	if err := json.NewDecoder(r.Body).Decode(&wf); err != nil {
-		s.jsonError(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if err := s.storage.CreateWorkflow(r.Context(), wf); err != nil {
-		s.jsonError(w, "Failed to create workflow: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(wf)
-}
-
-func (s *Server) updateWorkflow(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	var wf storage.Workflow
-	if err := json.NewDecoder(r.Body).Decode(&wf); err != nil {
-		s.jsonError(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	wf.ID = id
-
-	if err := s.storage.UpdateWorkflow(r.Context(), wf); err != nil {
-		s.jsonError(w, "Failed to update workflow: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(wf)
-}
-
-func (s *Server) deleteWorkflow(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := s.storage.DeleteWorkflow(r.Context(), id); err != nil {
-		s.jsonError(w, "Failed to delete workflow: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) toggleWorkflow(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	wf, err := s.storage.GetWorkflow(r.Context(), id)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			s.jsonError(w, "Workflow not found", http.StatusNotFound)
-		} else {
-			s.jsonError(w, "Failed to retrieve workflow: "+err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	if !wf.Active {
-		if err := s.registry.StartWorkflow(id, wf); err != nil && !strings.Contains(err.Error(), "already running") {
-			s.jsonError(w, "Failed to start workflow: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		wf.Active = true
-		wf.Status = "Running"
-
-		// Mark source and sinks as active
-		for _, node := range wf.Nodes {
-			if node.Type == "source" {
-				if src, err := s.storage.GetSource(r.Context(), node.RefID); err == nil {
-					src.Active = true
-					_ = s.storage.UpdateSource(r.Context(), src)
-				}
-			} else if node.Type == "sink" {
-				if snk, err := s.storage.GetSink(r.Context(), node.RefID); err == nil {
-					snk.Active = true
-					_ = s.storage.UpdateSink(r.Context(), snk)
-				}
-			}
-		}
-	} else {
-		if err := s.registry.StopEngine(id); err != nil {
-			s.jsonError(w, "Failed to stop workflow: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		wf.Active = false
-		wf.Status = "Stopped"
-	}
-
-	if err := s.storage.UpdateWorkflow(r.Context(), wf); err != nil {
-		s.jsonError(w, "Failed to update workflow: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(wf)
-}
-
-func (s *Server) testWorkflow(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Workflow storage.Workflow       `json:"workflow"`
-		Message  map[string]interface{} `json:"message"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	msg := message.AcquireMessage()
-	defer message.ReleaseMessage(msg)
-
-	for k, v := range req.Message {
-		msg.SetData(k, v)
-	}
-
-	steps, err := s.registry.TestWorkflow(r.Context(), req.Workflow, msg)
-	if err != nil {
-		s.jsonError(w, "Failed to test workflow: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(steps)
-}
-
-func (s *Server) testTransformation(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Transformation storage.Transformation `json:"transformation"`
-		Message        map[string]interface{} `json:"message"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	msg := message.AcquireMessage()
-	defer message.ReleaseMessage(msg)
-
-	for k, v := range req.Message {
-		msg.SetData(k, v)
-	}
-
-	res, err := s.registry.TestTransformationPipeline(r.Context(), []storage.Transformation{req.Transformation}, msg)
-	if err != nil {
-		s.jsonError(w, "Failed to test transformation: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if len(res) == 0 || res[0] == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Filtered", "filtered": true})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res[0].Data())
-}
-
-func (s *Server) getConfigStatus(w http.ResponseWriter, r *http.Request) {
-	configured := config.IsDBConfigured()
-	userSetup := false
-
-	if configured && s.storage != nil {
-		users, _, err := s.storage.ListUsers(r.Context(), storage.CommonFilter{})
-		if err == nil && len(users) > 0 {
-			userSetup = true
-		}
-	}
-
-	status := map[string]bool{
-		"configured": configured,
-		"user_setup": userSetup,
-	}
-	json.NewEncoder(w).Encode(status)
-}
-
-func (s *Server) saveDBConfig(w http.ResponseWriter, r *http.Request) {
-	var cfg config.DBConfig
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if cfg.JWTSecret == "" {
-		cfg.JWTSecret = uuid.New().String()
-	}
-
-	if err := config.SaveDBConfig(&cfg); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Re-initialize storage with new config
-	driver := ""
-	switch cfg.Type {
-	case "sqlite":
-		driver = "sqlite"
-		if !strings.Contains(cfg.Conn, "?") {
-			cfg.Conn += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
-		}
-	case "postgres":
-		driver = "pgx"
-	case "mysql", "mariadb":
-		driver = "mysql"
-	case "mongodb":
-		// Handle MongoDB separately
-		client, err := mongo.Connect(r.Context(), options.Client().ApplyURI(cfg.Conn))
-		if err != nil {
-			http.Error(w, "failed to connect to MongoDB: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		dbName := "hermod"
-		if parts := strings.Split(cfg.Conn, "/"); len(parts) > 3 {
-			dbName = strings.Split(parts[3], "?")[0]
-		}
-		newStore := storagemongo.NewMongoStorage(client, dbName)
-		if s_init, ok := newStore.(interface{ Init(context.Context) error }); ok {
-			if err := s_init.Init(r.Context()); err != nil {
-				http.Error(w, "failed to initialize new storage: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-		}
-		s.storage = newStore
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-		return
-	default:
-		http.Error(w, "unsupported database type", http.StatusBadRequest)
-		return
-	}
-
-	db, err := sql.Open(driver, cfg.Conn)
-	if err != nil {
-		http.Error(w, "failed to open new database: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if cfg.Type == "sqlite" {
-		db.SetMaxOpenConns(1)
-	}
-
-	newStore := sqlstorage.NewSQLStorage(db, driver)
-	if s_init, ok := newStore.(interface{ Init(context.Context) error }); ok {
-		if err := s_init.Init(r.Context()); err != nil {
-			http.Error(w, "failed to initialize new storage: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-
-	s.storage = newStore
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-func (s *Server) corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (s *Server) jsonError(w http.ResponseWriter, message string, code int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
-}
-
-func (s *Server) uploadFile(w http.ResponseWriter, r *http.Request) {
-	err := r.ParseMultipartForm(10 << 20) // 10 MB
-	if err != nil {
-		http.Error(w, "Failed to parse form", http.StatusBadRequest)
-		return
-	}
-
-	file, handler, err := r.FormFile("file")
-	if err != nil {
-		http.Error(w, "Failed to get file", http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-
-	// Ensure uploads directory exists
-	uploadDir := "uploads"
-	if _, err := os.Stat(uploadDir); os.IsNotExist(err) {
-		os.Mkdir(uploadDir, 0755)
-	}
-
-	filePath := filepath.Join(uploadDir, handler.Filename)
-	dst, err := os.Create(filePath)
-	if err != nil {
-		http.Error(w, "Failed to create file", http.StatusInternalServerError)
-		return
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, file); err != nil {
-		http.Error(w, "Failed to save file", http.StatusInternalServerError)
-		return
-	}
-
-	// Get absolute path
-	absPath, err := filepath.Abs(filePath)
-	if err != nil {
-		absPath = filePath
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"path": absPath,
-	})
-}
-
-func (s *Server) listSources(w http.ResponseWriter, r *http.Request) {
-	filter := s.parseCommonFilter(r)
-	role, vhosts := s.getRoleAndVHosts(r)
-
-	// If user is not admin, we must enforce vhost filtering at DB level if they requested 'all' or no specific vhost
-	if role != "" && role != storage.RoleAdministrator {
-		if filter.VHost == "" || filter.VHost == "all" {
-			// This is tricky because a user can have multiple vhosts.
-			// For simplicity, if they don't specify one, we might need to filter in memory OR
-			// update the query to support multiple vhosts.
-			// Let's keep in-memory for now if multiple vhosts are involved, but that breaks paging.
-		}
-	}
-
-	sources, total, err := s.storage.ListSources(r.Context(), filter)
-	if err != nil {
-		s.jsonError(w, "Failed to list sources: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Filter by vhost for non-admins if they didn't specify one in filter or if we couldn't do it in DB
-	if role != "" && role != storage.RoleAdministrator {
-		filtered := []storage.Source{}
-		for _, src := range sources {
-			if s.hasVHostAccess(src.VHost, vhosts) {
-				filtered = append(filtered, src)
-			}
-		}
-		sources = filtered
-		// total will be slightly wrong if we filter in memory, but if the user specified a vhost it's correct.
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"data":  sources,
-		"total": total,
-	})
-}
-
-func (s *Server) getSource(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	src, err := s.storage.GetSource(r.Context(), id)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			s.jsonError(w, "Source not found", http.StatusNotFound)
-		} else {
-			s.jsonError(w, "Failed to retrieve source: "+err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	// Filter by vhost for non-admins
-	role, vhosts := s.getRoleAndVHosts(r)
-	if role != "" && role != storage.RoleAdministrator {
-		if !s.hasVHostAccess(src.VHost, vhosts) {
-			s.jsonError(w, "Forbidden: you don't have access to this vhost", http.StatusForbidden)
-			return
-		}
-	}
-
-	json.NewEncoder(w).Encode(src)
-}
-
-func (s *Server) createSource(w http.ResponseWriter, r *http.Request) {
-	var src storage.Source
-	if err := json.NewDecoder(r.Body).Decode(&src); err != nil {
-		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if src.Name == "" {
-		s.jsonError(w, "Source name is mandatory", http.StatusBadRequest)
-		return
-	}
-	if src.Type == "" {
-		s.jsonError(w, "Source type is mandatory", http.StatusBadRequest)
-		return
-	}
-	if src.VHost == "" {
-		s.jsonError(w, "VHost is mandatory", http.StatusBadRequest)
-		return
-	}
-
-	role, vhosts := s.getRoleAndVHosts(r)
-	if role != storage.RoleAdministrator {
-		if !s.hasVHostAccess(src.VHost, vhosts) {
-			s.jsonError(w, "Forbidden: you don't have access to this vhost", http.StatusForbidden)
-			return
-		}
-	}
-
-	src.ID = uuid.New().String()
-
-	if err := s.storage.CreateSource(r.Context(), src); err != nil {
-		s.jsonError(w, "Failed to create source: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(src)
-}
-
-func (s *Server) updateSource(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	var src storage.Source
-	if err := json.NewDecoder(r.Body).Decode(&src); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	src.ID = id
-
-	if src.Name == "" {
-		http.Error(w, "source name is mandatory", http.StatusBadRequest)
-		return
-	}
-	if src.Type == "" {
-		http.Error(w, "source type is mandatory", http.StatusBadRequest)
-		return
-	}
-	if src.VHost == "" {
-		http.Error(w, "vhost is mandatory", http.StatusBadRequest)
-		return
-	}
-
-	role, vhosts := s.getRoleAndVHosts(r)
-	if role != storage.RoleAdministrator {
-		if !s.hasVHostAccess(src.VHost, vhosts) {
-			http.Error(w, "forbidden: you don't have access to this vhost", http.StatusForbidden)
-			return
-		}
-	}
-
-	if err := s.storage.UpdateSource(r.Context(), src); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	json.NewEncoder(w).Encode(src)
-}
-
-func (s *Server) testSource(w http.ResponseWriter, r *http.Request) {
-	var src storage.Source
-	if err := json.NewDecoder(r.Body).Decode(&src); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	cfg := engine.SourceConfig{
-		Type:   src.Type,
-		Config: src.Config,
-	}
-
-	if err := s.registry.TestSource(r.Context(), cfg); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusFailedDependency)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-func (s *Server) discoverDatabases(w http.ResponseWriter, r *http.Request) {
-	var src storage.Source
-	if err := json.NewDecoder(r.Body).Decode(&src); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	cfg := engine.SourceConfig{
-		Type:   src.Type,
-		Config: src.Config,
-	}
-
-	databases, err := s.registry.DiscoverDatabases(r.Context(), cfg)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusFailedDependency)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(databases)
-}
-
-func (s *Server) discoverTables(w http.ResponseWriter, r *http.Request) {
-	var src storage.Source
-	if err := json.NewDecoder(r.Body).Decode(&src); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	cfg := engine.SourceConfig{
-		Type:   src.Type,
-		Config: src.Config,
-	}
-
-	tables, err := s.registry.DiscoverTables(r.Context(), cfg)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusFailedDependency)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tables)
-}
-
-func (s *Server) sampleSourceTable(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Source storage.Source `json:"source"`
-		Table  string         `json:"table"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	cfg := engine.SourceConfig{
-		Type:   req.Source.Type,
-		Config: req.Source.Config,
-	}
-
-	msg, err := s.registry.SampleTable(r.Context(), cfg, req.Table)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusFailedDependency)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"id":        msg.ID(),
-		"operation": msg.Operation(),
-		"table":     msg.Table(),
-		"schema":    msg.Schema(),
-		"before":    string(msg.Before()),
-		"after":     string(msg.After()),
-		"metadata":  msg.Metadata(),
-	})
-}
-
-func (s *Server) proxyFetch(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		URL     string            `json:"url"`
-		Method  string            `json:"method"`
-		Headers map[string]string `json:"headers"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if req.Method == "" {
-		req.Method = "GET"
-	}
-
-	hreq, err := http.NewRequestWithContext(r.Context(), req.Method, req.URL, nil)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	for k, v := range req.Headers {
-		hreq.Header.Set(k, v)
-	}
-
-	resp, err := http.DefaultClient.Do(hreq)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// We wrap it in a Hermod message structure for the playground
-	msg := map[string]interface{}{
-		"id":        "api-fetch",
-		"operation": "snapshot",
-		"table":     "api_response",
-		"after":     string(body),
-		"metadata":  map[string]string{"url": req.URL},
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(msg)
-}
-
-func (s *Server) deleteSource(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-
-	// Deactivate and stop any workflows using this source
-	workflows, _, err := s.storage.ListWorkflows(r.Context(), storage.CommonFilter{})
-	if err == nil {
-		for _, wf := range workflows {
-			isRelated := false
-			for _, node := range wf.Nodes {
-				if node.Type == "source" && node.RefID == id {
-					isRelated = true
-					break
-				}
-			}
-			if isRelated {
-				if wf.Active {
-					_ = s.registry.StopEngine(wf.ID)
-					wf.Active = false
-					_ = s.storage.UpdateWorkflow(r.Context(), wf)
-				}
-			}
-		}
-	}
-
-	if err := s.storage.DeleteSource(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) listSinks(w http.ResponseWriter, r *http.Request) {
-	filter := s.parseCommonFilter(r)
-	sinks, total, err := s.storage.ListSinks(r.Context(), filter)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Filter by vhost for non-admins
-	role, vhosts := s.getRoleAndVHosts(r)
-	if role != "" && role != storage.RoleAdministrator {
-		filtered := []storage.Sink{}
-		for _, snk := range sinks {
-			if s.hasVHostAccess(snk.VHost, vhosts) {
-				filtered = append(filtered, snk)
-			}
-		}
-		sinks = filtered
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"data":  sinks,
-		"total": total,
-	})
-}
-
-func (s *Server) getSink(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	snk, err := s.storage.GetSink(r.Context(), id)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			s.jsonError(w, "Sink not found", http.StatusNotFound)
-		} else {
-			s.jsonError(w, "Failed to retrieve sink: "+err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	// Filter by vhost for non-admins
-	role, vhosts := s.getRoleAndVHosts(r)
-	if role != "" && role != storage.RoleAdministrator {
-		if !s.hasVHostAccess(snk.VHost, vhosts) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-	}
-
-	json.NewEncoder(w).Encode(snk)
-}
-
-func (s *Server) createSink(w http.ResponseWriter, r *http.Request) {
-	var snk storage.Sink
-	if err := json.NewDecoder(r.Body).Decode(&snk); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if snk.Name == "" {
-		http.Error(w, "sink name is mandatory", http.StatusBadRequest)
-		return
-	}
-	if snk.Type == "" {
-		http.Error(w, "sink type is mandatory", http.StatusBadRequest)
-		return
-	}
-	if snk.VHost == "" {
-		http.Error(w, "vhost is mandatory", http.StatusBadRequest)
-		return
-	}
-
-	role, vhosts := s.getRoleAndVHosts(r)
-	if role != storage.RoleAdministrator {
-		if !s.hasVHostAccess(snk.VHost, vhosts) {
-			http.Error(w, "forbidden: you don't have access to this vhost", http.StatusForbidden)
-			return
-		}
-	}
-
-	snk.ID = uuid.New().String()
-
-	if err := s.storage.CreateSink(r.Context(), snk); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(snk)
-}
-
-func (s *Server) updateSink(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	var snk storage.Sink
-	if err := json.NewDecoder(r.Body).Decode(&snk); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	snk.ID = id
-
-	if snk.Name == "" {
-		http.Error(w, "sink name is mandatory", http.StatusBadRequest)
-		return
-	}
-	if snk.Type == "" {
-		http.Error(w, "sink type is mandatory", http.StatusBadRequest)
-		return
-	}
-	if snk.VHost == "" {
-		http.Error(w, "vhost is mandatory", http.StatusBadRequest)
-		return
-	}
-
-	role, vhosts := s.getRoleAndVHosts(r)
-	if role != storage.RoleAdministrator {
-		if !s.hasVHostAccess(snk.VHost, vhosts) {
-			http.Error(w, "forbidden: you don't have access to this vhost", http.StatusForbidden)
-			return
-		}
-	}
-
-	if err := s.storage.UpdateSink(r.Context(), snk); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	json.NewEncoder(w).Encode(snk)
-}
-
-func (s *Server) testSink(w http.ResponseWriter, r *http.Request) {
-	var snk storage.Sink
-	if err := json.NewDecoder(r.Body).Decode(&snk); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	cfg := engine.SinkConfig{
-		Type:   snk.Type,
-		Config: snk.Config,
-	}
-
-	if err := s.registry.TestSink(r.Context(), cfg); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusFailedDependency)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-func (s *Server) discoverSinkDatabases(w http.ResponseWriter, r *http.Request) {
-	var snk storage.Sink
-	if err := json.NewDecoder(r.Body).Decode(&snk); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	cfg := engine.SinkConfig{
-		Type:   snk.Type,
-		Config: snk.Config,
-	}
-
-	dbs, err := s.registry.DiscoverSinkDatabases(r.Context(), cfg)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusFailedDependency)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(dbs)
-}
-
-func (s *Server) discoverSinkTables(w http.ResponseWriter, r *http.Request) {
-	var snk storage.Sink
-	if err := json.NewDecoder(r.Body).Decode(&snk); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	cfg := engine.SinkConfig{
-		Type:   snk.Type,
-		Config: snk.Config,
-	}
-
-	tables, err := s.registry.DiscoverSinkTables(r.Context(), cfg)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusFailedDependency)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tables)
-}
-
-func (s *Server) sampleSinkTable(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Sink  storage.Sink `json:"sink"`
-		Table string       `json:"table"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	cfg := engine.SinkConfig{
-		Type:   req.Sink.Type,
-		Config: req.Sink.Config,
-	}
-
-	msg, err := s.registry.SampleSinkTable(r.Context(), cfg, req.Table)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusFailedDependency)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"id":        msg.ID(),
-		"operation": msg.Operation(),
-		"table":     msg.Table(),
-		"schema":    msg.Schema(),
-		"before":    string(msg.Before()),
-		"after":     string(msg.After()),
-		"metadata":  msg.Metadata(),
-	})
-}
-
-func (s *Server) previewSmtpTemplate(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Template string                 `json:"template"`
-		Data     map[string]interface{} `json:"data"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if req.Data == nil {
-		req.Data = make(map[string]interface{})
-	}
-
-	email := &gsmail.Email{}
-	if err := email.SetBody(req.Template, req.Data); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"rendered": string(email.Body),
-		"is_html":  strconv.FormatBool(gsmail.IsHTML(email.Body)),
-	})
-}
-
-func (s *Server) validateEmail(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Email string `json:"email"`
-		Host  string `json:"host"`
-		Port  int    `json:"port"`
-		User  string `json:"username"`
-		Pass  string `json:"password"`
-		SSL   bool   `json:"ssl"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	sender := smtp.NewSender(req.Host, req.Port, req.User, req.Pass, req.SSL)
-	if err := sender.Validate(r.Context(), req.Email); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-func (s *Server) deleteSink(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-
-	// Deactivate and stop any workflows using this sink
-	workflows, _, err := s.storage.ListWorkflows(r.Context(), storage.CommonFilter{})
-	if err == nil {
-		for _, wf := range workflows {
-			isRelated := false
-			for _, node := range wf.Nodes {
-				if node.Type == "sink" && node.RefID == id {
-					isRelated = true
-					break
-				}
-			}
-			if isRelated {
-				if wf.Active {
-					_ = s.registry.StopEngine(wf.ID)
-					wf.Active = false
-					_ = s.storage.UpdateWorkflow(r.Context(), wf)
-				}
-			}
-		}
-	}
-
-	if err := s.storage.DeleteSink(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
-	users, total, err := s.storage.ListUsers(r.Context(), s.parseCommonFilter(r))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"data":  users,
-		"total": total,
-	})
-}
-
-func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
-	var user storage.User
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if user.Password != "" {
-		hashed, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
-		if err != nil {
-			http.Error(w, "failed to hash password", http.StatusInternalServerError)
-			return
-		}
-		user.Password = string(hashed)
-	}
-	users, _, _ := s.storage.ListUsers(r.Context(), storage.CommonFilter{})
-	if len(users) == 0 {
-		user.Role = storage.RoleAdministrator
-	} else if user.Role == "" {
-		user.Role = storage.RoleViewer
-	}
-
-	if user.Role != storage.RoleAdministrator && len(user.VHosts) > 1 {
-		http.Error(w, "non-administrator users can only be assigned to one vhost", http.StatusBadRequest)
-		return
-	}
-
-	if user.ID == "" {
-		user.ID = uuid.New().String()
-	}
-	if err := s.storage.CreateUser(r.Context(), user); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(user)
-}
-
-func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	var user storage.User
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	user.ID = id
-
-	if user.Password != "" {
-		hashed, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
-		if err != nil {
-			http.Error(w, "failed to hash password", http.StatusInternalServerError)
-			return
-		}
-		user.Password = string(hashed)
-	}
-
-	if user.Role != "" && user.Role != storage.RoleAdministrator && len(user.VHosts) > 1 {
-		http.Error(w, "non-administrator users can only be assigned to one vhost", http.StatusBadRequest)
-		return
-	}
-
-	if err := s.storage.UpdateUser(r.Context(), user); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(user)
-}
-
-func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := s.storage.DeleteUser(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) listVHosts(w http.ResponseWriter, r *http.Request) {
-	vhosts, total, err := s.storage.ListVHosts(r.Context(), s.parseCommonFilter(r))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"data":  vhosts,
-		"total": total,
-	})
-}
-
-func (s *Server) createVHost(w http.ResponseWriter, r *http.Request) {
-	var vhost storage.VHost
-	if err := json.NewDecoder(r.Body).Decode(&vhost); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if vhost.ID == "" {
-		vhost.ID = uuid.New().String()
-	}
-	if err := s.storage.CreateVHost(r.Context(), vhost); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(vhost)
-}
-
-func (s *Server) deleteVHost(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := s.storage.DeleteVHost(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) listWorkers(w http.ResponseWriter, r *http.Request) {
-	workers, total, err := s.storage.ListWorkers(r.Context(), s.parseCommonFilter(r))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"data":  workers,
-		"total": total,
-	})
-}
-
-func (s *Server) getWorker(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	worker, err := s.storage.GetWorker(r.Context(), id)
-	if err != nil {
-		if err == storage.ErrNotFound {
-			http.Error(w, "worker not found", http.StatusNotFound)
-		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-	json.NewEncoder(w).Encode(worker)
-}
-
-func (s *Server) createWorker(w http.ResponseWriter, r *http.Request) {
-	var worker storage.Worker
-	if err := json.NewDecoder(r.Body).Decode(&worker); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if worker.ID == "" {
-		worker.ID = uuid.New().String()
-	}
-
-	if worker.Name == "" {
-		worker.Name = worker.ID
-	}
-
-	if worker.Token == "" {
-		worker.Token = crypto.GenerateToken()
-	}
-
-	if err := s.storage.CreateWorker(r.Context(), worker); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(worker)
-}
-
-func (s *Server) updateWorker(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	var worker storage.Worker
-	if err := json.NewDecoder(r.Body).Decode(&worker); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	worker.ID = id
-
-	if err := s.storage.UpdateWorker(r.Context(), worker); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	json.NewEncoder(w).Encode(worker)
-}
-
-func (s *Server) updateWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := s.storage.UpdateWorkerHeartbeat(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) deleteWorker(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := s.storage.DeleteWorker(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	var creds struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	user, err := s.storage.GetUserByUsername(r.Context(), creds.Username)
-	if err != nil {
-		http.Error(w, "invalid username or password", http.StatusUnauthorized)
-		return
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(creds.Password)); err != nil {
-		http.Error(w, "invalid username or password", http.StatusUnauthorized)
-		return
-	}
-
-	dbCfg, err := config.LoadDBConfig()
-	if err != nil {
-		http.Error(w, "failed to load config", http.StatusInternalServerError)
-		return
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id":  user.ID,
-		"username": user.Username,
-		"role":     string(user.Role),
-		"exp":      time.Now().Add(time.Hour * 24).Unix(),
-	})
-
-	tokenString, err := token.SignedString([]byte(dbCfg.JWTSecret))
-	if err != nil {
-		http.Error(w, "failed to generate token", http.StatusInternalServerError)
-		return
-	}
-
-	json.NewEncoder(w).Encode(map[string]string{
-		"token": tokenString,
-	})
-}
-
-func (s *Server) getRoleAndVHosts(r *http.Request) (storage.Role, []string) {
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		return "", nil
-	}
-	parts := strings.Split(authHeader, " ")
-	if len(parts) != 2 || parts[0] != "Bearer" {
-		return "", nil
-	}
-	tokenString := parts[1]
-
-	dbCfg, err := config.LoadDBConfig()
-	if err != nil {
-		return "", nil
-	}
-
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return []byte(dbCfg.JWTSecret), nil
-	})
-	if err != nil || !token.Valid {
-		return "", nil
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return "", nil
-	}
-
-	roleStr, _ := claims["role"].(string)
-	role := storage.Role(roleStr)
-
-	userID, _ := claims["user_id"].(string)
-	user, err := s.storage.GetUser(r.Context(), userID)
-	if err != nil {
-		return role, nil
-	}
-
-	return user.Role, user.VHosts
-}
-
-func (s *Server) hasVHostAccess(vhost string, allowedVHosts []string) bool {
-	if vhost == "" {
-		// If vhost is empty, it might mean "default" or "all" depending on context.
-		// To be safe, let's only allow it if the user has NO specific vhosts assigned
-		// (meaning they are a global admin) or if they have "default" in their list.
-		if len(allowedVHosts) == 0 {
-			return true
-		}
-		for _, v := range allowedVHosts {
-			if v == "default" || v == "" {
-				return true
-			}
-		}
-		return false
-	}
-	for _, v := range allowedVHosts {
-		if v == vhost {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *Server) authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Only protect /api/ routes
-		if !strings.HasPrefix(r.URL.Path, "/api/") {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Public API routes
-		if r.URL.Path == "/api/login" || r.URL.Path == "/api/config/status" || r.URL.Path == "/api/config/database" || strings.HasPrefix(r.URL.Path, "/api/ws/") {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Allow worker registration and basic info fetching without token if worker token is valid
-		isWorkerRoute := strings.HasPrefix(r.URL.Path, "/api/workers")
-		isSourceRoute := strings.HasPrefix(r.URL.Path, "/api/sources")
-		isSinkRoute := strings.HasPrefix(r.URL.Path, "/api/sinks")
-		isWorkflowRoute := strings.HasPrefix(r.URL.Path, "/api/workflows")
-
-		workerToken := r.Header.Get("X-Worker-Token")
-		if workerToken != "" {
-			// Extract worker ID from path if possible
-			// For /api/workers/{id}
-			if isWorkerRoute && r.Method == "GET" {
-				id := strings.TrimPrefix(r.URL.Path, "/api/workers/")
-				if id != "" && id != "/api/workers" {
-					wkr, err := s.storage.GetWorker(r.Context(), id)
-					if err == nil && wkr.Token == workerToken {
-						next.ServeHTTP(w, r)
-						return
-					}
-				}
-			}
-			// For /api/workflows, /api/sources, /api/sinks
-			if r.Method == "GET" && (isSourceRoute || isSinkRoute || isWorkflowRoute) {
-				// Only allow if the worker token is valid
-				workers, _, err := s.storage.ListWorkers(r.Context(), storage.CommonFilter{})
-				if err == nil {
-					var authenticatedWorker *storage.Worker
-					for _, wkr := range workers {
-						if wkr.Token == workerToken {
-							authenticatedWorker = &wkr
-							break
-						}
-					}
-
-					if authenticatedWorker != nil {
-						// Restrict access based on worker ID
-						// If it's a list request, we should ideally filter by worker_id in the query
-						// but since the storage layer doesn't support it in List methods directly via CommonFilter yet,
-						// or it might be too complex to change all storage implementations now,
-						// we can at least ensure that if an ID is provided, it belongs to this worker.
-
-						pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/"), "/")
-						if len(pathParts) >= 2 && pathParts[1] != "" {
-							id := pathParts[1]
-							var assignedWorkerID string
-							if isSourceRoute {
-								src, err := s.storage.GetSource(r.Context(), id)
-								if err == nil {
-									assignedWorkerID = src.WorkerID
-								}
-							} else if isSinkRoute {
-								snk, err := s.storage.GetSink(r.Context(), id)
-								if err == nil {
-									assignedWorkerID = snk.WorkerID
-								}
-							} else if isWorkflowRoute {
-								wf, err := s.storage.GetWorkflow(r.Context(), id)
-								if err == nil {
-									assignedWorkerID = wf.WorkerID
-								}
-							}
-
-							if assignedWorkerID != "" && assignedWorkerID != authenticatedWorker.ID {
-								http.Error(w, "forbidden: resource assigned to another worker", http.StatusForbidden)
-								return
-							}
-						}
-
-						next.ServeHTTP(w, r)
-						return
-					}
-				}
-			}
-
-			// Self-registration: allow if token matches existing worker
-			if isWorkerRoute && r.Method == "POST" {
-				// Try to read a bit of the body to see if there's an ID
-				// Actually, let's just let the handler handle it, but we should ensure
-				// that if a worker ID is provided, it either doesn't exist yet
-				// OR the provided token matches the existing worker's token.
-
-				// However, in authMiddleware we don't want to parse the body if possible
-				// to avoid issues with double reading.
-
-				// For now, let's just ensure that if X-Worker-Token is provided,
-				// it's a valid token for SOME worker if that worker already exists.
-				if workerToken != "" {
-					workers, _, err := s.storage.ListWorkers(r.Context(), storage.CommonFilter{})
-					if err == nil {
-						// If we find a worker with this token, we're good.
-						for _, wkr := range workers {
-							if wkr.Token == workerToken {
-								next.ServeHTTP(w, r)
-								return
-							}
-						}
-						// If we have a token but it's not known, it might be a new worker registration
-						// with a user-provided token.
-						next.ServeHTTP(w, r)
-						return
-					}
-				}
-
-				// If no token, only allow if no workers exist or if it's the first registration?
-				// The security review said "open registration... could allow rogue workers".
-				// We should probably have a "Global Registration Token" or similar.
-				// For now, let's check if there are any workers.
-				workers, _, err := s.storage.ListWorkers(r.Context(), storage.CommonFilter{})
-				if err == nil && len(workers) == 0 {
-					next.ServeHTTP(w, r)
-					return
-				}
-
-				http.Error(w, "unauthorized: worker registration requires a valid token", http.StatusUnauthorized)
-				return
-			}
-		}
-
-		// Skip auth for user setup if no users exist
-		if r.URL.Path == "/api/users" && r.Method == "POST" {
-			users, _, err := s.storage.ListUsers(r.Context(), storage.CommonFilter{})
-			if err == nil && len(users) == 0 {
-				next.ServeHTTP(w, r)
-				return
-			}
-		}
-
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			http.Error(w, "invalid auth header", http.StatusUnauthorized)
-			return
-		}
-
-		tokenString := parts[1]
-		dbCfg, err := config.LoadDBConfig()
-		if err != nil {
-			http.Error(w, "failed to load config", http.StatusInternalServerError)
-			return
-		}
-
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			return []byte(dbCfg.JWTSecret), nil
-		})
-
-		if err != nil || !token.Valid {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		role := storage.Role(claims["role"].(string))
-
-		// Administrator can access everything
-		if role == storage.RoleAdministrator {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Restrict vhost management and user management (except setup) to admins
-		isUserManagement := strings.HasPrefix(r.URL.Path, "/api/users")
-		isVHostManagement := strings.HasPrefix(r.URL.Path, "/api/vhosts")
-		if isUserManagement || isVHostManagement {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-
-		// Viewer only has rights to view sink, source and workflow and dashboard.
-		// settings and user management only for administrator
-		isGet := r.Method == "GET"
-		isSource := strings.HasPrefix(r.URL.Path, "/api/sources")
-		isSink := strings.HasPrefix(r.URL.Path, "/api/sinks")
-		isWorkflow := strings.HasPrefix(r.URL.Path, "/api/workflows")
-
-		if role == storage.RoleViewer {
-			if isGet && (isSource || isSink || isWorkflow) {
-				next.ServeHTTP(w, r)
-				return
-			}
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-
-		// Editor can not access user management and settings but can do whatever with sink, source, and workflow.
-		if role == storage.RoleEditor {
-			if isSource || isSink || isWorkflow {
-				next.ServeHTTP(w, r)
-				return
-			}
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (s *Server) handleStatusWS(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	statusCh := s.registry.SubscribeStatus()
-	defer s.registry.UnsubscribeStatus(statusCh)
-
-	// Send initial statuses for all running engines
-	for _, update := range s.registry.GetAllStatuses() {
-		if err := conn.WriteJSON(update); err != nil {
-			return
-		}
-	}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			_, _, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-		}
-	}()
-
-	for {
-		select {
-		case update := <-statusCh:
-			if err := conn.WriteJSON(update); err != nil {
-				return
-			}
-		case <-done:
-			return
-		case <-r.Context().Done():
-			return
-		}
-	}
+	// Order: security headers -> CORS -> recover -> store-guard -> auth -> handlers
+	return s.securityHeadersMiddleware(
+		s.corsMiddleware(
+			s.recoverMiddleware(
+				s.storeGuardMiddleware(
+					s.authMiddleware(mux),
+				),
+			),
+		),
+	)
 }
 
 func (s *Server) getDashboardStats(w http.ResponseWriter, r *http.Request) {
@@ -1871,145 +396,6 @@ func (s *Server) getDashboardStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
-}
-
-func (s *Server) handleDashboardWS(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	dashboardCh := s.registry.SubscribeDashboardStats()
-	defer s.registry.UnsubscribeDashboardStats(dashboardCh)
-
-	// Send initial stats
-	if stats, err := s.registry.GetDashboardStats(r.Context()); err == nil {
-		if err := conn.WriteJSON(stats); err != nil {
-			return
-		}
-	}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			_, _, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-		}
-	}()
-
-	for {
-		select {
-		case stats := <-dashboardCh:
-			if err := conn.WriteJSON(stats); err != nil {
-				return
-			}
-		case <-done:
-			return
-		case <-r.Context().Done():
-			return
-		}
-	}
-}
-
-func (s *Server) handleLogsWS(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	workflowID := query.Get("workflow_id")
-
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	logCh := s.registry.SubscribeLogs()
-	defer s.registry.UnsubscribeLogs(logCh)
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			_, _, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-		}
-	}()
-
-	for {
-		select {
-		case l := <-logCh:
-			if workflowID != "" && l.WorkflowID != workflowID {
-				continue
-			}
-			if err := conn.WriteJSON(l); err != nil {
-				return
-			}
-		case <-done:
-			return
-		case <-r.Context().Done():
-			return
-		}
-	}
-}
-
-func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
-	role, _ := s.getRoleAndVHosts(r)
-	if role != storage.RoleAdministrator {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-
-	val, err := s.storage.GetSetting(r.Context(), "notification_settings")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if val == "" {
-		val = "{}"
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(val))
-}
-
-func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
-	role, _ := s.getRoleAndVHosts(r)
-	if role != storage.RoleAdministrator {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-
-	var settings map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	bytes, err := json.Marshal(settings)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if err := s.storage.SaveSetting(r.Context(), "notification_settings", string(bytes)); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-type BackupData struct {
-	Sources   []storage.Source   `json:"sources"`
-	Sinks     []storage.Sink     `json:"sinks"`
-	Workflows []storage.Workflow `json:"workflows"`
-	VHosts    []storage.VHost    `json:"vhosts"`
-	Settings  map[string]string  `json:"settings"`
 }
 
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
@@ -2029,6 +415,21 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle compression
+	encoding := r.Header.Get("Content-Encoding")
+	if encoding != "" {
+		comp, err := compression.NewCompressor(compression.Algorithm(encoding))
+		if err == nil {
+			decompressed, err := comp.Decompress(body)
+			if err == nil {
+				body = decompressed
+			} else {
+				http.Error(w, "Failed to decompress body: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+	}
+
 	msg := message.AcquireMessage()
 	msg.SetID(uuid.New().String())
 	msg.SetOperation(hermod.OpCreate)
@@ -2036,6 +437,21 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	msg.SetAfter(body)
 	msg.SetMetadata("webhook_path", fullPath)
 	msg.SetMetadata("http_method", r.Method)
+
+	// Store webhook request for replay
+	headers := make(map[string]string)
+	for k, v := range r.Header {
+		if len(v) > 0 {
+			headers[k] = strings.Join(v, ", ")
+		}
+	}
+	_ = s.storage.CreateWebhookRequest(r.Context(), storage.WebhookRequest{
+		Timestamp: time.Now(),
+		Path:      fullPath,
+		Method:    r.Method,
+		Headers:   headers,
+		Body:      body,
+	})
 
 	// Dispatch to the source
 	// Find the source to check for secret
@@ -2067,11 +483,18 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := webhook.Dispatch(fullPath, msg); err != nil {
+		// Attempt to wake up workflow if it was parked
+		if s.wakeUpWorkflow(r.Context(), "webhook", fullPath) {
+			if err := webhook.Dispatch(fullPath, msg); err == nil {
+				goto dispatched
+			}
+		}
 		message.ReleaseMessage(msg)
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
+dispatched:
 	if r.Method == "GET" {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msg.ID()})
@@ -2082,82 +505,785 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msg.ID()})
 }
 
-func (s *Server) exportConfig(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	data := BackupData{
-		Settings: make(map[string]string),
+func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
+	path := r.PathValue("path")
+	if path == "" {
+		path = "default"
 	}
 
-	filter := storage.CommonFilter{Limit: 1000}
+	fullPath := "/api/graphql/" + path
 
-	sources, _, _ := s.storage.ListSources(ctx, filter)
-	data.Sources = sources
-
-	sinks, _, _ := s.storage.ListSinks(ctx, filter)
-	data.Sinks = sinks
-
-	wfs, _, _ := s.storage.ListWorkflows(ctx, filter)
-	data.Workflows = wfs
-
-	vhosts, _, _ := s.storage.ListVHosts(ctx, filter)
-	data.VHosts = vhosts
-
-	if val, err := s.storage.GetSetting(ctx, "notification_settings"); err == nil {
-		data.Settings["notification_settings"] = val
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", "attachment; filename=hermod-config-backup.json")
-	json.NewEncoder(w).Encode(data)
-}
-
-func (s *Server) importConfig(w http.ResponseWriter, r *http.Request) {
-	var data BackupData
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		s.jsonError(w, "Invalid backup data: "+err.Error(), http.StatusBadRequest)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusInternalServerError)
 		return
 	}
 
-	ctx := r.Context()
-
-	// Import VHosts
-	for _, v := range data.VHosts {
-		if _, err := s.storage.GetVHost(ctx, v.ID); err != nil {
-			_ = s.storage.CreateVHost(ctx, v)
+	// Handle compression
+	encoding := r.Header.Get("Content-Encoding")
+	if encoding != "" {
+		comp, err := compression.NewCompressor(compression.Algorithm(encoding))
+		if err == nil {
+			decompressed, err := comp.Decompress(body)
+			if err == nil {
+				body = decompressed
+			} else {
+				http.Error(w, "Failed to decompress body: "+err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 	}
 
-	// Import Sources
-	for _, src := range data.Sources {
-		if _, err := s.storage.GetSource(ctx, src.ID); err != nil {
-			_ = s.storage.CreateSource(ctx, src)
+	msg := message.AcquireMessage()
+	msg.SetID(uuid.New().String())
+	msg.SetOperation(hermod.OpCreate)
+	msg.SetTable("graphql")
+	msg.SetAfter(body)
+	msg.SetMetadata("graphql_path", fullPath)
+
+	// Attempt to parse as GraphQL
+	var gqlReq struct {
+		Query     string                 `json:"query"`
+		Variables map[string]interface{} `json:"variables"`
+	}
+
+	// Verify API Key
+	sources, _, err := s.storage.ListSources(r.Context(), storage.CommonFilter{})
+	if err == nil {
+		var apiKey string
+		for _, src := range sources {
+			if src.Type == "graphql" && src.Config["path"] == fullPath {
+				apiKey = src.Config["api_key"]
+				break
+			}
+		}
+
+		if apiKey != "" {
+			reqKey := r.Header.Get("X-API-Key")
+			if reqKey == "" {
+				reqKey = r.URL.Query().Get("api_key")
+			}
+			if reqKey != apiKey {
+				http.Error(w, "Invalid API Key", http.StatusUnauthorized)
+				return
+			}
+		}
+	}
+
+	if err := json.Unmarshal(body, &gqlReq); err == nil {
+		if gqlReq.Query != "" {
+			msg.SetData("query", gqlReq.Query)
+		}
+		if gqlReq.Variables != nil {
+			msg.SetData("variables", gqlReq.Variables)
+		}
+	}
+
+	if err := graphql.Dispatch(fullPath, msg); err != nil {
+		// Attempt to wake up workflow if it was parked
+		if s.wakeUpWorkflow(r.Context(), "graphql", fullPath) {
+			if err := graphql.Dispatch(fullPath, msg); err == nil {
+				goto gql_dispatched
+			}
+		}
+		message.ReleaseMessage(msg)
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+gql_dispatched:
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"data": map[string]string{"status": "dispatched", "id": msg.ID()},
+	})
+}
+
+// handleForm receives form submissions (JSON, x-www-form-urlencoded, or multipart)
+// and dispatches them to the in-memory form source registry for the configured path.
+func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
+	path := r.PathValue("path")
+	if path == "" {
+		http.Error(w, "Path is required", http.StatusBadRequest)
+		return
+	}
+
+	fullPath := "/api/forms/" + path
+
+	var body []byte
+	var err error
+	payload := map[string]interface{}{}
+	ct := r.Header.Get("Content-Type")
+
+	if strings.Contains(ct, "application/json") {
+		body, err = io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read body", http.StatusInternalServerError)
+			return
+		}
+		// Attempt to decode for validation and field post-processing
+		_ = json.Unmarshal(body, &payload)
+	} else {
+		// Parse standard form formats
+		// Try multipart first
+		if strings.Contains(ct, "multipart/form-data") {
+			if err := r.ParseMultipartForm(10 << 20); err != nil { // 10MB
+				http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
+				return
+			}
+			// Multipart form values
+			for k, v := range r.MultipartForm.Value {
+				if len(v) == 1 {
+					payload[k] = v[0]
+				} else {
+					payload[k] = v
+				}
+			}
+			// files (we do not store binary content; include metadata only)
+			files := map[string][]map[string]interface{}{}
+			for k, fhs := range r.MultipartForm.File {
+				list := make([]map[string]interface{}, 0, len(fhs))
+				for _, fh := range fhs {
+					list = append(list, map[string]interface{}{
+						"filename": fh.Filename,
+						"size":     fh.Size,
+						"header":   fh.Header,
+					})
+				}
+				files[k] = list
+			}
+			if len(files) > 0 {
+				payload["_files"] = files
+			}
 		} else {
-			_ = s.storage.UpdateSource(ctx, src)
+			// x-www-form-urlencoded or other
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "Failed to parse form", http.StatusBadRequest)
+				return
+			}
+			for k, v := range r.Form {
+				if len(v) == 1 {
+					payload[k] = v[0]
+				} else {
+					payload[k] = v
+				}
+			}
 		}
 	}
 
-	// Import Sinks
-	for _, snk := range data.Sinks {
-		if _, err := s.storage.GetSink(ctx, snk.ID); err != nil {
-			_ = s.storage.CreateSink(ctx, snk)
+	// Attempt to load source config for this form to apply validation/bot protection
+	var srcCfg map[string]string
+	var fieldsCfg string
+	var enableBotProtection = true
+	var botMinMs = 1200
+	var methodForSource string
+	{
+		sources, _, e := s.storage.ListSources(r.Context(), storage.CommonFilter{})
+		if e == nil {
+			for _, src := range sources {
+				if src.Type == "form" && src.Config["path"] == fullPath {
+					srcCfg = src.Config
+					fieldsCfg = src.Config["fields"]
+					if src.Config["enable_bot_protection"] == "false" {
+						enableBotProtection = false
+					}
+					if v := strings.TrimSpace(src.Config["bot_min_submit_ms"]); v != "" {
+						if n, convErr := strconv.Atoi(v); convErr == nil && n >= 0 {
+							botMinMs = n
+						}
+					}
+					methodForSource = src.Config["method"]
+					break
+				}
+			}
+		}
+	}
+
+	if err := botProtectionCheck(r, payload, enableBotProtection, botMinMs); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Field-level post-processing and email verification
+	var fieldDefs []FormField
+	if fieldsCfg != "" {
+		_ = json.Unmarshal([]byte(fieldsCfg), &fieldDefs)
+	}
+
+	// Consolidate date_range pairs and verify email existence as configured
+	if len(fieldDefs) > 0 {
+		for _, fd := range fieldDefs {
+			switch fd.Type {
+			case "date_range":
+				startVal := ""
+				endVal := ""
+				if v, ok := payload[fd.Name+"_start"].(string); ok {
+					startVal = v
+				}
+				if v, ok := payload[fd.Name+"_end"].(string); ok {
+					endVal = v
+				}
+				// Only set structured value when provided
+				if startVal != "" || endVal != "" {
+					payload[fd.Name] = map[string]string{"from": startVal, "to": endVal}
+				}
+			case "scale":
+				// ensure numeric string stays as provided; parsing not required here
+				// leave as-is from payload
+			case "email":
+				val := ""
+				if v, ok := payload[fd.Name].(string); ok {
+					val = strings.TrimSpace(v)
+				}
+				if val != "" && fd.VerifyEmail {
+					// perform best-effort existence check (using pkg/util/smtpprobe)
+					ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+					ok, reason := util.VerifyEmailExists(ctx, val)
+					cancel()
+					msgKey := "email_validation." + fd.Name
+					if ok {
+						// we'll attach metadata later when message is created; temporarily stash in request context via header map? Instead, add a synthetic field
+						payload[msgKey] = "valid"
+					} else {
+						payload[msgKey] = "invalid: " + reason
+						if fd.RejectIfInvalid {
+							// Return error (HTML or JSON depending on request)
+							if wantsHTML(r) {
+								w.Header().Set("Content-Type", "text/html; charset=utf-8")
+								_, _ = w.Write([]byte("<!doctype html><html><head><meta charset=\"utf-8\"><title>Invalid Email</title><style>body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f6f8fb;margin:0;display:flex;align-items:center;justify-content:center;height:100vh}.card{background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(22,32,50,0.08);padding:28px;max-width:560px;text-align:center} h1{font-size:20px;margin:0 0 6px} p{color:#556;margin:0}</style></head><body><div class=\"card\"><h1>Invalid email</h1><p>" + htmlEscape(val) + " doesn't appear to exist (" + htmlEscape(reason) + ")</p></div></body></html>"))
+								return
+							}
+							http.Error(w, "invalid email: "+reason, http.StatusBadRequest)
+							return
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Create final body from payload (for form submissions); for raw JSON we may have enhanced payload with validation results
+	if len(body) == 0 {
+		body, _ = json.Marshal(payload)
+	} else if len(payload) > 0 {
+		// Prefer the enhanced payload if we decoded JSON
+		body, _ = json.Marshal(payload)
+	}
+
+	msg := message.AcquireMessage()
+	msg.SetID(uuid.New().String())
+	msg.SetOperation(hermod.OpCreate)
+	msg.SetTable("form")
+	msg.SetAfter(body)
+	msg.SetMetadata("form_path", fullPath)
+	msg.SetMetadata("http_method", r.Method)
+
+	// If a form source with a secret exists, require a signature header (unless public allowed)
+	if srcCfg != nil {
+		secret := srcCfg["secret"]
+		allowPublic := srcCfg["allow_public_form"] == "true"
+		if secret != "" && !allowPublic {
+			signature := r.Header.Get("X-Form-Signature")
+			if signature == "" {
+				message.ReleaseMessage(msg)
+				http.Error(w, "Missing signature", http.StatusUnauthorized)
+				return
+			}
+			// TODO: verify signature when format defined
+		}
+		if methodForSource != "" {
+			msg.SetMetadata("form_method", methodForSource)
+		}
+	}
+
+	if err := form.Dispatch(fullPath, msg); err != nil {
+		// Attempt to wake up workflow if it was parked
+		if s.wakeUpWorkflow(r.Context(), "form", fullPath) {
+			if err := form.Dispatch(fullPath, msg); err == nil {
+				goto form_dispatched
+			}
+		}
+		message.ReleaseMessage(msg)
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+form_dispatched:
+	if r.Method == "GET" {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msg.ID()})
+		return
+	}
+
+	// If the client prefers HTML (generated public form), render a simple success page
+	if wantsHTML(r) || strings.Contains(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") || strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// Try to fetch redirect_url and success_message from source config
+		var redirectURL, successMsg string
+		if srcCfg != nil {
+			redirectURL = srcCfg["redirect_url"]
+			successMsg = srcCfg["success_message"]
+		}
+		if successMsg == "" {
+			successMsg = "Thank you! Your submission has been received."
+		}
+		// Basic auto-redirect if provided
+		if redirectURL != "" {
+			_, _ = w.Write([]byte("<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"1; url=" + htmlEscape(redirectURL) + "\"><title>Submitted</title><style>body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f6f8fb} .card{background:#fff;padding:32px 28px;border-radius:12px;box-shadow:0 10px 30px rgba(22,32,50,0.08);max-width:520px;text-align:center} h1{font-size:22px;margin:0 0 8px} p{margin:0 0 4px;color:#556} .small{color:#889}</style></head><body><div class=\"card\"><h1>" + htmlEscape(successMsg) + "</h1><p class=\"small\">Redirecting…</p></div></body></html>"))
+			return
+		}
+		_, _ = w.Write([]byte("<!doctype html><html><head><meta charset=\"utf-8\"><title>Submitted</title><style>body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f6f8fb} .card{background:#fff;padding:32px 28px;border-radius:12px;box-shadow:0 10px 30px rgba(22,32,50,0.08);max-width:520px;text-align:center} h1{font-size:22px;margin:0 0 8px} p{margin:0 0 4px;color:#556}</style></head><body><div class=\"card\"><h1>" + htmlEscape(successMsg) + "</h1></div></body></html>"))
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msg.ID()})
+}
+
+// serveFormPage renders a public HTML form for a configured form source path.
+func (s *Server) serveFormPage(w http.ResponseWriter, r *http.Request) {
+	path := r.PathValue("path")
+	if path == "" {
+		http.Error(w, "Path is required", http.StatusBadRequest)
+		return
+	}
+	fullPath := "/api/forms/" + path
+
+	// Find the matching source
+	sources, _, err := s.storage.ListSources(r.Context(), storage.CommonFilter{})
+	if err != nil {
+		http.Error(w, "Failed to load sources", http.StatusInternalServerError)
+		return
+	}
+	var cfg map[string]string
+	for _, src := range sources {
+		if src.Type == "form" && src.Config["path"] == fullPath {
+			cfg = src.Config
+			break
+		}
+	}
+	if cfg == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	method := cfg["method"]
+	if method == "" {
+		method = "POST"
+	}
+
+	// Parse fields JSON if provided
+	var fields []FormField
+	if raw := cfg["fields"]; raw != "" {
+		_ = json.Unmarshal([]byte(raw), &fields)
+	}
+
+	// Determine enctype
+	encType := "application/x-www-form-urlencoded"
+	for _, f := range fields {
+		if f.Type == "image" || f.Type == "file" {
+			encType = "multipart/form-data"
+			break
+		}
+	}
+
+	// Prepare optional bot-protection token
+	enableBot := cfg["enable_bot_protection"] != "false"
+	token := ""
+	issuedMS := time.Now().UnixMilli()
+	if enableBot {
+		b := make([]byte, 16)
+		if _, err := rand.Read(b); err == nil {
+			token = hex.EncodeToString(b)
+			// Set cookies (short-lived)
+			http.SetCookie(w, &http.Cookie{Name: "hf_token", Value: token, Path: "/", HttpOnly: true, MaxAge: 600})
+			http.SetCookie(w, &http.Cookie{Name: "hf_issued", Value: fmt.Sprintf("%d", issuedMS), Path: "/", HttpOnly: true, MaxAge: 600})
+		}
+	}
+
+	// Build HTML
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	var b strings.Builder
+	b.WriteString("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Form</title><style>")
+	b.WriteString("*{box-sizing:border-box}body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:#f6f8fb;color:#1a1f36} .container{max-width:820px;margin:40px auto;padding:0 16px} .card{background:#fff;border-radius:14px;box-shadow:0 10px 30px rgba(22,32,50,0.08);padding:28px} h1{font-size:24px;margin:0 0 8px} h2{font-size:20px;margin:18px 0 8px} h3{font-size:16px;margin:16px 0 6px;color:#374151} p.lead{margin:0 0 18px;color:#5b6472} .grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px} .col-12{grid-column:span 12} .col-6{grid-column:span 6} @media(max-width:720px){.col-6{grid-column:span 12}} .row{display:grid;grid-template-columns:1fr 1fr;gap:16px} @media(max-width:720px){.row{grid-template-columns:1fr}} .field{margin:2px 0 6px} label{display:block;font-weight:600;margin:0 0 6px} input, select, textarea{width:100%;padding:10px 12px;border:1px solid #d7dde9;border-radius:10px;background:#fff;outline:none;transition:border .15s, box-shadow .15s} input:focus, select:focus, textarea:focus{border-color:#6b8cff;box-shadow:0 0 0 3px rgba(107,140,255,.15)} .help{font-size:12px;color:#6b7280;margin-top:6px} .actions{margin-top:18px;display:flex;gap:12px;justify-content:flex-end} .btn{background:#3b82f6;color:#fff;border:none;padding:12px 16px;border-radius:10px;font-weight:700;cursor:pointer} .btn.secondary{background:#e5e7eb;color:#111827} .btn:hover{background:#2f6fe0} .note{font-size:12px;color:#6b7280;margin-top:8px} .badge{display:inline-block;background:#eef2ff;color:#3949ab;border-radius:999px;padding:4px 10px;font-size:11px;margin-left:8px} hr.divider{border:none;border-top:1px solid #e5e7eb;margin:16px 0}")
+	b.WriteString("</style></head><body><div class=\"container\"><div class=\"card\">")
+	b.WriteString("<h1>Form Submission")
+	if path != "" {
+		b.WriteString("<span class=\"badge\">" + htmlEscape(path) + "</span>")
+	}
+	b.WriteString("</h1>")
+	b.WriteString("<p class=\"lead\">Fill out the form below and submit. Fields marked with * are required.</p>")
+	b.WriteString("<form method=\"" + method + "\" action=\"" + htmlEscape(fullPath) + "\" enctype=\"" + encType + "\">")
+	if enableBot && token != "" {
+		// Honeypot + token fields
+		b.WriteString("<div style=\"position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden\"><label>Website<input type=\"text\" name=\"website\" tabindex=\"-1\" autocomplete=\"off\"></label></div>")
+		b.WriteString("<input type=\"hidden\" name=\"hf_token\" value=\"" + htmlEscape(token) + "\"/>")
+	}
+
+	// Render fields with layout: split into pages by page_break
+	pages := make([][]FormField, 0)
+	cur := make([]FormField, 0)
+	for _, f := range fields {
+		if strings.EqualFold(f.Type, "page_break") {
+			pages = append(pages, cur)
+			cur = make([]FormField, 0)
+			continue
+		}
+		cur = append(cur, f)
+	}
+	pages = append(pages, cur)
+
+	// Navigation if multi-page
+	b.WriteString("<div id=\"pages\">")
+	for pi, page := range pages {
+		display := "display:block;"
+		if pi != 0 {
+			display = "display:none;"
+		}
+		b.WriteString("<div class=\"page\" data-index=\"" + strconv.Itoa(pi) + "\" style=\"" + display + "\">")
+		b.WriteString("<div class=\"grid\">")
+		lastSection := ""
+		for _, f := range page {
+			t := strings.ToLower(f.Type)
+			// Layout-only blocks
+			if t == "heading" {
+				lvl := f.Level
+				if lvl < 1 || lvl > 3 {
+					lvl = 2
+				}
+				tag := fmt.Sprintf("h%v", lvl)
+				b.WriteString(fmt.Sprintf("<%s class=\"col-12\">%s</%s>", tag, htmlEscape(f.Content), tag))
+				continue
+			}
+			if t == "text_block" {
+				b.WriteString("<p class=\"col-12\">" + htmlEscape(f.Content) + "</p>")
+				continue
+			}
+			if t == "divider" {
+				b.WriteString("<hr class=\"divider col-12\"/>")
+				continue
+			}
+
+			// Input controls
+			name := f.Name
+			if name == "" {
+				continue
+			}
+			label := f.Label
+			if label == "" {
+				label = strings.Title(strings.ReplaceAll(name, "_", " "))
+			}
+			required := ""
+			star := ""
+			if f.Required {
+				required = " required"
+				star = " *"
+			}
+			ph := f.Placeholder
+			if ph != "" {
+				ph = " placeholder=\"" + htmlEscape(ph) + "\""
+			}
+			help := ""
+			if f.Help != "" {
+				help = "<div class=\"help\">" + htmlEscape(f.Help) + "</div>"
+			}
+
+			// Section heading if changed
+			if f.Section != "" && f.Section != lastSection {
+				lastSection = f.Section
+				b.WriteString("<h2 class=\"col-12\">" + htmlEscape(lastSection) + "</h2>")
+			}
+
+			colClass := "col-12"
+			if strings.EqualFold(f.Width, "half") {
+				colClass = "col-6"
+			} else if strings.EqualFold(f.Width, "full") {
+				colClass = "col-12"
+			}
+
+			b.WriteString("<div class=\"field " + colClass + "\">")
+			b.WriteString("<label for=\"" + htmlEscape(name) + "\">" + htmlEscape(label) + star + "</label>")
+			switch strings.ToLower(f.Type) {
+			case "text":
+				b.WriteString("<input type=\"text\" id=\"" + htmlEscape(name) + "\" name=\"" + htmlEscape(name) + "\"" + ph + required + "/>")
+			case "number":
+				step := ""
+				if strings.ToLower(f.NumberKind) == "integer" {
+					step = " step=\"1\""
+				} else {
+					step = " step=\"any\""
+				}
+				b.WriteString("<input type=\"number\" id=\"" + htmlEscape(name) + "\" name=\"" + htmlEscape(name) + "\"" + step + ph + required + "/>")
+			case "email":
+				b.WriteString("<input type=\"email\" id=\"" + htmlEscape(name) + "\" name=\"" + htmlEscape(name) + "\"" + ph + required + "/>")
+			case "date":
+				b.WriteString("<input type=\"date\" id=\"" + htmlEscape(name) + "\" name=\"" + htmlEscape(name) + "\"" + ph + required + "/>")
+			case "datetime":
+				b.WriteString("<input type=\"datetime-local\" id=\"" + htmlEscape(name) + "\" name=\"" + htmlEscape(name) + "\"" + ph + required + "/>")
+			case "date_range":
+				// two inputs side by side
+				left := "Start"
+				right := "End"
+				if f.StartLabel != "" {
+					left = f.StartLabel
+				}
+				if f.EndLabel != "" {
+					right = f.EndLabel
+				}
+				b.WriteString("<div class=\"row\"><div><label>" + htmlEscape(left) + star + "</label><input type=\"date\" name=\"" + htmlEscape(name) + "_start\"" + required + "/></div><div><label>" + htmlEscape(right) + star + "</label><input type=\"date\" name=\"" + htmlEscape(name) + "_end\"" + required + "/></div></div>")
+			case "image":
+				b.WriteString("<input type=\"file\" accept=\"image/*\" id=\"" + htmlEscape(name) + "\" name=\"" + htmlEscape(name) + "\"" + required + "/>")
+			case "multiple":
+				b.WriteString("<select multiple id=\"" + htmlEscape(name) + "\" name=\"" + htmlEscape(name) + "\"" + required + ">")
+				for _, opt := range f.Options {
+					b.WriteString("<option value=\"" + htmlEscape(opt) + "\">" + htmlEscape(opt) + "</option>")
+				}
+				b.WriteString("</select>")
+			case "one":
+				if f.Render == "radio" {
+					for _, opt := range f.Options {
+						b.WriteString("<label style=\"display:flex;gap:8px;align-items:center;margin:6px 0;\"><input type=\"radio\" name=\"" + htmlEscape(name) + "\" value=\"" + htmlEscape(opt) + "\"" + required + ">" + htmlEscape(opt) + "</label>")
+					}
+				} else {
+					b.WriteString("<select id=\"" + htmlEscape(name) + "\" name=\"" + htmlEscape(name) + "\"" + required + ">")
+					b.WriteString("<option value=\"\" disabled selected>Select…</option>")
+					for _, opt := range f.Options {
+						b.WriteString("<option value=\"" + htmlEscape(opt) + "\">" + htmlEscape(opt) + "</option>")
+					}
+					b.WriteString("</select>")
+				}
+			case "scale":
+				minAttr := ""
+				maxAttr := ""
+				stepAttr := ""
+				if f.Min != 0 {
+					minAttr = fmt.Sprintf(" min=\"%v\"", f.Min)
+				}
+				if f.Max != 0 {
+					maxAttr = fmt.Sprintf(" max=\"%v\"", f.Max)
+				}
+				if f.Step != 0 {
+					stepAttr = fmt.Sprintf(" step=\"%v\"", f.Step)
+				}
+				b.WriteString("<input type=\"range\" id=\"" + htmlEscape(name) + "\" name=\"" + htmlEscape(name) + "\"" + minAttr + maxAttr + stepAttr + required + "/>")
+			default:
+				b.WriteString("<input type=\"text\" id=\"" + htmlEscape(name) + "\" name=\"" + htmlEscape(name) + "\"" + ph + required + "/>")
+			}
+			b.WriteString(help)
+			b.WriteString("</div>")
+		}
+		b.WriteString("</div>") // grid
+		b.WriteString("</div>") // page
+	}
+	b.WriteString("</div>") // pages
+
+	// Actions: Prev/Next for multi-page, Submit on last page
+	if len(pages) > 1 {
+		b.WriteString("<div class=\"actions\">")
+		b.WriteString("<button class=\"btn secondary\" type=\"button\" id=\"prevBtn\" style=\"display:none\">Previous</button>")
+		b.WriteString("<button class=\"btn\" type=\"button\" id=\"nextBtn\">Next</button>")
+		b.WriteString("<button class=\"btn\" type=\"submit\" id=\"submitBtn\" style=\"display:none\">Submit</button>")
+		b.WriteString("</div>")
+		// Inline JS for navigation
+		b.WriteString("<script>(function(){var cur=0;var pages=document.querySelectorAll('.page');var prev=document.getElementById('prevBtn');var next=document.getElementById('nextBtn');var submit=document.getElementById('submitBtn');function update(){for(var i=0;i<pages.length;i++){pages[i].style.display=i===cur?'block':'none'};prev.style.display=cur>0?'inline-block':'none';if(cur===pages.length-1){next.style.display='none';submit.style.display='inline-block'}else{next.style.display='inline-block';submit.style.display='none'}};if(prev)prev.addEventListener('click',function(){if(cur>0){cur--;update()}});if(next)next.addEventListener('click',function(){if(cur<pages.length-1){cur++;update()}});update();})();</script>")
+	} else {
+		b.WriteString("<div class=\"actions\"><button class=\"btn\" type=\"submit\">Submit</button></div>")
+	}
+	b.WriteString("<div class=\"note\">Powered by Hermod</div>")
+	b.WriteString("</form></div></div></body></html>")
+
+	_, _ = w.Write([]byte(b.String()))
+}
+
+// htmlEscape is a tiny helper to escape text for HTML attributes/contents
+func htmlEscape(s string) string {
+	r := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		"\"", "&quot;",
+		"'", "&#39;",
+	)
+	return r.Replace(s)
+}
+
+// wantsHTML returns true if the client indicates it can accept HTML responses.
+func wantsHTML(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "text/html")
+}
+
+// isFirstRun returns true if Hermod is not fully configured yet (no db_config.yaml or no users).
+func (s *Server) isFirstRun(ctx context.Context) bool {
+	// If DB config file is missing, we are definitely in first-run state
+	if !config.IsDBConfigured() {
+		return true
+	}
+	// If storage is not initialized yet, treat as first-run to allow setup UI
+	if s.storage == nil {
+		return true
+	}
+	// Check if any user exists
+	// Use no LIMIT to avoid driver-specific placeholder issues during first-run detection.
+	// We only need the total count.
+	_, total, err := s.storage.ListUsers(ctx, storage.CommonFilter{})
+	if err != nil {
+		// Fail-open: consider first-run on error to avoid blocking setup
+		return true
+	}
+	return total == 0
+}
+
+func botProtectionCheck(r *http.Request, payload map[string]interface{}, enable bool, minMs int) error {
+	ct := r.Header.Get("Content-Type")
+	if !enable || (!strings.Contains(ct, "application/x-www-form-urlencoded") && !strings.Contains(ct, "multipart/form-data")) {
+		return nil
+	}
+
+	// Token check
+	tokenCookie, err := r.Cookie("hf_token")
+	if err != nil {
+		return fmt.Errorf("invalid form token")
+	}
+	formToken := ""
+	if t, ok := payload["hf_token"].(string); ok {
+		formToken = t
+	} else if r.PostForm != nil {
+		formToken = r.PostForm.Get("hf_token")
+	}
+	if formToken == "" || tokenCookie.Value != formToken {
+		return fmt.Errorf("invalid form token")
+	}
+
+	// Honeypot field must be empty
+	hp := ""
+	if v, ok := payload["website"].(string); ok {
+		hp = v
+	} else if r.PostForm != nil {
+		hp = r.PostForm.Get("website")
+	}
+	if strings.TrimSpace(hp) != "" {
+		return fmt.Errorf("bot detected")
+	}
+
+	// Minimum submit time window
+	issuedCookie, _ := r.Cookie("hf_issued")
+	if issuedCookie != nil && issuedCookie.Value != "" {
+		if ms, convErr := strconv.ParseInt(issuedCookie.Value, 10, 64); convErr == nil && minMs > 0 {
+			elapsed := time.Since(time.UnixMilli(ms)).Milliseconds()
+			if elapsed < int64(minMs) {
+				return fmt.Errorf("submitted too quickly")
+			}
+		}
+	}
+
+	return nil
+}
+
+func renderField(f FormField) string {
+	if f.Name == "" {
+		return ""
+	}
+	label := f.Label
+	if label == "" {
+		label = strings.Title(strings.ReplaceAll(f.Name, "_", " "))
+	}
+	star := ""
+	requiredAttr := ""
+	if f.Required {
+		star = " *"
+		requiredAttr = " required"
+	}
+	placeholderAttr := ""
+	if f.Placeholder != "" {
+		placeholderAttr = " placeholder=\"" + htmlEscape(f.Placeholder) + "\""
+	}
+	helpHTML := ""
+	if f.Help != "" {
+		helpHTML = "<div class=\"help\">" + htmlEscape(f.Help) + "</div>"
+	}
+	colClass := "col-12"
+	if strings.EqualFold(f.Width, "half") {
+		colClass = "col-6"
+	}
+	var sb strings.Builder
+	sb.WriteString("<div class=\"field " + colClass + "\">")
+	sb.WriteString("<label for=\"" + htmlEscape(f.Name) + "\">" + htmlEscape(label) + star + "</label>")
+	switch strings.ToLower(f.Type) {
+	case "textarea":
+		sb.WriteString("<textarea id=\"" + htmlEscape(f.Name) + "\" name=\"" + htmlEscape(f.Name) + "\"" + placeholderAttr + requiredAttr + "></textarea>")
+	case "text":
+		sb.WriteString("<input type=\"text\" id=\"" + htmlEscape(f.Name) + "\" name=\"" + htmlEscape(f.Name) + "\"" + placeholderAttr + requiredAttr + "/>")
+	case "number":
+		stepAttr := " step=\"any\""
+		if strings.ToLower(f.NumberKind) == "integer" {
+			stepAttr = " step=\"1\""
+		}
+		sb.WriteString("<input type=\"number\" id=\"" + htmlEscape(f.Name) + "\" name=\"" + htmlEscape(f.Name) + "\"" + stepAttr + placeholderAttr + requiredAttr + "/>")
+	case "email":
+		sb.WriteString("<input type=\"email\" id=\"" + htmlEscape(f.Name) + "\" name=\"" + htmlEscape(f.Name) + "\"" + placeholderAttr + requiredAttr + "/>")
+	case "date":
+		sb.WriteString("<input type=\"date\" id=\"" + htmlEscape(f.Name) + "\" name=\"" + htmlEscape(f.Name) + "\"" + placeholderAttr + requiredAttr + "/>")
+	case "datetime":
+		sb.WriteString("<input type=\"datetime-local\" id=\"" + htmlEscape(f.Name) + "\" name=\"" + htmlEscape(f.Name) + "\"" + placeholderAttr + requiredAttr + "/>")
+	case "date_range":
+		left := "Start"
+		right := "End"
+		if f.StartLabel != "" {
+			left = f.StartLabel
+		}
+		if f.EndLabel != "" {
+			right = f.EndLabel
+		}
+		sb.WriteString("<div class=\"row\"><div><label>" + htmlEscape(left) + star + "</label><input type=\"date\" name=\"" + htmlEscape(f.Name) + "_start\"" + requiredAttr + "/></div><div><label>" + htmlEscape(right) + star + "</label><input type=\"date\" name=\"" + htmlEscape(f.Name) + "_end\"" + requiredAttr + "/></div></div>")
+	case "image":
+		sb.WriteString("<input type=\"file\" accept=\"image/*\" id=\"" + htmlEscape(f.Name) + "\" name=\"" + htmlEscape(f.Name) + "\"" + requiredAttr + "/>")
+	case "multiple":
+		sb.WriteString("<select multiple id=\"" + htmlEscape(f.Name) + "\" name=\"" + htmlEscape(f.Name) + "\"" + requiredAttr + ">")
+		for _, opt := range f.Options {
+			sb.WriteString("<option value=\"" + htmlEscape(opt) + "\">" + htmlEscape(opt) + "</option>")
+		}
+		sb.WriteString("</select>")
+	case "one":
+		if f.Render == "radio" {
+			for _, opt := range f.Options {
+				sb.WriteString("<label style=\"display:flex;gap:8px;align-items:center;margin:6px 0;\"><input type=\"radio\" name=\"" + htmlEscape(f.Name) + "\" value=\"" + htmlEscape(opt) + "\"" + requiredAttr + ">" + htmlEscape(opt) + "</label>")
+			}
 		} else {
-			_ = s.storage.UpdateSink(ctx, snk)
+			sb.WriteString("<select id=\"" + htmlEscape(f.Name) + "\" name=\"" + htmlEscape(f.Name) + "\"" + requiredAttr + ">")
+			sb.WriteString("<option value=\"\" disabled selected>Select…</option>")
+			for _, opt := range f.Options {
+				sb.WriteString("<option value=\"" + htmlEscape(opt) + "\">" + htmlEscape(opt) + "</option>")
+			}
+			sb.WriteString("</select>")
 		}
-	}
-
-	// Import Workflows
-	for _, wf := range data.Workflows {
-		if _, err := s.storage.GetWorkflow(ctx, wf.ID); err != nil {
-			_ = s.storage.CreateWorkflow(ctx, wf)
-		} else {
-			_ = s.storage.UpdateWorkflow(ctx, wf)
+	case "scale":
+		minAttr := ""
+		if f.Min != 0 {
+			minAttr = fmt.Sprintf(" min=\"%v\"", f.Min)
 		}
+		maxAttr := ""
+		if f.Max != 0 {
+			maxAttr = fmt.Sprintf(" max=\"%v\"", f.Max)
+		}
+		stepAttr := ""
+		if f.Step != 0 {
+			stepAttr = fmt.Sprintf(" step=\"%v\"", f.Step)
+		}
+		sb.WriteString("<input type=\"range\" id=\"" + htmlEscape(f.Name) + "\" name=\"" + htmlEscape(f.Name) + "\"" + minAttr + maxAttr + stepAttr + requiredAttr + "/>")
+	default:
+		sb.WriteString("<input type=\"text\" id=\"" + htmlEscape(f.Name) + "\" name=\"" + htmlEscape(f.Name) + "\"" + placeholderAttr + requiredAttr + "/>")
 	}
+	sb.WriteString(helpHTML)
+	sb.WriteString("</div>")
+	return sb.String()
+}
 
-	// Import Settings
-	for k, v := range data.Settings {
-		_ = s.storage.SaveSetting(ctx, k, v)
+func (s *Server) StartGRPC(addr string) error {
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
 	}
-
-	w.WriteHeader(http.StatusNoContent)
+	grpcServer := googlegrpc.NewServer()
+	proto.RegisterSourceServiceServer(grpcServer, &grpcsource.Server{Storage: s.storage})
+	fmt.Printf("Starting Hermod gRPC server on %s...\n", addr)
+	return grpcServer.Serve(lis)
 }

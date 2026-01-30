@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "ui:build": "cd ui && npm run build && cd .. && powershell -Command \"Copy-Item -Recurse -Force ui/dist/* internal/api/static/\"",
-    "build": "npm run ui:build && go build -o hermod cmd/hermod/main.go"
+    "ui:build": "cd ui && bun run build && cd .. && powershell -Command \"Copy-Item -Recurse -Force ui/dist/* internal/api/static/\"",
+    "build": "bun run ui:build && go build -o hermod cmd/hermod/main.go"
   },
   "repository": {
     "type": "git",

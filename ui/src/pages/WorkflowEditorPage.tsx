@@ -1,6 +1,7 @@
 import { 
-  useCallback, useEffect, useMemo, useRef 
+  useCallback, useEffect, useMemo, useRef, lazy 
 } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import ReactFlow, { 
   addEdge, 
   Background, 
@@ -15,27 +16,26 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { 
-  Button, Group, Paper, Stack, ActionIcon, 
-  Text, Box, Divider, Modal, Badge, ScrollArea, Flex,
-  ThemeIcon, Code
+  Group, Paper, Stack, ActionIcon, 
+  Text, Box, Badge, ScrollArea, Flex,
+  Code, Modal, Button, Divider, ThemeIcon, Title
 } from '@mantine/core';
 import { useHotkeys } from '@mantine/hooks';
 import { 
-  IconTrash, 
-  IconSettings,
   IconChevronDown, IconChevronUp, IconClearAll, IconPlayerPause,
-  IconPlayerPlay
+  IconPlayerPlay, IconSettings, IconTrash
 } from '@tabler/icons-react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../api';
 import { useVHost } from '../context/VHostContext';
 import { notifications } from '@mantine/notifications';
+import { useMantineColorScheme } from '@mantine/core';
 import { SourceForm } from '../components/SourceForm';
 import { SinkForm } from '../components/SinkForm';
 import { TransformationForm } from '../components/TransformationForm';
-import { useMantineColorScheme } from '@mantine/core';
-import { getAllKeys, deepMergeSim } from '../utils/transformationUtils';
+import { getAllKeys, deepMergeSim, preparePayload } from '../utils/transformationUtils';
+import { formatTime } from '../utils/dateUtils';
 
 // Refactored Components & Hooks
 import { useWorkflowStore } from './WorkflowEditor/store/useWorkflowStore';
@@ -44,9 +44,17 @@ import { EditorToolbar } from './WorkflowEditor/components/EditorToolbar';
 import { SidebarDrawer } from './WorkflowEditor/components/SidebarDrawer';
 import { Modals } from './WorkflowEditor/components/Modals';
 import { WorkflowContext } from './WorkflowEditor/nodes/BaseNode';
-import { SourceNode, SinkNode } from './WorkflowEditor/nodes/SourceSinkNodes';
-import { TransformationNode, SwitchNode, MergeNode, StatefulNode, NoteNode } from './WorkflowEditor/nodes/MiscNodes';
-import { ConditionNode } from './WorkflowEditor/nodes/ConditionNode';
+// Lazy-load heavy editor node components to reduce initial bundle size
+const SourceNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/SourceSinkNodes')).SourceNode }))
+const SinkNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/SourceSinkNodes')).SinkNode }))
+const TransformationNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/MiscNodes')).TransformationNode }))
+const SwitchNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/MiscNodes')).SwitchNode }))
+const RouterNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/MiscNodes')).RouterNode }))
+const MergeNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/MiscNodes')).MergeNode }))
+const StatefulNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/MiscNodes')).StatefulNode }))
+const NoteNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/MiscNodes')).NoteNode }))
+const ValidatorNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/MiscNodes')).ValidatorNode }))
+const ConditionNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/ConditionNode')).ConditionNode }))
 
 const API_BASE = '/api';
 
@@ -54,8 +62,10 @@ const nodeTypes = {
   source: SourceNode,
   sink: SinkNode,
   transformation: TransformationNode,
+  validator: ValidatorNode,
   condition: ConditionNode,
   switch: SwitchNode,
+  router: RouterNode,
   merge: MergeNode,
   stateful: StatefulNode,
   note: NoteNode,
@@ -69,8 +79,73 @@ function EditorInner() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { project, zoomIn, zoomOut, fitView: rfFitView } = useReactFlow();
   const { zoom } = useViewport();
+  const lastInitializedId = useRef<string | null>(null);
   
-  const store = useWorkflowStore();
+  const { 
+    vhost, selectedNode, active, logsPaused, quickAddSource, nodes, edges, 
+    testResults, testInput, name, deadLetterSinkID, dlqThreshold,
+    prioritizeDLQ, maxRetries, retryInterval, reconnectInterval,
+    schemaType, schema, workerID, dryRun, workflowStatus, logs, logsOpened, settingsOpened,
+    onNodesChange, onEdgesChange,
+    setName, setVHost, setWorkerID, setActive, setWorkflowStatus, 
+    setDeadLetterSinkID, setDlqThreshold, setPrioritizeDLQ, setMaxRetries, setRetryInterval, 
+    setReconnectInterval, setSchemaType, setSchema, setNodes, setEdges, setLogs, setQuickAddSource,
+    setSelectedNode, setSettingsOpened, setDrawerOpened, updateNodeConfig,
+    setTestResults, setTestModalOpened, setLogsOpened, setLogsPaused, setDryRun
+  } = useWorkflowStore(useShallow(state => ({
+    vhost: state.vhost,
+    selectedNode: state.selectedNode,
+    active: state.active,
+    logsPaused: state.logsPaused,
+    quickAddSource: state.quickAddSource,
+    nodes: state.nodes,
+    edges: state.edges,
+    testResults: state.testResults,
+    testInput: state.testInput,
+    name: state.name,
+    deadLetterSinkID: state.deadLetterSinkID,
+    dlqThreshold: state.dlqThreshold,
+    prioritizeDLQ: state.prioritizeDLQ,
+    maxRetries: state.maxRetries,
+    retryInterval: state.retryInterval,
+    reconnectInterval: state.reconnectInterval,
+    schemaType: state.schemaType,
+    schema: state.schema,
+    workerID: state.workerID,
+    dryRun: state.dryRun,
+    workflowStatus: state.workflowStatus,
+    logs: state.logs,
+    logsOpened: state.logsOpened,
+    settingsOpened: state.settingsOpened,
+    onNodesChange: state.onNodesChange,
+    onEdgesChange: state.onEdgesChange,
+    setName: state.setName,
+    setVHost: state.setVHost,
+    setWorkerID: state.setWorkerID,
+    setActive: state.setActive,
+    setWorkflowStatus: state.setWorkflowStatus,
+    setDeadLetterSinkID: state.setDeadLetterSinkID,
+    setDlqThreshold: state.setDlqThreshold,
+    setPrioritizeDLQ: state.setPrioritizeDLQ,
+    setMaxRetries: state.setMaxRetries,
+    setRetryInterval: state.setRetryInterval,
+    setReconnectInterval: state.setReconnectInterval,
+    setSchemaType: state.setSchemaType,
+    setSchema: state.setSchema,
+    setNodes: state.setNodes,
+    setEdges: state.setEdges,
+    setLogs: state.setLogs,
+    setQuickAddSource: state.setQuickAddSource,
+    setSelectedNode: state.setSelectedNode,
+    setSettingsOpened: state.setSettingsOpened,
+    setDrawerOpened: state.setDrawerOpened,
+    updateNodeConfig: state.updateNodeConfig,
+    setTestResults: state.setTestResults,
+    setTestModalOpened: state.setTestModalOpened,
+    setLogsOpened: state.setLogsOpened,
+    setLogsPaused: state.setLogsPaused,
+    setDryRun: state.setDryRun,
+  })));
   const { styledNodes, styledEdges } = useStyledFlow();
 
   const { selectedVHost } = useVHost();
@@ -78,22 +153,39 @@ function EditorInner() {
   const isDark = colorScheme === 'dark';
   const logScrollRef = useRef<HTMLDivElement>(null);
 
-  // Queries
   const { data: sources } = useQuery({ 
-    queryKey: ['sources', store.vhost], 
+    queryKey: ['sources', vhost], 
     queryFn: async () => {
-      const vhostParam = (store.vhost && store.vhost !== 'all') ? `?vhost=${store.vhost}` : '';
+      const vhostParam = (vhost && vhost !== 'all') ? `?vhost=${vhost}` : '';
       return (await apiFetch(`${API_BASE}/sources${vhostParam}`)).json();
     } 
   });
   
   const { data: sinks } = useQuery({ 
-    queryKey: ['sinks', store.vhost], 
+    queryKey: ['sinks', vhost], 
     queryFn: async () => {
-      const vhostParam = (store.vhost && store.vhost !== 'all') ? `?vhost=${store.vhost}` : '';
+      const vhostParam = (vhost && vhost !== 'all') ? `?vhost=${vhost}` : '';
       return (await apiFetch(`${API_BASE}/sinks${vhostParam}`)).json();
     } 
   });
+
+  const selectedNodeData = useMemo(() => {
+    if (!selectedNode) return null;
+    if (selectedNode.data.ref_id === 'new') {
+       const type = selectedNode.data.type;
+       if (type && type !== 'new') {
+           return { type, vhost: vhost };
+       }
+       return { vhost: vhost };
+    }
+    if (selectedNode.type === 'source') {
+      return sources?.data?.find((s: any) => s.id === selectedNode?.data.ref_id);
+    }
+    if (selectedNode.type === 'sink') {
+      return sinks?.data?.find((s: any) => s.id === selectedNode?.data.ref_id);
+    }
+    return null;
+  }, [selectedNode, sources, sinks, vhost]);
 
   const { data: vhosts } = useQuery({ 
     queryKey: ['vhosts'], 
@@ -114,31 +206,23 @@ function EditorInner() {
     }
   });
 
-  const selectedNodeData = useMemo(() => {
-    if (!store.selectedNode) return null;
-    if (store.selectedNode.data.ref_id === 'new') {
-       const type = store.selectedNode.data.type;
-       if (type && type !== 'new') {
-           return { type, vhost: store.vhost };
-       }
-       return { vhost: store.vhost };
-    }
-    if (store.selectedNode.type === 'source') {
-      return sources?.data?.find((s: any) => s.id === store.selectedNode?.data.ref_id);
-    }
-    if (store.selectedNode.type === 'sink') {
-      return sinks?.data?.find((s: any) => s.id === store.selectedNode?.data.ref_id);
-    }
-    return null;
-  }, [store.selectedNode, sources, sinks, store.vhost]);
 
   useEffect(() => {
-    if (workflow) {
-      store.setName(workflow.name || '');
-      store.setVHost(workflow.vhost || 'default');
-      store.setWorkerID(workflow.worker_id || '');
-      store.setActive(workflow.active || false);
-      store.setWorkflowStatus(workflow.status || 'Stopped');
+    if (workflow && lastInitializedId.current !== (id || 'new')) {
+      setName(workflow.name || '');
+      setVHost(workflow.vhost || 'default');
+      setWorkerID(workflow.worker_id || '');
+      setActive(workflow.active || false);
+      setWorkflowStatus(workflow.status || 'Stopped');
+      setDeadLetterSinkID(workflow.dead_letter_sink_id || '');
+      setDlqThreshold(workflow.dlq_threshold || 0);
+      setPrioritizeDLQ(workflow.prioritize_dlq || false);
+      setMaxRetries(workflow.max_retries || 3);
+      setRetryInterval(workflow.retry_interval || '100ms');
+      setReconnectInterval(workflow.reconnect_interval || '30s');
+      setSchemaType(workflow.schema_type || '');
+      setSchema(workflow.schema || '');
+      setDryRun(workflow.dry_run || false);
       
       const initialNodes = (workflow.nodes || []).map((node: any) => ({
         id: node.id,
@@ -146,7 +230,7 @@ function EditorInner() {
         position: { x: node.x || 0, y: node.y || 0 },
         data: { ...(node.config || {}), ref_id: node.ref_id }
       }));
-      store.setNodes(initialNodes);
+      setNodes(initialNodes);
 
       const initialEdges = (workflow.edges || []).map((edge: any) => ({
         id: edge.id,
@@ -162,13 +246,14 @@ function EditorInner() {
           color: workflow.active ? 'var(--mantine-color-blue-6)' : 'var(--mantine-color-gray-5)',
         }
       }));
-      store.setEdges(initialEdges);
+      setEdges(initialEdges);
+      lastInitializedId.current = id || 'new';
     }
-  }, [workflow]);
+  }, [id, workflow, setName, setVHost, setWorkerID, setActive, setWorkflowStatus, setDeadLetterSinkID, setPrioritizeDLQ, setMaxRetries, setRetryInterval, setReconnectInterval, setSchemaType, setSchema, setDryRun, setNodes, setEdges]);
 
   // WebSocket for logs
   useEffect(() => {
-    if (!id || id === 'new' || !store.active || store.logsPaused) return;
+    if (!id || id === 'new' || !active || logsPaused) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws/logs?workflow_id=${id}`);
@@ -176,17 +261,56 @@ function EditorInner() {
     ws.onmessage = (event) => {
       try {
         const log = JSON.parse(event.data);
-        store.setLogs(prev => [log, ...prev].slice(0, 100));
+        if (Array.isArray(log)) {
+          setLogs(log.slice(0, 100));
+        } else {
+          setLogs(prev => [log, ...prev].slice(0, 100));
+        }
       } catch (e) {}
     };
 
     return () => ws.close();
-  }, [id, store.active, store.logsPaused]);
+  }, [id, active, logsPaused, setLogs]);
+
+  // WebSocket for status
+  useEffect(() => {
+    if (!id || id === 'new' || !active) return;
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/status`;
+    const ws = new WebSocket(wsUrl);
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const updates = Array.isArray(data) ? data : [data];
+        
+        updates.forEach(update => {
+          if (update.workflow_id === id) {
+            if (update.node_metrics) {
+              useWorkflowStore.setState({ nodeMetrics: update.node_metrics });
+            }
+            if (update.node_samples) {
+              useWorkflowStore.setState({ nodeSamples: update.node_samples });
+            }
+            if (update.dead_letter_count !== undefined) {
+              useWorkflowStore.setState({ workflowDeadLetterCount: update.dead_letter_count });
+            }
+            if (update.engine_status) {
+              setWorkflowStatus(update.engine_status);
+            }
+          }
+        });
+      } catch (e) {}
+    };
+
+    return () => ws.close();
+  }, [id, active, setWorkflowStatus]);
 
   // Node operations
   const handlePlusClick = (nodeId: string, handleId: string | null) => {
-    store.setQuickAddSource({ nodeId, handleId });
-    store.setDrawerOpened(true);
+    setQuickAddSource({ nodeId, handleId });
+    setDrawerOpened(true);
   };
 
   const onConnect = useCallback((params: any) => {
@@ -194,22 +318,22 @@ function EditorInner() {
     const edge = {
       ...params,
       id: `edge_${Date.now()}`,
-      animated: store.active,
+      animated: active,
       style: { strokeWidth: 2 },
       data: { label }
     };
-    store.setEdges((eds) => addEdge(edge, eds));
-  }, [store.active, store.setEdges]);
+    setEdges((eds) => addEdge(edge, eds));
+  }, [active, setEdges]);
 
   const onNodeClick = useCallback((_event: any, node: Node) => {
-    store.setSelectedNode(node);
-    store.setSettingsOpened(true);
-    store.setDrawerOpened(false);
-  }, [store.setSelectedNode, store.setSettingsOpened, store.setDrawerOpened]);
+    setSelectedNode(node);
+    setSettingsOpened(true);
+    setDrawerOpened(false);
+  }, [setSelectedNode, setSettingsOpened, setDrawerOpened]);
 
   const onEdgeClick = useCallback((_event: any, edge: Edge) => {
-    if (!store.testResults) return;
-    const sourceResult = store.testResults.find(r => r.node_id === edge.source);
+    if (!testResults) return;
+    const sourceResult = testResults.find(r => r.node_id === edge.source);
     if (sourceResult) {
       notifications.show({
         title: `Edge Data: ${edge.id}`,
@@ -225,7 +349,7 @@ function EditorInner() {
         autoClose: false,
       });
     }
-  }, [store.testResults]);
+  }, [testResults]);
 
   const addNodeAtPosition = useCallback((type: string, refId: string, label: string, subType: string, position: { x: number, y: number }) => {
     const newNode: Node = {
@@ -239,21 +363,21 @@ function EditorInner() {
       },
     };
 
-    store.setNodes((nds) => nds.concat(newNode));
+    setNodes((nds) => nds.concat(newNode));
 
-    if (store.quickAddSource) {
+    if (quickAddSource) {
       const newEdge: Edge = {
         id: `edge_${Date.now()}`,
-        source: store.quickAddSource.nodeId,
-        sourceHandle: store.quickAddSource.handleId,
+        source: quickAddSource.nodeId,
+        sourceHandle: quickAddSource.handleId,
         target: newNode.id,
-        animated: store.active,
-        style: { strokeWidth: store.active ? 3 : 2 },
+        animated: active,
+        style: { strokeWidth: active ? 3 : 2 },
       };
-      store.setEdges((eds) => addEdge(newEdge, eds));
-      store.setQuickAddSource(null);
+      setEdges((eds) => addEdge(newEdge, eds));
+      setQuickAddSource(null);
     }
-  }, [store.nodes, store.quickAddSource, store.active]);
+  }, [quickAddSource, active, setEdges, setNodes, setQuickAddSource]);
 
   const onDragStart = (event: any, nodeType: string, refId: string, label: string, subType: string) => {
     event.dataTransfer.setData('application/reactflow', JSON.stringify({ nodeType, refId, label, subType }));
@@ -281,33 +405,33 @@ function EditorInner() {
   }, [project, addNodeAtPosition]);
 
   const handleInlineSave = (updatedData: any) => {
-    if (!store.selectedNode) return;
-    store.updateNodeConfig(store.selectedNode.id, { 
+    if (!selectedNode) return;
+    updateNodeConfig(selectedNode.id, { 
        ...updatedData, 
-       label: updatedData.name || store.selectedNode.data.label,
+       label: updatedData.name || selectedNode.data.label,
        ref_id: updatedData.id 
     });
-    store.setSettingsOpened(false);
-    store.setSelectedNode(null);
+    setSettingsOpened(false);
+    setSelectedNode(null);
     queryClient.invalidateQueries({ queryKey: ['sources'] });
     queryClient.invalidateQueries({ queryKey: ['sinks'] });
   };
 
   const deleteNode = (nodeId: string) => {
-    store.setNodes((nds) => nds.filter((n) => n.id !== nodeId));
-    store.setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
-    store.setSelectedNode(null);
-    store.setDrawerOpened(false);
-    store.setSettingsOpened(false);
+    setNodes((nds) => nds.filter((n) => n.id !== nodeId));
+    setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
+    setSelectedNode(null);
+    setDrawerOpened(false);
+    setSettingsOpened(false);
   };
 
   // Mutations
-  const testMutation = useMutation<any, Error, any | void>({
-    mutationFn: async (overrideMsg?: any) => {
-      let msg = overrideMsg;
+  const testMutation = useMutation<any, Error, { input: any, dryRun?: boolean }>({
+    mutationFn: async ({ input, dryRun }) => {
+      let msg = input;
       if (!msg) {
         try {
-          msg = JSON.parse(store.testInput);
+          msg = JSON.parse(testInput);
         } catch (e) {
           throw new Error('Invalid JSON in Input Message');
         }
@@ -318,9 +442,17 @@ function EditorInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workflow: { 
-            name: store.name, 
-            vhost: store.vhost, 
-            nodes: store.nodes.map(n => ({
+            name: name, 
+            vhost: vhost, 
+            dead_letter_sink_id: deadLetterSinkID,
+            dlq_threshold: dlqThreshold,
+            prioritize_dlq: prioritizeDLQ,
+            max_retries: maxRetries,
+            retry_interval: retryInterval,
+            reconnect_interval: reconnectInterval,
+            schema_type: schemaType,
+            schema: schema,
+            nodes: nodes.map(n => ({
               id: n.id,
               type: n.type,
               ref_id: n.data.ref_id,
@@ -328,22 +460,23 @@ function EditorInner() {
               x: n.position.x,
               y: n.position.y
             })),
-            edges: store.edges.map(e => ({
+            edges: edges.map(e => ({
               id: e.id,
               source_id: e.source,
               target_id: e.target,
               config: e.data
             })),
           },
-          message: msg
+          message: msg,
+          dry_run: dryRun
         }),
       });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
     onSuccess: (data) => {
-      store.setTestResults(data);
-      store.setTestModalOpened(false);
+      setTestResults(data);
+      setTestModalOpened(false);
       notifications.show({ title: 'Test Complete', message: 'The flow has been simulated. Active paths are highlighted.', color: 'blue' });
     },
     onError: (err) => {
@@ -351,12 +484,12 @@ function EditorInner() {
     }
   });
 
-  const handleTest = useCallback((overrideInput?: any) => {
+  const handleTest = useCallback((overrideInput?: any, dryRun: boolean = false) => {
     let input = overrideInput;
     
     // 1. If no input provided, try to find a sample from the selected source node
-    if (!input && store.selectedNode?.type === 'source') {
-      const sourceData = sources?.data?.find((s: any) => s.id === store.selectedNode?.data.ref_id);
+    if (!input && selectedNode?.type === 'source') {
+      const sourceData = sources?.data?.find((s: any) => s.id === selectedNode?.data.ref_id);
       if (sourceData?.sample) {
         try { input = JSON.parse(sourceData.sample); } catch(e) {}
       }
@@ -364,7 +497,7 @@ function EditorInner() {
     
     // 2. Try to find a sample from the first source node in the workflow
     if (!input) {
-      const firstSource = store.nodes.find(n => n.type === 'source');
+      const firstSource = nodes.find(n => n.type === 'source');
       if (firstSource) {
         const sourceData = sources?.data?.find((s: any) => s.id === firstSource.data.ref_id);
         if (sourceData?.sample) {
@@ -374,25 +507,34 @@ function EditorInner() {
     }
     
     // 3. Use existing test input if it looks customized
-    if (!input && store.testInput && store.testInput !== '{\n  "payload": "test"\n}') {
-      try { input = JSON.parse(store.testInput); } catch(e) {}
+    if (!input && testInput && testInput !== '{\n  "payload": "test"\n}') {
+      try { input = JSON.parse(testInput); } catch(e) {}
     }
 
     if (input) {
-      testMutation.mutate(input);
+      testMutation.mutate({ input, dryRun });
     } else {
       // Fallback to modal if no valid payload is found
-      store.setTestModalOpened(true);
+      setTestModalOpened(true);
     }
-  }, [store.nodes, store.selectedNode, sources, store.testInput, testMutation, store.setTestModalOpened]);
+  }, [nodes, selectedNode, sources, testInput, testMutation, setTestModalOpened]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       const payload = {
-        name: store.name,
-        vhost: store.vhost,
-        worker_id: store.workerID,
-        nodes: store.nodes.map(n => ({
+        name: name,
+        vhost: vhost,
+        worker_id: workerID,
+        dead_letter_sink_id: deadLetterSinkID,
+        dlq_threshold: dlqThreshold,
+        prioritize_dlq: prioritizeDLQ,
+        max_retries: maxRetries,
+        retry_interval: retryInterval,
+        reconnect_interval: reconnectInterval,
+        dry_run: dryRun,
+        schema_type: schemaType,
+        schema: schema,
+        nodes: nodes.map(n => ({
           id: n.id,
           type: n.type,
           ref_id: n.data.ref_id,
@@ -400,7 +542,7 @@ function EditorInner() {
           x: n.position.x,
           y: n.position.y
         })),
-        edges: store.edges.map(e => ({
+        edges: edges.map(e => ({
           id: e.id,
           source_id: e.source,
           target_id: e.target,
@@ -433,33 +575,72 @@ function EditorInner() {
       return res.json();
     },
     onSuccess: (data) => {
-      store.setActive(data.active);
-      store.setWorkflowStatus(data.status);
+      setActive(data.active);
+      setWorkflowStatus(data.status);
       notifications.show({ 
         title: data.active ? 'Workflow Started' : 'Workflow Stopped', 
-        message: `Workflow ${store.name} is now ${data.status.toLowerCase()}`, 
+        message: `Workflow ${name} is now ${data.status.toLowerCase()}`, 
         color: data.active ? 'green' : 'gray' 
       });
       queryClient.invalidateQueries({ queryKey: ['workflow', id] });
     },
     onError: (err: any) => {
       if (err.message?.includes('already running')) {
-        store.setActive(true);
-        store.setWorkflowStatus('Running');
+        setActive(true);
+        setWorkflowStatus('Running');
         queryClient.invalidateQueries({ queryKey: ['workflow', id] });
       }
     }
   });
 
+  const rebuildMutation = useMutation({
+    mutationFn: async (fromOffset: number) => {
+      const res = await apiFetch(`${API_BASE}/workflows/${id}/rebuild`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from_offset: fromOffset }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to start rebuild');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      notifications.show({
+        title: 'Rebuild Started',
+        message: 'Projection rebuilding has started in the background.',
+        color: 'blue',
+      });
+    },
+    onError: (err: any) => {
+      notifications.show({
+        title: 'Rebuild Failed',
+        message: err.message,
+        color: 'red',
+      });
+    },
+  });
+
+  // Guard: do not trigger editor hotkeys while typing in inputs/textareas/selects or contentEditable
+  const isTypingTarget = (evt: any) => {
+    const t = (evt?.target as HTMLElement) || null;
+    if (!t) return false;
+    const tag = t.tagName?.toLowerCase();
+    return tag === 'input' || tag === 'textarea' || tag === 'select' || (t as any).isContentEditable;
+  };
+
   useHotkeys([
-    ['ctrl+s', (e) => { e.preventDefault(); saveMutation.mutate(); }],
-    ['ctrl+enter', (e) => { e.preventDefault(); handleTest(); }],
-    ['delete', () => {
-       const anySelected = store.nodes.some(n => n.selected) || store.edges.some(e => e.selected);
+    ['ctrl+s', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); saveMutation.mutate(); }],
+    ['ctrl+enter', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleTest(null, false); }],
+    ['ctrl+shift+enter', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleTest(null, true); }],
+    ['delete', (e) => {
+       if (isTypingTarget(e)) return;
+       const anySelected = nodes.some(n => n.selected) || edges.some(e => e.selected);
        if (anySelected) {
-          store.setNodes(nds => nds.filter(n => !n.selected));
-          store.setEdges(eds => eds.filter(e => !e.selected));
-          store.setSelectedNode(null);
+          setNodes(nds => nds.filter(n => !n.selected));
+          setEdges(eds => eds.filter(e => !e.selected));
+          setSelectedNode(null);
        }
     }]
   ]);
@@ -469,39 +650,39 @@ function EditorInner() {
     let availableFields: string[] = [];
     let sinkSchema = null;
 
-    if (!store.selectedNode) return { incomingPayload, availableFields, sinkSchema };
+    if (!selectedNode) return { incomingPayload, availableFields, sinkSchema };
 
     // 1. Try to get payload from testResults (if simulation was run)
-    if (store.testResults) {
-      const edges = store.edges.filter(e => e.target === store.selectedNode?.id);
-      if (edges.length > 0) {
+    if (testResults) {
+      const incomingEdges = edges.filter((e: Edge) => e.target === selectedNode?.id);
+      if (incomingEdges.length > 0) {
         // Collect all upstream payloads
-        const mergedPayload = {};
-        edges.forEach(edge => {
-          const result = store.testResults!.find(r => r.node_id === edge.source);
+        const mergedPayload: Record<string, any> = {};
+        incomingEdges.forEach((edge: Edge) => {
+          const result = testResults!.find(r => r.node_id === edge.source);
           if (result && result.payload) {
             deepMergeSim(mergedPayload, result.payload);
           }
         });
         if (Object.keys(mergedPayload).length > 0) {
-          incomingPayload = mergedPayload;
-          availableFields = getAllKeys(mergedPayload);
+          incomingPayload = preparePayload(mergedPayload);
+          availableFields = getAllKeys(incomingPayload);
         }
       }
     }
 
     // 2. Try to get payload from selected node's upstream source if it has a sample
     if (!incomingPayload) {
-      const edges = store.edges.filter(e => e.target === store.selectedNode?.id);
-      if (edges.length > 0) {
-        const upstreamNode = store.nodes.find(n => n.id === edges[0].source);
+      const upstreamEdges = edges.filter((e: Edge) => e.target === selectedNode?.id);
+      if (upstreamEdges.length > 0) {
+        const upstreamNode = nodes.find(n => n.id === upstreamEdges[0].source);
         if (upstreamNode && upstreamNode.type === 'source') {
           const sourceData = sources?.data?.find((s: any) => s.id === upstreamNode.data.ref_id);
           if (sourceData && sourceData.sample) {
             try {
               const sample = JSON.parse(sourceData.sample);
-              incomingPayload = sample;
-              availableFields = getAllKeys(sample);
+              incomingPayload = preparePayload(sample);
+              availableFields = getAllKeys(incomingPayload);
             } catch (e) {}
           }
         }
@@ -509,9 +690,9 @@ function EditorInner() {
     }
 
     // 3. Try to get sink schema from downstream sink
-    const downstreamEdges = store.edges.filter(e => e.source === store.selectedNode?.id);
+    const downstreamEdges = edges.filter((e: Edge) => e.source === selectedNode?.id);
     if (downstreamEdges.length > 0) {
-      const sinkNode = store.nodes.find(n => n.id === downstreamEdges[0].target);
+      const sinkNode = nodes.find(n => n.id === downstreamEdges[0].target);
       if (sinkNode && sinkNode.type === 'sink') {
         const sinkData = sinks?.data?.find((s: any) => s.id === sinkNode.data.ref_id);
         if (sinkData && sinkData.config?.table) {
@@ -523,21 +704,57 @@ function EditorInner() {
     }
 
     return { incomingPayload, availableFields, sinkSchema };
-  }, [store.selectedNode, store.edges, store.nodes, store.testResults, sources, sinks]);
+  }, [selectedNode, edges, nodes, testResults, sources, sinks]);
 
   if (isLoading && !isNew) return <Box p="xl" ta="center"><Text>Loading...</Text></Box>;
 
   return (
     <WorkflowContext.Provider value={{ onPlusClick: handlePlusClick }}>
       <Box style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }}>
+        {/* Page Header: Title moved above the editor toolbar */}
+        <Paper
+          withBorder
+          radius="md"
+          p="md"
+          mb="sm"
+          shadow="xs"
+          style={{
+            background: isDark
+              ? 'linear-gradient(180deg, var(--mantine-color-dark-7), var(--mantine-color-dark-6))'
+              : 'linear-gradient(180deg, var(--mantine-color-gray-0), var(--mantine-color-white))',
+          }}
+        >
+          <Group justify="space-between" align="center">
+            <Group gap="sm">
+              <Title order={3} style={{ lineHeight: 1.2 }}>
+                {isNew ? 'New Workflow' : (name || 'Untitled Workflow')}
+              </Title>
+              {!isNew && (
+                <Badge
+                  color={active ? 'green' : 'gray'}
+                  variant="filled"
+                >
+                  {workflowStatus}
+                </Badge>
+              )}
+            </Group>
+            {!isNew && (
+              <Text size="sm" c="dimmed">
+                ID: {id}
+              </Text>
+            )}
+          </Group>
+        </Paper>
+
         <EditorToolbar 
           id={id}
           isNew={isNew}
           onSave={() => saveMutation.mutate()}
-          onTest={handleTest}
-          onConfigureTest={() => store.setTestModalOpened(true)}
+          onTest={(dry) => handleTest(null, dry)}
+          onConfigureTest={() => setTestModalOpened(true)}
           onToggle={() => toggleMutation.mutate()}
-          onClearTest={() => store.setTestResults(null)}
+          onRebuild={() => rebuildMutation.mutate(0)}
+          onClearTest={() => setTestResults(null)}
           isSaving={saveMutation.isPending}
           isTesting={testMutation.isPending}
           isToggling={toggleMutation.isPending}
@@ -555,8 +772,8 @@ function EditorInner() {
               <ReactFlow
                 nodes={styledNodes}
                 edges={styledEdges}
-                onNodesChange={store.onNodesChange}
-                onEdgesChange={store.onEdgesChange}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
                 onNodeClick={onNodeClick}
                 onEdgeClick={onEdgeClick}
@@ -583,29 +800,29 @@ function EditorInner() {
             </Paper>
 
             {/* Live Log Panel */}
-            <Paper withBorder radius="md" h={store.logsOpened ? 250 : 40} style={{ display: 'flex', flexDirection: 'column', transition: 'height 0.2s ease' }}>
-               <Group justify="space-between" px="sm" h={40} style={{ borderBottom: store.logsOpened ? '1px solid var(--mantine-color-gray-2)' : 'none', cursor: 'pointer' }} onClick={() => store.setLogsOpened(!store.logsOpened)}>
+            <Paper withBorder radius="md" h={logsOpened ? 250 : 40} style={{ display: 'flex', flexDirection: 'column', transition: 'height 0.2s ease' }}>
+               <Group justify="space-between" px="sm" h={40} style={{ borderBottom: logsOpened ? '1px solid var(--mantine-color-gray-2)' : 'none', cursor: 'pointer' }} onClick={() => setLogsOpened(!logsOpened)}>
                   <Group gap="xs">
-                     {store.logsOpened ? <IconChevronDown size="1rem" /> : <IconChevronUp size="1rem" />}
+                     {logsOpened ? <IconChevronDown size="1rem" /> : <IconChevronUp size="1rem" />}
                      <Text size="sm" fw={600}>Live Workflow Logs</Text>
-                     {store.active && <Badge size="xs" color="green" variant="dot">Streaming</Badge>}
+                     {active && <Badge size="xs" color="green" variant="dot">Streaming</Badge>}
                   </Group>
                   <Group gap="xs">
-                     <ActionIcon variant="subtle" size="sm" color="gray" onClick={(e) => { e.stopPropagation(); store.setLogs([]); }}>
+                     <ActionIcon variant="subtle" size="sm" color="gray" onClick={(e) => { e.stopPropagation(); setLogs([]); }}>
                         <IconClearAll size="1rem" />
                      </ActionIcon>
-                     <ActionIcon variant="subtle" size="sm" color={store.logsPaused ? 'orange' : 'gray'} onClick={(e) => { e.stopPropagation(); store.setLogsPaused(!store.logsPaused); }}>
-                        {store.logsPaused ? <IconPlayerPlay size="1rem" /> : <IconPlayerPause size="1rem" />}
+                     <ActionIcon variant="subtle" size="sm" color={logsPaused ? 'orange' : 'gray'} onClick={(e) => { e.stopPropagation(); setLogsPaused(!logsPaused); }}>
+                        {logsPaused ? <IconPlayerPlay size="1rem" /> : <IconPlayerPause size="1rem" />}
                      </ActionIcon>
                   </Group>
                </Group>
-               {store.logsOpened && (
+               {logsOpened && (
                   <ScrollArea style={{ flex: 1 }} p="xs" viewportRef={logScrollRef}>
                      <Stack gap={4}>
-                        {store.logs.map((log, i) => (
+                        {logs.map((log: any, i: number) => (
                            <Group key={i} gap="xs" wrap="nowrap" align="flex-start">
                               <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
-                                 {new Date(log.timestamp).toLocaleTimeString()}
+                                 {formatTime(log.timestamp)}
                               </Text>
                               <Badge size="xs" color={log.level === 'ERROR' ? 'red' : log.level === 'WARN' ? 'orange' : 'blue'} variant="light" style={{ minWidth: 50 }}>
                                  {log.level}
@@ -615,7 +832,7 @@ function EditorInner() {
                               </Text>
                            </Group>
                         ))}
-                        {store.logs.length === 0 && (
+                        {logs.length === 0 && (
                            <Text size="xs" c="dimmed" ta="center" py="xl">No logs yet.</Text>
                         )}
                      </Stack>
@@ -630,74 +847,82 @@ function EditorInner() {
           onAddItem={(type, refId, label, subType) => {
             const bounds = reactFlowWrapper.current?.getBoundingClientRect();
             let pos;
-            if (store.quickAddSource) {
-              const sourceNode = store.nodes.find(n => n.id === store.quickAddSource!.nodeId);
+            if (quickAddSource) {
+              const sourceNode = nodes.find(n => n.id === quickAddSource!.nodeId);
               pos = sourceNode ? { x: sourceNode.position.x + 250, y: sourceNode.position.y } : { x: 100, y: 100 };
             } else {
               pos = project({ x: (bounds?.width || 400) / 2, y: (bounds?.height || 400) / 2 });
             }
             addNodeAtPosition(type, refId, label, subType, pos);
-            if (store.quickAddSource) store.setDrawerOpened(false);
+            if (quickAddSource) setDrawerOpened(false);
           }}
           sources={sources?.data || []}
           sinks={sinks?.data || []}
         />
 
-        <Modals 
-          onRunSimulation={(input) => testMutation.mutate(input)}
-          isTesting={testMutation.isPending}
-        />
-
         <Modal
-          opened={store.settingsOpened}
+          opened={settingsOpened}
           onClose={() => {
-            store.setSettingsOpened(false);
-            store.setSelectedNode(null);
+            setSettingsOpened(false);
+            setSelectedNode(null);
           }}
           title={
-            <Group gap="xs">
+            <Group gap="xs" id="workflow-settings-modal-title">
               <ThemeIcon variant="light" color="blue">
                 <IconSettings size="1.2rem" />
               </ThemeIcon>
               <Text fw={700}>
-                {store.selectedNode?.data?.ref_id === 'new' 
-                  ? `Create New ${store.selectedNode?.type?.toUpperCase()}` 
-                  : `Configure ${store.selectedNode?.type?.toUpperCase()} Node`}
+                {selectedNode?.data?.ref_id === 'new' 
+                  ? `Create New ${selectedNode?.type?.toUpperCase()}` 
+                  : `Configure ${selectedNode?.type?.toUpperCase()} Node`}
               </Text>
             </Group>
           }
+          aria-labelledby="workflow-settings-modal-title"
+          aria-describedby="workflow-settings-modal-desc"
           fullScreen
-          padding="xl"
+          padding="md"
         >
-          <ScrollArea h="calc(100vh - 100px)" offsetScrollbars>
-            <Stack gap="md" style={{ width: '100%' }}>
+          <Box mb="md">
+            <Title order={4} mb={4}>Workflow Node Settings</Title>
+            <Text id="workflow-settings-modal-desc" size="sm" c="dimmed">
+              Configure node settings, run simulations, and review output data.
+            </Text>
+          </Box>
+          <ScrollArea h="calc(100vh - 120px)" offsetScrollbars>
+            <Stack gap="lg" style={{ width: '100%' }}>
               <Box>
-                  {store.selectedNode?.type === 'source' && (
+                  {selectedNode?.type === 'source' && (
                     <SourceForm 
+                      key={selectedNode.id}
                       embedded 
                       onSave={handleInlineSave} 
                       onRunSimulation={handleTest}
-                      isEditing={store.selectedNode.data.ref_id !== 'new'} 
+                      isEditing={selectedNode.data.ref_id !== 'new'} 
                       initialData={selectedNodeData} 
-                      vhost={store.vhost}
-                      workerID={store.workerID}
+                      vhost={vhost}
+                      workerID={workerID}
                     />
                   )}
-                  {store.selectedNode?.type === 'sink' && (
+                  {selectedNode?.type === 'sink' && (
                     <SinkForm 
+                      key={selectedNode.id}
                       embedded 
                       onSave={handleInlineSave} 
-                      isEditing={store.selectedNode.data.ref_id !== 'new'} 
+                      isEditing={selectedNode.data.ref_id !== 'new'} 
                       initialData={selectedNodeData} 
-                      vhost={store.vhost}
-                      workerID={store.workerID}
+                      vhost={vhost}
+                      workerID={workerID}
+                      availableFields={availableFields}
+                      incomingPayload={incomingPayload}
+                      sinks={sinks?.data || []}
                     />
                   )}
-                  {store.selectedNode && ['transformation', 'condition', 'switch', 'merge', 'stateful', 'note'].includes(store.selectedNode.type!) && (
+                  {selectedNode && ['transformation', 'validator', 'condition', 'switch', 'merge', 'stateful', 'note'].includes(selectedNode.type!) && (
                     <Stack gap="sm">
                        <TransformationForm
-                         selectedNode={store.selectedNode}
-                         updateNodeConfig={store.updateNodeConfig}
+                         selectedNode={selectedNode}
+                         updateNodeConfig={updateNodeConfig}
                          onRunSimulation={handleTest}
                          availableFields={availableFields}
                          incomingPayload={incomingPayload}
@@ -706,32 +931,37 @@ function EditorInner() {
                        />
                        <Group justify="flex-end" mt="md">
                          <Button variant="light" onClick={() => {
-                           store.setSelectedNode(null);
-                           store.setSettingsOpened(false);
+                           setSelectedNode(null);
+                           setSettingsOpened(false);
                          }}>Done</Button>
                        </Group>
                     </Stack>
                   )}
               </Box>
 
-              {(store.selectedNode?.type === 'source' || store.selectedNode?.type === 'sink') && (store.selectedNode?.data?.testResult || store.selectedNode?.data?.lastSample) && (
+              {(selectedNode?.type === 'source' || selectedNode?.type === 'sink') && (selectedNode?.data?.testResult || selectedNode?.data?.lastSample) && (
                 <Paper withBorder p="md" bg="gray.0">
                   <Stack gap="xs">
                     <Text fw={700} size="sm">Data Output</Text>
                     <Code block style={{ fontSize: '10px' }}>
-                      {JSON.stringify(store.selectedNode.data.testResult?.payload || store.selectedNode.data.lastSample, null, 2)}
+                      {JSON.stringify(selectedNode.data.testResult?.payload || selectedNode.data.lastSample, null, 2)}
                     </Code>
                   </Stack>
                 </Paper>
               )}
 
               <Divider />
-              <Button color="red" variant="light" leftSection={<IconTrash size="1rem" />} onClick={() => deleteNode(store.selectedNode!.id)}>
+              <Button color="red" variant="light" leftSection={<IconTrash size="1rem" />} onClick={() => deleteNode(selectedNode!.id)}>
                 Remove Node from Canvas
               </Button>
             </Stack>
           </ScrollArea>
         </Modal>
+
+        <Modals
+          onRunSimulation={(input) => testMutation.mutate(input)}
+          isTesting={testMutation.isPending}
+        />
       </Box>
     </WorkflowContext.Provider>
   );

@@ -12,6 +12,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/sqlutil"
 )
 
 // MySQLSource implements the hermod.Source interface for MySQL CDC.
@@ -115,6 +116,58 @@ func (m *MySQLSource) Ack(ctx context.Context, msg hermod.Message) error {
 	return nil
 }
 
+func (m *MySQLSource) IsReady(ctx context.Context) error {
+	if err := m.Ping(ctx); err != nil {
+		return fmt.Errorf("mysql connection failed: %w", err)
+	}
+
+	if !m.useCDC {
+		return nil
+	}
+
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+
+	var err error
+	if db == nil {
+		db, err = sql.Open("mysql", m.connString)
+		if err != nil {
+			return fmt.Errorf("failed to open mysql connection for readiness check: %w", err)
+		}
+		defer db.Close()
+	}
+
+	// Check for binlog_format = ROW
+	var binlogFormat string
+	err = db.QueryRowContext(ctx, "SHOW VARIABLES LIKE 'binlog_format'").Scan(&err, &binlogFormat)
+	if err != nil {
+		return fmt.Errorf("failed to check mysql 'binlog_format': %w", err)
+	}
+	if binlogFormat != "ROW" {
+		return fmt.Errorf("mysql 'binlog_format' must be 'ROW' for CDC (currently '%s'). Run 'SET GLOBAL binlog_format = ROW'", binlogFormat)
+	}
+
+	// Check for log_bin = ON
+	var logBin string
+	err = db.QueryRowContext(ctx, "SHOW VARIABLES LIKE 'log_bin'").Scan(&err, &logBin)
+	if err != nil {
+		return fmt.Errorf("failed to check mysql 'log_bin': %w", err)
+	}
+	if logBin != "ON" {
+		return fmt.Errorf("mysql 'log_bin' must be 'ON' for CDC. Please enable binary logging in your MySQL configuration")
+	}
+
+	// Check for binlog_row_image = FULL (recommended)
+	var binlogRowImage string
+	err = db.QueryRowContext(ctx, "SHOW VARIABLES LIKE 'binlog_row_image'").Scan(&err, &binlogRowImage)
+	if err == nil && binlogRowImage != "FULL" {
+		m.log("WARN", "mysql 'binlog_row_image' is not 'FULL' (currently '%s'). It is recommended to set it to 'FULL' to ensure all column values are present in events", binlogRowImage)
+	}
+
+	return nil
+}
+
 func (m *MySQLSource) Ping(ctx context.Context) error {
 	m.mu.Lock()
 	db := m.db
@@ -201,7 +254,11 @@ func (m *MySQLSource) Sample(ctx context.Context, table string) (hermod.Message,
 		}
 	}
 
-	rows, err := m.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", table))
+	quoted, err := sqlutil.QuoteIdent("mysql", table)
+	if err != nil {
+		return nil, fmt.Errorf("invalid table name: %w", err)
+	}
+	rows, err := m.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sample record: %w", err)
 	}

@@ -33,7 +33,7 @@ export function UsersPage() {
     }
   })
 
-  const users = usersResponse?.data || []
+  const users = Array.isArray(usersResponse?.data) ? usersResponse.data : []
   const totalItems = usersResponse?.total || 0
 
   const deleteMutation = useMutation({

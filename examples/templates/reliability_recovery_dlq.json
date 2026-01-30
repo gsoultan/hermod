@@ -1,0 +1,93 @@
+{
+  "name": "Reliability: Advanced Recovery & DLQ Managed Re-drive",
+  "vhost": "default",
+  "active": false,
+  "dead_letter_sink_id": "snk-postgres-dlq",
+  "prioritize_dlq": true,
+  "max_retries": 5,
+  "retry_interval": "10s",
+  "nodes": [
+    {
+      "id": "node_pg_source",
+      "type": "source",
+      "config": {
+        "label": "Primary Postgres CDC",
+        "type": "postgres",
+        "ref_id": "src-primary-db"
+      },
+      "x": 50,
+      "y": 250
+    },
+    {
+      "id": "node_recovery_switch",
+      "type": "switch",
+      "config": {
+        "label": "Is Recovery?",
+        "branches": [
+          { "label": "recovery", "condition": "{{eq .metadata._hermod_source \"recovery\"}}" },
+          { "label": "primary", "condition": "default" }
+        ]
+      },
+      "x": 350,
+      "y": 250
+    },
+    {
+      "id": "node_fixup_transform",
+      "type": "transformation",
+      "config": {
+        "label": "Recovery Fix-up",
+        "transType": "set",
+        "column._recovered_at": "{{now}}",
+        "column._recovery_status": "processed"
+      },
+      "x": 600,
+      "y": 150
+    },
+    {
+      "id": "node_clickhouse_sink",
+      "type": "sink",
+      "config": {
+        "label": "ClickHouse Analytics (Primary Sink)",
+        "type": "clickhouse",
+        "ref_id": "snk-analytics-db"
+      },
+      "x": 900,
+      "y": 250
+    },
+    {
+      "id": "node_dlq_sink",
+      "type": "sink",
+      "config": {
+        "label": "Postgres DLQ (Recovery Storage)",
+        "type": "postgres",
+        "ref_id": "snk-postgres-dlq"
+      },
+      "x": 900,
+      "y": 450
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_1",
+      "source_id": "node_pg_source",
+      "target_id": "node_recovery_switch"
+    },
+    {
+      "id": "edge_2",
+      "source_id": "node_recovery_switch",
+      "sourceHandle": "recovery",
+      "target_id": "node_fixup_transform"
+    },
+    {
+      "id": "edge_3",
+      "source_id": "node_fixup_transform",
+      "target_id": "node_clickhouse_sink"
+    },
+    {
+      "id": "edge_4",
+      "source_id": "node_recovery_switch",
+      "sourceHandle": "primary",
+      "target_id": "node_clickhouse_sink"
+    }
+  ]
+}

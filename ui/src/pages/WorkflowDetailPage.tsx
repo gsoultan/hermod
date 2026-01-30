@@ -19,12 +19,12 @@ import {
   IconArrowLeft, IconDatabase, IconArrowsExchange, IconServer, 
   IconWorld, IconSettingsAutomation, IconFileSpreadsheet, IconCircles, IconList,
   IconGitBranch, IconVariable, IconRefresh, IconSearch, IconEye,
-  IconChartBar, IconTerminal2, IconLayoutGrid
+  IconChartBar, IconTerminal2, IconLayoutGrid, IconCloud
 } from '@tabler/icons-react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../api';
-import { useDisclosure } from '@mantine/hooks';
+import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import dagre from 'dagre';
 
 const API_BASE = '/api';
@@ -129,7 +129,8 @@ const SinkNode = ({ data }: any) => {
 
   const getIcon = () => {
     if (data.type === 'http') return <IconWorld size="0.8rem" />;
-    if (['postgres', 'mysql', 'mssql', 'mongodb', 'sqlite'].includes(data.type)) return <IconDatabase size="0.8rem" />;
+    if (['postgres', 'mysql', 'mssql', 'mongodb', 'sqlite', 'mariadb', 'oracle', 'clickhouse', 'yugabyte'].includes(data.type)) return <IconDatabase size="0.8rem" />;
+    if (['s3', 's3-parquet', 'ftp'].includes(data.type)) return <IconCloud size="0.8rem" />;
     return <IconServer size="0.8rem" />;
   };
 
@@ -182,6 +183,7 @@ export function WorkflowDetailPage() {
   
   // Logs state
   const [search, setSearch] = useState('');
+  const [debouncedSearch] = useDebouncedValue(search, 300);
   const [activePage, setPage] = useState(1);
   const itemsPerPage = 20;
   const [selectedLog, setSelectedLog] = useState<any>(null);
@@ -230,16 +232,19 @@ export function WorkflowDetailPage() {
     },
   });
 
+  const wsActive = activeTab === 'logs' && activePage === 1 && !debouncedSearch;
   const { data: logsResponse, isFetching: isLogsFetching } = useQuery({
-    queryKey: ['logs', 'workflow', id, search, activePage],
+    queryKey: ['logs', 'workflow', id, debouncedSearch, activePage],
     queryFn: async () => {
-      let url = `${API_BASE}/logs?workflow_id=${id}&page=${activePage}&limit=${itemsPerPage}&search=${search}`;
+      let url = `${API_BASE}/logs?workflow_id=${id}&page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(debouncedSearch || '')}`;
       const res = await apiFetch(url);
       if (!res.ok) throw new Error('Failed to fetch logs');
       return res.json();
     },
     enabled: activeTab === 'logs',
-    refetchInterval: 5000,
+    refetchInterval: wsActive ? false : 5000,
+    staleTime: 5000,
+    refetchOnWindowFocus: false,
   });
 
   useEffect(() => {
@@ -265,12 +270,12 @@ export function WorkflowDetailPage() {
     const fetchedLogs = (logsResponse as any)?.data || [];
     // Combine fetched logs with real-time logs, avoiding duplicates if possible
     // For simplicity, if we are on page 1 and no search, we show real-time logs at the top
-    if (activePage === 1 && !search) {
+    if (activePage === 1 && !debouncedSearch) {
       const logIds = new Set(realtimeLogs.map(l => l.id));
       return [...realtimeLogs, ...fetchedLogs.filter((l: any) => !logIds.has(l.id))];
     }
     return fetchedLogs;
-  }, [logsResponse, realtimeLogs, activePage, search]);
+  }, [logsResponse, realtimeLogs, activePage, debouncedSearch]);
 
   useEffect(() => {
     if (workflow) {
@@ -401,7 +406,7 @@ export function WorkflowDetailPage() {
                 </ReactFlow>
                 <Box style={{ position: 'absolute', right: 10, top: 10, zIndex: 5 }}>
                   <Tooltip label="Smart Align">
-                    <ActionIcon variant="light" size="lg" color="indigo" onClick={onLayout}>
+                    <ActionIcon aria-label="Smart align" variant="light" size="lg" color="indigo" onClick={onLayout}>
                       <IconLayoutGrid size="1.2rem" />
                     </ActionIcon>
                   </Tooltip>
@@ -428,7 +433,7 @@ export function WorkflowDetailPage() {
                          <Badge variant="dot" color="green" size="sm">Live</Badge>
                        )}
                        <Tooltip label="Refresh">
-                          <ActionIcon variant="light" onClick={() => queryClient.invalidateQueries({ queryKey: ['logs', 'workflow', id] })} loading={isLogsFetching}>
+                          <ActionIcon aria-label="Refresh workflow logs" variant="light" onClick={() => queryClient.invalidateQueries({ queryKey: ['logs', 'workflow', id] })} loading={isLogsFetching}>
                             <IconRefresh size="1rem" />
                           </ActionIcon>
                        </Tooltip>
@@ -464,7 +469,7 @@ export function WorkflowDetailPage() {
                               {log.action && <Badge variant="outline" size="xs">{log.action}</Badge>}
                             </Table.Td>
                             <Table.Td>
-                              <ActionIcon variant="subtle" onClick={() => viewDetails(log)}>
+                              <ActionIcon aria-label="View log details" variant="subtle" onClick={() => viewDetails(log)}>
                                 <IconEye size="1rem" />
                               </ActionIcon>
                             </Table.Td>
@@ -540,7 +545,7 @@ export function WorkflowDetailPage() {
             {selectedLog.data && (
               <Box>
                 <Text fw={700} size="sm">Data</Text>
-                <ScrollArea h={200}>
+                <ScrollArea h="100%">
                   <Code block>{selectedLog.data}</Code>
                 </ScrollArea>
               </Box>

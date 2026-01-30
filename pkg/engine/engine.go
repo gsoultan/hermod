@@ -4,54 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/buffer"
 	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/schema"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
-// DefaultLogger is a simple logger that uses zerolog for zero-allocation structured logging.
-type DefaultLogger struct {
-	logger zerolog.Logger
-}
+var tracer = otel.Tracer("hermod-engine")
 
-func NewDefaultLogger() *DefaultLogger {
-	return &DefaultLogger{
-		logger: zerolog.New(os.Stderr).With().Timestamp().Logger(),
-	}
-}
-
-func (l *DefaultLogger) log(event *zerolog.Event, msg string, keysAndValues ...interface{}) {
-	for i := 0; i < len(keysAndValues); i += 2 {
-		key := fmt.Sprintf("%v", keysAndValues[i])
-		if i+1 < len(keysAndValues) {
-			event.Interface(key, keysAndValues[i+1])
-		} else {
-			event.Interface(key, nil)
-		}
-	}
-	event.Msg(msg)
-}
-
-func (l *DefaultLogger) Debug(msg string, keysAndValues ...interface{}) {
-	l.log(l.logger.Debug(), msg, keysAndValues...)
-}
-
-func (l *DefaultLogger) Info(msg string, keysAndValues ...interface{}) {
-	l.log(l.logger.Info(), msg, keysAndValues...)
-}
-
-func (l *DefaultLogger) Warn(msg string, keysAndValues ...interface{}) {
-	l.log(l.logger.Warn(), msg, keysAndValues...)
-}
-
-func (l *DefaultLogger) Error(msg string, keysAndValues ...interface{}) {
-	l.log(l.logger.Error(), msg, keysAndValues...)
-}
+// DefaultLogger and related logging helpers moved to logger.go
 
 type RoutedMessage struct {
 	SinkIndex int
@@ -71,6 +41,7 @@ type Engine struct {
 	sourceConfig   SourceConfig
 	deadLetterSink hermod.Sink
 	router         RouterFunc
+	validator      schema.Validator
 
 	workflowID string
 	sourceID   string
@@ -86,12 +57,26 @@ type Engine struct {
 	engineStatus      string
 	lastMsgTime       time.Time
 	processedMessages uint64
+	deadLetterCount   uint64
 	nodeMetrics       map[string]uint64
 	nodeSamples       map[string]interface{}
 	nodeMetricsMu     sync.RWMutex
 
 	// Async Sink Writers
 	sinkWriters []*sinkWriter
+
+	// Checkpointing
+	checkpointHandler func(ctx context.Context, sourceState map[string]string) error
+	checkpointMu      sync.Mutex
+	inCheckpoint      bool
+
+	// In-flight message tracking for draining
+	inFlightSem chan struct{}
+	inFlightWg  sync.WaitGroup
+
+	// stopMu protects hard-stop sequences
+	stopMu  sync.Mutex
+	stopped bool
 }
 
 type sinkWriter struct {
@@ -102,6 +87,19 @@ type sinkWriter struct {
 	config SinkConfig
 
 	ch chan *pendingMessage
+
+	// Spill to Disk
+	spillBuffer hermod.Producer
+
+	// Circuit Breaker state
+	cbMu          sync.RWMutex
+	cbFailCount   int
+	cbLastFailure time.Time
+	cbOpenUntil   time.Time
+	cbStatus      string // "closed", "open", "half-open"
+
+	// Adaptive Batching
+	currentBatchSize int
 }
 
 type pendingMessage struct {
@@ -134,32 +132,61 @@ func releasePendingMessage(pm *pendingMessage) {
 }
 
 type StatusUpdate struct {
-	WorkflowID     string                 `json:"workflow_id,omitempty"`
-	EngineStatus   string                 `json:"engine_status,omitempty"`
-	SourceStatus   string                 `json:"source_status,omitempty"`
-	SourceID       string                 `json:"source_id,omitempty"`
-	SinkStatuses   map[string]string      `json:"sink_statuses,omitempty"`
-	SinkID         string                 `json:"sink_id,omitempty"`
-	SinkStatus     string                 `json:"sink_status,omitempty"`
-	ProcessedCount uint64                 `json:"processed_count"`
-	NodeMetrics    map[string]uint64      `json:"node_metrics,omitempty"`
-	NodeSamples    map[string]interface{} `json:"node_samples,omitempty"`
+	WorkflowID      string                 `json:"workflow_id,omitempty"`
+	EngineStatus    string                 `json:"engine_status,omitempty"`
+	SourceStatus    string                 `json:"source_status,omitempty"`
+	SourceID        string                 `json:"source_id,omitempty"`
+	SinkStatuses    map[string]string      `json:"sink_statuses,omitempty"`
+	SinkID          string                 `json:"sink_id,omitempty"`
+	SinkStatus      string                 `json:"sink_status,omitempty"`
+	ProcessedCount  uint64                 `json:"processed_count"`
+	DeadLetterCount uint64                 `json:"dead_letter_count,omitempty"`
+	NodeMetrics     map[string]uint64      `json:"node_metrics,omitempty"`
+	NodeSamples     map[string]interface{} `json:"node_samples,omitempty"`
 }
 
 // Config holds configuration for the Engine.
 type Config struct {
-	MaxRetries        int           `json:"max_retries"`
-	RetryInterval     time.Duration `json:"retry_interval"`
-	ReconnectInterval time.Duration `json:"reconnect_interval"`
-	StatusInterval    time.Duration `json:"status_interval"`
+	MaxRetries         int           `json:"max_retries"`
+	RetryInterval      time.Duration `json:"retry_interval"`
+	ReconnectInterval  time.Duration `json:"reconnect_interval"`
+	StatusInterval     time.Duration `json:"status_interval"`
+	PrioritizeDLQ      bool          `json:"prioritize_dlq"`
+	DryRun             bool          `json:"dry_run"`
+	CheckpointInterval time.Duration `json:"checkpoint_interval"`
 }
 
+type BackpressureStrategy string
+
+const (
+	BPBlock       BackpressureStrategy = "block"
+	BPDropOldest  BackpressureStrategy = "drop_oldest"
+	BPDropNewest  BackpressureStrategy = "drop_newest"
+	BPSampling    BackpressureStrategy = "sampling"
+	BPSpillToDisk BackpressureStrategy = "spill_to_disk"
+)
+
 type SinkConfig struct {
-	MaxRetries     int             `json:"max_retries"`
-	RetryInterval  time.Duration   `json:"retry_interval"`
-	RetryIntervals []time.Duration `json:"retry_intervals"`
-	BatchSize      int             `json:"batch_size"`
-	BatchTimeout   time.Duration   `json:"batch_timeout"`
+	MaxRetries       int             `json:"max_retries"`
+	RetryInterval    time.Duration   `json:"retry_interval"`
+	RetryIntervals   []time.Duration `json:"retry_intervals"`
+	BatchSize        int             `json:"batch_size"`
+	BatchTimeout     time.Duration   `json:"batch_timeout"`
+	AdaptiveBatching bool            `json:"adaptive_batching"`
+
+	// Circuit Breaker settings
+	CircuitBreakerThreshold int           `json:"cb_threshold"`
+	CircuitBreakerInterval  time.Duration `json:"cb_interval"`
+	CircuitBreakerCoolDown  time.Duration `json:"cb_cool_off"` // match internal/engine/registry.go key "circuit_cool_off"
+
+	// Backpressure settings
+	BackpressureStrategy BackpressureStrategy `json:"backpressure_strategy"`
+	BackpressureBuffer   int                  `json:"backpressure_buffer"`
+	SamplingRate         float64              `json:"sampling_rate"` // 0.0 to 1.0
+
+	// Spill to Disk settings
+	SpillPath    string `json:"spill_path"`
+	SpillMaxSize int    `json:"spill_max_size"`
 }
 
 type SourceConfig struct {
@@ -169,10 +196,11 @@ type SourceConfig struct {
 // DefaultConfig returns the default configuration for the Engine.
 func DefaultConfig() Config {
 	return Config{
-		MaxRetries:        3,
-		RetryInterval:     100 * time.Millisecond,
-		ReconnectInterval: 30 * time.Second,
-		StatusInterval:    5 * time.Second,
+		MaxRetries:         3,
+		RetryInterval:      100 * time.Millisecond,
+		ReconnectInterval:  30 * time.Second,
+		StatusInterval:     5 * time.Second,
+		CheckpointInterval: 1 * time.Minute,
 	}
 }
 
@@ -184,6 +212,7 @@ func NewEngine(source hermod.Source, sinks []hermod.Sink, buffer hermod.Producer
 		logger:       NewDefaultLogger(),
 		config:       DefaultConfig(),
 		sinkStatuses: make(map[string]string),
+		inFlightSem:  make(chan struct{}, 1000),
 	}
 	e.SetLogger(e.logger)
 	return e
@@ -246,8 +275,24 @@ func (e *Engine) SetOnStatusChange(f func(StatusUpdate)) {
 }
 
 // SetRouter sets the router function for the engine.
+func (e *Engine) GetSource() hermod.Source {
+	return e.source
+}
+
+func (e *Engine) GetSinks() []hermod.Sink {
+	return e.sinks
+}
+
 func (e *Engine) SetRouter(router RouterFunc) {
 	e.router = router
+}
+
+func (e *Engine) SetCheckpointHandler(f func(ctx context.Context, sourceState map[string]string) error) {
+	e.checkpointHandler = f
+}
+
+func (e *Engine) SetValidator(validator schema.Validator) {
+	e.validator = validator
 }
 
 // UpdateNodeMetric updates the processed count for a specific workflow node.
@@ -315,14 +360,71 @@ func (e *Engine) setSinkStatus(sinkID string, status string) {
 	e.notifyStatusChange()
 }
 
+// DrainDLQ attempts to wrap the current source with a PrioritySource to drain DLQ messages.
+func (e *Engine) DrainDLQ(ctx context.Context) error {
+	if e.deadLetterSink == nil {
+		return fmt.Errorf("no dead letter sink configured for this workflow")
+	}
+
+	dlqSource, ok := e.deadLetterSink.(hermod.Source)
+	if !ok {
+		return fmt.Errorf("dead letter sink does not support reading")
+	}
+
+	e.statusMu.Lock()
+	defer e.statusMu.Unlock()
+
+	// Check if already wrapped
+	if _, ok := e.source.(*PrioritySource); ok {
+		e.logger.Info("DLQ Drain requested: Source already prioritized", "workflow_id", e.workflowID)
+		return nil
+	}
+
+	e.logger.Info("DLQ Drain requested: Wrapping source with PriorityMultiplexer", "workflow_id", e.workflowID)
+	e.source = NewPrioritySource(dlqSource, e.source, e.logger)
+	return nil
+}
+
 func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Message, sinkID string, i int) error {
 	if msg == nil {
+		return nil
+	}
+
+	// Pre-write validation
+	if vs, ok := snk.(hermod.ValidatingSink); ok {
+		if err := vs.Validate(ctx, msg); err != nil {
+			e.logger.Error("Sink pre-write validation failed", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID(), "error", err)
+			if e.deadLetterSink != nil {
+				e.logger.Info("Sending invalid message to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID())
+				msg.SetMetadata("_hermod_validation_failed", "true")
+				msg.SetMetadata("_hermod_last_error", err.Error())
+				if dlerr := e.deadLetterSink.Write(ctx, msg); dlerr != nil {
+					e.logger.Error("Failed to write invalid message to Dead Letter Sink", "workflow_id", e.workflowID, "error", dlerr)
+					return fmt.Errorf("validation error (and DLQ failed): %w", err)
+				}
+				return nil
+			}
+			return fmt.Errorf("validation error: %w", err)
+		}
+	}
+
+	if e.config.DryRun {
+		e.logger.Info("[DRY-RUN] Message would be written to sink",
+			"workflow_id", e.workflowID,
+			"sink_id", sinkID,
+			"action", "write",
+			"message_id", msg.ID(),
+			"payload_len", len(msg.Payload()),
+		)
 		return nil
 	}
 	// Retry mechanism for Sink Write
 	var lastErr error
 
 	maxRetries := e.config.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 1
+	}
 	retryInterval := e.config.RetryInterval
 
 	if i >= 0 && i < len(e.sinkConfigs) {
@@ -335,6 +437,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 	}
 
 	for j := 0; j < maxRetries; j++ {
+		idempStart := time.Now()
 		if err := snk.Write(ctx, msg); err != nil {
 			lastErr = err
 			SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Inc()
@@ -352,6 +455,9 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 			} else {
 				interval = time.Duration(j+1) * retryInterval
 			}
+			// Add jitter (±20%) to avoid thundering herd
+			jitter := 0.8 + rand.Float64()*0.4
+			interval = time.Duration(float64(interval) * jitter)
 
 			select {
 			case <-time.After(interval):
@@ -364,14 +470,25 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 			e.logger.Info("Sink reconnected successfully", "workflow_id", e.workflowID, "sink_id", sinkID, "action", "reconnect")
 		}
 		SinkWriteCount.WithLabelValues(e.workflowID, sinkID).Inc()
+		// Record observed latency for the sink write path (captures idempotency checks when present)
+		IdempotencyLatency.WithLabelValues(e.workflowID, sinkID).Observe(time.Since(idempStart).Seconds())
+		// If sink reports idempotency effect, emit metrics
+		if reporter, ok := snk.(hermod.IdempotencyReporter); ok {
+			if dedup, conflict := reporter.LastWriteIdempotent(); dedup || conflict {
+				if dedup {
+					IdempotencyDedupTotal.WithLabelValues(e.workflowID, sinkID).Inc()
+				}
+				if conflict {
+					IdempotencyConflictsTotal.WithLabelValues(e.workflowID, sinkID).Inc()
+				}
+			}
+		}
 		e.logger.Info("Message written to sink",
 			"workflow_id", e.workflowID,
 			"sink_id", sinkID,
 			"action", "write",
 			"message_id", msg.ID(),
-			"payload", string(msg.Payload()),
-			"before", string(msg.Before()),
-			"after", string(msg.After()),
+			"payload_len", len(msg.Payload()),
 		)
 		lastErr = nil
 		break
@@ -380,6 +497,16 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		e.logger.Error("Sink write failed after retries", "workflow_id", e.workflowID, "sink_id", sinkID, "error", lastErr)
 		if e.deadLetterSink != nil {
 			e.logger.Info("Sending message to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID())
+
+			// Add failure context to metadata
+			msg.SetMetadata("_hermod_failed_sink", sinkID)
+			msg.SetMetadata("_hermod_last_error", lastErr.Error())
+			msg.SetMetadata("_hermod_failed_at", time.Now().Format(time.RFC3339))
+
+			e.statusMu.Lock()
+			e.deadLetterCount++
+			e.statusMu.Unlock()
+
 			DeadLetterCount.WithLabelValues(e.workflowID, sinkID).Inc()
 			if err := e.deadLetterSink.Write(ctx, msg); err != nil {
 				e.logger.Error("Failed to write to Dead Letter Sink", "workflow_id", e.workflowID, "error", err)
@@ -405,18 +532,53 @@ func (e *Engine) recordSourceActivity() {
 	e.setSourceStatus("running")
 }
 
+func (e *Engine) redactData(data map[string]interface{}) map[string]interface{} {
+	if data == nil {
+		return nil
+	}
+	redacted := make(map[string]interface{})
+	sensitiveFields := []string{"password", "secret", "token", "key", "email", "phone", "address"}
+	for k, v := range data {
+		isSensitive := false
+		lowerK := strings.ToLower(k)
+		for _, sf := range sensitiveFields {
+			if strings.Contains(lowerK, sf) {
+				isSensitive = true
+				break
+			}
+		}
+
+		if isSensitive {
+			redacted[k] = "[REDACTED]"
+		} else if m, ok := v.(map[string]interface{}); ok {
+			redacted[k] = e.redactData(m)
+		} else {
+			redacted[k] = v
+		}
+	}
+	return redacted
+}
+
+// LastMsgTime returns the time of the last message received from the source.
+func (e *Engine) LastMsgTime() time.Time {
+	e.statusMu.RLock()
+	defer e.statusMu.RUnlock()
+	return e.lastMsgTime
+}
+
 // GetStatus returns the current status of the engine.
 func (e *Engine) GetStatus() StatusUpdate {
 	e.statusMu.RLock()
 	defer e.statusMu.RUnlock()
 
 	update := StatusUpdate{
-		WorkflowID:     e.workflowID,
-		EngineStatus:   e.engineStatus,
-		SourceStatus:   e.sourceStatus,
-		SourceID:       e.sourceID,
-		SinkStatuses:   make(map[string]string),
-		ProcessedCount: e.processedMessages,
+		WorkflowID:      e.workflowID,
+		EngineStatus:    e.engineStatus,
+		SourceStatus:    e.sourceStatus,
+		SourceID:        e.sourceID,
+		SinkStatuses:    make(map[string]string),
+		ProcessedCount:  e.processedMessages,
+		DeadLetterCount: e.deadLetterCount,
 	}
 	for k, v := range e.sinkStatuses {
 		update.SinkStatuses[k] = v
@@ -453,14 +615,51 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 	if len(msgs) == 0 {
 		return nil
 	}
+
+	// Pre-write validation
+	if vs, ok := snk.(hermod.ValidatingSink); ok {
+		validMsgs := make([]hermod.Message, 0, len(msgs))
+		for _, m := range msgs {
+			if err := vs.Validate(ctx, m); err != nil {
+				e.logger.Error("Sink pre-write validation failed for message in batch", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", m.ID(), "error", err)
+				if e.deadLetterSink != nil {
+					e.logger.Info("Sending invalid message from batch to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", m.ID())
+					m.SetMetadata("_hermod_validation_failed", "true")
+					m.SetMetadata("_hermod_last_error", err.Error())
+					_ = e.deadLetterSink.Write(ctx, m)
+				}
+				continue
+			}
+			validMsgs = append(validMsgs, m)
+		}
+		msgs = validMsgs
+	}
+
+	if len(msgs) == 0 {
+		return nil
+	}
+
 	if len(msgs) == 1 {
 		return e.writeToSink(ctx, snk, msgs[0], sinkID, i)
+	}
+
+	if e.config.DryRun {
+		e.logger.Info("[DRY-RUN] Batch would be written to sink",
+			"workflow_id", e.workflowID,
+			"sink_id", sinkID,
+			"action", "write_batch",
+			"batch_size", len(msgs),
+		)
+		return nil
 	}
 
 	// Retry mechanism for Sink WriteBatch
 	var lastErr error
 
 	maxRetries := e.config.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 1
+	}
 	retryInterval := e.config.RetryInterval
 
 	if i >= 0 && i < len(e.sinkConfigs) {
@@ -519,8 +718,122 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 	return nil
 }
 
+func (sw *sinkWriter) checkCircuitBreaker() error {
+	sw.cbMu.Lock()
+	defer sw.cbMu.Unlock()
+
+	if sw.cbStatus == "" {
+		sw.cbStatus = "closed"
+	}
+
+	if sw.cbStatus == "open" {
+		if time.Now().After(sw.cbOpenUntil) {
+			sw.cbStatus = "half-open"
+			if sw.engine != nil && sw.engine.logger != nil {
+				sw.engine.logger.Info("Circuit breaker half-open", "workflow_id", sw.engine.workflowID, "sink_id", sw.sinkID)
+			}
+			return nil
+		}
+		return fmt.Errorf("circuit breaker is open for sink %s", sw.sinkID)
+	}
+
+	return nil
+}
+
+func (sw *sinkWriter) recordSuccess() {
+	sw.cbMu.Lock()
+	defer sw.cbMu.Unlock()
+
+	if sw.cbStatus == "half-open" {
+		sw.cbStatus = "closed"
+		sw.cbFailCount = 0
+		if sw.engine != nil && sw.engine.logger != nil {
+			sw.engine.logger.Info("Circuit breaker closed after success", "workflow_id", sw.engine.workflowID, "sink_id", sw.sinkID)
+		}
+	} else {
+		sw.cbFailCount = 0
+	}
+}
+
+func (sw *sinkWriter) recordFailure() {
+	sw.cbMu.Lock()
+	defer sw.cbMu.Unlock()
+
+	threshold := sw.config.CircuitBreakerThreshold
+	if threshold <= 0 {
+		threshold = 5 // Default threshold
+	}
+
+	interval := sw.config.CircuitBreakerInterval
+	if interval <= 0 {
+		interval = 1 * time.Minute
+	}
+
+	coolDown := sw.config.CircuitBreakerCoolDown
+	if coolDown <= 0 {
+		coolDown = 30 * time.Second
+	}
+
+	now := time.Now()
+	if now.Sub(sw.cbLastFailure) > interval && sw.cbStatus == "closed" {
+		sw.cbFailCount = 1
+	} else {
+		sw.cbFailCount++
+	}
+
+	sw.cbLastFailure = now
+
+	if sw.cbFailCount >= threshold || sw.cbStatus == "half-open" {
+		sw.cbStatus = "open"
+		sw.cbOpenUntil = now.Add(coolDown)
+		if sw.engine != nil {
+			sw.engine.setSinkStatus(sw.sinkID, "error:circuit_breaker_open")
+			if sw.engine.logger != nil {
+				sw.engine.logger.Error("Circuit breaker opened", "workflow_id", sw.engine.workflowID, "sink_id", sw.sinkID, "fail_count", sw.cbFailCount, "open_until", sw.cbOpenUntil)
+			}
+		}
+	}
+}
+
 func (w *sinkWriter) run(ctx context.Context) {
-	batchSize := w.config.BatchSize
+	if w.config.BackpressureStrategy == BPSpillToDisk {
+		path := w.config.SpillPath
+		if path == "" {
+			path = ".hermod-spill-" + w.sinkID
+		}
+		maxSize := w.config.SpillMaxSize
+		if maxSize <= 0 {
+			maxSize = 100 * 1024 * 1024 // 100MB default
+		}
+		var err error
+		w.spillBuffer, err = buffer.NewFileBuffer(path, maxSize)
+		if err != nil {
+			if w.engine != nil && w.engine.logger != nil {
+				w.engine.logger.Error("Failed to initialize spill buffer", "sink_id", w.sinkID, "path", path, "error", err)
+			}
+		} else {
+			// Start a consumer for the spill buffer
+			go func() {
+				if consumer, ok := w.spillBuffer.(hermod.Consumer); ok {
+					_ = consumer.Consume(ctx, func(ctx context.Context, msg hermod.Message) error {
+						// Try to put back into the main channel
+						// Since we are spilling, we want to prioritize messages in sw.ch
+						// but also drain the spill buffer when there is room.
+						pm := acquirePendingMessage(msg)
+						select {
+						case w.ch <- pm:
+							// Successfully re-enqueued
+							return nil
+						case <-ctx.Done():
+							releasePendingMessage(pm)
+							return ctx.Err()
+						}
+					})
+				}
+			}()
+		}
+	}
+	batchSize := w.currentBatchSize
 	if batchSize < 1 {
 		batchSize = 1
 	}
@@ -539,6 +852,15 @@ func (w *sinkWriter) run(ctx context.Context) {
 			return
 		}
 
+		start := time.Now()
+		if err := w.checkCircuitBreaker(); err != nil {
+			for _, pm := range batch {
+				pm.done <- err
+			}
+			batch = batch[:0]
+			return
+		}
+
 		msgs := make([]hermod.Message, len(batch))
 		for i, pm := range batch {
 			msgs[i] = pm.msg
@@ -551,7 +873,36 @@ func (w *sinkWriter) run(ctx context.Context) {
 			for _, m := range msgs {
 				if e := w.engine.writeToSink(ctx, w.sink, m, w.sinkID, w.index); e != nil {
 					err = e
+					break // Stop processing this batch if one message fails after retries
 				}
+			}
+		}
+
+		if err != nil {
+			w.recordFailure()
+		} else {
+			w.recordSuccess()
+		}
+
+		// Adaptive Batching logic
+		if w.config.AdaptiveBatching {
+			duration := time.Since(start)
+			if err == nil {
+				// If we are fast and have more messages waiting, increase batch size
+				if duration < batchTimeout/2 && len(w.ch) > w.currentBatchSize/2 {
+					w.currentBatchSize = int(float64(w.currentBatchSize) * 1.1)
+					if w.currentBatchSize > 5000 {
+						w.currentBatchSize = 5000
+					}
+					batchSize = w.currentBatchSize
+				}
+			} else {
+				// If we had error or were slow, decrease batch size
+				w.currentBatchSize = int(float64(w.currentBatchSize) * 0.7)
+				if w.currentBatchSize < 1 {
+					w.currentBatchSize = 1
+				}
+				batchSize = w.currentBatchSize
 			}
 		}
 
@@ -583,6 +934,14 @@ func (w *sinkWriter) run(ctx context.Context) {
 
 // Start begins the data transfer process.
 func (e *Engine) Start(ctx context.Context) error {
+	// Initialize Priority Source if enabled
+	if e.config.PrioritizeDLQ && e.deadLetterSink != nil {
+		if dlqSource, ok := e.deadLetterSink.(hermod.Source); ok {
+			e.logger.Info("DLQ Priority enabled: wrapping source with PriorityMultiplexer", "workflow_id", e.workflowID)
+			e.source = NewPrioritySource(dlqSource, e.source, e.logger)
+		}
+	}
+
 	// Initialize Sink Writers
 	e.sinkWriters = make([]*sinkWriter, len(e.sinks))
 	for i, snk := range e.sinks {
@@ -596,13 +955,19 @@ func (e *Engine) Start(ctx context.Context) error {
 			cfg = e.sinkConfigs[i]
 		}
 
+		bufferCap := cfg.BackpressureBuffer
+		if bufferCap <= 0 {
+			bufferCap = 1000
+		}
+
 		sw := &sinkWriter{
-			engine: e,
-			sink:   snk,
-			sinkID: sinkID,
-			index:  i,
-			config: cfg,
-			ch:     make(chan *pendingMessage, 1000),
+			engine:           e,
+			sink:             snk,
+			sinkID:           sinkID,
+			index:            i,
+			config:           cfg,
+			ch:               make(chan *pendingMessage, bufferCap),
+			currentBatchSize: cfg.BatchSize,
 		}
 		e.sinkWriters[i] = sw
 		go sw.run(ctx)
@@ -637,6 +1002,7 @@ func (e *Engine) Start(ctx context.Context) error {
 				}
 
 				if err != nil {
+					e.logger.Error("Background source health check failed", "workflow_id", e.workflowID, "error", err.Error())
 					e.statusMu.RLock()
 					recentActivity := !e.lastMsgTime.IsZero() && time.Since(e.lastMsgTime) < interval*2
 					e.statusMu.RUnlock()
@@ -667,6 +1033,7 @@ func (e *Engine) Start(ctx context.Context) error {
 					}
 
 					if err := snk.Ping(ctx); err != nil {
+						e.logger.Error("Background sink health check failed", "workflow_id", e.workflowID, "sink_id", sinkID, "error", err.Error())
 						e.setSinkStatus(sinkID, "reconnecting")
 						if allSinksOk {
 							e.setStatus("reconnecting:sink:" + sinkID)
@@ -687,6 +1054,22 @@ func (e *Engine) Start(ctx context.Context) error {
 		}
 	}()
 
+	// Periodic Checkpointing
+	if e.config.CheckpointInterval > 0 {
+		go func() {
+			ticker := time.NewTicker(e.config.CheckpointInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					_ = e.Checkpoint(ctx)
+				}
+			}
+		}()
+	}
+
 	// Pre-flight checks for Sinks (Sink failure turns off workflow)
 	for i, snk := range e.sinks {
 		sinkID := ""
@@ -705,8 +1088,10 @@ func (e *Engine) Start(ctx context.Context) error {
 		}
 
 		success := false
+		var lastErr error
 		for attempt := 1; attempt <= 3; attempt++ {
 			if err := snk.Ping(ctx); err != nil {
+				lastErr = err
 				e.setSinkStatus(sinkID, "reconnecting")
 				e.logger.Warn("Sink ping failed during startup", "workflow_id", e.workflowID, "sink_id", sinkID, "attempt", attempt, "error", err)
 				if attempt < 3 {
@@ -724,6 +1109,7 @@ func (e *Engine) Start(ctx context.Context) error {
 		}
 
 		if !success {
+			e.logger.Error("Sink pre-flight checks failed after 3 attempts", "workflow_id", e.workflowID, "sink_id", sinkID, "error", lastErr)
 			return fmt.Errorf("sink pre-flight checks failed after 3 attempts")
 		}
 	}
@@ -770,6 +1156,9 @@ func (e *Engine) Start(ctx context.Context) error {
 					} else {
 						interval = e.config.ReconnectInterval
 					}
+					// Add jitter (±20%) to avoid stampedes when many workers reconnect
+					jitter := 0.8 + rand.Float64()*0.4
+					interval = time.Duration(float64(interval) * jitter)
 
 					select {
 					case <-ctx.Done():
@@ -799,8 +1188,26 @@ func (e *Engine) Start(ctx context.Context) error {
 				e.logger.Info("Source-to-Buffer worker stopping due to context cancellation", "workflow_id", e.workflowID)
 				return
 			default:
+				e.checkpointMu.Lock()
+				// Wait if we are in checkpointing process
+				for e.inCheckpoint {
+					e.checkpointMu.Unlock()
+					time.Sleep(10 * time.Millisecond)
+					e.checkpointMu.Lock()
+				}
+				e.checkpointMu.Unlock()
+
+				ctx, span := tracer.Start(ctx, "SourceRead", trace.WithAttributes(
+					attribute.String("workflow_id", e.workflowID),
+					attribute.String("source_id", e.sourceID),
+				))
+
 				msg, err := e.source.Read(ctx)
 				if err != nil {
+					span.RecordError(err)
+					span.SetStatus(codes.Error, err.Error())
+					span.End()
+
 					if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 						e.logger.Error("Source read error, attempting to reconnect", "workflow_id", e.workflowID, "error", err)
 						e.setSourceStatus("reconnecting")
@@ -811,11 +1218,43 @@ func (e *Engine) Start(ctx context.Context) error {
 					return
 				}
 
-				e.recordSourceActivity()
-
 				if msg == nil {
+					span.End()
 					continue
 				}
+
+				// Schema Validation
+				if e.validator != nil {
+					if err := e.validator.Validate(ctx, msg.Data()); err != nil {
+						e.logger.Error("Schema validation failed", "workflow_id", e.workflowID, "error", err, "message_id", msg.ID())
+						MessageErrors.WithLabelValues(e.workflowID, e.sourceID, "schema_validation").Inc()
+
+						// Move to DLQ if enabled
+						if e.deadLetterSink != nil {
+							e.logger.Info("Moving failed schema validation message to DLQ", "workflow_id", e.workflowID, "message_id", msg.ID())
+							if err := e.deadLetterSink.Write(ctx, msg); err != nil {
+								e.logger.Error("Failed to write to DLQ", "workflow_id", e.workflowID, "error", err)
+							}
+						}
+
+						// Release message as we won't process it further
+						if dm, ok := msg.(*message.DefaultMessage); ok {
+							message.ReleaseMessage(dm)
+						}
+						span.End()
+						continue
+					}
+				}
+
+				span.SetAttributes(
+					attribute.String("message_id", msg.ID()),
+					attribute.Int("payload_len", len(msg.Payload())),
+				)
+
+				e.recordSourceActivity()
+
+				// Redact data for logging
+				redactedData := e.redactData(msg.Data())
 
 				e.logger.Info("Message received from source",
 					"workflow_id", e.workflowID,
@@ -823,15 +1262,21 @@ func (e *Engine) Start(ctx context.Context) error {
 					"action", "read",
 					"message_id", msg.ID(),
 					"payload_len", len(msg.Payload()),
+					"data", redactedData,
 				)
 
 				if err := e.buffer.Produce(ctx, msg); err != nil {
+					span.RecordError(err)
+					span.SetStatus(codes.Error, err.Error())
+					span.End()
+
 					if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 						e.logger.Error("Buffer produce error", "workflow_id", e.workflowID, "error", err)
 						errCh <- fmt.Errorf("buffer produce error: %w", err)
 					}
 					return
 				}
+				span.End()
 			}
 		}
 	}()
@@ -859,22 +1304,33 @@ func (e *Engine) Start(ctx context.Context) error {
 			return
 		}
 
-		// Semaphore to limit in-flight messages (backpressure)
-		inFlightSem := make(chan struct{}, 1000)
-		var inFlightWg sync.WaitGroup
-
 		// Use a separate context for draining to ensure we don't get stuck if sink is slow,
 		// but also allow it to finish even if main context is cancelled.
 		drainCtx := context.Background()
 
 		err := consumer.Consume(drainCtx, func(drainCtx context.Context, msg hermod.Message) error {
-			inFlightSem <- struct{}{}
-			inFlightWg.Add(1)
+			e.checkpointMu.Lock()
+			// Wait if we are in checkpointing process
+			for e.inCheckpoint {
+				e.checkpointMu.Unlock()
+				time.Sleep(10 * time.Millisecond)
+				e.checkpointMu.Lock()
+			}
+			e.checkpointMu.Unlock()
+
+			e.inFlightSem <- struct{}{}
+			e.inFlightWg.Add(1)
 
 			go func(m hermod.Message) {
+				ctx, span := tracer.Start(drainCtx, "ProcessMessage", trace.WithAttributes(
+					attribute.String("workflow_id", e.workflowID),
+					attribute.String("message_id", m.ID()),
+				))
+				defer span.End()
+
 				defer func() {
-					<-inFlightSem
-					inFlightWg.Done()
+					<-e.inFlightSem
+					e.inFlightWg.Done()
 					// Release the message back to the pool
 					if dm, ok := m.(*message.DefaultMessage); ok {
 						message.ReleaseMessage(dm)
@@ -890,11 +1346,23 @@ func (e *Engine) Start(ctx context.Context) error {
 					ProcessingLatency.WithLabelValues(e.workflowID).Observe(time.Since(start).Seconds())
 				}()
 
+				// Ensure message has an idempotency key/ID set before routing to sinks
+				if key, _ := EnsureIdempotencyID(m); key == "" {
+					IdempotencyMissingTotal.WithLabelValues(e.workflowID).Inc()
+					if IdempotencyRequired() {
+						e.logger.Warn("Missing idempotency key", "workflow_id", e.workflowID, "message_id", m.ID())
+					}
+				} else {
+					IdempotencyKeysTotal.WithLabelValues(e.workflowID).Inc()
+				}
+
 				var routed []RoutedMessage
 				if e.router != nil {
 					var err error
-					routed, err = e.router(drainCtx, m)
+					routed, err = e.router(ctx, m)
 					if err != nil {
+						span.RecordError(err)
+						span.SetStatus(codes.Error, err.Error())
 						e.logger.Error("Router error", "workflow_id", e.workflowID, "error", err)
 						MessageErrors.WithLabelValues(e.workflowID, e.sourceID, "router").Inc()
 						return
@@ -923,20 +1391,104 @@ func (e *Engine) Start(ctx context.Context) error {
 							sw := e.sinkWriters[i]
 							pm := acquirePendingMessage(m)
 
-							select {
-							case sw.ch <- pm:
+							strategy := sw.config.BackpressureStrategy
+							if strategy == "" {
+								strategy = BPBlock
+							}
+
+							switch strategy {
+							case BPDropOldest:
 								select {
-								case err := <-pm.done:
-									if err != nil {
-										serrCh <- err
+								case sw.ch <- pm:
+									// Successfully queued
+								default:
+									// Channel is full, drop oldest
+									select {
+									case oldPm := <-sw.ch:
+										if oldPm != nil {
+											oldPm.done <- errors.New("dropped due to backpressure (drop_oldest)")
+											releasePendingMessage(oldPm)
+										}
+										BackpressureDropTotal.WithLabelValues(e.workflowID, sw.sinkID, string(BPDropOldest)).Inc()
+									default:
+										// Should not happen as we just failed to send, but in case of race:
 									}
-									releasePendingMessage(pm)
-								case <-ctx.Done():
-									serrCh <- ctx.Err()
+									// Try sending again
+									select {
+									case sw.ch <- pm:
+									default:
+										// Still full? just drop this one then to avoid blocking
+										pm.done <- errors.New("dropped due to backpressure (drop_oldest - overflow)")
+										BackpressureDropTotal.WithLabelValues(e.workflowID, sw.sinkID, string(BPDropOldest)).Inc()
+									}
 								}
-							case <-ctx.Done():
+							case BPDropNewest:
+								select {
+								case sw.ch <- pm:
+								default:
+									pm.done <- errors.New("dropped due to backpressure (drop_newest)")
+									BackpressureDropTotal.WithLabelValues(e.workflowID, sw.sinkID, string(BPDropNewest)).Inc()
+								}
+							case BPSampling:
+								rate := sw.config.SamplingRate
+								if rate <= 0 {
+									rate = 0.5 // Default 50%
+								}
+								if rand.Float64() > rate {
+									pm.done <- errors.New("dropped due to sampling")
+									BackpressureDropTotal.WithLabelValues(e.workflowID, sw.sinkID, string(BPSampling)).Inc()
+								} else {
+									// Try to send, block if full
+									select {
+									case sw.ch <- pm:
+									case <-ctx.Done():
+										pm.done <- ctx.Err()
+										return
+									}
+								}
+							case BPSpillToDisk:
+								select {
+								case sw.ch <- pm:
+									// Successfully queued in memory
+								default:
+									// Channel full, spill to disk
+									if sw.spillBuffer != nil {
+										if err := sw.spillBuffer.Produce(ctx, m); err != nil {
+											pm.done <- fmt.Errorf("spill to disk failed: %w", err)
+										} else {
+											pm.done <- nil // Consider it successfully "handled" by spilling
+											BackpressureSpillTotal.WithLabelValues(e.workflowID, sw.sinkID).Inc()
+										}
+									} else {
+										// Fallback to block if spill buffer not available
+										select {
+										case sw.ch <- pm:
+										case <-ctx.Done():
+											pm.done <- ctx.Err()
+											return
+										}
+									}
+								}
+							case BPBlock:
+								fallthrough
+							default:
+								select {
+								case sw.ch <- pm:
+								case <-ctx.Done():
+									pm.done <- ctx.Err()
+									return
+								}
+							}
+
+							select {
+							case err := <-pm.done:
+								if err != nil {
+									serrCh <- err
+								}
 								releasePendingMessage(pm)
+							case <-ctx.Done():
 								serrCh <- ctx.Err()
+								// We don't release pm here because it might still be in sw.ch and will be released by sw.run or after being pulled in BPDropOldest
 							}
 						}(rm.SinkIndex, rm.Message)
 					}
@@ -944,6 +1496,8 @@ func (e *Engine) Start(ctx context.Context) error {
 					close(serrCh)
 					for err := range serrCh {
 						if err != nil {
+							span.RecordError(err)
+							span.SetStatus(codes.Error, err.Error())
 							MessageErrors.WithLabelValues(e.workflowID, e.sourceID, "sink").Inc()
 							e.logger.Error("Sink write error", "workflow_id", e.workflowID, "error", err)
 							return
@@ -952,11 +1506,15 @@ func (e *Engine) Start(ctx context.Context) error {
 				}
 
 				// Acknowledge the message to the source after all successful sink writes
-				if err := e.source.Ack(drainCtx, m); err != nil {
+				if err := e.source.Ack(ctx, m); err != nil {
+					span.RecordError(err)
+					span.SetStatus(codes.Error, err.Error())
 					e.logger.Error("Source acknowledgement failed", "workflow_id", e.workflowID, "error", err)
 					MessageErrors.WithLabelValues(e.workflowID, e.sourceID, "ack").Inc()
 					return
 				}
+
+				span.SetStatus(codes.Ok, "Processed")
 
 				MessagesProcessed.WithLabelValues(e.workflowID, e.sourceID).Inc()
 
@@ -967,7 +1525,7 @@ func (e *Engine) Start(ctx context.Context) error {
 
 			return nil
 		})
-		inFlightWg.Wait()
+		e.inFlightWg.Wait()
 
 		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			e.logger.Error("Buffer-to-Sink worker error", "workflow_id", e.workflowID, "error", err)
@@ -999,4 +1557,73 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	e.logger.Info("Hermod Engine stopped gracefully", "workflow_id", e.workflowID)
 	return nil
+}
+
+// Checkpoint performs a periodic state snapshot.
+func (e *Engine) Checkpoint(ctx context.Context) error {
+	if e.checkpointHandler == nil {
+		return nil
+	}
+
+	e.checkpointMu.Lock()
+	if e.inCheckpoint {
+		e.checkpointMu.Unlock()
+		return nil
+	}
+	e.inCheckpoint = true
+	e.checkpointMu.Unlock()
+
+	defer func() {
+		e.checkpointMu.Lock()
+		e.inCheckpoint = false
+		e.checkpointMu.Unlock()
+	}()
+
+	e.logger.Info("Starting checkpoint", "workflow_id", e.workflowID)
+
+	// Wait for all in-flight messages to be processed and acknowledged by sinks
+	e.inFlightWg.Wait()
+
+	// Collect source state if stateful
+	var sourceState map[string]string
+	if stateful, ok := e.source.(hermod.Stateful); ok {
+		sourceState = stateful.GetState()
+	}
+
+	// Call the checkpoint handler (e.g. to save node states in Registry)
+	if err := e.checkpointHandler(ctx, sourceState); err != nil {
+		e.logger.Error("Checkpoint failed", "workflow_id", e.workflowID, "error", err)
+		return err
+	}
+
+	e.logger.Info("Checkpoint completed successfully", "workflow_id", e.workflowID)
+	return nil
+}
+
+// HardStop attempts to forcefully and quickly stop the engine by closing
+// the source, sinks, and buffer. This is used as a last resort when the
+// context cancellation path does not lead to timely shutdown.
+func (e *Engine) HardStop() {
+	e.stopMu.Lock()
+	if e.stopped {
+		e.stopMu.Unlock()
+		return
+	}
+	e.stopped = true
+	e.stopMu.Unlock()
+
+	// Close buffer first to unblock consumers/producers
+	if closer, ok := e.buffer.(interface{ Close() error }); ok {
+		_ = closer.Close()
+	}
+	// Close source to unblock any blocking Read
+	if e.source != nil {
+		_ = e.source.Close()
+	}
+	// Close sinks to unblock any pending writes
+	for _, snk := range e.sinks {
+		if snk != nil {
+			_ = snk.Close()
+		}
+	}
 }

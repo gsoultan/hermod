@@ -1,68 +1,27 @@
 import { useState } from 'react';
 import { 
   Container, Title, Button, Group, Table, ActionIcon, Text, Badge, Paper, 
-  Stack, TextInput, Pagination, Tooltip, Modal, JsonInput, SimpleGrid, ThemeIcon,
-  Card
+  Stack, TextInput, Pagination, Tooltip, Modal, JsonInput
 } from '@mantine/core';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   IconPlus, IconTrash, IconEdit, IconSearch, IconGitBranch, IconPlayerPlay, 
-  IconPlayerStop, IconCopy, IconDownload, IconActivity, IconHierarchy, IconSend
+  IconPlayerStop, IconCopy, IconDownload, IconActivity, IconHierarchy
 } from '@tabler/icons-react';
+import { lazy, Suspense } from 'react'
 import { Link } from '@tanstack/react-router';
 import { apiFetch } from '../api';
 import { notifications } from '@mantine/notifications';
 import { useDisclosure } from '@mantine/hooks';
+import { useVHost } from '../context/VHostContext';
 
 const API_BASE = '/api';
 
-const TEMPLATES = [
-  {
-    name: 'World Case: GDPR Masking & High-Value Routing',
-    description: 'Protect PII and route high-value orders. Monitors PostgreSQL CDC, masks emails, maps status codes, and routes based on amount.',
-    icon: IconGitBranch,
-    color: 'blue',
-    data: {
-      "name": "World Case: GDPR Masking & High-Value Routing",
-      "nodes": [
-        { "id": "node_postgres", "type": "source", "config": { "label": "PostgreSQL CDC (Orders)", "type": "postgres", "ref_id": "new" }, "x": 100, "y": 250 },
-        { "id": "node_transform", "type": "transformation", "config": { "label": "GDPR & Format", "transType": "pipeline", "steps": "[{\"transType\": \"mask\", \"field\": \"customer_email\", \"maskType\": \"email\"}, {\"transType\": \"mapping\", \"field\": \"status_id\", \"mapping\": \"{\\\"1\\\": \\\"PENDING\\\", \\\"2\\\": \\\"PAID\\\", \\\"3\\\": \\\"CANCELLED\\\"}\"}, {\"transType\": \"set\", \"column.processed_by\": \"Hermod-Worker-01\"}]" }, "x": 400, "y": 250 },
-        { "id": "node_condition", "type": "condition", "config": { "label": "High Value? (> 1000)", "field": "total_amount", "operator": ">", "value": "1000" }, "x": 700, "y": 250 },
-        { "id": "node_set_priority", "type": "transformation", "config": { "label": "Mark Priority", "transType": "set", "column.priority": "true" }, "x": 950, "y": 150 },
-        { "id": "node_telegram", "type": "sink", "config": { "label": "Telegram Alert", "type": "telegram", "ref_id": "new" }, "x": 1200, "y": 100 },
-        { "id": "node_kafka", "type": "sink", "config": { "label": "Kafka High Priority", "type": "kafka", "ref_id": "new" }, "x": 1200, "y": 200 },
-        { "id": "node_mongodb", "type": "sink", "config": { "label": "MongoDB Archive", "type": "mongodb", "ref_id": "new" }, "x": 1200, "y": 400 }
-      ],
-      "edges": [
-        { "id": "edge_1", "source_id": "node_postgres", "target_id": "node_transform" },
-        { "id": "edge_2", "source_id": "node_transform", "target_id": "node_condition" },
-        { "id": "edge_3", "source_id": "node_condition", "target_id": "node_set_priority", "config": { "label": "true" } },
-        { "id": "edge_4", "source_id": "node_set_priority", "target_id": "node_telegram" },
-        { "id": "edge_5", "source_id": "node_set_priority", "target_id": "node_kafka" },
-        { "id": "edge_6", "source_id": "node_condition", "target_id": "node_mongodb", "config": { "label": "false" } }
-      ]
-    }
-  },
-  {
-    "name": "HTTP Webhook to Slack",
-    "description": "Receive data via HTTP Webhook and forward it to Slack/Discord.",
-    "icon": IconSend,
-    "color": "green",
-    "data": {
-      "name": "Webhook to Slack",
-      "nodes": [
-        { "id": "n1", "type": "source", "config": { "label": "Incoming Webhook", "type": "webhook", "ref_id": "new" }, "x": 100, "y": 100 },
-        { "id": "n2", "type": "sink", "config": { "label": "Slack Webhook", "type": "http", "ref_id": "new" }, "x": 400, "y": 100 }
-      ],
-      "edges": [
-        { "id": "e1", "source_id": "n1", "target_id": "n2" }
-      ]
-    }
-  }
-];
+const TemplatesModal = lazy(() => import('./WorkflowsPage_TemplatesModal'))
 
 export default function WorkflowsPage() {
   const queryClient = useQueryClient();
+  const { selectedVHost, availableVHosts } = useVHost();
   const [search, setSearch] = useState('');
   const [activePage, setPage] = useState(1);
   const itemsPerPage = 30;
@@ -71,9 +30,9 @@ export default function WorkflowsPage() {
   const [importJson, setImportJson] = useState('');
 
   const { data: workflowsResponse, isLoading } = useQuery<any>({
-    queryKey: ['workflows', activePage, search],
+    queryKey: ['workflows', activePage, search, selectedVHost],
     queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/workflows?page=${activePage}&limit=${itemsPerPage}&search=${search}`);
+      const res = await apiFetch(`${API_BASE}/workflows?page=${activePage}&limit=${itemsPerPage}&search=${search}&vhost=${selectedVHost}`);
       return res.json();
     }
   });
@@ -121,6 +80,9 @@ export default function WorkflowsPage() {
   const importMutation = useMutation({
     mutationFn: async (json: string) => {
       const data = JSON.parse(json);
+      if (!data.vhost && selectedVHost) {
+        data.vhost = selectedVHost === 'all' ? (availableVHosts[0] || 'default') : selectedVHost;
+      }
       await apiFetch(`${API_BASE}/workflows`, {
         method: 'POST',
         body: JSON.stringify(data)
@@ -172,35 +134,14 @@ export default function WorkflowsPage() {
         </Group>
 
         <Modal opened={templatesOpened} onClose={closeTemplates} title="Workflow Sample Library" size="xl">
-          <Stack>
-            <Text size="sm" c="dimmed">Choose a pre-built template to jumpstart your workflow development.</Text>
-            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
-              {TEMPLATES.map((template, index) => (
-                <Card key={index} withBorder shadow="sm" radius="md" padding="lg">
-                  <Stack gap="sm">
-                    <Group justify="space-between">
-                      <ThemeIcon size="lg" radius="md" variant="light" color={template.color}>
-                        <template.icon size="1.2rem" />
-                      </ThemeIcon>
-                      <Button 
-                        size="xs" 
-                        variant="light" 
-                        color={template.color}
-                        onClick={() => {
-                          importMutation.mutate(JSON.stringify(template.data));
-                          closeTemplates();
-                        }}
-                      >
-                        Use Template
-                      </Button>
-                    </Group>
-                    <Text fw={700}>{template.name}</Text>
-                    <Text size="xs" c="dimmed" style={{ minHeight: 40 }}>{template.description}</Text>
-                  </Stack>
-                </Card>
-              ))}
-            </SimpleGrid>
-          </Stack>
+          <Suspense fallback={<Text size="sm">Loading templates…</Text>}>
+            <TemplatesModal 
+              onUseTemplate={(data) => {
+                importMutation.mutate(JSON.stringify(data))
+                closeTemplates()
+              }}
+            />
+          </Suspense>
         </Modal>
 
         <Modal opened={importOpened} onClose={closeImport} title="Import Workflow from JSON" size="lg">
@@ -254,7 +195,7 @@ export default function WorkflowsPage() {
                   <Table.Tr><Table.Td colSpan={7}><Text ta="center" py="xl" c="dimmed">Loading workflows...</Text></Table.Td></Table.Tr>
                 ) : workflows?.length === 0 ? (
                   <Table.Tr><Table.Td colSpan={7}><Text ta="center" py="xl" c="dimmed">{search ? 'No workflows match your search' : 'No workflows found'}</Text></Table.Td></Table.Tr>
-                ) : workflows?.map((wf: any) => (
+                ) : (Array.isArray(workflows) ? workflows : []).map((wf: any) => (
                   <Table.Tr key={wf.id}>
                     <Table.Td>
                       <Link to="/workflows/$id" params={{ id: wf.id } as any} style={{ textDecoration: 'none', color: 'inherit' }}>
@@ -285,6 +226,7 @@ export default function WorkflowsPage() {
                       <Group gap={4} justify="flex-end">
                         <Tooltip label={wf.active ? 'Stop' : 'Start'}>
                           <ActionIcon 
+                            aria-label={wf.active ? 'Stop workflow' : 'Start workflow'}
                             variant="subtle" 
                             color={wf.active ? 'orange' : 'green'}
                             onClick={() => toggleMutation.mutate({ id: wf.id, active: wf.active })}
@@ -293,17 +235,18 @@ export default function WorkflowsPage() {
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="View Details & Logs">
-                          <ActionIcon component={Link} to="/workflows/$id" params={{ id: wf.id } as any} variant="subtle" color="blue">
+                          <ActionIcon aria-label="View details and logs" component={Link} to="/workflows/$id" params={{ id: wf.id } as any} variant="subtle" color="blue">
                             <IconActivity size="1rem" />
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Edit Graph">
-                          <ActionIcon component={Link} to="/workflows/$id/edit" params={{ id: wf.id } as any} variant="subtle" color="blue">
+                          <ActionIcon aria-label="Edit workflow graph" component={Link} to="/workflows/$id/edit" params={{ id: wf.id } as any} variant="subtle" color="blue">
                             <IconEdit size="1rem" />
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Clone">
                           <ActionIcon 
+                            aria-label="Clone workflow"
                             variant="subtle" 
                             color="gray" 
                             onClick={() => cloneMutation.mutate(wf)}
@@ -314,6 +257,7 @@ export default function WorkflowsPage() {
                         </Tooltip>
                         <Tooltip label="Delete">
                           <ActionIcon 
+                            aria-label="Delete workflow"
                             variant="subtle" 
                             color="red" 
                             onClick={() => {

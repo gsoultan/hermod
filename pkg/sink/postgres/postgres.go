@@ -9,17 +9,54 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/sqlutil"
+	"log"
+	"sync"
 )
 
 // PostgresSink implements the hermod.Sink interface for PostgreSQL.
 type PostgresSink struct {
 	connString string
 	pool       *pgxpool.Pool
+	logger     hermod.Logger
+	mu         sync.Mutex
 }
 
 func NewPostgresSink(connString string) *PostgresSink {
 	return &PostgresSink{
 		connString: connString,
+	}
+}
+
+func (s *PostgresSink) SetLogger(logger hermod.Logger) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.logger = logger
+}
+
+func (s *PostgresSink) log(level, msg string, keysAndValues ...interface{}) {
+	s.mu.Lock()
+	logger := s.logger
+	s.mu.Unlock()
+
+	if logger == nil {
+		if len(keysAndValues) > 0 {
+			log.Printf("[%s] %s %v", level, msg, keysAndValues)
+		} else {
+			log.Printf("[%s] %s", level, msg)
+		}
+		return
+	}
+
+	switch level {
+	case "DEBUG":
+		logger.Debug(msg, keysAndValues...)
+	case "INFO":
+		logger.Info(msg, keysAndValues...)
+	case "WARN":
+		logger.Warn(msg, keysAndValues...)
+	case "ERROR":
+		logger.Error(msg, keysAndValues...)
 	}
 }
 
@@ -159,48 +196,63 @@ func (s *PostgresSink) DiscoverTables(ctx context.Context) ([]string, error) {
 }
 
 func (s *PostgresSink) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	msgs, err := s.Browse(ctx, table, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(msgs) == 0 {
+		return nil, fmt.Errorf("no data found in table %s", table)
+	}
+	return msgs[0], nil
+}
+
+func (s *PostgresSink) Browse(ctx context.Context, table string, limit int) ([]hermod.Message, error) {
 	if s.pool == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
 	}
 
-	query := fmt.Sprintf("SELECT * FROM %s LIMIT 1", table)
+	quoted, err := sqlutil.QuoteIdent("pgx", table)
+	if err != nil {
+		return nil, fmt.Errorf("invalid table name: %w", err)
+	}
+	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d", quoted, limit)
 	rows, err := s.pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	if !rows.Next() {
-		return nil, fmt.Errorf("no data found in table %s", table)
-	}
-
-	fields := rows.FieldDescriptions()
-	values, err := rows.Values()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get values: %w", err)
-	}
-
-	record := make(map[string]interface{})
-	for i, field := range fields {
-		val := values[i]
-		if b, ok := val.([]byte); ok {
-			record[field.Name] = string(b)
-		} else {
-			record[field.Name] = val
+	var msgs []hermod.Message
+	for rows.Next() {
+		fields := rows.FieldDescriptions()
+		values, err := rows.Values()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get values: %w", err)
 		}
+
+		record := make(map[string]interface{})
+		for i, field := range fields {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				record[field.Name] = string(b)
+			} else {
+				record[field.Name] = val
+			}
+		}
+
+		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+		msg := message.AcquireMessage()
+		msg.SetID(fmt.Sprintf("sample-%s-%d-%d", table, time.Now().Unix(), len(msgs)))
+		msg.SetOperation(hermod.OpSnapshot)
+		msg.SetTable(table)
+		msg.SetAfter(afterJSON)
+		msg.SetMetadata("source", "postgres_sink")
+		msg.SetMetadata("sample", "true")
+		msgs = append(msgs, msg)
 	}
 
-	afterJSON, _ := json.Marshal(message.SanitizeMap(record))
-
-	msg := message.AcquireMessage()
-	msg.SetID(fmt.Sprintf("sample-%s-%d", table, time.Now().Unix()))
-	msg.SetOperation(hermod.OpSnapshot)
-	msg.SetTable(table)
-	msg.SetAfter(afterJSON)
-	msg.SetMetadata("source", "postgres_sink")
-	msg.SetMetadata("sample", "true")
-
-	return msg, nil
+	return msgs, nil
 }

@@ -76,7 +76,8 @@ export const BaseNode = ({ type, color, icon: Icon, children, data }: {
     <Box
       style={{
         background: isDark ? 'var(--mantine-color-dark-6)' : 'white',
-        border: `2px solid var(--mantine-color-${color}-6)`,
+        border: `2px solid ${data.isDLQ ? 'var(--mantine-color-orange-6)' : `var(--mantine-color-${color}-6)`}`,
+        borderStyle: data.isDLQ ? 'dashed' : 'solid',
         borderRadius: '8px',
         padding: '12px',
         minWidth: '180px',
@@ -85,10 +86,28 @@ export const BaseNode = ({ type, color, icon: Icon, children, data }: {
         opacity: data.testResult && data.testResult.status === 'FILTERED' ? 0.5 : 1,
       }}
     >
+      {data.isDLQ && (
+        <Box 
+          style={{ 
+            position: 'absolute', 
+            top: -10, 
+            left: 10,
+            background: 'var(--mantine-color-orange-6)',
+            borderRadius: '4px',
+            padding: '2px 6px',
+            color: 'white',
+            fontSize: '9px',
+            fontWeight: 800,
+            zIndex: 10
+          }}
+        >
+          DEAD LETTER SINK
+        </Box>
+      )}
       <Box style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
         <Box 
           style={{ 
-            background: `var(--mantine-color-${color}-1)`, 
+            background: data.isDLQ ? 'var(--mantine-color-orange-1)' : `var(--mantine-color-${color}-1)`, 
             padding: '4px', 
             borderRadius: '4px',
             display: 'flex',
@@ -96,7 +115,7 @@ export const BaseNode = ({ type, color, icon: Icon, children, data }: {
             justifyContent: 'center'
           }}
         >
-          <Icon size="1.2rem" color={`var(--mantine-color-${color}-6)`} />
+          <Icon size="1.2rem" color={data.isDLQ ? 'var(--mantine-color-orange-6)' : `var(--mantine-color-${color}-6)`} />
         </Box>
         <Box style={{ flex: 1, overflow: 'hidden' }}>
           <Text size="xs" fw={700} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: '9px' }}>
@@ -107,6 +126,18 @@ export const BaseNode = ({ type, color, icon: Icon, children, data }: {
           </Text>
         </Box>
       </Box>
+
+      {data.metric !== undefined && data.metric > 0 && (
+        <Box style={{ position: 'absolute', bottom: -8, right: 10, background: 'var(--mantine-color-blue-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: '9px', fontWeight: 700 }}>
+          {data.metric.toLocaleString()}
+        </Box>
+      )}
+
+      {data.dlqCount !== undefined && data.dlqCount > 0 && (
+        <Box style={{ position: 'absolute', bottom: -8, left: 10, background: 'var(--mantine-color-orange-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: '9px', fontWeight: 700 }}>
+          ⚠️ {data.dlqCount.toLocaleString()} FAILED
+        </Box>
+      )}
 
       {children}
 

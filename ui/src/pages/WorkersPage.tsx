@@ -30,7 +30,7 @@ export function WorkersPage() {
     }
   })
 
-  const workers = workersResponse?.data || []
+  const workers = Array.isArray(workersResponse?.data) ? workersResponse.data : []
   const totalItems = workersResponse?.total || 0
 
   const deleteMutation = useMutation({

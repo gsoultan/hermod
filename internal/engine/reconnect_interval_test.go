@@ -64,6 +64,14 @@ func (m *mockStorageForInterval) CreateLog(ctx context.Context, log storage.Log)
 	return nil
 }
 
+func (m *mockStorageForInterval) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error {
+	return nil
+}
+
+func (m *mockStorageForInterval) GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+	return nil, nil
+}
+
 func TestSourceReconnectInterval(t *testing.T) {
 	store := &mockStorageForInterval{
 		src: storage.Source{

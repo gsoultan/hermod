@@ -29,6 +29,26 @@ func (m *mockStorage) GetSink(ctx context.Context, id string) (storage.Sink, err
 	return storage.Sink{ID: id}, nil
 }
 
+func (m *mockStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error {
+	return nil
+}
+
+func (m *mockStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+	return nil, nil
+}
+
+func (m *mockStorage) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
+	return storage.Workflow{}, nil
+}
+
+func (m *mockStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error {
+	return nil
+}
+
+func (m *mockStorage) CreateLog(ctx context.Context, log storage.Log) error {
+	return nil
+}
+
 func TestTransformationPipelineRegistry(t *testing.T) {
 	registry := NewRegistry(&mockStorage{})
 	ctx := context.Background()

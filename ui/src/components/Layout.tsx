@@ -25,13 +25,15 @@ export function Layout({ children }: LayoutProps) {
 
   useEffect(() => {
     // Initial fetch for dashboard stats
-    if (activePage !== '/login' && activePage !== '/setup') {
+    if (activePage !== '/login' && activePage !== '/setup' && activePage !== '/forgot-password') {
       apiFetch('/api/dashboard/stats')
         .then(res => res.json())
         .then(data => setDashboardStats(data))
         .catch(err => console.error('Failed to fetch initial stats in layout', err));
     }
+  }, [activePage]);
 
+  useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/api/ws/dashboard`;
     const ws = new WebSocket(wsUrl);
@@ -124,12 +126,12 @@ export function Layout({ children }: LayoutProps) {
       }
     };
 
-    if (activePage !== '/login' && activePage !== '/setup') {
+    if (activePage !== '/login' && activePage !== '/setup' && activePage !== '/forgot-password') {
       fetchVHosts();
     }
   }, [activePage, setAvailableVHosts]);
 
-  if (activePage === '/setup' || activePage === '/login') {
+  if (activePage === '/setup' || activePage === '/login' || activePage === '/forgot-password') {
     return <main>{children}</main>;
   }
 
@@ -145,7 +147,7 @@ export function Layout({ children }: LayoutProps) {
 
   const vhostOptions = [
     { value: 'all', label: 'All VHosts' },
-    ...availableVHosts.map(v => ({ value: v, label: v }))
+    ...availableVHosts.map((v: string) => ({ value: v, label: v }))
   ];
 
   return (
@@ -180,6 +182,7 @@ export function Layout({ children }: LayoutProps) {
               style={{ width: 180 }}
             />
             <ActionIcon
+              aria-label="Toggle color scheme"
               variant="subtle"
               color={dark ? 'yellow' : 'gray'}
               onClick={() => toggleColorScheme()}
@@ -246,6 +249,7 @@ export function Layout({ children }: LayoutProps) {
                 <SideLink to="/settings" label="Settings" icon={IconSettings}>
                   <SideLink to="/settings/notifications" label="Notifications" icon={IconBell} />
                 </SideLink>
+                <SideLink to="/audit-logs" label="Audit Logs" icon={IconHistory} />
                 <SideLink to="/setup" label="Run Setup" icon={IconRocket} />
               </>
             )}
@@ -288,7 +292,16 @@ export function Layout({ children }: LayoutProps) {
             minHeight: 'calc(100vh - 100px)'
           }}
         >
-          <LoadingOverlay visible={isLoading} zIndex={1000} overlayProps={{ radius: "md", blur: 2 }} />
+          <LoadingOverlay 
+            visible={isLoading} 
+            zIndex={1000} 
+            overlayProps={{ 
+              radius: "md", 
+              blur: 2,
+              // Do not block user interactions (typing/clicks) if overlay remains visible longer than expected
+              style: { pointerEvents: 'none' }
+            }} 
+          />
           {children}
         </Box>
       </AppShell.Main>

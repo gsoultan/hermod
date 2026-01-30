@@ -459,6 +459,35 @@ export const simulateTransformation = (transType: string, data: any, inputPayloa
   return result;
 };
 
+export const preparePayload = (payload: any) => {
+  if (!payload || typeof payload !== 'object' || payload === null) return payload;
+  const result = Array.isArray(payload) ? [...payload] : { ...payload };
+  
+  if (!Array.isArray(result)) {
+    ['after', 'before'].forEach(key => {
+      const val = result[key];
+      let nested = null;
+      if (typeof val === 'string' && val.trim().startsWith('{')) {
+        try {
+          nested = JSON.parse(val);
+          result[key] = nested;
+        } catch (e) {}
+      } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+        nested = val;
+      }
+
+      if (key === 'after' && nested) {
+        Object.keys(nested).forEach(nk => {
+          if (!(nk in result)) {
+            result[nk] = nested[nk];
+          }
+        });
+      }
+    });
+  }
+  return result;
+};
+
 export const deepMergeSim = (dst: any, src: any, strategy: string = 'deep') => {
   if (!src || typeof src !== 'object') return;
   if (!dst || typeof dst !== 'object') return;

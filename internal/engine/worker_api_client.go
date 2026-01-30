@@ -247,6 +247,21 @@ func (c *WorkerAPIClient) CreateLog(ctx context.Context, log storage.Log) error 
 	return nil
 }
 
+// Lease APIs (stubs for platform client for now). Platform endpoints can be
+// added later; returning false keeps behavior conservative when using the API
+// client as storage.
+func (c *WorkerAPIClient) AcquireWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error) {
+	return false, nil
+}
+
+func (c *WorkerAPIClient) RenewWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error) {
+	return false, nil
+}
+
+func (c *WorkerAPIClient) ReleaseWorkflowLease(ctx context.Context, workflowID, ownerID string) error {
+	return nil
+}
+
 func (c *WorkerAPIClient) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
 	var bodyReader *bytes.Reader
 	if body != nil {

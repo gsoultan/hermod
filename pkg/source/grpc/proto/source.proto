@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package hermod.source.grpc.v1;
+
+option go_package = "github.com/user/hermod/pkg/source/grpc/proto";
+
+service SourceService {
+  rpc Publish(PublishRequest) returns (PublishResponse);
+}
+
+message PublishRequest {
+  string path = 1;
+  string id = 2;
+  string operation = 3;
+  string table = 4;
+  string schema = 5;
+  bytes before = 6;
+  bytes after = 7;
+  bytes payload = 8;
+  map<string, string> metadata = 9;
+}
+
+message PublishResponse {
+  string id = 1;
+  string status = 2;
+}

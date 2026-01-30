@@ -17,7 +17,9 @@ export function NotificationSettingsPage() {
     telegram_chat_id: '',
     slack_webhook: '',
     discord_webhook: '',
-    webhook_url: ''
+    webhook_url: '',
+    base_url: '',
+    logs_retention_days: 30,
   })
 
   const { data, isLoading } = useQuery({
@@ -64,12 +66,54 @@ export function NotificationSettingsPage() {
     saveMutation.mutate(settings)
   }
 
+  const testMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch('/api/settings/test', { method: 'POST' })
+      if (!res.ok) throw new Error('Failed to send test notification')
+      return res.json() as Promise<{ results: { channel: string, status: string, error?: string }[] }>
+    },
+    onSuccess: (data) => {
+      const ok = data.results.filter(r => r.status === 'ok').map(r => r.channel)
+      const errs = data.results.filter(r => r.status === 'error')
+      const skipped = data.results.filter(r => r.status === 'skipped').map(r => r.channel)
+      const lines: string[] = []
+      if (ok.length) lines.push(`✅ Sent: ${ok.join(', ')}`)
+      if (skipped.length) lines.push(`⏭️ Skipped: ${skipped.join(', ')}`)
+      if (errs.length) lines.push(`❌ Failed: ${errs.map(e => `${e.channel}${e.error ? ` (${e.error})` : ''}`).join(', ')}`)
+      notifications.show({ title: 'Test Notification', message: lines.join('\n') || 'Done', color: errs.length ? 'red' : 'green' })
+    },
+    onError: (err) => {
+      notifications.show({ title: 'Test Failed', message: err instanceof Error ? err.message : 'Unknown error', color: 'red' })
+    }
+  })
+
   if (isLoading) return <Text>Loading...</Text>
 
   return (
     <Stack>
       <Title order={2}>Notification Settings</Title>
       
+      <Paper withBorder p="md" radius="md">
+        <Title order={4} mb="md">General Settings</Title>
+        <Stack gap="md">
+          <TextInput
+            label="Base URL"
+            placeholder="http://hermod.example.com"
+            value={settings.base_url}
+            onChange={(e) => setSettings({ ...settings, base_url: e.target.value })}
+          />
+          <Text size="xs" c="dimmed">The base URL of the Hermod UI, used for generating links in notifications.</Text>
+          <NumberInput
+            label="Log retention (days)"
+            placeholder="30"
+            min={0}
+            value={settings.logs_retention_days}
+            onChange={(val) => setSettings({ ...settings, logs_retention_days: Number(val) })}
+          />
+          <Text size="xs" c="dimmed">0 means keep logs forever. Applies globally; workflows may override.</Text>
+        </Stack>
+      </Paper>
+
       <Paper withBorder p="md" radius="md">
         <Title order={4} mb="md">SMTP Configuration</Title>
         <Stack gap="md">
@@ -183,7 +227,10 @@ export function NotificationSettingsPage() {
         </Stack>
       </Paper>
 
-      <Group justify="flex-end">
+      <Group justify="space-between">
+        <Button variant="outline" onClick={() => testMutation.mutate()} loading={testMutation.isPending}>
+          Send Test Notification
+        </Button>
         <Button onClick={handleSave} loading={saveMutation.isPending}>
           Save Settings
         </Button>

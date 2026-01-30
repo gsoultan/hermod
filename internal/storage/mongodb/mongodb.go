@@ -69,7 +69,7 @@ func NewMongoStorage(client *mongo.Client, dbName string) storage.Storage {
 
 func (s *mongoStorage) Init(ctx context.Context) error {
 	// Create indexes
-	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings"}
+	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests"}
 
 	for _, collName := range collections {
 		coll := s.db.Collection(collName)
@@ -100,6 +100,22 @@ func (s *mongoStorage) Init(ctx context.Context) error {
 				mongo.IndexModel{Keys: bson.D{{Key: "sink_id", Value: 1}}},
 				mongo.IndexModel{Keys: bson.D{{Key: "workflow_id", Value: 1}}},
 			)
+		case "workflows":
+			indexModels = append(indexModels,
+				mongo.IndexModel{Keys: bson.D{{Key: "owner_id", Value: 1}}},
+				mongo.IndexModel{Keys: bson.D{{Key: "lease_until", Value: 1}}},
+			)
+		case "audit_logs":
+			indexModels = append(indexModels,
+				mongo.IndexModel{Keys: bson.D{{Key: "timestamp", Value: -1}}},
+				mongo.IndexModel{Keys: bson.D{{Key: "user_id", Value: 1}}},
+				mongo.IndexModel{Keys: bson.D{{Key: "entity_type", Value: 1}, {Key: "entity_id", Value: 1}}},
+			)
+		case "webhook_requests":
+			indexModels = append(indexModels,
+				mongo.IndexModel{Keys: bson.D{{Key: "timestamp", Value: -1}}},
+				mongo.IndexModel{Keys: bson.D{{Key: "path", Value: 1}}},
+			)
 		}
 
 		if len(indexModels) > 0 {
@@ -111,6 +127,70 @@ func (s *mongoStorage) Init(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// --- Lease APIs (MongoDB) ---
+// Implement atomic lease operations using findOneAndUpdate with conditional filters.
+func (s *mongoStorage) AcquireWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error) {
+	if ttlSeconds <= 0 {
+		ttlSeconds = 30
+	}
+	coll := s.db.Collection("workflows")
+	now := time.Now().UTC()
+	until := now.Add(time.Duration(ttlSeconds) * time.Second)
+
+	filter := bson.M{
+		"id": workflowID,
+		"$or": []bson.M{
+			{"owner_id": bson.M{"$exists": false}},
+			{"owner_id": nil},
+			{"lease_until": bson.M{"$exists": false}},
+			{"lease_until": nil},
+			{"lease_until": bson.M{"$lt": now}},
+			{"owner_id": ownerID},
+		},
+	}
+	update := bson.M{"$set": bson.M{"owner_id": ownerID, "lease_until": until}}
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+
+	res := coll.FindOneAndUpdate(ctx, filter, update, opts)
+	if res.Err() == mongo.ErrNoDocuments {
+		return false, nil
+	}
+	if err := res.Err(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *mongoStorage) RenewWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error) {
+	if ttlSeconds <= 0 {
+		ttlSeconds = 30
+	}
+	coll := s.db.Collection("workflows")
+	now := time.Now().UTC()
+	until := now.Add(time.Duration(ttlSeconds) * time.Second)
+
+	filter := bson.M{"id": workflowID, "owner_id": ownerID, "lease_until": bson.M{"$gte": now}}
+	update := bson.M{"$set": bson.M{"lease_until": until}}
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+
+	res := coll.FindOneAndUpdate(ctx, filter, update, opts)
+	if res.Err() == mongo.ErrNoDocuments {
+		return false, nil
+	}
+	if err := res.Err(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *mongoStorage) ReleaseWorkflowLease(ctx context.Context, workflowID, ownerID string) error {
+	coll := s.db.Collection("workflows")
+	filter := bson.M{"id": workflowID, "owner_id": ownerID}
+	update := bson.M{"$unset": bson.M{"owner_id": "", "lease_until": ""}}
+	_, err := coll.UpdateOne(ctx, filter, update)
+	return err
 }
 
 func (s *mongoStorage) ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error) {
@@ -469,6 +549,23 @@ func (s *mongoStorage) GetUserByUsername(ctx context.Context, username string) (
 	return u.User, nil
 }
 
+func (s *mongoStorage) GetUserByEmail(ctx context.Context, email string) (storage.User, error) {
+	coll := s.db.Collection("users")
+	var u struct {
+		storage.User `bson:",inline"`
+		ID           string `bson:"_id"`
+	}
+	err := coll.FindOne(ctx, bson.M{"email": email}).Decode(&u)
+	if err == mongo.ErrNoDocuments {
+		return storage.User{}, storage.ErrNotFound
+	}
+	if err != nil {
+		return storage.User{}, err
+	}
+	u.User.ID = u.ID
+	return u.User, nil
+}
+
 func (s *mongoStorage) ListVHosts(ctx context.Context, filter storage.CommonFilter) ([]storage.VHost, int, error) {
 	coll := s.db.Collection("vhosts")
 	query := bson.M{}
@@ -609,14 +706,22 @@ func (s *mongoStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) 
 	}
 	coll := s.db.Collection("workflows")
 	_, err := coll.InsertOne(ctx, bson.M{
-		"_id":       wf.ID,
-		"name":      wf.Name,
-		"vhost":     wf.VHost,
-		"active":    wf.Active,
-		"status":    wf.Status,
-		"worker_id": wf.WorkerID,
-		"nodes":     wf.Nodes,
-		"edges":     wf.Edges,
+		"_id":                 wf.ID,
+		"name":                wf.Name,
+		"vhost":               wf.VHost,
+		"active":              wf.Active,
+		"status":              wf.Status,
+		"worker_id":           wf.WorkerID,
+		"nodes":               wf.Nodes,
+		"edges":               wf.Edges,
+		"dead_letter_sink_id": wf.DeadLetterSinkID,
+		"prioritize_dlq":      wf.PrioritizeDLQ,
+		"max_retries":         wf.MaxRetries,
+		"retry_interval":      wf.RetryInterval,
+		"reconnect_interval":  wf.ReconnectInterval,
+		"dry_run":             wf.DryRun,
+		"schema_type":         wf.SchemaType,
+		"schema":              wf.Schema,
 	})
 	return err
 }
@@ -624,13 +729,21 @@ func (s *mongoStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) 
 func (s *mongoStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error {
 	coll := s.db.Collection("workflows")
 	_, err := coll.UpdateOne(ctx, bson.M{"_id": wf.ID}, bson.M{"$set": bson.M{
-		"name":      wf.Name,
-		"vhost":     wf.VHost,
-		"active":    wf.Active,
-		"status":    wf.Status,
-		"worker_id": wf.WorkerID,
-		"nodes":     wf.Nodes,
-		"edges":     wf.Edges,
+		"name":                wf.Name,
+		"vhost":               wf.VHost,
+		"active":              wf.Active,
+		"status":              wf.Status,
+		"worker_id":           wf.WorkerID,
+		"nodes":               wf.Nodes,
+		"edges":               wf.Edges,
+		"dead_letter_sink_id": wf.DeadLetterSinkID,
+		"prioritize_dlq":      wf.PrioritizeDLQ,
+		"max_retries":         wf.MaxRetries,
+		"retry_interval":      wf.RetryInterval,
+		"reconnect_interval":  wf.ReconnectInterval,
+		"dry_run":             wf.DryRun,
+		"schema_type":         wf.SchemaType,
+		"schema":              wf.Schema,
 	}})
 	return err
 }
@@ -768,6 +881,18 @@ func (s *mongoStorage) ListLogs(ctx context.Context, filter storage.LogFilter) (
 	coll := s.db.Collection("logs")
 	query := bson.M{}
 
+	// Time bounds (if provided)
+	if !filter.Since.IsZero() || !filter.Until.IsZero() {
+		ts := bson.M{}
+		if !filter.Since.IsZero() {
+			ts["$gte"] = filter.Since
+		}
+		if !filter.Until.IsZero() {
+			ts["$lt"] = filter.Until
+		}
+		query["timestamp"] = ts
+	}
+
 	if filter.SourceID != "" {
 		query["source_id"] = filter.SourceID
 	}
@@ -790,6 +915,8 @@ func (s *mongoStorage) ListLogs(ctx context.Context, filter storage.LogFilter) (
 			{"source_id": bson.M{"$regex": filter.Search, "$options": "i"}},
 			{"sink_id": bson.M{"$regex": filter.Search, "$options": "i"}},
 			{"workflow_id": bson.M{"$regex": filter.Search, "$options": "i"}},
+			{"user_id": bson.M{"$regex": filter.Search, "$options": "i"}},
+			{"username": bson.M{"$regex": filter.Search, "$options": "i"}},
 		}
 	}
 
@@ -848,6 +975,8 @@ func (s *mongoStorage) CreateLog(ctx context.Context, l storage.Log) error {
 		"source_id":   l.SourceID,
 		"sink_id":     l.SinkID,
 		"workflow_id": l.WorkflowID,
+		"user_id":     l.UserID,
+		"username":    l.Username,
 		"data":        l.Data,
 	})
 	return err
@@ -872,6 +1001,16 @@ func (s *mongoStorage) DeleteLogs(ctx context.Context, filter storage.LogFilter)
 	if filter.Action != "" {
 		query["action"] = filter.Action
 	}
+	if !filter.Since.IsZero() || !filter.Until.IsZero() {
+		ts := bson.M{}
+		if !filter.Since.IsZero() {
+			ts["$gte"] = filter.Since
+		}
+		if !filter.Until.IsZero() {
+			ts["$lt"] = filter.Until
+		}
+		query["timestamp"] = ts
+	}
 
 	_, err := coll.DeleteMany(ctx, query)
 	return err
@@ -894,4 +1033,238 @@ func (s *mongoStorage) SaveSetting(ctx context.Context, key string, value string
 	opts := options.Update().SetUpsert(true)
 	_, err := coll.UpdateOne(ctx, bson.M{"_id": key}, bson.M{"$set": bson.M{"value": value}}, opts)
 	return err
+}
+
+func (s *mongoStorage) CreateAuditLog(ctx context.Context, log storage.AuditLog) error {
+	if log.ID == "" {
+		log.ID = uuid.NewString()
+	}
+	if log.Timestamp.IsZero() {
+		log.Timestamp = time.Now().UTC()
+	}
+	coll := s.db.Collection("audit_logs")
+	_, err := coll.InsertOne(ctx, bson.M{
+		"_id":         log.ID,
+		"timestamp":   log.Timestamp,
+		"user_id":     log.UserID,
+		"username":    log.Username,
+		"action":      log.Action,
+		"entity_type": log.EntityType,
+		"entity_id":   log.EntityID,
+		"payload":     log.Payload,
+		"ip":          log.IP,
+	})
+	return err
+}
+
+func (s *mongoStorage) CreateWebhookRequest(ctx context.Context, req storage.WebhookRequest) error {
+	if req.ID == "" {
+		req.ID = uuid.NewString()
+	}
+	if req.Timestamp.IsZero() {
+		req.Timestamp = time.Now().UTC()
+	}
+	coll := s.db.Collection("webhook_requests")
+	_, err := coll.InsertOne(ctx, bson.M{
+		"_id":       req.ID,
+		"timestamp": req.Timestamp,
+		"path":      req.Path,
+		"method":    req.Method,
+		"headers":   req.Headers,
+		"body":      req.Body,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Keep only last 50 requests per path
+	opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: -1}}).SetSkip(50).SetProjection(bson.M{"_id": 1})
+	cursor, err := coll.Find(ctx, bson.M{"path": req.Path}, opts)
+	if err == nil {
+		defer cursor.Close(ctx)
+		var toDelete []string
+		for cursor.Next(ctx) {
+			var d struct {
+				ID string `bson:"_id"`
+			}
+			if err := cursor.Decode(&d); err == nil {
+				toDelete = append(toDelete, d.ID)
+			}
+		}
+		if len(toDelete) > 0 {
+			_, _ = coll.DeleteMany(ctx, bson.M{"_id": bson.M{"$in": toDelete}})
+		}
+	}
+
+	return nil
+}
+
+func (s *mongoStorage) ListWebhookRequests(ctx context.Context, filter storage.WebhookRequestFilter) ([]storage.WebhookRequest, int, error) {
+	coll := s.db.Collection("webhook_requests")
+	query := bson.M{}
+	if filter.Path != "" {
+		query["path"] = filter.Path
+	}
+
+	total, err := coll.CountDocuments(ctx, query)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: -1}})
+	if filter.Limit > 0 {
+		opts.SetLimit(int64(filter.Limit))
+		if filter.Page > 0 {
+			opts.SetSkip(int64((filter.Page - 1) * filter.Limit))
+		}
+	} else {
+		opts.SetLimit(100)
+	}
+
+	cursor, err := coll.Find(ctx, query, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	var requests []storage.WebhookRequest
+	for cursor.Next(ctx) {
+		var r struct {
+			storage.WebhookRequest `bson:",inline"`
+			ID                     string `bson:"_id"`
+		}
+		if err := cursor.Decode(&r); err != nil {
+			return nil, 0, err
+		}
+		r.WebhookRequest.ID = r.ID
+		requests = append(requests, r.WebhookRequest)
+	}
+	return requests, int(total), nil
+}
+
+func (s *mongoStorage) GetWebhookRequest(ctx context.Context, id string) (storage.WebhookRequest, error) {
+	coll := s.db.Collection("webhook_requests")
+	var r struct {
+		storage.WebhookRequest `bson:",inline"`
+		ID                     string `bson:"_id"`
+	}
+	err := coll.FindOne(ctx, bson.M{"_id": id}).Decode(&r)
+	if err == mongo.ErrNoDocuments {
+		return storage.WebhookRequest{}, storage.ErrNotFound
+	}
+	if err != nil {
+		return storage.WebhookRequest{}, err
+	}
+	r.WebhookRequest.ID = r.ID
+	return r.WebhookRequest, nil
+}
+
+func (s *mongoStorage) DeleteWebhookRequests(ctx context.Context, filter storage.WebhookRequestFilter) error {
+	coll := s.db.Collection("webhook_requests")
+	query := bson.M{}
+	if filter.Path != "" {
+		query["path"] = filter.Path
+	}
+	_, err := coll.DeleteMany(ctx, query)
+	return err
+}
+
+func (s *mongoStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilter) ([]storage.AuditLog, int, error) {
+	coll := s.db.Collection("audit_logs")
+	query := bson.M{}
+
+	if filter.Search != "" {
+		query["$or"] = []bson.M{
+			{"_id": bson.M{"$regex": filter.Search, "$options": "i"}},
+			{"username": bson.M{"$regex": filter.Search, "$options": "i"}},
+			{"action": bson.M{"$regex": filter.Search, "$options": "i"}},
+			{"entity_id": bson.M{"$regex": filter.Search, "$options": "i"}},
+			{"payload": bson.M{"$regex": filter.Search, "$options": "i"}},
+		}
+	}
+	if filter.UserID != "" {
+		query["user_id"] = filter.UserID
+	}
+	if filter.EntityType != "" {
+		query["entity_type"] = filter.EntityType
+	}
+	if filter.EntityID != "" {
+		query["entity_id"] = filter.EntityID
+	}
+	if filter.Action != "" {
+		query["action"] = filter.Action
+	}
+	if filter.From != nil || filter.To != nil {
+		tsQuery := bson.M{}
+		if filter.From != nil {
+			tsQuery["$gte"] = *filter.From
+		}
+		if filter.To != nil {
+			tsQuery["$lte"] = *filter.To
+		}
+		query["timestamp"] = tsQuery
+	}
+
+	total, err := coll.CountDocuments(ctx, query)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: -1}})
+	if filter.Limit > 0 {
+		opts.SetLimit(int64(filter.Limit))
+		if filter.Page > 0 {
+			opts.SetSkip(int64((filter.Page - 1) * filter.Limit))
+		}
+	}
+
+	cursor, err := coll.Find(ctx, query, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	var logs []storage.AuditLog
+	for cursor.Next(ctx) {
+		var l struct {
+			storage.AuditLog `bson:",inline"`
+			ID               string `bson:"_id"`
+		}
+		if err := cursor.Decode(&l); err != nil {
+			return nil, 0, err
+		}
+		l.AuditLog.ID = l.ID
+		logs = append(logs, l.AuditLog)
+	}
+
+	return logs, int(total), nil
+}
+
+func (s *mongoStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error {
+	coll := s.db.Collection("node_states")
+	opts := options.Update().SetUpsert(true)
+	_, err := coll.UpdateOne(ctx, bson.M{"workflow_id": workflowID, "node_id": nodeID}, bson.M{"$set": bson.M{"state": state, "updated_at": time.Now()}}, opts)
+	return err
+}
+
+func (s *mongoStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+	coll := s.db.Collection("node_states")
+	cursor, err := coll.Find(ctx, bson.M{"workflow_id": workflowID})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	states := make(map[string]interface{})
+	for cursor.Next(ctx) {
+		var res struct {
+			NodeID string      `bson:"node_id"`
+			State  interface{} `bson:"state"`
+		}
+		if err := cursor.Decode(&res); err != nil {
+			return nil, err
+		}
+		states[res.NodeID] = res.State
+	}
+	return states, nil
 }

@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Title, Text, TextInput, Button, Paper, Stack, Container, PasswordInput } from '@mantine/core'
+import { Title, Text, TextInput, Button, Paper, Stack, Container, PasswordInput, Group, Anchor } from '@mantine/core'
 import { useMutation } from '@tanstack/react-query'
-import { useNavigate, useSearch } from '@tanstack/react-router'
+import { useNavigate, useSearch, Link } from '@tanstack/react-router'
 import { apiFetch } from '../api'
+import { setToken } from '../auth/storage'
 
 export function LoginPage() {
   const [username, setUsername] = useState('')
@@ -28,7 +29,8 @@ export function LoginPage() {
       return response.json()
     },
     onSuccess: (data) => {
-      localStorage.setItem('hermod_token', data.token)
+      // Route token writes through the storage abstraction
+      setToken(data.token)
       navigate({ to: redirect || '/' })
     },
     onError: (err) => {
@@ -67,8 +69,14 @@ export function LoginPage() {
                 onChange={(e) => setPassword(e.currentTarget.value)}
               />
 
+              <Group justify="space-between" mt="xs">
+                <Anchor component={Link} to="/forgot-password" size="sm">
+                  Forgot password?
+                </Anchor>
+              </Group>
+
               {error && (
-                <Text color="red" size="sm">
+                <Text color="red" size="sm" role="alert" aria-live="assertive">
                   {error}
                 </Text>
               )}

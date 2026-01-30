@@ -1,7 +1,8 @@
 import { notifications } from '@mantine/notifications';
+import { getToken, removeToken } from './auth/storage';
 
 export function getRoleFromToken(): string | null {
-  const token = localStorage.getItem('hermod_token');
+  const token = getToken();
   if (!token) return null;
   try {
     const base64Url = token.split('.')[1];
@@ -16,7 +17,7 @@ export function getRoleFromToken(): string | null {
 }
 
 export async function apiFetch(url: string, options: RequestInit = {}) {
-  const token = localStorage.getItem('hermod_token');
+  const token = getToken();
   
   const headers = new Headers(options.headers);
   if (token) {
@@ -26,12 +27,15 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
   const response = await fetch(url, {
     ...options,
     headers,
+    credentials: 'include',
+    // Allow callers to pass AbortSignal for cancellation
+    signal: options.signal,
   });
 
   if (response.status === 401 && !url.includes('/api/login')) {
-    localStorage.removeItem('hermod_token');
+    removeToken();
     const currentPath = window.location.pathname;
-    if (currentPath !== '/login' && currentPath !== '/setup') {
+    if (currentPath !== '/login' && currentPath !== '/setup' && currentPath !== '/forgot-password') {
       window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
     } else {
       window.location.href = '/login';
@@ -86,4 +90,15 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
   }
 
   return response;
+}
+
+export async function apiJson<T>(url: string, options: RequestInit = {}) {
+  const res = await apiFetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+  return res.json() as Promise<T>;
 }

@@ -1,38 +1,33 @@
 package engine
 
-import (
-	"testing"
-)
+import "testing"
 
-func TestWorker_isAssigned(t *testing.T) {
-	w := &Worker{
-		workerID:     0,
-		totalWorkers: 2,
+func TestWorkerIsAssigned_StabilityAndDistribution(t *testing.T) {
+	w := &Worker{}
+	w.SetWorkerConfig(0, 3, "", "")
+
+	ids := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}
+	counts := make([]int, 3)
+
+	for _, id := range ids {
+		for shard := 0; shard < 3; shard++ {
+			w.workerID = shard
+			if w.isAssigned(id) {
+				counts[shard]++
+			}
+		}
 	}
 
-	// Use FNV-1a:
-	// "a" hashes to 1319200382 (even) -> 0
-	// "b" hashes to 1335977821 (odd) -> 1
-
-	if !w.isAssigned("a") {
-		t.Errorf("Expected 'a' to be assigned to worker 0")
-	}
-	if w.isAssigned("b") {
-		t.Errorf("Expected 'b' NOT to be assigned to worker 0")
+	// All workflows should be assigned to exactly one shard
+	total := counts[0] + counts[1] + counts[2]
+	if total != len(ids) {
+		t.Fatalf("expected total assignments %d, got %d (counts=%v)", len(ids), total, counts)
 	}
 
-	w.workerID = 1
-	if w.isAssigned("a") {
-		t.Errorf("Expected 'a' NOT to be assigned to worker 1")
-	}
-	if !w.isAssigned("b") {
-		t.Errorf("Expected 'b' to be assigned to worker 1")
-	}
-
-	// Test case 2: Single worker
-	w.totalWorkers = 1
-	w.workerID = 0
-	if !w.isAssigned("any") {
-		t.Errorf("Expected everything to be assigned to single worker")
+	// Basic distribution sanity: no shard should be empty for this sample set
+	for i, c := range counts {
+		if c == 0 {
+			t.Fatalf("expected non-empty assignment for shard %d, got 0", i)
+		}
 	}
 }

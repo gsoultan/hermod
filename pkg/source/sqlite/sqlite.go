@@ -9,6 +9,7 @@ import (
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/sqlutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -86,6 +87,30 @@ func (s *SQLiteSource) Ack(ctx context.Context, msg hermod.Message) error {
 	return nil
 }
 
+func (s *SQLiteSource) IsReady(ctx context.Context) error {
+	if err := s.Ping(ctx); err != nil {
+		return fmt.Errorf("sqlite connection failed: %w", err)
+	}
+
+	// For SQLite, "readiness" means the file exists and is accessible.
+	// s.init already does a Ping, which for SQLite typically ensures the file is openable.
+	// We can add a check to see if tables exist if they are configured.
+	if len(s.tables) > 0 {
+		for _, table := range s.tables {
+			var name string
+			err := s.db.QueryRowContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
+			if err != nil {
+				if err == sql.ErrNoRows {
+					return fmt.Errorf("sqlite table '%s' does not exist in database '%s'", table, s.dbPath)
+				}
+				return fmt.Errorf("failed to verify sqlite table '%s': %w", table, err)
+			}
+		}
+	}
+
+	return nil
+}
+
 func (s *SQLiteSource) Ping(ctx context.Context) error {
 	if s.db == nil {
 		if err := s.init(ctx); err != nil {
@@ -137,7 +162,11 @@ func (s *SQLiteSource) Sample(ctx context.Context, table string) (hermod.Message
 		}
 	}
 
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", table))
+	quoted, err := sqlutil.QuoteIdent("sqlite", table)
+	if err != nil {
+		return nil, fmt.Errorf("invalid table name: %w", err)
+	}
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sample record: %w", err)
 	}

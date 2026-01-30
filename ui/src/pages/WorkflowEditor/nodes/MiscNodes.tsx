@@ -5,9 +5,18 @@ import {
 import { 
   IconFilter, IconGitBranch, IconGitMerge, IconDatabase, IconNote,
   IconVariable, IconEye, IconShieldLock, IconSearch, IconCloud,
-  IconPlaylist, IconCode
+  IconPlaylist, IconCode, IconChecklist, IconArrowsSplit
 } from '@tabler/icons-react';
 import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
+
+export const ValidatorNode = ({ id, data }: any) => {
+  return (
+    <BaseNode id={id} type="Validator" color="orange" icon={IconChecklist} data={data}>
+      <TargetHandle position={Position.Left} color="orange" />
+      <PlusHandle type="source" position={Position.Right} nodeId={id} color="orange" />
+    </BaseNode>
+  );
+};
 
 export const TransformationNode = ({ id, data }: any) => {
   const getIcon = () => {
@@ -19,6 +28,9 @@ export const TransformationNode = ({ id, data }: any) => {
       case 'api_lookup': return IconCloud;
       case 'pipeline': return IconPlaylist;
       case 'advanced': return IconCode;
+      case 'lua': return IconCode;
+      case 'aggregate': return IconDatabase;
+      case 'validator': return IconChecklist;
       default: return IconFilter;
     }
   };
@@ -33,6 +45,9 @@ export const TransformationNode = ({ id, data }: any) => {
       case 'api_lookup': return 'API Lookup';
       case 'pipeline': return 'Pipeline';
       case 'advanced': return 'Advanced';
+      case 'lua': return 'Lua Script';
+      case 'aggregate': return 'Aggregate';
+      case 'validator': return 'Validator';
       default: return 'Transformation';
     }
   };
@@ -46,26 +61,79 @@ export const TransformationNode = ({ id, data }: any) => {
 };
 
 export const SwitchNode = ({ id, data }: any) => {
-  const branches = data.branches || [];
+  let cases: any[] = [];
+  try {
+    cases = typeof data.cases === 'string' ? JSON.parse(data.cases || '[]') : (data.cases || []);
+  } catch(e) {}
+
   return (
     <BaseNode id={id} type="Switch" color="orange" icon={IconGitBranch} data={data}>
       <TargetHandle position={Position.Left} color="orange" />
-      {branches.map((branch: any, idx: number) => (
+      {cases.map((c: any, idx: number) => (
         <PlusHandle 
           key={idx}
           type="source" 
           position={Position.Right} 
-          id={branch.label || `branch_${idx}`}
+          id={c.label || `case_${idx}`}
           nodeId={id} 
           color="orange"
           style={{ top: 30 + (idx * 25) }}
         />
       ))}
-      {branches.length > 0 && (
+      {cases.length > 0 && (
         <Group gap={4} mt="xs">
-          {branches.map((b: any, i: number) => (
-            <Badge key={i} size="xs" variant="outline" color="orange">{b.label}</Badge>
+          {cases.map((c: any, i: number) => (
+            <Badge key={i} size="xs" variant="outline" color="orange">{c.label}</Badge>
           ))}
+        </Group>
+      )}
+      <PlusHandle 
+          type="source" 
+          position={Position.Right} 
+          id="default"
+          nodeId={id} 
+          color="gray"
+          style={{ top: 30 + (cases.length * 25) }}
+        />
+        <Badge size="xs" variant="outline" color="gray" mt={4}>default</Badge>
+    </BaseNode>
+  );
+};
+
+export const RouterNode = ({ id, data }: any) => {
+  let rules: any[] = [];
+  try {
+    rules = typeof data.rules === 'string' ? JSON.parse(data.rules || '[]') : (data.rules || []);
+  } catch(e) {}
+
+  return (
+    <BaseNode id={id} type="Router" color="indigo" icon={IconArrowsSplit} data={data}>
+      <TargetHandle position={Position.Left} color="indigo" />
+      {rules.map((rule: any, idx: number) => (
+        <PlusHandle 
+          key={idx}
+          type="source" 
+          position={Position.Right} 
+          id={rule.label || `rule_${idx}`}
+          nodeId={id} 
+          color="indigo"
+          style={{ top: 30 + (idx * 25) }}
+        />
+      ))}
+      <PlusHandle 
+        type="source" 
+        position={Position.Right} 
+        id="default"
+        nodeId={id} 
+        color="gray"
+        style={{ top: 30 + (rules.length * 25) }}
+      />
+      {rules.length > 0 && (
+        <Group gap={4} mt="xs">
+          {rules.map((r: any, i: number) => (
+            <Badge key={i} size="xs" variant="outline" color="indigo">{r.label}</Badge>
+          ))}
+          <Badge size="xs" variant="outline" color="gray">default</Badge>
         </Group>
       )}
     </BaseNode>

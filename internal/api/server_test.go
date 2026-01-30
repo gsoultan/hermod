@@ -23,6 +23,22 @@ func (m *mockStorage) GetUserByUsername(ctx context.Context, username string) (s
 	return storage.User{}, nil
 }
 
+func (m *mockStorage) CreateAuditLog(ctx context.Context, audit storage.AuditLog) error {
+	return nil
+}
+
+func (m *mockStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilter) ([]storage.AuditLog, int, error) {
+	return nil, 0, nil
+}
+
+func (m *mockStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error {
+	return nil
+}
+
+func (m *mockStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+	return nil, nil
+}
+
 func TestAuthMiddleware(t *testing.T) {
 	registry := engine.NewRegistry(nil)
 	// Use a mock storage that won't panic when used
@@ -60,6 +76,27 @@ func TestAuthMiddleware(t *testing.T) {
 			method:         "GET",
 			path:           "/api/workflows",
 			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:           "Initial admin creation allowed without auth when no users exist",
+			method:         "POST",
+			path:           "/api/users",
+			body:           "not-a-json", // force handler to return 400 after passing middleware
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "DB config save allowed during initial setup",
+			method:         "POST",
+			path:           "/api/config/database",
+			body:           "not-a-json",
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "DB config test allowed during initial setup",
+			method:         "POST",
+			path:           "/api/config/database/test",
+			body:           "not-a-json",
+			expectedStatus: http.StatusBadRequest,
 		},
 	}
 

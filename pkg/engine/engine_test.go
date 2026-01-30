@@ -540,3 +540,130 @@ func TestEngineSinkMultiRetry(t *testing.T) {
 		t.Error("message not received after multiple sink retries")
 	}
 }
+
+func TestEngineDryRun(t *testing.T) {
+	msg := message.AcquireMessage()
+	msg.SetID("test-dryrun")
+	msg.SetPayload([]byte("dryrun"))
+
+	source := &mockSource{msg: msg}
+	sink := &mockSink{received: make(chan hermod.Message, 10)}
+	rb := buffer.NewRingBuffer(10)
+
+	eng := NewEngine(source, []hermod.Sink{sink}, rb)
+	eng.SetConfig(Config{
+		DryRun:         true,
+		StatusInterval: 10 * time.Millisecond,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	go func() {
+		_ = eng.Start(ctx)
+	}()
+
+	select {
+	case <-sink.received:
+		t.Error("received message in sink during dry-run")
+	case <-time.After(400 * time.Millisecond):
+		// Success: no message received
+	}
+}
+
+type validatingMockSink struct {
+	mockSink
+	validateFunc func(msg hermod.Message) error
+}
+
+func (s *validatingMockSink) Validate(ctx context.Context, msg hermod.Message) error {
+	if s.validateFunc != nil {
+		return s.validateFunc(msg)
+	}
+	return nil
+}
+
+func TestEngineValidation(t *testing.T) {
+	msg := message.AcquireMessage()
+	msg.SetID("invalid-msg")
+	msg.SetPayload([]byte("invalid"))
+
+	source := &mockSource{msg: msg}
+	sink := &validatingMockSink{
+		mockSink: mockSink{
+			received: make(chan hermod.Message, 10),
+		},
+		validateFunc: func(msg hermod.Message) error {
+			if string(msg.Payload()) == "invalid" {
+				return fmt.Errorf("invalid payload")
+			}
+			return nil
+		},
+	}
+	dlq := &mockSink{
+		received: make(chan hermod.Message, 10),
+	}
+
+	rb := buffer.NewRingBuffer(10)
+	eng := NewEngine(source, []hermod.Sink{sink}, rb)
+	eng.SetDeadLetterSink(dlq)
+	eng.SetConfig(Config{
+		StatusInterval: 10 * time.Millisecond,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	go func() {
+		_ = eng.Start(ctx)
+	}()
+
+	select {
+	case <-sink.received:
+		t.Error("Invalid message should NOT have been received by sink")
+	case m := <-dlq.received:
+		if m.ID() != "invalid-msg" {
+			t.Errorf("Expected invalid-msg in DLQ, got %s", m.ID())
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Error("Timed out waiting for message in DLQ")
+	}
+}
+
+func TestEngineAdaptiveBatching(t *testing.T) {
+	source := &mockSourceWithLimit{limit: 100}
+	sink := &mockSink{received: make(chan hermod.Message, 100)}
+	rb := buffer.NewRingBuffer(200)
+
+	eng := NewEngine(source, []hermod.Sink{sink}, rb)
+	eng.SetSinkConfigs([]SinkConfig{
+		{
+			BatchSize:        10,
+			BatchTimeout:     50 * time.Millisecond,
+			AdaptiveBatching: true,
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() {
+		_ = eng.Start(ctx)
+	}()
+
+	// Wait for some messages to be processed
+	time.Sleep(500 * time.Millisecond)
+
+	eng.stopMu.Lock()
+	sw := eng.sinkWriters[0]
+	eng.stopMu.Unlock()
+
+	if sw.currentBatchSize == 0 {
+		t.Error("currentBatchSize should be initialized")
+	}
+
+	// Since mockSink is fast, currentBatchSize should have increased
+	if sw.currentBatchSize < 10 {
+		t.Errorf("Expected currentBatchSize to stay at least 10, got %d", sw.currentBatchSize)
+	}
+}

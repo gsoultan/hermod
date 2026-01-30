@@ -6,6 +6,8 @@ import { useState, useEffect } from 'react';
 import { useDisclosure } from '@mantine/hooks';
 import { useSearch } from '@tanstack/react-router';
 
+import { formatDateTime } from '../utils/dateUtils';
+
 const API_BASE = '/api';
 
 export function LogsPage() {
@@ -13,6 +15,7 @@ export function LogsPage() {
   const queryClient = useQueryClient();
   const [workflowId, setWorkflowId] = useState<string>(searchParams.workflow_id || '');
   const [level, setLevel] = useState<string | null>(null);
+  const [action, setAction] = useState<string>('');
   const [search, setSearch] = useState('');
   const [activePage, setPage] = useState(1);
   const itemsPerPage = 30;
@@ -29,11 +32,12 @@ export function LogsPage() {
   };
 
   const { data: logsResponse, isFetching } = useQuery({
-    queryKey: ['logs', workflowId, level, search, activePage],
+    queryKey: ['logs', workflowId, level, action, search, activePage],
     queryFn: async () => {
       let url = `${API_BASE}/logs?page=${activePage}&limit=${itemsPerPage}&search=${search}`;
       if (workflowId) url += `&workflow_id=${workflowId}`;
       if (level) url += `&level=${level}`;
+      if (action) url += `&action=${action}`;
       const res = await apiFetch(url);
       if (!res.ok) throw new Error('Failed to fetch logs');
       return res.json();
@@ -80,12 +84,12 @@ export function LogsPage() {
             </Box>
             <Group>
               <Tooltip label="Refresh">
-                <ActionIcon variant="light" onClick={() => queryClient.invalidateQueries({ queryKey: ['logs'] })} loading={isFetching}>
+                <ActionIcon aria-label="Refresh logs" variant="light" onClick={() => queryClient.invalidateQueries({ queryKey: ['logs'] })} loading={isFetching}>
                   <IconRefresh size="1.2rem" />
                 </ActionIcon>
               </Tooltip>
               <Tooltip label="Clear All Logs">
-                <ActionIcon variant="light" color="red" onClick={() => { if(confirm('Clear all logs?')) deleteMutation.mutate(); }}>
+                <ActionIcon aria-label="Clear all logs" variant="light" color="red" onClick={() => { if(confirm('Clear all logs?')) deleteMutation.mutate(); }}>
                   <IconTrash size="1.2rem" />
                 </ActionIcon>
               </Tooltip>
@@ -129,6 +133,18 @@ export function LogsPage() {
               clearable
               style={{ width: 120 }}
             />
+            <Select 
+              label="Action" 
+              placeholder="Any action" 
+              data={['create', 'update', 'delete', 'start', 'stop', 'drain_dlq', 'write']} 
+              value={action} 
+              onChange={(val) => {
+                setAction(val || '');
+                setPage(1);
+              }}
+              clearable
+              style={{ width: 150 }}
+            />
           </Group>
         </Paper>
 
@@ -137,8 +153,9 @@ export function LogsPage() {
             <Table.Thead bg="gray.0">
               <Table.Tr>
                 <Table.Th style={{ width: 180 }}>Timestamp</Table.Th>
-                <Table.Th style={{ width: 100 }}>Level</Table.Th>
-                <Table.Th style={{ width: 150 }}>Action</Table.Th>
+                <Table.Th style={{ width: 80 }}>Level</Table.Th>
+                <Table.Th style={{ width: 120 }}>Action</Table.Th>
+                <Table.Th style={{ width: 120 }}>User</Table.Th>
                 <Table.Th>Message</Table.Th>
                 <Table.Th style={{ width: 220 }}>Workflow / Source / Sink</Table.Th>
                 <Table.Th style={{ width: 80 }}>Details</Table.Th>
@@ -147,15 +164,15 @@ export function LogsPage() {
             <Table.Tbody>
               {logs?.length === 0 ? (
                 <Table.Tr>
-                  <Table.Td colSpan={6} style={{ textAlign: 'center', padding: '40px' }}>
-                    <Text c="dimmed">{search || workflowId || level ? 'No logs found matching the criteria.' : 'No logs found.'}</Text>
+                  <Table.Td colSpan={7} style={{ textAlign: 'center', padding: '40px' }}>
+                    <Text c="dimmed">{search || workflowId || level || action ? 'No logs found matching the criteria.' : 'No logs found.'}</Text>
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                logs?.map((log: any) => (
+                (Array.isArray(logs) ? logs : []).map((log: any) => (
                   <Table.Tr key={log.id}>
                     <Table.Td>
-                      <Text size="sm">{new Date(log.timestamp).toLocaleString()}</Text>
+                      <Text size="sm">{formatDateTime(log.timestamp)}</Text>
                     </Table.Td>
                     <Table.Td>
                       <Badge color={getLevelColor(log.level)} variant="light" size="sm">
@@ -170,6 +187,9 @@ export function LogsPage() {
                       ) : (
                         <Text size="xs" c="dimmed">-</Text>
                       )}
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="sm">{log.username || '-'}</Text>
                     </Table.Td>
                     <Table.Td>
                       <Text size="sm" fw={500}>{log.message}</Text>
@@ -198,7 +218,7 @@ export function LogsPage() {
                     </Table.Td>
                     <Table.Td>
                       <Tooltip label="View Full Details">
-                        <ActionIcon variant="light" color="blue" onClick={() => viewDetails(log)}>
+                        <ActionIcon aria-label="View log details" variant="light" color="blue" onClick={() => viewDetails(log)}>
                           <IconEye size="1.1rem" />
                         </ActionIcon>
                       </Tooltip>
@@ -220,15 +240,19 @@ export function LogsPage() {
         opened={opened} 
         onClose={close} 
         title={<Text fw={700}>Log Entry Details</Text>}
-        size="lg"
-        radius="md"
+        fullScreen
+        radius={0}
+        styles={{
+          content: { height: '100vh' },
+          body: { display: 'flex', flexDirection: 'column', height: '100%' },
+        }}
       >
         {selectedLog && (
-          <Stack gap="md">
+          <Stack gap="md" style={{ flex: 1, minHeight: 0 }}>
             <Group justify="space-between">
               <Box>
                 <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }}>Timestamp</Text>
-                <Text size="sm">{new Date(selectedLog.timestamp).toLocaleString()}</Text>
+                <Text size="sm">{formatDateTime(selectedLog.timestamp)}</Text>
               </Box>
               <Box>
                 <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} ta="right">Level</Text>
@@ -248,12 +272,18 @@ export function LogsPage() {
             </Box>
 
             {selectedLog.action && (
-              <Box>
-                <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} mb={4}>Action</Text>
-                <Badge variant="outline" color="blue" radius="xs" style={{ textTransform: 'none' }}>
-                  {selectedLog.action}
-                </Badge>
-              </Box>
+              <Group grow>
+                <Box>
+                  <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} mb={4}>Action</Text>
+                  <Badge variant="outline" color="blue" radius="xs" style={{ textTransform: 'none' }}>
+                    {selectedLog.action}
+                  </Badge>
+                </Box>
+                <Box>
+                  <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} mb={4}>User</Text>
+                  <Text size="sm">{selectedLog.username || 'System'}</Text>
+                </Box>
+              </Group>
             )}
 
             <Group grow>
@@ -278,9 +308,9 @@ export function LogsPage() {
             </Group>
 
             {selectedLog.data && (
-              <Box>
+              <Box style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} mb={4}>Action Data / Payload</Text>
-                <ScrollArea.Autosize mah={400} type="always">
+                <ScrollArea style={{ flex: 1, minHeight: 0 }} type="always">
                   <Paper withBorder p="xs" bg="gray.0">
                     <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                       {(() => {
@@ -294,7 +324,7 @@ export function LogsPage() {
                       })()}
                     </Code>
                   </Paper>
-                </ScrollArea.Autosize>
+                </ScrollArea>
               </Box>
             )}
 

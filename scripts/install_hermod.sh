@@ -6,9 +6,9 @@ set -e
 echo "Starting Hermod Installation..."
 
 # 1. Update system and install dependencies
-echo "Updating system and installing dependencies (Go, Node.js, NPM)..."
+echo "Updating system and installing dependencies (Go, Bun)..."
 sudo apt-get update
-sudo apt-get install -y golang-go nodejs npm git build-essential openssl
+sudo apt-get install -y golang-go git build-essential openssl curl
 
 # 2. Setup Hermod Directory and User
 HERMOD_DIR="/opt/hermod"

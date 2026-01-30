@@ -13,19 +13,21 @@ import (
 	"time"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/compression"
 	"github.com/user/hermod/pkg/message"
 )
 
 // FileBuffer is a persistent buffer that stores messages in an append-only log.
 type FileBuffer struct {
-	dir       string
-	size      int
-	mu        sync.Mutex
-	closed    bool
-	done      chan struct{}
-	logFile   *os.File
-	logWriter *bufio.Writer
-	stateFile *os.File
+	dir        string
+	size       int
+	mu         sync.Mutex
+	closed     bool
+	done       chan struct{}
+	logFile    *os.File
+	logWriter  *bufio.Writer
+	stateFile  *os.File
+	compressor compression.Compressor
 
 	produceCount uint64
 	consumeCount uint64
@@ -35,6 +37,11 @@ type FileBuffer struct {
 }
 
 func NewFileBuffer(dir string, size int) (*FileBuffer, error) {
+	fb, err := NewFileBufferWithCompressor(dir, size, nil)
+	return fb, err
+}
+
+func NewFileBufferWithCompressor(dir string, size int, comp compression.Compressor) (*FileBuffer, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create buffer directory: %w", err)
 	}
@@ -54,13 +61,14 @@ func NewFileBuffer(dir string, size int) (*FileBuffer, error) {
 	}
 
 	fb := &FileBuffer{
-		dir:       dir,
-		size:      size,
-		done:      make(chan struct{}),
-		logFile:   f,
-		logWriter: bufio.NewWriter(f),
-		stateFile: sf,
-		statePath: statePath,
+		dir:        dir,
+		size:       size,
+		done:       make(chan struct{}),
+		logFile:    f,
+		logWriter:  bufio.NewWriter(f),
+		stateFile:  sf,
+		statePath:  statePath,
+		compressor: comp,
 	}
 
 	if err := fb.loadState(); err != nil {
@@ -135,7 +143,7 @@ proceed:
 		return errors.New("buffer closed")
 	}
 
-	if err := encodeMessage(b.logWriter, msg); err != nil {
+	if err := encodeMessage(b.logWriter, msg, b.compressor); err != nil {
 		b.mu.Unlock()
 		return fmt.Errorf("failed to encode message: %w", err)
 	}

@@ -157,7 +157,13 @@ func (m *DefaultMessage) Data() map[string]interface{} {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.data) == 0 && len(m.payload) > 0 {
-		_ = json.Unmarshal(m.payload, &m.data)
+		if err := json.Unmarshal(m.payload, &m.data); err != nil {
+			// If not a map, try as a slice
+			var slice []interface{}
+			if err := json.Unmarshal(m.payload, &slice); err == nil {
+				m.data["payload"] = slice
+			}
+		}
 	}
 	return m.data
 }

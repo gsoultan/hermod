@@ -1,141 +1,3 @@
-# Hermod
-
-Hermod is a high-performance, messaging system designed with SOLID principles and zero-allocation in mind.
-
-## UI Management Platform
-
-Hermod includes a web-based management platform built with React 19, Mantine UI, and Tailwind CSS. It provides a user-friendly interface for:
-- Configuring Sources and Sinks.
-- **Visual Workflow Editor**: Build complex data pipelines using a drag-and-drop graph editor with support for transformations and conditional branching.
-- **Sample Library**: Jumpstart development with pre-built templates for common scenarios like "GDPR Masking & High-Value Routing" or "Webhook to Slack".
-- Visualizing data flow and monitoring logs.
-- **Advanced Transformations**: Filter, map, and transform data using a rich set of built-in functions.
-
-### Getting Started with UI
-
-1. Navigate to the `ui` directory:
-   ```bash
-   cd ui
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Run the development server:
-   ```bash
-   npm run dev
-   ```
-
-The management platform will be available at `http://localhost:5173`.
-
-## Key Features
-
-- **Multi-Tenant Support**: Support for multiple sources (via multiple engine instances) and broadcasting to multiple sinks per engine instance.
-- **Parallel Processing**: Sinks are processed in parallel within each engine instance, optimizing throughput for multi-sink configurations.
-- **Observability**: Built-in Prometheus metrics for monitoring throughput, latency, and error rates.
-- **Reliability (DLQ)**: Support for Dead Letter Queues (DLQ) to preserve messages that fail all retry attempts.
-- **SOLID Principles**: Designed with clean interfaces and separation of concerns.
-- **Reversible Roles**: Sinks can be sources and vice versa. Support for message brokers as sources and databases as sinks.
-- **Zero Allocation**: Utilizes `sync.Pool` for message recycling to minimize GC pressure.
-- **High Performance**: Optimized for heavy peak loads using efficient buffering.
-- **Production Ready**: Built-in structured logging, retries with backoff, and health checks (Ping). Reconnection intervals and backoff strategies are configurable per source.
-- **Programming by Interface**: Easy to extend and test with mockable interfaces.
-
-## Project Structure
-
-- `hermod.go`: Core interfaces (`Message`, `Producer`, `Consumer`, `Source`, `Sink`).
-- `pkg/engine`: Engine that orchestrates data flow from `Source` to `Sink`.
-- `pkg/message`: Implementation of recyclable messages.
-- `pkg/source`: CDC and message broker source implementations.
-  - Databases: PostgreSQL, MSSQL, MySQL, Oracle, DB2, MongoDB, MariaDB, Cassandra, Yugabyte, ScyllaDB, ClickHouse, SQLite, CSV.
-  - Brokers: Kafka, NATS JetStream, Redis Streams, RabbitMQ Stream.
-- `pkg/sink`: Message stream and database sink implementations.
-  - Brokers/Streams: Stdout, File, NATS JetStream, RabbitMQ Stream, Redis, HTTP, Kafka, Pulsar, Pub/Sub, Kinesis, FCM, SMTP.
-  - Databases: PostgreSQL, MySQL, Cassandra, SQLite, ClickHouse, MongoDB.
-
-### Source Specifics
-
-#### MSSQL CDC
-The MSSQL source supports automatically enabling CDC on the database and tables. This feature is enabled by default. To disable it, set `auto_enable_cdc: "false"` in the source configuration. This will:
-1. Enable CDC on the database if not already enabled.
-2. Enable CDC on each specified table if not already enabled.
-
-The system verifies and re-enables CDC automatically during "Test Connection" and periodically while the workflow is running to ensure continuous data capture.
-
-### Sink Specifics
-
-#### FCM (Firebase Cloud Messaging)
-
-The FCM sink allows sending notifications via Google's Firebase Cloud Messaging. It requires a `credentials_json` string (the content of your service account JSON file).
-
-Messages sent to the FCM sink must include one of the following in their metadata to determine the destination:
-- `fcm_token`: Target device registration token.
-- `fcm_topic`: Target topic name.
-- `fcm_condition`: Target condition (e.g., `'TopicA' in topics && 'TopicB' in topics`).
-
-Optional notification fields can also be provided in metadata:
-- `fcm_notification_title`: Title of the notification.
-- `fcm_notification_body`: Body of the notification.
-
-#### SMTP
-
-The SMTP sink allows sending emails using the [gsmail](https://github.com/gsoultan/gsmail) library.
-
-Configuration:
-- `host`: SMTP server host.
-- `port`: SMTP server port.
-- `username`: SMTP username.
-- `password`: SMTP password.
-- `ssl`: Use SSL/TLS (`true` or `false`).
-- `from`: Sender email address.
-- `to`: Recipient email addresses (comma-separated).
-- `subject`: Email subject.
-
-- `pkg/formatter`: Message formatters (JSON).
-- `internal/buffer`: High-performance in-memory and persistent messaging buffers.
-
-### Sample Library
-
-The UI includes a library of common patterns to help you get started:
-
-#### GDPR Masking & High-Value Routing ("World Case")
-This advanced template demonstrates a multi-step pipeline:
-1.  **Source**: PostgreSQL CDC monitoring an `orders` table.
-2.  **Transformation (Pipeline)**: 
-    - **Masking**: Sanitizes `customer_email` for GDPR compliance.
-    - **Mapping**: Converts internal `status_id` (1, 2, 3) to readable strings ("PENDING", "PAID", etc.).
-    - **Enrichment**: Adds metadata like `processed_by`.
-3.  **Condition**: Branches the flow based on `total_amount > 1000`.
-4.  **High-Value Branch**: Adds a `priority` flag and multicasts to **Telegram** (for alerts) and **Kafka** (for downstream processing).
-5.  **Standard Branch**: Archives the message to **MongoDB**.
-
-### Installation on Ubuntu (Linux)
-
-For a quick and automated installation on Ubuntu, you can use the provided installation script:
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/youruser/hermod.git
-   cd hermod
-   ```
-
-2. **Run the installation script**:
-   ```bash
-   chmod +x scripts/install_hermod.sh
-   sudo ./scripts/install_hermod.sh
-   ```
-
-The script will:
-- Install system dependencies (Go, Node.js, NPM).
-- Create a dedicated `hermod` user.
-- Build the UI and the Go binary.
-- Configure and start a `systemd` service.
-
----
-
-## Architecture
 
 Hermod works by reading data from a `Source`, buffering it in a high-performance buffer (in-memory `RingBuffer` or persistent `FileBuffer`), and then writing it to a `Sink`. This architecture allows it to handle peak loads and provide a flexible way to connect different databases to various message streams.
 
@@ -270,6 +132,53 @@ Hermod can be run as a standalone application. By default, it starts in **API Mo
 - **Persistence**: For production use cases requiring absolute durability, use the `file_buffer` option. This ensures that even if the process crashes, messages read from the source but not yet written to the sink are persisted on disk.
 - **Graceful Shutdown**: The `Engine.Start` method respects the provided `context.Context`. When the context is cancelled, the engine will stop reading from the source, signal the buffer to close, and wait for all pending messages in the buffer to be written to the sink before exiting. This ensures no data loss during normal shutdown procedures.
 
+### SQLite busy/locked handling
+
+When using SQLite for the platform database, concurrent writes can occasionally hit `SQLITE_BUSY` ("database is locked"). Hermod mitigates this in two ways:
+
+- API returns HTTP 503 with `Retry-After: 1` for busy errors on sink create/update. Clients should retry the request.
+- The storage layer automatically retries transient busy errors with bounded exponential backoff and respects request context deadlines.
+
+You can tune SQLite's busy timeout via an environment variable (milliseconds):
+
+```
+HERMOD_SQLITE_BUSY_TIMEOUT_MS=15000
+```
+
+Default is 15000 ms. WAL mode and other safe pragmas are enabled by default.
+
+## Data Governance and Schema Validation
+
+Hermod allows you to enforce data quality by validating incoming messages against a schema before they are processed or written to sinks.
+
+Supported formats:
+- **JSON Schema**: Standard JSON schema validation.
+- **Avro**: Binary-friendly JSON-based schema.
+- **Protobuf**: Enforce structure using `.proto` definitions.
+
+Configuration:
+1.  Open the **Workflow Panel** (right sidebar) in the Editor.
+2.  Go to the **Settings** tab.
+3.  Scroll to **Data Governance**.
+4.  Select a **Schema Type** and provide the **Schema Definition**.
+
+Messages that fail validation are:
+- Logged as errors in the live workflow logs.
+- Automatically redirected to the **Dead Letter Sink** (if configured).
+- Dropped from the pipeline to prevent downstream corruption.
+
+## Audit Logging
+
+Hermod includes a robust audit logging system that tracks all critical administrative actions.
+
+Tracked actions include:
+- Workflow lifecycle (Create, Update, Delete, Start, Stop)
+- Source and Sink management
+- User authentication and role changes
+- Dead Letter Sink draining
+
+Audit logs are stored in the primary database (SQL or MongoDB) and can be viewed by Administrators in the **Audit Logs** page in the dashboard.
+
 ## Reliability and Data Loss Prevention
 
 Hermod is designed to minimize data loss during operation and shutdown:
@@ -277,9 +186,25 @@ Hermod is designed to minimize data loss during operation and shutdown:
 - **Graceful Draining**: During shutdown, Hermod drains its internal buffer to ensure all messages already read from the source reach the sink.
 - **At-Least-Once Delivery**: The engine acknowledges messages to the source only after they have been successfully written to the sink. This ensures that if the process crashes, the source can re-deliver unacknowledged messages upon restart (depending on source implementation).
 - **Retries with Backoff**: Failed writes to the sink are automatically retried with configurable exponential backoff.
+- **Circuit Breaker Pattern**: Prevents cascading failures when downstream systems are unhealthy. Automatically opens after N consecutive failures and probes recovery in a half-open state.
+- **Adaptive Batching**: Dynamically groups messages to optimize sink throughput and reduce network roundtrips.
 - **Memory Safety**: Uses a bounded `RingBuffer` to prevent out-of-memory issues under high pressure.
 
 **Important Note**: Since the default `RingBuffer` is in-memory, sudden process termination (e.g., `SIGKILL` or power failure) can result in the loss of messages currently held in the buffer. For use cases requiring absolute durability, consider implementing a persistent `Producer`/`Consumer` (buffer) interface (e.g., using a file-backed queue or a dedicated message broker).
+
+### Dead Letter Sink (DLQ) Prioritization
+
+In high-reliability scenarios, some messages might fail to be written to the primary sink even after all retry attempts. Hermod can redirect these messages to a **Dead Letter Sink**.
+
+If you want to ensure that historical failures are processed before new data (e.g., during recovery after a downstream outage), enable **DLQ Prioritization**:
+
+1.  **Configure a Dead Letter Sink**: Assign a Sink (e.g., a Postgres table) to the workflow's `dead_letter_sink_id`.
+2.  **Enable Prioritize DLQ**: Set `prioritize_dlq: true` in the workflow configuration.
+3.  **Automatic Recovery**: When the workflow starts, Hermod will first attempt to "drain" all messages from the Dead Letter Sink before switching to the primary source stream.
+
+**Note**: The Sink assigned as a DLQ must also implement the `hermod.Source` interface (e.g., Postgres, MySQL, NATS, Kafka).
+
+A sample template for this configuration is available at `examples/templates/reliability_recovery_dlq.json`.
 
 ## Observability
 
@@ -308,3 +233,148 @@ Worker Metrics:
 ```
 BenchmarkAcquireRelease-12      56807960                22.36 ns/op            0 B/op          0 allocs/op
 ```
+
+## Health and Readiness Probes
+
+Hermod exposes production-friendly health endpoints on the API server:
+
+- GET /livez — liveness probe. Always 200 once the server is up.
+- GET /readyz — readiness probe (v1 schema). Performs bounded checks and returns JSON with per-component status and durations. Only database connectivity failures are gating (HTTP 503). Registry and Workers checks are informational (non-gating) in v1.
+
+Example response:
+
+```
+{
+  "version": "v1",
+  "status": "ok",
+  "time": "2026-01-22T20:00:00Z",
+  "checks": {
+    "db": { "ok": true, "duration_ms": 3 },
+    "registry": { "ok": true, "engines_running": 2, "duration_ms": 1 },
+    "workers": { "ok": true, "recent": 2, "stale": 0, "ttl_seconds": 60, "duration_ms": 2 }
+  }
+}
+```
+
+Prometheus metrics:
+
+- hermod_readiness_status{component="db|registry|workers"} (gauge: 1=ok, 0=error)
+- hermod_readiness_latency_seconds{component="..."} (histogram)
+
+Kubernetes probes (example):
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 2
+  failureThreshold: 3
+livenessProbe:
+  httpGet:
+    path: /livez
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+```
+
+Note: In v1, only the DB check gates readiness. Future versions will incorporate workflow ownership/leases into readiness once lease-based coordination is enabled.
+
+
+## Idempotency and Exactly-Once Effects (Sink-Side)
+
+Hermod processes messages with at-least-once delivery. To avoid duplicates at sinks, idempotency is implemented end-to-end:
+
+- Engine ensures each message carries a stable idempotency key (defaults to message ID). Metrics are emitted for present/missing keys.
+- SQL sinks (Postgres/MySQL/MariaDB) perform UPSERT semantics on the `id` primary key:
+  - Postgres/Yugabyte: `INSERT ... ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`
+  - MySQL/MariaDB: `INSERT ... ON DUPLICATE KEY UPDATE data = VALUES(data)`
+- Elasticsearch sink performs UPSERT by using the message `id` as the document `_id`.
+- SQLite sink uses `INSERT OR REPLACE` into a table with `id TEXT PRIMARY KEY`.
+- Redis sink deduplicates with `SETNX` using a configurable TTL and namespace; duplicates are skipped.
+
+Environment variables:
+
+- HERMOD_IDEMPOTENCY_REQUIRED=true — log warnings when idempotency keys are missing.
+- HERMOD_IDEMPOTENCY_TTL=24h — TTL for Redis dedupe keys.
+- HERMOD_IDEMPOTENCY_NAMESPACE=hermod:idemp — prefix for Redis keys.
+
+## Modern API Sources (GraphQL & gRPC)
+
+Hermod supports modern API protocols as data sources, allowing you to push data directly into Hermod instead of relying solely on CDC or webhooks.
+
+### GraphQL Source
+
+Hermod exposes a GraphQL endpoint at `/api/graphql/{path}`. You can send standard GraphQL POST requests:
+
+```json
+{
+  "query": "mutation { publish(table: \"orders\", payload: \"...\") }",
+  "variables": {}
+}
+```
+
+The entire request body is captured as the message payload, and if it's a valid GraphQL JSON, the `query` and `variables` are extracted into the message data.
+
+### gRPC Source
+
+Hermod runs a gRPC server (default port `50051`) that implements the `SourceService`.
+
+**Service Definition:**
+```proto
+service SourceService {
+  rpc Publish(PublishRequest) returns (PublishResponse);
+}
+```
+
+You can push structured messages directly from your gRPC clients. Use the `path` field in the request to route to a specific Hermod gRPC source configuration.
+
+## Leases and Single-Worker Ownership
+
+Workers acquire per-workflow leases backed by storage to ensure only one worker processes a workflow at a time. Key details:
+
+- Schema fields: `owner_id`, `lease_until` on workflows.
+- Worker behavior: acquire (steal if expired), renew at TTL/2, stop engine on renew failure, release on stop.
+- Metrics: `hermod_lease_acquire_total`, `hermod_lease_steal_total`, `hermod_lease_renew_errors_total`, and `hermod_worker_leases_owned_total`.
+- Readiness: `/readyz` includes a non-gating `leases` check. Make it gating with `HERMOD_READY_LEASES_REQUIRED=true`.
+
+## Security Headers and CORS
+
+Production defaults are secure by default:
+
+- CORS allowlist via `HERMOD_CORS_ALLOW_ORIGINS` (comma-separated). In production, no allowlist -> no CORS.
+- Security headers: `Content-Security-Policy`, `X-Frame-Options=DENY`, `Referrer-Policy=no-referrer`, `X-Content-Type-Options=nosniff`.
+- HSTS can be forced with `HERMOD_HSTS_ENABLE=true` or when `X-Forwarded-Proto: https` is detected.
+- Worker registration requires `X-Worker-Registration-Token` when `HERMOD_ENV=production`. Provide the secret via `HERMOD_WORKER_REG_TOKEN`.
+
+## Running Integration Tests
+
+Hermod ships with env-gated integration tests.
+
+- Two-worker lease failover (no external deps):
+  - Set `HERMOD_INTEGRATION=1`
+  - Run: `go test ./internal/engine -run TwoWorkerLeaseFailover -v -tags=integration`
+- SQL sink idempotency:
+  - MySQL: set `HERMOD_INTEGRATION=1` and `MYSQL_DSN` (e.g., `user:pass@tcp(host:3306)/dbname`)
+  - Postgres: set `HERMOD_INTEGRATION=1` and `POSTGRES_DSN` (e.g., `postgres://user:pass@host:5432/db?sslmode=disable`)
+  - Run: `go test ./pkg/sink/mysql -tags=integration` and `go test ./pkg/sink/postgres -tags=integration`
+
+## Continuous Integration (CI)
+
+This repository includes a GitHub Actions workflow that:
+
+- Runs a quick Go build + focused tests via `scripts/quick-verify.ps1` on push/PR.
+- Builds the UI (`bun run build`) as a separate job.
+
+The workflow file is at `.github/workflows/ci.yml`. To enable optional SQL integration tests, add secrets with DSNs and create an additional job based on your environment.
+
+## Settings UI Improvements (Current)
+
+- Settings → Database now pre-fills from the backend via a new admin-only endpoint:
+  - GET /api/config/database → returns `{ type, conn }`. For non-SQLite DSNs, passwords are masked in the returned connection string.
+- Notification Settings page includes a "Send Test Notification" button:
+  - POST /api/settings/test (admin-only) sends a test through configured channels in this order: Email → Slack → Discord → Webhook → Telegram. The UI displays per-channel results.
+
+These endpoints require an administrator role and are used by the UI automatically. No additional configuration is needed beyond saving your settings.

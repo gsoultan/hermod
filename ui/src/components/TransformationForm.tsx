@@ -1,20 +1,26 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { 
   TextInput, Select, Stack, Alert, Divider, Text, Group, ActionIcon, 
   Button, Code, List, Autocomplete, JsonInput, Badge, Grid,
   PasswordInput, NumberInput, Card, Tabs, ScrollArea, Box,
   Tooltip as MantineTooltip,
-  Switch
+  Switch, Textarea, Modal
 } from '@mantine/core';
 import { 
   IconTrash, IconPlus, IconInfoCircle, IconArrowRight, IconPlayerPlay,
-  IconSearch, IconCopy, IconCheck, IconAlertCircle, IconFunction,
-  IconVariable, IconDatabase, IconCloud, IconFilter, IconList,
-  IconSettings, IconEye, IconCode, IconBracketsContain
+  IconSearch, IconFunction,
+  IconVariable, IconDatabase, IconCloud, IconList,
+  IconSettings, IconCode, IconBracketsContain, IconHelpCircle
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { apiFetch } from '../api';
-import { getValByPath, simulateTransformation } from '../utils/transformationUtils';
+import { usePreviewTransformation } from '../pages/WorkflowEditor/hooks/usePreviewTransformation';
+import { getValByPath } from '../utils/transformationUtils';
+import { useTargetSchema } from '../pages/WorkflowEditor/hooks/useTargetSchema';
+import { PreviewPanel } from './Transformation/PreviewPanel';
+import { FieldExplorer } from './Transformation/FieldExplorer';
+import { TargetExplorer } from './Transformation/TargetExplorer';
+import { FilterEditor, type Condition } from './Transformation/FilterEditor';
 
 interface TransformationFormProps {
   selectedNode: any;
@@ -26,91 +32,63 @@ interface TransformationFormProps {
   sinkSchema?: any;
 }
 
-export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimulation, availableFields, incomingPayload, sources, sinkSchema }: TransformationFormProps) {
-  if (!selectedNode) return null;
-
+export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimulation: _onRunSimulation, availableFields, incomingPayload, sources, sinkSchema }: TransformationFormProps) {
   const [testing, setTesting] = useState(false);
-  const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [targetSchema, setTargetSchema] = useState<string[]>([]);
-  const [loadingTarget, setLoadingTarget] = useState(false);
-
-  const fetchTargetSchema = useCallback(async () => {
-    if (!sinkSchema || !sinkSchema.config?.table) return;
-    setLoadingTarget(true);
-    try {
-      const res = await apiFetch('/api/sinks/sample', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sink: sinkSchema,
-          table: sinkSchema.config.table
-        })
-      });
-      const data = await res.json();
-      if (data.after) {
-        const payload = JSON.parse(data.after);
-        setTargetSchema(Object.keys(payload));
-      }
-    } catch (e) {
-      console.error("Failed to fetch target schema", e);
-    } finally {
-      setLoadingTarget(false);
-    }
-  }, [sinkSchema]);
-
-  useEffect(() => {
-    if (sinkSchema) fetchTargetSchema();
-  }, [sinkSchema, fetchTargetSchema]);
+  const { fields: targetSchema, loading: loadingTarget } = useTargetSchema({ sinkSchema });
 
   const [previewResult, setPreviewResult] = useState<any>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  // Accessibility: IDs for help modal labelling
+  const helpTitleId = 'transformation-help-modal-title';
+  const helpDescId = 'transformation-help-modal-desc';
 
-  // console.log(previewResult, previewError);
+  // Lazy-load heavy help content to reduce initial bundle
+  const HelpContent = lazy(() => import('./Transformation/HelpContent'));
 
-  const runPreview = async () => {
+  const previewMutation = usePreviewTransformation();
+
+  const transType = selectedNode?.data?.transType || selectedNode?.type || '';
+  const isForeach = transType === 'foreach' || transType === 'fanout';
+  const isAggregate = transType === 'aggregate' || transType === 'stateful';
+
+  const runPreview = useCallback(async () => {
     if (!incomingPayload) return;
     setTesting(true);
     setPreviewError(null);
-    try {
-      const res = await apiFetch('/api/transformations/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transformation: {
-            type: transType,
-            config: selectedNode.data
-          },
-          message: incomingPayload
-        })
-      });
-      const data = await res.json();
-      if (data.error) {
-        setPreviewError(data.error);
-      } else {
-        setPreviewResult(data);
-        if (previewResult === 'force_use') console.log(previewError);
+    previewMutation.mutate(
+      {
+        transformation: {
+          type: transType,
+          config: selectedNode.data,
+        },
+        message: incomingPayload,
+      },
+      {
+        onSuccess: (data: any) => {
+          if (data?.error) {
+            setPreviewError(data.error);
+          } else {
+            setPreviewResult(data);
+          }
+        },
+        onError: (e: any) => {
+          setPreviewError(e?.message || 'Preview failed');
+        },
+        onSettled: () => setTesting(false),
       }
-    } catch (e: any) {
-      setPreviewError(e.message);
-    } finally {
-      setTesting(false);
-    }
-  };
+    );
+  }, [previewMutation, incomingPayload, selectedNode.data, transType]);
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedField(text);
-    setTimeout(() => setCopiedField(null), 2000);
-  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
       runPreview();
     }, 1000);
     return () => clearTimeout(timer);
-  }, [selectedNode.data, incomingPayload]);
+  }, [selectedNode.data, incomingPayload, runPreview]);
 
-  const transType = selectedNode.data.transType || selectedNode.type;
+  if (!selectedNode) return null;
 
   const addField = (path: string = '', value: string = '') => {
     const fields = Object.entries(selectedNode.data)
@@ -119,7 +97,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     updateNodeConfig(selectedNode.id, { [`column.${fieldName}`]: value });
   };
 
-  const addFromSource = (path: string) => {
+  const addFromSource = async (path: string) => {
     if (transType === 'advanced') {
       addField(path, `source.${path}`);
     } else if (transType === 'set') {
@@ -139,7 +117,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     } else if (transType === 'mask') {
       updateNodeConfig(selectedNode.id, { field: path });
     } else {
-      copyToClipboard(path);
+      try { await navigator.clipboard.writeText(path); } catch {}
       notifications.show({ message: `Path "${path}" copied to clipboard.`, color: 'blue' });
     }
   };
@@ -274,6 +252,75 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     );
   };
 
+  // Helper for Validator Rules
+  const renderValidatorEditor = () => {
+    let rules: Record<string, string> = {};
+    try {
+      rules = JSON.parse(selectedNode.data.schema || '{}');
+    } catch (e) {
+      return <Text size="xs" c="red">Invalid JSON schema. Use the raw editor below to fix.</Text>;
+    }
+
+    const updatePath = (oldPath: string, newPath: string) => {
+      const next = { ...rules };
+      const val = next[oldPath];
+      delete next[oldPath];
+      next[newPath] = val;
+      updateNodeConfig(selectedNode.id, { schema: JSON.stringify(next) });
+    };
+
+    const updateType = (path: string, type: string) => {
+      const next = { ...rules };
+      next[path] = type;
+      updateNodeConfig(selectedNode.id, { schema: JSON.stringify(next) });
+    };
+
+    const removeRule = (path: string) => {
+      const next = { ...rules };
+      delete next[path];
+      updateNodeConfig(selectedNode.id, { schema: JSON.stringify(next) });
+    };
+
+    const addRule = () => {
+      const next = { ...rules };
+      next[`field_${Object.keys(rules).length}`] = 'string';
+      updateNodeConfig(selectedNode.id, { schema: JSON.stringify(next) });
+    };
+
+    return (
+      <Stack gap="xs">
+        <Text size="sm" fw={500}>Validation Rules</Text>
+        {Object.entries(rules).map(([path, type], index) => (
+          <Group key={index} grow gap="xs">
+            <Autocomplete
+              placeholder="Field Path"
+              data={availableFields}
+              value={path}
+              onChange={(val) => updatePath(path, val)}
+            />
+            <Select
+              placeholder="Expected Type"
+              data={['string', 'number', 'boolean', 'object', 'array', 'float64', 'int64']}
+              value={type}
+              onChange={(val) => updateType(path, val || 'string')}
+            />
+            <ActionIcon color="red" variant="subtle" onClick={() => removeRule(path)}>
+              <IconTrash size="1rem" />
+            </ActionIcon>
+          </Group>
+        ))}
+        <Button 
+          size="xs" 
+          variant="light" 
+          leftSection={<IconPlus size="1rem" />}
+          onClick={addRule}
+        >
+          Add Validation Rule
+        </Button>
+      </Stack>
+    );
+  };
+
   // Helper for Set Field
   const renderSetFieldEditor = () => {
     const fields = Object.entries(selectedNode.data)
@@ -384,6 +431,77 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
         >
           Add Transformation Rule
         </Button>
+      </Stack>
+    );
+  };
+
+  // Helper for Router Rules
+  const renderRouterEditor = () => {
+    let rules: any[] = [];
+    try {
+      rules = typeof selectedNode.data.rules === 'string' 
+        ? JSON.parse(selectedNode.data.rules || '[]')
+        : (selectedNode.data.rules || []);
+    } catch (e) {
+      rules = [];
+    }
+
+    const updateRule = (index: number, field: string, newValue: any) => {
+      const next = [...rules];
+      next[index] = { ...next[index], [field]: newValue };
+      updateNodeConfig(selectedNode.id, { rules: JSON.stringify(next) });
+    };
+
+    const removeRule = (index: number) => {
+      const next = rules.filter((_, i) => i !== index);
+      updateNodeConfig(selectedNode.id, { rules: JSON.stringify(next) });
+    };
+
+    const addRule = () => {
+      updateNodeConfig(selectedNode.id, { rules: JSON.stringify([...rules, { label: `path_${rules.length + 1}`, conditions: [] }]) });
+    };
+
+    return (
+      <Stack gap="xs">
+        <Group justify="space-between">
+          <Text size="sm" fw={500}>Routing Rules</Text>
+          <Button 
+            size="compact-xs" 
+            variant="light" 
+            leftSection={<IconPlus size="1rem" />}
+            onClick={addRule}
+          >
+            Add Rule
+          </Button>
+        </Group>
+        {rules.length === 0 && (
+          <Text size="xs" c="dimmed" ta="center">No rules defined. Messages will follow "default" branch.</Text>
+        )}
+        {rules.map((rule, index) => (
+          <Card key={index} withBorder p="xs" shadow="xs" radius="md">
+            <Stack gap="xs">
+              <Group grow gap="xs" align="flex-end">
+                <TextInput
+                  placeholder="Target Branch (e.g. high_priority)"
+                  label="Branch Label"
+                  size="xs"
+                  value={rule.label}
+                  onChange={(e) => updateRule(index, 'label', e.target.value)}
+                  required
+                />
+                <ActionIcon color="red" variant="subtle" onClick={() => removeRule(index)} mb={2} style={{ flex: 'none' }}>
+                  <IconTrash size="1rem" />
+                </ActionIcon>
+              </Group>
+              
+              <FilterEditor 
+                conditions={rule.conditions || []} 
+                availableFields={availableFields}
+                onChange={(next) => updateRule(index, 'conditions', next)}
+              />
+            </Stack>
+          </Card>
+        ))}
       </Stack>
     );
   };
@@ -548,309 +666,16 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     );
   };
 
-  const renderFilterEditor = () => {
-    let conditions: any[] = [];
-    try {
-      conditions = typeof selectedNode.data.conditions === 'string' 
-        ? JSON.parse(selectedNode.data.conditions) 
-        : (selectedNode.data.conditions || []);
-    } catch (e) {
-      conditions = [];
-    }
 
-    if (conditions.length === 0 && selectedNode.data.field) {
-      conditions.push({
-        field: selectedNode.data.field,
-        operator: selectedNode.data.operator || '=',
-        value: selectedNode.data.value || ''
-      });
-    }
 
-    const updateCondition = (index: number, field: string, value: string) => {
-      const next = [...conditions];
-      next[index] = { ...next[index], [field]: value };
-      updateNodeConfig(selectedNode.id, { conditions: JSON.stringify(next) });
-    };
 
-    const removeCondition = (index: number) => {
-      const next = conditions.filter((_, i) => i !== index);
-      updateNodeConfig(selectedNode.id, { conditions: JSON.stringify(next) });
-    };
 
-    const addCondition = () => {
-      const next = [...conditions, { field: '', operator: '=', value: '' }];
-      updateNodeConfig(selectedNode.id, { conditions: JSON.stringify(next) });
-    };
+  // (Legacy inline help removed — replaced by lazy HelpContent component)
 
-    return (
-      <Stack gap="xs">
-        <Text size="sm" fw={500}>Filter Conditions (AND)</Text>
-        {conditions.map((cond, index) => (
-          <Group key={index} grow gap="xs" align="flex-end" style={{ background: 'var(--mantine-color-gray-0)', padding: 8, borderRadius: 8 }}>
-            <Stack gap={2}>
-              <Text size="10px" c="dimmed">Field</Text>
-              <Autocomplete 
-                placeholder="e.g. status" 
-                data={availableFields}
-                size="xs"
-                value={cond.field || ''} 
-                onChange={(val) => updateCondition(index, 'field', val)} 
-              />
-            </Stack>
-            <Stack gap={2}>
-              <Text size="10px" c="dimmed">Operator</Text>
-              <Select 
-                data={['=', '!=', '>', '>=', '<', '<=', 'contains']} 
-                size="xs"
-                value={cond.operator || '='} 
-                onChange={(val) => updateCondition(index, 'operator', val || '=')} 
-              />
-            </Stack>
-            <Stack gap={2}>
-              <Text size="10px" c="dimmed">Value</Text>
-              <TextInput 
-                placeholder="Value" 
-                size="xs"
-                value={cond.value || ''} 
-                onChange={(e) => updateCondition(index, 'value', e.target.value)} 
-              />
-            </Stack>
-            <ActionIcon color="red" variant="subtle" onClick={() => removeCondition(index)} mb={2}>
-              <IconTrash size="1rem" />
-            </ActionIcon>
-          </Group>
-        ))}
-        <Button 
-          size="xs" 
-          variant="light" 
-          leftSection={<IconPlus size="1rem" />}
-          onClick={addCondition}
-        >
-          Add Condition
-        </Button>
-      </Stack>
-    );
-  };
+  const onInsertExample = (example: string) => addField('', example);
 
-  const renderLivePreview = () => {
-    if (!incomingPayload) return null;
-    
-    const data = selectedNode.data;
-    const simResult = simulateTransformation(transType, data, incomingPayload);
-    const { output, metadata } = simResult;
-    const { isFiltered, filterReason } = metadata;
-    
-    const currentFieldValue = data.field ? getValByPath(incomingPayload, data.field) : undefined;
-
-    return (
-      <Card withBorder shadow="sm" radius="md" p="md" h="100%">
-        <Stack gap="sm" h="100%">
-          <Group justify="space-between">
-            <Group gap="xs">
-              <IconEye size="1.2rem" color="var(--mantine-color-blue-6)" />
-              <Text size="sm" fw={700}>LIVE PREVIEW</Text>
-            </Group>
-            <Group gap="xs">
-              {onRunSimulation && (
-                <Button 
-                  size="compact-xs" 
-                  variant="light" 
-                  color="green" 
-                  leftSection={<IconPlayerPlay size="0.8rem" />}
-                  onClick={() => onRunSimulation(incomingPayload)}
-                >
-                  Run Full Simulation
-                </Button>
-              )}
-              {isFiltered ? (
-                 <Badge variant="filled" color="red" leftSection={<IconFilter size="0.8rem" />}>Filtered</Badge>
-              ) : (
-                 <Badge variant="light" color="green" leftSection={<IconCheck size="0.8rem" />}>Active</Badge>
-              )}
-            </Group>
-          </Group>
-
-          <Divider />
-
-          {(isFiltered || filterReason) && (
-            <Alert 
-              icon={isFiltered ? <IconAlertCircle size="1rem" /> : <IconInfoCircle size="1rem" />} 
-              color={isFiltered ? "red" : "blue"} 
-              title={isFiltered ? "Message would be filtered out" : "Node Result"}
-            >
-               {filterReason}
-            </Alert>
-          )}
-
-          {data.field && (
-            <Box p="xs" style={{ background: 'var(--mantine-color-blue-0)', borderRadius: 8 }}>
-               <Text size="xs" fw={700} c="blue" mb={4}>RESOLVED FIELD: {data.field}</Text>
-               <Code color="blue" block style={{ fontSize: '11px' }}>
-                 {currentFieldValue !== undefined ? JSON.stringify(currentFieldValue, null, 2) : 'undefined (path not found)'}
-               </Code>
-            </Box>
-          )}
-
-          <Stack gap={4} style={{ flex: 1 }}>
-            <Group justify="space-between">
-              <Text size="xs" fw={700} c="dimmed">RESULTING PAYLOAD</Text>
-              <ActionIcon size="xs" variant="subtle" onClick={() => copyToClipboard(JSON.stringify(output, null, 2))}>
-                <IconCopy size="0.8rem" />
-              </ActionIcon>
-            </Group>
-            <ScrollArea.Autosize mah={500} style={{ borderRadius: 8, background: 'var(--mantine-color-gray-0)', border: '1px solid var(--mantine-color-gray-2)' }}>
-              <Code block style={{ fontSize: '11px' }}>
-                {output ? JSON.stringify(output, null, 2) : '// Message filtered or empty'}
-              </Code>
-            </ScrollArea.Autosize>
-          </Stack>
-          
-          <Text size="10px" c="dimmed" ta="center">
-            Note: This is a client-side simulation. Results might slightly differ from the Go engine.
-          </Text>
-        </Stack>
-      </Card>
-    );
-  };
-
-  const renderFieldExplorer = () => {
+  const FunctionLibrary = () => {
     const [search, setSearch] = useState('');
-    const filtered = availableFields.filter(f => f.toLowerCase().includes(search.toLowerCase()));
-
-    return (
-      <Stack gap="xs">
-        <TextInput 
-          placeholder="Search fields..." 
-          size="xs" 
-          leftSection={<IconSearch size="0.8rem" />}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <ScrollArea h={300} type="auto">
-          <Stack gap={4}>
-            {filtered.map(field => (
-              <Group 
-                key={field} 
-                justify="space-between" 
-                wrap="nowrap" 
-                p={4} 
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData('text/plain', `source.${field}`);
-                  e.dataTransfer.effectAllowed = 'copy';
-                }}
-                style={{ borderRadius: 4, background: 'var(--mantine-color-blue-0)', border: '1px dashed var(--mantine-color-blue-2)', cursor: 'grab' }}
-              >
-                <Box style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  <Text size="xs" fw={500} truncate>{field}</Text>
-                  <Text size="10px" c="dimmed" truncate>
-                    {JSON.stringify(getValByPath(incomingPayload, field))}
-                  </Text>
-                </Box>
-                <Group gap={4}>
-                  <MantineTooltip label="Copy path">
-                    <ActionIcon size="xs" variant="subtle" onClick={() => copyToClipboard(field)}>
-                      {copiedField === field ? <IconCheck size="0.8rem" color="green" /> : <IconCopy size="0.8rem" />}
-                    </ActionIcon>
-                  </MantineTooltip>
-                  <MantineTooltip label="Add to config">
-                    <ActionIcon 
-                      size="xs" 
-                      variant="subtle" 
-                      color="blue"
-                      onClick={() => addFromSource(field)}
-                    >
-                      <IconPlus size="0.8rem" />
-                    </ActionIcon>
-                  </MantineTooltip>
-                </Group>
-              </Group>
-            ))}
-          </Stack>
-        </ScrollArea>
-      </Stack>
-    );
-  };
-
-  const renderTargetExplorer = () => {
-    const [search, setSearch] = useState('');
-    const filtered = targetSchema.filter(f => f.toLowerCase().includes(search.toLowerCase()));
-
-    if (!sinkSchema) {
-      return (
-        <Alert icon={<IconInfoCircle size="1rem" />} color="blue" variant="light" py="xs">
-          Connect this node to a database sink to see target schema.
-        </Alert>
-      );
-    }
-
-    const onDropToTarget = (e: any, column: string) => {
-      e.preventDefault();
-      e.currentTarget.style.background = 'var(--mantine-color-green-0)';
-      const data = e.dataTransfer.getData('text/plain');
-      if (data) {
-        updateNodeConfig(selectedNode.id, { [`column.${column}`]: data });
-        notifications.show({
-          title: 'Field mapped',
-          message: `Mapped ${data} to ${column}`,
-          color: 'green'
-        });
-      }
-    };
-
-    return (
-      <Stack gap="xs">
-        <Group justify="space-between">
-          <Text size="xs" fw={700} c="dimmed">{sinkSchema.config?.table?.toUpperCase() || 'TARGET TABLE'}</Text>
-          {loadingTarget && <ActionIcon loading variant="transparent" />}
-        </Group>
-        <TextInput 
-          placeholder="Filter target columns..." 
-          size="xs" 
-          leftSection={<IconSearch size="0.8rem" />}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <ScrollArea h={300} type="auto">
-          <Stack gap={4}>
-            {filtered.map(column => (
-              <Box 
-                key={column} 
-                p={6} 
-                onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.background = 'var(--mantine-color-green-1)'; }}
-                onDragLeave={(e) => { e.currentTarget.style.background = 'var(--mantine-color-green-0)'; }}
-                onDrop={(e) => onDropToTarget(e, column)}
-                style={{ borderRadius: 4, background: 'var(--mantine-color-green-0)', border: '1px dashed var(--mantine-color-green-3)', cursor: 'default' }}
-              >
-                <Group justify="space-between" wrap="nowrap">
-                   <Box style={{ overflow: 'hidden' }}>
-                      <Text size="xs" fw={700} c="green.9" truncate>{column}</Text>
-                      <Text size="10px" c="dimmed" truncate>
-                         {selectedNode.data[`column.${column}`] || 'Not mapped'}
-                      </Text>
-                   </Box>
-                   {selectedNode.data[`column.${column}`] && (
-                      <ActionIcon size="xs" variant="subtle" color="red" onClick={() => {
-                         const newData = { ...selectedNode.data };
-                         delete newData[`column.${column}`];
-                         updateNodeConfig(selectedNode.id, newData, true);
-                      }}>
-                         <IconTrash size="0.8rem" />
-                      </ActionIcon>
-                   )}
-                </Group>
-              </Box>
-            ))}
-            {filtered.length === 0 && !loadingTarget && (
-               <Text size="xs" c="dimmed" ta="center" py="xl">No columns found. Ensure the table exists.</Text>
-            )}
-          </Stack>
-        </ScrollArea>
-      </Stack>
-    );
-  };
-
-  const renderFunctionLibrary = () => {
     const functions = [
       { name: 'lower(str)', desc: 'Lowercase a string', example: 'lower(source.name)', snippet: 'lower($0)' },
       { name: 'upper(str)', desc: 'Uppercase a string', example: 'upper(source.name)', snippet: 'upper($0)' },
@@ -865,18 +690,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       { name: 'add(a, b)', desc: 'Addition', example: 'add(source.price, source.tax)', snippet: 'add($0, 0)' },
       { name: 'round(v, [p])', desc: 'Round number', example: 'round(source.total, 2)', snippet: 'round($0, 2)' },
     ];
-
-    const [search, setSearch] = useState('');
     const filtered = functions.filter(f => f.name.toLowerCase().includes(search.toLowerCase()) || f.desc.toLowerCase().includes(search.toLowerCase()));
-
-    const addFunctionToConfig = (func: any) => {
-      if (transType === 'advanced' || transType === 'set') {
-        addField('', func.example);
-      } else {
-        copyToClipboard(func.example);
-        notifications.show({ message: `Example "${func.example}" copied to clipboard.`, color: 'blue' });
-      }
-    };
 
     return (
       <Card withBorder padding="xs" radius="md">
@@ -895,7 +709,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
         <ScrollArea h={200} type="auto">
           <Stack gap={4}>
             {filtered.map(f => (
-              <Box key={f.name} p={6} style={{ borderRadius: 4, background: 'var(--mantine-color-orange-0)', cursor: 'pointer' }} onClick={() => addFunctionToConfig(f)}>
+              <Box key={f.name} p={6} style={{ borderRadius: 4, background: 'var(--mantine-color-orange-0)', cursor: 'pointer' }} onClick={() => onInsertExample(f.example)}>
                 <Group justify="space-between">
                   <Text size="xs" fw={700} c="orange.9">{f.name}</Text>
                   <ActionIcon size="xs" variant="subtle" color="orange">
@@ -927,13 +741,14 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
   );
 
   return (
-    <Grid gutter="md" style={{ minHeight: 'calc(100vh - 160px)' }}>
+    <>
+    <Grid gutter="lg" style={{ minHeight: 'calc(100vh - 180px)' }}>
       {/* Column 1: Source Data */}
-      <Grid.Col span={{ base: 12, md: 4 }}>
+      <Grid.Col span={{ base: 12, md: 4, lg: 3 }}>
         <Stack gap="md" h="100%">
-          <Group gap="xs">
+          <Group gap="xs" px="xs">
             <IconDatabase size="1.2rem" color="var(--mantine-color-blue-6)" />
-            <Text size="sm" fw={700}>1. SOURCE DATA / SAMPLE INPUT</Text>
+            <Text size="sm" fw={700} c="dimmed">1. SOURCE DATA / SAMPLE</Text>
           </Group>
           
           {renderPathHelp()}
@@ -946,7 +761,11 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
               </Group>
               <Badge size="xs" variant="light">{availableFields.length}</Badge>
             </Group>
-            {renderFieldExplorer()}
+            <FieldExplorer
+              availableFields={availableFields}
+              incomingPayload={incomingPayload}
+              onAdd={(path) => addFromSource(path)}
+            />
           </Card>
 
           <Card withBorder padding="xs" radius="md">
@@ -957,10 +776,29 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
               </Group>
               <Badge size="xs" variant="light" color="green">{targetSchema.length}</Badge>
             </Group>
-            {renderTargetExplorer()}
+            <TargetExplorer
+              fields={targetSchema}
+              sinkSchemaPresent={!!sinkSchema}
+              currentMappings={selectedNode.data as Record<string, string>}
+              tableName={sinkSchema?.config?.table}
+              loading={loadingTarget}
+              onMap={(column, data) => {
+                updateNodeConfig(selectedNode.id, { [`column.${column}`]: data })
+                notifications.show({
+                  title: 'Field mapped',
+                  message: `Mapped ${data} to ${column}`,
+                  color: 'green',
+                })
+              }}
+              onClearMap={(column) => {
+                const newData: any = { ...selectedNode.data }
+                delete newData[`column.${column}`]
+                updateNodeConfig(selectedNode.id, newData, true)
+              }}
+            />
           </Card>
 
-          {transType === 'advanced' && renderFunctionLibrary()}
+          {transType === 'advanced' && <FunctionLibrary />}
 
           <Card withBorder padding="xs" radius="md" bg="gray.0">
              <Group gap="xs" mb={4}>
@@ -977,15 +815,22 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       </Grid.Col>
 
       {/* Column 2: Configuration */}
-      <Grid.Col span={{ base: 12, md: 4 }}>
-        <Card withBorder shadow="sm" radius="md" p="md" h="100%">
+      <Grid.Col span={{ base: 12, md: 8, lg: 5 }}>
+        <Card withBorder shadow="md" radius="md" p="md" h="100%" style={{ display: 'flex', flexDirection: 'column' }}>
           <Stack gap="md" h="100%">
-            <Group justify="space-between">
+            <Group justify="space-between" px="xs">
               <Group gap="xs">
-                <IconSettings size="1.2rem" color="var(--mantine-color-gray-7)" />
+                <IconSettings size="1.2rem" color="var(--mantine-color-blue-6)" />
                 <Text size="sm" fw={700}>2. TRANSFORM LOGIC</Text>
               </Group>
-              <Badge variant="dot" color="gray" style={{ textTransform: 'uppercase' }}>{transType}</Badge>
+              <Group gap="xs">
+                <MantineTooltip label="How to use this transformation" position="left">
+                  <ActionIcon aria-label="Open transformation help" variant="light" color="blue" onClick={() => setHelpOpen(true)}>
+                    <IconHelpCircle size="1rem" />
+                  </ActionIcon>
+                </MantineTooltip>
+                <Badge variant="light" color="blue" size="lg" style={{ textTransform: 'uppercase' }}>{transType}</Badge>
+              </Group>
             </Group>
 
             <Divider />
@@ -1001,6 +846,16 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             <Box flex={1} style={{ overflow: 'hidden' }}>
               <ScrollArea h="100%" offsetScrollbars>
                 <Stack gap="md" py="xs">
+              {transType === 'router' && (
+                <Stack gap="md">
+                  <Alert icon={<IconInfoCircle size="1rem" />} color="blue" title="Content-Based Router">
+                    Rules are evaluated in order. The first rule that matches will determine the branch.
+                    If no rules match, the message follows the "default" branch.
+                  </Alert>
+                  {renderRouterEditor()}
+                </Stack>
+              )}
+
               {transType === 'switch' && (
             <>
               <Autocomplete 
@@ -1035,6 +890,122 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                 <Stack gap="xs">
                   <Text size="xs">Merge nodes wait for ALL branches connected to them to complete before passing a single merged message.</Text>
                 </Stack>
+              </Alert>
+            </>
+          )}
+
+          {isAggregate && (
+            <>
+              <Select 
+                label="Operation" 
+                data={['count', 'sum', 'avg', 'min', 'max']} 
+                value={selectedNode.data.operation || 'count'} 
+                onChange={(val) => updateNodeConfig(selectedNode.id, { operation: val || 'count' })} 
+              />
+              <Autocomplete 
+                label="Field" 
+                placeholder="e.g. amount" 
+                data={availableFields}
+                value={selectedNode.data.field || ''} 
+                onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })} 
+                description="Field to aggregate."
+              />
+              <Autocomplete 
+                label="Group By Field" 
+                placeholder="e.g. user_id" 
+                data={availableFields}
+                value={selectedNode.data.groupByField || ''} 
+                onChange={(val) => updateNodeConfig(selectedNode.id, { groupByField: val })} 
+                description="Optional field to group by."
+              />
+              <TextInput 
+                label="Window (Duration)" 
+                placeholder="e.g. 1m, 1h" 
+                value={selectedNode.data.window || ''} 
+                onChange={(e) => updateNodeConfig(selectedNode.id, { window: e.target.value })} 
+                description="Optional time window (e.g., 10s, 1m). If empty, aggregates over all time."
+              />
+              <TextInput 
+                label="Output Field" 
+                placeholder="e.g. total_amount" 
+                value={selectedNode.data.targetField || ''} 
+                onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.target.value })} 
+              />
+              <Alert icon={<IconInfoCircle size="1rem" />} color="cyan" py="xs">
+                <Text size="xs">Aggregate nodes perform stateful operations over a stream of messages.</Text>
+              </Alert>
+            </>
+          )}
+
+          {isForeach && (
+            <>
+              <Autocomplete
+                label="Array Path"
+                placeholder="e.g. items"
+                data={availableFields}
+                value={selectedNode.data.arrayPath || ''}
+                onChange={(val) => updateNodeConfig(selectedNode.id, { arrayPath: val })}
+                description="Path to the array you want to fan out."
+              />
+              <TextInput
+                label="Result Field"
+                placeholder="_fanout"
+                value={selectedNode.data.resultField ?? '_fanout'}
+                onChange={(e) => updateNodeConfig(selectedNode.id, { resultField: e.target.value || '_fanout' })}
+                description="Where to store the expanded array on the message."
+              />
+              <TextInput
+                label="Item Path (optional)"
+                placeholder="e.g. product.id"
+                value={selectedNode.data.itemPath || ''}
+                onChange={(e) => updateNodeConfig(selectedNode.id, { itemPath: e.target.value })}
+                description="If items are objects, select a nested value for each item."
+              />
+              <TextInput
+                label="Index Field (optional)"
+                placeholder="e.g. _index"
+                value={selectedNode.data.indexField || ''}
+                onChange={(e) => updateNodeConfig(selectedNode.id, { indexField: e.target.value })}
+                description="If items are objects, also write their index to this field."
+              />
+              <NumberInput
+                label="Limit (optional)"
+                placeholder="0 (no limit)"
+                min={0}
+                value={Number.isFinite(Number(selectedNode.data.limit)) ? Number(selectedNode.data.limit) : 0}
+                onChange={(val) => updateNodeConfig(selectedNode.id, { limit: String(val ?? 0) })}
+              />
+              <Switch
+                label="Drop when empty"
+                checked={!!selectedNode.data.dropEmpty}
+                onChange={(e) => updateNodeConfig(selectedNode.id, { dropEmpty: e.currentTarget.checked })}
+              />
+              <Alert icon={<IconInfoCircle size="1rem" />} color="violet" py="xs">
+                <Text size="xs">Foreach/Fanout collects items from the given array and stores them under the Result Field. The preview shows this array directly.</Text>
+              </Alert>
+            </>
+          )}
+
+          {transType === 'lua' && (
+            <>
+              <Code block mb="xs">
+{`-- Lua Script Example
+function transform(msg)
+  msg.data["new_field"] = "from lua"
+  return msg
+end`}
+              </Code>
+              <Textarea 
+                label="Lua Script" 
+                placeholder="function transform(msg) ... end" 
+                value={selectedNode.data.script || ''} 
+                onChange={(e: any) => updateNodeConfig(selectedNode.id, { script: e.target.value })} 
+                minRows={15}
+                autosize
+                styles={{ input: { fontFamily: 'monospace' } }}
+              />
+              <Alert icon={<IconInfoCircle size="1rem" />} color="blue" py="xs">
+                <Text size="xs">Lua scripts must define a `transform(msg)` function that returns the modified message.</Text>
               </Alert>
             </>
           )}
@@ -1089,7 +1060,32 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                     )}
                  </Box>
               )}
-              {renderFilterEditor()}
+              {(() => {
+                let conditions: Condition[] = []
+                try {
+                  conditions = typeof selectedNode.data.conditions === 'string'
+                    ? JSON.parse(selectedNode.data.conditions || '[]')
+                    : (selectedNode.data.conditions || [])
+                } catch {
+                  conditions = []
+                }
+                if (conditions.length === 0 && selectedNode.data.field) {
+                  conditions.push({
+                    field: selectedNode.data.field,
+                    operator: selectedNode.data.operator || '=',
+                    value: selectedNode.data.value || '',
+                  })
+                }
+                return (
+                  <FilterEditor
+                    conditions={conditions}
+                    availableFields={availableFields}
+                    onChange={(next) =>
+                      updateNodeConfig(selectedNode.id, { conditions: JSON.stringify(next) })
+                    }
+                  />
+                )
+              })()}
               <Alert icon={<IconInfoCircle size="1rem" />} color={transType === 'condition' ? 'yellow' : 'violet'} py="xs" mt="md">
                 <Stack gap={4}>
                   <Text size="xs">
@@ -1133,23 +1129,80 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             </>
           )}
 
+          {transType === 'validator' && (
+            <>
+              {renderValidatorEditor()}
+              <Divider label="Raw JSON" labelPosition="center" />
+              <JsonInput 
+                label="Rules (JSON)" 
+                placeholder='{"field.path": "string"}' 
+                value={selectedNode.data.schema || ''} 
+                onChange={(val) => updateNodeConfig(selectedNode.id, { schema: val })} 
+                formatOnBlur
+                minRows={10}
+              />
+            </>
+          )}
+
           {transType === 'mask' && (
             <>
               <Autocomplete 
                 label="Field" 
-                placeholder="e.g. email" 
+                placeholder="e.g. email (use * for all)" 
                 data={availableFields}
                 value={selectedNode.data.field || ''} 
                 onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })} 
-                description="Field to mask. Supports nested objects and arrays."
+                description="Field to mask. Supports nested objects and arrays. Use * to scan all fields."
               />
               <Select 
                 label="Mask Type" 
-                data={['all', 'partial', 'email']} 
+                data={[
+                  { label: 'All (****)', value: 'all' },
+                  { label: 'Partial (ab****yz)', value: 'partial' },
+                  { label: 'Email (a****@b.com)', value: 'email' },
+                  { label: 'Auto PII Detection (SSN, Cards, IP)', value: 'pii' },
+                ]} 
                 value={selectedNode.data.maskType || 'all'} 
                 onChange={(val) => updateNodeConfig(selectedNode.id, { maskType: val || 'all' })} 
               />
             </>
+          )}
+
+          {transType === 'rate_limit' && (
+            <Stack gap="xs">
+              <Group grow>
+                <NumberInput 
+                  label="Messages Per Second" 
+                  min={0.1}
+                  step={1}
+                  value={selectedNode.data.mps || 100}
+                  onChange={(val) => updateNodeConfig(selectedNode.id, { mps: val })}
+                />
+                <NumberInput 
+                  label="Burst Size" 
+                  min={1}
+                  value={selectedNode.data.burst || 100}
+                  onChange={(val) => updateNodeConfig(selectedNode.id, { burst: val })}
+                />
+              </Group>
+              <Select 
+                label="Strategy"
+                data={[
+                  { label: 'Wait (Block)', value: 'wait' },
+                  { label: 'Drop (Discard)', value: 'drop' },
+                ]}
+                value={selectedNode.data.strategy || 'wait'}
+                onChange={(val) => updateNodeConfig(selectedNode.id, { strategy: val || 'wait' })}
+              />
+              <Autocomplete 
+                label="Key Field (Optional)" 
+                placeholder="e.g. user_id" 
+                data={availableFields}
+                value={selectedNode.data.keyField || ''} 
+                onChange={(val) => updateNodeConfig(selectedNode.id, { keyField: val })} 
+                description="If set, limits are applied per unique value of this field."
+              />
+            </Stack>
           )}
 
           {transType === 'db_lookup' && (
@@ -1164,8 +1217,16 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                   <Select
                     label="Database Source"
                     placeholder="Select source"
-                    data={(sources || [])
-                      .filter((s: any) => ['postgres', 'mysql', 'mssql', 'sqlite', 'mariadb', 'oracle', 'db2', 'mongodb', 'yugabyte', 'clickhouse'].includes(s.type))
+                    data={(Array.isArray(sources) ? sources : [])
+                      .filter((s: any) => {
+                        // Allow only DB-like sources first
+                        const allowedType = ['postgres', 'mysql', 'mssql', 'sqlite', 'mariadb', 'oracle', 'db2', 'mongodb', 'yugabyte', 'clickhouse'].includes(s.type);
+                        if (!allowedType) return false;
+                        // Filter out CDC-enabled sources except for SQL Server (mssql)
+                        const useCDC = s?.config?.use_cdc;
+                        const isCDCEnabled = useCDC !== undefined ? useCDC !== 'false' : false;
+                        return s.type === 'mssql' || !isCDCEnabled;
+                      })
                       .map((s: any) => ({ label: s.name, value: s.id }))}
                     value={selectedNode.data.sourceId || ''}
                     onChange={(val) => updateNodeConfig(selectedNode.id, { sourceId: val })}
@@ -1205,6 +1266,16 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                       onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.target.value })}
                     />
                   </Group>
+                  <Divider label="Or use a full Query Template" labelPosition="center" />
+                  <Textarea
+                    label="Query Template (SQL)"
+                    placeholder="SELECT * FROM users WHERE tenant_id = {{ source.tenant }} AND status = {{ 'active' }}"
+                    value={selectedNode.data.queryTemplate || ''}
+                    onChange={(e) => updateNodeConfig(selectedNode.id, { queryTemplate: e.currentTarget.value })}
+                    autosize
+                    minRows={3}
+                    description="When provided, Hermod executes this query with safe parameterization of {{ }} tokens. For MongoDB sources, use Where Clause instead."
+                  />
                 </Stack>
               </Tabs.Panel>
 
@@ -1215,7 +1286,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                     placeholder="e.g. status = 'active' AND id = {{user_id}}"
                     value={selectedNode.data.whereClause || ''}
                     onChange={(e) => updateNodeConfig(selectedNode.id, { whereClause: e.target.value })}
-                    description="Overrides Table/Key Column if provided. Supports {{field}} templates."
+                    description="Overrides Table/Key Column if provided. Supports {{ field }} templates. For MongoDB, provide a JSON filter string."
                   />
                   <Group grow align="flex-end">
                     <TextInput
@@ -1230,6 +1301,13 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                       placeholder="e.g. 5m, 1h"
                       value={selectedNode.data.ttl || ''}
                       onChange={(e) => updateNodeConfig(selectedNode.id, { ttl: e.target.value })}
+                    />
+                    <TextInput
+                      label="Flatten Into"
+                      placeholder="e.g. customer_flat or '.' for top level"
+                      value={selectedNode.data.flattenInto || ''}
+                      onChange={(e) => updateNodeConfig(selectedNode.id, { flattenInto: e.target.value })}
+                      description="If the result is an object, copy its fields into this path. Use '.' to flatten to top level."
                     />
                     <Button 
                       variant="light" 
@@ -1555,9 +1633,39 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     </Grid.Col>
 
       {/* Column 3: Live Preview */}
-      <Grid.Col span={{ base: 12, md: 4 }}>
-        {renderLivePreview()}
+      <Grid.Col span={{ base: 12, md: 12, lg: 4 }}>
+        <PreviewPanel
+          title="3. LIVE PREVIEW"
+          loading={testing || (previewMutation as any)?.isPending}
+          error={previewError || ((previewMutation as any)?.error?.message ?? null)}
+          result={previewResult || (previewMutation as any)?.data}
+          onRun={runPreview}
+        />
       </Grid.Col>
     </Grid>
+
+    <Modal 
+      opened={helpOpen} 
+      onClose={() => setHelpOpen(false)} 
+      title={<Group gap="xs"><IconHelpCircle size="1rem" /><Text id={helpTitleId} size="sm" fw={700}>Transformation Help</Text></Group>} 
+      aria-labelledby={helpTitleId}
+      aria-describedby={helpDescId}
+      size="lg" 
+      yOffset="10vh"
+      withCloseButton
+    >
+      <Text id={helpDescId} size="sm" c="dimmed" mb="sm">
+        Reference of supported operations and examples for building transformation expressions.
+      </Text>
+      <ScrollArea h={500} offsetScrollbars>
+        <Suspense fallback={<Text size="sm">Loading help…</Text>}>
+          <HelpContent />
+        </Suspense>
+      </ScrollArea>
+      <Group justify="right" mt="md">
+        <Button variant="light" onClick={() => setHelpOpen(false)}>Close</Button>
+      </Group>
+    </Modal>
+    </>
   );
 }

@@ -283,8 +283,9 @@ func (m *MSSQLSource) discoverCaptures(ctx context.Context) error {
 func (m *MSSQLSource) resolveTables(ctx context.Context) (map[string]int32, map[string]error, error) {
 	configToID := make(map[string]int32)
 	resolveErrors := make(map[string]error)
+
 	for _, t := range m.tables {
-		info, err := m.resolveTable(ctx, t)
+		info, err := m.ensureTableCDC(ctx, t)
 		if err == nil {
 			configToID[t] = info.objectID
 		} else {
@@ -292,19 +293,6 @@ func (m *MSSQLSource) resolveTables(ctx context.Context) (map[string]int32, map[
 		}
 	}
 
-	if m.autoEnableCDC {
-		if err := m.ensureDatabaseCDC(ctx); err != nil {
-			return nil, nil, err
-		}
-		for _, t := range m.tables {
-			info, err := m.ensureTableCDC(ctx, t)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to auto-enable CDC for table %s: %w", t, err)
-			}
-			configToID[t] = info.objectID
-			delete(resolveErrors, t) // Clear error if it was resolved
-		}
-	}
 	return configToID, resolveErrors, nil
 }
 
@@ -418,7 +406,9 @@ func (m *MSSQLSource) ensureDatabaseCDC(ctx context.Context) error {
 }
 
 func (m *MSSQLSource) ensureTableCDC(ctx context.Context, table string) (*tableInfo, error) {
-	if err := m.ensureDatabaseCDC(ctx); err != nil {
+	// 1. Resolve table first to get schema and name
+	info, err := m.resolveTable(ctx, table)
+	if err != nil {
 		return nil, err
 	}
 
@@ -429,13 +419,23 @@ func (m *MSSQLSource) ensureTableCDC(ctx context.Context, table string) (*tableI
 		return nil, fmt.Errorf("database connection not initialized")
 	}
 
-	info, err := m.resolveTable(ctx, table)
+	// 2. Check if CDC is enabled on the database
+	var isDatabaseCDCEnabled bool
+	err = db.QueryRowContext(ctx, queryCheckDatabaseCDC).Scan(&isDatabaseCDCEnabled)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to check if CDC is enabled on database: %w", err)
 	}
 
-	// Check if CDC is already enabled for the table and has a capture instance.
-	// We check both sys.tables and cdc.change_tables to be sure.
+	if !isDatabaseCDCEnabled {
+		if !m.autoEnableCDC {
+			return nil, fmt.Errorf("CDC is not enabled on database and auto_enable_cdc is false")
+		}
+		if err := m.ensureDatabaseCDC(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	// 3. Check if CDC is already enabled for the table
 	var isTracked bool
 	err = db.QueryRowContext(ctx, queryCheckTableCDC, info.objectID).Scan(&isTracked)
 
@@ -444,6 +444,9 @@ func (m *MSSQLSource) ensureTableCDC(ctx context.Context, table string) (*tableI
 	}
 
 	if err == sql.ErrNoRows || !isTracked {
+		if !m.autoEnableCDC {
+			return nil, fmt.Errorf("CDC is not enabled for table %s.%s and auto_enable_cdc is false", info.schema, info.name)
+		}
 		// Use named parameters for clarity and set supports_net_changes to 0 for better compatibility
 		_, err = db.ExecContext(ctx, queryEnableTableCDC, info.schema, info.name)
 		if err != nil {
@@ -755,7 +758,12 @@ func (m *MSSQLSource) ping(ctx context.Context, checkCDC bool) error {
 		return fmt.Errorf("failed to check database CDC status: %w", err)
 	}
 	if !isCDCEnabled {
-		return fmt.Errorf("CDC is not enabled on database")
+		if !m.autoEnableCDC {
+			return fmt.Errorf("CDC is not enabled on database. Please enable it using 'sys.sp_cdc_enable_db' or set auto_enable_cdc to true")
+		}
+		if err := m.ensureDatabaseCDC(ctx); err != nil {
+			return fmt.Errorf("failed to auto-enable CDC on database: %w (ensure user has db_owner role)", err)
+		}
 	}
 
 	// If we have specific tables, check if CDC is enabled for them
@@ -764,18 +772,24 @@ func (m *MSSQLSource) ping(ctx context.Context, checkCDC bool) error {
 			var isTableCDCEnabled int
 			info, err := m.resolveTable(ctx, table)
 			if err != nil {
-				return fmt.Errorf("failed to resolve table %s: %w", table, err)
+				return fmt.Errorf("failed to resolve table '%s': %w", table, err)
 			}
 
 			err = db.QueryRowContext(ctx, queryCheckTableCDC, info.objectID).Scan(&isTableCDCEnabled)
 			if err != nil {
 				if err == sql.ErrNoRows {
-					return fmt.Errorf("CDC is not enabled for table %s", table)
+					return fmt.Errorf("CDC is not enabled for table '%s'. Please enable it or set auto_enable_cdc to true", table)
 				}
-				return fmt.Errorf("failed to check CDC status for table %s: %w", table, err)
+				return fmt.Errorf("failed to check CDC status for table '%s': %w", table, err)
 			}
 			if isTableCDCEnabled != 1 {
-				return fmt.Errorf("CDC is not enabled for table %s", table)
+				if m.autoEnableCDC {
+					if _, err := m.ensureTableCDC(ctx, table); err != nil {
+						return fmt.Errorf("failed to auto-enable CDC for table '%s': %w (ensure user has db_owner role)", table, err)
+					}
+				} else {
+					return fmt.Errorf("CDC is not enabled for table '%s' (is_tracked_by_cdc = 0)", table)
+				}
 			}
 		}
 	}

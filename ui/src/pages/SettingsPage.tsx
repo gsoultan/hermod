@@ -1,5 +1,5 @@
 import { Title, Text, Stack, Paper, Select, TextInput, Button, Group } from '@mantine/core'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { apiFetch } from '../api'
 import { IconDownload, IconUpload } from '@tabler/icons-react'
@@ -39,6 +39,24 @@ export function SettingsPage() {
   }
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Prefill DB config from backend (admin-only endpoint)
+  useEffect(() => {
+    let aborted = false
+    ;(async () => {
+      try {
+        const res = await apiFetch('/api/config/database')
+        if (!res.ok) return
+        const data = await res.json()
+        if (aborted) return
+        if (data.type) setDbType(data.type)
+        if (typeof data.conn === 'string') setDbConn(data.conn)
+      } catch (_) {
+        // ignore
+      }
+    })()
+    return () => { aborted = true }
+  }, [])
 
   const handleExport = async () => {
     try {

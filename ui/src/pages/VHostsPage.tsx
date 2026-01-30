@@ -27,7 +27,7 @@ export function VHostsPage() {
     }
   })
 
-  const vhosts = vhostsResponse?.data || []
+  const vhosts = Array.isArray(vhostsResponse?.data) ? vhostsResponse.data : []
   const totalItems = vhostsResponse?.total || 0
 
   const deleteMutation = useMutation({

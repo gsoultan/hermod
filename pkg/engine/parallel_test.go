@@ -52,18 +52,19 @@ type parallelMockMessage struct {
 	id string
 }
 
-func (m *parallelMockMessage) ID() string                    { return m.id }
-func (m *parallelMockMessage) Operation() hermod.Operation   { return hermod.OpCreate }
-func (m *parallelMockMessage) Table() string                 { return "test" }
-func (m *parallelMockMessage) Schema() string                { return "public" }
-func (m *parallelMockMessage) Before() []byte                { return nil }
-func (m *parallelMockMessage) After() []byte                 { return nil }
-func (m *parallelMockMessage) Payload() []byte               { return nil }
-func (m *parallelMockMessage) Metadata() map[string]string   { return nil }
-func (m *parallelMockMessage) Data() map[string]interface{}  { return nil }
-func (m *parallelMockMessage) SetMetadata(key, value string) {}
-func (m *parallelMockMessage) Clone() hermod.Message         { return m }
-func (m *parallelMockMessage) ClearPayloads()                {}
+func (m *parallelMockMessage) ID() string                            { return m.id }
+func (m *parallelMockMessage) Operation() hermod.Operation           { return hermod.OpCreate }
+func (m *parallelMockMessage) Table() string                         { return "test" }
+func (m *parallelMockMessage) Schema() string                        { return "public" }
+func (m *parallelMockMessage) Before() []byte                        { return nil }
+func (m *parallelMockMessage) After() []byte                         { return nil }
+func (m *parallelMockMessage) Payload() []byte                       { return nil }
+func (m *parallelMockMessage) Metadata() map[string]string           { return nil }
+func (m *parallelMockMessage) Data() map[string]interface{}          { return nil }
+func (m *parallelMockMessage) SetData(key string, value interface{}) {}
+func (m *parallelMockMessage) SetMetadata(key, value string)         {}
+func (m *parallelMockMessage) Clone() hermod.Message                 { return m }
+func (m *parallelMockMessage) ClearPayloads()                        {}
 
 type parallelMockBuffer struct {
 	ch     chan hermod.Message

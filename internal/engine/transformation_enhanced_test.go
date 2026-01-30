@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -121,7 +122,7 @@ func TestTransformationPipelineEnhanced(t *testing.T) {
 		"column.is_adult":  `add(source.age, 0)`, // Just to test math in pipeline
 	}
 
-	res, err := registry.applyTransformation(msg, "advanced", config)
+	res, err := registry.applyTransformation(context.Background(), msg, "advanced", config)
 	if err != nil {
 		t.Fatalf("Failed to apply transformation: %v", err)
 	}
