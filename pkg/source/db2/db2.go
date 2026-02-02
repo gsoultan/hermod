@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,17 +18,28 @@ import (
 // DB2Source implements the hermod.Source interface for DB2.
 // Note: Requires a DB2 driver like github.com/ibmdb/go_ibm_db to be registered.
 type DB2Source struct {
-	connString string
-	useCDC     bool
-	db         *sql.DB
-	mu         sync.Mutex
-	logger     hermod.Logger
+	connString   string
+	useCDC       bool
+	tables       []string
+	idField      string
+	pollInterval time.Duration
+	db           *sql.DB
+	mu           sync.Mutex
+	logger       hermod.Logger
+	lastIDs      map[string]interface{}
 }
 
-func NewDB2Source(connString string, useCDC bool) *DB2Source {
+func NewDB2Source(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *DB2Source {
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second
+	}
 	return &DB2Source{
-		connString: connString,
-		useCDC:     useCDC,
+		connString:   connString,
+		tables:       tables,
+		idField:      idField,
+		pollInterval: pollInterval,
+		useCDC:       useCDC,
+		lastIDs:      make(map[string]interface{}),
 	}
 }
 
@@ -85,11 +97,112 @@ func (d *DB2Source) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, err
 	}
 
-	select {
-	case <-ctx.Done():
+	if !d.useCDC {
+		<-ctx.Done()
 		return nil, ctx.Err()
-	case <-time.After(5 * time.Second):
-		return nil, nil
+	}
+
+	for {
+		for _, table := range d.tables {
+			d.mu.Lock()
+			lastID := d.lastIDs[table]
+			d.mu.Unlock()
+
+			quotedTable, err := sqlutil.QuoteIdent("db2", table)
+			if err != nil {
+				return nil, err
+			}
+
+			var query string
+			var args []interface{}
+
+			if lastID != nil && d.idField != "" {
+				quotedID, _ := sqlutil.QuoteIdent("db2", d.idField)
+				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? ORDER BY %s ASC FETCH FIRST 1 ROWS ONLY", quotedTable, quotedID, quotedID)
+				args = append(args, lastID)
+			} else {
+				query = fmt.Sprintf("SELECT * FROM %s FETCH FIRST 1 ROWS ONLY", quotedTable)
+			}
+
+			rows, err := d.db.QueryContext(ctx, query, args...)
+			if err != nil {
+				return nil, fmt.Errorf("db2 poll error: %w", err)
+			}
+
+			if rows.Next() {
+				cols, _ := rows.Columns()
+				values := make([]interface{}, len(cols))
+				ptr := make([]interface{}, len(cols))
+				for i := range values {
+					ptr[i] = &values[i]
+				}
+
+				if err := rows.Scan(ptr...); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				rows.Close()
+
+				record := make(map[string]interface{})
+				var currentID interface{}
+				for i, col := range cols {
+					val := values[i]
+					if b, ok := val.([]byte); ok {
+						val = string(b)
+					}
+					record[col] = val
+					if col == d.idField {
+						currentID = val
+					}
+				}
+
+				if currentID != nil {
+					d.mu.Lock()
+					d.lastIDs[table] = currentID
+					d.mu.Unlock()
+				}
+
+				afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+				msg := message.AcquireMessage()
+				msg.SetID(fmt.Sprintf("db2-%s-%v", table, currentID))
+				msg.SetOperation(hermod.OpCreate)
+				msg.SetTable(table)
+				msg.SetAfter(afterJSON)
+				msg.SetMetadata("source", "db2")
+
+				return msg, nil
+			}
+			rows.Close()
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(d.pollInterval):
+		}
+	}
+}
+
+func (d *DB2Source) GetState() map[string]string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	state := make(map[string]string)
+	for table, id := range d.lastIDs {
+		state["last_id:"+table] = fmt.Sprintf("%v", id)
+	}
+	return state
+}
+
+func (d *DB2Source) SetState(state map[string]string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	for k, v := range state {
+		if strings.HasPrefix(k, "last_id:") {
+			table := strings.TrimPrefix(k, "last_id:")
+			d.lastIDs[table] = v
+		}
 	}
 }
 

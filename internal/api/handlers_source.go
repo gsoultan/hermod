@@ -16,16 +16,16 @@ import (
 func (s *Server) registerSourceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sources", s.listSources)
 	mux.HandleFunc("GET /api/sources/{id}", s.getSource)
-	mux.HandleFunc("POST /api/sources", s.createSource)
-	mux.HandleFunc("PUT /api/sources/{id}", s.updateSource)
-	mux.HandleFunc("POST /api/sources/test", s.testSource)
-	mux.HandleFunc("POST /api/sources/discover/databases", s.discoverDatabases)
-	mux.HandleFunc("POST /api/sources/discover/tables", s.discoverTables)
-	mux.HandleFunc("POST /api/sources/sample", s.sampleSourceTable)
-	mux.HandleFunc("POST /api/proxy/fetch", s.proxyFetch)
-	mux.HandleFunc("DELETE /api/sources/{id}", s.deleteSource)
+	mux.Handle("POST /api/sources", s.editorOnly(s.createSource))
+	mux.Handle("PUT /api/sources/{id}", s.editorOnly(s.updateSource))
+	mux.Handle("POST /api/sources/test", s.editorOnly(s.testSource))
+	mux.Handle("POST /api/sources/discover/databases", s.editorOnly(s.discoverDatabases))
+	mux.Handle("POST /api/sources/discover/tables", s.editorOnly(s.discoverTables))
+	mux.Handle("POST /api/sources/sample", s.editorOnly(s.sampleSourceTable))
+	mux.Handle("POST /api/proxy/fetch", s.editorOnly(s.proxyFetch))
+	mux.Handle("DELETE /api/sources/{id}", s.editorOnly(s.deleteSource))
 	mux.HandleFunc("GET /api/webhooks/requests", s.listWebhookRequests)
-	mux.HandleFunc("POST /api/webhooks/requests/{id}/replay", s.replayWebhookRequest)
+	mux.Handle("POST /api/webhooks/requests/{id}/replay", s.editorOnly(s.replayWebhookRequest))
 }
 
 func (s *Server) listSources(w http.ResponseWriter, r *http.Request) {
@@ -107,6 +107,7 @@ func (s *Server) createSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	src.ID = uuid.New().String()
+	src.Active = true
 	if err := s.storage.CreateSource(r.Context(), src); err != nil {
 		s.jsonError(w, "Failed to create source: "+err.Error(), http.StatusInternalServerError)
 		return

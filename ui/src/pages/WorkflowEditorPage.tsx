@@ -1,5 +1,5 @@
 import { 
-  useCallback, useEffect, useMemo, useRef, lazy 
+  useCallback, useEffect, useMemo, useRef, lazy, useState 
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import ReactFlow, { 
@@ -43,6 +43,11 @@ import { useStyledFlow } from './WorkflowEditor/hooks/useStyledFlow';
 import { EditorToolbar } from './WorkflowEditor/components/EditorToolbar';
 import { SidebarDrawer } from './WorkflowEditor/components/SidebarDrawer';
 import { Modals } from './WorkflowEditor/components/Modals';
+import { LiveStreamInspector } from './WorkflowEditor/components/LiveStreamInspector';
+import { SchemaRegistryModal } from '../components/SchemaRegistryModal';
+import { WorkflowHistoryModal } from '../components/WorkflowHistoryModal';
+import { AIGeneratorModal } from './WorkflowEditor/components/AIGeneratorModal';
+import { AIFixModal } from './WorkflowEditor/components/AIFixModal';
 import { WorkflowContext } from './WorkflowEditor/nodes/BaseNode';
 // Lazy-load heavy editor node components to reduce initial bundle size
 const SourceNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/SourceSinkNodes')).SourceNode }))
@@ -85,13 +90,19 @@ function EditorInner() {
     vhost, selectedNode, active, logsPaused, quickAddSource, nodes, edges, 
     testResults, testInput, name, deadLetterSinkID, dlqThreshold,
     prioritizeDLQ, maxRetries, retryInterval, reconnectInterval,
-    schemaType, schema, workerID, dryRun, workflowStatus, logs, logsOpened, settingsOpened,
+    schemaType, schema, tags, workerID, dryRun, workspaceID,
+    cpuRequest, memoryRequest, throughputRequest,
+    workflowStatus, logs, logsOpened, settingsOpened,
     onNodesChange, onEdgesChange,
     setName, setVHost, setWorkerID, setActive, setWorkflowStatus, 
     setDeadLetterSinkID, setDlqThreshold, setPrioritizeDLQ, setMaxRetries, setRetryInterval, 
-    setReconnectInterval, setSchemaType, setSchema, setNodes, setEdges, setLogs, setQuickAddSource,
+    setReconnectInterval, setSchemaType, setSchema, setTags, setNodes, setEdges, setLogs, setQuickAddSource,
+    setWorkspaceID, setCPURequest, setMemoryRequest, setThroughputRequest,
     setSelectedNode, setSettingsOpened, setDrawerOpened, updateNodeConfig,
-    setTestResults, setTestModalOpened, setLogsOpened, setLogsPaused, setDryRun
+    setTestResults, setTestModalOpened, setLogsOpened, setLogsPaused, setDryRun,
+    setTraceInspectorOpened, setTraceMessageID, setSchemaRegistryOpened,
+    schemaRegistryOpened, historyOpened, setHistoryOpened, liveStreamOpened, setLiveStreamOpened,
+    aiGeneratorOpened, setAIGeneratorOpened
   } = useWorkflowStore(useShallow(state => ({
     vhost: state.vhost,
     selectedNode: state.selectedNode,
@@ -111,12 +122,23 @@ function EditorInner() {
     reconnectInterval: state.reconnectInterval,
     schemaType: state.schemaType,
     schema: state.schema,
+    tags: state.tags,
     workerID: state.workerID,
     dryRun: state.dryRun,
+    workspaceID: state.workspaceID,
+    cpuRequest: state.cpuRequest,
+    memoryRequest: state.memoryRequest,
+    throughputRequest: state.throughputRequest,
     workflowStatus: state.workflowStatus,
     logs: state.logs,
     logsOpened: state.logsOpened,
     settingsOpened: state.settingsOpened,
+    schemaRegistryOpened: state.schemaRegistryOpened,
+    historyOpened: state.historyOpened,
+    liveStreamOpened: state.liveStreamOpened,
+    traceInspectorOpened: state.traceInspectorOpened,
+    traceMessageID: state.traceMessageID,
+    aiGeneratorOpened: state.aiGeneratorOpened,
     onNodesChange: state.onNodesChange,
     onEdgesChange: state.onEdgesChange,
     setName: state.setName,
@@ -132,6 +154,11 @@ function EditorInner() {
     setReconnectInterval: state.setReconnectInterval,
     setSchemaType: state.setSchemaType,
     setSchema: state.setSchema,
+    setTags: state.setTags,
+    setWorkspaceID: state.setWorkspaceID,
+    setCPURequest: state.setCPURequest,
+    setMemoryRequest: state.setMemoryRequest,
+    setThroughputRequest: state.setThroughputRequest,
     setNodes: state.setNodes,
     setEdges: state.setEdges,
     setLogs: state.setLogs,
@@ -145,6 +172,12 @@ function EditorInner() {
     setLogsOpened: state.setLogsOpened,
     setLogsPaused: state.setLogsPaused,
     setDryRun: state.setDryRun,
+    setTraceInspectorOpened: state.setTraceInspectorOpened,
+    setTraceMessageID: state.setTraceMessageID,
+    setSchemaRegistryOpened: state.setSchemaRegistryOpened,
+    setHistoryOpened: state.setHistoryOpened,
+    setLiveStreamOpened: state.setLiveStreamOpened,
+    setAIGeneratorOpened: state.setAIGeneratorOpened
   })));
   const { styledNodes, styledEdges } = useStyledFlow();
 
@@ -152,6 +185,8 @@ function EditorInner() {
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
   const logScrollRef = useRef<HTMLDivElement>(null);
+
+  const [aiFixModalData, setAIFixModalData] = useState<any>(null);
 
   const { data: sources } = useQuery({ 
     queryKey: ['sources', vhost], 
@@ -222,7 +257,12 @@ function EditorInner() {
       setReconnectInterval(workflow.reconnect_interval || '30s');
       setSchemaType(workflow.schema_type || '');
       setSchema(workflow.schema || '');
+      setTags(workflow.tags || []);
       setDryRun(workflow.dry_run || false);
+      setWorkspaceID(workflow.workspace_id || '');
+      setCPURequest(workflow.cpu_request || 0);
+      setMemoryRequest(workflow.memory_request || 0);
+      setThroughputRequest(workflow.throughput_request || 0);
       
       const initialNodes = (workflow.nodes || []).map((node: any) => ({
         id: node.id,
@@ -290,8 +330,23 @@ function EditorInner() {
             if (update.node_metrics) {
               useWorkflowStore.setState({ nodeMetrics: update.node_metrics });
             }
+            if (update.node_error_metrics) {
+              useWorkflowStore.setState({ nodeErrorMetrics: update.node_error_metrics });
+            }
             if (update.node_samples) {
               useWorkflowStore.setState({ nodeSamples: update.node_samples });
+            }
+            if (update.sink_cb_statuses) {
+              useWorkflowStore.setState({ sinkCBStatuses: update.sink_cb_statuses });
+            }
+            if (update.sink_buffer_fill) {
+              useWorkflowStore.setState({ sinkBufferFill: update.sink_buffer_fill });
+            }
+            if (update.source_status) {
+              useWorkflowStore.setState({ sourceStatus: update.source_status });
+            }
+            if (update.sink_statuses) {
+              useWorkflowStore.setState({ sinkStatuses: update.sink_statuses });
             }
             if (update.dead_letter_count !== undefined) {
               useWorkflowStore.setState({ workflowDeadLetterCount: update.dead_letter_count });
@@ -351,7 +406,7 @@ function EditorInner() {
     }
   }, [testResults]);
 
-  const addNodeAtPosition = useCallback((type: string, refId: string, label: string, subType: string, position: { x: number, y: number }) => {
+  const addNodeAtPosition = useCallback((type: string, refId: string, label: string, subType: string, position: { x: number, y: number }, extraData?: any) => {
     const newNode: Node = {
       id: `node_${Date.now()}`,
       type,
@@ -359,7 +414,8 @@ function EditorInner() {
       data: { 
         label, 
         ref_id: refId, 
-        ...(type === 'transformation' ? { transType: subType } : { type: subType })
+        ...(type === 'transformation' ? { transType: subType } : { type: subType }),
+        ...(extraData || {})
       },
     };
 
@@ -379,8 +435,8 @@ function EditorInner() {
     }
   }, [quickAddSource, active, setEdges, setNodes, setQuickAddSource]);
 
-  const onDragStart = (event: any, nodeType: string, refId: string, label: string, subType: string) => {
-    event.dataTransfer.setData('application/reactflow', JSON.stringify({ nodeType, refId, label, subType }));
+  const onDragStart = (event: any, nodeType: string, refId: string, label: string, subType: string, extraData?: any) => {
+    event.dataTransfer.setData('application/reactflow', JSON.stringify({ nodeType, refId, label, subType, ...(extraData || {}) }));
     event.dataTransfer.effectAllowed = 'move';
   };
 
@@ -395,13 +451,13 @@ function EditorInner() {
     const dataStr = event.dataTransfer.getData('application/reactflow');
     if (!dataStr || !reactFlowBounds) return;
 
-    const { nodeType, refId, label, subType } = JSON.parse(dataStr);
+    const { nodeType, refId, label, subType, ...extraData } = JSON.parse(dataStr);
     const position = project({
       x: event.clientX - reactFlowBounds.left,
       y: event.clientY - reactFlowBounds.top,
     });
 
-    addNodeAtPosition(nodeType, refId, label, subType, position);
+    addNodeAtPosition(nodeType, refId, label, subType, position, extraData);
   }, [project, addNodeAtPosition]);
 
   const handleInlineSave = (updatedData: any) => {
@@ -532,8 +588,13 @@ function EditorInner() {
         retry_interval: retryInterval,
         reconnect_interval: reconnectInterval,
         dry_run: dryRun,
+        workspace_id: workspaceID,
+        cpu_request: cpuRequest,
+        memory_request: memoryRequest,
+        throughput_request: throughputRequest,
         schema_type: schemaType,
         schema: schema,
+        tags: tags,
         nodes: nodes.map(n => ({
           id: n.id,
           type: n.type,
@@ -766,7 +827,7 @@ function EditorInner() {
           workers={workers?.data || []}
         />
 
-        <Flex style={{ flex: 1, overflow: 'hidden' }}>
+        <Flex style={{ flex: 1, overflow: 'hidden' }} gap="md">
           <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', gap: 'var(--mantine-spacing-md)' }}>
             <Paper withBorder radius="md" style={{ flex: 1, position: 'relative' }} ref={reactFlowWrapper}>
               <ReactFlow
@@ -820,7 +881,30 @@ function EditorInner() {
                   <ScrollArea style={{ flex: 1 }} p="xs" viewportRef={logScrollRef}>
                      <Stack gap={4}>
                         {logs.map((log: any, i: number) => (
-                           <Group key={i} gap="xs" wrap="nowrap" align="flex-start">
+                           <Group 
+                              key={i} 
+                              gap="xs" 
+                              wrap="nowrap" 
+                              align="flex-start" 
+                              style={{ 
+                                cursor: log.data ? 'pointer' : 'default',
+                                padding: '2px 4px',
+                                borderRadius: '4px'
+                              }}
+                              onClick={() => {
+                                if (log.data) {
+                                  setTraceMessageID(log.data);
+                                  setTraceInspectorOpened(true);
+                                } else if (log.level === 'ERROR') {
+                                  // Trigger AI Analysis for errors
+                                  setAIFixModalData({ 
+                                    workflow_id: id, 
+                                    node_id: log.node_id, 
+                                    error: log.message 
+                                  });
+                                }
+                              }}
+                           >
                               <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
                                  {formatTime(log.timestamp)}
                               </Text>
@@ -829,6 +913,7 @@ function EditorInner() {
                               </Badge>
                               <Text size="xs" style={{ wordBreak: 'break-all', fontFamily: 'monospace' }}>
                                  {log.message}
+                                 {log.data && <Badge size="xs" ml="xs" variant="outline" color="blue">Trace</Badge>}
                               </Text>
                            </Group>
                         ))}
@@ -840,25 +925,25 @@ function EditorInner() {
                )}
             </Paper>
           </Box>
-        </Flex>
 
-        <SidebarDrawer 
-          onDragStart={onDragStart}
-          onAddItem={(type, refId, label, subType) => {
-            const bounds = reactFlowWrapper.current?.getBoundingClientRect();
-            let pos;
-            if (quickAddSource) {
-              const sourceNode = nodes.find(n => n.id === quickAddSource!.nodeId);
-              pos = sourceNode ? { x: sourceNode.position.x + 250, y: sourceNode.position.y } : { x: 100, y: 100 };
-            } else {
-              pos = project({ x: (bounds?.width || 400) / 2, y: (bounds?.height || 400) / 2 });
-            }
-            addNodeAtPosition(type, refId, label, subType, pos);
-            if (quickAddSource) setDrawerOpened(false);
-          }}
-          sources={sources?.data || []}
-          sinks={sinks?.data || []}
-        />
+          <SidebarDrawer 
+            onDragStart={onDragStart}
+            onAddItem={(type, refId, label, subType, extraData) => {
+              const bounds = reactFlowWrapper.current?.getBoundingClientRect();
+              let pos;
+              if (quickAddSource) {
+                const sourceNode = nodes.find(n => n.id === quickAddSource!.nodeId);
+                pos = sourceNode ? { x: sourceNode.position.x + 250, y: sourceNode.position.y } : { x: 100, y: 100 };
+              } else {
+                pos = project({ x: (bounds?.width || 400) / 2, y: (bounds?.height || 400) / 2 });
+              }
+              addNodeAtPosition(type, refId, label, subType, pos, extraData);
+              if (quickAddSource) setDrawerOpened(false);
+            }}
+            sources={sources?.data || []}
+            sinks={sinks?.data || []}
+          />
+        </Flex>
 
         <Modal
           opened={settingsOpened}
@@ -918,7 +1003,7 @@ function EditorInner() {
                       sinks={sinks?.data || []}
                     />
                   )}
-                  {selectedNode && ['transformation', 'validator', 'condition', 'switch', 'merge', 'stateful', 'note'].includes(selectedNode.type!) && (
+                  {selectedNode && ['transformation', 'validator', 'condition', 'switch', 'router', 'merge', 'stateful', 'note'].includes(selectedNode.type!) && (
                     <Stack gap="sm">
                        <TransformationForm
                          selectedNode={selectedNode}
@@ -961,6 +1046,53 @@ function EditorInner() {
         <Modals
           onRunSimulation={(input) => testMutation.mutate(input)}
           isTesting={testMutation.isPending}
+        />
+
+        <SchemaRegistryModal 
+          opened={schemaRegistryOpened} 
+          onClose={() => setSchemaRegistryOpened(false)} 
+        />
+
+        <WorkflowHistoryModal
+          workflowId={id}
+          opened={historyOpened}
+          onClose={() => setHistoryOpened(false)}
+        />
+
+        <LiveStreamInspector
+          workflowId={id}
+          opened={liveStreamOpened}
+          onClose={() => setLiveStreamOpened(false)}
+        />
+
+        <AIGeneratorModal
+          opened={aiGeneratorOpened}
+          onClose={() => setAIGeneratorOpened(false)}
+          onGenerated={(generatedWorkflow) => {
+            if (generatedWorkflow.nodes) {
+              setNodes(generatedWorkflow.nodes.map((n: any) => ({
+                ...n,
+                position: n.position || { x: Math.random() * 400, y: Math.random() * 400 }
+              })));
+            }
+            if (generatedWorkflow.edges) {
+              setEdges(generatedWorkflow.edges);
+            }
+            if (generatedWorkflow.name) {
+              setName(generatedWorkflow.name);
+            }
+            notifications.show({
+              title: 'Workflow Generated',
+              message: 'AI has scaffolded the workflow. Please configure node details.',
+              color: 'indigo'
+            });
+          }}
+        />
+
+        <AIFixModal
+          data={aiFixModalData}
+          opened={!!aiFixModalData}
+          onClose={() => setAIFixModalData(null)}
         />
       </Box>
     </WorkflowContext.Provider>

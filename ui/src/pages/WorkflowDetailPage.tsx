@@ -13,16 +13,18 @@ import 'reactflow/dist/style.css';
 import { 
   Title, Button, Group, Paper, Stack, Text, Box, Divider, Badge, ScrollArea, Flex,
   ThemeIcon, Table, ActionIcon, Tooltip, Pagination, TextInput, Tabs, Modal, Code,
-  useMantineColorScheme
+  useMantineColorScheme, Grid, Loader, UnstyledButton, Alert
 } from '@mantine/core';
 import { 
   IconArrowLeft, IconDatabase, IconArrowsExchange, IconServer, 
   IconWorld, IconSettingsAutomation, IconFileSpreadsheet, IconCircles, IconList,
   IconGitBranch, IconVariable, IconRefresh, IconSearch, IconEye,
-  IconChartBar, IconTerminal2, IconLayoutGrid, IconCloud
+  IconChartBar, IconTerminal2, IconLayoutGrid, IconCloud, IconTimeline,
+  IconClock, IconCircleCheck, IconCircleX, IconChevronRight, IconHistory,
+  IconRotateDot, IconInfoCircle
 } from '@tabler/icons-react';
 import { Link, useParams } from '@tanstack/react-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { apiFetch } from '../api';
 import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import dagre from 'dagre';
@@ -178,6 +180,54 @@ export function WorkflowDetailPage() {
   const { id } = useParams({ from: '/workflows/$id' }) as any;
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string | null>('graph');
+  const [selectedTraceID, setSelectedTraceID] = useState<string | null>(null);
+
+  const { data: traces, isLoading: isTracesLoading } = useQuery({
+    queryKey: ['traces', id],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/workflows/${id}/traces`);
+      if (!res.ok) throw new Error('Failed to fetch traces');
+      return res.json();
+    },
+    enabled: activeTab === 'traces',
+  });
+
+  const { data: versions, isLoading: isVersionsLoading } = useQuery({
+    queryKey: ['versions', id],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/workflows/${id}/versions`);
+      if (!res.ok) throw new Error('Failed to fetch versions');
+      return res.json();
+    },
+    enabled: activeTab === 'history',
+  });
+
+  const rollbackMutation = useMutation({
+    mutationFn: async (version: number) => {
+      if (!confirm(`Rollback workflow to version ${version}?`)) return;
+      const res = await apiFetch(`/api/workflows/${id}/rollback/${version}`, {
+        method: 'POST'
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow', id] });
+      queryClient.invalidateQueries({ queryKey: ['versions', id] });
+      setActiveTab('graph');
+    }
+  });
+
+  const { data: selectedTrace, isLoading: isTraceDetailLoading } = useQuery({
+    queryKey: ['trace', id, selectedTraceID],
+    queryFn: async () => {
+      // Use query parameter for message_id to avoid issues with slashes in IDs (e.g. Postgres LSNs)
+      const res = await apiFetch(`/api/workflows/${id}/traces/?message_id=${encodeURIComponent(selectedTraceID || '')}`);
+      if (!res.ok) throw new Error('Failed to fetch trace detail');
+      return res.json();
+    },
+    enabled: !!selectedTraceID,
+  });
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
   
@@ -378,6 +428,8 @@ export function WorkflowDetailPage() {
           <Tabs value={activeTab} onChange={setActiveTab} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             <Tabs.List px="md">
               <Tabs.Tab value="graph" leftSection={<IconChartBar size="1rem" />}>Graph View</Tabs.Tab>
+              <Tabs.Tab value="traces" leftSection={<IconTimeline size="1rem" />}>Message Traces</Tabs.Tab>
+              <Tabs.Tab value="history" leftSection={<IconHistory size="1rem" />}>History</Tabs.Tab>
               <Tabs.Tab value="logs" leftSection={<IconTerminal2 size="1rem" />}>Logs</Tabs.Tab>
             </Tabs.List>
 
@@ -412,6 +464,165 @@ export function WorkflowDetailPage() {
                   </Tooltip>
                 </Box>
               </ReactFlowProvider>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="traces" style={{ flex: 1, overflow: 'hidden' }}>
+              <Grid h="100%" gutter={0}>
+                <Grid.Col span={4} style={{ borderRight: `1px solid ${isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'}`, display: 'flex', flexDirection: 'column' }}>
+                  <Stack gap={0} h="100%">
+                    <Box p="md" style={{ borderBottom: `1px solid ${isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'}` }}>
+                      <Text fw={700} size="sm">Recent Traces</Text>
+                    </Box>
+                    <ScrollArea style={{ flex: 1 }}>
+                      {isTracesLoading ? (
+                        <Group justify="center" p="xl"><Loader size="sm" /></Group>
+                      ) : (traces as any)?.length === 0 ? (
+                        <Text p="md" size="sm" c="dimmed" ta="center">No traces found.</Text>
+                      ) : (traces as any)?.map((t: any) => (
+                        <UnstyledButton 
+                          key={t.message_id} 
+                          onClick={() => setSelectedTraceID(t.message_id)}
+                          p="sm"
+                          style={{ 
+                            width: '100%', 
+                            borderBottom: `1px solid ${isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-2)'}`,
+                            backgroundColor: selectedTraceID === t.message_id ? (isDark ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-blue-0)') : 'transparent'
+                          }}
+                        >
+                          <Group justify="space-between" wrap="nowrap">
+                            <Box style={{ flex: 1, overflow: 'hidden' }}>
+                              <Text size="sm" fw={600} truncate>{t.message_id}</Text>
+                              <Text size="xs" c="dimmed">{new Date(t.start_time).toLocaleString()}</Text>
+                            </Box>
+                            <IconChevronRight size="1rem" color="var(--mantine-color-gray-5)" />
+                          </Group>
+                        </UnstyledButton>
+                      ))}
+                    </ScrollArea>
+                  </Stack>
+                </Grid.Col>
+                <Grid.Col span={8} h="100%">
+                  <ScrollArea h="100%" p="md">
+                    {!selectedTraceID ? (
+                      <Stack h="100%" align="center" justify="center" py={100} gap="xs">
+                        <IconTimeline size="3rem" color="var(--mantine-color-gray-3)" />
+                        <Text c="dimmed">Select a message trace to see its journey</Text>
+                      </Stack>
+                    ) : isTraceDetailLoading ? (
+                      <Group justify="center" py={100}><Loader size="md" /></Group>
+                    ) : selectedTrace ? (
+                      <Stack gap="xl">
+                        <Box>
+                          <Title order={4} mb="xs">Message Journey</Title>
+                          <Text size="sm" c="dimmed">Tracking ID: <Code>{selectedTraceID}</Code></Text>
+                        </Box>
+                        
+                        <Stack gap={0}>
+                          {(selectedTrace as any)?.steps?.map((step: any, idx: number) => (
+                            <Box key={idx} style={{ 
+                              borderLeft: '2px solid var(--mantine-color-blue-2)', 
+                              paddingLeft: '2rem',
+                              paddingBottom: '2rem',
+                              position: 'relative'
+                            }}>
+                              <ThemeIcon 
+                                variant="filled" 
+                                size="md" 
+                                radius="xl" 
+                                color={step.error ? "red" : "blue"}
+                                style={{ position: 'absolute', left: '-13px', top: '0' }}
+                              >
+                                {step.error ? <IconCircleX size="1rem" /> : <IconCircleCheck size="1rem" />}
+                              </ThemeIcon>
+                              
+                              <Paper withBorder p="md" radius="md" shadow="xs">
+                                <Stack gap="xs">
+                                  <Group justify="space-between">
+                                    <Text fw={700}>Node: {step.node_id}</Text>
+                                    <Badge leftSection={<IconClock size="0.8rem" />} variant="light">
+                                      {step.duration_ms || Math.round(step.duration / 1000000)}ms
+                                    </Badge>
+                                  </Group>
+                                  
+                                  <Text size="xs" c="dimmed">{new Date(step.timestamp).toLocaleString()}</Text>
+
+                                  {step.error && (
+                                    <Alert color="red" icon={<IconCircleX size="1rem" />} title="Processing Error">
+                                      {step.error}
+                                    </Alert>
+                                  )}
+                                  
+                                  {step.data && (
+                                    <Box>
+                                      <Text size="xs" fw={700} mb={4} c="dimmed">OUTPUT DATA</Text>
+                                      <Code block>{JSON.stringify(step.data, null, 2)}</Code>
+                                    </Box>
+                                  )}
+                                </Stack>
+                              </Paper>
+                            </Box>
+                          ))}
+                        </Stack>
+                      </Stack>
+                    ) : (
+                      <Alert color="red">Failed to load trace details.</Alert>
+                    )}
+                  </ScrollArea>
+                </Grid.Col>
+              </Grid>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="history" style={{ flex: 1, overflow: 'hidden' }}>
+              <ScrollArea h="100%" p="md">
+                <Stack gap="md">
+                  <Box>
+                    <Title order={4} mb="xs">Workflow History</Title>
+                    <Text size="sm" c="dimmed">View and restore previous versions of this workflow.</Text>
+                  </Box>
+
+                  {isVersionsLoading ? (
+                    <Group justify="center" p="xl"><Loader size="md" /></Group>
+                  ) : (versions as any)?.length === 0 ? (
+                    <Alert color="gray" icon={<IconInfoCircle size="1rem" />}>
+                      No history found for this workflow. Versions are created automatically when you save changes.
+                    </Alert>
+                  ) : (
+                    <Table verticalSpacing="sm" highlightOnHover>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th style={{ width: 80 }}>Version</Table.Th>
+                          <Table.Th style={{ width: 180 }}>Timestamp</Table.Th>
+                          <Table.Th style={{ width: 120 }}>Created By</Table.Th>
+                          <Table.Th>Message</Table.Th>
+                          <Table.Th style={{ width: 150 }}>Actions</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {(Array.isArray(versions) ? versions : []).map((v: any) => (
+                          <Table.Tr key={v.id}>
+                            <Table.Td><Badge size="md">v{v.version}</Badge></Table.Td>
+                            <Table.Td><Text size="sm">{new Date(v.created_at).toLocaleString()}</Text></Table.Td>
+                            <Table.Td><Text size="sm">{v.created_by}</Text></Table.Td>
+                            <Table.Td><Text size="sm">{v.message}</Text></Table.Td>
+                            <Table.Td>
+                              <Button 
+                                variant="light" 
+                                size="xs" 
+                                color="orange" 
+                                leftSection={<IconRotateDot size="0.8rem" />}
+                                onClick={() => rollbackMutation.mutate(v.version)}
+                                loading={rollbackMutation.isPending}
+                              >
+                                Restore
+                              </Button>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  )}
+                </Stack>
+              </ScrollArea>
             </Tabs.Panel>
 
             <Tabs.Panel value="logs" p="md" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

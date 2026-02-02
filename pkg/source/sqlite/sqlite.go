@@ -17,50 +17,94 @@ import (
 // Since SQLite doesn't have native CDC like Postgres, this implementation
 // might rely on triggers or polling. For now, it's a placeholder consistent with other sources.
 type SQLiteSource struct {
-	dbPath string
-	tables []string
-	useCDC bool
-	db     *sql.DB
+	dbPath  string
+	tables  []string
+	useCDC  bool
+	db      *sql.DB
+	lastIDs map[string]int64
 }
 
 func NewSQLiteSource(dbPath string, tables []string, useCDC bool) *SQLiteSource {
 	return &SQLiteSource{
-		dbPath: dbPath,
-		tables: tables,
-		useCDC: useCDC,
+		dbPath:  dbPath,
+		tables:  tables,
+		useCDC:  useCDC,
+		lastIDs: make(map[string]int64),
 	}
 }
 
 func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
-	if !s.useCDC {
-		if s.db == nil {
-			if err := s.init(ctx); err != nil {
-				return nil, err
-			}
-		}
-		<-ctx.Done()
-		return nil, ctx.Err()
-	}
-
 	if s.db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
 	}
 
-	select {
-	case <-ctx.Done():
+	if !s.useCDC {
+		<-ctx.Done()
 		return nil, ctx.Err()
-	default:
-		// Placeholder logic for SQLite "CDC"
-		msg := message.AcquireMessage()
-		msg.SetID("sqlite-1")
-		msg.SetOperation(hermod.OpCreate)
-		if len(s.tables) > 0 {
-			msg.SetTable(s.tables[0])
+	}
+
+	// Simple polling-based CDC for SQLite using rowid
+	for {
+		for _, table := range s.tables {
+			lastID := s.lastIDs[table]
+			query := fmt.Sprintf("SELECT rowid AS _hermod_rowid, * FROM %s WHERE rowid > %d ORDER BY rowid ASC LIMIT 1", table, lastID)
+
+			rows, err := s.db.QueryContext(ctx, query)
+			if err != nil {
+				return nil, err
+			}
+
+			if rows.Next() {
+				cols, _ := rows.Columns()
+				values := make([]interface{}, len(cols))
+				pointers := make([]interface{}, len(cols))
+				for i := range values {
+					pointers[i] = &values[i]
+				}
+
+				if err := rows.Scan(pointers...); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				rows.Close()
+
+				var currentRowID int64
+				data := make(map[string]interface{})
+				for i, col := range cols {
+					val := values[i]
+					if b, ok := val.([]byte); ok {
+						val = string(b)
+					}
+					if col == "_hermod_rowid" {
+						currentRowID = val.(int64)
+					} else {
+						data[col] = val
+					}
+				}
+
+				s.lastIDs[table] = currentRowID
+
+				msg := message.AcquireMessage()
+				msg.SetID(fmt.Sprintf("sqlite-%s-%d", table, currentRowID))
+				msg.SetOperation(hermod.OpCreate)
+				msg.SetTable(table)
+				for k, v := range data {
+					msg.SetData(k, v)
+				}
+				msg.SetMetadata("source", "sqlite")
+				return msg, nil
+			}
+			rows.Close()
 		}
-		msg.SetMetadata("source", "sqlite")
-		return msg, nil
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(1 * time.Second):
+			// Poll again
+		}
 	}
 }
 
@@ -125,6 +169,25 @@ func (s *SQLiteSource) Close() error {
 		return s.db.Close()
 	}
 	return nil
+}
+
+func (s *SQLiteSource) GetState() map[string]string {
+	state := make(map[string]string)
+	for table, id := range s.lastIDs {
+		state[table] = fmt.Sprintf("%d", id)
+	}
+	return state
+}
+
+func (s *SQLiteSource) SetState(state map[string]string) {
+	if s.lastIDs == nil {
+		s.lastIDs = make(map[string]int64)
+	}
+	for table, idStr := range state {
+		var id int64
+		fmt.Sscanf(idStr, "%d", &id)
+		s.lastIDs[table] = id
+	}
 }
 
 func (s *SQLiteSource) DiscoverDatabases(ctx context.Context) ([]string, error) {

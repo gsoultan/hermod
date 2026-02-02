@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,17 +17,28 @@ import (
 
 // ClickHouseSource implements the hermod.Source interface for ClickHouse.
 type ClickHouseSource struct {
-	connString string
-	useCDC     bool
-	conn       clickhouse.Conn
-	mu         sync.Mutex
-	logger     hermod.Logger
+	connString   string
+	useCDC       bool
+	tables       []string
+	idField      string
+	pollInterval time.Duration
+	conn         clickhouse.Conn
+	mu           sync.Mutex
+	logger       hermod.Logger
+	lastIDs      map[string]interface{}
 }
 
-func NewClickHouseSource(connString string, useCDC bool) *ClickHouseSource {
+func NewClickHouseSource(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *ClickHouseSource {
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second
+	}
 	return &ClickHouseSource{
-		connString: connString,
-		useCDC:     useCDC,
+		connString:   connString,
+		tables:       tables,
+		idField:      idField,
+		pollInterval: pollInterval,
+		useCDC:       useCDC,
+		lastIDs:      make(map[string]interface{}),
 	}
 }
 
@@ -88,12 +100,112 @@ func (c *ClickHouseSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, err
 	}
 
-	// For baseline, ClickHouse Read blocks.
-	select {
-	case <-ctx.Done():
+	if !c.useCDC {
+		<-ctx.Done()
 		return nil, ctx.Err()
-	case <-time.After(5 * time.Second):
-		return nil, nil
+	}
+
+	for {
+		for _, table := range c.tables {
+			c.mu.Lock()
+			lastID := c.lastIDs[table]
+			c.mu.Unlock()
+
+			quotedTable, err := sqlutil.QuoteIdent("clickhouse", table)
+			if err != nil {
+				return nil, err
+			}
+
+			var query string
+			var args []interface{}
+
+			if lastID != nil && c.idField != "" {
+				quotedID, _ := sqlutil.QuoteIdent("clickhouse", c.idField)
+				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? ORDER BY %s ASC LIMIT 1", quotedTable, quotedID, quotedID)
+				args = append(args, lastID)
+			} else {
+				query = fmt.Sprintf("SELECT * FROM %s LIMIT 1", quotedTable)
+			}
+
+			rows, err := c.conn.Query(ctx, query, args...)
+			if err != nil {
+				return nil, fmt.Errorf("clickhouse poll error: %w", err)
+			}
+
+			if rows.Next() {
+				columns := rows.Columns()
+				values := make([]interface{}, len(columns))
+				dest := make([]interface{}, len(columns))
+				for i := range dest {
+					dest[i] = &values[i]
+				}
+
+				if err := rows.Scan(dest...); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				rows.Close()
+
+				record := make(map[string]interface{})
+				var currentID interface{}
+				for i, col := range columns {
+					val := values[i]
+					if b, ok := val.([]byte); ok {
+						val = string(b)
+					}
+					record[col] = val
+					if col == c.idField {
+						currentID = val
+					}
+				}
+
+				if currentID != nil {
+					c.mu.Lock()
+					c.lastIDs[table] = currentID
+					c.mu.Unlock()
+				}
+
+				afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+				msg := message.AcquireMessage()
+				msg.SetID(fmt.Sprintf("clickhouse-%s-%v", table, currentID))
+				msg.SetOperation(hermod.OpCreate)
+				msg.SetTable(table)
+				msg.SetAfter(afterJSON)
+				msg.SetMetadata("source", "clickhouse")
+
+				return msg, nil
+			}
+			rows.Close()
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(c.pollInterval):
+		}
+	}
+}
+
+func (c *ClickHouseSource) GetState() map[string]string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	state := make(map[string]string)
+	for table, id := range c.lastIDs {
+		state["last_id:"+table] = fmt.Sprintf("%v", id)
+	}
+	return state
+}
+
+func (c *ClickHouseSource) SetState(state map[string]string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for k, v := range state {
+		if strings.HasPrefix(k, "last_id:") {
+			table := strings.TrimPrefix(k, "last_id:")
+			c.lastIDs[table] = v
+		}
 	}
 }
 

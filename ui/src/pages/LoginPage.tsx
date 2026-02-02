@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Title, Text, TextInput, Button, Paper, Stack, Container, PasswordInput, Group, Anchor } from '@mantine/core'
+import { Text, TextInput, Button, Paper, Stack, Container, PasswordInput, Group, Anchor, Divider, Box, Center, useMantineColorScheme, SimpleGrid, Title, ThemeIcon, rem, Badge } from '@mantine/core'
 import { useMutation } from '@tanstack/react-query'
 import { useNavigate, useSearch, Link } from '@tanstack/react-router'
+import { IconRocket, IconLock, IconUser, IconShield, IconLogin, IconDatabase, IconCloudUpload, IconArrowsLeftRight, IconActivity, IconPuzzle } from '@tabler/icons-react'
 import { apiFetch } from '../api'
 import { setToken } from '../auth/storage'
 
@@ -11,6 +12,8 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
   const { redirect } = useSearch({ from: '/login' })
+  const { colorScheme } = useMantineColorScheme();
+  const dark = colorScheme === 'dark';
 
   const loginMutation = useMutation({
     mutationFn: async (creds: any) => {
@@ -29,7 +32,6 @@ export function LoginPage() {
       return response.json()
     },
     onSuccess: (data) => {
-      // Route token writes through the storage abstraction
       setToken(data.token)
       navigate({ to: redirect || '/' })
     },
@@ -44,50 +46,246 @@ export function LoginPage() {
   }
 
   return (
-    <Container size="xs" mt={100}>
-      <Stack gap="xl">
-        <Stack gap="xs" align="center">
-          <Title order={1}>Hermod</Title>
-          <Text c="dimmed">Sign in to your account</Text>
-        </Stack>
+    <Box style={{ minHeight: '100vh', overflow: 'hidden' }}>
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing={0}>
+        {/* Left Side: Animation & Branding */}
+        <Box 
+          visibleFrom="md"
+          style={{ 
+            height: '100vh',
+            background: dark 
+              ? 'linear-gradient(135deg, var(--mantine-color-indigo-9) 0%, var(--mantine-color-dark-8) 100%)'
+              : 'linear-gradient(135deg, var(--mantine-color-indigo-6) 0%, var(--mantine-color-cyan-6) 100%)',
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            color: 'white'
+          }}
+        >
+          {/* Animated Background Elements */}
+          <Box 
+            style={{ 
+              position: 'absolute', 
+              top: 0, 
+              left: 0, 
+              right: 0, 
+              bottom: 0, 
+              zIndex: 1,
+              opacity: 0.2
+            }}
+          >
+            {[...Array(6)].map((_, i) => (
+              <Box
+                key={i}
+                style={{
+                  position: 'absolute',
+                  top: `${Math.random() * 100}%`,
+                  left: `${Math.random() * 100}%`,
+                  animation: `float ${10 + Math.random() * 20}s infinite ease-in-out`,
+                  animationDelay: `${-Math.random() * 20}s`,
+                }}
+              >
+                {i % 3 === 0 ? <IconDatabase size={rem(60)} /> : i % 3 === 1 ? <IconCloudUpload size={rem(60)} /> : <IconActivity size={rem(60)} />}
+              </Box>
+            ))}
+          </Box>
 
-        <Paper withBorder p="xl" radius="md">
-          <form onSubmit={handleLogin}>
-            <Stack gap="md">
-              <TextInput
-                label="Username"
-                placeholder="Your username"
-                required
-                value={username}
-                onChange={(e) => setUsername(e.currentTarget.value)}
-              />
-              <PasswordInput
-                label="Password"
-                placeholder="Your password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.currentTarget.value)}
-              />
+          <style>
+            {`
+              @keyframes float {
+                0%, 100% { transform: translate(0, 0) rotate(0deg); }
+                33% { transform: translate(30px, -50px) rotate(10deg); }
+                66% { transform: translate(-20px, 20px) rotate(-10deg); }
+              }
+              @keyframes pulse-glow {
+                0%, 100% { transform: scale(1); opacity: 0.5; }
+                50% { transform: scale(1.2); opacity: 0.8; }
+              }
+              @keyframes orbit {
+                from { transform: rotate(0deg) translateX(150px) rotate(0deg); }
+                to { transform: rotate(360deg) translateX(150px) rotate(-360deg); }
+              }
+              @keyframes orbit2 {
+                from { transform: rotate(180deg) translateX(120px) rotate(-180deg); }
+                to { transform: rotate(540deg) translateX(120px) rotate(-540deg); }
+              }
+            `}
+          </style>
 
-              <Group justify="space-between" mt="xs">
-                <Anchor component={Link} to="/forgot-password" size="sm">
-                  Forgot password?
+          <Box style={{ zIndex: 2, textAlign: 'center' }}>
+            <Center mb="xl">
+              <Box style={{ position: 'relative' }}>
+                 <Box 
+                  style={{ 
+                    position: 'absolute', 
+                    top: -20, 
+                    left: -20, 
+                    right: -20, 
+                    bottom: -20, 
+                    background: 'white', 
+                    borderRadius: '50%', 
+                    opacity: 0.1,
+                    animation: 'pulse-glow 3s infinite'
+                  }} 
+                />
+                <ThemeIcon 
+                  size={120} 
+                  radius={40} 
+                  variant="white" 
+                  c="indigo.6"
+                  style={{ boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}
+                >
+                  <IconRocket size={rem(70)} stroke={1.5} />
+                </ThemeIcon>
+                
+                {/* Orbiting icons */}
+                <Box style={{ position: 'absolute', top: '50%', left: '50%', animation: 'orbit 15s linear infinite' }}>
+                   <IconPuzzle size={30} style={{ color: 'white' }} />
+                </Box>
+                <Box style={{ position: 'absolute', top: '50%', left: '50%', animation: 'orbit2 20s linear infinite' }}>
+                   <IconArrowsLeftRight size={24} style={{ color: 'white' }} />
+                </Box>
+              </Box>
+            </Center>
+
+            <Title order={1} size={rem(64)} fw={900} style={{ letterSpacing: '-2px' }}>
+              Hermod
+            </Title>
+            <Text size="xl" fw={500} opacity={0.9} mt="xs">
+              Enterprise Data Orchestration
+            </Text>
+            <Stack gap="xs" mt={50}>
+               <Group gap="sm" justify="center">
+                 <Badge variant="dot" color="white" size="lg">Reliable</Badge>
+                 <Badge variant="dot" color="white" size="lg">Scalable</Badge>
+                 <Badge variant="dot" color="white" size="lg">Real-time</Badge>
+               </Group>
+            </Stack>
+          </Box>
+
+          <Box mt={100} style={{ zIndex: 2 }}>
+            <Text size="sm" opacity={0.7}>
+              Powering modern data infrastructure
+            </Text>
+          </Box>
+        </Box>
+
+        {/* Right Side: Login Form */}
+        <Box 
+          style={{ 
+            height: '100vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: dark ? 'var(--mantine-color-dark-9)' : 'var(--mantine-color-gray-0)',
+          }}
+        >
+          <Container size="xs" w="100%" px="xl">
+            <Stack gap="xl">
+              <Box hiddenFrom="md" style={{ textAlign: 'center' }}>
+                <Group justify="center" gap="xs" mb="xs">
+                  <IconRocket size={32} color="var(--mantine-color-indigo-6)" />
+                  <Text component="h2" size="xl" fw={800} variant="gradient" gradient={{ from: 'indigo', to: 'cyan' }}>Hermod</Text>
+                </Group>
+                <Text c="dimmed" size="sm">Enterprise Data Orchestration</Text>
+              </Box>
+
+              <Stack gap={5}>
+                <Title order={2} fw={800}>Welcome back</Title>
+                <Text c="dimmed" size="sm">Please enter your details to sign in</Text>
+              </Stack>
+
+              <Paper withBorder p={40} radius="lg" shadow="md" style={{ position: 'relative', overflow: 'hidden' }}>
+                <Box 
+                  style={{ 
+                    position: 'absolute', 
+                    top: 0, 
+                    left: 0, 
+                    right: 0, 
+                    height: '4px', 
+                    background: 'linear-gradient(90deg, var(--mantine-color-indigo-6), var(--mantine-color-cyan-6))' 
+                  }} 
+                />
+                
+                <form onSubmit={handleLogin}>
+                  <Stack gap="lg">
+                    <TextInput
+                      label="Username"
+                      placeholder="Your username"
+                      required
+                      size="md"
+                      leftSection={<IconUser size="1.1rem" stroke={1.5} />}
+                      value={username}
+                      onChange={(e) => setUsername(e.currentTarget.value)}
+                    />
+                    <Stack gap={5}>
+                      <PasswordInput
+                        label="Password"
+                        placeholder="Your password"
+                        required
+                        size="md"
+                        leftSection={<IconLock size="1.1rem" stroke={1.5} />}
+                        value={password}
+                        onChange={(e) => setPassword(e.currentTarget.value)}
+                      />
+                      <Group justify="flex-end">
+                        <Anchor component={Link} to="/forgot-password" size="sm" fw={500}>
+                          Forgot password?
+                        </Anchor>
+                      </Group>
+                    </Stack>
+
+                    {error && (
+                      <Paper withBorder p="xs" radius="sm" bg="red.0" c="red.9" style={{ borderColor: 'var(--mantine-color-red-2)' }}>
+                        <Text size="sm" role="alert" aria-live="assertive" fw={500}>
+                          {error}
+                        </Text>
+                      </Paper>
+                    )}
+
+                    <Button 
+                      type="submit" 
+                      fullWidth 
+                      size="md"
+                      loading={loginMutation.isPending}
+                      leftSection={<IconLogin size="1.2rem" stroke={1.5} />}
+                    >
+                      Sign In
+                    </Button>
+
+                    <Divider label="or continue with" labelPosition="center" />
+
+                    <Button 
+                      variant="default" 
+                      fullWidth 
+                      size="md"
+                      leftSection={<IconShield size="1.2rem" stroke={1.5} />}
+                      onClick={() => window.location.href = '/api/auth/oidc'}
+                    >
+                      SSO (OIDC)
+                    </Button>
+                  </Stack>
+                </form>
+              </Paper>
+
+              <Group justify="center" gap="xl" mt="xl">
+                <Text size="xs" c="dimmed">
+                  &copy; {new Date().getFullYear()} Hermod Project
+                </Text>
+                <Anchor href="https://github.com/hermod-project/hermod" target="_blank" size="xs" c="dimmed">
+                  GitHub
+                </Anchor>
+                <Anchor href="/docs" size="xs" c="dimmed">
+                  Docs
                 </Anchor>
               </Group>
-
-              {error && (
-                <Text color="red" size="sm" role="alert" aria-live="assertive">
-                  {error}
-                </Text>
-              )}
-
-              <Button type="submit" fullWidth mt="xl" loading={loginMutation.isPending}>
-                Sign In
-              </Button>
             </Stack>
-          </form>
-        </Paper>
-      </Stack>
-    </Container>
+          </Container>
+        </Box>
+      </SimpleGrid>
+    </Box>
   )
 }

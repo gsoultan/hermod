@@ -7,12 +7,51 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/user/hermod/pkg/secrets"
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Engine EngineConfig `json:"engine" yaml:"engine"`
-	Buffer BufferConfig `json:"buffer" yaml:"buffer"`
+	Engine        EngineConfig        `json:"engine" yaml:"engine"`
+	Buffer        BufferConfig        `json:"buffer" yaml:"buffer"`
+	Secrets       secrets.Config      `json:"secrets" yaml:"secrets"`
+	StateStore    StateStoreConfig    `json:"state_store" yaml:"state_store"`
+	Observability ObservabilityConfig `json:"observability" yaml:"observability"`
+	Auth          AuthConfig          `json:"auth" yaml:"auth"`
+}
+
+type AuthConfig struct {
+	OIDC OIDCConfig `json:"oidc" yaml:"oidc"`
+}
+
+type OIDCConfig struct {
+	Enabled      bool     `json:"enabled" yaml:"enabled"`
+	IssuerURL    string   `json:"issuer_url" yaml:"issuer_url"`
+	ClientID     string   `json:"client_id" yaml:"client_id"`
+	ClientSecret string   `json:"client_secret" yaml:"client_secret"`
+	RedirectURL  string   `json:"redirect_url" yaml:"redirect_url"`
+	Scopes       []string `json:"scopes" yaml:"scopes"`
+}
+
+type ObservabilityConfig struct {
+	OTLP OTLPConfig `json:"otlp" yaml:"otlp"`
+}
+
+type OTLPConfig struct {
+	Endpoint    string            `json:"endpoint" yaml:"endpoint"`
+	Protocol    string            `json:"protocol" yaml:"protocol"` // grpc or http
+	Insecure    bool              `json:"insecure" yaml:"insecure"`
+	Headers     map[string]string `json:"headers" yaml:"headers"`
+	ServiceName string            `json:"service_name" yaml:"service_name"`
+}
+
+type StateStoreConfig struct {
+	Type     string `json:"type" yaml:"type"` // sqlite, redis, etcd
+	Path     string `json:"path" yaml:"path"` // for sqlite
+	Address  string `json:"address" yaml:"address"`
+	Password string `json:"password" yaml:"password"`
+	DB       int    `json:"db" yaml:"db"`
+	Prefix   string `json:"prefix" yaml:"prefix"`
 }
 
 type EngineConfig struct {
@@ -45,6 +84,14 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func SaveConfig(path string, cfg *Config) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
 }
 
 var envRegex = regexp.MustCompile(`\${(\w+)}`)

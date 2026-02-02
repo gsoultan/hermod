@@ -20,7 +20,7 @@ func TestDeleteSinkProtection(t *testing.T) {
 	store := sqlstorage.NewSQLStorage(db, "sqlite")
 	store.Init(context.Background())
 	registry := engine.NewRegistry(store)
-	server := NewServer(registry, store)
+	server := NewServer(registry, store, nil, nil)
 
 	ctx := context.Background()
 

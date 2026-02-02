@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,17 +18,28 @@ import (
 
 // OracleSource implements the hermod.Source interface for Oracle.
 type OracleSource struct {
-	connString string
-	useCDC     bool
-	db         *sql.DB
-	mu         sync.Mutex
-	logger     hermod.Logger
+	connString   string
+	useCDC       bool
+	tables       []string
+	idField      string
+	pollInterval time.Duration
+	db           *sql.DB
+	mu           sync.Mutex
+	logger       hermod.Logger
+	lastIDs      map[string]interface{}
 }
 
-func NewOracleSource(connString string, useCDC bool) *OracleSource {
+func NewOracleSource(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *OracleSource {
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second
+	}
 	return &OracleSource{
-		connString: connString,
-		useCDC:     useCDC,
+		connString:   connString,
+		tables:       tables,
+		idField:      idField,
+		pollInterval: pollInterval,
+		useCDC:       useCDC,
+		lastIDs:      make(map[string]interface{}),
 	}
 }
 
@@ -84,12 +96,115 @@ func (o *OracleSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, err
 	}
 
-	// For baseline, Oracle Read blocks.
-	select {
-	case <-ctx.Done():
+	if !o.useCDC {
+		<-ctx.Done()
 		return nil, ctx.Err()
-	case <-time.After(5 * time.Second):
-		return nil, nil
+	}
+
+	for {
+		for _, table := range o.tables {
+			o.mu.Lock()
+			lastID := o.lastIDs[table]
+			o.mu.Unlock()
+
+			quotedTable, err := sqlutil.QuoteIdent("oracle", table)
+			if err != nil {
+				return nil, err
+			}
+
+			var query string
+			var args []interface{}
+
+			if lastID != nil && o.idField != "" {
+				quotedID, _ := sqlutil.QuoteIdent("oracle", o.idField)
+				// Oracle uses :1, :2 for placeholders in some drivers, but go-ora supports ? or :1
+				// Hermod's sqlutil should handle this if we want to be very portable.
+				// For now, let's use the standard ? if supported or adjust.
+				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? AND ROWNUM <= 1 ORDER BY %s ASC", quotedTable, quotedID, quotedID)
+				args = append(args, lastID)
+			} else {
+				query = fmt.Sprintf("SELECT * FROM %s WHERE ROWNUM <= 1", quotedTable)
+			}
+
+			rows, err := o.db.QueryContext(ctx, query, args...)
+			if err != nil {
+				return nil, fmt.Errorf("oracle poll error: %w", err)
+			}
+
+			if rows.Next() {
+				cols, _ := rows.Columns()
+				values := make([]interface{}, len(cols))
+				ptr := make([]interface{}, len(cols))
+				for i := range values {
+					ptr[i] = &values[i]
+				}
+
+				if err := rows.Scan(ptr...); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				rows.Close()
+
+				record := make(map[string]interface{})
+				var currentID interface{}
+				for i, col := range cols {
+					val := values[i]
+					if b, ok := val.([]byte); ok {
+						val = string(b)
+					}
+					record[col] = val
+					if col == o.idField {
+						currentID = val
+					}
+				}
+
+				if currentID != nil {
+					o.mu.Lock()
+					o.lastIDs[table] = currentID
+					o.mu.Unlock()
+				}
+
+				afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+				msg := message.AcquireMessage()
+				msg.SetID(fmt.Sprintf("oracle-%s-%v", table, currentID))
+				msg.SetOperation(hermod.OpCreate)
+				msg.SetTable(table)
+				msg.SetAfter(afterJSON)
+				msg.SetMetadata("source", "oracle")
+
+				return msg, nil
+			}
+			rows.Close()
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(o.pollInterval):
+		}
+	}
+}
+
+func (o *OracleSource) GetState() map[string]string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	state := make(map[string]string)
+	for table, id := range o.lastIDs {
+		state["last_id:"+table] = fmt.Sprintf("%v", id)
+	}
+	return state
+}
+
+func (o *OracleSource) SetState(state map[string]string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	for k, v := range state {
+		if strings.HasPrefix(k, "last_id:") {
+			table := strings.TrimPrefix(k, "last_id:")
+			o.lastIDs[table] = v
+		}
 	}
 }
 

@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"sync"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-mysql-org/go-mysql/canal"
+	mysql_driver "github.com/go-sql-driver/mysql"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
 	"github.com/user/hermod/pkg/sqlutil"
@@ -20,6 +22,9 @@ type MySQLSource struct {
 	connString string
 	useCDC     bool
 	db         *sql.DB
+	canal      *canal.Canal
+	msgChan    chan hermod.Message
+	errChan    chan error
 	mu         sync.Mutex
 	logger     hermod.Logger
 }
@@ -28,6 +33,8 @@ func NewMySQLSource(connString string, useCDC bool) *MySQLSource {
 	return &MySQLSource{
 		connString: connString,
 		useCDC:     useCDC,
+		msgChan:    make(chan hermod.Message, 1000),
+		errChan:    make(chan error, 10),
 	}
 }
 
@@ -68,47 +75,131 @@ func (m *MySQLSource) init(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.db != nil {
+	if m.db != nil && (!m.useCDC || m.canal != nil) {
 		return nil
 	}
 
-	db, err := sql.Open("mysql", m.connString)
-	if err != nil {
-		return fmt.Errorf("failed to connect to mysql: %w", err)
+	if m.db == nil {
+		db, err := sql.Open("mysql", m.connString)
+		if err != nil {
+			return fmt.Errorf("failed to connect to mysql: %w", err)
+		}
+		m.db = db
+		if err := m.db.PingContext(ctx); err != nil {
+			return err
+		}
 	}
-	m.db = db
-	return m.db.PingContext(ctx)
+
+	if m.useCDC && m.canal == nil {
+		cfg, err := mysql_driver.ParseDSN(m.connString)
+		if err != nil {
+			return fmt.Errorf("failed to parse mysql dsn: %w", err)
+		}
+
+		if _, _, err := net.SplitHostPort(cfg.Addr); err != nil {
+			// addr might be just host
+		}
+
+		canalCfg := canal.NewDefaultConfig()
+		canalCfg.Addr = cfg.Addr
+		canalCfg.User = cfg.User
+		canalCfg.Password = cfg.Passwd
+		canalCfg.Dump.ExecutionPath = "" // Disable mysqldump for now
+
+		c, err := canal.NewCanal(canalCfg)
+		if err != nil {
+			return fmt.Errorf("failed to create canal: %w", err)
+		}
+
+		c.SetEventHandler(&mysqlEventHandler{source: m})
+		m.canal = c
+
+		go func() {
+			if err := m.canal.Run(); err != nil {
+				m.log("ERROR", "canal run failed", "error", err)
+				m.errChan <- err
+			}
+		}()
+	}
+
+	return nil
+}
+
+type mysqlEventHandler struct {
+	canal.DummyEventHandler
+	source *MySQLSource
+}
+
+func (h *mysqlEventHandler) OnRow(e *canal.RowsEvent) error {
+	action := e.Action
+	var rows [][]interface{}
+	if action == canal.UpdateAction {
+		// For update, e.Rows contains [before, after, before, after, ...]
+		for i := 1; i < len(e.Rows); i += 2 {
+			rows = append(rows, e.Rows[i])
+		}
+	} else {
+		rows = e.Rows
+	}
+
+	for _, row := range rows {
+		msg := message.AcquireMessage()
+		data := make(map[string]interface{})
+		for i, col := range e.Table.Columns {
+			val := row[i]
+			// Handle []byte values from go-mysql
+			if b, ok := val.([]byte); ok {
+				val = string(b)
+			}
+			data[col.Name] = val
+		}
+
+		msg.SetData("_action", action)
+		msg.SetData("_table", e.Table.Name)
+		msg.SetData("_schema", e.Table.Schema)
+		for k, v := range data {
+			msg.SetData(k, v)
+		}
+
+		// Set a stable ID if possible (e.g. from PK)
+		if len(e.Table.PKColumns) > 0 {
+			pkVal := row[e.Table.PKColumns[0]]
+			msg.SetID(fmt.Sprintf("%s:%s:%v", e.Table.Schema, e.Table.Name, pkVal))
+		}
+
+		select {
+		case h.source.msgChan <- msg:
+		default:
+			// Buffer full
+			message.ReleaseMessage(msg)
+		}
+	}
+	return nil
+}
+
+func (h *mysqlEventHandler) String() string {
+	return "mysqlEventHandler"
 }
 
 func (m *MySQLSource) Read(ctx context.Context) (hermod.Message, error) {
-	if !m.useCDC {
-		if m.db == nil {
-			if err := m.init(ctx); err != nil {
-				return nil, err
-			}
-		}
-		<-ctx.Done()
-		return nil, ctx.Err()
-	}
-
-	m.mu.Lock()
-	db := m.db
-	m.mu.Unlock()
-
-	if db == nil {
+	if m.db == nil || (m.useCDC && m.canal == nil) {
 		if err := m.init(ctx); err != nil {
 			return nil, err
 		}
 	}
 
-	// For production readiness without go-mysql, we'd implement polling.
-	// This is a placeholder that respects context and can be extended to real polling.
+	if !m.useCDC {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case <-time.After(5 * time.Second):
-		// In a real polling implementation, we'd query for changes since last LSN/Timestamp.
-		return nil, nil // No new data
+	case msg := <-m.msgChan:
+		return msg, nil
+	case err := <-m.errChan:
+		return nil, err
 	}
 }
 
@@ -190,6 +281,10 @@ func (m *MySQLSource) Close() error {
 	m.log("INFO", "Closing MySQLSource")
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if m.canal != nil {
+		m.canal.Close()
+	}
 
 	if m.db != nil {
 		err := m.db.Close()

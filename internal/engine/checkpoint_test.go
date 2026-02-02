@@ -11,7 +11,7 @@ import (
 )
 
 type mockCheckpointStorage struct {
-	storage.Storage
+	BaseMockStorage
 	nodeStates map[string]interface{}
 	source     storage.Source
 	sink       storage.Sink
@@ -69,6 +69,14 @@ func (m *mockCheckpointStorage) CreateLog(ctx context.Context, l storage.Log) er
 
 func (m *mockCheckpointStorage) UpdateSource(ctx context.Context, src storage.Source) error {
 	m.source = src
+	return nil
+}
+
+func (m *mockCheckpointStorage) UpdateSourceStatus(ctx context.Context, id string, status string) error {
+	return nil
+}
+
+func (m *mockCheckpointStorage) UpdateSinkStatus(ctx context.Context, id string, status string) error {
 	return nil
 }
 
@@ -133,6 +141,7 @@ func TestCheckpointAndRecovery(t *testing.T) {
 	}
 
 	registry := NewRegistry(store)
+	registry.SetStateStore(nil)
 
 	registry.SetFactories(func(cfg SourceConfig) (hermod.Source, error) {
 		return &mockCheckpointSource{state: cfg.State}, nil

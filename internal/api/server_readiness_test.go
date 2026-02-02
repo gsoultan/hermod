@@ -15,6 +15,7 @@ import (
 
 // fakeStorage is a minimal implementation of storage.Storage for testing readiness.
 type fakeStorage struct {
+	storage.Storage
 	listWorkflowsErr error
 	listSourcesErr   error
 	workers          []storage.Worker
@@ -28,6 +29,9 @@ func (f *fakeStorage) ListSources(ctx context.Context, filter storage.CommonFilt
 }
 func (f *fakeStorage) CreateSource(ctx context.Context, src storage.Source) error { return nil }
 func (f *fakeStorage) UpdateSource(ctx context.Context, src storage.Source) error { return nil }
+func (f *fakeStorage) UpdateSourceStatus(ctx context.Context, id string, status string) error {
+	return nil
+}
 func (f *fakeStorage) UpdateSourceState(ctx context.Context, id string, state map[string]string) error {
 	return nil
 }
@@ -41,7 +45,10 @@ func (f *fakeStorage) ListSinks(ctx context.Context, filter storage.CommonFilter
 }
 func (f *fakeStorage) CreateSink(ctx context.Context, snk storage.Sink) error { return nil }
 func (f *fakeStorage) UpdateSink(ctx context.Context, snk storage.Sink) error { return nil }
-func (f *fakeStorage) DeleteSink(ctx context.Context, id string) error        { return nil }
+func (f *fakeStorage) UpdateSinkStatus(ctx context.Context, id string, status string) error {
+	return nil
+}
+func (f *fakeStorage) DeleteSink(ctx context.Context, id string) error { return nil }
 func (f *fakeStorage) GetSink(ctx context.Context, id string) (storage.Sink, error) {
 	return storage.Sink{}, storage.ErrNotFound
 }
@@ -77,6 +84,15 @@ func (f *fakeStorage) ListWorkflows(ctx context.Context, filter storage.CommonFi
 	}
 	return f.workflows, len(f.workflows), nil
 }
+func (f *fakeStorage) ListWorkspaces(ctx context.Context) ([]storage.Workspace, error) {
+	return nil, nil
+}
+func (f *fakeStorage) CreateWorkspace(ctx context.Context, ws storage.Workspace) error {
+	return nil
+}
+func (f *fakeStorage) DeleteWorkspace(ctx context.Context, id string) error {
+	return nil
+}
 func (f *fakeStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
 func (f *fakeStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
 func (f *fakeStorage) DeleteWorkflow(ctx context.Context, id string) error           { return nil }
@@ -89,8 +105,10 @@ func (f *fakeStorage) ListWorkers(ctx context.Context, filter storage.CommonFilt
 }
 func (f *fakeStorage) CreateWorker(ctx context.Context, worker storage.Worker) error { return nil }
 func (f *fakeStorage) UpdateWorker(ctx context.Context, worker storage.Worker) error { return nil }
-func (f *fakeStorage) UpdateWorkerHeartbeat(ctx context.Context, id string) error    { return nil }
-func (f *fakeStorage) DeleteWorker(ctx context.Context, id string) error             { return nil }
+func (f *fakeStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error {
+	return nil
+}
+func (f *fakeStorage) DeleteWorker(ctx context.Context, id string) error { return nil }
 func (f *fakeStorage) GetWorker(ctx context.Context, id string) (storage.Worker, error) {
 	return storage.Worker{}, storage.ErrNotFound
 }
@@ -103,6 +121,12 @@ func (f *fakeStorage) DeleteLogs(ctx context.Context, filter storage.LogFilter) 
 func (f *fakeStorage) CreateAuditLog(ctx context.Context, log storage.AuditLog) error { return nil }
 func (f *fakeStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilter) ([]storage.AuditLog, int, error) {
 	return nil, 0, nil
+}
+func (f *fakeStorage) PurgeAuditLogs(ctx context.Context, before time.Time) error {
+	return nil
+}
+func (f *fakeStorage) PurgeMessageTraces(ctx context.Context, before time.Time) error {
+	return nil
 }
 
 func (f *fakeStorage) GetSetting(ctx context.Context, key string) (string, error) {
@@ -127,8 +151,73 @@ func (f *fakeStorage) ReleaseWorkflowLease(ctx context.Context, workflowID, owne
 	return nil
 }
 
+func (f *fakeStorage) ListWebhookRequests(ctx context.Context, filter storage.WebhookRequestFilter) ([]storage.WebhookRequest, int, error) {
+	return nil, 0, nil
+}
+func (f *fakeStorage) CreateWebhookRequest(ctx context.Context, req storage.WebhookRequest) error {
+	return nil
+}
+func (f *fakeStorage) GetWebhookRequest(ctx context.Context, id string) (storage.WebhookRequest, error) {
+	return storage.WebhookRequest{}, storage.ErrNotFound
+}
+func (f *fakeStorage) DeleteWebhookRequests(ctx context.Context, filter storage.WebhookRequestFilter) error {
+	return nil
+}
+
+func (f *fakeStorage) ListSchemas(ctx context.Context, name string) ([]storage.Schema, error) {
+	return nil, nil
+}
+func (f *fakeStorage) ListAllSchemas(ctx context.Context) ([]storage.Schema, error) {
+	return nil, nil
+}
+func (f *fakeStorage) GetSchema(ctx context.Context, name string, version int) (storage.Schema, error) {
+	return storage.Schema{}, storage.ErrNotFound
+}
+func (f *fakeStorage) GetLatestSchema(ctx context.Context, name string) (storage.Schema, error) {
+	return storage.Schema{}, storage.ErrNotFound
+}
+func (f *fakeStorage) CreateSchema(ctx context.Context, schema storage.Schema) error {
+	return nil
+}
+
+func (f *fakeStorage) RecordTraceStep(ctx context.Context, workflowID, messageID string, step storage.TraceStep) error {
+	return nil
+}
+func (f *fakeStorage) GetMessageTrace(ctx context.Context, workflowID, messageID string) (storage.MessageTrace, error) {
+	return storage.MessageTrace{}, storage.ErrNotFound
+}
+func (f *fakeStorage) ListMessageTraces(ctx context.Context, workflowID string, limit int) ([]storage.MessageTrace, error) {
+	return nil, nil
+}
+
+func (f *fakeStorage) CreateWorkflowVersion(ctx context.Context, version storage.WorkflowVersion) error {
+	return nil
+}
+func (f *fakeStorage) ListWorkflowVersions(ctx context.Context, workflowID string) ([]storage.WorkflowVersion, error) {
+	return nil, nil
+}
+func (f *fakeStorage) GetWorkflowVersion(ctx context.Context, workflowID string, version int) (storage.WorkflowVersion, error) {
+	return storage.WorkflowVersion{}, storage.ErrNotFound
+}
+
+func (f *fakeStorage) CreateOutboxItem(ctx context.Context, item storage.OutboxItem) error {
+	return nil
+}
+func (f *fakeStorage) ListOutboxItems(ctx context.Context, status string, limit int) ([]storage.OutboxItem, error) {
+	return nil, nil
+}
+func (f *fakeStorage) DeleteOutboxItem(ctx context.Context, id string) error {
+	return nil
+}
+func (f *fakeStorage) UpdateOutboxItem(ctx context.Context, item storage.OutboxItem) error {
+	return nil
+}
+func (f *fakeStorage) GetLineage(ctx context.Context) ([]storage.LineageEdge, error) {
+	return nil, nil
+}
+
 func TestLivenessOK(t *testing.T) {
-	s := NewServer(nil, &fakeStorage{})
+	s := NewServer(nil, &fakeStorage{}, nil, nil)
 	handler := s.Routes()
 
 	req := httptest.NewRequest(http.MethodGet, "/livez", nil)
@@ -153,7 +242,7 @@ func TestReadiness(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s := NewServer(nil, &fakeStorage{listWorkflowsErr: tc.workflowsErr, listSourcesErr: tc.sourcesErr})
+			s := NewServer(nil, &fakeStorage{listWorkflowsErr: tc.workflowsErr, listSourcesErr: tc.sourcesErr}, nil, nil)
 			h := s.Routes()
 
 			req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
@@ -177,7 +266,7 @@ func TestReadiness_Schema_And_NonGating(t *testing.T) {
 		},
 	}
 
-	s := NewServer(nil, fs)
+	s := NewServer(nil, fs, nil, nil)
 	// With a non-nil registry, registry check should be ok
 	s.registry = engine.NewRegistry(nil)
 
@@ -221,7 +310,7 @@ func TestReadiness_Debounce_FailureTransition(t *testing.T) {
 	t.Setenv("HERMOD_READY_DEBOUNCE", "200ms")
 
 	fs := &fakeStorage{}
-	s := NewServer(nil, fs)
+	s := NewServer(nil, fs, nil, nil)
 	h := s.Routes()
 
 	// 1) Initial OK
@@ -261,7 +350,7 @@ func TestReadiness_Leases_Check_And_Gating(t *testing.T) {
 		},
 	}
 
-	s := NewServer(nil, fs)
+	s := NewServer(nil, fs, nil, nil)
 	h := s.Routes()
 
 	// Non-gating by default: should be 200 but leases ok=false

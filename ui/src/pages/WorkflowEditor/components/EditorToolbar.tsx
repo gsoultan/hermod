@@ -5,7 +5,8 @@ import { useShallow } from 'zustand/react/shallow';
 import { 
   IconDeviceFloppy, IconPlayerPlay, IconPlayerPause, 
   IconEraser, IconZoomIn, IconZoomOut, IconFocus2, IconSettings,
-  IconChevronDown, IconLayoutSidebarRight, IconRefresh
+  IconChevronDown, IconLayoutSidebarRight, IconRefresh, IconTimeline, IconDatabase,
+  IconHistory, IconTerminal2, IconSparkles, IconShieldLock
 } from '@tabler/icons-react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 
@@ -37,7 +38,9 @@ export function EditorToolbar({
 }: EditorToolbarProps) {
   const { 
     name, dryRun, vhost, workerID, testResults, active,
-    setName, setVHost, setWorkerID, setDrawerOpened, setQuickAddSource
+    setName, setVHost, setWorkerID, setDrawerOpened, setQuickAddSource, 
+    setTraceInspectorOpened, setSchemaRegistryOpened, setHistoryOpened, setLiveStreamOpened,
+    setAIGeneratorOpened, setComplianceReportOpened
   } = useWorkflowStore(useShallow(state => ({
     name: state.name,
     dryRun: state.dryRun,
@@ -49,7 +52,13 @@ export function EditorToolbar({
     setVHost: state.setVHost,
     setWorkerID: state.setWorkerID,
     setDrawerOpened: state.setDrawerOpened,
-    setQuickAddSource: state.setQuickAddSource
+    setQuickAddSource: state.setQuickAddSource,
+    setTraceInspectorOpened: state.setTraceInspectorOpened,
+    setSchemaRegistryOpened: state.setSchemaRegistryOpened,
+    setHistoryOpened: state.setHistoryOpened,
+    setLiveStreamOpened: state.setLiveStreamOpened,
+    setAIGeneratorOpened: state.setAIGeneratorOpened,
+    setComplianceReportOpened: state.setComplianceReportOpened
   })));
 
   return (
@@ -93,6 +102,28 @@ export function EditorToolbar({
           </Group>
 
           <Divider orientation="vertical" />
+
+          <Menu position="bottom-end" withArrow shadow="md">
+            <Menu.Target>
+              <Button 
+                variant="light"
+                color="indigo"
+                size="sm"
+                leftSection={<IconSettings size="1rem" />}
+                rightSection={<IconChevronDown size="0.8rem" />}
+              >
+                Tools
+              </Button>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Item leftSection={<IconDatabase size="1rem" />} onClick={() => setSchemaRegistryOpened(true)}>
+                Schema Registry
+              </Menu.Item>
+              <Menu.Item leftSection={<IconSparkles size="1rem" />} onClick={() => setAIGeneratorOpened(true)}>
+                AI Generator
+              </Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
 
           {testResults ? (
             <Button 
@@ -149,6 +180,36 @@ export function EditorToolbar({
           )}
 
           {!isNew && (
+            <Menu position="bottom-end" withArrow shadow="md">
+              <Menu.Target>
+                <Button 
+                  variant="light"
+                  color="blue"
+                  size="sm"
+                  leftSection={<IconTerminal2 size="1rem" />}
+                  rightSection={<IconChevronDown size="0.8rem" />}
+                >
+                  Inspect
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item leftSection={<IconTerminal2 size="1rem" />} onClick={() => setLiveStreamOpened(true)}>
+                  Live Stream
+                </Menu.Item>
+                <Menu.Item leftSection={<IconTimeline size="1rem" />} onClick={() => setTraceInspectorOpened(true)}>
+                  Trace Analysis
+                </Menu.Item>
+                <Menu.Item leftSection={<IconShieldLock size="1rem" />} onClick={() => setComplianceReportOpened(true)}>
+                  Compliance Report
+                </Menu.Item>
+                <Menu.Item leftSection={<IconHistory size="1rem" />} onClick={() => setHistoryOpened(true)}>
+                  Version History
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+          )}
+
+          {!isNew && (
             <Button 
               color={active ? 'red' : 'green'} 
               variant="light"
@@ -172,7 +233,8 @@ export function EditorToolbar({
 
           <ActionIcon 
             aria-label="Workflow panel"
-            variant="light" 
+            variant="filled" 
+            color="blue"
             size="lg" 
             onClick={() => {
               setDrawerOpened(true);

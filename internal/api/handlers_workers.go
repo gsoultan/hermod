@@ -74,7 +74,15 @@ func (s *Server) updateWorker(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) updateWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := s.storage.UpdateWorkerHeartbeat(r.Context(), id); err != nil {
+	var req struct {
+		CPUUsage    float64 `json:"cpu_usage"`
+		MemoryUsage float64 `json:"memory_usage"`
+	}
+	if r.Method == "POST" && r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	if err := s.storage.UpdateWorkerHeartbeat(r.Context(), id, req.CPUUsage, req.MemoryUsage); err != nil {
 		s.jsonError(w, "failed to update heartbeat", http.StatusInternalServerError)
 		return
 	}

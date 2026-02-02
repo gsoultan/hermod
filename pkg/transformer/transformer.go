@@ -4,7 +4,14 @@ import (
 	"context"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/pii"
 )
+
+var piiEngine = pii.NewEngine()
+
+func PIIEngine() *pii.Engine {
+	return piiEngine
+}
 
 // Transformer defines the interface for data transformations.
 type Transformer interface {

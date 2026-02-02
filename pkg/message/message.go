@@ -339,6 +339,14 @@ func (m *DefaultMessage) SetData(key string, value interface{}) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// If data is empty but payload is not, try to unmarshal payload first
+	if len(m.data) == 0 && len(m.payload) > 0 {
+		var d map[string]interface{}
+		if err := json.Unmarshal(m.payload, &d); err == nil {
+			m.data = d
+		}
+	}
+
 	if strings.Contains(key, ".") {
 		parts := strings.Split(key, ".")
 		current := m.data

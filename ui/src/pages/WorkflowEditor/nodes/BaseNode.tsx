@@ -1,7 +1,8 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { Handle, Position } from 'reactflow';
-import { Box, Text, useMantineColorScheme } from '@mantine/core';
-import { IconPlus } from '@tabler/icons-react';
+import { Box, Text, useMantineColorScheme, ActionIcon, Tooltip } from '@mantine/core';
+import { IconPlus, IconEye } from '@tabler/icons-react';
+import { useWorkflowStore } from '../store/useWorkflowStore';
 
 export const WorkflowContext = createContext<{
   onPlusClick: (nodeId: string, handleId: string | null) => void;
@@ -61,7 +62,7 @@ export const TargetHandle = ({ position, color, style }: any) => {
   );
 };
 
-export const BaseNode = ({ type, color, icon: Icon, children, data }: { 
+export const BaseNode = ({ id, type, color, icon: Icon, children, data }: { 
   id: string, 
   type: string, 
   color: string, 
@@ -71,21 +72,125 @@ export const BaseNode = ({ type, color, icon: Icon, children, data }: {
 }) => {
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
+  const setSampleInspectorOpened = useWorkflowStore(state => state.setSampleInspectorOpened);
+  const setSampleNodeId = useWorkflowStore(state => state.setSampleNodeId);
+  const metric = useWorkflowStore(state => state.nodeMetrics[id]) ?? data.metric;
+  const errorCount = useWorkflowStore(state => state.nodeErrorMetrics[id]) ?? data.errorCount;
+  const sample = useWorkflowStore(state => state.nodeSamples[id]) ?? data.sample;
+  const cbStatus = useWorkflowStore(state => state.sinkCBStatuses[data.ref_id]) ?? data.cbStatus;
+  const bufferFill = useWorkflowStore(state => state.sinkBufferFill[data.ref_id]) ?? data.bufferFill;
+  const sourceStatus = useWorkflowStore(state => state.sourceStatus);
+  const sinkStatus = useWorkflowStore(state => state.sinkStatuses[data.ref_id]);
+  const workflowDeadLetterCount = useWorkflowStore(state => state.workflowDeadLetterCount);
+
+  const nodeStatus = type === 'Source' ? sourceStatus : (type === 'Sink' ? sinkStatus : null);
+
+  const healthColor = errorCount > 0 ? (errorCount / (metric + errorCount) > 0.1 ? 'red' : 'orange') : color;
+  const borderStyle = data.isDLQ ? 'dashed' : 'solid';
+  const borderWidth = errorCount > 0 ? '3px' : '2px';
+  
+  // Reliability Indicators
+  const cbOpen = cbStatus === 'open';
+  const cbHalfOpen = cbStatus === 'half-open';
+  const bufferHigh = bufferFill > 0.8;
 
   return (
     <Box
       style={{
         background: isDark ? 'var(--mantine-color-dark-6)' : 'white',
-        border: `2px solid ${data.isDLQ ? 'var(--mantine-color-orange-6)' : `var(--mantine-color-${color}-6)`}`,
-        borderStyle: data.isDLQ ? 'dashed' : 'solid',
+        border: `${borderWidth} ${borderStyle} var(--mantine-color-${cbOpen ? 'red' : healthColor}-6)`,
         borderRadius: '8px',
         padding: '12px',
         minWidth: '180px',
-        boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+        boxShadow: cbOpen ? '0 0 15px var(--mantine-color-red-6)' : (errorCount > 0 ? `0 0 10px var(--mantine-color-${healthColor}-3)` : '0 4px 6px rgba(0,0,0,0.1)'),
         position: 'relative',
         opacity: data.testResult && data.testResult.status === 'FILTERED' ? 0.5 : 1,
       }}
     >
+      {nodeStatus && nodeStatus !== 'running' && (
+        <Box 
+          style={{ 
+            position: 'absolute', 
+            top: -20, 
+            right: 0,
+            background: nodeStatus.startsWith('error') ? 'var(--mantine-color-red-6)' : 'var(--mantine-color-blue-6)',
+            borderRadius: '4px',
+            padding: '2px 8px',
+            color: 'white',
+            fontSize: '9px',
+            fontWeight: 800,
+            zIndex: 10,
+            whiteSpace: 'nowrap',
+            textTransform: 'uppercase'
+          }}
+        >
+          {nodeStatus}
+        </Box>
+      )}
+      {cbOpen && (
+        <Box 
+          style={{ 
+            position: 'absolute', 
+            top: -20, 
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'var(--mantine-color-red-6)',
+            borderRadius: '4px',
+            padding: '2px 8px',
+            color: 'white',
+            fontSize: '9px',
+            fontWeight: 800,
+            zIndex: 10,
+            whiteSpace: 'nowrap'
+          }}
+        >
+          CIRCUIT BREAKER: OPEN
+        </Box>
+      )}
+      {cbHalfOpen && (
+        <Box 
+          style={{ 
+            position: 'absolute', 
+            top: -20, 
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'var(--mantine-color-orange-6)',
+            borderRadius: '4px',
+            padding: '2px 8px',
+            color: 'white',
+            fontSize: '9px',
+            fontWeight: 800,
+            zIndex: 10,
+            whiteSpace: 'nowrap'
+          }}
+        >
+          CIRCUIT BREAKER: HALF-OPEN
+        </Box>
+      )}
+      {bufferFill > 0 && (
+        <Box 
+          style={{ 
+            position: 'absolute', 
+            top: -5, 
+            right: 10,
+            width: '40px',
+            height: '4px',
+            background: 'var(--mantine-color-gray-3)',
+            borderRadius: '2px',
+            overflow: 'hidden',
+            zIndex: 10
+          }}
+        >
+          <Box 
+            style={{ 
+              width: `${bufferFill * 100}%`,
+              height: '100%',
+              background: bufferHigh ? 'var(--mantine-color-red-6)' : 'var(--mantine-color-blue-6)',
+              transition: 'width 0.3s ease'
+            }}
+          />
+        </Box>
+      )}
       {data.isDLQ && (
         <Box 
           style={{ 
@@ -125,17 +230,39 @@ export const BaseNode = ({ type, color, icon: Icon, children, data }: {
             {data.label || 'New Node'}
           </Text>
         </Box>
+        {sample && (
+          <Tooltip label="Latest processed sample">
+            <ActionIcon 
+              size="xs" 
+              variant="subtle" 
+              color="blue" 
+              onClick={(e) => {
+                e.stopPropagation();
+                setSampleNodeId(id);
+                setSampleInspectorOpened(true);
+              }}
+            >
+              <IconEye size="1rem" />
+            </ActionIcon>
+          </Tooltip>
+        )}
       </Box>
 
-      {data.metric !== undefined && data.metric > 0 && (
-        <Box style={{ position: 'absolute', bottom: -8, right: 10, background: 'var(--mantine-color-blue-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: '9px', fontWeight: 700 }}>
-          {data.metric.toLocaleString()}
+      {metric !== undefined && metric > 0 && (
+        <Box style={{ position: 'absolute', bottom: -8, right: 10, background: 'var(--mantine-color-blue-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: '9px', fontWeight: 700, zIndex: 10 }}>
+          {metric.toLocaleString()}
         </Box>
       )}
 
-      {data.dlqCount !== undefined && data.dlqCount > 0 && (
+      {errorCount !== undefined && errorCount > 0 && (
+        <Box style={{ position: 'absolute', bottom: -8, right: metric > 0 ? 50 : 10, background: 'var(--mantine-color-red-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: '9px', fontWeight: 700, zIndex: 10 }}>
+          {errorCount.toLocaleString()} ERR
+        </Box>
+      )}
+
+      {(data.dlqCount !== undefined || (data.isDLQ && workflowDeadLetterCount > 0)) && (
         <Box style={{ position: 'absolute', bottom: -8, left: 10, background: 'var(--mantine-color-orange-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: '9px', fontWeight: 700 }}>
-          ⚠️ {data.dlqCount.toLocaleString()} FAILED
+          ⚠️ {(data.dlqCount || (data.isDLQ ? workflowDeadLetterCount : 0)).toLocaleString()} FAILED
         </Box>
       )}
 

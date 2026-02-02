@@ -8,13 +8,15 @@ import { useVHost } from '../context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
 import { Tabs, FileButton } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { SapSourceConfig } from './Source/SapSourceConfig';
+import { MainframeSourceConfig } from './Source/MainframeSourceConfig';
 import { GenerateToken } from './GenerateToken';
 
 const API_BASE = '/api';
 
 const SOURCE_TYPES = [
   'postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'db2', 'mongodb', 'cassandra', 'yugabyte', 'scylladb', 'clickhouse', 'sqlite', 'csv',
-  'kafka', 'nats', 'redis', 'rabbitmq', 'rabbitmq_queue', 'webhook', 'form', 'cron', 'googlesheets', 'batch_sql', 'eventstore', 'graphql', 'grpc'
+  'kafka', 'nats', 'redis', 'rabbitmq', 'rabbitmq_queue', 'webhook', 'form', 'cron', 'googlesheets', 'batch_sql', 'eventstore', 'graphql', 'grpc', 'sap', 'mainframe'
 ];
 
 
@@ -39,6 +41,7 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
       type: initialData?.type || 'postgres', 
       vhost: (embedded ? vhost : (initialData?.vhost || vhost)) || '', 
       worker_id: (embedded ? workerID : (initialData?.worker_id || workerID)) || '',
+      active: initialData?.active ?? true,
       config: { 
         connection_string: '',
         host: '',
@@ -409,8 +412,20 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
           />
         )}
         <Group grow>
-          <TextInput label="Host" placeholder="localhost" value={source.config.host} onChange={(e) => updateConfig('host', e.target.value)} />
-          <TextInput label="Port" placeholder="5432" value={source.config.port} onChange={(e) => updateConfig('port', e.target.value)} />
+          <TextInput 
+            label="Host" 
+            placeholder="localhost" 
+            value={source.config.host} 
+            onChange={(e) => updateConfig('host', e.target.value)} 
+            description="IP address or hostname of the database server"
+          />
+          <TextInput 
+            label="Port" 
+            placeholder="5432" 
+            value={source.config.port} 
+            onChange={(e) => updateConfig('port', e.target.value)} 
+            description="Port number (e.g. 5432 for Postgres)"
+          />
         </Group>
         <Group grow>
           <TextInput label="User" placeholder="user" value={source.config.user} onChange={(e) => updateConfig('user', e.target.value)} />
@@ -439,6 +454,24 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
             />
           </>
         ) : (source.type !== 'eventstore' && tablesInput)}
+        {isDatabase && source.type !== 'eventstore' && source.config.use_cdc !== 'false' && (
+          <Group grow>
+            <TextInput 
+              label="ID Field (for Polling/Delta)" 
+              placeholder="id" 
+              value={source.config.id_field} 
+              onChange={(e) => updateConfig('id_field', e.target.value)} 
+              description="Incremental field to track changes"
+            />
+            <TextInput 
+              label="Poll Interval" 
+              placeholder="5s" 
+              value={source.config.poll_interval} 
+              onChange={(e) => updateConfig('poll_interval', e.target.value)} 
+              description="How often to check for new data"
+            />
+          </Group>
+        )}
       </>
     );
 
@@ -683,6 +716,25 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
                   placeholder="Thank you! Your submission has been received."
                   value={source.config.success_message || ''}
                   onChange={(e) => updateConfig('success_message', e.target.value)}
+                />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, sm: 6 }}>
+                <TextInput 
+                  label="Turnstile Site Key"
+                  placeholder="0x4AAAAAA..."
+                  value={source.config.turnstile_site_key || ''}
+                  onChange={(e) => updateConfig('turnstile_site_key', e.target.value)}
+                  description="Required for Cloudflare Turnstile bot protection."
+                />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, sm: 6 }}>
+                <TextInput 
+                  label="Turnstile Secret Key"
+                  placeholder="0x4AAAAAA..."
+                  value={source.config.turnstile_secret || ''}
+                  onChange={(e) => updateConfig('turnstile_secret', e.target.value)}
+                  description="Keep this secret. Used for backend verification."
+                  type="password"
                 />
               </Grid.Col>
             </Grid>
@@ -980,6 +1032,14 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
       );
     }
 
+    if (source.type === 'sap') {
+      return <SapSourceConfig config={source.config} updateConfig={updateConfig} />;
+    }
+
+    if (source.type === 'mainframe') {
+      return <MainframeSourceConfig config={source.config} updateConfig={updateConfig} />;
+    }
+
     const getConnectionPlaceholder = () => {
       switch (source.type) {
         case 'mysql':
@@ -1091,6 +1151,30 @@ GO`}
             <List size="sm" withPadding>
               <List.Item>Ensure the user has <Code>DATAACCESS</Code> or similar permissions</List.Item>
               <List.Item>Tables must have <Code>DATA CAPTURE CHANGES</Code> enabled</List.Item>
+            </List>
+          </Stack>
+        );
+      case 'sap':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>SAP OData Setup</Title>
+            <Text size="sm">Poll data from SAP via OData services.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Ensure the OData service is activated in <Code>/IWFND/MAINT_SERVICE</Code>.</List.Item>
+              <List.Item>The user needs authorizations to call the OData service and read the data.</List.Item>
+              <List.Item>For delta polling, use the <Code>$filter</Code> parameter with a timestamp field.</List.Item>
+            </List>
+          </Stack>
+        );
+      case 'mainframe':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>Mainframe Integration</Title>
+            <Text size="sm">Connect to Mainframe systems (Z/OS) via DB2 or VSAM wrappers.</Text>
+            <List size="sm" withPadding>
+              <List.Item>For DB2, ensure the IBM DB2 driver is accessible.</List.Item>
+              <List.Item>For VSAM, a REST/OData wrapper is recommended for modern connectivity.</List.Item>
+              <List.Item>Specify the schema and table for DB2 sources.</List.Item>
             </List>
           </Stack>
         );

@@ -1,0 +1,37 @@
+{
+  "name": "CDC to Snowflake: Real-time Cloud Data Warehouse",
+  "description": "Capture change events from a database (Postgres/MySQL) and stream them directly into Snowflake with automatic PII masking.",
+  "icon": "IconDatabase",
+  "color": "blue",
+  "data": {
+    "name": "CDC to Snowflake",
+    "tier": "Enterprise",
+    "nodes": [
+      {
+        "id": "src_db",
+        "type": "source",
+        "config": { "label": "Source DB (CDC)", "type": "postgres", "ref_id": "new" },
+        "x": 100,
+        "y": 200
+      },
+      {
+        "id": "trans_mask",
+        "type": "transformation",
+        "config": { "label": "Mask Sensitive Data", "transType": "mask", "maskType": "pii" },
+        "x": 400,
+        "y": 200
+      },
+      {
+        "id": "snk_snowflake",
+        "type": "sink",
+        "config": { "label": "Snowflake", "type": "snowflake", "ref_id": "new" },
+        "x": 700,
+        "y": 200
+      }
+    ],
+    "edges": [
+      { "id": "e1", "source_id": "src_db", "target_id": "trans_mask" },
+      { "id": "e2", "source_id": "trans_mask", "target_id": "snk_snowflake" }
+    ]
+  }
+}

@@ -12,16 +12,16 @@ import (
 func (s *Server) registerSinkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sinks", s.listSinks)
 	mux.HandleFunc("GET /api/sinks/{id}", s.getSink)
-	mux.HandleFunc("POST /api/sinks", s.createSink)
-	mux.HandleFunc("PUT /api/sinks/{id}", s.updateSink)
-	mux.HandleFunc("POST /api/sinks/test", s.testSink)
-	mux.HandleFunc("POST /api/sinks/discover/databases", s.discoverSinkDatabases)
-	mux.HandleFunc("POST /api/sinks/discover/tables", s.discoverSinkTables)
-	mux.HandleFunc("POST /api/sinks/sample", s.sampleSinkTable)
-	mux.HandleFunc("POST /api/sinks/browse", s.browseSinkTable)
-	mux.HandleFunc("POST /api/sinks/smtp/preview", s.previewSmtpTemplate)
-	mux.HandleFunc("POST /api/sinks/smtp/validate", s.validateEmail)
-	mux.HandleFunc("DELETE /api/sinks/{id}", s.deleteSink)
+	mux.Handle("POST /api/sinks", s.editorOnly(s.createSink))
+	mux.Handle("PUT /api/sinks/{id}", s.editorOnly(s.updateSink))
+	mux.Handle("POST /api/sinks/test", s.editorOnly(s.testSink))
+	mux.Handle("POST /api/sinks/discover/databases", s.editorOnly(s.discoverSinkDatabases))
+	mux.Handle("POST /api/sinks/discover/tables", s.editorOnly(s.discoverSinkTables))
+	mux.Handle("POST /api/sinks/sample", s.editorOnly(s.sampleSinkTable))
+	mux.Handle("POST /api/sinks/browse", s.editorOnly(s.browseSinkTable))
+	mux.Handle("POST /api/sinks/smtp/preview", s.editorOnly(s.previewSmtpTemplate))
+	mux.Handle("POST /api/sinks/smtp/validate", s.editorOnly(s.validateEmail))
+	mux.Handle("DELETE /api/sinks/{id}", s.editorOnly(s.deleteSink))
 }
 
 func (s *Server) listSinks(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +103,7 @@ func (s *Server) createSink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	snk.ID = uuid.New().String()
+	snk.Active = true
 	if err := s.storage.CreateSink(r.Context(), snk); err != nil {
 		s.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return

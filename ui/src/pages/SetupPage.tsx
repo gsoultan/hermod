@@ -38,6 +38,11 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
   // DB test state (for gating Next button on DB step)
   const [dbTestOk, setDbTestOk] = useState(false)
   
+  // Logging Database setup state
+  const [useSeparateLogDb, setUseSeparateLogDb] = useState(false)
+  const [logDbType, setLogDbType] = useState<string | null>(null)
+  const [logDbConn, setLogDbConn] = useState('')
+  
   // User state
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
@@ -56,39 +61,67 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
   // SMTP test state
   const [smtpTest, setSmtpTest] = useState<{ status: 'ok' | 'error' | 'skipped'; error?: string } | null>(null)
 
+  // Worker setup state
+  const [workerName, setWorkerName] = useState('Default Worker')
+  const [workerHost, setWorkerHost] = useState(window.location.hostname)
+  const [workerPort, setWorkerPort] = useState(8080)
+
+  // Engine settings
+  const [maxRetries, setMaxRetries] = useState(3)
+  const [retryInterval, setRetryInterval] = useState('1s')
+  const [reconnectInterval, setReconnectInterval] = useState('5s')
+
+  // Buffer settings
+  const [bufferType, setBufferType] = useState('ring_buffer')
+  const [bufferSize, setBufferSize] = useState(1024)
+  const [bufferPath, setBufferPath] = useState('')
+  const [bufferCompression, setBufferCompression] = useState('none')
+
+  // Secrets settings
+  const [secretsType, setSecretsType] = useState('env')
+  const [vaultAddress, setVaultAddress] = useState('')
+  const [vaultToken, setVaultToken] = useState('')
+  const [vaultMount, setVaultMount] = useState('secret')
+  const [awsRegion, setAwsRegion] = useState('us-east-1')
+  const [azureVaultUrl, setAzureVaultUrl] = useState('')
+  const [secretsPrefix, setSecretsPrefix] = useState('HERMOD_')
+
+  // State Store settings
+  const [stateStoreType, setStateStoreType] = useState('sqlite')
+  const [stateStorePath, setStateStorePath] = useState('hermod_state.db')
+  const [stateStoreAddress, setStateStoreAddress] = useState('')
+  const [stateStorePassword, setStateStorePassword] = useState('')
+  const [stateStoreDB, setStateStoreDB] = useState(0)
+  const [stateStorePrefix, setStateStorePrefix] = useState('hermod:')
+
+  // Observability settings
+  const [otlpEndpoint, setOtlpEndpoint] = useState('')
+  const [otlpProtocol, setOtlpProtocol] = useState('grpc')
+  const [otlpInsecure, setOtlpInsecure] = useState(true)
+  const [otlpServiceName, setOtlpServiceName] = useState('hermod')
+
+  // Auth (OIDC) settings
+  const [oidcEnabled, setOidcEnabled] = useState(false)
+  const [oidcIssuer, setOidcIssuer] = useState('')
+  const [oidcClientId, setOidcClientId] = useState('')
+  const [oidcClientSecret, setOidcClientSecret] = useState('')
+  const [oidcRedirect, setOidcRedirect] = useState(`${window.location.origin}/api/auth/callback`)
+  const [oidcScopes, setOidcScopes] = useState('openid,profile,email')
+
   const [error, setError] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<{ ok: boolean; error?: string; details?: any; hint?: string } | null>(null)
 
-  // Save DB configuration (used only in final step)
-  useMutation({
-    mutationFn: async (config: { type: string | null, conn: string, crypto_master_key: string }) => {
-      const response = await apiFetch('/api/config/database', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(config),
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to save configuration')
-      }
-      return response.json()
-    },
-    onSuccess: () => {
-      setError(null)
-    },
-    onError: (err) => {
-      setError(err instanceof Error ? err.message : 'An error occurred')
-    }
-  });
-// Test DB connection (used in DB step and also in final step)
   const testDbMutation = useMutation({
     mutationFn: async () => {
+      const payload: any = { type: dbType, conn: dbConn, crypto_master_key: cryptoMasterKey }
+      if (useSeparateLogDb && logDbType && logDbConn) {
+        payload.log_type = logDbType
+        payload.log_conn = logDbConn
+      }
       const response = await apiFetch('/api/config/database/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: dbType, conn: dbConn, crypto_master_key: cryptoMasterKey }),
+        body: JSON.stringify(payload),
       })
       const json = await response.json()
       return json
@@ -104,47 +137,22 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
     }
   })
 
-  // Create first admin user (used only in final step)
-  useMutation({
-    mutationFn: async (user: any) => {
-      const response = await apiFetch('/api/users', {
+  // Register initial worker
+  const createWorkerMutation = useMutation({
+    mutationFn: async (worker: any) => {
+      const response = await apiFetch('/api/workers', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(user),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(worker),
       })
-
       if (!response.ok) {
-        throw new Error('Failed to create administrator')
+        throw new Error('Failed to register worker')
       }
       return response.json()
     },
-    onSuccess: () => {
-      setError(null)
-    },
-    onError: (err) => {
-      setError(err instanceof Error ? err.message : 'An error occurred')
-    }
-  });
-// Save SMTP settings (used only in final step)
-  useMutation({
-    mutationFn: async (settings: any) => {
-      const response = await apiFetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
-      })
-      if (!response.ok) throw new Error('Failed to save SMTP settings')
-    },
-    onSuccess: () => {
-      setError(null)
-    },
-    onError: (err) => {
-      setError(err instanceof Error ? err.message : 'An error occurred')
-    }
-  });
-// SMTP test removed from wizard to avoid backend calls before final step
+  })
+
+  // SMTP test removed from wizard to avoid backend calls before final step
   // SMTP: test current config from the SMTP step
   const testSmtpMutation = useMutation({
     mutationFn: async () => {
@@ -194,8 +202,61 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
     try {
       // Single-call setup endpoint (first run only)
       const payload: any = {
-        db: { type: dbType, conn: dbConn, crypto_master_key: cryptoMasterKey },
+        db: {
+          type: dbType,
+          conn: dbConn,
+          log_type: useSeparateLogDb ? logDbType : undefined,
+          log_conn: useSeparateLogDb ? logDbConn : undefined,
+          crypto_master_key: cryptoMasterKey
+        },
         admin: { username, password, full_name: fullName, email },
+        config: {
+          engine: {
+            max_retries: maxRetries,
+            retry_interval: retryInterval,
+            reconnect_interval: reconnectInterval
+          },
+          buffer: {
+            type: bufferType,
+            size: bufferSize,
+            path: bufferPath,
+            compression: bufferCompression
+          },
+          secrets: {
+            type: secretsType,
+            vault: secretsType === 'vault' ? { address: vaultAddress, token: vaultToken, mount: vaultMount } : undefined,
+            openbao: secretsType === 'openbao' ? { address: vaultAddress, token: vaultToken, mount: vaultMount } : undefined,
+            aws: secretsType === 'aws' ? { region: awsRegion } : undefined,
+            azure: secretsType === 'azure' ? { vault_url: azureVaultUrl } : undefined,
+            env: secretsType === 'env' ? { prefix: secretsPrefix } : undefined
+          },
+          state_store: {
+            type: stateStoreType,
+            path: stateStoreType === 'sqlite' ? stateStorePath : undefined,
+            address: stateStoreType !== 'sqlite' ? stateStoreAddress : undefined,
+            password: stateStoreType !== 'sqlite' ? stateStorePassword : undefined,
+            db: stateStoreType === 'redis' ? stateStoreDB : undefined,
+            prefix: stateStorePrefix
+          },
+          observability: {
+            otlp: {
+              endpoint: otlpEndpoint,
+              protocol: otlpProtocol,
+              insecure: otlpInsecure,
+              service_name: otlpServiceName
+            }
+          },
+          auth: {
+            oidc: {
+              enabled: oidcEnabled,
+              issuer_url: oidcIssuer,
+              client_id: oidcClientId,
+              client_secret: oidcClientSecret,
+              redirect_url: oidcRedirect,
+              scopes: oidcScopes.split(',').map(s => s.trim())
+            }
+          }
+        }
       }
       if (smtpHost || smtpUser || smtpPassword || smtpFrom || defaultEmail) {
         payload.smtp = {
@@ -213,6 +274,18 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
+
+      // Register initial worker after DB/Admin are ready
+      try {
+        await createWorkerMutation.mutateAsync({
+          name: workerName,
+          host: workerHost,
+          port: Number(workerPort),
+          description: 'Initial worker registered during setup'
+        })
+      } catch (e) {
+        console.warn('Failed to register initial worker, will continue anyway', e)
+      }
 
       onConfigured()
     } finally {
@@ -399,7 +472,8 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
   const pwColor = pwScore >= 4 ? 'green' : pwScore >= 3 ? 'yellow' : 'red'
   const pwLabel = pwScore >= 4 ? 'Strong' : pwScore >= 3 ? 'Fair' : 'Weak'
   const canAdminNext = username.trim().length > 0 && password.trim().length > 0 && pwScore >= 3
-  const canDbNext = Boolean(dbType) && dbConn.trim().length > 0 && cryptoMasterKey.length >= 16 && dbTestOk
+  const canDbNext = Boolean(dbType) && dbConn.trim().length > 0 && cryptoMasterKey.length >= 16 && dbTestOk &&
+    (!useSeparateLogDb || (Boolean(logDbType) && logDbConn.trim().length > 0))
 
   return (
     <Container size="lg" mt={48}>
@@ -485,6 +559,39 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
                 )}
 
                 <Text size="xs" c="dimmed">{dsnHelp}</Text>
+
+                <Checkbox
+                  label="Use a separate database for logging"
+                  description="Offload audit logs, workflow logs, and message traces to a different database to improve performance."
+                  checked={useSeparateLogDb}
+                  onChange={(e) => setUseSeparateLogDb(e.currentTarget.checked)}
+                />
+
+                {useSeparateLogDb && (
+                  <Paper withBorder p="md" radius="sm">
+                    <Stack gap="sm">
+                      <Select
+                        label="Logging Database Type"
+                        placeholder="Select database type"
+                        data={[
+                          { value: 'sqlite', label: 'SQLite' },
+                          { value: 'postgres', label: 'PostgreSQL' },
+                          { value: 'mysql', label: 'MySQL' },
+                          { value: 'mariadb', label: 'MariaDB' },
+                          { value: 'mongodb', label: 'MongoDB' },
+                        ]}
+                        value={logDbType}
+                        onChange={(val) => setLogDbType(val)}
+                      />
+                      <TextInput
+                        label={logDbType === 'sqlite' ? 'Logging DB Path' : 'Logging Connection String'}
+                        placeholder={logDbType === 'sqlite' ? 'hermod_logs.db' : 'postgres://user:pass@localhost:5432/hermod_logs'}
+                        value={logDbConn}
+                        onChange={(e) => setLogDbConn(e.currentTarget.value)}
+                      />
+                    </Stack>
+                  </Paper>
+                )}
 
                 <Stack gap="xs">
                   <PasswordInput
@@ -648,6 +755,170 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
             </Paper>
           </Stepper.Step>
 
+          <Stepper.Step label="Platform" description={showStepperDesc ? 'Engine & Buffer' : undefined}>
+            <Paper withBorder p="xl" radius="md" mt="xl">
+              <Stack gap="md">
+                <Text fw={600}>Engine Settings</Text>
+                <NumberInput label="Max Retries" value={maxRetries} onChange={(val) => setMaxRetries(Number(val))} />
+                <Group grow>
+                  <TextInput label="Retry Interval" placeholder="1s" value={retryInterval} onChange={(e) => setRetryInterval(e.currentTarget.value)} />
+                  <TextInput label="Reconnect Interval" placeholder="5s" value={reconnectInterval} onChange={(e) => setReconnectInterval(e.currentTarget.value)} />
+                </Group>
+
+                <Text fw={600} mt="md">Buffer Settings</Text>
+                <Select
+                  label="Buffer Type"
+                  data={[
+                    { value: 'ring_buffer', label: 'Ring Buffer (In-memory)' },
+                    { value: 'disk', label: 'Disk Buffer' },
+                    { value: 'nats', label: 'NATS' },
+                  ]}
+                  value={bufferType}
+                  onChange={(val) => setBufferType(val || 'ring_buffer')}
+                />
+                <NumberInput label="Buffer Size" value={bufferSize} onChange={(val) => setBufferSize(Number(val))} />
+                {bufferType === 'disk' && (
+                  <TextInput label="Buffer Path" placeholder="/tmp/hermod_buffer" value={bufferPath} onChange={(e) => setBufferPath(e.currentTarget.value)} />
+                )}
+                <Select
+                  label="Compression"
+                  data={[
+                    { value: 'none', label: 'None' },
+                    { value: 'gzip', label: 'Gzip' },
+                    { value: 'zstd', label: 'Zstd' },
+                  ]}
+                  value={bufferCompression}
+                  onChange={(val) => setBufferCompression(val || 'none')}
+                />
+
+                <Group justify="space-between" mt="md">
+                  <Button variant="default" onClick={() => setActive(2)}>Back</Button>
+                  <Button onClick={() => setActive(4)}>Next</Button>
+                </Group>
+              </Stack>
+            </Paper>
+          </Stepper.Step>
+
+          <Stepper.Step label="Secrets & State" description={showStepperDesc ? 'Security & Persistence' : undefined}>
+            <Paper withBorder p="xl" radius="md" mt="xl">
+              <Stack gap="md">
+                <Text fw={600}>Secret Manager</Text>
+                <Select
+                  label="Type"
+                  data={[
+                    { value: 'env', label: 'Environment Variables' },
+                    { value: 'vault', label: 'HashiCorp Vault' },
+                    { value: 'openbao', label: 'OpenBao' },
+                    { value: 'aws', label: 'AWS Secrets Manager' },
+                    { value: 'azure', label: 'Azure Key Vault' },
+                  ]}
+                  value={secretsType}
+                  onChange={(val) => setSecretsType(val || 'env')}
+                />
+                {(secretsType === 'vault' || secretsType === 'openbao') && (
+                  <Stack gap="sm">
+                    <TextInput label="Address" placeholder="https://vault.example.com:8200" value={vaultAddress} onChange={(e) => setVaultAddress(e.currentTarget.value)} />
+                    <PasswordInput label="Token" value={vaultToken} onChange={(e) => setVaultToken(e.currentTarget.value)} />
+                    <TextInput label="Mount Path" placeholder="secret" value={vaultMount} onChange={(e) => setVaultMount(e.currentTarget.value)} />
+                  </Stack>
+                )}
+                {secretsType === 'aws' && (
+                  <TextInput label="AWS Region" placeholder="us-east-1" value={awsRegion} onChange={(e) => setAwsRegion(e.currentTarget.value)} />
+                )}
+                {secretsType === 'azure' && (
+                  <TextInput label="Vault URL" placeholder="https://myvault.vault.azure.net/" value={azureVaultUrl} onChange={(e) => setAzureVaultUrl(e.currentTarget.value)} />
+                )}
+                {secretsType === 'env' && (
+                  <TextInput label="Env Prefix" placeholder="HERMOD_" value={secretsPrefix} onChange={(e) => setSecretsPrefix(e.currentTarget.value)} />
+                )}
+
+                <Text fw={600} mt="md">State Store</Text>
+                <Select
+                  label="Type"
+                  data={[
+                    { value: 'sqlite', label: 'SQLite (Local)' },
+                    { value: 'redis', label: 'Redis' },
+                    { value: 'etcd', label: 'Etcd' },
+                  ]}
+                  value={stateStoreType}
+                  onChange={(val) => setStateStoreType(val || 'sqlite')}
+                />
+                {stateStoreType === 'sqlite' && (
+                  <TextInput label="DB Path" placeholder="hermod_state.db" value={stateStorePath} onChange={(e) => setStateStorePath(e.currentTarget.value)} />
+                )}
+                {stateStoreType !== 'sqlite' && (
+                  <Stack gap="sm">
+                    <TextInput label="Address" placeholder="localhost:6379" value={stateStoreAddress} onChange={(e) => setStateStoreAddress(e.currentTarget.value)} />
+                    <PasswordInput label="Password" value={stateStorePassword} onChange={(e) => setStateStorePassword(e.currentTarget.value)} />
+                    {stateStoreType === 'redis' && (
+                      <NumberInput label="DB Index" value={stateStoreDB} onChange={(val) => setStateStoreDB(Number(val))} />
+                    )}
+                  </Stack>
+                )}
+                <TextInput label="Prefix" placeholder="hermod:" value={stateStorePrefix} onChange={(e) => setStateStorePrefix(e.currentTarget.value)} />
+
+                <Group justify="space-between" mt="md">
+                  <Button variant="default" onClick={() => setActive(3)}>Back</Button>
+                  <Button onClick={() => setActive(5)}>Next</Button>
+                </Group>
+              </Stack>
+            </Paper>
+          </Stepper.Step>
+
+          <Stepper.Step label="Auth & Observability" description={showStepperDesc ? 'OIDC & OTLP' : undefined}>
+            <Paper withBorder p="xl" radius="md" mt="xl">
+              <Stack gap="md">
+                <Text fw={600}>OIDC Authentication</Text>
+                <Checkbox label="Enable OIDC" checked={oidcEnabled} onChange={(e) => setOidcEnabled(e.currentTarget.checked)} />
+                {oidcEnabled && (
+                  <Stack gap="sm">
+                    <TextInput label="Issuer URL" placeholder="https://auth.example.com/" value={oidcIssuer} onChange={(e) => setOidcIssuer(e.currentTarget.value)} />
+                    <TextInput label="Client ID" value={oidcClientId} onChange={(e) => setOidcClientId(e.currentTarget.value)} />
+                    <PasswordInput label="Client Secret" value={oidcClientSecret} onChange={(e) => setOidcClientSecret(e.currentTarget.value)} />
+                    <TextInput label="Redirect URL" value={oidcRedirect} onChange={(e) => setOidcRedirect(e.currentTarget.value)} />
+                    <TextInput label="Scopes (comma separated)" value={oidcScopes} onChange={(e) => setOidcScopes(e.currentTarget.value)} />
+                  </Stack>
+                )}
+
+                <Text fw={600} mt="md">Observability (OTLP)</Text>
+                <TextInput label="OTLP Endpoint" placeholder="http://localhost:4317" value={otlpEndpoint} onChange={(e) => setOtlpEndpoint(e.currentTarget.value)} />
+                <Select
+                  label="Protocol"
+                  data={[
+                    { value: 'grpc', label: 'gRPC' },
+                    { value: 'http', label: 'HTTP' },
+                  ]}
+                  value={otlpProtocol}
+                  onChange={(val) => setOtlpProtocol(val || 'grpc')}
+                />
+                <Checkbox label="Insecure" checked={otlpInsecure} onChange={(e) => setOtlpInsecure(e.currentTarget.checked)} />
+                <TextInput label="Service Name" value={otlpServiceName} onChange={(e) => setOtlpServiceName(e.currentTarget.value)} />
+
+                <Group justify="space-between" mt="md">
+                  <Button variant="default" onClick={() => setActive(4)}>Back</Button>
+                  <Button onClick={() => setActive(6)}>Next</Button>
+                </Group>
+              </Stack>
+            </Paper>
+          </Stepper.Step>
+
+          <Stepper.Step label="Worker" description={showStepperDesc ? 'Initial worker' : undefined}>
+            <Paper withBorder p="xl" radius="md" mt="xl">
+              <Stack gap="md">
+                <Text size="sm">Register the first worker instance. This worker will process your workflows.</Text>
+                <TextInput label="Worker Name" value={workerName} onChange={(e) => setWorkerName(e.currentTarget.value)} required />
+                <Group grow>
+                  <TextInput label="Host / IP" value={workerHost} onChange={(e) => setWorkerHost(e.currentTarget.value)} required />
+                  <NumberInput label="Port" value={workerPort} onChange={(val) => setWorkerPort(Number(val))} required />
+                </Group>
+                <Group justify="space-between" mt="md">
+                  <Button variant="default" onClick={() => setActive(active - 1)}>Back</Button>
+                  <Button onClick={() => setActive(active + 1)}>Next Step</Button>
+                </Group>
+              </Stack>
+            </Paper>
+          </Stepper.Step>
+
           {/* Final step: Confirm & Save (all backend calls happen here) */}
           <Stepper.Step label="Confirm & Save" description={showStepperDesc ? 'Review and apply configuration' : undefined}>
             <Paper withBorder p="xl" radius="md" mt="xl">
@@ -676,6 +947,30 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
                   <Text size="sm">Username: {username}</Text>
                   <Text size="sm">Full Name: {fullName || '-'}</Text>
                   <Text size="sm">Email: {email || '-'}</Text>
+                </Stack>
+
+                <Stack gap={4}>
+                  <Text fw={600}>Platform (Engine & Buffer)</Text>
+                  <Text size="sm">Engine: {maxRetries} retries, {retryInterval} interval, {reconnectInterval} reconnect</Text>
+                  <Text size="sm">Buffer: {bufferType} ({bufferSize} size, {bufferCompression} compression)</Text>
+                </Stack>
+
+                <Stack gap={4}>
+                  <Text fw={600}>Secrets & State</Text>
+                  <Text size="sm">Secrets: {secretsType}</Text>
+                  <Text size="sm">State Store: {stateStoreType} ({stateStorePrefix})</Text>
+                </Stack>
+
+                <Stack gap={4}>
+                  <Text fw={600}>Auth & Observability</Text>
+                  <Text size="sm">OIDC: {oidcEnabled ? 'Enabled' : 'Disabled'}</Text>
+                  <Text size="sm">OTLP: {otlpEndpoint || 'Not configured'}</Text>
+                </Stack>
+
+                <Stack gap={4}>
+                  <Text fw={600}>Worker</Text>
+                  <Text size="sm">Name: {workerName}</Text>
+                  <Text size="sm">Address: {workerHost}:{workerPort}</Text>
                 </Stack>
 
                 {/* Optional helpers in final step */}
@@ -709,7 +1004,7 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
                 )}
 
                 <Group justify="space-between">
-                  <Button variant="default" onClick={() => setActive(2)}>Back</Button>
+                  <Button variant="default" onClick={() => setActive(6)}>Back</Button>
                   <Group>
                     <Button onClick={handleFinalSave} loading={saving} disabled={!canDbNext || !canAdminNext}>
                       Confirm & Save

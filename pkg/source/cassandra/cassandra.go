@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,18 +16,29 @@ import (
 
 // CassandraSource implements the hermod.Source interface for Cassandra.
 type CassandraSource struct {
-	hosts   []string
-	useCDC  bool
-	cluster *gocql.ClusterConfig
-	session *gocql.Session
-	mu      sync.Mutex
-	logger  hermod.Logger
+	hosts        []string
+	useCDC       bool
+	tables       []string
+	idField      string
+	pollInterval time.Duration
+	cluster      *gocql.ClusterConfig
+	session      *gocql.Session
+	mu           sync.Mutex
+	logger       hermod.Logger
+	lastIDs      map[string]interface{}
 }
 
-func NewCassandraSource(hosts []string, useCDC bool) *CassandraSource {
+func NewCassandraSource(hosts []string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *CassandraSource {
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second
+	}
 	return &CassandraSource{
-		hosts:  hosts,
-		useCDC: useCDC,
+		hosts:        hosts,
+		tables:       tables,
+		idField:      idField,
+		pollInterval: pollInterval,
+		useCDC:       useCDC,
+		lastIDs:      make(map[string]interface{}),
 	}
 }
 
@@ -87,12 +99,99 @@ func (c *CassandraSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, err
 	}
 
-	// Cassandra Read blocks for now.
-	select {
-	case <-ctx.Done():
+	if !c.useCDC {
+		<-ctx.Done()
 		return nil, ctx.Err()
-	case <-time.After(5 * time.Second):
-		return nil, nil
+	}
+
+	for {
+		for _, table := range c.tables {
+			c.mu.Lock()
+			lastID := c.lastIDs[table]
+			c.mu.Unlock()
+
+			var query string
+			var args []interface{}
+
+			if lastID != nil && c.idField != "" {
+				// Cassandra doesn't support > on all types easily without ALLOW FILTERING or specific indexing
+				// But for polling we assume it's an incremental field (like a timestamp or counter)
+				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? LIMIT 1 ALLOW FILTERING", table, c.idField)
+				args = append(args, lastID)
+			} else {
+				query = fmt.Sprintf("SELECT * FROM %s LIMIT 1", table)
+			}
+
+			iter := c.session.Query(query).WithContext(ctx).Iter()
+			columns := iter.Columns()
+			values := make([]interface{}, len(columns))
+			for i := range values {
+				values[i] = new(interface{})
+			}
+
+			if iter.Scan(values...) {
+				record := make(map[string]interface{})
+				var currentID interface{}
+				for i, col := range columns {
+					val := *(values[i].(*interface{}))
+					if b, ok := val.([]byte); ok {
+						val = string(b)
+					}
+					record[col.Name] = val
+					if col.Name == c.idField {
+						currentID = val
+					}
+				}
+
+				if currentID != nil {
+					c.mu.Lock()
+					c.lastIDs[table] = currentID
+					c.mu.Unlock()
+				}
+
+				iter.Close()
+
+				afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+				msg := message.AcquireMessage()
+				msg.SetID(fmt.Sprintf("cassandra-%s-%v", table, currentID))
+				msg.SetOperation(hermod.OpCreate)
+				msg.SetTable(table)
+				msg.SetAfter(afterJSON)
+				msg.SetMetadata("source", "cassandra")
+
+				return msg, nil
+			}
+			iter.Close()
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(c.pollInterval):
+		}
+	}
+}
+
+func (c *CassandraSource) GetState() map[string]string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	state := make(map[string]string)
+	for table, id := range c.lastIDs {
+		state["last_id:"+table] = fmt.Sprintf("%v", id)
+	}
+	return state
+}
+
+func (c *CassandraSource) SetState(state map[string]string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for k, v := range state {
+		if strings.HasPrefix(k, "last_id:") {
+			table := strings.TrimPrefix(k, "last_id:")
+			c.lastIDs[table] = v
+		}
 	}
 }
 

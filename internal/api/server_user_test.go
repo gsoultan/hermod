@@ -41,7 +41,7 @@ func (s *userTestStorage) ListAuditLogs(ctx context.Context, filter storage.Audi
 
 func TestChangeUserPassword(t *testing.T) {
 	s := &userTestStorage{}
-	server := NewServer(nil, s)
+	server := NewServer(nil, s, nil, nil)
 	handler := server.Routes()
 
 	// Mock JWT secret

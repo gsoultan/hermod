@@ -49,7 +49,7 @@ func (m *mockSink) Close() error {
 }
 
 type mockSimpleStorage struct {
-	storage.Storage
+	BaseMockStorage
 	wf storage.Workflow
 	mu sync.Mutex
 }

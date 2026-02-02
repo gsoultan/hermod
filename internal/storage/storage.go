@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"github.com/user/hermod"
 	"time"
 )
 
@@ -23,10 +24,11 @@ type Log struct {
 }
 
 type CommonFilter struct {
-	Page   int
-	Limit  int
-	Search string
-	VHost  string
+	Page        int
+	Limit       int
+	Search      string
+	VHost       string
+	WorkspaceID string
 	// Since and Until bound time-based queries (e.g., logs). Zero value means not set.
 	Since time.Time
 	Until time.Time
@@ -44,27 +46,29 @@ type LogFilter struct {
 }
 
 type Source struct {
-	ID       string            `json:"id"`
-	Name     string            `json:"name"`
-	Type     string            `json:"type"`
-	VHost    string            `json:"vhost"`
-	Active   bool              `json:"active"`
-	Status   string            `json:"status,omitempty"`
-	WorkerID string            `json:"worker_id"`
-	Config   map[string]string `json:"config"`
-	Sample   string            `json:"sample,omitempty"`
-	State    map[string]string `json:"state,omitempty"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Type        string            `json:"type"`
+	VHost       string            `json:"vhost"`
+	Active      bool              `json:"active"`
+	Status      string            `json:"status,omitempty"`
+	WorkerID    string            `json:"worker_id"`
+	WorkspaceID string            `json:"workspace_id,omitempty"`
+	Config      map[string]string `json:"config"`
+	Sample      string            `json:"sample,omitempty"`
+	State       map[string]string `json:"state,omitempty"`
 }
 
 type Sink struct {
-	ID       string            `json:"id"`
-	Name     string            `json:"name"`
-	Type     string            `json:"type"`
-	VHost    string            `json:"vhost"`
-	Active   bool              `json:"active"`
-	Status   string            `json:"status,omitempty"`
-	WorkerID string            `json:"worker_id"`
-	Config   map[string]string `json:"config"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Type        string            `json:"type"`
+	VHost       string            `json:"vhost"`
+	Active      bool              `json:"active"`
+	Status      string            `json:"status,omitempty"`
+	WorkerID    string            `json:"worker_id"`
+	WorkspaceID string            `json:"workspace_id,omitempty"`
+	Config      map[string]string `json:"config"`
 }
 
 type Transformation struct {
@@ -73,12 +77,20 @@ type Transformation struct {
 }
 
 type WorkflowNode struct {
-	ID     string                 `json:"id"`
-	Type   string                 `json:"type"`             // source, sink, transformer, condition, etc.
-	RefID  string                 `json:"ref_id,omitempty"` // ID of the source, sink, or transformation
-	Config map[string]interface{} `json:"config,omitempty"`
-	X      float64                `json:"x"`
-	Y      float64                `json:"y"`
+	ID        string                 `json:"id"`
+	Type      string                 `json:"type"`             // source, sink, transformer, condition, etc.
+	RefID     string                 `json:"ref_id,omitempty"` // ID of the source, sink, or transformation
+	Config    map[string]interface{} `json:"config,omitempty"`
+	X         float64                `json:"x"`
+	Y         float64                `json:"y"`
+	UnitTests []UnitTest             `json:"unit_tests,omitempty"`
+}
+
+type UnitTest struct {
+	Name           string                 `json:"name"`
+	Input          map[string]interface{} `json:"input"`
+	ExpectedOutput map[string]interface{} `json:"expected_output"`
+	Description    string                 `json:"description,omitempty"`
 }
 
 type WorkflowEdge struct {
@@ -116,11 +128,30 @@ type Workflow struct {
 	Tier              WorkflowTier   `json:"tier,omitempty"`
 	// RetentionDays optionally overrides global log retention for this workflow.
 	// nil means inherit the global setting; 0 means keep forever; >0 means days to retain.
-	RetentionDays *int   `json:"retention_days,omitempty"`
-	SchemaType    string `json:"schema_type,omitempty"`
-	Schema        string `json:"schema,omitempty"`
-	Cron          string `json:"cron,omitempty"`
-	DLQThreshold  int    `json:"dlq_threshold,omitempty"`
+	RetentionDays     *int     `json:"retention_days,omitempty"`
+	SchemaType        string   `json:"schema_type,omitempty"`
+	Schema            string   `json:"schema,omitempty"`
+	Cron              string   `json:"cron,omitempty"`
+	DLQThreshold      int      `json:"dlq_threshold,omitempty"`
+	TraceSampleRate   float64  `json:"trace_sample_rate,omitempty"`
+	Tags              []string `json:"tags,omitempty"`
+	TraceRetention    string   `json:"trace_retention,omitempty"` // e.g. "7d", "30d"
+	AuditRetention    string   `json:"audit_retention,omitempty"` // e.g. "30d", "365d"
+	WorkspaceID       string   `json:"workspace_id,omitempty"`
+	CPURequest        float64  `json:"cpu_request,omitempty"`
+	MemoryRequest     float64  `json:"memory_request,omitempty"`
+	ThroughputRequest int      `json:"throughput_request,omitempty"`
+}
+
+type Workspace struct {
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Description   string    `json:"description"`
+	MaxWorkflows  int       `json:"max_workflows"`
+	MaxCPU        float64   `json:"max_cpu"`
+	MaxMemory     float64   `json:"max_memory"`
+	MaxThroughput int       `json:"max_throughput"` // messages per second
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type Worker struct {
@@ -131,6 +162,8 @@ type Worker struct {
 	Description string     `json:"description"`
 	Token       string     `json:"token"`
 	LastSeen    *time.Time `json:"last_seen,omitempty"`
+	CPUUsage    float64    `json:"cpu_usage,omitempty"`
+	MemoryUsage float64    `json:"memory_usage,omitempty"`
 }
 
 type Role string
@@ -193,6 +226,80 @@ type WebhookRequestFilter struct {
 	Path string `json:"path"`
 }
 
+type FormSubmission struct {
+	ID        string    `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Path      string    `json:"path"`
+	Data      []byte    `json:"data"`
+	Status    string    `json:"status"` // pending, processing, completed, failed
+}
+
+type FormSubmissionFilter struct {
+	CommonFilter
+	Path   string `json:"path"`
+	Status string `json:"status"`
+}
+
+type Schema struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Version   int       `json:"version"`
+	Type      string    `json:"type"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Plugin struct {
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Author      string     `json:"author"`
+	Stars       int        `json:"stars"`
+	Category    string     `json:"category"`
+	Certified   bool       `json:"certified"`
+	Type        string     `json:"type"` // WASM, Connector, Transformer
+	WasmURL     string     `json:"wasm_url,omitempty"`
+	Installed   bool       `json:"installed"`
+	InstalledAt *time.Time `json:"installed_at,omitempty"`
+}
+
+type TraceStep = hermod.TraceStep
+
+type MessageTrace struct {
+	ID         string             `json:"id"`
+	MessageID  string             `json:"message_id"`
+	WorkflowID string             `json:"workflow_id"`
+	Steps      []hermod.TraceStep `json:"steps"`
+	CreatedAt  time.Time          `json:"created_at"`
+}
+
+type WorkflowVersion struct {
+	ID             string         `json:"id"`
+	WorkflowID     string         `json:"workflow_id"`
+	Version        int            `json:"version"`
+	Nodes          []WorkflowNode `json:"nodes"`
+	Edges          []WorkflowEdge `json:"edges"`
+	TraceRetention string         `json:"trace_retention,omitempty"`
+	AuditRetention string         `json:"audit_retention,omitempty"`
+	Config         string         `json:"config"` // JSON of other workflow settings
+	CreatedAt      time.Time      `json:"created_at"`
+	CreatedBy      string         `json:"created_by"`
+	Message        string         `json:"message"` // commit message for the version
+}
+
+type OutboxItem = hermod.OutboxItem
+
+type LineageEdge struct {
+	SourceID     string `json:"source_id"`
+	SourceName   string `json:"source_name"`
+	SourceType   string `json:"source_type"`
+	SinkID       string `json:"sink_id"`
+	SinkName     string `json:"sink_name"`
+	SinkType     string `json:"sink_type"`
+	WorkflowID   string `json:"workflow_id"`
+	WorkflowName string `json:"workflow_name"`
+}
+
 type Storage interface {
 	// Init performs storage initialization/migrations and is safe to call multiple times.
 	Init(ctx context.Context) error
@@ -200,6 +307,7 @@ type Storage interface {
 	ListSources(ctx context.Context, filter CommonFilter) ([]Source, int, error)
 	CreateSource(ctx context.Context, src Source) error
 	UpdateSource(ctx context.Context, src Source) error
+	UpdateSourceStatus(ctx context.Context, id string, status string) error
 	UpdateSourceState(ctx context.Context, id string, state map[string]string) error
 	DeleteSource(ctx context.Context, id string) error
 	GetSource(ctx context.Context, id string) (Source, error)
@@ -207,6 +315,7 @@ type Storage interface {
 	ListSinks(ctx context.Context, filter CommonFilter) ([]Sink, int, error)
 	CreateSink(ctx context.Context, snk Sink) error
 	UpdateSink(ctx context.Context, snk Sink) error
+	UpdateSinkStatus(ctx context.Context, id string, status string) error
 	DeleteSink(ctx context.Context, id string) error
 	GetSink(ctx context.Context, id string) (Sink, error)
 
@@ -224,6 +333,10 @@ type Storage interface {
 	GetVHost(ctx context.Context, id string) (VHost, error)
 
 	ListWorkflows(ctx context.Context, filter CommonFilter) ([]Workflow, int, error)
+	ListWorkspaces(ctx context.Context) ([]Workspace, error)
+	CreateWorkspace(ctx context.Context, ws Workspace) error
+	GetWorkspace(ctx context.Context, id string) (Workspace, error)
+	DeleteWorkspace(ctx context.Context, id string) error
 	CreateWorkflow(ctx context.Context, wf Workflow) error
 	UpdateWorkflow(ctx context.Context, wf Workflow) error
 	DeleteWorkflow(ctx context.Context, id string) error
@@ -241,7 +354,7 @@ type Storage interface {
 	ListWorkers(ctx context.Context, filter CommonFilter) ([]Worker, int, error)
 	CreateWorker(ctx context.Context, worker Worker) error
 	UpdateWorker(ctx context.Context, worker Worker) error
-	UpdateWorkerHeartbeat(ctx context.Context, id string) error
+	UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error
 	DeleteWorker(ctx context.Context, id string) error
 	GetWorker(ctx context.Context, id string) (Worker, error)
 
@@ -251,11 +364,19 @@ type Storage interface {
 
 	ListAuditLogs(ctx context.Context, filter AuditFilter) ([]AuditLog, int, error)
 	CreateAuditLog(ctx context.Context, log AuditLog) error
+	PurgeAuditLogs(ctx context.Context, before time.Time) error
+	PurgeMessageTraces(ctx context.Context, before time.Time) error
 
 	ListWebhookRequests(ctx context.Context, filter WebhookRequestFilter) ([]WebhookRequest, int, error)
 	CreateWebhookRequest(ctx context.Context, req WebhookRequest) error
 	GetWebhookRequest(ctx context.Context, id string) (WebhookRequest, error)
 	DeleteWebhookRequests(ctx context.Context, filter WebhookRequestFilter) error
+
+	CreateFormSubmission(ctx context.Context, sub FormSubmission) error
+	ListFormSubmissions(ctx context.Context, filter FormSubmissionFilter) ([]FormSubmission, int, error)
+	GetFormSubmission(ctx context.Context, id string) (FormSubmission, error)
+	UpdateFormSubmissionStatus(ctx context.Context, id string, status string) error
+	DeleteFormSubmissions(ctx context.Context, filter FormSubmissionFilter) error
 
 	GetSetting(ctx context.Context, key string) (string, error)
 	SaveSetting(ctx context.Context, key string, value string) error
@@ -263,4 +384,36 @@ type Storage interface {
 	// Node State Management
 	UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error
 	GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error)
+
+	// Schema Registry
+	ListSchemas(ctx context.Context, name string) ([]Schema, error)
+	ListAllSchemas(ctx context.Context) ([]Schema, error)
+	GetSchema(ctx context.Context, name string, version int) (Schema, error)
+	GetLatestSchema(ctx context.Context, name string) (Schema, error)
+	CreateSchema(ctx context.Context, schema Schema) error
+
+	// Message Tracing
+	RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error
+	GetMessageTrace(ctx context.Context, workflowID, messageID string) (MessageTrace, error)
+	ListMessageTraces(ctx context.Context, workflowID string, limit int) ([]MessageTrace, error)
+
+	// Workflow Versioning
+	CreateWorkflowVersion(ctx context.Context, version WorkflowVersion) error
+	ListWorkflowVersions(ctx context.Context, workflowID string) ([]WorkflowVersion, error)
+	GetWorkflowVersion(ctx context.Context, workflowID string, version int) (WorkflowVersion, error)
+
+	// Transactional Outbox
+	CreateOutboxItem(ctx context.Context, item OutboxItem) error
+	ListOutboxItems(ctx context.Context, status string, limit int) ([]OutboxItem, error)
+	DeleteOutboxItem(ctx context.Context, id string) error
+	UpdateOutboxItem(ctx context.Context, item OutboxItem) error
+
+	// Lineage
+	GetLineage(ctx context.Context) ([]LineageEdge, error)
+
+	// Marketplace
+	ListPlugins(ctx context.Context) ([]Plugin, error)
+	GetPlugin(ctx context.Context, id string) (Plugin, error)
+	InstallPlugin(ctx context.Context, id string) error
+	UninstallPlugin(ctx context.Context, id string) error
 }

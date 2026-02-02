@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/crypto"
 	_ "modernc.org/sqlite"
@@ -58,12 +59,27 @@ func decryptConfig(config map[string]string) map[string]string {
 }
 
 type sqlStorage struct {
-	db     *sql.DB
-	driver string
+	db      *sql.DB
+	driver  string
+	queries *queryRegistry
 }
 
 func NewSQLStorage(db *sql.DB, driver string) storage.Storage {
-	return &sqlStorage{db: db, driver: driver}
+	return &sqlStorage{
+		db:      db,
+		driver:  driver,
+		queries: newQueryRegistry(driver),
+	}
+}
+
+// prepareQuery rewrites parameter placeholders and types to match the current driver.
+func (s *sqlStorage) prepareQuery(query string) string {
+	q := s.preparePlaceholders(query)
+	if s.driver == "pgx" || s.driver == "postgres" {
+		q = strings.ReplaceAll(q, "BLOB", "BYTEA")
+		q = strings.ReplaceAll(q, "REAL", "DOUBLE PRECISION")
+	}
+	return q
 }
 
 // preparePlaceholders rewrites parameter placeholders to match the current driver.
@@ -74,7 +90,7 @@ func NewSQLStorage(db *sql.DB, driver string) storage.Storage {
 // This helper keeps SQL definitions central and simple while remaining portable.
 func (s *sqlStorage) preparePlaceholders(query string) string {
 	switch s.driver {
-	case "pgx":
+	case "pgx", "postgres":
 		// Replace each '?' with $n
 		var b strings.Builder
 		b.Grow(len(query) + 8) // small headroom
@@ -109,21 +125,21 @@ func (s *sqlStorage) preparePlaceholders(query string) string {
 	}
 }
 
-// exec wraps db.ExecContext with driver-specific placeholder preparation.
+// exec wraps db.ExecContext with driver-specific placeholder and type preparation.
 func (s *sqlStorage) exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	q := s.preparePlaceholders(query)
+	q := s.prepareQuery(query)
 	return s.db.ExecContext(ctx, q, args...)
 }
 
-// query wraps db.QueryContext with driver-specific placeholder preparation.
+// query wraps db.QueryContext with driver-specific placeholder and type preparation.
 func (s *sqlStorage) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	q := s.preparePlaceholders(query)
+	q := s.prepareQuery(query)
 	return s.db.QueryContext(ctx, q, args...)
 }
 
-// queryRow wraps db.QueryRowContext with driver-specific placeholder preparation.
+// queryRow wraps db.QueryRowContext with driver-specific placeholder and type preparation.
 func (s *sqlStorage) queryRow(ctx context.Context, query string, args ...any) *sql.Row {
-	q := s.preparePlaceholders(query)
+	q := s.prepareQuery(query)
 	return s.db.QueryRowContext(ctx, q, args...)
 }
 
@@ -142,148 +158,31 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		_, _ = s.db.ExecContext(ctx, "PRAGMA foreign_keys=ON")
 	}
 
-	queries := []string{
-		`CREATE TABLE IF NOT EXISTS sources (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            type TEXT,
-            vhost TEXT,
-            active BOOLEAN DEFAULT FALSE,
-            status TEXT,
-            worker_id TEXT,
-            config TEXT,
-            state TEXT
-        )`,
-		`CREATE TABLE IF NOT EXISTS sinks (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            type TEXT,
-            vhost TEXT,
-            active BOOLEAN DEFAULT FALSE,
-            status TEXT,
-            worker_id TEXT,
-            config TEXT
-        )`,
-		`CREATE TABLE IF NOT EXISTS users (
-			id TEXT PRIMARY KEY,
-			username TEXT UNIQUE,
-			password TEXT,
-			full_name TEXT,
-			email TEXT,
-			role TEXT,
-			vhosts TEXT
-		)`,
-		`CREATE TABLE IF NOT EXISTS vhosts (
-			id TEXT PRIMARY KEY,
-			name TEXT UNIQUE,
-			description TEXT
-		)`,
-		`CREATE TABLE IF NOT EXISTS workers (
-			id TEXT PRIMARY KEY,
-			name TEXT,
-			host TEXT,
-			port INTEGER,
-			description TEXT,
-			token TEXT,
-			last_seen TIMESTAMP
-		)`,
-		`CREATE TABLE IF NOT EXISTS logs (
-			id TEXT PRIMARY KEY,
-			timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			level TEXT,
-			message TEXT,
-			action TEXT,
-			source_id TEXT,
-			sink_id TEXT,
-			workflow_id TEXT,
-			user_id TEXT,
-			username TEXT,
-			data TEXT
-		)`,
-		`CREATE TABLE IF NOT EXISTS workflows (
-            id TEXT PRIMARY KEY,
-            name TEXT,
-            vhost TEXT,
-            active BOOLEAN,
-            status TEXT,
-            worker_id TEXT,
-            owner_id TEXT,
-			lease_until TIMESTAMP,
-            nodes TEXT,
-            edges TEXT,
-            dead_letter_sink_id TEXT,
-            prioritize_dlq BOOLEAN DEFAULT FALSE,
-            max_retries INTEGER DEFAULT 0,
-            retry_interval TEXT,
-            reconnect_interval TEXT,
-            dry_run BOOLEAN DEFAULT FALSE,
-            retention_days INTEGER,
-            schema_type TEXT,
-            schema TEXT,
-            cron TEXT,
-            idle_timeout TEXT,
-            tier TEXT
-        )`,
-		`CREATE TABLE IF NOT EXISTS workflow_node_states (
-			workflow_id TEXT,
-			node_id TEXT,
-			state TEXT,
-			PRIMARY KEY (workflow_id, node_id)
-		)`,
-		`CREATE TABLE IF NOT EXISTS webhook_requests (
-			id TEXT PRIMARY KEY,
-			timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			path TEXT,
-			method TEXT,
-			headers TEXT,
-			body BLOB
-		)`,
+	// 1. Initialize tables if they do not exist
+	initQueries := []string{
+		s.queries.get(QueryInitSourcesTable),
+		s.queries.get(QueryInitSinksTable),
+		s.queries.get(QueryInitWorkflowsTable),
+		s.queries.get(QueryInitWorkflowNodeStatesTable),
+		s.queries.get(QueryInitLogsTable),
+		s.queries.get(QueryInitWebhookRequestsTable),
+		s.queries.get(QueryInitFormSubmissionsTable),
+		s.queries.get(QueryInitUsersTable),
+		s.queries.get(QueryInitVHostsTable),
+		s.queries.get(QueryInitWorkersTable),
 	}
 
-	for _, q := range queries {
-		if _, err := s.db.ExecContext(ctx, q); err != nil {
-			return fmt.Errorf("failed to execute init query: %w", err)
+	for _, q := range initQueries {
+		if _, err := s.db.ExecContext(ctx, s.prepareQuery(q)); err != nil {
+			return fmt.Errorf("failed to init table: %w", err)
 		}
 	}
 
-	// Migrations: Add new columns if missing
-	migrationQueries := []string{
-		"ALTER TABLE sources ADD COLUMN worker_id TEXT",
-		"ALTER TABLE sinks ADD COLUMN worker_id TEXT",
-		"ALTER TABLE workers ADD COLUMN token TEXT",
-		"ALTER TABLE workers ADD COLUMN last_seen TIMESTAMP",
-		"ALTER TABLE sources ADD COLUMN active BOOLEAN DEFAULT FALSE",
-		"ALTER TABLE sinks ADD COLUMN active BOOLEAN DEFAULT FALSE",
-		"ALTER TABLE logs ADD COLUMN action TEXT",
-		"ALTER TABLE logs ADD COLUMN workflow_id TEXT",
-		"ALTER TABLE sources ADD COLUMN status TEXT",
-		"ALTER TABLE sinks ADD COLUMN status TEXT",
-		"ALTER TABLE sources ADD COLUMN sample TEXT",
-		"ALTER TABLE sources ADD COLUMN state TEXT",
-		"ALTER TABLE workflows ADD COLUMN owner_id TEXT",
-		"ALTER TABLE workflows ADD COLUMN lease_until TIMESTAMP",
-		"ALTER TABLE workflows ADD COLUMN dead_letter_sink_id TEXT",
-		"ALTER TABLE workflows ADD COLUMN prioritize_dlq BOOLEAN DEFAULT FALSE",
-		"ALTER TABLE workflows ADD COLUMN max_retries INTEGER DEFAULT 0",
-		"ALTER TABLE workflows ADD COLUMN retry_interval TEXT",
-		"ALTER TABLE workflows ADD COLUMN reconnect_interval TEXT",
-		"ALTER TABLE workflows ADD COLUMN dry_run BOOLEAN DEFAULT FALSE",
-		"ALTER TABLE workflows ADD COLUMN schema_type TEXT",
-		"ALTER TABLE workflows ADD COLUMN schema TEXT",
-		"ALTER TABLE workflows ADD COLUMN retention_days INTEGER",
-		"ALTER TABLE workflows ADD COLUMN cron TEXT",
-		"ALTER TABLE logs ADD COLUMN user_id TEXT",
-		"ALTER TABLE logs ADD COLUMN username TEXT",
-		"ALTER TABLE workflows ADD COLUMN idle_timeout TEXT",
-		"ALTER TABLE workflows ADD COLUMN tier TEXT",
-	}
+	// 2. Perform automatic schema migration to add any missing columns.
+	// This ensures that existing databases are kept in sync with code-level schema changes.
+	s.autoMigrate(ctx)
 
-	for _, q := range migrationQueries {
-		// Ignore errors as the column might already exist
-		_, _ = s.db.ExecContext(ctx, q)
-	}
-
-	// Indexes: Create indexes after columns are ensured to exist
+	// 3. Initialize indexes and other tables
 	indexQueries := []string{
 		// Logs
 		"CREATE INDEX IF NOT EXISTS idx_logs_workflow_id ON logs(workflow_id)",
@@ -314,46 +213,227 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 
 	for _, q := range indexQueries {
 		// Ignore errors as the index might already exist
-		_, _ = s.db.ExecContext(ctx, q)
+		_, _ = s.db.ExecContext(ctx, s.prepareQuery(q))
 	}
 
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS settings (
-			key TEXT PRIMARY KEY,
-			value TEXT NOT NULL
-		)
-	`)
+	_, err := s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitSettingsTable)))
 	if err != nil {
 		return fmt.Errorf("failed to create settings table: %w", err)
 	}
 
-	_, err = s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS audit_logs (
-			id TEXT PRIMARY KEY,
-			timestamp TIMESTAMP NOT NULL,
-			user_id TEXT NOT NULL,
-			username TEXT NOT NULL,
-			action TEXT NOT NULL,
-			entity_type TEXT NOT NULL,
-			entity_id TEXT NOT NULL,
-			payload TEXT,
-			ip TEXT
-		)
-	`)
+	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitAuditLogsTable)))
 	if err != nil {
 		return fmt.Errorf("failed to create audit_logs table: %w", err)
 	}
 
-	_, _ = s.db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_logs(timestamp DESC)")
-	_, _ = s.db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id)")
-	_, _ = s.db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id)")
+	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_logs(timestamp DESC)"))
+	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id)"))
+	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id)"))
+
+	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitSchemasTable)))
+	if err != nil {
+		return fmt.Errorf("failed to create schemas table: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitMessageTraceStepsTable)))
+	if err != nil {
+		return fmt.Errorf("failed to create message_trace_steps table: %w", err)
+	}
+
+	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_trace_msg ON message_trace_steps(workflow_id, message_id)"))
+
+	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitWorkflowVersionsTable)))
+	if err != nil {
+		return fmt.Errorf("failed to create workflow_versions table: %w", err)
+	}
+
+	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_workflow_versions_id ON workflow_versions(workflow_id, version)"))
+
+	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitOutboxTable)))
+	if err != nil {
+		return fmt.Errorf("failed to create outbox table: %w", err)
+	}
+
+	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox(status, created_at)"))
+
+	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitWorkspacesTable)))
+	if err != nil {
+		return fmt.Errorf("failed to create workspaces table: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitPluginsTable)))
+	if err != nil {
+		return fmt.Errorf("failed to create plugins table: %w", err)
+	}
+
+	s.seedPlugins(ctx)
 
 	return nil
 }
 
+func (s *sqlStorage) seedPlugins(ctx context.Context) {
+	plugins, _ := s.ListPlugins(ctx)
+	if len(plugins) > 0 {
+		return
+	}
+
+	initialPlugins := []storage.Plugin{
+		{
+			ID:          "openai-pii-filter",
+			Name:        "OpenAI PII Filter",
+			Description: "Anonymize sensitive data using OpenAI's GPT-4 before it leaves your infrastructure.",
+			Author:      "Hermod Core",
+			Stars:       128,
+			Category:    "Security",
+			Certified:   true,
+			Type:        "Transformer",
+			WasmURL:     "https://github.com/user/hermod-plugins/raw/main/openai-pii-filter.wasm",
+		},
+		{
+			ID:          "slack-connector",
+			Name:        "Slack Connector",
+			Description: "Send alerts and notifications to Slack channels with advanced formatting.",
+			Author:      "Hermod Core",
+			Stars:       89,
+			Category:    "Connectors",
+			Certified:   true,
+			Type:        "Connector",
+		},
+		{
+			ID:          "xml-to-json",
+			Name:        "XML to JSON",
+			Description: "High-performance WASM-based transformer to convert legacy XML payloads to JSON.",
+			Author:      "Community",
+			Stars:       45,
+			Category:    "Transformation",
+			Certified:   false,
+			Type:        "WASM",
+			WasmURL:     "https://github.com/user/hermod-plugins/raw/main/xml-to-json.wasm",
+		},
+	}
+
+	for _, p := range initialPlugins {
+		_ = s.execWithRetry(ctx, func() error {
+			_, e := s.exec(ctx, s.queries.get(QueryCreatePlugin),
+				p.ID, p.Name, p.Description, p.Author, p.Stars, p.Category, p.Certified, p.Type, p.WasmURL, p.Installed, p.InstalledAt)
+			return e
+		})
+	}
+}
+
+// autoMigrate automatically adds missing columns to tables based on the CREATE TABLE definitions in commonQueries.
+// This ensures that existing databases are kept in sync with the current schema without manual migration steps
+// for every new field.
+func (s *sqlStorage) autoMigrate(ctx context.Context) {
+	for _, query := range commonQueries {
+		q := strings.TrimSpace(query)
+		if !strings.HasPrefix(strings.ToUpper(q), "CREATE TABLE") {
+			continue
+		}
+
+		// Extract table name
+		// Match "CREATE TABLE [IF NOT EXISTS] tableName ("
+		q = strings.ReplaceAll(q, "\n", " ")
+		q = strings.ReplaceAll(q, "\t", " ")
+
+		openParenIdx := strings.Index(q, "(")
+		if openParenIdx == -1 {
+			continue
+		}
+		header := strings.TrimSpace(q[:openParenIdx])
+		headerParts := strings.Fields(header)
+		if len(headerParts) == 0 {
+			continue
+		}
+		tableName := headerParts[len(headerParts)-1]
+
+		body := q[openParenIdx+1:]
+		lastCloseParenIdx := strings.LastIndex(body, ")")
+		if lastCloseParenIdx != -1 {
+			body = body[:lastCloseParenIdx]
+		}
+
+		// Split by comma, attempting to avoid splitting on commas inside parentheses (e.g. DECIMAL(10,2))
+		var columns []string
+		var current strings.Builder
+		parenCount := 0
+		for _, r := range body {
+			if r == '(' {
+				parenCount++
+			} else if r == ')' {
+				parenCount--
+			}
+			if r == ',' && parenCount == 0 {
+				columns = append(columns, current.String())
+				current.Reset()
+			} else {
+				current.WriteRune(r)
+			}
+		}
+		if current.Len() > 0 {
+			columns = append(columns, current.String())
+		}
+
+		for _, colLine := range columns {
+			colLine = strings.TrimSpace(colLine)
+			if colLine == "" {
+				continue
+			}
+
+			upperColLine := strings.ToUpper(colLine)
+			if strings.HasPrefix(upperColLine, "PRIMARY KEY") ||
+				strings.HasPrefix(upperColLine, "UNIQUE") ||
+				strings.HasPrefix(upperColLine, "CONSTRAINT") ||
+				strings.HasPrefix(upperColLine, "FOREIGN KEY") ||
+				strings.HasPrefix(upperColLine, "CHECK") {
+				continue
+			}
+
+			colParts := strings.Fields(colLine)
+			if len(colParts) < 2 {
+				continue
+			}
+
+			colName := colParts[0]
+			colType := strings.Join(colParts[1:], " ")
+
+			// Skip if it's ID or looks like a table-level constraint
+			if strings.ToLower(colName) == "id" {
+				continue
+			}
+
+			// Clean up colType for ALTER TABLE
+			// SQLite doesn't like UNIQUE/PRIMARY KEY or REFERENCES in ADD COLUMN
+			if s.driver == "sqlite" {
+				colType = strings.ReplaceAll(colType, "UNIQUE", "")
+				colType = strings.ReplaceAll(colType, "PRIMARY KEY", "")
+				if idx := strings.Index(strings.ToUpper(colType), "REFERENCES"); idx != -1 {
+					colType = colType[:idx]
+				}
+			}
+
+			alterQuery := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, colName, colType)
+			alterQuery = s.prepareQuery(alterQuery)
+			_, err := s.db.ExecContext(ctx, alterQuery)
+			if err != nil {
+				errStr := strings.ToLower(err.Error())
+				// Ignore if column already exists (SQLSTATE 42701 in Postgres, errno 1060 in MySQL)
+				if strings.Contains(errStr, "already exists") ||
+					strings.Contains(errStr, "duplicate") ||
+					strings.Contains(errStr, "42701") ||
+					strings.Contains(errStr, "1060") {
+					continue
+				}
+				// Optionally log other migration errors
+				// log.Printf("Auto-migration failed for %s.%s: %v", tableName, colName, err)
+			}
+		}
+	}
+}
+
 func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error) {
-	baseQuery := "SELECT id, name, type, vhost, active, status, worker_id, config, sample, state FROM sources"
-	countQuery := "SELECT COUNT(*) FROM sources"
+	baseQuery := s.queries.get(QueryListSources)
+	countQuery := s.queries.get(QueryCountSources)
 	var args []interface{}
 	var where []string
 
@@ -363,9 +443,14 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 		args = append(args, search, search, search, search)
 	}
 
-	if filter.VHost != "" {
+	if filter.VHost != "" && filter.VHost != "all" {
 		where = append(where, "vhost = ?")
 		args = append(args, filter.VHost)
+	}
+
+	if filter.WorkspaceID != "" {
+		where = append(where, "workspace_id = ?")
+		args = append(args, filter.WorkspaceID)
 	}
 
 	if len(where) > 0 {
@@ -393,11 +478,11 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 	}
 	defer rows.Close()
 
-	var sources []storage.Source
+	sources := []storage.Source{}
 	for rows.Next() {
 		var src storage.Source
-		var status, workerID, configStr, sample, stateStr sql.NullString
-		if err := rows.Scan(&src.ID, &src.Name, &src.Type, &src.VHost, &src.Active, &status, &workerID, &configStr, &sample, &stateStr); err != nil {
+		var status, workerID, workspaceID, configStr, sample, stateStr sql.NullString
+		if err := rows.Scan(&src.ID, &src.Name, &src.Type, &src.VHost, &src.Active, &status, &workerID, &workspaceID, &configStr, &sample, &stateStr); err != nil {
 			return nil, 0, err
 		}
 		if status.Valid {
@@ -405,6 +490,9 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 		}
 		if workerID.Valid {
 			src.WorkerID = workerID.String
+		}
+		if workspaceID.Valid {
+			src.WorkspaceID = workspaceID.String
 		}
 		if sample.Valid {
 			src.Sample = sample.String
@@ -432,8 +520,8 @@ func (s *sqlStorage) CreateSource(ctx context.Context, src storage.Source) error
 	}
 	stateBytes, _ := json.Marshal(src.State)
 	exec := func() error {
-		_, e := s.exec(ctx, "INSERT INTO sources (id, name, type, vhost, active, status, worker_id, config, sample, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			src.ID, src.Name, src.Type, src.VHost, src.Active, src.Status, src.WorkerID, string(configBytes), src.Sample, string(stateBytes))
+		_, e := s.exec(ctx, s.queries.get(QueryCreateSource),
+			src.ID, src.Name, src.Type, src.VHost, src.Active, src.Status, src.WorkerID, src.WorkspaceID, string(configBytes), src.Sample, string(stateBytes))
 		return e
 	}
 	return s.execWithRetry(ctx, exec)
@@ -446,8 +534,16 @@ func (s *sqlStorage) UpdateSource(ctx context.Context, src storage.Source) error
 	}
 	stateBytes, _ := json.Marshal(src.State)
 	exec := func() error {
-		_, e := s.exec(ctx, "UPDATE sources SET name = ?, type = ?, vhost = ?, active = ?, status = ?, worker_id = ?, config = ?, sample = ?, state = ? WHERE id = ?",
-			src.Name, src.Type, src.VHost, src.Active, src.Status, src.WorkerID, string(configBytes), src.Sample, string(stateBytes), src.ID)
+		_, e := s.exec(ctx, s.queries.get(QueryUpdateSource),
+			src.Name, src.Type, src.VHost, src.Active, src.Status, src.WorkerID, src.WorkspaceID, string(configBytes), src.Sample, string(stateBytes), src.ID)
+		return e
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) UpdateSourceStatus(ctx context.Context, id string, status string) error {
+	exec := func() error {
+		_, e := s.exec(ctx, s.queries.get(QueryUpdateSourceStatus), status, id)
 		return e
 	}
 	return s.execWithRetry(ctx, exec)
@@ -459,7 +555,7 @@ func (s *sqlStorage) UpdateSourceState(ctx context.Context, id string, state map
 		return err
 	}
 	exec := func() error {
-		_, e := s.exec(ctx, "UPDATE sources SET state = ? WHERE id = ?", string(stateBytes), id)
+		_, e := s.exec(ctx, s.queries.get(QueryUpdateSourceState), string(stateBytes), id)
 		return e
 	}
 	return s.execWithRetry(ctx, exec)
@@ -467,7 +563,7 @@ func (s *sqlStorage) UpdateSourceState(ctx context.Context, id string, state map
 
 func (s *sqlStorage) DeleteSource(ctx context.Context, id string) error {
 	exec := func() error {
-		_, e := s.exec(ctx, "DELETE FROM sources WHERE id = ?", id)
+		_, e := s.exec(ctx, s.queries.get(QueryDeleteSource), id)
 		return e
 	}
 	return s.execWithRetry(ctx, exec)
@@ -475,9 +571,9 @@ func (s *sqlStorage) DeleteSource(ctx context.Context, id string) error {
 
 func (s *sqlStorage) GetSource(ctx context.Context, id string) (storage.Source, error) {
 	var src storage.Source
-	var status, workerID, configStr, sample, stateStr sql.NullString
-	err := s.queryRow(ctx, "SELECT id, name, type, vhost, active, status, worker_id, config, sample, state FROM sources WHERE id = ?", id).
-		Scan(&src.ID, &src.Name, &src.Type, &src.VHost, &src.Active, &status, &workerID, &configStr, &sample, &stateStr)
+	var status, workerID, workspaceID, configStr, sample, stateStr sql.NullString
+	err := s.queryRow(ctx, s.queries.get(QueryGetSource), id).
+		Scan(&src.ID, &src.Name, &src.Type, &src.VHost, &src.Active, &status, &workerID, &workspaceID, &configStr, &sample, &stateStr)
 	if err == sql.ErrNoRows {
 		return storage.Source{}, storage.ErrNotFound
 	}
@@ -489,6 +585,9 @@ func (s *sqlStorage) GetSource(ctx context.Context, id string) (storage.Source, 
 	}
 	if workerID.Valid {
 		src.WorkerID = workerID.String
+	}
+	if workspaceID.Valid {
+		src.WorkspaceID = workspaceID.String
 	}
 	if sample.Valid {
 		src.Sample = sample.String
@@ -508,8 +607,8 @@ func (s *sqlStorage) GetSource(ctx context.Context, id string) (storage.Source, 
 }
 
 func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter) ([]storage.Sink, int, error) {
-	baseQuery := "SELECT id, name, type, vhost, active, status, worker_id, config FROM sinks"
-	countQuery := "SELECT COUNT(*) FROM sinks"
+	baseQuery := s.queries.get(QueryListSinks)
+	countQuery := s.queries.get(QueryCountSinks)
 	var args []interface{}
 	var where []string
 
@@ -519,9 +618,14 @@ func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter)
 		args = append(args, search, search, search, search)
 	}
 
-	if filter.VHost != "" {
+	if filter.VHost != "" && filter.VHost != "all" {
 		where = append(where, "vhost = ?")
 		args = append(args, filter.VHost)
+	}
+
+	if filter.WorkspaceID != "" {
+		where = append(where, "workspace_id = ?")
+		args = append(args, filter.WorkspaceID)
 	}
 
 	if len(where) > 0 {
@@ -549,11 +653,11 @@ func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter)
 	}
 	defer rows.Close()
 
-	var sinks []storage.Sink
+	sinks := []storage.Sink{}
 	for rows.Next() {
 		var snk storage.Sink
-		var status, workerID, configStr sql.NullString
-		if err := rows.Scan(&snk.ID, &snk.Name, &snk.Type, &snk.VHost, &snk.Active, &status, &workerID, &configStr); err != nil {
+		var status, workerID, workspaceID, configStr sql.NullString
+		if err := rows.Scan(&snk.ID, &snk.Name, &snk.Type, &snk.VHost, &snk.Active, &status, &workerID, &workspaceID, &configStr); err != nil {
 			return nil, 0, err
 		}
 		if status.Valid {
@@ -561,6 +665,9 @@ func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter)
 		}
 		if workerID.Valid {
 			snk.WorkerID = workerID.String
+		}
+		if workspaceID.Valid {
+			snk.WorkspaceID = workspaceID.String
 		}
 		if configStr.Valid {
 			if err := json.Unmarshal([]byte(configStr.String), &snk.Config); err != nil {
@@ -579,8 +686,8 @@ func (s *sqlStorage) CreateSink(ctx context.Context, snk storage.Sink) error {
 		return err
 	}
 	exec := func() error {
-		_, e := s.exec(ctx, "INSERT INTO sinks (id, name, type, vhost, active, status, worker_id, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-			snk.ID, snk.Name, snk.Type, snk.VHost, snk.Active, snk.Status, snk.WorkerID, string(configBytes))
+		_, e := s.exec(ctx, s.queries.get(QueryCreateSink),
+			snk.ID, snk.Name, snk.Type, snk.VHost, snk.Active, snk.Status, snk.WorkerID, snk.WorkspaceID, string(configBytes))
 		return e
 	}
 	return s.execWithRetry(ctx, exec)
@@ -592,8 +699,16 @@ func (s *sqlStorage) UpdateSink(ctx context.Context, snk storage.Sink) error {
 		return err
 	}
 	exec := func() error {
-		_, e := s.exec(ctx, "UPDATE sinks SET name = ?, type = ?, vhost = ?, active = ?, status = ?, worker_id = ?, config = ? WHERE id = ?",
-			snk.Name, snk.Type, snk.VHost, snk.Active, snk.Status, snk.WorkerID, string(configBytes), snk.ID)
+		_, e := s.exec(ctx, s.queries.get(QueryUpdateSink),
+			snk.Name, snk.Type, snk.VHost, snk.Active, snk.Status, snk.WorkerID, snk.WorkspaceID, string(configBytes), snk.ID)
+		return e
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) UpdateSinkStatus(ctx context.Context, id string, status string) error {
+	exec := func() error {
+		_, e := s.exec(ctx, s.queries.get(QueryUpdateSinkStatus), status, id)
 		return e
 	}
 	return s.execWithRetry(ctx, exec)
@@ -601,7 +716,7 @@ func (s *sqlStorage) UpdateSink(ctx context.Context, snk storage.Sink) error {
 
 func (s *sqlStorage) DeleteSink(ctx context.Context, id string) error {
 	exec := func() error {
-		_, e := s.exec(ctx, "DELETE FROM sinks WHERE id = ?", id)
+		_, e := s.exec(ctx, s.queries.get(QueryDeleteSink), id)
 		return e
 	}
 	return s.execWithRetry(ctx, exec)
@@ -609,9 +724,9 @@ func (s *sqlStorage) DeleteSink(ctx context.Context, id string) error {
 
 func (s *sqlStorage) GetSink(ctx context.Context, id string) (storage.Sink, error) {
 	var snk storage.Sink
-	var status, workerID, configStr sql.NullString
-	err := s.queryRow(ctx, "SELECT id, name, type, vhost, active, status, worker_id, config FROM sinks WHERE id = ?", id).
-		Scan(&snk.ID, &snk.Name, &snk.Type, &snk.VHost, &snk.Active, &status, &workerID, &configStr)
+	var status, workerID, workspaceID, configStr sql.NullString
+	err := s.queryRow(ctx, s.queries.get(QueryGetSink), id).
+		Scan(&snk.ID, &snk.Name, &snk.Type, &snk.VHost, &snk.Active, &status, &workerID, &workspaceID, &configStr)
 	if err == sql.ErrNoRows {
 		return storage.Sink{}, storage.ErrNotFound
 	}
@@ -623,6 +738,9 @@ func (s *sqlStorage) GetSink(ctx context.Context, id string) (storage.Sink, erro
 	}
 	if workerID.Valid {
 		snk.WorkerID = workerID.String
+	}
+	if workspaceID.Valid {
+		snk.WorkspaceID = workspaceID.String
 	}
 	if configStr.Valid {
 		if err := json.Unmarshal([]byte(configStr.String), &snk.Config); err != nil {
@@ -686,8 +804,8 @@ func (s *sqlStorage) execWithRetry(ctx context.Context, fn func() error) error {
 }
 
 func (s *sqlStorage) ListUsers(ctx context.Context, filter storage.CommonFilter) ([]storage.User, int, error) {
-	baseQuery := "SELECT id, username, full_name, email, role, vhosts FROM users"
-	countQuery := "SELECT COUNT(*) FROM users"
+	baseQuery := s.queries.get(QueryListUsers)
+	countQuery := s.queries.get(QueryCountUsers)
 	var args []interface{}
 	var where []string
 
@@ -722,7 +840,7 @@ func (s *sqlStorage) ListUsers(ctx context.Context, filter storage.CommonFilter)
 	}
 	defer rows.Close()
 
-	var users []storage.User
+	users := []storage.User{}
 	for rows.Next() {
 		var user storage.User
 		var vhostsStr string
@@ -744,8 +862,7 @@ func (s *sqlStorage) CreateUser(ctx context.Context, user storage.User) error {
 	if err != nil {
 		return err
 	}
-	query := "INSERT INTO users (id, username, password, full_name, email, role, vhosts) VALUES (?, ?, ?, ?, ?, ?, ?)"
-	_, err = s.exec(ctx, query,
+	_, err = s.exec(ctx, s.queries.get(QueryCreateUser),
 		user.ID, user.Username, user.Password, user.FullName, user.Email, user.Role, string(vhostsBytes))
 	return err
 }
@@ -756,28 +873,24 @@ func (s *sqlStorage) UpdateUser(ctx context.Context, user storage.User) error {
 		return err
 	}
 	if user.Password != "" {
-		query := "UPDATE users SET username = ?, password = ?, full_name = ?, email = ?, role = ?, vhosts = ? WHERE id = ?"
-		_, err = s.exec(ctx, query,
+		_, err = s.exec(ctx, s.queries.get(QueryUpdateUser),
 			user.Username, user.Password, user.FullName, user.Email, user.Role, string(vhostsBytes), user.ID)
 	} else {
-		query := "UPDATE users SET username = ?, full_name = ?, email = ?, role = ?, vhosts = ? WHERE id = ?"
-		_, err = s.exec(ctx, query,
+		_, err = s.exec(ctx, s.queries.get(QueryUpdateUserNoPassword),
 			user.Username, user.FullName, user.Email, user.Role, string(vhostsBytes), user.ID)
 	}
 	return err
 }
 
 func (s *sqlStorage) DeleteUser(ctx context.Context, id string) error {
-	query := "DELETE FROM users WHERE id = ?"
-	_, err := s.exec(ctx, query, id)
+	_, err := s.exec(ctx, s.queries.get(QueryDeleteUser), id)
 	return err
 }
 
 func (s *sqlStorage) GetUser(ctx context.Context, id string) (storage.User, error) {
 	var user storage.User
 	var vhostsStr string
-	query := "SELECT id, username, full_name, email, role, vhosts FROM users WHERE id = ?"
-	err := s.queryRow(ctx, query, id).
+	err := s.queryRow(ctx, s.queries.get(QueryGetUser), id).
 		Scan(&user.ID, &user.Username, &user.FullName, &user.Email, &user.Role, &vhostsStr)
 	if err == sql.ErrNoRows {
 		return storage.User{}, storage.ErrNotFound
@@ -796,8 +909,7 @@ func (s *sqlStorage) GetUser(ctx context.Context, id string) (storage.User, erro
 func (s *sqlStorage) GetUserByUsername(ctx context.Context, username string) (storage.User, error) {
 	var user storage.User
 	var vhostsStr string
-	query := "SELECT id, username, password, full_name, email, role, vhosts FROM users WHERE username = ?"
-	err := s.queryRow(ctx, query, username).
+	err := s.queryRow(ctx, s.queries.get(QueryGetUserByUsername), username).
 		Scan(&user.ID, &user.Username, &user.Password, &user.FullName, &user.Email, &user.Role, &vhostsStr)
 	if err == sql.ErrNoRows {
 		return storage.User{}, storage.ErrNotFound
@@ -816,8 +928,7 @@ func (s *sqlStorage) GetUserByUsername(ctx context.Context, username string) (st
 func (s *sqlStorage) GetUserByEmail(ctx context.Context, email string) (storage.User, error) {
 	var user storage.User
 	var vhostsStr string
-	query := "SELECT id, username, password, full_name, email, role, vhosts FROM users WHERE email = ?"
-	err := s.queryRow(ctx, query, email).
+	err := s.queryRow(ctx, s.queries.get(QueryGetUserByEmail), email).
 		Scan(&user.ID, &user.Username, &user.Password, &user.FullName, &user.Email, &user.Role, &vhostsStr)
 	if err == sql.ErrNoRows {
 		return storage.User{}, storage.ErrNotFound
@@ -833,9 +944,59 @@ func (s *sqlStorage) GetUserByEmail(ctx context.Context, email string) (storage.
 	return user, nil
 }
 
+func (s *sqlStorage) ListWorkspaces(ctx context.Context) ([]storage.Workspace, error) {
+	rows, err := s.query(ctx, s.queries.get(QueryListWorkspaces))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	wss := []storage.Workspace{}
+	for rows.Next() {
+		var ws storage.Workspace
+		if err := rows.Scan(&ws.ID, &ws.Name, &ws.Description, &ws.MaxWorkflows, &ws.MaxCPU, &ws.MaxMemory, &ws.MaxThroughput, &ws.CreatedAt); err != nil {
+			return nil, err
+		}
+		wss = append(wss, ws)
+	}
+	return wss, nil
+}
+
+func (s *sqlStorage) CreateWorkspace(ctx context.Context, ws storage.Workspace) error {
+	if ws.ID == "" {
+		ws.ID = uuid.New().String()
+	}
+	if ws.CreatedAt.IsZero() {
+		ws.CreatedAt = time.Now()
+	}
+	exec := func() error {
+		_, e := s.exec(ctx, s.queries.get(QueryCreateWorkspace), ws.ID, ws.Name, ws.Description, ws.MaxWorkflows, ws.MaxCPU, ws.MaxMemory, ws.MaxThroughput, ws.CreatedAt)
+		return e
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) DeleteWorkspace(ctx context.Context, id string) error {
+	exec := func() error {
+		_, e := s.exec(ctx, s.queries.get(QueryDeleteWorkspace), id)
+		return e
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) GetWorkspace(ctx context.Context, id string) (storage.Workspace, error) {
+	row := s.db.QueryRowContext(ctx, s.queries.get(QueryGetWorkspace), id)
+	var ws storage.Workspace
+	err := row.Scan(&ws.ID, &ws.Name, &ws.Description, &ws.MaxWorkflows, &ws.MaxCPU, &ws.MaxMemory, &ws.MaxThroughput, &ws.CreatedAt)
+	if err != nil {
+		return storage.Workspace{}, err
+	}
+	return ws, nil
+}
+
 func (s *sqlStorage) ListVHosts(ctx context.Context, filter storage.CommonFilter) ([]storage.VHost, int, error) {
-	baseQuery := "SELECT id, name, description FROM vhosts"
-	countQuery := "SELECT COUNT(*) FROM vhosts"
+	baseQuery := s.queries.get(QueryListVHosts)
+	countQuery := s.queries.get(QueryCountVHosts)
 	var args []interface{}
 	var where []string
 
@@ -870,7 +1031,7 @@ func (s *sqlStorage) ListVHosts(ctx context.Context, filter storage.CommonFilter
 	}
 	defer rows.Close()
 
-	var vhosts []storage.VHost
+	vhosts := []storage.VHost{}
 	for rows.Next() {
 		var vhost storage.VHost
 		if err := rows.Scan(&vhost.ID, &vhost.Name, &vhost.Description); err != nil {
@@ -882,19 +1043,19 @@ func (s *sqlStorage) ListVHosts(ctx context.Context, filter storage.CommonFilter
 }
 
 func (s *sqlStorage) CreateVHost(ctx context.Context, vhost storage.VHost) error {
-	_, err := s.exec(ctx, "INSERT INTO vhosts (id, name, description) VALUES (?, ?, ?)",
+	_, err := s.exec(ctx, s.queries.get(QueryCreateVHost),
 		vhost.ID, vhost.Name, vhost.Description)
 	return err
 }
 
 func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
-	_, err := s.exec(ctx, "DELETE FROM vhosts WHERE id = ?", id)
+	_, err := s.exec(ctx, s.queries.get(QueryDeleteVHost), id)
 	return err
 }
 
 func (s *sqlStorage) GetVHost(ctx context.Context, id string) (storage.VHost, error) {
 	var vhost storage.VHost
-	err := s.queryRow(ctx, "SELECT id, name, description FROM vhosts WHERE id = ?", id).
+	err := s.queryRow(ctx, s.queries.get(QueryGetVHost), id).
 		Scan(&vhost.ID, &vhost.Name, &vhost.Description)
 	if err == sql.ErrNoRows {
 		return storage.VHost{}, storage.ErrNotFound
@@ -908,10 +1069,13 @@ func (s *sqlStorage) GetVHost(ctx context.Context, id string) (storage.VHost, er
 // ListWorkflows returns a page of workflows matching the provided filter along with the total count.
 // It supports optional vhost scoping, fuzzy name search, and pagination via Limit/Page fields.
 func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFilter) ([]storage.Workflow, int, error) {
-	query := "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier FROM workflows WHERE 1=1"
+	query := s.queries.get(QueryListWorkflows)
+	if !strings.Contains(strings.ToUpper(query), "WHERE") {
+		query += " WHERE 1=1"
+	}
 	args := []interface{}{}
 
-	if filter.VHost != "" {
+	if filter.VHost != "" && filter.VHost != "all" {
 		query += " AND vhost = ?"
 		args = append(args, filter.VHost)
 	}
@@ -921,9 +1085,31 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		args = append(args, "%"+filter.Search+"%")
 	}
 
+	if filter.WorkspaceID != "" {
+		query += " AND workspace_id = ?"
+		args = append(args, filter.WorkspaceID)
+	}
+
 	var total int
-	countQuery := strings.Replace(query, "id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier", "COUNT(*)", 1)
-	if err := s.queryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+	countQuery := s.queries.get(QueryCountWorkflows)
+	if !strings.Contains(strings.ToUpper(countQuery), "WHERE") {
+		countQuery += " WHERE 1=1"
+	}
+	countArgs := []interface{}{}
+	if filter.VHost != "" && filter.VHost != "all" {
+		countQuery += " AND vhost = ?"
+		countArgs = append(countArgs, filter.VHost)
+	}
+	if filter.WorkspaceID != "" {
+		countQuery += " AND workspace_id = ?"
+		countArgs = append(countArgs, filter.WorkspaceID)
+	}
+	if filter.Search != "" {
+		countQuery += " AND name LIKE ?"
+		countArgs = append(countArgs, "%"+filter.Search+"%")
+	}
+
+	if err := s.queryRow(ctx, countQuery, countArgs...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
@@ -942,21 +1128,45 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 	}
 	defer rows.Close()
 
-	var wfs []storage.Workflow
+	wfs := []storage.Workflow{}
 	for rows.Next() {
 		var wf storage.Workflow
-		var nodesJSON, edgesJSON sql.NullString
+		var nodesJSON, edgesJSON, tagsJSON sql.NullString
 		var leaseUntil sql.NullTime
 		var ownerID sql.NullString
 		var dlqSinkID, retryInterval, reconnectInterval sql.NullString
 		var prioritizeDLQ, dryRun sql.NullBool
-		var maxRetries, retentionDays sql.NullInt64
-		var schemaType, schema, cron, idleTimeout, tier sql.NullString
-		if err := rows.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier); err != nil {
+		var maxRetries, retentionDays, dlqThreshold sql.NullInt64
+		var schemaType, schema, cron, idleTimeout, tier, workspaceID, traceRetention, auditRetention sql.NullString
+		var traceSampleRate sql.NullFloat64
+		var cpuReq, memReq sql.NullFloat64
+		var throughputReq sql.NullInt64
+		if err := rows.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq); err != nil {
 			return nil, 0, err
+		}
+		if cpuReq.Valid {
+			wf.CPURequest = cpuReq.Float64
+		}
+		if memReq.Valid {
+			wf.MemoryRequest = memReq.Float64
+		}
+		if throughputReq.Valid {
+			wf.ThroughputRequest = int(throughputReq.Int64)
+		}
+		if traceRetention.Valid {
+			wf.TraceRetention = traceRetention.String
+		}
+		if auditRetention.Valid {
+			wf.AuditRetention = auditRetention.String
+		}
+		if workspaceID.Valid {
+			wf.WorkspaceID = workspaceID.String
 		}
 		if dryRun.Valid {
 			wf.DryRun = dryRun.Bool
+		}
+		if traceSampleRate.Valid {
+			wf.TraceSampleRate = traceSampleRate.Float64
 		}
 		if ownerID.Valid {
 			wf.OwnerID = ownerID.String
@@ -973,6 +1183,9 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		}
 		if maxRetries.Valid {
 			wf.MaxRetries = int(maxRetries.Int64)
+		}
+		if dlqThreshold.Valid {
+			wf.DLQThreshold = int(dlqThreshold.Int64)
 		}
 		if retryInterval.Valid {
 			wf.RetryInterval = retryInterval.String
@@ -1005,6 +1218,9 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		if edgesJSON.Valid && edgesJSON.String != "" {
 			json.Unmarshal([]byte(edgesJSON.String), &wf.Edges)
 		}
+		if tagsJSON.Valid && tagsJSON.String != "" {
+			json.Unmarshal([]byte(tagsJSON.String), &wf.Tags)
+		}
 		wfs = append(wfs, wf)
 	}
 	return wfs, total, nil
@@ -1013,13 +1229,14 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 func (s *sqlStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) error {
 	nodesJSON, _ := json.Marshal(wf.Nodes)
 	edgesJSON, _ := json.Marshal(wf.Edges)
+	tagsJSON, _ := json.Marshal(wf.Tags)
 	if wf.ID == "" {
 		wf.ID = uuid.New().String()
 	}
 	exec := func() error {
 		_, e := s.exec(ctx,
-			"INSERT INTO workflows (id, name, vhost, active, status, worker_id, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			wf.ID, wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier),
+			s.queries.get(QueryCreateWorkflow),
+			wf.ID, wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest,
 		)
 		return e
 	}
@@ -1030,10 +1247,11 @@ func (s *sqlStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) er
 func (s *sqlStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error {
 	nodesJSON, _ := json.Marshal(wf.Nodes)
 	edgesJSON, _ := json.Marshal(wf.Edges)
+	tagsJSON, _ := json.Marshal(wf.Tags)
 	exec := func() error {
 		_, e := s.exec(ctx,
-			"UPDATE workflows SET name = ?, vhost = ?, active = ?, status = ?, worker_id = ?, nodes = ?, edges = ?, dead_letter_sink_id = ?, prioritize_dlq = ?, max_retries = ?, retry_interval = ?, reconnect_interval = ?, dry_run = ?, schema_type = ?, schema = ?, retention_days = ?, cron = ?, idle_timeout = ?, tier = ? WHERE id = ?",
-			wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.ID,
+			s.queries.get(QueryUpdateWorkflow),
+			wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.ID,
 		)
 		return e
 	}
@@ -1042,30 +1260,54 @@ func (s *sqlStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) er
 
 func (s *sqlStorage) DeleteWorkflow(ctx context.Context, id string) error {
 	exec := func() error {
-		_, e := s.exec(ctx, "DELETE FROM workflows WHERE id = ?", id)
+		_, e := s.exec(ctx, s.queries.get(QueryDeleteWorkflow), id)
 		return e
 	}
 	return s.execWithRetry(ctx, exec)
 }
 
 func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
-	row := s.queryRow(ctx, "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier FROM workflows WHERE id = ?", id)
+	row := s.queryRow(ctx, s.queries.get(QueryGetWorkflow), id)
 	var wf storage.Workflow
-	var nodesJSON, edgesJSON sql.NullString
+	var nodesJSON, edgesJSON, tagsJSON sql.NullString
 	var leaseUntil sql.NullTime
 	var ownerID sql.NullString
 	var dlqSinkID, retryInterval, reconnectInterval sql.NullString
 	var prioritizeDLQ, dryRun sql.NullBool
-	var maxRetries, retentionDays sql.NullInt64
-	var schemaType, schema, cron, idleTimeout, tier sql.NullString
-	if err := row.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier); err != nil {
+	var maxRetries, retentionDays, dlqThreshold sql.NullInt64
+	var schemaType, schema, cron, idleTimeout, tier, workspaceID, traceRetention, auditRetention sql.NullString
+	var traceSampleRate sql.NullFloat64
+	var cpuReq, memReq sql.NullFloat64
+	var throughputReq sql.NullInt64
+	if err := row.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq); err != nil {
 		if err == sql.ErrNoRows {
 			return storage.Workflow{}, storage.ErrNotFound
 		}
 		return storage.Workflow{}, err
 	}
+	if cpuReq.Valid {
+		wf.CPURequest = cpuReq.Float64
+	}
+	if memReq.Valid {
+		wf.MemoryRequest = memReq.Float64
+	}
+	if throughputReq.Valid {
+		wf.ThroughputRequest = int(throughputReq.Int64)
+	}
+	if traceRetention.Valid {
+		wf.TraceRetention = traceRetention.String
+	}
+	if auditRetention.Valid {
+		wf.AuditRetention = auditRetention.String
+	}
+	if workspaceID.Valid {
+		wf.WorkspaceID = workspaceID.String
+	}
 	if dryRun.Valid {
 		wf.DryRun = dryRun.Bool
+	}
+	if traceSampleRate.Valid {
+		wf.TraceSampleRate = traceSampleRate.Float64
 	}
 	if ownerID.Valid {
 		wf.OwnerID = ownerID.String
@@ -1082,6 +1324,9 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	}
 	if maxRetries.Valid {
 		wf.MaxRetries = int(maxRetries.Int64)
+	}
+	if dlqThreshold.Valid {
+		wf.DLQThreshold = int(dlqThreshold.Int64)
 	}
 	if retryInterval.Valid {
 		wf.RetryInterval = retryInterval.String
@@ -1114,6 +1359,9 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	if edgesJSON.Valid && edgesJSON.String != "" {
 		json.Unmarshal([]byte(edgesJSON.String), &wf.Edges)
 	}
+	if tagsJSON.Valid && tagsJSON.String != "" {
+		json.Unmarshal([]byte(tagsJSON.String), &wf.Tags)
+	}
 	return wf, nil
 }
 
@@ -1129,7 +1377,7 @@ func (s *sqlStorage) AcquireWorkflowLease(ctx context.Context, workflowID, owner
 	exec := func() error {
 		var e error
 		res, e = s.exec(ctx,
-			"UPDATE workflows SET owner_id = ?, lease_until = ? WHERE id = ? AND (owner_id IS NULL OR lease_until IS NULL OR lease_until < ? OR owner_id = ?)",
+			s.queries.get(QueryAcquireLease),
 			ownerID, until, workflowID, now, ownerID,
 		)
 		return e
@@ -1152,7 +1400,7 @@ func (s *sqlStorage) RenewWorkflowLease(ctx context.Context, workflowID, ownerID
 	exec := func() error {
 		var e error
 		res, e = s.exec(ctx,
-			"UPDATE workflows SET lease_until = ? WHERE id = ? AND owner_id = ? AND lease_until IS NOT NULL AND lease_until >= ?",
+			s.queries.get(QueryRenewLease),
 			until, workflowID, ownerID, now,
 		)
 		return e
@@ -1168,7 +1416,7 @@ func (s *sqlStorage) RenewWorkflowLease(ctx context.Context, workflowID, ownerID
 func (s *sqlStorage) ReleaseWorkflowLease(ctx context.Context, workflowID, ownerID string) error {
 	exec := func() error {
 		_, e := s.exec(ctx,
-			"UPDATE workflows SET owner_id = NULL, lease_until = NULL WHERE id = ? AND owner_id = ?",
+			s.queries.get(QueryReleaseLease),
 			workflowID, ownerID,
 		)
 		return e
@@ -1177,8 +1425,8 @@ func (s *sqlStorage) ReleaseWorkflowLease(ctx context.Context, workflowID, owner
 }
 
 func (s *sqlStorage) ListWorkers(ctx context.Context, filter storage.CommonFilter) ([]storage.Worker, int, error) {
-	baseQuery := "SELECT id, name, host, port, description, token, last_seen FROM workers"
-	countQuery := "SELECT COUNT(*) FROM workers"
+	baseQuery := s.queries.get(QueryListWorkers)
+	countQuery := s.queries.get(QueryCountWorkers)
 	var args []interface{}
 	var where []string
 
@@ -1213,12 +1461,13 @@ func (s *sqlStorage) ListWorkers(ctx context.Context, filter storage.CommonFilte
 	}
 	defer rows.Close()
 
-	var workers []storage.Worker
+	workers := []storage.Worker{}
 	for rows.Next() {
 		var w storage.Worker
 		var token sql.NullString
 		var lastSeen sql.NullTime
-		if err := rows.Scan(&w.ID, &w.Name, &w.Host, &w.Port, &w.Description, &token, &lastSeen); err != nil {
+		var cpu, mem sql.NullFloat64
+		if err := rows.Scan(&w.ID, &w.Name, &w.Host, &w.Port, &w.Description, &token, &lastSeen, &cpu, &mem); err != nil {
 			return nil, 0, err
 		}
 		if token.Valid {
@@ -1227,30 +1476,36 @@ func (s *sqlStorage) ListWorkers(ctx context.Context, filter storage.CommonFilte
 		if lastSeen.Valid {
 			w.LastSeen = &lastSeen.Time
 		}
+		if cpu.Valid {
+			w.CPUUsage = cpu.Float64
+		}
+		if mem.Valid {
+			w.MemoryUsage = mem.Float64
+		}
 		workers = append(workers, w)
 	}
 	return workers, total, nil
 }
 
 func (s *sqlStorage) CreateWorker(ctx context.Context, worker storage.Worker) error {
-	_, err := s.exec(ctx, "INSERT INTO workers (id, name, host, port, description, token, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		worker.ID, worker.Name, worker.Host, worker.Port, worker.Description, worker.Token, worker.LastSeen)
+	_, err := s.exec(ctx, s.queries.get(QueryCreateWorker),
+		worker.ID, worker.Name, worker.Host, worker.Port, worker.Description, worker.Token, worker.LastSeen, worker.CPUUsage, worker.MemoryUsage)
 	return err
 }
 
 func (s *sqlStorage) UpdateWorker(ctx context.Context, worker storage.Worker) error {
-	_, err := s.exec(ctx, "UPDATE workers SET name = ?, host = ?, port = ?, description = ?, token = ?, last_seen = ? WHERE id = ?",
-		worker.Name, worker.Host, worker.Port, worker.Description, worker.Token, worker.LastSeen, worker.ID)
+	_, err := s.exec(ctx, s.queries.get(QueryUpdateWorker),
+		worker.Name, worker.Host, worker.Port, worker.Description, worker.Token, worker.LastSeen, worker.CPUUsage, worker.MemoryUsage, worker.ID)
 	return err
 }
 
-func (s *sqlStorage) UpdateWorkerHeartbeat(ctx context.Context, id string) error {
-	_, err := s.exec(ctx, "UPDATE workers SET last_seen = ? WHERE id = ?", time.Now(), id)
+func (s *sqlStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error {
+	_, err := s.exec(ctx, s.queries.get(QueryUpdateHeartbeat), time.Now(), cpu, mem, id)
 	return err
 }
 
 func (s *sqlStorage) DeleteWorker(ctx context.Context, id string) error {
-	_, err := s.exec(ctx, "DELETE FROM workers WHERE id = ?", id)
+	_, err := s.exec(ctx, s.queries.get(QueryDeleteWorker), id)
 	return err
 }
 
@@ -1258,8 +1513,9 @@ func (s *sqlStorage) GetWorker(ctx context.Context, id string) (storage.Worker, 
 	var w storage.Worker
 	var token sql.NullString
 	var lastSeen sql.NullTime
-	err := s.queryRow(ctx, "SELECT id, name, host, port, description, token, last_seen FROM workers WHERE id = ?", id).
-		Scan(&w.ID, &w.Name, &w.Host, &w.Port, &w.Description, &token, &lastSeen)
+	var cpu, mem sql.NullFloat64
+	err := s.queryRow(ctx, s.queries.get(QueryGetWorker), id).
+		Scan(&w.ID, &w.Name, &w.Host, &w.Port, &w.Description, &token, &lastSeen, &cpu, &mem)
 	if err == sql.ErrNoRows {
 		return storage.Worker{}, storage.ErrNotFound
 	}
@@ -1272,79 +1528,87 @@ func (s *sqlStorage) GetWorker(ctx context.Context, id string) (storage.Worker, 
 	if lastSeen.Valid {
 		w.LastSeen = &lastSeen.Time
 	}
+	if cpu.Valid {
+		w.CPUUsage = cpu.Float64
+	}
+	if mem.Valid {
+		w.MemoryUsage = mem.Float64
+	}
 	return w, nil
 }
 
 func (s *sqlStorage) ListLogs(ctx context.Context, filter storage.LogFilter) ([]storage.Log, int, error) {
-	query := " FROM logs WHERE 1=1"
+	where := " WHERE 1=1"
 	var args []interface{}
 
 	// Time bounds (if provided)
 	if !filter.Since.IsZero() {
-		query += " AND timestamp >= ?"
+		where += " AND timestamp >= ?"
 		args = append(args, filter.Since)
 	}
 	if !filter.Until.IsZero() {
-		query += " AND timestamp < ?"
+		where += " AND timestamp < ?"
 		args = append(args, filter.Until)
 	}
 
 	if filter.SourceID != "" {
-		query += " AND source_id = ?"
+		where += " AND source_id = ?"
 		args = append(args, filter.SourceID)
 	}
 	if filter.SinkID != "" {
-		query += " AND sink_id = ?"
+		where += " AND sink_id = ?"
 		args = append(args, filter.SinkID)
 	}
 	if filter.WorkflowID != "" {
-		query += " AND workflow_id = ?"
+		where += " AND workflow_id = ?"
 		args = append(args, filter.WorkflowID)
 	}
 	if filter.WithoutWorkflow {
-		query += " AND workflow_id IS NULL"
+		where += " AND workflow_id IS NULL"
 	}
 	if filter.Level != "" {
-		query += " AND level = ?"
+		where += " AND level = ?"
 		args = append(args, filter.Level)
 	}
 	if filter.Action != "" {
-		query += " AND action = ?"
+		where += " AND action = ?"
 		args = append(args, filter.Action)
 	}
 	if filter.Search != "" {
 		search := "%" + filter.Search + "%"
 		// Avoid scanning large 'data' payloads for LIKE to improve performance.
 		// Search in message and identifiers only.
-		query += " AND (message LIKE ? OR action LIKE ? OR source_id LIKE ? OR sink_id LIKE ? OR workflow_id LIKE ?)"
+		where += " AND (message LIKE ? OR action LIKE ? OR source_id LIKE ? OR sink_id LIKE ? OR workflow_id LIKE ?)"
 		args = append(args, search, search, search, search, search)
 	}
 
 	var total int
-	if err := s.queryRow(ctx, "SELECT COUNT(*)"+query, args...).Scan(&total); err != nil {
+	countQuery := s.queries.get(QueryCountLogs) + where
+	if err := s.queryRow(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
-	query += " ORDER BY timestamp DESC"
+	querySuffix := where + " ORDER BY timestamp DESC"
 
 	if filter.Limit > 0 {
-		query += " LIMIT ?"
+		querySuffix += " LIMIT ?"
 		args = append(args, filter.Limit)
 		if filter.Page > 0 {
-			query += " OFFSET ?"
+			querySuffix += " OFFSET ?"
 			args = append(args, (filter.Page-1)*filter.Limit)
 		}
 	} else {
-		query += " LIMIT 100"
+		querySuffix += " LIMIT 100"
 	}
 
-	rows, err := s.query(ctx, "SELECT id, timestamp, level, message, action, source_id, sink_id, workflow_id, user_id, username, data"+query, args...)
+	query := s.queries.get(QueryListLogs) + querySuffix
+	rows, err := s.query(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
 
-	var logs []storage.Log
+	logs := []storage.Log{}
 	for rows.Next() {
 		var l storage.Log
 		var action, sourceID, sinkID, workflowID, userID, username, data sql.NullString
@@ -1386,7 +1650,7 @@ func (s *sqlStorage) CreateLog(ctx context.Context, l storage.Log) error {
 	}
 
 	exec := func() error {
-		_, e := s.exec(ctx, "INSERT INTO logs (id, timestamp, level, message, action, source_id, sink_id, workflow_id, user_id, username, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		_, e := s.exec(ctx, s.queries.get(QueryCreateLog),
 			l.ID, l.Timestamp, l.Level, l.Message,
 			sql.NullString{String: l.Action, Valid: l.Action != ""},
 			sql.NullString{String: l.SourceID, Valid: l.SourceID != ""},
@@ -1402,7 +1666,7 @@ func (s *sqlStorage) CreateLog(ctx context.Context, l storage.Log) error {
 }
 
 func (s *sqlStorage) DeleteLogs(ctx context.Context, filter storage.LogFilter) error {
-	query := "DELETE FROM logs WHERE 1=1"
+	query := s.queries.get(QueryDeleteLogs) + " WHERE 1=1"
 	var args []interface{}
 
 	if filter.SourceID != "" {
@@ -1446,7 +1710,7 @@ func (s *sqlStorage) DeleteLogs(ctx context.Context, filter storage.LogFilter) e
 
 func (s *sqlStorage) GetSetting(ctx context.Context, key string) (string, error) {
 	var value string
-	err := s.queryRow(ctx, "SELECT value FROM settings WHERE key = ?", key).Scan(&value)
+	err := s.queryRow(ctx, s.queries.get(QueryGetSetting), key).Scan(&value)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -1459,15 +1723,7 @@ func (s *sqlStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID str
 		return err
 	}
 
-	var query string
-	switch s.driver {
-	case "mysql", "mariadb":
-		query = "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE state = VALUES(state)"
-	case "pgx":
-		query = "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES ($1, $2, $3) ON CONFLICT(workflow_id, node_id) DO UPDATE SET state = excluded.state"
-	default:
-		query = "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES (?, ?, ?) ON CONFLICT(workflow_id, node_id) DO UPDATE SET state = excluded.state"
-	}
+	query := s.queries.get(QueryUpdateNodeState)
 
 	_, err = s.db.ExecContext(ctx, query, workflowID, nodeID, string(stateJSON))
 	return err
@@ -1497,17 +1753,7 @@ func (s *sqlStorage) GetNodeStates(ctx context.Context, workflowID string) (map[
 }
 
 func (s *sqlStorage) SaveSetting(ctx context.Context, key string, value string) error {
-	var query string
-	switch s.driver {
-	case "mysql", "mariadb":
-		query = "INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)"
-	case "pgx":
-		query = "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-	case "sqlserver":
-		query = "MERGE settings WITH (HOLDLOCK) AS t USING (SELECT @p1 AS [key], @p2 AS value) AS s ON t.[key] = s.[key] WHEN MATCHED THEN UPDATE SET value = s.value WHEN NOT MATCHED THEN INSERT([key], value) VALUES(s.[key], s.value);"
-	default:
-		query = "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-	}
+	query := s.queries.get(QuerySaveSetting)
 	exec := func() error {
 		_, e := s.exec(ctx, query, key, value)
 		return e
@@ -1523,8 +1769,24 @@ func (s *sqlStorage) CreateAuditLog(ctx context.Context, log storage.AuditLog) e
 		log.Timestamp = time.Now()
 	}
 	exec := func() error {
-		_, err := s.exec(ctx, "INSERT INTO audit_logs (id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		_, err := s.exec(ctx, s.queries.get(QueryCreateAuditLog),
 			log.ID, log.Timestamp, log.UserID, log.Username, log.Action, log.EntityType, log.EntityID, log.Payload, log.IP)
+		return err
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) PurgeAuditLogs(ctx context.Context, before time.Time) error {
+	exec := func() error {
+		_, err := s.exec(ctx, s.queries.get(QueryPurgeAuditLogs), before)
+		return err
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) PurgeMessageTraces(ctx context.Context, before time.Time) error {
+	exec := func() error {
+		_, err := s.exec(ctx, s.queries.get(QueryPurgeMessageTraces), before)
 		return err
 	}
 	return s.execWithRetry(ctx, exec)
@@ -1541,7 +1803,7 @@ func (s *sqlStorage) CreateWebhookRequest(ctx context.Context, req storage.Webho
 	headersJSON, _ := json.Marshal(req.Headers)
 
 	exec := func() error {
-		_, err := s.exec(ctx, "INSERT INTO webhook_requests (id, timestamp, path, method, headers, body) VALUES (?, ?, ?, ?, ?, ?)",
+		_, err := s.exec(ctx, s.queries.get(QueryCreateWebhookRequest),
 			req.ID, req.Timestamp, req.Path, req.Method, string(headersJSON), req.Body)
 		if err != nil {
 			return err
@@ -1594,7 +1856,7 @@ func (s *sqlStorage) ListWebhookRequests(ctx context.Context, filter storage.Web
 	}
 	defer rows.Close()
 
-	var requests []storage.WebhookRequest
+	requests := []storage.WebhookRequest{}
 	for rows.Next() {
 		var req storage.WebhookRequest
 		var headersJSON string
@@ -1609,10 +1871,9 @@ func (s *sqlStorage) ListWebhookRequests(ctx context.Context, filter storage.Web
 }
 
 func (s *sqlStorage) GetWebhookRequest(ctx context.Context, id string) (storage.WebhookRequest, error) {
-	query := "SELECT id, timestamp, path, method, headers, body FROM webhook_requests WHERE id = ?"
 	var req storage.WebhookRequest
 	var headersJSON string
-	err := s.queryRow(ctx, query, id).Scan(&req.ID, &req.Timestamp, &req.Path, &req.Method, &headersJSON, &req.Body)
+	err := s.queryRow(ctx, s.queries.get(QueryGetWebhookRequest), id).Scan(&req.ID, &req.Timestamp, &req.Path, &req.Method, &headersJSON, &req.Body)
 	if err != nil {
 		return storage.WebhookRequest{}, err
 	}
@@ -1630,6 +1891,98 @@ func (s *sqlStorage) DeleteWebhookRequests(ctx context.Context, filter storage.W
 
 	exec := func() error {
 		_, err := s.exec(ctx, "DELETE FROM webhook_requests WHERE "+where, args...)
+		return err
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) CreateFormSubmission(ctx context.Context, sub storage.FormSubmission) error {
+	exec := func() error {
+		_, err := s.exec(ctx, s.queries.get(QueryCreateFormSubmission),
+			sub.ID, sub.Timestamp, sub.Path, sub.Data, sub.Status)
+		return err
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) ListFormSubmissions(ctx context.Context, filter storage.FormSubmissionFilter) ([]storage.FormSubmission, int, error) {
+	baseQuery := s.queries.get(QueryListFormSubmissions)
+	countQuery := s.queries.get(QueryCountFormSubmissions)
+	var args []any
+	where := "1=1"
+
+	if filter.Path != "" {
+		where += " AND path = ?"
+		args = append(args, filter.Path)
+	}
+	if filter.Status != "" {
+		where += " AND status = ?"
+		args = append(args, filter.Status)
+	}
+
+	baseQuery += " WHERE " + where
+	countQuery += " WHERE " + where
+
+	var total int
+	err := s.queryRow(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	baseQuery += " ORDER BY timestamp ASC"
+	if filter.Limit > 0 {
+		offset := (filter.Page - 1) * filter.Limit
+		if offset < 0 {
+			offset = 0
+		}
+		baseQuery += fmt.Sprintf(" LIMIT %d OFFSET %d", filter.Limit, offset)
+	}
+
+	rows, err := s.query(ctx, baseQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var submissions []storage.FormSubmission
+	for rows.Next() {
+		var sub storage.FormSubmission
+		if err := rows.Scan(&sub.ID, &sub.Timestamp, &sub.Path, &sub.Data, &sub.Status); err != nil {
+			return nil, 0, err
+		}
+		submissions = append(submissions, sub)
+	}
+	return submissions, total, nil
+}
+
+func (s *sqlStorage) GetFormSubmission(ctx context.Context, id string) (storage.FormSubmission, error) {
+	var sub storage.FormSubmission
+	err := s.queryRow(ctx, s.queries.get(QueryGetFormSubmission), id).Scan(&sub.ID, &sub.Timestamp, &sub.Path, &sub.Data, &sub.Status)
+	return sub, err
+}
+
+func (s *sqlStorage) UpdateFormSubmissionStatus(ctx context.Context, id string, status string) error {
+	exec := func() error {
+		_, err := s.exec(ctx, s.queries.get(QueryUpdateFormSubmissionStatus), status, id)
+		return err
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) DeleteFormSubmissions(ctx context.Context, filter storage.FormSubmissionFilter) error {
+	var args []any
+	where := "1=1"
+	if filter.Path != "" {
+		where += " AND path = ?"
+		args = append(args, filter.Path)
+	}
+	if filter.Status != "" {
+		where += " AND status = ?"
+		args = append(args, filter.Status)
+	}
+
+	exec := func() error {
+		_, err := s.exec(ctx, "DELETE FROM form_submissions WHERE "+where, args...)
 		return err
 	}
 	return s.execWithRetry(ctx, exec)
@@ -1698,7 +2051,7 @@ func (s *sqlStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilt
 	}
 	defer rows.Close()
 
-	var logs []storage.AuditLog
+	logs := []storage.AuditLog{}
 	for rows.Next() {
 		var log storage.AuditLog
 		var payload, ip sql.NullString
@@ -1714,4 +2067,375 @@ func (s *sqlStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilt
 		logs = append(logs, log)
 	}
 	return logs, total, nil
+}
+
+func (s *sqlStorage) ListSchemas(ctx context.Context, name string) ([]storage.Schema, error) {
+	rows, err := s.query(ctx, s.queries.get(QueryListSchemas), name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	schemas := []storage.Schema{}
+	for rows.Next() {
+		var sc storage.Schema
+		if err := rows.Scan(&sc.ID, &sc.Name, &sc.Version, &sc.Type, &sc.Content, &sc.CreatedAt); err != nil {
+			return nil, err
+		}
+		schemas = append(schemas, sc)
+	}
+	return schemas, nil
+}
+
+func (s *sqlStorage) ListAllSchemas(ctx context.Context) ([]storage.Schema, error) {
+	rows, err := s.query(ctx, s.queries.get(QueryListAllSchemas))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	schemas := []storage.Schema{}
+	for rows.Next() {
+		var sc storage.Schema
+		if err := rows.Scan(&sc.ID, &sc.Name, &sc.Version, &sc.Type, &sc.Content, &sc.CreatedAt); err != nil {
+			return nil, err
+		}
+		schemas = append(schemas, sc)
+	}
+	return schemas, nil
+}
+
+func (s *sqlStorage) GetSchema(ctx context.Context, name string, version int) (storage.Schema, error) {
+	var sc storage.Schema
+	err := s.queryRow(ctx, s.queries.get(QueryGetSchema), name, version).Scan(&sc.ID, &sc.Name, &sc.Version, &sc.Type, &sc.Content, &sc.CreatedAt)
+	if err == sql.ErrNoRows {
+		return storage.Schema{}, fmt.Errorf("schema %s version %d not found", name, version)
+	}
+	return sc, err
+}
+
+func (s *sqlStorage) GetLatestSchema(ctx context.Context, name string) (storage.Schema, error) {
+	var sc storage.Schema
+	err := s.queryRow(ctx, s.queries.get(QueryGetLatestSchema), name).Scan(&sc.ID, &sc.Name, &sc.Version, &sc.Type, &sc.Content, &sc.CreatedAt)
+	if err == sql.ErrNoRows {
+		return storage.Schema{}, fmt.Errorf("schema %s not found", name)
+	}
+	return sc, err
+}
+
+func (s *sqlStorage) CreateSchema(ctx context.Context, sc storage.Schema) error {
+	if sc.ID == "" {
+		sc.ID = uuid.New().String()
+	}
+	if sc.CreatedAt.IsZero() {
+		sc.CreatedAt = time.Now()
+	}
+
+	exec := func() error {
+		_, err := s.exec(ctx, s.queries.get(QueryCreateSchema),
+			sc.ID, sc.Name, sc.Version, sc.Type, sc.Content, sc.CreatedAt)
+		return err
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error {
+	id := uuid.New().String()
+	dataBytes, _ := json.Marshal(step.Data)
+
+	exec := func() error {
+		_, err := s.exec(ctx, s.queries.get(QueryRecordTraceStep),
+			id, messageID, workflowID, step.NodeID, step.Timestamp, step.Duration.Milliseconds(), string(dataBytes), step.Error)
+		return err
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) GetMessageTrace(ctx context.Context, workflowID, messageID string) (storage.MessageTrace, error) {
+	rows, err := s.query(ctx, s.queries.get(QueryGetMessageTrace), workflowID, messageID)
+	if err != nil {
+		return storage.MessageTrace{}, err
+	}
+	defer rows.Close()
+
+	var tr storage.MessageTrace
+	tr.WorkflowID = workflowID
+	tr.MessageID = messageID
+
+	for rows.Next() {
+		var step hermod.TraceStep
+		var dataStr string
+		var durationMs int64
+		if err := rows.Scan(&step.NodeID, &step.Timestamp, &durationMs, &dataStr, &step.Error); err != nil {
+			return storage.MessageTrace{}, err
+		}
+		step.Duration = time.Duration(durationMs) * time.Millisecond
+		if dataStr != "" {
+			_ = json.Unmarshal([]byte(dataStr), &step.Data)
+		}
+		tr.Steps = append(tr.Steps, step)
+	}
+
+	if len(tr.Steps) == 0 {
+		return storage.MessageTrace{}, storage.ErrNotFound
+	}
+
+	tr.CreatedAt = tr.Steps[0].Timestamp
+	return tr, nil
+}
+
+func (s *sqlStorage) ListMessageTraces(ctx context.Context, workflowID string, limit int) ([]storage.MessageTrace, error) {
+	// This is a bit tricky with individual steps. We want unique message_ids.
+	rows, err := s.query(ctx, s.queries.get(QueryListMessageTraces), workflowID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	traces := []storage.MessageTrace{}
+	for rows.Next() {
+		var tr storage.MessageTrace
+		tr.WorkflowID = workflowID
+		if err := rows.Scan(&tr.MessageID, &tr.CreatedAt); err != nil {
+			return nil, err
+		}
+		traces = append(traces, tr)
+	}
+	return traces, nil
+}
+
+func (s *sqlStorage) CreateWorkflowVersion(ctx context.Context, v storage.WorkflowVersion) error {
+	nodesJSON, err := json.Marshal(v.Nodes)
+	if err != nil {
+		return err
+	}
+	edgesJSON, err := json.Marshal(v.Edges)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.exec(ctx, s.queries.get(QueryCreateWorkflowVersion),
+		v.ID, v.WorkflowID, v.Version, string(nodesJSON), string(edgesJSON), v.Config, v.CreatedAt, v.CreatedBy, v.Message)
+	return err
+}
+
+func (s *sqlStorage) ListWorkflowVersions(ctx context.Context, workflowID string) ([]storage.WorkflowVersion, error) {
+	rows, err := s.query(ctx, s.queries.get(QueryListWorkflowVersions), workflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	versions := []storage.WorkflowVersion{}
+	for rows.Next() {
+		var v storage.WorkflowVersion
+		var nodesStr, edgesStr string
+		if err := rows.Scan(&v.ID, &v.WorkflowID, &v.Version, &nodesStr, &edgesStr, &v.Config, &v.CreatedAt, &v.CreatedBy, &v.Message); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(nodesStr), &v.Nodes); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(edgesStr), &v.Edges); err != nil {
+			return nil, err
+		}
+		versions = append(versions, v)
+	}
+	return versions, nil
+}
+
+func (s *sqlStorage) GetWorkflowVersion(ctx context.Context, workflowID string, version int) (storage.WorkflowVersion, error) {
+	var v storage.WorkflowVersion
+	var nodesStr, edgesStr string
+	err := s.queryRow(ctx, s.queries.get(QueryGetWorkflowVersion), workflowID, version).Scan(
+		&v.ID, &v.WorkflowID, &v.Version, &nodesStr, &edgesStr, &v.Config, &v.CreatedAt, &v.CreatedBy, &v.Message)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return v, storage.ErrNotFound
+		}
+		return v, err
+	}
+	if err := json.Unmarshal([]byte(nodesStr), &v.Nodes); err != nil {
+		return v, err
+	}
+	if err := json.Unmarshal([]byte(edgesStr), &v.Edges); err != nil {
+		return v, err
+	}
+	return v, nil
+}
+
+func (s *sqlStorage) CreateOutboxItem(ctx context.Context, item storage.OutboxItem) error {
+	metaJSON, _ := json.Marshal(item.Metadata)
+	exec := func() error {
+		_, e := s.exec(ctx, s.queries.get(QueryCreateOutboxItem),
+			item.ID, item.WorkflowID, item.SinkID, item.Payload, string(metaJSON), item.CreatedAt, item.Attempts, item.LastError, item.Status)
+		return e
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) ListOutboxItems(ctx context.Context, status string, limit int) ([]storage.OutboxItem, error) {
+	rows, err := s.query(ctx, s.queries.get(QueryListOutboxItems), status, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []storage.OutboxItem{}
+	for rows.Next() {
+		var item storage.OutboxItem
+		var lastError, metaStr sql.NullString
+		if err := rows.Scan(&item.ID, &item.WorkflowID, &item.SinkID, &item.Payload, &metaStr, &item.CreatedAt, &item.Attempts, &lastError, &item.Status); err != nil {
+			return nil, err
+		}
+		if lastError.Valid {
+			item.LastError = lastError.String
+		}
+		if metaStr.Valid && metaStr.String != "" {
+			_ = json.Unmarshal([]byte(metaStr.String), &item.Metadata)
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (s *sqlStorage) DeleteOutboxItem(ctx context.Context, id string) error {
+	exec := func() error {
+		_, e := s.exec(ctx, s.queries.get(QueryDeleteOutboxItem), id)
+		return e
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) UpdateOutboxItem(ctx context.Context, item storage.OutboxItem) error {
+	exec := func() error {
+		_, e := s.exec(ctx, s.queries.get(QueryUpdateOutboxItem), item.Attempts, item.LastError, item.Status, item.ID)
+		return e
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) GetLineage(ctx context.Context) ([]storage.LineageEdge, error) {
+	workflows, _, err := s.ListWorkflows(ctx, storage.CommonFilter{Limit: 1000})
+	if err != nil {
+		return nil, err
+	}
+
+	sources, _, err := s.ListSources(ctx, storage.CommonFilter{Limit: 1000})
+	if err != nil {
+		return nil, err
+	}
+	srcMap := make(map[string]storage.Source)
+	for _, src := range sources {
+		srcMap[src.ID] = src
+	}
+
+	sinks, _, err := s.ListSinks(ctx, storage.CommonFilter{Limit: 1000})
+	if err != nil {
+		return nil, err
+	}
+	snkMap := make(map[string]storage.Sink)
+	for _, snk := range sinks {
+		snkMap[snk.ID] = snk
+	}
+
+	lineage := []storage.LineageEdge{}
+	for _, wf := range workflows {
+		wfSources := []storage.Source{}
+		wfSinks := []storage.Sink{}
+
+		for _, node := range wf.Nodes {
+			if node.Type == "source" {
+				if src, ok := srcMap[node.RefID]; ok {
+					wfSources = append(wfSources, src)
+				}
+			} else if node.Type == "sink" {
+				if snk, ok := snkMap[node.RefID]; ok {
+					wfSinks = append(wfSinks, snk)
+				}
+			}
+		}
+
+		for _, src := range wfSources {
+			for _, snk := range wfSinks {
+				lineage = append(lineage, storage.LineageEdge{
+					SourceID:     src.ID,
+					SourceName:   src.Name,
+					SourceType:   src.Type,
+					SinkID:       snk.ID,
+					SinkName:     snk.Name,
+					SinkType:     snk.Type,
+					WorkflowID:   wf.ID,
+					WorkflowName: wf.Name,
+				})
+			}
+		}
+	}
+
+	return lineage, nil
+}
+
+func (s *sqlStorage) ListPlugins(ctx context.Context) ([]storage.Plugin, error) {
+	rows, err := s.query(ctx, s.queries.get(QueryListPlugins))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var plugins []storage.Plugin
+	for rows.Next() {
+		var p storage.Plugin
+		var installedAt sql.NullTime
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Author, &p.Stars, &p.Category, &p.Certified, &p.Type, &p.WasmURL, &p.Installed, &installedAt); err != nil {
+			return nil, err
+		}
+		if installedAt.Valid {
+			p.InstalledAt = &installedAt.Time
+		}
+		plugins = append(plugins, p)
+	}
+	return plugins, nil
+}
+
+func (s *sqlStorage) GetPlugin(ctx context.Context, id string) (storage.Plugin, error) {
+	var p storage.Plugin
+	var installedAt sql.NullTime
+	err := s.queryRow(ctx, s.queries.get(QueryGetPlugin), id).Scan(&p.ID, &p.Name, &p.Description, &p.Author, &p.Stars, &p.Category, &p.Certified, &p.Type, &p.WasmURL, &p.Installed, &installedAt)
+	if err != nil {
+		return p, err
+	}
+	if installedAt.Valid {
+		p.InstalledAt = &installedAt.Time
+	}
+	return p, nil
+}
+
+func (s *sqlStorage) InstallPlugin(ctx context.Context, id string) error {
+	exec := func() error {
+		res, e := s.exec(ctx, s.queries.get(QueryInstallPlugin), time.Now(), id)
+		if e != nil {
+			return e
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return storage.ErrNotFound
+		}
+		return nil
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) UninstallPlugin(ctx context.Context, id string) error {
+	exec := func() error {
+		res, e := s.exec(ctx, s.queries.get(QueryUninstallPlugin), id)
+		if e != nil {
+			return e
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return storage.ErrNotFound
+		}
+		return nil
+	}
+	return s.execWithRetry(ctx, exec)
 }

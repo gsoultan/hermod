@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -9,8 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/user/hermod/internal/config"
+	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/mesh"
 	"github.com/user/hermod/internal/storage"
 )
 
@@ -136,4 +140,104 @@ func TestGetDBConfig_CorruptYAML_Returns500(t *testing.T) {
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rr.Code)
 	}
+}
+
+func TestMeshHealth_Combined(t *testing.T) {
+	ms := &mockStorageMesh{}
+	reg := engine.NewRegistry(ms)
+	s := NewServer(reg, ms, nil, nil)
+
+	// Register a cluster in mesh manager
+	mm := reg.GetMeshManager()
+	mm.RegisterCluster(mesh.Cluster{
+		ID:       "remote-1",
+		Region:   "us-east-1",
+		Endpoint: "https://remote-1.hermod.io",
+		Status:   "online",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/infra/mesh-health", nil)
+	rr := httptest.NewRecorder()
+
+	s.getMeshHealth(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+
+	var health []map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &health); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Should have 1 worker (from mock) and 1 cluster
+	if len(health) != 2 {
+		t.Fatalf("len(health) = %d, want 2", len(health))
+	}
+
+	foundCluster := false
+	foundWorker := false
+	for _, h := range health {
+		if h["type"] == "cluster" && h["id"] == "remote-1" {
+			foundCluster = true
+		}
+		if h["type"] == "worker" && h["id"] == "worker-1" {
+			foundWorker = true
+		}
+	}
+
+	if !foundCluster {
+		t.Error("remote cluster not found in health response")
+	}
+	if !foundWorker {
+		t.Error("local worker not found in health response")
+	}
+}
+
+func TestRegisterMeshCluster(t *testing.T) {
+	ms := &mockStorageMesh{}
+	reg := engine.NewRegistry(ms)
+	s := NewServer(reg, ms, nil, nil)
+
+	cluster := mesh.Cluster{
+		ID:       "new-cluster",
+		Region:   "eu-west-1",
+		Endpoint: "https://new.hermod.io",
+	}
+	body, _ := json.Marshal(cluster)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mesh/clusters", bytes.NewReader(body))
+	req = withAdminContext(req)
+	rr := httptest.NewRecorder()
+
+	s.registerMeshCluster(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", rr.Code)
+	}
+
+	// Verify it's in the manager
+	mm := reg.GetMeshManager()
+	c, ok := mm.GetCluster("new-cluster")
+	if !ok {
+		t.Fatal("cluster not registered in manager")
+	}
+	if c.Region != "eu-west-1" {
+		t.Errorf("region = %q, want eu-west-1", c.Region)
+	}
+}
+
+type mockStorageMesh struct {
+	mockStorage
+}
+
+func (m *mockStorageMesh) ListWorkers(ctx context.Context, filter storage.CommonFilter) ([]storage.Worker, int, error) {
+	now := time.Now()
+	return []storage.Worker{
+		{ID: "worker-1", Name: "Worker 1", LastSeen: &now, CPUUsage: 0.5, MemoryUsage: 512},
+	}, 1, nil
+}
+
+func (m *mockStorageMesh) ListWorkflows(ctx context.Context, filter storage.CommonFilter) ([]storage.Workflow, int, error) {
+	return nil, 0, nil
 }

@@ -1,0 +1,36 @@
+{
+  "name": "CDC: Postgres to Elasticsearch (Search Indexing)",
+  "description": "Real-time synchronization between PostgreSQL and Elasticsearch. Automatically updates search indexes as database records change.",
+  "icon": "IconSearch",
+  "color": "teal",
+  "data": {
+    "name": "CDC: Postgres to Elasticsearch",
+    "nodes": [
+      {
+        "id": "src_pg",
+        "type": "source",
+        "config": { "label": "Postgres CDC", "type": "postgres", "ref_id": "new" },
+        "x": 100,
+        "y": 200
+      },
+      {
+        "id": "trans_mapping",
+        "type": "transformation",
+        "config": { "label": "Map to Document", "transType": "mapping", "field": "*" },
+        "x": 400,
+        "y": 200
+      },
+      {
+        "id": "snk_es",
+        "type": "sink",
+        "config": { "label": "Elasticsearch Index", "type": "elasticsearch", "ref_id": "new" },
+        "x": 700,
+        "y": 200
+      }
+    ],
+    "edges": [
+      { "id": "e1", "source_id": "src_pg", "target_id": "trans_mapping" },
+      { "id": "e2", "source_id": "trans_mapping", "target_id": "snk_es" }
+    ]
+  }
+}

@@ -3,6 +3,8 @@ package idempotency
 import (
 	"context"
 	"database/sql"
+	"fmt"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -28,21 +30,14 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 }
 
 func (s *SQLiteStore) ensureTable() error {
-	_, err := s.db.Exec(
-		"CREATE TABLE IF NOT EXISTS " + s.table + " (" +
-			"key TEXT PRIMARY KEY, " +
-			"status INTEGER NOT NULL, " +
-			"first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
-			"last_update TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP" +
-			")",
-	)
+	_, err := s.db.Exec(fmt.Sprintf(commonQueries[QueryInitTable], s.table))
 	return err
 }
 
 // Claim attempts to insert the key; returns true if inserted (we own it), false if it already exists.
 func (s *SQLiteStore) Claim(ctx context.Context, key string) (bool, error) {
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO "+s.table+" (key, status) VALUES (?, 0) ON CONFLICT(key) DO NOTHING",
+		fmt.Sprintf(commonQueries[QueryClaim], s.table),
 		key,
 	)
 	if err != nil {
@@ -55,7 +50,7 @@ func (s *SQLiteStore) Claim(ctx context.Context, key string) (bool, error) {
 // MarkSent marks the key as successfully processed.
 func (s *SQLiteStore) MarkSent(ctx context.Context, key string) error {
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE "+s.table+" SET status=1, last_update=CURRENT_TIMESTAMP WHERE key=?",
+		fmt.Sprintf(commonQueries[QueryMarkSent], s.table),
 		key,
 	)
 	return err

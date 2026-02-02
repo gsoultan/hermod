@@ -71,7 +71,7 @@ func TestDeleteSourceLogic(t *testing.T) {
 				},
 			},
 		}
-		s := NewServer(registry, store)
+		s := NewServer(registry, store, nil, nil)
 
 		// Create a mux to handle the path value
 		mux := http.NewServeMux()
@@ -110,7 +110,7 @@ func TestDeleteSourceLogic(t *testing.T) {
 				{ID: "other", Type: "postgres", Config: map[string]string{"use_cdc": "true", "slot_name": "s1"}}, // Sharing slot
 			},
 		}
-		s := NewServer(registry, store)
+		s := NewServer(registry, store, nil, nil)
 
 		mux := http.NewServeMux()
 		mux.HandleFunc("DELETE /api/sources/{id}", s.deleteSource)
@@ -141,7 +141,7 @@ func TestDeleteSourceLogic(t *testing.T) {
 				{ID: "other", Type: "postgres", Config: map[string]string{"use_cdc": "true", "slot_name": "s1", "host": "other_host", "database": "db1"}}, // Same slot but different DB
 			},
 		}
-		s := NewServer(registry, store)
+		s := NewServer(registry, store, nil, nil)
 
 		mux := http.NewServeMux()
 		mux.HandleFunc("DELETE /api/sources/{id}", s.deleteSource)
@@ -171,7 +171,7 @@ func TestDeleteSourceLogic(t *testing.T) {
 				{ID: "mssql2", Type: "mssql", Config: map[string]string{"use_cdc": "true", "tables": "dbo.table1", "host": "localhost", "dbname": "db1"}},
 			},
 		}
-		s := NewServer(registry, store)
+		s := NewServer(registry, store, nil, nil)
 
 		mux := http.NewServeMux()
 		mux.HandleFunc("DELETE /api/sources/{id}", s.deleteSource)
@@ -203,7 +203,7 @@ func TestDeleteSourceLogic(t *testing.T) {
 				{ID: "other", Type: "postgres", Config: map[string]string{"use_cdc": "true", "slot_name": "s1", "host": "localhost", "dbname": "db1"}}, // Cross-type sharing
 			},
 		}
-		s := NewServer(registry, store)
+		s := NewServer(registry, store, nil, nil)
 
 		mux := http.NewServeMux()
 		mux.HandleFunc("DELETE /api/sources/{id}", s.deleteSource)
@@ -228,7 +228,7 @@ func TestDeleteSourceLogic(t *testing.T) {
 			},
 			workflows: []storage.Workflow{},
 		}
-		s := NewServer(registry, store)
+		s := NewServer(registry, store, nil, nil)
 
 		mux := http.NewServeMux()
 		mux.HandleFunc("DELETE /api/sources/{id}", s.deleteSource)

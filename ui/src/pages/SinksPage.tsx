@@ -197,7 +197,7 @@ export function SinksPage() {
                     if (!snk.active && !liveStatus && !snk.status) {
                       return (
                         <Badge variant="filled" color="red" size="sm" radius="sm">
-                          Shutdown
+                          Offline
                         </Badge>
                       );
                     }
@@ -232,8 +232,8 @@ export function SinksPage() {
                     }
                     
                     return (
-                      <Badge variant="light" color="blue" size="sm" radius="sm">
-                        {status || 'Active'}
+                      <Badge variant="light" color="green" size="sm" radius="sm">
+                        {status || 'Online'}
                       </Badge>
                     );
                   })()}

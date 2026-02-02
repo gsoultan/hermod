@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,11 +18,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/user/hermod/internal/config"
+	"github.com/user/hermod/internal/mesh"
 	"github.com/user/hermod/internal/notification"
 	"github.com/user/hermod/internal/storage"
 	storagemongo "github.com/user/hermod/internal/storage/mongodb"
 	sqlstorage "github.com/user/hermod/internal/storage/sql"
 	"github.com/user/hermod/pkg/crypto"
+	"github.com/user/hermod/pkg/secrets"
+	"github.com/user/hermod/pkg/state"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -81,9 +85,189 @@ func (s *Server) getDBConfig(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{
-		"type": cfg.Type,
-		"conn": maskDSN(cfg.Type, cfg.Conn),
+		"type":     cfg.Type,
+		"conn":     maskDSN(cfg.Type, cfg.Conn),
+		"log_type": cfg.LogType,
+		"log_conn": maskDSN(cfg.LogType, cfg.LogConn),
 	})
+}
+
+func (s *Server) getSecretConfig(w http.ResponseWriter, r *http.Request) {
+	role, _ := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		s.jsonError(w, "failed to load configuration", http.StatusInternalServerError)
+		return
+	}
+
+	// Mask sensitive fields
+	resp := cfg.Secrets
+	if resp.Vault.Token != "" {
+		resp.Vault.Token = "****"
+	}
+	if resp.OpenBao.Token != "" {
+		resp.OpenBao.Token = "****"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) updateSecretConfig(w http.ResponseWriter, r *http.Request) {
+	role, _ := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	var secretCfg secrets.Config
+	if err := json.NewDecoder(r.Body).Decode(&secretCfg); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		s.jsonError(w, "failed to load configuration", http.StatusInternalServerError)
+		return
+	}
+
+	// Restore tokens if masked
+	if secretCfg.Vault.Token == "****" {
+		secretCfg.Vault.Token = cfg.Secrets.Vault.Token
+	}
+	if secretCfg.OpenBao.Token == "****" {
+		secretCfg.OpenBao.Token = cfg.Secrets.OpenBao.Token
+	}
+
+	cfg.Secrets = secretCfg
+	if err := config.SaveConfig("config.yaml", cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Re-initialize secret manager in registry
+	if secretCfg.Type != "" {
+		if mgr, err := secrets.NewManager(r.Context(), secretCfg); err == nil {
+			s.registry.SetSecretManager(mgr)
+		}
+	} else {
+		// Use default EnvManager if disabled
+		s.registry.SetSecretManager(&secrets.EnvManager{Prefix: "HERMOD_SECRET_"})
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) getStateStoreConfig(w http.ResponseWriter, r *http.Request) {
+	role, _ := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		s.jsonError(w, "failed to load configuration", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(cfg.StateStore)
+}
+
+func (s *Server) updateStateStoreConfig(w http.ResponseWriter, r *http.Request) {
+	role, _ := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	var stateCfg config.StateStoreConfig
+	if err := json.NewDecoder(r.Body).Decode(&stateCfg); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		s.jsonError(w, "failed to load configuration", http.StatusInternalServerError)
+		return
+	}
+
+	cfg.StateStore = stateCfg
+	if err := config.SaveConfig("config.yaml", cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Re-initialize state store in registry
+	stateCfgPkg := state.Config{
+		Type:     stateCfg.Type,
+		Path:     stateCfg.Path,
+		Address:  stateCfg.Address,
+		Password: stateCfg.Password,
+		DB:       stateCfg.DB,
+		Prefix:   stateCfg.Prefix,
+	}
+	if ss, err := state.NewStateStore(stateCfgPkg); err == nil {
+		s.registry.SetStateStore(ss)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) getObservabilityConfig(w http.ResponseWriter, r *http.Request) {
+	role, _ := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		s.jsonError(w, "failed to load configuration", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(cfg.Observability)
+}
+
+func (s *Server) updateObservabilityConfig(w http.ResponseWriter, r *http.Request) {
+	role, _ := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	var obsCfg config.ObservabilityConfig
+	if err := json.NewDecoder(r.Body).Decode(&obsCfg); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		s.jsonError(w, "failed to load configuration", http.StatusInternalServerError)
+		return
+	}
+
+	cfg.Observability = obsCfg
+	if err := config.SaveConfig("config.yaml", cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Note: OTLP re-initialization usually requires a restart or complex SDK management.
+	// For now, we inform the user that changes will take effect after restart.
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) saveDBConfig(w http.ResponseWriter, r *http.Request) {
@@ -147,8 +331,32 @@ func (s *Server) saveDBConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		if testErr != nil {
 			// Return 400 with a clear message so the UI can inform the user
-			s.jsonError(w, "failed to connect to database: "+testErr.Error(), http.StatusBadRequest)
+			s.jsonError(w, "failed to connect to primary database: "+testErr.Error(), http.StatusBadRequest)
 			return
+		}
+
+		// Test logging database if configured
+		if cfg.LogType != "" && cfg.LogConn != "" {
+			var logTestErr error
+			switch cfg.LogType {
+			case "sqlite":
+				logTestErr = s.testSQLite(ctx, cfg.LogConn)
+			case "postgres":
+				logTestErr = s.testPostgres(ctx, cfg.LogConn)
+			case "mysql", "mariadb":
+				logTestErr = s.testMySQL(ctx, cfg.LogConn)
+			case "mongodb":
+				logTestErr = s.testMongoDB(ctx, cfg.LogConn)
+			case "mssql":
+				logTestErr = s.testMSSQL(ctx, cfg.LogConn)
+			default:
+				s.jsonError(w, "unsupported logging database type: "+cfg.LogType, http.StatusBadRequest)
+				return
+			}
+			if logTestErr != nil {
+				s.jsonError(w, "failed to connect to logging database: "+logTestErr.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 	}
 
@@ -170,12 +378,34 @@ func (s *Server) saveDBConfig(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		// Extremely unlikely after a successful connectivity test, but handle gracefully
-		http.Error(w, "failed to initialize new storage: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "failed to initialize new primary storage: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	var newLogStore storage.Storage
+	if cfg.LogType != "" && cfg.LogConn != "" {
+		if cfg.LogType == "mongodb" {
+			newLogStore, err = s.initMongoStorage(r.Context(), cfg.LogConn)
+		} else {
+			// Create a temporary DBConfig for initSQLStorage
+			logCfg := config.DBConfig{
+				Type: cfg.LogType,
+				Conn: cfg.LogConn,
+			}
+			newLogStore, err = s.initSQLStorage(r.Context(), logCfg)
+		}
+		if err != nil {
+			log.Printf("Warning: failed to initialize new logging storage: %v", err)
+		}
 	}
 
 	s.storeMu.Lock()
 	s.storage = newStore
+	if newLogStore != nil {
+		s.logStorage = newLogStore
+	} else {
+		s.logStorage = newStore
+	}
 	s.storeMu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -456,7 +686,19 @@ func (s *Server) finalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 			FullName string `json:"full_name"`
 			Email    string `json:"email"`
 		} `json:"admin"`
-		SMTP notification.NotificationSettings `json:"smtp"`
+		SMTP   notification.NotificationSettings `json:"smtp"`
+		Config struct {
+			Engine struct {
+				MaxRetries        int    `json:"max_retries"`
+				RetryInterval     string `json:"retry_interval"`
+				ReconnectInterval string `json:"reconnect_interval"`
+			} `json:"engine"`
+			Buffer        config.BufferConfig        `json:"buffer"`
+			Secrets       secrets.Config             `json:"secrets"`
+			StateStore    config.StateStoreConfig    `json:"state_store"`
+			Observability config.ObservabilityConfig `json:"observability"`
+			Auth          config.AuthConfig          `json:"auth"`
+		} `json:"config"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -538,6 +780,34 @@ func (s *Server) finalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 			s.jsonError(w, "failed to save SMTP settings: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+	}
+
+	// 5) Save platform config
+	platformCfg := config.Config{
+		Engine: config.EngineConfig{
+			MaxRetries: req.Config.Engine.MaxRetries,
+		},
+		Buffer:        req.Config.Buffer,
+		Secrets:       req.Config.Secrets,
+		StateStore:    req.Config.StateStore,
+		Observability: req.Config.Observability,
+		Auth:          req.Config.Auth,
+	}
+
+	if req.Config.Engine.RetryInterval != "" {
+		if d, err := time.ParseDuration(req.Config.Engine.RetryInterval); err == nil {
+			platformCfg.Engine.RetryInterval = d
+		}
+	}
+	if req.Config.Engine.ReconnectInterval != "" {
+		if d, err := time.ParseDuration(req.Config.Engine.ReconnectInterval); err == nil {
+			platformCfg.Engine.ReconnectInterval = d
+		}
+	}
+
+	if err := config.SaveConfig("config.yaml", &platformCfg); err != nil {
+		s.jsonError(w, "failed to save platform config: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -680,11 +950,12 @@ func (s *Server) generateToken(w http.ResponseWriter, r *http.Request) {
 }
 
 type BackupData struct {
-	Sources   []storage.Source   `json:"sources"`
-	Sinks     []storage.Sink     `json:"sinks"`
-	Workflows []storage.Workflow `json:"workflows"`
-	VHosts    []storage.VHost    `json:"vhosts"`
-	Settings  map[string]string  `json:"settings"`
+	Sources    []storage.Source    `json:"sources"`
+	Sinks      []storage.Sink      `json:"sinks"`
+	Workflows  []storage.Workflow  `json:"workflows"`
+	Workspaces []storage.Workspace `json:"workspaces"`
+	VHosts     []storage.VHost     `json:"vhosts"`
+	Settings   map[string]string   `json:"settings"`
 }
 
 func (s *Server) exportConfig(w http.ResponseWriter, r *http.Request) {
@@ -704,6 +975,7 @@ func (s *Server) exportConfig(w http.ResponseWriter, r *http.Request) {
 	data.Sinks, _, _ = s.storage.ListSinks(ctx, filter)
 	data.Workflows, _, _ = s.storage.ListWorkflows(ctx, filter)
 	data.VHosts, _, _ = s.storage.ListVHosts(ctx, filter)
+	data.Workspaces, _ = s.storage.ListWorkspaces(ctx)
 
 	if val, err := s.storage.GetSetting(ctx, "notification_settings"); err == nil {
 		data.Settings["notification_settings"] = val
@@ -761,6 +1033,286 @@ func (s *Server) importConfig(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) getMeshHealth(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	workers, _, err := s.storage.ListWorkers(ctx, storage.CommonFilter{})
+	if err != nil {
+		s.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	type ClusterHealth struct {
+		ID         string    `json:"id"`
+		Name       string    `json:"name"`
+		Status     string    `json:"status"`
+		CPU        float64   `json:"cpu"`
+		Memory     float64   `json:"memory"`
+		LastSeen   time.Time `json:"last_seen"`
+		Workflows  int       `json:"workflows"`
+		ErrorCount int       `json:"error_count"`
+		Type       string    `json:"type"` // "worker" or "cluster"
+		Region     string    `json:"region,omitempty"`
+		Endpoint   string    `json:"endpoint,omitempty"`
+	}
+
+	var health []ClusterHealth
+	now := time.Now()
+
+	// Fetch all workflows to count them per worker
+	wfs, _, _ := s.storage.ListWorkflows(ctx, storage.CommonFilter{})
+	workflowCounts := make(map[string]int)
+	for _, wf := range wfs {
+		if wf.Active && wf.WorkerID != "" {
+			workflowCounts[wf.WorkerID]++
+		}
+	}
+
+	for _, wrk := range workers {
+		status := "online"
+		if wrk.LastSeen == nil || now.Sub(*wrk.LastSeen) > 1*time.Minute {
+			status = "offline"
+		} else if now.Sub(*wrk.LastSeen) > 30*time.Second {
+			status = "degraded"
+		}
+
+		lastSeen := time.Time{}
+		if wrk.LastSeen != nil {
+			lastSeen = *wrk.LastSeen
+		}
+
+		health = append(health, ClusterHealth{
+			ID:        wrk.ID,
+			Name:      wrk.Name,
+			Status:    status,
+			CPU:       wrk.CPUUsage,
+			Memory:    wrk.MemoryUsage,
+			LastSeen:  lastSeen,
+			Workflows: workflowCounts[wrk.ID],
+			Type:      "worker",
+		})
+	}
+
+	// Add Mesh Clusters
+	if s.registry != nil {
+		mm := s.registry.GetMeshManager()
+		if mm != nil {
+			clusters := mm.GetClusters()
+			for _, c := range clusters {
+				health = append(health, ClusterHealth{
+					ID:       c.ID,
+					Name:     c.ID,
+					Status:   c.Status,
+					Type:     "cluster",
+					Region:   c.Region,
+					Endpoint: c.Endpoint,
+				})
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(health)
+}
+
+func (s *Server) registerMeshCluster(w http.ResponseWriter, r *http.Request) {
+	var req mesh.Cluster
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.ID == "" || req.Endpoint == "" {
+		s.jsonError(w, "ID and Endpoint are required", http.StatusBadRequest)
+		return
+	}
+
+	if s.registry == nil {
+		s.jsonError(w, "Registry not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	mm := s.registry.GetMeshManager()
+	if mm == nil {
+		s.jsonError(w, "Mesh Manager not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	if req.Status == "" {
+		req.Status = "online"
+	}
+
+	mm.RegisterCluster(req)
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (s *Server) getLineage(w http.ResponseWriter, r *http.Request) {
+	lineage, err := s.storage.GetLineage(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(lineage)
+}
+
+func (s *Server) getDashboardLayout(w http.ResponseWriter, r *http.Request) {
+	layout, err := s.storage.GetSetting(r.Context(), "dashboard_layout")
+	if err != nil {
+		// Default layout if not found
+		layout = `[{"i":"stats","x":0,"y":0,"w":12,"h":2},{"i":"mps","x":0,"y":2,"w":8,"h":4},{"i":"workflows","x":8,"y":2,"w":4,"h":4},{"i":"logs","x":0,"y":6,"w":12,"h":4}]`
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(layout))
+}
+
+func (s *Server) saveDashboardLayout(w http.ResponseWriter, r *http.Request) {
+	var layout json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&layout); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.storage.SaveSetting(r.Context(), "dashboard_layout", string(layout)); err != nil {
+		s.jsonError(w, "Failed to save layout: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) bootstrapEnterpriseScenario(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// 1. Create Workspace
+	ws := storage.Workspace{
+		ID:          "prod-fulfillment",
+		Name:        "Production: Global Fulfillment",
+		Description: "Mission-critical workspace for global order processing and regional mesh routing.",
+		CreatedAt:   time.Now(),
+	}
+	_ = s.storage.CreateWorkspace(ctx, ws)
+
+	// 2. Create VHost if not exists
+	_ = s.storage.CreateVHost(ctx, storage.VHost{
+		ID:          "fulfillment",
+		Name:        "fulfillment",
+		Description: "VHost for fulfillment services",
+	})
+
+	// 3. Load Template
+	templatePath := "examples/templates/global_fulfillment.json"
+	data, err := os.ReadFile(templatePath)
+	if err != nil {
+		s.jsonError(w, "Failed to read scenario template: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var template struct {
+		Data storage.Workflow `json:"data"`
+	}
+	if err := json.Unmarshal(data, &template); err != nil {
+		s.jsonError(w, "Failed to parse scenario template: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	wf := template.Data
+	wf.ID = "fulfillment-scenario-" + uuid.New().String()[:8]
+	wf.VHost = "fulfillment"
+
+	// 4. Create Workflow
+	if err := s.storage.CreateWorkflow(ctx, wf); err != nil {
+		s.jsonError(w, "Failed to create scenario workflow: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 5. Record Audit Log
+	s.recordAuditLog(r, "INFO", "Bootstrapped Enterprise Scenario: "+wf.Name, "BOOTSTRAP", wf.ID, "workflow", wf.ID, wf)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"status":      "success",
+		"workflow_id": wf.ID,
+		"workspace":   ws.Name,
+		"message":     "Enterprise scenario bootstrapped successfully.",
+	})
+}
+
+func (s *Server) generateSDK(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Language string `json:"language"` // "go", "typescript"
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var content string
+	var filename string
+
+	switch strings.ToLower(req.Language) {
+	case "go":
+		filename = "hermod_client.go"
+		content = `package hermod
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http"
+)
+
+type Client struct {
+	BaseURL string
+	Token   string
+}
+
+func NewClient(baseURL, token string) *Client {
+	return &Client{BaseURL: baseURL, Token: token}
+}
+
+func (c *Client) Publish(path string, data interface{}) error {
+	body, _ := json.Marshal(data)
+	req, _ := http.NewRequest("POST", c.BaseURL+"/api/webhooks/"+path, bytes.NewBuffer(body))
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Content-Type", "application/json")
+	
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("publish failed with status: %d", resp.StatusCode)
+	}
+	return nil
+}
+`
+	case "typescript":
+		filename = "hermod-client.ts"
+		content = "export class HermodClient {\n" +
+			"  constructor(private baseURL: string, private token: string) {}\n\n" +
+			"  async publish(path: string, data: any): Promise<void> {\n" +
+			"    const response = await fetch(`${this.baseURL}/api/webhooks/${path}`, {\n" +
+			"      method: 'POST',\n" +
+			"      headers: {\n" +
+			"        'Authorization': `Bearer ${this.token}`,\n" +
+			"        'Content-Type': 'application/json'\n" +
+			"      },\n" +
+			"      body: JSON.stringify(data)\n" +
+			"    });\n\n" +
+			"    if (!response.ok) {\n" +
+			"      throw new Error(`Publish failed with status: ${response.status}`);\n" +
+			"    }\n" +
+			"  }\n" +
+			"}\n"
+	default:
+		s.jsonError(w, "unsupported language: "+req.Language, http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
+	w.Header().Set("Content-Type", "application/octet-stream")
+	_, _ = w.Write([]byte(content))
+}
+
 func (s *Server) listAuditLogs(w http.ResponseWriter, r *http.Request) {
 	role, _ := s.getRoleAndVHosts(r)
 	if role != storage.RoleAdministrator {
@@ -801,7 +1353,7 @@ func (s *Server) listAuditLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	logs, total, err := s.storage.ListAuditLogs(r.Context(), filter)
+	logs, total, err := s.logStorage.ListAuditLogs(r.Context(), filter)
 	if err != nil {
 		s.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -30,6 +30,16 @@ interface WorkflowState {
   selectedNode: Node | null;
   quickAddSource: { nodeId: string; handleId: string | null } | null;
   
+  traceInspectorOpened: boolean;
+  traceMessageID: string;
+  sampleInspectorOpened: boolean;
+  sampleNodeId: string | null;
+  schemaRegistryOpened: boolean;
+  historyOpened: boolean;
+  liveStreamOpened: boolean;
+  aiGeneratorOpened: boolean;
+  complianceReportOpened: boolean;
+
   deadLetterSinkID: string;
   dlqThreshold: number;
   prioritizeDLQ: boolean;
@@ -39,11 +49,21 @@ interface WorkflowState {
   dryRun: boolean;
   idleTimeout: string;
   tier: string;
+  workspaceID: string;
   schemaType: string;
   schema: string;
+  tags: string[];
+  cpuRequest: number;
+  memoryRequest: number;
+  throughputRequest: number;
 
+  sourceStatus: string;
+  sinkStatuses: Record<string, string>;
   nodeMetrics: Record<string, number>;
+  nodeErrorMetrics: Record<string, number>;
   nodeSamples: Record<string, any>;
+  sinkCBStatuses: Record<string, string>;
+  sinkBufferFill: Record<string, number>;
   workflowDeadLetterCount: number;
 
   setNodes: (nodes: Node[] | ((nds: Node[]) => Node[])) => void;
@@ -69,7 +89,16 @@ interface WorkflowState {
   setTestResults: (results: any[] | null) => void;
   setSelectedNode: (node: Node | null) => void;
   setQuickAddSource: (source: { nodeId: string; handleId: string | null } | null) => void;
-  
+  setTraceInspectorOpened: (opened: boolean) => void;
+  setTraceMessageID: (id: string) => void;
+  setSampleInspectorOpened: (opened: boolean) => void;
+  setSampleNodeId: (id: string | null) => void;
+  setSchemaRegistryOpened: (opened: boolean) => void;
+  setHistoryOpened: (opened: boolean) => void;
+  setLiveStreamOpened: (opened: boolean) => void;
+  setAIGeneratorOpened: (opened: boolean) => void;
+  setComplianceReportOpened: (opened: boolean) => void;
+
   setDeadLetterSinkID: (id: string) => void;
   setDlqThreshold: (threshold: number) => void;
   setPrioritizeDLQ: (prioritize: boolean) => void;
@@ -79,8 +108,13 @@ interface WorkflowState {
   setDryRun: (dryRun: boolean) => void;
   setIdleTimeout: (timeout: string) => void;
   setTier: (tier: string) => void;
+  setWorkspaceID: (id: string) => void;
   setSchemaType: (type: string) => void;
   setSchema: (schema: string) => void;
+  setTags: (tags: string[]) => void;
+  setCPURequest: (cpu: number) => void;
+  setMemoryRequest: (mem: number) => void;
+  setThroughputRequest: (throughput: number) => void;
 
   updateNodeConfig: (nodeId: string, config: any, replace?: boolean) => void;
 }
@@ -106,6 +140,15 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   testResults: null,
   selectedNode: null,
   quickAddSource: null,
+  traceInspectorOpened: false,
+  traceMessageID: '',
+  sampleInspectorOpened: false,
+  sampleNodeId: null,
+  schemaRegistryOpened: false,
+  historyOpened: false,
+  liveStreamOpened: false,
+  aiGeneratorOpened: false,
+  complianceReportOpened: false,
 
   deadLetterSinkID: '',
   dlqThreshold: 0,
@@ -116,11 +159,21 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   dryRun: false,
   idleTimeout: '',
   tier: 'Hot',
+  workspaceID: '',
   schemaType: '',
   schema: '',
+  tags: [],
+  cpuRequest: 0,
+  memoryRequest: 0,
+  throughputRequest: 0,
 
+  sourceStatus: '',
+  sinkStatuses: {},
   nodeMetrics: {},
+  nodeErrorMetrics: {},
   nodeSamples: {},
+  sinkCBStatuses: {},
+  sinkBufferFill: {},
   workflowDeadLetterCount: 0,
 
   setNodes: (nodes) => set((state) => ({ 
@@ -156,6 +209,15 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   setTestResults: (testResults) => set({ testResults }),
   setSelectedNode: (selectedNode) => set({ selectedNode }),
   setQuickAddSource: (quickAddSource) => set({ quickAddSource }),
+  setTraceInspectorOpened: (traceInspectorOpened) => set({ traceInspectorOpened }),
+  setTraceMessageID: (traceMessageID) => set({ traceMessageID }),
+  setSampleInspectorOpened: (sampleInspectorOpened) => set({ sampleInspectorOpened }),
+  setSampleNodeId: (sampleNodeId) => set({ sampleNodeId }),
+  setSchemaRegistryOpened: (schemaRegistryOpened) => set({ schemaRegistryOpened }),
+  setHistoryOpened: (historyOpened) => set({ historyOpened }),
+  setLiveStreamOpened: (liveStreamOpened) => set({ liveStreamOpened }),
+  setAIGeneratorOpened: (aiGeneratorOpened) => set({ aiGeneratorOpened }),
+  setComplianceReportOpened: (complianceReportOpened) => set({ complianceReportOpened }),
 
   setDeadLetterSinkID: (deadLetterSinkID) => set({ deadLetterSinkID }),
   setDlqThreshold: (dlqThreshold) => set({ dlqThreshold }),
@@ -166,8 +228,13 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   setDryRun: (dryRun) => set({ dryRun }),
   setIdleTimeout: (idleTimeout) => set({ idleTimeout }),
   setTier: (tier) => set({ tier }),
+  setWorkspaceID: (workspaceID) => set({ workspaceID }),
   setSchemaType: (schemaType) => set({ schemaType }),
   setSchema: (schema) => set({ schema }),
+  setTags: (tags) => set({ tags }),
+  setCPURequest: (cpuRequest) => set({ cpuRequest }),
+  setMemoryRequest: (memoryRequest) => set({ memoryRequest }),
+  setThroughputRequest: (throughputRequest) => set({ throughputRequest }),
 
   updateNodeConfig: (nodeId, config, replace = false) => set((state) => {
     const nodes = state.nodes.map((node) => 

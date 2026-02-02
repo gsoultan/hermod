@@ -8,6 +8,8 @@ import (
 type DBConfig struct {
 	Type            string `yaml:"type" json:"type"`
 	Conn            string `yaml:"conn" json:"conn"`
+	LogType         string `yaml:"log_type" json:"log_type"`
+	LogConn         string `yaml:"log_conn" json:"log_conn"`
 	JWTSecret       string `yaml:"jwt_secret" json:"jwt_secret"`
 	CryptoMasterKey string `yaml:"crypto_master_key" json:"crypto_master_key"`
 }

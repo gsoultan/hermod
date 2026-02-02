@@ -10,7 +10,10 @@ export function useStyledFlow() {
   const deadLetterSinkID = useWorkflowStore((state) => state.deadLetterSinkID);
   const prioritizeDLQ = useWorkflowStore((state) => state.prioritizeDLQ);
   const nodeMetrics = useWorkflowStore((state) => state.nodeMetrics);
+  const nodeErrorMetrics = useWorkflowStore((state) => state.nodeErrorMetrics);
   const nodeSamples = useWorkflowStore((state) => state.nodeSamples);
+  const sinkCBStatuses = useWorkflowStore((state) => state.sinkCBStatuses);
+  const sinkBufferFill = useWorkflowStore((state) => state.sinkBufferFill);
   const workflowDeadLetterCount = useWorkflowStore((state) => state.workflowDeadLetterCount);
 
   const dlqNode = useMemo(() => {
@@ -22,19 +25,31 @@ export function useStyledFlow() {
     return nodes.map((node) => {
       const result = testResults?.find((r) => r.node_id === node.id);
       const isDLQ = dlqNode && node.id === dlqNode.id;
+      const metric = nodeMetrics[node.id] || 0;
+      const errorCount = nodeErrorMetrics[node.id] || 0;
+      const errorRate = metric > 0 ? (errorCount / (metric + errorCount)) : 0;
+      
+      const sinkId = node.type === 'sink' ? node.data.ref_id : null;
+      const cbStatus = sinkId ? sinkCBStatuses[sinkId] : null;
+      const bufferFill = sinkId ? sinkBufferFill[sinkId] : 0;
+
       return {
         ...node,
         data: {
           ...node.data,
           testResult: result,
           isDLQ,
-          metric: nodeMetrics[node.id] || 0,
+          metric,
+          errorCount,
+          errorRate,
+          cbStatus,
+          bufferFill,
           sample: nodeSamples[node.id],
           dlqCount: isDLQ ? workflowDeadLetterCount : 0,
         },
       };
     });
-  }, [nodes, testResults, dlqNode, nodeMetrics, nodeSamples, workflowDeadLetterCount]);
+  }, [nodes, testResults, dlqNode, nodeMetrics, nodeErrorMetrics, nodeSamples, workflowDeadLetterCount, sinkCBStatuses, sinkBufferFill]);
 
   const styledEdges = useMemo(() => {
     const baseEdges = edges.map((edge) => {

@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { 
   Container, Title, Button, Group, Table, ActionIcon, Text, Badge, Paper, 
-  Stack, TextInput, Pagination, Tooltip, Modal, JsonInput
+  Stack, TextInput, Pagination, Tooltip, Modal, JsonInput, Select, Menu, Checkbox
 } from '@mantine/core';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   IconPlus, IconTrash, IconEdit, IconSearch, IconGitBranch, IconPlayerPlay, 
-  IconPlayerStop, IconCopy, IconDownload, IconActivity, IconHierarchy
+  IconPlayerStop, IconCopy, IconDownload, IconActivity, IconHierarchy, IconFolder, IconChevronDown
 } from '@tabler/icons-react';
 import { lazy, Suspense } from 'react'
 import { Link } from '@tanstack/react-router';
@@ -25,14 +25,28 @@ export default function WorkflowsPage() {
   const [search, setSearch] = useState('');
   const [activePage, setPage] = useState(1);
   const itemsPerPage = 30;
+  const [selectedWorkspace, setSelectedWorkspace] = useState<string>('all');
+  const [selectedIDs, setSelectedIDs] = useState<string[]>([]);
   const [importOpened, { open: openImport, close: closeImport }] = useDisclosure(false);
   const [templatesOpened, { open: openTemplates, close: closeTemplates }] = useDisclosure(false);
   const [importJson, setImportJson] = useState('');
 
-  const { data: workflowsResponse, isLoading } = useQuery<any>({
-    queryKey: ['workflows', activePage, search, selectedVHost],
+  const { data: workspacesResponse } = useQuery<any>({
+    queryKey: ['workspaces'],
     queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/workflows?page=${activePage}&limit=${itemsPerPage}&search=${search}&vhost=${selectedVHost}`);
+      const res = await apiFetch(`${API_BASE}/workspaces`);
+      return res.json();
+    }
+  });
+
+  const { data: workflowsResponse, isLoading } = useQuery<any>({
+    queryKey: ['workflows', activePage, search, selectedVHost, selectedWorkspace],
+    queryFn: async () => {
+      let url = `${API_BASE}/workflows?page=${activePage}&limit=${itemsPerPage}&search=${search}&vhost=${selectedVHost}`;
+      if (selectedWorkspace !== 'all') {
+        url += `&workspace_id=${selectedWorkspace}`;
+      }
+      const res = await apiFetch(url);
       return res.json();
     }
   });
@@ -48,6 +62,17 @@ export default function WorkflowsPage() {
   const workflows = workflowsResponse?.data || [];
   const totalItems = workflowsResponse?.total || 0;
   const workers = workersResponse?.data || [];
+  const workspaces = workspacesResponse || [];
+
+  const workspaceOptions = [
+    { value: 'all', label: 'All Workspaces' },
+    ...workspaces.map((ws: any) => ({ value: ws.id, label: ws.name }))
+  ];
+
+  const getWorkspaceName = (id: string) => {
+    const ws = workspaces.find((w: any) => w.id === id);
+    return ws ? ws.name : null;
+  };
 
   const getWorkerName = (id: string) => {
     const worker = workers.find((w: any) => w.id === id);
@@ -99,6 +124,34 @@ export default function WorkflowsPage() {
     }
   });
 
+  const batchToggleMutation = useMutation({
+    mutationFn: async ({ ids, active }: { ids: string[], active: boolean }) => {
+      await apiFetch(`${API_BASE}/workflows/batch/toggle`, {
+        method: 'POST',
+        body: JSON.stringify({ ids, active })
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      setSelectedIDs([]);
+      notifications.show({ title: 'Success', message: 'Batch operation completed', color: 'green' });
+    }
+  });
+
+  const batchDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await apiFetch(`${API_BASE}/workflows/batch/delete`, {
+        method: 'POST',
+        body: JSON.stringify({ ids })
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      setSelectedIDs([]);
+      notifications.show({ title: 'Success', message: 'Workflows deleted', color: 'green' });
+    }
+  });
+
   const toggleMutation = useMutation({
     mutationFn: async ({ id }: { id: string; active: boolean }) => {
        await apiFetch(`${API_BASE}/workflows/${id}/toggle`, {
@@ -112,6 +165,8 @@ export default function WorkflowsPage() {
 
   const totalPages = Math.ceil(totalItems / itemsPerPage);
 
+  const allSelected = workflows.length > 0 && selectedIDs.length === workflows.length;
+
   return (
     <Container size="xl">
       <Stack gap="lg">
@@ -121,6 +176,43 @@ export default function WorkflowsPage() {
             <Title order={2}>Workflows</Title>
           </Group>
           <Group>
+            {selectedIDs.length > 0 && (
+              <Menu shadow="md" width={200}>
+                <Menu.Target>
+                  <Button variant="outline" color="blue" rightSection={<IconChevronDown size="1rem" />}>
+                    Batch Actions ({selectedIDs.length})
+                  </Button>
+                </Menu.Target>
+
+                <Menu.Dropdown>
+                  <Menu.Label>Lifecycle</Menu.Label>
+                  <Menu.Item 
+                    leftSection={<IconPlayerPlay size="1rem" />} 
+                    onClick={() => batchToggleMutation.mutate({ ids: selectedIDs, active: true })}
+                  >
+                    Start Selected
+                  </Menu.Item>
+                  <Menu.Item 
+                    leftSection={<IconPlayerStop size="1rem" />}
+                    onClick={() => batchToggleMutation.mutate({ ids: selectedIDs, active: false })}
+                  >
+                    Stop Selected
+                  </Menu.Item>
+                  <Menu.Divider />
+                  <Menu.Item 
+                    color="red" 
+                    leftSection={<IconTrash size="1rem" />}
+                    onClick={() => {
+                      if (confirm(`Delete ${selectedIDs.length} workflows?`)) {
+                        batchDeleteMutation.mutate(selectedIDs);
+                      }
+                    }}
+                  >
+                    Delete Selected
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+            )}
             <Button variant="light" color="indigo" onClick={openTemplates} leftSection={<IconHierarchy size="1rem" />}>
               Sample Library
             </Button>
@@ -168,6 +260,7 @@ export default function WorkflowsPage() {
 
         <Paper p="md" withBorder radius="md">
           <Stack gap="md">
+          <Group grow>
             <TextInput 
               placeholder="Search workflows..." 
               leftSection={<IconSearch size="1rem" />} 
@@ -177,11 +270,36 @@ export default function WorkflowsPage() {
                 setPage(1);
               }}
             />
+            <Select
+              placeholder="Workspace"
+              data={workspaceOptions}
+              value={selectedWorkspace}
+              onChange={(val) => {
+                setSelectedWorkspace(val || 'all');
+                setPage(1);
+              }}
+              leftSection={<IconFolder size="1rem" />}
+            />
+          </Group>
 
             <Table verticalSpacing="sm">
               <Table.Thead>
                 <Table.Tr>
+                  <Table.Th style={{ width: 40 }}>
+                    <Checkbox 
+                      checked={allSelected}
+                      indeterminate={selectedIDs.length > 0 && !allSelected}
+                      onChange={(e) => {
+                        if (e.currentTarget.checked) {
+                          setSelectedIDs(workflows.map((wf: any) => wf.id));
+                        } else {
+                          setSelectedIDs([]);
+                        }
+                      }}
+                    />
+                  </Table.Th>
                   <Table.Th>Name</Table.Th>
+                  <Table.Th>Workspace</Table.Th>
                   <Table.Th>Virtual Host</Table.Th>
                   <Table.Th>Worker</Table.Th>
                   <Table.Th>Status</Table.Th>
@@ -196,11 +314,32 @@ export default function WorkflowsPage() {
                 ) : workflows?.length === 0 ? (
                   <Table.Tr><Table.Td colSpan={7}><Text ta="center" py="xl" c="dimmed">{search ? 'No workflows match your search' : 'No workflows found'}</Text></Table.Td></Table.Tr>
                 ) : (Array.isArray(workflows) ? workflows : []).map((wf: any) => (
-                  <Table.Tr key={wf.id}>
+                  <Table.Tr key={wf.id} bg={selectedIDs.includes(wf.id) ? 'var(--mantine-color-blue-light)' : undefined}>
+                    <Table.Td>
+                      <Checkbox 
+                        checked={selectedIDs.includes(wf.id)}
+                        onChange={(e) => {
+                          if (e.currentTarget.checked) {
+                            setSelectedIDs([...selectedIDs, wf.id]);
+                          } else {
+                            setSelectedIDs(selectedIDs.filter(id => id !== wf.id));
+                          }
+                        }}
+                      />
+                    </Table.Td>
                     <Table.Td>
                       <Link to="/workflows/$id" params={{ id: wf.id } as any} style={{ textDecoration: 'none', color: 'inherit' }}>
                         <Text fw={600} style={{ cursor: 'pointer' }}>{wf.name}</Text>
                       </Link>
+                    </Table.Td>
+                    <Table.Td>
+                      {wf.workspace_id ? (
+                        <Badge variant="light" color="blue" leftSection={<IconFolder size="0.7rem" />}>
+                          {getWorkspaceName(wf.workspace_id) || wf.workspace_id}
+                        </Badge>
+                      ) : (
+                        <Text size="xs" c="dimmed">Default</Text>
+                      )}
                     </Table.Td>
                     <Table.Td>
                       <Badge variant="dot" color="indigo">{wf.vhost || 'default'}</Badge>

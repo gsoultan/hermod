@@ -5,6 +5,11 @@
 - **Consistency**: Follow existing patterns and naming conventions in the project.
 - **Small Commits**: Aim for small, logical changes that are easy to review.
 - **Avoid Bloat**: Keep implementations lean—avoid unnecessary abstractions, layers, and dependencies. Remove dead/unused code and prefer small, focused modules.
+- **Clean Code Patterns**:
+    - **Avoid Deep Nesting**: Use guard clauses and early returns to handle edge cases and errors first. This keeps the "happy path" at the lowest indentation level and improves readability.
+    - **Minimize Cyclomatic Complexity**: Keep functions small and focused. If a block of code has too many branches or nested loops, refactor it into smaller, named functions.
+    - **Descriptive Naming**: Use clear, intention-revealing names for variables, functions, and types. Avoid cryptic abbreviations.
+    - **Avoid Magic Values**: Use named constants instead of literal numbers or strings (magic values) to improve maintainability and clarity.
 
 #### Go Specific Guidelines
 - **Standard Formatting**: Always use `gofmt` or `goimports` to format Go code.
@@ -83,6 +88,12 @@
 - **DRY (Don't Repeat Yourself)**: Consolidate duplicated logic. Extract shared helpers with clear ownership and avoid copy-paste across packages.
 - **Robustness and Error Handling**: Validate inputs; fail fast with clear messages; wrap errors with context using `%w`; avoid panics in library code; prefer sentinel errors or `errors.Is/As`; implement timeouts, cancellation via `context.Context`, and retries with backoff when appropriate.
 - **Security Best Practices**: Do not log secrets or PII; use parameterized queries for all SQL; validate and sanitize external inputs; use least-privilege credentials; enable TLS/secure defaults; keep dependencies updated and pinned.
+- **SQL Management & Portability**:
+    - Separate SQL queries from Go logic by moving them to a dedicated `queries.go` file within the same package.
+    - Use a `queryRegistry` or similar pattern to manage common queries and driver-specific overrides.
+    - Ensure all queries are compatible with supported database providers (SQLite, MySQL, Postgres, SQL Server).
+    - Use driver-neutral placeholders (e.g., `?`) and implement a translation layer if the driver requires specific formatting (e.g., `$1` for Postgres).
+    - When modifying tables, ensure migrations are handled correctly and tested for idempotency (e.g., using `IF NOT EXISTS` or checking for existing columns).
 - **Refactoring and Small Functions**: Keep functions small and focused (aim for one screenful or less). Extract pure helpers to reduce complexity and improve testability. Refactor incrementally with tests.
 - **Readable and Consistent Code**: Follow existing naming and package structure. Run `gofmt`/`goimports`. Keep cyclomatic complexity low. Prefer explicitness over cleverness.
 - **Documentation and Comments**: Write Go doc comments for exported symbols and packages; explain the "why" behind non-obvious decisions; include examples for important public APIs.

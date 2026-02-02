@@ -1,10 +1,12 @@
-import { AppShell, Burger, Group, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea, Badge, ActionIcon, useMantineColorScheme } from '@mantine/core';
+import { AppShell, Burger, Group, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea, Badge, ActionIcon, useMantineColorScheme, Kbd } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconDashboard, IconSettings, IconList, IconActivity, IconUsers, IconLogout, IconWorld, IconHierarchy, IconRocket, IconServer, IconChevronLeft, IconChevronRight, IconHistory, IconBell, IconSun, IconMoon, IconGitBranch } from '@tabler/icons-react';
+import { IconDashboard, IconSettings, IconList, IconActivity, IconUsers, IconLogout, IconWorld, IconHierarchy, IconRocket, IconServer, IconChevronLeft, IconChevronRight, IconHistory, IconSun, IconMoon, IconGitBranch, IconSearch, IconPlus, IconDatabase, IconCloudUpload, IconBraces, IconGitMerge, IconShieldLock, IconPuzzle } from '@tabler/icons-react';
 import React, { useEffect } from 'react';
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router';
 import { useVHost } from '../context/VHostContext';
 import { apiFetch, getRoleFromToken } from '../api';
+import { Spotlight, spotlight } from '@mantine/spotlight';
+import '@mantine/spotlight/styles.css';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -22,14 +24,20 @@ export function Layout({ children }: LayoutProps) {
   const dark = colorScheme === 'dark';
 
   const [dashboardStats, setDashboardStats] = React.useState<any>(null);
+  const [workflows, setWorkflows] = React.useState<any[]>([]);
 
   useEffect(() => {
-    // Initial fetch for dashboard stats
+    // Initial fetch for dashboard stats and workflows for spotlight
     if (activePage !== '/login' && activePage !== '/setup' && activePage !== '/forgot-password') {
       apiFetch('/api/dashboard/stats')
         .then(res => res.json())
         .then(data => setDashboardStats(data))
         .catch(err => console.error('Failed to fetch initial stats in layout', err));
+      
+      apiFetch('/api/workflows')
+        .then(res => res.json())
+        .then(data => setWorkflows(data.data || []))
+        .catch(err => console.error('Failed to fetch workflows for spotlight', err));
     }
   }, [activePage]);
 
@@ -150,7 +158,120 @@ export function Layout({ children }: LayoutProps) {
     ...availableVHosts.map((v: string) => ({ value: v, label: v }))
   ];
 
+  const spotlightActions = [
+    {
+      id: 'dashboard',
+      label: 'Dashboard',
+      description: 'Go to overview dashboard',
+      onClick: () => navigate({ to: '/' }),
+      leftSection: <IconDashboard size="1.2rem" />,
+    },
+    {
+      id: 'workflows',
+      label: 'Workflows',
+      description: 'Manage data pipelines',
+      onClick: () => navigate({ to: '/workflows' }),
+      leftSection: <IconGitBranch size="1.2rem" />,
+    },
+    ...workflows.slice(0, 10).map(wf => ({
+      id: `wf-${wf.id}`,
+      label: `Workflow: ${wf.name}`,
+      description: `VHost: ${wf.vhost} | Status: ${wf.active ? 'Active' : 'Inactive'}`,
+      onClick: () => navigate({ to: `/workflows/$id`, params: { id: wf.id } as any }),
+      leftSection: <IconGitBranch size="1.2rem" color={wf.active ? 'var(--mantine-color-green-6)' : 'var(--mantine-color-gray-6)'} />,
+    })),
+    {
+      id: 'create-workflow',
+      label: 'Create Workflow',
+      description: 'Create a new data pipeline',
+      onClick: () => navigate({ to: '/workflows/new' }),
+      leftSection: <IconPlus size="1.2rem" />,
+    },
+    {
+      id: 'sources',
+      label: 'Sources',
+      description: 'Manage data sources',
+      onClick: () => navigate({ to: '/sources' }),
+      leftSection: <IconDatabase size="1.2rem" />,
+    },
+    {
+      id: 'sinks',
+      label: 'Sinks',
+      description: 'Manage data destinations',
+      onClick: () => navigate({ to: '/sinks' }),
+      leftSection: <IconCloudUpload size="1.2rem" />,
+    },
+    {
+      id: 'logs',
+      label: 'Logs',
+      description: 'View system logs',
+      onClick: () => navigate({ to: '/logs' }),
+      leftSection: <IconList size="1.2rem" />,
+    },
+    {
+      id: 'schemas',
+      label: 'Schemas',
+      description: 'Manage data contracts',
+      onClick: () => navigate({ to: '/schemas' }),
+      leftSection: <IconBraces size="1.2rem" />,
+    },
+    {
+      id: 'lineage',
+      label: 'Data Lineage',
+      description: 'Global data flow visualization',
+      onClick: () => navigate({ to: '/lineage' }),
+      leftSection: <IconGitMerge size="1.2rem" />,
+    },
+    {
+      id: 'compliance',
+      label: 'Compliance',
+      description: 'Security and governance reports',
+      onClick: () => navigate({ to: '/compliance' }),
+      leftSection: <IconShieldLock size="1.2rem" />,
+    },
+    {
+      id: 'marketplace',
+      label: 'Marketplace',
+      description: 'Install community plugins',
+      onClick: () => navigate({ to: '/marketplace' }),
+      leftSection: <IconPuzzle size="1.2rem" />,
+    },
+    {
+      id: 'health',
+      label: 'Mesh Health',
+      description: 'Global cluster status',
+      onClick: () => navigate({ to: '/health' }),
+      leftSection: <IconActivity size="1.2rem" />,
+    },
+    {
+      id: 'settings',
+      label: 'Settings',
+        description: 'System configuration',
+        onClick: () => navigate({ to: '/settings' }),
+        leftSection: <IconSettings size="1.2rem" />,
+    },
+    {
+      id: 'toggle-theme',
+      label: 'Toggle Theme',
+      description: `Switch to ${dark ? 'light' : 'dark'} mode`,
+      onClick: () => toggleColorScheme(),
+      leftSection: dark ? <IconSun size="1.2rem" /> : <IconMoon size="1.2rem" />,
+    }
+  ];
+
   return (
+    <>
+    <Spotlight
+      actions={spotlightActions}
+      shortcut={['mod + K', '/']}
+      nothingFound="Nothing found..."
+      highlightQuery
+      searchProps={{
+        leftSection: <IconSearch size="1.2rem" stroke={1.5} />,
+        placeholder: 'Search for pages, workflows, sources...',
+      }}
+      limit={7}
+    />
     <AppShell
       header={{ height: 60 }}
       navbar={{
@@ -171,6 +292,18 @@ export function Layout({ children }: LayoutProps) {
           </Group>
 
           <Group gap="sm">
+            <Button
+              variant="default"
+              size="xs"
+              leftSection={<IconSearch size="1rem" stroke={1.5} />}
+              rightSection={<Kbd size="xs" ml={10}>Ctrl+K</Kbd>}
+              onClick={spotlight.open}
+              color="gray"
+              visibleFrom="md"
+              style={{ fontWeight: 400, color: 'var(--mantine-color-dimmed)' }}
+            >
+              Search...
+            </Button>
             <Select
               placeholder="Select VHost"
               data={vhostOptions}
@@ -215,7 +348,10 @@ export function Layout({ children }: LayoutProps) {
               </Box>
             )}
             
-            <SideLink to="/" label="Dashboard" icon={IconDashboard} />
+            <SideLink to="/" label="Dashboard" icon={IconDashboard}>
+              <SideLink to="/" label="Overview" icon={IconActivity} />
+              <SideLink to="/compliance" label="Compliance" icon={IconShieldLock} />
+            </SideLink>
             <SideLink to="/sources" label="Sources" icon={IconList} 
               badge={dashboardStats?.active_sources > 0 && <Badge size="xs" variant="filled" color="indigo">{dashboardStats.active_sources}</Badge>} 
             />
@@ -224,6 +360,10 @@ export function Layout({ children }: LayoutProps) {
             />
             <SideLink to="/workflows" label="Workflows" icon={IconGitBranch} />
             <SideLink to="/logs" label="Logs" icon={IconHistory} />
+            <SideLink to="/schemas" label="Schema Registry" icon={IconBraces} />
+            <SideLink to="/lineage" label="Data Lineage" icon={IconGitMerge} />
+            <SideLink to="/marketplace" label="Marketplace" icon={IconPuzzle} />
+            <SideLink to="/health" label="Mesh Health" icon={IconActivity} />
             
             {isAdmin && (
               <>
@@ -246,11 +386,8 @@ export function Layout({ children }: LayoutProps) {
                   </Box>
                 )}
                 
-                <SideLink to="/settings" label="Settings" icon={IconSettings}>
-                  <SideLink to="/settings/notifications" label="Notifications" icon={IconBell} />
-                </SideLink>
+                <SideLink to="/settings" label="Settings" icon={IconSettings} />
                 <SideLink to="/audit-logs" label="Audit Logs" icon={IconHistory} />
-                <SideLink to="/setup" label="Run Setup" icon={IconRocket} />
               </>
             )}
           </Stack>
@@ -306,5 +443,6 @@ export function Layout({ children }: LayoutProps) {
         </Box>
       </AppShell.Main>
     </AppShell>
+    </>
   );
 }

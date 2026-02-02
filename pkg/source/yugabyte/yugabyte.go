@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,17 +18,28 @@ import (
 // YugabyteSource implements the hermod.Source interface for YugabyteDB.
 // Since YugabyteDB is PostgreSQL-compatible, it uses pgx.
 type YugabyteSource struct {
-	connString string
-	useCDC     bool
-	conn       *pgx.Conn
-	mu         sync.Mutex
-	logger     hermod.Logger
+	connString   string
+	useCDC       bool
+	tables       []string
+	idField      string
+	pollInterval time.Duration
+	conn         *pgx.Conn
+	mu           sync.Mutex
+	logger       hermod.Logger
+	lastIDs      map[string]interface{}
 }
 
-func NewYugabyteSource(connString string, useCDC bool) *YugabyteSource {
+func NewYugabyteSource(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *YugabyteSource {
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second
+	}
 	return &YugabyteSource{
-		connString: connString,
-		useCDC:     useCDC,
+		connString:   connString,
+		tables:       tables,
+		idField:      idField,
+		pollInterval: pollInterval,
+		useCDC:       useCDC,
+		lastIDs:      make(map[string]interface{}),
 	}
 }
 
@@ -84,13 +96,107 @@ func (y *YugabyteSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, err
 	}
 
-	// Yugabyte CDC often uses a dedicated CDC service, but PG-compatible replication
-	// might also be available. For a baseline, we use blocking/polling.
-	select {
-	case <-ctx.Done():
+	if !y.useCDC {
+		<-ctx.Done()
 		return nil, ctx.Err()
-	case <-time.After(5 * time.Second):
-		return nil, nil
+	}
+
+	for {
+		for _, table := range y.tables {
+			y.mu.Lock()
+			lastID := y.lastIDs[table]
+			y.mu.Unlock()
+
+			quotedTable, err := sqlutil.QuoteIdent("pgx", table)
+			if err != nil {
+				return nil, err
+			}
+
+			var query string
+			var args []interface{}
+
+			if lastID != nil && y.idField != "" {
+				quotedID, _ := sqlutil.QuoteIdent("pgx", y.idField)
+				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > $1 ORDER BY %s ASC LIMIT 1", quotedTable, quotedID, quotedID)
+				args = append(args, lastID)
+			} else {
+				query = fmt.Sprintf("SELECT * FROM %s LIMIT 1", quotedTable)
+			}
+
+			rows, err := y.conn.Query(ctx, query, args...)
+			if err != nil {
+				return nil, fmt.Errorf("yugabyte poll error: %w", err)
+			}
+
+			if rows.Next() {
+				fields := rows.FieldDescriptions()
+				values, err := rows.Values()
+				if err != nil {
+					rows.Close()
+					return nil, err
+				}
+				rows.Close()
+
+				record := make(map[string]interface{})
+				var currentID interface{}
+				for i, field := range fields {
+					val := values[i]
+					if b, ok := val.([]byte); ok {
+						val = string(b)
+					}
+					record[field.Name] = val
+					if field.Name == y.idField {
+						currentID = val
+					}
+				}
+
+				if currentID != nil {
+					y.mu.Lock()
+					y.lastIDs[table] = currentID
+					y.mu.Unlock()
+				}
+
+				afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+				msg := message.AcquireMessage()
+				msg.SetID(fmt.Sprintf("yugabyte-%s-%v", table, currentID))
+				msg.SetOperation(hermod.OpCreate)
+				msg.SetTable(table)
+				msg.SetAfter(afterJSON)
+				msg.SetMetadata("source", "yugabyte")
+
+				return msg, nil
+			}
+			rows.Close()
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(y.pollInterval):
+		}
+	}
+}
+
+func (y *YugabyteSource) GetState() map[string]string {
+	y.mu.Lock()
+	defer y.mu.Unlock()
+
+	state := make(map[string]string)
+	for table, id := range y.lastIDs {
+		state["last_id:"+table] = fmt.Sprintf("%v", id)
+	}
+	return state
+}
+
+func (y *YugabyteSource) SetState(state map[string]string) {
+	y.mu.Lock()
+	defer y.mu.Unlock()
+
+	for k, v := range state {
+		if strings.HasPrefix(k, "last_id:") {
+			table := strings.TrimPrefix(k, "last_id:")
+			y.lastIDs[table] = v
+		}
 	}
 }
 

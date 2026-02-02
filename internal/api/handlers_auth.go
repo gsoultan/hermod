@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gsoultan/gsmail"
@@ -16,21 +18,24 @@ import (
 	"github.com/user/hermod/internal/notification"
 	"github.com/user/hermod/internal/storage"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
 )
 
 func (s *Server) registerAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/login", s.login)
+	mux.HandleFunc("GET /api/auth/oidc", s.oidcLogin)
+	mux.HandleFunc("GET /api/auth/callback", s.oidcCallback)
 	mux.HandleFunc("POST /api/forgot-password", s.forgotPassword)
-	mux.HandleFunc("GET /api/users", s.listUsers)
-	mux.HandleFunc("GET /api/users/{id}", s.getUser)
-	mux.HandleFunc("POST /api/users", s.createUser)
-	mux.HandleFunc("PUT /api/users/{id}", s.updateUser)
+	mux.Handle("GET /api/users", s.adminOnly(s.listUsers))
+	mux.Handle("GET /api/users/{id}", s.adminOnly(s.getUser))
+	mux.Handle("POST /api/users", s.adminOnly(s.createUser))
+	mux.Handle("PUT /api/users/{id}", s.adminOnly(s.updateUser))
 	mux.HandleFunc("PUT /api/users/{id}/password", s.changeUserPassword)
-	mux.HandleFunc("DELETE /api/users/{id}", s.deleteUser)
+	mux.Handle("DELETE /api/users/{id}", s.adminOnly(s.deleteUser))
 	mux.HandleFunc("GET /api/vhosts", s.listVHosts)
 	mux.HandleFunc("GET /api/vhosts/{id}", s.getVHost)
-	mux.HandleFunc("POST /api/vhosts", s.createVHost)
-	mux.HandleFunc("DELETE /api/vhosts/{id}", s.deleteVHost)
+	mux.Handle("POST /api/vhosts", s.adminOnly(s.createVHost))
+	mux.Handle("DELETE /api/vhosts/{id}", s.adminOnly(s.deleteVHost))
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +106,143 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"token": tokenString,
 	})
+}
+
+func (s *Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
+	if s.config == nil || !s.config.Auth.OIDC.Enabled {
+		http.Error(w, "OIDC is not enabled", http.StatusForbidden)
+		return
+	}
+
+	ctx := r.Context()
+	provider, err := oidc.NewProvider(ctx, s.config.Auth.OIDC.IssuerURL)
+	if err != nil {
+		http.Error(w, "Failed to get provider: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	scopes := s.config.Auth.OIDC.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{oidc.ScopeOpenID, "profile", "email"}
+	}
+
+	oauth2Config := oauth2.Config{
+		ClientID:     s.config.Auth.OIDC.ClientID,
+		ClientSecret: s.config.Auth.OIDC.ClientSecret,
+		RedirectURL:  s.config.Auth.OIDC.RedirectURL,
+		Endpoint:     provider.Endpoint(),
+		Scopes:       scopes,
+	}
+
+	state, _ := s.generateRandomPassword(16)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oidc_state",
+		Value:    state,
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   300,
+	})
+
+	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
+}
+
+func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
+	if s.config == nil || !s.config.Auth.OIDC.Enabled {
+		http.Error(w, "OIDC is not enabled", http.StatusForbidden)
+		return
+	}
+
+	ctx := r.Context()
+	stateCookie, err := r.Cookie("oidc_state")
+	if err != nil || r.URL.Query().Get("state") != stateCookie.Value {
+		http.Error(w, "Invalid state", http.StatusBadRequest)
+		return
+	}
+
+	provider, err := oidc.NewProvider(ctx, s.config.Auth.OIDC.IssuerURL)
+	if err != nil {
+		http.Error(w, "Failed to get provider: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	oauth2Config := oauth2.Config{
+		ClientID:     s.config.Auth.OIDC.ClientID,
+		ClientSecret: s.config.Auth.OIDC.ClientSecret,
+		RedirectURL:  s.config.Auth.OIDC.RedirectURL,
+		Endpoint:     provider.Endpoint(),
+	}
+
+	oauth2Token, err := oauth2Config.Exchange(ctx, r.URL.Query().Get("code"))
+	if err != nil {
+		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
+		return
+	}
+
+	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
+	if !ok {
+		http.Error(w, "No id_token", http.StatusInternalServerError)
+		return
+	}
+
+	verifier := provider.Verifier(&oidc.Config{ClientID: os.Getenv("OIDC_CLIENT_ID")})
+	idToken, err := verifier.Verify(ctx, rawIDToken)
+	if err != nil {
+		http.Error(w, "Failed to verify ID token", http.StatusInternalServerError)
+		return
+	}
+
+	var claims struct {
+		Email    string `json:"email"`
+		Username string `json:"preferred_username"`
+		Name     string `json:"name"`
+	}
+	if err := idToken.Claims(&claims); err != nil {
+		http.Error(w, "Failed to parse claims", http.StatusInternalServerError)
+		return
+	}
+
+	// Find or create user
+	var user storage.User
+	var uErr error
+	user, uErr = s.storage.GetUserByEmail(ctx, claims.Email)
+	if uErr != nil {
+		// Auto-provision user
+		user = storage.User{
+			ID:       uuid.New().String(),
+			Username: claims.Username,
+			FullName: claims.Name,
+			Email:    claims.Email,
+			Role:     storage.RoleViewer, // Default role
+		}
+		if user.Username == "" {
+			user.Username = claims.Email
+		}
+		_ = s.storage.CreateUser(ctx, user)
+	}
+
+	// Generate Hermod JWT and set cookie
+	dbCfg, _ := config.LoadDBConfig()
+	claimsMap := jwt.MapClaims{
+		"id":       user.ID,
+		"username": user.Username,
+		"role":     string(user.Role),
+		"exp":      time.Now().Add(time.Hour * 24).Unix(),
+	}
+	if len(user.VHosts) > 0 {
+		claimsMap["vhosts"] = user.VHosts
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claimsMap)
+	tokenString, _ := token.SignedString([]byte(dbCfg.JWTSecret))
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "hermod_session",
+		Value:    tokenString,
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   86400,
+	})
+
+	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {

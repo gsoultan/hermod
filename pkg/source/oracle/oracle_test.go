@@ -7,7 +7,7 @@ import (
 )
 
 func TestOracleSource_Ping(t *testing.T) {
-	s := NewOracleSource("oracle://user:pass@localhost:1521/xe", false)
+	s := NewOracleSource("oracle://user:pass@localhost:1521/xe", []string{"table1"}, "id", 1*time.Second, false)
 	defer s.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

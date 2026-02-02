@@ -48,11 +48,11 @@ func (s *SQLiteSink) Write(ctx context.Context, msg hermod.Message) error {
 
 	switch op {
 	case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
-		query := fmt.Sprintf("INSERT OR REPLACE INTO %s (id, data) VALUES (?, ?)", table)
+		query := fmt.Sprintf(commonQueries[QueryUpsert], table)
 		_, err := s.db.ExecContext(ctx, query, msg.ID(), msg.Payload())
 		return err
 	case hermod.OpDelete:
-		query := fmt.Sprintf("DELETE FROM %s WHERE id = ?", table)
+		query := fmt.Sprintf(commonQueries[QueryDelete], table)
 		_, err := s.db.ExecContext(ctx, query, msg.ID())
 		return err
 	default:
@@ -101,7 +101,7 @@ func (s *SQLiteSink) DiscoverTables(ctx context.Context) ([]string, error) {
 		}
 	}
 
-	rows, err := s.db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+	rows, err := s.db.QueryContext(ctx, commonQueries[QueryListTables])
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +140,7 @@ func (s *SQLiteSink) Browse(ctx context.Context, table string, limit int) ([]her
 	if err != nil {
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
-	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d", quoted, limit)
+	query := fmt.Sprintf(commonQueries[QueryBrowse], quoted, limit)
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err

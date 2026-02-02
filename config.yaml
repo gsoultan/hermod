@@ -1,7 +1,50 @@
 engine:
-  max_retries: 3
-  retry_interval: 1s
-
+    max_retries: 3
+    retry_interval: 1s
+    reconnect_interval: 5s
 buffer:
-  type: ring_buffer
-  size: 1024
+    type: ring_buffer
+    size: 1024
+    path: ""
+    compression: zstd
+secrets:
+    type: env
+    vault:
+        address: ""
+        token: ""
+        mount: ""
+    openbao:
+        address: ""
+        token: ""
+        mount: ""
+    aws:
+        region: ""
+    azure:
+        vault_url: ""
+    env:
+        prefix: HERMOD_
+state_store:
+    type: sqlite
+    path: hermod_state.db
+    address: ""
+    password: ""
+    db: 0
+    prefix: 'hermod:'
+observability:
+    otlp:
+        endpoint: ""
+        protocol: grpc
+        insecure: true
+        headers: {}
+        service_name: hermod
+auth:
+    oidc:
+        enabled: false
+        issuer_url: ""
+        client_id: ""
+        client_secret: ""
+        redirect_url: http://localhost:4000/api/auth/callback
+        scopes:
+            - openid
+            - profile
+            - email

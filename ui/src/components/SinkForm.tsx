@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Button, Group, TextInput, Select, Stack, Alert, Divider, Text, Grid, Title, Code, List, ActionIcon, Modal, Card, ScrollArea, Badge, Autocomplete, Box, Switch } from '@mantine/core';
-import { IconCheck, IconAlertCircle, IconInfoCircle, IconSettings, IconBraces, IconRefresh, IconDatabase, IconList, IconCode, IconPlus } from '@tabler/icons-react';
+import { Button, Group, TextInput, Select, Stack, Alert, Divider, Text, Grid, Title, Code, List, ActionIcon, Modal, Card, ScrollArea, Badge, Autocomplete, Box, Switch, Textarea } from '@mantine/core';
+import { IconCheck, IconAlertCircle, IconInfoCircle, IconSettings, IconBraces, IconRefresh, IconDatabase, IconList, IconCode, IconPlus, IconPuzzle } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { useForm, useStore } from '@tanstack/react-form';
@@ -15,14 +15,21 @@ import { FTPSinkConfig } from './Sink/FTPSinkConfig';
 import { GoogleSheetsSinkConfig } from './Sink/GoogleSheetsSinkConfig';
 import { SMTPSinkConfig } from './Sink/SMTPSinkConfig';
 import { ElasticsearchSinkConfig } from './Sink/ElasticsearchSinkConfig';
+import { SnowflakeSinkConfig } from './Sink/SnowflakeSinkConfig'
+import { SalesforceSinkConfig } from './Sink/SalesforceSinkConfig'
+import { ServiceNowSinkConfig } from './Sink/ServiceNowSinkConfig'
+import { PineconeSinkConfig } from './Sink/PineconeSinkConfig'
+import { MilvusSinkConfig } from './Sink/MilvusSinkConfig'
+import { PgvectorSinkConfig } from './Sink/PgvectorSinkConfig'
 import { FailoverSinkConfig } from './Sink/FailoverSinkConfig';
+import { SapSinkConfig } from './Sink/SapSinkConfig';
 import { FieldExplorer } from './Transformation/FieldExplorer';
 
 const API_BASE = '/api';
 
 const SINK_TYPES = [
   'nats', 'rabbitmq', 'rabbitmq_queue', 'redis', 'file', 'kafka', 'pulsar', 'kinesis', 'pubsub', 's3', 's3-parquet', 'fcm', 'smtp', 'telegram', 'http', 'stdout',
-  'postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'yugabyte', 'cassandra', 'sqlite', 'clickhouse', 'mongodb', 'elasticsearch', 'googlesheets', 'ftp', 'failover', 'eventstore'
+  'postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'yugabyte', 'cassandra', 'sqlite', 'clickhouse', 'mongodb', 'elasticsearch', 'googlesheets', 'ftp', 'failover', 'eventstore', 'pgvector', 'snowflake', 'pinecone', 'milvus', 'salesforce', 'sap', 'wasm'
 ];
 
 
@@ -56,6 +63,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
       type: initialData?.type || 'stdout', 
       vhost: (embedded ? vhost : (initialData?.vhost || vhost)) || '', 
       worker_id: (embedded ? workerID : (initialData?.worker_id || workerID)) || '',
+      active: initialData?.active ?? true,
       config: { 
         format: 'json', 
         max_retries: '3', 
@@ -523,6 +531,24 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
             discoverTables={discoverTables}
           />
         );
+      case 'pgvector':
+        return (
+          <PgvectorSinkConfig
+            config={config}
+            tables={tables}
+            discoveredDatabases={discoveredDatabases}
+            isFetchingDBs={isFetchingDBs}
+            loadingTables={loadingTables}
+            tablesError={tablesError}
+            updateConfig={updateConfig}
+            fetchDatabases={fetchDatabases}
+            discoverTables={discoverTables}
+          />
+        );
+      case 'pinecone':
+        return <PineconeSinkConfig config={config} updateConfig={updateConfig} />;
+      case 'milvus':
+        return <MilvusSinkConfig config={config} updateConfig={updateConfig} />;
       case 'mysql':
       case 'mariadb':
       case 'mssql':
@@ -753,6 +779,42 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
             discoverIndices={discoverTables}
           />
         );
+      case 'snowflake':
+        return <SnowflakeSinkConfig form={form} />;
+      case 'sap':
+        return <SapSinkConfig config={config} updateConfig={updateConfig} />;
+      case 'wasm':
+        return (
+          <Stack gap="sm">
+             {initialData?.pluginID && (
+                <Alert icon={<IconPuzzle size="1rem" />} color="indigo">
+                  <Text size="sm" fw={700}>Marketplace Plugin: {initialData?.label}</Text>
+                  <Text size="xs">Using installed WASM binary for plugin <code>{initialData.pluginID}</code>.</Text>
+                </Alert>
+             )}
+             <TextInput
+                label="WASM Function Name"
+                placeholder="sink"
+                value={config.function || 'sink'}
+                onChange={(e) => updateConfig('function', e.target.value)}
+              />
+              {!initialData?.pluginID && (
+                <Textarea
+                  label="WASM Binary (Base64 or URL)"
+                  placeholder="AGFzbQEAAAAB..."
+                  value={config.wasmBytes || ''}
+                  onChange={(e) => updateConfig('wasmBytes', e.target.value)}
+                  minRows={10}
+                  autosize
+                  styles={{ input: { fontFamily: 'monospace' } }}
+                />
+              )}
+          </Stack>
+        );
+      case 'salesforce':
+        return <SalesforceSinkConfig form={form} />;
+      case 'servicenow':
+        return <ServiceNowSinkConfig config={config} updateConfig={updateConfig} />;
       case 'stdout':
       default:
         return <Text size="sm" c="dimmed">No additional configuration required for stdout.</Text>;
@@ -819,6 +881,75 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
               <List.Item>Addresses should be a comma-separated list of nodes</List.Item>
               <List.Item>Index name supports Go templates (e.g. <Code>logs-{"{{.table}}"}</Code>)</List.Item>
               <List.Item>Supports Basic Auth or API Key authentication</List.Item>
+            </List>
+          </Stack>
+        );
+      case 'sap':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>SAP Sink</Title>
+            <Text size="sm">Integrate with SAP S/4HANA or ECC via OData, BAPI, IDOC, or RFC.</Text>
+            <List size="sm" withPadding>
+              <List.Item>OData is the preferred protocol for modern SAP integration.</List.Item>
+              <List.Item>BAPI and IDOC protocols usually require an OData/REST wrapper for cloud connectivity.</List.Item>
+              <List.Item>Ensure the SAP user has the necessary authorizations (S_SERVICE, etc.).</List.Item>
+            </List>
+          </Stack>
+        );
+      case 'snowflake':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>Snowflake Sink</Title>
+            <Text size="sm">Loads data into Snowflake tables.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Uses the Snowflake Go driver</List.Item>
+              <List.Item>Supports UPSERT via <Code>MERGE</Code> statement</List.Item>
+              <List.Item>Ensure the role has sufficient privileges on the target schema and warehouse</List.Item>
+            </List>
+          </Stack>
+        );
+      case 'wasm':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>WASM Sink</Title>
+            <Text size="sm">Runs a WebAssembly module as a sink.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Hermod passes the message JSON to the WASM module via stdin.</List.Item>
+              <List.Item>The module should perform its side effects (e.g., API call) and exit.</List.Item>
+              <List.Item>If the module outputs JSON to stdout, it can be used for tracing.</List.Item>
+            </List>
+          </Stack>
+        );
+      case 'pgvector':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>Pgvector Sink</Title>
+            <Text size="sm">Stores vector embeddings in PostgreSQL using pgvector.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Requires the <Code>pgvector</Code> extension enabled on the database</List.Item>
+              <List.Item>Automatically handles vector insertion and metadata storage</List.Item>
+            </List>
+          </Stack>
+        );
+      case 'pinecone':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>Pinecone Sink</Title>
+            <Text size="sm">Upserts vector embeddings into Pinecone.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Serverless and pod-based indexes supported</List.Item>
+              <List.Item>Provide your API Key and Environment</List.Item>
+            </List>
+          </Stack>
+        );
+      case 'milvus':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>Milvus Sink</Title>
+            <Text size="sm">Inserts vector embeddings into Milvus collections.</Text>
+            <List size="sm" withPadding>
+              <List.Item>High-performance vector storage and retrieval</List.Item>
+              <List.Item>Supports custom partition names and authentication</List.Item>
             </List>
           </Stack>
         );

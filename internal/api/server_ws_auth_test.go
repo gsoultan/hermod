@@ -8,7 +8,7 @@ import (
 
 // Verifies that websocket endpoints are not publicly accessible without auth.
 func TestWebsocket_Unauthorized_Without_Token(t *testing.T) {
-	s := NewServer(nil, &fakeStorage{})
+	s := NewServer(nil, &fakeStorage{}, nil, nil)
 	h := s.Routes()
 
 	// Attempt to access WS status without Authorization

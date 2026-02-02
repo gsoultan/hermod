@@ -14,7 +14,7 @@ import (
 )
 
 type mockStorage struct {
-	storage.Storage
+	BaseMockStorage
 }
 
 func (m *mockStorage) GetTransformation(ctx context.Context, id string) (storage.Transformation, error) {
@@ -47,6 +47,10 @@ func (m *mockStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) e
 
 func (m *mockStorage) CreateLog(ctx context.Context, log storage.Log) error {
 	return nil
+}
+
+func (m *mockStorage) ListWorkflows(ctx context.Context, filter storage.CommonFilter) ([]storage.Workflow, int, error) {
+	return nil, 0, nil
 }
 
 func TestTransformationPipelineRegistry(t *testing.T) {

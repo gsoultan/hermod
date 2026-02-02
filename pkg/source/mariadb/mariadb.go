@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,17 +19,28 @@ import (
 // MariaDBSource implements the hermod.Source interface for MariaDB.
 // It uses polling as a baseline and can be extended for binlog CDC.
 type MariaDBSource struct {
-	connString string
-	useCDC     bool
-	db         *sql.DB
-	mu         sync.Mutex
-	logger     hermod.Logger
+	connString   string
+	useCDC       bool
+	tables       []string
+	idField      string
+	pollInterval time.Duration
+	db           *sql.DB
+	mu           sync.Mutex
+	logger       hermod.Logger
+	lastIDs      map[string]interface{}
 }
 
-func NewMariaDBSource(connString string, useCDC bool) *MariaDBSource {
+func NewMariaDBSource(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *MariaDBSource {
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second
+	}
 	return &MariaDBSource{
-		connString: connString,
-		useCDC:     useCDC,
+		connString:   connString,
+		tables:       tables,
+		idField:      idField,
+		pollInterval: pollInterval,
+		useCDC:       useCDC,
+		lastIDs:      make(map[string]interface{}),
 	}
 }
 
@@ -85,13 +97,115 @@ func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, err
 	}
 
-	// For now, MariaDB implementation uses polling or blocks if CDC is requested but not yet implemented.
-	// In Hermod, we prefer explicit polling logic for "working" baseline.
-	select {
-	case <-ctx.Done():
+	if !m.useCDC {
+		// If CDC is disabled, we just wait until context is done or return nil
+		<-ctx.Done()
 		return nil, ctx.Err()
-	case <-time.After(5 * time.Second):
-		return nil, nil // No new data
+	}
+
+	// Polling-based CDC for MariaDB
+	for {
+		for _, table := range m.tables {
+			m.mu.Lock()
+			lastID := m.lastIDs[table]
+			m.mu.Unlock()
+
+			quotedTable, err := sqlutil.QuoteIdent("mysql", table)
+			if err != nil {
+				return nil, err
+			}
+
+			var query string
+			var args []interface{}
+
+			if lastID != nil && m.idField != "" {
+				quotedID, _ := sqlutil.QuoteIdent("mysql", m.idField)
+				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? ORDER BY %s ASC LIMIT 1", quotedTable, quotedID, quotedID)
+				args = append(args, lastID)
+			} else {
+				query = fmt.Sprintf("SELECT * FROM %s LIMIT 1", quotedTable)
+			}
+
+			rows, err := m.db.QueryContext(ctx, query, args...)
+			if err != nil {
+				return nil, fmt.Errorf("mariadb poll error: %w", err)
+			}
+
+			if rows.Next() {
+				cols, _ := rows.Columns()
+				values := make([]interface{}, len(cols))
+				ptr := make([]interface{}, len(cols))
+				for i := range values {
+					ptr[i] = &values[i]
+				}
+
+				if err := rows.Scan(ptr...); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				rows.Close()
+
+				record := make(map[string]interface{})
+				var currentID interface{}
+				for i, col := range cols {
+					val := values[i]
+					if b, ok := val.([]byte); ok {
+						val = string(b)
+					}
+					record[col] = val
+					if col == m.idField {
+						currentID = val
+					}
+				}
+
+				if currentID != nil {
+					m.mu.Lock()
+					m.lastIDs[table] = currentID
+					m.mu.Unlock()
+				}
+
+				afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+				msg := message.AcquireMessage()
+				msg.SetID(fmt.Sprintf("mariadb-%s-%v", table, currentID))
+				msg.SetOperation(hermod.OpCreate)
+				msg.SetTable(table)
+				msg.SetAfter(afterJSON)
+				msg.SetMetadata("source", "mariadb")
+
+				return msg, nil
+			}
+			rows.Close()
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(m.pollInterval):
+			// Continue loop
+		}
+	}
+}
+
+func (m *MariaDBSource) GetState() map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	state := make(map[string]string)
+	for table, id := range m.lastIDs {
+		state["last_id:"+table] = fmt.Sprintf("%v", id)
+	}
+	return state
+}
+
+func (m *MariaDBSource) SetState(state map[string]string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for k, v := range state {
+		if strings.HasPrefix(k, "last_id:") {
+			table := strings.TrimPrefix(k, "last_id:")
+			m.lastIDs[table] = v
+		}
 	}
 }
 

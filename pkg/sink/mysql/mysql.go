@@ -62,10 +62,10 @@ func (s *MySQLSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 
 		switch op {
 		case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
-			query := fmt.Sprintf("INSERT INTO %s (id, data) VALUES (?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data)", table)
+			query := fmt.Sprintf(commonQueries[QueryUpsert], table)
 			_, err = tx.ExecContext(ctx, query, msg.ID(), msg.Payload())
 		case hermod.OpDelete:
-			query := fmt.Sprintf("DELETE FROM %s WHERE id = ?", table)
+			query := fmt.Sprintf(commonQueries[QueryDelete], table)
 			_, err = tx.ExecContext(ctx, query, msg.ID())
 		default:
 			err = fmt.Errorf("unsupported operation: %s", op)
@@ -111,7 +111,7 @@ func (s *MySQLSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
 		}
 	}
 
-	rows, err := s.db.QueryContext(ctx, "SHOW DATABASES")
+	rows, err := s.db.QueryContext(ctx, commonQueries[QueryShowDatabases])
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func (s *MySQLSink) DiscoverTables(ctx context.Context) ([]string, error) {
 		}
 	}
 
-	rows, err := s.db.QueryContext(ctx, "SHOW TABLES")
+	rows, err := s.db.QueryContext(ctx, commonQueries[QueryShowTables])
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func (s *MySQLSink) Browse(ctx context.Context, table string, limit int) ([]herm
 	if err != nil {
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
-	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d", quoted, limit)
+	query := fmt.Sprintf(commonQueries[QueryBrowse], quoted, limit)
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err

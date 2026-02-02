@@ -19,10 +19,7 @@ func NewSQLiteStateStore(path string) (hermod.StateStore, error) {
 		return nil, fmt.Errorf("failed to open sqlite state store: %w", err)
 	}
 
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS states (
-		key TEXT PRIMARY KEY,
-		value BLOB
-	)`)
+	_, err = db.Exec(commonQueries[QueryInitTable])
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to create states table: %w", err)
@@ -33,7 +30,7 @@ func NewSQLiteStateStore(path string) (hermod.StateStore, error) {
 
 func (s *SQLiteStateStore) Get(ctx context.Context, key string) ([]byte, error) {
 	var val []byte
-	err := s.db.QueryRowContext(ctx, "SELECT value FROM states WHERE key = ?", key).Scan(&val)
+	err := s.db.QueryRowContext(ctx, commonQueries[QueryGet], key).Scan(&val)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -44,12 +41,12 @@ func (s *SQLiteStateStore) Get(ctx context.Context, key string) ([]byte, error) 
 }
 
 func (s *SQLiteStateStore) Set(ctx context.Context, key string, value []byte) error {
-	_, err := s.db.ExecContext(ctx, "INSERT OR REPLACE INTO states (key, value) VALUES (?, ?)", key, value)
+	_, err := s.db.ExecContext(ctx, commonQueries[QuerySet], key, value)
 	return err
 }
 
 func (s *SQLiteStateStore) Delete(ctx context.Context, key string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM states WHERE key = ?", key)
+	_, err := s.db.ExecContext(ctx, commonQueries[QueryDelete], key)
 	return err
 }
 

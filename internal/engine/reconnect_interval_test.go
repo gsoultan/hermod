@@ -8,7 +8,7 @@ import (
 )
 
 type mockStorageForInterval struct {
-	storage.Storage
+	BaseMockStorage
 	src storage.Source
 	wf  storage.Workflow
 }
@@ -44,6 +44,14 @@ func (m *mockStorageForInterval) ListSinks(ctx context.Context, filter storage.C
 
 func (m *mockStorageForInterval) UpdateSource(ctx context.Context, src storage.Source) error {
 	m.src = src
+	return nil
+}
+
+func (m *mockStorageForInterval) UpdateSourceStatus(ctx context.Context, id string, status string) error {
+	return nil
+}
+
+func (m *mockStorageForInterval) UpdateSinkStatus(ctx context.Context, id string, status string) error {
 	return nil
 }
 

@@ -7,9 +7,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/crypto"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -69,7 +71,7 @@ func NewMongoStorage(client *mongo.Client, dbName string) storage.Storage {
 
 func (s *mongoStorage) Init(ctx context.Context) error {
 	// Create indexes
-	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests"}
+	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests", "schemas", "message_traces", "workflow_versions"}
 
 	for _, collName := range collections {
 		coll := s.db.Collection(collName)
@@ -78,6 +80,23 @@ func (s *mongoStorage) Init(ctx context.Context) error {
 		var indexModels []mongo.IndexModel
 
 		switch collName {
+		case "message_traces":
+			indexModels = append(indexModels, mongo.IndexModel{
+				Keys: bson.D{{Key: "workflow_id", Value: 1}, {Key: "message_id", Value: 1}},
+			})
+			indexModels = append(indexModels, mongo.IndexModel{
+				Keys: bson.D{{Key: "created_at", Value: -1}},
+			})
+		case "workflow_versions":
+			indexModels = append(indexModels, mongo.IndexModel{
+				Keys:    bson.D{{Key: "workflow_id", Value: 1}, {Key: "version", Value: -1}},
+				Options: options.Index().SetUnique(true),
+			})
+		case "schemas":
+			indexModels = append(indexModels, mongo.IndexModel{
+				Keys:    bson.D{{Key: "name", Value: 1}, {Key: "version", Value: 1}},
+				Options: options.Index().SetUnique(true),
+			})
 		case "sources", "sinks":
 			indexModels = append(indexModels, mongo.IndexModel{
 				Keys:    bson.D{{Key: "name", Value: 1}},
@@ -229,7 +248,7 @@ func (s *mongoStorage) ListSources(ctx context.Context, filter storage.CommonFil
 	}
 	defer cursor.Close(ctx)
 
-	var sources []storage.Source
+	sources := []storage.Source{}
 	for cursor.Next(ctx) {
 		var src struct {
 			storage.Source `bson:",inline"`
@@ -288,6 +307,12 @@ func (s *mongoStorage) UpdateSource(ctx context.Context, src storage.Source) err
 func (s *mongoStorage) UpdateSourceState(ctx context.Context, id string, state map[string]string) error {
 	coll := s.db.Collection("sources")
 	_, err := coll.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"state": state}})
+	return err
+}
+
+func (s *mongoStorage) UpdateSourceStatus(ctx context.Context, id string, status string) error {
+	coll := s.db.Collection("sources")
+	_, err := coll.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"status": status}})
 	return err
 }
 
@@ -351,7 +376,7 @@ func (s *mongoStorage) ListSinks(ctx context.Context, filter storage.CommonFilte
 	}
 	defer cursor.Close(ctx)
 
-	var sinks []storage.Sink
+	sinks := []storage.Sink{}
 	for cursor.Next(ctx) {
 		var snk struct {
 			storage.Sink `bson:",inline"`
@@ -400,6 +425,12 @@ func (s *mongoStorage) UpdateSink(ctx context.Context, snk storage.Sink) error {
 		"worker_id": snk.WorkerID,
 		"config":    snk.Config,
 	}})
+	return err
+}
+
+func (s *mongoStorage) UpdateSinkStatus(ctx context.Context, id string, status string) error {
+	coll := s.db.Collection("sinks")
+	_, err := coll.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"status": status}})
 	return err
 }
 
@@ -459,7 +490,7 @@ func (s *mongoStorage) ListUsers(ctx context.Context, filter storage.CommonFilte
 	}
 	defer cursor.Close(ctx)
 
-	var users []storage.User
+	users := []storage.User{}
 	for cursor.Next(ctx) {
 		var u struct {
 			storage.User `bson:",inline"`
@@ -597,7 +628,7 @@ func (s *mongoStorage) ListVHosts(ctx context.Context, filter storage.CommonFilt
 	}
 	defer cursor.Close(ctx)
 
-	var vhosts []storage.VHost
+	vhosts := []storage.VHost{}
 	for cursor.Next(ctx) {
 		var v struct {
 			storage.VHost `bson:",inline"`
@@ -665,6 +696,10 @@ func (s *mongoStorage) ListWorkflows(ctx context.Context, filter storage.CommonF
 		query["vhost"] = filter.VHost
 	}
 
+	if filter.WorkspaceID != "" {
+		query["workspace_id"] = filter.WorkspaceID
+	}
+
 	total, err := coll.CountDocuments(ctx, query)
 	if err != nil {
 		return nil, 0, err
@@ -684,7 +719,7 @@ func (s *mongoStorage) ListWorkflows(ctx context.Context, filter storage.CommonF
 	}
 	defer cursor.Close(ctx)
 
-	var wfs []storage.Workflow
+	wfs := []storage.Workflow{}
 	for cursor.Next(ctx) {
 		var wf struct {
 			storage.Workflow `bson:",inline"`
@@ -698,6 +733,48 @@ func (s *mongoStorage) ListWorkflows(ctx context.Context, filter storage.CommonF
 	}
 
 	return wfs, int(total), nil
+}
+
+func (s *mongoStorage) ListWorkspaces(ctx context.Context) ([]storage.Workspace, error) {
+	cursor, err := s.db.Collection("workspaces").Find(ctx, bson.M{}, options.Find().SetSort(bson.M{"name": 1}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	wss := []storage.Workspace{}
+	if err := cursor.All(ctx, &wss); err != nil {
+		return nil, err
+	}
+	return wss, nil
+}
+
+func (s *mongoStorage) CreateWorkspace(ctx context.Context, ws storage.Workspace) error {
+	if ws.ID == "" {
+		ws.ID = primitive.NewObjectID().Hex()
+	}
+	if ws.CreatedAt.IsZero() {
+		ws.CreatedAt = time.Now()
+	}
+	_, err := s.db.Collection("workspaces").InsertOne(ctx, ws)
+	return err
+}
+
+func (s *mongoStorage) DeleteWorkspace(ctx context.Context, id string) error {
+	_, err := s.db.Collection("workspaces").DeleteOne(ctx, bson.M{"id": id})
+	return err
+}
+
+func (s *mongoStorage) GetWorkspace(ctx context.Context, id string) (storage.Workspace, error) {
+	var ws storage.Workspace
+	err := s.db.Collection("workspaces").FindOne(ctx, bson.M{"id": id}).Decode(&ws)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return storage.Workspace{}, storage.ErrNotFound
+		}
+		return storage.Workspace{}, err
+	}
+	return ws, nil
 }
 
 func (s *mongoStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) error {
@@ -722,6 +799,19 @@ func (s *mongoStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) 
 		"dry_run":             wf.DryRun,
 		"schema_type":         wf.SchemaType,
 		"schema":              wf.Schema,
+		"cron":                wf.Cron,
+		"idle_timeout":        wf.IdleTimeout,
+		"tier":                wf.Tier,
+		"retention_days":      wf.RetentionDays,
+		"dlq_threshold":       wf.DLQThreshold,
+		"trace_sample_rate":   wf.TraceSampleRate,
+		"tags":                wf.Tags,
+		"workspace_id":        wf.WorkspaceID,
+		"trace_retention":     wf.TraceRetention,
+		"audit_retention":     wf.AuditRetention,
+		"cpu_request":         wf.CPURequest,
+		"memory_request":      wf.MemoryRequest,
+		"throughput_request":  wf.ThroughputRequest,
 	})
 	return err
 }
@@ -744,6 +834,19 @@ func (s *mongoStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) 
 		"dry_run":             wf.DryRun,
 		"schema_type":         wf.SchemaType,
 		"schema":              wf.Schema,
+		"cron":                wf.Cron,
+		"idle_timeout":        wf.IdleTimeout,
+		"tier":                wf.Tier,
+		"retention_days":      wf.RetentionDays,
+		"dlq_threshold":       wf.DLQThreshold,
+		"trace_sample_rate":   wf.TraceSampleRate,
+		"tags":                wf.Tags,
+		"workspace_id":        wf.WorkspaceID,
+		"trace_retention":     wf.TraceRetention,
+		"audit_retention":     wf.AuditRetention,
+		"cpu_request":         wf.CPURequest,
+		"memory_request":      wf.MemoryRequest,
+		"throughput_request":  wf.ThroughputRequest,
 	}})
 	return err
 }
@@ -802,7 +905,7 @@ func (s *mongoStorage) ListWorkers(ctx context.Context, filter storage.CommonFil
 	}
 	defer cursor.Close(ctx)
 
-	var workers []storage.Worker
+	workers := []storage.Worker{}
 	for cursor.Next(ctx) {
 		var w struct {
 			storage.Worker `bson:",inline"`
@@ -824,13 +927,15 @@ func (s *mongoStorage) CreateWorker(ctx context.Context, worker storage.Worker) 
 	}
 	coll := s.db.Collection("workers")
 	_, err := coll.InsertOne(ctx, bson.M{
-		"_id":         worker.ID,
-		"name":        worker.Name,
-		"host":        worker.Host,
-		"port":        worker.Port,
-		"description": worker.Description,
-		"token":       worker.Token,
-		"last_seen":   worker.LastSeen,
+		"_id":          worker.ID,
+		"name":         worker.Name,
+		"host":         worker.Host,
+		"port":         worker.Port,
+		"description":  worker.Description,
+		"token":        worker.Token,
+		"last_seen":    worker.LastSeen,
+		"cpu_usage":    worker.CPUUsage,
+		"memory_usage": worker.MemoryUsage,
 	})
 	return err
 }
@@ -838,19 +943,25 @@ func (s *mongoStorage) CreateWorker(ctx context.Context, worker storage.Worker) 
 func (s *mongoStorage) UpdateWorker(ctx context.Context, worker storage.Worker) error {
 	coll := s.db.Collection("workers")
 	_, err := coll.UpdateOne(ctx, bson.M{"_id": worker.ID}, bson.M{"$set": bson.M{
-		"name":        worker.Name,
-		"host":        worker.Host,
-		"port":        worker.Port,
-		"description": worker.Description,
-		"token":       worker.Token,
-		"last_seen":   worker.LastSeen,
+		"name":         worker.Name,
+		"host":         worker.Host,
+		"port":         worker.Port,
+		"description":  worker.Description,
+		"token":        worker.Token,
+		"last_seen":    worker.LastSeen,
+		"cpu_usage":    worker.CPUUsage,
+		"memory_usage": worker.MemoryUsage,
 	}})
 	return err
 }
 
-func (s *mongoStorage) UpdateWorkerHeartbeat(ctx context.Context, id string) error {
+func (s *mongoStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error {
 	coll := s.db.Collection("workers")
-	_, err := coll.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"last_seen": time.Now()}})
+	_, err := coll.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{
+		"last_seen":    time.Now(),
+		"cpu_usage":    cpu,
+		"memory_usage": mem,
+	}})
 	return err
 }
 
@@ -941,7 +1052,7 @@ func (s *mongoStorage) ListLogs(ctx context.Context, filter storage.LogFilter) (
 	}
 	defer cursor.Close(ctx)
 
-	var logs []storage.Log
+	logs := []storage.Log{}
 	for cursor.Next(ctx) {
 		var l struct {
 			storage.Log `bson:",inline"`
@@ -1057,6 +1168,18 @@ func (s *mongoStorage) CreateAuditLog(ctx context.Context, log storage.AuditLog)
 	return err
 }
 
+func (s *mongoStorage) PurgeAuditLogs(ctx context.Context, before time.Time) error {
+	coll := s.db.Collection("audit_logs")
+	_, err := coll.DeleteMany(ctx, bson.M{"timestamp": bson.M{"$lt": before}})
+	return err
+}
+
+func (s *mongoStorage) PurgeMessageTraces(ctx context.Context, before time.Time) error {
+	coll := s.db.Collection("trace_steps")
+	_, err := coll.DeleteMany(ctx, bson.M{"timestamp": bson.M{"$lt": before}})
+	return err
+}
+
 func (s *mongoStorage) CreateWebhookRequest(ctx context.Context, req storage.WebhookRequest) error {
 	if req.ID == "" {
 		req.ID = uuid.NewString()
@@ -1127,7 +1250,7 @@ func (s *mongoStorage) ListWebhookRequests(ctx context.Context, filter storage.W
 	}
 	defer cursor.Close(ctx)
 
-	var requests []storage.WebhookRequest
+	requests := []storage.WebhookRequest{}
 	for cursor.Next(ctx) {
 		var r struct {
 			storage.WebhookRequest `bson:",inline"`
@@ -1164,6 +1287,72 @@ func (s *mongoStorage) DeleteWebhookRequests(ctx context.Context, filter storage
 	query := bson.M{}
 	if filter.Path != "" {
 		query["path"] = filter.Path
+	}
+	_, err := coll.DeleteMany(ctx, query)
+	return err
+}
+
+func (s *mongoStorage) CreateFormSubmission(ctx context.Context, sub storage.FormSubmission) error {
+	coll := s.db.Collection("form_submissions")
+	_, err := coll.InsertOne(ctx, sub)
+	return err
+}
+
+func (s *mongoStorage) ListFormSubmissions(ctx context.Context, filter storage.FormSubmissionFilter) ([]storage.FormSubmission, int, error) {
+	coll := s.db.Collection("form_submissions")
+	query := bson.M{}
+	if filter.Path != "" {
+		query["path"] = filter.Path
+	}
+	if filter.Status != "" {
+		query["status"] = filter.Status
+	}
+
+	opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}})
+	if filter.Limit > 0 {
+		opts.SetLimit(int64(filter.Limit))
+		opts.SetSkip(int64((filter.Page - 1) * filter.Limit))
+	}
+
+	total, err := coll.CountDocuments(ctx, query)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	cursor, err := coll.Find(ctx, query, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	var submissions []storage.FormSubmission
+	if err := cursor.All(ctx, &submissions); err != nil {
+		return nil, 0, err
+	}
+	return submissions, int(total), nil
+}
+
+func (s *mongoStorage) GetFormSubmission(ctx context.Context, id string) (storage.FormSubmission, error) {
+	coll := s.db.Collection("form_submissions")
+	var sub storage.FormSubmission
+	err := coll.FindOne(ctx, bson.M{"id": id}).Decode(&sub)
+	return sub, err
+}
+
+func (s *mongoStorage) UpdateFormSubmissionStatus(ctx context.Context, id string, status string) error {
+	coll := s.db.Collection("form_submissions")
+	_, err := coll.UpdateOne(ctx, bson.M{"id": id}, bson.M{"$set": bson.M{"status": status}})
+	return err
+}
+
+func (s *mongoStorage) DeleteFormSubmissions(ctx context.Context, filter storage.FormSubmissionFilter) error {
+	coll := s.db.Collection("form_submissions")
+	query := bson.M{}
+	if filter.Path != "" {
+		query["path"] = filter.Path
+	}
+	if filter.Status != "" {
+		query["status"] = filter.Status
 	}
 	_, err := coll.DeleteMany(ctx, query)
 	return err
@@ -1224,7 +1413,7 @@ func (s *mongoStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFi
 	}
 	defer cursor.Close(ctx)
 
-	var logs []storage.AuditLog
+	logs := []storage.AuditLog{}
 	for cursor.Next(ctx) {
 		var l struct {
 			storage.AuditLog `bson:",inline"`
@@ -1267,4 +1456,305 @@ func (s *mongoStorage) GetNodeStates(ctx context.Context, workflowID string) (ma
 		states[res.NodeID] = res.State
 	}
 	return states, nil
+}
+
+func (s *mongoStorage) ListSchemas(ctx context.Context, name string) ([]storage.Schema, error) {
+	coll := s.db.Collection("schemas")
+	filter := bson.M{"name": name}
+	opts := options.Find().SetSort(bson.D{{Key: "version", Value: -1}})
+	cursor, err := coll.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	schemas := []storage.Schema{}
+	if err := cursor.All(ctx, &schemas); err != nil {
+		return nil, err
+	}
+	return schemas, nil
+}
+
+func (s *mongoStorage) ListAllSchemas(ctx context.Context) ([]storage.Schema, error) {
+	coll := s.db.Collection("schemas")
+	pipeline := mongo.Pipeline{
+		{{Key: "$sort", Value: bson.D{{Key: "name", Value: 1}, {Key: "version", Value: -1}}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: "$name"},
+			{Key: "latest", Value: bson.M{"$first": "$$ROOT"}},
+		}}},
+		{{Key: "$replaceRoot", Value: bson.M{"newRoot": "$latest"}}},
+		{{Key: "$sort", Value: bson.D{{Key: "name", Value: 1}}}},
+	}
+
+	cursor, err := coll.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	schemas := []storage.Schema{}
+	if err := cursor.All(ctx, &schemas); err != nil {
+		return nil, err
+	}
+	return schemas, nil
+}
+
+func (s *mongoStorage) GetSchema(ctx context.Context, name string, version int) (storage.Schema, error) {
+	coll := s.db.Collection("schemas")
+	filter := bson.M{"name": name, "version": version}
+	var sc storage.Schema
+	err := coll.FindOne(ctx, filter).Decode(&sc)
+	if err == mongo.ErrNoDocuments {
+		return storage.Schema{}, fmt.Errorf("schema %s version %d not found", name, version)
+	}
+	return sc, err
+}
+
+func (s *mongoStorage) GetLatestSchema(ctx context.Context, name string) (storage.Schema, error) {
+	coll := s.db.Collection("schemas")
+	filter := bson.M{"name": name}
+	opts := options.FindOne().SetSort(bson.D{{Key: "version", Value: -1}})
+	var sc storage.Schema
+	err := coll.FindOne(ctx, filter, opts).Decode(&sc)
+	if err == mongo.ErrNoDocuments {
+		return storage.Schema{}, fmt.Errorf("schema %s not found", name)
+	}
+	return sc, err
+}
+
+func (s *mongoStorage) CreateSchema(ctx context.Context, sc storage.Schema) error {
+	coll := s.db.Collection("schemas")
+	if sc.ID == "" {
+		sc.ID = uuid.New().String()
+	}
+	if sc.CreatedAt.IsZero() {
+		sc.CreatedAt = time.Now()
+	}
+	_, err := coll.InsertOne(ctx, sc)
+	return err
+}
+
+func (s *mongoStorage) RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error {
+	coll := s.db.Collection("message_traces")
+	filter := bson.M{"workflow_id": workflowID, "message_id": messageID}
+
+	update := bson.M{
+		"$push": bson.M{"steps": step},
+		"$setOnInsert": bson.M{
+			"id":          uuid.New().String(),
+			"workflow_id": workflowID,
+			"message_id":  messageID,
+			"created_at":  time.Now(),
+		},
+	}
+	opts := options.Update().SetUpsert(true)
+	_, err := coll.UpdateOne(ctx, filter, update, opts)
+	return err
+}
+
+func (s *mongoStorage) CreateMessageTrace(ctx context.Context, tr storage.MessageTrace) error {
+	coll := s.db.Collection("message_traces")
+	if tr.ID == "" {
+		tr.ID = uuid.New().String()
+	}
+	if tr.CreatedAt.IsZero() {
+		tr.CreatedAt = time.Now()
+	}
+	_, err := coll.InsertOne(ctx, tr)
+	return err
+}
+
+func (s *mongoStorage) GetMessageTrace(ctx context.Context, workflowID, messageID string) (storage.MessageTrace, error) {
+	coll := s.db.Collection("message_traces")
+	filter := bson.M{"workflow_id": workflowID, "message_id": messageID}
+	var tr storage.MessageTrace
+	err := coll.FindOne(ctx, filter).Decode(&tr)
+	if err == mongo.ErrNoDocuments {
+		return storage.MessageTrace{}, storage.ErrNotFound
+	}
+	return tr, err
+}
+
+func (s *mongoStorage) ListMessageTraces(ctx context.Context, workflowID string, limit int) ([]storage.MessageTrace, error) {
+	coll := s.db.Collection("message_traces")
+	filter := bson.M{"workflow_id": workflowID}
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(int64(limit))
+	cursor, err := coll.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	traces := []storage.MessageTrace{}
+	if err := cursor.All(ctx, &traces); err != nil {
+		return nil, err
+	}
+	return traces, nil
+}
+
+func (s *mongoStorage) CreateWorkflowVersion(ctx context.Context, v storage.WorkflowVersion) error {
+	coll := s.db.Collection("workflow_versions")
+	_, err := coll.InsertOne(ctx, v)
+	return err
+}
+
+func (s *mongoStorage) ListWorkflowVersions(ctx context.Context, workflowID string) ([]storage.WorkflowVersion, error) {
+	coll := s.db.Collection("workflow_versions")
+	filter := bson.M{"workflow_id": workflowID}
+	opts := options.Find().SetSort(bson.D{{Key: "version", Value: -1}})
+	cursor, err := coll.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	versions := []storage.WorkflowVersion{}
+	if err := cursor.All(ctx, &versions); err != nil {
+		return nil, err
+	}
+	return versions, nil
+}
+
+func (s *mongoStorage) GetWorkflowVersion(ctx context.Context, workflowID string, version int) (storage.WorkflowVersion, error) {
+	coll := s.db.Collection("workflow_versions")
+	filter := bson.M{"workflow_id": workflowID, "version": version}
+	var v storage.WorkflowVersion
+	err := coll.FindOne(ctx, filter).Decode(&v)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return v, storage.ErrNotFound
+		}
+		return v, err
+	}
+	return v, nil
+}
+
+func (s *mongoStorage) CreateOutboxItem(ctx context.Context, item storage.OutboxItem) error {
+	coll := s.db.Collection("outbox")
+	if item.ID == "" {
+		item.ID = uuid.New().String()
+	}
+	if item.CreatedAt.IsZero() {
+		item.CreatedAt = time.Now()
+	}
+	if item.Status == "" {
+		item.Status = "pending"
+	}
+	_, err := coll.InsertOne(ctx, item)
+	return err
+}
+
+func (s *mongoStorage) ListOutboxItems(ctx context.Context, status string, limit int) ([]storage.OutboxItem, error) {
+	coll := s.db.Collection("outbox")
+	filter := bson.M{"status": status}
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}}).SetLimit(int64(limit))
+	cursor, err := coll.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	items := []storage.OutboxItem{}
+	if err := cursor.All(ctx, &items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (s *mongoStorage) DeleteOutboxItem(ctx context.Context, id string) error {
+	coll := s.db.Collection("outbox")
+	_, err := coll.DeleteOne(ctx, bson.M{"id": id})
+	return err
+}
+
+func (s *mongoStorage) UpdateOutboxItem(ctx context.Context, item storage.OutboxItem) error {
+	coll := s.db.Collection("outbox")
+	filter := bson.M{"id": item.ID}
+	update := bson.M{
+		"$set": bson.M{
+			"attempts":   item.Attempts,
+			"last_error": item.LastError,
+			"status":     item.Status,
+		},
+	}
+	_, err := coll.UpdateOne(ctx, filter, update)
+	return err
+}
+
+func (s *mongoStorage) GetLineage(ctx context.Context) ([]storage.LineageEdge, error) {
+	// For MongoDB, we'll use the same logic of fetching and mapping
+	workflows, _, err := s.ListWorkflows(ctx, storage.CommonFilter{Limit: 1000})
+	if err != nil {
+		return nil, err
+	}
+
+	sources, _, err := s.ListSources(ctx, storage.CommonFilter{Limit: 1000})
+	if err != nil {
+		return nil, err
+	}
+	srcMap := make(map[string]storage.Source)
+	for _, src := range sources {
+		srcMap[src.ID] = src
+	}
+
+	sinks, _, err := s.ListSinks(ctx, storage.CommonFilter{Limit: 1000})
+	if err != nil {
+		return nil, err
+	}
+	snkMap := make(map[string]storage.Sink)
+	for _, snk := range sinks {
+		snkMap[snk.ID] = snk
+	}
+
+	lineage := []storage.LineageEdge{}
+	for _, wf := range workflows {
+		wfSources := []storage.Source{}
+		wfSinks := []storage.Sink{}
+
+		for _, node := range wf.Nodes {
+			if node.Type == "source" {
+				if src, ok := srcMap[node.RefID]; ok {
+					wfSources = append(wfSources, src)
+				}
+			} else if node.Type == "sink" {
+				if snk, ok := snkMap[node.RefID]; ok {
+					wfSinks = append(wfSinks, snk)
+				}
+			}
+		}
+
+		for _, src := range wfSources {
+			for _, snk := range wfSinks {
+				lineage = append(lineage, storage.LineageEdge{
+					SourceID:     src.ID,
+					SourceName:   src.Name,
+					SourceType:   src.Type,
+					SinkID:       snk.ID,
+					SinkName:     snk.Name,
+					SinkType:     snk.Type,
+					WorkflowID:   wf.ID,
+					WorkflowName: wf.Name,
+				})
+			}
+		}
+	}
+
+	return lineage, nil
+}
+
+func (s *mongoStorage) ListPlugins(ctx context.Context) ([]storage.Plugin, error) {
+	return nil, nil
+}
+
+func (s *mongoStorage) GetPlugin(ctx context.Context, id string) (storage.Plugin, error) {
+	return storage.Plugin{}, nil
+}
+
+func (s *mongoStorage) InstallPlugin(ctx context.Context, id string) error {
+	return nil
+}
+
+func (s *mongoStorage) UninstallPlugin(ctx context.Context, id string) error {
+	return nil
 }

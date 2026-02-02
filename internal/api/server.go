@@ -1,16 +1,19 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"io"
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -20,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/user/hermod"
+	"github.com/user/hermod/internal/ai"
 	"github.com/user/hermod/internal/config"
 	"github.com/user/hermod/internal/engine"
 	"github.com/user/hermod/internal/storage"
@@ -67,8 +71,11 @@ var staticFS embed.FS
 // Server is the HTTP API server for Hermod.
 // It wires routing, middleware, and access to the storage and engine registry.
 type Server struct {
-	storage  storage.Storage
-	registry *engine.Registry
+	storage    storage.Storage
+	logStorage storage.Storage
+	registry   *engine.Registry
+	ai         *ai.SelfHealingService
+	config     *config.Config
 	// readiness debounce state
 	readyMu            sync.Mutex
 	lastReadyStatus    bool
@@ -79,10 +86,20 @@ type Server struct {
 }
 
 // NewServer constructs a new Server with the provided engine registry and storage backend.
-func NewServer(registry *engine.Registry, store storage.Storage) *Server {
+func NewServer(registry *engine.Registry, store storage.Storage, cfg *config.Config, aiSvc *ai.SelfHealingService, ls ...storage.Storage) *Server {
+	var logStore storage.Storage
+	if len(ls) > 0 {
+		logStore = ls[0]
+	}
+	if logStore == nil {
+		logStore = store
+	}
 	return &Server{
-		storage:  store,
-		registry: registry,
+		storage:    store,
+		logStorage: logStore,
+		registry:   registry,
+		config:     cfg,
+		ai:         aiSvc,
 	}
 }
 
@@ -166,7 +183,7 @@ func (s *Server) recordAuditLog(r *http.Request, level, message, action string, 
 		}
 	}
 
-	_ = s.storage.CreateLog(ctx, l)
+	_ = s.logStorage.CreateLog(ctx, l)
 
 	// Also write to dedicated audit_logs table
 	entityType := ""
@@ -197,13 +214,19 @@ func (s *Server) recordAuditLog(r *http.Request, level, message, action string, 
 		Payload:    payloadStr,
 		IP:         ip,
 	}
-	_ = s.storage.CreateAuditLog(ctx, audit)
+	_ = s.logStorage.CreateAuditLog(ctx, audit)
 }
 
 // maintenance logic moved to maintenance.go
 
 func (s *Server) registerInfrastructureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/config/status", s.getConfigStatus)
+	mux.HandleFunc("GET /api/config/secrets", s.getSecretConfig)
+	mux.HandleFunc("PUT /api/config/secrets", s.updateSecretConfig)
+	mux.HandleFunc("GET /api/config/state", s.getStateStoreConfig)
+	mux.HandleFunc("PUT /api/config/state", s.updateStateStoreConfig)
+	mux.HandleFunc("GET /api/config/observability", s.getObservabilityConfig)
+	mux.HandleFunc("PUT /api/config/observability", s.updateObservabilityConfig)
 	mux.HandleFunc("POST /api/config/database", s.saveDBConfig)
 	mux.HandleFunc("POST /api/config/database/test", s.testDBConfig)
 	// List databases on a target server for setup wizard
@@ -235,6 +258,17 @@ func (s *Server) registerInfrastructureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/dashboard/stats", s.getDashboardStats)
 	mux.HandleFunc("GET /api/backup/export", s.exportConfig)
 	mux.HandleFunc("POST /api/backup/import", s.importConfig)
+	// Infrastructure & Mesh
+	mux.HandleFunc("GET /api/infra/mesh-health", s.getMeshHealth)
+	mux.HandleFunc("GET /api/infra/lineage", s.getLineage)
+	mux.HandleFunc("POST /api/mesh/clusters", s.registerMeshCluster)
+}
+
+func (s *Server) registerSchemaRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/schemas", s.listSchemas)
+	mux.HandleFunc("POST /api/schemas", s.registerSchema)
+	mux.HandleFunc("GET /api/schemas/{name}", s.getLatestSchema)
+	mux.HandleFunc("GET /api/schemas/{name}/history", s.getSchemaHistory)
 }
 
 // updateCryptoMasterKey sets or rotates the crypto master key stored in db_config.yaml (Admin only).
@@ -288,6 +322,8 @@ func (s *Server) Routes() http.Handler {
 	s.registerWorkflowRoutes(mux)
 	s.registerAuthRoutes(mux)
 	s.registerInfrastructureRoutes(mux)
+	s.registerSchemaRoutes(mux)
+	s.registerMarketplaceRoutes(mux)
 
 	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
 	mux.HandleFunc("GET /livez", s.handleLiveness)
@@ -388,7 +424,8 @@ func (s *Server) Routes() http.Handler {
 }
 
 func (s *Server) getDashboardStats(w http.ResponseWriter, r *http.Request) {
-	stats, err := s.registry.GetDashboardStats(r.Context())
+	vhost := r.URL.Query().Get("vhost")
+	stats, err := s.registry.GetDashboardStats(r.Context(), vhost)
 	if err != nil {
 		s.jsonError(w, "Failed to get dashboard stats: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -698,7 +735,7 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := botProtectionCheck(r, payload, enableBotProtection, botMinMs); err != nil {
+	if err := s.botProtectionCheck(r, payload, enableBotProtection, botMinMs, srcCfg); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -709,9 +746,33 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal([]byte(fieldsCfg), &fieldDefs)
 	}
 
-	// Consolidate date_range pairs and verify email existence as configured
+	// Consolidate date_range pairs, validate required fields, and verify email existence
 	if len(fieldDefs) > 0 {
 		for _, fd := range fieldDefs {
+			val := payload[fd.Name]
+
+			// Required check
+			if fd.Required {
+				isEmpty := false
+				if val == nil {
+					isEmpty = true
+				} else if s, ok := val.(string); ok && strings.TrimSpace(s) == "" {
+					isEmpty = true
+				} else if l, ok := val.([]string); ok && len(l) == 0 {
+					isEmpty = true
+				}
+
+				if isEmpty {
+					if wantsHTML(r) {
+						w.Header().Set("Content-Type", "text/html; charset=utf-8")
+						_, _ = w.Write([]byte("<!doctype html><html><head><meta charset=\"utf-8\"><title>Validation Error</title><style>body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f6f8fb;margin:0;display:flex;align-items:center;justify-content:center;height:100vh}.card{background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(22,32,50,0.08);padding:28px;max-width:560px;text-align:center} h1{font-size:20px;margin:0 0 6px} p{color:#d32f2f;margin:0}</style></head><body><div class=\"card\"><h1>Validation Error</h1><p>Field '" + htmlEscape(fd.Label) + "' is required.</p></div></body></html>"))
+						return
+					}
+					http.Error(w, fmt.Sprintf("Field '%s' is required", fd.Label), http.StatusBadRequest)
+					return
+				}
+			}
+
 			switch fd.Type {
 			case "date_range":
 				startVal := ""
@@ -726,30 +787,25 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 				if startVal != "" || endVal != "" {
 					payload[fd.Name] = map[string]string{"from": startVal, "to": endVal}
 				}
-			case "scale":
-				// ensure numeric string stays as provided; parsing not required here
-				// leave as-is from payload
 			case "email":
-				val := ""
+				valStr := ""
 				if v, ok := payload[fd.Name].(string); ok {
-					val = strings.TrimSpace(v)
+					valStr = strings.TrimSpace(v)
 				}
-				if val != "" && fd.VerifyEmail {
-					// perform best-effort existence check (using pkg/util/smtpprobe)
+				if valStr != "" && fd.VerifyEmail {
+					// perform best-effort existence check
 					ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
-					ok, reason := util.VerifyEmailExists(ctx, val)
+					ok, reason := util.VerifyEmailExists(ctx, valStr)
 					cancel()
 					msgKey := "email_validation." + fd.Name
 					if ok {
-						// we'll attach metadata later when message is created; temporarily stash in request context via header map? Instead, add a synthetic field
 						payload[msgKey] = "valid"
 					} else {
 						payload[msgKey] = "invalid: " + reason
 						if fd.RejectIfInvalid {
-							// Return error (HTML or JSON depending on request)
 							if wantsHTML(r) {
 								w.Header().Set("Content-Type", "text/html; charset=utf-8")
-								_, _ = w.Write([]byte("<!doctype html><html><head><meta charset=\"utf-8\"><title>Invalid Email</title><style>body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f6f8fb;margin:0;display:flex;align-items:center;justify-content:center;height:100vh}.card{background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(22,32,50,0.08);padding:28px;max-width:560px;text-align:center} h1{font-size:20px;margin:0 0 6px} p{color:#556;margin:0}</style></head><body><div class=\"card\"><h1>Invalid email</h1><p>" + htmlEscape(val) + " doesn't appear to exist (" + htmlEscape(reason) + ")</p></div></body></html>"))
+								_, _ = w.Write([]byte("<!doctype html><html><head><meta charset=\"utf-8\"><title>Invalid Email</title><style>body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f6f8fb;margin:0;display:flex;align-items:center;justify-content:center;height:100vh}.card{background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(22,32,50,0.08);padding:28px;max-width:560px;text-align:center} h1{font-size:20px;margin:0 0 6px} p{color:#556;margin:0}</style></head><body><div class=\"card\"><h1>Invalid email</h1><p>" + htmlEscape(valStr) + " doesn't appear to exist (" + htmlEscape(reason) + ")</p></div></body></html>"))
 								return
 							}
 							http.Error(w, "invalid email: "+reason, http.StatusBadRequest)
@@ -761,16 +817,25 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create final body from payload (for form submissions); for raw JSON we may have enhanced payload with validation results
-	if len(body) == 0 {
-		body, _ = json.Marshal(payload)
-	} else if len(payload) > 0 {
-		// Prefer the enhanced payload if we decoded JSON
-		body, _ = json.Marshal(payload)
+	// Create final body from payload
+	body, _ = json.Marshal(payload)
+
+	msgID := uuid.New().String()
+	// Persist to database for reliability
+	submission := storage.FormSubmission{
+		ID:        msgID,
+		Timestamp: time.Now(),
+		Path:      fullPath,
+		Data:      body,
+		Status:    "pending",
+	}
+	if err := s.storage.CreateFormSubmission(r.Context(), submission); err != nil {
+		http.Error(w, "Failed to persist submission: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	msg := message.AcquireMessage()
-	msg.SetID(uuid.New().String())
+	msg.SetID(msgID)
 	msg.SetOperation(hermod.OpCreate)
 	msg.SetTable("form")
 	msg.SetAfter(body)
@@ -788,7 +853,13 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Missing signature", http.StatusUnauthorized)
 				return
 			}
-			// TODO: verify signature when format defined
+			// Verify signature using HMAC-SHA256
+			expectedSig := crypto.ComputeHMAC(body, secret)
+			if signature != expectedSig {
+				message.ReleaseMessage(msg)
+				http.Error(w, "Invalid signature", http.StatusUnauthorized)
+				return
+			}
 		}
 		if methodForSource != "" {
 			msg.SetMetadata("form_method", methodForSource)
@@ -802,19 +873,20 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 				goto form_dispatched
 			}
 		}
-		message.ReleaseMessage(msg)
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
+		// If dispatch fails but we persisted it, we can still return success as it will be picked up by polling eventually
+		// message.ReleaseMessage(msg)
+		// http.Error(w, err.Error(), http.StatusNotFound)
+		// return
 	}
 
 form_dispatched:
 	if r.Method == "GET" {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msg.ID()})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msgID})
 		return
 	}
 
-	// If the client prefers HTML (generated public form), render a simple success page
+	// If the client prefers HTML (generated public form), render a success page
 	if wantsHTML(r) || strings.Contains(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") || strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		// Try to fetch redirect_url and success_message from source config
@@ -822,6 +894,31 @@ form_dispatched:
 		if srcCfg != nil {
 			redirectURL = srcCfg["redirect_url"]
 			successMsg = srcCfg["success_message"]
+
+			// Support Go templates in success message and redirect URL
+			if strings.Contains(successMsg, "{{") || strings.Contains(redirectURL, "{{") {
+				funcMap := template.FuncMap{
+					"htmlEscape": htmlEscape,
+				}
+				if successMsg != "" {
+					tmpl, err := template.New("msg").Funcs(funcMap).Parse(successMsg)
+					if err == nil {
+						var buf bytes.Buffer
+						if err := tmpl.Execute(&buf, payload); err == nil {
+							successMsg = buf.String()
+						}
+					}
+				}
+				if redirectURL != "" {
+					tmpl, err := template.New("url").Funcs(funcMap).Parse(redirectURL)
+					if err == nil {
+						var buf bytes.Buffer
+						if err := tmpl.Execute(&buf, payload); err == nil {
+							redirectURL = buf.String()
+						}
+					}
+				}
+			}
 		}
 		if successMsg == "" {
 			successMsg = "Thank you! Your submission has been received."
@@ -836,7 +933,7 @@ form_dispatched:
 	}
 
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msg.ID()})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msgID})
 }
 
 // serveFormPage renders a public HTML form for a configured form source path.
@@ -1076,6 +1173,14 @@ func (s *Server) serveFormPage(w http.ResponseWriter, r *http.Request) {
 	}
 	b.WriteString("</div>") // pages
 
+	// Turnstile widget
+	if siteKey := cfg["turnstile_site_key"]; siteKey != "" {
+		b.WriteString("<div style=\"display:flex;justify-content:center;margin:24px 0;\">")
+		b.WriteString("<div class=\"cf-turnstile\" data-sitekey=\"" + htmlEscape(siteKey) + "\" data-theme=\"light\"></div>")
+		b.WriteString("</div>")
+		b.WriteString("<script src=\"https://challenges.cloudflare.com/turnstile/v0/api.js\" async defer></script>")
+	}
+
 	// Actions: Prev/Next for multi-page, Submit on last page
 	if len(pages) > 1 {
 		b.WriteString("<div class=\"actions\">")
@@ -1132,45 +1237,68 @@ func (s *Server) isFirstRun(ctx context.Context) bool {
 	return total == 0
 }
 
-func botProtectionCheck(r *http.Request, payload map[string]interface{}, enable bool, minMs int) error {
+func (s *Server) botProtectionCheck(r *http.Request, payload map[string]interface{}, enable bool, minMs int, srcCfg map[string]string) error {
 	ct := r.Header.Get("Content-Type")
-	if !enable || (!strings.Contains(ct, "application/x-www-form-urlencoded") && !strings.Contains(ct, "multipart/form-data")) {
+	if !enable || (!strings.Contains(ct, "application/x-www-form-urlencoded") && !strings.Contains(ct, "multipart/form-data") && !strings.Contains(ct, "application/json")) {
 		return nil
 	}
 
-	// Token check
-	tokenCookie, err := r.Cookie("hf_token")
-	if err != nil {
-		return fmt.Errorf("invalid form token")
-	}
-	formToken := ""
-	if t, ok := payload["hf_token"].(string); ok {
-		formToken = t
-	} else if r.PostForm != nil {
-		formToken = r.PostForm.Get("hf_token")
-	}
-	if formToken == "" || tokenCookie.Value != formToken {
-		return fmt.Errorf("invalid form token")
+	// Turnstile check if configured
+	if srcCfg != nil && srcCfg["turnstile_secret"] != "" {
+		token := ""
+		if t, ok := payload["cf-turnstile-response"].(string); ok {
+			token = t
+		}
+		if token == "" {
+			return fmt.Errorf("missing bot protection token")
+		}
+
+		// Verify Turnstile token
+		resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", url.Values{
+			"secret":   {srcCfg["turnstile_secret"]},
+			"response": {token},
+			"remoteip": {r.RemoteAddr},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to verify bot protection")
+		}
+		defer resp.Body.Close()
+		var res struct {
+			Success bool `json:"success"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil || !res.Success {
+			return fmt.Errorf("bot detected (turnstile)")
+		}
 	}
 
 	// Honeypot field must be empty
 	hp := ""
 	if v, ok := payload["website"].(string); ok {
 		hp = v
-	} else if r.PostForm != nil {
-		hp = r.PostForm.Get("website")
 	}
 	if strings.TrimSpace(hp) != "" {
 		return fmt.Errorf("bot detected")
 	}
 
-	// Minimum submit time window
-	issuedCookie, _ := r.Cookie("hf_issued")
-	if issuedCookie != nil && issuedCookie.Value != "" {
-		if ms, convErr := strconv.ParseInt(issuedCookie.Value, 10, 64); convErr == nil && minMs > 0 {
-			elapsed := time.Since(time.UnixMilli(ms)).Milliseconds()
-			if elapsed < int64(minMs) {
-				return fmt.Errorf("submitted too quickly")
+	// Minimum submit time window (skip for JSON/API submissions)
+	if !strings.Contains(ct, "application/json") {
+		// Token check
+		tokenCookie, _ := r.Cookie("hf_token")
+		formToken := ""
+		if t, ok := payload["hf_token"].(string); ok {
+			formToken = t
+		}
+		if tokenCookie != nil && (formToken == "" || tokenCookie.Value != formToken) {
+			return fmt.Errorf("invalid form token")
+		}
+
+		issuedCookie, _ := r.Cookie("hf_issued")
+		if issuedCookie != nil && issuedCookie.Value != "" {
+			if ms, convErr := strconv.ParseInt(issuedCookie.Value, 10, 64); convErr == nil && minMs > 0 {
+				elapsed := time.Since(time.UnixMilli(ms)).Milliseconds()
+				if elapsed < int64(minMs) {
+					return fmt.Errorf("submitted too quickly")
+				}
 			}
 		}
 	}

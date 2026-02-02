@@ -5,6 +5,8 @@ import (
 	"hash/fnv"
 	"log"
 	"reflect"
+	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -24,9 +26,10 @@ type WorkerStorage interface {
 	GetSink(ctx context.Context, id string) (storage.Sink, error)
 	ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error)
 	ListSinks(ctx context.Context, filter storage.CommonFilter) ([]storage.Sink, int, error)
+	ListWorkers(ctx context.Context, filter storage.CommonFilter) ([]storage.Worker, int, error)
 	UpdateSource(ctx context.Context, src storage.Source) error
 	UpdateSink(ctx context.Context, snk storage.Sink) error
-	UpdateWorkerHeartbeat(ctx context.Context, id string) error
+	UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error
 	CreateLog(ctx context.Context, log storage.Log) error
 	AcquireWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error)
 	RenewWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error)
@@ -50,6 +53,8 @@ type Worker struct {
 	leaseTTLSeconds   int
 	renewMu           sync.Mutex
 	renewCancel       map[string]context.CancelFunc
+	workerCache       []storage.Worker
+	workerCacheTime   time.Time
 }
 
 // NewWorker creates a new worker.
@@ -119,14 +124,52 @@ func (w *Worker) Start(ctx context.Context) error {
 	// Initial sync
 	w.sync(ctx, true)
 
+	// Ensure cleanup on shutdown
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		w.ReleaseAllLeases(cleanupCtx)
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
+			log.Println("Worker: stopping background loop...")
 			return ctx.Err()
 		case <-ticker.C:
 			w.sync(ctx, false)
 			w.checkHealth(ctx)
 		}
+	}
+}
+
+// ReleaseAllLeases releases all workflow leases held by this worker.
+func (w *Worker) ReleaseAllLeases(ctx context.Context) {
+	if w.workerGUID == "" {
+		return
+	}
+
+	log.Printf("Worker: releasing all leases for %s...", w.workerGUID)
+
+	workflows, _, err := w.storage.ListWorkflows(ctx, storage.CommonFilter{})
+	if err != nil {
+		log.Printf("Worker: failed to list workflows for lease release: %v", err)
+		return
+	}
+
+	released := 0
+	for _, wf := range workflows {
+		if wf.OwnerID == w.workerGUID {
+			err := w.storage.ReleaseWorkflowLease(ctx, wf.ID, w.workerGUID)
+			if err != nil {
+				log.Printf("Worker: failed to release lease for workflow %s: %v", wf.ID, err)
+			} else {
+				released++
+			}
+		}
+	}
+	if released > 0 {
+		log.Printf("Worker: released %d leases", released)
 	}
 }
 
@@ -219,6 +262,18 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 				if w.workerGUID != "" && wf.OwnerID == w.workerGUID && wf.LeaseUntil != nil && time.Now().Before(*wf.LeaseUntil) {
 					ownedLeases++
 				}
+			} else {
+				// If not assigned to this worker, but it's currently running here (stale state)
+				if w.registry.IsEngineRunning(wf.ID) {
+					log.Printf("Worker: detected stale workflow %s running on this worker, scheduling graceful stop...", wf.ID)
+					go func(id string) {
+						_ = w.registry.StopEngineWithoutUpdate(id)
+						w.stopLeaseRenewal(id)
+						if w.workerGUID != "" {
+							_ = w.storage.ReleaseWorkflowLease(ctx, id, w.workerGUID)
+						}
+					}(wf.ID)
+				}
 			}
 		}
 	}
@@ -267,12 +322,14 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 	if !assigned {
 		// If it's running but no longer assigned, stop it and release lease if owned
 		if w.registry.IsEngineRunning(wf.ID) {
-			log.Printf("Worker: stopping workflow %s (no longer assigned to this worker)", wf.ID)
-			_ = w.registry.StopEngineWithoutUpdate(wf.ID)
-			w.stopLeaseRenewal(wf.ID)
-			if w.workerGUID != "" {
-				_ = w.storage.ReleaseWorkflowLease(ctx, wf.ID, w.workerGUID)
-			}
+			log.Printf("Worker: workflow %s is being handed off, stopping gracefully...", wf.ID)
+			go func(id string) {
+				_ = w.registry.StopEngineWithoutUpdate(id)
+				w.stopLeaseRenewal(id)
+				if w.workerGUID != "" {
+					_ = w.storage.ReleaseWorkflowLease(ctx, id, w.workerGUID)
+				}
+			}(wf.ID)
 		}
 		return
 	}
@@ -301,9 +358,11 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 		if !owned {
 			// We don't own the workflow; ensure it's not running here
 			if isRunning {
-				log.Printf("Worker: stopping workflow %s (lease not owned by this worker)", wf.ID)
-				_ = w.registry.StopEngineWithoutUpdate(wf.ID)
-				w.stopLeaseRenewal(wf.ID)
+				log.Printf("Worker: stopping workflow %s (lease lost/expired), stopping gracefully...", wf.ID)
+				go func(id string) {
+					_ = w.registry.StopEngineWithoutUpdate(id)
+					w.stopLeaseRenewal(id)
+				}(wf.ID)
 			}
 			return
 		}
@@ -329,8 +388,11 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 				}
 
 				if configChanged {
-					log.Printf("Worker: configuration changed for workflow %s, restarting...", wf.ID)
-					_ = w.registry.StopEngineWithoutUpdate(wf.ID)
+					log.Printf("Worker: configuration changed for workflow %s, restarting gracefully...", wf.ID)
+					go func(id string) {
+						_ = w.registry.StopEngineWithoutUpdate(id)
+						w.stopLeaseRenewal(id)
+					}(wf.ID)
 					isRunning = false
 				}
 			}
@@ -406,17 +468,73 @@ func (w *Worker) stopLeaseRenewal(workflowID string) {
 	w.renewMu.Unlock()
 }
 
-func (w *Worker) isAssigned(workflowID string) bool {
-	if w.totalWorkers <= 1 {
+func (w *Worker) isAssigned(resourceID string) bool {
+	if w.workerGUID == "" {
+		// Legacy behavior if no GUID: simple ID-based sharding
+		if w.totalWorkers <= 1 {
+			return true
+		}
+		h := fnv.New32a()
+		h.Write([]byte(resourceID))
+		return int(h.Sum32())%w.totalWorkers == w.workerID
+	}
+
+	// Resource-Aware Sharding
+	ctx := context.Background()
+	if time.Since(w.workerCacheTime) > 10*time.Second {
+		workers, _, err := w.storage.ListWorkers(ctx, storage.CommonFilter{})
+		if err == nil {
+			var online []storage.Worker
+			now := time.Now()
+			for _, wrk := range workers {
+				// Worker is online if seen in the last 60 seconds
+				if wrk.LastSeen != nil && now.Sub(*wrk.LastSeen) < 1*time.Minute {
+					online = append(online, wrk)
+				}
+			}
+			// Stable sort by ID
+			sort.Slice(online, func(i, j int) bool { return online[i].ID < online[j].ID })
+			w.workerCache = online
+			w.workerCacheTime = now
+		}
+	}
+
+	online := w.workerCache
+	if len(online) <= 1 {
 		return true
 	}
 
-	// Use FNV-1a for better distribution
-	h := fnv.New32a()
-	h.Write([]byte(workflowID))
-	hash := h.Sum32()
+	// 1. Resource Check
+	// Actually, for stability, we use a weighted distribution based on available capacity.
+	// For simplicity in this implementation, we use the hash to pick a candidate, but we "shift"
+	// the candidates based on their load.
 
-	return int(hash)%w.totalWorkers == w.workerID
+	// Better approach: Rendezvous Hashing or just simple load-balanced selection.
+	// We'll use a simplified version: calculate a score for each worker for this resourceID.
+	// Score = hash(workerID + resourceID) * (1.0 - CPUUsage)
+
+	var bestID string
+	var maxScore float64 = -1.0
+
+	for _, wrk := range online {
+		h := fnv.New32a()
+		h.Write([]byte(wrk.ID + resourceID))
+
+		// Weight by inverse of CPU usage (more free CPU = higher weight)
+		// We use 1.1 - usage to avoid zero weight and give a baseline.
+		weight := 1.1 - wrk.CPUUsage
+		if weight < 0.1 {
+			weight = 0.1
+		}
+
+		score := float64(h.Sum32()) * weight
+		if score > maxScore {
+			maxScore = score
+			bestID = wrk.ID
+		}
+	}
+
+	return bestID == w.workerGUID
 }
 
 func (w *Worker) hasResourceConfigChanged(workflowID string, sourceMap map[string]storage.Source, sinkMap map[string]storage.Sink) bool {
@@ -444,6 +562,28 @@ func (w *Worker) hasResourceConfigChanged(workflowID string, sourceMap map[strin
 	return false
 }
 
+func (w *Worker) getMetrics() (float64, float64) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	// Memory usage in MB
+	memMB := float64(m.Alloc) / 1024 / 1024
+
+	// CPU usage proxy: Use a combination of NumGoroutine and NumCPU to get a load factor
+	// In production, one would use gopsutil or read /proc/stat
+	numCPU := float64(runtime.NumCPU())
+	numGoroutine := float64(runtime.NumGoroutine())
+
+	// Load factor: active goroutines per CPU.
+	// We normalize it so that 100 goroutines per core = 100% load (1.0)
+	cpuLoad := numGoroutine / (numCPU * 100.0)
+	if cpuLoad > 1.0 {
+		cpuLoad = 1.0
+	}
+
+	return cpuLoad, memMB
+}
+
 func (w *Worker) checkHealth(ctx context.Context) {
 	if time.Since(w.lastHealthCheck) < 30*time.Second {
 		return
@@ -452,7 +592,8 @@ func (w *Worker) checkHealth(ctx context.Context) {
 
 	// Update worker heartbeat
 	if w.workerGUID != "" {
-		if err := w.storage.UpdateWorkerHeartbeat(ctx, w.workerGUID); err != nil {
+		cpu, mem := w.getMetrics()
+		if err := w.storage.UpdateWorkerHeartbeat(ctx, w.workerGUID, cpu, mem); err != nil {
 			log.Printf("Worker: failed to update heartbeat: %v", err)
 		}
 	}

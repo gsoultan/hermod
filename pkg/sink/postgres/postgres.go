@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
@@ -20,6 +24,7 @@ type PostgresSink struct {
 	pool       *pgxpool.Pool
 	logger     hermod.Logger
 	mu         sync.Mutex
+	tx         pgx.Tx
 }
 
 func NewPostgresSink(connString string) *PostgresSink {
@@ -83,43 +88,63 @@ func (s *PostgresSink) WriteBatch(ctx context.Context, msgs []hermod.Message) er
 		}
 	}
 
-	// For simplicity and to handle different tables/operations in the same batch,
-	// we group them. In a high-performance scenario, we'd want to use COPY for single-table batches.
-	// For now, let's at least use a transaction for the batch.
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
+	// Group by table and operation
+	groups := make(map[string][]hermod.Message)
 	for _, msg := range msgs {
 		table := msg.Table()
 		if msg.Schema() != "" {
 			table = fmt.Sprintf("%s.%s", msg.Schema(), table)
 		}
+		op := string(msg.Operation())
+		key := fmt.Sprintf("%s:%s", table, op)
+		groups[key] = append(groups[key], msg)
+	}
 
-		op := msg.Operation()
-		if op == "" {
-			op = hermod.OpCreate
-		}
+	var executor interface {
+		Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	}
 
-		switch op {
-		case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
-			query := fmt.Sprintf("INSERT INTO %s (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data = $2", table)
-			_, err = tx.Exec(ctx, query, msg.ID(), msg.Payload())
-		case hermod.OpDelete:
-			query := fmt.Sprintf("DELETE FROM %s WHERE id = $1", table)
-			_, err = tx.Exec(ctx, query, msg.ID())
-		default:
-			err = fmt.Errorf("unsupported operation: %s", op)
-		}
-
+	if s.tx != nil {
+		executor = s.tx
+	} else {
+		tx, err := s.pool.Begin(ctx)
 		if err != nil {
-			return fmt.Errorf("batch write error on message %s: %w", msg.ID(), err)
+			return fmt.Errorf("failed to begin transaction: %w", err)
+		}
+		defer tx.Rollback(ctx)
+		executor = tx
+	}
+
+	for key, group := range groups {
+		parts := strings.SplitN(key, ":", 2)
+		table := parts[0]
+		op := hermod.Operation(parts[1])
+
+		for _, msg := range group {
+			var err error
+			switch op {
+			case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
+				query := fmt.Sprintf(commonQueries[QueryUpsert], table)
+				_, err = executor.Exec(ctx, query, msg.ID(), msg.Payload())
+			case hermod.OpDelete:
+				query := fmt.Sprintf(commonQueries[QueryDelete], table)
+				_, err = executor.Exec(ctx, query, msg.ID())
+			default:
+				err = fmt.Errorf("unsupported operation: %s", op)
+			}
+
+			if err != nil {
+				return fmt.Errorf("batch write error on message %s: %w", msg.ID(), err)
+			}
 		}
 	}
 
-	return tx.Commit(ctx)
+	if s.tx == nil {
+		if tx, ok := executor.(pgx.Tx); ok {
+			return tx.Commit(ctx)
+		}
+	}
+	return nil
 }
 
 func (s *PostgresSink) init(ctx context.Context) error {
@@ -129,6 +154,65 @@ func (s *PostgresSink) init(ctx context.Context) error {
 	}
 	s.pool = pool
 	return s.pool.Ping(ctx)
+}
+
+func (s *PostgresSink) Begin(ctx context.Context) error {
+	if err := s.init(ctx); err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	s.tx = tx
+	return nil
+}
+
+func (s *PostgresSink) Commit(ctx context.Context) error {
+	if s.tx == nil {
+		return fmt.Errorf("no active transaction")
+	}
+	err := s.tx.Commit(ctx)
+	s.tx = nil
+	return err
+}
+
+func (s *PostgresSink) Rollback(ctx context.Context) error {
+	if s.tx == nil {
+		return nil
+	}
+	err := s.tx.Rollback(ctx)
+	s.tx = nil
+	return err
+}
+
+func (s *PostgresSink) Prepare(ctx context.Context) (string, error) {
+	if s.tx == nil {
+		return "", fmt.Errorf("no active transaction")
+	}
+	txID := uuid.New().String()
+	_, err := s.tx.Exec(ctx, fmt.Sprintf("PREPARE TRANSACTION '%s'", txID))
+	if err != nil {
+		return "", err
+	}
+	s.tx = nil
+	return txID, nil
+}
+
+func (s *PostgresSink) CommitPrepared(ctx context.Context, txID string) error {
+	if err := s.init(ctx); err != nil {
+		return err
+	}
+	_, err := s.pool.Exec(ctx, fmt.Sprintf("COMMIT PREPARED '%s'", txID))
+	return err
+}
+
+func (s *PostgresSink) RollbackPrepared(ctx context.Context, txID string) error {
+	if err := s.init(ctx); err != nil {
+		return err
+	}
+	_, err := s.pool.Exec(ctx, fmt.Sprintf("ROLLBACK PREPARED '%s'", txID))
+	return err
 }
 
 func (s *PostgresSink) Ping(ctx context.Context) error {
@@ -154,7 +238,7 @@ func (s *PostgresSink) DiscoverDatabases(ctx context.Context) ([]string, error) 
 		}
 	}
 
-	rows, err := s.pool.Query(ctx, "SELECT datname FROM pg_database WHERE datistemplate = false")
+	rows, err := s.pool.Query(ctx, commonQueries[QueryListDatabases])
 	if err != nil {
 		return nil, fmt.Errorf("failed to query databases: %w", err)
 	}
@@ -178,7 +262,7 @@ func (s *PostgresSink) DiscoverTables(ctx context.Context) ([]string, error) {
 		}
 	}
 
-	rows, err := s.pool.Query(ctx, "SELECT table_schema || '.' || table_name FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'pg_catalog')")
+	rows, err := s.pool.Query(ctx, commonQueries[QueryListTables])
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +301,7 @@ func (s *PostgresSink) Browse(ctx context.Context, table string, limit int) ([]h
 	if err != nil {
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
-	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d", quoted, limit)
+	query := fmt.Sprintf(commonQueries[QueryBrowse], quoted, limit)
 	rows, err := s.pool.Query(ctx, query)
 	if err != nil {
 		return nil, err

@@ -1,0 +1,123 @@
+{
+  "name": "Global E-commerce Fulfillment Mesh",
+  "description": "A comprehensive enterprise scenario featuring AI-driven mapping, PII masking, data quality scoring, and geo-aware mesh routing for global order processing and fraud detection.",
+  "icon": "IconWorld",
+  "color": "indigo",
+  "data": {
+    "name": "Global E-commerce Fulfillment",
+    "tier": "Enterprise",
+    "workspace_id": "prod-fulfillment",
+    "nodes": [
+      {
+        "id": "src_orders",
+        "type": "source",
+        "config": {
+          "label": "Storefront Webhook",
+          "type": "webhook",
+          "ref_id": "new",
+          "path": "/api/forms/v1/orders"
+        },
+        "x": 50,
+        "y": 250
+      },
+      {
+        "id": "trans_ai_mapper",
+        "type": "transformation",
+        "config": {
+          "label": "AI Order Normalizer",
+          "transType": "ai_mapper",
+          "prompt": "Normalize e-commerce order data to standard schema. Map 'cust_name' to 'customer_name', 'total' to 'amount', and extract 'currency'.",
+          "confidence_threshold": 0.85
+        },
+        "x": 250,
+        "y": 250
+      },
+      {
+        "id": "trans_dq",
+        "type": "transformation",
+        "config": {
+          "label": "Quality Gate",
+          "transType": "dq_scorer",
+          "completeness_weight": 0.5,
+          "accuracy_weight": 0.5
+        },
+        "x": 450,
+        "y": 250
+      },
+      {
+        "id": "trans_mask",
+        "type": "transformation",
+        "config": {
+          "label": "PII Protection",
+          "transType": "mask",
+          "fields": "email,customer_name,address",
+          "maskType": "sha256"
+        },
+        "x": 650,
+        "y": 250
+      },
+      {
+        "id": "router_geo",
+        "type": "router",
+        "config": {
+          "label": "Geo Mesh Router",
+          "rules": [
+            { "condition": "{{eq .region \"EU\"}}", "target": "mesh_eu" },
+            { "condition": "{{eq .region \"US\"}}", "target": "local_storage" },
+            { "condition": "true", "target": "mesh_global" }
+          ]
+        },
+        "x": 850,
+        "y": 250
+      },
+      {
+        "id": "mesh_eu",
+        "type": "sink",
+        "config": {
+          "label": "EU Regional Mesh",
+          "type": "mesh",
+          "target_cluster": "eu-central-1",
+          "target_region": "EU"
+        },
+        "x": 1100,
+        "y": 100
+      },
+      {
+        "id": "local_storage",
+        "type": "sink",
+        "config": {
+          "label": "US Master DB",
+          "type": "postgres",
+          "ref_id": "new",
+          "table": "orders_master"
+        },
+        "x": 1100,
+        "y": 250
+      },
+      {
+        "id": "mesh_global",
+        "type": "sink",
+        "config": {
+          "label": "Global Analytics",
+          "type": "kafka",
+          "ref_id": "new",
+          "topic": "global_fulfillment_events"
+        },
+        "x": 1100,
+        "y": 400
+      }
+    ],
+    "edges": [
+      { "id": "e1", "source_id": "src_orders", "target_id": "trans_ai_mapper" },
+      { "id": "e2", "source_id": "trans_ai_mapper", "target_id": "trans_dq" },
+      { "id": "e3", "source_id": "trans_dq", "target_id": "trans_mask" },
+      { "id": "e4", "source_id": "trans_mask", "target_id": "router_geo" },
+      { "id": "e5", "source_id": "router_geo", "target_id": "mesh_eu" },
+      { "id": "e6", "source_id": "router_geo", "target_id": "local_storage" },
+      { "id": "e7", "source_id": "router_geo", "target_id": "mesh_global" }
+    ],
+    "max_retries": 5,
+    "retry_interval": "1s",
+    "dead_letter_sink_id": "local_storage"
+  }
+}

@@ -34,7 +34,7 @@ func TestWebhookDecompression(t *testing.T) {
 	defer webhook.Unregister("/api/webhooks/test")
 
 	registry := engine.NewRegistry(nil)
-	server := NewServer(registry, &mockWebhookStorage{})
+	server := NewServer(registry, &mockWebhookStorage{}, nil, nil)
 	handler := server.Routes()
 
 	testData := "this is some test data for webhook decompression. It should be large enough."

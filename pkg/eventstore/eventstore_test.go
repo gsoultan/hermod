@@ -12,6 +12,25 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func TestDriverNormalization(t *testing.T) {
+	dbPath := "test_norm.db"
+	defer os.Remove(dbPath)
+	db, _ := sql.Open("sqlite", dbPath)
+	defer db.Close()
+
+	// "pgx" should be normalized to "postgres"
+	s, err := NewSQLStore(db, "pgx")
+	if err != nil {
+		// It might fail because we are using sqlite DB with postgres schema init
+		// but we want to check if the error is "unsupported driver"
+		if err.Error() == "unsupported driver: pgx" {
+			t.Errorf("driver pgx was not normalized")
+		}
+	} else if s.driver != "postgres" {
+		t.Errorf("expected driver to be normalized to postgres, got %s", s.driver)
+	}
+}
+
 func TestEventStore(t *testing.T) {
 	dbPath := "test_eventstore.db"
 	defer os.Remove(dbPath)

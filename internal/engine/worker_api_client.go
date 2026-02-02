@@ -221,17 +221,45 @@ func (c *WorkerAPIClient) UpdateSink(ctx context.Context, snk storage.Sink) erro
 	return nil
 }
 
-func (c *WorkerAPIClient) UpdateWorkerHeartbeat(ctx context.Context, id string) error {
-	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/api/workers/%s/heartbeat", id), nil)
+func (c *WorkerAPIClient) UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error {
+	payload := map[string]float64{
+		"cpu_usage":    cpu,
+		"memory_usage": mem,
+	}
+	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/api/workers/%s/heartbeat", id), payload)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("API error: %s", resp.Status)
 	}
 	return nil
+}
+
+func (c *WorkerAPIClient) ListWorkers(ctx context.Context, filter storage.CommonFilter) ([]storage.Worker, int, error) {
+	url := "/api/workers"
+	if filter.Limit > 0 {
+		url = fmt.Sprintf("%s?page=%d&limit=%d&search=%s", url, filter.Page, filter.Limit, filter.Search)
+	}
+
+	resp, err := c.doRequest(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, 0, fmt.Errorf("API error: %s", resp.Status)
+	}
+
+	var res struct {
+		Data  []storage.Worker `json:"data"`
+		Total int              `json:"total"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&res)
+	return res.Data, res.Total, err
 }
 
 func (c *WorkerAPIClient) CreateLog(ctx context.Context, log storage.Log) error {

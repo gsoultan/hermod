@@ -66,3 +66,36 @@ func (s *PrioritySource) Close() error {
 	_ = s.recovery.Close()
 	return s.primary.Close()
 }
+
+func (s *PrioritySource) GetState() map[string]string {
+	state := make(map[string]string)
+	if st, ok := s.recovery.(hermod.Stateful); ok {
+		for k, v := range st.GetState() {
+			state["recovery:"+k] = v
+		}
+	}
+	if st, ok := s.primary.(hermod.Stateful); ok {
+		for k, v := range st.GetState() {
+			state["primary:"+k] = v
+		}
+	}
+	return state
+}
+
+func (s *PrioritySource) SetState(state map[string]string) {
+	recoveryState := make(map[string]string)
+	primaryState := make(map[string]string)
+	for k, v := range state {
+		if len(k) > 9 && k[:9] == "recovery:" {
+			recoveryState[k[9:]] = v
+		} else if len(k) > 8 && k[:8] == "primary:" {
+			primaryState[k[8:]] = v
+		}
+	}
+	if st, ok := s.recovery.(hermod.Stateful); ok {
+		st.SetState(recoveryState)
+	}
+	if st, ok := s.primary.(hermod.Stateful); ok {
+		st.SetState(primaryState)
+	}
+}

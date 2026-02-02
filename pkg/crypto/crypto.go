@@ -3,8 +3,11 @@ package crypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
 )
@@ -79,4 +82,11 @@ func GenerateToken() string {
 		return ""
 	}
 	return base64.URLEncoding.EncodeToString(b)
+}
+
+// ComputeHMAC computes a SHA256 HMAC of the data using the given secret.
+func ComputeHMAC(data []byte, secret string) string {
+	h := hmac.New(sha256.New, []byte(secret))
+	h.Write(data)
+	return hex.EncodeToString(h.Sum(nil))
 }

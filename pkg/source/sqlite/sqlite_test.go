@@ -16,16 +16,29 @@ func TestSQLiteSource_Read(t *testing.T) {
 	s := NewSQLiteSource(dbPath, []string{"test_table"}, true)
 	defer s.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+
+	// Initialize DB and create table
+	if err := s.Ping(ctx); err != nil {
+		t.Fatalf("failed to init db: %v", err)
+	}
+	_, err := s.db.Exec("CREATE TABLE test_table (id INTEGER PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+	_, err = s.db.Exec("INSERT INTO test_table (name) VALUES ('test-name')")
+	if err != nil {
+		t.Fatalf("failed to insert data: %v", err)
+	}
 
 	msg, err := s.Read(ctx)
 	if err != nil {
 		t.Fatalf("failed to read from SQLiteSource: %v", err)
 	}
 
-	if msg.ID() != "sqlite-1" {
-		t.Errorf("expected ID sqlite-1, got %s", msg.ID())
+	if msg.ID() != "sqlite-test_table-1" {
+		t.Errorf("expected ID sqlite-test_table-1, got %s", msg.ID())
 	}
 
 	if msg.Operation() != hermod.OpCreate {

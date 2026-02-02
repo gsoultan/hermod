@@ -1,0 +1,36 @@
+{
+  "name": "SAP to S3: Enterprise Data Archival",
+  "description": "Extract enterprise data from SAP (OData/RFC) and archive it to Amazon S3 in Parquet format for long-term storage and analysis.",
+  "icon": "IconCloud",
+  "color": "orange",
+  "data": {
+    "name": "SAP to S3 Archival",
+    "nodes": [
+      {
+        "id": "src_sap",
+        "type": "source",
+        "config": { "label": "SAP OData", "type": "sap_odata", "ref_id": "new" },
+        "x": 100,
+        "y": 200
+      },
+      {
+        "id": "trans_format",
+        "type": "transformation",
+        "config": { "label": "Format & Schema", "transType": "mapping" },
+        "x": 400,
+        "y": 200
+      },
+      {
+        "id": "snk_s3",
+        "type": "sink",
+        "config": { "label": "Amazon S3", "type": "s3", "ref_id": "new" },
+        "x": 700,
+        "y": 200
+      }
+    ],
+    "edges": [
+      { "id": "e1", "source_id": "src_sap", "target_id": "trans_format" },
+      { "id": "e2", "source_id": "trans_format", "target_id": "snk_s3" }
+    ]
+  }
+}

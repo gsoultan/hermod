@@ -12,7 +12,7 @@ import (
 )
 
 type mockReconStorage struct {
-	storage.Storage
+	BaseMockStorage
 	workflows map[string]storage.Workflow
 	mu        sync.Mutex
 }

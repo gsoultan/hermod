@@ -4,13 +4,13 @@ import {
   Button, Code, List, Autocomplete, JsonInput, Badge, Grid,
   PasswordInput, NumberInput, Card, Tabs, ScrollArea, Box,
   Tooltip as MantineTooltip,
-  Switch, Textarea, Modal
+  Switch, Textarea, Modal, TagsInput
 } from '@mantine/core';
 import { 
   IconTrash, IconPlus, IconInfoCircle, IconArrowRight, IconPlayerPlay,
   IconSearch, IconFunction,
   IconVariable, IconDatabase, IconCloud, IconList,
-  IconSettings, IconCode, IconBracketsContain, IconHelpCircle
+  IconSettings, IconCode, IconBracketsContain, IconHelpCircle, IconPuzzle
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { apiFetch } from '../api';
@@ -235,7 +235,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
               value={newVal}
               onChange={(e) => updateValue(oldVal, e.target.value)}
             />
-            <ActionIcon color="red" variant="subtle" onClick={() => removeEntry(oldVal)}>
+            <ActionIcon aria-label="Remove entry" color="red" variant="subtle" onClick={() => removeEntry(oldVal)}>
               <IconTrash size="1rem" />
             </ActionIcon>
           </Group>
@@ -304,7 +304,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
               value={type}
               onChange={(val) => updateType(path, val || 'string')}
             />
-            <ActionIcon color="red" variant="subtle" onClick={() => removeRule(path)}>
+            <ActionIcon aria-label="Remove rule" color="red" variant="subtle" onClick={() => removeRule(path)}>
               <IconTrash size="1rem" />
             </ActionIcon>
           </Group>
@@ -317,6 +317,62 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
         >
           Add Validation Rule
         </Button>
+      </Stack>
+    );
+  };
+
+  const renderStatValidatorEditor = () => {
+    return (
+      <Stack gap="sm">
+        <Text size="sm" fw={500}>Statistical Validation Settings</Text>
+        <Grid>
+          <Grid.Col span={6}>
+            <Autocomplete
+              label="Field to Validate"
+              description="Numeric field to monitor for anomalies"
+              placeholder="e.g. price, amount, latency"
+              data={availableFields}
+              value={selectedNode.data.field || ''}
+              onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })}
+            />
+          </Grid.Col>
+          <Grid.Col span={6}>
+            <Select
+              label="On Anomaly Detected"
+              description="Action to take when an outlier is found"
+              data={[
+                { value: 'tag', label: 'Tag only (set metadata anomaly=true)' },
+                { value: 'drop', label: 'Drop message (stop processing)' }
+              ]}
+              value={selectedNode.data.action || 'tag'}
+              onChange={(val) => updateNodeConfig(selectedNode.id, { action: val || 'tag' })}
+            />
+          </Grid.Col>
+          <Grid.Col span={6}>
+            <NumberInput
+              label="Z-Score Threshold"
+              description="Number of standard deviations from mean"
+              min={1}
+              max={10}
+              step={0.1}
+              decimalScale={1}
+              value={Number(selectedNode.data.threshold) || 3.0}
+              onChange={(val) => updateNodeConfig(selectedNode.id, { threshold: val })}
+            />
+          </Grid.Col>
+          <Grid.Col span={6}>
+            <NumberInput
+              label="Minimum Samples"
+              description="Samples needed before triggering validation"
+              min={1}
+              value={Number(selectedNode.data.min_samples) || 10}
+              onChange={(val) => updateNodeConfig(selectedNode.id, { min_samples: val })}
+            />
+          </Grid.Col>
+        </Grid>
+        <Alert icon={<IconInfoCircle size="1rem" />} color="blue" variant="light">
+          Uses Welford's online algorithm for stable rolling mean and standard deviation.
+        </Alert>
       </Stack>
     );
   };
@@ -417,7 +473,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                 )
               }
             />
-            <ActionIcon color="red" variant="subtle" onClick={() => removeField(field.fullKey)} style={{ flex: 'none' }}>
+            <ActionIcon aria-label="Remove field" color="red" variant="subtle" onClick={() => removeField(field.fullKey)} style={{ flex: 'none' }}>
               <IconTrash size="1rem" />
             </ActionIcon>
           </Group>
@@ -489,7 +545,14 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                   onChange={(e) => updateRule(index, 'label', e.target.value)}
                   required
                 />
-                <ActionIcon color="red" variant="subtle" onClick={() => removeRule(index)} mb={2} style={{ flex: 'none' }}>
+                <ActionIcon 
+                  aria-label="Remove router rule"
+                  color="red" 
+                  variant="subtle" 
+                  onClick={() => removeRule(index)} 
+                  mb={2} 
+                  style={{ flex: 'none' }}
+                >
                   <IconTrash size="1rem" />
                 </ActionIcon>
               </Group>
@@ -581,7 +644,14 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                   onChange={(e) => updateCase(index, 'label', e.target.value)}
                   required
                 />
-                <ActionIcon color="red" variant="subtle" onClick={() => removeCase(index)} mb={2} style={{ flex: 'none' }}>
+                <ActionIcon 
+                  aria-label="Remove switch case"
+                  color="red" 
+                  variant="subtle" 
+                  onClick={() => removeCase(index)} 
+                  mb={2} 
+                  style={{ flex: 'none' }}
+                >
                   <IconTrash size="1rem" />
                 </ActionIcon>
               </Group>
@@ -644,7 +714,13 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                           value={cond.value || ''} 
                           onChange={(e) => updateCaseCondition(index, condIdx, 'value', e.target.value)} 
                         />
-                        <ActionIcon color="red" variant="subtle" onClick={() => removeCaseCondition(index, condIdx)} style={{ flex: 'none' }}>
+                        <ActionIcon 
+                          aria-label="Remove switch condition"
+                          color="red" 
+                          variant="subtle" 
+                          onClick={() => removeCaseCondition(index, condIdx)} 
+                          style={{ flex: 'none' }}
+                        >
                           <IconTrash size="0.8rem" />
                         </ActionIcon>
                       </Group>
@@ -1010,30 +1086,143 @@ end`}
             </>
           )}
 
-          {transType === 'stateful' && (
+          {transType === 'wasm' && (
+            <>
+              {selectedNode.data.pluginID && (
+                <Alert icon={<IconPuzzle size="1rem" />} color="indigo" mb="sm">
+                  <Text size="sm" fw={700}>Marketplace Plugin: {selectedNode.data.label}</Text>
+                  <Text size="xs">Using installed WASM binary for plugin <code>{selectedNode.data.pluginID}</code>. No manual upload or URL needed.</Text>
+                </Alert>
+              )}
+              <TextInput
+                label="WASM Function Name"
+                placeholder="transform"
+                value={selectedNode.data.function || 'transform'}
+                onChange={(e) => updateNodeConfig(selectedNode.id, { function: e.target.value })}
+                mb="sm"
+              />
+              {!selectedNode.data.pluginID && (
+                <Textarea
+                  label="WASM Binary (Base64 or URL)"
+                  placeholder="AGFzbQEAAAAB..."
+                  value={selectedNode.data.wasmBytes || ''}
+                  onChange={(e) => updateNodeConfig(selectedNode.id, { wasmBytes: e.target.value })}
+                  minRows={10}
+                  autosize
+                  styles={{ input: { fontFamily: 'monospace' } }}
+                />
+              )}
+              <Alert icon={<IconInfoCircle size="1rem" />} color="blue" py="xs">
+                <Text size="xs">WebAssembly module should use WASI for I/O (JSON via stdin/stdout) and export the specified function.</Text>
+              </Alert>
+            </>
+          )}
+
+          {isAggregate && (
             <>
               <Select 
                 label="Operation" 
-                data={['count', 'sum']} 
-                value={selectedNode.data.operation || 'count'} 
-                onChange={(val) => updateNodeConfig(selectedNode.id, { operation: val || 'count' })} 
+                data={[
+                  { label: 'Count', value: 'count' },
+                  { label: 'Sum', value: 'sum' },
+                  { label: 'Average', value: 'avg' },
+                ]} 
+                value={selectedNode.data.type || selectedNode.data.operation || 'count'} 
+                onChange={(val) => updateNodeConfig(selectedNode.id, { type: val, operation: val })} 
               />
               <Autocomplete 
-                label="Field" 
+                label="Field to Aggregate" 
                 placeholder="e.g. amount" 
                 data={availableFields}
                 value={selectedNode.data.field || ''} 
                 onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })} 
-                description="Field to aggregate. Supports nested objects and arrays."
+                description="Supports nested objects and arrays."
+              />
+              <TextInput 
+                label="Group By Field" 
+                placeholder="e.g. customer_id" 
+                value={selectedNode.data.groupBy || ''} 
+                onChange={(e) => updateNodeConfig(selectedNode.id, { groupBy: e.target.value })} 
               />
               <TextInput 
                 label="Output Field" 
                 placeholder="e.g. total_amount" 
-                value={selectedNode.data.outputField || ''} 
-                onChange={(e) => updateNodeConfig(selectedNode.id, { outputField: e.target.value })} 
+                value={selectedNode.data.targetField || selectedNode.data.outputField || ''} 
+                onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.target.value, outputField: e.target.value })} 
               />
-              <Alert icon={<IconInfoCircle size="1rem" />} color="cyan" py="xs">
-                <Text size="xs">Stateful nodes maintain an internal state (e.g. a counter or a sum) across all messages.</Text>
+              <Divider label="Windowing" labelPosition="center" />
+              <Group grow>
+                <Select
+                  label="Window Type"
+                  data={[
+                    { label: 'Session', value: 'session' },
+                    { label: 'Tumbling', value: 'tumbling' },
+                  ]}
+                  value={selectedNode.data.windowType || 'session'}
+                  onChange={(val) => updateNodeConfig(selectedNode.id, { windowType: val || 'session' })}
+                />
+                <TextInput
+                  label="Window Duration"
+                  placeholder="e.g. 5m, 1h"
+                  value={selectedNode.data.window || ''}
+                  onChange={(e) => updateNodeConfig(selectedNode.id, { window: e.target.value })}
+                />
+              </Group>
+              <Switch
+                label="Persistent State (Saves across restarts)"
+                checked={!!selectedNode.data.persistent}
+                onChange={(e) => updateNodeConfig(selectedNode.id, { persistent: e.currentTarget.checked })}
+                mt="xs"
+              />
+              <Alert icon={<IconInfoCircle size="1rem" />} color="cyan" py="xs" mt="md">
+                <Text size="xs">Aggregate nodes maintain internal state to summarize data over windows or groups.</Text>
+              </Alert>
+            </>
+          )}
+
+          {transType === 'join' && (
+            <>
+              <Select
+                label="Join Mode"
+                data={[
+                  { label: 'Store (Save current record to state)', value: 'store' },
+                  { label: 'Lookup (Enrich from state)', value: 'lookup' },
+                ]}
+                value={selectedNode.data.mode || 'lookup'}
+                onChange={(val) => updateNodeConfig(selectedNode.id, { mode: val || 'lookup' })}
+              />
+              <TextInput
+                label="Join Key (Message Path)"
+                placeholder="e.g. order_id"
+                value={selectedNode.data.key || ''}
+                onChange={(e) => updateNodeConfig(selectedNode.id, { key: e.target.value })}
+                description="Field in the current message used to match records."
+              />
+              <TextInput
+                label="Storage Namespace"
+                placeholder="default"
+                value={selectedNode.data.namespace || ''}
+                onChange={(e) => updateNodeConfig(selectedNode.id, { namespace: e.target.value })}
+                description="Use namespaces to separate different join datasets."
+              />
+              {selectedNode.data.mode === 'lookup' && (
+                <>
+                  <TextInput
+                    label="Joined Field Prefix"
+                    placeholder="joined_"
+                    value={selectedNode.data.prefix || ''}
+                    onChange={(e) => updateNodeConfig(selectedNode.id, { prefix: e.target.value })}
+                  />
+                  <TagsInput
+                    label="Specific Fields to Extract"
+                    placeholder="Leave empty for all fields"
+                    value={selectedNode.data.fields || []}
+                    onChange={(val: string[]) => updateNodeConfig(selectedNode.id, { fields: val })}
+                  />
+                </>
+              )}
+              <Alert icon={<IconInfoCircle size="1rem" />} color="indigo" py="xs" mt="md">
+                <Text size="xs">Enrich messages by joining them with data previously 'Stored' by other messages sharing the same key.</Text>
               </Alert>
             </>
           )}
@@ -1141,6 +1330,12 @@ end`}
                 formatOnBlur
                 minRows={10}
               />
+            </>
+          )}
+
+          {transType === 'stat_validator' && (
+            <>
+              {renderStatValidatorEditor()}
             </>
           )}
 
@@ -1493,6 +1688,70 @@ end`}
                 </Stack>
               </Tabs.Panel>
             </Tabs>
+          )}
+
+          {(transType === 'ai_enrichment' || transType === 'ai_mapper') && (
+            <Stack gap="md">
+              <Select
+                label="Provider"
+                data={[
+                  { value: 'openai', label: 'OpenAI' },
+                  { value: 'ollama', label: 'Ollama (Local)' },
+                ]}
+                value={selectedNode.data.provider || 'openai'}
+                onChange={(val) => updateNodeConfig(selectedNode.id, { provider: val || 'openai' })}
+              />
+              <TextInput
+                label="Endpoint"
+                placeholder="Auto-detected if empty"
+                value={selectedNode.data.endpoint || ''}
+                onChange={(e) => updateNodeConfig(selectedNode.id, { endpoint: e.target.value })}
+              />
+              <PasswordInput
+                label="API Key"
+                placeholder="Required for OpenAI"
+                value={selectedNode.data.apiKey || ''}
+                onChange={(e) => updateNodeConfig(selectedNode.id, { apiKey: e.target.value })}
+              />
+              <TextInput
+                label="Model"
+                placeholder="gpt-3.5-turbo, llama2, etc."
+                value={selectedNode.data.model || ''}
+                onChange={(e) => updateNodeConfig(selectedNode.id, { model: e.target.value })}
+              />
+              {transType === 'ai_enrichment' && (
+                <Textarea
+                  label="Prompt"
+                  placeholder="How should the AI process the data?"
+                  minRows={3}
+                  value={selectedNode.data.prompt || ''}
+                  onChange={(e) => updateNodeConfig(selectedNode.id, { prompt: e.target.value })}
+                />
+              )}
+              {transType === 'ai_mapper' && (
+                <>
+                  <Textarea
+                    label="Target Schema"
+                    placeholder='{ "type": "object", "properties": { ... } }'
+                    minRows={5}
+                    value={selectedNode.data.targetSchema || ''}
+                    onChange={(e) => updateNodeConfig(selectedNode.id, { targetSchema: e.target.value })}
+                  />
+                  <TextInput
+                    label="Hints"
+                    placeholder="Optional hints for mapping"
+                    value={selectedNode.data.hints || ''}
+                    onChange={(e) => updateNodeConfig(selectedNode.id, { hints: e.target.value })}
+                  />
+                </>
+              )}
+              <TextInput
+                label="Target Field"
+                placeholder="Where to store the result (empty to merge JSON)"
+                value={selectedNode.data.targetField || ''}
+                onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.target.value })}
+              />
+            </Stack>
           )}
 
           {transType === 'set' && (

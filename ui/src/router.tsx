@@ -29,10 +29,14 @@ const WorkflowsPage = lazy(() => import('./pages/WorkflowsPage'))
 const WorkflowEditorPage = lazy(() => import('./pages/WorkflowEditorPage'))
 const WorkflowDetailPage = lazy(async () => ({ default: (await import('./pages/WorkflowDetailPage')).WorkflowDetailPage }))
 const SettingsPage = lazy(async () => ({ default: (await import('./pages/SettingsPage')).SettingsPage }))
-import { NotificationSettingsPage } from './pages/NotificationSettingsPage'
 const DashboardPage = lazy(async () => ({ default: (await import('./pages/DashboardPage')).DashboardPage }))
 const LogsPage = lazy(async () => ({ default: (await import('./pages/LogsPage')).LogsPage }))
 const AuditLogsPage = lazy(async () => ({ default: (await import('./pages/AuditLogsPage')).AuditLogsPage }))
+const SchemasPage = lazy(async () => ({ default: (await import('./pages/SchemasPage')).SchemasPage }))
+const LineagePage = lazy(async () => ({ default: (await import('./pages/LineagePage')).LineagePage }))
+const GlobalHealthPage = lazy(() => import('./pages/GlobalHealthPage'))
+const CompliancePage = lazy(async () => ({ default: (await import('./pages/ComplianceDashboard')).ComplianceDashboard }))
+const CommunityMarketplace = lazy(async () => ({ default: (await import('./pages/Marketplace/CommunityMarketplace')).CommunityMarketplace }))
 import { SetupPage } from './pages/SetupPage'
 import { LoginPage } from './pages/LoginPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
@@ -324,17 +328,6 @@ const settingsRoute = createRoute({
   }
 })
 
-const notificationSettingsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/settings/notifications',
-  component: NotificationSettingsPage,
-  beforeLoad: () => {
-    if (getRoleFromToken() !== 'Administrator') {
-      throw redirect({ to: '/' })
-    }
-  }
-})
-
 const logsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/logs',
@@ -350,6 +343,16 @@ const logsRoute = createRoute({
   },
 })
 
+const schemasRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/schemas',
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
+      <SchemasPage />
+    </Suspense>
+  ),
+})
+
 const auditLogsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/audit-logs',
@@ -363,6 +366,46 @@ const auditLogsRoute = createRoute({
       throw redirect({ to: '/' })
     }
   },
+})
+
+const lineageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/lineage',
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <LineagePage />
+    </Suspense>
+  ),
+})
+
+const healthRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/health',
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <GlobalHealthPage />
+    </Suspense>
+  ),
+})
+
+const complianceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/compliance',
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <CompliancePage />
+    </Suspense>
+  ),
+})
+
+const marketplaceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/marketplace',
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <CommunityMarketplace />
+    </Suspense>
+  ),
 })
 
 const loginRoute = createRoute({
@@ -455,9 +498,13 @@ const routeTree = rootRoute.addChildren([
     editUserRoute,
   ]),
   settingsRoute,
-  notificationSettingsRoute,
   logsRoute,
   auditLogsRoute,
+  schemasRoute,
+  lineageRoute,
+  healthRoute,
+  complianceRoute,
+  marketplaceRoute,
   loginRoute,
   forgotPasswordRoute,
   setupRoute,

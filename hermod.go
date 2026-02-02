@@ -1,6 +1,9 @@
 package hermod
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Operation defines the type of CDC operation.
 type Operation string
@@ -106,6 +109,21 @@ type ValidatingSink interface {
 	Validate(ctx context.Context, msg Message) error
 }
 
+// Transactional is an optional interface for sources and sinks that support atomic transactions.
+type Transactional interface {
+	Begin(ctx context.Context) error
+	Commit(ctx context.Context) error
+	Rollback(ctx context.Context) error
+}
+
+// TwoPhaseCommit is an optional interface for sinks that support 2PC.
+type TwoPhaseCommit interface {
+	Transactional
+	Prepare(ctx context.Context) (string, error) // Returns transaction ID
+	CommitPrepared(ctx context.Context, txID string) error
+	RollbackPrepared(ctx context.Context, txID string) error
+}
+
 // Formatter defines the interface for formatting messages before they are written to a sink.
 type Formatter interface {
 	Format(msg Message) ([]byte, error)
@@ -129,6 +147,41 @@ type StateStore interface {
 	Get(ctx context.Context, key string) ([]byte, error)
 	Set(ctx context.Context, key string, value []byte) error
 	Delete(ctx context.Context, key string) error
+}
+
+// TraceStep represents a single step in a message's journey.
+type TraceStep struct {
+	NodeID    string                 `json:"node_id"`
+	Timestamp time.Time              `json:"timestamp"`
+	Duration  time.Duration          `json:"duration"`
+	Data      map[string]interface{} `json:"data,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+}
+
+// TraceRecorder defines the interface for recording message traces.
+type TraceRecorder interface {
+	RecordStep(ctx context.Context, workflowID, messageID string, step TraceStep)
+}
+
+// OutboxItem represents a message persisted for reliable delivery.
+type OutboxItem struct {
+	ID         string            `json:"id"`
+	WorkflowID string            `json:"workflow_id"`
+	SinkID     string            `json:"sink_id"`
+	Payload    []byte            `json:"payload"`
+	Metadata   map[string]string `json:"metadata"`
+	CreatedAt  time.Time         `json:"created_at"`
+	Attempts   int               `json:"attempts"`
+	LastError  string            `json:"last_error,omitempty"`
+	Status     string            `json:"status"` // pending, processing, failed
+}
+
+// OutboxStorage defines the interface for persisting and retrieving outbox items.
+type OutboxStorage interface {
+	CreateOutboxItem(ctx context.Context, item OutboxItem) error
+	ListOutboxItems(ctx context.Context, status string, limit int) ([]OutboxItem, error)
+	DeleteOutboxItem(ctx context.Context, id string) error
+	UpdateOutboxItem(ctx context.Context, item OutboxItem) error
 }
 
 type contextKey string

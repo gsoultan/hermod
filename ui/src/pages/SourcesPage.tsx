@@ -190,7 +190,7 @@ export function SourcesPage() {
                     if (!src.active && !liveStatus && !src.status) {
                       return (
                         <Badge variant="filled" color="red" size="sm" radius="sm">
-                          Shutdown
+                          Offline
                         </Badge>
                       );
                     }
@@ -225,8 +225,8 @@ export function SourcesPage() {
                     }
                     
                     return (
-                      <Badge variant="light" color="blue" size="sm" radius="sm">
-                        {status || 'Active'}
+                      <Badge variant="light" color="green" size="sm" radius="sm">
+                        {status || 'Online'}
                       </Badge>
                     );
                   })()}

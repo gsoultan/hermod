@@ -16,7 +16,7 @@ func TestSaveDBConfigWithMasterKey(t *testing.T) {
 	os.Remove(config.DBConfigPath)
 	defer os.Remove(config.DBConfigPath)
 
-	server := NewServer(nil, nil)
+	server := NewServer(nil, nil, nil, nil)
 
 	tests := []struct {
 		name           string

@@ -39,12 +39,17 @@ type SQLStore struct {
 	logger       hermod.Logger
 	streamIDTpl  string
 	eventTypeTpl string
+	queries      *queryRegistry
 }
 
 func NewSQLStore(db *sql.DB, driver string) (*SQLStore, error) {
+	if driver == "pgx" {
+		driver = "postgres"
+	}
 	s := &SQLStore{
-		db:     db,
-		driver: driver,
+		db:      db,
+		driver:  driver,
+		queries: newQueryRegistry(driver),
 	}
 	if err := s.initSchema(context.Background()); err != nil {
 		return nil, err
@@ -62,43 +67,8 @@ func (s *SQLStore) SetTemplates(streamID, eventType string) {
 }
 
 func (s *SQLStore) initSchema(ctx context.Context) error {
-	var query string
-	switch s.driver {
-	case "postgres":
-		query = `
-			CREATE TABLE IF NOT EXISTS event_store (
-				global_offset SERIAL PRIMARY KEY,
-				stream_id TEXT NOT NULL,
-				stream_offset BIGINT NOT NULL,
-				event_type TEXT NOT NULL,
-				payload BYTEA,
-				metadata JSONB,
-				timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-				UNIQUE(stream_id, stream_offset)
-			);
-			CREATE INDEX IF NOT EXISTS idx_event_store_stream_id ON event_store(stream_id);
-			CREATE INDEX IF NOT EXISTS idx_event_store_global_offset ON event_store(global_offset);
-			CREATE INDEX IF NOT EXISTS idx_event_store_timestamp ON event_store(timestamp);
-			CREATE INDEX IF NOT EXISTS idx_event_store_event_type ON event_store(event_type);
-		`
-	case "sqlite", "sqlite3":
-		query = `
-			CREATE TABLE IF NOT EXISTS event_store (
-				global_offset INTEGER PRIMARY KEY AUTOINCREMENT,
-				stream_id TEXT NOT NULL,
-				stream_offset INTEGER NOT NULL,
-				event_type TEXT NOT NULL,
-				payload BLOB,
-				metadata TEXT,
-				timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-				UNIQUE(stream_id, stream_offset)
-			);
-			CREATE INDEX IF NOT EXISTS idx_event_store_stream_id ON event_store(stream_id);
-			CREATE INDEX IF NOT EXISTS idx_event_store_global_offset ON event_store(global_offset);
-			CREATE INDEX IF NOT EXISTS idx_event_store_timestamp ON event_store(timestamp);
-			CREATE INDEX IF NOT EXISTS idx_event_store_event_type ON event_store(event_type);
-		`
-	default:
+	query := s.queries.get(QueryInitSchema)
+	if query == "" {
 		return fmt.Errorf("unsupported driver: %s", s.driver)
 	}
 
@@ -130,12 +100,7 @@ func (s *SQLStore) WriteBatch(ctx context.Context, msgs []hermod.Message) error 
 			currentOffset = expectedVersion + 1
 		} else {
 			var lastOffset sql.NullInt64
-			var queryLast string
-			if s.driver == "postgres" {
-				queryLast = "SELECT MAX(stream_offset) FROM event_store WHERE stream_id = $1"
-			} else {
-				queryLast = "SELECT MAX(stream_offset) FROM event_store WHERE stream_id = ?"
-			}
+			queryLast := s.queries.get(QueryGetLastOffset)
 
 			err = tx.QueryRowContext(ctx, queryLast, streamID).Scan(&lastOffset)
 			if err != nil && err != sql.ErrNoRows {
@@ -165,16 +130,10 @@ func (s *SQLStore) WriteBatch(ctx context.Context, msgs []hermod.Message) error 
 			return err
 		}
 
-		var query string
-		var args []interface{}
+		query := s.queries.get(QueryInsertEvent)
+		args := []interface{}{streamID, currentOffset, eventType, msg.Payload(), string(metadataJSON), time.Now()}
 		if s.driver == "postgres" {
-			query = `INSERT INTO event_store (stream_id, stream_offset, event_type, payload, metadata, timestamp) 
-					 VALUES ($1, $2, $3, $4, $5, $6)`
-			args = []interface{}{streamID, currentOffset, eventType, msg.Payload(), metadataJSON, time.Now()}
-		} else {
-			query = `INSERT INTO event_store (stream_id, stream_offset, event_type, payload, metadata, timestamp) 
-					 VALUES (?, ?, ?, ?, ?, ?)`
-			args = []interface{}{streamID, currentOffset, eventType, msg.Payload(), string(metadataJSON), time.Now()}
+			args[4] = metadataJSON
 		}
 
 		_, err = tx.ExecContext(ctx, query, args...)
@@ -397,20 +356,28 @@ func (s *SQLStore) ReadAll(ctx context.Context, fromOffset int64, limit int, str
 	var query string
 	var args []interface{}
 
+	query = s.queries.get(QueryReadAll)
 	if streamID != "" {
-		if s.driver == "postgres" {
-			query = "SELECT global_offset, stream_id, stream_offset, event_type, payload, metadata, timestamp FROM event_store WHERE global_offset >= $1 AND stream_id = $2 ORDER BY global_offset ASC LIMIT $3"
-		} else {
-			query = "SELECT global_offset, stream_id, stream_offset, event_type, payload, metadata, timestamp FROM event_store WHERE global_offset >= ? AND stream_id = ? ORDER BY global_offset ASC LIMIT ?"
+		query += " AND stream_id = ?"
+		args = append(args, streamID)
+	}
+
+	query += " AND global_offset >= ? ORDER BY global_offset ASC"
+	args = append(args, fromOffset)
+
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	// Adjust placeholders for postgres
+	if s.driver == "postgres" {
+		for i := 1; ; i++ {
+			if !strings.Contains(query, "?") {
+				break
+			}
+			query = strings.Replace(query, "?", fmt.Sprintf("$%d", i), 1)
 		}
-		args = []interface{}{fromOffset, streamID, limit}
-	} else {
-		if s.driver == "postgres" {
-			query = "SELECT global_offset, stream_id, stream_offset, event_type, payload, metadata, timestamp FROM event_store WHERE global_offset >= $1 ORDER BY global_offset ASC LIMIT $2"
-		} else {
-			query = "SELECT global_offset, stream_id, stream_offset, event_type, payload, metadata, timestamp FROM event_store WHERE global_offset >= ? ORDER BY global_offset ASC LIMIT ?"
-		}
-		args = []interface{}{fromOffset, limit}
 	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)

@@ -1,49 +1,106 @@
-import { Title, Text, SimpleGrid, Paper, Group, ThemeIcon, Box, Stack, Grid, Badge, Table, ScrollArea, Divider, ActionIcon, Tooltip, Button } from '@mantine/core'
-import { IconDatabase, IconArrowsExchange, IconBroadcast, IconLayoutDashboard, IconPlug, IconList, IconActivity, IconExternalLink, IconAlertTriangle, IconGitBranch } from '@tabler/icons-react'
+import { Title, Text, Paper, Group, ThemeIcon, Box, Stack, Badge, Table, ScrollArea, ActionIcon, Tooltip, Button, Grid } from '@mantine/core'
+import { IconArrowsExchange, IconActivity, IconGitBranch, IconAlertCircle, IconServer, IconPackage, IconSitemap } from '@tabler/icons-react'
 import { useState, useEffect, useRef } from 'react'
 import { apiFetch } from '../api'
 import { useNavigate } from '@tanstack/react-router'
+import { DataLineageModal } from '../components/DataLineageModal'
+import { notifications } from '@mantine/notifications'
+import { useVHost } from '../context/VHostContext'
 
-function Sparkline({ data, height = 30, color = 'blue' }: { data: number[], height?: number, color?: string }) {
+function ThroughputChart({ data }: { data: number[] }) {
   if (!Array.isArray(data) || data.length === 0) return null;
-  const max = Math.max(...data, 1);
-  const width = data.length * 10;
-  const points = data.map((v, i) => `${i === 0 ? '' : 'L'} ${i * 10} ${height - (v / (max || 1)) * height}`).join(' ');
+  const height = 180;
+  const max = Math.max(...data, 10);
+  const width = 800;
+  const step = width / (data.length - 1);
+  
+  const points = data.map((v, i) => ({ x: i * step, y: height - (v / max) * height }));
+  
+  let pathD = `M ${points[0].x},${points[0].y}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i];
+    const p1 = points[i + 1];
+    const cpX = (p0.x + p1.x) / 2;
+    pathD += ` C ${cpX},${p0.y} ${cpX},${p1.y} ${p1.x},${p1.y}`;
+  }
+
+  const areaD = `${pathD} L ${width},${height} L 0,${height} Z`;
 
   return (
-    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ overflow: 'visible' }}>
-      <path
-        d={`M ${points}`}
-        fill="none"
-        stroke={`var(--mantine-color-${color}-filled)`}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <Box pos="relative" h={height} w="100%">
+        <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ overflow: 'visible' }}>
+          <defs>
+            <linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="var(--mantine-color-indigo-6)" stopOpacity="0.3" />
+              <stop offset="100%" stopColor="var(--mantine-color-indigo-6)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <path d={areaD} fill="url(#chartGradient)" />
+          <path d={pathD} fill="none" stroke="var(--mantine-color-indigo-6)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          
+          <circle cx={points[points.length-1].x} cy={points[points.length-1].y} r="4" fill="white" stroke="var(--mantine-color-indigo-6)" strokeWidth="2" />
+          <circle cx={points[points.length-1].x} cy={points[points.length-1].y} r="8" fill="var(--mantine-color-indigo-6)" fillOpacity="0.2" />
+        </svg>
+    </Box>
   );
+}
+
+function StatCard({ title, value, icon: Icon, color, description, trend }: any) {
+    return (
+        <Paper withBorder p="md" radius="md" h="100%" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <Group justify="space-between">
+                <div>
+                    <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</Text>
+                    <Text size="xl" fw={800} mt={4}>{value}</Text>
+                </div>
+                <ThemeIcon color={color} variant="light" size="xl" radius="md">
+                    <Icon size="1.4rem" />
+                </ThemeIcon>
+            </Group>
+            {(description || trend) && (
+                <Group justify="space-between" mt="md">
+                    <Text size="xs" c="dimmed">{description}</Text>
+                    {trend && (
+                        <Badge size="xs" variant="light" color={trend > 0 ? 'green' : 'red'}>
+                            {trend > 0 ? '+' : ''}{trend}%
+                        </Badge>
+                    )}
+                </Group>
+            )}
+        </Paper>
+    );
 }
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const { selectedVHost } = useVHost();
   const [stats, setStats] = useState({
     active_sources: 0,
     active_sinks: 0,
     active_workflows: 0,
     total_processed: 0,
-    total_lag: 0
+    total_lag: 0,
+    total_errors: 0,
+    failed_workflows: 0,
+    uptime: 0,
+    active_workers: 0,
+    total_workflows: 0,
+    total_sources: 0,
+    total_sinks: 0
   })
 
   const [recentLogs, setRecentLogs] = useState<any[]>([])
   const [workflows, setWorkflows] = useState<any[]>([])
   const [mps, setMps] = useState(0)
   const [mpsHistory, setMpsHistory] = useState<number[]>(new Array(30).fill(0))
+  const [lineageOpened, setLineageOpened] = useState(false)
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
 
   const lastStatsRef = useRef({ time: Date.now(), count: 0 });
 
   useEffect(() => {
     // Initial fetch
-    apiFetch('/api/dashboard/stats')
+    apiFetch(`/api/dashboard/stats?vhost=${selectedVHost}`)
       .then(res => res.json())
       .then(data => {
         setStats(data);
@@ -51,18 +108,18 @@ export function DashboardPage() {
       })
       .catch(err => console.error('Failed to fetch initial stats', err));
 
-    apiFetch('/api/logs?limit=10')
+    apiFetch(`/api/logs?limit=10&vhost=${selectedVHost}`)
       .then(res => res.json())
       .then(data => setRecentLogs(data.data || []))
       .catch(err => console.error('Failed to fetch recent logs', err));
 
-    apiFetch('/api/workflows?limit=100')
+    apiFetch(`/api/workflows?limit=100&vhost=${selectedVHost}`)
       .then(res => res.json())
       .then(data => setWorkflows(data.data || []))
       .catch(err => console.error('Failed to fetch workflows', err));
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/dashboard`;
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/dashboard?vhost=${selectedVHost}`;
     const ws = new WebSocket(wsUrl);
     
     ws.onmessage = (event) => {
@@ -87,7 +144,36 @@ export function DashboardPage() {
     };
 
     return () => ws.close();
-  }, []);
+  }, [selectedVHost]);
+
+  const handleBootstrap = async () => {
+    setIsBootstrapping(true);
+    try {
+      const res = await apiFetch('/api/infra/bootstrap-scenario', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        notifications.show({
+          title: 'Enterprise Scenario Bootstrapped',
+          message: data.message,
+          color: 'green',
+        });
+        // Refresh workflows
+        const wfRes = await apiFetch('/api/workflows?limit=100');
+        const wfData = await wfRes.json();
+        setWorkflows(wfData.data || []);
+      } else {
+        throw new Error('Failed to bootstrap scenario');
+      }
+    } catch (err) {
+      notifications.show({
+        title: 'Bootstrap Failed',
+        message: err instanceof Error ? err.message : 'Unknown error',
+        color: 'red',
+      });
+    } finally {
+      setIsBootstrapping(false);
+    }
+  };
 
   const formatNumber = (num: number) => {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
@@ -95,186 +181,186 @@ export function DashboardPage() {
     return num.toString();
   };
 
-  const getLevelColor = (level: string) => {
-    switch (level?.toUpperCase()) {
-      case 'ERROR': return 'red';
-      case 'WARN': return 'yellow';
-      case 'INFO': return 'blue';
-      default: return 'gray';
+  const renderWidget = (id: string) => {
+    switch (id) {
+      case 'stats':
+        return (
+          <Grid grow gutter="sm">
+            <Grid.Col span={{ base: 12, sm: 6, md: 3 }}>
+              <StatCard 
+                title="Active Pipelines" 
+                value={`${stats.active_workflows} / ${stats.total_workflows}`}
+                icon={IconGitBranch}
+                color="blue"
+                description="Currently running workflows"
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 6, md: 3 }}>
+              <StatCard 
+                title="Throughput" 
+                value={formatNumber(stats.total_processed)}
+                icon={IconArrowsExchange}
+                color="green"
+                description="Total messages processed"
+                trend={mps > 0 ? 5 : 0} // Fake trend for visual
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 6, md: 3 }}>
+              <StatCard 
+                title="System Health" 
+                value={stats.total_errors > 0 ? `${stats.total_errors} Errors` : "Healthy"}
+                icon={stats.total_errors > 0 ? IconAlertCircle : IconActivity}
+                color={stats.total_errors > 0 ? "red" : "teal"}
+                description={stats.total_errors > 0 ? "Check logs for details" : "All systems nominal"}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, sm: 6, md: 3 }}>
+              <StatCard 
+                title="Node Cluster" 
+                value={`${stats.active_workers} Active`}
+                icon={IconServer}
+                color="indigo"
+                description="Operational worker nodes"
+              />
+            </Grid.Col>
+          </Grid>
+        );
+      case 'mps':
+        return (
+          <Paper withBorder p="md" radius="md" h="100%" style={{ display: 'flex', flexDirection: 'column' }}>
+            <Group justify="space-between" mb="xs">
+              <div>
+                <Text fw={700} size="sm">Real-time Throughput</Text>
+                <Text size="xs" c="dimmed">Messages per second (MPS)</Text>
+              </div>
+              <Badge variant="filled" color="indigo" size="lg" radius="sm">{mps} MPS</Badge>
+            </Group>
+            <Box mt="auto" pt="xl">
+              <ThroughputChart data={mpsHistory} />
+            </Box>
+          </Paper>
+        );
+      case 'workflows':
+        return (
+          <Paper withBorder p="md" radius="md" h="100%">
+            <Group justify="space-between" mb="md">
+              <div>
+                <Text fw={700} size="sm">Active Pipelines</Text>
+                <Text size="xs" c="dimmed">Critical data flows</Text>
+              </div>
+              <Button variant="subtle" size="xs" onClick={() => navigate({ to: '/workflows' })}>View All</Button>
+            </Group>
+            <ScrollArea h={300} offsetScrollbars>
+                <Table verticalSpacing="xs" highlightOnHover>
+                    <Table.Thead>
+                        <Table.Tr>
+                            <Table.Th>Name</Table.Th>
+                            <Table.Th ta="right">Status</Table.Th>
+                        </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                        {workflows.slice(0, 10).map(wf => (
+                            <Table.Tr key={wf.id} style={{ cursor: 'pointer' }} onClick={() => navigate({ to: `/workflows/$id`, params: { id: wf.id } as any })}>
+                                <Table.Td>
+                                  <Group gap="xs">
+                                    <ThemeIcon size="xs" variant="light" color={wf.active ? 'green' : 'gray'}>
+                                      <IconGitBranch size={10} />
+                                    </ThemeIcon>
+                                    <Text size="sm" fw={500}>{wf.name}</Text>
+                                  </Group>
+                                </Table.Td>
+                                <Table.Td ta="right">
+                                    <Badge size="xs" color={wf.active ? 'green' : 'gray'} variant="light">
+                                        {wf.active ? 'Active' : 'Inactive'}
+                                    </Badge>
+                                </Table.Td>
+                            </Table.Tr>
+                        ))}
+                    </Table.Tbody>
+                </Table>
+            </ScrollArea>
+          </Paper>
+        );
+      case 'logs':
+        return (
+          <Paper withBorder p="md" radius="md" h="100%">
+            <Group justify="space-between" mb="md">
+                <div>
+                    <Text fw={700} size="sm">System Events</Text>
+                    <Text size="xs" c="dimmed">Recent activity logs</Text>
+                </div>
+                <Button variant="subtle" size="xs" onClick={() => navigate({ to: '/logs' })}>System Logs</Button>
+            </Group>
+            <ScrollArea h={300} offsetScrollbars>
+                <Stack gap={8}>
+                    {recentLogs.map(log => (
+                        <Paper key={log.id} withBorder p="xs" radius="sm" bg={log.level === 'ERROR' ? 'red.0' : undefined}>
+                          <Group wrap="nowrap" gap="xs">
+                              <ThemeIcon size="sm" variant="light" color={log.level === 'ERROR' ? 'red' : log.level === 'WARN' ? 'yellow' : 'blue'}>
+                                  {log.level === 'ERROR' ? <IconAlertCircle size={14} /> : <IconActivity size={14} />}
+                              </ThemeIcon>
+                              <Box style={{ flex: 1 }}>
+                                  <Text size="xs" fw={500} lineClamp={2}>{log.message}</Text>
+                                  <Group justify="space-between" mt={4}>
+                                    <Badge size="10px" variant="outline" color={log.level === 'ERROR' ? 'red' : 'gray'}>{log.level}</Badge>
+                                    <Text size="10px" c="dimmed">{new Date(log.timestamp).toLocaleString()}</Text>
+                                  </Group>
+                              </Box>
+                          </Group>
+                        </Paper>
+                    ))}
+                </Stack>
+            </ScrollArea>
+          </Paper>
+        );
+      default:
+        return null;
     }
   };
 
-  const statusCount = workflows.reduce((acc: any, curr: any) => {
-    const status = curr.status || 'stopped';
-    acc[status] = (acc[status] || 0) + 1;
-    return acc;
-  }, {});
-
   return (
-    <Box p="md" style={{ animation: 'fadeIn 0.5s ease-in-out' }}>
-      <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
-          <Group gap="sm">
-            <IconLayoutDashboard size="2rem" color="var(--mantine-color-blue-filled)" />
-            <Box style={{ flex: 1 }}>
-              <Title order={2} fw={800}>Dashboard</Title>
-              <Text size="sm" c="dimmed">
-                Overview of your Hermod instance. Monitor active data flows and system health.
-              </Text>
-            </Box>
-          </Group>
-        </Paper>
-      
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="xl">
-          <Paper p="xl" radius="md" withBorder>
-            <Group justify="space-between">
-              <Text size="xs" c="dimmed" fw={700} tt="uppercase">Active Sources</Text>
-              <ThemeIcon color="indigo" variant="light" size="lg" radius="md"><IconDatabase size="1.2rem" /></ThemeIcon>
-            </Group>
-            <Text fw={800} size="32px" mt="md">{stats.active_sources}</Text>
-          </Paper>
+    <Stack gap="lg" h="100%">
+      <Group justify="space-between">
+        <Stack gap={0}>
+            <Title order={2}>Enterprise Command Center</Title>
+            <Text size="sm" c="dimmed">Real-time autonomous operations & data mesh monitoring</Text>
+        </Stack>
+        <Group>
+            <Button 
+                variant="light" 
+                color="indigo" 
+                leftSection={<IconPackage size="1.2rem" />}
+                loading={isBootstrapping}
+                onClick={handleBootstrap}
+            >
+                Bootstrap Enterprise Scenario
+            </Button>
+            <Tooltip label="Global Data Lineage">
+                <ActionIcon variant="light" size="lg" onClick={() => setLineageOpened(true)}>
+                    <IconSitemap size="1.2rem" />
+                </ActionIcon>
+            </Tooltip>
+        </Group>
+      </Group>
 
-          <Paper p="xl" radius="md" withBorder>
-            <Group justify="space-between">
-              <Text size="xs" c="dimmed" fw={700} tt="uppercase">Active Workflows</Text>
-              <ThemeIcon color="teal" variant="light" size="lg" radius="md"><IconPlug size="1.2rem" /></ThemeIcon>
-            </Group>
-            <Text fw={800} size="32px" mt="md">{stats.active_workflows}</Text>
-          </Paper>
-
-          <Paper p="xl" radius="md" withBorder>
-            <Group justify="space-between">
-              <Text size="xs" c="dimmed" fw={700} tt="uppercase">Active Sinks</Text>
-              <ThemeIcon color="orange" variant="light" size="lg" radius="md"><IconBroadcast size="1.2rem" /></ThemeIcon>
-            </Group>
-            <Text fw={800} size="32px" mt="md">{stats.active_sinks}</Text>
-          </Paper>
-
-          <Paper p="xl" radius="md" withBorder>
-            <Group justify="space-between">
-              <Text size="xs" c="dimmed" fw={700} tt="uppercase">Processed</Text>
-              <ThemeIcon color="cyan" variant="light" size="lg" radius="md"><IconArrowsExchange size="1.2rem" /></ThemeIcon>
-            </Group>
-            <Group align="flex-end" gap="xs">
-              <Text fw={800} size="32px" mt="md">{formatNumber(stats.total_processed)}</Text>
-              <Badge variant="light" color="cyan" mb="xs">{mps} msg/s</Badge>
-            </Group>
-            <Box mt="sm" h={30}>
-              <Sparkline data={mpsHistory} color="cyan" />
-            </Box>
-          </Paper>
-
-          <Paper p="xl" radius="md" withBorder>
-            <Group justify="space-between">
-              <Text size="xs" c="dimmed" fw={700} tt="uppercase">System Lag</Text>
-              <ThemeIcon color="red" variant="light" size="lg" radius="md"><IconActivity size="1.2rem" /></ThemeIcon>
-            </Group>
-            <Group align="flex-end" gap="xs">
-              <Text fw={800} size="32px" mt="md">{formatNumber(stats.total_lag || 0)}</Text>
-              <Text size="xs" c="dimmed" mb="xs">events</Text>
-            </Group>
-            <Box mt="xs">
-               <Badge color={stats.total_lag > 1000 ? 'red' : 'green'} variant="dot" size="xs">
-                 {stats.total_lag > 1000 ? 'High Latency' : 'Real-time'}
-               </Badge>
-            </Box>
-          </Paper>
-        </SimpleGrid>
-
+      <Box style={{ flex: 1, minHeight: 800 }}>
         <Grid gutter="md">
-          <Grid.Col span={{ base: 12, md: 8 }}>
-            <Paper p="md" withBorder radius="md">
-              <Group justify="space-between" mb="md">
-                <Group gap="xs">
-                  <IconList size="1.2rem" />
-                  <Title order={4}>Recent Activity</Title>
-                </Group>
-                <Button variant="subtle" size="xs" onClick={() => navigate({ to: '/logs' })}>View All</Button>
-              </Group>
-              <ScrollArea h={350}>
-                {recentLogs.length > 0 ? (
-                  <Table verticalSpacing="xs">
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>Time</Table.Th>
-                        <Table.Th>Level</Table.Th>
-                        <Table.Th>Workflow</Table.Th>
-                        <Table.Th>Message</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {recentLogs.map((log) => (
-                        <Table.Tr key={log.id}>
-                          <Table.Td><Text size="xs">{new Date(log.timestamp).toLocaleTimeString()}</Text></Table.Td>
-                          <Table.Td><Badge color={getLevelColor(log.level)} size="xs" variant="light">{log.level}</Badge></Table.Td>
-                          <Table.Td>
-                            <Group gap={4}>
-                              <Text size="xs" fw={500}>{log.workflow_id?.split('-')[0]}</Text>
-                              <Tooltip label="View Workflow">
-                                <ActionIcon variant="subtle" size="xs" onClick={() => navigate({ to: `/workflows/${log.workflow_id}` })}>
-                                  <IconExternalLink size="0.8rem" />
-                                </ActionIcon>
-                              </Tooltip>
-                            </Group>
-                          </Table.Td>
-                          <Table.Td><Text size="xs" truncate maw={300}>{log.message}</Text></Table.Td>
-                        </Table.Tr>
-                      ))}
-                    </Table.Tbody>
-                  </Table>
-                ) : (
-                  <Box py="xl" style={{ textAlign: 'center' }}>
-                    <Text c="dimmed" size="sm">No recent logs found.</Text>
-                  </Box>
-                )}
-              </ScrollArea>
-            </Paper>
+          <Grid.Col span={12}>
+            {renderWidget('stats')}
           </Grid.Col>
-
-          <Grid.Col span={{ base: 12, md: 4 }}>
-            <Stack gap="md">
-              <Paper p="md" withBorder radius="md">
-                <Group gap="xs" mb="md">
-                  <IconActivity size="1.2rem" />
-                  <Title order={4}>Status Summary</Title>
-                </Group>
-                <Stack gap="xs">
-                  <Group justify="space-between">
-                    <Text size="sm">Running</Text>
-                    <Badge color="green" variant="filled">{statusCount.running || 0}</Badge>
-                  </Group>
-                  <Group justify="space-between">
-                    <Text size="sm">Stopped</Text>
-                    <Badge color="gray" variant="filled">{(statusCount.stopped || 0) + (statusCount.shutdown || 0)}</Badge>
-                  </Group>
-                  <Group justify="space-between">
-                    <Text size="sm">Reconnecting</Text>
-                    <Badge color="orange" variant="filled">{statusCount.reconnecting || 0}</Badge>
-                  </Group>
-                  <Group justify="space-between">
-                    <Text size="sm">Error</Text>
-                    <Badge color="red" variant="filled">{statusCount.error || 0}</Badge>
-                  </Group>
-                </Stack>
-                <Divider my="md" />
-                <Button fullWidth variant="light" leftSection={<IconGitBranch size="1rem" />} onClick={() => navigate({ to: '/workflows' })}>
-                  Manage Workflows
-                </Button>
-              </Paper>
-
-              <Paper p="md" withBorder radius="md" bg="blue.0">
-                <Group gap="xs" mb="xs">
-                  <IconAlertTriangle size="1.2rem" color="blue" />
-                  <Text fw={700} size="sm" c="blue.9">Pro Tip</Text>
-                </Group>
-                <Text size="xs" c="blue.8">
-                  Use nodes and edges in workflows to create complex data processing pipelines.
-                </Text>
-              </Paper>
-            </Stack>
+          <Grid.Col span={{ base: 12, lg: 8 }}>
+            {renderWidget('mps')}
+          </Grid.Col>
+          <Grid.Col span={{ base: 12, lg: 4 }}>
+            {renderWidget('workflows')}
+          </Grid.Col>
+          <Grid.Col span={12}>
+            {renderWidget('logs')}
           </Grid.Col>
         </Grid>
-      </Stack>
-    </Box>
-  )
+      </Box>
+
+      <DataLineageModal opened={lineageOpened} onClose={() => setLineageOpened(false)} />
+    </Stack>
+  );
 }

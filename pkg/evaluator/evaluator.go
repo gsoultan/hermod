@@ -59,8 +59,9 @@ func (e *Evaluator) ParseAndEvaluate(msg hermod.Message, expr string) interface{
 		return false
 	}
 
-	// Check if it's a string literal: 'string'
-	if strings.HasPrefix(expr, "'") && strings.HasSuffix(expr, "'") && len(expr) >= 2 {
+	// Check if it's a string literal: 'string' or "string"
+	if ((strings.HasPrefix(expr, "'") && strings.HasSuffix(expr, "'")) ||
+		(strings.HasPrefix(expr, "\"") && strings.HasSuffix(expr, "\""))) && len(expr) >= 2 {
 		return expr[1 : len(expr)-1]
 	}
 
@@ -116,11 +117,17 @@ func (e *Evaluator) parseArgs(argsStr string) []string {
 	var currentArg strings.Builder
 	parenCount := 0
 	inQuote := false
+	var quoteChar byte
 
 	for i := 0; i < len(argsStr); i++ {
 		c := argsStr[i]
-		if c == '\'' {
-			inQuote = !inQuote
+		if c == '\'' || c == '"' {
+			if !inQuote {
+				inQuote = true
+				quoteChar = c
+			} else if c == quoteChar {
+				inQuote = false
+			}
 			currentArg.WriteByte(c)
 		} else if !inQuote && c == '(' {
 			parenCount++

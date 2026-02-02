@@ -115,7 +115,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		// Allow unauthenticated access to DB config and setup-related endpoints only during initial setup.
 		if s.isFirstRun(r.Context()) {
-			if r.Method == http.MethodPost && (path == "/api/config/database" || path == "/api/config/database/test" || path == "/api/config/databases" || path == "/api/settings/test" || path == "/api/settings/test-config") {
+			if r.Method == http.MethodPost && (path == "/api/config/database" || path == "/api/config/database/test" || path == "/api/config/databases" || path == "/api/settings/test" || path == "/api/settings/test-config" || path == "/api/users") {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -160,6 +160,50 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), userContextKey, &user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func (s *Server) rbacMiddleware(requiredRole storage.Role) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Bypass RBAC during initial setup
+			if s.isFirstRun(r.Context()) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			user, ok := r.Context().Value(userContextKey).(*storage.User)
+			if !ok {
+				s.jsonError(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+
+			// Admin can do anything
+			if user.Role == storage.RoleAdministrator {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if requiredRole == storage.RoleAdministrator && user.Role != storage.RoleAdministrator {
+				s.jsonError(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+
+			if requiredRole == storage.RoleEditor && user.Role == storage.RoleViewer {
+				s.jsonError(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func (s *Server) adminOnly(next http.HandlerFunc) http.Handler {
+	return s.rbacMiddleware(storage.RoleAdministrator)(next)
+}
+
+func (s *Server) editorOnly(next http.HandlerFunc) http.Handler {
+	return s.rbacMiddleware(storage.RoleEditor)(next)
 }
 
 func (s *Server) recoverMiddleware(next http.Handler) http.Handler {

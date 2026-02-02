@@ -1,3 +1,33 @@
+# Hermod: Enterprise-Grade Data Integration & Streaming Platform
+
+Hermod is a high-performance, distributed data integration platform designed to bridge the gap between various data sources and sinks. Built with Go and React, it provides mission-critical features for data governance, reliability, and real-time observability.
+
+---
+
+## Enterprise Data Platform Features
+
+Hermod is built for mission-critical enterprise data workloads, providing robust features for governance, reliability, and observability:
+
+- **Two-Phase Commit (2PC)**: Guaranteed atomic delivery for mission-critical sinks like **Postgres** and **Kafka**, ensuring no data loss or duplication in distributed environments.
+- **SSO & OpenID Connect (OIDC)**: Support for centralized identity providers like **Okta**, **Auth0**, and **Azure AD** for platform-wide authentication and RBAC.
+- **Vector Database Sinks**: Built-in support for **Pinecone**, **Milvus**, and **pgvector** to power enterprise AI knowledge bases and RAG pipelines.
+- **Hermod CLI (`hermodctl`)**: A powerful terminal-based tool for workflow linting, secret management, and real-time remote monitoring.
+- **Global Schema Registry**: Enforce data contracts with built-in JSON Schema, Avro, and Protobuf support. Automatically tracks schema versions and ensures backward compatibility.
+- **Workflow Versioning & Rollback**: Every change to a workflow is automatically versioned. One-click rollback allows you to quickly revert to a known stable configuration.
+- **Distributed State & Coordination**: Native support for **Redis** and **Etcd** backends for consistent state management across multiple worker instances.
+- **Enterprise Secret Management**: Securely resolve credentials from **HashiCorp Vault**, **AWS Secrets Manager**, and **Azure Key Vault** using the `secret:key` prefix.
+- **Role-Based Access Control (RBAC)**: Granular permissions for Administrators, Editors, and Viewers, including VHost-level isolation.
+- **Message Tracing & Visual Journey**: Visualize the exact path of a single message through the DAG, including latency and data mutations at each step.
+- **Pipeline Health Heatmaps**: Real-time visualization of throughput and error rates directly on the workflow canvas.
+- **WebAssembly (WASM) Transformations**: Run custom business logic written in Go, Rust, or C++ at near-native speed within the pipeline.
+- **Automated PII Scanning**: Built-in `mask` transformation detects and redacts sensitive data (PII/PHI) using a sophisticated regex-based discovery engine.
+- **Audit Logging**: Complete history of administrative changes and system events for security and compliance audits.
+- **Exactly-Once Semantics (EOS)**: Guarantees 100% data consistency using the **Transactional Outbox** pattern for SQL sources, ensuring messages are only acknowledged after successful delivery.
+- **AI-Native Transformations**: Integrated "Cognitive ETL" nodes for **AI Enrichment** and **AI Mapping**, supporting OpenAI and local Ollama models.
+- **OpenTelemetry (OTLP) Native**: Built-in support for exporting internal traces and metrics to standard enterprise observability stacks via the OTLP protocol.
+- **Enterprise Connectivity**: Native, optimized connectors for high-scale enterprise sinks like **Snowflake**.
+
+---
 
 Hermod works by reading data from a `Source`, buffering it in a high-performance buffer (in-memory `RingBuffer` or persistent `FileBuffer`), and then writing it to a `Sink`. This architecture allows it to handle peak loads and provide a flexible way to connect different databases to various message streams.
 
@@ -9,6 +39,27 @@ Hermod works by reading data from a `Source`, buffering it in a high-performance
 ```
 
 ## Usage
+
+### Hermod CLI (`hermodctl`)
+
+Hermod provides a professional CLI tool for developers and operators to manage the platform from the terminal.
+
+1.  **Workflow Linting**: Validate DAGs and schema mappings locally before deployment.
+    ```bash
+    hermodctl workflow lint path/to/workflow.json
+    ```
+2.  **Secret Management**: Manage enterprise secrets directly from the CLI.
+    ```bash
+    hermodctl secret set vault my-secret-key "my-value"
+    ```
+3.  **Real-time Monitoring**: Monitor worker health and cluster throughput in the terminal.
+    ```bash
+    hermodctl monitor
+    ```
+4.  **GitOps Support**: Export and import workflows as code for CI/CD pipelines.
+    ```bash
+    hermodctl workflow export --all > workflows.json
+    ```
 
 ### As a Library
 
@@ -54,9 +105,18 @@ Hermod can be run as a standalone application. By default, it starts in **API Mo
    go run cmd/hermod/main.go --build-ui
    ```
 
-   The UI will be available at `http://localhost:8080`.
+The UI will be available at `http://localhost:8080`.
 
-   #### API Mode (Default)
+### Multi-Platform Support
+
+Hermod is compiled for high performance and supports the following platforms and architectures:
+
+- **OS**: Linux (Ubuntu, Debian, RedHat, Alpine), macOS, Windows, FreeBSD, OpenBSD, NetBSD.
+- **Architecture**: `amd64`, `arm64`.
+
+You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from the [GitHub Releases](https://github.com/user/hermod/releases) page.
+
+#### API Mode (Default)
    To start Hermod in API mode (which also serves the UI):
    ```bash
    go run cmd/hermod/main.go
@@ -147,6 +207,26 @@ HERMOD_SQLITE_BUSY_TIMEOUT_MS=15000
 
 Default is 15000 ms. WAL mode and other safe pragmas are enabled by default.
 
+## Enterprise Features
+
+Hermod is built for scale and reliability, offering enterprise-grade features out of the box:
+
+- **Two-Phase Commit (2PC)**: Support for atomic multi-sink delivery, ensuring that data is either committed to both the internal state and external systems (Kafka, Postgres) or not at all.
+- **SSO & OIDC**: Centralized authentication via Okta, Azure AD, and Auth0, with automatic RBAC mapping.
+- **Vector Database Sinks**: Optimized connectors for **Pinecone**, **Milvus**, and **pgvector** for AI-driven data pipelines.
+- **Hermod CLI**: Full lifecycle management (Lint, Secret, Monitor, GitOps) from the command line.
+- **Global Schema Registry**: Centralized management of data contracts with versioning and compatibility checks. Supports JSON Schema, Avro, and Protobuf.
+- **WebAssembly (WASM) Transformations**: Run custom business logic at near-native speed. WASM nodes allow you to use Go, Rust, or C++ for complex data processing within the Hermod engine.
+- **Adaptive Throughput Control**: The engine automatically monitors processing latency and throttles ingestion if downstream sinks are under pressure or if worker resources are constrained.
+- **Exactly-Once Semantics (EOS)**: Infrastructure for atomic processing patterns using Transactional interfaces, minimizing message duplication in high-integrity use cases.
+- **Granular RBAC**: Role-Based Access Control allowing you to restrict access to Admins (full access), Editors (workflow management), and Viewers (dashboards only).
+- **Automated PII Discovery & Masking**: Intelligent sensitive data detection during the transformation phase to ensure compliance with GDPR/HIPAA.
+- **Distributed Trace Visualization**: Trace any message's journey through the DAG visually, showing latency and data mutations at every node.
+- **Global State Store**: Support for distributed backends like **Redis** and **Etcd** for consistent stateful transformations across worker clusters.
+- **AI-Native Transformations**: Cognitive ETL nodes for sentiment analysis, entity extraction, and automated mapping using LLMs.
+- **OTLP Native Export**: Integrated support for OpenTelemetry traces and metrics to connect with enterprise observability tools like Datadog and Honeycomb.
+- **Transactional Outbox**: Guaranteed message delivery and consistency for SQL-based sinks.
+
 ## Data Governance and Schema Validation
 
 Hermod allows you to enforce data quality by validating incoming messages against a schema before they are processed or written to sinks.
@@ -205,6 +285,33 @@ If you want to ensure that historical failures are processed before new data (e.
 **Note**: The Sink assigned as a DLQ must also implement the `hermod.Source` interface (e.g., Postgres, MySQL, NATS, Kafka).
 
 A sample template for this configuration is available at `examples/templates/reliability_recovery_dlq.json`.
+
+## Workflow Versioning & Rollback
+
+Every time you save a workflow, Hermod automatically creates an immutable version in the database. This provides a complete audit trail and enables safe, rapid recovery:
+
+- **Immutable History**: View all previous versions of a workflow, including the author, timestamp, and a summary of changes.
+- **One-Click Rollback**: Instantly revert a production workflow to any previous stable version via the **History** tab in the Workflow Detail page.
+- **GitOps Readiness**: Versioning ensures that workflow configurations can be managed as code and safely promoted across environments.
+
+## Distributed State & Coordination
+
+For large-scale, high-availability deployments, Hermod supports distributed backends for state management and worker coordination:
+
+- **Global State Stores**: Native support for **Redis** and **Etcd** to store workflow state (e.g., aggregation counters, windowed buffers). This ensures consistency when workflows migrate between workers.
+- **Worker Leases**: Distributed coordination ensures that each workflow is processed by exactly one worker instance at a time, preventing processing overlaps.
+- **Hash-based Sharding**: Automatically and transparently balances workflows across all available worker instances in a cluster.
+
+## Workflow Blueprints & Templates
+
+Hermod provides a library of pre-built "Blueprints" to jumpstart common data integration patterns. These can be imported with a single click and customized to your needs.
+
+Examples include:
+- **CDC to Elasticsearch**: Real-time synchronization of database changes to a search index.
+- **API Aggregator**: Consolidate data from multiple external APIs into a single stream.
+- **GDPR Masking & Routing**: Automatically redact PII and route high-value data to specialized sinks.
+
+Browse the available templates in the `examples/templates/` directory or directly via the **Import Template** button in the Workflow Dashboard.
 
 ## Observability
 
@@ -330,6 +437,16 @@ service SourceService {
 ```
 
 You can push structured messages directly from your gRPC clients. Use the `path` field in the request to route to a specific Hermod gRPC source configuration.
+
+## Advanced Transformation Nodes
+
+Beyond simple mapping and filtering, Hermod supports complex business logic within the pipeline:
+
+- **WebAssembly (WASM)**: Execute logic compiled from Go, Rust, or C++ at near-native speed. Ideal for CPU-intensive transformations or proprietary algorithms.
+- **Lua Scripting**: Embed lightweight, flexible scripts for dynamic data manipulation without external dependencies.
+- **PII Masking**: Automatically discover and redact sensitive information (Credit Cards, Emails, SSNs) using a built-in regex-based scanner.
+- **Stateful Aggregations**: Maintain running totals, counts, or windowed averages directly in the stream.
+- **Database/API Lookups**: Enrich incoming messages by querying external databases or HTTP APIs in real-time.
 
 ## Leases and Single-Worker Ownership
 

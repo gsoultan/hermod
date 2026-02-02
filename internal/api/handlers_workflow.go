@@ -3,11 +3,15 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/user/hermod/internal/governance"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/message"
 )
@@ -15,18 +19,341 @@ import (
 func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/workflows", s.listWorkflows)
 	mux.HandleFunc("GET /api/workflows/{id}", s.getWorkflow)
-	mux.HandleFunc("POST /api/workflows", s.createWorkflow)
-	mux.HandleFunc("PUT /api/workflows/{id}", s.updateWorkflow)
-	mux.HandleFunc("DELETE /api/workflows/{id}", s.deleteWorkflow)
-	mux.HandleFunc("POST /api/workflows/{id}/toggle", s.toggleWorkflow)
-	mux.HandleFunc("POST /api/workflows/{id}/drain", s.drainWorkflowDLQ)
-	mux.HandleFunc("POST /api/workflows/{id}/rebuild", s.rebuildWorkflow)
-	mux.HandleFunc("POST /api/workflows/test", s.testWorkflow)
-	mux.HandleFunc("POST /api/transformations/test", s.testTransformation)
+	mux.HandleFunc("GET /api/workflows/{id}/report", s.getWorkflowComplianceReport)
+	mux.Handle("POST /api/workflows", s.editorOnly(s.createWorkflow))
+	mux.Handle("PUT /api/workflows/{id}", s.editorOnly(s.updateWorkflow))
+	mux.Handle("DELETE /api/workflows/{id}", s.editorOnly(s.deleteWorkflow))
+	mux.Handle("POST /api/workflows/{id}/toggle", s.editorOnly(s.toggleWorkflow))
+	mux.Handle("POST /api/workflows/{id}/drain", s.editorOnly(s.drainWorkflowDLQ))
+	mux.Handle("POST /api/workflows/{id}/rebuild", s.editorOnly(s.rebuildWorkflow))
+	mux.Handle("POST /api/workflows/test", s.editorOnly(s.testWorkflow))
+	mux.Handle("POST /api/transformations/test", s.editorOnly(s.testTransformation))
+	mux.HandleFunc("GET /api/workflows/{id}/traces/", s.getMessageTrace)
+	mux.HandleFunc("GET /api/workflows/{id}/traces", s.listMessageTraces)
+	mux.HandleFunc("GET /api/workflows/{id}/versions", s.listWorkflowVersions)
+	mux.HandleFunc("GET /api/workflows/{id}/versions/{version}", s.getWorkflowVersion)
+	mux.Handle("POST /api/workflows/{id}/rollback/{version}", s.editorOnly(s.rollbackWorkflow))
+	mux.HandleFunc("GET /api/workflows/pii-stats", s.getPIIStats)
+	mux.HandleFunc("POST /api/ai/analyze-error", s.handleAIAnalyzeError)
+	mux.HandleFunc("POST /api/ai/analyze-schema", s.handleAIAnalyzeSchema)
+	mux.HandleFunc("POST /api/ai/generate-workflow", s.handleAIGenerateWorkflow)
+	mux.HandleFunc("POST /api/ai/copilot", s.handleAICopilot)
+	mux.HandleFunc("POST /api/workflows/{id}/nodes/{node_id}/test", s.runNodeUnitTests)
+	mux.HandleFunc("GET /api/ws/live", s.handleLiveMessagesWS)
+
+	// Workspaces
+	mux.HandleFunc("GET /api/workspaces", s.listWorkspaces)
+	mux.Handle("POST /api/workspaces", s.editorOnly(s.createWorkspace))
+	mux.Handle("DELETE /api/workspaces/{id}", s.editorOnly(s.deleteWorkspace))
+
+	// Batch Operations
+	mux.Handle("POST /api/workflows/batch/toggle", s.editorOnly(s.batchToggleWorkflows))
+	mux.Handle("POST /api/workflows/batch/delete", s.editorOnly(s.batchDeleteWorkflows))
+}
+
+func (s *Server) batchToggleWorkflows(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs    []string `json:"ids"`
+		Active bool     `json:"active"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	results := make(map[string]string)
+	for _, id := range req.IDs {
+		wf, err := s.storage.GetWorkflow(r.Context(), id)
+		if err != nil {
+			results[id] = "Error: " + err.Error()
+			continue
+		}
+
+		if wf.Active == req.Active {
+			results[id] = "No change"
+			continue
+		}
+
+		wf.Active = req.Active
+		if wf.Active {
+			wf.Status = "Active"
+			if err := s.registry.StartWorkflow(id, wf); err != nil && !strings.Contains(err.Error(), "already running") {
+				results[id] = "Failed to start: " + err.Error()
+				continue
+			}
+		} else {
+			wf.Status = "Stopped"
+			_ = s.registry.StopEngine(id)
+		}
+
+		if err := s.storage.UpdateWorkflow(r.Context(), wf); err != nil {
+			results[id] = "Failed to update storage: " + err.Error()
+		} else {
+			results[id] = "OK"
+			action := "STOP"
+			if req.Active {
+				action = "START"
+			}
+			s.recordAuditLog(r, "INFO", "Batch workflow "+wf.Name+" "+action+"ed", action, wf.ID, "", "", nil)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(results)
+}
+
+func (s *Server) batchDeleteWorkflows(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	results := make(map[string]string)
+	for _, id := range req.IDs {
+		if err := s.storage.DeleteWorkflow(r.Context(), id); err != nil {
+			results[id] = "Error: " + err.Error()
+		} else {
+			_ = s.registry.StopEngine(id)
+			results[id] = "OK"
+			s.recordAuditLog(r, "INFO", "Batch deleted workflow "+id, "DELETE", id, "", "", nil)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(results)
+}
+
+func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {
+	wss, err := s.storage.ListWorkspaces(r.Context())
+	if err != nil {
+		s.jsonError(w, "Failed to list workspaces: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(wss)
+}
+
+func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
+	var ws storage.Workspace
+	if err := json.NewDecoder(r.Body).Decode(&ws); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if ws.Name == "" {
+		s.jsonError(w, "Workspace name is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.storage.CreateWorkspace(r.Context(), ws); err != nil {
+		s.jsonError(w, "Failed to create workspace: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(ws)
+}
+
+func (s *Server) deleteWorkspace(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.storage.DeleteWorkspace(r.Context(), id); err != nil {
+		s.jsonError(w, "Failed to delete workspace: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleAICopilot(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	result, err := s.ai.GenerateLogic(r.Context(), req.Prompt)
+	if err != nil {
+		s.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
+}
+
+func (s *Server) handleAIAnalyzeError(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		WorkflowID string `json:"workflow_id"`
+		NodeID     string `json:"node_id"`
+		Error      string `json:"error"`
+		Sample     any    `json:"sample,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	suggestion, err := s.ai.AnalyzeError(r.Context(), req.WorkflowID, req.NodeID, req.Error, req.Sample)
+	if err != nil {
+		s.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(suggestion)
+}
+
+func (s *Server) handleAIAnalyzeSchema(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		WorkflowID string         `json:"workflow_id"`
+		OldSchema  map[string]any `json:"old_schema"`
+		NewSchema  map[string]any `json:"new_schema"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	res, err := s.ai.AnalyzeSchemaChange(r.Context(), req.OldSchema, req.NewSchema, req.WorkflowID)
+	if err != nil {
+		s.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (s *Server) handleAIGenerateWorkflow(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	wf, err := s.ai.GenerateWorkflow(r.Context(), req.Prompt)
+	if err != nil {
+		s.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(wf)
+}
+
+func (s *Server) getPIIStats(w http.ResponseWriter, r *http.Request) {
+	stats := s.registry.GetPIIStats()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(stats)
+}
+
+type UnitTestResult struct {
+	Name    string                 `json:"name"`
+	Passed  bool                   `json:"passed"`
+	Actual  map[string]interface{} `json:"actual"`
+	Error   string                 `json:"error,omitempty"`
+	Elapsed time.Duration          `json:"elapsed"`
+}
+
+func (s *Server) runNodeUnitTests(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	nodeID := r.PathValue("node_id")
+
+	wf, err := s.storage.GetWorkflow(r.Context(), id)
+	if err != nil {
+		s.jsonError(w, "Workflow not found", http.StatusNotFound)
+		return
+	}
+
+	var targetNode *storage.WorkflowNode
+	for _, node := range wf.Nodes {
+		if node.ID == nodeID {
+			targetNode = &node
+			break
+		}
+	}
+
+	if targetNode == nil {
+		s.jsonError(w, "Node not found", http.StatusNotFound)
+		return
+	}
+
+	if len(targetNode.UnitTests) == 0 {
+		s.jsonError(w, "No unit tests defined for this node", http.StatusBadRequest)
+		return
+	}
+
+	results := make([]UnitTestResult, 0, len(targetNode.UnitTests))
+
+	// For each test, run it through the transformation pipeline (mocked for just this node)
+	for _, ut := range targetNode.UnitTests {
+		start := time.Now()
+		msg := message.AcquireMessage()
+		for k, v := range ut.Input {
+			msg.SetData(k, v)
+		}
+
+		// Create a temporary transformation from the node config
+		trans := storage.Transformation{
+			Type:   targetNode.Type,
+			Config: make(map[string]string),
+		}
+		if targetNode.Config != nil {
+			for k, v := range targetNode.Config {
+				if str, ok := v.(string); ok {
+					trans.Config[k] = str
+				} else if v != nil {
+					trans.Config[k] = fmt.Sprint(v)
+				}
+			}
+		}
+		// If it's a subType like "mapping", the engine needs that
+		if subType, ok := targetNode.Config["transType"].(string); ok {
+			trans.Type = subType
+		}
+
+		res, err := s.registry.TestTransformationPipeline(r.Context(), []storage.Transformation{trans}, msg)
+		message.ReleaseMessage(msg)
+
+		var actual map[string]interface{}
+		passed := false
+		var errStr string
+
+		if err != nil {
+			errStr = err.Error()
+		} else if len(res) == 0 || res[0] == nil {
+			errStr = "Message was filtered out"
+		} else {
+			actual = res[0].Data()
+			// Simple deep equal check for expected output
+			passed = true
+			for k, expected := range ut.ExpectedOutput {
+				if actualVal, ok := actual[k]; !ok || fmt.Sprint(actualVal) != fmt.Sprint(expected) {
+					passed = false
+					break
+				}
+			}
+		}
+
+		results = append(results, UnitTestResult{
+			Name:    ut.Name,
+			Passed:  passed,
+			Actual:  actual,
+			Error:   errStr,
+			Elapsed: time.Since(start),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(results)
 }
 
 func (s *Server) listWorkflows(w http.ResponseWriter, r *http.Request) {
 	filter := s.parseCommonFilter(r)
+	filter.WorkspaceID = r.URL.Query().Get("workspace_id")
 	role, vhosts := s.getRoleAndVHosts(r)
 
 	if filter.VHost != "" && role != storage.RoleAdministrator {
@@ -95,12 +422,26 @@ func (s *Server) createWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Quota Enforcement: Check MaxWorkflows
+	if wf.WorkspaceID != "" {
+		ws, err := s.storage.GetWorkspace(r.Context(), wf.WorkspaceID)
+		if err == nil && ws.MaxWorkflows > 0 {
+			workflows, _, err := s.storage.ListWorkflows(r.Context(), storage.CommonFilter{
+				WorkspaceID: wf.WorkspaceID,
+			})
+			if err == nil && len(workflows) >= ws.MaxWorkflows {
+				s.jsonError(w, fmt.Sprintf("Workspace quota exceeded: Maximum %d workflows allowed", ws.MaxWorkflows), http.StatusForbidden)
+				return
+			}
+		}
+	}
+
 	if err := s.storage.CreateWorkflow(r.Context(), wf); err != nil {
 		s.jsonError(w, "Failed to create workflow: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	s.recordAuditLog(r, "INFO", "Created workflow "+wf.Name, "create", wf.ID, "", "", wf)
+	s.recordAuditLog(r, "INFO", "Created workflow "+wf.Name, "CREATE", wf.ID, "", "", wf)
 
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(wf)
@@ -115,12 +456,47 @@ func (s *Server) updateWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	wf.ID = id
 
+	// Get current version count to determine next version
+	versions, _ := s.storage.ListWorkflowVersions(r.Context(), id)
+	nextVersion := 1
+	if len(versions) > 0 {
+		nextVersion = versions[0].Version + 1
+	}
+
 	if err := s.storage.UpdateWorkflow(r.Context(), wf); err != nil {
 		s.jsonError(w, "Failed to update workflow: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	s.recordAuditLog(r, "INFO", "Updated workflow "+wf.Name, "update", wf.ID, "", "", wf)
+	// Create a new version
+	user, _ := r.Context().Value(userContextKey).(*storage.User)
+	username := "System"
+	if user != nil {
+		username = user.Username
+	}
+
+	// Extract config excluding nodes and edges
+	wfCopy := wf
+	wfCopy.Nodes = nil
+	wfCopy.Edges = nil
+	configJSON, _ := json.Marshal(wfCopy)
+
+	version := storage.WorkflowVersion{
+		ID:             uuid.New().String(),
+		WorkflowID:     id,
+		Version:        nextVersion,
+		Nodes:          wf.Nodes,
+		Edges:          wf.Edges,
+		TraceRetention: wf.TraceRetention,
+		AuditRetention: wf.AuditRetention,
+		Config:         string(configJSON),
+		CreatedAt:      time.Now(),
+		CreatedBy:      username,
+		Message:        "Auto-saved on update",
+	}
+	_ = s.storage.CreateWorkflowVersion(r.Context(), version)
+
+	s.recordAuditLog(r, "INFO", "Updated workflow "+wf.Name, "UPDATE", wf.ID, "", "", wf)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(wf)
@@ -133,7 +509,7 @@ func (s *Server) deleteWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.recordAuditLog(r, "INFO", "Deleted workflow "+id, "delete", id, "", "", nil)
+	s.recordAuditLog(r, "INFO", "Deleted workflow "+id, "DELETE", id, "", "", nil)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -146,13 +522,53 @@ func (s *Server) toggleWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	action := "STOP"
 	if wf.Active {
 		wf.Active = false
 		wf.Status = "Stopped"
 		_ = s.registry.StopEngine(id)
 	} else {
+		// Quota Enforcement: Check resource limits before starting
+		if wf.WorkspaceID != "" {
+			ws, err := s.storage.GetWorkspace(r.Context(), wf.WorkspaceID)
+			if err == nil {
+				// 1. Check MaxWorkflows (Active)
+				// Note: createWorkflow already checks total workflows, but we might want to limit active ones too.
+				// For now, let's focus on CPU/Memory/Throughput as requested.
+
+				activeWorkflows, _, err := s.storage.ListWorkflows(r.Context(), storage.CommonFilter{
+					WorkspaceID: wf.WorkspaceID,
+				})
+				if err == nil {
+					var currentCPU, currentMem float64
+					var currentThroughput int
+					for _, awf := range activeWorkflows {
+						if awf.Active && awf.ID != wf.ID {
+							currentCPU += awf.CPURequest
+							currentMem += awf.MemoryRequest
+							currentThroughput += awf.ThroughputRequest
+						}
+					}
+
+					if ws.MaxCPU > 0 && currentCPU+wf.CPURequest > ws.MaxCPU {
+						s.jsonError(w, fmt.Sprintf("Workspace CPU quota exceeded: %f requested, %f available", wf.CPURequest, ws.MaxCPU-currentCPU), http.StatusForbidden)
+						return
+					}
+					if ws.MaxMemory > 0 && currentMem+wf.MemoryRequest > ws.MaxMemory {
+						s.jsonError(w, fmt.Sprintf("Workspace Memory quota exceeded: %f requested, %f available", wf.MemoryRequest, ws.MaxMemory-currentMem), http.StatusForbidden)
+						return
+					}
+					if ws.MaxThroughput > 0 && currentThroughput+wf.ThroughputRequest > ws.MaxThroughput {
+						s.jsonError(w, fmt.Sprintf("Workspace Throughput quota exceeded: %d requested, %d available", wf.ThroughputRequest, ws.MaxThroughput-currentThroughput), http.StatusForbidden)
+						return
+					}
+				}
+			}
+		}
+
 		wf.Active = true
 		wf.Status = "Active"
+		action = "START"
 		if err := s.registry.StartWorkflow(id, wf); err != nil && !strings.Contains(err.Error(), "already running") {
 			s.jsonError(w, "Failed to start workflow: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -164,10 +580,6 @@ func (s *Server) toggleWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	action := "stop"
-	if wf.Active {
-		action = "start"
-	}
 	s.recordAuditLog(r, "INFO", "Workflow "+wf.Name+" "+action+"ed", action, wf.ID, "", "", nil)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -265,4 +677,205 @@ func (s *Server) testTransformation(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(res[0].Data())
+}
+
+func (s *Server) getMessageTrace(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	messageID := r.URL.Query().Get("message_id")
+
+	// Fallback to path extraction if not in query
+	if messageID == "" {
+		prefix := fmt.Sprintf("/api/workflows/%s/traces/", id)
+		messageID = strings.TrimPrefix(r.URL.Path, prefix)
+	}
+
+	if messageID == "" {
+		s.jsonError(w, "Message ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// RBAC: Check access to the workflow's VHost
+	wf, err := s.storage.GetWorkflow(r.Context(), id)
+	if err == nil {
+		role, vhosts := s.getRoleAndVHosts(r)
+		if role != "" && role != storage.RoleAdministrator {
+			if !s.hasVHostAccess(wf.VHost, vhosts) {
+				s.jsonError(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+		}
+	}
+
+	trace, err := s.logStorage.GetMessageTrace(r.Context(), id, messageID)
+	if err != nil {
+		if err == storage.ErrNotFound {
+			s.jsonError(w, "Trace not found", http.StatusNotFound)
+		} else {
+			s.jsonError(w, "Failed to get trace: "+err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(trace)
+}
+
+func (s *Server) listMessageTraces(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	// RBAC: Check access to the workflow's VHost
+	wf, err := s.storage.GetWorkflow(r.Context(), id)
+	if err == nil {
+		role, vhosts := s.getRoleAndVHosts(r)
+		if role != "" && role != storage.RoleAdministrator {
+			if !s.hasVHostAccess(wf.VHost, vhosts) {
+				s.jsonError(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+		}
+	}
+
+	limit := 100
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if val, err := strconv.Atoi(l); err == nil {
+			limit = val
+		}
+	}
+
+	traces, err := s.logStorage.ListMessageTraces(r.Context(), id, limit)
+	if err != nil {
+		s.jsonError(w, "Failed to list message traces: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(traces)
+}
+
+func (s *Server) listWorkflowVersions(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	versions, err := s.storage.ListWorkflowVersions(r.Context(), id)
+	if err != nil {
+		s.jsonError(w, "Failed to list workflow versions: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(versions)
+}
+
+func (s *Server) getWorkflowVersion(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	versionStr := r.PathValue("version")
+	version, _ := strconv.Atoi(versionStr)
+
+	v, err := s.storage.GetWorkflowVersion(r.Context(), id, version)
+	if err != nil {
+		if err == storage.ErrNotFound {
+			s.jsonError(w, "Version not found", http.StatusNotFound)
+		} else {
+			s.jsonError(w, "Failed to get version: "+err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (s *Server) getWorkflowComplianceReport(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "Workflow ID is required", http.StatusBadRequest)
+		return
+	}
+
+	format := r.URL.Query().Get("format")
+	reportService := governance.NewReportService(s.storage, s.registry.GetDQScorer())
+
+	if format == "pdf" || format == "md" {
+		report, filename, err := reportService.GeneratePDFReport(r.Context(), id)
+		if err != nil {
+			http.Error(w, "Failed to generate report: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+		w.WriteHeader(http.StatusOK)
+		w.Write(report)
+		return
+	}
+
+	report, err := reportService.GenerateComplianceReport(r.Context(), id)
+	if err != nil {
+		http.Error(w, "Failed to generate report: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(report))
+}
+
+func (s *Server) rollbackWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	versionStr := r.PathValue("version")
+	version, _ := strconv.Atoi(versionStr)
+
+	v, err := s.storage.GetWorkflowVersion(r.Context(), id, version)
+	if err != nil {
+		s.jsonError(w, "Failed to find version to rollback: "+err.Error(), http.StatusNotFound)
+		return
+	}
+
+	// Restore workflow from version
+	var wf storage.Workflow
+	if err := json.Unmarshal([]byte(v.Config), &wf); err != nil {
+		s.jsonError(w, "Failed to parse version config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	wf.ID = id
+	wf.Nodes = v.Nodes
+	wf.Edges = v.Edges
+	wf.TraceRetention = v.TraceRetention
+	wf.AuditRetention = v.AuditRetention
+
+	if err := s.storage.UpdateWorkflow(r.Context(), wf); err != nil {
+		s.jsonError(w, "Failed to restore workflow: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Create a new version for the rollback action itself
+	user, _ := r.Context().Value(userContextKey).(*storage.User)
+	username := "System"
+	if user != nil {
+		username = user.Username
+	}
+
+	// Get current version count
+	versions, _ := s.storage.ListWorkflowVersions(r.Context(), id)
+	nextVersion := 1
+	if len(versions) > 0 {
+		nextVersion = versions[0].Version + 1
+	}
+
+	rollbackVersion := storage.WorkflowVersion{
+		ID:             uuid.New().String(),
+		WorkflowID:     id,
+		Version:        nextVersion,
+		Nodes:          wf.Nodes,
+		Edges:          wf.Edges,
+		TraceRetention: wf.TraceRetention,
+		AuditRetention: wf.AuditRetention,
+		Config:         v.Config,
+		CreatedAt:      time.Now(),
+		CreatedBy:      username,
+		Message:        fmt.Sprintf("Rolled back to version %d", version),
+	}
+	_ = s.storage.CreateWorkflowVersion(r.Context(), rollbackVersion)
+
+	s.recordAuditLog(r, "INFO", fmt.Sprintf("Rolled back workflow %s to version %d", id, version), "ROLLBACK", id, "", "", wf)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(wf)
 }

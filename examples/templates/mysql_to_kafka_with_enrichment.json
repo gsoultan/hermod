@@ -1,0 +1,77 @@
+{
+  "name": "MySQL CDC to Kafka with Enrichment",
+  "vhost": "default",
+  "tags": ["cdc", "mysql", "kafka", "enrichment"],
+  "nodes": [
+    {
+      "id": "source_1",
+      "type": "source",
+      "config": {
+        "label": "MySQL Production DB",
+        "type": "mysql",
+        "use_cdc": true,
+        "conn_string": "user:pass@tcp(mysql-host:3306)/orders"
+      },
+      "x": 100,
+      "y": 200
+    },
+    {
+      "id": "trans_1",
+      "type": "transformation",
+      "config": {
+        "label": "Enrich with User Data",
+        "transType": "db_lookup",
+        "db_type": "postgres",
+        "conn_string": "postgres://user:pass@pg-host:5432/users",
+        "query": "SELECT email, country FROM users WHERE id = ?",
+        "key_column": "user_id"
+      },
+      "x": 400,
+      "y": 200
+    },
+    {
+      "id": "trans_2",
+      "type": "transformation",
+      "config": {
+        "label": "PII Masking",
+        "transType": "mask",
+        "fields": "email",
+        "method": "hash"
+      },
+      "x": 700,
+      "y": 200
+    },
+    {
+      "id": "sink_1",
+      "type": "sink",
+      "config": {
+        "label": "Kafka Analytics Topic",
+        "type": "kafka",
+        "brokers": "kafka:9092",
+        "topic": "enriched-orders"
+      },
+      "x": 1000,
+      "y": 200
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_1",
+      "source_id": "source_1",
+      "target_id": "trans_1"
+    },
+    {
+      "id": "edge_2",
+      "source_id": "trans_1",
+      "target_id": "trans_2"
+    },
+    {
+      "id": "edge_3",
+      "source_id": "trans_2",
+      "target_id": "sink_1"
+    }
+  ],
+  "max_retries": 5,
+  "retry_interval": "1s",
+  "prioritize_dlq": true
+}

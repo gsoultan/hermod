@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,7 +16,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/user/hermod"
+	"github.com/user/hermod/internal/governance"
+	"github.com/user/hermod/internal/mesh"
 	"github.com/user/hermod/internal/notification"
+	"github.com/user/hermod/internal/optimizer"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/buffer"
 	"github.com/user/hermod/pkg/compression"
@@ -26,6 +30,7 @@ import (
 	"github.com/user/hermod/pkg/secrets"
 	"github.com/user/hermod/pkg/sink/failover"
 	"github.com/user/hermod/pkg/source/batchsql"
+	sourceform "github.com/user/hermod/pkg/source/form"
 	"github.com/user/hermod/pkg/state"
 	"github.com/user/hermod/pkg/transformer"
 	"go.opentelemetry.io/otel"
@@ -41,23 +46,50 @@ type RegistryStorage interface {
 	GetSink(ctx context.Context, id string) (storage.Sink, error)
 	GetWorkflow(ctx context.Context, id string) (storage.Workflow, error)
 	ListWorkflows(ctx context.Context, filter storage.CommonFilter) ([]storage.Workflow, int, error)
+	ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error)
+	ListSinks(ctx context.Context, filter storage.CommonFilter) ([]storage.Sink, int, error)
+	ListWorkers(ctx context.Context, filter storage.CommonFilter) ([]storage.Worker, int, error)
+
+	CreateFormSubmission(ctx context.Context, sub storage.FormSubmission) error
+	ListFormSubmissions(ctx context.Context, filter storage.FormSubmissionFilter) ([]storage.FormSubmission, int, error)
+	UpdateFormSubmissionStatus(ctx context.Context, id string, status string) error
 	UpdateWorkflow(ctx context.Context, wf storage.Workflow) error
+	UpdateSourceStatus(ctx context.Context, id string, status string) error
+	UpdateSinkStatus(ctx context.Context, id string, status string) error
 	CreateLog(ctx context.Context, log storage.Log) error
 	UpdateSource(ctx context.Context, src storage.Source) error
 	UpdateSourceState(ctx context.Context, id string, state map[string]string) error
 	UpdateSink(ctx context.Context, snk storage.Sink) error
 	UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error
 	GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error)
+	RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error
+	PurgeAuditLogs(ctx context.Context, before time.Time) error
+	PurgeMessageTraces(ctx context.Context, before time.Time) error
 }
 
 type SourceFactory func(SourceConfig) (hermod.Source, error)
 type SinkFactory func(SinkConfig) (hermod.Sink, error)
 
+type LiveMessage struct {
+	WorkflowID string                 `json:"workflow_id"`
+	NodeID     string                 `json:"node_id"`
+	Timestamp  time.Time              `json:"timestamp"`
+	Data       map[string]interface{} `json:"data"`
+	IsError    bool                   `json:"is_error"`
+	Error      string                 `json:"error,omitempty"`
+}
+
+type PIIStats struct {
+	Discoveries map[string]uint64 `json:"discoveries"`
+	LastUpdated time.Time         `json:"last_updated"`
+}
+
 type Registry struct {
-	engines map[string]*activeEngine
-	mu      sync.Mutex
-	storage RegistryStorage
-	config  pkgengine.Config
+	engines    map[string]*activeEngine
+	mu         sync.Mutex
+	storage    RegistryStorage
+	logStorage RegistryStorage
+	config     pkgengine.Config
 
 	sourceFactory SourceFactory
 	sinkFactory   SinkFactory
@@ -67,8 +99,10 @@ type Registry struct {
 	statusSubs          map[chan pkgengine.StatusUpdate]bool
 	dashboardSubs       map[chan DashboardStats]bool
 	logSubs             map[chan storage.Log]bool
+	liveMsgSubs         map[chan LiveMessage]bool
 	statusSubsMu        sync.RWMutex
 	lastDashboardUpdate time.Time
+	startTime           time.Time
 
 	notificationService *notification.Service
 	nodeStates          map[string]interface{}
@@ -81,6 +115,13 @@ type Registry struct {
 	idleMonitorStop     chan struct{}
 	stateStore          hermod.StateStore
 	secretManager       secrets.Manager
+	schemaRegistry      schema.Registry
+	optimizer           *optimizer.Optimizer
+	dqScorer            *governance.Scorer
+	meshManager         *mesh.Manager
+
+	piiStats   map[string]*PIIStats
+	piiStatsMu sync.RWMutex
 }
 
 type activeEngine struct {
@@ -96,7 +137,7 @@ type activeEngine struct {
 	workflow             storage.Workflow
 }
 
-func NewRegistry(s storage.Storage) *Registry {
+func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 	ns := notification.NewService(s)
 	if s != nil {
 		ns.AddProvider(notification.NewUINotificationProvider(s))
@@ -107,22 +148,47 @@ func NewRegistry(s storage.Storage) *Registry {
 		ns.AddProvider(notification.NewGenericWebhookProvider(s))
 	}
 
+	var logStore storage.Storage
+	if len(ls) > 0 {
+		logStore = ls[0]
+	}
+	if logStore == nil {
+		logStore = s
+	}
+
 	reg := &Registry{
 		engines:             make(map[string]*activeEngine),
 		storage:             s,
+		logStorage:          logStore,
 		config:              pkgengine.DefaultConfig(),
 		evaluator:           evaluator.NewEvaluator(),
 		statusSubs:          make(map[chan pkgengine.StatusUpdate]bool),
 		dashboardSubs:       make(map[chan DashboardStats]bool),
 		logSubs:             make(map[chan storage.Log]bool),
+		liveMsgSubs:         make(map[chan LiveMessage]bool),
 		notificationService: ns,
 		nodeStates:          make(map[string]interface{}),
 		lookupCache:         make(map[string]interface{}),
 		dbPool:              make(map[string]*sql.DB),
 		logger:              pkgengine.NewDefaultLogger(),
 		idleMonitorStop:     make(chan struct{}),
+		startTime:           time.Now(),
 		secretManager:       &secrets.EnvManager{Prefix: "HERMOD_SECRET_"},
+		schemaRegistry:      schema.NewStorageRegistry(s),
+		dqScorer:            governance.NewScorer(),
+		meshManager:         mesh.NewManager(pkgengine.NewDefaultLogger()),
+		piiStats:            make(map[string]*PIIStats),
 	}
+
+	reg.optimizer = optimizer.NewOptimizer(reg.logger, func(wfID, title, msg string) {
+		ctx := context.Background()
+		if reg.storage != nil && reg.notificationService != nil {
+			wf, err := reg.storage.GetWorkflow(ctx, wfID)
+			if err == nil {
+				reg.notificationService.Notify(ctx, title, msg, wf)
+			}
+		}
+	})
 
 	// Initialize default state store
 	ss, err := state.NewSQLiteStateStore("hermod_state.db")
@@ -132,9 +198,65 @@ func NewRegistry(s storage.Storage) *Registry {
 		log.Printf("Warning: failed to initialize state store: %v", err)
 	}
 
-	// Start idle monitor
+	// Start background maintenance routines
 	go reg.runIdleMonitor()
+	go reg.runRetentionPurge()
+	go reg.optimizer.Start(context.Background())
 	return reg
+}
+
+func (r *Registry) runRetentionPurge() {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	// Run once on startup
+	r.purgeRetention()
+
+	for {
+		select {
+		case <-r.idleMonitorStop:
+			return
+		case <-ticker.C:
+			r.purgeRetention()
+		}
+	}
+}
+
+func (r *Registry) purgeRetention() {
+	if r.storage == nil {
+		return
+	}
+
+	ctx := context.Background()
+	workflows, _, err := r.storage.ListWorkflows(ctx, storage.CommonFilter{Limit: 1000})
+	if err != nil {
+		return
+	}
+
+	for _, wf := range workflows {
+		// Purge Traces
+		if wf.TraceRetention != "" && wf.TraceRetention != "0" {
+			duration, err := time.ParseDuration(wf.TraceRetention)
+			if err == nil {
+				before := time.Now().Add(-duration)
+				if r.logStorage != nil {
+					_ = r.logStorage.PurgeMessageTraces(ctx, before)
+				}
+			}
+		}
+
+		// Purge Audit Logs (if we decide to per-workflow, but usually it's global or per-workflow entity)
+		// For now, let's use global if per-workflow is not specified, or just per-workflow if set.
+		if wf.AuditRetention != "" && wf.AuditRetention != "0" {
+			duration, err := time.ParseDuration(wf.AuditRetention)
+			if err == nil {
+				before := time.Now().Add(-duration)
+				if r.logStorage != nil {
+					_ = r.logStorage.PurgeAuditLogs(ctx, before)
+				}
+			}
+		}
+	}
 }
 
 func (r *Registry) runIdleMonitor() {
@@ -202,10 +324,34 @@ func (r *Registry) checkIdleWorkflows() {
 	}
 }
 
+func (r *Registry) GetLogger() hermod.Logger {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.logger
+}
+
+func (r *Registry) GetMeshManager() *mesh.Manager {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.meshManager
+}
+
 func (r *Registry) SetLogger(logger hermod.Logger) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.logger = logger
+}
+
+func (r *Registry) SetSecretManager(mgr secrets.Manager) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.secretManager = mgr
+}
+
+func (r *Registry) SetStateStore(ss hermod.StateStore) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stateStore = ss
 }
 
 func (r *Registry) SubscribeStatus() chan pkgengine.StatusUpdate {
@@ -309,6 +455,21 @@ func (r *Registry) UnsubscribeLogs(ch chan storage.Log) {
 	close(ch)
 }
 
+func (r *Registry) SubscribeLiveMessages() chan LiveMessage {
+	r.statusSubsMu.Lock()
+	defer r.statusSubsMu.Unlock()
+	ch := make(chan LiveMessage, 1000)
+	r.liveMsgSubs[ch] = true
+	return ch
+}
+
+func (r *Registry) UnsubscribeLiveMessages(ch chan LiveMessage) {
+	r.statusSubsMu.Lock()
+	defer r.statusSubsMu.Unlock()
+	delete(r.liveMsgSubs, ch)
+	close(ch)
+}
+
 func (r *Registry) broadcastStatus(update pkgengine.StatusUpdate) {
 	r.statusSubsMu.Lock()
 	defer r.statusSubsMu.Unlock()
@@ -331,7 +492,7 @@ func (r *Registry) broadcastStatus(update pkgengine.StatusUpdate) {
 			// Release statusSubsMu to avoid deadlock if GetDashboardStats needs it (it doesn't, but good practice)
 			// Actually GetDashboardStats locks r.mu.
 			r.statusSubsMu.Unlock()
-			stats, _ := r.GetDashboardStats(context.Background())
+			stats, _ := r.GetDashboardStats(context.Background(), "all")
 			r.statusSubsMu.Lock()
 
 			for ch := range r.dashboardSubs {
@@ -345,11 +506,16 @@ func (r *Registry) broadcastStatus(update pkgengine.StatusUpdate) {
 }
 
 func (r *Registry) broadcastLog(engineID, level, msg string) {
+	r.broadcastLogWithData(engineID, level, msg, "")
+}
+
+func (r *Registry) broadcastLogWithData(engineID, level, msg, data string) {
 	l := storage.Log{
 		ID:        uuid.New().String(),
 		Timestamp: time.Now(),
 		Level:     level,
 		Message:   msg,
+		Data:      data,
 	}
 
 	r.mu.Lock()
@@ -362,8 +528,8 @@ func (r *Registry) broadcastLog(engineID, level, msg string) {
 }
 
 func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {
-	if r.storage != nil {
-		err := r.storage.CreateLog(ctx, l)
+	if r.logStorage != nil {
+		err := r.logStorage.CreateLog(ctx, l)
 
 		r.statusSubsMu.Lock()
 		for ch := range r.logSubs {
@@ -377,6 +543,24 @@ func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {
 		return err
 	}
 	return nil
+}
+
+func (r *Registry) broadcastLiveMessage(msg LiveMessage) {
+	r.statusSubsMu.Lock()
+	defer r.statusSubsMu.Unlock()
+
+	for ch := range r.liveMsgSubs {
+		select {
+		case ch <- msg:
+		default:
+		}
+	}
+}
+
+func (r *Registry) RecordStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) {
+	if r.logStorage != nil {
+		_ = r.logStorage.RecordTraceStep(ctx, workflowID, messageID, step)
+	}
 }
 
 func (r *Registry) SetFactories(sourceFactory SourceFactory, sinkFactory SinkFactory) {
@@ -398,6 +582,9 @@ func (r *Registry) resolveSecrets(ctx context.Context, config map[string]string)
 }
 
 func (r *Registry) createSource(cfg SourceConfig) (hermod.Source, error) {
+	// Resolve secrets in config
+	cfg.Config = r.resolveSecrets(context.Background(), cfg.Config)
+
 	r.mu.Lock()
 	logger := r.logger
 	factory := r.sourceFactory
@@ -405,7 +592,18 @@ func (r *Registry) createSource(cfg SourceConfig) (hermod.Source, error) {
 
 	var src hermod.Source
 	var err error
-	if factory != nil {
+
+	if cfg.Type == "batch_sql" {
+		batchCfg := batchsql.Config{
+			SourceID:          cfg.Config["source_id"],
+			Cron:              cfg.Config["cron"],
+			Queries:           cfg.Config["queries"],
+			IncrementalColumn: cfg.Config["incremental_column"],
+		}
+		src = batchsql.NewBatchSQLSource(r, batchCfg)
+	} else if cfg.Type == "form" {
+		src = sourceform.NewFormSource(cfg.Config["path"], &formStorageAdapter{storage: r.storage})
+	} else if factory != nil {
 		src, err = factory(cfg)
 	} else {
 		src, err = CreateSource(cfg)
@@ -434,6 +632,8 @@ func (r *Registry) createSourceInternal(cfg SourceConfig) (hermod.Source, error)
 			IncrementalColumn: cfg.Config["incremental_column"],
 		}
 		src = batchsql.NewBatchSQLSource(r, batchCfg)
+	} else if cfg.Type == "form" {
+		src = sourceform.NewFormSource(cfg.Config["path"], &formStorageAdapter{storage: r.storage})
 	} else if r.sourceFactory != nil {
 		src, err = r.sourceFactory(cfg)
 	} else {
@@ -783,26 +983,44 @@ func (m *multiSource) Ack(ctx context.Context, msg hermod.Message) error {
 func (m *multiSource) GetState() map[string]string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// For now, if there's only one source, return its state.
-	// If there are multiple, we'd need a way to combine them.
-	// In the context of Hermod workflows, typically each source
-	// node handles its own persistence via statefulSource if not using
-	// periodic checkpointing.
-	if len(m.sources) == 1 {
-		if st, ok := m.sources[0].source.(hermod.Stateful); ok {
-			return st.GetState()
+
+	combined := make(map[string]string)
+	for _, s := range m.sources {
+		if st, ok := s.source.(hermod.Stateful); ok {
+			state := st.GetState()
+			for k, v := range state {
+				if len(m.sources) == 1 {
+					combined[k] = v
+				} else {
+					combined[s.nodeID+":"+k] = v
+				}
+			}
 		}
 	}
-	// TODO: Support multiple sources state aggregation if needed
-	return nil
+	return combined
 }
 
 func (m *multiSource) SetState(state map[string]string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.sources) == 1 {
-		if st, ok := m.sources[0].source.(hermod.Stateful); ok {
-			st.SetState(state)
+
+	for _, s := range m.sources {
+		if st, ok := s.source.(hermod.Stateful); ok {
+			if len(m.sources) == 1 {
+				st.SetState(state)
+			} else {
+				// Filter state for this source
+				sourceState := make(map[string]string)
+				prefix := s.nodeID + ":"
+				for k, v := range state {
+					if strings.HasPrefix(k, prefix) {
+						sourceState[strings.TrimPrefix(k, prefix)] = v
+					}
+				}
+				if len(sourceState) > 0 {
+					st.SetState(sourceState)
+				}
+			}
 		}
 	}
 }
@@ -1095,10 +1313,86 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 		if r.stateStore != nil {
 			tctx = context.WithValue(tctx, hermod.StateStoreKey, r.stateStore)
 		}
-		return t.Transform(tctx, modifiedMsg, config)
+		res, err := t.Transform(tctx, modifiedMsg, config)
+
+		// Record PII discoveries for compliance dashboard
+		if transType == "mask" && res != nil {
+			go r.recordPIIDiscoveries(res, config)
+		}
+
+		return res, err
 	}
 
 	return modifiedMsg, nil
+}
+
+func (r *Registry) recordPIIDiscoveries(msg hermod.Message, config map[string]interface{}) {
+	if msg == nil {
+		return
+	}
+	data := msg.Data()
+	if data == nil {
+		return
+	}
+
+	foundTypes := make(map[string]int)
+	field, _ := config["field"].(string)
+
+	if field == "*" || field == "" {
+		r.scanForPII(data, foundTypes)
+	} else {
+		val := evaluator.GetMsgValByPath(msg, field)
+		if s, ok := val.(string); ok {
+			types := transformer.PIIEngine().Discover(s)
+			for _, t := range types {
+				foundTypes[t]++
+			}
+		}
+	}
+
+	if len(foundTypes) > 0 {
+		workflowID, _ := msg.Metadata()["_hermod_workflow_id"]
+		if workflowID == "" {
+			return
+		}
+
+		r.piiStatsMu.Lock()
+		stats, ok := r.piiStats[workflowID]
+		if !ok {
+			stats = &PIIStats{Discoveries: make(map[string]uint64)}
+			r.piiStats[workflowID] = stats
+		}
+		for t, count := range foundTypes {
+			stats.Discoveries[t] += uint64(count)
+		}
+		stats.LastUpdated = time.Now()
+		r.piiStatsMu.Unlock()
+	}
+}
+
+func (r *Registry) scanForPII(data map[string]interface{}, found map[string]int) {
+	for _, v := range data {
+		switch val := v.(type) {
+		case string:
+			types := transformer.PIIEngine().Discover(val)
+			for _, t := range types {
+				found[t]++
+			}
+		case map[string]interface{}:
+			r.scanForPII(val, found)
+		case []interface{}:
+			for _, item := range val {
+				if m, ok := item.(map[string]interface{}); ok {
+					r.scanForPII(m, found)
+				} else if s, ok := item.(string); ok {
+					types := transformer.PIIEngine().Discover(s)
+					for _, t := range types {
+						found[t]++
+					}
+				}
+			}
+		}
+	}
 }
 
 func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode, msg hermod.Message) (hermod.Message, string, error) {
@@ -1121,6 +1415,19 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 
 	currentMsg := msg
 	data := currentMsg.Data()
+
+	// Broadcast live message for observability
+	// Clone data to avoid race conditions as the message continues through the pipeline
+	dataClone := make(map[string]interface{})
+	for k, v := range data {
+		dataClone[k] = v
+	}
+	go r.broadcastLiveMessage(LiveMessage{
+		WorkflowID: workflowID,
+		NodeID:     node.ID,
+		Timestamp:  time.Now(),
+		Data:       dataClone,
+	})
 
 	switch node.Type {
 	case "validator":
@@ -1164,6 +1471,14 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
+			go r.broadcastLiveMessage(LiveMessage{
+				WorkflowID: workflowID,
+				NodeID:     node.ID,
+				Timestamp:  time.Now(),
+				Data:       dataClone,
+				IsError:    true,
+				Error:      err.Error(),
+			})
 		} else if res == nil {
 			span.SetAttributes(attribute.Bool("filtered", true))
 		}
@@ -1298,6 +1613,7 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 		} else {
 			r.nodeStatesMu.Lock()
 			state, ok := r.nodeStates[key]
+			fmt.Printf("DEBUG: stateful node key=%s, ok=%v, state=%v\n", key, ok, state)
 			if !ok {
 				state = float64(0)
 			}
@@ -1314,6 +1630,8 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 				currentVal += v
 			}
 		}
+
+		fmt.Printf("DEBUG: stateful node key=%s, new currentVal=%v\n", key, currentVal)
 
 		if r.stateStore != nil {
 			_ = r.stateStore.Set(ctx, "node:"+key, []byte(fmt.Sprintf("%f", currentVal)))
@@ -1522,23 +1840,62 @@ type DashboardStats struct {
 	ActiveSinks     int    `json:"active_sinks"`
 	ActiveWorkflows int    `json:"active_workflows"`
 	TotalProcessed  uint64 `json:"total_processed"`
+	TotalErrors     uint64 `json:"total_errors"`
 	TotalLag        uint64 `json:"total_lag"`
+	FailedWorkflows int    `json:"failed_workflows"`
+	Uptime          int64  `json:"uptime"`
+	ActiveWorkers   int    `json:"active_workers"`
+	TotalWorkflows  int    `json:"total_workflows"`
+	TotalSources    int    `json:"total_sources"`
+	TotalSinks      int    `json:"total_sinks"`
 }
 
-func (r *Registry) GetDashboardStats(ctx context.Context) (DashboardStats, error) {
+func (r *Registry) GetDashboardStats(ctx context.Context, vhost string) (DashboardStats, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	stats := DashboardStats{
-		ActiveWorkflows: len(r.engines),
+		Uptime: int64(time.Since(r.startTime).Seconds()),
+	}
+
+	if r.storage != nil {
+		_, totalWf, _ := r.storage.ListWorkflows(ctx, storage.CommonFilter{Limit: 1, VHost: vhost})
+		stats.TotalWorkflows = totalWf
+		_, totalSrc, _ := r.storage.ListSources(ctx, storage.CommonFilter{Limit: 1, VHost: vhost})
+		stats.TotalSources = totalSrc
+		_, totalSnk, _ := r.storage.ListSinks(ctx, storage.CommonFilter{Limit: 1, VHost: vhost})
+		stats.TotalSinks = totalSnk
+
+		workers, _, err := r.storage.ListWorkers(ctx, storage.CommonFilter{Limit: 100})
+		if err == nil {
+			now := time.Now()
+			for _, w := range workers {
+				if w.LastSeen != nil && now.Sub(*w.LastSeen) < 2*time.Minute {
+					stats.ActiveWorkers++
+				}
+			}
+		}
 	}
 
 	activeSources := make(map[string]bool)
 	activeSinks := make(map[string]bool)
 
 	for _, ae := range r.engines {
+		if vhost != "" && vhost != "all" {
+			if ae.workflow.VHost != vhost {
+				continue
+			}
+		}
+
+		stats.ActiveWorkflows++
 		status := ae.engine.GetStatus()
 		stats.TotalProcessed += status.ProcessedCount
+		stats.TotalErrors += status.DeadLetterCount
+
+		if status.EngineStatus == "failed" || status.EngineStatus == "error" {
+			stats.FailedWorkflows++
+		}
+
 		// In a real scenario, we would sum up specific lag metrics if available
 		// For now, we'll try to extract lag from NodeMetrics if it exists
 		if lag, ok := status.NodeMetrics["source_lag"]; ok {
@@ -1688,7 +2045,61 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 		}
 	}
 
+	// 6. DLQ Prioritization requirements
+	if wf.PrioritizeDLQ {
+		if wf.DeadLetterSinkID == "" {
+			return fmt.Errorf("PrioritizeDLQ is enabled but no Dead Letter Sink is configured")
+		}
+		if r.storage != nil {
+			dlqSink, err := r.storage.GetSink(ctx, wf.DeadLetterSinkID)
+			if err != nil {
+				return fmt.Errorf("dead letter sink %s not found: %w", wf.DeadLetterSinkID, err)
+			}
+			// Verify that the DLQ sink type is also a valid source type.
+			// CreateSource will return an error if the type is not supported as a source.
+			// We use a dummy config for validation.
+			testSrc, err := r.createSourceInternal(SourceConfig{
+				Type:   dlqSink.Type,
+				Config: dlqSink.Config,
+			})
+			if err != nil {
+				return fmt.Errorf("dead letter sink %s (type %s) cannot be used as a source for PrioritizeDLQ: %w", wf.DeadLetterSinkID, dlqSink.Type, err)
+			}
+			if testSrc != nil {
+				testSrc.Close()
+			}
+		}
+
+		// Check for idempotency on sinks
+		for _, node := range wf.Nodes {
+			if node.Type == "sink" {
+				snk, err := r.storage.GetSink(ctx, node.RefID)
+				if err == nil {
+					if snk.Config["enable_idempotency"] != "true" {
+						log.Printf("Registry Warning: Workflow %s has PrioritizeDLQ enabled, but sink %s does not have idempotency enabled. It is highly recommended to enable idempotency to avoid side effects during re-processing.", wf.ID, snk.ID)
+					}
+				}
+			}
+		}
+	}
+
 	return nil
+}
+
+func (r *Registry) GetPIIStats() map[string]*PIIStats {
+	r.piiStatsMu.RLock()
+	defer r.piiStatsMu.RUnlock()
+
+	// Return a copy
+	res := make(map[string]*PIIStats)
+	for k, v := range r.piiStats {
+		res[k] = v
+	}
+	return res
+}
+
+func (r *Registry) GetDQScorer() *governance.Scorer {
+	return r.dqScorer
 }
 
 func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
@@ -1978,6 +2389,9 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 		inDegree[edge.TargetID]++
 	}
 
+	eng.SetTraceRecorder(r)
+	engCfg.TraceSampleRate = wf.TraceSampleRate
+
 	// Set Workflow Router
 	eng.SetRouter(func(ctx context.Context, msg hermod.Message) ([]pkgengine.RoutedMessage, error) {
 		var routed []pkgengine.RoutedMessage
@@ -2015,10 +2429,23 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 			var currBranch string
 			if currNode.Type != "source" {
 				var err error
-				currMsg, currBranch, err = r.runWorkflowNode(id, currNode, currMsg)
+				start := time.Now()
+				inputMsg := currMsg
+				currMsg, currBranch, err = r.runWorkflowNode(id, currNode, inputMsg)
+				if currMsg != nil {
+					eng.RecordTraceStep(ctx, currMsg, currNode.ID, start, err)
+				} else {
+					eng.RecordTraceStep(ctx, inputMsg, currNode.ID, start, err)
+				}
+
 				if err != nil {
 					pkgengine.WorkflowNodeErrors.WithLabelValues(id, currNode.ID, currNode.Type).Inc()
-					r.broadcastLog(id, "ERROR", fmt.Sprintf("Node %s (%s) error: %v", currNode.ID, currNode.Type, err))
+					eng.UpdateNodeErrorMetric(currNode.ID, 1)
+					msgID := ""
+					if currMsg != nil {
+						msgID = currMsg.ID()
+					}
+					r.broadcastLogWithData(id, "ERROR", fmt.Sprintf("Node %s (%s) error: %v", currNode.ID, currNode.Type, err), msgID)
 					currBranch = "error"
 				}
 
@@ -2031,6 +2458,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 				// currMsg could be nil if filtered
 			} else {
 				// Source node
+				eng.RecordTraceStep(ctx, currMsg, currNode.ID, time.Now(), nil)
 				pkgengine.WorkflowNodeProcessed.WithLabelValues(id, currNode.ID, currNode.Type).Inc()
 				eng.UpdateNodeMetric(currNode.ID, 1)
 				eng.UpdateNodeSample(currNode.ID, currMsg.Data())
@@ -2198,10 +2626,19 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	eng.SetSinkConfigs(pkgSnkConfigs)
 
 	if wf.Schema != "" && wf.SchemaType != "" {
-		v, err := schema.NewValidator(schema.SchemaConfig{
-			Type:   schema.SchemaType(wf.SchemaType),
-			Schema: wf.Schema,
-		})
+		var v schema.Validator
+		var err error
+
+		if strings.HasPrefix(wf.Schema, "registry:") {
+			schemaName := strings.TrimPrefix(wf.Schema, "registry:")
+			v, _, err = r.schemaRegistry.GetLatestValidator(ctx, schemaName)
+		} else {
+			v, err = schema.NewValidator(schema.SchemaConfig{
+				Type:   schema.SchemaType(wf.SchemaType),
+				Schema: wf.Schema,
+			})
+		}
+
 		if err != nil {
 			r.broadcastLog(id, "ERROR", fmt.Sprintf("Failed to initialize schema validator: %v", err))
 		} else {
@@ -2218,6 +2655,16 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 				prevStatus := workflow.Status
 				workflow.Status = update.EngineStatus
 				_ = r.storage.UpdateWorkflow(dbCtx, workflow)
+
+				// Update Source status if it changed
+				if update.SourceID != "" {
+					_ = r.storage.UpdateSourceStatus(dbCtx, update.SourceID, update.SourceStatus)
+				}
+
+				// Update Sink statuses if they changed
+				for sinkID, status := range update.SinkStatuses {
+					_ = r.storage.UpdateSinkStatus(dbCtx, sinkID, status)
+				}
 
 				// Notify on error status
 				if strings.Contains(strings.ToLower(update.EngineStatus), "error") &&
@@ -2304,14 +2751,22 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 		workflow:   wf,
 	}
 
+	if r.optimizer != nil {
+		r.optimizer.Register(id, eng)
+	}
+
 	go func() {
 		defer func() {
 			if rec := recover(); rec != nil {
 				fmt.Printf("Workflow %s panicked: %v\n", id, rec)
+				debug.PrintStack()
 			}
 			r.mu.Lock()
 			delete(r.engines, id)
 			r.mu.Unlock()
+			if r.optimizer != nil {
+				r.optimizer.Unregister(id)
+			}
 			close(done)
 		}()
 
@@ -2353,18 +2808,12 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 					// Update source and sinks only if we are deactivating
 					for _, node := range workflow.Nodes {
 						if node.Type == "source" {
-							if src, err := r.storage.GetSource(dbCtx, node.RefID); err == nil {
-								if !r.IsResourceInUse(dbCtx, node.RefID, id, true) {
-									src.Active = false
-									_ = r.storage.UpdateSource(dbCtx, src)
-								}
+							if !r.IsResourceInUse(dbCtx, node.RefID, id, true) {
+								_ = r.storage.UpdateSourceStatus(dbCtx, node.RefID, "")
 							}
 						} else if node.Type == "sink" {
-							if snk, err := r.storage.GetSink(dbCtx, node.RefID); err == nil {
-								if !r.IsResourceInUse(dbCtx, node.RefID, id, false) {
-									snk.Active = false
-									_ = r.storage.UpdateSink(dbCtx, snk)
-								}
+							if !r.IsResourceInUse(dbCtx, node.RefID, id, false) {
+								_ = r.storage.UpdateSinkStatus(dbCtx, node.RefID, "")
 							}
 						}
 					}
@@ -2605,19 +3054,9 @@ func (r *Registry) stopEngine(id string, updateStorage bool) error {
 			// Update source and sinks
 			for _, node := range workflow.Nodes {
 				if node.Type == "source" {
-					if src, err := r.storage.GetSource(ctx, node.RefID); err == nil {
-						if !r.IsResourceInUse(ctx, node.RefID, id, true) {
-							src.Active = false
-							_ = r.storage.UpdateSource(ctx, src)
-						}
-					}
+					_ = r.storage.UpdateSourceStatus(ctx, node.RefID, "")
 				} else if node.Type == "sink" {
-					if snk, err := r.storage.GetSink(ctx, node.RefID); err == nil {
-						if !r.IsResourceInUse(ctx, node.RefID, id, false) {
-							snk.Active = false
-							_ = r.storage.UpdateSink(ctx, snk)
-						}
-					}
+					_ = r.storage.UpdateSinkStatus(ctx, node.RefID, "")
 				}
 			}
 		}
@@ -2784,4 +3223,47 @@ func BuildConnectionString(cfg map[string]string, sourceType string) string {
 	default:
 		return ""
 	}
+}
+
+type formStorageAdapter struct {
+	storage RegistryStorage
+}
+
+func (a *formStorageAdapter) CreateFormSubmission(ctx context.Context, sub sourceform.FormSubmission) error {
+	return a.storage.CreateFormSubmission(ctx, storage.FormSubmission{
+		ID:        sub.ID,
+		Timestamp: sub.Timestamp,
+		Path:      sub.Path,
+		Data:      sub.Data,
+		Status:    sub.Status,
+	})
+}
+
+func (a *formStorageAdapter) ListFormSubmissions(ctx context.Context, filter sourceform.FormSubmissionFilter) ([]sourceform.FormSubmission, int, error) {
+	subs, total, err := a.storage.ListFormSubmissions(ctx, storage.FormSubmissionFilter{
+		CommonFilter: storage.CommonFilter{
+			Page:  filter.Page,
+			Limit: filter.Limit,
+		},
+		Path:   filter.Path,
+		Status: filter.Status,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	res := make([]sourceform.FormSubmission, len(subs))
+	for i, s := range subs {
+		res[i] = sourceform.FormSubmission{
+			ID:        s.ID,
+			Timestamp: s.Timestamp,
+			Path:      s.Path,
+			Data:      s.Data,
+			Status:    s.Status,
+		}
+	}
+	return res, total, nil
+}
+
+func (a *formStorageAdapter) UpdateFormSubmissionStatus(ctx context.Context, id string, status string) error {
+	return a.storage.UpdateFormSubmissionStatus(ctx, id, status)
 }

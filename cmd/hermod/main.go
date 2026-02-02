@@ -17,14 +17,19 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/user/hermod/internal/ai"
 	"github.com/user/hermod/internal/api"
+	"github.com/user/hermod/internal/autoscaler"
 	"github.com/user/hermod/internal/config"
 	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/observability"
 	"github.com/user/hermod/internal/storage"
 	storagemongo "github.com/user/hermod/internal/storage/mongodb"
 	storagesql "github.com/user/hermod/internal/storage/sql"
 	"github.com/user/hermod/pkg/crypto"
 	enginePkg "github.com/user/hermod/pkg/engine"
+	"github.com/user/hermod/pkg/secrets"
+	"github.com/user/hermod/pkg/state"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	_ "modernc.org/sqlite"
@@ -65,8 +70,11 @@ func main() {
 
 	if *mode == "api" || *mode == "worker" || *mode == "standalone" {
 		var store storage.Storage
+		var logStore storage.Storage
 		dbTypeVal := *dbType
 		dbConnVal := *dbConn
+		logTypeVal := ""
+		logConnVal := ""
 
 		// Check if config file exists
 		if config.IsDBConfigured() {
@@ -74,6 +82,8 @@ func main() {
 			if err == nil {
 				dbTypeVal = cfg.Type
 				dbConnVal = cfg.Conn
+				logTypeVal = cfg.LogType
+				logConnVal = cfg.LogConn
 				if cfg.CryptoMasterKey != "" && *masterKey == "" && os.Getenv("HERMOD_MASTER_KEY") == "" {
 					crypto.SetMasterKey(cfg.CryptoMasterKey)
 				}
@@ -90,91 +100,77 @@ func main() {
 				// Do not open any database on first run to avoid creating hermod.db implicitly.
 				fmt.Println("First run detected: starting API without database connection. Proceed to /setup to configure.")
 			} else {
-				driver := ""
-				switch dbTypeVal {
-				case "sqlite":
-					driver = "sqlite"
-					if !strings.Contains(dbConnVal, "?") {
-						// Use a modest default busy_timeout to avoid long startup stalls when the DB is locked.
-						// Can be overridden via HERMOD_SQLITE_BUSY_TIMEOUT_MS.
-						busy := os.Getenv("HERMOD_SQLITE_BUSY_TIMEOUT_MS")
-						if busy == "" {
-							busy = "2000"
-						}
-						dbConnVal += fmt.Sprintf("?_pragma=journal_mode(WAL)&_pragma=busy_timeout(%s)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)", busy)
-					}
-				case "postgres":
-					driver = "pgx"
-				case "mysql", "mariadb":
-					driver = "mysql"
-				case "mongodb":
-					// Handle MongoDB separately
-					client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(dbConnVal))
-					if err != nil {
-						log.Fatalf("Failed to connect to MongoDB: %v", err)
-					}
-					dbName := "hermod"
-					if parts := strings.Split(dbConnVal, "/"); len(parts) > 3 {
-						dbName = strings.Split(parts[3], "?")[0]
-					}
-					store = storagemongo.NewMongoStorage(client, dbName)
-				default:
-					log.Fatalf("Unsupported database type: %s", dbTypeVal)
+				var err error
+				fmt.Println("Opening primary database ...")
+				store, err = initStorage(dbTypeVal, dbConnVal)
+				if err != nil {
+					log.Printf("Warning: Failed to initialize primary storage: %v", err)
 				}
 
-				if dbTypeVal != "mongodb" {
-					startOpen := time.Now()
-					fmt.Println("Opening database ...")
-					db, err := sql.Open(driver, dbConnVal)
+				if logTypeVal != "" && logConnVal != "" {
+					fmt.Println("Opening logging database ...")
+					logStore, err = initStorage(logTypeVal, logConnVal)
 					if err != nil {
-						log.Fatalf("Failed to open database: %v", err)
+						log.Printf("Warning: Failed to initialize logging storage: %v", err)
 					}
-					fmt.Printf("Database opened in %v\n", time.Since(startOpen))
-
-					if dbTypeVal == "sqlite" {
-						// Allow limited concurrency with WAL and busy timeout to reduce request queuing
-						// while still being safe for SQLite.
-						db.SetMaxOpenConns(4)
-						db.SetMaxIdleConns(1)
-					}
-
-					store = storagesql.NewSQLStorage(db, driver)
-				}
-
-				if s, ok := store.(interface{ Init(context.Context) error }); ok {
-					startInit := time.Now()
-					fmt.Println("Initializing storage ...")
-					// Apply a timeout to storage initialization to avoid long startup stalls.
-					// Default to a 5s timeout to avoid long stalls on locked or slow SQLite init.
-					// Override with HERMOD_STORAGE_INIT_TIMEOUT_MS (set to 0 to disable timeout).
-					initTimeoutMs := 5000
-					if v := os.Getenv("HERMOD_STORAGE_INIT_TIMEOUT_MS"); v != "" {
-						if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-							initTimeoutMs = n
-						}
-					}
-					var initCtx context.Context = context.Background()
-					var cancel context.CancelFunc = func() {}
-					if initTimeoutMs > 0 {
-						initCtx, cancel = context.WithTimeout(context.Background(), time.Duration(initTimeoutMs)*time.Millisecond)
-					}
-					if err := s.Init(initCtx); err != nil {
-						cancel()
-						// If initialization fails, we might still want to start the API
-						// so the user can configure a valid DB.
-						log.Printf("Warning: Failed to initialize storage: %v", err)
-					} else {
-						cancel()
-					}
-					fmt.Printf("Storage initialized in %v\n", time.Since(startInit))
 				}
 			}
 		}
 
-		registry := engine.NewRegistry(store)
+		registry := engine.NewRegistry(store, logStore)
+		logger := enginePkg.NewDefaultLogger()
+		registry.SetLogger(logger)
 
 		// Load engine config
-		if cfg, err := config.LoadConfig("config.yaml"); err == nil {
+		cfg, err := config.LoadConfig("config.yaml")
+		if err != nil {
+			// Provide a default config if file is missing
+			cfg = &config.Config{}
+			log.Printf("Warning: Using default config because config.yaml could not be loaded: %v", err)
+		}
+
+		if cfg != nil {
+			// Initialize OTLP if configured
+			if cfg.Observability.OTLP.Endpoint != "" {
+				if cfg.Observability.OTLP.ServiceName == "" {
+					cfg.Observability.OTLP.ServiceName = "hermod"
+				}
+				if shutdown, err := observability.InitOTLP(context.Background(), cfg.Observability.OTLP); err == nil {
+					defer shutdown(context.Background())
+					fmt.Printf("OTLP observability initialized: %s (service: %s)\n", cfg.Observability.OTLP.Endpoint, cfg.Observability.OTLP.ServiceName)
+				} else {
+					log.Printf("Warning: Failed to initialize OTLP: %v", err)
+				}
+			}
+
+			// Initialize secret manager if configured
+			if cfg.Secrets.Type != "" {
+				if mgr, err := secrets.NewManager(context.Background(), cfg.Secrets); err == nil {
+					registry.SetSecretManager(mgr)
+					fmt.Printf("Secret manager initialized: %s\n", cfg.Secrets.Type)
+				} else {
+					log.Printf("Warning: Failed to initialize secret manager: %v", err)
+				}
+			}
+
+			// Initialize state store if configured
+			if cfg.StateStore.Type != "" {
+				stateCfg := state.Config{
+					Type:     cfg.StateStore.Type,
+					Path:     cfg.StateStore.Path,
+					Address:  cfg.StateStore.Address,
+					Password: cfg.StateStore.Password,
+					DB:       cfg.StateStore.DB,
+					Prefix:   cfg.StateStore.Prefix,
+				}
+				if ss, err := state.NewStateStore(stateCfg); err == nil {
+					registry.SetStateStore(ss)
+					fmt.Printf("State store initialized: %s\n", cfg.StateStore.Type)
+				} else {
+					log.Printf("Warning: Failed to initialize state store: %v", err)
+				}
+			}
+
 			engCfg := enginePkg.DefaultConfig()
 			if cfg.Engine.MaxRetries > 0 {
 				engCfg.MaxRetries = cfg.Engine.MaxRetries
@@ -233,12 +229,26 @@ func main() {
 
 		// Start API if not in worker-only mode (always start API in first-time setup)
 		if *mode == "api" || *mode == "standalone" {
-			server := api.NewServer(registry, store)
+			aiSvc := ai.NewSelfHealingService(logger)
+			server := api.NewServer(registry, store, cfg, aiSvc, logStore)
 			storageName := dbTypeVal
 			if firstRun {
 				storageName = "unconfigured"
 			}
 			fmt.Printf("Starting Hermod API server on :%d using %s storage...\n", *port, storageName)
+
+			// Start Autoscaler in control-plane mode
+			if (*mode == "api" || *mode == "standalone") && configured && userSetup {
+				manager := &autoscaler.KubernetesWorkerManager{
+					Namespace:  "hermod",
+					Deployment: "hermod-worker",
+					Storage:    store,
+				}
+				as := autoscaler.NewAutoscaler(store, manager)
+				as.Start()
+				fmt.Println("Autoscaler service started")
+				defer as.Stop()
+			}
 
 			httpServer := &http.Server{
 				Addr:    fmt.Sprintf(":%d", *port),
@@ -297,4 +307,71 @@ func computeSetupStatus(ctx context.Context, store userLister, configuredFlag bo
 		return configured, false
 	}
 	return configured, len(users) > 0
+}
+
+func initStorage(dbType, dbConn string) (storage.Storage, error) {
+	driver := ""
+	var store storage.Storage
+
+	switch dbType {
+	case "sqlite":
+		driver = "sqlite"
+		if !strings.Contains(dbConn, "?") {
+			busy := os.Getenv("HERMOD_SQLITE_BUSY_TIMEOUT_MS")
+			if busy == "" {
+				busy = "2000"
+			}
+			dbConn += fmt.Sprintf("?_pragma=journal_mode(WAL)&_pragma=busy_timeout(%s)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)", busy)
+		}
+	case "postgres":
+		driver = "pgx"
+	case "mysql", "mariadb":
+		driver = "mysql"
+	case "mongodb":
+		client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(dbConn))
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to MongoDB: %v", err)
+		}
+		dbName := "hermod"
+		if parts := strings.Split(dbConn, "/"); len(parts) > 3 {
+			dbName = strings.Split(parts[3], "?")[0]
+		}
+		store = storagemongo.NewMongoStorage(client, dbName)
+	default:
+		return nil, fmt.Errorf("unsupported database type: %s", dbType)
+	}
+
+	if dbType != "mongodb" {
+		db, err := sql.Open(driver, dbConn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open database: %v", err)
+		}
+
+		if dbType == "sqlite" {
+			db.SetMaxOpenConns(4)
+			db.SetMaxIdleConns(1)
+		}
+
+		store = storagesql.NewSQLStorage(db, driver)
+	}
+
+	if s, ok := store.(interface{ Init(context.Context) error }); ok {
+		initTimeoutMs := 5000
+		if v := os.Getenv("HERMOD_STORAGE_INIT_TIMEOUT_MS"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+				initTimeoutMs = n
+			}
+		}
+		var initCtx context.Context = context.Background()
+		var cancel context.CancelFunc = func() {}
+		if initTimeoutMs > 0 {
+			initCtx, cancel = context.WithTimeout(context.Background(), time.Duration(initTimeoutMs)*time.Millisecond)
+		}
+		defer cancel()
+		if err := s.Init(initCtx); err != nil {
+			return store, fmt.Errorf("failed to initialize storage: %v", err)
+		}
+	}
+
+	return store, nil
 }

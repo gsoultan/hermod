@@ -3,22 +3,11 @@ package transformer
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/evaluator"
 )
-
-var piiRegexes = []*regexp.Regexp{
-	regexp.MustCompile(`\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|6(?:011|5[0-9][0-9])[0-9]{12}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|(?:2131|1800|35\d{3})\d{11})\b`), // Credit Card
-	regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),                                               // SSN
-	regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`),                                         // IPv4
-	regexp.MustCompile(`\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b`),                        // IPv6
-	regexp.MustCompile(`\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b`),                 // Email
-	regexp.MustCompile(`\b(?:\+?1[-. ]?)?\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})\b`), // Phone (US)
-	regexp.MustCompile(`\b[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}\b`),                                 // IBAN
-}
 
 func init() {
 	Register("mask", &MaskTransformer{})
@@ -123,9 +112,5 @@ func (t *MaskTransformer) maskPartial(s string) string {
 }
 
 func (t *MaskTransformer) maskPII(s string) string {
-	res := s
-	for _, re := range piiRegexes {
-		res = re.ReplaceAllString(res, "****")
-	}
-	return res
+	return piiEngine.Mask(s)
 }

@@ -31,6 +31,8 @@ export const TransformationNode = ({ id, data }: any) => {
       case 'lua': return IconCode;
       case 'aggregate': return IconDatabase;
       case 'validator': return IconChecklist;
+      case 'stat_validator': return IconChecklist;
+      case 'dq_scorer': return IconChecklist;
       default: return IconFilter;
     }
   };
@@ -48,6 +50,8 @@ export const TransformationNode = ({ id, data }: any) => {
       case 'lua': return 'Lua Script';
       case 'aggregate': return 'Aggregate';
       case 'validator': return 'Validator';
+      case 'stat_validator': return 'Statistical Validation';
+      case 'dq_scorer': return 'Data Quality Scorer';
       default: return 'Transformation';
     }
   };

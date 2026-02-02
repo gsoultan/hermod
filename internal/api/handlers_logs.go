@@ -18,7 +18,7 @@ func (s *Server) listLogs(w http.ResponseWriter, r *http.Request) {
 		Action:       query.Get("action"),
 	}
 
-	logs, total, err := s.storage.ListLogs(r.Context(), filter)
+	logs, total, err := s.logStorage.ListLogs(r.Context(), filter)
 	if err != nil {
 		s.jsonError(w, "Failed to list logs: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -38,7 +38,7 @@ func (s *Server) createLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.storage.CreateLog(r.Context(), log); err != nil {
+	if err := s.logStorage.CreateLog(r.Context(), log); err != nil {
 		s.jsonError(w, "Failed to create log: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -56,7 +56,7 @@ func (s *Server) deleteLogs(w http.ResponseWriter, r *http.Request) {
 		Action:     query.Get("action"),
 	}
 
-	if err := s.storage.DeleteLogs(r.Context(), filter); err != nil {
+	if err := s.logStorage.DeleteLogs(r.Context(), filter); err != nil {
 		s.jsonError(w, "Failed to delete logs: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

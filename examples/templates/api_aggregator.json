@@ -1,0 +1,53 @@
+{
+  "name": "API Aggregator: Data Enrichment Pipeline",
+  "description": "Enrich incoming messages with data from multiple external APIs. Merges results into a single consolidated payload.",
+  "icon": "IconCloud",
+  "color": "indigo",
+  "data": {
+    "name": "API Aggregator",
+    "nodes": [
+      {
+        "id": "src_webhook",
+        "type": "source",
+        "config": { "label": "Incoming Data", "type": "webhook", "ref_id": "new" },
+        "x": 100,
+        "y": 200
+      },
+      {
+        "id": "trans_lookup_1",
+        "type": "transformation",
+        "config": { "label": "Fetch User Info", "transType": "api_lookup", "url": "https://api.example.com/users/{{.user_id}}" },
+        "x": 400,
+        "y": 100
+      },
+      {
+        "id": "trans_lookup_2",
+        "type": "transformation",
+        "config": { "label": "Fetch Product Info", "transType": "api_lookup", "url": "https://api.example.com/products/{{.product_id}}" },
+        "x": 400,
+        "y": 300
+      },
+      {
+        "id": "node_merge",
+        "type": "merge",
+        "config": { "label": "Consolidate", "strategy": "merge" },
+        "x": 700,
+        "y": 200
+      },
+      {
+        "id": "snk_webhook",
+        "type": "sink",
+        "config": { "label": "Forward Result", "type": "http", "ref_id": "new" },
+        "x": 1000,
+        "y": 200
+      }
+    ],
+    "edges": [
+      { "id": "e1", "source_id": "src_webhook", "target_id": "trans_lookup_1" },
+      { "id": "e2", "source_id": "src_webhook", "target_id": "trans_lookup_2" },
+      { "id": "e3", "source_id": "trans_lookup_1", "target_id": "node_merge" },
+      { "id": "e4", "source_id": "trans_lookup_2", "target_id": "node_merge" },
+      { "id": "e5", "source_id": "node_merge", "target_id": "snk_webhook" }
+    ]
+  }
+}

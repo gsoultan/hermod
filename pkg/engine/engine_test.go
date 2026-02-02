@@ -586,7 +586,7 @@ func (s *validatingMockSink) Validate(ctx context.Context, msg hermod.Message) e
 func TestEngineValidation(t *testing.T) {
 	msg := message.AcquireMessage()
 	msg.SetID("invalid-msg")
-	msg.SetPayload([]byte("invalid"))
+	msg.SetPayload([]byte(`{"status": "invalid"}`))
 
 	source := &mockSource{msg: msg}
 	sink := &validatingMockSink{
@@ -594,7 +594,7 @@ func TestEngineValidation(t *testing.T) {
 			received: make(chan hermod.Message, 10),
 		},
 		validateFunc: func(msg hermod.Message) error {
-			if string(msg.Payload()) == "invalid" {
+			if msg.Data()["status"] == "invalid" {
 				return fmt.Errorf("invalid payload")
 			}
 			return nil

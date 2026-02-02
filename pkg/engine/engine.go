@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"math/rand"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/internal/governance"
 	"github.com/user/hermod/pkg/buffer"
 	"github.com/user/hermod/pkg/message"
 	"github.com/user/hermod/pkg/schema"
@@ -42,6 +45,9 @@ type Engine struct {
 	deadLetterSink hermod.Sink
 	router         RouterFunc
 	validator      schema.Validator
+	traceRecorder  hermod.TraceRecorder
+	outboxStore    hermod.OutboxStorage
+	dqScorer       *governance.Scorer
 
 	workflowID string
 	sourceID   string
@@ -59,6 +65,7 @@ type Engine struct {
 	processedMessages uint64
 	deadLetterCount   uint64
 	nodeMetrics       map[string]uint64
+	nodeErrorMetrics  map[string]uint64
 	nodeSamples       map[string]interface{}
 	nodeMetricsMu     sync.RWMutex
 
@@ -74,9 +81,19 @@ type Engine struct {
 	inFlightSem chan struct{}
 	inFlightWg  sync.WaitGroup
 
+	// Adaptive Throughput
+	latencyAvg       time.Duration
+	throughputTarget int
+	lastPollAdjust   time.Time
+	throttleDelay    time.Duration
+
 	// stopMu protects hard-stop sequences
 	stopMu  sync.Mutex
 	stopped bool
+
+	// Failure Simulation
+	failureSimMu sync.RWMutex
+	failUntil    time.Time
 }
 
 type sinkWriter struct {
@@ -100,6 +117,8 @@ type sinkWriter struct {
 
 	// Adaptive Batching
 	currentBatchSize int
+	batchTimeout     time.Duration
+	updateMu         sync.RWMutex
 }
 
 type pendingMessage struct {
@@ -132,28 +151,37 @@ func releasePendingMessage(pm *pendingMessage) {
 }
 
 type StatusUpdate struct {
-	WorkflowID      string                 `json:"workflow_id,omitempty"`
-	EngineStatus    string                 `json:"engine_status,omitempty"`
-	SourceStatus    string                 `json:"source_status,omitempty"`
-	SourceID        string                 `json:"source_id,omitempty"`
-	SinkStatuses    map[string]string      `json:"sink_statuses,omitempty"`
-	SinkID          string                 `json:"sink_id,omitempty"`
-	SinkStatus      string                 `json:"sink_status,omitempty"`
-	ProcessedCount  uint64                 `json:"processed_count"`
-	DeadLetterCount uint64                 `json:"dead_letter_count,omitempty"`
-	NodeMetrics     map[string]uint64      `json:"node_metrics,omitempty"`
-	NodeSamples     map[string]interface{} `json:"node_samples,omitempty"`
+	WorkflowID       string                 `json:"workflow_id,omitempty"`
+	EngineStatus     string                 `json:"engine_status,omitempty"`
+	SourceStatus     string                 `json:"source_status,omitempty"`
+	SourceID         string                 `json:"source_id,omitempty"`
+	SinkStatuses     map[string]string      `json:"sink_statuses,omitempty"`
+	SinkID           string                 `json:"sink_id,omitempty"`
+	SinkStatus       string                 `json:"sink_status,omitempty"`
+	ProcessedCount   uint64                 `json:"processed_count"`
+	DeadLetterCount  uint64                 `json:"dead_letter_count,omitempty"`
+	NodeMetrics      map[string]uint64      `json:"node_metrics,omitempty"`
+	NodeErrorMetrics map[string]uint64      `json:"node_error_metrics,omitempty"`
+	NodeSamples      map[string]interface{} `json:"node_samples,omitempty"`
+	SinkCBStatuses   map[string]string      `json:"sink_cb_statuses,omitempty"`
+	SinkBufferFill   map[string]float64     `json:"sink_buffer_fill,omitempty"`
+	AverageDQScore   float64                `json:"average_dq_score,omitempty"`
+	AvgLatency       time.Duration          `json:"avg_latency,omitempty"`
 }
 
 // Config holds configuration for the Engine.
 type Config struct {
-	MaxRetries         int           `json:"max_retries"`
-	RetryInterval      time.Duration `json:"retry_interval"`
-	ReconnectInterval  time.Duration `json:"reconnect_interval"`
-	StatusInterval     time.Duration `json:"status_interval"`
-	PrioritizeDLQ      bool          `json:"prioritize_dlq"`
-	DryRun             bool          `json:"dry_run"`
-	CheckpointInterval time.Duration `json:"checkpoint_interval"`
+	MaxRetries          int           `json:"max_retries"`
+	RetryInterval       time.Duration `json:"retry_interval"`
+	ReconnectInterval   time.Duration `json:"reconnect_interval"`
+	StatusInterval      time.Duration `json:"status_interval"`
+	PrioritizeDLQ       bool          `json:"prioritize_dlq"`
+	DryRun              bool          `json:"dry_run"`
+	CheckpointInterval  time.Duration `json:"checkpoint_interval"`
+	TraceSampleRate     float64       `json:"trace_sample_rate"` // 0.0 to 1.0
+	AdaptiveThroughput  bool          `json:"adaptive_throughput"`
+	MaxMemoryMB         uint64        `json:"max_memory_mb"`
+	OutboxRelayInterval time.Duration `json:"outbox_relay_interval"`
 }
 
 type BackpressureStrategy string
@@ -173,6 +201,7 @@ type SinkConfig struct {
 	BatchSize        int             `json:"batch_size"`
 	BatchTimeout     time.Duration   `json:"batch_timeout"`
 	AdaptiveBatching bool            `json:"adaptive_batching"`
+	Concurrency      int             `json:"concurrency"`
 
 	// Circuit Breaker settings
 	CircuitBreakerThreshold int           `json:"cb_threshold"`
@@ -196,11 +225,13 @@ type SourceConfig struct {
 // DefaultConfig returns the default configuration for the Engine.
 func DefaultConfig() Config {
 	return Config{
-		MaxRetries:         3,
-		RetryInterval:      100 * time.Millisecond,
-		ReconnectInterval:  30 * time.Second,
-		StatusInterval:     5 * time.Second,
-		CheckpointInterval: 1 * time.Minute,
+		MaxRetries:          3,
+		RetryInterval:       100 * time.Millisecond,
+		ReconnectInterval:   30 * time.Second,
+		StatusInterval:      5 * time.Second,
+		CheckpointInterval:  1 * time.Minute,
+		OutboxRelayInterval: 1 * time.Minute,
+		TraceSampleRate:     1.0,
 	}
 }
 
@@ -213,6 +244,7 @@ func NewEngine(source hermod.Source, sinks []hermod.Sink, buffer hermod.Producer
 		config:       DefaultConfig(),
 		sinkStatuses: make(map[string]string),
 		inFlightSem:  make(chan struct{}, 1000),
+		dqScorer:     governance.NewScorer(),
 	}
 	e.SetLogger(e.logger)
 	return e
@@ -223,9 +255,62 @@ func (e *Engine) SetConfig(config Config) {
 	e.config = config
 }
 
-// SetSinkConfigs sets the per-sink configurations for the engine.
 func (e *Engine) SetSinkConfigs(configs []SinkConfig) {
+	e.statusMu.Lock()
 	e.sinkConfigs = configs
+	e.statusMu.Unlock()
+
+	// Update active sink writers
+	for i, sw := range e.sinkWriters {
+		if i < len(configs) {
+			sw.updateMu.Lock()
+			sw.config = configs[i]
+			sw.currentBatchSize = configs[i].BatchSize
+			if sw.currentBatchSize < 1 {
+				sw.currentBatchSize = 1
+			}
+			sw.batchTimeout = configs[i].BatchTimeout
+			if sw.batchTimeout == 0 {
+				sw.batchTimeout = 100 * time.Millisecond
+			}
+			sw.updateMu.Unlock()
+		}
+	}
+}
+
+func (e *Engine) GetSinkConfigs() []SinkConfig {
+	e.statusMu.RLock()
+	defer e.statusMu.RUnlock()
+	return e.sinkConfigs
+}
+
+func (e *Engine) UpdateSinkConfig(sinkID string, update func(*SinkConfig)) {
+	e.statusMu.Lock()
+	defer e.statusMu.Unlock()
+
+	for i := range e.sinkConfigs {
+		if e.sinkIDs[i] == sinkID {
+			update(&e.sinkConfigs[i])
+
+			// Also update the writer if it exists
+			for _, sw := range e.sinkWriters {
+				if sw.sinkID == sinkID {
+					sw.updateMu.Lock()
+					sw.config = e.sinkConfigs[i]
+					sw.currentBatchSize = e.sinkConfigs[i].BatchSize
+					if sw.currentBatchSize < 1 {
+						sw.currentBatchSize = 1
+					}
+					sw.batchTimeout = e.sinkConfigs[i].BatchTimeout
+					if sw.batchTimeout == 0 {
+						sw.batchTimeout = 100 * time.Millisecond
+					}
+					sw.updateMu.Unlock()
+				}
+			}
+			return
+		}
+	}
 }
 
 // SetSourceConfig sets the source configuration for the engine.
@@ -295,13 +380,141 @@ func (e *Engine) SetValidator(validator schema.Validator) {
 	e.validator = validator
 }
 
-// UpdateNodeMetric updates the processed count for a specific workflow node.
+func (e *Engine) SetTraceRecorder(recorder hermod.TraceRecorder) {
+	e.traceRecorder = recorder
+}
+
+func (e *Engine) SimulateFailure(duration time.Duration) {
+	e.failureSimMu.Lock()
+	defer e.failureSimMu.Unlock()
+	e.failUntil = time.Now().Add(duration)
+	if e.logger != nil {
+		e.logger.Warn("Engine: simulated failure injected", "duration", duration)
+	}
+}
+
+func (e *Engine) isFailing() bool {
+	e.failureSimMu.RLock()
+	defer e.failureSimMu.RUnlock()
+	return time.Now().Before(e.failUntil)
+}
+
+func (e *Engine) SetOutboxStorage(outbox hermod.OutboxStorage) {
+	e.outboxStore = outbox
+}
+
+func (e *Engine) runOutboxRelay(ctx context.Context) {
+	if e.outboxStore == nil {
+		return
+	}
+
+	interval := e.config.OutboxRelayInterval
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			items, err := e.outboxStore.ListOutboxItems(ctx, "pending", 100)
+			if err != nil {
+				e.logger.Error("Failed to fetch pending outbox items", "workflow_id", e.workflowID, "error", err)
+				continue
+			}
+
+			for _, item := range items {
+				if item.WorkflowID != e.workflowID {
+					continue
+				}
+
+				// Reconstruct message
+				msg := message.AcquireMessage()
+				msg.SetPayload(item.Payload)
+				for k, v := range item.Metadata {
+					msg.SetMetadata(k, v)
+				}
+				// If we have a stored MessageID, we should probably restore it
+				if mid, ok := item.Metadata["_message_id"]; ok {
+					msg.SetID(mid)
+				}
+
+				// Mark that this message came from the outbox so we can delete it later
+				msg.SetMetadata("_outbox_id", item.ID)
+
+				// Try to push back to buffer
+				if err := e.buffer.Produce(ctx, msg); err != nil {
+					e.logger.Error("Failed to re-produce outbox item to buffer", "workflow_id", e.workflowID, "item_id", item.ID, "error", err)
+					item.Attempts++
+					item.LastError = err.Error()
+					if item.Attempts > 10 {
+						item.Status = "failed"
+					}
+					_ = e.outboxStore.UpdateOutboxItem(ctx, item)
+					continue
+				}
+
+				// Do NOT delete here! It should be deleted only after successful processing by sinks.
+				// We update it to 'processing' to avoid other relays picking it up (if we had distributed coordination on items)
+				item.Status = "processing"
+				_ = e.outboxStore.UpdateOutboxItem(ctx, item)
+			}
+		}
+	}
+}
+
+func (e *Engine) RecordTraceStep(ctx context.Context, msg hermod.Message, nodeID string, start time.Time, err error) {
+	if e.traceRecorder == nil || e.config.TraceSampleRate <= 0 {
+		return
+	}
+
+	if msg == nil {
+		return
+	}
+
+	// Use deterministic sampling based on Message ID
+	if e.config.TraceSampleRate < 1.0 {
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(msg.ID()))
+		// Normalize to 0.0 - 1.0
+		sampleValue := float64(h.Sum32()) / float64(0xFFFFFFFF)
+		if sampleValue > e.config.TraceSampleRate {
+			return
+		}
+	}
+
+	step := hermod.TraceStep{
+		NodeID:    nodeID,
+		Timestamp: start,
+		Duration:  time.Since(start),
+		Data:      msg.Data(),
+	}
+
+	if err != nil {
+		step.Error = err.Error()
+	}
+
+	e.traceRecorder.RecordStep(ctx, e.workflowID, msg.ID(), step)
+}
+
 func (e *Engine) UpdateNodeMetric(nodeID string, count uint64) {
 	e.nodeMetricsMu.Lock()
 	if e.nodeMetrics == nil {
 		e.nodeMetrics = make(map[string]uint64)
 	}
 	e.nodeMetrics[nodeID] += count
+	e.nodeMetricsMu.Unlock()
+}
+
+func (e *Engine) UpdateNodeErrorMetric(nodeID string, count uint64) {
+	e.nodeMetricsMu.Lock()
+	if e.nodeErrorMetrics == nil {
+		e.nodeErrorMetrics = make(map[string]uint64)
+	}
+	e.nodeErrorMetrics[nodeID] += count
 	e.nodeMetricsMu.Unlock()
 }
 
@@ -388,6 +601,10 @@ func (e *Engine) DrainDLQ(ctx context.Context) error {
 func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Message, sinkID string, i int) error {
 	if msg == nil {
 		return nil
+	}
+
+	if e.isFailing() {
+		return fmt.Errorf("simulated engine failure")
 	}
 
 	// Pre-write validation
@@ -584,11 +801,32 @@ func (e *Engine) GetStatus() StatusUpdate {
 		update.SinkStatuses[k] = v
 	}
 
+	update.SinkCBStatuses = make(map[string]string)
+	update.SinkBufferFill = make(map[string]float64)
+	for _, sw := range e.sinkWriters {
+		sw.cbMu.Lock()
+		update.SinkCBStatuses[sw.sinkID] = sw.cbStatus
+		sw.cbMu.Unlock()
+
+		if sw.ch != nil {
+			capacity := cap(sw.ch)
+			if capacity > 0 {
+				update.SinkBufferFill[sw.sinkID] = float64(len(sw.ch)) / float64(capacity)
+			}
+		}
+	}
+
 	e.nodeMetricsMu.RLock()
 	if len(e.nodeMetrics) > 0 {
 		update.NodeMetrics = make(map[string]uint64)
 		for k, v := range e.nodeMetrics {
 			update.NodeMetrics[k] = v
+		}
+	}
+	if len(e.nodeErrorMetrics) > 0 {
+		update.NodeErrorMetrics = make(map[string]uint64)
+		for k, v := range e.nodeErrorMetrics {
+			update.NodeErrorMetrics[k] = v
 		}
 	}
 	if len(e.nodeSamples) > 0 {
@@ -598,6 +836,10 @@ func (e *Engine) GetStatus() StatusUpdate {
 		}
 	}
 	e.nodeMetricsMu.RUnlock()
+
+	if e.dqScorer != nil {
+		update.AverageDQScore = e.dqScorer.GetAverageScore(e.workflowID) * 100
+	}
 
 	return update
 }
@@ -747,8 +989,11 @@ func (sw *sinkWriter) recordSuccess() {
 	if sw.cbStatus == "half-open" {
 		sw.cbStatus = "closed"
 		sw.cbFailCount = 0
-		if sw.engine != nil && sw.engine.logger != nil {
-			sw.engine.logger.Info("Circuit breaker closed after success", "workflow_id", sw.engine.workflowID, "sink_id", sw.sinkID)
+		if sw.engine != nil {
+			sw.engine.setSinkStatus(sw.sinkID, "active")
+			if sw.engine.logger != nil {
+				sw.engine.logger.Info("Circuit breaker closed after success", "workflow_id", sw.engine.workflowID, "sink_id", sw.sinkID)
+			}
 		}
 	} else {
 		sw.cbFailCount = 0
@@ -833,18 +1078,19 @@ func (w *sinkWriter) run(ctx context.Context) {
 			}()
 		}
 	}
-	batchSize := w.currentBatchSize
-	if batchSize < 1 {
-		batchSize = 1
+	w.currentBatchSize = w.config.BatchSize
+	if w.currentBatchSize < 1 {
+		w.currentBatchSize = 1
+	}
+	w.batchTimeout = w.config.BatchTimeout
+	if w.batchTimeout == 0 {
+		w.batchTimeout = 100 * time.Millisecond
 	}
 
-	batchTimeout := w.config.BatchTimeout
-	if batchTimeout == 0 {
-		batchTimeout = 100 * time.Millisecond
-	}
-
-	batch := make([]*pendingMessage, 0, batchSize)
-	ticker := time.NewTicker(batchTimeout)
+	batch := make([]*pendingMessage, 0, w.currentBatchSize)
+	w.updateMu.RLock()
+	ticker := time.NewTicker(w.batchTimeout)
+	w.updateMu.RUnlock()
 	defer ticker.Stop()
 
 	flush := func() {
@@ -889,20 +1135,22 @@ func (w *sinkWriter) run(ctx context.Context) {
 			duration := time.Since(start)
 			if err == nil {
 				// If we are fast and have more messages waiting, increase batch size
-				if duration < batchTimeout/2 && len(w.ch) > w.currentBatchSize/2 {
+				w.updateMu.Lock()
+				if duration < w.batchTimeout/2 && len(w.ch) > w.currentBatchSize/2 {
 					w.currentBatchSize = int(float64(w.currentBatchSize) * 1.1)
 					if w.currentBatchSize > 5000 {
 						w.currentBatchSize = 5000
 					}
-					batchSize = w.currentBatchSize
 				}
+				w.updateMu.Unlock()
 			} else {
 				// If we had error or were slow, decrease batch size
+				w.updateMu.Lock()
 				w.currentBatchSize = int(float64(w.currentBatchSize) * 0.7)
 				if w.currentBatchSize < 1 {
 					w.currentBatchSize = 1
 				}
-				batchSize = w.currentBatchSize
+				w.updateMu.Unlock()
 			}
 		}
 
@@ -914,20 +1162,67 @@ func (w *sinkWriter) run(ctx context.Context) {
 
 	for {
 		select {
-		case <-ctx.Done():
-			flush()
-			return
 		case pm, ok := <-w.ch:
 			if !ok {
 				flush()
 				return
 			}
 			batch = append(batch, pm)
-			if len(batch) >= batchSize {
+			if len(batch) >= w.currentBatchSize {
 				flush()
 			}
 		case <-ticker.C:
 			flush()
+		}
+	}
+}
+
+func (e *Engine) adaptiveThrottle(ctx context.Context, duration time.Duration) {
+	if !e.config.AdaptiveThroughput {
+		return
+	}
+
+	e.statusMu.Lock()
+	defer e.statusMu.Unlock()
+
+	// Update running average
+	if e.latencyAvg == 0 {
+		e.latencyAvg = duration
+	} else {
+		e.latencyAvg = (e.latencyAvg*9 + duration) / 10
+	}
+
+	// Adjust polling interval every 5s based on latency and memory
+	if time.Since(e.lastPollAdjust) < 5*time.Second {
+		return
+	}
+	e.lastPollAdjust = time.Now()
+
+	// Check memory pressure
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	memoryPressure := e.config.MaxMemoryMB > 0 && m.Alloc > e.config.MaxMemoryMB*1024*1024
+
+	// If latency is high (>500ms) or memory is high, slow down polling
+	if e.latencyAvg > 500*time.Millisecond || memoryPressure {
+		e.throttleDelay += 100 * time.Millisecond
+		if e.throttleDelay > 10*time.Second {
+			e.throttleDelay = 10 * time.Second
+		}
+		reason := "high latency"
+		if memoryPressure {
+			reason = "memory pressure"
+		}
+		e.logger.Warn("Adaptive throughput: throttling ingestion",
+			"reason", reason,
+			"avg_latency", e.latencyAvg.String(),
+			"mem_alloc_mb", m.Alloc/1024/1024,
+			"throttle_delay", e.throttleDelay.String(),
+			"workflow_id", e.workflowID)
+	} else if e.latencyAvg < 100*time.Millisecond && e.throttleDelay > 0 {
+		e.throttleDelay -= 100 * time.Millisecond
+		if e.throttleDelay < 0 {
+			e.throttleDelay = 0
 		}
 	}
 }
@@ -943,6 +1238,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	}
 
 	// Initialize Sink Writers
+	var writersWg sync.WaitGroup
 	e.sinkWriters = make([]*sinkWriter, len(e.sinks))
 	for i, snk := range e.sinks {
 		sinkID := ""
@@ -970,7 +1266,11 @@ func (e *Engine) Start(ctx context.Context) error {
 			currentBatchSize: cfg.BatchSize,
 		}
 		e.sinkWriters[i] = sw
-		go sw.run(ctx)
+		writersWg.Add(1)
+		go func(w *sinkWriter) {
+			defer writersWg.Done()
+			w.run(ctx)
+		}(sw)
 	}
 
 	var wg sync.WaitGroup
@@ -979,6 +1279,12 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.logger.Info("Starting Hermod Engine", "workflow_id", e.workflowID)
 	e.setStatus("connecting")
 	ActiveEngines.Inc()
+
+	// Start Outbox Relay if enabled
+	if e.outboxStore != nil {
+		go e.runOutboxRelay(ctx)
+	}
+
 	defer ActiveEngines.Dec()
 
 	// Status Checker
@@ -1197,6 +1503,18 @@ func (e *Engine) Start(ctx context.Context) error {
 				}
 				e.checkpointMu.Unlock()
 
+				// Adaptive Throttle Delay
+				e.statusMu.RLock()
+				delay := e.throttleDelay
+				e.statusMu.RUnlock()
+				if delay > 0 {
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(delay):
+					}
+				}
+
 				ctx, span := tracer.Start(ctx, "SourceRead", trace.WithAttributes(
 					attribute.String("workflow_id", e.workflowID),
 					attribute.String("source_id", e.sourceID),
@@ -1228,6 +1546,8 @@ func (e *Engine) Start(ctx context.Context) error {
 					if err := e.validator.Validate(ctx, msg.Data()); err != nil {
 						e.logger.Error("Schema validation failed", "workflow_id", e.workflowID, "error", err, "message_id", msg.ID())
 						MessageErrors.WithLabelValues(e.workflowID, e.sourceID, "schema_validation").Inc()
+						msg.SetMetadata("schema_validated", "false")
+						msg.SetMetadata("schema_validation_error", err.Error())
 
 						// Move to DLQ if enabled
 						if e.deadLetterSink != nil {
@@ -1243,7 +1563,14 @@ func (e *Engine) Start(ctx context.Context) error {
 						}
 						span.End()
 						continue
+					} else {
+						msg.SetMetadata("schema_validated", "true")
 					}
+				}
+
+				// Data Quality Scoring
+				if e.dqScorer != nil {
+					e.dqScorer.Score(ctx, e.workflowID, msg)
 				}
 
 				span.SetAttributes(
@@ -1264,6 +1591,33 @@ func (e *Engine) Start(ctx context.Context) error {
 					"payload_len", len(msg.Payload()),
 					"data", redactedData,
 				)
+
+				// Save to Outbox if enabled for 100% consistency
+				if e.outboxStore != nil {
+					outItem := hermod.OutboxItem{
+						WorkflowID: e.workflowID,
+						Payload:    msg.Payload(),
+						Metadata:   msg.Metadata(),
+						Status:     "pending",
+						CreatedAt:  time.Now(),
+					}
+					// Add internal message ID to metadata for restoration
+					if outItem.Metadata == nil {
+						outItem.Metadata = make(map[string]string)
+					}
+					outItem.Metadata["_message_id"] = msg.ID()
+
+					if err := e.outboxStore.CreateOutboxItem(ctx, outItem); err != nil {
+						e.logger.Error("Failed to create outbox item", "workflow_id", e.workflowID, "message_id", msg.ID(), "error", err)
+						// If we can't save to outbox, we continue with normal buffer produce,
+						// but it's less reliable.
+					} else {
+						// If saved to outbox, we can Ack the source now if it supports it
+						if err := e.source.Ack(ctx, msg); err != nil {
+							e.logger.Warn("Failed to Ack source after outbox save", "workflow_id", e.workflowID, "message_id", msg.ID(), "error", err)
+						}
+					}
+				}
 
 				if err := e.buffer.Produce(ctx, msg); err != nil {
 					span.RecordError(err)
@@ -1343,7 +1697,9 @@ func (e *Engine) Start(ctx context.Context) error {
 
 				start := time.Now()
 				defer func() {
-					ProcessingLatency.WithLabelValues(e.workflowID).Observe(time.Since(start).Seconds())
+					duration := time.Since(start)
+					ProcessingLatency.WithLabelValues(e.workflowID).Observe(duration.Seconds())
+					e.adaptiveThrottle(drainCtx, duration)
 				}()
 
 				// Ensure message has an idempotency key/ID set before routing to sinks
@@ -1506,7 +1862,11 @@ func (e *Engine) Start(ctx context.Context) error {
 				}
 
 				// Acknowledge the message to the source after all successful sink writes
-				if err := e.source.Ack(ctx, m); err != nil {
+				if outboxID, exists := m.Metadata()["_outbox_id"]; exists && e.outboxStore != nil {
+					if err := e.outboxStore.DeleteOutboxItem(ctx, outboxID); err != nil {
+						e.logger.Error("Failed to delete outbox item after successful processing", "workflow_id", e.workflowID, "id", outboxID, "error", err)
+					}
+				} else if err := e.source.Ack(ctx, m); err != nil {
 					span.RecordError(err)
 					span.SetStatus(codes.Error, err.Error())
 					e.logger.Error("Source acknowledgement failed", "workflow_id", e.workflowID, "error", err)
@@ -1541,6 +1901,7 @@ func (e *Engine) Start(ctx context.Context) error {
 			close(sw.ch)
 		}
 	}
+	writersWg.Wait()
 	close(errCh)
 
 	var lastErr error
@@ -1552,10 +1913,16 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	if lastErr != nil {
 		e.logger.Error("Hermod Engine stopped with error", "workflow_id", e.workflowID, "error", lastErr)
+		e.setStatus("Error: " + lastErr.Error())
 		return lastErr
 	}
 
 	e.logger.Info("Hermod Engine stopped gracefully", "workflow_id", e.workflowID)
+	e.setSourceStatus("")
+	for _, id := range e.sinkIDs {
+		e.setSinkStatus(id, "")
+	}
+	e.setStatus("Stopped")
 	return nil
 }
 

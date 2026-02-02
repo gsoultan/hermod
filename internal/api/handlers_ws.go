@@ -47,6 +47,11 @@ var upgrader = websocket.Upgrader{
 }
 
 func (s *Server) handleStatusWS(w http.ResponseWriter, r *http.Request) {
+	// Ensure CheckOrigin is permissive in dev
+	if os.Getenv("HERMOD_ENV") != "production" {
+		upgrader.CheckOrigin = func(r *http.Request) bool { return true }
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -75,13 +80,14 @@ func (s *Server) handleDashboardWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	vhost := r.URL.Query().Get("vhost")
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			stats, err := s.registry.GetDashboardStats(r.Context())
+			stats, err := s.registry.GetDashboardStats(r.Context(), vhost)
 			if err != nil {
 				continue
 			}
@@ -95,6 +101,11 @@ func (s *Server) handleDashboardWS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogsWS(w http.ResponseWriter, r *http.Request) {
+	// Ensure CheckOrigin is permissive in dev
+	if os.Getenv("HERMOD_ENV") != "production" {
+		upgrader.CheckOrigin = func(r *http.Request) bool { return true }
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -126,6 +137,39 @@ func (s *Server) handleLogsWS(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if err := conn.WriteJSON(log); err != nil {
+				return
+			}
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+func (s *Server) handleLiveMessagesWS(w http.ResponseWriter, r *http.Request) {
+	// Ensure CheckOrigin is permissive in dev
+	if os.Getenv("HERMOD_ENV") != "production" {
+		upgrader.CheckOrigin = func(r *http.Request) bool { return true }
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	query := r.URL.Query()
+	workflowID := query.Get("workflow_id")
+
+	ch := s.registry.SubscribeLiveMessages()
+	defer s.registry.UnsubscribeLiveMessages(ch)
+
+	for {
+		select {
+		case msg := <-ch:
+			if workflowID != "" && msg.WorkflowID != workflowID {
+				continue
+			}
+			if err := conn.WriteJSON(msg); err != nil {
 				return
 			}
 		case <-r.Context().Done():

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,18 +16,29 @@ import (
 
 // ScyllaDBSource implements the hermod.Source interface for ScyllaDB.
 type ScyllaDBSource struct {
-	hosts   []string
-	useCDC  bool
-	cluster *gocql.ClusterConfig
-	session *gocql.Session
-	mu      sync.Mutex
-	logger  hermod.Logger
+	hosts        []string
+	useCDC       bool
+	tables       []string
+	idField      string
+	pollInterval time.Duration
+	cluster      *gocql.ClusterConfig
+	session      *gocql.Session
+	mu           sync.Mutex
+	logger       hermod.Logger
+	lastIDs      map[string]interface{}
 }
 
-func NewScyllaDBSource(hosts []string, useCDC bool) *ScyllaDBSource {
+func NewScyllaDBSource(hosts []string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *ScyllaDBSource {
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second
+	}
 	return &ScyllaDBSource{
-		hosts:  hosts,
-		useCDC: useCDC,
+		hosts:        hosts,
+		tables:       tables,
+		idField:      idField,
+		pollInterval: pollInterval,
+		useCDC:       useCDC,
+		lastIDs:      make(map[string]interface{}),
 	}
 }
 
@@ -87,12 +99,97 @@ func (s *ScyllaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, err
 	}
 
-	// ScyllaDB Read blocks for now.
-	select {
-	case <-ctx.Done():
+	if !s.useCDC {
+		<-ctx.Done()
 		return nil, ctx.Err()
-	case <-time.After(5 * time.Second):
-		return nil, nil
+	}
+
+	for {
+		for _, table := range s.tables {
+			s.mu.Lock()
+			lastID := s.lastIDs[table]
+			s.mu.Unlock()
+
+			var query string
+			var args []interface{}
+
+			if lastID != nil && s.idField != "" {
+				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? LIMIT 1 ALLOW FILTERING", table, s.idField)
+				args = append(args, lastID)
+			} else {
+				query = fmt.Sprintf("SELECT * FROM %s LIMIT 1", table)
+			}
+
+			iter := s.session.Query(query).WithContext(ctx).Iter()
+			columns := iter.Columns()
+			values := make([]interface{}, len(columns))
+			for i := range values {
+				values[i] = new(interface{})
+			}
+
+			if iter.Scan(values...) {
+				record := make(map[string]interface{})
+				var currentID interface{}
+				for i, col := range columns {
+					val := *(values[i].(*interface{}))
+					if b, ok := val.([]byte); ok {
+						val = string(b)
+					}
+					record[col.Name] = val
+					if col.Name == s.idField {
+						currentID = val
+					}
+				}
+
+				if currentID != nil {
+					s.mu.Lock()
+					s.lastIDs[table] = currentID
+					s.mu.Unlock()
+				}
+
+				iter.Close()
+
+				afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+				msg := message.AcquireMessage()
+				msg.SetID(fmt.Sprintf("scylladb-%s-%v", table, currentID))
+				msg.SetOperation(hermod.OpCreate)
+				msg.SetTable(table)
+				msg.SetAfter(afterJSON)
+				msg.SetMetadata("source", "scylladb")
+
+				return msg, nil
+			}
+			iter.Close()
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(s.pollInterval):
+		}
+	}
+}
+
+func (s *ScyllaDBSource) GetState() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state := make(map[string]string)
+	for table, id := range s.lastIDs {
+		state["last_id:"+table] = fmt.Sprintf("%v", id)
+	}
+	return state
+}
+
+func (s *ScyllaDBSource) SetState(state map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for k, v := range state {
+		if strings.HasPrefix(k, "last_id:") {
+			table := strings.TrimPrefix(k, "last_id:")
+			s.lastIDs[table] = v
+		}
 	}
 }
 
