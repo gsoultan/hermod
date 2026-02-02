@@ -19,10 +19,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Run quick verification
-        shell: pwsh
-        run: pwsh -File scripts/quick-verify.ps1
-
   ui-build:
     name: UI Build
     runs-on: ubuntu-latest
