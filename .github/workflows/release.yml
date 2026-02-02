@@ -26,6 +26,11 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+          cache: 'bun'
+          cache-dependency-path: ui/bun.lock
+
+      - name: Build UI
+        run: go run cmd/hermod/main.go --build-ui
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6

@@ -4,9 +4,6 @@ project_name: hermod
 before:
   hooks:
     - go mod tidy
-    - bun install --cwd ui
-    - bun run --cwd ui build
-    - go run cmd/hermod/main.go --build-ui
 
 builds:
   - id: hermod
@@ -18,9 +15,6 @@ builds:
       - linux
       - windows
       - darwin
-      - freebsd
-      - openbsd
-      - netbsd
     goarch:
       - amd64
       - arm64
@@ -38,9 +32,6 @@ builds:
       - linux
       - windows
       - darwin
-      - freebsd
-      - openbsd
-      - netbsd
     goarch:
       - amd64
       - arm64
@@ -58,9 +49,6 @@ builds:
       - linux
       - windows
       - darwin
-      - freebsd
-      - openbsd
-      - netbsd
     goarch:
       - amd64
       - arm64
