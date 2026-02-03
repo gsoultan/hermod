@@ -116,3 +116,67 @@ func TestChangeUserPassword(t *testing.T) {
 		}
 	})
 }
+
+func TestMe(t *testing.T) {
+	s := &userTestStorage{}
+	server := NewServer(nil, s, nil, nil)
+	handler := server.Routes()
+
+	config.SaveDBConfig(&config.DBConfig{JWTSecret: "test-secret"})
+
+	t.Run("Get me", func(t *testing.T) {
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"id":       "user1",
+			"username": "user1",
+			"role":     string(storage.RoleViewer),
+			"exp":      time.Now().Add(time.Hour).Unix(),
+		})
+		tokenString, _ := token.SignedString([]byte("test-secret"))
+
+		req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+		req.Header.Set("Authorization", "Bearer "+tokenString)
+
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
+		}
+
+		var user storage.User
+		json.NewDecoder(rr.Body).Decode(&user)
+		if user.ID != "user1" {
+			t.Errorf("expected user1, got %s", user.ID)
+		}
+	})
+
+	t.Run("Update me", func(t *testing.T) {
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"id":       "user1",
+			"username": "user1",
+			"role":     string(storage.RoleViewer),
+			"exp":      time.Now().Add(time.Hour).Unix(),
+		})
+		tokenString, _ := token.SignedString([]byte("test-secret"))
+
+		reqBody := map[string]string{
+			"full_name": "New Name",
+			"email":     "new@email.com",
+		}
+		body, _ := json.Marshal(reqBody)
+		req := httptest.NewRequest(http.MethodPut, "/api/me", bytes.NewBuffer(body))
+		req.Header.Set("Authorization", "Bearer "+tokenString)
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
+		}
+
+		if s.updatedUser.FullName != "New Name" || s.updatedUser.Email != "new@email.com" {
+			t.Errorf("user was not updated correctly: %+v", s.updatedUser)
+		}
+	})
+}

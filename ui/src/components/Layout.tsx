@@ -1,10 +1,10 @@
-import { AppShell, Burger, Group, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea, Badge, ActionIcon, useMantineColorScheme, Kbd } from '@mantine/core';
+import { AppShell, Burger, Group, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea, Badge, ActionIcon, useMantineColorScheme, Kbd, Menu, Avatar } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconDashboard, IconSettings, IconList, IconActivity, IconUsers, IconLogout, IconWorld, IconHierarchy, IconRocket, IconServer, IconChevronLeft, IconChevronRight, IconHistory, IconSun, IconMoon, IconGitBranch, IconSearch, IconPlus, IconDatabase, IconCloudUpload, IconBraces, IconGitMerge, IconShieldLock, IconPuzzle } from '@tabler/icons-react';
+import { IconDashboard, IconSettings, IconList, IconActivity, IconUsers, IconLogout, IconWorld, IconHierarchy, IconRocket, IconServer, IconChevronLeft, IconChevronRight, IconHistory, IconSun, IconMoon, IconGitBranch, IconSearch, IconPlus, IconDatabase, IconCloudUpload, IconBraces, IconGitMerge, IconShieldLock, IconPuzzle, IconUser } from '@tabler/icons-react';
 import React, { useEffect } from 'react';
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router';
 import { useVHost } from '../context/VHostContext';
-import { apiFetch, getRoleFromToken } from '../api';
+import { apiFetch, getRoleFromToken, getClaimsFromToken } from '../api';
 import { Spotlight, spotlight } from '@mantine/spotlight';
 import '@mantine/spotlight/styles.css';
 
@@ -324,15 +324,44 @@ export function Layout({ children }: LayoutProps) {
             >
               {dark ? <IconSun size="1.2rem" /> : <IconMoon size="1.2rem" />}
             </ActionIcon>
-            <Button 
-              variant="subtle" 
-              color="gray" 
-              size="xs"
-              leftSection={<IconLogout size="1rem" stroke={1.5} />}
-              onClick={handleLogout}
-            >
-              Sign Out
-            </Button>
+            <Menu shadow="md" width={200} position="bottom-end" withArrow transitionProps={{ transition: 'pop-top-right' }}>
+              <Menu.Target>
+                <ActionIcon variant="subtle" color="gray" size="lg" radius="xl" title="Account">
+                  <Avatar size="sm" radius="xl" color="blue">
+                    {getClaimsFromToken()?.username?.charAt(0).toUpperCase()}
+                  </Avatar>
+                </ActionIcon>
+              </Menu.Target>
+
+              <Menu.Dropdown>
+                <Menu.Label>Account ({getClaimsFromToken()?.username})</Menu.Label>
+                <Menu.Item 
+                  leftSection={<IconUser size="1rem" stroke={1.5} />}
+                  onClick={() => navigate({ to: '/profile' })}
+                >
+                  My Profile
+                </Menu.Item>
+                {isAdmin && (
+                  <Menu.Item 
+                    leftSection={<IconSettings size="1rem" stroke={1.5} />}
+                    onClick={() => navigate({ to: '/settings' })}
+                  >
+                    System Settings
+                  </Menu.Item>
+                )}
+
+                <Menu.Divider />
+
+                <Menu.Label>Danger zone</Menu.Label>
+                <Menu.Item 
+                  color="red" 
+                  leftSection={<IconLogout size="1rem" stroke={1.5} />}
+                  onClick={handleLogout}
+                >
+                  Sign Out
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
           </Group>
         </Group>
       </AppShell.Header>

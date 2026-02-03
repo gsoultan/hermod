@@ -26,6 +26,8 @@ func (s *Server) registerAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/auth/oidc", s.oidcLogin)
 	mux.HandleFunc("GET /api/auth/callback", s.oidcCallback)
 	mux.HandleFunc("POST /api/forgot-password", s.forgotPassword)
+	mux.HandleFunc("GET /api/me", s.me)
+	mux.HandleFunc("PUT /api/me", s.updateMe)
 	mux.Handle("GET /api/users", s.adminOnly(s.listUsers))
 	mux.Handle("GET /api/users/{id}", s.adminOnly(s.getUser))
 	mux.Handle("POST /api/users", s.adminOnly(s.createUser))
@@ -472,6 +474,60 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAuditLog(r, "INFO", "Deleted user "+id, "delete", id, "user", "", nil)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) me(w http.ResponseWriter, r *http.Request) {
+	userCtx, ok := r.Context().Value(userContextKey).(*storage.User)
+	if !ok {
+		s.jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := s.storage.GetUser(r.Context(), userCtx.ID)
+	if err != nil {
+		s.jsonError(w, "User not found", http.StatusNotFound)
+		return
+	}
+	user.Password = ""
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(user)
+}
+
+func (s *Server) updateMe(w http.ResponseWriter, r *http.Request) {
+	userCtx, ok := r.Context().Value(userContextKey).(*storage.User)
+	if !ok {
+		s.jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		FullName string `json:"full_name"`
+		Email    string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	user, err := s.storage.GetUser(r.Context(), userCtx.ID)
+	if err != nil {
+		s.jsonError(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	user.FullName = req.FullName
+	user.Email = req.Email
+
+	if err := s.storage.UpdateUser(r.Context(), user); err != nil {
+		s.jsonError(w, "Failed to update profile: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.recordAuditLog(r, "INFO", "Updated profile for "+user.Username, "update", user.ID, "user", "", user)
+
+	user.Password = ""
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(user)
 }
 
 func (s *Server) listVHosts(w http.ResponseWriter, r *http.Request) {

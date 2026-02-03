@@ -14,6 +14,7 @@ import { SinksPage } from './pages/SinksPage'
 import { AddSinkPage } from './pages/AddSinkPage'
 import { EditSinkPage } from './pages/EditSinkPage'
 const UsersPage = lazy(async () => ({ default: (await import('./pages/UsersPage')).UsersPage }))
+const ProfilePage = lazy(async () => ({ default: (await import('./pages/ProfilePage')).ProfilePage }))
 import { AddUserPage } from './pages/AddUserPage'
 import { EditUserPage } from './pages/EditUserPage'
 import { VHostsPage } from './pages/VHostsPage'
@@ -313,6 +314,16 @@ const editUserRoute = createRoute({
   component: EditUserPage,
 })
 
+const profileRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/profile',
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <ProfilePage />
+    </Suspense>
+  ),
+})
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
@@ -497,6 +508,7 @@ const routeTree = rootRoute.addChildren([
     addUserRoute,
     editUserRoute,
   ]),
+  profileRoute,
   settingsRoute,
   logsRoute,
   auditLogsRoute,

@@ -1,7 +1,7 @@
 import { notifications } from '@mantine/notifications';
 import { getToken, removeToken } from './auth/storage';
 
-export function getRoleFromToken(): string | null {
+export function getClaimsFromToken(): any {
   const token = getToken();
   if (!token) return null;
   try {
@@ -10,10 +10,14 @@ export function getRoleFromToken(): string | null {
     const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
       return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
     }).join(''));
-    return JSON.parse(jsonPayload).role;
+    return JSON.parse(jsonPayload);
   } catch (e) {
     return null;
   }
+}
+
+export function getRoleFromToken(): string | null {
+  return getClaimsFromToken()?.role || null;
 }
 
 export async function apiFetch(url: string, options: RequestInit = {}) {
