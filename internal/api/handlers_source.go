@@ -24,6 +24,8 @@ func (s *Server) registerSourceRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/sources/sample", s.editorOnly(s.sampleSourceTable))
 	mux.Handle("POST /api/proxy/fetch", s.editorOnly(s.proxyFetch))
 	mux.Handle("DELETE /api/sources/{id}", s.editorOnly(s.deleteSource))
+	mux.Handle("POST /api/sources/{id}/snapshot", s.editorOnly(s.triggerSnapshot))
+	mux.HandleFunc("GET /api/sources/{id}/workflows", s.listWorkflowsReferencingSource)
 	mux.HandleFunc("GET /api/webhooks/requests", s.listWebhookRequests)
 	mux.Handle("POST /api/webhooks/requests/{id}/replay", s.editorOnly(s.replayWebhookRequest))
 }
@@ -197,6 +199,101 @@ func (s *Server) deleteSource(w http.ResponseWriter, r *http.Request) {
 
 	s.recordAuditLog(r, "INFO", "Deleted source "+src.Name, "delete", "", id, "", nil)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) triggerSnapshot(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ctx := r.Context()
+
+	src, err := s.storage.GetSource(ctx, id)
+	if err != nil {
+		if err == storage.ErrNotFound {
+			s.jsonError(w, "Source not found", http.StatusNotFound)
+		} else {
+			s.jsonError(w, "Failed to get source: "+err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// RBAC check
+	role, vhosts := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		if !s.hasVHostAccess(src.VHost, vhosts) {
+			s.jsonError(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+	}
+
+	var req struct {
+		Tables []string `json:"tables"`
+	}
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			s.jsonError(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if err := s.registry.TriggerSnapshot(ctx, id, req.Tables...); err != nil {
+		s.jsonError(w, "Failed to trigger snapshot: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	s.recordAuditLog(r, "INFO", "Triggered snapshot for source "+src.Name, "snapshot", "", id, "", nil)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "Snapshot triggered successfully"})
+}
+
+// listWorkflowsReferencingSource returns workflows that reference the given source ID.
+func (s *Server) listWorkflowsReferencingSource(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ctx := r.Context()
+
+	src, err := s.storage.GetSource(ctx, id)
+	if err != nil {
+		if err == storage.ErrNotFound {
+			s.jsonError(w, "Source not found", http.StatusNotFound)
+		} else {
+			s.jsonError(w, "Failed to get source: "+err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// RBAC check based on the source's vhost
+	role, vhosts := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		if !s.hasVHostAccess(src.VHost, vhosts) {
+			s.jsonError(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+	}
+
+	wfs, _, err := s.storage.ListWorkflows(ctx, storage.CommonFilter{})
+	if err != nil {
+		s.jsonError(w, "Failed to list workflows: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	type wfRef struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Active bool   `json:"active"`
+		Status string `json:"status"`
+	}
+
+	referencing := make([]wfRef, 0)
+	for _, wf := range wfs {
+		// Optional: filter by vhost if workflows carry vhost; otherwise rely on source RBAC above.
+		for _, node := range wf.Nodes {
+			if node.Type == "source" && node.RefID == id {
+				referencing = append(referencing, wfRef{ID: wf.ID, Name: wf.Name, Active: wf.Active, Status: wf.Status})
+				break
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"data": referencing})
 }
 
 func (s *Server) testSource(w http.ResponseWriter, r *http.Request) {

@@ -9,6 +9,10 @@ import { setToken } from '../auth/storage'
 export function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [twoFactorRequired, setTwoFactorRequired] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [userId, setUserId] = useState<string | null>(null);
+  const [pendingToken, setPendingToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
   const { redirect } = useSearch({ from: '/login' })
@@ -32,6 +36,37 @@ export function LoginPage() {
       return response.json()
     },
     onSuccess: (data) => {
+      if (data.two_factor_required) {
+        setTwoFactorRequired(true);
+        setUserId(data.user_id);
+        setPendingToken(data.pending_token);
+        return;
+      }
+      setToken(data.token)
+      navigate({ to: redirect || '/' })
+    },
+    onError: (err) => {
+      setError(err instanceof Error ? err.message : 'An error occurred')
+    }
+  })
+
+  const login2FAMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiFetch('/api/auth/2fa/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.text()
+        throw new Error(errorData || 'Failed to verify 2FA code')
+      }
+      return response.json()
+    },
+    onSuccess: (data) => {
       setToken(data.token)
       navigate({ to: redirect || '/' })
     },
@@ -42,7 +77,11 @@ export function LoginPage() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault()
-    loginMutation.mutate({ username, password })
+    if (twoFactorRequired) {
+      login2FAMutation.mutate({ user_id: userId, pending_token: pendingToken, code: twoFactorCode })
+    } else {
+      loginMutation.mutate({ username, password })
+    }
   }
 
   return (
@@ -212,31 +251,61 @@ export function LoginPage() {
                 
                 <form onSubmit={handleLogin}>
                   <Stack gap="lg">
-                    <TextInput
-                      label="Username"
-                      placeholder="Your username"
-                      required
-                      size="md"
-                      leftSection={<IconUser size="1.1rem" stroke={1.5} />}
-                      value={username}
-                      onChange={(e) => setUsername(e.currentTarget.value)}
-                    />
-                    <Stack gap={5}>
-                      <PasswordInput
-                        label="Password"
-                        placeholder="Your password"
-                        required
-                        size="md"
-                        leftSection={<IconLock size="1.1rem" stroke={1.5} />}
-                        value={password}
-                        onChange={(e) => setPassword(e.currentTarget.value)}
-                      />
-                      <Group justify="flex-end">
-                        <Anchor component={Link} to="/forgot-password" size="sm" fw={500}>
-                          Forgot password?
+                    {!twoFactorRequired ? (
+                      <>
+                        <TextInput
+                          label="Username"
+                          placeholder="Your username"
+                          required
+                          size="md"
+                          leftSection={<IconUser size="1.1rem" stroke={1.5} />}
+                          value={username}
+                          onChange={(e) => setUsername(e.currentTarget.value)}
+                        />
+                        <Stack gap={5}>
+                          <PasswordInput
+                            label="Password"
+                            placeholder="Your password"
+                            required
+                            size="md"
+                            leftSection={<IconLock size="1.1rem" stroke={1.5} />}
+                            value={password}
+                            onChange={(e) => setPassword(e.currentTarget.value)}
+                          />
+                          <Group justify="flex-end">
+                            <Anchor component={Link} to="/forgot-password" size="sm" fw={500}>
+                              Forgot password?
+                            </Anchor>
+                          </Group>
+                        </Stack>
+                      </>
+                    ) : (
+                      <Stack gap="md">
+                        <Title order={4} ta="center">Two-Factor Authentication</Title>
+                        <Text size="sm" c="dimmed" ta="center">
+                          Please enter the 6-digit code from your authenticator app.
+                        </Text>
+                        <TextInput
+                          label="Verification Code"
+                          placeholder="000000"
+                          required
+                          size="md"
+                          maxLength={6}
+                          leftSection={<IconShield size="1.1rem" stroke={1.5} />}
+                          value={twoFactorCode}
+                          onChange={(e) => setTwoFactorCode(e.currentTarget.value)}
+                          autoFocus
+                        />
+                        <Anchor 
+                          component="button" 
+                          type="button" 
+                          size="sm" 
+                          onClick={() => setTwoFactorRequired(false)}
+                        >
+                          Back to login
                         </Anchor>
-                      </Group>
-                    </Stack>
+                      </Stack>
+                    )}
 
                     {error && (
                       <Paper withBorder p="xs" radius="sm" bg="red.0" c="red.9" style={{ borderColor: 'var(--mantine-color-red-2)' }}>
@@ -250,23 +319,26 @@ export function LoginPage() {
                       type="submit" 
                       fullWidth 
                       size="md"
-                      loading={loginMutation.isPending}
+                      loading={loginMutation.isPending || login2FAMutation.isPending}
                       leftSection={<IconLogin size="1.2rem" stroke={1.5} />}
                     >
-                      Sign In
+                      {twoFactorRequired ? 'Verify Code' : 'Sign In'}
                     </Button>
 
-                    <Divider label="or continue with" labelPosition="center" />
-
-                    <Button 
-                      variant="default" 
-                      fullWidth 
-                      size="md"
-                      leftSection={<IconShield size="1.2rem" stroke={1.5} />}
-                      onClick={() => window.location.href = '/api/auth/oidc'}
-                    >
-                      SSO (OIDC)
-                    </Button>
+                    {!twoFactorRequired && (
+                      <>
+                        <Divider label="or continue with" labelPosition="center" />
+                        <Button 
+                          variant="default" 
+                          fullWidth 
+                          size="md"
+                          leftSection={<IconShield size="1.2rem" stroke={1.5} />}
+                          onClick={() => window.location.href = '/api/auth/oidc'}
+                        >
+                          SSO (OIDC)
+                        </Button>
+                      </>
+                    )}
                   </Stack>
                 </form>
               </Paper>

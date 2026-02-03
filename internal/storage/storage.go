@@ -175,13 +175,15 @@ const (
 )
 
 type User struct {
-	ID       string   `json:"id"`
-	Username string   `json:"username"`
-	Password string   `json:"password,omitempty"`
-	FullName string   `json:"full_name"`
-	Email    string   `json:"email"`
-	Role     Role     `json:"role"`
-	VHosts   []string `json:"vhosts"`
+	ID               string   `json:"id"`
+	Username         string   `json:"username"`
+	Password         string   `json:"password,omitempty"`
+	FullName         string   `json:"full_name"`
+	Email            string   `json:"email"`
+	Role             Role     `json:"role"`
+	VHosts           []string `json:"vhosts"`
+	TwoFactorEnabled bool     `json:"two_factor_enabled"`
+	TwoFactorSecret  string   `json:"two_factor_secret,omitempty"`
 }
 
 type VHost struct {

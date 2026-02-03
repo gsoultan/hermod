@@ -513,13 +513,15 @@ func (s *mongoStorage) CreateUser(ctx context.Context, user storage.User) error 
 	}
 	coll := s.db.Collection("users")
 	_, err := coll.InsertOne(ctx, bson.M{
-		"_id":       user.ID,
-		"username":  user.Username,
-		"password":  user.Password,
-		"full_name": user.FullName,
-		"email":     user.Email,
-		"role":      user.Role,
-		"vhosts":    user.VHosts,
+		"_id":                user.ID,
+		"username":           user.Username,
+		"password":           user.Password,
+		"full_name":          user.FullName,
+		"email":              user.Email,
+		"role":               user.Role,
+		"vhosts":             user.VHosts,
+		"two_factor_enabled": user.TwoFactorEnabled,
+		"two_factor_secret":  user.TwoFactorSecret,
 	})
 	return err
 }
@@ -527,11 +529,13 @@ func (s *mongoStorage) CreateUser(ctx context.Context, user storage.User) error 
 func (s *mongoStorage) UpdateUser(ctx context.Context, user storage.User) error {
 	coll := s.db.Collection("users")
 	update := bson.M{
-		"username":  user.Username,
-		"full_name": user.FullName,
-		"email":     user.Email,
-		"role":      user.Role,
-		"vhosts":    user.VHosts,
+		"username":           user.Username,
+		"full_name":          user.FullName,
+		"email":              user.Email,
+		"role":               user.Role,
+		"vhosts":             user.VHosts,
+		"two_factor_enabled": user.TwoFactorEnabled,
+		"two_factor_secret":  user.TwoFactorSecret,
 	}
 	if user.Password != "" {
 		update["password"] = user.Password

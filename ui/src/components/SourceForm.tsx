@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Button, Group, TextInput, Select, Stack, Alert, Divider, Text, Grid, Title, Code, List, Checkbox, TagsInput, ActionIcon, JsonInput, Badge, Loader, Modal, Card, ScrollArea, Switch } from '@mantine/core';
-import { IconCheck, IconInfoCircle, IconRefresh, IconFileImport, IconLink, IconCloud, IconUpload, IconAlertCircle, IconBraces, IconCopy, IconSettings, IconPlayerPlay, IconPlus, IconHistory, IconChevronRight } from '@tabler/icons-react';
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
+import { Button, Group, TextInput, Select, Stack, Alert, Divider, Text, Grid, Title, Code, List, Checkbox, TagsInput, ActionIcon, JsonInput, Badge, Loader, Modal, Card, ScrollArea, Switch, Tooltip } from '@mantine/core';
+import { IconCheck, IconInfoCircle, IconRefresh, IconFileImport, IconLink, IconCloud, IconUpload, IconAlertCircle, IconBraces, IconCopy, IconSettings, IconPlayerPlay, IconPlus, IconHistory, IconChevronRight, IconCamera } from '@tabler/icons-react';
+import { useMutation, useSuspenseQuery, useQuery } from '@tanstack/react-query';
 import { useForm, useStore } from '@tanstack/react-form';
 import { apiFetch, getRoleFromToken } from '../api';
 import { useVHost } from '../context/VHostContext';
@@ -83,8 +83,62 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
     publication?: { name: string; exists: boolean; hermod_in_use: boolean };
   }>(null);
 
+  const [selectedSnapshotTables, setSelectedSnapshotTables] = useState<string[]>([]);
+  const [snapshotModalOpened, setSnapshotModalOpened] = useState(false);
+
+  // Referencing workflows for this source (to control Snapshot availability)
+  const { data: referencingData, isLoading: isLoadingRefWf, error: referencingError } = useQuery({
+    queryKey: ['source-workflows', source.id],
+    enabled: Boolean(isEditing && source.id),
+    queryFn: async () => {
+      const res = await apiFetch(`${API_BASE}/sources/${source.id}/workflows`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({} as any));
+        throw new Error(err.error || 'Failed to load referencing workflows');
+      }
+      return res.json();
+    },
+  });
+  type ReferencingWf = { id: string; name: string; active: boolean; status: string };
+  const referencingWorkflows: ReferencingWf[] = (referencingData?.data as ReferencingWf[]) || [];
+  const hasActiveReferencingWorkflow = referencingWorkflows.some(w => w.active);
+
+  const snapshotMutation = useMutation({
+    mutationFn: async ({ sourceId, tables }: { sourceId: string, tables?: string[] }) => {
+      const res = await apiFetch(`/api/sources/${sourceId}/snapshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tables }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to trigger snapshot');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      notifications.show({
+        title: 'Snapshot Triggered',
+        message: 'The initial snapshot has been started successfully.',
+        color: 'green',
+      });
+      setSnapshotModalOpened(false);
+    },
+    onError: (error: Error) => {
+      notifications.show({
+        title: 'Snapshot Failed',
+        message: error.message,
+        color: 'red',
+      });
+    },
+  });
+
   const isCDC = (type: string) => {
     return ['postgres', 'mysql', 'mssql', 'oracle', 'mongodb', 'cassandra', 'yugabyte', 'scylladb', 'clickhouse', 'sqlite', 'mariadb', 'db2', 'csv'].includes(type);
+  };
+
+  const isDatabaseSource = (type: string) => {
+    return ['postgres', 'mysql', 'mssql', 'oracle', 'mongodb', 'yugabyte', 'mariadb', 'db2', 'cassandra', 'scylladb', 'clickhouse', 'sqlite', 'eventstore'].includes(type);
   };
 
   const useCDCChecked = source.config?.use_cdc !== 'false';
@@ -390,7 +444,7 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
       </Group>
     );
 
-    const isDatabase = ['postgres', 'mysql', 'mssql', 'oracle', 'mongodb', 'yugabyte', 'mariadb', 'db2', 'cassandra', 'scylladb', 'clickhouse', 'sqlite', 'eventstore'].includes(source.type);
+    const isDatabase = isDatabaseSource(source.type);
 
     const commonFields = (
       <>
@@ -472,6 +526,27 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
             />
           </Group>
         )}
+        {isDatabase && (
+          <>
+            <Divider label="Initial Snapshot" labelPosition="center" mt="md" />
+            <Group grow>
+              <TextInput 
+                label="Snapshot Batch Size" 
+                placeholder="1000" 
+                value={source.config.snapshot_batch_size || ''} 
+                onChange={(e) => updateConfig('snapshot_batch_size', e.target.value)} 
+                description="Number of rows per batch during snapshot"
+              />
+              <TextInput 
+                label="Parallelism" 
+                placeholder="1" 
+                value={source.config.snapshot_parallelism || ''} 
+                onChange={(e) => updateConfig('snapshot_parallelism', e.target.value)} 
+                description="Number of concurrent table scans"
+              />
+            </Group>
+          </>
+        )}
       </>
     );
 
@@ -481,6 +556,23 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
           {cdcSwitch}
           <TextInput label="DB Path" placeholder="/path/to/hermod.db" value={source.config.path} onChange={(e) => updateConfig('path', e.target.value)} />
           {tablesInput}
+          <Divider label="Initial Snapshot" labelPosition="center" mt="md" />
+          <Group grow>
+            <TextInput 
+              label="Snapshot Batch Size" 
+              placeholder="1000" 
+              value={source.config.snapshot_batch_size || ''} 
+              onChange={(e) => updateConfig('snapshot_batch_size', e.target.value)} 
+              description="Number of rows per batch during snapshot"
+            />
+            <TextInput 
+              label="Parallelism" 
+              placeholder="1" 
+              value={source.config.snapshot_parallelism || ''} 
+              onChange={(e) => updateConfig('snapshot_parallelism', e.target.value)} 
+              description="Number of concurrent table scans"
+            />
+          </Group>
         </>
       );
     }
@@ -1323,6 +1415,41 @@ GO`}
           {renderSetupInstructions()}
         </Stack>
       </Modal>
+      <Modal
+        opened={snapshotModalOpened}
+        onClose={() => setSnapshotModalOpened(false)}
+        title="Run Initial Snapshot"
+        size="md"
+      >
+        <Stack>
+          <Text size="sm">
+            Select the tables you want to include in the initial snapshot. 
+            By default, all configured tables are selected.
+          </Text>
+          <TagsInput 
+            label="Tables to Snapshot" 
+            placeholder="Select tables" 
+            data={(source.config.tables || '').split(',').map((t: string) => t.trim()).filter(Boolean)}
+            value={selectedSnapshotTables}
+            onChange={setSelectedSnapshotTables}
+            clearable
+          />
+          <Alert icon={<IconInfoCircle size="1rem" />} color="blue">
+            The snapshot will run in the background. It will not affect the continuous CDC process.
+          </Alert>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setSnapshotModalOpened(false)}>Cancel</Button>
+            <Button 
+              color="orange" 
+              onClick={() => snapshotMutation.mutate({ sourceId: source.id, tables: selectedSnapshotTables })}
+              loading={snapshotMutation.isPending}
+              disabled={selectedSnapshotTables.length === 0}
+            >
+              Start Snapshot
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
       <Grid gutter="lg" style={{ minHeight: 'calc(100vh - 180px)' }}>
         <Grid.Col span={{ base: 12, md: 4, lg: 3 }}>
           <Card withBorder shadow="sm" radius="md" p="md" h="100%">
@@ -1466,6 +1593,37 @@ GO`}
               <Divider mt="md" />
               <Group justify="flex-end" pt="xs">
                 {!embedded && <Button variant="outline" size="xs" onClick={() => navigate({ to: '/sources' })}>Cancel</Button>}
+                {isEditing && isDatabaseSource(source.type) && (
+                  <Tooltip
+                    label={
+                      !source.id
+                        ? 'Save the source first'
+                        : referencingError
+                          ? 'Unable to determine referencing workflows'
+                          : hasActiveReferencingWorkflow
+                            ? 'Trigger a one-time snapshot of current table contents'
+                            : 'Start a workflow that uses this source to enable snapshots'
+                    }
+                    withArrow
+                    disabled={!isEditing || (!source.id) || (!!hasActiveReferencingWorkflow)}
+                  >
+                    <Button 
+                      variant="outline" 
+                      color="orange" 
+                      size="xs" 
+                      leftSection={<IconCamera size="1rem" />} 
+                      onClick={() => {
+                        const tables = (source.config.tables || '').split(',').map((t: string) => t.trim()).filter(Boolean);
+                        setSelectedSnapshotTables(tables);
+                        setSnapshotModalOpened(true);
+                      }}
+                      loading={snapshotMutation.isPending}
+                      disabled={!source.id || isLoadingRefWf || !hasActiveReferencingWorkflow}
+                    >
+                      Run Initial Snapshot
+                    </Button>
+                  </Tooltip>
+                )}
                 <Button variant="outline" color="blue" size="xs" onClick={() => testMutation.mutate(source)} loading={testMutation.isPending}>Test Connection</Button>
                 <Button 
                   size="xs"

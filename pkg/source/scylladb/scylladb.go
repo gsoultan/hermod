@@ -21,11 +21,12 @@ type ScyllaDBSource struct {
 	tables       []string
 	idField      string
 	pollInterval time.Duration
-	cluster      *gocql.ClusterConfig
 	session      *gocql.Session
+	cluster      *gocql.ClusterConfig
 	mu           sync.Mutex
 	logger       hermod.Logger
 	lastIDs      map[string]interface{}
+	msgChan      chan hermod.Message
 }
 
 func NewScyllaDBSource(hosts []string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *ScyllaDBSource {
@@ -39,6 +40,7 @@ func NewScyllaDBSource(hosts []string, tables []string, idField string, pollInte
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
 		lastIDs:      make(map[string]interface{}),
+		msgChan:      make(chan hermod.Message, 1000),
 	}
 }
 
@@ -100,11 +102,21 @@ func (s *ScyllaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 	}
 
 	if !s.useCDC {
-		<-ctx.Done()
-		return nil, ctx.Err()
+		select {
+		case msg := <-s.msgChan:
+			return msg, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	for {
+		select {
+		case msg := <-s.msgChan:
+			return msg, nil
+		default:
+		}
+
 		for _, table := range s.tables {
 			s.mu.Lock()
 			lastID := s.lastIDs[table]
@@ -163,11 +175,87 @@ func (s *ScyllaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 		}
 
 		select {
+		case msg := <-s.msgChan:
+			return msg, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(s.pollInterval):
 		}
 	}
+}
+
+func (s *ScyllaDBSource) Snapshot(ctx context.Context, tables ...string) error {
+	if err := s.init(ctx); err != nil {
+		return err
+	}
+
+	targetTables := tables
+	if len(targetTables) == 0 {
+		targetTables = s.tables
+	}
+
+	if len(targetTables) == 0 {
+		var err error
+		targetTables, err = s.DiscoverTables(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, table := range targetTables {
+		if err := s.snapshotTable(ctx, table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *ScyllaDBSource) snapshotTable(ctx context.Context, table string) error {
+	iter := s.session.Query(fmt.Sprintf("SELECT * FROM %s", table)).WithContext(ctx).Iter()
+	columns := iter.Columns()
+
+	for {
+		values := make([]interface{}, len(columns))
+		for i := range values {
+			values[i] = new(interface{})
+		}
+
+		if !iter.Scan(values...) {
+			break
+		}
+
+		record := make(map[string]interface{})
+		for i, col := range columns {
+			val := *(values[i].(*interface{}))
+			if b, ok := val.([]byte); ok {
+				val = string(b)
+			}
+			record[col.Name] = val
+		}
+
+		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+		msg := message.AcquireMessage()
+		if s.idField != "" && record[s.idField] != nil {
+			msg.SetID(fmt.Sprintf("%v", record[s.idField]))
+		} else {
+			msg.SetID(fmt.Sprintf("snapshot-%s-%d", table, time.Now().UnixNano()))
+		}
+		msg.SetOperation(hermod.OpSnapshot)
+		msg.SetTable(table)
+		msg.SetAfter(afterJSON)
+		msg.SetMetadata("source", "scylladb")
+		msg.SetMetadata("snapshot", "true")
+
+		select {
+		case s.msgChan <- msg:
+		case <-ctx.Done():
+			iter.Close()
+			return ctx.Err()
+		}
+	}
+
+	return iter.Close()
 }
 
 func (s *ScyllaDBSource) GetState() map[string]string {

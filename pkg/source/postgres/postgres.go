@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -943,4 +944,85 @@ func (p *PostgresSource) Sample(ctx context.Context, table string) (hermod.Messa
 	msg.SetMetadata("sample", "true")
 
 	return msg, nil
+}
+
+func (p *PostgresSource) Snapshot(ctx context.Context, tables ...string) error {
+	if err := p.ensureConn(ctx); err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	pTables := p.tables
+	p.mu.Unlock()
+
+	targetTables := tables
+	if len(targetTables) == 0 {
+		targetTables = pTables
+	}
+
+	if len(targetTables) == 0 {
+		var err error
+		targetTables, err = p.DiscoverTables(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, table := range targetTables {
+		if err := p.snapshotTable(ctx, table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *PostgresSource) snapshotTable(ctx context.Context, table string) error {
+	quoted, err := sqlutil.QuoteIdent("pgx", table)
+	if err != nil {
+		return fmt.Errorf("invalid table name %q: %w", table, err)
+	}
+
+	p.mu.Lock()
+	rows, err := p.conn.Query(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	p.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("failed to query table %q: %w", table, err)
+	}
+	defer rows.Close()
+
+	fields := rows.FieldDescriptions()
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return fmt.Errorf("failed to get values: %w", err)
+		}
+
+		record := make(map[string]interface{})
+		for i, field := range fields {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				record[field.Name] = string(b)
+			} else {
+				record[field.Name] = val
+			}
+		}
+
+		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+		msg := message.AcquireMessage()
+		msg.SetID(fmt.Sprintf("snapshot-%s-%d-%s", table, time.Now().UnixNano(), uuid.New().String()))
+		msg.SetOperation(hermod.OpSnapshot)
+		msg.SetTable(table)
+		msg.SetAfter(afterJSON)
+		msg.SetMetadata("source", "postgres")
+		msg.SetMetadata("snapshot", "true")
+
+		select {
+		case p.msgChan <- msg:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return rows.Err()
 }

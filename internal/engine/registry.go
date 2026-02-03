@@ -906,9 +906,10 @@ func (r *Registry) BrowseSinkTable(ctx context.Context, cfg SinkConfig, table st
 }
 
 type subSource struct {
-	nodeID  string
-	source  hermod.Source
-	running bool
+	nodeID   string
+	sourceID string
+	source   hermod.Source
+	running  bool
 }
 
 type multiSource struct {
@@ -2102,6 +2103,61 @@ func (r *Registry) GetDQScorer() *governance.Scorer {
 	return r.dqScorer
 }
 
+func (r *Registry) TriggerSnapshot(ctx context.Context, sourceID string, tables ...string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	triggered := false
+	var lastErr error
+
+	for _, ae := range r.engines {
+		source := ae.engine.GetSource()
+		if source == nil {
+			continue
+		}
+
+		// Check if it's a multiSource (workflows)
+		if ms, ok := source.(*multiSource); ok {
+			for _, ss := range ms.sources {
+				if ss.sourceID == sourceID {
+					if snappable, ok := ss.source.(hermod.Snapshottable); ok {
+						if err := snappable.Snapshot(ctx, tables...); err != nil {
+							lastErr = err
+						} else {
+							triggered = true
+						}
+					}
+				}
+			}
+		} else {
+			// Check if it's a direct source (if we support that)
+			// We need to know the source ID for this engine if it's not a workflow
+			// activeEngine has srcConfigs
+			for _, cfg := range ae.srcConfigs {
+				if cfg.ID == sourceID {
+					if snappable, ok := source.(hermod.Snapshottable); ok {
+						if err := snappable.Snapshot(ctx, tables...); err != nil {
+							lastErr = err
+						} else {
+							triggered = true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if lastErr != nil {
+		return lastErr
+	}
+	if !triggered {
+		// Provide a clearer message: snapshots require the source to be part of a running workflow engine.
+		// This often happens when trying to trigger a snapshot before starting the workflow.
+		return fmt.Errorf("source %s is not currently running in any engine. Start the workflow that uses this source and try again", sourceID)
+	}
+	return nil
+}
+
 func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -2186,7 +2242,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 			}
 			return err
 		}
-		subSources = append(subSources, &subSource{nodeID: sn.ID, source: src})
+		subSources = append(subSources, &subSource{nodeID: sn.ID, sourceID: sn.RefID, source: src})
 	}
 
 	ms := &multiSource{

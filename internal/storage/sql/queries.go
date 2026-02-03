@@ -203,7 +203,9 @@ var commonQueries = map[string]string{
 			full_name TEXT,
 			email TEXT,
 			role TEXT,
-			vhosts TEXT
+			vhosts TEXT,
+			two_factor_enabled BOOLEAN DEFAULT FALSE,
+			two_factor_secret TEXT
 		)`,
 	QueryInitVHostsTable: `CREATE TABLE IF NOT EXISTS vhosts (
 			id TEXT PRIMARY KEY,
@@ -389,15 +391,15 @@ var commonQueries = map[string]string{
 	QueryDeleteSink:       "DELETE FROM sinks WHERE id = ?",
 	QueryGetSink:          "SELECT id, name, type, vhost, active, status, worker_id, workspace_id, config FROM sinks WHERE id = ?",
 
-	QueryListUsers:            "SELECT id, username, full_name, email, role, vhosts FROM users",
+	QueryListUsers:            "SELECT id, username, full_name, email, role, vhosts, two_factor_enabled FROM users",
 	QueryCountUsers:           "SELECT COUNT(*) FROM users",
-	QueryCreateUser:           "INSERT INTO users (id, username, password, full_name, email, role, vhosts) VALUES (?, ?, ?, ?, ?, ?, ?)",
-	QueryUpdateUser:           "UPDATE users SET username = ?, password = ?, full_name = ?, email = ?, role = ?, vhosts = ? WHERE id = ?",
-	QueryUpdateUserNoPassword: "UPDATE users SET username = ?, full_name = ?, email = ?, role = ?, vhosts = ? WHERE id = ?",
+	QueryCreateUser:           "INSERT INTO users (id, username, password, full_name, email, role, vhosts, two_factor_enabled, two_factor_secret) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryUpdateUser:           "UPDATE users SET username = ?, password = ?, full_name = ?, email = ?, role = ?, vhosts = ?, two_factor_enabled = ?, two_factor_secret = ? WHERE id = ?",
+	QueryUpdateUserNoPassword: "UPDATE users SET username = ?, full_name = ?, email = ?, role = ?, vhosts = ?, two_factor_enabled = ?, two_factor_secret = ? WHERE id = ?",
 	QueryDeleteUser:           "DELETE FROM users WHERE id = ?",
-	QueryGetUser:              "SELECT id, username, password, full_name, email, role, vhosts FROM users WHERE id = ?",
-	QueryGetUserByUsername:    "SELECT id, username, password, full_name, email, role, vhosts FROM users WHERE username = ?",
-	QueryGetUserByEmail:       "SELECT id, username, password, full_name, email, role, vhosts FROM users WHERE email = ?",
+	QueryGetUser:              "SELECT id, username, password, full_name, email, role, vhosts, two_factor_enabled, two_factor_secret FROM users WHERE id = ?",
+	QueryGetUserByUsername:    "SELECT id, username, password, full_name, email, role, vhosts, two_factor_enabled, two_factor_secret FROM users WHERE username = ?",
+	QueryGetUserByEmail:       "SELECT id, username, password, full_name, email, role, vhosts, two_factor_enabled, two_factor_secret FROM users WHERE email = ?",
 
 	QueryListVHosts:  "SELECT id, name, description FROM vhosts",
 	QueryCountVHosts: "SELECT COUNT(*) FROM vhosts",

@@ -80,6 +80,11 @@ type Browser interface {
 	Browse(ctx context.Context, table string, limit int) ([]Message, error)
 }
 
+// Snapshottable defines an optional interface for sources that support manual snapshots.
+type Snapshottable interface {
+	Snapshot(ctx context.Context, tables ...string) error
+}
+
 // Sink defines the interface for writing data to a message stream provider.
 type Sink interface {
 	Write(ctx context.Context, msg Message) error

@@ -32,6 +32,7 @@ type MSSQLSource struct {
 	buffer    []hermod.Message
 	captures  map[string]string // table name -> capture instance name
 	logger    hermod.Logger
+	msgChan   chan hermod.Message
 }
 
 func NewMSSQLSource(connString string, tables []string, autoEnableCDC bool, useCDC bool) *MSSQLSource {
@@ -48,6 +49,7 @@ func NewMSSQLSource(connString string, tables []string, autoEnableCDC bool, useC
 		useCDC:        useCDC,
 		tableLSNs:     make(map[string][]byte),
 		captures:      make(map[string]string),
+		msgChan:       make(chan hermod.Message, 1000),
 	}
 }
 
@@ -147,10 +149,29 @@ func (m *MSSQLSource) resolveTable(ctx context.Context, table string) (*tableInf
 
 func (m *MSSQLSource) Read(ctx context.Context) (hermod.Message, error) {
 	if !m.useCDC {
-		<-ctx.Done()
-		return nil, ctx.Err()
+		m.mu.Lock()
+		db := m.db
+		m.mu.Unlock()
+		if db == nil {
+			if err := m.Ping(ctx); err != nil {
+				return nil, err
+			}
+		}
+
+		select {
+		case msg := <-m.msgChan:
+			return msg, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 	for {
+		select {
+		case msg := <-m.msgChan:
+			return msg, nil
+		default:
+		}
+
 		m.mu.Lock()
 		if len(m.buffer) > 0 {
 			msg := m.buffer[0]
@@ -168,6 +189,8 @@ func (m *MSSQLSource) Read(ctx context.Context) (hermod.Message, error) {
 		if len(m.buffer) == 0 {
 			m.mu.Unlock()
 			select {
+			case msg := <-m.msgChan:
+				return msg, nil
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			case <-time.After(m.pollInterval):
@@ -176,6 +199,105 @@ func (m *MSSQLSource) Read(ctx context.Context) (hermod.Message, error) {
 		}
 		m.mu.Unlock()
 	}
+}
+
+func (m *MSSQLSource) Snapshot(ctx context.Context, tables ...string) error {
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		if err := m.Ping(ctx); err != nil {
+			return err
+		}
+	}
+
+	targetTables := tables
+	if len(targetTables) == 0 {
+		targetTables = m.tables
+	}
+
+	if len(targetTables) == 0 {
+		var err error
+		targetTables, err = m.DiscoverTables(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, table := range targetTables {
+		if err := m.snapshotTable(ctx, table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *MSSQLSource) snapshotTable(ctx context.Context, table string) error {
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return fmt.Errorf("database connection not initialized")
+	}
+
+	// MSSQL uses [] for quoting
+	parts := strings.Split(table, ".")
+	quotedParts := make([]string, len(parts))
+	for i, p := range parts {
+		quotedParts[i] = "[" + strings.Trim(p, "[] ") + "]"
+	}
+	quoted := strings.Join(quotedParts, ".")
+
+	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	if err != nil {
+		return fmt.Errorf("failed to query table %q: %w", table, err)
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return err
+		}
+
+		record := make(map[string]interface{})
+		for i, colName := range columns {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				record[colName] = string(b)
+			} else {
+				record[colName] = val
+			}
+		}
+
+		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+		msg := message.AcquireMessage()
+		msg.SetID(fmt.Sprintf("snapshot-%s-%d", table, time.Now().UnixNano()))
+		msg.SetOperation(hermod.OpSnapshot)
+		msg.SetTable(table)
+		msg.SetAfter(afterJSON)
+		msg.SetMetadata("source", "mssql")
+		msg.SetMetadata("snapshot", "true")
+
+		select {
+		case m.msgChan <- msg:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return rows.Err()
 }
 
 func (m *MSSQLSource) poll(ctx context.Context) error {

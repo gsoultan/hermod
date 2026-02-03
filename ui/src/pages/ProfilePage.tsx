@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Title, Paper, Stack, Group, Box, Text, TextInput, Button, Divider, Alert, Badge, Card, Avatar, Tabs, PasswordInput } from '@mantine/core';
-import { IconUser, IconMail, IconShieldLock, IconDeviceFloppy, IconLock, IconCheck, IconAlertCircle, IconWorld } from '@tabler/icons-react';
+import { Title, Paper, Stack, Group, Box, Text, TextInput, Button, Divider, Alert, Badge, Card, Avatar, Tabs, PasswordInput, Modal, Image, Code } from '@mantine/core';
+import { IconUser, IconMail, IconShieldLock, IconDeviceFloppy, IconLock, IconCheck, IconAlertCircle, IconWorld, IconRefresh, IconFingerprint, IconTrash } from '@tabler/icons-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, apiJson } from '../api';
 import { notifications } from '@mantine/notifications';
@@ -12,11 +12,14 @@ interface User {
   email: string;
   role: string;
   vhosts: string[];
+  two_factor_enabled: boolean;
 }
 
 export function ProfilePage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string | null>('info');
+  const [twoFactorSecret, setTwoFactorSecret] = useState<{ secret: string; url: string } | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
 
   const { data: user, isLoading, error } = useQuery<User>({
     queryKey: ['me'],
@@ -74,6 +77,67 @@ export function ProfilePage() {
         message: 'Password changed successfully',
         color: 'green',
         icon: <IconCheck size="1.1rem" />,
+      });
+    }
+  });
+
+  const setup2FAMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch('/api/auth/2fa/setup', { method: 'POST' });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setTwoFactorSecret(data);
+    }
+  });
+
+  const verify2FAMutation = useMutation({
+    mutationFn: async (data: { secret: string; code: string }) => {
+      await apiJson('/api/auth/2fa/verify', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      setTwoFactorSecret(null);
+      setTwoFactorCode('');
+      queryClient.invalidateQueries({ queryKey: ['me'] });
+      notifications.show({
+        title: 'Success',
+        message: 'Two-factor authentication enabled',
+        color: 'green',
+        icon: <IconCheck size="1.1rem" />,
+      });
+    }
+  });
+
+  const disable2FAMutation = useMutation({
+    mutationFn: async () => {
+      await apiFetch('/api/auth/2fa/disable', { method: 'POST' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['me'] });
+      notifications.show({
+        title: 'Success',
+        message: 'Two-factor authentication disabled',
+        color: 'blue',
+        icon: <IconCheck size="1.1rem" />,
+      });
+    }
+  });
+
+  const generatePasswordMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch('/api/auth/generate-password', { method: 'POST' });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setPassword(data.password);
+      setConfirmPassword(data.password);
+      notifications.show({
+        title: 'Generated',
+        message: 'A strong password has been generated for you',
+        color: 'blue',
       });
     }
   });
@@ -198,14 +262,25 @@ export function ProfilePage() {
                     Ensure your account is using a long, random password to stay secure.
                   </Text>
                   
-                  <PasswordInput
-                    label="New Password"
-                    placeholder="Enter new password"
-                    value={password}
-                    onChange={(e) => setPassword(e.currentTarget.value)}
-                    leftSection={<IconLock size="1rem" />}
-                    error={passwordError}
-                  />
+                  <Group justify="space-between" align="flex-end">
+                    <PasswordInput
+                      label="New Password"
+                      placeholder="Enter new password"
+                      value={password}
+                      onChange={(e) => setPassword(e.currentTarget.value)}
+                      leftSection={<IconLock size="1rem" />}
+                      error={passwordError}
+                      style={{ flex: 1 }}
+                    />
+                    <Button 
+                      variant="light" 
+                      onClick={() => generatePasswordMutation.mutate()}
+                      loading={generatePasswordMutation.isPending}
+                      leftSection={<IconRefresh size="1rem" />}
+                    >
+                      Generate
+                    </Button>
+                  </Group>
                   
                   <PasswordInput
                     label="Confirm New Password"
@@ -226,6 +301,113 @@ export function ProfilePage() {
                 </Stack>
               </form>
             </Paper>
+
+            <Paper withBorder p="xl" radius="md" maw={500} mt="lg">
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <Stack gap={0}>
+                    <Title order={4}>Two-Factor Authentication (2FA)</Title>
+                    <Text size="sm" c="dimmed">
+                      Add an extra layer of security to your account using TOTP.
+                    </Text>
+                  </Stack>
+                  <Badge color={user.two_factor_enabled ? 'green' : 'gray'} variant="light">
+                    {user.two_factor_enabled ? 'Enabled' : 'Disabled'}
+                  </Badge>
+                </Group>
+
+                <Divider />
+
+                {user.two_factor_enabled ? (
+                  <Stack gap="md">
+                    <Alert color="blue" icon={<IconShieldLock size="1.2rem" />}>
+                      Two-factor authentication is currently enabled for your account.
+                    </Alert>
+                    <Button 
+                      color="red" 
+                      variant="light" 
+                      leftSection={<IconTrash size="1.1rem" />}
+                      onClick={() => {
+                        if (window.confirm('Are you sure you want to disable 2FA?')) {
+                          disable2FAMutation.mutate();
+                        }
+                      }}
+                      loading={disable2FAMutation.isPending}
+                    >
+                      Disable 2FA
+                    </Button>
+                  </Stack>
+                ) : (
+                  <Stack gap="md">
+                    <Text size="sm">
+                      Protect your account with an additional security layer. Once configured, you'll need to enter a code from your authenticator app to log in.
+                    </Text>
+                    <Button 
+                      variant="outline" 
+                      leftSection={<IconFingerprint size="1.1rem" />}
+                      onClick={() => setup2FAMutation.mutate()}
+                      loading={setup2FAMutation.isPending}
+                    >
+                      Enable 2FA
+                    </Button>
+                  </Stack>
+                )}
+              </Stack>
+            </Paper>
+
+            <Modal
+              opened={twoFactorSecret !== null}
+              onClose={() => setTwoFactorSecret(null)}
+              title="Setup Two-Factor Authentication"
+              size="md"
+            >
+              {twoFactorSecret && (
+                <Stack gap="md">
+                  <Text size="sm">
+                    1. Scan this QR code with your authenticator app (like Google Authenticator, Authy, or Microsoft Authenticator):
+                  </Text>
+                  
+                  <Box style={{ display: 'flex', justifyContent: 'center' }} p="md" bg="gray.1">
+                    <Image 
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(twoFactorSecret.url)}`}
+                      width={200}
+                      height={200}
+                      alt="QR Code"
+                    />
+                  </Box>
+
+                  <Text size="sm">
+                    2. If you can't scan the QR code, enter this secret manually:
+                  </Text>
+                  <Code block p="md" style={{ fontSize: '1.2rem', textAlign: 'center' }}>
+                    {twoFactorSecret.secret}
+                  </Code>
+
+                  <Text size="sm">
+                    3. Enter the 6-digit code from your app to verify:
+                  </Text>
+                  <TextInput
+                    placeholder="000000"
+                    value={twoFactorCode}
+                    onChange={(e) => setTwoFactorCode(e.currentTarget.value)}
+                    maxLength={6}
+                    size="lg"
+                    style={{ textAlign: 'center' }}
+                  />
+
+                  <Button 
+                    fullWidth 
+                    onClick={() => verify2FAMutation.mutate({ 
+                      secret: twoFactorSecret.secret, 
+                      code: twoFactorCode 
+                    })}
+                    loading={verify2FAMutation.isPending}
+                  >
+                    Verify & Enable
+                  </Button>
+                </Stack>
+              )}
+            </Modal>
           </Tabs.Panel>
         </Tabs>
       </Stack>

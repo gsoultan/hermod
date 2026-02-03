@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Title, Table, Button, Group, ActionIcon, Box, Paper, Text, Stack, TextInput, Pagination } from '@mantine/core'
+import { Title, Table, Button, Group, ActionIcon, Box, Paper, Text, Stack, TextInput, Pagination, Badge } from '@mantine/core'
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { IconTrash, IconUserPlus, IconUsers, IconEdit, IconSearch } from '@tabler/icons-react'
+import { IconTrash, IconUserPlus, IconUsers, IconEdit, IconSearch, IconShieldLock, IconShieldOff } from '@tabler/icons-react'
 import { apiFetch } from '../api'
 import { useNavigate } from '@tanstack/react-router'
 
@@ -14,6 +14,7 @@ interface User {
   email: string
   role: Role
   vhosts: string[]
+  two_factor_enabled: boolean
   password?: string
 }
 
@@ -55,6 +56,13 @@ export function UsersPage() {
       <Table.Td>{user.email}</Table.Td>
       <Table.Td>{user.role}</Table.Td>
       <Table.Td>{user.vhosts?.join(', ') || '-'}</Table.Td>
+      <Table.Td>
+        {user.two_factor_enabled ? (
+          <Badge variant="light" color="green" leftSection={<IconShieldLock size="0.8rem" />}>Enabled</Badge>
+        ) : (
+          <Badge variant="light" color="gray" leftSection={<IconShieldOff size="0.8rem" />}>Disabled</Badge>
+        )}
+      </Table.Td>
       <Table.Td>
         <Group justify="flex-end">
           <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/users/${user.id}/edit` })} radius="md">
@@ -120,6 +128,7 @@ export function UsersPage() {
                 <Table.Th>Email</Table.Th>
                 <Table.Th>Role</Table.Th>
                 <Table.Th>VHosts</Table.Th>
+                <Table.Th>2FA</Table.Th>
                 <Table.Th style={{ textAlign: 'right' }}>Actions</Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -127,7 +136,7 @@ export function UsersPage() {
               {rows}
               {users.length === 0 && (
                 <Table.Tr>
-                  <Table.Td colSpan={6} py="xl">
+                  <Table.Td colSpan={7} py="xl">
                     <Text c="dimmed" ta="center">{search ? 'No users match your search' : 'No users found'}</Text>
                   </Table.Td>
                 </Table.Tr>

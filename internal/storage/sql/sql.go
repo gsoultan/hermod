@@ -844,7 +844,7 @@ func (s *sqlStorage) ListUsers(ctx context.Context, filter storage.CommonFilter)
 	for rows.Next() {
 		var user storage.User
 		var vhostsStr string
-		if err := rows.Scan(&user.ID, &user.Username, &user.FullName, &user.Email, &user.Role, &vhostsStr); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &user.FullName, &user.Email, &user.Role, &vhostsStr, &user.TwoFactorEnabled); err != nil {
 			return nil, 0, err
 		}
 		if vhostsStr != "" {
@@ -863,7 +863,7 @@ func (s *sqlStorage) CreateUser(ctx context.Context, user storage.User) error {
 		return err
 	}
 	_, err = s.exec(ctx, s.queries.get(QueryCreateUser),
-		user.ID, user.Username, user.Password, user.FullName, user.Email, user.Role, string(vhostsBytes))
+		user.ID, user.Username, user.Password, user.FullName, user.Email, user.Role, string(vhostsBytes), user.TwoFactorEnabled, user.TwoFactorSecret)
 	return err
 }
 
@@ -874,10 +874,10 @@ func (s *sqlStorage) UpdateUser(ctx context.Context, user storage.User) error {
 	}
 	if user.Password != "" {
 		_, err = s.exec(ctx, s.queries.get(QueryUpdateUser),
-			user.Username, user.Password, user.FullName, user.Email, user.Role, string(vhostsBytes), user.ID)
+			user.Username, user.Password, user.FullName, user.Email, user.Role, string(vhostsBytes), user.TwoFactorEnabled, user.TwoFactorSecret, user.ID)
 	} else {
 		_, err = s.exec(ctx, s.queries.get(QueryUpdateUserNoPassword),
-			user.Username, user.FullName, user.Email, user.Role, string(vhostsBytes), user.ID)
+			user.Username, user.FullName, user.Email, user.Role, string(vhostsBytes), user.TwoFactorEnabled, user.TwoFactorSecret, user.ID)
 	}
 	return err
 }
@@ -891,7 +891,7 @@ func (s *sqlStorage) GetUser(ctx context.Context, id string) (storage.User, erro
 	var user storage.User
 	var vhostsStr string
 	err := s.queryRow(ctx, s.queries.get(QueryGetUser), id).
-		Scan(&user.ID, &user.Username, &user.FullName, &user.Email, &user.Role, &vhostsStr)
+		Scan(&user.ID, &user.Username, &user.Password, &user.FullName, &user.Email, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &user.TwoFactorSecret)
 	if err == sql.ErrNoRows {
 		return storage.User{}, storage.ErrNotFound
 	}
@@ -910,7 +910,7 @@ func (s *sqlStorage) GetUserByUsername(ctx context.Context, username string) (st
 	var user storage.User
 	var vhostsStr string
 	err := s.queryRow(ctx, s.queries.get(QueryGetUserByUsername), username).
-		Scan(&user.ID, &user.Username, &user.Password, &user.FullName, &user.Email, &user.Role, &vhostsStr)
+		Scan(&user.ID, &user.Username, &user.Password, &user.FullName, &user.Email, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &user.TwoFactorSecret)
 	if err == sql.ErrNoRows {
 		return storage.User{}, storage.ErrNotFound
 	}
@@ -929,7 +929,7 @@ func (s *sqlStorage) GetUserByEmail(ctx context.Context, email string) (storage.
 	var user storage.User
 	var vhostsStr string
 	err := s.queryRow(ctx, s.queries.get(QueryGetUserByEmail), email).
-		Scan(&user.ID, &user.Username, &user.Password, &user.FullName, &user.Email, &user.Role, &vhostsStr)
+		Scan(&user.ID, &user.Username, &user.Password, &user.FullName, &user.Email, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &user.TwoFactorSecret)
 	if err == sql.ErrNoRows {
 		return storage.User{}, storage.ErrNotFound
 	}

@@ -22,6 +22,7 @@ type SQLiteSource struct {
 	useCDC  bool
 	db      *sql.DB
 	lastIDs map[string]int64
+	msgChan chan hermod.Message
 }
 
 func NewSQLiteSource(dbPath string, tables []string, useCDC bool) *SQLiteSource {
@@ -30,6 +31,7 @@ func NewSQLiteSource(dbPath string, tables []string, useCDC bool) *SQLiteSource 
 		tables:  tables,
 		useCDC:  useCDC,
 		lastIDs: make(map[string]int64),
+		msgChan: make(chan hermod.Message, 1000),
 	}
 }
 
@@ -41,12 +43,23 @@ func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
 	}
 
 	if !s.useCDC {
-		<-ctx.Done()
-		return nil, ctx.Err()
+		// If not CDC, we only return messages from msgChan (e.g. snapshots)
+		select {
+		case msg := <-s.msgChan:
+			return msg, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	// Simple polling-based CDC for SQLite using rowid
 	for {
+		select {
+		case msg := <-s.msgChan:
+			return msg, nil
+		default:
+		}
+
 		for _, table := range s.tables {
 			lastID := s.lastIDs[table]
 			query := fmt.Sprintf("SELECT rowid AS _hermod_rowid, * FROM %s WHERE rowid > %d ORDER BY rowid ASC LIMIT 1", table, lastID)
@@ -100,6 +113,8 @@ func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
 		}
 
 		select {
+		case msg := <-s.msgChan:
+			return msg, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(1 * time.Second):
@@ -267,6 +282,7 @@ func (s *SQLiteSource) Sample(ctx context.Context, table string) (hermod.Message
 	msg := message.AcquireMessage()
 	msg.SetID(fmt.Sprintf("sample-%s-%d", table, time.Now().Unix()))
 	msg.SetOperation(hermod.OpSnapshot)
+	msg.SetTable(table)
 	for k, v := range message.SanitizeMap(record) {
 		msg.SetData(k, v)
 	}
@@ -274,4 +290,89 @@ func (s *SQLiteSource) Sample(ctx context.Context, table string) (hermod.Message
 	msg.SetMetadata("sample", "true")
 
 	return msg, nil
+}
+
+func (s *SQLiteSource) Snapshot(ctx context.Context, tables ...string) error {
+	if s.db == nil {
+		if err := s.init(ctx); err != nil {
+			return err
+		}
+	}
+
+	targetTables := tables
+	if len(targetTables) == 0 {
+		targetTables = s.tables
+	}
+
+	if len(targetTables) == 0 {
+		var err error
+		targetTables, err = s.DiscoverTables(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, table := range targetTables {
+		if err := s.snapshotTable(ctx, table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SQLiteSource) snapshotTable(ctx context.Context, table string) error {
+	quoted, err := sqlutil.QuoteIdent("sqlite", table)
+	if err != nil {
+		return fmt.Errorf("invalid table name %q: %w", table, err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	if err != nil {
+		return fmt.Errorf("failed to query table %q: %w", table, err)
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+
+	for rows.Next() {
+		columns := make([]interface{}, len(cols))
+		columnPointers := make([]interface{}, len(cols))
+		for i := range columns {
+			columnPointers[i] = &columns[i]
+		}
+
+		if err := rows.Scan(columnPointers...); err != nil {
+			return err
+		}
+
+		record := make(map[string]interface{})
+		for i, colName := range cols {
+			val := columns[i]
+			if b, ok := val.([]byte); ok {
+				record[colName] = string(b)
+			} else {
+				record[colName] = val
+			}
+		}
+
+		msg := message.AcquireMessage()
+		msg.SetID(fmt.Sprintf("snapshot-%s-%d", table, time.Now().UnixNano()))
+		msg.SetOperation(hermod.OpSnapshot)
+		msg.SetTable(table)
+		for k, v := range message.SanitizeMap(record) {
+			msg.SetData(k, v)
+		}
+		msg.SetMetadata("source", "sqlite")
+		msg.SetMetadata("snapshot", "true")
+
+		select {
+		case s.msgChan <- msg:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return rows.Err()
 }

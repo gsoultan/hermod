@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/canal"
 	mysql_driver "github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
 	"github.com/user/hermod/pkg/sqlutil"
@@ -399,4 +400,84 @@ func (m *MySQLSource) Sample(ctx context.Context, table string) (hermod.Message,
 	msg.SetMetadata("sample", "true")
 
 	return msg, nil
+}
+
+func (m *MySQLSource) Snapshot(ctx context.Context, tables ...string) error {
+	if err := m.init(ctx); err != nil {
+		return err
+	}
+
+	targetTables := tables
+	if len(targetTables) == 0 {
+		var err error
+		targetTables, err = m.DiscoverTables(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, table := range targetTables {
+		if err := m.snapshotTable(ctx, table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *MySQLSource) snapshotTable(ctx context.Context, table string) error {
+	quoted, err := sqlutil.QuoteIdent("mysql", table)
+	if err != nil {
+		return fmt.Errorf("invalid table name %q: %w", table, err)
+	}
+
+	rows, err := m.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	if err != nil {
+		return fmt.Errorf("failed to query table %q: %w", table, err)
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return err
+		}
+
+		record := make(map[string]interface{})
+		for i, colName := range columns {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				record[colName] = string(b)
+			} else {
+				record[colName] = val
+			}
+		}
+
+		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+		msg := message.AcquireMessage()
+		msg.SetID(fmt.Sprintf("snapshot-%s-%d-%s", table, time.Now().UnixNano(), uuid.New().String()))
+		msg.SetOperation(hermod.OpSnapshot)
+		msg.SetTable(table)
+		msg.SetAfter(afterJSON)
+		msg.SetMetadata("source", "mysql")
+		msg.SetMetadata("snapshot", "true")
+
+		select {
+		case m.msgChan <- msg:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return rows.Err()
 }

@@ -27,6 +27,7 @@ type OracleSource struct {
 	mu           sync.Mutex
 	logger       hermod.Logger
 	lastIDs      map[string]interface{}
+	msgChan      chan hermod.Message
 }
 
 func NewOracleSource(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *OracleSource {
@@ -40,6 +41,7 @@ func NewOracleSource(connString string, tables []string, idField string, pollInt
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
 		lastIDs:      make(map[string]interface{}),
+		msgChan:      make(chan hermod.Message, 1000),
 	}
 }
 
@@ -97,11 +99,21 @@ func (o *OracleSource) Read(ctx context.Context) (hermod.Message, error) {
 	}
 
 	if !o.useCDC {
-		<-ctx.Done()
-		return nil, ctx.Err()
+		select {
+		case msg := <-o.msgChan:
+			return msg, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	for {
+		select {
+		case msg := <-o.msgChan:
+			return msg, nil
+		default:
+		}
+
 		for _, table := range o.tables {
 			o.mu.Lock()
 			lastID := o.lastIDs[table]
@@ -178,11 +190,97 @@ func (o *OracleSource) Read(ctx context.Context) (hermod.Message, error) {
 		}
 
 		select {
+		case msg := <-o.msgChan:
+			return msg, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(o.pollInterval):
 		}
 	}
+}
+
+func (o *OracleSource) Snapshot(ctx context.Context, tables ...string) error {
+	if err := o.init(ctx); err != nil {
+		return err
+	}
+
+	targetTables := tables
+	if len(targetTables) == 0 {
+		targetTables = o.tables
+	}
+
+	if len(targetTables) == 0 {
+		var err error
+		targetTables, err = o.DiscoverTables(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, table := range targetTables {
+		if err := o.snapshotTable(ctx, table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (o *OracleSource) snapshotTable(ctx context.Context, table string) error {
+	quoted, err := sqlutil.QuoteIdent("oracle", table)
+	if err != nil {
+		return fmt.Errorf("invalid table name %q: %w", table, err)
+	}
+
+	rows, err := o.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	if err != nil {
+		return fmt.Errorf("failed to query table %q: %w", table, err)
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return err
+		}
+
+		record := make(map[string]interface{})
+		for i, colName := range columns {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				record[colName] = string(b)
+			} else {
+				record[colName] = val
+			}
+		}
+
+		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+		msg := message.AcquireMessage()
+		msg.SetID(fmt.Sprintf("snapshot-%s-%d", table, time.Now().UnixNano()))
+		msg.SetOperation(hermod.OpSnapshot)
+		msg.SetTable(table)
+		msg.SetAfter(afterJSON)
+		msg.SetMetadata("source", "oracle")
+		msg.SetMetadata("snapshot", "true")
+
+		select {
+		case o.msgChan <- msg:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return rows.Err()
 }
 
 func (o *OracleSource) GetState() map[string]string {

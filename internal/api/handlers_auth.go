@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gsoultan/gsmail"
 	"github.com/gsoultan/gsmail/smtp"
+	"github.com/pquerna/otp/totp"
 	"github.com/user/hermod/internal/config"
 	"github.com/user/hermod/internal/notification"
 	"github.com/user/hermod/internal/storage"
@@ -23,6 +24,11 @@ import (
 
 func (s *Server) registerAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/login", s.login)
+	mux.HandleFunc("POST /api/auth/2fa/login", s.login2FA)
+	mux.HandleFunc("POST /api/auth/2fa/setup", s.setup2FA)
+	mux.HandleFunc("POST /api/auth/2fa/verify", s.verify2FA)
+	mux.HandleFunc("POST /api/auth/2fa/disable", s.disable2FA)
+	mux.HandleFunc("POST /api/auth/generate-password", s.generatePasswordHandler)
 	mux.HandleFunc("GET /api/auth/oidc", s.oidcLogin)
 	mux.HandleFunc("GET /api/auth/callback", s.oidcCallback)
 	mux.HandleFunc("POST /api/forgot-password", s.forgotPassword)
@@ -64,6 +70,28 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	dbCfg, err := config.LoadDBConfig()
 	if err != nil {
 		http.Error(w, "failed to load config", http.StatusInternalServerError)
+		return
+	}
+
+	if user.TwoFactorEnabled {
+		pendingToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"id":       user.ID,
+			"username": user.Username,
+			"pending":  true,
+			"exp":      time.Now().Add(time.Minute * 5).Unix(),
+		})
+		pendingTokenString, err := pendingToken.SignedString([]byte(dbCfg.JWTSecret))
+		if err != nil {
+			http.Error(w, "failed to generate pending token", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"two_factor_required": true,
+			"user_id":             user.ID,
+			"pending_token":       pendingTokenString,
+		})
 		return
 	}
 
@@ -236,6 +264,8 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claimsMap)
 	tokenString, _ := token.SignedString([]byte(dbCfg.JWTSecret))
 
+	s.recordAuditLog(r, "INFO", "User "+user.Username+" logged in (OIDC)", "login", user.ID, "user", "", nil)
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "hermod_session",
 		Value:    tokenString,
@@ -271,6 +301,8 @@ func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 	hashedPass, _ := bcrypt.GenerateFromPassword([]byte(newPass), bcrypt.DefaultCost)
 	user.Password = string(hashedPass)
 	_ = s.storage.UpdateUser(r.Context(), user)
+
+	s.recordAuditLog(r, "INFO", "Password reset for "+user.Username, "update", user.ID, "user", "", nil)
 
 	val, err := s.storage.GetSetting(r.Context(), "notification_settings")
 	if err != nil || val == "" {
@@ -341,6 +373,7 @@ func (s *Server) getUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user.Password = ""
+	user.TwoFactorSecret = ""
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(user)
 }
@@ -388,6 +421,8 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user.Password = ""
+	user.TwoFactorSecret = ""
 	s.recordAuditLog(r, "INFO", "Created user "+user.Username, "create", user.ID, "user", "", user)
 
 	w.WriteHeader(http.StatusCreated)
@@ -419,6 +454,8 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user.Password = ""
+	user.TwoFactorSecret = ""
 	s.recordAuditLog(r, "INFO", "Updated user "+user.Username, "update", user.ID, "user", "", user)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -476,6 +513,211 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) setup2FA(w http.ResponseWriter, r *http.Request) {
+	userCtx, ok := r.Context().Value(userContextKey).(*storage.User)
+	if !ok {
+		s.jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := s.storage.GetUser(r.Context(), userCtx.ID)
+	if err != nil {
+		s.jsonError(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "Hermod",
+		AccountName: user.Email,
+	})
+	if err != nil {
+		s.jsonError(w, "Failed to generate 2FA key", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"secret": key.Secret(),
+		"url":    key.URL(),
+	})
+}
+
+func (s *Server) verify2FA(w http.ResponseWriter, r *http.Request) {
+	userCtx, ok := r.Context().Value(userContextKey).(*storage.User)
+	if !ok {
+		s.jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		Secret string `json:"secret"`
+		Code   string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	valid := totp.Validate(req.Code, req.Secret)
+	if !valid {
+		s.jsonError(w, "Invalid verification code", http.StatusBadRequest)
+		return
+	}
+
+	user, err := s.storage.GetUser(r.Context(), userCtx.ID)
+	if err != nil {
+		s.jsonError(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	user.TwoFactorEnabled = true
+	user.TwoFactorSecret = req.Secret
+	if err := s.storage.UpdateUser(r.Context(), user); err != nil {
+		s.jsonError(w, "Failed to update user", http.StatusInternalServerError)
+		return
+	}
+
+	s.recordAuditLog(r, "INFO", "Enabled 2FA for "+user.Username, "update", user.ID, "user", "", nil)
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "2FA enabled"})
+}
+
+func (s *Server) disable2FA(w http.ResponseWriter, r *http.Request) {
+	userCtx, ok := r.Context().Value(userContextKey).(*storage.User)
+	if !ok {
+		s.jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := s.storage.GetUser(r.Context(), userCtx.ID)
+	if err != nil {
+		s.jsonError(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	user.TwoFactorEnabled = false
+	user.TwoFactorSecret = ""
+	if err := s.storage.UpdateUser(r.Context(), user); err != nil {
+		s.jsonError(w, "Failed to update user", http.StatusInternalServerError)
+		return
+	}
+
+	s.recordAuditLog(r, "INFO", "Disabled 2FA for "+user.Username, "update", user.ID, "user", "", nil)
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "2FA disabled"})
+}
+
+func (s *Server) login2FA(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		UserID       string `json:"user_id"`
+		PendingToken string `json:"pending_token"`
+		Code         string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	dbCfg, err := config.LoadDBConfig()
+	if err != nil {
+		s.jsonError(w, "Failed to load config", http.StatusInternalServerError)
+		return
+	}
+
+	// Verify pending token
+	token, err := jwt.Parse(req.PendingToken, func(token *jwt.Token) (interface{}, error) {
+		return []byte(dbCfg.JWTSecret), nil
+	})
+	if err != nil || !token.Valid {
+		s.jsonError(w, "Invalid or expired session", http.StatusUnauthorized)
+		return
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims["id"] != req.UserID || claims["pending"] != true {
+		s.jsonError(w, "Invalid session", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := s.storage.GetUser(r.Context(), req.UserID)
+	if err != nil {
+		s.jsonError(w, "User not found", http.StatusUnauthorized)
+		return
+	}
+
+	if !user.TwoFactorEnabled {
+		s.jsonError(w, "2FA is not enabled for this user", http.StatusBadRequest)
+		return
+	}
+
+	valid := totp.Validate(req.Code, user.TwoFactorSecret)
+	if !valid {
+		s.jsonError(w, "Invalid 2FA code", http.StatusUnauthorized)
+		return
+	}
+
+	// Issue final JWT
+	finalToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"id":       user.ID,
+		"username": user.Username,
+		"role":     string(user.Role),
+		"vhosts":   user.VHosts,
+		"exp":      time.Now().Add(time.Hour * 24).Unix(),
+	})
+
+	tokenString, err := finalToken.SignedString([]byte(dbCfg.JWTSecret))
+	if err != nil {
+		s.jsonError(w, "Failed to generate token", http.StatusInternalServerError)
+		return
+	}
+
+	isHTTPS := func(r *http.Request) bool {
+		if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			return true
+		}
+		return r.TLS != nil
+	}
+
+	ss := sameSiteFromEnv()
+	cookie := &http.Cookie{
+		Name:     "hermod_session",
+		Value:    tokenString,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   isHTTPS(r),
+		SameSite: ss,
+		MaxAge:   24 * 60 * 60,
+	}
+	if ss == http.SameSiteNoneMode {
+		cookie.Secure = true
+	}
+	http.SetCookie(w, cookie)
+	s.recordAuditLog(r, "INFO", "User "+user.Username+" logged in (2FA)", "login", user.ID, "user", "", nil)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"token": tokenString,
+	})
+}
+
+func (s *Server) generatePasswordHandler(w http.ResponseWriter, r *http.Request) {
+	// Requires authentication
+	_, ok := r.Context().Value(userContextKey).(*storage.User)
+	if !ok {
+		s.jsonError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	password, err := s.generateRandomPassword(16)
+	if err != nil {
+		s.jsonError(w, "Failed to generate password", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"password": password})
+}
+
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	userCtx, ok := r.Context().Value(userContextKey).(*storage.User)
 	if !ok {
@@ -489,6 +731,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user.Password = ""
+	user.TwoFactorSecret = ""
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(user)
 }
@@ -523,9 +766,10 @@ func (s *Server) updateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user.Password = ""
+	user.TwoFactorSecret = ""
 	s.recordAuditLog(r, "INFO", "Updated profile for "+user.Username, "update", user.ID, "user", "", user)
 
-	user.Password = ""
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(user)
 }

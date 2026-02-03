@@ -27,6 +27,7 @@ type YugabyteSource struct {
 	mu           sync.Mutex
 	logger       hermod.Logger
 	lastIDs      map[string]interface{}
+	msgChan      chan hermod.Message
 }
 
 func NewYugabyteSource(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *YugabyteSource {
@@ -40,6 +41,7 @@ func NewYugabyteSource(connString string, tables []string, idField string, pollI
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
 		lastIDs:      make(map[string]interface{}),
+		msgChan:      make(chan hermod.Message, 1000),
 	}
 }
 
@@ -97,11 +99,21 @@ func (y *YugabyteSource) Read(ctx context.Context) (hermod.Message, error) {
 	}
 
 	if !y.useCDC {
-		<-ctx.Done()
-		return nil, ctx.Err()
+		select {
+		case msg := <-y.msgChan:
+			return msg, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	for {
+		select {
+		case msg := <-y.msgChan:
+			return msg, nil
+		default:
+		}
+
 		for _, table := range y.tables {
 			y.mu.Lock()
 			lastID := y.lastIDs[table]
@@ -170,11 +182,88 @@ func (y *YugabyteSource) Read(ctx context.Context) (hermod.Message, error) {
 		}
 
 		select {
+		case msg := <-y.msgChan:
+			return msg, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(y.pollInterval):
 		}
 	}
+}
+
+func (y *YugabyteSource) Snapshot(ctx context.Context, tables ...string) error {
+	if err := y.init(ctx); err != nil {
+		return err
+	}
+
+	targetTables := tables
+	if len(targetTables) == 0 {
+		targetTables = y.tables
+	}
+
+	if len(targetTables) == 0 {
+		var err error
+		targetTables, err = y.DiscoverTables(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, table := range targetTables {
+		if err := y.snapshotTable(ctx, table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (y *YugabyteSource) snapshotTable(ctx context.Context, table string) error {
+	quoted, err := sqlutil.QuoteIdent("pgx", table)
+	if err != nil {
+		return fmt.Errorf("invalid table name %q: %w", table, err)
+	}
+
+	rows, err := y.conn.Query(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	if err != nil {
+		return fmt.Errorf("failed to query table %q: %w", table, err)
+	}
+	defer rows.Close()
+
+	fields := rows.FieldDescriptions()
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return fmt.Errorf("failed to get values: %w", err)
+		}
+
+		record := make(map[string]interface{})
+		for i, field := range fields {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				record[field.Name] = string(b)
+			} else {
+				record[field.Name] = val
+			}
+		}
+
+		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+		msg := message.AcquireMessage()
+		msg.SetID(fmt.Sprintf("snapshot-%s-%d", table, time.Now().UnixNano()))
+		msg.SetOperation(hermod.OpSnapshot)
+		msg.SetTable(table)
+		msg.SetAfter(afterJSON)
+		msg.SetMetadata("source", "yugabyte")
+		msg.SetMetadata("snapshot", "true")
+
+		select {
+		case y.msgChan <- msg:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return rows.Err()
 }
 
 func (y *YugabyteSource) GetState() map[string]string {

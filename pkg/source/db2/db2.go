@@ -27,6 +27,7 @@ type DB2Source struct {
 	mu           sync.Mutex
 	logger       hermod.Logger
 	lastIDs      map[string]interface{}
+	msgChan      chan hermod.Message
 }
 
 func NewDB2Source(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *DB2Source {
@@ -40,6 +41,7 @@ func NewDB2Source(connString string, tables []string, idField string, pollInterv
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
 		lastIDs:      make(map[string]interface{}),
+		msgChan:      make(chan hermod.Message, 1000),
 	}
 }
 
@@ -98,11 +100,21 @@ func (d *DB2Source) Read(ctx context.Context) (hermod.Message, error) {
 	}
 
 	if !d.useCDC {
-		<-ctx.Done()
-		return nil, ctx.Err()
+		select {
+		case msg := <-d.msgChan:
+			return msg, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	for {
+		select {
+		case msg := <-d.msgChan:
+			return msg, nil
+		default:
+		}
+
 		for _, table := range d.tables {
 			d.mu.Lock()
 			lastID := d.lastIDs[table]
@@ -176,11 +188,97 @@ func (d *DB2Source) Read(ctx context.Context) (hermod.Message, error) {
 		}
 
 		select {
+		case msg := <-d.msgChan:
+			return msg, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(d.pollInterval):
 		}
 	}
+}
+
+func (d *DB2Source) Snapshot(ctx context.Context, tables ...string) error {
+	if err := d.init(ctx); err != nil {
+		return err
+	}
+
+	targetTables := tables
+	if len(targetTables) == 0 {
+		targetTables = d.tables
+	}
+
+	if len(targetTables) == 0 {
+		var err error
+		targetTables, err = d.DiscoverTables(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, table := range targetTables {
+		if err := d.snapshotTable(ctx, table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d *DB2Source) snapshotTable(ctx context.Context, table string) error {
+	quoted, err := sqlutil.QuoteIdent("db2", table)
+	if err != nil {
+		return fmt.Errorf("invalid table name %q: %w", table, err)
+	}
+
+	rows, err := d.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	if err != nil {
+		return fmt.Errorf("failed to query table %q: %w", table, err)
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return err
+		}
+
+		record := make(map[string]interface{})
+		for i, colName := range columns {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				record[colName] = string(b)
+			} else {
+				record[colName] = val
+			}
+		}
+
+		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+		msg := message.AcquireMessage()
+		msg.SetID(fmt.Sprintf("snapshot-%s-%d", table, time.Now().UnixNano()))
+		msg.SetOperation(hermod.OpSnapshot)
+		msg.SetTable(table)
+		msg.SetAfter(afterJSON)
+		msg.SetMetadata("source", "db2")
+		msg.SetMetadata("snapshot", "true")
+
+		select {
+		case d.msgChan <- msg:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return rows.Err()
 }
 
 func (d *DB2Source) GetState() map[string]string {

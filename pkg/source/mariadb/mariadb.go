@@ -28,6 +28,7 @@ type MariaDBSource struct {
 	mu           sync.Mutex
 	logger       hermod.Logger
 	lastIDs      map[string]interface{}
+	msgChan      chan hermod.Message
 }
 
 func NewMariaDBSource(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *MariaDBSource {
@@ -41,6 +42,7 @@ func NewMariaDBSource(connString string, tables []string, idField string, pollIn
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
 		lastIDs:      make(map[string]interface{}),
+		msgChan:      make(chan hermod.Message, 1000),
 	}
 }
 
@@ -98,13 +100,22 @@ func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 	}
 
 	if !m.useCDC {
-		// If CDC is disabled, we just wait until context is done or return nil
-		<-ctx.Done()
-		return nil, ctx.Err()
+		select {
+		case msg := <-m.msgChan:
+			return msg, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	// Polling-based CDC for MariaDB
 	for {
+		select {
+		case msg := <-m.msgChan:
+			return msg, nil
+		default:
+		}
+
 		for _, table := range m.tables {
 			m.mu.Lock()
 			lastID := m.lastIDs[table]
@@ -178,12 +189,98 @@ func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 		}
 
 		select {
+		case msg := <-m.msgChan:
+			return msg, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(m.pollInterval):
 			// Continue loop
 		}
 	}
+}
+
+func (m *MariaDBSource) Snapshot(ctx context.Context, tables ...string) error {
+	if err := m.init(ctx); err != nil {
+		return err
+	}
+
+	targetTables := tables
+	if len(targetTables) == 0 {
+		targetTables = m.tables
+	}
+
+	if len(targetTables) == 0 {
+		var err error
+		targetTables, err = m.DiscoverTables(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, table := range targetTables {
+		if err := m.snapshotTable(ctx, table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *MariaDBSource) snapshotTable(ctx context.Context, table string) error {
+	quoted, err := sqlutil.QuoteIdent("mysql", table)
+	if err != nil {
+		return fmt.Errorf("invalid table name %q: %w", table, err)
+	}
+
+	rows, err := m.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	if err != nil {
+		return fmt.Errorf("failed to query table %q: %w", table, err)
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return err
+		}
+
+		record := make(map[string]interface{})
+		for i, colName := range columns {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				record[colName] = string(b)
+			} else {
+				record[colName] = val
+			}
+		}
+
+		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+		msg := message.AcquireMessage()
+		msg.SetID(fmt.Sprintf("snapshot-%s-%d", table, time.Now().UnixNano()))
+		msg.SetOperation(hermod.OpSnapshot)
+		msg.SetTable(table)
+		msg.SetAfter(afterJSON)
+		msg.SetMetadata("source", "mariadb")
+		msg.SetMetadata("snapshot", "true")
+
+		select {
+		case m.msgChan <- msg:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return rows.Err()
 }
 
 func (m *MariaDBSource) GetState() map[string]string {

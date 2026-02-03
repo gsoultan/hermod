@@ -61,6 +61,7 @@ type MongoDBSource struct {
 	stream          *mongo.ChangeStream
 	mu              sync.Mutex
 	lastResumeToken bson.Raw
+	msgChan         chan hermod.Message
 }
 
 func NewMongoDBSource(uri, database, collection string, useCDC bool) *MongoDBSource {
@@ -69,6 +70,7 @@ func NewMongoDBSource(uri, database, collection string, useCDC bool) *MongoDBSou
 		database:   database,
 		collection: collection,
 		useCDC:     useCDC,
+		msgChan:    make(chan hermod.Message, 1000),
 	}
 }
 
@@ -131,11 +133,23 @@ func (m *MongoDBSource) Read(ctx context.Context) (hermod.Message, error) {
 				return nil, err
 			}
 		}
-		<-ctx.Done()
-		return nil, ctx.Err()
+		// If not CDC, we only return messages from msgChan (e.g. snapshots)
+		select {
+		case msg := <-m.msgChan:
+			return msg, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	for {
+		// Check for manual snapshot messages first
+		select {
+		case msg := <-m.msgChan:
+			return msg, nil
+		default:
+		}
+
 		m.mu.Lock()
 		stream := m.stream
 		m.mu.Unlock()
@@ -223,12 +237,79 @@ func (m *MongoDBSource) Read(ctx context.Context) (hermod.Message, error) {
 		m.mu.Unlock()
 
 		select {
+		case msg := <-m.msgChan:
+			return msg, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
 			continue
 		}
 	}
+}
+
+func (m *MongoDBSource) Snapshot(ctx context.Context, tables ...string) error {
+	if err := m.init(ctx); err != nil {
+		return err
+	}
+
+	targetCollections := tables
+	if len(targetCollections) == 0 {
+		if m.collection != "" {
+			targetCollections = []string{m.collection}
+		} else {
+			var err error
+			targetCollections, err = m.DiscoverTables(ctx)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	for _, collName := range targetCollections {
+		if err := m.snapshotCollection(ctx, collName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *MongoDBSource) snapshotCollection(ctx context.Context, collection string) error {
+	cursor, err := m.client.Database(m.database).Collection(collection).Find(ctx, bson.M{})
+	if err != nil {
+		return fmt.Errorf("failed to find documents in collection %q: %w", collection, err)
+	}
+	defer cursor.Close(ctx)
+
+	for cursor.Next(ctx) {
+		var doc bson.M
+		if err := cursor.Decode(&doc); err != nil {
+			return fmt.Errorf("failed to decode document: %w", err)
+		}
+
+		msg := message.AcquireMessage()
+		if id, ok := doc["_id"]; ok {
+			msg.SetID(fmt.Sprintf("%v", id))
+		} else {
+			msg.SetID(fmt.Sprintf("snapshot-%s-%d", collection, time.Now().UnixNano()))
+		}
+		msg.SetOperation(hermod.OpSnapshot)
+		msg.SetTable(collection)
+		msg.SetSchema(m.database)
+
+		afterBytes, _ := bson.MarshalExtJSON(doc, true, true)
+		msg.SetAfter(afterBytes)
+
+		msg.SetMetadata("source", "mongodb")
+		msg.SetMetadata("snapshot", "true")
+
+		select {
+		case m.msgChan <- msg:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return cursor.Err()
 }
 
 func (m *MongoDBSource) Ack(ctx context.Context, msg hermod.Message) error {

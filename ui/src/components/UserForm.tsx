@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Button, Group, TextInput, Stack, PasswordInput, Select, MultiSelect } from '@mantine/core';
+import { Button, Group, TextInput, Stack, PasswordInput, Select, MultiSelect, Switch, Paper, Text } from '@mantine/core';
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { apiFetch } from '../api';
 import { useNavigate } from '@tanstack/react-router';
+import { IconShieldLock, IconShieldOff } from '@tabler/icons-react';
 
 export type Role = 'Administrator' | 'Editor' | 'Viewer';
 
@@ -13,6 +14,8 @@ interface User {
   email: string;
   role: Role;
   vhosts: string[];
+  two_factor_enabled?: boolean;
+  two_factor_secret?: string;
   password?: string;
 }
 
@@ -29,7 +32,8 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
     full_name: '', 
     email: '', 
     role: 'Viewer', 
-    vhosts: [] 
+    vhosts: [],
+    two_factor_enabled: false
   });
 
   useEffect(() => {
@@ -41,6 +45,7 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
         email: initialData.email || '',
         role: initialData.role || 'Viewer',
         vhosts: initialData.vhosts || [],
+        two_factor_enabled: initialData.two_factor_enabled || false,
         password: '', // Don't populate password field
       });
     }
@@ -115,6 +120,35 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
         maxValues={user.role === 'Administrator' ? undefined : 1}
         onChange={(value) => setUser({ ...user, vhosts: value })}
       />
+      
+      {isEditing && (
+        <Paper withBorder p="md" radius="md">
+          <Group justify="space-between">
+            <Stack gap={0}>
+              <Text fw={600} size="sm">Two-Factor Authentication (2FA)</Text>
+              <Text size="xs" c="dimmed">
+                If the user has lost access to their 2FA device, you can disable it here.
+              </Text>
+            </Stack>
+            <Switch 
+              checked={user.two_factor_enabled} 
+              onChange={(e) => {
+                const enabled = e.currentTarget.checked;
+                setUser({ 
+                  ...user, 
+                  two_factor_enabled: enabled,
+                  two_factor_secret: enabled ? user.two_factor_secret : "" // Clear secret if disabling
+                });
+              }}
+              color="green"
+              onLabel={<IconShieldLock size="1rem" />}
+              offLabel={<IconShieldOff size="1rem" />}
+              size="lg"
+            />
+          </Group>
+        </Paper>
+      )}
+
       <Group justify="flex-end" mt="xl">
         <Button variant="outline" onClick={() => navigate({ to: '/users' })}>Cancel</Button>
         <Button onClick={() => submitMutation.mutate(user)} loading={submitMutation.isPending}>

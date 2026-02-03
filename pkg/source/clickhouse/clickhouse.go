@@ -26,6 +26,7 @@ type ClickHouseSource struct {
 	mu           sync.Mutex
 	logger       hermod.Logger
 	lastIDs      map[string]interface{}
+	msgChan      chan hermod.Message
 }
 
 func NewClickHouseSource(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *ClickHouseSource {
@@ -39,6 +40,7 @@ func NewClickHouseSource(connString string, tables []string, idField string, pol
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
 		lastIDs:      make(map[string]interface{}),
+		msgChan:      make(chan hermod.Message, 1000),
 	}
 }
 
@@ -101,11 +103,21 @@ func (c *ClickHouseSource) Read(ctx context.Context) (hermod.Message, error) {
 	}
 
 	if !c.useCDC {
-		<-ctx.Done()
-		return nil, ctx.Err()
+		select {
+		case msg := <-c.msgChan:
+			return msg, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	for {
+		select {
+		case msg := <-c.msgChan:
+			return msg, nil
+		default:
+		}
+
 		for _, table := range c.tables {
 			c.mu.Lock()
 			lastID := c.lastIDs[table]
@@ -179,11 +191,92 @@ func (c *ClickHouseSource) Read(ctx context.Context) (hermod.Message, error) {
 		}
 
 		select {
+		case msg := <-c.msgChan:
+			return msg, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(c.pollInterval):
 		}
 	}
+}
+
+func (c *ClickHouseSource) Snapshot(ctx context.Context, tables ...string) error {
+	if err := c.init(ctx); err != nil {
+		return err
+	}
+
+	targetTables := tables
+	if len(targetTables) == 0 {
+		targetTables = c.tables
+	}
+
+	if len(targetTables) == 0 {
+		var err error
+		targetTables, err = c.DiscoverTables(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, table := range targetTables {
+		if err := c.snapshotTable(ctx, table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *ClickHouseSource) snapshotTable(ctx context.Context, table string) error {
+	quoted, err := sqlutil.QuoteIdent("clickhouse", table)
+	if err != nil {
+		return fmt.Errorf("invalid table name %q: %w", table, err)
+	}
+
+	rows, err := c.conn.Query(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	if err != nil {
+		return fmt.Errorf("failed to query table %q: %w", table, err)
+	}
+	defer rows.Close()
+
+	columns := rows.Columns()
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		dest := make([]interface{}, len(columns))
+		for i := range dest {
+			dest[i] = &values[i]
+		}
+
+		if err := rows.Scan(dest...); err != nil {
+			return err
+		}
+
+		record := make(map[string]interface{})
+		for i, colName := range columns {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				val = string(b)
+			}
+			record[colName] = val
+		}
+
+		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+		msg := message.AcquireMessage()
+		msg.SetID(fmt.Sprintf("snapshot-%s-%d", table, time.Now().UnixNano()))
+		msg.SetOperation(hermod.OpSnapshot)
+		msg.SetTable(table)
+		msg.SetAfter(afterJSON)
+		msg.SetMetadata("source", "clickhouse")
+		msg.SetMetadata("snapshot", "true")
+
+		select {
+		case c.msgChan <- msg:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return rows.Err()
 }
 
 func (c *ClickHouseSource) GetState() map[string]string {
