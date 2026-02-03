@@ -30,7 +30,7 @@ jobs:
           cache-dependency-path: ui/bun.lock
 
       - name: Build UI
-        run: go run cmd/hermod/main.go --build-ui
+        run: go run cmd/hermod/main.go --build-ui --mode build-only
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6

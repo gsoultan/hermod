@@ -66,6 +66,10 @@ func main() {
 		if err := config.BuildUI(); err != nil {
 			log.Fatalf("Failed to build UI: %v", err)
 		}
+		if *mode == "build-only" {
+			fmt.Println("UI build complete. Exiting due to build-only mode.")
+			return
+		}
 	}
 
 	if *mode == "api" || *mode == "worker" || *mode == "standalone" {
