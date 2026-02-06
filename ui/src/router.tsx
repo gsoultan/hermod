@@ -6,46 +6,45 @@ import {
   redirect,
   useNavigate,
 } from '@tanstack/react-router'
-import { Layout } from './components/Layout'
-import { SourcesPage } from './pages/SourcesPage'
-import { AddSourcePage } from './pages/AddSourcePage'
-import { EditSourcePage } from './pages/EditSourcePage'
-import { SinksPage } from './pages/SinksPage'
-import { AddSinkPage } from './pages/AddSinkPage'
-import { EditSinkPage } from './pages/EditSinkPage'
+const SourcesPage = lazy(async () => ({ default: (await import('./pages/SourcesPage')).SourcesPage }))
+const AddSourcePage = lazy(async () => ({ default: (await import('./pages/AddSourcePage')).AddSourcePage }))
+const EditSourcePage = lazy(async () => ({ default: (await import('./pages/EditSourcePage')).EditSourcePage }))
+const SinksPage = lazy(async () => ({ default: (await import('./pages/SinksPage')).SinksPage }))
+const AddSinkPage = lazy(async () => ({ default: (await import('./pages/AddSinkPage')).AddSinkPage }))
+const EditSinkPage = lazy(async () => ({ default: (await import('./pages/EditSinkPage')).EditSinkPage }))
 const UsersPage = lazy(async () => ({ default: (await import('./pages/UsersPage')).UsersPage }))
 const ProfilePage = lazy(async () => ({ default: (await import('./pages/ProfilePage')).ProfilePage }))
-import { AddUserPage } from './pages/AddUserPage'
-import { EditUserPage } from './pages/EditUserPage'
-import { VHostsPage } from './pages/VHostsPage'
-import { AddVHostPage } from './pages/AddVHostPage'
-import { EditVHostPage } from './pages/EditVHostPage'
-import { WorkersPage } from './pages/WorkersPage'
-import { AddWorkerPage } from './pages/AddWorkerPage'
-import { EditWorkerPage } from './pages/EditWorkerPage'
-import { lazy, Suspense } from 'react'
-// Lazy routes to reduce initial bundle size
-const WorkflowsPage = lazy(() => import('./pages/WorkflowsPage'))
-// Lazy-load heavy editor page for better initial load performance
-const WorkflowEditorPage = lazy(() => import('./pages/WorkflowEditorPage'))
-const WorkflowDetailPage = lazy(async () => ({ default: (await import('./pages/WorkflowDetailPage')).WorkflowDetailPage }))
-const SettingsPage = lazy(async () => ({ default: (await import('./pages/SettingsPage')).SettingsPage }))
-const DashboardPage = lazy(async () => ({ default: (await import('./pages/DashboardPage')).DashboardPage }))
-const LogsPage = lazy(async () => ({ default: (await import('./pages/LogsPage')).LogsPage }))
-const AuditLogsPage = lazy(async () => ({ default: (await import('./pages/AuditLogsPage')).AuditLogsPage }))
-const SchemasPage = lazy(async () => ({ default: (await import('./pages/SchemasPage')).SchemasPage }))
-const LineagePage = lazy(async () => ({ default: (await import('./pages/LineagePage')).LineagePage }))
-const GlobalHealthPage = lazy(() => import('./pages/GlobalHealthPage'))
-const CompliancePage = lazy(async () => ({ default: (await import('./pages/ComplianceDashboard')).ComplianceDashboard }))
-const CommunityMarketplace = lazy(async () => ({ default: (await import('./pages/Marketplace/CommunityMarketplace')).CommunityMarketplace }))
-import { SetupPage } from './pages/SetupPage'
-import { LoginPage } from './pages/LoginPage'
-import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
-import { ErrorPage } from './pages/ErrorPage'
-import { NotFoundPage } from './pages/NotFoundPage'
+const AddUserPage = lazy(async () => ({ default: (await import('./pages/AddUserPage')).AddUserPage }))
+const EditUserPage = lazy(async () => ({ default: (await import('./pages/EditUserPage')).EditUserPage }))
+const VHostsPage = lazy(async () => ({ default: (await import('./pages/VHostsPage')).VHostsPage }))
+const AddVHostPage = lazy(async () => ({ default: (await import('./pages/AddVHostPage')).AddVHostPage }))
+const EditVHostPage = lazy(async () => ({ default: (await import('./pages/EditVHostPage')).EditVHostPage }))
+const WorkersPage = lazy(async () => ({ default: (await import('./pages/WorkersPage')).WorkersPage }))
+const AddWorkerPage = lazy(async () => ({ default: (await import('./pages/AddWorkerPage')).AddWorkerPage }))
+const EditWorkerPage = lazy(async () => ({ default: (await import('./pages/EditWorkerPage')).EditWorkerPage }))
+const SetupPage = lazy(async () => ({ default: (await import('./pages/SetupPage')).SetupPage }))
+const LoginPage = lazy(async () => ({ default: (await import('./pages/LoginPage')).LoginPage }))
+const ForgotPasswordPage = lazy(async () => ({ default: (await import('./pages/ForgotPasswordPage')).ForgotPasswordPage }))
+const ErrorPage = lazy(async () => ({ default: (await import('./pages/ErrorPage')).ErrorPage }))
+const NotFoundPage = lazy(async () => ({ default: (await import('./pages/NotFoundPage')).NotFoundPage }))
+const Layout = lazy(async () => ({ default: (await import('./components/Layout')).Layout }))
 import { Center, Loader } from '@mantine/core'
 import { apiFetch, getRoleFromToken } from './api'
-
+import { getToken } from './auth/storage'
+import {lazy, Suspense} from "react"
+// Lazy-load remaining pages to comply with bundle-size & lazy-loading guidelines
+const SettingsPage = lazy(async () => ({ default: (await import('./pages/SettingsPage')).SettingsPage }))
+const LogsPage = lazy(async () => ({ default: (await import('./pages/LogsPage')).LogsPage }))
+const SchemasPage = lazy(async () => ({ default: (await import('./pages/SchemasPage')).SchemasPage }))
+const AuditLogsPage = lazy(async () => ({ default: (await import('./pages/AuditLogsPage')).AuditLogsPage }))
+const LineagePage = lazy(async () => ({ default: (await import('./pages/LineagePage')).LineagePage }))
+const GlobalHealthPage = lazy(async () => ({ default: (await import('./pages/GlobalHealthPage')).default }))
+const CommunityMarketplace = lazy(async () => ({ default: (await import('./pages/Marketplace/CommunityMarketplace')).CommunityMarketplace }))
+const WorkflowDetailPage = lazy(async () => ({ default: (await import('./pages/WorkflowDetailPage')).WorkflowDetailPage }))
+const DashboardPage = lazy(async () => ({ default: (await import('./pages/DashboardPage')).DashboardPage }))
+const WorkflowEditorPage = lazy(async () => ({ default: (await import('./pages/WorkflowEditorPage')).default }))
+const WorkflowsPage = lazy(async () => ({ default: (await import('./pages/WorkflowsPage')).default }))
+const CompliancePage = lazy(async () => ({ default: (await import('./pages/ComplianceDashboard')).ComplianceDashboard }))
 interface RouterContext {
   configStatus?: {
     configured: boolean
@@ -79,9 +78,11 @@ async function getCachedConfigStatus() {
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: () => (
-    <Layout>
-      <Outlet />
-    </Layout>
+    <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
+      <Layout>
+        <Outlet />
+      </Layout>
+    </Suspense>
   ),
   errorComponent: ({ error, reset }) => {
     // For 401 Unauthorized, apiFetch already handles redirect
@@ -90,20 +91,32 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
     }
     
     return (
-      <Layout>
-        <ErrorPage error={error} reset={reset} />
-      </Layout>
+      <Suspense fallback={<Center h="100vh"><Loader /></Center>}>
+        <Layout>
+          <ErrorPage error={error} reset={reset} />
+        </Layout>
+      </Suspense>
     );
   },
   beforeLoad: async ({ location }: { location: any }) => {
-    // Skip config check for setup page to avoid infinite redirect
+    // Skip checks on public/setup pages to avoid loops
     if (location.pathname === '/setup' || location.pathname === '/login' || location.pathname === '/forgot-password') {
       return
     }
 
     try {
-      const data = await getCachedConfigStatus()
+      // Defer network until we know user is authenticated
+      const token = getToken()
+      if (!token) {
+        throw redirect({
+          to: '/login',
+          search: {
+            redirect: location.pathname,
+          },
+        })
+      }
 
+      const data = await getCachedConfigStatus()
       if (!data.configured || !data.user_setup) {
         throw redirect({
           to: '/setup',
@@ -113,20 +126,10 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
         })
       }
 
-      const token = localStorage.getItem('hermod_token')
-      if (!token) {
-        throw redirect({
-          to: '/login',
-          search: {
-            redirect: location.pathname,
-          },
-        })
-      }
-      
       return { configStatus: data }
     } catch (error) {
       if (error instanceof Error && error.message === 'Failed to fetch config status') {
-        // Handle error
+        // Allow error boundary to handle; nothing special here
       }
       throw error
     }
@@ -136,7 +139,11 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  component: DashboardPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <DashboardPage />
+    </Suspense>
+  ),
 })
 
 const sourcesRoute = createRoute({
@@ -147,19 +154,31 @@ const sourcesRoute = createRoute({
 const sourcesIndexRoute = createRoute({
   getParentRoute: () => sourcesRoute,
   path: '/',
-  component: SourcesPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <SourcesPage />
+    </Suspense>
+  ),
 })
 
 const addSourceRoute = createRoute({
   getParentRoute: () => sourcesRoute,
   path: 'new',
-  component: AddSourcePage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <AddSourcePage />
+    </Suspense>
+  ),
 })
 
 const editSourceRoute = createRoute({
   getParentRoute: () => sourcesRoute,
   path: '$sourceId/edit',
-  component: EditSourcePage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <EditSourcePage />
+    </Suspense>
+  ),
 })
 
 const sinksRoute = createRoute({
@@ -170,19 +189,31 @@ const sinksRoute = createRoute({
 const sinksIndexRoute = createRoute({
   getParentRoute: () => sinksRoute,
   path: '/',
-  component: SinksPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <SinksPage />
+    </Suspense>
+  ),
 })
 
 const addSinkRoute = createRoute({
   getParentRoute: () => sinksRoute,
   path: 'new',
-  component: AddSinkPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <AddSinkPage />
+    </Suspense>
+  ),
 })
 
 const editSinkRoute = createRoute({
   getParentRoute: () => sinksRoute,
   path: '$sinkId/edit',
-  component: EditSinkPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <EditSinkPage />
+    </Suspense>
+  ),
 })
 
 const vhostsRoute = createRoute({
@@ -198,19 +229,31 @@ const vhostsRoute = createRoute({
 const vhostsIndexRoute = createRoute({
   getParentRoute: () => vhostsRoute,
   path: '/',
-  component: VHostsPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <VHostsPage />
+    </Suspense>
+  ),
 })
 
 const addVHostRoute = createRoute({
   getParentRoute: () => vhostsRoute,
   path: 'new',
-  component: AddVHostPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <AddVHostPage />
+    </Suspense>
+  ),
 })
 
 const editVHostRoute = createRoute({
   getParentRoute: () => vhostsRoute,
   path: '$vhostId/edit',
-  component: EditVHostPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <EditVHostPage />
+    </Suspense>
+  ),
 })
 
 const workersRoute = createRoute({
@@ -226,19 +269,31 @@ const workersRoute = createRoute({
 const workersIndexRoute = createRoute({
   getParentRoute: () => workersRoute,
   path: '/',
-  component: WorkersPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <WorkersPage />
+    </Suspense>
+  ),
 })
 
 const addWorkerRoute = createRoute({
   getParentRoute: () => workersRoute,
   path: 'new',
-  component: AddWorkerPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <AddWorkerPage />
+    </Suspense>
+  ),
 })
 
 const editWorkerRoute = createRoute({
   getParentRoute: () => workersRoute,
   path: '$workerId/edit',
-  component: EditWorkerPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <EditWorkerPage />
+    </Suspense>
+  ),
 })
 
 
@@ -305,13 +360,21 @@ const usersIndexRoute = createRoute({
 const addUserRoute = createRoute({
   getParentRoute: () => usersRoute,
   path: 'new',
-  component: AddUserPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <AddUserPage />
+    </Suspense>
+  ),
 })
 
 const editUserRoute = createRoute({
   getParentRoute: () => usersRoute,
   path: '$userId/edit',
-  component: EditUserPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <EditUserPage />
+    </Suspense>
+  ),
 })
 
 const profileRoute = createRoute({
@@ -422,7 +485,11 @@ const marketplaceRoute = createRoute({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
-  component: LoginPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <LoginPage />
+    </Suspense>
+  ),
   validateSearch: (search: Record<string, unknown>) => {
     return {
       redirect: (search.redirect as string) || '/',
@@ -441,7 +508,11 @@ const loginRoute = createRoute({
 const forgotPasswordRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/forgot-password',
-  component: ForgotPasswordPage,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <ForgotPasswordPage />
+    </Suspense>
+  ),
 })
 
 function SetupRouteComponent() {
@@ -474,7 +545,11 @@ const setupRoute = createRoute({
       })
     }
   },
-  component: SetupRouteComponent,
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <SetupRouteComponent />
+    </Suspense>
+  ),
 })
 
 const routeTree = rootRoute.addChildren([
@@ -538,15 +613,19 @@ export const router = createRouter({
     }
 
     return (
-      <Layout>
-        <ErrorPage error={error} reset={reset} />
-      </Layout>
+      <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+        <Layout>
+          <ErrorPage error={error} reset={reset} />
+        </Layout>
+      </Suspense>
     );
   },
   defaultNotFoundComponent: () => (
-    <Layout>
-      <NotFoundPage />
-    </Layout>
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <Layout>
+        <NotFoundPage />
+      </Layout>
+    </Suspense>
   ),
 })
 

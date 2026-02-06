@@ -3,12 +3,9 @@ import {
   Paper, Title, Text, Group, Stack, SimpleGrid, RingProgress, 
   Table, Badge, Box, ThemeIcon, ScrollArea, LoadingOverlay
 } from '@mantine/core';
-import { 
-  IconShieldLock, IconFingerprint, IconCheck,
-  IconLock, IconEyeOff
-} from '@tabler/icons-react';
-import { apiFetch } from '../api';
 
+import { apiFetch } from '../api';
+import { formatTime } from '../utils/dateUtils';import { IconCheck, IconEyeOff, IconFingerprint, IconLock, IconShieldLock } from '@tabler/icons-react';
 interface PIIStat {
   discoveries: Record<string, number>;
   last_updated: string;
@@ -185,7 +182,7 @@ export function ComplianceDashboard() {
                         <Table.Td>
                           <Stack gap={0}>
                             <Text size="sm" fw={500}>{wf?.name || id}</Text>
-                            <Text size="xs" c="dimmed">Last update: {new Date(stat.last_updated).toLocaleTimeString()}</Text>
+                            <Text size="xs" c="dimmed">Last update: {formatTime(stat.last_updated)}</Text>
                           </Stack>
                         </Table.Td>
                         <Table.Td ta="right">

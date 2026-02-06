@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	_ "github.com/snowflakedb/gosnowflake"
 	"github.com/user/hermod"
@@ -44,6 +45,14 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 	}
 	defer tx.Rollback()
 
+	// Prepare statement cache per table for this transaction
+	stmts := make(map[string]*sql.Stmt)
+	defer func() {
+		for _, st := range stmts {
+			_ = st.Close()
+		}
+	}()
+
 	for _, msg := range msgs {
 		if msg == nil {
 			continue
@@ -62,16 +71,25 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 			}
 		}
 
-		// Snowflake MERGE (UPSERT equivalent)
-		query := fmt.Sprintf(`
-			MERGE INTO %s AS target
-			USING (SELECT $1 AS id, $2 AS data) AS source
-			ON target.id = source.id
-			WHEN MATCHED THEN UPDATE SET target.data = source.data
-			WHEN NOT MATCHED THEN INSERT (id, data) VALUES (source.id, source.data)
-		`, table)
+		// Snowflake MERGE (UPSERT equivalent) — prepare per table
+		key := "merge:" + table
+		st := stmts[key]
+		if st == nil {
+			query := fmt.Sprintf(`
+                MERGE INTO %s AS target
+                USING (SELECT ? AS id, ? AS data) AS source
+                ON target.id = source.id
+                WHEN MATCHED THEN UPDATE SET target.data = source.data
+                WHEN NOT MATCHED THEN INSERT (id, data) VALUES (source.id, source.data)
+            `, table)
+			st, err = tx.PrepareContext(ctx, query)
+			if err != nil {
+				return fmt.Errorf("prepare merge failed: %w", err)
+			}
+			stmts[key] = st
+		}
 
-		_, err = tx.ExecContext(ctx, query, msg.ID(), payload)
+		_, err = st.ExecContext(ctx, msg.ID(), payload)
 		if err != nil {
 			return fmt.Errorf("failed to execute merge for message %s: %w", msg.ID(), err)
 		}
@@ -85,6 +103,10 @@ func (s *Sink) init() error {
 	if err != nil {
 		return err
 	}
+	// Conservative pool defaults
+	db.SetMaxOpenConns(20)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxIdleTime(60 * time.Second)
 	s.db = db
 	return s.db.Ping()
 }

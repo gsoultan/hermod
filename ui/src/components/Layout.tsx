@@ -1,18 +1,21 @@
 import { AppShell, Burger, Group, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea, Badge, ActionIcon, useMantineColorScheme, Kbd, Menu, Avatar } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconDashboard, IconSettings, IconList, IconActivity, IconUsers, IconLogout, IconWorld, IconHierarchy, IconRocket, IconServer, IconChevronLeft, IconChevronRight, IconHistory, IconSun, IconMoon, IconGitBranch, IconSearch, IconPlus, IconDatabase, IconCloudUpload, IconBraces, IconGitMerge, IconShieldLock, IconPuzzle, IconUser } from '@tabler/icons-react';
-import React, { useEffect } from 'react';
+import React, { useEffect, type ReactNode } from 'react';
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVHost } from '../context/VHostContext';
 import { apiFetch, getRoleFromToken, getClaimsFromToken } from '../api';
 import { Spotlight, spotlight } from '@mantine/spotlight';
 import '@mantine/spotlight/styles.css';
-
+import { notifications } from '@mantine/notifications';
+import { IconActivity, IconBraces, IconChevronLeft, IconChevronRight, IconCloudUpload, IconDashboard, IconDatabase, IconGitBranch, IconGitMerge, IconHierarchy, IconHistory, IconList, IconLogout, IconMoon, IconPlus, IconPuzzle, IconRocket, IconSearch, IconServer, IconSettings, IconShieldLock, IconSun, IconUser, IconUsers, IconWorld } from '@tabler/icons-react';
+import type { Workflow } from '../types';
 interface LayoutProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 export function Layout({ children }: LayoutProps) {
+  const queryClient = useQueryClient();
   const [mobileOpened, { toggle: toggleMobile }] = useDisclosure();
   const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true);
   const routerState = useRouterState();
@@ -20,26 +23,29 @@ export function Layout({ children }: LayoutProps) {
   const activePage = routerState.location.pathname;
   const role = getRoleFromToken();
   const isAdmin = role === 'Administrator';
+  const canEdit = role === 'Administrator' || role === 'Editor';
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const dark = colorScheme === 'dark';
 
-  const [dashboardStats, setDashboardStats] = React.useState<any>(null);
-  const [workflows, setWorkflows] = React.useState<any[]>([]);
+  const { data: dashboardStats } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: async () => {
+      const res = await apiFetch('/api/dashboard/stats');
+      return res.json();
+    },
+    enabled: activePage !== '/login' && activePage !== '/setup' && activePage !== '/forgot-password',
+  });
 
-  useEffect(() => {
-    // Initial fetch for dashboard stats and workflows for spotlight
-    if (activePage !== '/login' && activePage !== '/setup' && activePage !== '/forgot-password') {
-      apiFetch('/api/dashboard/stats')
-        .then(res => res.json())
-        .then(data => setDashboardStats(data))
-        .catch(err => console.error('Failed to fetch initial stats in layout', err));
-      
-      apiFetch('/api/workflows')
-        .then(res => res.json())
-        .then(data => setWorkflows(data.data || []))
-        .catch(err => console.error('Failed to fetch workflows for spotlight', err));
-    }
-  }, [activePage]);
+  const { data: workflowsResponse } = useQuery({
+    queryKey: ['workflows-spotlight'],
+    queryFn: async () => {
+      const res = await apiFetch('/api/workflows');
+      return res.json();
+    },
+    enabled: activePage !== '/login' && activePage !== '/setup' && activePage !== '/forgot-password',
+  });
+
+  const workflows = workflowsResponse?.data || [];
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -49,14 +55,14 @@ export function Layout({ children }: LayoutProps) {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        setDashboardStats(data);
+        queryClient.setQueryData(['dashboard-stats'], data);
       } catch (err) {
         console.error('Failed to parse dashboard stats in layout', err);
       }
     };
 
     return () => ws.close();
-  }, []);
+  }, [queryClient]);
 
   const SideLink = ({ to, label, icon: Icon, badge, children }: { to: string; label: string; icon: React.FC<any>; badge?: React.ReactNode; children?: React.ReactNode }) => {
     const link = (
@@ -110,7 +116,7 @@ export function Layout({ children }: LayoutProps) {
         const res = await apiFetch('/api/vhosts');
         if (res.ok) {
           const vhostsResponse = await res.json();
-          const vhosts = vhostsResponse?.data || [];
+          const vhosts = (vhostsResponse && Array.isArray(vhostsResponse.data)) ? vhostsResponse.data : [];
           setAvailableVHosts(vhosts.map((v: any) => v.name).sort());
         } else {
             // Fallback to extraction if vhosts API fails or not allowed
@@ -153,9 +159,10 @@ export function Layout({ children }: LayoutProps) {
     });
   };
 
+  const safeVhosts = Array.isArray(availableVHosts) ? availableVHosts : [];
   const vhostOptions = [
     { value: 'all', label: 'All VHosts' },
-    ...availableVHosts.map((v: string) => ({ value: v, label: v }))
+    ...safeVhosts.map((v: string) => ({ value: v, label: v }))
   ];
 
   const spotlightActions = [
@@ -173,7 +180,7 @@ export function Layout({ children }: LayoutProps) {
       onClick: () => navigate({ to: '/workflows' }),
       leftSection: <IconGitBranch size="1.2rem" />,
     },
-    ...workflows.slice(0, 10).map(wf => ({
+    ...workflows.slice(0, 10).map((wf: Workflow) => ({
       id: `wf-${wf.id}`,
       label: `Workflow: ${wf.name}`,
       description: `VHost: ${wf.vhost} | Status: ${wf.active ? 'Active' : 'Inactive'}`,
@@ -187,6 +194,106 @@ export function Layout({ children }: LayoutProps) {
       onClick: () => navigate({ to: '/workflows/new' }),
       leftSection: <IconPlus size="1.2rem" />,
     },
+    // Action-oriented commands
+    ...(canEdit ? [{
+      id: 'start-all-vhost',
+      label: 'Start all workflows in current VHost',
+      description: selectedVHost && selectedVHost !== 'all' ? `VHost: ${selectedVHost}` : 'Select a VHost first',
+      onClick: async () => {
+        if (!selectedVHost || selectedVHost === 'all') {
+          notifications.show({ title: 'Select VHost', message: 'Please select a specific VHost to start all workflows.', color: 'orange' });
+          return;
+        }
+        if (!window.confirm(`Start all workflows in VHost ${selectedVHost}?`)) return;
+        try {
+          const res = await apiFetch(`/api/workflows?vhost=${encodeURIComponent(selectedVHost)}`);
+          const data = await res.json();
+          const ids = (data.data || []).map((w: any) => w.id);
+          if (ids.length === 0) {
+            notifications.show({ title: 'No Workflows', message: `No workflows found in VHost ${selectedVHost}.`, color: 'gray' });
+            return;
+          }
+          await apiFetch('/api/workflows/batch/toggle', { method: 'POST', body: JSON.stringify({ ids, active: true }) });
+          notifications.show({ title: 'Started', message: `Requested start for ${ids.length} workflows in ${selectedVHost}.`, color: 'green' });
+        } catch (e: any) {
+          notifications.show({ title: 'Error', message: e.message || 'Failed to start workflows', color: 'red' });
+        }
+      },
+      leftSection: <IconRocket size="1.2rem" />,
+    }] : []),
+    ...(canEdit ? [{
+      id: 'stop-all-vhost',
+      label: 'Stop all workflows in current VHost',
+      description: selectedVHost && selectedVHost !== 'all' ? `VHost: ${selectedVHost}` : 'Select a VHost first',
+      onClick: async () => {
+        if (!selectedVHost || selectedVHost === 'all') {
+          notifications.show({ title: 'Select VHost', message: 'Please select a specific VHost to stop all workflows.', color: 'orange' });
+          return;
+        }
+        if (!window.confirm(`Stop all workflows in VHost ${selectedVHost}?`)) return;
+        try {
+          const res = await apiFetch(`/api/workflows?vhost=${encodeURIComponent(selectedVHost)}`);
+          const data = await res.json();
+          const ids = (data.data || []).map((w: any) => w.id);
+          if (ids.length === 0) {
+            notifications.show({ title: 'No Workflows', message: `No workflows found in VHost ${selectedVHost}.`, color: 'gray' });
+            return;
+          }
+          await apiFetch('/api/workflows/batch/toggle', { method: 'POST', body: JSON.stringify({ ids, active: false }) });
+          notifications.show({ title: 'Stopped', message: `Requested stop for ${ids.length} workflows in ${selectedVHost}.`, color: 'green' });
+        } catch (e: any) {
+          notifications.show({ title: 'Error', message: e.message || 'Failed to stop workflows', color: 'red' });
+        }
+      },
+      leftSection: <IconActivity size="1.2rem" />,
+    }] : []),
+    // Per-workflow quick actions (top 5)
+    ...(canEdit ? workflows.slice(0, 5).flatMap((wf: Workflow) => ([
+      {
+        id: `start-${wf.id}`,
+        label: `Start: ${wf.name}`,
+        description: `VHost: ${wf.vhost}`,
+        onClick: async () => {
+          try {
+            await apiFetch(`/api/workflows/${wf.id}/toggle`, { method: 'POST' });
+            notifications.show({ title: 'Workflow', message: `Toggled start for "${wf.name}"`, color: 'green' });
+          } catch (e: any) {
+            notifications.show({ title: 'Error', message: e.message || 'Failed to start workflow', color: 'red' });
+          }
+        },
+        leftSection: <IconRocket size="1.2rem" />,
+      },
+      {
+        id: `stop-${wf.id}`,
+        label: `Stop: ${wf.name}`,
+        description: `VHost: ${wf.vhost}`,
+        onClick: async () => {
+          if (!window.confirm(`Stop workflow ${wf.name}?`)) return;
+          try {
+            await apiFetch(`/api/workflows/${wf.id}/toggle`, { method: 'POST' });
+            notifications.show({ title: 'Workflow', message: `Toggled stop for "${wf.name}"`, color: 'green' });
+          } catch (e: any) {
+            notifications.show({ title: 'Error', message: e.message || 'Failed to stop workflow', color: 'red' });
+          }
+        },
+        leftSection: <IconActivity size="1.2rem" />,
+      },
+      {
+        id: `drain-${wf.id}`,
+        label: `Drain DLQ: ${wf.name}`,
+        description: `Prioritize dead letters before live`,
+        onClick: async () => {
+          if (!window.confirm(`Drain DLQ for workflow ${wf.name}?`)) return;
+          try {
+            await apiFetch(`/api/workflows/${wf.id}/drain`, { method: 'POST' });
+            notifications.show({ title: 'DLQ', message: `Requested DLQ drain for "${wf.name}"`, color: 'blue' });
+          } catch (e: any) {
+            notifications.show({ title: 'Error', message: e.message || 'Failed to drain DLQ', color: 'red' });
+          }
+        },
+        leftSection: <IconHistory size="1.2rem" />,
+      }
+    ])) : []),
     {
       id: 'sources',
       label: 'Sources',
@@ -475,3 +582,5 @@ export function Layout({ children }: LayoutProps) {
     </>
   );
 }
+
+

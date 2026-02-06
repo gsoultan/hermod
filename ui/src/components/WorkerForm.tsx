@@ -4,7 +4,6 @@ import { useMutation } from '@tanstack/react-query';
 import { apiFetch } from '../api';
 import { useNavigate } from '@tanstack/react-router';
 import { IconInfoCircle, IconTerminal } from '@tabler/icons-react';
-
 interface Worker {
   id: string;
   name: string;
@@ -136,7 +135,19 @@ export function WorkerForm({ initialData, isEditing = false }: WorkerFormProps) 
             <Text size="xs">
               2. Run the following command:
             </Text>
-            <Code block>{`hermod --mode=worker --worker-guid="${worker.id}" --platform-url="${window.location.origin}"`}</Code>
+            <Code block style={{ padding: '15px', fontSize: '14px', position: 'relative' }}>
+              {`hermod --mode=worker --worker-guid="${worker.id}" --platform-url="${window.location.origin}"`}
+              <Button 
+                size="compact-xs" 
+                variant="light" 
+                style={{ position: 'absolute', top: '5px', right: '5px' }}
+                onClick={() => {
+                  navigator.clipboard.writeText(`hermod --mode=worker --worker-guid="${worker.id}" --platform-url="${window.location.origin}"`);
+                }}
+              >
+                Copy
+              </Button>
+            </Code>
             <Text size="xs" c="dimmed italic">
               Note: The worker will connect to the platform API to fetch its configuration.
             </Text>
@@ -173,3 +184,5 @@ export function WorkerForm({ initialData, isEditing = false }: WorkerFormProps) 
     </Stack>
   );
 }
+
+

@@ -19,6 +19,7 @@ func (s *Server) registerSinkRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/sinks/discover/tables", s.editorOnly(s.discoverSinkTables))
 	mux.Handle("POST /api/sinks/sample", s.editorOnly(s.sampleSinkTable))
 	mux.Handle("POST /api/sinks/browse", s.editorOnly(s.browseSinkTable))
+	mux.Handle("POST /api/sinks/query", s.editorOnly(s.querySink))
 	mux.Handle("POST /api/sinks/smtp/preview", s.editorOnly(s.previewSmtpTemplate))
 	mux.Handle("POST /api/sinks/smtp/validate", s.editorOnly(s.validateEmail))
 	mux.Handle("DELETE /api/sinks/{id}", s.editorOnly(s.deleteSink))
@@ -291,6 +292,26 @@ func (s *Server) browseSinkTable(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(results)
+}
+
+func (s *Server) querySink(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Config engine.SinkConfig `json:"config"`
+		Query  string            `json:"query"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	results, err := s.registry.ExecuteSinkSQL(r.Context(), req.Config, req.Query)
+	if err != nil {
+		s.jsonError(w, "Query failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
 }
 
 func (s *Server) previewSmtpTemplate(w http.ResponseWriter, r *http.Request) {

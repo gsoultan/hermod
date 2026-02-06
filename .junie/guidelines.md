@@ -24,25 +24,42 @@
 - **Type-Only Imports**: Use `import type` or `import { type X }` for TypeScript types and interfaces to comply with `verbatimModuleSyntax`.
 - **Build Verification**: Ensure the UI builds successfully using `bun run build` in the `ui` directory after making changes.
 - **Prioritize Lazy Loading**: Always use `React.lazy` and `Suspense` for route-level components and heavy/non-critical components. Lazy loading should be the default approach for code splitting to reduce initial bundle size and improve load times.
+ - **No .mjs Files**: Do not add or commit `.mjs` files in the UI. Use `.ts`, `.tsx`, or `.js` as appropriate to keep tooling and bundler resolution consistent across the project.
 
 ##### React Best Practices
+- **Eliminating Waterfalls (Critical)**:
+    - **Defer Await**: Move `await` operations into the branches where they are actually used to avoid blocking code paths that don't need them.
+    - **Parallelize**: Use `Promise.all()` for independent operations. Start independent promises early even if you don't await them immediately.
+    - **Suspense Boundaries**: Use strategic `Suspense` boundaries to allow parts of the UI to render while others are still loading.
+- **Bundle Size Optimization (Critical)**:
+    - **Dynamic Imports**: Use `React.lazy` for heavy components, routes, and non-critical third-party libraries.
+- **Re-render Optimization (High)**:
+    - **Derived State**: Calculate derived state during rendering. Do not store it in state or use `useEffect` to sync it.
+    - **Defer State Reads**: Don't subscribe to dynamic state (e.g., search params, store values) if you only read it inside event handlers or callbacks. Read them on demand.
+    - **Primitive useMemo**: Do not wrap simple expressions with primitive result types (boolean, number, string) in `useMemo`; the overhead often exceeds the benefit.
+    - **Stable Defaults**: Extract default non-primitive parameter values (arrays, objects) to constants outside the component to preserve memoization.
+    - **Functional Updates**: Use functional updates in `setState` (e.g., `setCount(c => c + 1)`) to avoid unnecessary effect or callback dependencies.
+- **Rendering Performance (Medium)**:
+    - **useTransition**: Use `useTransition` for non-urgent updates (like filtering a list) to keep the UI responsive.
+    - **Explicit Conditionals**: Use explicit boolean checks for conditional rendering (e.g., `count > 0 && ...`) instead of relying on truthiness of numbers (e.g., `count && ...`) to avoid rendering `0`.
+    - **Ref for Transients**: Use `useRef` for values that don't trigger re-renders (timers, previous values, instance variables).
 - **Project & Types**: Use React with TypeScript and enable strict mode. Prefer precise types over `any`; export reusable prop types.
 - **Component Design**: Favor small, focused function components. Keep components pure; avoid side-effects in render. Extract shared pure helpers to `utils`.
 - **Props & APIs**: Accept minimal, explicit props. Use clear names; avoid prop drilling by lifting state or using Context sparingly.
-- **State Management**: Start local (`useState`/`useReducer`). Introduce Context only for cross-cutting concerns (theme/auth). For server state, prefer a library like `@tanstack/react-query` over ad-hoc effects (caching, retries, deduping).
-- **Hooks**: Follow the Rules of Hooks. Keep dependencies arrays accurate; do not suppress lint rules without justification. Memoize expensive computations with `useMemo` and stable callbacks with `useCallback` only when profiling shows benefit.
-- **Data Fetching & Effects**: Keep effects minimal and idempotent. Abort in-flight requests on unmount/param changes (`AbortController`). Handle errors clearly; don’t swallow errors. Avoid `useEffect` for data fetching when using `@tanstack/react-query`; rely on `useQuery` for caching, retries, background refetching, and invalidation.
-- **Performance**: Split heavy routes/components with `React.lazy`/`Suspense`. Virtualize long lists. Use stable `key` props (avoid array indices for dynamic lists). Avoid unnecessary re-renders by keeping state minimal and derived values computed on render.
-- **Forms**: Use controlled inputs for simple forms; for complex forms, use TanStack Form (`@tanstack/react-form`) for schema-friendly validation, performance, and ergonomics.
-- **Styling**: Be consistent (CSS Modules, Tailwind, or chosen CSS-in-JS). Co-locate styles; avoid deep selectors. Prefer design tokens/utility classes.
-- **Accessibility (a11y)**: Prefer semantic HTML. Ensure keyboard operability and focus management. Provide labels, `aria-*` as needed. Use `eslint-plugin-jsx-a11y` and test with keyboard/screen readers.
-- **Error Boundaries**: Wrap pages/critical trees with an Error Boundary to catch render-time errors and display a fallback UI.
-- **Routing**: Co-locate route components and loader logic. Handle 404/unauthorized states. Preload critical data on navigation when useful.
-- **Security**: Never render untrusted HTML (`dangerouslySetInnerHTML`) without thorough sanitization. Escape/encode user input. Keep secrets server-side; prefer HttpOnly cookies or secure storage strategies. Use CSP and avoid inline scripts/styles when possible.
-- **Testing**: Test behavior with `@testing-library/react`; mock network with MSW. Prefer table-driven tests for hooks/utilities. Focus on user-observable outcomes over implementation details.
+- **State Management**: Start local (`useState`/`useReducer`). Use `Zustand` for global client state. For server state, prefer `@tanstack/react-query` (caching, retries, deduping).
+- **Hooks**: Follow the Rules of Hooks. Keep dependencies arrays accurate; do not suppress lint rules without justification. 
+- **Data Fetching**: Keep effects minimal and idempotent. Abort in-flight requests on unmount/param changes (`AbortController`). Use `useQuery` for all data fetching.
+- **Performance**: Virtualize long lists. Use stable `key` props (avoid array indices for dynamic lists).
+- **Forms**: Use controlled inputs for simple forms; for complex forms, use TanStack Form (`@tanstack/react-form`).
+- **Styling**: Be consistent with Mantine and Tailwind. Co-locate styles; prefer design tokens/utility classes.
+- **Accessibility (a11y)**: Prefer semantic HTML. Ensure keyboard operability and focus management. Use `eslint-plugin-jsx-a11y`.
+- **Error Boundaries**: Wrap pages/critical trees with an Error Boundary to catch render-time errors.
+- **Routing**: Use `@tanstack/react-router`. Co-locate route components and loader logic.
+- **Security**: Never render untrusted HTML without sanitization. Escape user input. Keep secrets server-side.
+- **Testing**: Test behavior with `@testing-library/react`; mock network with MSW. Prefer table-driven tests for hooks/utilities.
 - **Code Quality & DX**: Keep components under one screenful. Delete dead code; avoid over-abstraction. Enforce formatting/linting; keep type-only imports.
-- **Common Pitfalls**: Don’t store derived data in state; avoid effects for synchronous derivations; never mutate state/props; ensure dependency arrays are correct.
-- **Rules of React**: Follow the standard Rules of React ([Rules of React](https://react.dev/learn/rules-of-react)). Use the React Compiler ([React Compiler](https://react.dev/learn/react-compiler)) if necessary for performance optimizations and automatic memoization.
+- **Common Pitfalls**: Don’t store derived data in state; avoid effects for synchronous derivations; never mutate state/props.
+- **Rules of React**: Follow the standard Rules of React. Use the React Compiler if applicable for automatic optimizations.
 
 #### Sink UI Guidelines
 - **Interactive Configuration**: In the Workflow Editor, the Sink UI uses a 3-column layout:

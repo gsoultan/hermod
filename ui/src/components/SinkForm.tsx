@@ -1,40 +1,89 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Button, Group, TextInput, Select, Stack, Alert, Divider, Text, Grid, Title, Code, List, ActionIcon, Modal, Card, ScrollArea, Badge, Autocomplete, Box, Switch, Textarea } from '@mantine/core';
-import { IconCheck, IconAlertCircle, IconInfoCircle, IconSettings, IconBraces, IconRefresh, IconDatabase, IconList, IconCode, IconPlus, IconPuzzle } from '@tabler/icons-react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { Button, Group, TextInput, Select, Stack, Alert, Divider, Text, Grid, Title, Code, List, ActionIcon, Modal, Card, ScrollArea, Badge, Autocomplete, Box, Switch, Textarea, PasswordInput, Fieldset } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { useForm, useStore } from '@tanstack/react-form';
 import { apiFetch, getRoleFromToken } from '../api';
 import { useVHost } from '../context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
+import type { Sink } from '../types';
 import { RetryPolicyFields } from './Sink/RetryPolicyFields';
 import { SinkBasics } from './Sink/SinkBasics';
-import { PostgresSinkConfig } from './Sink/PostgresSinkConfig';
-import { QueueSinkConfig } from './Sink/QueueSinkConfig';
-import { FTPSinkConfig } from './Sink/FTPSinkConfig';
-import { GoogleSheetsSinkConfig } from './Sink/GoogleSheetsSinkConfig';
-import { SMTPSinkConfig } from './Sink/SMTPSinkConfig';
-import { ElasticsearchSinkConfig } from './Sink/ElasticsearchSinkConfig';
-import { SnowflakeSinkConfig } from './Sink/SnowflakeSinkConfig'
-import { SalesforceSinkConfig } from './Sink/SalesforceSinkConfig'
-import { ServiceNowSinkConfig } from './Sink/ServiceNowSinkConfig'
-import { PineconeSinkConfig } from './Sink/PineconeSinkConfig'
-import { MilvusSinkConfig } from './Sink/MilvusSinkConfig'
-import { PgvectorSinkConfig } from './Sink/PgvectorSinkConfig'
-import { FailoverSinkConfig } from './Sink/FailoverSinkConfig';
-import { SapSinkConfig } from './Sink/SapSinkConfig';
+// Heavy per-sink configs are lazy-loaded to reduce initial bundle size
+const PostgresSinkConfig = lazy(() => import('./Sink/PostgresSinkConfig').then(m => ({ default: m.PostgresSinkConfig })));
+const QueueSinkConfig = lazy(() => import('./Sink/QueueSinkConfig').then(m => ({ default: m.QueueSinkConfig })));
+const FTPSinkConfig = lazy(() => import('./Sink/FTPSinkConfig').then(m => ({ default: m.FTPSinkConfig })));
+const GoogleSheetsSinkConfig = lazy(() => import('./Sink/GoogleSheetsSinkConfig').then(m => ({ default: m.GoogleSheetsSinkConfig })));
+const SMTPSinkConfig = lazy(() => import('./Sink/SMTPSinkConfig').then(m => ({ default: m.SMTPSinkConfig })));
+const SSESinkConfig = lazy(() => import('./Sink/SSESinkConfig').then(m => ({ default: m.SSESinkConfig })));
+const ElasticsearchSinkConfig = lazy(() => import('./Sink/ElasticsearchSinkConfig').then(m => ({ default: m.ElasticsearchSinkConfig })));
+const SnowflakeSinkConfig = lazy(() => import('./Sink/SnowflakeSinkConfig').then(m => ({ default: m.SnowflakeSinkConfig })));
+const SalesforceSinkConfig = lazy(() => import('./Sink/SalesforceSinkConfig').then(m => ({ default: m.SalesforceSinkConfig })));
+const ServiceNowSinkConfig = lazy(() => import('./Sink/ServiceNowSinkConfig').then(m => ({ default: m.ServiceNowSinkConfig })));
+const PineconeSinkConfig = lazy(() => import('./Sink/PineconeSinkConfig').then(m => ({ default: m.PineconeSinkConfig })));
+const MilvusSinkConfig = lazy(() => import('./Sink/MilvusSinkConfig').then(m => ({ default: m.MilvusSinkConfig })));
+const PgvectorSinkConfig = lazy(() => import('./Sink/PgvectorSinkConfig').then(m => ({ default: m.PgvectorSinkConfig })));
+const FailoverSinkConfig = lazy(() => import('./Sink/FailoverSinkConfig').then(m => ({ default: m.FailoverSinkConfig })));
+const SapSinkConfig = lazy(() => import('./Sink/SapSinkConfig').then(m => ({ default: m.SapSinkConfig })));
+const Dynamics365SinkConfig = lazy(() => import('./Sink/Dynamics365SinkConfig').then(m => ({ default: m.Dynamics365SinkConfig })));
 import { FieldExplorer } from './Transformation/FieldExplorer';
-
+import { IconAlertCircle, IconBraces, IconCheck, IconCode, IconDatabase, IconInfoCircle, IconList, IconPlus, IconPuzzle, IconRefresh, IconSettings } from '@tabler/icons-react';
 const API_BASE = '/api';
 
 const SINK_TYPES = [
-  'nats', 'rabbitmq', 'rabbitmq_queue', 'redis', 'file', 'kafka', 'pulsar', 'kinesis', 'pubsub', 's3', 's3-parquet', 'fcm', 'smtp', 'telegram', 'http', 'stdout',
-  'postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'yugabyte', 'cassandra', 'sqlite', 'clickhouse', 'mongodb', 'elasticsearch', 'googlesheets', 'ftp', 'failover', 'eventstore', 'pgvector', 'snowflake', 'pinecone', 'milvus', 'salesforce', 'sap', 'wasm'
+  { value: 'postgres', label: 'PostgreSQL' },
+  { value: 'mysql', label: 'MySQL' },
+  { value: 'mariadb', label: 'MariaDB' },
+  { value: 'mssql', label: 'SQL Server' },
+  { value: 'oracle', label: 'Oracle' },
+  { value: 'mongodb', label: 'MongoDB' },
+  { value: 'sqlite', label: 'SQLite' },
+  { value: 'clickhouse', label: 'ClickHouse' },
+  { value: 'salesforce', label: 'Salesforce' },
+  { value: 'servicenow', label: 'ServiceNow' },
+  { value: 'elasticsearch', label: 'Elasticsearch' },
+  { value: 'yugabyte', label: 'YugabyteDB' },
+  { value: 'snowflake', label: 'Snowflake' },
+  { value: 'sap', label: 'SAP' },
+  { value: 'dynamics365', label: 'Dynamics 365' },
+  { value: 'eventstore', label: 'Event Store' },
+  { value: 'pgvector', label: 'Pgvector' },
+  { value: 'pinecone', label: 'Pinecone' },
+  { value: 'milvus', label: 'Milvus' },
+  { value: 'kafka', label: 'Kafka' },
+  { value: 'mqtt', label: 'MQTT' },
+  { value: 'nats', label: 'NATS' },
+  { value: 'rabbitmq', label: 'RabbitMQ Stream' },
+  { value: 'rabbitmq_queue', label: 'RabbitMQ Queue' },
+  { value: 'redis', label: 'Redis Stream' },
+  { value: 'pubsub', label: 'Google Pub/Sub' },
+  { value: 'kinesis', label: 'AWS Kinesis' },
+  { value: 'pulsar', label: 'Apache Pulsar' },
+  { value: 'http', label: 'API / Webhook' },
+  { value: 'smtp', label: 'SMTP (Email)' },
+  { value: 'telegram', label: 'Telegram' },
+  { value: 'fcm', label: 'Firebase (FCM)' },
+  { value: 'file', label: 'File' },
+  { value: 'stdout', label: 'Stdout' },
+  { value: 'sse', label: 'Server-Sent Events (SSE)' },
+  { value: 'websocket', label: 'WebSocket' },
+  { value: 'googlesheets', label: 'Google Sheets' },
+  { value: 's3', label: 'AWS S3' },
+  { value: 's3-parquet', label: 'AWS S3 Parquet' },
+  { value: 'ftp', label: 'FTP / FTPS' },
+  { value: 'discord', label: 'Discord' },
+  { value: 'slack', label: 'Slack' },
+  { value: 'twitter', label: 'Twitter (X)' },
+  { value: 'facebook', label: 'Facebook' },
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'linkedin', label: 'LinkedIn' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'failover', label: 'Failover Group' },
 ];
 
 
 interface SinkFormProps {
-  initialData?: any;
+  initialData?: Sink;
   isEditing?: boolean;
   embedded?: boolean;
   onSave?: (data: any) => void;
@@ -42,7 +91,7 @@ interface SinkFormProps {
   workerID?: string;
   availableFields?: string[];
   incomingPayload?: any;
-  sinks?: any[];
+  sinks?: Sink[];
 }
 
 export function SinkForm({ initialData, isEditing = false, embedded = false, onSave, vhost, workerID, availableFields = [], incomingPayload, sinks }: SinkFormProps) {
@@ -74,7 +123,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
     }
   });
 
-  const sink = useStore(form.store, (state) => state.values);
+  const sink = useStore(form.store, (state) => state.values) as any;
 
   const [tables, setTables] = useState<string[]>([]);
   const [loadingTables, setLoadingTables] = useState(false);
@@ -174,7 +223,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
         lastInitialDataId.current = initialData.id || 'new';
       }
     }
-  }, [initialData, form]);
+  }, [initialData, form, sink]);
 
   useEffect(() => {
     if (sinkType === 'stdout') {
@@ -212,12 +261,12 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
     }
   });
 
-  const vhosts = Array.isArray(vhostsResponse?.data) ? vhostsResponse.data : [];
-  const workers = Array.isArray(workersResponse?.data) ? workersResponse.data : [];
+  const vhosts = (vhostsResponse && Array.isArray(vhostsResponse.data)) ? vhostsResponse.data : [];
+  const workers = (workersResponse && Array.isArray(workersResponse.data)) ? workersResponse.data : [];
 
   const availableVHostsList = role === 'Administrator' 
     ? (vhosts || []).map((v: any) => v.name)
-    : availableVHosts;
+    : (availableVHosts || []);
 
   const testMutation = useMutation({
     mutationFn: async (s: any) => {
@@ -240,7 +289,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
 
   const submitMutation = useMutation({
     mutationFn: async (s: any) => {
-      const res = await apiFetch(`${API_BASE}/sinks${isEditing ? `/${initialData.id}` : ''}`, {
+      const res = await apiFetch(`${API_BASE}/sinks${isEditing && initialData?.id ? `/${initialData.id}` : ''}`, {
         method: isEditing ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(s),
@@ -285,6 +334,9 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
     form.setFieldValue(`config.${key}` as any, value);
     setTestResult(null);
   };
+
+
+
 
 
   const handlePreview = async () => {
@@ -384,6 +436,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
     const config = sink.config || {};
 
     switch (type) {
+      case 'mqtt':
       case 'nats':
       case 'rabbitmq':
       case 'rabbitmq_queue':
@@ -466,35 +519,114 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
           <TextInput label="Credentials JSON" placeholder="Service account JSON content" value={config.credentials_json || ''} onChange={(e) => updateConfig('credentials_json', e.target.value)} required />
         );
       case 'googlesheets':
-        return <GoogleSheetsSinkConfig config={config} updateConfig={updateConfig} />;
+        return (
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <GoogleSheetsSinkConfig config={config} updateConfig={updateConfig} />
+          </Suspense>
+        );
       case 'smtp':
         return (
-          <SMTPSinkConfig
-            config={config}
-            updateConfig={updateConfig}
-            validateEmailLoading={validateEmailLoading}
-            handleValidateEmail={handleValidateEmail}
-            handlePreview={handlePreview}
-            previewLoading={previewLoading}
-          />
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <SMTPSinkConfig
+              config={config}
+              updateConfig={updateConfig}
+              validateEmailLoading={validateEmailLoading}
+              handleValidateEmail={handleValidateEmail}
+              handlePreview={handlePreview}
+              previewLoading={previewLoading}
+            />
+          </Suspense>
         );
       case 'ftp':
-        return <FTPSinkConfig config={config} updateConfig={updateConfig} />;
+        return (
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <FTPSinkConfig config={config} updateConfig={updateConfig} />
+          </Suspense>
+        );
       case 'failover':
         return (
-          <FailoverSinkConfig 
-            config={config} 
-            sinks={sinks || []} 
-            currentSinkId={initialData?.id} 
-            updateConfig={updateConfig} 
-          />
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <FailoverSinkConfig 
+              config={config} 
+              sinks={sinks || []} 
+              currentSinkId={initialData?.id} 
+              updateConfig={updateConfig} 
+            />
+          </Suspense>
         );
       case 'telegram':
         return (
           <>
-            <TextInput label="Bot Token" placeholder="123456789:ABCDEF..." value={config.token || ''} onChange={(e) => updateConfig('token', e.target.value)} required />
+            <PasswordInput label="Bot Token" placeholder="123456789:ABCDEF..." value={config.token || ''} onChange={(e) => updateConfig('token', e.target.value)} required />
             <TextInput label="Chat ID" placeholder="-100123456789" value={config.chat_id || ''} onChange={(e) => updateConfig('chat_id', e.target.value)} required />
           </>
+        );
+      case 'discord':
+      case 'slack':
+        return (
+          <>
+            <PasswordInput 
+              label="Webhook URL" 
+              placeholder={type === 'discord' ? "https://discord.com/api/webhooks/..." : "https://hooks.slack.com/services/..."}
+              value={config.webhook_url || ''} 
+              onChange={(e) => updateConfig('webhook_url', e.target.value)} 
+              description="Use Webhook for easy integration."
+            />
+            <Divider label="OR Bot Authentication" labelPosition="center" my="xs" />
+            <PasswordInput 
+              label="Bot Token" 
+              placeholder={type === 'discord' ? "MTIzNDU2Nzg5MDEyMzQ1Njc4OQ..." : "xoxb-..."}
+              value={config.token || ''} 
+              onChange={(e) => updateConfig('token', e.target.value)} 
+            />
+            <TextInput 
+              label="Channel ID" 
+              placeholder="123456789012345678" 
+              value={config.channel_id || ''} 
+              onChange={(e) => updateConfig('channel_id', e.target.value)} 
+            />
+          </>
+        );
+      case 'twitter':
+        return (
+          <PasswordInput 
+            label="Bearer Token" 
+            value={config.token || ''} 
+            onChange={(e) => updateConfig('token', e.target.value)} 
+            required 
+            description="OAuth 2.0 Access Token with tweet.write scope"
+          />
+        );
+      case 'facebook':
+        return (
+          <>
+            <PasswordInput label="Access Token" value={config.access_token || ''} onChange={(e) => updateConfig('access_token', e.target.value)} required description="Facebook Page Access Token" />
+            <TextInput label="Page ID" value={config.page_id || ''} onChange={(e) => updateConfig('page_id', e.target.value)} required />
+          </>
+        );
+      case 'instagram':
+        return (
+          <>
+            <PasswordInput label="Access Token" value={config.access_token || ''} onChange={(e) => updateConfig('access_token', e.target.value)} required description="Instagram User Access Token" />
+            <TextInput label="IG User ID" value={config.ig_user_id || ''} onChange={(e) => updateConfig('ig_user_id', e.target.value)} required />
+          </>
+        );
+      case 'linkedin':
+        return (
+          <>
+            <PasswordInput label="Access Token" value={config.access_token || ''} onChange={(e) => updateConfig('access_token', e.target.value)} required description="LinkedIn Member Access Token" />
+            <TextInput label="Person URN" placeholder="urn:li:person:..." value={config.person_urn || ''} onChange={(e) => updateConfig('person_urn', e.target.value)} required />
+          </>
+        );
+      case 'tiktok':
+        return (
+          <PasswordInput 
+            label="Access Token" 
+            value={config.access_token || ''} 
+            onChange={(e) => updateConfig('access_token', e.target.value)} 
+            required 
+            description="TikTok Access Token with video.upload scope" 
+          />
         );
       case 'http':
         return (
@@ -515,40 +647,68 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
             />
           </>
         );
+      case 'websocket':
+        return (
+          <>
+            <TextInput label="WebSocket URL" placeholder="wss://example.com/ingest" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
+            <TextInput label="Headers" placeholder="Authorization: Bearer token, X-Proto: v1" value={config.headers || ''} onChange={(e) => updateConfig('headers', e.target.value)} />
+            <TextInput label="Subprotocols" placeholder="proto1, proto2" value={config.subprotocols || ''} onChange={(e) => updateConfig('subprotocols', e.target.value)} />
+            <Group grow>
+              <TextInput label="Connect Timeout" placeholder="10s" value={config.connect_timeout || ''} onChange={(e) => updateConfig('connect_timeout', e.target.value)} />
+              <TextInput label="Write Timeout" placeholder="10s" value={config.write_timeout || ''} onChange={(e) => updateConfig('write_timeout', e.target.value)} />
+            </Group>
+            <TextInput label="Heartbeat Interval" placeholder="30s" value={config.heartbeat_interval || ''} onChange={(e) => updateConfig('heartbeat_interval', e.target.value)} />
+            <Group>
+              <Switch checked={config.require_ack === 'true'} onChange={(e) => updateConfig('require_ack', e.currentTarget.checked ? 'true' : 'false')} label="Require application ACK" />
+            </Group>
+          </>
+        );
       case 'postgres':
       case 'yugabyte':
         return (
-          <PostgresSinkConfig
-            type={type}
-            config={config}
-            tables={tables}
-            discoveredDatabases={discoveredDatabases}
-            isFetchingDBs={isFetchingDBs}
-            loadingTables={loadingTables}
-            tablesError={tablesError}
-            updateConfig={updateConfig}
-            fetchDatabases={fetchDatabases}
-            discoverTables={discoverTables}
-          />
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <PostgresSinkConfig
+              type={type}
+              config={config}
+              tables={tables}
+              discoveredDatabases={discoveredDatabases}
+              isFetchingDBs={isFetchingDBs}
+              loadingTables={loadingTables}
+              tablesError={tablesError}
+              updateConfig={updateConfig}
+              fetchDatabases={fetchDatabases}
+              discoverTables={discoverTables}
+            />
+          </Suspense>
         );
       case 'pgvector':
         return (
-          <PgvectorSinkConfig
-            config={config}
-            tables={tables}
-            discoveredDatabases={discoveredDatabases}
-            isFetchingDBs={isFetchingDBs}
-            loadingTables={loadingTables}
-            tablesError={tablesError}
-            updateConfig={updateConfig}
-            fetchDatabases={fetchDatabases}
-            discoverTables={discoverTables}
-          />
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <PgvectorSinkConfig
+              config={config}
+              tables={tables}
+              discoveredDatabases={discoveredDatabases}
+              isFetchingDBs={isFetchingDBs}
+              loadingTables={loadingTables}
+              tablesError={tablesError}
+              updateConfig={updateConfig}
+              fetchDatabases={fetchDatabases}
+              discoverTables={discoverTables}
+            />
+          </Suspense>
         );
       case 'pinecone':
-        return <PineconeSinkConfig config={config} updateConfig={updateConfig} />;
+        return (
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <PineconeSinkConfig config={config} updateConfig={updateConfig} />
+          </Suspense>
+        );
       case 'milvus':
-        return <MilvusSinkConfig config={config} updateConfig={updateConfig} />;
+        return (
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <MilvusSinkConfig config={config} updateConfig={updateConfig} />
+          </Suspense>
+        );
       case 'mysql':
       case 'mariadb':
       case 'mssql':
@@ -577,7 +737,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
               <Autocomplete 
                 label="Database" 
                 placeholder="dbname" 
-                data={[...new Set([...discoveredDatabases, config.dbname].filter(Boolean))]} 
+                data={[...new Set([...(discoveredDatabases || []), config.dbname].filter(Boolean))]} 
                 value={config.dbname || ''} 
                 onChange={(val) => {
                   updateConfig('dbname', val);
@@ -594,7 +754,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
               <Select 
                 label="Target Table" 
                 placeholder="Select or type table name" 
-                data={tables} 
+                data={tables || []} 
                 searchable 
                 value={config.table || ''} 
                 onChange={(val) => updateConfig('table', val || '')} 
@@ -633,7 +793,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
               <Select 
                 label="Target Table" 
                 placeholder="Select or type table name" 
-                data={tables} 
+                data={tables || []} 
                 searchable 
                 value={config.table || ''} 
                 onChange={(val) => updateConfig('table', val || '')} 
@@ -692,7 +852,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
               <Autocomplete 
                 label="Database" 
                 placeholder="default" 
-                data={[...new Set([...discoveredDatabases, config.database].filter(Boolean))]} 
+                data={[...new Set([...(discoveredDatabases || []), config.database].filter(Boolean))]} 
                 value={config.database || ''} 
                 onChange={(val) => {
                   updateConfig('database', val);
@@ -709,7 +869,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
               <Select 
                 label="Target Table" 
                 placeholder="Select or type table name" 
-                data={tables} 
+                data={tables || []} 
                 searchable 
                 value={config.table || ''} 
                 onChange={(val) => updateConfig('table', val || '')} 
@@ -717,7 +877,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
                 error={tablesError}
                 style={{ flex: 1 }}
               />
-              <ActionIcon variant="light" size="lg" onClick={() => discoverTables()} loading={loadingTables} title="Refresh Tables">
+              <ActionIcon aria-label="Refresh tables" variant="light" size="lg" onClick={() => discoverTables()} loading={loadingTables} title="Refresh Tables">
                 <IconRefresh size="1.2rem" />
               </ActionIcon>
             </Group>
@@ -731,7 +891,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
               <Autocomplete 
                 label="Database" 
                 placeholder="hermod" 
-                data={[...new Set([...discoveredDatabases, config.database].filter(Boolean))]} 
+                data={[...new Set([...(discoveredDatabases || []), config.database].filter(Boolean))]} 
                 value={config.database || ''} 
                 onChange={(val) => {
                   updateConfig('database', val);
@@ -740,7 +900,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
                 required 
                 style={{ flex: 1 }}
               />
-              <ActionIcon variant="light" size="lg" onClick={() => fetchDatabases()} loading={isFetchingDBs} title="Discover Databases">
+              <ActionIcon aria-label="Discover databases" variant="light" size="lg" onClick={() => fetchDatabases()} loading={isFetchingDBs} title="Discover Databases">
                 <IconRefresh size="1.2rem" />
               </ActionIcon>
             </Group>
@@ -748,7 +908,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
               <Select 
                 label="Target Collection" 
                 placeholder="Select or type collection name" 
-                data={tables} 
+                data={tables || []} 
                 searchable 
                 value={config.table || config.collection || ''} 
                 onChange={(val) => {
@@ -759,7 +919,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
                 error={tablesError}
                 style={{ flex: 1 }}
               />
-              <ActionIcon variant="light" size="lg" onClick={() => discoverTables()} loading={loadingTables} title="Refresh Collections">
+              <ActionIcon aria-label="Refresh collections" variant="light" size="lg" onClick={() => discoverTables()} loading={loadingTables} title="Refresh Collections">
                 <IconRefresh size="1.2rem" />
               </ActionIcon>
             </Group>
@@ -767,29 +927,45 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
         );
       case 'elasticsearch':
         return (
-          <ElasticsearchSinkConfig 
-            config={config} 
-            updateConfig={updateConfig} 
-            indices={tables}
-            discoveredDatabases={discoveredDatabases}
-            isFetchingDBs={isFetchingDBs}
-            loadingIndices={loadingTables}
-            indicesError={tablesError}
-            fetchDatabases={fetchDatabases}
-            discoverIndices={discoverTables}
-          />
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <ElasticsearchSinkConfig 
+              config={config} 
+              updateConfig={updateConfig} 
+              indices={tables}
+              discoveredDatabases={discoveredDatabases}
+              isFetchingDBs={isFetchingDBs}
+              loadingIndices={loadingTables}
+              indicesError={tablesError}
+              fetchDatabases={fetchDatabases}
+              discoverIndices={discoverTables}
+            />
+          </Suspense>
         );
       case 'snowflake':
-        return <SnowflakeSinkConfig form={form} />;
+        return (
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <SnowflakeSinkConfig form={form} />
+          </Suspense>
+        );
       case 'sap':
-        return <SapSinkConfig config={config} updateConfig={updateConfig} />;
+        return (
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <SapSinkConfig config={config} updateConfig={updateConfig} />
+          </Suspense>
+        );
+      case 'dynamics365':
+        return (
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <Dynamics365SinkConfig config={config} updateConfig={updateConfig} />
+          </Suspense>
+        );
       case 'wasm':
         return (
           <Stack gap="sm">
-             {initialData?.pluginID && (
+             {(initialData as any)?.pluginID && (
                 <Alert icon={<IconPuzzle size="1rem" />} color="indigo">
-                  <Text size="sm" fw={700}>Marketplace Plugin: {initialData?.label}</Text>
-                  <Text size="xs">Using installed WASM binary for plugin <code>{initialData.pluginID}</code>.</Text>
+                  <Text size="sm" fw={700}>Marketplace Plugin: {(initialData as any)?.label}</Text>
+                  <Text size="xs">Using installed WASM binary for plugin <code>{(initialData as any)?.pluginID}</code>.</Text>
                 </Alert>
              )}
              <TextInput
@@ -798,7 +974,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
                 value={config.function || 'sink'}
                 onChange={(e) => updateConfig('function', e.target.value)}
               />
-              {!initialData?.pluginID && (
+              {!((initialData as any)?.pluginID) && (
                 <Textarea
                   label="WASM Binary (Base64 or URL)"
                   placeholder="AGFzbQEAAAAB..."
@@ -812,9 +988,23 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
           </Stack>
         );
       case 'salesforce':
-        return <SalesforceSinkConfig form={form} />;
+        return (
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <SalesforceSinkConfig form={form} />
+          </Suspense>
+        );
       case 'servicenow':
-        return <ServiceNowSinkConfig config={config} updateConfig={updateConfig} />;
+        return (
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <ServiceNowSinkConfig config={config} updateConfig={updateConfig} />
+          </Suspense>
+        );
+      case 'sse':
+        return (
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <SSESinkConfig config={config} updateConfig={updateConfig} />
+          </Suspense>
+        );
       case 'stdout':
       default:
         return <Text size="sm" c="dimmed">No additional configuration required for stdout.</Text>;
@@ -858,6 +1048,18 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
             <List size="sm" withPadding>
               <List.Item>Ensure the user has permissions to create databases and tables</List.Item>
               <List.Item>Address should be the native port (usually <Code>9000</Code>)</List.Item>
+            </List>
+          </Stack>
+        );
+      case 'dynamics365':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>Microsoft Dynamics 365 Sink</Title>
+            <Text size="sm">Writes records to Dataverse Web API using OAuth 2.0 client credentials.</Text>
+            <List size="sm" withPadding>
+              <List.Item>Register an app in Microsoft Entra ID and grant Dataverse API access.</List.Item>
+              <List.Item>Set the Resource URL to your environment (e.g., <Code>https://org.crm.dynamics.com</Code>).</List.Item>
+              <List.Item>Choose operation: Create, Update, Upsert, or Delete. Provide External ID for non-create ops.</List.Item>
             </List>
           </Stack>
         );
@@ -1295,10 +1497,10 @@ File: {{.table}}-{{.id}}.json`}
                     workerId={sink.worker_id}
                     onChangeWorkerId={(val: string) => handleSinkChange({ worker_id: val })}
                     type={sink.type}
-                    onChangeType={(val: string) => handleSinkChange({ type: val, config: { ...(sink.config || {}), format: (sink.config || {}).format || 'json' } })}
+                    onChangeType={(val: string) => handleSinkChange({ type: val })}
                     vhostOptions={availableVHostsList}
                     workerOptions={(workers || []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
-                    typeOptions={SINK_TYPES}
+                    sinkTypes={SINK_TYPES}
                   />
                   
                   <Divider label="Parameters" labelPosition="center" />
@@ -1362,13 +1564,23 @@ File: {{.table}}-{{.id}}.json`}
                         onChange={(e) => updateConfig('batch_size', e.target.value)} 
                       />
                     </Grid.Col>
-                    <Grid.Col span={6}>
+                    <Grid.Col span={3}>
                       <TextInput 
                         label="Batch Timeout" 
                         placeholder="100ms" 
                         size="xs"
                         value={(sink.config || {}).batch_timeout || ''} 
                         onChange={(e) => updateConfig('batch_timeout', e.target.value)} 
+                      />
+                    </Grid.Col>
+                    <Grid.Col span={3}>
+                      <TextInput 
+                        label="Batch Bytes" 
+                        placeholder="1048576" 
+                        size="xs"
+                        description="Flush when bytes reached"
+                        value={(sink.config || {}).batch_bytes || ''} 
+                        onChange={(e) => updateConfig('batch_bytes', e.target.value)} 
                       />
                     </Grid.Col>
                   </Grid>
@@ -1448,7 +1660,7 @@ File: {{.table}}-{{.id}}.json`}
                     label="Dead Letter Sink"
                     placeholder="None"
                     size="xs"
-                    data={(sinksResponse?.data || [])
+                    data={(sinksResponse && Array.isArray(sinksResponse.data) ? sinksResponse.data : [])
                       .filter((s: any) => s.id !== initialData?.id)
                       .map((s: any) => ({ label: s.name, value: s.id }))}
                     value={(sink.config || {}).dlq_sink_id || ''}
@@ -1555,95 +1767,100 @@ File: {{.table}}-{{.id}}.json`}
               </Group>
               <Divider />
               <Stack gap="sm">
-                <SinkBasics
-                  embedded={embedded}
-                  name={sink.name}
-                  onChangeName={(val: string) => handleSinkChange({ name: val })}
-                  vhost={sink.vhost}
-                  onChangeVHost={(val: string) => handleSinkChange({ vhost: val })}
-                  workerId={sink.worker_id}
-                  onChangeWorkerId={(val: string) => handleSinkChange({ worker_id: val })}
-                  type={sink.type}
-                  onChangeType={(val: string) => handleSinkChange({ type: val, config: { ...(sink.config || {}), format: (sink.config || {}).format || 'json' } })}
-                  vhostOptions={availableVHostsList}
-                  workerOptions={(workers || []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
-                  typeOptions={SINK_TYPES}
-                />
+                <Fieldset legend="Basic Info" radius="md">
+                  <SinkBasics
+                    embedded={embedded}
+                    name={sink.name}
+                    onChangeName={(val: string) => handleSinkChange({ name: val })}
+                    vhost={sink.vhost}
+                    onChangeVHost={(val: string) => handleSinkChange({ vhost: val })}
+                    workerId={sink.worker_id}
+                    onChangeWorkerId={(val: string) => handleSinkChange({ worker_id: val })}
+                    type={sink.type}
+                    onChangeType={(val: string) => handleSinkChange({ type: val })}
+                    vhostOptions={availableVHostsList}
+                    workerOptions={(workers || []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
+                    sinkTypes={SINK_TYPES}
+                  />
+                </Fieldset>
                 
-                <Divider label="Reliability & Batching" labelPosition="center" />
-                <RetryPolicyFields
-                  maxRetries={(sink.config || {}).max_retries}
-                  retryInterval={(sink.config || {}).retry_interval}
-                  onChangeMaxRetries={(val) => updateConfig('max_retries', val)}
-                  onChangeRetryInterval={(val) => updateConfig('retry_interval', val)}
-                />
+                <Fieldset legend="Reliability & Batching" radius="md">
+                  <Stack gap="sm">
+                    <RetryPolicyFields
+                      maxRetries={(sink.config || {}).max_retries}
+                      retryInterval={(sink.config || {}).retry_interval}
+                      onChangeMaxRetries={(val) => updateConfig('max_retries', val)}
+                      onChangeRetryInterval={(val) => updateConfig('retry_interval', val)}
+                    />
 
-                <Group grow>
-                  <TextInput 
-                    label="Circuit Threshold" 
-                    placeholder="5" 
-                    size="xs"
-                    description="Failures before opening"
-                    value={(sink.config || {}).circuit_threshold || ''} 
-                    onChange={(e) => updateConfig('circuit_threshold', e.target.value)} 
-                  />
-                  <TextInput 
-                    label="Circuit Window" 
-                    placeholder="1m" 
-                    size="xs"
-                    description="Error sliding window"
-                    value={(sink.config || {}).circuit_interval || ''} 
-                    onChange={(e) => updateConfig('circuit_interval', e.target.value)} 
-                  />
-                </Group>
+                    <Group grow>
+                      <TextInput 
+                        label="Circuit Threshold" 
+                        placeholder="5" 
+                        size="xs"
+                        description="Failures before opening"
+                        value={(sink.config || {}).circuit_threshold || ''} 
+                        onChange={(e) => updateConfig('circuit_threshold', e.target.value)} 
+                      />
+                      <TextInput 
+                        label="Circuit Window" 
+                        placeholder="1m" 
+                        size="xs"
+                        description="Error sliding window"
+                        value={(sink.config || {}).circuit_interval || ''} 
+                        onChange={(e) => updateConfig('circuit_interval', e.target.value)} 
+                      />
+                    </Group>
 
-                <Group grow>
-                  <TextInput 
-                    label="Circuit Cool-off" 
-                    placeholder="30s" 
-                    size="xs"
-                    description="Time before retry"
-                    value={(sink.config || {}).circuit_cool_off || ''} 
-                    onChange={(e) => updateConfig('circuit_cool_off', e.target.value)} 
-                  />
-                  <TextInput 
-                    label="Batch Size" 
-                    placeholder="1" 
-                    size="xs"
-                    description="Max messages per write"
-                    value={(sink.config || {}).batch_size || ''} 
-                    onChange={(e) => updateConfig('batch_size', e.target.value)} 
-                  />
-                </Group>
+                    <Group grow>
+                      <TextInput 
+                        label="Circuit Cool-off" 
+                        placeholder="30s" 
+                        size="xs"
+                        description="Time before retry"
+                        value={(sink.config || {}).circuit_cool_off || ''} 
+                        onChange={(e) => updateConfig('circuit_cool_off', e.target.value)} 
+                      />
+                      <TextInput 
+                        label="Batch Size" 
+                        placeholder="1" 
+                        size="xs"
+                        description="Max messages per write"
+                        value={(sink.config || {}).batch_size || ''} 
+                        onChange={(e) => updateConfig('batch_size', e.target.value)} 
+                      />
+                    </Group>
 
-                <Group grow>
-                  <TextInput 
-                    label="Batch Timeout" 
-                    placeholder="100ms" 
-                    size="xs"
-                    description="Max wait for batch"
-                    value={(sink.config || {}).batch_timeout || ''} 
-                    onChange={(e) => updateConfig('batch_timeout', e.target.value)} 
-                  />
-                  <Select
-                    label="Dead Letter Sink"
-                    placeholder="None"
-                    size="xs"
-                    description="Target for failed msgs"
-                    data={(sinksResponse?.data || [])
-                      .filter((s: any) => s.id !== initialData?.id)
-                      .map((s: any) => ({ label: s.name, value: s.id }))}
-                    value={(sink.config || {}).dlq_sink_id || ''}
-                    onChange={(val) => updateConfig('dlq_sink_id', val || '')}
-                    clearable
-                  />
-                </Group>
-                <Switch 
-                    label="Adaptive Batching" 
-                    size="xs"
-                    checked={(sink.config || {}).adaptive_batching || false} 
-                    onChange={(e) => updateConfig('adaptive_batching', e.currentTarget.checked)} 
-                />
+                    <Group grow>
+                      <TextInput 
+                        label="Batch Timeout" 
+                        placeholder="100ms" 
+                        size="xs"
+                        description="Max wait for batch"
+                        value={(sink.config || {}).batch_timeout || ''} 
+                        onChange={(e) => updateConfig('batch_timeout', e.target.value)} 
+                      />
+                      <Select
+                        label="Dead Letter Sink"
+                        placeholder="None"
+                        size="xs"
+                        description="Target for failed msgs"
+                        data={(sinksResponse && Array.isArray(sinksResponse.data) ? sinksResponse.data : [])
+                          .filter((s: any) => s.id !== initialData?.id)
+                          .map((s: any) => ({ label: s.name, value: s.id }))}
+                        value={(sink.config || {}).dlq_sink_id || ''}
+                        onChange={(val) => updateConfig('dlq_sink_id', val || '')}
+                        clearable
+                      />
+                    </Group>
+                    <Switch 
+                        label="Adaptive Batching" 
+                        size="xs"
+                        checked={(sink.config || {}).adaptive_batching || false} 
+                        onChange={(e) => updateConfig('adaptive_batching', e.currentTarget.checked)} 
+                    />
+                  </Stack>
+                </Fieldset>
               </Stack>
             </Stack>
           </Card>
@@ -1657,7 +1874,9 @@ File: {{.table}}-{{.id}}.json`}
                   <IconBraces size="1.2rem" color="var(--mantine-color-blue-6)" />
                   <Text size="sm" fw={700}>2. PARAMETERS</Text>
                 </Group>
-                <Badge variant="light" color="blue" size="lg" style={{ textTransform: 'uppercase' }}>{sink.type}</Badge>
+                <Group gap="xs">
+                  <Badge variant="light" color="blue" size="lg" style={{ textTransform: 'uppercase' }}>{sink.type}</Badge>
+                </Group>
               </Group>
               <Divider />
               <ScrollArea flex={1} mx="-md" px="md">
@@ -1673,13 +1892,20 @@ File: {{.table}}-{{.id}}.json`}
                       {testResult.message}
                     </Alert>
                   )}
-                  {renderConfigFields()}
-                  <Select 
-                    label="Output Format" 
-                    data={['json', 'payload']} 
-                    value={(sink.config || {}).format || 'json'}
-                    onChange={(val) => updateConfig('format', val || 'json')}
-                  />
+                  
+                  <Fieldset legend="Connection Parameters" radius="md">
+                    {renderConfigFields()}
+                  </Fieldset>
+
+                  <Fieldset legend="Output Settings" radius="md">
+                    <Select 
+                      label="Output Format" 
+                      data={['json', 'payload']} 
+                      value={(sink.config || {}).format || 'json'}
+                      onChange={(val) => updateConfig('format', val || 'json')}
+                      description="Choose how the message should be delivered to the sink."
+                    />
+                  </Fieldset>
                 </Stack>
               </ScrollArea>
               
@@ -1754,6 +1980,9 @@ File: {{.table}}-{{.id}}.json`}
           </Group>
         </Stack>
       </Modal>
+
     </>
   );
 }
+
+

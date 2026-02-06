@@ -1,11 +1,8 @@
-import { Modal, Box, Text, Group, ThemeIcon, Loader, Alert } from '@mantine/core';
-import { IconGitBranch, IconDatabase, IconPlug, IconBroadcast, IconAlertCircle } from '@tabler/icons-react';
-import { useQuery } from '@tanstack/react-query';
+import { Modal, Box, Text, Group, ThemeIcon, Loader, Alert } from '@mantine/core';import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '../api';
 import ReactFlow, { Background, Controls, MiniMap, type Node, type Edge, MarkerType } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { useMemo } from 'react';
-
+import { useMemo } from 'react';import { IconAlertCircle, IconBroadcast, IconDatabase, IconGitBranch, IconPlug } from '@tabler/icons-react';
 interface LineageEdge {
   source_id: string;
   source_name: string;
@@ -28,7 +25,7 @@ export function DataLineageModal({ opened, onClose }: { opened: boolean; onClose
   });
 
   const { nodes, edges } = useMemo(() => {
-    if (!data) return { nodes: [], edges: [] };
+    if (!data || !Array.isArray(data)) return { nodes: [], edges: [] };
 
     const nodeMap = new Map<string, Node>();
     const edgeList: Edge[] = [];
@@ -120,9 +117,9 @@ export function DataLineageModal({ opened, onClose }: { opened: boolean; onClose
 
     // Simple layout logic: sources left, workflows middle, sinks right
     const nodesArray = Array.from(nodeMap.values());
-    const sourceNodes = nodesArray.filter(n => data.some(d => d.source_id === n.id && d.workflow_id !== n.id));
-    const workflowNodes = nodesArray.filter(n => data.some(d => d.workflow_id === n.id));
-    const sinkNodes = nodesArray.filter(n => data.some(d => d.sink_id === n.id && d.workflow_id !== n.id));
+    const sourceNodes = nodesArray.filter(n => (data || []).some(d => d.source_id === n.id && d.workflow_id !== n.id));
+    const workflowNodes = nodesArray.filter(n => (data || []).some(d => d.workflow_id === n.id));
+    const sinkNodes = nodesArray.filter(n => (data || []).some(d => d.sink_id === n.id && d.workflow_id !== n.id));
 
     sourceNodes.forEach((n, i) => { n.position = { x: 50, y: i * 100 + 50 }; });
     workflowNodes.forEach((n, i) => { n.position = { x: 350, y: i * 100 + 50 }; });
@@ -179,3 +176,5 @@ export function DataLineageModal({ opened, onClose }: { opened: boolean; onClose
     </Modal>
   );
 }
+
+

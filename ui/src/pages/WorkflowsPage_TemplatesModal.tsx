@@ -1,12 +1,8 @@
+import { IconAlertCircle, IconCloud, IconDatabase, IconGitBranch, IconHistory, IconSearch, IconSend, IconTimeline } from '@tabler/icons-react';
 import { Button, Card, SimpleGrid, Stack, Text, ThemeIcon, Group, Loader, Alert, Box } from '@mantine/core'
-import { 
-  IconGitBranch, IconSend, IconHistory, IconAlertCircle, 
-  IconTimeline, IconDatabase, IconCloud, IconSearch 
-} from '@tabler/icons-react'
-import { useQuery } from '@tanstack/react-query'
-import { apiFetch } from '../api'
 
-const ICON_MAP: Record<string, any> = {
+import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '../api'const ICON_MAP: Record<string, any> = {
   IconGitBranch,
   IconSend,
   IconHistory,
@@ -78,3 +74,5 @@ export default function TemplatesModal({ onUseTemplate }: { onUseTemplate: (data
     </Stack>
   )
 }
+
+

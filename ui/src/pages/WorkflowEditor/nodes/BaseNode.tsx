@@ -1,9 +1,6 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, type ReactNode, useState } from 'react';
 import { Handle, Position } from 'reactflow';
-import { Box, Text, useMantineColorScheme, ActionIcon, Tooltip } from '@mantine/core';
-import { IconPlus, IconEye } from '@tabler/icons-react';
-import { useWorkflowStore } from '../store/useWorkflowStore';
-
+import { Box, Text, useMantineColorScheme, ActionIcon, Tooltip } from '@mantine/core';import { useWorkflowStore } from '../store/useWorkflowStore';import { IconEye, IconPlus, IconTrash } from '@tabler/icons-react';
 export const WorkflowContext = createContext<{
   onPlusClick: (nodeId: string, handleId: string | null) => void;
 } | null>(null);
@@ -62,18 +59,25 @@ export const TargetHandle = ({ position, color, style }: any) => {
   );
 };
 
-export const BaseNode = ({ id, type, color, icon: Icon, children, data }: { 
+export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected }: { 
   id: string, 
   type: string, 
   color: string, 
   icon: any, 
   children: ReactNode, 
-  data: any 
+  data: any,
+  selected?: boolean
 }) => {
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
   const setSampleInspectorOpened = useWorkflowStore(state => state.setSampleInspectorOpened);
   const setSampleNodeId = useWorkflowStore(state => state.setSampleNodeId);
+  const setNodes = useWorkflowStore(state => state.setNodes);
+  const setEdges = useWorkflowStore(state => state.setEdges);
+  const setSelectedNode = useWorkflowStore(state => state.setSelectedNode);
+
+  const [hovered, setHovered] = useState(false);
+
   const metric = useWorkflowStore(state => state.nodeMetrics[id]) ?? data.metric;
   const errorCount = useWorkflowStore(state => state.nodeErrorMetrics[id]) ?? data.errorCount;
   const sample = useWorkflowStore(state => state.nodeSamples[id]) ?? data.sample;
@@ -94,19 +98,49 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data }: {
   const cbHalfOpen = cbStatus === 'half-open';
   const bufferHigh = bufferFill > 0.8;
 
+  const onDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setNodes((nds) => nds.filter((n) => n.id !== id));
+    setEdges((eds) => eds.filter((edge) => edge.source !== id && edge.target !== id));
+    setSelectedNode(null);
+  };
+
   return (
     <Box
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         background: isDark ? 'var(--mantine-color-dark-6)' : 'white',
-        border: `${borderWidth} ${borderStyle} var(--mantine-color-${cbOpen ? 'red' : healthColor}-6)`,
+        border: `${borderWidth} ${borderStyle} var(--mantine-color-${cbOpen ? 'red' : (selected ? 'blue' : healthColor)}-6)`,
         borderRadius: '8px',
         padding: '12px',
         minWidth: '180px',
-        boxShadow: cbOpen ? '0 0 15px var(--mantine-color-red-6)' : (errorCount > 0 ? `0 0 10px var(--mantine-color-${healthColor}-3)` : '0 4px 6px rgba(0,0,0,0.1)'),
+        boxShadow: selected ? '0 0 0 2px var(--mantine-color-blue-6), 0 4px 12px rgba(0,0,0,0.2)' : (cbOpen ? '0 0 15px var(--mantine-color-red-6)' : (errorCount > 0 ? `0 0 10px var(--mantine-color-${healthColor}-3)` : '0 4px 6px rgba(0,0,0,0.1)')),
         position: 'relative',
         opacity: data.testResult && data.testResult.status === 'FILTERED' ? 0.5 : 1,
+        transition: 'all 0.2s ease',
       }}
     >
+      {(hovered || selected) && (
+        <Tooltip label="Remove node" position="top" withArrow>
+          <ActionIcon 
+            variant="filled" 
+            color="red" 
+            size="sm" 
+            radius="xl"
+            style={{ 
+              position: 'absolute', 
+              top: -12, 
+              right: data.testResult ? 15 : -12, 
+              zIndex: 110,
+              boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+            }}
+            onClick={onDelete}
+          >
+            <IconTrash size="0.8rem" />
+          </ActionIcon>
+        </Tooltip>
+      )}
       {nodeStatus && nodeStatus !== 'running' && (
         <Box 
           style={{ 
@@ -294,3 +328,5 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data }: {
     </Box>
   );
 };
+
+

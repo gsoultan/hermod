@@ -1,8 +1,6 @@
+import { IconInfoCircle, IconSearch, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
-import { ActionIcon, Alert, Box, Group, ScrollArea, Stack, Text, TextInput } from '@mantine/core'
-import { IconInfoCircle, IconSearch, IconTrash } from '@tabler/icons-react'
-
-interface TargetExplorerProps {
+import { ActionIcon, Alert, Box, Group, ScrollArea, Stack, Text, TextInput } from '@mantine/core'interface TargetExplorerProps {
   fields: string[]
   sinkSchemaPresent: boolean
   currentMappings: Record<string, string>
@@ -13,7 +11,7 @@ interface TargetExplorerProps {
 }
 
 export function TargetExplorer({
-  fields,
+  fields = [],
   sinkSchemaPresent,
   currentMappings,
   onMap,
@@ -22,7 +20,7 @@ export function TargetExplorer({
   loading,
 }: TargetExplorerProps) {
   const [search, setSearch] = useState('')
-  const filtered = fields.filter((f) => f.toLowerCase().includes(search.toLowerCase()))
+  const filtered = (fields || []).filter((f) => f.toLowerCase().includes(search.toLowerCase()))
 
   if (!sinkSchemaPresent) {
     return (
@@ -108,3 +106,5 @@ export function TargetExplorer({
     </Stack>
   )
 }
+
+

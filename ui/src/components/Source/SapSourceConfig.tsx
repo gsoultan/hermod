@@ -2,7 +2,7 @@ import { Group, TextInput, PasswordInput } from '@mantine/core'
 import type { FC } from 'react'
 
 export type SapSourceConfigProps = {
-  config: any
+  config: Record<string, any>
   updateConfig: (key: string, value: any) => void
 }
 

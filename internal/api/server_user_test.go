@@ -179,4 +179,38 @@ func TestMe(t *testing.T) {
 			t.Errorf("user was not updated correctly: %+v", s.updatedUser)
 		}
 	})
+
+	t.Run("Update user as admin (should merge)", func(t *testing.T) {
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"id":   "admin1",
+			"role": string(storage.RoleAdministrator),
+			"exp":  time.Now().Add(time.Hour).Unix(),
+		})
+		tokenString, _ := token.SignedString([]byte("test-secret"))
+
+		// Only update full_name, should NOT wipe other fields like role or username
+		reqBody := map[string]string{
+			"full_name": "Admin Updated Name",
+		}
+		body, _ := json.Marshal(reqBody)
+		req := httptest.NewRequest(http.MethodPut, "/api/users/user1", bytes.NewBuffer(body))
+		req.Header.Set("Authorization", "Bearer "+tokenString)
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", rr.Code)
+		}
+
+		if s.updatedUser.FullName != "Admin Updated Name" {
+			t.Errorf("expected FullName to be updated")
+		}
+		// In our previous broken code, other fields would have been wiped.
+		// Our mock GetUser returns a user with RoleViewer.
+		if s.updatedUser.Role != storage.RoleViewer {
+			t.Errorf("expected Role to be preserved as RoleViewer, got %s", s.updatedUser.Role)
+		}
+	})
 }

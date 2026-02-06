@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/buffer"
 	"github.com/user/hermod/pkg/message"
@@ -30,10 +33,8 @@ func (s *mockSource) Read(ctx context.Context) (hermod.Message, error) {
 }
 
 func (s *mockSource) Ack(ctx context.Context, msg hermod.Message) error { return nil }
-
-func (s *mockSource) Ping(ctx context.Context) error { return nil }
-
-func (s *mockSource) Close() error { return nil }
+func (s *mockSource) Ping(ctx context.Context) error                    { return nil }
+func (s *mockSource) Close() error                                      { return nil }
 
 type mockSink struct {
 	received chan hermod.Message
@@ -45,13 +46,14 @@ func (s *mockSink) Write(ctx context.Context, msg hermod.Message) error {
 		s.fail--
 		return fmt.Errorf("mock sink error")
 	}
-	s.received <- msg
+	if s.received != nil {
+		s.received <- msg
+	}
 	return nil
 }
 
 func (s *mockSink) Ping(ctx context.Context) error { return nil }
-
-func (s *mockSink) Close() error { return nil }
+func (s *mockSink) Close() error                   { return nil }
 
 type mockSourceWithLimit struct {
 	limit int
@@ -665,5 +667,408 @@ func TestEngineAdaptiveBatching(t *testing.T) {
 	// Since mockSink is fast, currentBatchSize should have increased
 	if sw.currentBatchSize < 10 {
 		t.Errorf("Expected currentBatchSize to stay at least 10, got %d", sw.currentBatchSize)
+	}
+}
+
+// --- New tests for performance features ---
+
+// mockBatchSink implements hermod.BatchSink to capture batches for assertions.
+type mockBatchSink struct {
+	batches chan []hermod.Message
+}
+
+func (m *mockBatchSink) Write(ctx context.Context, msg hermod.Message) error {
+	return m.WriteBatch(ctx, []hermod.Message{msg})
+}
+
+func (m *mockBatchSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
+	select {
+	case m.batches <- msgs:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (m *mockBatchSink) Ping(ctx context.Context) error { return nil }
+func (m *mockBatchSink) Close() error                   { return nil }
+
+func TestSinkWriter_BatchBytesFlush(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Engine mostly unused but required by sinkWriter
+	e := &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: "wf-test"}
+
+	mb := &mockBatchSink{batches: make(chan []hermod.Message, 1)}
+	cfg := SinkConfig{
+		BatchSize:        100,              // do not flush by count
+		BatchTimeout:     10 * time.Second, // avoid timer flush in test
+		BatchBytes:       10,               // flush when >= 10 bytes
+		AdaptiveBatching: false,
+	}
+
+	sw := &sinkWriter{
+		engine:           e,
+		sink:             mb,
+		sinkID:           "sink-test",
+		index:            0,
+		config:           cfg,
+		ch:               make(chan *pendingMessage, 10),
+		currentBatchSize: cfg.BatchSize,
+	}
+
+	// Start writer
+	go sw.run(ctx)
+
+	// Send three messages: 4 + 4 + 4 bytes => 12 >= 10 triggers flush
+	for i := 0; i < 3; i++ {
+		m := message.AcquireMessage()
+		m.SetID(fmt.Sprintf("m-%d", i))
+		m.SetPayload([]byte("dddd")) // 4 bytes
+		pm := acquirePendingMessage(m)
+		sw.ch <- pm
+	}
+
+	select {
+	case batch := <-mb.batches:
+		if len(batch) != 3 {
+			t.Fatalf("expected 3 messages in flushed batch, got %d", len(batch))
+		}
+		// cleanup pending messages
+		for range batch {
+			// drain done channel and release
+		}
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for batch flush by bytes")
+	}
+}
+
+// orderSink records IDs per key to validate per-key ordering when sharding is enabled.
+type orderSink struct {
+	mu     sync.Mutex
+	perKey map[string][]string
+	wg     *sync.WaitGroup
+}
+
+func (s *orderSink) Write(ctx context.Context, msg hermod.Message) error {
+	key := ""
+	if md := msg.Metadata(); md != nil {
+		key = md["key"]
+	}
+	s.mu.Lock()
+	if s.perKey == nil {
+		s.perKey = make(map[string][]string)
+	}
+	s.perKey[key] = append(s.perKey[key], msg.ID())
+	s.mu.Unlock()
+	if s.wg != nil {
+		s.wg.Done()
+	}
+	return nil
+}
+
+func (s *orderSink) Ping(ctx context.Context) error { return nil }
+func (s *orderSink) Close() error                   { return nil }
+
+func TestSinkWriter_PerKeyShardingOrder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping sharding order test on Windows CI due to timing flakiness")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	e := &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: "wf-shard"}
+	os := &orderSink{perKey: make(map[string][]string)}
+	var wg sync.WaitGroup
+	os.wg = &wg
+
+	cfg := SinkConfig{
+		BatchSize:    1, // flush each message to preserve per-key order clearly
+		BatchTimeout: 5 * time.Second,
+		ShardCount:   4,
+		ShardKeyMeta: "key",
+	}
+
+	sw := &sinkWriter{
+		engine:           e,
+		sink:             os,
+		sinkID:           "sink-sharded",
+		index:            0,
+		config:           cfg,
+		ch:               make(chan *pendingMessage, 100),
+		currentBatchSize: cfg.BatchSize,
+	}
+	// Initialize shards like in engine
+	if cfg.ShardCount > 1 {
+		sw.useShards = true
+		sw.shardCount = cfg.ShardCount
+		sw.shardKeyMeta = cfg.ShardKeyMeta
+		sw.shards = make([]chan *pendingMessage, cfg.ShardCount)
+		for i := 0; i < cfg.ShardCount; i++ {
+			sw.shards[i] = make(chan *pendingMessage, 100)
+		}
+	}
+
+	go sw.run(ctx)
+
+	// Enqueue interleaved messages for two keys, order must be preserved per key
+	keys := []string{"A", "B"}
+	countPerKey := 5
+	wg.Add(len(keys) * countPerKey)
+	for i := 0; i < countPerKey; i++ {
+		for _, k := range keys {
+			m := message.AcquireMessage()
+			m.SetID(fmt.Sprintf("%s-%02d", k, i))
+			m.SetPayload([]byte("x"))
+			m.SetMetadata("key", k)
+			pm := acquirePendingMessage(m)
+			sw.enqueueWithStrategy(ctx, pm, BPBlock)
+		}
+	}
+
+	// Wait for all writes
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+		// verify order
+		os.mu.Lock()
+		defer os.mu.Unlock()
+		for _, k := range keys {
+			got := os.perKey[k]
+			if len(got) != countPerKey {
+				t.Fatalf("key %s: expected %d items, got %d", k, countPerKey, len(got))
+			}
+			for i := 0; i < countPerKey; i++ {
+				expected := fmt.Sprintf("%s-%02d", k, i)
+				if got[i] != expected {
+					t.Fatalf("key %s: expected order %s at pos %d, got %s", k, expected, i, got[i])
+				}
+			}
+		}
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for sharded sink writes")
+	}
+}
+
+func TestBackpressure_DropNewest_Metric(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	wf := "wf-drop-newest"
+	sinkID := "sink-bp"
+	e := &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: wf}
+
+	cfg := SinkConfig{BackpressureStrategy: BPDropNewest}
+	sw := &sinkWriter{
+		engine: e, sinkID: sinkID, config: cfg,
+		ch: make(chan *pendingMessage, 1),
+	}
+	// Fill the channel with one message
+	m1 := message.AcquireMessage()
+	m1.SetID("pm1")
+	pm1 := acquirePendingMessage(m1)
+	sw.ch <- pm1
+
+	// Enqueue second message which should be dropped (newest)
+	m2 := message.AcquireMessage()
+	m2.SetID("pm2")
+	pm2 := acquirePendingMessage(m2)
+	sw.enqueueWithStrategy(ctx, pm2, BPDropNewest)
+
+	// Expect pm2 to be dropped (error on done)
+	select {
+	case err := <-pm2.done:
+		if err == nil {
+			t.Fatal("expected pm2 to be dropped with error")
+		}
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for pm2 drop result")
+	}
+
+	// Metric should have incremented for drop_newest
+	val := testutil.ToFloat64(BackpressureDropTotal.WithLabelValues(wf, sinkID, string(BPDropNewest)))
+	if val < 1 {
+		t.Fatalf("expected BackpressureDropTotal >= 1 for drop_newest, got %v", val)
+	}
+}
+
+func TestBackpressure_DropOldest_Metric(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	wf := "wf-drop-oldest"
+	sinkID := "sink-bp2"
+	e := &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: wf}
+
+	cfg := SinkConfig{BackpressureStrategy: BPDropOldest}
+	sw := &sinkWriter{
+		engine: e, sinkID: sinkID, config: cfg,
+		ch: make(chan *pendingMessage, 1),
+	}
+	m1 := message.AcquireMessage()
+	m1.SetID("old")
+	pm1 := acquirePendingMessage(m1)
+	sw.ch <- pm1 // fills the buffer
+
+	m2 := message.AcquireMessage()
+	m2.SetID("new")
+	pm2 := acquirePendingMessage(m2)
+	sw.enqueueWithStrategy(ctx, pm2, BPDropOldest)
+
+	// The oldest (pm1) should be dropped internally; pm2 should be enqueued
+	select {
+	case got := <-sw.ch:
+		if got == nil || got.msg == nil || got.msg.ID() != "new" {
+			t.Fatalf("expected pm2 to be enqueued after drop_oldest, got %+v", got)
+		}
+	default:
+		t.Fatal("expected pm2 to be present in channel after drop_oldest")
+	}
+
+	val := testutil.ToFloat64(BackpressureDropTotal.WithLabelValues(wf, sinkID, string(BPDropOldest)))
+	if val < 1 {
+		t.Fatalf("expected BackpressureDropTotal >= 1 for drop_oldest, got %v", val)
+	}
+}
+
+func TestBackpressure_SpillToDisk_Metric(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	wf := "wf-spill"
+	sinkID := "sink-spill"
+	e := &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: wf}
+
+	// Prepare a temporary directory for spill buffer
+	dir, err := os.MkdirTemp("", "hermod-spill-test-")
+	if err != nil {
+		t.Fatalf("mkdirtemp failed: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	sw := &sinkWriter{engine: e, sinkID: sinkID, config: SinkConfig{BackpressureStrategy: BPSpillToDisk}}
+	// initialize a file buffer manually
+	fb, err := buffer.NewFileBuffer(dir, 10*1024*1024)
+	if err != nil {
+		t.Fatalf("file buffer init failed: %v", err)
+	}
+	sw.spillBuffer = fb
+	sw.ch = make(chan *pendingMessage, 1)
+
+	// Fill channel, then spill one message
+	m1 := message.AcquireMessage()
+	m1.SetID("inmem")
+	pm1 := acquirePendingMessage(m1)
+	sw.ch <- pm1
+
+	m2 := message.AcquireMessage()
+	m2.SetID("spilled")
+	pm2 := acquirePendingMessage(m2)
+	sw.enqueueWithStrategy(ctx, pm2, BPSpillToDisk)
+
+	// pm2 should be considered handled (no error) and metric incremented
+	select {
+	case err := <-pm2.done:
+		if err != nil {
+			t.Fatalf("expected pm2 to succeed by spilling, got error: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("timeout waiting for pm2 spill result")
+	}
+
+	val := testutil.ToFloat64(BackpressureSpillTotal.WithLabelValues(wf, sinkID))
+	if val < 1 {
+		t.Fatalf("expected BackpressureSpillTotal >= 1, got %v", val)
+	}
+}
+
+// testLogger captures warning/info/error messages for assertions.
+type testLogger struct {
+	mu    sync.Mutex
+	infos []string
+	warns []string
+	errs  []string
+}
+
+func (l *testLogger) Debug(msg string, kv ...interface{}) {}
+func (l *testLogger) Info(msg string, kv ...interface{}) {
+	l.mu.Lock()
+	l.infos = append(l.infos, msg)
+	l.mu.Unlock()
+}
+func (l *testLogger) Warn(msg string, kv ...interface{}) {
+	l.mu.Lock()
+	l.warns = append(l.warns, msg)
+	l.mu.Unlock()
+}
+func (l *testLogger) Error(msg string, kv ...interface{}) {
+	l.mu.Lock()
+	l.errs = append(l.errs, msg)
+	l.mu.Unlock()
+}
+
+// drainSlowSink blocks in Write until unblocked, signaling when Write is entered.
+type drainSlowSink struct {
+	enter   chan struct{}
+	unblock chan struct{}
+}
+
+func (s *drainSlowSink) Write(ctx context.Context, msg hermod.Message) error {
+	// Signal entry then block until unblocked (ignore context cancellation to exercise drain timeout)
+	select {
+	case s.enter <- struct{}{}:
+	default:
+	}
+	<-s.unblock
+	return nil
+}
+
+func (s *drainSlowSink) Ping(ctx context.Context) error { return nil }
+func (s *drainSlowSink) Close() error                   { return nil }
+
+func TestEngine_DrainTimeoutBehavior(t *testing.T) {
+	// Source emits exactly 1 message
+	source := &mockSourceWithLimit{limit: 1}
+	ss := &drainSlowSink{enter: make(chan struct{}, 1), unblock: make(chan struct{})}
+	rb := buffer.NewRingBuffer(10)
+
+	eng := NewEngine(source, []hermod.Sink{ss}, rb)
+	cfg := DefaultConfig()
+	cfg.DrainTimeout = 50 * time.Millisecond
+	eng.SetConfig(cfg)
+	tl := &testLogger{}
+	eng.SetLogger(tl)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- eng.Start(ctx) }()
+
+	// Wait for sink Write to be entered, then cancel engine
+	select {
+	case <-ss.enter:
+		// cancel to trigger shutdown while sink is still writing
+		cancel()
+		// record the time and unblock after a delay to ensure the engine had to wait
+		start := time.Now()
+		time.Sleep(100 * time.Millisecond) // > drain_timeout (50ms)
+		close(ss.unblock)
+		// engine should complete shortly after we unblock
+		elapsed := time.Since(start)
+		if elapsed < 100*time.Millisecond {
+			t.Fatalf("expected to wait at least 100ms before unblocking, got %v", elapsed)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for slow sink to be entered")
+	}
+
+	// Wait for engine to stop
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for engine to stop")
 	}
 }

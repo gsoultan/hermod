@@ -1,7 +1,5 @@
-import { Autocomplete, Button, Group, Select, Stack, Text, TextInput, ActionIcon } from '@mantine/core'
-import { IconPlus, IconTrash } from '@tabler/icons-react'
-
-export interface Condition {
+import { IconPlus, IconTrash } from '@tabler/icons-react';
+import { Autocomplete, Button, Group, Select, Stack, Text, TextInput, ActionIcon } from '@mantine/core'export interface Condition {
   field: string
   operator: string
   value: string
@@ -13,7 +11,7 @@ interface FilterEditorProps {
   onChange: (next: Condition[]) => void
 }
 
-export function FilterEditor({ conditions, availableFields, onChange }: FilterEditorProps) {
+export function FilterEditor({ conditions = [], availableFields = [], onChange }: FilterEditorProps) {
   const updateCondition = (index: number, field: keyof Condition, value: string) => {
     const next = [...conditions]
     next[index] = { ...next[index], [field]: value }
@@ -87,3 +85,5 @@ export function FilterEditor({ conditions, availableFields, onChange }: FilterEd
     </Stack>
   )
 }
+
+

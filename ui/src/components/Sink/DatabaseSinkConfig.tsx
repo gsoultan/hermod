@@ -1,6 +1,4 @@
-import { TextInput, Group, Select, ActionIcon, Title, Stack, Badge, Autocomplete } from '@mantine/core';
-import { IconRefresh } from '@tabler/icons-react';
-
+import { TextInput, Group, Select, ActionIcon, Title, Stack, Badge, Autocomplete } from '@mantine/core';import { IconRefresh } from '@tabler/icons-react';
 interface DatabaseSinkConfigProps {
   type: string;
   config: any;
@@ -110,3 +108,5 @@ export function DatabaseSinkConfig({
     </Stack>
   );
 }
+
+

@@ -374,7 +374,7 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
     setUseBuilder(true)
     setPort((p) => p || defaultPort(dbType))
     // Keep previous user/pw/dbname if present
-  }, [dbType, cryptoMasterKey])
+  }, [dbType, cryptoMasterKey, dbConn])
 
   // Build DSN when using builder (non-SQLite)
   useEffect(() => {

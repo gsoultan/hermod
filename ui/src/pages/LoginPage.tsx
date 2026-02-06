@@ -1,9 +1,8 @@
+import { IconActivity, IconArrowsLeftRight, IconCloudUpload, IconDatabase, IconLock, IconLogin, IconPuzzle, IconRocket, IconShield, IconUser } from '@tabler/icons-react';
 import { useState } from 'react'
 import { Text, TextInput, Button, Paper, Stack, Container, PasswordInput, Group, Anchor, Divider, Box, Center, useMantineColorScheme, SimpleGrid, Title, ThemeIcon, rem, Badge } from '@mantine/core'
 import { useMutation } from '@tanstack/react-query'
-import { useNavigate, useSearch, Link } from '@tanstack/react-router'
-import { IconRocket, IconLock, IconUser, IconShield, IconLogin, IconDatabase, IconCloudUpload, IconArrowsLeftRight, IconActivity, IconPuzzle } from '@tabler/icons-react'
-import { apiFetch } from '../api'
+import { useNavigate, useSearch, Link } from '@tanstack/react-router'import { apiFetch } from '../api'
 import { setToken } from '../auth/storage'
 
 export function LoginPage() {
@@ -294,7 +293,6 @@ export function LoginPage() {
                           leftSection={<IconShield size="1.1rem" stroke={1.5} />}
                           value={twoFactorCode}
                           onChange={(e) => setTwoFactorCode(e.currentTarget.value)}
-                          autoFocus
                         />
                         <Anchor 
                           component="button" 
@@ -361,3 +359,5 @@ export function LoginPage() {
     </Box>
   )
 }
+
+

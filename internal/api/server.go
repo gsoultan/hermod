@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	httppprof "net/http/pprof"
 	"net/url"
 	"os"
 	"strconv"
@@ -29,6 +30,7 @@ import (
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/compression"
 	"github.com/user/hermod/pkg/crypto"
+	"github.com/user/hermod/pkg/filestorage"
 	"github.com/user/hermod/pkg/message"
 	"github.com/user/hermod/pkg/source/form"
 	"github.com/user/hermod/pkg/source/graphql"
@@ -40,6 +42,7 @@ import (
 )
 
 type FormField struct {
+	ID string `json:"id"`
 	// Input fields
 	Name            string   `json:"name"`
 	Label           string   `json:"label"`
@@ -71,11 +74,12 @@ var staticFS embed.FS
 // Server is the HTTP API server for Hermod.
 // It wires routing, middleware, and access to the storage and engine registry.
 type Server struct {
-	storage    storage.Storage
-	logStorage storage.Storage
-	registry   *engine.Registry
-	ai         *ai.SelfHealingService
-	config     *config.Config
+	storage     storage.Storage
+	logStorage  storage.Storage
+	registry    *engine.Registry
+	ai          *ai.SelfHealingService
+	config      *config.Config
+	fileStorage filestorage.Storage
 	// readiness debounce state
 	readyMu            sync.Mutex
 	lastReadyStatus    bool
@@ -83,6 +87,12 @@ type Server struct {
 	lastReadyStatusAt  time.Time
 	// storeMu guards concurrent reads/writes to storage during hot-swap.
 	storeMu sync.RWMutex
+
+	// formRateLimit tracks form submissions for rate limiting.
+	// map[string]int where key is "sourceID:IP:YYYY-MM-DD:HH"
+	formRateLimit sync.Map
+	rateLimitOnce sync.Once
+	rateLimitQuit chan struct{}
 }
 
 // NewServer constructs a new Server with the provided engine registry and storage backend.
@@ -94,13 +104,29 @@ func NewServer(registry *engine.Registry, store storage.Storage, cfg *config.Con
 	if logStore == nil {
 		logStore = store
 	}
-	return &Server{
-		storage:    store,
-		logStorage: logStore,
-		registry:   registry,
-		config:     cfg,
-		ai:         aiSvc,
+	s := &Server{
+		storage:       store,
+		logStorage:    logStore,
+		registry:      registry,
+		config:        cfg,
+		ai:            aiSvc,
+		rateLimitQuit: make(chan struct{}),
 	}
+	// Initialize file storage from config; fallback to local uploads dir
+	if cfg != nil {
+		if fs, err := filestorage.NewStorage(context.Background(), cfg.FileStorage); err == nil {
+			s.fileStorage = fs
+		} else {
+			if lfs, lerr := filestorage.NewLocalStorage("uploads"); lerr == nil {
+				s.fileStorage = lfs
+			}
+		}
+	} else {
+		if lfs, _ := filestorage.NewLocalStorage("uploads"); lfs != nil {
+			s.fileStorage = lfs
+		}
+	}
+	return s
 }
 
 func (s *Server) wakeUpWorkflow(ctx context.Context, resourceType string, path string) bool {
@@ -188,7 +214,10 @@ func (s *Server) recordAuditLog(r *http.Request, level, message, action string, 
 	// Also write to dedicated audit_logs table
 	entityType := ""
 	entityID := ""
-	if workflowID != "" {
+	if sourceID == "user" || sourceID == "vhost" {
+		entityType = sourceID
+		entityID = workflowID
+	} else if workflowID != "" {
 		entityType = "workflow"
 		entityID = workflowID
 	} else if sourceID != "" {
@@ -227,6 +256,8 @@ func (s *Server) registerInfrastructureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/config/state", s.updateStateStoreConfig)
 	mux.HandleFunc("GET /api/config/observability", s.getObservabilityConfig)
 	mux.HandleFunc("PUT /api/config/observability", s.updateObservabilityConfig)
+	mux.HandleFunc("GET /api/config/storage", s.getFileStorageConfig)
+	mux.HandleFunc("PUT /api/config/storage", s.updateFileStorageConfig)
 	mux.HandleFunc("POST /api/config/database", s.saveDBConfig)
 	mux.HandleFunc("POST /api/config/database/test", s.testDBConfig)
 	// List databases on a target server for setup wizard
@@ -317,6 +348,15 @@ func (s *Server) updateCryptoMasterKey(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
+	// Optional pprof endpoints guarded by env var
+	if os.Getenv("HERMOD_PPROF") == "true" {
+		mux.HandleFunc("/debug/pprof/", httppprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", httppprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", httppprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", httppprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", httppprof.Trace)
+	}
+
 	s.registerSourceRoutes(mux)
 	s.registerSinkRoutes(mux)
 	s.registerWorkflowRoutes(mux)
@@ -332,6 +372,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/webhooks/{path...}", s.handleWebhook)
 	mux.HandleFunc("GET /api/webhooks/{path...}", s.handleWebhook)
 	mux.HandleFunc("POST /api/graphql/{path...}", s.handleGraphQL)
+	// SSE streams
+	mux.HandleFunc("GET /api/sse/stream", s.handleSSEStream)
+
+	// WebSocket server-mode endpoints
+	mux.HandleFunc("GET /api/ws/in/{path...}", s.handleWSIn)
+	mux.HandleFunc("GET /api/ws/out/{workflowID}", s.handleWSOut)
 
 	// Form submissions endpoint
 	mux.HandleFunc("POST /api/forms/{path...}", s.handleForm)
@@ -504,7 +550,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 					}
 
 					if signature == "" {
-						http.Error(w, "Missing signature", http.StatusUnauthorized)
+						s.jsonError(w, "Missing signature", http.StatusUnauthorized)
 						return
 					}
 
@@ -601,7 +647,7 @@ func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
 				reqKey = r.URL.Query().Get("api_key")
 			}
 			if reqKey != apiKey {
-				http.Error(w, "Invalid API Key", http.StatusUnauthorized)
+				s.jsonError(w, "Invalid API Key", http.StatusUnauthorized)
 				return
 			}
 		}
@@ -638,9 +684,27 @@ gql_dispatched:
 // handleForm receives form submissions (JSON, x-www-form-urlencoded, or multipart)
 // and dispatches them to the in-memory form source registry for the configured path.
 func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
+	isAJAX := strings.Contains(r.Header.Get("Accept"), "application/json") ||
+		r.Header.Get("X-Requested-With") == "XMLHttpRequest"
+
+	sendErr := func(msg string, code int) {
+		if isAJAX {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(code)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+			return
+		}
+		http.Error(w, msg, code)
+	}
+
 	path := r.PathValue("path")
 	if path == "" {
-		http.Error(w, "Path is required", http.StatusBadRequest)
+		sendErr("Path is required", http.StatusBadRequest)
+		return
+	}
+
+	if strings.HasSuffix(path, "/script.js") {
+		s.serveFormScript(w, r)
 		return
 	}
 
@@ -654,7 +718,7 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(ct, "application/json") {
 		body, err = io.ReadAll(r.Body)
 		if err != nil {
-			http.Error(w, "Failed to read body", http.StatusInternalServerError)
+			sendErr("Failed to read body", http.StatusInternalServerError)
 			return
 		}
 		// Attempt to decode for validation and field post-processing
@@ -664,7 +728,7 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 		// Try multipart first
 		if strings.Contains(ct, "multipart/form-data") {
 			if err := r.ParseMultipartForm(10 << 20); err != nil { // 10MB
-				http.Error(w, "Failed to parse multipart form", http.StatusBadRequest)
+				sendErr("Failed to parse multipart form", http.StatusBadRequest)
 				return
 			}
 			// Multipart form values
@@ -694,7 +758,7 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// x-www-form-urlencoded or other
 			if err := r.ParseForm(); err != nil {
-				http.Error(w, "Failed to parse form", http.StatusBadRequest)
+				sendErr("Failed to parse form", http.StatusBadRequest)
 				return
 			}
 			for k, v := range r.Form {
@@ -713,12 +777,14 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 	var enableBotProtection = true
 	var botMinMs = 1200
 	var methodForSource string
+	var sourceID string
 	{
 		sources, _, e := s.storage.ListSources(r.Context(), storage.CommonFilter{})
 		if e == nil {
 			for _, src := range sources {
 				if src.Type == "form" && src.Config["path"] == fullPath {
 					srcCfg = src.Config
+					sourceID = src.ID
 					fieldsCfg = src.Config["fields"]
 					if src.Config["enable_bot_protection"] == "false" {
 						enableBotProtection = false
@@ -735,8 +801,28 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Domain/Origin validation
+	if srcCfg != nil && srcCfg["allowed_origins"] != "" {
+		origin := r.Header.Get("Origin")
+		referer := r.Header.Get("Referer")
+		if !s.isOriginAllowed(origin, referer, srcCfg["allowed_origins"]) {
+			sendErr("Domain not allowed. This form is restricted to specific websites.", http.StatusForbidden)
+			return
+		}
+	}
+
+	// Rate limiting
+	if srcCfg != nil && srcCfg["rate_limit_hourly"] != "" {
+		if limit, err := strconv.Atoi(srcCfg["rate_limit_hourly"]); err == nil && limit > 0 {
+			if s.isRateLimited(r, sourceID, limit) {
+				sendErr("Too many submissions from your IP. Please try again in an hour.", http.StatusTooManyRequests)
+				return
+			}
+		}
+	}
+
 	if err := s.botProtectionCheck(r, payload, enableBotProtection, botMinMs, srcCfg); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		sendErr(err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -768,7 +854,7 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 						_, _ = w.Write([]byte("<!doctype html><html><head><meta charset=\"utf-8\"><title>Validation Error</title><style>body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f6f8fb;margin:0;display:flex;align-items:center;justify-content:center;height:100vh}.card{background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(22,32,50,0.08);padding:28px;max-width:560px;text-align:center} h1{font-size:20px;margin:0 0 6px} p{color:#d32f2f;margin:0}</style></head><body><div class=\"card\"><h1>Validation Error</h1><p>Field '" + htmlEscape(fd.Label) + "' is required.</p></div></body></html>"))
 						return
 					}
-					http.Error(w, fmt.Sprintf("Field '%s' is required", fd.Label), http.StatusBadRequest)
+					sendErr(fmt.Sprintf("Field '%s' is required", fd.Label), http.StatusBadRequest)
 					return
 				}
 			}
@@ -830,7 +916,7 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 		Status:    "pending",
 	}
 	if err := s.storage.CreateFormSubmission(r.Context(), submission); err != nil {
-		http.Error(w, "Failed to persist submission: "+err.Error(), http.StatusInternalServerError)
+		sendErr("Failed to persist submission: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -850,14 +936,14 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 			signature := r.Header.Get("X-Form-Signature")
 			if signature == "" {
 				message.ReleaseMessage(msg)
-				http.Error(w, "Missing signature", http.StatusUnauthorized)
+				s.jsonError(w, "Missing signature", http.StatusUnauthorized)
 				return
 			}
 			// Verify signature using HMAC-SHA256
 			expectedSig := crypto.ComputeHMAC(body, secret)
 			if signature != expectedSig {
 				message.ReleaseMessage(msg)
-				http.Error(w, "Invalid signature", http.StatusUnauthorized)
+				s.jsonError(w, "Invalid signature", http.StatusUnauthorized)
 				return
 			}
 		}
@@ -880,6 +966,59 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 	}
 
 form_dispatched:
+	// Try to fetch redirect_url and success_message from source config
+	var redirectURL, successMsg string
+	if srcCfg != nil {
+		redirectURL = srcCfg["redirect_url"]
+		successMsg = srcCfg["success_message"]
+
+		// Support Go templates in success message and redirect URL
+		if strings.Contains(successMsg, "{{") || strings.Contains(redirectURL, "{{") {
+			funcMap := template.FuncMap{
+				"htmlEscape": htmlEscape,
+			}
+			if successMsg != "" {
+				tmpl, err := template.New("msg").Funcs(funcMap).Parse(successMsg)
+				if err == nil {
+					var buf bytes.Buffer
+					if err := tmpl.Execute(&buf, payload); err == nil {
+						successMsg = buf.String()
+					}
+				}
+			}
+			if redirectURL != "" {
+				tmpl, err := template.New("url").Funcs(funcMap).Parse(redirectURL)
+				if err == nil {
+					var buf bytes.Buffer
+					if err := tmpl.Execute(&buf, payload); err == nil {
+						redirectURL = buf.String()
+					}
+				}
+			}
+		}
+	}
+	if successMsg == "" {
+		successMsg = "Thank you! Your submission has been received."
+	}
+
+	// Return JSON if requested via AJAX/Fetch
+	if isAJAX {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		resp := map[string]string{
+			"status": "dispatched",
+			"id":     msgID,
+		}
+		if successMsg != "" {
+			resp["message"] = successMsg
+		}
+		if redirectURL != "" {
+			resp["redirect_url"] = redirectURL
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+		return
+	}
+
 	if r.Method == "GET" {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msgID})
@@ -889,40 +1028,7 @@ form_dispatched:
 	// If the client prefers HTML (generated public form), render a success page
 	if wantsHTML(r) || strings.Contains(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") || strings.Contains(r.Header.Get("Content-Type"), "multipart/form-data") {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		// Try to fetch redirect_url and success_message from source config
-		var redirectURL, successMsg string
-		if srcCfg != nil {
-			redirectURL = srcCfg["redirect_url"]
-			successMsg = srcCfg["success_message"]
 
-			// Support Go templates in success message and redirect URL
-			if strings.Contains(successMsg, "{{") || strings.Contains(redirectURL, "{{") {
-				funcMap := template.FuncMap{
-					"htmlEscape": htmlEscape,
-				}
-				if successMsg != "" {
-					tmpl, err := template.New("msg").Funcs(funcMap).Parse(successMsg)
-					if err == nil {
-						var buf bytes.Buffer
-						if err := tmpl.Execute(&buf, payload); err == nil {
-							successMsg = buf.String()
-						}
-					}
-				}
-				if redirectURL != "" {
-					tmpl, err := template.New("url").Funcs(funcMap).Parse(redirectURL)
-					if err == nil {
-						var buf bytes.Buffer
-						if err := tmpl.Execute(&buf, payload); err == nil {
-							redirectURL = buf.String()
-						}
-					}
-				}
-			}
-		}
-		if successMsg == "" {
-			successMsg = "Thank you! Your submission has been received."
-		}
 		// Basic auto-redirect if provided
 		if redirectURL != "" {
 			_, _ = w.Write([]byte("<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"1; url=" + htmlEscape(redirectURL) + "\"><title>Submitted</title><style>body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f6f8fb} .card{background:#fff;padding:32px 28px;border-radius:12px;box-shadow:0 10px 30px rgba(22,32,50,0.08);max-width:520px;text-align:center} h1{font-size:22px;margin:0 0 8px} p{margin:0 0 4px;color:#556} .small{color:#889}</style></head><body><div class=\"card\"><h1>" + htmlEscape(successMsg) + "</h1><p class=\"small\">Redirecting…</p></div></body></html>"))
@@ -932,6 +1038,7 @@ form_dispatched:
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msgID})
 }
@@ -1000,15 +1107,27 @@ func (s *Server) serveFormPage(w http.ResponseWriter, r *http.Request) {
 	// Build HTML
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	var b strings.Builder
-	b.WriteString("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Form</title><style>")
+
+	formTitle := cfg["form_title"]
+	if formTitle == "" {
+		formTitle = "Form Submission"
+	}
+	formDesc := cfg["form_description"]
+	if formDesc == "" {
+		formDesc = "Fill out the form below and submit. Fields marked with * are required."
+	}
+
+	b.WriteString("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>")
+	b.WriteString(htmlEscape(formTitle))
+	b.WriteString("</title><style>")
 	b.WriteString("*{box-sizing:border-box}body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:#f6f8fb;color:#1a1f36} .container{max-width:820px;margin:40px auto;padding:0 16px} .card{background:#fff;border-radius:14px;box-shadow:0 10px 30px rgba(22,32,50,0.08);padding:28px} h1{font-size:24px;margin:0 0 8px} h2{font-size:20px;margin:18px 0 8px} h3{font-size:16px;margin:16px 0 6px;color:#374151} p.lead{margin:0 0 18px;color:#5b6472} .grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px} .col-12{grid-column:span 12} .col-6{grid-column:span 6} @media(max-width:720px){.col-6{grid-column:span 12}} .row{display:grid;grid-template-columns:1fr 1fr;gap:16px} @media(max-width:720px){.row{grid-template-columns:1fr}} .field{margin:2px 0 6px} label{display:block;font-weight:600;margin:0 0 6px} input, select, textarea{width:100%;padding:10px 12px;border:1px solid #d7dde9;border-radius:10px;background:#fff;outline:none;transition:border .15s, box-shadow .15s} input:focus, select:focus, textarea:focus{border-color:#6b8cff;box-shadow:0 0 0 3px rgba(107,140,255,.15)} .help{font-size:12px;color:#6b7280;margin-top:6px} .actions{margin-top:18px;display:flex;gap:12px;justify-content:flex-end} .btn{background:#3b82f6;color:#fff;border:none;padding:12px 16px;border-radius:10px;font-weight:700;cursor:pointer} .btn.secondary{background:#e5e7eb;color:#111827} .btn:hover{background:#2f6fe0} .note{font-size:12px;color:#6b7280;margin-top:8px} .badge{display:inline-block;background:#eef2ff;color:#3949ab;border-radius:999px;padding:4px 10px;font-size:11px;margin-left:8px} hr.divider{border:none;border-top:1px solid #e5e7eb;margin:16px 0}")
 	b.WriteString("</style></head><body><div class=\"container\"><div class=\"card\">")
-	b.WriteString("<h1>Form Submission")
-	if path != "" {
+	b.WriteString("<h1>" + htmlEscape(formTitle))
+	if path != "" && formTitle == "Form Submission" {
 		b.WriteString("<span class=\"badge\">" + htmlEscape(path) + "</span>")
 	}
 	b.WriteString("</h1>")
-	b.WriteString("<p class=\"lead\">Fill out the form below and submit. Fields marked with * are required.</p>")
+	b.WriteString("<p class=\"lead\">" + htmlEscape(formDesc) + "</p>")
 	b.WriteString("<form method=\"" + method + "\" action=\"" + htmlEscape(fullPath) + "\" enctype=\"" + encType + "\">")
 	if enableBot && token != "" {
 		// Honeypot + token fields
@@ -1199,6 +1318,133 @@ func (s *Server) serveFormPage(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(b.String()))
 }
 
+// serveFormScript serves a JavaScript snippet that can be embedded on any website
+// to capture form submissions and send them to the current form source path.
+func (s *Server) serveFormScript(w http.ResponseWriter, r *http.Request) {
+	path := r.PathValue("path")
+	if strings.HasSuffix(path, "/script.js") {
+		path = strings.TrimSuffix(path, "/script.js")
+	}
+	if path == "" {
+		http.Error(w, "Path is required", http.StatusBadRequest)
+		return
+	}
+	fullPath := "/api/forms/" + path
+
+	// Determine origin for the script
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	origin := fmt.Sprintf("%s://%s", scheme, r.Host)
+	endpoint := origin + fullPath
+
+	// Check if bot protection is enabled for this form
+	enableBot := true
+	sources, _, err := s.storage.ListSources(r.Context(), storage.CommonFilter{})
+	if err == nil {
+		for _, src := range sources {
+			if src.Type == "form" && src.Config["path"] == fullPath {
+				if src.Config["enable_bot_protection"] == "false" {
+					enableBot = false
+				}
+				break
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+
+	hpInject := ""
+	if enableBot {
+		hpInject = `
+            // Add honeypot field
+            const hpField = document.createElement('input');
+            hpField.type = 'text';
+            hpField.name = 'website';
+            hpField.style.display = 'none';
+            hpField.tabIndex = -1;
+            hpField.setAttribute('autocomplete', 'off');
+            form.appendChild(hpField);`
+	}
+
+	script := `(function() {
+    const FORM_PATH = "` + path + `";
+    const ENDPOINT = "` + endpoint + `";
+    
+    function init() {
+        const selector = 'form[data-hermod-form="' + FORM_PATH + '"], form#hermod-' + FORM_PATH.replace(/\//g, '-');
+        const forms = document.querySelectorAll(selector);
+        
+        if (forms.length === 0) {
+            return;
+        }
+
+        forms.forEach(form => {
+            if (form.getAttribute('data-hermod-initialized')) return;
+            form.setAttribute('data-hermod-initialized', 'true');
+` + hpInject + `
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const submitBtn = form.querySelector('[type="submit"]');
+                const originalBtnText = submitBtn ? submitBtn.innerText : '';
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.innerText = 'Submitting...';
+                }
+
+                const formData = new FormData(form);
+                
+                fetch(ENDPOINT, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                })
+                .then(async response => {
+                    const isJson = response.headers.get('content-type')?.includes('application/json');
+                    const data = isJson ? await response.json() : null;
+
+                    if (response.ok) {
+                        if (data && data.redirect_url) {
+                            window.location.href = data.redirect_url;
+                        } else {
+                            const successMsg = data?.message || 'Thank you! Your submission has been received.';
+                            alert(successMsg);
+                            form.reset();
+                        }
+                    } else {
+                        const errorMsg = data?.error || 'Submission failed. Please try again.';
+                        alert(errorMsg);
+                    }
+                })
+                .catch(error => {
+                    console.error('Hermod Error:', error);
+                    alert('An error occurred. Please try again later.');
+                })
+                .finally(() => {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.innerText = originalBtnText;
+                    }
+                });
+            });
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();`
+
+	_, _ = w.Write([]byte(script))
+}
+
 // htmlEscape is a tiny helper to escape text for HTML attributes/contents
 func htmlEscape(s string) string {
 	r := strings.NewReplacer(
@@ -1235,6 +1481,86 @@ func (s *Server) isFirstRun(ctx context.Context) bool {
 		return true
 	}
 	return total == 0
+}
+
+func (s *Server) isOriginAllowed(origin, referer, allowed string) bool {
+	if allowed == "" {
+		return true
+	}
+	allowedList := strings.Split(allowed, ",")
+	for _, a := range allowedList {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		// Basic check: origin or referer contains the allowed domain
+		if (origin != "" && strings.Contains(origin, a)) || (referer != "" && strings.Contains(referer, a)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) isRateLimited(r *http.Request, sourceID string, limit int) bool {
+	if limit <= 0 {
+		return false
+	}
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if ip == "" {
+		ip = r.RemoteAddr
+	}
+	// Use X-Forwarded-For if behind a proxy
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ip = strings.Split(xff, ",")[0]
+	}
+
+	key := fmt.Sprintf("%s:%s:%s", sourceID, ip, time.Now().Format("2006-01-02:15"))
+	val, ok := s.formRateLimit.Load(key)
+	count := 0
+	if ok {
+		count = val.(int)
+	}
+	if count >= limit {
+		return true
+	}
+	s.formRateLimit.Store(key, count+1)
+
+	// Lazy start cleanup
+	s.startRateLimitCleanup()
+
+	return false
+}
+
+func (s *Server) startRateLimitCleanup() {
+	s.rateLimitOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(1 * time.Hour)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					now := time.Now()
+					s.formRateLimit.Range(func(key, value interface{}) bool {
+						k := key.(string)
+						parts := strings.Split(k, ":")
+						if len(parts) >= 3 {
+							// Format: sourceID:IP:YYYY-MM-DD:HH
+							// The last part is the key suffix we care about
+							datePart := parts[len(parts)-1]
+							if t, err := time.Parse("2006-01-02:15", datePart); err == nil {
+								if now.Sub(t) > 2*time.Hour {
+									s.formRateLimit.Delete(key)
+								}
+							}
+						}
+						return true
+					})
+				case <-s.rateLimitQuit:
+					return
+				}
+			}
+		}()
+	})
 }
 
 func (s *Server) botProtectionCheck(r *http.Request, payload map[string]interface{}, enable bool, minMs int, srcCfg map[string]string) error {

@@ -45,6 +45,14 @@ func (s *MySQLSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 	}
 	defer tx.Rollback()
 
+	// Prepare statement cache per table/op for this transaction to reduce parse overhead
+	stmts := make(map[string]*sql.Stmt)
+	defer func() {
+		for _, st := range stmts {
+			_ = st.Close()
+		}
+	}()
+
 	for _, msg := range msgs {
 		if msg == nil {
 			continue
@@ -62,11 +70,29 @@ func (s *MySQLSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 
 		switch op {
 		case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
-			query := fmt.Sprintf(commonQueries[QueryUpsert], table)
-			_, err = tx.ExecContext(ctx, query, msg.ID(), msg.Payload())
+			key := "upsert:" + table
+			st := stmts[key]
+			if st == nil {
+				query := fmt.Sprintf(commonQueries[QueryUpsert], table)
+				st, err = tx.PrepareContext(ctx, query)
+				if err != nil {
+					return fmt.Errorf("prepare upsert failed: %w", err)
+				}
+				stmts[key] = st
+			}
+			_, err = st.ExecContext(ctx, msg.ID(), msg.Payload())
 		case hermod.OpDelete:
-			query := fmt.Sprintf(commonQueries[QueryDelete], table)
-			_, err = tx.ExecContext(ctx, query, msg.ID())
+			key := "delete:" + table
+			st := stmts[key]
+			if st == nil {
+				query := fmt.Sprintf(commonQueries[QueryDelete], table)
+				st, err = tx.PrepareContext(ctx, query)
+				if err != nil {
+					return fmt.Errorf("prepare delete failed: %w", err)
+				}
+				stmts[key] = st
+			}
+			_, err = st.ExecContext(ctx, msg.ID())
 		default:
 			err = fmt.Errorf("unsupported operation: %s", op)
 		}
@@ -84,6 +110,10 @@ func (s *MySQLSink) init(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to mysql: %w", err)
 	}
+	// Conservative pool defaults
+	db.SetMaxOpenConns(20)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxIdleTime(60 * time.Second)
 	s.db = db
 	return s.db.PingContext(ctx)
 }

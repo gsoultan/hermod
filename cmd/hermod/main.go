@@ -53,6 +53,42 @@ func main() {
 	masterKey := flag.String("master-key", "", "Master key for encryption (32 bytes)")
 	flag.Parse()
 
+	// Environment fallbacks to simplify production configuration
+	// Only apply when corresponding flag keeps its default value.
+	if v := os.Getenv("HERMOD_MODE"); v != "" && *mode == "standalone" {
+		*mode = v
+	}
+	if v := os.Getenv("HERMOD_WORKER_GUID"); v != "" && *workerGUID == "" {
+		*workerGUID = v
+	}
+	if v := os.Getenv("HERMOD_WORKER_TOKEN"); v != "" && *workerToken == "" {
+		*workerToken = v
+	}
+	if v := os.Getenv("HERMOD_PLATFORM_URL"); v != "" && *platformURL == "" {
+		*platformURL = v
+	}
+	if v := os.Getenv("HERMOD_WORKER_HOST"); v != "" && *workerHost == "localhost" {
+		*workerHost = v
+	}
+	if v := os.Getenv("HERMOD_WORKER_PORT"); v != "" && *workerPort == 3000 {
+		if p, err := strconv.Atoi(v); err == nil {
+			*workerPort = p
+		}
+	}
+	if v := os.Getenv("HERMOD_WORKER_DESCRIPTION"); v != "" && *workerDescription == "" {
+		*workerDescription = v
+	}
+	if v := os.Getenv("HERMOD_WORKER_ID"); v != "" && *workerID == 0 {
+		if id, err := strconv.Atoi(v); err == nil {
+			*workerID = id
+		}
+	}
+	if v := os.Getenv("HERMOD_TOTAL_WORKERS"); v != "" && *totalWorkers == 1 {
+		if tw, err := strconv.Atoi(v); err == nil {
+			*totalWorkers = tw
+		}
+	}
+
 	// Set master key from environment or flag
 	if *masterKey != "" {
 		crypto.SetMasterKey(*masterKey)
@@ -185,6 +221,12 @@ func main() {
 			if cfg.Engine.ReconnectInterval > 0 {
 				engCfg.ReconnectInterval = cfg.Engine.ReconnectInterval
 			}
+			if cfg.Engine.MaxInflight > 0 {
+				engCfg.MaxInflight = cfg.Engine.MaxInflight
+			}
+			if cfg.Engine.DrainTimeout > 0 {
+				engCfg.DrainTimeout = cfg.Engine.DrainTimeout
+			}
 			registry.SetConfig(engCfg)
 		}
 
@@ -234,6 +276,7 @@ func main() {
 		// Start API if not in worker-only mode (always start API in first-time setup)
 		if *mode == "api" || *mode == "standalone" {
 			aiSvc := ai.NewSelfHealingService(logger)
+
 			server := api.NewServer(registry, store, cfg, aiSvc, logStore)
 			storageName := dbTypeVal
 			if firstRun {
@@ -354,6 +397,11 @@ func initStorage(dbType, dbConn string) (storage.Storage, error) {
 		if dbType == "sqlite" {
 			db.SetMaxOpenConns(4)
 			db.SetMaxIdleConns(1)
+		} else {
+			// Conservative pool defaults for API/storage DB
+			db.SetMaxOpenConns(20)
+			db.SetMaxIdleConns(10)
+			db.SetConnMaxIdleTime(60 * time.Second)
 		}
 
 		store = storagesql.NewSQLStorage(db, driver)

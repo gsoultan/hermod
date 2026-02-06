@@ -34,7 +34,7 @@ observability:
     otlp:
         endpoint: ""
         protocol: grpc
-        insecure: true
+        insecure: false
         headers: {}
         service_name: hermod
 auth:

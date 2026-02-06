@@ -43,6 +43,10 @@ func (m *deleteSourceMockStorage) UpdateWorkflow(ctx context.Context, wf storage
 	return nil
 }
 
+func (m *deleteSourceMockStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
+	return nil
+}
+
 func (m *deleteSourceMockStorage) CreateLog(ctx context.Context, l storage.Log) error {
 	return nil
 }

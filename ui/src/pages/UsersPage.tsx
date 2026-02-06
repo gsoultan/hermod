@@ -1,22 +1,9 @@
+import { IconEdit, IconSearch, IconShieldLock, IconShieldOff, IconTrash, IconUserPlus, IconUsers } from '@tabler/icons-react';
 import { useState } from 'react'
 import { Title, Table, Button, Group, ActionIcon, Box, Paper, Text, Stack, TextInput, Pagination, Badge } from '@mantine/core'
-import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { IconTrash, IconUserPlus, IconUsers, IconEdit, IconSearch, IconShieldLock, IconShieldOff } from '@tabler/icons-react'
-import { apiFetch } from '../api'
+import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'import { apiFetch } from '../api'
 import { useNavigate } from '@tanstack/react-router'
-
-export type Role = 'Administrator' | 'Editor' | 'Viewer'
-
-interface User {
-  id: string
-  username: string
-  full_name: string
-  email: string
-  role: Role
-  vhosts: string[]
-  two_factor_enabled: boolean
-  password?: string
-}
+import type { User } from '../types'
 
 export function UsersPage() {
   const queryClient = useQueryClient()
@@ -34,8 +21,8 @@ export function UsersPage() {
     }
   })
 
-  const users = Array.isArray(usersResponse?.data) ? usersResponse.data : []
-  const totalItems = usersResponse?.total || 0
+  const users = (usersResponse as any)?.data as User[] || []
+  const totalItems = (usersResponse as any)?.total as number || 0
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -65,14 +52,14 @@ export function UsersPage() {
       </Table.Td>
       <Table.Td>
         <Group justify="flex-end">
-          <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/users/${user.id}/edit` })} radius="md">
+          <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/users/${user.id}/edit` })} radius="md" aria-label="Edit user">
             <IconEdit size="1.2rem" stroke={1.5} />
           </ActionIcon>
           <ActionIcon color="red" variant="light" onClick={() => {
             if (confirm('Are you sure you want to delete this user?')) {
               deleteMutation.mutate(user.id);
             }
-          }} radius="md">
+          }} radius="md" aria-label="Delete user">
             <IconTrash size="1.2rem" />
           </ActionIcon>
         </Group>
@@ -153,3 +140,5 @@ export function UsersPage() {
     </Box>
   )
 }
+
+

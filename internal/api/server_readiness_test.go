@@ -95,7 +95,10 @@ func (f *fakeStorage) DeleteWorkspace(ctx context.Context, id string) error {
 }
 func (f *fakeStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
 func (f *fakeStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
-func (f *fakeStorage) DeleteWorkflow(ctx context.Context, id string) error           { return nil }
+func (f *fakeStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
+	return nil
+}
+func (f *fakeStorage) DeleteWorkflow(ctx context.Context, id string) error { return nil }
 func (f *fakeStorage) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
 	return storage.Workflow{}, storage.ErrNotFound
 }

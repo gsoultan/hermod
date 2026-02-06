@@ -83,7 +83,10 @@ func (m *BaseMockStorage) GetWorkspace(ctx context.Context, id string) (storage.
 func (m *BaseMockStorage) DeleteWorkspace(ctx context.Context, id string) error          { return nil }
 func (m *BaseMockStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
 func (m *BaseMockStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
-func (m *BaseMockStorage) DeleteWorkflow(ctx context.Context, id string) error           { return nil }
+func (m *BaseMockStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
+	return nil
+}
+func (m *BaseMockStorage) DeleteWorkflow(ctx context.Context, id string) error { return nil }
 func (m *BaseMockStorage) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
 	return storage.Workflow{}, storage.ErrNotFound
 }

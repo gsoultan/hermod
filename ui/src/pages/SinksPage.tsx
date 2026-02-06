@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, Modal, List, ThemeIcon, TextInput, Pagination } from '@mantine/core';
-import { IconTrash, IconPlus, IconExternalLink, IconEdit, IconAlertCircle, IconSearch, IconActivity } from '@tabler/icons-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, getRoleFromToken } from '../api';
 import { useVHost } from '../context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
 import { useDisclosure } from '@mantine/hooks';
-
+import type { Sink, Workflow, Worker } from '../types';
+import { IconActivity, IconAlertCircle, IconEdit, IconExternalLink, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
 const API_BASE = '/api';
 
 export function SinksPage() {
@@ -16,7 +16,7 @@ export function SinksPage() {
   const isViewer = role === 'Viewer';
   const navigate = useNavigate();
   const [opened, { open, close }] = useDisclosure(false);
-  const [sinkToDelete, setSinkToDelete] = useState<any>(null);
+  const [sinkToDelete, setSinkToDelete] = useState<Sink | null>(null);
   const [search, setSearch] = useState('');
   const [activePage, setPage] = useState(1);
   const itemsPerPage = 30;
@@ -55,8 +55,8 @@ export function SinksPage() {
     refetchInterval: false,
   });
 
-  const sinks = (sinksResponse as any)?.data || [];
-  const totalItems = (sinksResponse as any)?.total || 0;
+  const sinks = (sinksResponse as any)?.data as Sink[] || [];
+  const totalItems = (sinksResponse as any)?.total as number || 0;
 
   const { data: workflowsResponse } = useQuery({
     queryKey: ['workflows-for-delete', selectedVHost],
@@ -70,10 +70,10 @@ export function SinksPage() {
     staleTime: 60_000,
     refetchInterval: false,
   });
-  const workflows = (workflowsResponse as any)?.data || [];
+  const workflows = (workflowsResponse as any)?.data as Workflow[] || [];
 
   const activeWorkflowsUsingSink = sinkToDelete 
-    ? (workflows as any[])?.filter(wf => wf.nodes?.some((n: any) => n.type === 'sink' && n.ref_id === sinkToDelete.id) && wf.active)
+    ? workflows.filter(wf => wf.nodes?.some((n: any) => n.type === 'sink' && n.ref_id === sinkToDelete.id) && wf.active)
     : [];
 
   const { data: workersResponse } = useQuery({
@@ -87,10 +87,10 @@ export function SinksPage() {
     staleTime: 60_000,
     refetchInterval: false,
   });
-  const workers = (workersResponse as any)?.data || [];
+  const workers = (workersResponse as any)?.data as Worker[] || [];
 
   const getWorkerName = (id: string) => {
-    const worker = (workers as any[])?.find(w => w.id === id);
+    const worker = workers.find(w => w.id === id);
     return worker ? worker.name : id;
   };
 
@@ -155,6 +155,8 @@ export function SinksPage() {
               )}
             </Group>
             <TextInput
+              label="Search sinks"
+              aria-label="Search sinks"
               placeholder="Search sinks by name or type..."
               leftSection={<IconSearch size="1rem" stroke={1.5} />}
               value={search}
@@ -248,13 +250,13 @@ export function SinksPage() {
                 <Table.Td>
                   {!isViewer && (
                     <Group justify="flex-end">
-                      <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/sinks/${snk.id}/edit` })} radius="md">
+                      <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/sinks/${snk.id}/edit` })} radius="md" aria-label="Edit sink">
                         <IconEdit size="1.2rem" stroke={1.5} />
                       </ActionIcon>
                       <ActionIcon variant="light" color="red" onClick={() => {
                         setSinkToDelete(snk);
                         open();
-                      }} radius="md">
+                      }} radius="md" aria-label="Delete sink">
                         <IconTrash size="1.2rem" stroke={1.5} />
                       </ActionIcon>
                     </Group>
@@ -310,7 +312,7 @@ export function SinksPage() {
                   </ThemeIcon>
                 }
               >
-                {activeWorkflowsUsingSink.map((wf: any) => (
+                {activeWorkflowsUsingSink.map((wf: Workflow) => (
                   <List.Item key={wf.id}>
                     <Text size="xs" component="span" fw={500}>{wf.name}</Text>
                   </List.Item>

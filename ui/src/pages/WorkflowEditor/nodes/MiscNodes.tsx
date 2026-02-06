@@ -1,24 +1,19 @@
 import { Position } from 'reactflow';
 import { 
-  Text, Badge, Group, ThemeIcon, Paper, useMantineColorScheme 
-} from '@mantine/core';
-import { 
-  IconFilter, IconGitBranch, IconGitMerge, IconDatabase, IconNote,
-  IconVariable, IconEye, IconShieldLock, IconSearch, IconCloud,
-  IconPlaylist, IconCode, IconChecklist, IconArrowsSplit
-} from '@tabler/icons-react';
-import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
-
-export const ValidatorNode = ({ id, data }: any) => {
+  Text, Badge, Group, ThemeIcon, Paper, useMantineColorScheme, ActionIcon 
+} from '@mantine/core';import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
+import { useState } from 'react';
+import { useWorkflowStore } from '../store/useWorkflowStore';import { IconArrowsSplit, IconChecklist, IconCloud, IconCode, IconDatabase, IconEye, IconFilter, IconGitBranch, IconGitMerge, IconNote, IconPlaylist, IconSearch, IconShieldLock, IconTrash, IconVariable } from '@tabler/icons-react';
+export const ValidatorNode = ({ id, data, selected }: any) => {
   return (
-    <BaseNode id={id} type="Validator" color="orange" icon={IconChecklist} data={data}>
+    <BaseNode id={id} type="Validator" color="orange" icon={IconChecklist} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="orange" />
       <PlusHandle type="source" position={Position.Right} nodeId={id} color="orange" />
     </BaseNode>
   );
 };
 
-export const TransformationNode = ({ id, data }: any) => {
+export const TransformationNode = ({ id, data, selected }: any) => {
   const getIcon = () => {
     switch (data.transType) {
       case 'set': return IconVariable;
@@ -57,21 +52,21 @@ export const TransformationNode = ({ id, data }: any) => {
   };
 
   return (
-    <BaseNode id={id} type={getLabel()} color="violet" icon={getIcon()} data={data}>
+    <BaseNode id={id} type={getLabel()} color="violet" icon={getIcon()} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="violet" />
       <PlusHandle type="source" position={Position.Right} nodeId={id} color="violet" />
     </BaseNode>
   );
 };
 
-export const SwitchNode = ({ id, data }: any) => {
+export const SwitchNode = ({ id, data, selected }: any) => {
   let cases: any[] = [];
   try {
     cases = typeof data.cases === 'string' ? JSON.parse(data.cases || '[]') : (data.cases || []);
   } catch(e) {}
 
   return (
-    <BaseNode id={id} type="Switch" color="orange" icon={IconGitBranch} data={data}>
+    <BaseNode id={id} type="Switch" color="orange" icon={IconGitBranch} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="orange" />
       {cases.map((c: any, idx: number) => (
         <PlusHandle 
@@ -104,14 +99,14 @@ export const SwitchNode = ({ id, data }: any) => {
   );
 };
 
-export const RouterNode = ({ id, data }: any) => {
+export const RouterNode = ({ id, data, selected }: any) => {
   let rules: any[] = [];
   try {
     rules = typeof data.rules === 'string' ? JSON.parse(data.rules || '[]') : (data.rules || []);
   } catch(e) {}
 
   return (
-    <BaseNode id={id} type="Router" color="indigo" icon={IconArrowsSplit} data={data}>
+    <BaseNode id={id} type="Router" color="indigo" icon={IconArrowsSplit} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="indigo" />
       {rules.map((rule: any, idx: number) => (
         <PlusHandle 
@@ -144,45 +139,77 @@ export const RouterNode = ({ id, data }: any) => {
   );
 };
 
-export const MergeNode = ({ id, data }: any) => {
+export const MergeNode = ({ id, data, selected }: any) => {
   return (
-    <BaseNode id={id} type="Merge" color="cyan" icon={IconGitMerge} data={data}>
+    <BaseNode id={id} type="Merge" color="cyan" icon={IconGitMerge} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="cyan" />
       <PlusHandle type="source" position={Position.Right} nodeId={id} color="cyan" />
     </BaseNode>
   );
 };
 
-export const StatefulNode = ({ id, data }: any) => {
+export const StatefulNode = ({ id, data, selected }: any) => {
   return (
-    <BaseNode id={id} type="Stateful" color="pink" icon={IconDatabase} data={data}>
+    <BaseNode id={id} type="Stateful" color="pink" icon={IconDatabase} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="pink" />
       <PlusHandle type="source" position={Position.Right} nodeId={id} color="pink" />
     </BaseNode>
   );
 };
 
-export const NoteNode = ({ data }: any) => {
+export const NoteNode = ({ id, data, selected }: any) => {
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
+  const [hovered, setHovered] = useState(false);
+  const setNodes = useWorkflowStore(s => s.setNodes);
+  const setSelectedNode = useWorkflowStore(s => s.setSelectedNode);
+
+  const onDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setNodes((nds) => nds.filter((n) => n.id !== id));
+    setSelectedNode(null);
+  };
+
   return (
-    <Paper
-      p="sm"
-      radius="md"
-      style={{
-        background: isDark ? 'var(--mantine-color-yellow-9)' : 'var(--mantine-color-yellow-1)',
-        border: '1px dashed var(--mantine-color-yellow-6)',
-        minWidth: '150px',
-        maxWidth: '250px'
-      }}
+    <div 
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ position: 'relative' }}
     >
-      <Group gap="xs" mb={4}>
-        <ThemeIcon variant="subtle" color="yellow" size="sm">
-          <IconNote size="0.8rem" />
-        </ThemeIcon>
-        <Text size="xs" fw={700}>NOTE</Text>
-      </Group>
-      <Text size="sm">{data.label || 'Empty note...'}</Text>
-    </Paper>
+      {(hovered || selected) && (
+        <ActionIcon 
+          variant="filled" 
+          color="red" 
+          size="xs" 
+          radius="xl"
+          style={{ position: 'absolute', top: -8, right: -8, zIndex: 110 }}
+          onClick={onDelete}
+        >
+          <IconTrash size="0.7rem" />
+        </ActionIcon>
+      )}
+      <Paper
+        p="sm"
+        radius="md"
+        style={{
+          background: isDark ? 'var(--mantine-color-yellow-9)' : 'var(--mantine-color-yellow-1)',
+          border: selected ? '2px solid var(--mantine-color-blue-6)' : '1px dashed var(--mantine-color-yellow-6)',
+          minWidth: '150px',
+          maxWidth: '250px',
+          boxShadow: selected ? '0 0 10px rgba(0,0,0,0.1)' : 'none',
+          transition: 'all 0.2s ease',
+        }}
+      >
+        <Group gap="xs" mb={4}>
+          <ThemeIcon variant="subtle" color="yellow" size="sm">
+            <IconNote size="0.8rem" />
+          </ThemeIcon>
+          <Text size="xs" fw={700}>NOTE</Text>
+        </Group>
+        <Text size="sm">{data.label || 'Empty note...'}</Text>
+      </Paper>
+    </div>
   );
 };
+
+

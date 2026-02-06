@@ -1,13 +1,10 @@
-import { Title, Table, Group, Stack, Badge, Paper, Text, Box, ActionIcon, Tooltip, Select, TextInput, Pagination, Modal, ScrollArea, Code, Divider, Button } from '@mantine/core';
-import { IconActivity, IconRefresh, IconSearch, IconTrash, IconEye } from '@tabler/icons-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Title, Table, Group, Stack, Badge, Paper, Text, Box, ActionIcon, Tooltip, Select, TextInput, Pagination, Modal, ScrollArea, Code, Divider, Button } from '@mantine/core';import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../api';
 import { useState, useEffect } from 'react';
 import { useDisclosure } from '@mantine/hooks';
 import { useSearch } from '@tanstack/react-router';
 
-import { formatDateTime } from '../utils/dateUtils';
-
+import { formatDateTime } from '../utils/dateUtils';import { IconActivity, IconEye, IconRefresh, IconSearch, IconTrash } from '@tabler/icons-react';
 const API_BASE = '/api';
 
 export function LogsPage() {
@@ -149,7 +146,7 @@ export function LogsPage() {
         </Paper>
 
         <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
-          <Table verticalSpacing="sm" highlightOnHover>
+          <Table verticalSpacing="sm" highlightOnHover layout="fixed">
             <Table.Thead bg="gray.0">
               <Table.Tr>
                 <Table.Th style={{ width: 180 }}>Timestamp</Table.Th>
@@ -158,7 +155,7 @@ export function LogsPage() {
                 <Table.Th style={{ width: 120 }}>User</Table.Th>
                 <Table.Th>Message</Table.Th>
                 <Table.Th style={{ width: 220 }}>Workflow / Source / Sink</Table.Th>
-                <Table.Th style={{ width: 80 }}>Details</Table.Th>
+                <Table.Th style={{ width: 60 }}>Details</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -192,7 +189,7 @@ export function LogsPage() {
                       <Text size="sm">{log.username || '-'}</Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm" fw={500}>{log.message}</Text>
+                      <Text size="sm" fw={500} truncate="end" title={log.message}>{log.message}</Text>
                     </Table.Td>
                     <Table.Td>
                       <Stack gap={2}>
@@ -267,7 +264,16 @@ export function LogsPage() {
             <Box>
               <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} mb={4}>Message</Text>
               <Paper withBorder p="xs" bg="gray.0">
-                <Text size="sm" fw={500}>{selectedLog.message}</Text>
+                <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {(() => {
+                    try {
+                      if (selectedLog.message.trim().startsWith('{') || selectedLog.message.trim().startsWith('[')) {
+                        return JSON.stringify(JSON.parse(selectedLog.message), null, 2);
+                      }
+                    } catch (e) {}
+                    return selectedLog.message;
+                  })()}
+                </Code>
               </Paper>
             </Box>
 
@@ -337,3 +343,5 @@ export function LogsPage() {
     </Box>
   );
 }
+
+

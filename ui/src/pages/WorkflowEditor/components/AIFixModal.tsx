@@ -1,12 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   Modal, Button, Stack, Text, Group, ThemeIcon, 
   Paper, Loader, Alert
-} from '@mantine/core';
-import { IconSparkles, IconCheck, IconSettings } from '@tabler/icons-react';
-import { notifications } from '@mantine/notifications';
-import { apiFetch } from '../../../api';
-
+} from '@mantine/core';import { notifications } from '@mantine/notifications';
+import { apiFetch } from '../../../api';import { IconCheck, IconSettings, IconSparkles } from '@tabler/icons-react';
 export function AIFixModal({ data, opened, onClose }: { 
   data: any, 
   opened: boolean, 
@@ -15,13 +12,7 @@ export function AIFixModal({ data, opened, onClose }: {
   const [loading, setLoading] = useState(false);
   const [suggestion, setSuggestion] = useState<any>(null);
 
-  useEffect(() => {
-    if (opened && data) {
-      handleAnalyze();
-    }
-  }, [opened, data]);
-
-  const handleAnalyze = async () => {
+  const handleAnalyze = useCallback(async () => {
     setLoading(true);
     setSuggestion(null);
     try {
@@ -41,7 +32,13 @@ export function AIFixModal({ data, opened, onClose }: {
     finally {
       setLoading(false);
     }
-  };
+  }, [data]);
+
+  useEffect(() => {
+    if (opened && data) {
+      handleAnalyze();
+    }
+  }, [opened, data, handleAnalyze]);
 
   const handleApply = () => {
     notifications.show({
@@ -103,3 +100,5 @@ export function AIFixModal({ data, opened, onClose }: {
     </Modal>
   );
 }
+
+

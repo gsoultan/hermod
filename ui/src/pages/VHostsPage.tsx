@@ -1,15 +1,9 @@
+import { IconEdit, IconPlus, IconSearch, IconServer, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
 import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, TextInput, Pagination } from '@mantine/core'
-import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { IconTrash, IconPlus, IconServer, IconEdit, IconSearch } from '@tabler/icons-react'
-import { apiFetch } from '../api'
+import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'import { apiFetch } from '../api'
 import { useNavigate } from '@tanstack/react-router'
-
-interface VHost {
-  id: string
-  name: string
-  description: string
-}
+import type { VHost } from '../types'
 
 export function VHostsPage() {
   const queryClient = useQueryClient()
@@ -27,8 +21,8 @@ export function VHostsPage() {
     }
   })
 
-  const vhosts = Array.isArray(vhostsResponse?.data) ? vhostsResponse.data : []
-  const totalItems = vhostsResponse?.total || 0
+  const vhosts = (vhostsResponse as any)?.data as VHost[] || []
+  const totalItems = (vhostsResponse as any)?.total as number || 0
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -48,14 +42,14 @@ export function VHostsPage() {
       <Table.Td>{vhost.description || '-'}</Table.Td>
       <Table.Td>
         <Group justify="flex-end">
-          <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/vhosts/${vhost.id}/edit` })} radius="md">
+          <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/vhosts/${vhost.id}/edit` })} radius="md" aria-label="Edit vhost">
             <IconEdit size="1.2rem" stroke={1.5} />
           </ActionIcon>
           <ActionIcon color="red" variant="light" onClick={() => {
             if (confirm('Are you sure you want to delete this vhost?')) {
               deleteMutation.mutate(vhost.id);
             }
-          }} radius="md">
+          }} radius="md" aria-label="Delete vhost">
             <IconTrash size="1.2rem" />
           </ActionIcon>
         </Group>
@@ -132,3 +126,5 @@ export function VHostsPage() {
     </Box>
   )
 }
+
+

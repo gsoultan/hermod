@@ -67,6 +67,7 @@ type Engine struct {
 	nodeMetrics       map[string]uint64
 	nodeErrorMetrics  map[string]uint64
 	nodeSamples       map[string]interface{}
+	edgeMetrics       map[string]uint64
 	nodeMetricsMu     sync.RWMutex
 
 	// Async Sink Writers
@@ -104,6 +105,12 @@ type sinkWriter struct {
 	config SinkConfig
 
 	ch chan *pendingMessage
+	// Optional sharding for per-key ordering with parallelism
+	useShards    bool
+	shardCount   int
+	shardKeyMeta string
+	shards       []chan *pendingMessage
+	shardWg      sync.WaitGroup
 
 	// Spill to Disk
 	spillBuffer hermod.Producer
@@ -163,6 +170,7 @@ type StatusUpdate struct {
 	NodeMetrics      map[string]uint64      `json:"node_metrics,omitempty"`
 	NodeErrorMetrics map[string]uint64      `json:"node_error_metrics,omitempty"`
 	NodeSamples      map[string]interface{} `json:"node_samples,omitempty"`
+	EdgeMetrics      map[string]uint64      `json:"edge_metrics,omitempty"`
 	SinkCBStatuses   map[string]string      `json:"sink_cb_statuses,omitempty"`
 	SinkBufferFill   map[string]float64     `json:"sink_buffer_fill,omitempty"`
 	AverageDQScore   float64                `json:"average_dq_score,omitempty"`
@@ -182,6 +190,12 @@ type Config struct {
 	AdaptiveThroughput  bool          `json:"adaptive_throughput"`
 	MaxMemoryMB         uint64        `json:"max_memory_mb"`
 	OutboxRelayInterval time.Duration `json:"outbox_relay_interval"`
+	// MaxInflight bounds the number of messages processed concurrently across the pipeline.
+	// Keep this conservative to limit memory usage. Defaults to 128.
+	MaxInflight int `json:"max_inflight"`
+	// DrainTimeout controls how long to wait for sink writers to drain on shutdown before logging a warning.
+	// Does not forcibly terminate writers; set to 0 to wait indefinitely.
+	DrainTimeout time.Duration `json:"drain_timeout"`
 }
 
 type BackpressureStrategy string
@@ -195,13 +209,20 @@ const (
 )
 
 type SinkConfig struct {
-	MaxRetries       int             `json:"max_retries"`
-	RetryInterval    time.Duration   `json:"retry_interval"`
-	RetryIntervals   []time.Duration `json:"retry_intervals"`
-	BatchSize        int             `json:"batch_size"`
-	BatchTimeout     time.Duration   `json:"batch_timeout"`
-	AdaptiveBatching bool            `json:"adaptive_batching"`
-	Concurrency      int             `json:"concurrency"`
+	MaxRetries     int             `json:"max_retries"`
+	RetryInterval  time.Duration   `json:"retry_interval"`
+	RetryIntervals []time.Duration `json:"retry_intervals"`
+	BatchSize      int             `json:"batch_size"`
+	BatchTimeout   time.Duration   `json:"batch_timeout"`
+	// BatchBytes triggers a flush when the accumulated payload size reaches this threshold.
+	// Set to 0 to disable byte-based flushing.
+	BatchBytes       int  `json:"batch_bytes"`
+	AdaptiveBatching bool `json:"adaptive_batching"`
+	Concurrency      int  `json:"concurrency"`
+
+	// Per-key sharding for ordered concurrency
+	ShardCount   int    `json:"shard_count"`
+	ShardKeyMeta string `json:"shard_key_meta"` // when empty, use Message.ID()
 
 	// Circuit Breaker settings
 	CircuitBreakerThreshold int           `json:"cb_threshold"`
@@ -232,6 +253,8 @@ func DefaultConfig() Config {
 		CheckpointInterval:  1 * time.Minute,
 		OutboxRelayInterval: 1 * time.Minute,
 		TraceSampleRate:     1.0,
+		MaxInflight:         128,
+		DrainTimeout:        10 * time.Second,
 	}
 }
 
@@ -243,9 +266,15 @@ func NewEngine(source hermod.Source, sinks []hermod.Sink, buffer hermod.Producer
 		logger:       NewDefaultLogger(),
 		config:       DefaultConfig(),
 		sinkStatuses: make(map[string]string),
-		inFlightSem:  make(chan struct{}, 1000),
+		inFlightSem:  nil,
 		dqScorer:     governance.NewScorer(),
 	}
+	// initialize inflight semaphore using configured cap
+	capSize := e.config.MaxInflight
+	if capSize <= 0 {
+		capSize = 128
+	}
+	e.inFlightSem = make(chan struct{}, capSize)
 	e.SetLogger(e.logger)
 	return e
 }
@@ -253,6 +282,22 @@ func NewEngine(source hermod.Source, sinks []hermod.Sink, buffer hermod.Producer
 // SetConfig sets the configuration for the engine.
 func (e *Engine) SetConfig(config Config) {
 	e.config = config
+	// If the inflight semaphore is not currently in use, resize it to match the new config.
+	// To avoid races, we only recreate when empty.
+	if e.inFlightSem != nil {
+		if len(e.inFlightSem) == 0 {
+			capSize := e.config.MaxInflight
+			if capSize <= 0 {
+				capSize = 128
+			}
+			e.inFlightSem = make(chan struct{}, capSize)
+		} else {
+			// Best-effort: keep current channel until drained; the new cap will apply on next start.
+			if e.logger != nil {
+				e.logger.Debug("MaxInflight change deferred until pipeline is drained", "workflow_id", e.workflowID)
+			}
+		}
+	}
 }
 
 func (e *Engine) SetSinkConfigs(configs []SinkConfig) {
@@ -537,6 +582,16 @@ func (e *Engine) UpdateNodeSample(nodeID string, data map[string]interface{}) {
 	e.nodeMetricsMu.Unlock()
 }
 
+func (e *Engine) UpdateEdgeMetric(sourceNodeID, targetNodeID string, count uint64) {
+	edgeID := sourceNodeID + "->" + targetNodeID
+	e.nodeMetricsMu.Lock()
+	if e.edgeMetrics == nil {
+		e.edgeMetrics = make(map[string]uint64)
+	}
+	e.edgeMetrics[edgeID] += count
+	e.nodeMetricsMu.Unlock()
+}
+
 func (e *Engine) setStatus(status string) {
 	e.statusMu.Lock()
 	if e.engineStatus == status {
@@ -599,6 +654,19 @@ func (e *Engine) DrainDLQ(ctx context.Context) error {
 }
 
 func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Message, sinkID string, i int) error {
+	// Trace single write
+	var span trace.Span
+	ctx, span = tracer.Start(ctx, "sink.write", trace.WithAttributes(
+		attribute.String("workflow_id", e.workflowID),
+		attribute.String("sink_id", sinkID),
+		attribute.String("message_id", func() string {
+			if msg != nil {
+				return msg.ID()
+			}
+			return ""
+		}()),
+	))
+	defer span.End()
 	if msg == nil {
 		return nil
 	}
@@ -680,6 +748,8 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 			case <-time.After(interval):
 				continue
 			case <-ctx.Done():
+				span.RecordError(ctx.Err())
+				span.SetStatus(codes.Error, ctx.Err().Error())
 				return ctx.Err()
 			}
 		}
@@ -712,6 +782,8 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 	}
 	if lastErr != nil {
 		e.logger.Error("Sink write failed after retries", "workflow_id", e.workflowID, "sink_id", sinkID, "error", lastErr)
+		span.RecordError(lastErr)
+		span.SetStatus(codes.Error, lastErr.Error())
 		if e.deadLetterSink != nil {
 			e.logger.Info("Sending message to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID())
 
@@ -835,6 +907,12 @@ func (e *Engine) GetStatus() StatusUpdate {
 			update.NodeSamples[k] = v
 		}
 	}
+	if len(e.edgeMetrics) > 0 {
+		update.EdgeMetrics = make(map[string]uint64)
+		for k, v := range e.edgeMetrics {
+			update.EdgeMetrics[k] = v
+		}
+	}
 	e.nodeMetricsMu.RUnlock()
 
 	if e.dqScorer != nil {
@@ -845,6 +923,14 @@ func (e *Engine) GetStatus() StatusUpdate {
 }
 
 func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msgs []hermod.Message, sinkID string, i int) error {
+	// Trace batch write
+	var span trace.Span
+	ctx, span = tracer.Start(ctx, "sink.write_batch", trace.WithAttributes(
+		attribute.String("workflow_id", e.workflowID),
+		attribute.String("sink_id", sinkID),
+		attribute.Int("batch_size", len(msgs)),
+	))
+	defer span.End()
 	// Filter nil messages
 	filtered := make([]hermod.Message, 0, len(msgs))
 	for _, m := range msgs {
@@ -936,6 +1022,8 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 			case <-time.After(interval):
 				continue
 			case <-ctx.Done():
+				span.RecordError(ctx.Err())
+				span.SetStatus(codes.Error, ctx.Err().Error())
 				return ctx.Err()
 			}
 		}
@@ -955,6 +1043,8 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 
 	if lastErr != nil {
 		e.logger.Error("Sink batch write failed after retries", "workflow_id", e.workflowID, "sink_id", sinkID, "error", lastErr)
+		span.RecordError(lastErr)
+		span.SetStatus(codes.Error, lastErr.Error())
 		return fmt.Errorf("sink batch write error: %w", lastErr)
 	}
 	return nil
@@ -1041,6 +1131,24 @@ func (sw *sinkWriter) recordFailure() {
 }
 
 func (w *sinkWriter) run(ctx context.Context) {
+	if w.useShards && w.shardCount > 1 && len(w.shards) == w.shardCount {
+		// Spawn a run loop per shard channel
+		for i := 0; i < w.shardCount; i++ {
+			ch := w.shards[i]
+			w.shardWg.Add(1)
+			go func(c <-chan *pendingMessage) {
+				defer w.shardWg.Done()
+				w.runOn(ctx, c)
+			}(ch)
+		}
+		w.shardWg.Wait()
+		return
+	}
+	// Fallback: single channel
+	w.runOn(ctx, w.ch)
+}
+
+func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 	if w.config.BackpressureStrategy == BPSpillToDisk {
 		path := w.config.SpillPath
 		if path == "" {
@@ -1088,6 +1196,7 @@ func (w *sinkWriter) run(ctx context.Context) {
 	}
 
 	batch := make([]*pendingMessage, 0, w.currentBatchSize)
+	var batchBytes int
 	w.updateMu.RLock()
 	ticker := time.NewTicker(w.batchTimeout)
 	w.updateMu.RUnlock()
@@ -1158,23 +1267,139 @@ func (w *sinkWriter) run(ctx context.Context) {
 			pm.done <- err
 		}
 		batch = batch[:0]
+		batchBytes = 0
 	}
 
 	for {
 		select {
-		case pm, ok := <-w.ch:
+		case pm, ok := <-input:
 			if !ok {
 				flush()
 				return
 			}
 			batch = append(batch, pm)
-			if len(batch) >= w.currentBatchSize {
+			// accumulate payload size for byte-based flushing
+			if pm != nil && pm.msg != nil && pm.msg.Payload() != nil {
+				batchBytes += len(pm.msg.Payload())
+			}
+			// flush when reaching count or byte thresholds
+			if len(batch) >= w.currentBatchSize || (w.config.BatchBytes > 0 && batchBytes >= w.config.BatchBytes) {
 				flush()
 			}
 		case <-ticker.C:
 			flush()
 		}
 	}
+}
+
+// enqueueWithStrategy sends the pending message into the appropriate channel (single or sharded)
+// according to the configured backpressure strategy.
+func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage, strategy BackpressureStrategy) {
+	target := w.pickShard(pm.msg)
+	if strategy == "" {
+		strategy = BPBlock
+	}
+	switch strategy {
+	case BPDropOldest:
+		select {
+		case target <- pm:
+			// enqueued
+		default:
+			// drop one oldest from this shard, then try again
+			select {
+			case old := <-target:
+				if old != nil {
+					old.done <- errors.New("dropped due to backpressure (drop_oldest)")
+					releasePendingMessage(old)
+				}
+				BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(BPDropOldest)).Inc()
+			default:
+			}
+			select {
+			case target <- pm:
+			default:
+				pm.done <- errors.New("dropped due to backpressure (drop_oldest - overflow)")
+				BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(BPDropOldest)).Inc()
+			}
+		}
+	case BPDropNewest:
+		select {
+		case target <- pm:
+		default:
+			pm.done <- errors.New("dropped due to backpressure (drop_newest)")
+			BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(BPDropNewest)).Inc()
+		}
+	case BPSampling:
+		rate := w.config.SamplingRate
+		if rate <= 0 {
+			rate = 0.5
+		}
+		if rand.Float64() > rate {
+			pm.done <- errors.New("dropped due to sampling")
+			BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(BPSampling)).Inc()
+		} else {
+			select {
+			case target <- pm:
+			case <-ctx.Done():
+				pm.done <- ctx.Err()
+			}
+		}
+	case BPSpillToDisk:
+		select {
+		case target <- pm:
+			// enqueued in memory
+		default:
+			if w.spillBuffer != nil {
+				// Spill the raw message so we can reload later
+				if err := w.spillBuffer.Produce(ctx, pm.msg); err != nil {
+					pm.done <- fmt.Errorf("spill to disk failed: %w", err)
+				} else {
+					pm.done <- nil
+					BackpressureSpillTotal.WithLabelValues(w.engine.workflowID, w.sinkID).Inc()
+				}
+			} else {
+				// Fallback: block like BPBlock
+				select {
+				case target <- pm:
+				case <-ctx.Done():
+					pm.done <- ctx.Err()
+				}
+			}
+		}
+	default: // BPBlock
+		select {
+		case target <- pm:
+		case <-ctx.Done():
+			pm.done <- ctx.Err()
+		}
+	}
+}
+
+func (w *sinkWriter) pickShard(msg hermod.Message) chan *pendingMessage {
+	if !w.useShards || w.shardCount <= 1 || len(w.shards) != w.shardCount {
+		return w.ch
+	}
+	// Choose key from metadata or message ID
+	var key string
+	if w.shardKeyMeta != "" && msg != nil {
+		if md := msg.Metadata(); md != nil {
+			if v, ok := md[w.shardKeyMeta]; ok && v != "" {
+				key = v
+			}
+		}
+	}
+	if key == "" && msg != nil {
+		key = msg.ID()
+	}
+	if key == "" {
+		// fallback to random shard
+		return w.shards[rand.Intn(w.shardCount)]
+	}
+	// FNV-1a hash
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	idx := int(h.Sum32() % uint32(w.shardCount))
+	return w.shards[idx]
 }
 
 func (e *Engine) adaptiveThrottle(ctx context.Context, duration time.Duration) {
@@ -1264,6 +1489,16 @@ func (e *Engine) Start(ctx context.Context) error {
 			config:           cfg,
 			ch:               make(chan *pendingMessage, bufferCap),
 			currentBatchSize: cfg.BatchSize,
+		}
+		// Initialize sharding if configured
+		if cfg.ShardCount > 1 {
+			sw.useShards = true
+			sw.shardCount = cfg.ShardCount
+			sw.shardKeyMeta = cfg.ShardKeyMeta
+			sw.shards = make([]chan *pendingMessage, cfg.ShardCount)
+			for si := 0; si < cfg.ShardCount; si++ {
+				sw.shards[si] = make(chan *pendingMessage, bufferCap)
+			}
 		}
 		e.sinkWriters[i] = sw
 		writersWg.Add(1)
@@ -1752,89 +1987,7 @@ func (e *Engine) Start(ctx context.Context) error {
 								strategy = BPBlock
 							}
 
-							switch strategy {
-							case BPDropOldest:
-								select {
-								case sw.ch <- pm:
-									// Successfully queued
-								default:
-									// Channel is full, drop oldest
-									select {
-									case oldPm := <-sw.ch:
-										if oldPm != nil {
-											oldPm.done <- errors.New("dropped due to backpressure (drop_oldest)")
-											releasePendingMessage(oldPm)
-										}
-										BackpressureDropTotal.WithLabelValues(e.workflowID, sw.sinkID, string(BPDropOldest)).Inc()
-									default:
-										// Should not happen as we just failed to send, but in case of race:
-									}
-									// Try sending again
-									select {
-									case sw.ch <- pm:
-									default:
-										// Still full? just drop this one then to avoid blocking
-										pm.done <- errors.New("dropped due to backpressure (drop_oldest - overflow)")
-										BackpressureDropTotal.WithLabelValues(e.workflowID, sw.sinkID, string(BPDropOldest)).Inc()
-									}
-								}
-							case BPDropNewest:
-								select {
-								case sw.ch <- pm:
-								default:
-									pm.done <- errors.New("dropped due to backpressure (drop_newest)")
-									BackpressureDropTotal.WithLabelValues(e.workflowID, sw.sinkID, string(BPDropNewest)).Inc()
-								}
-							case BPSampling:
-								rate := sw.config.SamplingRate
-								if rate <= 0 {
-									rate = 0.5 // Default 50%
-								}
-								if rand.Float64() > rate {
-									pm.done <- errors.New("dropped due to sampling")
-									BackpressureDropTotal.WithLabelValues(e.workflowID, sw.sinkID, string(BPSampling)).Inc()
-								} else {
-									// Try to send, block if full
-									select {
-									case sw.ch <- pm:
-									case <-ctx.Done():
-										pm.done <- ctx.Err()
-										return
-									}
-								}
-							case BPSpillToDisk:
-								select {
-								case sw.ch <- pm:
-									// Successfully queued in memory
-								default:
-									// Channel full, spill to disk
-									if sw.spillBuffer != nil {
-										if err := sw.spillBuffer.Produce(ctx, m); err != nil {
-											pm.done <- fmt.Errorf("spill to disk failed: %w", err)
-										} else {
-											pm.done <- nil // Consider it successfully "handled" by spilling
-											BackpressureSpillTotal.WithLabelValues(e.workflowID, sw.sinkID).Inc()
-										}
-									} else {
-										// Fallback to block if spill buffer not available
-										select {
-										case sw.ch <- pm:
-										case <-ctx.Done():
-											pm.done <- ctx.Err()
-											return
-										}
-									}
-								}
-							case BPBlock:
-								fallthrough
-							default:
-								select {
-								case sw.ch <- pm:
-								case <-ctx.Done():
-									pm.done <- ctx.Err()
-									return
-								}
-							}
+							sw.enqueueWithStrategy(ctx, pm, strategy)
 
 							select {
 							case err := <-pm.done:
@@ -1901,8 +2054,32 @@ func (e *Engine) Start(ctx context.Context) error {
 			close(sw.ch)
 		}
 	}
-	writersWg.Wait()
+	// Drain sink writers with an optional timeout warning
+	if e.config.DrainTimeout > 0 {
+		done := make(chan struct{})
+		go func() {
+			writersWg.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+			// drained in time
+		case <-time.After(e.config.DrainTimeout):
+			e.logger.Warn("Sink writers draining exceeded drain_timeout; still waiting", "workflow_id", e.workflowID, "timeout", e.config.DrainTimeout.String())
+			<-done // wait fully to preserve correctness
+		}
+	} else {
+		writersWg.Wait()
+	}
 	close(errCh)
+
+	// Perform a final checkpoint before stopping to ensure all processed states are saved.
+	// We use a background context because the original context is likely cancelled.
+	if e.checkpointHandler != nil {
+		checkpointCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_ = e.Checkpoint(checkpointCtx)
+		cancel()
+	}
 
 	var lastErr error
 	for err := range errCh {

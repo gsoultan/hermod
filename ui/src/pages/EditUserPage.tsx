@@ -1,12 +1,9 @@
 import { Title, Paper, Stack, Group, Box, Text, Center, Loader, Button, Modal, PasswordInput } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { useState } from 'react';
-import { IconUsers, IconLock } from '@tabler/icons-react';
-import { UserForm } from '../components/UserForm';
+import { useState } from 'react';import { UserForm } from '../components/UserForm';
 import { useSuspenseQuery, useMutation } from '@tanstack/react-query';
 import { apiFetch } from '../api';
-import { useParams } from '@tanstack/react-router';
-
+import { useParams } from '@tanstack/react-router';import { IconLock, IconUsers } from '@tabler/icons-react';
 export function EditUserPage() {
   const { userId } = useParams({ from: '/users/$userId/edit' });
   const [opened, { open, close }] = useDisclosure(false);
@@ -96,3 +93,5 @@ export function EditUserPage() {
     </Box>
   );
 }
+
+

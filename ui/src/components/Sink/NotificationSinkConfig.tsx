@@ -1,6 +1,5 @@
-import { TextInput, Group, Select, Textarea, Button, Stack, Switch } from '@mantine/core';
-import { IconAt } from '@tabler/icons-react';
-
+import { useState } from 'react';
+import { TextInput, Group, Select, Textarea, Button, Stack, Switch, Text } from '@mantine/core';import { EmailLayoutBuilder } from '../EmailLayoutBuilder';import { IconAt, IconBrush } from '@tabler/icons-react';
 interface NotificationSinkConfigProps {
   type: string;
   config: any;
@@ -14,17 +13,35 @@ interface NotificationSinkConfigProps {
 export function NotificationSinkConfig({ 
   type, config, updateConfig, validateEmailLoading, validateEmail, handlePreview, previewLoading 
 }: NotificationSinkConfigProps) {
+  const [builderOpened, setBuilderOpened] = useState(false);
+
   switch (type) {
     case 'fcm':
       return (
         <>
-          <TextInput label="Server Key" placeholder="FCM Server Key" value={config.server_key || ''} onChange={(e) => updateConfig('server_key', e.target.value)} required />
-          <TextInput label="Device Token" placeholder="FCM Device Token" value={config.device_token || ''} onChange={(e) => updateConfig('device_token', e.target.value)} required />
+          <Textarea 
+            label="Credentials JSON" 
+            placeholder="Paste Firebase service account JSON"
+            minRows={6}
+            value={config.credentials_json || ''}
+            onChange={(e) => updateConfig('credentials_json', e.target.value)}
+            required 
+          />
+          <Text size="xs" c="dimmed">Provide a default destination or set fcm_* metadata per message.</Text>
+          <TextInput label="Default Device Token" placeholder="Optional device token" value={config.device_token || ''} onChange={(e) => updateConfig('device_token', e.target.value)} />
+          <TextInput label="Default Topic" placeholder="/topics/news" value={config.topic || ''} onChange={(e) => updateConfig('topic', e.target.value)} />
+          <TextInput label="Default Condition" placeholder="'topicA' in topics && !('topicB' in topics)" value={config.condition || ''} onChange={(e) => updateConfig('condition', e.target.value)} />
         </>
       );
     case 'smtp':
       return (
         <>
+          <EmailLayoutBuilder 
+            opened={builderOpened} 
+            onClose={() => setBuilderOpened(false)} 
+            onApply={(html) => updateConfig('template', html)}
+            outlookCompatible={config.outlook_compatible === 'true'}
+          />
           <Group grow>
             <TextInput label="SMTP Host" placeholder="smtp.gmail.com" value={config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} required />
             <TextInput label="SMTP Port" placeholder="587" value={config.port || ''} onChange={(e) => updateConfig('port', e.target.value)} required />
@@ -63,8 +80,18 @@ export function NotificationSinkConfig({
           />
           {config.template_source === 'inline' && (
             <Stack gap={4}>
-               <Textarea 
-                label="Email Body Template (Go Template)" 
+              <Group justify="space-between" align="center">
+                <Text size="sm" fw={500}>Email Body Template</Text>
+                <Button 
+                  variant="subtle" 
+                  size="compact-xs" 
+                  leftSection={<IconBrush size="0.8rem" />}
+                  onClick={() => setBuilderOpened(true)}
+                >
+                  Launch Layout Builder
+                </Button>
+              </Group>
+              <Textarea 
                 placeholder="Hello {{.name}}, your order #{{.id}} has been received!" 
                 minRows={6} 
                 value={config.template || ''} 
@@ -101,3 +128,5 @@ export function NotificationSinkConfig({
       return null;
   }
 }
+
+

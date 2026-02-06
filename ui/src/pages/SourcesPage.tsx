@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, Modal, List, ThemeIcon, TextInput, Pagination } from '@mantine/core';
-import { IconTrash, IconPlus, IconDatabaseImport, IconEdit, IconAlertCircle, IconSearch, IconActivity } from '@tabler/icons-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, getRoleFromToken } from '../api';
 import { useVHost } from '../context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
 import { useDisclosure } from '@mantine/hooks';
-
+import type { Source, Workflow, Worker } from '../types';import { IconActivity, IconAlertCircle, IconDatabaseImport, IconEdit, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
 const API_BASE = '/api';
 
 export function SourcesPage() {
@@ -16,7 +15,7 @@ export function SourcesPage() {
   const isViewer = role === 'Viewer';
   const navigate = useNavigate();
   const [opened, { open, close }] = useDisclosure(false);
-  const [sourceToDelete, setSourceToDelete] = useState<any>(null);
+  const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null);
   const [search, setSearch] = useState('');
   const [activePage, setPage] = useState(1);
   const itemsPerPage = 30;
@@ -56,8 +55,8 @@ export function SourcesPage() {
     refetchInterval: false,
   });
 
-  const sources = (sourcesResponse as any)?.data || [];
-  const totalItems = (sourcesResponse as any)?.total || 0;
+  const sources = (sourcesResponse as { data: Source[]; total: number })?.data || [];
+  const totalItems = (sourcesResponse as { data: Source[]; total: number })?.total || 0;
 
   // Fetch workflows only when needed (e.g., when confirming deletion)
   const { data: workflowsResponse } = useQuery({
@@ -72,10 +71,10 @@ export function SourcesPage() {
     staleTime: 60_000,
     refetchInterval: false,
   });
-  const workflows = (workflowsResponse as any)?.data || [];
+  const workflows = (workflowsResponse as { data: Workflow[]; total: number })?.data || [];
 
   const activeWorkflowsUsingSource = sourceToDelete 
-    ? (workflows as any[])?.filter(wf => wf.nodes?.some((n: any) => n.type === 'source' && n.ref_id === sourceToDelete.id) && wf.active)
+    ? workflows.filter(wf => wf.nodes?.some((n: any) => n.type === 'source' && n.ref_id === sourceToDelete.id) && wf.active)
     : [];
 
   // Workers list can be large; only fetch when necessary (e.g., to render names)
@@ -90,10 +89,10 @@ export function SourcesPage() {
     staleTime: 60_000,
     refetchInterval: false,
   });
-  const workers = (workersResponse as any)?.data || [];
+  const workers = (workersResponse as { data: Worker[]; total: number })?.data || [];
 
   const getWorkerName = (id: string) => {
-    const worker = (workers as any[])?.find(w => w.id === id);
+    const worker = workers.find(w => w.id === id);
     return worker ? worker.name : id;
   };
 
@@ -148,6 +147,8 @@ export function SourcesPage() {
               )}
             </Group>
             <TextInput
+              label="Search sources"
+              aria-label="Search sources"
               placeholder="Search sources by name or type..."
               leftSection={<IconSearch size="1rem" stroke={1.5} />}
               value={search}
@@ -173,7 +174,7 @@ export function SourcesPage() {
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {(Array.isArray(sources) ? sources : []).map((src: any) => (
+            {sources.map((src: Source) => (
               <Table.Tr key={src.id}>
                 <Table.Td fw={500}>{src.name}</Table.Td>
                 <Table.Td>
@@ -241,13 +242,13 @@ export function SourcesPage() {
                 <Table.Td>
                   {!isViewer && (
                     <Group justify="flex-end">
-                      <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/sources/${src.id}/edit` })} radius="md">
+                      <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/sources/${src.id}/edit` })} radius="md" aria-label={`Edit source ${src.name}`}>
                         <IconEdit size="1.2rem" stroke={1.5} />
                       </ActionIcon>
                       <ActionIcon variant="light" color="red" onClick={() => {
                         setSourceToDelete(src);
                         open();
-                      }} radius="md">
+                      }} radius="md" aria-label={`Delete source ${src.name}`}>
                         <IconTrash size="1.2rem" stroke={1.5} />
                       </ActionIcon>
                     </Group>
@@ -303,7 +304,7 @@ export function SourcesPage() {
                   </ThemeIcon>
                 }
               >
-                {activeWorkflowsUsingSource.map((wf: any) => (
+                {activeWorkflowsUsingSource.map((wf: Workflow) => (
                   <List.Item key={wf.id}>
                     <Text size="xs" component="span" fw={500}>{wf.name}</Text>
                   </List.Item>

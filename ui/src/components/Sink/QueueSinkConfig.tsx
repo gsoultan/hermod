@@ -8,6 +8,29 @@ interface QueueSinkConfigProps {
 
 export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigProps) {
   switch (type) {
+    case 'mqtt':
+      return (
+        <>
+          <TextInput label="Broker URL" placeholder="tcp://localhost:1883" value={config.broker_url || config.url || ''} onChange={(e) => { updateConfig('broker_url', e.target.value); updateConfig('url', e.target.value); }} required />
+          <TextInput label="Topic" placeholder="hermod/topic" value={config.topic || ''} onChange={(e) => updateConfig('topic', e.target.value)} required />
+          <Group grow>
+            <TextInput label="Client ID" placeholder="Optional" value={config.client_id || ''} onChange={(e) => updateConfig('client_id', e.target.value)} />
+            <TextInput label="QoS" placeholder="0 | 1 | 2" value={config.qos || ''} onChange={(e) => updateConfig('qos', e.target.value)} />
+          </Group>
+          <Group grow>
+            <TextInput label="Username" placeholder="Optional" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
+            <TextInput label="Password" type="password" placeholder="Optional" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
+          </Group>
+          <Group grow>
+            <TextInput label="Clean Session" placeholder="true | false" value={config.clean_session || ''} onChange={(e) => updateConfig('clean_session', e.target.value)} />
+            <TextInput label="Keepalive (e.g., 30s)" placeholder="30s" value={config.keepalive || ''} onChange={(e) => updateConfig('keepalive', e.target.value)} />
+          </Group>
+          <Group grow>
+            <TextInput label="Retain" placeholder="false" value={config.retain || ''} onChange={(e) => updateConfig('retain', e.target.value)} />
+            <TextInput label="TLS Insecure Skip Verify" placeholder="false" value={config.tls_insecure_skip_verify || ''} onChange={(e) => updateConfig('tls_insecure_skip_verify', e.target.value)} />
+          </Group>
+        </>
+      );
     case 'nats':
       return (
         <>

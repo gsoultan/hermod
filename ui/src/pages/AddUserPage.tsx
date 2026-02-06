@@ -1,7 +1,5 @@
 import { Title, Paper, Stack, Group, Box, Text } from '@mantine/core';
-import { IconUserPlus } from '@tabler/icons-react';
-import { UserForm } from '../components/UserForm';
-
+import { UserForm } from '../components/UserForm';import { IconUserPlus } from '@tabler/icons-react';
 export function AddUserPage() {
   return (
     <Box p="md">
@@ -23,3 +21,5 @@ export function AddUserPage() {
     </Box>
   );
 }
+
+

@@ -1,6 +1,5 @@
-import { ActionIcon, Autocomplete, Group, Select, TextInput } from '@mantine/core'
-import { IconInfoCircle, IconRefresh } from '@tabler/icons-react'
-import type { FC } from 'react'
+import { IconInfoCircle, IconRefresh } from '@tabler/icons-react';
+import { ActionIcon, Autocomplete, Group, Select, TextInput } from '@mantine/core'import type { FC } from 'react'
 
 export type PostgresSinkConfigProps = {
   type: 'postgres' | 'yugabyte'
@@ -47,7 +46,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
         <Autocomplete
           label="Database"
           placeholder="dbname"
-          data={[...new Set([...discoveredDatabases, config.dbname].filter(Boolean))]}
+          data={[...new Set([...(discoveredDatabases || []), config.dbname].filter(Boolean))]}
           value={config.dbname || ''}
           onChange={(val) => {
             updateConfig('dbname', val)
@@ -64,7 +63,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
         <Select
           label="Target Table"
           placeholder="Select or type table name"
-          data={tables}
+          data={tables || []}
           searchable
           value={config.table || ''}
           onChange={(val) => updateConfig('table', val || '')}
@@ -88,3 +87,5 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
     </>
   )
 }
+
+

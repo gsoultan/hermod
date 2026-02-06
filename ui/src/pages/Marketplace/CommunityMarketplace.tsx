@@ -2,14 +2,8 @@ import { useState } from 'react';
 import { 
   Title, Text, SimpleGrid, Card, Group, Badge, Button, 
   TextInput, Stack, Box, ThemeIcon, Tabs, Paper, Tooltip, Divider, Loader, Center
-} from '@mantine/core';
-import { 
-  IconSearch, IconPuzzle, IconCloudDownload, IconExternalLink, 
-  IconShieldCheck, IconUser, IconStar, IconTrash, IconCheck
-} from '@tabler/icons-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { notifications } from '@mantine/notifications';
-
+} from '@mantine/core';import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { notifications } from '@mantine/notifications';import { IconCheck, IconCloudDownload, IconExternalLink, IconPuzzle, IconSearch, IconShieldCheck, IconStar, IconTrash, IconUser } from '@tabler/icons-react';
 interface Plugin {
     id: string;
     name: string;
@@ -223,3 +217,5 @@ export function CommunityMarketplace() {
     </Box>
   );
 }
+
+

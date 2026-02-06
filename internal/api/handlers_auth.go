@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -52,24 +51,28 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	user, err := s.storage.GetUserByUsername(r.Context(), creds.Username)
 	if err != nil {
-		http.Error(w, "invalid username or password", http.StatusUnauthorized)
+		if err == storage.ErrNotFound {
+			s.jsonError(w, "invalid username or password", http.StatusUnauthorized)
+		} else {
+			s.jsonError(w, "database error: "+err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(creds.Password)); err != nil {
-		http.Error(w, "invalid username or password", http.StatusUnauthorized)
+		s.jsonError(w, "invalid username or password", http.StatusUnauthorized)
 		return
 	}
 
 	dbCfg, err := config.LoadDBConfig()
 	if err != nil {
-		http.Error(w, "failed to load config", http.StatusInternalServerError)
+		s.jsonError(w, "failed to load config", http.StatusInternalServerError)
 		return
 	}
 
@@ -82,7 +85,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		})
 		pendingTokenString, err := pendingToken.SignedString([]byte(dbCfg.JWTSecret))
 		if err != nil {
-			http.Error(w, "failed to generate pending token", http.StatusInternalServerError)
+			s.jsonError(w, "failed to generate pending token", http.StatusInternalServerError)
 			return
 		}
 
@@ -105,7 +108,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 	tokenString, err := token.SignedString([]byte(dbCfg.JWTSecret))
 	if err != nil {
-		http.Error(w, "failed to generate token", http.StatusInternalServerError)
+		s.jsonError(w, "failed to generate token", http.StatusInternalServerError)
 		return
 	}
 
@@ -140,14 +143,14 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
 	if s.config == nil || !s.config.Auth.OIDC.Enabled {
-		http.Error(w, "OIDC is not enabled", http.StatusForbidden)
+		s.jsonError(w, "OIDC is not enabled", http.StatusForbidden)
 		return
 	}
 
 	ctx := r.Context()
 	provider, err := oidc.NewProvider(ctx, s.config.Auth.OIDC.IssuerURL)
 	if err != nil {
-		http.Error(w, "Failed to get provider: "+err.Error(), http.StatusInternalServerError)
+		s.jsonError(w, "Failed to get provider: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -178,20 +181,20 @@ func (s *Server) oidcLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	if s.config == nil || !s.config.Auth.OIDC.Enabled {
-		http.Error(w, "OIDC is not enabled", http.StatusForbidden)
+		s.jsonError(w, "OIDC is not enabled", http.StatusForbidden)
 		return
 	}
 
 	ctx := r.Context()
 	stateCookie, err := r.Cookie("oidc_state")
 	if err != nil || r.URL.Query().Get("state") != stateCookie.Value {
-		http.Error(w, "Invalid state", http.StatusBadRequest)
+		s.jsonError(w, "Invalid state", http.StatusBadRequest)
 		return
 	}
 
 	provider, err := oidc.NewProvider(ctx, s.config.Auth.OIDC.IssuerURL)
 	if err != nil {
-		http.Error(w, "Failed to get provider: "+err.Error(), http.StatusInternalServerError)
+		s.jsonError(w, "Failed to get provider: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -204,20 +207,20 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 
 	oauth2Token, err := oauth2Config.Exchange(ctx, r.URL.Query().Get("code"))
 	if err != nil {
-		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
+		s.jsonError(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
 
 	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 	if !ok {
-		http.Error(w, "No id_token", http.StatusInternalServerError)
+		s.jsonError(w, "No id_token", http.StatusInternalServerError)
 		return
 	}
 
-	verifier := provider.Verifier(&oidc.Config{ClientID: os.Getenv("OIDC_CLIENT_ID")})
+	verifier := provider.Verifier(&oidc.Config{ClientID: s.config.Auth.OIDC.ClientID})
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		http.Error(w, "Failed to verify ID token", http.StatusInternalServerError)
+		s.jsonError(w, "Failed to verify ID token", http.StatusInternalServerError)
 		return
 	}
 
@@ -227,7 +230,7 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		Name     string `json:"name"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
-		http.Error(w, "Failed to parse claims", http.StatusInternalServerError)
+		s.jsonError(w, "Failed to parse claims", http.StatusInternalServerError)
 		return
 	}
 
@@ -251,7 +254,12 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate Hermod JWT and set cookie
-	dbCfg, _ := config.LoadDBConfig()
+	dbCfg, err := config.LoadDBConfig()
+	if err != nil {
+		s.jsonError(w, "failed to load config", http.StatusInternalServerError)
+		return
+	}
+
 	claimsMap := jwt.MapClaims{
 		"id":       user.ID,
 		"username": user.Username,
@@ -262,17 +270,35 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		claimsMap["vhosts"] = user.VHosts
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claimsMap)
-	tokenString, _ := token.SignedString([]byte(dbCfg.JWTSecret))
+	tokenString, err := token.SignedString([]byte(dbCfg.JWTSecret))
+	if err != nil {
+		s.jsonError(w, "failed to generate token", http.StatusInternalServerError)
+		return
+	}
 
 	s.recordAuditLog(r, "INFO", "User "+user.Username+" logged in (OIDC)", "login", user.ID, "user", "", nil)
 
-	http.SetCookie(w, &http.Cookie{
+	isHTTPS := func(r *http.Request) bool {
+		if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			return true
+		}
+		return r.TLS != nil
+	}
+
+	ss := sameSiteFromEnv()
+	cookie := &http.Cookie{
 		Name:     "hermod_session",
 		Value:    tokenString,
 		Path:     "/",
 		HttpOnly: true,
-		MaxAge:   86400,
-	})
+		Secure:   isHTTPS(r),
+		SameSite: ss,
+		MaxAge:   24 * 60 * 60,
+	}
+	if ss == http.SameSiteNoneMode {
+		cookie.Secure = true
+	}
+	http.SetCookie(w, cookie)
 
 	http.Redirect(w, r, "/", http.StatusFound)
 }
@@ -282,7 +308,7 @@ func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -293,7 +319,7 @@ func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"message": "If the email exists, a new password has been sent."})
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -306,7 +332,7 @@ func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 
 	val, err := s.storage.GetSetting(r.Context(), "notification_settings")
 	if err != nil || val == "" {
-		http.Error(w, "SMTP is not configured", http.StatusInternalServerError)
+		s.jsonError(w, "SMTP is not configured", http.StatusInternalServerError)
 		return
 	}
 
@@ -352,6 +378,10 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for i := range users {
+		s.sanitizeUser(&users[i])
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"data":  users,
@@ -372,8 +402,7 @@ func (s *Server) getUser(w http.ResponseWriter, r *http.Request) {
 		s.jsonError(w, "User not found", http.StatusNotFound)
 		return
 	}
-	user.Password = ""
-	user.TwoFactorSecret = ""
+	s.sanitizeUser(&user)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(user)
 }
@@ -421,8 +450,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user.Password = ""
-	user.TwoFactorSecret = ""
+	s.sanitizeUser(&user)
 	s.recordAuditLog(r, "INFO", "Created user "+user.Username, "create", user.ID, "user", "", user)
 
 	w.WriteHeader(http.StatusCreated)
@@ -437,15 +465,41 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := r.PathValue("id")
-	var user storage.User
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+	var req storage.User
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	user.ID = id
 
-	if user.Password != "" {
-		hashed, _ := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	user, err := s.storage.GetUser(r.Context(), id)
+	if err != nil {
+		s.jsonError(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	// Merge changes
+	if req.Username != "" {
+		user.Username = req.Username
+	}
+	if req.FullName != "" {
+		user.FullName = req.FullName
+	}
+	if req.Email != "" {
+		user.Email = req.Email
+	}
+	if req.Role != "" {
+		user.Role = req.Role
+	}
+	if req.VHosts != nil {
+		user.VHosts = req.VHosts
+	}
+	user.TwoFactorEnabled = req.TwoFactorEnabled
+	if req.TwoFactorSecret != "" {
+		user.TwoFactorSecret = req.TwoFactorSecret
+	}
+
+	if req.Password != "" {
+		hashed, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		user.Password = string(hashed)
 	}
 
@@ -454,8 +508,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user.Password = ""
-	user.TwoFactorSecret = ""
+	s.sanitizeUser(&user)
 	s.recordAuditLog(r, "INFO", "Updated user "+user.Username, "update", user.ID, "user", "", user)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -718,6 +771,14 @@ func (s *Server) generatePasswordHandler(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(map[string]string{"password": password})
 }
 
+func (s *Server) sanitizeUser(u *storage.User) {
+	if u == nil {
+		return
+	}
+	u.Password = ""
+	u.TwoFactorSecret = ""
+}
+
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	userCtx, ok := r.Context().Value(userContextKey).(*storage.User)
 	if !ok {
@@ -730,8 +791,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		s.jsonError(w, "User not found", http.StatusNotFound)
 		return
 	}
-	user.Password = ""
-	user.TwoFactorSecret = ""
+	s.sanitizeUser(&user)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(user)
 }
@@ -766,8 +826,7 @@ func (s *Server) updateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user.Password = ""
-	user.TwoFactorSecret = ""
+	s.sanitizeUser(&user)
 	s.recordAuditLog(r, "INFO", "Updated profile for "+user.Username, "update", user.ID, "user", "", user)
 
 	w.Header().Set("Content-Type", "application/json")

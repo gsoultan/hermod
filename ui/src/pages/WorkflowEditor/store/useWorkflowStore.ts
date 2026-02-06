@@ -7,6 +7,7 @@ import {
   applyNodeChanges, 
   applyEdgeChanges 
 } from 'reactflow';
+import type { LogEntry } from '../../../types';
 
 interface WorkflowState {
   nodes: Node[];
@@ -16,7 +17,7 @@ interface WorkflowState {
   workerID: string;
   active: boolean;
   workflowStatus: string;
-  logs: any[];
+  logs: LogEntry[];
   logsOpened: boolean;
   logsPaused: boolean;
   drawerOpened: boolean;
@@ -53,6 +54,11 @@ interface WorkflowState {
   schemaType: string;
   schema: string;
   tags: string[];
+  cron: string;
+  retentionDays: number | null;
+  traceSampleRate: number;
+  traceRetention: string;
+  auditRetention: string;
   cpuRequest: number;
   memoryRequest: number;
   throughputRequest: number;
@@ -66,6 +72,11 @@ interface WorkflowState {
   sinkBufferFill: Record<string, number>;
   workflowDeadLetterCount: number;
 
+  // Live edge telemetry
+  edgeSamples: Record<string, any[]>;
+  edgeThroughput: Record<string, number>;
+  pulseEnabled: boolean;
+
   setNodes: (nodes: Node[] | ((nds: Node[]) => Node[])) => void;
   setEdges: (edges: Edge[] | ((eds: Edge[]) => Edge[])) => void;
   onNodesChange: OnNodesChange;
@@ -76,7 +87,7 @@ interface WorkflowState {
   setWorkerID: (workerID: string) => void;
   setActive: (active: boolean) => void;
   setWorkflowStatus: (status: string) => void;
-  setLogs: (logs: any[] | ((prev: any[]) => any[])) => void;
+  setLogs: (logs: LogEntry[] | ((prev: LogEntry[]) => LogEntry[])) => void;
   setLogsOpened: (opened: boolean) => void;
   setLogsPaused: (paused: boolean) => void;
   setDrawerOpened: (opened: boolean) => void;
@@ -98,6 +109,7 @@ interface WorkflowState {
   setLiveStreamOpened: (opened: boolean) => void;
   setAIGeneratorOpened: (opened: boolean) => void;
   setComplianceReportOpened: (opened: boolean) => void;
+  setPulseEnabled: (val: boolean) => void;
 
   setDeadLetterSinkID: (id: string) => void;
   setDlqThreshold: (threshold: number) => void;
@@ -112,6 +124,11 @@ interface WorkflowState {
   setSchemaType: (type: string) => void;
   setSchema: (schema: string) => void;
   setTags: (tags: string[]) => void;
+  setCron: (cron: string) => void;
+  setRetentionDays: (days: number | null) => void;
+  setTraceSampleRate: (rate: number) => void;
+  setTraceRetention: (retention: string) => void;
+  setAuditRetention: (retention: string) => void;
   setCPURequest: (cpu: number) => void;
   setMemoryRequest: (mem: number) => void;
   setThroughputRequest: (throughput: number) => void;
@@ -163,6 +180,11 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   schemaType: '',
   schema: '',
   tags: [],
+  cron: '',
+  retentionDays: null,
+  traceSampleRate: 1.0,
+  traceRetention: '7d',
+  auditRetention: '30d',
   cpuRequest: 0,
   memoryRequest: 0,
   throughputRequest: 0,
@@ -175,6 +197,10 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   sinkCBStatuses: {},
   sinkBufferFill: {},
   workflowDeadLetterCount: 0,
+
+  edgeSamples: {},
+  edgeThroughput: {},
+  pulseEnabled: true,
 
   setNodes: (nodes) => set((state) => ({ 
     nodes: typeof nodes === 'function' ? nodes(state.nodes) : nodes 
@@ -218,6 +244,7 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   setLiveStreamOpened: (liveStreamOpened) => set({ liveStreamOpened }),
   setAIGeneratorOpened: (aiGeneratorOpened) => set({ aiGeneratorOpened }),
   setComplianceReportOpened: (complianceReportOpened) => set({ complianceReportOpened }),
+  setPulseEnabled: (val) => set({ pulseEnabled: val }),
 
   setDeadLetterSinkID: (deadLetterSinkID) => set({ deadLetterSinkID }),
   setDlqThreshold: (dlqThreshold) => set({ dlqThreshold }),
@@ -232,6 +259,11 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   setSchemaType: (schemaType) => set({ schemaType }),
   setSchema: (schema) => set({ schema }),
   setTags: (tags) => set({ tags }),
+  setCron: (cron) => set({ cron }),
+  setRetentionDays: (retentionDays) => set({ retentionDays }),
+  setTraceSampleRate: (traceSampleRate) => set({ traceSampleRate }),
+  setTraceRetention: (traceRetention) => set({ traceRetention }),
+  setAuditRetention: (auditRetention) => set({ auditRetention }),
   setCPURequest: (cpuRequest) => set({ cpuRequest }),
   setMemoryRequest: (memoryRequest) => set({ memoryRequest }),
   setThroughputRequest: (throughputRequest) => set({ throughputRequest }),

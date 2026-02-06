@@ -1,15 +1,7 @@
 import { 
   ActionIcon, Button, Divider, Flex, Group, Paper, Select, Text, TextInput, Menu, Badge
 } from '@mantine/core';
-import { useShallow } from 'zustand/react/shallow';
-import { 
-  IconDeviceFloppy, IconPlayerPlay, IconPlayerPause, 
-  IconEraser, IconZoomIn, IconZoomOut, IconFocus2, IconSettings,
-  IconChevronDown, IconLayoutSidebarRight, IconRefresh, IconTimeline, IconDatabase,
-  IconHistory, IconTerminal2, IconSparkles, IconShieldLock
-} from '@tabler/icons-react';
-import { useWorkflowStore } from '../store/useWorkflowStore';
-
+import { useShallow } from 'zustand/react/shallow';import { useWorkflowStore } from '../store/useWorkflowStore';import { IconActivity, IconChevronDown, IconDatabase, IconDeviceFloppy, IconEraser, IconFocus2, IconHistory, IconLayoutSidebarRight, IconPlayerPause, IconPlayerPlay, IconRefresh, IconSettings, IconShieldLock, IconSparkles, IconTerminal2, IconTimeline, IconZoomIn, IconZoomOut } from '@tabler/icons-react';
 interface EditorToolbarProps {
   id: string;
   isNew: boolean;
@@ -40,7 +32,7 @@ export function EditorToolbar({
     name, dryRun, vhost, workerID, testResults, active,
     setName, setVHost, setWorkerID, setDrawerOpened, setQuickAddSource, 
     setTraceInspectorOpened, setSchemaRegistryOpened, setHistoryOpened, setLiveStreamOpened,
-    setAIGeneratorOpened, setComplianceReportOpened
+    setAIGeneratorOpened, setComplianceReportOpened, pulseEnabled, setPulseEnabled
   } = useWorkflowStore(useShallow(state => ({
     name: state.name,
     dryRun: state.dryRun,
@@ -58,7 +50,9 @@ export function EditorToolbar({
     setHistoryOpened: state.setHistoryOpened,
     setLiveStreamOpened: state.setLiveStreamOpened,
     setAIGeneratorOpened: state.setAIGeneratorOpened,
-    setComplianceReportOpened: state.setComplianceReportOpened
+    setComplianceReportOpened: state.setComplianceReportOpened,
+    pulseEnabled: state.pulseEnabled,
+    setPulseEnabled: state.setPulseEnabled
   })));
 
   return (
@@ -121,6 +115,10 @@ export function EditorToolbar({
               </Menu.Item>
               <Menu.Item leftSection={<IconSparkles size="1rem" />} onClick={() => setAIGeneratorOpened(true)}>
                 AI Generator
+              </Menu.Item>
+              <Menu.Divider />
+              <Menu.Item leftSection={<IconActivity size="1rem" />} onClick={() => setPulseEnabled(!pulseEnabled)}>
+                Data Pulse: {pulseEnabled ? 'On' : 'Off'}
               </Menu.Item>
             </Menu.Dropdown>
           </Menu>
@@ -248,3 +246,5 @@ export function EditorToolbar({
     </Paper>
   );
 }
+
+

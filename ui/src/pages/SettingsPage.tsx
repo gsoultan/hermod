@@ -1,31 +1,10 @@
+import { IconActivity, IconBraces, IconBrandDiscord, IconBrandSlack, IconBrandTelegram, IconCode, IconDatabase, IconDownload, IconFolder, IconHistory, IconLock, IconMail, IconPlus, IconRefresh, IconServer, IconSettings, IconShieldLock, IconTrash, IconUpload, IconWebhook, IconWorld } from '@tabler/icons-react';
 import { Title, Text, Stack, Paper, Select, TextInput, Button, Group, PasswordInput, Badge, Code, NumberInput, Checkbox, Tabs, Table, ActionIcon, Modal, Textarea, SimpleGrid, Card, ThemeIcon, Box } from '@mantine/core'
 import { useState, useRef, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api'
-import { 
-  IconDownload, 
-  IconUpload, 
-  IconLock, 
-  IconShieldLock, 
-  IconDatabase, 
-  IconRefresh, 
-  IconActivity, 
-  IconFolder, 
-  IconPlus, 
-  IconTrash, 
-  IconCode, 
-  IconBraces, 
-  IconServer, 
-  IconWorld, 
-  IconMail, 
-  IconBrandTelegram, 
-  IconBrandSlack, 
-  IconBrandDiscord, 
-  IconWebhook, 
-  IconSettings, 
-  IconHistory
-} from '@tabler/icons-react'
-import { notifications } from '@mantine/notifications'
+import type { Workspace } from '../types'import { notifications } from '@mantine/notifications'
+import { formatDateTime } from '../utils/dateUtils'
 import { useDisclosure } from '@mantine/hooks'
 
 export function SettingsPage() {
@@ -61,6 +40,16 @@ export function SettingsPage() {
   const [otlpEndpoint, setOtlpEndpoint] = useState('')
   const [otlpServiceName, setOtlpServiceName] = useState('hermod')
   const [otlpInsecure, setOtlpInsecure] = useState(false)
+
+  // File Storage State
+  const [fileStorageType, setFileStorageType] = useState<string>('local')
+  const [localDir, setLocalDir] = useState('uploads')
+  const [s3Endpoint, setS3Endpoint] = useState('')
+  const [s3Region, setS3Region] = useState('us-east-1')
+  const [s3Bucket, setS3Bucket] = useState('')
+  const [s3AccessKey, setS3AccessKey] = useState('')
+  const [s3SecretKey, setS3SecretKey] = useState('')
+  const [s3UseSSL, setS3UseSSL] = useState(true)
 
   // Workspace Management State
   const [wsModalOpened, { open: openWSModal, close: closeWSModal }] = useDisclosure(false)
@@ -137,6 +126,57 @@ export function SettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspaces'] })
       notifications.show({ title: 'Success', message: 'Workspace deleted', color: 'green' })
+    }
+  })
+
+  const { data: fileStorageConfig } = useQuery({
+    queryKey: ['file-storage-config'],
+    queryFn: async () => {
+      const res = await apiFetch('/api/config/storage')
+      return res.json()
+    }
+  })
+
+  useEffect(() => {
+    if (fileStorageConfig) {
+      setFileStorageType(fileStorageConfig.type || 'local')
+      setLocalDir(fileStorageConfig.local_dir || 'uploads')
+      if (fileStorageConfig.s3) {
+        setS3Endpoint(fileStorageConfig.s3.endpoint || '')
+        setS3Region(fileStorageConfig.s3.region || 'us-east-1')
+        setS3Bucket(fileStorageConfig.s3.bucket || '')
+        setS3AccessKey(fileStorageConfig.s3.access_key_id || '')
+        setS3SecretKey(fileStorageConfig.s3.secret_access_key || '')
+        setS3UseSSL(fileStorageConfig.s3.use_ssl ?? true)
+      }
+    }
+  }, [fileStorageConfig])
+
+  const saveStorageMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch('/api/config/storage', {
+        method: 'PUT',
+        body: JSON.stringify({
+          type: fileStorageType,
+          local_dir: localDir,
+          s3: {
+            endpoint: s3Endpoint,
+            region: s3Region,
+            bucket: s3Bucket,
+            access_key_id: s3AccessKey,
+            secret_access_key: s3SecretKey,
+            use_ssl: s3UseSSL
+          }
+        })
+      })
+      if (!res.ok) throw new Error('Failed to update file storage config')
+    },
+    onSuccess: () => {
+      notifications.show({ title: 'Success', message: 'File storage configuration updated', color: 'green' })
+      queryClient.invalidateQueries({ queryKey: ['file-storage-config'] })
+    },
+    onError: (err: any) => {
+      notifications.show({ title: 'Error', message: err.message, color: 'red' })
     }
   })
 
@@ -630,6 +670,84 @@ export function SettingsPage() {
 
             <Paper withBorder p="md" radius="md">
               <Group gap="xs" mb="md">
+                <IconFolder size="1.2rem" color="orange" />
+                <Title order={4}>File Storage</Title>
+              </Group>
+              <Stack gap="md">
+                <Text size="sm" c="dimmed">
+                  Configure where uploaded files (like CSVs for file sources or email templates) are stored.
+                </Text>
+                <Select
+                  label="Storage Type"
+                  placeholder="Select type"
+                  data={[
+                    { value: 'local', label: 'Local Filesystem' },
+                    { value: 's3', label: 'S3 Compatible' },
+                  ]}
+                  value={fileStorageType}
+                  onChange={(val) => setFileStorageType(val || 'local')}
+                />
+                {fileStorageType === 'local' && (
+                  <TextInput
+                    label="Local Directory"
+                    placeholder="uploads"
+                    value={localDir}
+                    onChange={(e) => setLocalDir(e.currentTarget.value)}
+                    description="Relative or absolute path to store files locally on the API server."
+                  />
+                )}
+                {fileStorageType === 's3' && (
+                  <Stack gap="xs">
+                    <TextInput
+                      label="Endpoint"
+                      placeholder="https://minio.example.com"
+                      value={s3Endpoint}
+                      onChange={(e) => setS3Endpoint(e.currentTarget.value)}
+                      description="Leave empty for AWS S3. Use URL for MinIO, Wasabi, etc."
+                    />
+                    <Group grow>
+                      <TextInput
+                        label="Region"
+                        placeholder="us-east-1"
+                        value={s3Region}
+                        onChange={(e) => setS3Region(e.currentTarget.value)}
+                      />
+                      <TextInput
+                        label="Bucket"
+                        placeholder="hermod-uploads"
+                        value={s3Bucket}
+                        onChange={(e) => setS3Bucket(e.currentTarget.value)}
+                      />
+                    </Group>
+                    <Group grow>
+                      <TextInput
+                        label="Access Key ID"
+                        placeholder="Required"
+                        value={s3AccessKey}
+                        onChange={(e) => setS3AccessKey(e.currentTarget.value)}
+                      />
+                      <PasswordInput
+                        label="Secret Access Key"
+                        placeholder="Required"
+                        value={s3SecretKey}
+                        onChange={(e) => setS3SecretKey(e.currentTarget.value)}
+                      />
+                    </Group>
+                    <Checkbox
+                      label="Use SSL"
+                      checked={s3UseSSL}
+                      onChange={(e) => setS3UseSSL(e.currentTarget.checked)}
+                    />
+                  </Stack>
+                )}
+                <Group justify="flex-end">
+                  <Button variant="light" size="xs" onClick={() => saveStorageMutation.mutate()} loading={saveStorageMutation.isPending}>Update File Storage</Button>
+                </Group>
+              </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="md">
+              <Group gap="xs" mb="md">
                 <IconDownload size="1.2rem" color="orange" />
                 <Title order={4}>Maintenance & Backup</Title>
               </Group>
@@ -943,14 +1061,14 @@ export function SettingsPage() {
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {!workspaces || workspaces.length === 0 ? (
+                  {!Array.isArray(workspaces) || workspaces.length === 0 ? (
                     <Table.Tr>
                       <Table.Td colSpan={4}>
                         <Text ta="center" py="xl" c="dimmed">No workspaces created yet</Text>
                       </Table.Td>
                     </Table.Tr>
                   ) : (
-                    workspaces.map((ws: any) => (
+                    workspaces.map((ws: Workspace) => (
                       <Table.Tr key={ws.id}>
                         <Table.Td>
                           <Group gap="xs">
@@ -964,10 +1082,10 @@ export function SettingsPage() {
                           <Text size="sm">{ws.description || '-'}</Text>
                         </Table.Td>
                         <Table.Td>
-                          <Text size="sm">{new Date(ws.created_at).toLocaleDateString()}</Text>
+                          <Text size="sm">{formatDateTime(ws.created_at)}</Text>
                         </Table.Td>
                         <Table.Td>
-                          <ActionIcon color="red" variant="subtle" onClick={() => deleteWSMutation.mutate(ws.id)}>
+                          <ActionIcon aria-label="Delete workspace" color="red" variant="subtle" onClick={() => deleteWSMutation.mutate(ws.id)}>
                             <IconTrash size="1rem" />
                           </ActionIcon>
                         </Table.Td>
@@ -1075,3 +1193,5 @@ export function SettingsPage() {
     </Box>
   )
 }
+
+

@@ -1,7 +1,4 @@
-import { Title, Text, Button, Container, Group, Stack, ThemeIcon } from '@mantine/core';
-import { IconSearch, IconHome, IconArrowLeft } from '@tabler/icons-react';
-import { useNavigate } from '@tanstack/react-router';
-
+import { Title, Text, Button, Container, Group, Stack, ThemeIcon } from '@mantine/core';import { useNavigate } from '@tanstack/react-router';import { IconArrowLeft, IconHome, IconSearch } from '@tabler/icons-react';
 export function NotFoundPage() {
   const navigate = useNavigate();
 
@@ -44,3 +41,5 @@ export function NotFoundPage() {
     </Container>
   );
 }
+
+

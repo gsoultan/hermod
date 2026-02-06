@@ -1,13 +1,11 @@
 import { 
   Alert, Button, Group, JsonInput, Modal, Stack, Text, Tabs, PasswordInput, Table, ScrollArea, Badge, Loader, TextInput, ThemeIcon, Code, Box, Paper
 } from '@mantine/core';
-import { useShallow } from 'zustand/react/shallow';
-import { IconBraces, IconInfoCircle, IconPlayerPlay, IconSearch, IconEye, IconAlertCircle, IconTimeline, IconClock, IconCircleCheck, IconCircleX, IconShieldLock } from '@tabler/icons-react';
-import { useWorkflowStore } from '../store/useWorkflowStore';
+import { useShallow } from 'zustand/react/shallow';import { useWorkflowStore } from '../store/useWorkflowStore';
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { apiFetch } from '../../../api';
-
+import { formatDateTime } from '../../../utils/dateUtils';import { IconAlertCircle, IconBraces, IconCircleCheck, IconCircleX, IconClock, IconEye, IconInfoCircle, IconPlayerPlay, IconSearch, IconShieldLock, IconTimeline } from '@tabler/icons-react';
 interface ModalsProps {
   onRunSimulation: (input?: any) => void;
   isTesting: boolean;
@@ -104,11 +102,19 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
 
   const fetchTrace = useCallback(async (msgID: string) => {
     if (!msgID || !workflowID) return;
+    
+    // Extract real ID if it's in format "message_id: ID, payload_len: ..."
+    let targetID = msgID;
+    if (targetID.includes('message_id: ')) {
+      const match = targetID.match(/message_id: ([^,]+)/);
+      if (match) targetID = match[1].trim();
+    }
+
     setIsLoadingTrace(true);
     setTraceError(null);
     try {
       // Use query parameter for msgID to avoid issues with slashes in IDs (e.g. Postgres LSNs)
-      const res = await apiFetch(`/api/workflows/${workflowID}/traces/?message_id=${encodeURIComponent(msgID || '')}`);
+      const res = await apiFetch(`/api/workflows/${workflowID}/traces/?message_id=${encodeURIComponent(targetID || '')}`);
       if (res.ok) {
         const data = await res.json();
         setTraceData(data);
@@ -324,7 +330,7 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
               ) : (Array.isArray(failedMessages) ? failedMessages : []).map((msg, idx) => (
                 <Table.Tr key={msg.id || idx}>
                   <Table.Td>
-                    <Text size="xs">{msg.metadata?._hermod_failed_at ? new Date(msg.metadata._hermod_failed_at).toLocaleString() : 'Unknown'}</Text>
+                    <Text size="xs">{formatDateTime(msg.metadata?._hermod_failed_at)}</Text>
                   </Table.Td>
                   <Table.Td>
                     <Badge size="xs" variant="outline">{msg.metadata?._hermod_failed_sink || 'Unknown'}</Badge>
@@ -391,7 +397,7 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
             <Group justify="space-between">
                <Text size="sm">Trace for: <Code>{traceData.message_id}</Code></Text>
                <Badge leftSection={<IconClock size="0.8rem" />} variant="light">
-                  {new Date(traceData.created_at).toLocaleString()}
+                  {formatDateTime(traceData.created_at)}
                </Badge>
             </Group>
 
@@ -528,3 +534,5 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
     </>
   );
 }
+
+

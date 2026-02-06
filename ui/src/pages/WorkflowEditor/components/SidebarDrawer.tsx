@@ -5,24 +5,15 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '../../../api';
 import { useShallow } from 'zustand/react/shallow';
-import { 
-  IconDatabase, IconCloudUpload, IconWorld, IconSettingsAutomation, 
-  IconFileSpreadsheet, IconCircles, IconMail, IconFilter, IconArrowsSplit, 
-  IconGitBranch, IconGitMerge, IconNote, IconPlus, IconTable, IconTerminal2,
-  IconMessage, IconVariable, IconEye, IconCode,
-  IconShieldLock, IconSearch, IconCloud, IconPlaylist, IconDeviceFloppy, IconChecklist,
-  IconInfoCircle, IconAdjustments, IconRefresh, IconTags, IconTrash, IconX, IconExternalLink,
-  IconPuzzle
-} from '@tabler/icons-react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { UnitTestForm } from '../../../components/UnitTestForm';
 import { useParams } from '@tanstack/react-router';
 import { SourceForm } from '../../../components/SourceForm';
 import { SinkForm } from '../../../components/SinkForm';
 import { TransformationForm } from '../../../components/TransformationForm';
+import { CronInput } from '../../../components/CronInput';
 import { AICopilot } from '../../../components/AICopilot';
-import { IconRobot } from '@tabler/icons-react';
-
+import { IconAdjustments, IconArrowsSplit, IconBrandDiscord, IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandSlack, IconBrandTiktok, IconBrandTwitter, IconBroadcast, IconChartBar, IconChecklist, IconCircles, IconCloud, IconCloudUpload, IconCode, IconDatabase, IconDatabaseExport, IconDeviceFloppy, IconExternalLink, IconEye, IconFileSpreadsheet, IconFilter, IconGitBranch, IconGitMerge, IconHistory, IconInfoCircle, IconLetterCase, IconMail, IconMessage, IconNote, IconNumbers, IconPercentage, IconPlaylist, IconPlus, IconPuzzle, IconRefresh, IconRobot, IconSearch, IconSettingsAutomation, IconShieldLock, IconTable, IconTableExport, IconTag, IconTags, IconTerminal2, IconTrash, IconVariable, IconWorld, IconX } from '@tabler/icons-react';
 interface SidebarDrawerProps {
   onDragStart: (event: any, nodeType: string, refId: string, label: string, subType: string, extraData?: any) => void;
   onAddItem: (type: string, refId: string, label: string, subType: string, Icon: any, color: string, extraData?: any) => void;
@@ -37,11 +28,11 @@ export function SidebarDrawer({
     drawerOpened, drawerTab, deadLetterSinkID, dlqThreshold, prioritizeDLQ, dryRun, 
     maxRetries, retryInterval, reconnectInterval, workspaceID, schemaType, schema, tags,
     cpuRequest, memoryRequest, throughputRequest,
-    selectedNode, vhost, workerID,
+    selectedNode, vhost, workerID, cron,
     setDrawerOpened, setDrawerTab, setDeadLetterSinkID, setDlqThreshold, setPrioritizeDLQ, 
     setDryRun, setMaxRetries, setRetryInterval, setReconnectInterval, 
     setWorkspaceID, setSchemaType, setSchema, setTags, 
-    setCPURequest, setMemoryRequest, setThroughputRequest,
+    setCPURequest, setMemoryRequest, setThroughputRequest, setCron,
     updateNodeConfig
   } = useWorkflowStore(useShallow(state => ({
     drawerOpened: state.drawerOpened,
@@ -60,6 +51,7 @@ export function SidebarDrawer({
     cpuRequest: state.cpuRequest,
     memoryRequest: state.memoryRequest,
     throughputRequest: state.throughputRequest,
+    cron: state.cron,
     selectedNode: state.selectedNode,
     vhost: state.vhost,
     workerID: state.workerID,
@@ -79,6 +71,7 @@ export function SidebarDrawer({
     setCPURequest: state.setCPURequest,
     setMemoryRequest: state.setMemoryRequest,
     setThroughputRequest: state.setThroughputRequest,
+    setCron: state.setCron,
     updateNodeConfig: state.updateNodeConfig
   })));
 
@@ -125,6 +118,21 @@ export function SidebarDrawer({
       ]
     },
     {
+      title: 'Data Flow (SSIS)',
+      items: [
+        { type: 'transformation', refId: 'new', label: 'Data Conversion', subType: 'data_conversion', icon: IconRefresh, color: 'blue', description: 'Explicit type casting between types' },
+        { type: 'transformation', refId: 'new', label: 'Character Map', subType: 'char_map', icon: IconLetterCase, color: 'blue', description: 'String normalization (Upper, Lower, Trim)' },
+        { type: 'transformation', refId: 'new', label: 'Audit', subType: 'audit', icon: IconHistory, color: 'blue', description: 'Inject execution metadata' },
+        { type: 'transformation', refId: 'new', label: 'Sampling', subType: 'sampling', icon: IconPercentage, color: 'blue', description: 'Percentage or row-based sampling' },
+        { type: 'transformation', refId: 'new', label: 'Fuzzy Lookup', subType: 'fuzzy_lookup', icon: IconSearch, color: 'blue', description: 'Approximate string matching' },
+        { type: 'transformation', refId: 'new', label: 'Term Extraction', subType: 'term_extraction', icon: IconTag, color: 'blue', description: 'Extract keywords from text' },
+        { type: 'transformation', refId: 'new', label: 'Unpivot', subType: 'unpivot', icon: IconTableExport, color: 'blue', description: 'Rotate columns to rows' },
+        { type: 'transformation', refId: 'new', label: 'Row Count', subType: 'row_count', icon: IconNumbers, color: 'blue', description: 'Track message counts in state' },
+        { type: 'transformation', refId: 'new', label: 'Execute SQL', subType: 'execute_sql', icon: IconDatabaseExport, color: 'blue', description: 'Execute action SQL per record' },
+        { type: 'transformation', refId: 'new', label: 'SCD', subType: 'scd', icon: IconHistory, color: 'blue', description: 'Slowly Changing Dimension logic' },
+      ]
+    },
+    {
       title: 'Utilities',
       items: [
         { type: 'note', refId: 'new', label: 'Note', subType: 'note', icon: IconNote, color: 'yellow', description: 'Add annotations in canvas' },
@@ -153,8 +161,8 @@ export function SidebarDrawer({
     }
   });
 
-  const selectedDLQSink = sinks.find(s => s.id === deadLetterSinkID);
-  const dlqSupportsRecovery = selectedDLQSink && ['postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'mongodb', 'cassandra', 'sqlite', 'clickhouse', 'yugabyte', 'kafka', 'nats', 'rabbitmq', 'rabbitmq_queue', 'redis', 'pubsub', 'kinesis', 'pulsar', 'elasticsearch'].includes(selectedDLQSink.type);
+  const selectedDLQSink = (sinks || []).find(s => s.id === deadLetterSinkID);
+  const dlqSupportsRecovery = selectedDLQSink && ['postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'mongodb', 'cassandra', 'sqlite', 'clickhouse', 'yugabyte', 'kafka', 'nats', 'rabbitmq', 'rabbitmq_queue', 'redis', 'pubsub', 'kinesis', 'pulsar', 'elasticsearch', 'discord', 'slack', 'twitter', 'facebook', 'instagram', 'linkedin', 'tiktok'].includes(selectedDLQSink.type);
 
   const renderDraggableItem = (item: any) => (
     <UnstyledButton
@@ -252,7 +260,7 @@ export function SidebarDrawer({
                         <Text size="xs" fw={800} c="indigo.7" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Installed Plugins</Text>
                       </Group>
                       <Stack gap={2}>
-                        {plugins.map(plugin => renderDraggableItem({
+                        {(Array.isArray(plugins) ? plugins : []).map(plugin => renderDraggableItem({
                           type: plugin.type.toLowerCase() === 'connector' ? 'sink' : 'transformation',
                           refId: 'new',
                           label: plugin.name,
@@ -318,6 +326,25 @@ export function SidebarDrawer({
                         { type: 'source', refId: 'new', label: 'RabbitMQ Stream', subType: 'rabbitmq', icon: IconCircles, color: 'indigo', description: 'Consume from RMQ Stream' },
                         { type: 'source', refId: 'new', label: 'RabbitMQ Queue', subType: 'rabbitmq_queue', icon: IconCircles, color: 'indigo', description: 'Consume from AMQP queues' },
                         { type: 'source', refId: 'new', label: 'Redis Stream', subType: 'redis', icon: IconCircles, color: 'indigo', description: 'Consume from Redis Streams' },
+                        { type: 'source', refId: 'new', label: 'WebSocket (Client)', subType: 'websocket', icon: IconBroadcast, color: 'indigo', description: 'Dial WS feed and ingest frames' },
+                      ].map(renderDraggableItem)}
+                    </Stack>
+                  </Paper>
+
+                  <Paper withBorder p="xs" radius="md" bg={isDark ? 'dark.7' : 'indigo.0'}>
+                    <Group gap="xs" px="xs" mb="xs">
+                      <IconBrandDiscord size="1rem" color="var(--mantine-color-indigo-6)" />
+                      <Text size="xs" fw={800} c="indigo.7" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Social Media</Text>
+                    </Group>
+                    <Stack gap={2}>
+                      {[
+                        { type: 'source', refId: 'new', label: 'Discord', subType: 'discord', icon: IconBrandDiscord, color: 'indigo', description: 'Poll messages from a Discord channel' },
+                        { type: 'source', refId: 'new', label: 'Slack', subType: 'slack', icon: IconBrandSlack, color: 'indigo', description: 'Poll messages from a Slack channel' },
+                        { type: 'source', refId: 'new', label: 'Twitter (X)', subType: 'twitter', icon: IconBrandTwitter, color: 'indigo', description: 'Poll tweets by search query' },
+                        { type: 'source', refId: 'new', label: 'Facebook', subType: 'facebook', icon: IconBrandFacebook, color: 'indigo', description: 'Poll posts from a Facebook Page' },
+                        { type: 'source', refId: 'new', label: 'Instagram', subType: 'instagram', icon: IconBrandInstagram, color: 'indigo', description: 'Poll media from Instagram Business account' },
+                        { type: 'source', refId: 'new', label: 'LinkedIn', subType: 'linkedin', icon: IconBrandLinkedin, color: 'indigo', description: 'Poll UGC posts from LinkedIn' },
+                        { type: 'source', refId: 'new', label: 'TikTok', subType: 'tiktok', icon: IconBrandTiktok, color: 'indigo', description: 'Poll videos from TikTok' },
                       ].map(renderDraggableItem)}
                     </Stack>
                   </Paper>
@@ -330,6 +357,7 @@ export function SidebarDrawer({
                     <Stack gap={2}>
                       {[
                         { type: 'source', refId: 'new', label: 'SAP OData', subType: 'sap', icon: IconCloud, color: 'violet', description: 'Poll data from SAP S/4HANA or ECC' },
+                        { type: 'source', refId: 'new', label: 'Dynamics 365', subType: 'dynamics365', icon: IconCloud, color: 'violet', description: 'Dataverse OData Web API' },
                         { type: 'source', refId: 'new', label: 'Mainframe', subType: 'mainframe', icon: IconDatabase, color: 'violet', description: 'CDC for DB2 or VSAM bridge' },
                       ].map(renderDraggableItem)}
                     </Stack>
@@ -347,8 +375,12 @@ export function SidebarDrawer({
                         { type: 'source', refId: 'new', label: 'Cron / Schedule', subType: 'cron', icon: IconSettingsAutomation, color: 'cyan', description: 'Emit on a schedule' },
                         { type: 'source', refId: 'new', label: 'CSV / File', subType: 'csv', icon: IconFileSpreadsheet, color: 'cyan', description: 'Read rows from CSV/TSV' },
                         { type: 'source', refId: 'new', label: 'Google Sheets', subType: 'googlesheets', icon: IconFileSpreadsheet, color: 'cyan', description: 'Poll a Google Sheet' },
+                        { type: 'source', refId: 'new', label: 'Google Analytics', subType: 'googleanalytics', icon: IconChartBar, color: 'cyan', description: 'Fetch reports from GA4' },
+                        { type: 'source', refId: 'new', label: 'Firebase', subType: 'firebase', icon: IconDatabase, color: 'cyan', description: 'Poll Firestore collections' },
+                        { type: 'source', refId: 'new', label: 'HTTP Polling', subType: 'http', icon: IconCloud, color: 'cyan', description: 'Poll REST/OData APIs' },
                         { type: 'source', refId: 'new', label: 'GraphQL', subType: 'graphql', icon: IconWorld, color: 'cyan', description: 'Receive GraphQL queries/mutations' },
                         { type: 'source', refId: 'new', label: 'gRPC', subType: 'grpc', icon: IconTerminal2, color: 'cyan', description: 'Receive gRPC Publish calls' },
+                        { type: 'source', refId: 'new', label: 'WebSocket (Server)', subType: 'webhook', icon: IconBroadcast, color: 'cyan', description: 'Accept WS frames at /api/ws/in/{path}' },
                       ].map(renderDraggableItem)}
                     </Stack>
                   </Paper>
@@ -356,7 +388,7 @@ export function SidebarDrawer({
                   <Box>
                     <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Existing Sources</Text>
                     <Stack gap={2}>
-                      {sources.map(s => renderDraggableItem({
+                      {(Array.isArray(sources) ? sources : []).map(s => renderDraggableItem({
                         type: 'source',
                         refId: s.id,
                         label: s.name,
@@ -394,6 +426,7 @@ export function SidebarDrawer({
                         { type: 'sink', refId: 'new', label: 'YugabyteDB', subType: 'yugabyte', icon: IconDatabase, color: 'green', description: 'Write rows to Yugabyte' },
                         { type: 'sink', refId: 'new', label: 'Snowflake', subType: 'snowflake', icon: IconDatabase, color: 'green', description: 'High-performance cloud data warehouse' },
                         { type: 'sink', refId: 'new', label: 'SAP', subType: 'sap', icon: IconCloud, color: 'green', description: 'Write to SAP via OData/BAPI/IDOC' },
+                        { type: 'sink', refId: 'new', label: 'Dynamics 365', subType: 'dynamics365', icon: IconCloud, color: 'green', description: 'Write to Dataverse via Web API' },
                         { type: 'sink', refId: 'new', label: 'Event Store', subType: 'eventstore', icon: IconDatabase, color: 'green', description: 'Unified Event Log (Event Sourcing)' },
                       ].map(renderDraggableItem)}
                     </Stack>
@@ -445,10 +478,30 @@ export function SidebarDrawer({
                         { type: 'sink', refId: 'new', label: 'Firebase (FCM)', subType: 'fcm', icon: IconMessage, color: 'lime', description: 'Push notifications via FCM' },
                         { type: 'sink', refId: 'new', label: 'File', subType: 'file', icon: IconDeviceFloppy, color: 'lime', description: 'Append to a local file' },
                         { type: 'sink', refId: 'new', label: 'Stdout', subType: 'stdout', icon: IconTerminal2, color: 'lime', description: 'Print to console' },
+                        { type: 'sink', refId: 'new', label: 'Server-Sent Events (SSE)', subType: 'sse', icon: IconBroadcast, color: 'lime', description: 'Stream events to web clients in real-time' },
+                        { type: 'sink', refId: 'new', label: 'WebSocket', subType: 'websocket', icon: IconBroadcast, color: 'lime', description: 'Publish frames to a WS server' },
                         { type: 'sink', refId: 'new', label: 'Google Sheets', subType: 'googlesheets', icon: IconFileSpreadsheet, color: 'lime', description: 'Write to Google Sheets' },
                         { type: 'sink', refId: 'new', label: 'AWS S3', subType: 's3', icon: IconCloud, color: 'lime', description: 'Store objects in S3' },
                         { type: 'sink', refId: 'new', label: 'AWS S3 Parquet', subType: 's3-parquet', icon: IconCloud, color: 'lime', description: 'Store Parquet files in S3' },
                         { type: 'sink', refId: 'new', label: 'FTP / FTPS', subType: 'ftp', icon: IconCloud, color: 'lime', description: 'Upload files via FTP/FTPS' },
+                      ].map(renderDraggableItem)}
+                    </Stack>
+                  </Paper>
+
+                  <Paper withBorder p="xs" radius="md" bg={isDark ? 'dark.7' : 'pink.0'}>
+                    <Group gap="xs" px="xs" mb="xs">
+                      <IconBrandDiscord size="1rem" color="var(--mantine-color-pink-6)" />
+                      <Text size="xs" fw={800} c="pink.7" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Social Media</Text>
+                    </Group>
+                    <Stack gap={2}>
+                      {[
+                        { type: 'sink', refId: 'new', label: 'Discord', subType: 'discord', icon: IconBrandDiscord, color: 'pink', description: 'Post messages to Discord (Webhook or Bot)' },
+                        { type: 'sink', refId: 'new', label: 'Slack', subType: 'slack', icon: IconBrandSlack, color: 'pink', description: 'Post messages to Slack (Webhook or Bot)' },
+                        { type: 'sink', refId: 'new', label: 'Twitter (X)', subType: 'twitter', icon: IconBrandTwitter, color: 'pink', description: 'Post tweets' },
+                        { type: 'sink', refId: 'new', label: 'Facebook', subType: 'facebook', icon: IconBrandFacebook, color: 'pink', description: 'Post to Facebook Page feed' },
+                        { type: 'sink', refId: 'new', label: 'Instagram', subType: 'instagram', icon: IconBrandInstagram, color: 'pink', description: 'Publish media to Instagram' },
+                        { type: 'sink', refId: 'new', label: 'LinkedIn', subType: 'linkedin', icon: IconBrandLinkedin, color: 'pink', description: 'Create UGC posts on LinkedIn' },
+                        { type: 'sink', refId: 'new', label: 'TikTok', subType: 'tiktok', icon: IconBrandTiktok, color: 'pink', description: 'Publish videos to TikTok' },
                       ].map(renderDraggableItem)}
                     </Stack>
                   </Paper>
@@ -468,7 +521,7 @@ export function SidebarDrawer({
                   <Box>
                     <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Existing Sinks</Text>
                     <Stack gap={2}>
-                      {sinks.map(s => renderDraggableItem({
+                      {(Array.isArray(sinks) ? sinks : []).map(s => renderDraggableItem({
                         type: 'sink',
                         refId: s.id,
                         label: s.name,
@@ -507,12 +560,28 @@ export function SidebarDrawer({
                             workerID={workerID}
                           />
                         )}
+                        {selectedNode.type === 'source' && (selectedNode.data?.type === 'websocket') && (
+                          <Paper withBorder p="sm" radius="md">
+                            <Text size="xs" fw={800} c="dimmed" mb={6}>WebSocket Source Tips</Text>
+                            <Text size="xs" c="dimmed">
+                              Client mode dials <code>wss://</code> and ingests one frame per message. For server mode, create a Webhook source with path like <code>/api/ws/in/&lt;your_path&gt;</code> and connect producers to <code>GET /api/ws/in/&lt;your_path&gt;</code>.
+                            </Text>
+                          </Paper>
+                        )}
                         {selectedNode.type === 'sink' && (
                           <SinkForm 
                             initialData={selectedNode.data} 
                             onSave={(cfg) => updateNodeConfig(selectedNode.id, cfg)}
                             embedded
                           />
+                        )}
+                        {selectedNode.type === 'sink' && (selectedNode.data?.type === 'websocket') && (
+                          <Paper withBorder p="sm" radius="md">
+                            <Text size="xs" fw={800} c="dimmed" mb={6}>WebSocket Sink Tips</Text>
+                            <Text size="xs" c="dimmed">
+                              Publishes one frame per message. If you need a built‑in subscriber endpoint, connect web clients to <code>GET /api/ws/out/&lt;workflow_id&gt;</code> to receive live messages.
+                            </Text>
+                          </Paper>
                         )}
                         {(selectedNode.type === 'transformation' || selectedNode.type === 'validator') && (
                           <TransformationForm 
@@ -568,7 +637,7 @@ export function SidebarDrawer({
                       <Select
                         label="Dead Letter Sink"
                         placeholder="None"
-                        data={(sinks || []).map((s: any) => ({ value: s.id, label: s.name }))}
+                        data={(Array.isArray(sinks) ? sinks : []).map((s: any) => ({ value: s.id, label: s.name }))}
                         value={deadLetterSinkID}
                         onChange={(val) => setDeadLetterSinkID(val || '')}
                         clearable
@@ -643,6 +712,21 @@ export function SidebarDrawer({
                     </Stack>
                   </Paper>
 
+                  <Paper withBorder p="md" radius="md" bg={isDark ? 'dark.7' : 'indigo.0'}>
+                    <Group gap="xs" mb="md">
+                      <ThemeIcon variant="light" color="indigo" size="sm">
+                        <IconSettingsAutomation size="0.8rem" />
+                      </ThemeIcon>
+                      <Text fw={700} size="sm">Workflow Schedule</Text>
+                    </Group>
+                    <CronInput
+                      label="Cron Expression"
+                      value={cron || ''}
+                      onChange={setCron}
+                      description="Schedule for the entire workflow"
+                    />
+                  </Paper>
+
                   <Paper withBorder p="md" radius="md" bg={isDark ? 'dark.7' : 'teal.0'}>
                     <Group gap="xs" mb="md">
                       <ThemeIcon variant="light" color="teal" size="sm">
@@ -670,7 +754,7 @@ export function SidebarDrawer({
                       <Select
                         label="Workspace"
                         placeholder="None (Default)"
-                        data={workspaces.map((ws: any) => ({ value: ws.id, label: ws.name }))}
+                        data={(Array.isArray(workspaces) ? workspaces : []).map((ws: any) => ({ value: ws.id, label: ws.name }))}
                         value={workspaceID}
                         onChange={(val) => setWorkspaceID(val || '')}
                         size="xs"
@@ -798,3 +882,5 @@ export function SidebarDrawer({
     </Paper>
   );
 }
+
+

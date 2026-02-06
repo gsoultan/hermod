@@ -15,8 +15,14 @@ func (s *Server) listWorkers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	// Sanitize tokens from list responses for security
+	sanitized := make([]storage.Worker, len(workers))
+	for i := range workers {
+		sanitized[i] = workers[i]
+		sanitized[i].Token = ""
+	}
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"data":  workers,
+		"data":  sanitized,
 		"total": total,
 	})
 }
@@ -33,6 +39,8 @@ func (s *Server) getWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	// Do not expose the worker token on read
+	worker.Token = ""
 	_ = json.NewEncoder(w).Encode(worker)
 }
 
@@ -63,12 +71,25 @@ func (s *Server) updateWorker(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Preserve server-side token; do not allow token updates via this endpoint
+	existing, err := s.storage.GetWorker(r.Context(), id)
+	if err != nil {
+		if err == storage.ErrNotFound {
+			s.jsonError(w, "worker not found", http.StatusNotFound)
+			return
+		}
+		s.jsonError(w, "failed to retrieve worker", http.StatusInternalServerError)
+		return
+	}
 	worker.ID = id
+	worker.Token = existing.Token
 	if err := s.storage.UpdateWorker(r.Context(), worker); err != nil {
 		s.jsonError(w, "failed to update worker", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+	// Hide token on responses
+	worker.Token = ""
 	_ = json.NewEncoder(w).Encode(worker)
 }
 

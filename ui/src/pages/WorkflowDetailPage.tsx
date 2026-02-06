@@ -14,21 +14,12 @@ import {
   Title, Button, Group, Paper, Stack, Text, Box, Divider, Badge, ScrollArea, Flex,
   ThemeIcon, Table, ActionIcon, Tooltip, Pagination, TextInput, Tabs, Modal, Code,
   useMantineColorScheme, Grid, Loader, UnstyledButton, Alert
-} from '@mantine/core';
-import { 
-  IconArrowLeft, IconDatabase, IconArrowsExchange, IconServer, 
-  IconWorld, IconSettingsAutomation, IconFileSpreadsheet, IconCircles, IconList,
-  IconGitBranch, IconVariable, IconRefresh, IconSearch, IconEye,
-  IconChartBar, IconTerminal2, IconLayoutGrid, IconCloud, IconTimeline,
-  IconClock, IconCircleCheck, IconCircleX, IconChevronRight, IconHistory,
-  IconRotateDot, IconInfoCircle
-} from '@tabler/icons-react';
-import { Link, useParams } from '@tanstack/react-router';
+} from '@mantine/core';import { Link, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { apiFetch } from '../api';
 import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
-import dagre from 'dagre';
-
+import { formatDateTime } from '../utils/dateUtils';
+import dagre from 'dagre';import { IconArrowLeft, IconArrowsExchange, IconChartBar, IconChevronRight, IconCircleCheck, IconCircleX, IconCircles, IconClock, IconCloud, IconDatabase, IconEye, IconFileSpreadsheet, IconGitBranch, IconHistory, IconInfoCircle, IconLayoutGrid, IconList, IconRefresh, IconRotateDot, IconSearch, IconServer, IconSettingsAutomation, IconTerminal2, IconTimeline, IconVariable, IconWorld } from '@tabler/icons-react';
 const API_BASE = '/api';
 
 // Reusing Node components from WorkflowEditor
@@ -306,8 +297,27 @@ export function WorkflowDetailPage() {
 
     ws.onmessage = (event) => {
       try {
-        const log = JSON.parse(event.data);
-        setRealtimeLogs((prev) => [log, ...prev].slice(0, 100));
+        const payload = JSON.parse(event.data);
+        if (Array.isArray(payload)) {
+          setRealtimeLogs((prev) => {
+            const combined = [...payload, ...prev];
+            const seen = new Set<string>();
+            const deduped: any[] = [];
+            for (const l of combined) {
+              const id = (l as any)?.id;
+              if (id && !seen.has(id)) {
+                seen.add(id);
+                deduped.push(l);
+              }
+            }
+            return deduped.slice(0, 100);
+          });
+        } else {
+          setRealtimeLogs((prev) => {
+            if (prev.some((l: any) => l.id === payload.id)) return prev;
+            return [payload, ...prev].slice(0, 100);
+          });
+        }
       } catch (err) {
         console.error('Failed to parse log update', err);
       }
@@ -406,6 +416,11 @@ export function WorkflowDetailPage() {
                       {workflow.status}
                     </Badge>
                   )}
+                  {workflow.cron && (
+                    <Badge color="indigo" leftSection={<IconClock size="0.8rem" />}>
+                      {workflow.cron}
+                    </Badge>
+                  )}
                 </Group>
                 <Text size="sm" c="dimmed">{workflow.vhost || 'Default VHost'}</Text>
               </Box>
@@ -478,7 +493,7 @@ export function WorkflowDetailPage() {
                         <Group justify="center" p="xl"><Loader size="sm" /></Group>
                       ) : (traces as any)?.length === 0 ? (
                         <Text p="md" size="sm" c="dimmed" ta="center">No traces found.</Text>
-                      ) : (traces as any)?.map((t: any) => (
+                      ) : (Array.isArray(traces) ? (traces as any[]).map((t: any) => (
                         <UnstyledButton 
                           key={t.message_id} 
                           onClick={() => setSelectedTraceID(t.message_id)}
@@ -492,12 +507,12 @@ export function WorkflowDetailPage() {
                           <Group justify="space-between" wrap="nowrap">
                             <Box style={{ flex: 1, overflow: 'hidden' }}>
                               <Text size="sm" fw={600} truncate>{t.message_id}</Text>
-                              <Text size="xs" c="dimmed">{new Date(t.start_time).toLocaleString()}</Text>
+                              <Text size="xs" c="dimmed">{formatDateTime(t.created_at)}</Text>
                             </Box>
                             <IconChevronRight size="1rem" color="var(--mantine-color-gray-5)" />
                           </Group>
                         </UnstyledButton>
-                      ))}
+                      )) : null)}
                     </ScrollArea>
                   </Stack>
                 </Grid.Col>
@@ -518,7 +533,7 @@ export function WorkflowDetailPage() {
                         </Box>
                         
                         <Stack gap={0}>
-                          {(selectedTrace as any)?.steps?.map((step: any, idx: number) => (
+                          {Array.isArray((selectedTrace as any)?.steps) && ((selectedTrace as any).steps as any[]).map((step: any, idx: number) => (
                             <Box key={idx} style={{ 
                               borderLeft: '2px solid var(--mantine-color-blue-2)', 
                               paddingLeft: '2rem',
@@ -544,7 +559,7 @@ export function WorkflowDetailPage() {
                                     </Badge>
                                   </Group>
                                   
-                                  <Text size="xs" c="dimmed">{new Date(step.timestamp).toLocaleString()}</Text>
+                                  <Text size="xs" c="dimmed">{formatDateTime(step.timestamp)}</Text>
 
                                   {step.error && (
                                     <Alert color="red" icon={<IconCircleX size="1rem" />} title="Processing Error">
@@ -601,7 +616,7 @@ export function WorkflowDetailPage() {
                         {(Array.isArray(versions) ? versions : []).map((v: any) => (
                           <Table.Tr key={v.id}>
                             <Table.Td><Badge size="md">v{v.version}</Badge></Table.Td>
-                            <Table.Td><Text size="sm">{new Date(v.created_at).toLocaleString()}</Text></Table.Td>
+                            <Table.Td><Text size="sm">{formatDateTime(v.created_at)}</Text></Table.Td>
                             <Table.Td><Text size="sm">{v.created_by}</Text></Table.Td>
                             <Table.Td><Text size="sm">{v.message}</Text></Table.Td>
                             <Table.Td>
@@ -652,21 +667,21 @@ export function WorkflowDetailPage() {
                   </Group>
 
                   <ScrollArea style={{ flex: 1 }}>
-                    <Table verticalSpacing="xs">
+                    <Table verticalSpacing="xs" layout="fixed">
                       <Table.Thead>
                         <Table.Tr>
                           <Table.Th w={180}>Timestamp</Table.Th>
                           <Table.Th w={100}>Level</Table.Th>
                           <Table.Th>Message</Table.Th>
                           <Table.Th w={150}>Action</Table.Th>
-                          <Table.Th w={80}></Table.Th>
+                          <Table.Th w={50}></Table.Th>
                         </Table.Tr>
                       </Table.Thead>
                       <Table.Tbody>
-                        {logs.map((log: any) => (
+                        {Array.isArray(logs) && logs.map((log: any) => (
                           <Table.Tr key={log.id}>
                             <Table.Td>
-                              <Text size="xs">{new Date(log.timestamp).toLocaleString()}</Text>
+                              <Text size="xs" truncate="end">{formatDateTime(log.timestamp)}</Text>
                             </Table.Td>
                             <Table.Td>
                               <Badge color={getLevelColor(log.level)} variant="light" size="sm">
@@ -674,7 +689,7 @@ export function WorkflowDetailPage() {
                               </Badge>
                             </Table.Td>
                             <Table.Td>
-                              <Text size="sm" fw={500}>{log.message}</Text>
+                              <Text size="sm" fw={500} truncate="end" title={log.message}>{log.message}</Text>
                             </Table.Td>
                             <Table.Td>
                               {log.action && <Badge variant="outline" size="xs">{log.action}</Badge>}
@@ -721,13 +736,22 @@ export function WorkflowDetailPage() {
           <Stack gap="md">
             <Group justify="space-between">
               <Badge color={getLevelColor(selectedLog.level)}>{selectedLog.level}</Badge>
-              <Text size="xs" c="dimmed">{new Date(selectedLog.timestamp).toLocaleString()}</Text>
+              <Text size="xs" c="dimmed">{formatDateTime(selectedLog.timestamp)}</Text>
             </Group>
             
             <Box>
-              <Text fw={700} size="sm">Message</Text>
+              <Text fw={700} size="sm" mb={4}>Message</Text>
               <Paper withBorder p="xs" bg="gray.0">
-                <Text size="sm">{selectedLog.message}</Text>
+                <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {(() => {
+                    try {
+                      if (selectedLog.message.trim().startsWith('{') || selectedLog.message.trim().startsWith('[')) {
+                        return JSON.stringify(JSON.parse(selectedLog.message), null, 2);
+                      }
+                    } catch (e) {}
+                    return selectedLog.message;
+                  })()}
+                </Code>
               </Paper>
             </Box>
 
@@ -767,3 +791,5 @@ export function WorkflowDetailPage() {
     </Box>
   );
 }
+
+

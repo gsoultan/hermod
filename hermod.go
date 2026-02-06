@@ -85,7 +85,11 @@ type Snapshottable interface {
 	Snapshot(ctx context.Context, tables ...string) error
 }
 
-// Sink defines the interface for writing data to a message stream provider.
+// SQLExecutor is an interface for sources and sinks that can execute arbitrary SQL queries.
+type SQLExecutor interface {
+	ExecuteSQL(ctx context.Context, query string) ([]map[string]interface{}, error)
+}
+
 type Sink interface {
 	Write(ctx context.Context, msg Message) error
 	Ping(ctx context.Context) error

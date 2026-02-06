@@ -402,6 +402,29 @@ func ToFloat64(val interface{}) (float64, bool) {
 	return 0, false
 }
 
+func ToInt64(val interface{}) (int64, bool) {
+	switch v := val.(type) {
+	case int:
+		return int64(v), true
+	case int64:
+		return v, true
+	case int32:
+		return int64(v), true
+	case float64:
+		return int64(v), true
+	case float32:
+		return int64(v), true
+	case string:
+		i, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			f, err := strconv.ParseFloat(v, 64)
+			return int64(f), err == nil
+		}
+		return i, true
+	}
+	return 0, false
+}
+
 func ToBool(val interface{}) bool {
 	if val == nil {
 		return false

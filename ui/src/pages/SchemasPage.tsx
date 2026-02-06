@@ -3,14 +3,9 @@ import {
   Container, Title, Text, Paper, Group, Button, Table, ActionIcon,
   TextInput, JsonInput, Select, Modal, Stack, Badge, Tooltip,
   Loader, Alert, Menu, rem
-} from '@mantine/core';
-import {
-  IconPlus, IconTrash, IconHistory, IconBraces, IconAlertCircle,
-  IconDotsVertical, IconCode, IconDownload
-} from '@tabler/icons-react';
-import { apiFetch } from '../api';
-import { notifications } from '@mantine/notifications';
-
+} from '@mantine/core';import { apiFetch } from '../api';
+import { formatDateTime } from '../utils/dateUtils';
+import { notifications } from '@mantine/notifications';import { IconAlertCircle, IconBraces, IconCode, IconDotsVertical, IconDownload, IconHistory, IconPlus, IconTrash } from '@tabler/icons-react';
 export function SchemasPage() {
   const [schemas, setSchemas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,7 +67,7 @@ export function SchemasPage() {
     }
   };
 
-  const rows = schemas.map((schema) => (
+  const rows = (Array.isArray(schemas) ? schemas : []).map((schema) => (
     <Table.Tr key={schema.id}>
       <Table.Td>
         <Group gap="sm">
@@ -92,7 +87,7 @@ export function SchemasPage() {
         <Badge variant="dot" color="green">v{schema.version}</Badge>
       </Table.Td>
       <Table.Td>
-        <Text size="xs">{new Date(schema.created_at).toLocaleString()}</Text>
+        <Text size="xs">{formatDateTime(schema.created_at)}</Text>
       </Table.Td>
       <Table.Td>
         <Group gap={0} justify="flex-end">
@@ -204,3 +199,5 @@ export function SchemasPage() {
     </Container>
   );
 }
+
+

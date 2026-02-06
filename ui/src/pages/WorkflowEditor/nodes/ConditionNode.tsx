@@ -1,11 +1,10 @@
 import { Position } from 'reactflow';
-import { Text } from '@mantine/core';
-import { IconArrowsSplit } from '@tabler/icons-react';
-import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
+import { Text } from '@mantine/core';import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
 
-export const ConditionNode = ({ id, data }: any) => {
+import { IconArrowsSplit } from '@tabler/icons-react';
+export const ConditionNode = ({ id, data, selected }: any) => {
   return (
-    <BaseNode id={id} type="Condition" color="indigo" icon={IconArrowsSplit} data={data}>
+    <BaseNode id={id} type="Condition" color="indigo" icon={IconArrowsSplit} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="indigo" />
       <PlusHandle type="source" position={Position.Right} id="true" nodeId={id} color="indigo" style={{ top: 30 }} />
       <PlusHandle type="source" position={Position.Right} id="false" nodeId={id} color="indigo" style={{ top: 55 }} />
@@ -14,3 +13,5 @@ export const ConditionNode = ({ id, data }: any) => {
     </BaseNode>
   );
 };
+
+

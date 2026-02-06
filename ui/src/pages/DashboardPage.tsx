@@ -1,8 +1,8 @@
-import { Title, Text, Paper, Group, ThemeIcon, Box, Stack, Badge, Table, ScrollArea, ActionIcon, Tooltip, Button, Grid } from '@mantine/core'
-import { IconArrowsExchange, IconActivity, IconGitBranch, IconAlertCircle, IconServer, IconPackage, IconSitemap } from '@tabler/icons-react'
-import { useState, useEffect, useRef } from 'react'
+import { IconActivity, IconAlertCircle, IconArrowsExchange, IconGitBranch, IconPackage, IconServer, IconSitemap } from '@tabler/icons-react';
+import { Title, Text, Paper, Group, ThemeIcon, Box, Stack, Badge, Table, ScrollArea, ActionIcon, Tooltip, Button, Grid } from '@mantine/core'import { useState, useEffect, useRef } from 'react'
 import { apiFetch } from '../api'
 import { useNavigate } from '@tanstack/react-router'
+import { formatDateTime } from '../utils/dateUtils'
 import { DataLineageModal } from '../components/DataLineageModal'
 import { notifications } from '@mantine/notifications'
 import { useVHost } from '../context/VHostContext'
@@ -303,7 +303,7 @@ export function DashboardPage() {
                                   <Text size="xs" fw={500} lineClamp={2}>{log.message}</Text>
                                   <Group justify="space-between" mt={4}>
                                     <Badge size="10px" variant="outline" color={log.level === 'ERROR' ? 'red' : 'gray'}>{log.level}</Badge>
-                                    <Text size="10px" c="dimmed">{new Date(log.timestamp).toLocaleString()}</Text>
+                                    <Text size="10px" c="dimmed">{formatDateTime(log.timestamp)}</Text>
                                   </Group>
                               </Box>
                           </Group>
@@ -364,3 +364,5 @@ export function DashboardPage() {
     </Stack>
   );
 }
+
+

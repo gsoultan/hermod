@@ -1,20 +1,10 @@
+import { IconEdit, IconPlus, IconSearch, IconServer, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
-import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, TextInput, Pagination } from '@mantine/core'
+import { Title, Table, Button, Group, Paper, Text, Box, Stack, Badge, TextInput, Pagination, ActionIcon } from '@mantine/core'
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { IconTrash, IconPlus, IconServer, IconEdit, IconSearch } from '@tabler/icons-react'
 import { apiFetch } from '../api'
 import { useNavigate } from '@tanstack/react-router'
-
-interface Worker {
-  id: string
-  name: string
-  host: string
-  port: number
-  description: string
-  last_seen?: string
-}
-
-export function WorkersPage() {
+import type { Worker } from '../types'export function WorkersPage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -30,8 +20,8 @@ export function WorkersPage() {
     }
   })
 
-  const workers = Array.isArray(workersResponse?.data) ? workersResponse.data : []
-  const totalItems = workersResponse?.total || 0
+  const workers = (workersResponse as any)?.data as Worker[] || []
+  const totalItems = (workersResponse as any)?.total as number || 0
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -78,14 +68,14 @@ export function WorkersPage() {
         <Table.Td>{worker.description || '-'}</Table.Td>
         <Table.Td>
           <Group justify="flex-end">
-            <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/workers/${worker.id}/edit` })} radius="md">
+            <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/workers/${worker.id}/edit` })} radius="md" aria-label="Edit worker">
               <IconEdit size="1.2rem" stroke={1.5} />
             </ActionIcon>
             <ActionIcon color="red" variant="light" onClick={() => {
               if (confirm('Are you sure you want to unregister this worker?')) {
                 deleteMutation.mutate(worker.id);
               }
-            }} radius="md">
+            }} radius="md" aria-label="Unregister worker">
               <IconTrash size="1.2rem" />
             </ActionIcon>
           </Group>
@@ -164,3 +154,5 @@ export function WorkersPage() {
     </Box>
   )
 }
+
+

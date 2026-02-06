@@ -3,18 +3,13 @@ import {
   Container, Title, Button, Group, Table, ActionIcon, Text, Badge, Paper, 
   Stack, TextInput, Pagination, Tooltip, Modal, JsonInput, Select, Menu, Checkbox
 } from '@mantine/core';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
-  IconPlus, IconTrash, IconEdit, IconSearch, IconGitBranch, IconPlayerPlay, 
-  IconPlayerStop, IconCopy, IconDownload, IconActivity, IconHierarchy, IconFolder, IconChevronDown
-} from '@tabler/icons-react';
-import { lazy, Suspense } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';import { lazy, Suspense } from 'react'
 import { Link } from '@tanstack/react-router';
+import type { Workflow, Worker, Workspace } from '../types';
 import { apiFetch } from '../api';
 import { notifications } from '@mantine/notifications';
 import { useDisclosure } from '@mantine/hooks';
-import { useVHost } from '../context/VHostContext';
-
+import { useVHost } from '../context/VHostContext';import { IconActivity, IconChevronDown, IconCopy, IconDownload, IconEdit, IconFolder, IconGitBranch, IconHierarchy, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
 const API_BASE = '/api';
 
 const TemplatesModal = lazy(() => import('./WorkflowsPage_TemplatesModal'))
@@ -31,7 +26,7 @@ export default function WorkflowsPage() {
   const [templatesOpened, { open: openTemplates, close: closeTemplates }] = useDisclosure(false);
   const [importJson, setImportJson] = useState('');
 
-  const { data: workspacesResponse } = useQuery<any>({
+  const { data: workspacesResponse } = useQuery<Workspace[]>({
     queryKey: ['workspaces'],
     queryFn: async () => {
       const res = await apiFetch(`${API_BASE}/workspaces`);
@@ -39,7 +34,7 @@ export default function WorkflowsPage() {
     }
   });
 
-  const { data: workflowsResponse, isLoading } = useQuery<any>({
+  const { data: workflowsResponse, isLoading } = useQuery<{ data: Workflow[], total: number }>({
     queryKey: ['workflows', activePage, search, selectedVHost, selectedWorkspace],
     queryFn: async () => {
       let url = `${API_BASE}/workflows?page=${activePage}&limit=${itemsPerPage}&search=${search}&vhost=${selectedVHost}`;
@@ -51,7 +46,7 @@ export default function WorkflowsPage() {
     }
   });
 
-  const { data: workersResponse } = useQuery<any>({
+  const { data: workersResponse } = useQuery<{ data: Worker[], total: number }>({
     queryKey: ['workers'],
     queryFn: async () => {
       const res = await apiFetch(`${API_BASE}/workers`);
@@ -66,16 +61,16 @@ export default function WorkflowsPage() {
 
   const workspaceOptions = [
     { value: 'all', label: 'All Workspaces' },
-    ...workspaces.map((ws: any) => ({ value: ws.id, label: ws.name }))
+    ...workspaces.map((ws: Workspace) => ({ value: ws.id, label: ws.name }))
   ];
 
   const getWorkspaceName = (id: string) => {
-    const ws = workspaces.find((w: any) => w.id === id);
+    const ws = workspaces.find((w: Workspace) => w.id === id);
     return ws ? ws.name : null;
   };
 
   const getWorkerName = (id: string) => {
-    const worker = workers.find((w: any) => w.id === id);
+    const worker = workers.find((w: Worker) => w.id === id);
     return worker ? worker.name : id;
   };
 
@@ -89,7 +84,7 @@ export default function WorkflowsPage() {
   });
 
   const cloneMutation = useMutation({
-    mutationFn: async (wf: any) => {
+    mutationFn: async (wf: Workflow) => {
       const { id, status, active, ...clone } = wf;
       clone.name = `${clone.name} (Copy)`;
       await apiFetch(`${API_BASE}/workflows`, {
@@ -313,7 +308,7 @@ export default function WorkflowsPage() {
                   <Table.Tr><Table.Td colSpan={7}><Text ta="center" py="xl" c="dimmed">Loading workflows...</Text></Table.Td></Table.Tr>
                 ) : workflows?.length === 0 ? (
                   <Table.Tr><Table.Td colSpan={7}><Text ta="center" py="xl" c="dimmed">{search ? 'No workflows match your search' : 'No workflows found'}</Text></Table.Td></Table.Tr>
-                ) : (Array.isArray(workflows) ? workflows : []).map((wf: any) => (
+                ) : workflows.map((wf: Workflow) => (
                   <Table.Tr key={wf.id} bg={selectedIDs.includes(wf.id) ? 'var(--mantine-color-blue-light)' : undefined}>
                     <Table.Td>
                       <Checkbox 
@@ -425,3 +420,5 @@ export default function WorkflowsPage() {
     </Container>
   );
 }
+
+

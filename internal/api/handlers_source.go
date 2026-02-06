@@ -22,6 +22,8 @@ func (s *Server) registerSourceRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/sources/discover/databases", s.editorOnly(s.discoverDatabases))
 	mux.Handle("POST /api/sources/discover/tables", s.editorOnly(s.discoverTables))
 	mux.Handle("POST /api/sources/sample", s.editorOnly(s.sampleSourceTable))
+	mux.Handle("POST /api/sources/query", s.editorOnly(s.querySource))
+	mux.Handle("POST /api/sources/upload", s.editorOnly(s.uploadFile))
 	mux.Handle("POST /api/proxy/fetch", s.editorOnly(s.proxyFetch))
 	mux.Handle("DELETE /api/sources/{id}", s.editorOnly(s.deleteSource))
 	mux.Handle("POST /api/sources/{id}/snapshot", s.editorOnly(s.triggerSnapshot))
@@ -239,7 +241,7 @@ func (s *Server) triggerSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.recordAuditLog(r, "INFO", "Triggered snapshot for source "+src.Name, "snapshot", "", id, "", nil)
+	s.recordAuditLog(r, "INFO", "Triggered snapshot for source "+src.Name, "snapshot", "", id, "", map[string]interface{}{"tables": req.Tables})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "Snapshot triggered successfully"})
 }
@@ -283,7 +285,16 @@ func (s *Server) listWorkflowsReferencingSource(w http.ResponseWriter, r *http.R
 
 	referencing := make([]wfRef, 0)
 	for _, wf := range wfs {
-		// Optional: filter by vhost if workflows carry vhost; otherwise rely on source RBAC above.
+		// Only include active workflows
+		if !wf.Active {
+			continue
+		}
+		// Enforce workflow-level RBAC by vhost for non-admins
+		if role != storage.RoleAdministrator {
+			if !s.hasVHostAccess(wf.VHost, vhosts) {
+				continue
+			}
+		}
 		for _, node := range wf.Nodes {
 			if node.Type == "source" && node.RefID == id {
 				referencing = append(referencing, wfRef{ID: wf.ID, Name: wf.Name, Active: wf.Active, Status: wf.Status})
@@ -373,6 +384,26 @@ func (s *Server) sampleSourceTable(w http.ResponseWriter, r *http.Request) {
 		"table":     msg.Table(),
 		"after":     string(msg.After()),
 	})
+}
+
+func (s *Server) querySource(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Config engine.SourceConfig `json:"config"`
+		Query  string              `json:"query"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	results, err := s.registry.ExecuteSQL(r.Context(), req.Config, req.Query)
+	if err != nil {
+		s.jsonError(w, "Query failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
 }
 
 func (s *Server) proxyFetch(w http.ResponseWriter, r *http.Request) {

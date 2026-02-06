@@ -2,12 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   Modal, ScrollArea, Stack, Box, Text, Group, Badge, 
   ActionIcon, Tooltip, TextInput, SegmentedControl, Code
-} from '@mantine/core';
-import { 
-  IconTerminal2, IconTrash, IconSearch, IconFilter
-} from '@tabler/icons-react';
-import { useWorkflowStore } from '../store/useWorkflowStore';
-
+} from '@mantine/core';import { useWorkflowStore } from '../store/useWorkflowStore';import { IconFilter, IconSearch, IconTerminal2, IconTrash } from '@tabler/icons-react';
 interface LiveMessage {
   workflow_id: string;
   node_id: string;
@@ -166,3 +161,5 @@ export function LiveStreamInspector({ opened, onClose, workflowId }: {
     </Modal>
   );
 }
+
+

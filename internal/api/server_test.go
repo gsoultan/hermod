@@ -75,7 +75,10 @@ func (m *mockStorage) ListWorkflows(ctx context.Context, filter storage.CommonFi
 }
 func (m *mockStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
 func (m *mockStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
-func (m *mockStorage) DeleteWorkflow(ctx context.Context, id string) error           { return nil }
+func (m *mockStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
+	return nil
+}
+func (m *mockStorage) DeleteWorkflow(ctx context.Context, id string) error { return nil }
 func (m *mockStorage) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
 	return storage.Workflow{}, nil
 }

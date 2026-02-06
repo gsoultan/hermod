@@ -1,7 +1,5 @@
 import { Title, Paper, Stack, Group, Box, Text } from '@mantine/core';
-import { IconExternalLink } from '@tabler/icons-react';
-import { SinkForm } from '../components/SinkForm';
-
+import { SinkForm } from '../components/SinkForm';import { IconExternalLink } from '@tabler/icons-react';
 export function AddSinkPage() {
   return (
     <Box p="md">
@@ -23,3 +21,5 @@ export function AddSinkPage() {
     </Box>
   );
 }
+
+

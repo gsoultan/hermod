@@ -1,7 +1,4 @@
-import { Select, Stack, Text, MultiSelect, Alert } from '@mantine/core';
-import { IconInfoCircle } from '@tabler/icons-react';
-import type { FC } from 'react';
-
+import { Select, Stack, Text, MultiSelect, Alert } from '@mantine/core';import type { FC } from 'react';import { IconInfoCircle } from '@tabler/icons-react';
 export type FailoverSinkConfigProps = {
   config: any;
   sinks: any[];
@@ -66,3 +63,5 @@ export const FailoverSinkConfig: FC<FailoverSinkConfigProps> = ({
     </Stack>
   );
 }
+
+

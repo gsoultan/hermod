@@ -22,6 +22,7 @@ type WorkerStorage interface {
 	ListWorkflows(ctx context.Context, filter storage.CommonFilter) ([]storage.Workflow, int, error)
 	GetWorkflow(ctx context.Context, id string) (storage.Workflow, error)
 	UpdateWorkflow(ctx context.Context, wf storage.Workflow) error
+	UpdateWorkflowStatus(ctx context.Context, id string, status string) error
 	GetSource(ctx context.Context, id string) (storage.Source, error)
 	GetSink(ctx context.Context, id string) (storage.Sink, error)
 	ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error)
@@ -183,6 +184,11 @@ func (w *Worker) SelfRegister(ctx context.Context) error {
 	if err == nil {
 		// Already registered
 		return nil
+	}
+	// If error is something other than not found, surface it (avoid blind create on transient errors)
+	if err != nil && err != storage.ErrNotFound {
+		log.Printf("Worker: self-registration lookup failed for %s: %v", w.workerGUID, err)
+		return err
 	}
 
 	name := w.workerName
@@ -379,7 +385,31 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 			// Check if configuration has changed
 			curWf, ok := w.registry.GetWorkflowConfig(wf.ID)
 			if ok {
-				configChanged := !reflect.DeepEqual(curWf.Nodes, wf.Nodes) || !reflect.DeepEqual(curWf.Edges, wf.Edges) || curWf.Name != wf.Name
+				configChanged := curWf.Name != wf.Name ||
+					curWf.VHost != wf.VHost ||
+					curWf.DeadLetterSinkID != wf.DeadLetterSinkID ||
+					curWf.PrioritizeDLQ != wf.PrioritizeDLQ ||
+					curWf.MaxRetries != wf.MaxRetries ||
+					curWf.RetryInterval != wf.RetryInterval ||
+					curWf.ReconnectInterval != wf.ReconnectInterval ||
+					curWf.DryRun != wf.DryRun ||
+					curWf.IdleTimeout != wf.IdleTimeout ||
+					curWf.Tier != wf.Tier ||
+					curWf.SchemaType != wf.SchemaType ||
+					curWf.Schema != wf.Schema ||
+					curWf.Cron != wf.Cron ||
+					curWf.DLQThreshold != wf.DLQThreshold ||
+					curWf.TraceSampleRate != wf.TraceSampleRate ||
+					curWf.TraceRetention != wf.TraceRetention ||
+					curWf.AuditRetention != wf.AuditRetention ||
+					curWf.WorkspaceID != wf.WorkspaceID ||
+					curWf.CPURequest != wf.CPURequest ||
+					curWf.MemoryRequest != wf.MemoryRequest ||
+					curWf.ThroughputRequest != wf.ThroughputRequest ||
+					!reflect.DeepEqual(curWf.Nodes, wf.Nodes) ||
+					!reflect.DeepEqual(curWf.Edges, wf.Edges) ||
+					!reflect.DeepEqual(curWf.Tags, wf.Tags)
+
 				if !configChanged {
 					// Check if underlying sources or sinks have changed
 					if w.hasResourceConfigChanged(wf.ID, sourceMap, sinkMap) {
@@ -389,10 +419,12 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 
 				if configChanged {
 					log.Printf("Worker: configuration changed for workflow %s, restarting gracefully...", wf.ID)
-					go func(id string) {
-						_ = w.registry.StopEngineWithoutUpdate(id)
-						w.stopLeaseRenewal(id)
-					}(wf.ID)
+					// Mark as Restarting in storage for better UI visibility
+					_ = w.storage.UpdateWorkflowStatus(ctx, wf.ID, "Restarting")
+
+					// Stop synchronously to ensure clean state before starting new instance
+					_ = w.registry.StopEngineWithoutUpdate(wf.ID)
+					w.stopLeaseRenewal(wf.ID)
 					isRunning = false
 				}
 			}
@@ -446,7 +478,7 @@ func (w *Worker) startLeaseRenewal(workflowID string) {
 				if w.workerGUID == "" {
 					continue
 				}
-				ok, err := w.storage.RenewWorkflowLease(context.Background(), workflowID, w.workerGUID, w.leaseTTLSeconds)
+				ok, err := w.storage.RenewWorkflowLease(ctx, workflowID, w.workerGUID, w.leaseTTLSeconds)
 				if err != nil || !ok {
 					pkgengine.LeaseRenewErrorsTotal.WithLabelValues(w.workerGUID).Inc()
 					log.Printf("Worker: lease renew failed for %s (ok=%v err=%v), stopping engine", workflowID, ok, err)

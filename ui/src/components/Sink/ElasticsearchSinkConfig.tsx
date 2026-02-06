@@ -1,6 +1,5 @@
-import { TextInput, Stack, PasswordInput, Group, Autocomplete, ActionIcon, Select } from '@mantine/core'
-import { IconInfoCircle, IconRefresh } from '@tabler/icons-react'
-import type { FC } from 'react'
+import { IconInfoCircle, IconRefresh } from '@tabler/icons-react';
+import { TextInput, Stack, PasswordInput, Group, Autocomplete, ActionIcon, Select } from '@mantine/core'import type { FC } from 'react'
 
 export type ElasticsearchSinkConfigProps = {
   config: any
@@ -39,7 +38,7 @@ export const ElasticsearchSinkConfig: FC<ElasticsearchSinkConfigProps> = ({
         <Autocomplete
           label="Cluster Name"
           placeholder="elasticsearch"
-          data={[...new Set([...discoveredDatabases, config.cluster_name].filter(Boolean))]}
+          data={[...new Set([...(discoveredDatabases || []), config.cluster_name].filter(Boolean))]}
           value={config.cluster_name || ''}
           onChange={(val) => {
             updateConfig('cluster_name', val)
@@ -56,7 +55,7 @@ export const ElasticsearchSinkConfig: FC<ElasticsearchSinkConfigProps> = ({
           label="Index"
           description="Target index name (supports Go templates)"
           placeholder="my-index-{{.table}}"
-          data={indices}
+          data={indices || []}
           searchable
           value={config.index || ''}
           onChange={(val) => updateConfig('index', val || '')}
@@ -89,3 +88,5 @@ export const ElasticsearchSinkConfig: FC<ElasticsearchSinkConfigProps> = ({
     </Stack>
   )
 }
+
+

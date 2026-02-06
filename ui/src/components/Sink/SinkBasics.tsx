@@ -12,7 +12,7 @@ interface SinkBasicsProps {
   onChangeType: (value: string) => void;
   vhostOptions: any[];
   workerOptions: any[];
-  typeOptions: string[];
+  sinkTypes: any[];
 }
 
 export function SinkBasics({
@@ -27,7 +27,7 @@ export function SinkBasics({
   onChangeType,
   vhostOptions,
   workerOptions,
-  typeOptions,
+  sinkTypes,
 }: SinkBasicsProps) {
   return (
     <Stack gap="sm">
@@ -43,7 +43,7 @@ export function SinkBasics({
         <Select
           label="VHost"
           placeholder="Select a virtual host"
-          data={vhostOptions}
+          data={Array.isArray(vhostOptions) ? vhostOptions : []}
           value={vhost}
           onChange={(val) => onChangeVHost(val || '')}
           required
@@ -54,20 +54,32 @@ export function SinkBasics({
         <Select
           label="Worker (Optional)"
           placeholder="Assign to a specific worker"
-          data={workerOptions}
+          data={Array.isArray(workerOptions) ? workerOptions : []}
           value={workerId}
           onChange={(val) => onChangeWorkerId(val || '')}
           clearable
         />
       )}
 
-      <Select
-        label="Type"
-        data={typeOptions}
-        value={type}
-        onChange={(val) => onChangeType(val || '')}
-        required
-      />
+      {!embedded ? (
+        <Select
+          label="Type"
+          placeholder="Select sink type"
+          data={Array.isArray(sinkTypes) ? sinkTypes : []}
+          value={type}
+          onChange={(val) => onChangeType(val || '')}
+          required
+          searchable
+        />
+      ) : (
+        <TextInput
+          label="Type"
+          value={type}
+          readOnly
+          variant="filled"
+          styles={{ input: { textTransform: 'uppercase', fontWeight: 600 } }}
+        />
+      )}
     </Stack>
   );
 }

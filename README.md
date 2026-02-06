@@ -183,6 +183,40 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
 
    If a component has a `worker_id` assigned, only the worker with the matching `--worker-guid` will process it. If no `worker_id` is assigned, the component is subject to the default hash-based sharding.
 
+   #### Worker Registration & Tokens (Security)
+   - When you create a worker via the API/UI, Hermod generates a secret `token` for that worker.
+   - For security, the worker `token` is returned only in the Create response. Subsequent GET/LIST responses do not include it.
+   - Store the token securely and pass it to the worker process using the `--worker-token` flag (or environment variable).
+
+   Example single‑line command (shown in the UI after creation):
+   ```bash
+   hermod --mode=worker --platform-url="http://localhost:8080" --worker-guid="<GUID>" --worker-token="<TOKEN>"
+   ```
+
+   If you prefer, the worker can self‑register with `--worker-host/--worker-port`, but you still need to provide the `--worker-token` obtained at creation time for authenticated API calls.
+
+   #### Worker CLI via Environment Variables
+   To simplify production deployments (containers, systemd), Hermod supports environment variables as fallbacks when flags are not provided (or left at defaults):
+
+   - `HERMOD_MODE` → `--mode`
+   - `HERMOD_PLATFORM_URL` → `--platform-url`
+   - `HERMOD_WORKER_GUID` → `--worker-guid`
+   - `HERMOD_WORKER_TOKEN` → `--worker-token`
+   - `HERMOD_WORKER_HOST` → `--worker-host`
+   - `HERMOD_WORKER_PORT` → `--worker-port`
+   - `HERMOD_WORKER_DESCRIPTION` → `--worker-description`
+   - `HERMOD_WORKER_ID` → `--worker-id`
+   - `HERMOD_TOTAL_WORKERS` → `--total-workers`
+
+   Example using env vars:
+   ```bash
+   export HERMOD_MODE=worker
+   export HERMOD_PLATFORM_URL=http://localhost:8080
+   export HERMOD_WORKER_GUID=my-server-1
+   export HERMOD_WORKER_TOKEN=secret-token
+   hermod
+   ```
+
 
 ## Production Considerations
 
@@ -334,6 +368,64 @@ Worker Metrics:
 - `hermod_worker_sync_duration_seconds`: Time taken for a worker synchronization cycle.
 - `hermod_worker_active_workflows_total`: Number of active workflows currently managed by the worker.
 - `hermod_worker_sync_errors_total`: Total number of worker synchronization errors or workflow start failures.
+
+## Performance Tuning Guide
+
+This section summarizes practical knobs to keep Hermod lightweight (low CPU/RAM) while maintaining throughput and reliability.
+
+Engine flags and settings:
+
+- `engine.max_inflight` (default: 128)
+  - Caps the number of in‑flight messages across the pipeline to bound memory.
+  - Increase for faster sinks, decrease for small instances with tight RSS limits.
+- `engine.drain_timeout` (default: 10s)
+  - Logs a warning if sink writers take longer than this to drain on shutdown. Set `0` to wait indefinitely.
+- `prioritize_dlq` (per‑workflow)
+  - When enabled and a DLQ sink is present, Hermod drains DLQ first before consuming the primary source to avoid starvation of historical failures.
+
+Sink batching and backpressure (per sink):
+
+- `batch_size`, `batch_timeout`, `batch_bytes`
+  - Batch flush triggers on count OR bytes OR timeout — tune to balance latency and throughput.
+  - Typical starters: `batch_size: 200–500`, `batch_bytes: 1_048_576 (1MB)`, `batch_timeout: 100–250ms`.
+- Backpressure buffer and strategy
+  - `backpressure_buffer`: bounded channel size (e.g., 1000–5000)
+  - `backpressure_strategy`: `block` | `drop_oldest` | `drop_newest` | `sampling` | `spill_to_disk`
+  - Prefer `block` (default) unless you need lossy behavior under overload.
+
+Ordered concurrency via sharding (per sink):
+
+- `shard_count`: number of internal worker shards per sink writer (e.g., 4–16)
+- `shard_key_meta`: metadata key used to shard (falls back to `Message.ID()`)
+  - Guarantees per‑key ordering while parallelizing independent keys.
+
+Idempotency store hygiene (SMTP / SQLite helper):
+
+- `enable_idempotency: true`
+- `idempotency_dsn: hermod.db`
+- `idempotency_namespace: <string>` → isolates keys into a dedicated table (e.g., `smtp_idempotency_marketing`).
+- `idempotency_ttl: 72h` → hourly cleanup of stale keys keeps the store fast and small.
+
+Database pooling defaults:
+
+- Non‑SQLite: `MaxOpenConns=20`, `MaxIdleConns=10`, `ConnMaxIdleTime=60s`
+- SQLite (embedded): `MaxOpenConns=4`, `MaxIdleConns=1` (WAL mode recommended)
+
+Logging and profiling:
+
+- `HERMOD_LOG_SAMPLE_N=5` → sample warn/error logs (keep 1/n) to reduce noisy hotspots.
+- `HERMOD_PPROF=true` → enables `/debug/pprof/*` endpoints for on‑the‑fly CPU/heap profiling under load.
+
+OpenTelemetry (OTEL):
+
+- The engine emits spans for `sink.write` and `sink.write_batch` with attributes `workflow_id`, `sink_id`, `message_id`/`batch_size`.
+- Configure OTEL exporter in your environment to collect traces.
+
+Suggested starting targets:
+
+- Idle worker: < 80 MB RSS, ~0% CPU.
+- Fast sink (e.g., Kafka/NATS): 5–20k msgs/s with `max_inflight=128`, `batch_size=200–500`, p95 < 50ms.
+- SQL sink: 1–5k rows/s with 200–500 row batches, p95 < 200ms.
 
 ## Benchmarks
 

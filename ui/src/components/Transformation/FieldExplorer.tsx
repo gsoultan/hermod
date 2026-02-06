@@ -1,7 +1,6 @@
+import { IconCheck, IconCopy, IconPlus, IconSearch } from '@tabler/icons-react';
 import { useState } from 'react'
-import { ActionIcon, Box, Group, ScrollArea, Stack, Text, TextInput, Tooltip as MantineTooltip } from '@mantine/core'
-import { IconCheck, IconCopy, IconPlus, IconSearch } from '@tabler/icons-react'
-import { getValByPath } from '../../utils/transformationUtils'
+import { ActionIcon, Box, Group, ScrollArea, Stack, Text, TextInput, Tooltip as MantineTooltip } from '@mantine/core'import { getValByPath } from '../../utils/transformationUtils'
 
 interface FieldExplorerProps {
   availableFields: string[]
@@ -9,10 +8,10 @@ interface FieldExplorerProps {
   onAdd: (path: string) => void
 }
 
-export function FieldExplorer({ availableFields, incomingPayload, onAdd }: FieldExplorerProps) {
+export function FieldExplorer({ availableFields = [], incomingPayload, onAdd }: FieldExplorerProps) {
   const [search, setSearch] = useState('')
   const [copiedField, setCopiedField] = useState<string | null>(null)
-  const filtered = availableFields.filter((f) => f.toLowerCase().includes(search.toLowerCase()))
+  const filtered = (availableFields || []).filter((f) => f.toLowerCase().includes(search.toLowerCase()))
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
@@ -82,3 +81,5 @@ export function FieldExplorer({ availableFields, incomingPayload, onAdd }: Field
     </Stack>
   )
 }
+
+

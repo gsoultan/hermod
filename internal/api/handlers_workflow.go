@@ -19,6 +19,7 @@ import (
 func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/workflows", s.listWorkflows)
 	mux.HandleFunc("GET /api/workflows/{id}", s.getWorkflow)
+	mux.HandleFunc("PATCH /api/workflows/{id}/status", s.updateWorkflowStatus)
 	mux.HandleFunc("GET /api/workflows/{id}/report", s.getWorkflowComplianceReport)
 	mux.Handle("POST /api/workflows", s.editorOnly(s.createWorkflow))
 	mux.Handle("PUT /api/workflows/{id}", s.editorOnly(s.updateWorkflow))
@@ -34,10 +35,11 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/workflows/{id}/versions/{version}", s.getWorkflowVersion)
 	mux.Handle("POST /api/workflows/{id}/rollback/{version}", s.editorOnly(s.rollbackWorkflow))
 	mux.HandleFunc("GET /api/workflows/pii-stats", s.getPIIStats)
-	mux.HandleFunc("POST /api/ai/analyze-error", s.handleAIAnalyzeError)
-	mux.HandleFunc("POST /api/ai/analyze-schema", s.handleAIAnalyzeSchema)
-	mux.HandleFunc("POST /api/ai/generate-workflow", s.handleAIGenerateWorkflow)
-	mux.HandleFunc("POST /api/ai/copilot", s.handleAICopilot)
+	mux.Handle("POST /api/ai/analyze-error", s.editorOnly(s.handleAIAnalyzeError))
+	mux.Handle("POST /api/ai/analyze-schema", s.editorOnly(s.handleAIAnalyzeSchema))
+	mux.Handle("POST /api/ai/generate-workflow", s.editorOnly(s.handleAIGenerateWorkflow))
+	mux.Handle("POST /api/ai/copilot", s.editorOnly(s.handleAICopilot))
+	mux.Handle("POST /api/ai/suggest-mapping", s.editorOnly(s.handleAISuggestMapping))
 	mux.HandleFunc("POST /api/workflows/{id}/nodes/{node_id}/test", s.runNodeUnitTests)
 	mux.HandleFunc("GET /api/ws/live", s.handleLiveMessagesWS)
 
@@ -172,11 +174,16 @@ func (s *Server) handleAICopilot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.ai.GenerateLogic(r.Context(), req.Prompt)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	result, err := s.ai.GenerateLogic(ctx, req.Prompt)
 	if err != nil {
 		s.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	s.recordAuditLog(r, "INFO", "AI copilot generated logic", "AI_COPILOT", "", "", "", nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(result)
@@ -194,11 +201,16 @@ func (s *Server) handleAIAnalyzeError(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	suggestion, err := s.ai.AnalyzeError(r.Context(), req.WorkflowID, req.NodeID, req.Error, req.Sample)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	suggestion, err := s.ai.AnalyzeError(ctx, req.WorkflowID, req.NodeID, req.Error, req.Sample)
 	if err != nil {
 		s.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	s.recordAuditLog(r, "INFO", "AI analyzed error for workflow "+req.WorkflowID, "AI_ANALYZE", req.WorkflowID, "", "", map[string]string{"node_id": req.NodeID})
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(suggestion)
@@ -215,14 +227,105 @@ func (s *Server) handleAIAnalyzeSchema(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := s.ai.AnalyzeSchemaChange(r.Context(), req.OldSchema, req.NewSchema, req.WorkflowID)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	res, err := s.ai.AnalyzeSchemaChange(ctx, req.OldSchema, req.NewSchema, req.WorkflowID)
 	if err != nil {
 		s.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	s.recordAuditLog(r, "INFO", "AI analyzed schema change for workflow "+req.WorkflowID, "AI_ANALYZE_SCHEMA", req.WorkflowID, "", "", nil)
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (s *Server) handleAISuggestMapping(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SourceFields []string `json:"source_fields"`
+		TargetFields []string `json:"target_fields"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(req.SourceFields) > 1000 || len(req.TargetFields) > 1000 {
+		s.jsonError(w, "Too many fields for mapping suggestion", http.StatusBadRequest)
+		return
+	}
+
+	// Heuristic mapping by name similarity
+	norm := func(s string) string {
+		s = strings.ToLower(s)
+		s = strings.ReplaceAll(s, "_", "")
+		s = strings.ReplaceAll(s, "-", "")
+		s = strings.ReplaceAll(s, " ", "")
+		return s
+	}
+	lcs := func(a, b string) int {
+		na, nb := len(a), len(b)
+		best := 0
+		for i := 0; i < na; i++ {
+			for j := 0; j < nb; j++ {
+				k := 0
+				for i+k < na && j+k < nb && a[i+k] == b[j+k] {
+					k++
+				}
+				if k > best {
+					best = k
+				}
+			}
+		}
+		return best
+	}
+	suggestions := map[string]string{}
+	scores := map[string]float64{}
+	for _, tgt := range req.TargetFields {
+		tn := norm(tgt)
+		bestScore := 0.0
+		bestSrc := ""
+		for _, src := range req.SourceFields {
+			sn := norm(src)
+			score := 0.0
+			if sn == tn {
+				score = 1.0
+			} else if strings.Contains(tn, sn) || strings.Contains(sn, tn) {
+				score = 0.8
+			} else {
+				lc := lcs(sn, tn)
+				maxLen := float64(len(sn))
+				if float64(len(tn)) > maxLen {
+					maxLen = float64(len(tn))
+				}
+				if maxLen > 0 {
+					score = float64(lc) / maxLen
+				}
+			}
+			if score > bestScore {
+				bestScore = score
+				bestSrc = src
+			}
+		}
+		if bestSrc != "" && bestScore >= 0.5 {
+			suggestions[tgt] = bestSrc
+			scores[tgt] = bestScore
+		}
+	}
+
+	s.recordAuditLog(r, "INFO", "AI suggested field mapping", "AI_SUGGEST_MAPPING", "", "", "", map[string]int{
+		"source_count": len(req.SourceFields),
+		"target_count": len(req.TargetFields),
+		"suggestions":  len(suggestions),
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"suggestions": suggestions,
+		"scores":      scores,
+	})
 }
 
 func (s *Server) handleAIGenerateWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -234,11 +337,16 @@ func (s *Server) handleAIGenerateWorkflow(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	wf, err := s.ai.GenerateWorkflow(r.Context(), req.Prompt)
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+
+	wf, err := s.ai.GenerateWorkflow(ctx, req.Prompt)
 	if err != nil {
 		s.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	s.recordAuditLog(r, "INFO", "AI generated workflow", "AI_GENERATE_WORKFLOW", "", "", "", nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(wf)
@@ -299,15 +407,11 @@ func (s *Server) runNodeUnitTests(w http.ResponseWriter, r *http.Request) {
 		// Create a temporary transformation from the node config
 		trans := storage.Transformation{
 			Type:   targetNode.Type,
-			Config: make(map[string]string),
+			Config: make(map[string]interface{}),
 		}
 		if targetNode.Config != nil {
 			for k, v := range targetNode.Config {
-				if str, ok := v.(string); ok {
-					trans.Config[k] = str
-				} else if v != nil {
-					trans.Config[k] = fmt.Sprint(v)
-				}
+				trans.Config[k] = v
 			}
 		}
 		// If it's a subType like "mapping", the engine needs that
@@ -349,6 +453,29 @@ func (s *Server) runNodeUnitTests(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(results)
+}
+
+func (s *Server) updateWorkflowStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		s.jsonError(w, "missing workflow id", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := s.storage.UpdateWorkflowStatus(r.Context(), id, req.Status); err != nil {
+		s.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) listWorkflows(w http.ResponseWriter, r *http.Request) {

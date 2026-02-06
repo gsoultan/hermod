@@ -2,11 +2,8 @@ import { useState } from 'react';
 import { 
   Modal, TextInput, Button, Stack, Text, Group, ThemeIcon, 
   Paper, Code, Badge, Loader, ActionIcon, ScrollArea, Alert
-} from '@mantine/core';
-import { IconSparkles, IconPlayerPlay, IconRocket, IconAlertCircle } from '@tabler/icons-react';
-import { notifications } from '@mantine/notifications';
-import { apiFetch } from '../../../api';
-
+} from '@mantine/core';import { notifications } from '@mantine/notifications';
+import { apiFetch } from '../../../api';import { IconAlertCircle, IconPlayerPlay, IconRocket, IconSparkles } from '@tabler/icons-react';
 export function AIGeneratorModal({ opened, onClose, onGenerated }: { 
   opened: boolean, 
   onClose: () => void,
@@ -112,3 +109,5 @@ export function AIGeneratorModal({ opened, onClose, onGenerated }: {
     </Modal>
   );
 }
+
+

@@ -3,6 +3,7 @@ package fcm
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	firebase "firebase.google.com/go/v4"
@@ -15,7 +16,13 @@ type FCMSink struct {
 	client          *messaging.Client
 	formatter       hermod.Formatter
 	credentialsJSON string
-	mu              sync.Mutex
+
+	// Default destinations used when a message doesn't specify fcm_* metadata
+	defaultToken     string
+	defaultTopic     string
+	defaultCondition string
+
+	mu sync.Mutex
 }
 
 func NewFCMSink(credentialsJSON string, formatter hermod.Formatter) (*FCMSink, error) {
@@ -23,6 +30,19 @@ func NewFCMSink(credentialsJSON string, formatter hermod.Formatter) (*FCMSink, e
 		formatter:       formatter,
 		credentialsJSON: credentialsJSON,
 	}, nil
+}
+
+// NewFCMSinkWithDefaults allows configuring default destination (token/topic/condition)
+// that will be used when the message doesn't provide fcm_* metadata.
+func NewFCMSinkWithDefaults(credentialsJSON, defaultToken, defaultTopic, defaultCondition string, formatter hermod.Formatter) (*FCMSink, error) {
+	s := &FCMSink{
+		formatter:        formatter,
+		credentialsJSON:  credentialsJSON,
+		defaultToken:     strings.TrimSpace(defaultToken),
+		defaultTopic:     strings.TrimSpace(defaultTopic),
+		defaultCondition: strings.TrimSpace(defaultCondition),
+	}
+	return s, nil
 }
 
 func (s *FCMSink) ensureConnected(ctx context.Context) error {
@@ -93,9 +113,14 @@ func (s *FCMSink) Write(ctx context.Context, msg hermod.Message) error {
 		fcmMsg.Topic = topic
 	} else if condition, ok := metadata["fcm_condition"]; ok {
 		fcmMsg.Condition = condition
+	} else if s.defaultToken != "" || s.defaultTopic != "" || s.defaultCondition != "" {
+		// Fall back to configured defaults
+		fcmMsg.Token = s.defaultToken
+		fcmMsg.Topic = s.defaultTopic
+		fcmMsg.Condition = s.defaultCondition
 	} else {
 		// If no destination is specified, we can't send the message.
-		// For now, we'll return an error, but it could also be a no-op depending on requirements.
+		// Keep the error text stable for tests.
 		return fmt.Errorf("fcm destination (token, topic, or condition) not found in message metadata")
 	}
 

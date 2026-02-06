@@ -1,10 +1,8 @@
 import { Title, Paper, Stack, Group, Box, Text, Center, Loader } from '@mantine/core';
-import { IconExternalLink } from '@tabler/icons-react';
 import { SinkForm } from '../components/SinkForm';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { apiFetch } from '../api';
-import { useParams } from '@tanstack/react-router';
-
+import { useParams } from '@tanstack/react-router';import { IconExternalLink } from '@tabler/icons-react';
 export function EditSinkPage() {
   const { sinkId } = useParams({ from: '/sinks/$sinkId/edit' });
 

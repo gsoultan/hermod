@@ -1,8 +1,5 @@
 import { useState } from 'react';
-import { Stack, Text, Textarea, Button, Group, Code, ActionIcon, Tooltip, Paper, Badge, ThemeIcon, ScrollArea } from '@mantine/core';
-import { IconSparkles, IconCopy, IconCheck, IconTrash, IconRobot } from '@tabler/icons-react';
-import { apiFetch } from '../api';
-
+import { Stack, Text, Textarea, Button, Group, Code, ActionIcon, Tooltip, Paper, Badge, ThemeIcon, ScrollArea } from '@mantine/core';import { apiFetch } from '../api';import { IconCheck, IconCopy, IconRobot, IconSparkles, IconTrash } from '@tabler/icons-react';
 export function AICopilot() {
   const [prompt, setPrompt] = useState('');
   const [result, setResult] = useState<any>(null);
@@ -99,3 +96,5 @@ export function AICopilot() {
     </Stack>
   );
 }
+
+

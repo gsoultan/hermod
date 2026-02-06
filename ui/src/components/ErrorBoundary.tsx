@@ -1,8 +1,6 @@
 import { Component } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
-import { Alert, Container, Title, Text, Button, Stack, Paper, Group } from '@mantine/core';
-import { IconAlertTriangle, IconRefresh } from '@tabler/icons-react';
-
+import { Alert, Container, Title, Text, Button, Stack, Paper, Group } from '@mantine/core';import { IconAlertTriangle, IconRefresh } from '@tabler/icons-react';
 interface Props {
   children: ReactNode;
 }
@@ -69,3 +67,5 @@ export class ErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
+
+

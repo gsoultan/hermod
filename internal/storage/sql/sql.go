@@ -1258,6 +1258,14 @@ func (s *sqlStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) er
 	return s.execWithRetry(ctx, exec)
 }
 
+func (s *sqlStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
+	exec := func() error {
+		_, e := s.exec(ctx, s.queries.get(QueryUpdateWorkflowStatus), status, id)
+		return e
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
 func (s *sqlStorage) DeleteWorkflow(ctx context.Context, id string) error {
 	exec := func() error {
 		_, e := s.exec(ctx, s.queries.get(QueryDeleteWorkflow), id)

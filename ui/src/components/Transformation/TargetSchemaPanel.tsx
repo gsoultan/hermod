@@ -1,6 +1,4 @@
-import { Alert, Badge, Card, Divider, Group, ScrollArea, Stack, Text } from '@mantine/core';
-import { IconAlertCircle, IconDatabase } from '@tabler/icons-react';
-
+import { Alert, Badge, Card, Divider, Group, ScrollArea, Stack, Text } from '@mantine/core';import { IconAlertCircle, IconDatabase } from '@tabler/icons-react';
 interface TargetSchemaPanelProps {
   title?: string;
   fields: string[];
@@ -42,3 +40,5 @@ export function TargetSchemaPanel({ title = 'Target Schema', fields, loading, er
     </Card>
   );
 }
+
+

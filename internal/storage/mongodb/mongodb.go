@@ -855,6 +855,12 @@ func (s *mongoStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) 
 	return err
 }
 
+func (s *mongoStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
+	coll := s.db.Collection("workflows")
+	_, err := coll.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"status": status}})
+	return err
+}
+
 func (s *mongoStorage) DeleteWorkflow(ctx context.Context, id string) error {
 	coll := s.db.Collection("workflows")
 	_, err := coll.DeleteOne(ctx, bson.M{"_id": id})

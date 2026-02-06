@@ -82,15 +82,16 @@ const (
 	QueryGetVHost    = "GetVHost"
 
 	// Workflows
-	QueryListWorkflows  = "ListWorkflows"
-	QueryCountWorkflows = "CountWorkflows"
-	QueryCreateWorkflow = "CreateWorkflow"
-	QueryUpdateWorkflow = "UpdateWorkflow"
-	QueryDeleteWorkflow = "DeleteWorkflow"
-	QueryGetWorkflow    = "GetWorkflow"
-	QueryAcquireLease   = "AcquireLease"
-	QueryRenewLease     = "RenewLease"
-	QueryReleaseLease   = "ReleaseLease"
+	QueryListWorkflows        = "ListWorkflows"
+	QueryCountWorkflows       = "CountWorkflows"
+	QueryCreateWorkflow       = "CreateWorkflow"
+	QueryUpdateWorkflow       = "UpdateWorkflow"
+	QueryUpdateWorkflowStatus = "UpdateWorkflowStatus"
+	QueryDeleteWorkflow       = "DeleteWorkflow"
+	QueryGetWorkflow          = "GetWorkflow"
+	QueryAcquireLease         = "AcquireLease"
+	QueryRenewLease           = "RenewLease"
+	QueryReleaseLease         = "ReleaseLease"
 
 	// Workspaces
 	QueryListWorkspaces  = "ListWorkspaces"
@@ -407,15 +408,16 @@ var commonQueries = map[string]string{
 	QueryDeleteVHost: "DELETE FROM vhosts WHERE id = ?",
 	QueryGetVHost:    "SELECT id, name, description FROM vhosts WHERE id = ?",
 
-	QueryListWorkflows:  "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request FROM workflows",
-	QueryCountWorkflows: "SELECT COUNT(*) FROM workflows",
-	QueryCreateWorkflow: "INSERT INTO workflows (id, name, vhost, active, status, worker_id, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryUpdateWorkflow: "UPDATE workflows SET name = ?, vhost = ?, active = ?, status = ?, worker_id = ?, nodes = ?, edges = ?, dead_letter_sink_id = ?, prioritize_dlq = ?, max_retries = ?, retry_interval = ?, reconnect_interval = ?, dry_run = ?, schema_type = ?, schema = ?, retention_days = ?, cron = ?, idle_timeout = ?, tier = ?, trace_sample_rate = ?, dlq_threshold = ?, tags = ?, workspace_id = ?, trace_retention = ?, audit_retention = ?, cpu_request = ?, memory_request = ?, throughput_request = ? WHERE id = ?",
-	QueryDeleteWorkflow: "DELETE FROM workflows WHERE id = ?",
-	QueryGetWorkflow:    "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request FROM workflows WHERE id = ?",
-	QueryAcquireLease:   "UPDATE workflows SET owner_id = ?, lease_until = ? WHERE id = ? AND (owner_id IS NULL OR lease_until IS NULL OR lease_until < ? OR owner_id = ?)",
-	QueryRenewLease:     "UPDATE workflows SET lease_until = ? WHERE id = ? AND owner_id = ? AND lease_until IS NOT NULL AND lease_until >= ?",
-	QueryReleaseLease:   "UPDATE workflows SET owner_id = NULL, lease_until = NULL WHERE id = ? AND owner_id = ?",
+	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request FROM workflows",
+	QueryCountWorkflows:       "SELECT COUNT(*) FROM workflows",
+	QueryCreateWorkflow:       "INSERT INTO workflows (id, name, vhost, active, status, worker_id, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryUpdateWorkflow:       "UPDATE workflows SET name = ?, vhost = ?, active = ?, status = ?, worker_id = ?, nodes = ?, edges = ?, dead_letter_sink_id = ?, prioritize_dlq = ?, max_retries = ?, retry_interval = ?, reconnect_interval = ?, dry_run = ?, schema_type = ?, schema = ?, retention_days = ?, cron = ?, idle_timeout = ?, tier = ?, trace_sample_rate = ?, dlq_threshold = ?, tags = ?, workspace_id = ?, trace_retention = ?, audit_retention = ?, cpu_request = ?, memory_request = ?, throughput_request = ? WHERE id = ?",
+	QueryUpdateWorkflowStatus: "UPDATE workflows SET status = ? WHERE id = ?",
+	QueryDeleteWorkflow:       "DELETE FROM workflows WHERE id = ?",
+	QueryGetWorkflow:          "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request FROM workflows WHERE id = ?",
+	QueryAcquireLease:         "UPDATE workflows SET owner_id = ?, lease_until = ? WHERE id = ? AND (owner_id IS NULL OR lease_until IS NULL OR lease_until < ? OR owner_id = ?)",
+	QueryRenewLease:           "UPDATE workflows SET lease_until = ? WHERE id = ? AND owner_id = ? AND lease_until IS NOT NULL AND lease_until >= ?",
+	QueryReleaseLease:         "UPDATE workflows SET owner_id = NULL, lease_until = NULL WHERE id = ? AND owner_id = ?",
 
 	QueryListWorkspaces:  "SELECT id, name, description, max_workflows, max_cpu, max_memory, max_throughput, created_at FROM workspaces ORDER BY name ASC",
 	QueryCreateWorkspace: "INSERT INTO workspaces (id, name, description, max_workflows, max_cpu, max_memory, max_throughput, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

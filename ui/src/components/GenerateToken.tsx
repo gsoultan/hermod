@@ -1,9 +1,8 @@
+import { IconClipboard, IconEye, IconEyeOff, IconKey, IconReload } from '@tabler/icons-react';
 import { useState } from 'react'
 import type { FC } from 'react'
 import { Button, Group, NumberInput, Select, PasswordInput, Tooltip } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
-import { IconReload, IconEye, IconEyeOff, IconKey, IconClipboard } from '@tabler/icons-react'
-import { apiFetch } from '../api'
+import { notifications } from '@mantine/notifications'import { apiFetch } from '../api'
 
 export interface GenerateTokenProps {
   label?: string
@@ -105,3 +104,5 @@ export const GenerateToken: FC<GenerateTokenProps> = ({
     </Group>
   )
 }
+
+

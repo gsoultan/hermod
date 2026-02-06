@@ -1,7 +1,5 @@
 import { Title, Paper, Stack, Group, Box, Text } from '@mantine/core';
-import { IconPlus } from '@tabler/icons-react';
-import { VHostForm } from '../components/VHostForm';
-
+import { VHostForm } from '../components/VHostForm';import { IconPlus } from '@tabler/icons-react';
 export function AddVHostPage() {
   return (
     <Box p="md">

@@ -6,22 +6,40 @@ import {
   Tooltip as MantineTooltip,
   Switch, Textarea, Modal, TagsInput
 } from '@mantine/core';
-import { 
-  IconTrash, IconPlus, IconInfoCircle, IconArrowRight, IconPlayerPlay,
-  IconSearch, IconFunction,
-  IconVariable, IconDatabase, IconCloud, IconList,
-  IconSettings, IconCode, IconBracketsContain, IconHelpCircle, IconPuzzle
-} from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { apiFetch } from '../api';
 import { usePreviewTransformation } from '../pages/WorkflowEditor/hooks/usePreviewTransformation';
-import { getValByPath } from '../utils/transformationUtils';
 import { useTargetSchema } from '../pages/WorkflowEditor/hooks/useTargetSchema';
-import { PreviewPanel } from './Transformation/PreviewPanel';
-import { FieldExplorer } from './Transformation/FieldExplorer';
-import { TargetExplorer } from './Transformation/TargetExplorer';
-import { FilterEditor, type Condition } from './Transformation/FilterEditor';
-
+import type { Condition } from './Transformation/FilterEditor';
+// Lazy-load heavy UI components to reduce initial bundle size (Junie compliance)
+const PreviewPanel = lazy(() =>
+  import('./Transformation/PreviewPanel').then((m) => ({ default: m.PreviewPanel }))
+);
+const FieldExplorer = lazy(() =>
+  import('./Transformation/FieldExplorer').then((m) => ({ default: m.FieldExplorer }))
+);
+const TargetExplorer = lazy(() =>
+  import('./Transformation/TargetExplorer').then((m) => ({ default: m.TargetExplorer }))
+);
+const FilterEditor = lazy(() =>
+  import('./Transformation/FilterEditor').then((m) => ({ default: m.FilterEditor }))
+);
+const MappingEditor = lazy(() =>
+  import('./Transformation/MappingEditor').then((m) => ({ default: m.MappingEditor }))
+);
+const SetFieldEditor = lazy(() =>
+  import('./Transformation/SetFieldEditor').then((m) => ({ default: m.SetFieldEditor }))
+);
+const RouterEditor = lazy(() =>
+  import('./Transformation/RouterEditor').then((m) => ({ default: m.RouterEditor }))
+);
+const QuickActions = lazy(() =>
+  import('./Transformation/QuickActions').then((m) => ({ default: m.QuickActions }))
+);
+const SQLQueryBuilder = lazy(() =>
+  import('./SQLQueryBuilder').then((m) => ({ default: m.SQLQueryBuilder }))
+);
+import { IconArrowRight, IconCloud, IconCode, IconDatabase, IconFunction, IconHelpCircle, IconInfoCircle, IconList, IconPlayerPlay, IconPlus, IconPuzzle, IconSearch, IconSettings, IconTrash, IconVariable } from '@tabler/icons-react';
 interface TransformationFormProps {
   selectedNode: any;
   updateNodeConfig: (nodeId: string, config: any, replace?: boolean) => void;
@@ -32,19 +50,59 @@ interface TransformationFormProps {
   sinkSchema?: any;
 }
 
-export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimulation: _onRunSimulation, availableFields, incomingPayload, sources, sinkSchema }: TransformationFormProps) {
+export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimulation: _onRunSimulation, availableFields = [], incomingPayload, sources = [], sinkSchema }: TransformationFormProps) {
   const [testing, setTesting] = useState(false);
   const { fields: targetSchema, loading: loadingTarget } = useTargetSchema({ sinkSchema });
 
   const [previewResult, setPreviewResult] = useState<any>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [configSearch, setConfigSearch] = useState('');
   // Accessibility: IDs for help modal labelling
   const helpTitleId = 'transformation-help-modal-title';
   const helpDescId = 'transformation-help-modal-desc';
 
   // Lazy-load heavy help content to reduce initial bundle
   const HelpContent = lazy(() => import('./Transformation/HelpContent'));
+
+  const handleApplyTemplate = (template: string) => {
+    switch (template) {
+      case 'pii_masking':
+        updateNodeConfig(selectedNode.id, { 
+          transType: 'mask', 
+          field: '*', 
+          maskType: 'pii',
+          label: 'Mask PII'
+        }, true);
+        break;
+      case 'mask_emails':
+        updateNodeConfig(selectedNode.id, { 
+          transType: 'mask', 
+          field: 'email', 
+          maskType: 'email',
+          label: 'Mask Emails'
+        }, true);
+        break;
+      case 'flatten':
+        updateNodeConfig(selectedNode.id, { 
+          transType: 'set', 
+          'column.': '.', 
+          label: 'Flatten Record'
+        }, true);
+        break;
+      case 'audit_fields':
+        updateNodeConfig(selectedNode.id, { 
+          'column._processed_at': `now()`,
+          'column._node_id': selectedNode.id,
+        });
+        notifications.show({ message: 'Audit fields added.', color: 'green' });
+        break;
+      case 'clear':
+        updateNodeConfig(selectedNode.id, { label: selectedNode.data.label }, true);
+        notifications.show({ message: 'Configuration cleared.', color: 'blue' });
+        break;
+    }
+  };
 
   const previewMutation = usePreviewTransformation();
 
@@ -157,100 +215,6 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     }
   };
 
-  // Helper for Value Mapping
-  const renderMappingEditor = () => {
-    let mapping: Record<string, any> = {};
-    try {
-      mapping = JSON.parse(selectedNode.data.mapping || '{}');
-    } catch (e) {
-      return <Text size="xs" c="red">Invalid JSON mapping. Use the raw editor below to fix.</Text>;
-    }
-
-    const mappingEntries = Object.entries(mapping);
-
-    const updateKey = (oldKey: string, newKey: string) => {
-      const next = { ...mapping };
-      const value = next[oldKey];
-      delete next[oldKey];
-      next[newKey] = value;
-      updateNodeConfig(selectedNode.id, { mapping: JSON.stringify(next) });
-    };
-
-    const updateValue = (key: string, newValue: any) => {
-      const next = { ...mapping };
-      next[key] = newValue;
-      updateNodeConfig(selectedNode.id, { mapping: JSON.stringify(next) });
-    };
-
-    const removeEntry = (key: string) => {
-      const next = { ...mapping };
-      delete next[key];
-      updateNodeConfig(selectedNode.id, { mapping: JSON.stringify(next) });
-    };
-
-    const addEntry = () => {
-      const next = { ...mapping };
-      next[`new_key_${mappingEntries.length}`] = '';
-      updateNodeConfig(selectedNode.id, { mapping: JSON.stringify(next) });
-    };
-
-    const addCurrentValue = () => {
-      if (!incomingPayload || !selectedNode.data.field) return;
-      const val = getValByPath(incomingPayload, selectedNode.data.field);
-      if (val === undefined) return;
-      const key = String(val);
-      const next = { ...mapping };
-      if (next[key] === undefined) {
-        next[key] = '';
-        updateNodeConfig(selectedNode.id, { mapping: JSON.stringify(next) });
-      }
-    };
-
-    return (
-      <Stack gap="xs">
-        <Group justify="space-between">
-          <Text size="sm" fw={500}>Value Mapping Rules</Text>
-          {incomingPayload && selectedNode.data.field && (
-             <Button 
-               size="compact-xs" 
-               variant="subtle" 
-               color="orange"
-               leftSection={<IconPlus size="0.8rem" />}
-               onClick={addCurrentValue}
-             >
-               Add current: {String(getValByPath(incomingPayload, selectedNode.data.field))}
-             </Button>
-          )}
-        </Group>
-        {mappingEntries.map(([oldVal, newVal], index) => (
-          <Group key={index} grow gap="xs">
-            <TextInput
-              placeholder="Source Value"
-              value={oldVal}
-              onChange={(e) => updateKey(oldVal, e.target.value)}
-            />
-            <IconArrowRight size="1rem" style={{ flex: 'none' }} />
-            <TextInput
-              placeholder="Target Value"
-              value={newVal}
-              onChange={(e) => updateValue(oldVal, e.target.value)}
-            />
-            <ActionIcon aria-label="Remove entry" color="red" variant="subtle" onClick={() => removeEntry(oldVal)}>
-              <IconTrash size="1rem" />
-            </ActionIcon>
-          </Group>
-        ))}
-        <Button 
-          size="xs" 
-          variant="light" 
-          leftSection={<IconPlus size="1rem" />}
-          onClick={addEntry}
-        >
-          Add Mapping Rule
-        </Button>
-      </Stack>
-    );
-  };
 
   // Helper for Validator Rules
   const renderValidatorEditor = () => {
@@ -290,11 +254,11 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     return (
       <Stack gap="xs">
         <Text size="sm" fw={500}>Validation Rules</Text>
-        {Object.entries(rules).map(([path, type], index) => (
+        {Object.entries(rules || {}).map(([path, type], index) => (
           <Group key={index} grow gap="xs">
             <Autocomplete
               placeholder="Field Path"
-              data={availableFields}
+              data={availableFields || []}
               value={path}
               onChange={(val) => updatePath(path, val)}
             />
@@ -331,7 +295,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
               label="Field to Validate"
               description="Numeric field to monitor for anomalies"
               placeholder="e.g. price, amount, latency"
-              data={availableFields}
+              data={availableFields || []}
               value={selectedNode.data.field || ''}
               onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })}
             />
@@ -377,197 +341,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     );
   };
 
-  // Helper for Set Field
-  const renderSetFieldEditor = () => {
-    const fields = Object.entries(selectedNode.data)
-      .filter(([k]) => k.startsWith('column.'))
-      .map(([k, v]) => ({ fullKey: k, path: k.replace('column.', ''), value: v }));
 
-    const updateFieldPath = (oldFullKey: string, newPath: string) => {
-      const baseData = Object.fromEntries(
-        Object.entries(selectedNode.data).filter(([k]) => !k.startsWith('column.'))
-      );
-      const otherFields = Object.fromEntries(
-        Object.entries(selectedNode.data).filter(([k]) => k.startsWith('column.') && k !== oldFullKey)
-      );
-      updateNodeConfig(selectedNode.id, { ...baseData, ...otherFields, [`column.${newPath}`]: selectedNode.data[oldFullKey] }, true);
-    };
-
-    const updateFieldValue = (fullKey: string, newValue: any) => {
-      updateNodeConfig(selectedNode.id, { [fullKey]: newValue });
-    };
-
-    const removeField = (fullKey: string) => {
-      const baseData = Object.fromEntries(
-        Object.entries(selectedNode.data).filter(([k]) => !k.startsWith('column.'))
-      );
-      const remainingFields = Object.fromEntries(
-        Object.entries(selectedNode.data).filter(([k]) => k.startsWith('column.') && k !== fullKey)
-      );
-      updateNodeConfig(selectedNode.id, { ...baseData, ...remainingFields }, true);
-    };
-
-    const isAdvanced = transType === 'advanced';
-
-    return (
-      <Stack gap="xs">
-        <Group justify="space-between">
-          <Text size="sm" fw={500}>{isAdvanced ? 'Transformation Rules' : 'Fields to Set'}</Text>
-          {incomingPayload && (
-            <Group gap="xs">
-              <Text size="xs" c="dimmed">Quick add from source:</Text>
-              <Group gap={4}>
-                {availableFields.slice(0, 5).map(f => (
-                  <Badge 
-                    key={f} 
-                    size="xs" 
-                    variant="light" 
-                    color="blue"
-                    style={{ cursor: 'pointer', textTransform: 'none' }}
-                    onClick={() => addFromSource(f)}
-                  >
-                    + {f}
-                  </Badge>
-                ))}
-              </Group>
-            </Group>
-          )}
-        </Group>
-
-        {fields.length === 0 && (
-          <Alert icon={<IconInfoCircle size="1rem" />} color="gray" variant="outline">
-            <Text size="xs">No fields defined yet. Click "Add Field" or use the quick-add badges above to start.</Text>
-          </Alert>
-        )}
-
-        {fields.map((field, index) => (
-          <Group key={index} grow gap="xs" style={{ background: 'var(--mantine-color-gray-0)', padding: 8, borderRadius: 8 }}>
-            <Autocomplete
-              placeholder="Target Path"
-              data={availableFields}
-              size="xs"
-              leftSection={<IconBracketsContain size="0.8rem" />}
-              value={field.path}
-              onChange={(val) => updateFieldPath(field.fullKey, val)}
-            />
-            <TextInput
-              placeholder={isAdvanced ? "Expression (e.g. upper(source.field))" : "Value (literal or source.path)"}
-              size="xs"
-              leftSection={isAdvanced ? <IconCode size="0.8rem" /> : <IconVariable size="0.8rem" />}
-              value={String(field.value || '')}
-              onChange={(e) => updateFieldValue(field.fullKey, e.target.value)}
-              rightSection={
-                incomingPayload && (
-                  <Group gap={2} px={4}>
-                    <MantineTooltip label="Use source value" position="top">
-                      <ActionIcon 
-                        size="xs" 
-                        variant="subtle" 
-                        onClick={() => updateFieldValue(field.fullKey, `source.${field.path}`)}
-                        disabled={!availableFields.includes(field.path)}
-                      >
-                        <IconArrowRight size="0.8rem" />
-                      </ActionIcon>
-                    </MantineTooltip>
-                  </Group>
-                )
-              }
-            />
-            <ActionIcon aria-label="Remove field" color="red" variant="subtle" onClick={() => removeField(field.fullKey)} style={{ flex: 'none' }}>
-              <IconTrash size="1rem" />
-            </ActionIcon>
-          </Group>
-        ))}
-        <Button 
-          size="xs" 
-          variant="light" 
-          fullWidth
-          leftSection={<IconPlus size="1rem" />}
-          onClick={() => addField()}
-        >
-          Add Transformation Rule
-        </Button>
-      </Stack>
-    );
-  };
-
-  // Helper for Router Rules
-  const renderRouterEditor = () => {
-    let rules: any[] = [];
-    try {
-      rules = typeof selectedNode.data.rules === 'string' 
-        ? JSON.parse(selectedNode.data.rules || '[]')
-        : (selectedNode.data.rules || []);
-    } catch (e) {
-      rules = [];
-    }
-
-    const updateRule = (index: number, field: string, newValue: any) => {
-      const next = [...rules];
-      next[index] = { ...next[index], [field]: newValue };
-      updateNodeConfig(selectedNode.id, { rules: JSON.stringify(next) });
-    };
-
-    const removeRule = (index: number) => {
-      const next = rules.filter((_, i) => i !== index);
-      updateNodeConfig(selectedNode.id, { rules: JSON.stringify(next) });
-    };
-
-    const addRule = () => {
-      updateNodeConfig(selectedNode.id, { rules: JSON.stringify([...rules, { label: `path_${rules.length + 1}`, conditions: [] }]) });
-    };
-
-    return (
-      <Stack gap="xs">
-        <Group justify="space-between">
-          <Text size="sm" fw={500}>Routing Rules</Text>
-          <Button 
-            size="compact-xs" 
-            variant="light" 
-            leftSection={<IconPlus size="1rem" />}
-            onClick={addRule}
-          >
-            Add Rule
-          </Button>
-        </Group>
-        {rules.length === 0 && (
-          <Text size="xs" c="dimmed" ta="center">No rules defined. Messages will follow "default" branch.</Text>
-        )}
-        {rules.map((rule, index) => (
-          <Card key={index} withBorder p="xs" shadow="xs" radius="md">
-            <Stack gap="xs">
-              <Group grow gap="xs" align="flex-end">
-                <TextInput
-                  placeholder="Target Branch (e.g. high_priority)"
-                  label="Branch Label"
-                  size="xs"
-                  value={rule.label}
-                  onChange={(e) => updateRule(index, 'label', e.target.value)}
-                  required
-                />
-                <ActionIcon 
-                  aria-label="Remove router rule"
-                  color="red" 
-                  variant="subtle" 
-                  onClick={() => removeRule(index)} 
-                  mb={2} 
-                  style={{ flex: 'none' }}
-                >
-                  <IconTrash size="1rem" />
-                </ActionIcon>
-              </Group>
-              
-              <FilterEditor 
-                conditions={rule.conditions || []} 
-                availableFields={availableFields}
-                onChange={(next) => updateRule(index, 'conditions', next)}
-              />
-            </Stack>
-          </Card>
-        ))}
-      </Stack>
-    );
-  };
 
   // Helper for Switch Cases
   const renderSwitchEditor = () => {
@@ -696,7 +470,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                       <Group key={condIdx} grow gap={4} align="flex-end">
                         <Autocomplete 
                           placeholder="Field" 
-                          data={availableFields}
+                          data={availableFields || []}
                           size="xs"
                           value={cond.field || ''} 
                           onChange={(val) => updateCaseCondition(index, condIdx, 'field', val)} 
@@ -802,6 +576,362 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     );
   };
 
+  const renderAuditEditor = () => (
+    <Stack gap="xs">
+      <TextInput
+        label="Prefix"
+        placeholder="audit_"
+        value={selectedNode.data.prefix || ''}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { prefix: e.currentTarget.value })}
+        description="Optional prefix for injected metadata fields (e.g. audit_workflow_id)"
+      />
+      <Alert icon={<IconInfoCircle size="1rem" />} color="blue">
+        This node injects: workflow_id, node_id, machine_name, timestamp, and message_id.
+      </Alert>
+    </Stack>
+  );
+
+  const renderCharMapEditor = () => (
+    <Stack gap="xs">
+      <Autocomplete
+        label="Source Field"
+        placeholder="user.name"
+        data={availableFields || []}
+        value={selectedNode.data.field || ''}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })}
+        required
+      />
+      <Select
+        label="Operation"
+        data={[
+          { value: 'uppercase', label: 'UPPERCASE' },
+          { value: 'lowercase', label: 'lowercase' },
+          { value: 'trim', label: 'Trim whitespace' },
+          { value: 'trim_left', label: 'Trim Left' },
+          { value: 'trim_right', label: 'Trim Right' },
+        ]}
+        value={selectedNode.data.op || 'uppercase'}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { op: val || 'uppercase' })}
+      />
+    </Stack>
+  );
+
+  const renderDataConversionEditor = () => (
+    <Stack gap="xs">
+      <Autocomplete
+        label="Field"
+        placeholder="amount"
+        data={availableFields || []}
+        value={selectedNode.data.field || ''}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })}
+        required
+      />
+      <Select
+        label="Target Type"
+        data={[
+          { value: 'int', label: 'Integer' },
+          { value: 'float', label: 'Float' },
+          { value: 'string', label: 'String' },
+          { value: 'bool', label: 'Boolean' },
+          { value: 'date', label: 'Date' },
+        ]}
+        value={selectedNode.data.targetType || 'string'}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { targetType: val || 'string' })}
+      />
+      {selectedNode.data.targetType === 'date' && (
+        <TextInput
+          label="Date Format"
+          placeholder="2006-01-02"
+          value={selectedNode.data.format || ''}
+          onChange={(e) => updateNodeConfig(selectedNode.id, { format: e.currentTarget.value })}
+          description="Go date format (e.g. 2006-01-02)"
+        />
+      )}
+      <Select
+        label="On Error"
+        description="How to handle values that cannot be converted to the target type."
+        data={[
+          { value: 'fail', label: 'Fail (Error output)' },
+          { value: 'null', label: 'Set to NULL' },
+          { value: 'keep', label: 'Keep original' },
+        ]}
+        value={selectedNode.data.errorBehavior || 'fail'}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { errorBehavior: val || 'fail' })}
+      />
+      <TextInput
+        label="Target Field (Optional)"
+        placeholder="Defaults to source field"
+        value={selectedNode.data.targetField || ''}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.currentTarget.value })}
+      />
+    </Stack>
+  );
+
+  const renderSamplingEditor = () => (
+    <Stack gap="xs">
+      <Select
+        label="Sampling Type"
+        data={[
+          { value: 'percentage', label: 'Percentage (%)' },
+          { value: 'row', label: 'Nth Row (Every N)' },
+        ]}
+        value={selectedNode.data.type || 'percentage'}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { type: val || 'percentage' })}
+      />
+      <NumberInput
+        label={selectedNode.data.type === 'row' ? 'Every Nth Row' : 'Percentage (0-100)'}
+        value={selectedNode.data.value || 10}
+        min={0.00001}
+        max={selectedNode.data.type === 'row' ? undefined : 100}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { value: val })}
+      />
+      {selectedNode.data.type === 'row' && (
+        <NumberInput
+          label="Limit (Optional)"
+          placeholder="Max rows to emit"
+          value={selectedNode.data.limit || 0}
+          onChange={(val) => updateNodeConfig(selectedNode.id, { limit: val })}
+        />
+      )}
+    </Stack>
+  );
+
+  const renderFuzzyLookupEditor = () => (
+    <Stack gap="xs">
+      <Autocomplete
+        label="Source Field"
+        placeholder="input_name"
+        data={availableFields || []}
+        value={selectedNode.data.field || ''}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })}
+        required
+      />
+      <NumberInput
+        label="Similarity Threshold (0-1)"
+        value={selectedNode.data.threshold || 0.8}
+        min={0}
+        max={1}
+        step={0.05}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { threshold: val })}
+      />
+      <JsonInput
+        label="Options (JSON Array)"
+        placeholder='["Option 1", "Option 2"]'
+        value={selectedNode.data.options || ''}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { options: val })}
+        minRows={5}
+        formatOnBlur
+      />
+    </Stack>
+  );
+
+  const renderTermExtractionEditor = () => (
+    <Stack gap="xs">
+      <Autocomplete
+        label="Source Field"
+        placeholder="description"
+        data={availableFields || []}
+        value={selectedNode.data.field || ''}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })}
+        required
+      />
+      <TextInput
+        label="Target Field"
+        placeholder="keywords"
+        value={selectedNode.data.targetField || 'keywords'}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.currentTarget.value })}
+      />
+      <NumberInput
+        label="Min Word Length"
+        value={selectedNode.data.minLength || 3}
+        min={1}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { minLength: val })}
+      />
+      <TagsInput
+        label="Stopwords"
+        placeholder="Add words to ignore"
+        value={typeof selectedNode.data.stopWords === 'string' ? selectedNode.data.stopWords.split(',') : (selectedNode.data.stopWords || [])}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { stopWords: val.join(',') })}
+      />
+    </Stack>
+  );
+
+  const renderUnpivotEditor = () => (
+    <Stack gap="xs">
+      <TextInput
+        label="Columns to Unpivot (Comma separated)"
+        placeholder="Q1,Q2,Q3,Q4"
+        value={selectedNode.data.columns || ''}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { columns: e.currentTarget.value })}
+        required
+      />
+      <TextInput
+        label="Target Field"
+        placeholder="_fanout"
+        value={selectedNode.data.targetField || '_fanout'}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.currentTarget.value })}
+      />
+      <Alert icon={<IconInfoCircle size="1rem" />} color="blue">
+        This will generate multiple rows for each specified column, stored in the target field.
+      </Alert>
+    </Stack>
+  );
+
+  const renderRowCountEditor = () => (
+    <Stack gap="xs">
+      <TextInput
+        label="Target Field"
+        placeholder="total_count"
+        value={selectedNode.data.targetField || 'total_count'}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.currentTarget.value })}
+      />
+      <NumberInput
+        label="Increment"
+        value={selectedNode.data.increment || 1}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { increment: val })}
+      />
+      <Switch
+        label="Persistent State"
+        checked={selectedNode.data.persistent !== false}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { persistent: e.currentTarget.checked })}
+        description="Save count across workflow restarts"
+      />
+    </Stack>
+  );
+
+  const renderExecuteSQLEditor = () => (
+    <Stack gap="xs">
+      <Select
+        label="Database Source"
+        placeholder="Select source"
+        data={(Array.isArray(sources) ? sources : [])
+          .filter((s: any) => ['postgres', 'mysql', 'mssql', 'sqlite', 'mariadb', 'oracle'].includes(s.type))
+          .map((s: any) => ({ label: s.name, value: s.id }))}
+        value={selectedNode.data.sourceId || ''}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { sourceId: val })}
+        required
+      />
+      <Textarea
+        label="SQL Template"
+        placeholder="UPDATE users SET status = 'processed' WHERE id = {{id}}"
+        value={selectedNode.data.queryTemplate || ''}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { queryTemplate: e.currentTarget.value })}
+        autosize
+        minRows={6}
+        maxRows={15}
+        styles={{ input: { fontFamily: 'monospace', fontSize: '13px' } }}
+        description="Use {{field}} for dynamic parameters"
+      />
+    </Stack>
+  );
+
+  const renderSCDEditor = () => (
+    <Stack gap="xs">
+      <Select
+        label="Target Source"
+        data={(Array.isArray(sources) ? sources : [])
+          .filter(s => ['postgres', 'mysql', 'mariadb', 'sqlite', 'mssql', 'sqlserver'].includes(s.type))
+          .map((s: any) => ({ value: s.id, label: s.name }))}
+        value={selectedNode.data.targetSourceId || ''}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { targetSourceId: val || '' })}
+        placeholder="Select a database source"
+        required
+      />
+      <TextInput
+        label="Target Table"
+        placeholder="e.g. dim_users"
+        value={selectedNode.data.targetTable || ''}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { targetTable: e.currentTarget.value })}
+        required
+      />
+      <Select
+        label="SCD Type"
+        data={[
+          { value: '0', label: 'Type 0 (Fixed/Retain Original)' },
+          { value: '1', label: 'Type 1 (Overwrite)' },
+          { value: '2', label: 'Type 2 (History/Add Row)' },
+          { value: '3', label: 'Type 3 (Previous Value Column)' },
+          { value: '4', label: 'Type 4 (History Table)' },
+          { value: '6', label: 'Type 6 (Hybrid 1+2)' },
+        ]}
+        value={selectedNode.data.type || '1'}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { type: val || '1' })}
+      />
+      <TextInput
+        label="Business Keys (Comma separated)"
+        placeholder="id,email"
+        value={selectedNode.data.keys || ''}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { keys: e.currentTarget.value })}
+        required
+      />
+      <TextInput
+        label="Monitored Columns (Comma separated)"
+        placeholder="name,address,phone"
+        value={selectedNode.data.columns || ''}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { columns: e.currentTarget.value })}
+        description="Columns to check for changes"
+      />
+      {selectedNode.data.type === '3' && (
+        <TextInput
+          label="Column Mappings"
+          placeholder="current:previous,email:old_email"
+          value={selectedNode.data.mappings || ''}
+          onChange={(e) => updateNodeConfig(selectedNode.id, { mappings: e.currentTarget.value })}
+          description="Mapping of current columns to their historical counterparts"
+        />
+      )}
+      {selectedNode.data.type === '4' && (
+        <TextInput
+          label="History Table"
+          placeholder="e.g. dim_users_history"
+          value={selectedNode.data.historyTable || ''}
+          onChange={(e) => updateNodeConfig(selectedNode.id, { historyTable: e.currentTarget.value })}
+          required
+        />
+      )}
+      {selectedNode.data.type === '6' && (
+        <>
+          <TextInput
+            label="Type 1 Columns (Overwrite)"
+            placeholder="email,phone"
+            value={selectedNode.data.type1Columns || ''}
+            onChange={(e) => updateNodeConfig(selectedNode.id, { type1Columns: e.currentTarget.value })}
+            description="Columns that should be overwritten in all history rows"
+          />
+          <TextInput
+            label="Type 2 Columns (Add Row)"
+            placeholder="address,department"
+            value={selectedNode.data.type2Columns || ''}
+            onChange={(e) => updateNodeConfig(selectedNode.id, { type2Columns: e.currentTarget.value })}
+            description="Columns that trigger a new history row"
+          />
+        </>
+      )}
+      {(selectedNode.data.type === '2' || selectedNode.data.type === '6') && (
+        <>
+          <TextInput
+            label="Start Date Column"
+            placeholder="start_date"
+            value={selectedNode.data.startDateColumn || ''}
+            onChange={(e) => updateNodeConfig(selectedNode.id, { startDateColumn: e.currentTarget.value })}
+          />
+          <TextInput
+            label="End Date Column"
+            placeholder="end_date"
+            value={selectedNode.data.endDateColumn || ''}
+            onChange={(e) => updateNodeConfig(selectedNode.id, { endDateColumn: e.currentTarget.value })}
+          />
+          <TextInput
+            label="Current Flag Column (Optional)"
+            placeholder="is_current"
+            value={selectedNode.data.currentFlagColumn || ''}
+            onChange={(e) => updateNodeConfig(selectedNode.id, { currentFlagColumn: e.currentTarget.value })}
+          />
+        </>
+      )}
+    </Stack>
+  );
+
   const renderPathHelp = () => (
     <Card withBorder padding="xs" radius="md">
       <Group gap="xs" mb={4}>
@@ -822,9 +952,12 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       {/* Column 1: Source Data */}
       <Grid.Col span={{ base: 12, md: 4, lg: 3 }}>
         <Stack gap="md" h="100%">
-          <Group gap="xs" px="xs">
-            <IconDatabase size="1.2rem" color="var(--mantine-color-blue-6)" />
-            <Text size="sm" fw={700} c="dimmed">1. SOURCE DATA / SAMPLE</Text>
+          <Group justify="space-between" px="xs">
+            <Group gap="xs">
+               <IconDatabase size="1.2rem" color="var(--mantine-color-blue-6)" />
+               <Text size="sm" fw={700}>SOURCE DATA</Text>
+            </Group>
+            <Badge variant="dot" size="sm">INPUT</Badge>
           </Group>
           
           {renderPathHelp()}
@@ -835,13 +968,15 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                 <IconList size="1rem" color="var(--mantine-color-gray-6)" />
                 <Text size="xs" fw={700}>AVAILABLE FIELDS</Text>
               </Group>
-              <Badge size="xs" variant="light">{availableFields.length}</Badge>
+              <Badge size="xs" variant="light">{(availableFields || []).length}</Badge>
             </Group>
-            <FieldExplorer
-              availableFields={availableFields}
-              incomingPayload={incomingPayload}
-              onAdd={(path) => addFromSource(path)}
-            />
+            <Suspense fallback={<Text size="xs" c="dimmed">Loading fields…</Text>}>
+              <FieldExplorer
+                availableFields={availableFields}
+                incomingPayload={incomingPayload}
+                onAdd={(path) => addFromSource(path)}
+              />
+            </Suspense>
           </Card>
 
           <Card withBorder padding="xs" radius="md">
@@ -852,26 +987,28 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
               </Group>
               <Badge size="xs" variant="light" color="green">{targetSchema.length}</Badge>
             </Group>
-            <TargetExplorer
-              fields={targetSchema}
-              sinkSchemaPresent={!!sinkSchema}
-              currentMappings={selectedNode.data as Record<string, string>}
-              tableName={sinkSchema?.config?.table}
-              loading={loadingTarget}
-              onMap={(column, data) => {
-                updateNodeConfig(selectedNode.id, { [`column.${column}`]: data })
-                notifications.show({
-                  title: 'Field mapped',
-                  message: `Mapped ${data} to ${column}`,
-                  color: 'green',
-                })
-              }}
-              onClearMap={(column) => {
-                const newData: any = { ...selectedNode.data }
-                delete newData[`column.${column}`]
-                updateNodeConfig(selectedNode.id, newData, true)
-              }}
-            />
+            <Suspense fallback={<Text size="xs" c="dimmed">Loading target columns…</Text>}>
+              <TargetExplorer
+                fields={targetSchema}
+                sinkSchemaPresent={!!sinkSchema}
+                currentMappings={selectedNode.data as Record<string, string>}
+                tableName={sinkSchema?.config?.table}
+                loading={loadingTarget}
+                onMap={(column, data) => {
+                  updateNodeConfig(selectedNode.id, { [`column.${column}`]: data })
+                  notifications.show({
+                    title: 'Field mapped',
+                    message: `Mapped ${data} to ${column}`,
+                    color: 'green',
+                  })
+                }}
+                onClearMap={(column) => {
+                  const newData: any = { ...selectedNode.data }
+                  delete newData[`column.${column}`]
+                  updateNodeConfig(selectedNode.id, newData, true)
+                }}
+              />
+            </Suspense>
           </Card>
 
           {transType === 'advanced' && <FunctionLibrary />}
@@ -897,7 +1034,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             <Group justify="space-between" px="xs">
               <Group gap="xs">
                 <IconSettings size="1.2rem" color="var(--mantine-color-blue-6)" />
-                <Text size="sm" fw={700}>2. TRANSFORM LOGIC</Text>
+                <Text size="sm" fw={700}>TRANSFORM LOGIC</Text>
               </Group>
               <Group gap="xs">
                 <MantineTooltip label="How to use this transformation" position="left">
@@ -911,114 +1048,89 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
             <Divider />
 
-            <TextInput 
-              label="Node Label" 
-              placeholder="Display name in editor" 
-              leftSection={<IconVariable size="1rem" />}
-              value={selectedNode.data.label || ''} 
-              onChange={(e) => updateNodeConfig(selectedNode.id, { label: e.target.value })} 
-            />
+            <Group gap="xs" grow>
+              <TextInput 
+                label="Node Label" 
+                placeholder="Display name in editor" 
+                leftSection={<IconVariable size="1rem" />}
+                value={selectedNode.data.label || ''} 
+                onChange={(e) => updateNodeConfig(selectedNode.id, { label: e.target.value })} 
+                flex={1}
+              />
+              <TextInput
+                label="Search Settings"
+                placeholder="Filter configuration..."
+                leftSection={<IconSearch size="1rem" />}
+                value={configSearch}
+                onChange={(e) => setConfigSearch(e.target.value)}
+                flex={1}
+              />
+            </Group>
 
             <Box flex={1} style={{ overflow: 'hidden' }}>
               <ScrollArea h="100%" offsetScrollbars>
                 <Stack gap="md" py="xs">
-              {transType === 'router' && (
-                <Stack gap="md">
-                  <Alert icon={<IconInfoCircle size="1rem" />} color="blue" title="Content-Based Router">
-                    Rules are evaluated in order. The first rule that matches will determine the branch.
-                    If no rules match, the message follows the "default" branch.
-                  </Alert>
-                  {renderRouterEditor()}
-                </Stack>
-              )}
+                  <Suspense fallback={null}>
+                    <QuickActions onApplyTemplate={handleApplyTemplate} />
+                  </Suspense>
+                  <Divider label="Configuration" labelPosition="center" />
+                  
+                  {/* Filterable Settings Sections */}
+                  {(!configSearch || "router".includes(configSearch.toLowerCase())) && transType === 'router' && (
+                    <Suspense fallback={<Text size="xs" c="dimmed">Loading router editor…</Text>}>
+                      <RouterEditor
+                        selectedNode={selectedNode}
+                        updateNodeConfig={updateNodeConfig}
+                        availableFields={availableFields}
+                      />
+                    </Suspense>
+                  )}
 
-              {transType === 'switch' && (
-            <>
-              <Autocomplete 
-                label="Field to Switch On" 
-                placeholder="e.g. status" 
-                data={availableFields}
-                value={selectedNode.data.field || ''} 
-                onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })} 
-                description="Field to branch on. Supports nested objects and arrays."
-              />
-              {renderSwitchEditor()}
-              <Alert icon={<IconInfoCircle size="1rem" />} color="orange" py="xs">
-                <Text size="xs">Matching messages will follow the edge with the corresponding label. Unmatched follow "default".</Text>
-              </Alert>
-            </>
-          )}
+                  {(!configSearch || "switch cases conditions".includes(configSearch.toLowerCase())) && transType === 'switch' && (
+                    <Stack gap="sm">
+                      <Autocomplete 
+                        label="Field to Switch On" 
+                        placeholder="e.g. status" 
+                        data={availableFields || []}
+                        value={selectedNode.data.field || ''} 
+                        onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })} 
+                        description="Field to branch on. Supports nested objects and arrays."
+                      />
+                      {renderSwitchEditor()}
+                      <Alert icon={<IconInfoCircle size="1rem" />} color="orange" py="xs">
+                        <Text size="xs">Matching messages will follow the edge with the corresponding label. Unmatched follow "default".</Text>
+                      </Alert>
+                    </Stack>
+                  )}
 
-          {transType === 'merge' && (
-            <>
-              <Select
-                label="Merge Strategy"
-                data={[
-                  { label: 'Deep Merge (Recursive)', value: 'deep' },
-                  { label: 'Shallow Merge (Root level)', value: 'shallow' },
-                  { label: 'Overwrite (Last wins)', value: 'overwrite' },
-                  { label: 'If Missing (First wins)', value: 'if_missing' }
-                ]}
-                value={selectedNode.data.strategy || 'deep'}
-                onChange={(val) => updateNodeConfig(selectedNode.id, { strategy: val || 'deep' })}
-              />
-              <Alert icon={<IconInfoCircle size="1rem" />} color="pink" title="Merge Strategy">
-                <Stack gap="xs">
-                  <Text size="xs">Merge nodes wait for ALL branches connected to them to complete before passing a single merged message.</Text>
-                </Stack>
-              </Alert>
-            </>
-          )}
+                  {(!configSearch || "merge strategy".includes(configSearch.toLowerCase())) && transType === 'merge' && (
+                    <Stack gap="sm">
+                      <Select
+                        label="Merge Strategy"
+                        data={[
+                          { label: 'Deep Merge (Recursive)', value: 'deep' },
+                          { label: 'Shallow Merge (Root level)', value: 'shallow' },
+                          { label: 'Overwrite (Last wins)', value: 'overwrite' },
+                          { label: 'If Missing (First wins)', value: 'if_missing' }
+                        ]}
+                        value={selectedNode.data.strategy || 'deep'}
+                        onChange={(val) => updateNodeConfig(selectedNode.id, { strategy: val || 'deep' })}
+                      />
+                      <Alert icon={<IconInfoCircle size="1rem" />} color="pink" title="Merge Strategy">
+                        <Stack gap="xs">
+                          <Text size="xs">Merge nodes wait for ALL branches connected to them to complete before passing a single merged message.</Text>
+                        </Stack>
+                      </Alert>
+                    </Stack>
+                  )}
 
-          {isAggregate && (
-            <>
-              <Select 
-                label="Operation" 
-                data={['count', 'sum', 'avg', 'min', 'max']} 
-                value={selectedNode.data.operation || 'count'} 
-                onChange={(val) => updateNodeConfig(selectedNode.id, { operation: val || 'count' })} 
-              />
-              <Autocomplete 
-                label="Field" 
-                placeholder="e.g. amount" 
-                data={availableFields}
-                value={selectedNode.data.field || ''} 
-                onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })} 
-                description="Field to aggregate."
-              />
-              <Autocomplete 
-                label="Group By Field" 
-                placeholder="e.g. user_id" 
-                data={availableFields}
-                value={selectedNode.data.groupByField || ''} 
-                onChange={(val) => updateNodeConfig(selectedNode.id, { groupByField: val })} 
-                description="Optional field to group by."
-              />
-              <TextInput 
-                label="Window (Duration)" 
-                placeholder="e.g. 1m, 1h" 
-                value={selectedNode.data.window || ''} 
-                onChange={(e) => updateNodeConfig(selectedNode.id, { window: e.target.value })} 
-                description="Optional time window (e.g., 10s, 1m). If empty, aggregates over all time."
-              />
-              <TextInput 
-                label="Output Field" 
-                placeholder="e.g. total_amount" 
-                value={selectedNode.data.targetField || ''} 
-                onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.target.value })} 
-              />
-              <Alert icon={<IconInfoCircle size="1rem" />} color="cyan" py="xs">
-                <Text size="xs">Aggregate nodes perform stateful operations over a stream of messages.</Text>
-              </Alert>
-            </>
-          )}
 
           {isForeach && (
             <>
               <Autocomplete
                 label="Array Path"
                 placeholder="e.g. items"
-                data={availableFields}
+                data={availableFields || []}
                 value={selectedNode.data.arrayPath || ''}
                 onChange={(val) => updateNodeConfig(selectedNode.id, { arrayPath: val })}
                 description="Path to the array you want to fan out."
@@ -1133,7 +1245,7 @@ end`}
               <Autocomplete 
                 label="Field to Aggregate" 
                 placeholder="e.g. amount" 
-                data={availableFields}
+                data={availableFields || []}
                 value={selectedNode.data.field || ''} 
                 onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })} 
                 description="Supports nested objects and arrays."
@@ -1287,35 +1399,26 @@ end`}
             </>
           )}
 
+          {transType === 'audit' && renderAuditEditor()}
+          {transType === 'char_map' && renderCharMapEditor()}
+          {transType === 'data_conversion' && renderDataConversionEditor()}
+          {transType === 'sampling' && renderSamplingEditor()}
+          {transType === 'fuzzy_lookup' && renderFuzzyLookupEditor()}
+          {transType === 'term_extraction' && renderTermExtractionEditor()}
+          {transType === 'unpivot' && renderUnpivotEditor()}
+          {transType === 'row_count' && renderRowCountEditor()}
+          {transType === 'execute_sql' && renderExecuteSQLEditor()}
+          {transType === 'scd' && renderSCDEditor()}
+
           {transType === 'mapping' && (
-            <>
-              <Autocomplete 
-                label="Field" 
-                placeholder="e.g. status" 
-                data={availableFields}
-                value={selectedNode.data.field || ''} 
-                onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })} 
-                description="Field to map. Supports nested objects and arrays."
+            <Suspense fallback={<Text size="xs" c="dimmed">Loading mapping editor…</Text>}>
+              <MappingEditor 
+                selectedNode={selectedNode}
+                updateNodeConfig={updateNodeConfig}
+                availableFields={availableFields}
+                incomingPayload={incomingPayload}
               />
-              <Select
-                label="Mapping Type"
-                data={[{label: 'Exact Match', value: 'exact'}, {label: 'Numeric Range', value: 'range'}, {label: 'Regular Expression', value: 'regex'}]}
-                value={selectedNode.data.mappingType || 'exact'}
-                onChange={(val) => updateNodeConfig(selectedNode.id, { mappingType: val || 'exact' })}
-                mb="xs"
-                description="Exact: '1' -> 'Active'. Range: '0-10' -> 'Low'. Regex: '^A.*' -> 'Starts with A'."
-              />
-              {renderMappingEditor()}
-              <Divider label="Raw JSON" labelPosition="center" />
-              <JsonInput 
-                label="Mapping (JSON)" 
-                placeholder='{"1": "Active", "0": "Inactive"}' 
-                value={selectedNode.data.mapping || ''} 
-                onChange={(val) => updateNodeConfig(selectedNode.id, { mapping: val })} 
-                formatOnBlur
-                minRows={10}
-              />
-            </>
+            </Suspense>
           )}
 
           {transType === 'validator' && (
@@ -1344,7 +1447,7 @@ end`}
               <Autocomplete 
                 label="Field" 
                 placeholder="e.g. email (use * for all)" 
-                data={availableFields}
+                data={availableFields || []}
                 value={selectedNode.data.field || ''} 
                 onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })} 
                 description="Field to mask. Supports nested objects and arrays. Use * to scan all fields."
@@ -1392,7 +1495,7 @@ end`}
               <Autocomplete 
                 label="Key Field (Optional)" 
                 placeholder="e.g. user_id" 
-                data={availableFields}
+                data={availableFields || []}
                 value={selectedNode.data.keyField || ''} 
                 onChange={(val) => updateNodeConfig(selectedNode.id, { keyField: val })} 
                 description="If set, limits are applied per unique value of this field."
@@ -1442,7 +1545,7 @@ end`}
                     <Autocomplete
                       label="Key Field (Message)"
                       placeholder="e.g. user_id"
-                      data={availableFields}
+                      data={availableFields || []}
                       value={selectedNode.data.keyField || ''}
                       onChange={(val) => updateNodeConfig(selectedNode.id, { keyField: val })}
                     />
@@ -1468,7 +1571,9 @@ end`}
                     value={selectedNode.data.queryTemplate || ''}
                     onChange={(e) => updateNodeConfig(selectedNode.id, { queryTemplate: e.currentTarget.value })}
                     autosize
-                    minRows={3}
+                    minRows={8}
+                    maxRows={20}
+                    styles={{ input: { fontFamily: 'monospace', fontSize: '13px' } }}
                     description="When provided, Hermod executes this query with safe parameterization of {{ }} tokens. For MongoDB sources, use Where Clause instead."
                   />
                 </Stack>
@@ -1476,11 +1581,15 @@ end`}
 
               <Tabs.Panel value="advanced">
                 <Stack gap="sm">
-                  <TextInput
+                  <Textarea
                     label="Where Clause (SQL or MongoDB JSON)"
                     placeholder="e.g. status = 'active' AND id = {{user_id}}"
                     value={selectedNode.data.whereClause || ''}
                     onChange={(e) => updateNodeConfig(selectedNode.id, { whereClause: e.target.value })}
+                    autosize
+                    minRows={3}
+                    maxRows={10}
+                    styles={{ input: { fontFamily: 'monospace', fontSize: '13px' } }}
                     description="Overrides Table/Key Column if provided. Supports {{ field }} templates. For MongoDB, provide a JSON filter string."
                   />
                   <Group grow align="flex-end">
@@ -1514,6 +1623,17 @@ end`}
                       Test Lookup
                     </Button>
                   </Group>
+                  {selectedNode.data.sourceId && (
+                    <Box mt="md">
+                      <Divider label="SQL Explorer" labelPosition="center" mb="sm" />
+                      <Suspense fallback={<Text size="xs" c="dimmed">Loading SQL builder…</Text>}>
+                        <SQLQueryBuilder 
+                          type="source" 
+                          config={(Array.isArray(sources) ? sources : []).find(s => s.id === selectedNode.data.sourceId)?.config || {}} 
+                        />
+                      </Suspense>
+                    </Box>
+                  )}
                 </Stack>
               </Tabs.Panel>
             </Tabs>
@@ -1551,9 +1671,9 @@ end`}
                     description={
                       <Stack gap={2} mt={4}>
                         <Text size="10px" c="dimmed">Supports {'{{field}}'} template variables. Click to add:</Text>
-                        {availableFields.length > 0 && (
+                        {(availableFields || []).length > 0 && (
                           <Group gap={4}>
-                            {availableFields.slice(0, 8).map(f => (
+                            {(availableFields || []).slice(0, 8).map(f => (
                               <Badge 
                                 key={f} 
                                 size="xs" 
@@ -1764,7 +1884,17 @@ end`}
                   <Text size="xs">3. Use the <IconArrowRight size="0.8rem" /> icon in the value field to auto-fill <Code>source.path</Code>.</Text>
                 </Stack>
               </Alert>
-              {renderSetFieldEditor()}
+              <Suspense fallback={<Text size="xs" c="dimmed">Loading field editor…</Text>}>
+                <SetFieldEditor
+                  selectedNode={selectedNode}
+                  updateNodeConfig={updateNodeConfig}
+                  availableFields={availableFields}
+                  incomingPayload={incomingPayload}
+                  transType={transType}
+                  onAddFromSource={addFromSource}
+                  addField={addField}
+                />
+              </Suspense>
               <Divider label="Raw JSON" labelPosition="center" mt="md" />
               <JsonInput 
                 label="Fields (JSON)" 
@@ -1817,16 +1947,26 @@ end`}
                   <Text size="xs">3. Use <Code>source.path</Code> for input fields and quotes for strings.</Text>
                 </Stack>
               </Alert>
-              {renderSetFieldEditor()}
+              <Suspense fallback={<Text size="xs" c="dimmed">Loading field editor…</Text>}>
+                <SetFieldEditor
+                  selectedNode={selectedNode}
+                  updateNodeConfig={updateNodeConfig}
+                  availableFields={availableFields}
+                  incomingPayload={incomingPayload}
+                  transType={transType}
+                  onAddFromSource={addFromSource}
+                  addField={addField}
+                />
+              </Suspense>
               <Divider label="Raw JSON" labelPosition="center" mt="md" />
               <JsonInput 
                 label="Config (JSON)" 
                 placeholder='{"column.user.name": "lower(source.user.name)"}' 
-                value={JSON.stringify(Object.fromEntries(Object.entries(selectedNode.data).filter(([k]) => k.startsWith('column.'))), null, 2)} 
+                value={JSON.stringify(Object.fromEntries(Object.entries(selectedNode.data || {}).filter(([k]) => k.startsWith('column.'))), null, 2)} 
                 onChange={(val) => {
                    try {
                       const parsed = JSON.parse(val);
-                      const baseData = Object.fromEntries(Object.entries(selectedNode.data).filter(([k]) => !k.startsWith('column.')));
+                      const baseData = Object.fromEntries(Object.entries(selectedNode.data || {}).filter(([k]) => !k.startsWith('column.')));
                       updateNodeConfig(selectedNode.id, { ...baseData, ...parsed }, true);
                    } catch(e) {}
                 }} 
@@ -1872,6 +2012,7 @@ end`}
           <Group grow>
             <Select 
               label="On Error"
+              description="Action to take when an error occurs during transformation."
               data={[{label: 'Fail Workflow', value: 'fail'}, {label: 'Continue', value: 'continue'}, {label: 'Drop Message', value: 'drop'}]}
               value={selectedNode.data.onError || 'fail'}
               onChange={(val) => updateNodeConfig(selectedNode.id, { onError: val || 'fail' })}
@@ -1891,15 +2032,17 @@ end`}
       </Card>
     </Grid.Col>
 
-      {/* Column 3: Live Preview */}
       <Grid.Col span={{ base: 12, md: 12, lg: 4 }}>
-        <PreviewPanel
-          title="3. LIVE PREVIEW"
-          loading={testing || (previewMutation as any)?.isPending}
-          error={previewError || ((previewMutation as any)?.error?.message ?? null)}
-          result={previewResult || (previewMutation as any)?.data}
-          onRun={runPreview}
-        />
+        <Suspense fallback={<Text size="sm" c="dimmed">Loading preview…</Text>}>
+          <PreviewPanel
+            title="3. LIVE PREVIEW"
+            loading={testing || (previewMutation as any)?.isPending}
+            error={previewError || ((previewMutation as any)?.error?.message ?? null)}
+            result={previewResult || (previewMutation as any)?.data}
+            original={incomingPayload}
+            onRun={runPreview}
+          />
+        </Suspense>
       </Grid.Col>
     </Grid>
 
@@ -1928,3 +2071,5 @@ end`}
     </>
   );
 }
+
+

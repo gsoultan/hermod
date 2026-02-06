@@ -1,7 +1,7 @@
-import { Title, Text, Stack, Paper, Group, Badge, SimpleGrid, RingProgress, ThemeIcon, Table, ScrollArea, Loader, Center } from '@mantine/core'
-import { IconServer, IconActivity, IconCpu, IconNetwork, IconCheck } from '@tabler/icons-react'
-import { useQuery } from '@tanstack/react-query'
+import { IconActivity, IconCheck, IconCpu, IconNetwork, IconServer } from '@tabler/icons-react';
+import { Title, Text, Stack, Paper, Group, Badge, SimpleGrid, RingProgress, ThemeIcon, Table, ScrollArea, Loader, Center } from '@mantine/core'import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '../api'
+import { formatTime } from '../utils/dateUtils'
 
 export default function GlobalHealthPage() {
   const { data: health, isLoading, error } = useQuery<any[]>({
@@ -134,7 +134,7 @@ export default function GlobalHealthPage() {
                     <Text size="sm">{node.memory.toFixed(1)} MB</Text>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="xs" c="dimmed">{new Date(node.last_seen).toLocaleTimeString()}</Text>
+                    <Text size="xs" c="dimmed">{formatTime(node.last_seen)}</Text>
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -145,3 +145,5 @@ export default function GlobalHealthPage() {
     </Stack>
   )
 }
+
+

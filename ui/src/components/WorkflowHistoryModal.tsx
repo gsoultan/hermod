@@ -1,12 +1,8 @@
 import { 
   Modal, Stack, Group, Text, Button, Table, Badge, ScrollArea, ThemeIcon, Alert, Loader
-} from '@mantine/core';
-import { 
-  IconHistory, IconRotateDot, IconInfoCircle, IconAlertCircle
-} from '@tabler/icons-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+} from '@mantine/core';import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../api';
-
+import { formatDateTime } from '../utils/dateUtils';import { IconAlertCircle, IconHistory, IconInfoCircle, IconRotateDot } from '@tabler/icons-react';
 interface WorkflowHistoryModalProps {
   workflowId: string;
   opened: boolean;
@@ -90,7 +86,7 @@ export function WorkflowHistoryModal({ workflowId, opened, onClose, onRollbackSu
                 {(Array.isArray(versions) ? versions : []).map((v: any) => (
                   <Table.Tr key={v.id}>
                     <Table.Td><Badge size="md">v{v.version}</Badge></Table.Td>
-                    <Table.Td><Text size="sm">{new Date(v.created_at).toLocaleString()}</Text></Table.Td>
+                    <Table.Td><Text size="sm">{formatDateTime(v.created_at)}</Text></Table.Td>
                     <Table.Td><Text size="sm">{v.created_by}</Text></Table.Td>
                     <Table.Td><Text size="sm">{v.message}</Text></Table.Td>
                     <Table.Td>
@@ -119,3 +115,5 @@ export function WorkflowHistoryModal({ workflowId, opened, onClose, onRollbackSu
     </Modal>
   );
 }
+
+

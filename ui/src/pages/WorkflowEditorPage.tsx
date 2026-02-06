@@ -10,6 +10,7 @@ import ReactFlow, {
   MarkerType,
   type Node,
   type Edge,
+  type Connection,
   ReactFlowProvider,
   useReactFlow,
   useViewport
@@ -21,12 +22,9 @@ import {
   Code, Modal, Button, Divider, ThemeIcon, Title
 } from '@mantine/core';
 import { useHotkeys } from '@mantine/hooks';
-import { 
-  IconChevronDown, IconChevronUp, IconClearAll, IconPlayerPause,
-  IconPlayerPlay, IconSettings, IconTrash
-} from '@tabler/icons-react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { Source, Sink, LogEntry } from '../types';
 import { apiFetch } from '../api';
 import { useVHost } from '../context/VHostContext';
 import { notifications } from '@mantine/notifications';
@@ -49,6 +47,8 @@ import { WorkflowHistoryModal } from '../components/WorkflowHistoryModal';
 import { AIGeneratorModal } from './WorkflowEditor/components/AIGeneratorModal';
 import { AIFixModal } from './WorkflowEditor/components/AIFixModal';
 import { WorkflowContext } from './WorkflowEditor/nodes/BaseNode';
+import { LiveEdge } from './WorkflowEditor/components/LiveEdge';
+import { IconChevronDown, IconChevronUp, IconClearAll, IconDeviceFloppy, IconPlayerPause, IconPlayerPlay, IconRefresh, IconSettings, IconTrash } from '@tabler/icons-react';
 // Lazy-load heavy editor node components to reduce initial bundle size
 const SourceNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/SourceSinkNodes')).SourceNode }))
 const SinkNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/SourceSinkNodes')).SinkNode }))
@@ -76,6 +76,10 @@ const nodeTypes = {
   note: NoteNode,
 };
 
+const edgeTypes = {
+  live: LiveEdge,
+};
+
 function EditorInner() {
   const { id } = useParams({ strict: false }) as any;
   const isNew = !id || id === 'new';
@@ -92,11 +96,16 @@ function EditorInner() {
     prioritizeDLQ, maxRetries, retryInterval, reconnectInterval,
     schemaType, schema, tags, workerID, dryRun, workspaceID,
     cpuRequest, memoryRequest, throughputRequest,
+    cron, retentionDays, traceSampleRate, traceRetention, auditRetention,
+    idleTimeout, tier,
     workflowStatus, logs, logsOpened, settingsOpened,
     onNodesChange, onEdgesChange,
     setName, setVHost, setWorkerID, setActive, setWorkflowStatus, 
     setDeadLetterSinkID, setDlqThreshold, setPrioritizeDLQ, setMaxRetries, setRetryInterval, 
-    setReconnectInterval, setSchemaType, setSchema, setTags, setNodes, setEdges, setLogs, setQuickAddSource,
+    setReconnectInterval, setSchemaType, setSchema, setTags,
+    setCron, setRetentionDays, setTraceSampleRate, setTraceRetention, setAuditRetention,
+    setIdleTimeout, setTier,
+    setNodes, setEdges, setLogs, setQuickAddSource,
     setWorkspaceID, setCPURequest, setMemoryRequest, setThroughputRequest,
     setSelectedNode, setSettingsOpened, setDrawerOpened, updateNodeConfig,
     setTestResults, setTestModalOpened, setLogsOpened, setLogsPaused, setDryRun,
@@ -129,6 +138,13 @@ function EditorInner() {
     cpuRequest: state.cpuRequest,
     memoryRequest: state.memoryRequest,
     throughputRequest: state.throughputRequest,
+    cron: state.cron,
+    retentionDays: state.retentionDays,
+    traceSampleRate: state.traceSampleRate,
+    traceRetention: state.traceRetention,
+    auditRetention: state.auditRetention,
+    idleTimeout: state.idleTimeout,
+    tier: state.tier,
     workflowStatus: state.workflowStatus,
     logs: state.logs,
     logsOpened: state.logsOpened,
@@ -159,6 +175,13 @@ function EditorInner() {
     setCPURequest: state.setCPURequest,
     setMemoryRequest: state.setMemoryRequest,
     setThroughputRequest: state.setThroughputRequest,
+    setIdleTimeout: state.setIdleTimeout,
+    setTier: state.setTier,
+    setCron: state.setCron,
+    setRetentionDays: state.setRetentionDays,
+    setTraceSampleRate: state.setTraceSampleRate,
+    setTraceRetention: state.setTraceRetention,
+    setAuditRetention: state.setAuditRetention,
     setNodes: state.setNodes,
     setEdges: state.setEdges,
     setLogs: state.setLogs,
@@ -187,6 +210,7 @@ function EditorInner() {
   const logScrollRef = useRef<HTMLDivElement>(null);
 
   const [aiFixModalData, setAIFixModalData] = useState<any>(null);
+  const [saveConfirmOpened, setSaveConfirmOpened] = useState(false);
 
   const { data: sources } = useQuery({ 
     queryKey: ['sources', vhost], 
@@ -214,10 +238,10 @@ function EditorInner() {
        return { vhost: vhost };
     }
     if (selectedNode.type === 'source') {
-      return sources?.data?.find((s: any) => s.id === selectedNode?.data.ref_id);
+      return (sources?.data as Source[])?.find((s: Source) => s.id === selectedNode?.data.ref_id);
     }
     if (selectedNode.type === 'sink') {
-      return sinks?.data?.find((s: any) => s.id === selectedNode?.data.ref_id);
+      return (sinks?.data as Sink[])?.find((s: Sink) => s.id === selectedNode?.data.ref_id);
     }
     return null;
   }, [selectedNode, sources, sinks, vhost]);
@@ -263,6 +287,14 @@ function EditorInner() {
       setCPURequest(workflow.cpu_request || 0);
       setMemoryRequest(workflow.memory_request || 0);
       setThroughputRequest(workflow.throughput_request || 0);
+      setIdleTimeout(workflow.idle_timeout || '');
+      setTier(workflow.tier || 'Hot');
+      setCron(workflow.cron || '');
+      setRetentionDays(workflow.retention_days !== undefined ? workflow.retention_days : null);
+      setTraceSampleRate(workflow.trace_sample_rate !== undefined ? workflow.trace_sample_rate : 1.0);
+      setTraceRetention(workflow.trace_retention || '7d');
+      setAuditRetention(workflow.audit_retention || '30d');
+      setHistoryOpened(false); // Reset history on load
       
       const initialNodes = (workflow.nodes || []).map((node: any) => ({
         id: node.id,
@@ -289,7 +321,7 @@ function EditorInner() {
       setEdges(initialEdges);
       lastInitializedId.current = id || 'new';
     }
-  }, [id, workflow, setName, setVHost, setWorkerID, setActive, setWorkflowStatus, setDeadLetterSinkID, setPrioritizeDLQ, setMaxRetries, setRetryInterval, setReconnectInterval, setSchemaType, setSchema, setDryRun, setNodes, setEdges]);
+  }, [id, workflow, setName, setVHost, setWorkerID, setActive, setWorkflowStatus, setDeadLetterSinkID, setPrioritizeDLQ, setMaxRetries, setRetryInterval, setReconnectInterval, setSchemaType, setSchema, setDryRun, setNodes, setEdges, setIdleTimeout, setTier, setCron, setRetentionDays, setTraceSampleRate, setTraceRetention, setAuditRetention, setCPURequest, setDlqThreshold, setHistoryOpened, setMemoryRequest, setTags, setThroughputRequest, setWorkspaceID]);
 
   // WebSocket for logs
   useEffect(() => {
@@ -342,6 +374,9 @@ function EditorInner() {
             if (update.sink_buffer_fill) {
               useWorkflowStore.setState({ sinkBufferFill: update.sink_buffer_fill });
             }
+            if (update.edge_metrics) {
+              useWorkflowStore.setState({ edgeThroughput: update.edge_metrics });
+            }
             if (update.source_status) {
               useWorkflowStore.setState({ sourceStatus: update.source_status });
             }
@@ -368,7 +403,7 @@ function EditorInner() {
     setDrawerOpened(true);
   };
 
-  const onConnect = useCallback((params: any) => {
+  const onConnect = useCallback((params: Connection) => {
     const label = params.sourceHandle?.split(':::')[0] || params.sourceHandle || '';
     const edge = {
       ...params,
@@ -380,13 +415,13 @@ function EditorInner() {
     setEdges((eds) => addEdge(edge, eds));
   }, [active, setEdges]);
 
-  const onNodeClick = useCallback((_event: any, node: Node) => {
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     setSelectedNode(node);
     setSettingsOpened(true);
     setDrawerOpened(false);
   }, [setSelectedNode, setSettingsOpened, setDrawerOpened]);
 
-  const onEdgeClick = useCallback((_event: any, edge: Edge) => {
+  const onEdgeClick = useCallback((_event: React.MouseEvent, edge: Edge) => {
     if (!testResults) return;
     const sourceResult = testResults.find(r => r.node_id === edge.source);
     if (sourceResult) {
@@ -435,17 +470,17 @@ function EditorInner() {
     }
   }, [quickAddSource, active, setEdges, setNodes, setQuickAddSource]);
 
-  const onDragStart = (event: any, nodeType: string, refId: string, label: string, subType: string, extraData?: any) => {
+  const onDragStart = (event: React.DragEvent, nodeType: string, refId: string, label: string, subType: string, extraData?: any) => {
     event.dataTransfer.setData('application/reactflow', JSON.stringify({ nodeType, refId, label, subType, ...(extraData || {}) }));
     event.dataTransfer.effectAllowed = 'move';
   };
 
-  const onDragOver = useCallback((event: any) => {
+  const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
-  const onDrop = useCallback((event: any) => {
+  const onDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     const reactFlowBounds = reactFlowWrapper.current?.getBoundingClientRect();
     const dataStr = event.dataTransfer.getData('application/reactflow');
@@ -460,12 +495,12 @@ function EditorInner() {
     addNodeAtPosition(nodeType, refId, label, subType, position, extraData);
   }, [project, addNodeAtPosition]);
 
-  const handleInlineSave = (updatedData: any) => {
+  const handleInlineSave = (updatedData: Partial<Source | Sink>) => {
     if (!selectedNode) return;
     updateNodeConfig(selectedNode.id, { 
        ...updatedData, 
-       label: updatedData.name || selectedNode.data.label,
-       ref_id: updatedData.id 
+       label: (updatedData as any).name || selectedNode.data.label,
+       ref_id: (updatedData as any).id 
     });
     setSettingsOpened(false);
     setSelectedNode(null);
@@ -580,6 +615,8 @@ function EditorInner() {
       const payload = {
         name: name,
         vhost: vhost,
+        active: active,
+        status: workflowStatus,
         worker_id: workerID,
         dead_letter_sink_id: deadLetterSinkID,
         dlq_threshold: dlqThreshold,
@@ -587,11 +624,18 @@ function EditorInner() {
         max_retries: maxRetries,
         retry_interval: retryInterval,
         reconnect_interval: reconnectInterval,
+        idle_timeout: idleTimeout,
+        tier: tier,
         dry_run: dryRun,
         workspace_id: workspaceID,
         cpu_request: cpuRequest,
         memory_request: memoryRequest,
         throughput_request: throughputRequest,
+        cron: cron,
+        retention_days: retentionDays,
+        trace_sample_rate: traceSampleRate,
+        trace_retention: traceRetention,
+        audit_retention: auditRetention,
         schema_type: schemaType,
         schema: schema,
         tags: tags,
@@ -624,6 +668,9 @@ function EditorInner() {
     },
     onSuccess: () => {
       notifications.show({ title: 'Success', message: 'Workflow saved successfully', color: 'green' });
+      if (!isNew && active) {
+        setWorkflowStatus('Restarting');
+      }
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
       if (isNew) navigate({ to: '/workflows' });
     }
@@ -683,6 +730,14 @@ function EditorInner() {
     },
   });
 
+  const handleSave = useCallback(() => {
+    if (!isNew && active) {
+      setSaveConfirmOpened(true);
+    } else {
+      saveMutation.mutate();
+    }
+  }, [isNew, active, saveMutation]);
+
   // Guard: do not trigger editor hotkeys while typing in inputs/textareas/selects or contentEditable
   const isTypingTarget = (evt: any) => {
     const t = (evt?.target as HTMLElement) || null;
@@ -692,10 +747,10 @@ function EditorInner() {
   };
 
   useHotkeys([
-    ['ctrl+s', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); saveMutation.mutate(); }],
+    ['ctrl+s', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleSave(); }],
     ['ctrl+enter', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleTest(null, false); }],
     ['ctrl+shift+enter', (e) => { if (isTypingTarget(e)) return; e.preventDefault(); handleTest(null, true); }],
-    ['delete', (e) => {
+    ['delete, backspace', (e) => {
        if (isTypingTarget(e)) return;
        const anySelected = nodes.some(n => n.selected) || edges.some(e => e.selected);
        if (anySelected) {
@@ -810,7 +865,7 @@ function EditorInner() {
         <EditorToolbar 
           id={id}
           isNew={isNew}
-          onSave={() => saveMutation.mutate()}
+          onSave={handleSave}
           onTest={(dry) => handleTest(null, dry)}
           onConfigureTest={() => setTestModalOpened(true)}
           onToggle={() => toggleMutation.mutate()}
@@ -841,6 +896,7 @@ function EditorInner() {
                 onDragOver={onDragOver}
                 onDrop={onDrop}
                 nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
                 defaultViewport={{ x: 0, y: 0, zoom: 1 }}
                 snapToGrid
                 snapGrid={[15, 15]}
@@ -869,10 +925,10 @@ function EditorInner() {
                      {active && <Badge size="xs" color="green" variant="dot">Streaming</Badge>}
                   </Group>
                   <Group gap="xs">
-                     <ActionIcon variant="subtle" size="sm" color="gray" onClick={(e) => { e.stopPropagation(); setLogs([]); }}>
+                     <ActionIcon aria-label="Clear logs" variant="subtle" size="sm" color="gray" onClick={(e) => { e.stopPropagation(); setLogs([]); }}>
                         <IconClearAll size="1rem" />
                      </ActionIcon>
-                     <ActionIcon variant="subtle" size="sm" color={logsPaused ? 'orange' : 'gray'} onClick={(e) => { e.stopPropagation(); setLogsPaused(!logsPaused); }}>
+                     <ActionIcon aria-label={logsPaused ? "Resume logs" : "Pause logs"} variant="subtle" size="sm" color={logsPaused ? 'orange' : 'gray'} onClick={(e) => { e.stopPropagation(); setLogsPaused(!logsPaused); }}>
                         {logsPaused ? <IconPlayerPlay size="1rem" /> : <IconPlayerPause size="1rem" />}
                      </ActionIcon>
                   </Group>
@@ -880,7 +936,7 @@ function EditorInner() {
                {logsOpened && (
                   <ScrollArea style={{ flex: 1 }} p="xs" viewportRef={logScrollRef}>
                      <Stack gap={4}>
-                        {logs.map((log: any, i: number) => (
+                        {logs.map((log: LogEntry, i: number) => (
                            <Group 
                               key={i} 
                               gap="xs" 
@@ -893,7 +949,12 @@ function EditorInner() {
                               }}
                               onClick={() => {
                                 if (log.data) {
-                                  setTraceMessageID(log.data);
+                                  let msgId = log.data;
+                                  if (msgId.includes('message_id: ')) {
+                                    const match = msgId.match(/message_id: ([^,]+)/);
+                                    if (match) msgId = match[1].trim();
+                                  }
+                                  setTraceMessageID(msgId);
                                   setTraceInspectorOpened(true);
                                 } else if (log.level === 'ERROR') {
                                   // Trigger AI Analysis for errors
@@ -984,7 +1045,7 @@ function EditorInner() {
                       onSave={handleInlineSave} 
                       onRunSimulation={handleTest}
                       isEditing={selectedNode.data.ref_id !== 'new'} 
-                      initialData={selectedNodeData} 
+                      initialData={selectedNodeData as Source | undefined} 
                       vhost={vhost}
                       workerID={workerID}
                     />
@@ -995,7 +1056,7 @@ function EditorInner() {
                       embedded 
                       onSave={handleInlineSave} 
                       isEditing={selectedNode.data.ref_id !== 'new'} 
-                      initialData={selectedNodeData} 
+                      initialData={selectedNodeData as Sink | undefined} 
                       vhost={vhost}
                       workerID={workerID}
                       availableFields={availableFields}
@@ -1069,13 +1130,13 @@ function EditorInner() {
           opened={aiGeneratorOpened}
           onClose={() => setAIGeneratorOpened(false)}
           onGenerated={(generatedWorkflow) => {
-            if (generatedWorkflow.nodes) {
+            if (Array.isArray(generatedWorkflow.nodes)) {
               setNodes(generatedWorkflow.nodes.map((n: any) => ({
                 ...n,
                 position: n.position || { x: Math.random() * 400, y: Math.random() * 400 }
               })));
             }
-            if (generatedWorkflow.edges) {
+            if (Array.isArray(generatedWorkflow.edges)) {
               setEdges(generatedWorkflow.edges);
             }
             if (generatedWorkflow.name) {
@@ -1094,6 +1155,41 @@ function EditorInner() {
           opened={!!aiFixModalData}
           onClose={() => setAIFixModalData(null)}
         />
+
+        <Modal
+          opened={saveConfirmOpened}
+          onClose={() => setSaveConfirmOpened(false)}
+          title={<Group gap="xs"><IconDeviceFloppy size="1.2rem" /><Text fw={700}>Save Active Workflow</Text></Group>}
+          centered
+          size="md"
+        >
+          <Stack gap="md">
+            <Text size="sm">
+              This workflow is currently <b>Active</b>. Saving changes will trigger a <b>graceful restart</b> of the engine to apply the new configuration.
+            </Text>
+            <Paper withBorder p="xs" bg="blue.0">
+               <Group gap="xs" wrap="nowrap">
+                  <IconRefresh size="1.2rem" color="var(--mantine-color-blue-6)" />
+                  <Text size="xs" c="blue.9">
+                    Hermod will perform a final checkpoint before restarting to ensure all processed states are saved and no data is lost.
+                  </Text>
+               </Group>
+            </Paper>
+            <Group justify="flex-end" mt="md">
+              <Button variant="subtle" onClick={() => setSaveConfirmOpened(false)}>Cancel</Button>
+              <Button 
+                color="blue" 
+                loading={saveMutation.isPending}
+                onClick={() => {
+                  setSaveConfirmOpened(false);
+                  saveMutation.mutate();
+                }}
+              >
+                Save & Restart
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
       </Box>
     </WorkflowContext.Provider>
   );
@@ -1106,3 +1202,5 @@ export default function WorkflowEditorPage() {
     </ReactFlowProvider>
   );
 }
+
+

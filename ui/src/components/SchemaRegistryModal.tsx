@@ -2,14 +2,9 @@ import { useState } from 'react';
 import { 
   Modal, Stack, Group, Text, Button, Table, Badge, ScrollArea, TextInput, 
   Select, Textarea, ThemeIcon, Alert, Tabs
-} from '@mantine/core';
-import { 
-  IconDatabase, IconPlus, IconHistory, 
-  IconAlertCircle, IconCode, IconCloudUpload, IconRefresh, IconCheck
-} from '@tabler/icons-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+} from '@mantine/core';import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../api';
-
+import { formatDateTime } from '../utils/dateUtils';import { IconAlertCircle, IconCheck, IconCloudUpload, IconCode, IconDatabase, IconHistory, IconPlus, IconRefresh } from '@tabler/icons-react';
 export function SchemaRegistryModal({ opened, onClose }: { opened: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string | null>('list');
@@ -182,7 +177,7 @@ export function SchemaRegistryModal({ opened, onClose }: { opened: boolean; onCl
                 {(history || []).map((h: any) => (
                   <Table.Tr key={h.id}>
                     <Table.Td>v{h.version}</Table.Td>
-                    <Table.Td>{new Date(h.created_at).toLocaleString()}</Table.Td>
+                    <Table.Td>{formatDateTime(h.created_at)}</Table.Td>
                     <Table.Td>
                       <Button variant="subtle" size="xs">Copy Definition</Button>
                     </Table.Td>
@@ -196,3 +191,5 @@ export function SchemaRegistryModal({ opened, onClose }: { opened: boolean; onCl
     </Modal>
   );
 }
+
+

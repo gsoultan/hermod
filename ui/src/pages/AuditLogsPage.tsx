@@ -1,12 +1,9 @@
-import { Title, Table, Group, Stack, Badge, Paper, Text, Box, ActionIcon, Tooltip, TextInput, Pagination, Modal, ScrollArea, Code, Divider, Button } from '@mantine/core';
-import { IconHistory, IconRefresh, IconEye } from '@tabler/icons-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Title, Table, Group, Stack, Badge, Paper, Text, Box, ActionIcon, Tooltip, TextInput, Pagination, Modal, ScrollArea, Code, Divider, Button } from '@mantine/core';import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../api';
 import { useState } from 'react';
 import { useDisclosure } from '@mantine/hooks';
 
-import { formatDateTime } from '../utils/dateUtils';
-
+import { formatDateTime } from '../utils/dateUtils';import { IconEye, IconHistory, IconRefresh } from '@tabler/icons-react';
 const API_BASE = '/api';
 
 export function AuditLogsPage() {
@@ -234,3 +231,5 @@ export function AuditLogsPage() {
     </Box>
   );
 }
+
+

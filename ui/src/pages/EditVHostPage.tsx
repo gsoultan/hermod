@@ -1,10 +1,7 @@
-import { Title, Paper, Stack, Group, Box, Text, Center, Loader } from '@mantine/core';
-import { IconServer } from '@tabler/icons-react';
-import { VHostForm } from '../components/VHostForm';
+import { Title, Paper, Stack, Group, Box, Text, Center, Loader } from '@mantine/core';import { VHostForm } from '../components/VHostForm';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { apiFetch } from '../api';
-import { useParams } from '@tanstack/react-router';
-
+import { useParams } from '@tanstack/react-router';import { IconServer } from '@tabler/icons-react';
 export function EditVHostPage() {
   const { vhostId } = useParams({ from: '/vhosts/$vhostId/edit' });
 
@@ -45,3 +42,5 @@ export function EditVHostPage() {
     </Box>
   );
 }
+
+

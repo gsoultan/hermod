@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"crypto/tls"
+	"crypto/x509"
+
 	"github.com/gsoultan/gsmail"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/config"
@@ -16,14 +19,21 @@ import (
 	jsonfmt "github.com/user/hermod/pkg/formatter/json"
 	"github.com/user/hermod/pkg/idempotency"
 	sinkclickhouse "github.com/user/hermod/pkg/sink/clickhouse"
+	"github.com/user/hermod/pkg/sink/discord"
+	sinkdynamics365 "github.com/user/hermod/pkg/sink/dynamics365"
 	"github.com/user/hermod/pkg/sink/elasticsearch"
+	"github.com/user/hermod/pkg/sink/facebook"
+	sinkfcm "github.com/user/hermod/pkg/sink/fcm"
 	"github.com/user/hermod/pkg/sink/file"
 	sinkftp "github.com/user/hermod/pkg/sink/ftp"
 	sinkgooglesheets "github.com/user/hermod/pkg/sink/googlesheets"
 	sinkhttp "github.com/user/hermod/pkg/sink/http"
+	"github.com/user/hermod/pkg/sink/instagram"
 	sinkkafka "github.com/user/hermod/pkg/sink/kafka"
 	"github.com/user/hermod/pkg/sink/kinesis"
+	"github.com/user/hermod/pkg/sink/linkedin"
 	sinkmongodb "github.com/user/hermod/pkg/sink/mongodb"
+	sinkmqtt "github.com/user/hermod/pkg/sink/mqtt"
 	sinkmysql "github.com/user/hermod/pkg/sink/mysql"
 	sinknats "github.com/user/hermod/pkg/sink/nats"
 	"github.com/user/hermod/pkg/sink/pgvector"
@@ -37,24 +47,38 @@ import (
 	"github.com/user/hermod/pkg/sink/salesforce"
 	sinksap "github.com/user/hermod/pkg/sink/sap"
 	"github.com/user/hermod/pkg/sink/servicenow"
+	"github.com/user/hermod/pkg/sink/slack"
 	"github.com/user/hermod/pkg/sink/smtp"
 	"github.com/user/hermod/pkg/sink/snowflake"
 	sinksqlite "github.com/user/hermod/pkg/sink/sqlite"
+	"github.com/user/hermod/pkg/sink/sse"
 	"github.com/user/hermod/pkg/sink/stdout"
 	"github.com/user/hermod/pkg/sink/telegram"
+	sinktiktok "github.com/user/hermod/pkg/sink/tiktok"
+	"github.com/user/hermod/pkg/sink/twitter"
+	sinkws "github.com/user/hermod/pkg/sink/websocket"
 	sourcecassandra "github.com/user/hermod/pkg/source/cassandra"
 	sourceclickhouse "github.com/user/hermod/pkg/source/clickhouse"
 	"github.com/user/hermod/pkg/source/cron"
-	sourcecsv "github.com/user/hermod/pkg/source/csv"
 	"github.com/user/hermod/pkg/source/db2"
+	sourcediscord "github.com/user/hermod/pkg/source/discord"
+	sourcedynamics365 "github.com/user/hermod/pkg/source/dynamics365"
+	sourcefacebook "github.com/user/hermod/pkg/source/facebook"
+	sourcefile "github.com/user/hermod/pkg/source/file"
+	"github.com/user/hermod/pkg/source/firebase"
 	sourceform "github.com/user/hermod/pkg/source/form"
+	"github.com/user/hermod/pkg/source/googleanalytics"
 	sourcegooglesheets "github.com/user/hermod/pkg/source/googlesheets"
 	sourcegraphql "github.com/user/hermod/pkg/source/graphql"
 	grpcsource "github.com/user/hermod/pkg/source/grpc"
+	sourcehttp "github.com/user/hermod/pkg/source/http"
+	sourceinstagram "github.com/user/hermod/pkg/source/instagram"
 	sourcekafka "github.com/user/hermod/pkg/source/kafka"
+	sourcelinkedin "github.com/user/hermod/pkg/source/linkedin"
 	sourcemainframe "github.com/user/hermod/pkg/source/mainframe"
 	"github.com/user/hermod/pkg/source/mariadb"
 	sourcemongodb "github.com/user/hermod/pkg/source/mongodb"
+	sourcemqtt "github.com/user/hermod/pkg/source/mqtt"
 	"github.com/user/hermod/pkg/source/mssql"
 	"github.com/user/hermod/pkg/source/mysql"
 	sourcenats "github.com/user/hermod/pkg/source/nats"
@@ -64,8 +88,12 @@ import (
 	sourceredis "github.com/user/hermod/pkg/source/redis"
 	sourcesap "github.com/user/hermod/pkg/source/sap"
 	sourcescylladb "github.com/user/hermod/pkg/source/scylladb"
+	sourceslack "github.com/user/hermod/pkg/source/slack"
 	sourcesqlite "github.com/user/hermod/pkg/source/sqlite"
+	sourcetiktok "github.com/user/hermod/pkg/source/tiktok"
+	sourcetwitter "github.com/user/hermod/pkg/source/twitter"
 	"github.com/user/hermod/pkg/source/webhook"
+	sourcews "github.com/user/hermod/pkg/source/websocket"
 	"github.com/user/hermod/pkg/source/yugabyte"
 	"github.com/user/hermod/pkg/transformer"
 )
@@ -194,38 +222,106 @@ func CreateSource(cfg SourceConfig) (hermod.Source, error) {
 		src = sourcescylladb.NewScyllaDBSource(hosts, tables, idField, pollInterval, useCDC)
 	case "clickhouse":
 		src = sourceclickhouse.NewClickHouseSource(connString, tables, idField, pollInterval, useCDC)
-	case "csv":
-		delimiter := ','
-		if d, ok := cfg.Config["delimiter"]; ok && d != "" {
-			delimiter = rune(d[0])
-		}
-		hasHeader := cfg.Config["has_header"] == "true"
-		sourceType := cfg.Config["source_type"]
-		if sourceType == "http" {
-			headers := make(map[string]string)
-			if h, ok := cfg.Config["headers"]; ok && h != "" {
-				pairs := strings.Split(h, ",")
-				for _, pair := range pairs {
-					kv := strings.SplitN(pair, ":", 2)
-					if len(kv) == 2 {
-						headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+	case "mqtt":
+		return sourcemqtt.NewSource(cfg.Config)
+	case "file":
+		format := cfg.Config["format"]
+		if format == "csv" {
+			delimiter := ','
+			if d, ok := cfg.Config["delimiter"]; ok && d != "" {
+				delimiter = rune(d[0])
+			}
+			hasHeader := cfg.Config["has_header"] == "true"
+			sourceType := cfg.Config["source_type"]
+			if sourceType == "http" {
+				headers := make(map[string]string)
+				if h, ok := cfg.Config["headers"]; ok && h != "" {
+					pairs := strings.Split(h, ",")
+					for _, pair := range pairs {
+						kv := strings.SplitN(pair, ":", 2)
+						if len(kv) == 2 {
+							headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+						}
 					}
 				}
+				src = sourcefile.NewHTTPCSVSource(cfg.Config["url"], delimiter, hasHeader, headers)
+			} else if sourceType == "s3" {
+				src = sourcefile.NewS3CSVSource(
+					cfg.Config["s3_region"],
+					cfg.Config["s3_bucket"],
+					cfg.Config["s3_key"],
+					cfg.Config["s3_endpoint"],
+					cfg.Config["s3_access_key"],
+					cfg.Config["s3_secret_key"],
+					delimiter,
+					hasHeader,
+				)
+			} else {
+				src = sourcefile.NewCSVSource(cfg.Config["file_path"], delimiter, hasHeader)
 			}
-			src = sourcecsv.NewHTTPCSVSource(cfg.Config["url"], delimiter, hasHeader, headers)
-		} else if sourceType == "s3" {
-			src = sourcecsv.NewS3CSVSource(
-				cfg.Config["s3_region"],
-				cfg.Config["s3_bucket"],
-				cfg.Config["s3_key"],
-				cfg.Config["s3_endpoint"],
-				cfg.Config["s3_access_key"],
-				cfg.Config["s3_secret_key"],
-				delimiter,
-				hasHeader,
-			)
 		} else {
-			src = sourcecsv.NewCSVSource(cfg.Config["file_path"], delimiter, hasHeader)
+			// Generic file ingestion (raw payloads, multi-backend)
+			poll, _ := time.ParseDuration(cfg.Config["poll_interval"])
+			backend := strings.ToLower(cfg.Config["source_type"])
+			gcfg := sourcefile.GenericConfig{
+				PollInterval: poll,
+				Format:       sourcefile.Format("raw"),
+			}
+			if f := strings.ToLower(cfg.Config["format"]); f != "" {
+				gcfg.Format = sourcefile.Format(f)
+			}
+			gcfg.Pattern = cfg.Config["pattern"]
+			gcfg.Recursive = cfg.Config["recursive"] == "true"
+			switch backend {
+			case "local", "file":
+				gcfg.Backend = sourcefile.BackendLocal
+				if v := cfg.Config["local_path"]; v != "" {
+					gcfg.LocalPath = v
+				} else {
+					gcfg.LocalPath = cfg.Config["file_path"]
+				}
+			case "http":
+				gcfg.Backend = sourcefile.BackendHTTP
+				gcfg.URL = cfg.Config["url"]
+				headers := make(map[string]string)
+				if h, ok := cfg.Config["headers"]; ok && h != "" {
+					pairs := strings.Split(h, ",")
+					for _, pair := range pairs {
+						kv := strings.SplitN(pair, ":", 2)
+						if len(kv) == 2 {
+							headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+						}
+					}
+				}
+				gcfg.Headers = headers
+			case "ftp":
+				gcfg.Backend = sourcefile.BackendFTP
+				host := cfg.Config["ftp_host"]
+				port := cfg.Config["ftp_port"]
+				if port == "" {
+					port = "21"
+				}
+				gcfg.FTPAddr = fmt.Sprintf("%s:%s", host, port)
+				gcfg.FTPUser = cfg.Config["ftp_user"]
+				gcfg.FTPPass = cfg.Config["ftp_password"]
+				gcfg.FTPRootDir = cfg.Config["ftp_root"]
+			case "s3":
+				gcfg.Backend = sourcefile.BackendS3
+				gcfg.S3Region = cfg.Config["s3_region"]
+				gcfg.S3Bucket = cfg.Config["s3_bucket"]
+				gcfg.S3Prefix = cfg.Config["s3_key"]
+				gcfg.S3Endpoint = cfg.Config["s3_endpoint"]
+				gcfg.S3AccessKey = cfg.Config["s3_access_key"]
+				gcfg.S3SecretKey = cfg.Config["s3_secret_key"]
+			default:
+				gcfg.Backend = sourcefile.BackendLocal
+				if v := cfg.Config["local_path"]; v != "" {
+					gcfg.LocalPath = v
+				} else {
+					gcfg.LocalPath = cfg.Config["file_path"]
+				}
+			}
+			src = sourcefile.NewGenericFileSource(gcfg)
 		}
 	case "sqlite":
 		src = sourcesqlite.NewSQLiteSource(connString, tables, useCDC)
@@ -242,6 +338,10 @@ func CreateSource(cfg SourceConfig) (hermod.Source, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Conservative pool defaults for event store connections
+		db.SetMaxOpenConns(20)
+		db.SetMaxIdleConns(10)
+		db.SetConnMaxIdleTime(60 * time.Second)
 		store, err := eventstore.NewSQLStore(db, driver)
 		if err != nil {
 			return nil, err
@@ -287,6 +387,37 @@ func CreateSource(cfg SourceConfig) (hermod.Source, error) {
 			Filter:       cfg.Config["filter"],
 		}
 		src = sourcesap.NewSource(sapCfg, nil)
+	case "dynamics365":
+		d365Cfg := sourcedynamics365.SourceConfig{
+			Resource:     cfg.Config["resource"],
+			TenantID:     cfg.Config["tenant_id"],
+			ClientID:     cfg.Config["client_id"],
+			ClientSecret: cfg.Config["client_secret"],
+			Entity:       cfg.Config["entity"],
+			PollInterval: cfg.Config["poll_interval"],
+			Filter:       cfg.Config["filter"],
+			IDField:      cfg.Config["id_field"],
+		}
+		src = sourcedynamics365.NewSource(d365Cfg, nil)
+	case "http":
+		headers := make(map[string]string)
+		if h, ok := cfg.Config["headers"]; ok && h != "" {
+			pairs := strings.Split(h, ",")
+			for _, pair := range pairs {
+				kv := strings.SplitN(pair, ":", 2)
+				if len(kv) == 2 {
+					headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+				}
+			}
+		}
+		interval, _ := time.ParseDuration(cfg.Config["poll_interval"])
+		src = sourcehttp.NewHTTPSource(
+			cfg.Config["url"],
+			cfg.Config["method"],
+			headers,
+			interval,
+			cfg.Config["data_path"],
+		)
 	case "googlesheets":
 		pollInterval, _ := time.ParseDuration(cfg.Config["poll_interval"])
 		src = sourcegooglesheets.NewGoogleSheetsSource(
@@ -295,6 +426,117 @@ func CreateSource(cfg SourceConfig) (hermod.Source, error) {
 			cfg.Config["credentials_json"],
 			pollInterval,
 		)
+	case "discord":
+		src = sourcediscord.NewDiscordSource(
+			cfg.Config["token"],
+			cfg.Config["channel_id"],
+			pollInterval,
+		)
+	case "slack":
+		src = sourceslack.NewSlackSource(
+			cfg.Config["token"],
+			cfg.Config["channel_id"],
+			pollInterval,
+		)
+	case "twitter":
+		src = sourcetwitter.NewTwitterSource(
+			cfg.Config["token"],
+			cfg.Config["query"],
+			pollInterval,
+			cfg.Config["mode"],
+		)
+	case "facebook":
+		src = sourcefacebook.NewFacebookSource(
+			cfg.Config["access_token"],
+			cfg.Config["page_id"],
+			pollInterval,
+			cfg.Config["mode"],
+		)
+	case "instagram":
+		src = sourceinstagram.NewInstagramSource(
+			cfg.Config["access_token"],
+			cfg.Config["ig_user_id"],
+			pollInterval,
+			cfg.Config["mode"],
+		)
+	case "tiktok":
+		src = sourcetiktok.NewTikTokSource(
+			cfg.Config["access_token"],
+			pollInterval,
+			cfg.Config["mode"],
+		)
+	case "linkedin":
+		src = sourcelinkedin.NewLinkedInSource(
+			cfg.Config["access_token"],
+			cfg.Config["person_urn"],
+			pollInterval,
+		)
+	case "googleanalytics":
+		pollInterval, _ := time.ParseDuration(cfg.Config["poll_interval"])
+		src = googleanalytics.NewGoogleAnalyticsSource(
+			cfg.Config["property_id"],
+			cfg.Config["credentials_json"],
+			cfg.Config["metrics"],
+			cfg.Config["dimensions"],
+			pollInterval,
+		)
+	case "firebase":
+		pollInterval, _ := time.ParseDuration(cfg.Config["poll_interval"])
+		src = firebase.NewFirebaseSource(
+			cfg.Config["project_id"],
+			cfg.Config["collection"],
+			cfg.Config["credentials_json"],
+			cfg.Config["timestamp_field"],
+			pollInterval,
+		)
+	case "websocket":
+		// Headers: "K:V,K2:V2"
+		headers := make(map[string]string)
+		if h, ok := cfg.Config["headers"]; ok && h != "" {
+			pairs := strings.Split(h, ",")
+			for _, pair := range pairs {
+				kv := strings.SplitN(pair, ":", 2)
+				if len(kv) == 2 {
+					headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+				}
+			}
+		}
+		var subprotocols []string
+		if sp := strings.TrimSpace(cfg.Config["subprotocols"]); sp != "" {
+			for _, p := range strings.Split(sp, ",") {
+				if t := strings.TrimSpace(p); t != "" {
+					subprotocols = append(subprotocols, t)
+				}
+			}
+		}
+		ct, _ := time.ParseDuration(cfg.Config["connect_timeout"])
+		rt, _ := time.ParseDuration(cfg.Config["read_timeout"])
+		hb, _ := time.ParseDuration(cfg.Config["heartbeat_interval"])
+		rb, _ := time.ParseDuration(cfg.Config["reconnect_base"])
+		rm, _ := time.ParseDuration(cfg.Config["reconnect_max"])
+		var maxBytes int64
+		if v := strings.TrimSpace(cfg.Config["max_message_bytes"]); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				maxBytes = n
+			}
+		}
+		src = sourcews.New(
+			cfg.Config["url"],
+			headers,
+			subprotocols,
+			ct,
+			rt,
+			hb,
+			rb,
+			rm,
+			maxBytes,
+		)
+		// Optional TLS configuration for WS client
+		if tlsCfg, pin := buildWSTLSConfig(cfg.Config); tlsCfg != nil {
+			if ws, ok := src.(interface{ SetTLSConfig(*tls.Config, string) }); ok {
+				ws.SetTLSConfig(tlsCfg, pin)
+			}
+		}
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", cfg.Type)
 	}
@@ -331,6 +573,8 @@ func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 	switch cfg.Type {
 	case "nats":
 		return sinknats.NewNatsJetStreamSink(cfg.Config["url"], cfg.Config["subject"], cfg.Config["username"], cfg.Config["password"], cfg.Config["token"], fmttr)
+	case "mqtt":
+		return sinkmqtt.New(cfg.Config, fmttr)
 	case "rabbitmq":
 		return sinkrabbitmq.NewRabbitMQStreamSink(cfg.Config["url"], cfg.Config["stream_name"], fmttr)
 	case "rabbitmq_queue":
@@ -401,6 +645,17 @@ func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 			Entity:   cfg.Config["entity"],
 		}
 		return sinksap.NewSink(sapCfg, nil), nil
+	case "dynamics365":
+		d365Cfg := sinkdynamics365.Config{
+			Resource:     cfg.Config["resource"],
+			TenantID:     cfg.Config["tenant_id"],
+			ClientID:     cfg.Config["client_id"],
+			ClientSecret: cfg.Config["client_secret"],
+			Entity:       cfg.Config["entity"],
+			Operation:    cfg.Config["operation"],
+			ExternalID:   cfg.Config["external_id"],
+		}
+		return sinkdynamics365.NewSink(d365Cfg, nil), nil
 	case "salesforce":
 		return salesforce.NewSalesforceSink(
 			cfg.Config["client_id"],
@@ -511,8 +766,48 @@ func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 			}
 		}
 		return sink, nil
+	case "websocket":
+		headers := make(map[string]string)
+		if h, ok := cfg.Config["headers"]; ok && h != "" {
+			pairs := strings.Split(h, ",")
+			for _, pair := range pairs {
+				kv := strings.SplitN(pair, ":", 2)
+				if len(kv) == 2 {
+					headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+				}
+			}
+		}
+		var subprotocols []string
+		if sp := strings.TrimSpace(cfg.Config["subprotocols"]); sp != "" {
+			for _, p := range strings.Split(sp, ",") {
+				if t := strings.TrimSpace(p); t != "" {
+					subprotocols = append(subprotocols, t)
+				}
+			}
+		}
+		ct, _ := time.ParseDuration(cfg.Config["connect_timeout"])
+		wt, _ := time.ParseDuration(cfg.Config["write_timeout"])
+		hb, _ := time.ParseDuration(cfg.Config["heartbeat_interval"])
+		requireAck := cfg.Config["require_ack"] == "true"
+		s := sinkws.New(
+			cfg.Config["url"],
+			headers,
+			subprotocols,
+			ct,
+			wt,
+			hb,
+			requireAck,
+			fmttr,
+		)
+		if tlsCfg, pin := buildWSTLSConfig(cfg.Config); tlsCfg != nil {
+			s.SetTLSConfig(tlsCfg, pin)
+		}
+		return s, nil
 	case "stdout":
 		return stdout.NewStdoutSink(fmttr), nil
+	case "sse":
+		stream := cfg.Config["stream"]
+		return sse.NewSSESink(stream, fmttr), nil
 	case "smtp":
 		port, _ := strconv.Atoi(cfg.Config["port"])
 		ssl := cfg.Config["ssl"] == "true"
@@ -549,18 +844,80 @@ func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 			if dsn == "" {
 				dsn = "hermod.db"
 			}
-			store, err := idempotency.NewSQLiteStore(dsn)
+			// optional namespace -> table suffix
+			table := "smtp_idempotency"
+			if ns := cfg.Config["idempotency_namespace"]; ns != "" {
+				// sanitize namespace to alnum/underscore
+				sanitized := make([]rune, 0, len(ns))
+				for _, r := range ns {
+					if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+						sanitized = append(sanitized, r)
+					}
+				}
+				if len(sanitized) > 0 {
+					table = fmt.Sprintf("smtp_idempotency_%s", string(sanitized))
+				}
+			}
+			store, err := idempotency.NewSQLiteStoreWithTable(dsn, table)
 			if err != nil {
 				return nil, fmt.Errorf("init idempotency store: %w", err)
 			}
 			s.EnableIdempotency(true)
 			s.SetIdempotencyStore(smtpIdemAdapter{s: store})
 			s.SetIdempotencyKeyTemplate(cfg.Config["idempotency_key_template"])
+
+			// optional TTL cleanup in background
+			if ttlStr := cfg.Config["idempotency_ttl"]; ttlStr != "" {
+				if ttl, err := time.ParseDuration(ttlStr); err == nil && ttl > 0 {
+					go func() {
+						ticker := time.NewTicker(1 * time.Hour)
+						defer ticker.Stop()
+						ctx := context.Background()
+						// initial cleanup
+						_ = store.CleanupTTL(ctx, ttl)
+						for range ticker.C {
+							_ = store.CleanupTTL(ctx, ttl)
+						}
+					}()
+				}
+			}
 		}
 
 		return s, nil
 	case "telegram":
 		return telegram.NewTelegramSink(cfg.Config["token"], cfg.Config["chat_id"], fmttr), nil
+	case "discord":
+		return discord.NewDiscordSink(
+			cfg.Config["webhook_url"],
+			cfg.Config["token"],
+			cfg.Config["channel_id"],
+			fmttr,
+		), nil
+	case "slack":
+		return slack.NewSlackSink(
+			cfg.Config["webhook_url"],
+			cfg.Config["token"],
+			cfg.Config["channel_id"],
+			fmttr,
+		), nil
+	case "twitter":
+		return twitter.NewTwitterSink(cfg.Config["token"], fmttr), nil
+	case "facebook":
+		return facebook.NewFacebookSink(cfg.Config["access_token"], cfg.Config["page_id"], fmttr), nil
+	case "instagram":
+		return instagram.NewInstagramSink(cfg.Config["access_token"], cfg.Config["ig_user_id"], fmttr), nil
+	case "linkedin":
+		return linkedin.NewLinkedInSink(cfg.Config["access_token"], cfg.Config["person_urn"], fmttr), nil
+	case "tiktok":
+		return sinktiktok.NewTikTokSink(cfg.Config["access_token"], fmttr), nil
+	case "fcm":
+		return sinkfcm.NewFCMSinkWithDefaults(
+			cfg.Config["credentials_json"],
+			cfg.Config["device_token"],
+			cfg.Config["topic"],
+			cfg.Config["condition"],
+			fmttr,
+		)
 	case "googlesheets":
 		return sinkgooglesheets.NewGoogleSheetsSink(
 			cfg.Config["spreadsheet_id"],
@@ -573,4 +930,41 @@ func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 	default:
 		return nil, fmt.Errorf("unsupported sink type: %s", cfg.Type)
 	}
+}
+
+// buildWSTLSConfig constructs a tls.Config from common WebSocket TLS keys.
+// Supported keys:
+// - insecure_skip_verify: "true" to skip verification (not recommended)
+// - server_name: SNI override
+// - ca_cert_pem: custom root certificate(s) in PEM format
+// - pin_sha256: base64-encoded SHA256 of the peer leaf certificate (returned separately)
+func buildWSTLSConfig(m map[string]string) (*tls.Config, string) {
+	insecure := strings.EqualFold(strings.TrimSpace(m["insecure_skip_verify"]), "true")
+	serverName := strings.TrimSpace(m["server_name"])
+	caPEM := strings.TrimSpace(m["ca_cert_pem"])
+	pin := strings.TrimSpace(m["pin_sha256"]) // return separately
+
+	if !insecure && serverName == "" && caPEM == "" {
+		// No TLS customization; let defaults apply
+		if pin == "" {
+			return nil, ""
+		}
+		// Pinning without other options still requires a tls.Config instance
+		return &tls.Config{}, pin
+	}
+
+	cfg := &tls.Config{}
+	if insecure {
+		cfg.InsecureSkipVerify = true
+	}
+	if serverName != "" {
+		cfg.ServerName = serverName
+	}
+	if caPEM != "" {
+		pool := x509.NewCertPool()
+		if ok := pool.AppendCertsFromPEM([]byte(caPEM)); ok {
+			cfg.RootCAs = pool
+		}
+	}
+	return cfg, pin
 }

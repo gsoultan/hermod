@@ -18,6 +18,7 @@ type Config struct {
 	StateStore    StateStoreConfig    `json:"state_store" yaml:"state_store"`
 	Observability ObservabilityConfig `json:"observability" yaml:"observability"`
 	Auth          AuthConfig          `json:"auth" yaml:"auth"`
+	FileStorage   FileStorageConfig   `json:"file_storage" yaml:"file_storage"`
 }
 
 type AuthConfig struct {
@@ -58,6 +59,23 @@ type EngineConfig struct {
 	MaxRetries        int           `json:"max_retries" yaml:"max_retries"`
 	RetryInterval     time.Duration `json:"retry_interval" yaml:"retry_interval"`
 	ReconnectInterval time.Duration `json:"reconnect_interval" yaml:"reconnect_interval"`
+	MaxInflight       int           `json:"max_inflight" yaml:"max_inflight"`
+	DrainTimeout      time.Duration `json:"drain_timeout" yaml:"drain_timeout"`
+}
+
+type FileStorageConfig struct {
+	Type     string   `json:"type" yaml:"type"` // local, s3
+	LocalDir string   `json:"local_dir" yaml:"local_dir"`
+	S3       S3Config `json:"s3" yaml:"s3"`
+}
+
+type S3Config struct {
+	Endpoint        string `json:"endpoint" yaml:"endpoint"`
+	Region          string `json:"region" yaml:"region"`
+	Bucket          string `json:"bucket" yaml:"bucket"`
+	AccessKeyID     string `json:"access_key_id" yaml:"access_key_id"`
+	SecretAccessKey string `json:"secret_access_key" yaml:"secret_access_key"`
+	UseSSL          bool   `json:"use_ssl" yaml:"use_ssl"`
 }
 
 type BufferConfig struct {

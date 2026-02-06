@@ -2,7 +2,7 @@ import { Group, Select, TextInput, PasswordInput } from '@mantine/core'
 import type { FC } from 'react'
 
 export type MainframeSourceConfigProps = {
-  config: any
+  config: Record<string, any>
   updateConfig: (key: string, value: any) => void
 }
 

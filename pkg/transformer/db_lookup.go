@@ -600,10 +600,3 @@ func asSlice(v interface{}) ([]interface{}, bool) {
 		return nil, false
 	}
 }
-
-func getConfigString(config map[string]interface{}, key string) string {
-	if v, ok := config[key].(string); ok {
-		return v
-	}
-	return ""
-}

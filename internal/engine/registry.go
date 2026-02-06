@@ -431,10 +431,10 @@ func (r *Registry) getOrOpenDB(src storage.Source) (*sql.DB, error) {
 		return nil, err
 	}
 
-	// Configure pool
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(time.Hour)
+	// Configure pool with conservative, performant defaults
+	db.SetMaxOpenConns(20)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxIdleTime(60 * time.Second)
 
 	r.dbPool[src.ID] = db
 	return db, nil
@@ -704,6 +704,20 @@ func (s *statefulSource) Sample(ctx context.Context, table string) (hermod.Messa
 	return nil, fmt.Errorf("source does not support sampling")
 }
 
+func (s *statefulSource) Snapshot(ctx context.Context, tables ...string) error {
+	if sn, ok := s.Source.(hermod.Snapshottable); ok {
+		return sn.Snapshot(ctx, tables...)
+	}
+	return fmt.Errorf("source %s does not support manual snapshots", s.sourceID)
+}
+
+func (s *statefulSource) IsReady(ctx context.Context) error {
+	if r, ok := s.Source.(hermod.ReadyChecker); ok {
+		return r.IsReady(ctx)
+	}
+	return s.Ping(ctx)
+}
+
 func (r *Registry) createSink(cfg SinkConfig) (hermod.Sink, error) {
 	r.mu.Lock()
 	logger := r.logger
@@ -903,6 +917,96 @@ func (r *Registry) BrowseSinkTable(ctx context.Context, cfg SinkConfig, table st
 	}
 
 	return nil, fmt.Errorf("sink type %s does not support browsing", cfg.Type)
+}
+
+func (r *Registry) ExecuteSQL(ctx context.Context, cfg SourceConfig, query string) ([]map[string]interface{}, error) {
+	// 1. Try if the source already implements SQLExecutor
+	src, err := r.createSource(cfg)
+	if err == nil {
+		defer src.Close()
+		if e, ok := src.(hermod.SQLExecutor); ok {
+			return e.ExecuteSQL(ctx, query)
+		}
+	}
+
+	// 2. Fallback to generic SQL execution if it's a supported DB type
+	db, err := r.getOrOpenDB(storage.Source{
+		ID:     "temp-query-" + cfg.Type,
+		Type:   cfg.Type,
+		Config: cfg.Config,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanRows(rows)
+}
+
+func (r *Registry) ExecuteSinkSQL(ctx context.Context, cfg SinkConfig, query string) ([]map[string]interface{}, error) {
+	// 1. Try if the sink already implements SQLExecutor
+	snk, err := r.createSink(cfg)
+	if err == nil {
+		defer snk.Close()
+		if e, ok := snk.(hermod.SQLExecutor); ok {
+			return e.ExecuteSQL(ctx, query)
+		}
+	}
+
+	// 2. Fallback to generic SQL execution if it's a supported DB type
+	db, err := r.getOrOpenDB(storage.Source{
+		ID:     "temp-sink-query-" + cfg.Type,
+		Type:   cfg.Type,
+		Config: cfg.Config,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanRows(rows)
+}
+
+func scanRows(rows *sql.Rows) ([]map[string]interface{}, error) {
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		columns := make([]interface{}, len(cols))
+		columnPointers := make([]interface{}, len(cols))
+		for i := range columns {
+			columnPointers[i] = &columns[i]
+		}
+
+		if err := rows.Scan(columnPointers...); err != nil {
+			return nil, err
+		}
+
+		m := make(map[string]interface{})
+		for i, colName := range cols {
+			val := columns[i]
+			if b, ok := val.([]byte); ok {
+				m[colName] = string(b)
+			} else {
+				m[colName] = val
+			}
+		}
+		results = append(results, m)
+	}
+	return results, nil
 }
 
 type subSource struct {
@@ -2109,6 +2213,7 @@ func (r *Registry) TriggerSnapshot(ctx context.Context, sourceID string, tables 
 
 	triggered := false
 	var lastErr error
+	foundNotSnap := false
 
 	for _, ae := range r.engines {
 		source := ae.engine.GetSource()
@@ -2126,6 +2231,8 @@ func (r *Registry) TriggerSnapshot(ctx context.Context, sourceID string, tables 
 						} else {
 							triggered = true
 						}
+					} else {
+						foundNotSnap = true
 					}
 				}
 			}
@@ -2141,6 +2248,8 @@ func (r *Registry) TriggerSnapshot(ctx context.Context, sourceID string, tables 
 						} else {
 							triggered = true
 						}
+					} else {
+						foundNotSnap = true
 					}
 				}
 			}
@@ -2150,12 +2259,15 @@ func (r *Registry) TriggerSnapshot(ctx context.Context, sourceID string, tables 
 	if lastErr != nil {
 		return lastErr
 	}
-	if !triggered {
-		// Provide a clearer message: snapshots require the source to be part of a running workflow engine.
-		// This often happens when trying to trigger a snapshot before starting the workflow.
-		return fmt.Errorf("source %s is not currently running in any engine. Start the workflow that uses this source and try again", sourceID)
+	if triggered {
+		return nil
 	}
-	return nil
+	if foundNotSnap {
+		return fmt.Errorf("source %s does not support manual snapshots", sourceID)
+	}
+	// Provide a clearer message: snapshots require the source to be part of a running workflow engine.
+	// This often happens when trying to trigger a snapshot before starting the workflow.
+	return fmt.Errorf("source %s is not currently running in any engine. Start the workflow that uses this source and try again", sourceID)
 }
 
 func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
@@ -2550,8 +2662,8 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 				}
 
 				receivedCount[targetID]++
-
 				if match && currMsg != nil {
+					eng.UpdateEdgeMetric(currID, targetID, 1)
 					strategy := ""
 					targetNode := nodeMap[targetID]
 					if targetNode != nil {
@@ -2630,6 +2742,19 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 			if d, err := parseDuration(val); err == nil {
 				psc.BatchTimeout = d
 			}
+		}
+		if val, ok := cfg.Config["batch_bytes"]; ok && val != "" {
+			if n, err := strconv.Atoi(val); err == nil {
+				psc.BatchBytes = n
+			}
+		}
+		if val, ok := cfg.Config["shard_count"]; ok && val != "" {
+			if n, err := strconv.Atoi(val); err == nil {
+				psc.ShardCount = n
+			}
+		}
+		if val, ok := cfg.Config["shard_key_meta"]; ok && val != "" {
+			psc.ShardKeyMeta = val
 		}
 		if val, ok := cfg.Config["circuit_threshold"]; ok && val != "" {
 			if n, err := strconv.Atoi(val); err == nil {

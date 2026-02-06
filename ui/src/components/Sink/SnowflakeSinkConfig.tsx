@@ -1,6 +1,4 @@
-import { TextInput, Stack, Group, Text, Code, Alert } from '@mantine/core';
-import { IconInfoCircle } from '@tabler/icons-react';
-
+import { TextInput, Stack, Group, Text, Code, Alert } from '@mantine/core';import { IconInfoCircle } from '@tabler/icons-react';
 interface SnowflakeSinkConfigProps {
   form: any;
 }
@@ -74,3 +72,5 @@ export function SnowflakeSinkConfig({ form }: SnowflakeSinkConfigProps) {
     </Stack>
   );
 }
+
+

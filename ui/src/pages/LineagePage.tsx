@@ -1,3 +1,4 @@
+import { IconDatabase, IconPlug, IconSubtask } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '../api'
 import ReactFlow, { 
@@ -20,13 +21,7 @@ import {
   Loader,
   Center,
   Badge
-} from '@mantine/core'
-import { 
-  IconDatabase, 
-  IconPlug, 
-  IconSubtask 
-} from '@tabler/icons-react'
-import { useMemo } from 'react'
+} from '@mantine/core'import { useMemo } from 'react'
 import dagre from 'dagre'
 
 interface LineageEdge {
@@ -189,3 +184,5 @@ export function LineagePage() {
     </Stack>
   )
 }
+
+

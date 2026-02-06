@@ -24,6 +24,7 @@ import (
 	storagemongo "github.com/user/hermod/internal/storage/mongodb"
 	sqlstorage "github.com/user/hermod/internal/storage/sql"
 	"github.com/user/hermod/pkg/crypto"
+	"github.com/user/hermod/pkg/filestorage"
 	"github.com/user/hermod/pkg/secrets"
 	"github.com/user/hermod/pkg/state"
 	"go.mongodb.org/mongo-driver/bson"
@@ -237,6 +238,73 @@ func (s *Server) getObservabilityConfig(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(cfg.Observability)
+}
+
+func (s *Server) getFileStorageConfig(w http.ResponseWriter, r *http.Request) {
+	role, _ := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		s.jsonError(w, "failed to load configuration", http.StatusInternalServerError)
+		return
+	}
+
+	// Mask secrets
+	resp := cfg.FileStorage
+	if resp.S3.AccessKeyID != "" {
+		resp.S3.AccessKeyID = "****"
+	}
+	if resp.S3.SecretAccessKey != "" {
+		resp.S3.SecretAccessKey = "****"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) updateFileStorageConfig(w http.ResponseWriter, r *http.Request) {
+	role, _ := s.getRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	var fsCfg config.FileStorageConfig
+	if err := json.NewDecoder(r.Body).Decode(&fsCfg); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		s.jsonError(w, "failed to load configuration", http.StatusInternalServerError)
+		return
+	}
+
+	// Restore secrets if masked
+	if fsCfg.S3.AccessKeyID == "****" {
+		fsCfg.S3.AccessKeyID = cfg.FileStorage.S3.AccessKeyID
+	}
+	if fsCfg.S3.SecretAccessKey == "****" {
+		fsCfg.S3.SecretAccessKey = cfg.FileStorage.S3.SecretAccessKey
+	}
+
+	cfg.FileStorage = fsCfg
+	if err := config.SaveConfig("config.yaml", cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Reinitialize server file storage with new config
+	if fs, err := filestorage.NewStorage(r.Context(), cfg.FileStorage); err == nil {
+		s.fileStorage = fs
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) updateObservabilityConfig(w http.ResponseWriter, r *http.Request) {
@@ -698,6 +766,7 @@ func (s *Server) finalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 			StateStore    config.StateStoreConfig    `json:"state_store"`
 			Observability config.ObservabilityConfig `json:"observability"`
 			Auth          config.AuthConfig          `json:"auth"`
+			FileStorage   config.FileStorageConfig   `json:"file_storage"`
 		} `json:"config"`
 	}
 
@@ -746,6 +815,7 @@ func (s *Server) finalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	s.storeMu.Lock()
 	s.storage = newStore
+	s.logStorage = newStore
 	s.storeMu.Unlock()
 
 	// 3) Create first admin user
@@ -792,6 +862,7 @@ func (s *Server) finalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 		StateStore:    req.Config.StateStore,
 		Observability: req.Config.Observability,
 		Auth:          req.Config.Auth,
+		FileStorage:   req.Config.FileStorage,
 	}
 
 	if req.Config.Engine.RetryInterval != "" {

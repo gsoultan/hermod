@@ -70,6 +70,7 @@ export function useStyledFlow() {
 
       return {
         ...edge,
+        type: 'live',
         animated: isPathActive,
         style: { 
           strokeWidth: isPathActive ? 3 : 2,

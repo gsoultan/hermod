@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Title, Paper, Stack, Group, Box, Text, TextInput, Button, Divider, Alert, Badge, Card, Avatar, Tabs, PasswordInput, Modal, Image, Code } from '@mantine/core';
-import { IconUser, IconMail, IconShieldLock, IconDeviceFloppy, IconLock, IconCheck, IconAlertCircle, IconWorld, IconRefresh, IconFingerprint, IconTrash } from '@tabler/icons-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, apiJson } from '../api';
 import { notifications } from '@mantine/notifications';
-
+import { IconAlertCircle, IconCheck, IconDeviceFloppy, IconFingerprint, IconLock, IconMail, IconRefresh, IconShieldLock, IconTrash, IconUser, IconWorld } from '@tabler/icons-react';
 interface User {
   id: string;
   username: string;
@@ -20,6 +19,7 @@ export function ProfilePage() {
   const [activeTab, setActiveTab] = useState<string | null>('info');
   const [twoFactorSecret, setTwoFactorSecret] = useState<{ secret: string; url: string } | null>(null);
   const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
   const { data: user, isLoading, error } = useQuery<User>({
     queryKey: ['me'],
@@ -90,6 +90,28 @@ export function ProfilePage() {
       setTwoFactorSecret(data);
     }
   });
+
+  // Generate QR locally (avoid external services that may be blocked by CSP or network)
+  useEffect(() => {
+    let cancelled = false;
+    async function gen() {
+      if (!twoFactorSecret) {
+        setQrDataUrl(null);
+        return;
+      }
+      try {
+        const QR = await import('qrcode');
+        const dataUrl = await QR.toDataURL(twoFactorSecret.url, { width: 200, margin: 1, errorCorrectionLevel: 'M' });
+        if (!cancelled) setQrDataUrl(dataUrl);
+      } catch {
+        if (!cancelled) setQrDataUrl(null);
+      }
+    }
+    gen();
+    return () => {
+      cancelled = true;
+    };
+  }, [twoFactorSecret]);
 
   const verify2FAMutation = useMutation({
     mutationFn: async (data: { secret: string; code: string }) => {
@@ -368,12 +390,16 @@ export function ProfilePage() {
                   </Text>
                   
                   <Box style={{ display: 'flex', justifyContent: 'center' }} p="md" bg="gray.1">
-                    <Image 
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(twoFactorSecret.url)}`}
-                      width={200}
-                      height={200}
-                      alt="QR Code"
-                    />
+                    {qrDataUrl ? (
+                      <Image
+                        src={qrDataUrl}
+                        width={200}
+                        height={200}
+                        alt="QR Code"
+                      />
+                    ) : (
+                      <Text size="sm" c="dimmed">Generating QR code…</Text>
+                    )}
                   </Box>
 
                   <Text size="sm">
@@ -414,3 +440,5 @@ export function ProfilePage() {
     </Box>
   );
 }
+
+

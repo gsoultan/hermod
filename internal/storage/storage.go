@@ -72,8 +72,8 @@ type Sink struct {
 }
 
 type Transformation struct {
-	Type   string            `json:"type"`
-	Config map[string]string `json:"config"`
+	Type   string                 `json:"type"`
+	Config map[string]interface{} `json:"config"`
 }
 
 type WorkflowNode struct {
@@ -341,6 +341,7 @@ type Storage interface {
 	DeleteWorkspace(ctx context.Context, id string) error
 	CreateWorkflow(ctx context.Context, wf Workflow) error
 	UpdateWorkflow(ctx context.Context, wf Workflow) error
+	UpdateWorkflowStatus(ctx context.Context, id string, status string) error
 	DeleteWorkflow(ctx context.Context, id string) error
 	GetWorkflow(ctx context.Context, id string) (Workflow, error)
 

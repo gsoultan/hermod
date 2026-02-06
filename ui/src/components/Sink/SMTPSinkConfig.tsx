@@ -1,6 +1,7 @@
-import { TextInput, Group, Select, Checkbox, Textarea, Button, Stack, Tabs, ActionIcon, Tooltip, Divider } from '@mantine/core';
-import { IconAt, IconTemplate, IconLink, IconCloud, IconPlayerPlay } from '@tabler/icons-react';
+import { useState } from 'react';
+import { TextInput, Group, Select, Checkbox, Textarea, Button, Stack, Tabs, ActionIcon, Tooltip, Divider, Text } from '@mantine/core';
 
+import { EmailLayoutBuilder } from '../EmailLayoutBuilder';import { IconAt, IconBrush, IconCloud, IconLink, IconPlayerPlay, IconTemplate } from '@tabler/icons-react';
 interface SMTPSinkConfigProps {
   config: any;
   updateConfig: (key: string, value: string) => void;
@@ -13,8 +14,16 @@ interface SMTPSinkConfigProps {
 export function SMTPSinkConfig({ 
   config, updateConfig, validateEmailLoading, handleValidateEmail, handlePreview, previewLoading 
 }: SMTPSinkConfigProps) {
+  const [builderOpened, setBuilderOpened] = useState(false);
+
   return (
     <>
+      <EmailLayoutBuilder 
+        opened={builderOpened} 
+        onClose={() => setBuilderOpened(false)} 
+        onApply={(html) => updateConfig('template', html)}
+        outlookCompatible={config.outlook_compatible === 'true'}
+      />
       <Group grow>
         <TextInput label="Host" placeholder="smtp.example.com" value={config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} required />
         <TextInput label="Port" placeholder="587" value={config.port || ''} onChange={(e) => updateConfig('port', e.target.value)} required />
@@ -107,8 +116,18 @@ export function SMTPSinkConfig({
 
         <Tabs.Panel value="inline" pt="md">
           <Stack gap="xs">
+            <Group justify="space-between" align="center">
+              <Text size="sm" fw={500}>Template Content</Text>
+              <Button 
+                variant="subtle" 
+                size="compact-xs" 
+                leftSection={<IconBrush size="0.8rem" />}
+                onClick={() => setBuilderOpened(true)}
+              >
+                Launch Layout Builder
+              </Button>
+            </Group>
             <Textarea 
-              label="Template" 
               placeholder="Hello {{.name}}, your order #{{.order_id}} has been processed." 
               value={config.template || ''} 
               onChange={(e) => updateConfig('template', e.target.value)} 
@@ -162,3 +181,5 @@ export function SMTPSinkConfig({
     </>
   );
 }
+
+

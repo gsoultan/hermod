@@ -96,7 +96,10 @@ func (f *fakeRBACStorage) ListWorkflows(ctx context.Context, filter storage.Comm
 }
 func (f *fakeRBACStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
 func (f *fakeRBACStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
-func (f *fakeRBACStorage) DeleteWorkflow(ctx context.Context, id string) error           { return nil }
+func (f *fakeRBACStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
+	return nil
+}
+func (f *fakeRBACStorage) DeleteWorkflow(ctx context.Context, id string) error { return nil }
 
 func (f *fakeRBACStorage) ListWorkspaces(ctx context.Context) ([]storage.Workspace, error) {
 	return nil, nil

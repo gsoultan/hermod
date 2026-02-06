@@ -1,7 +1,4 @@
-import { Title, Text, Button, Container, Group, Paper, Stack, ThemeIcon } from '@mantine/core';
-import { IconAlertTriangle, IconRefresh, IconHome } from '@tabler/icons-react';
-import { useNavigate, useRouter } from '@tanstack/react-router';
-
+import { Title, Text, Button, Container, Group, Paper, Stack, ThemeIcon } from '@mantine/core';import { useNavigate, useRouter } from '@tanstack/react-router';import { IconAlertTriangle, IconHome, IconRefresh } from '@tabler/icons-react';
 interface ErrorPageProps {
   error: Error;
   reset: () => void;
@@ -61,3 +58,5 @@ export function ErrorPage({ error, reset }: ErrorPageProps) {
     </Container>
   );
 }
+
+

@@ -66,14 +66,14 @@ func TestTransformationPipelineRegistry(t *testing.T) {
 	transformations := []storage.Transformation{
 		{
 			Type: "advanced",
-			Config: map[string]string{
+			Config: map[string]interface{}{
 				"column.email": "lower(source.email)",
 				"column.name":  "upper(source.name)",
 			},
 		},
 		{
 			Type: "filter_data",
-			Config: map[string]string{
+			Config: map[string]interface{}{
 				"field":    "name",
 				"operator": "=",
 				"value":    "JOHN",
@@ -124,7 +124,7 @@ func TestTransformationPipelineRegistry(t *testing.T) {
 	transformations2 := []storage.Transformation{
 		{
 			Type: "filter_data",
-			Config: map[string]string{
+			Config: map[string]interface{}{
 				"field":    "amount",
 				"operator": ">",
 				"value":    "100",
@@ -157,7 +157,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "advanced",
-				Config: map[string]string{
+				Config: map[string]interface{}{
 					"column.email": "lower( source.email )",
 				},
 			},
@@ -182,7 +182,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "advanced",
-				Config: map[string]string{
+				Config: map[string]interface{}{
 					"column.field": `replace(source.field, ",", ";")`,
 				},
 			},
@@ -207,7 +207,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "mask",
-				Config: map[string]string{
+				Config: map[string]interface{}{
 					"field":    "email",
 					"maskType": "email",
 				},
@@ -233,7 +233,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "filter_data",
-				Config: map[string]string{
+				Config: map[string]interface{}{
 					"field":    "missing",
 					"operator": "=",
 					"value":    "something",
@@ -259,7 +259,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "filter_data",
-				Config: map[string]string{
+				Config: map[string]interface{}{
 					"conditions": `[{"field": "product", "operator": "=", "value": "iPhone"}, {"field": "status", "operator": "=", "value": "active"}]`,
 				},
 			},
@@ -291,7 +291,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "mask",
-				Config: map[string]string{
+				Config: map[string]interface{}{
 					"field":    "user.email",
 					"maskType": "email",
 				},
@@ -318,7 +318,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "set",
-				Config: map[string]string{
+				Config: map[string]interface{}{
 					"column.new_field":    "value",
 					"column.nested.field": "nested_value",
 				},
@@ -348,7 +348,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "set",
-				Config: map[string]string{
+				Config: map[string]interface{}{
 					"column.copied": "source.existing",
 				},
 			},
@@ -373,7 +373,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "mapping",
-				Config: map[string]string{
+				Config: map[string]interface{}{
 					"field":   "user.status",
 					"mapping": `{"1": "Active", "0": "Inactive"}`,
 				},
@@ -411,7 +411,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "api_lookup",
-				Config: map[string]string{
+				Config: map[string]interface{}{
 					"url":          server.URL + "/users/{{user_id}}",
 					"targetField":  "user_profile",
 					"responsePath": ".",
