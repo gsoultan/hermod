@@ -45,6 +45,7 @@ const DashboardPage = lazy(async () => ({ default: (await import('./pages/Dashbo
 const WorkflowEditorPage = lazy(async () => ({ default: (await import('./pages/WorkflowEditorPage')).default }))
 const WorkflowsPage = lazy(async () => ({ default: (await import('./pages/WorkflowsPage')).default }))
 const CompliancePage = lazy(async () => ({ default: (await import('./pages/ComplianceDashboard')).ComplianceDashboard }))
+const ApprovalsPage = lazy(async () => ({ default: (await import('./pages/ApprovalsPage')).ApprovalsPage }))
 interface RouterContext {
   configStatus?: {
     configured: boolean
@@ -482,6 +483,16 @@ const marketplaceRoute = createRoute({
   ),
 })
 
+const approvalsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/approvals',
+  component: () => (
+    <Suspense fallback={<Center h="100vh"><Loader size="xl" /></Center>}>
+      <ApprovalsPage />
+    </Suspense>
+  ),
+})
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
@@ -592,6 +603,7 @@ const routeTree = rootRoute.addChildren([
   healthRoute,
   complianceRoute,
   marketplaceRoute,
+  approvalsRoute,
   loginRoute,
   forgotPasswordRoute,
   setupRoute,

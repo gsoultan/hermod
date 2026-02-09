@@ -96,10 +96,16 @@ func (t *DataConversionTransformer) toInt(val interface{}) (interface{}, error) 
 
 func (t *DataConversionTransformer) toFloat(val interface{}) (interface{}, error) {
 	switch v := val.(type) {
-	case float64, float32:
+	case float64:
 		return v, nil
-	case int, int64, int32:
-		return float64(v.(int64)), nil // Caution: may need better type switch
+	case float32:
+		return float64(v), nil
+	case int:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	case int32:
+		return float64(v), nil
 	case string:
 		return strconv.ParseFloat(v, 64)
 	default:

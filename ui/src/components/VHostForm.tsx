@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Button, Group, TextInput, Stack, Textarea } from '@mantine/core';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../api';
 import { useNavigate } from '@tanstack/react-router';
 
@@ -17,6 +17,7 @@ interface VHostFormProps {
 
 export function VHostForm({ initialData, isEditing = false }: VHostFormProps) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [vhost, setVHost] = useState<VHost>({ name: '', description: '' });
 
   useEffect(() => {
@@ -39,6 +40,11 @@ export function VHostForm({ initialData, isEditing = false }: VHostFormProps) {
       return res.json();
     },
     onSuccess: () => {
+      try {
+        queryClient.invalidateQueries({ queryKey: ['vhosts'] });
+      } catch (_) {
+        // ignore
+      }
       navigate({ to: '/vhosts' });
     }
   });

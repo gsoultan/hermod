@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { useStore } from '@tanstack/react-form';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../api';
 import { notifications } from '@mantine/notifications';
 import { useNavigate } from '@tanstack/react-router';
 import type { Source, Workflow } from '../types';
+import { useWorkflowStore } from '../pages/WorkflowEditor/store/useWorkflowStore';
 
 const API_BASE = '/api';
 
@@ -27,6 +28,9 @@ export function useSourceForm({
   workerID
 }: UseSourceFormProps) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const updateNodeConfig = useWorkflowStore(s => s.updateNodeConfig);
+  const selectedNode = useWorkflowStore(s => s.selectedNode);
   const [testResult, setTestResult] = useState<{ status: 'ok' | 'error', message: string } | null>(null);
   const form = useForm({
     defaultValues: {
@@ -129,6 +133,60 @@ export function useSourceForm({
     return ['postgres', 'mysql', 'mssql', 'oracle', 'mongodb', 'yugabyte', 'mariadb', 'db2', 'cassandra', 'scylladb', 'clickhouse', 'sqlite', 'eventstore'].includes(type);
   };
 
+  // Best-effort helper to persist the sample and propagate it to the editor state
+  const onSampleReady = async (data: any) => {
+    // Parse CDC envelopes if they are strings for better UX in field explorer
+    if (data && typeof data === 'object') {
+      if (typeof data.after === 'string') {
+        try { data.after = JSON.parse(data.after); } catch (_) {}
+      }
+      if (typeof data.before === 'string') {
+        try { data.before = JSON.parse(data.before); } catch (_) {}
+      }
+    }
+
+    setSampleData(data);
+    setSampleError(null);
+
+    // 1) Persist to server (Source.sample) when editing an existing source
+    try {
+      const srcId = (source as any)?.id;
+      if (srcId) {
+        // Build payload matching storage.Source JSON schema
+        const payload: any = {
+          id: srcId,
+          name: (source as any)?.name || '',
+          type: (source as any)?.type || '',
+          vhost: (source as any)?.vhost || '',
+          worker_id: (source as any)?.worker_id || '',
+          active: (source as any)?.active ?? true,
+          config: (source as any)?.config || {},
+          sample: typeof data === 'string' ? data : JSON.stringify(data),
+        };
+        const res = await apiFetch(`${API_BASE}/sources/${srcId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          // Refresh sources cache so downstream fallbacks see the latest sample
+          queryClient.invalidateQueries({ queryKey: ['sources'] }).catch(() => {});
+        }
+      }
+    } catch (_) {
+      // Non-fatal: editor still uses local lastSample below
+    }
+
+    // 2) Update the selected source node’s local cache so downstream transforms see fields immediately
+    try {
+      if (selectedNode && selectedNode.type === 'source') {
+        updateNodeConfig(selectedNode.id, { lastSample: data });
+      }
+    } catch (_) {
+      // ignore
+    }
+  };
+
   const fetchSample = async (s: any) => {
     let table = selectedSampleTable;
     if (!table && s.config.tables) {
@@ -138,8 +196,7 @@ export function useSourceForm({
     if (!isCDC(s.type) && testInput) {
       try {
         const data = JSON.parse(testInput);
-        setSampleData(data);
-        setSampleError(null);
+        await onSampleReady(data);
         return;
       } catch (e) {}
     }
@@ -154,7 +211,7 @@ export function useSourceForm({
       });
       if (res.ok) {
         const data = await res.json();
-        setSampleData(data);
+        await onSampleReady(data);
       }
     } catch (e: any) {
       setSampleData(null);
@@ -176,7 +233,59 @@ export function useSourceForm({
       });
       if (res.ok) {
         const data = await res.json();
-        updateConfig('file_path', data.path);
+        const path: string = data?.path || '';
+
+        // If this is an Excel source, map the uploaded path to the appropriate config
+        if ((source?.type || '').toLowerCase() === 'excel' && path) {
+          if (path.startsWith('s3://')) {
+            // s3://bucket/key
+            const rem = path.slice('s3://'.length);
+            const idx = rem.indexOf('/');
+            if (idx > 0) {
+              const bucket = rem.slice(0, idx);
+              const key = rem.slice(idx + 1);
+              updateConfig('source_type', 's3');
+              updateConfig('s3_bucket', bucket);
+              updateConfig('s3_key', key);
+
+              // Best-effort: fetch storage config to prefill region/endpoint (may require admin)
+              try {
+                const cfgRes = await apiFetch(`${API_BASE}/config/storage`);
+                if (cfgRes.ok) {
+                  const cfg = await cfgRes.json();
+                  const type = (cfg?.Type || cfg?.type || '').toLowerCase();
+                  const s3Cfg = cfg?.S3 || cfg?.s3 || {};
+                  if (type === 's3') {
+                    if (s3Cfg.Region || s3Cfg.region) {
+                      updateConfig('s3_region', s3Cfg.Region || s3Cfg.region);
+                    }
+                    if (s3Cfg.Endpoint || s3Cfg.endpoint) {
+                      updateConfig('s3_endpoint', s3Cfg.Endpoint || s3Cfg.endpoint);
+                    }
+                  }
+                }
+              } catch (_) {
+                // ignore; region/endpoint can be filled manually if needed
+              }
+            } else {
+              // Fallback: just set bucket key into s3_key if parsing fails
+              updateConfig('source_type', 's3');
+              updateConfig('s3_key', rem);
+            }
+          } else {
+            // Treat as local/absolute path. Split into base_path and pattern
+            const normalized = path.replace(/\\/g, '/');
+            const lastSlash = normalized.lastIndexOf('/');
+            const dir = lastSlash >= 0 ? normalized.slice(0, lastSlash) : '.';
+            const name = lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
+            updateConfig('source_type', 'local');
+            updateConfig('base_path', dir);
+            updateConfig('pattern', name);
+          }
+        } else {
+          // Default behavior for other sources
+          updateConfig('file_path', path);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -300,8 +409,11 @@ export function useSourceForm({
         Object.entries(s.config).filter(([_, v]) => v !== '')
       );
       
-      const res = await apiFetch(`${API_BASE}/sources${isEditing && initialData?.id ? `/${initialData.id}` : ''}`, {
-        method: isEditing ? 'PUT' : 'POST',
+      const id = s.id || initialData?.id;
+      const isUpdate = Boolean(isEditing || (id && id !== 'new'));
+      
+      const res = await apiFetch(`${API_BASE}/sources${isUpdate && id ? `/${id}` : ''}`, {
+        method: isUpdate ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           ...s, 
@@ -312,6 +424,12 @@ export function useSourceForm({
       return res.json();
     },
     onSuccess: (data) => {
+      // Ensure sources lists refresh immediately (handles vhost changes too)
+      try {
+        queryClient.invalidateQueries({ queryKey: ['sources'] });
+      } catch (_) {
+        // ignore
+      }
       if (embedded && onSave) {
         onSave(data);
       } else {

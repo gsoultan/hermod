@@ -14,7 +14,13 @@ import (
 	"sync"
 	"time"
 
+	_ "github.com/ClickHouse/clickhouse-go/v2"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/stdlib"
+	_ "github.com/microsoft/go-mssqldb"
+	_ "github.com/sijms/go-ora/v2"
+	_ "github.com/snowflakedb/gosnowflake"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/governance"
 	"github.com/user/hermod/internal/mesh"
@@ -37,9 +43,24 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	_ "modernc.org/sqlite"
 )
 
 var tracer = otel.Tracer("hermod-registry")
+
+func init() {
+	// Register pgx as postgres driver if not already registered
+	found := false
+	for _, d := range sql.Drivers() {
+		if d == "postgres" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		sql.Register("postgres", stdlib.GetDefaultDriver())
+	}
+}
 
 type RegistryStorage interface {
 	GetSource(ctx context.Context, id string) (storage.Source, error)
@@ -65,6 +86,8 @@ type RegistryStorage interface {
 	RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error
 	PurgeAuditLogs(ctx context.Context, before time.Time) error
 	PurgeMessageTraces(ctx context.Context, before time.Time) error
+
+	CreateApproval(ctx context.Context, app storage.Approval) error
 }
 
 type SourceFactory func(SourceConfig) (hermod.Source, error)
@@ -412,7 +435,7 @@ func (r *Registry) getOrOpenDB(src storage.Source) (*sql.DB, error) {
 
 	switch src.Type {
 	case "postgres", "yugabyte":
-		db, err = sql.Open("postgres", connStr)
+		db, err = sql.Open("pgx", connStr)
 	case "mysql", "mariadb":
 		db, err = sql.Open("mysql", connStr)
 	case "sqlite":
@@ -423,6 +446,8 @@ func (r *Registry) getOrOpenDB(src storage.Source) (*sql.DB, error) {
 		db, err = sql.Open("oracle", connStr)
 	case "clickhouse":
 		db, err = sql.Open("clickhouse", connStr)
+	case "snowflake":
+		db, err = sql.Open("snowflake", connStr)
 	default:
 		return nil, fmt.Errorf("unsupported source type for db_lookup: %s", src.Type)
 	}
@@ -555,6 +580,37 @@ func (r *Registry) broadcastLiveMessage(msg LiveMessage) {
 		default:
 		}
 	}
+}
+
+func (r *Registry) getConsistentData(msg hermod.Message) map[string]interface{} {
+	data := make(map[string]interface{})
+	if msg != nil {
+		if dm, ok := msg.(*message.DefaultMessage); ok {
+			// Use the consistent MarshalJSON representation
+			msgJSON, _ := dm.MarshalJSON()
+			_ = json.Unmarshal(msgJSON, &data)
+		} else {
+			// Fallback for other message types
+			baseData := msg.Data()
+			for k, v := range baseData {
+				data[k] = v
+			}
+		}
+	}
+	return data
+}
+
+func (r *Registry) broadcastLiveMessageFromHermod(workflowID, nodeID string, msg hermod.Message, isError bool, errStr string) {
+	data := r.getConsistentData(msg)
+
+	r.broadcastLiveMessage(LiveMessage{
+		WorkflowID: workflowID,
+		NodeID:     nodeID,
+		Timestamp:  time.Now(),
+		Data:       data,
+		IsError:    isError,
+		Error:      errStr,
+	})
 }
 
 func (r *Registry) RecordStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) {
@@ -847,6 +903,19 @@ func (r *Registry) DiscoverTables(ctx context.Context, cfg SourceConfig) ([]stri
 	return nil, fmt.Errorf("source type %s does not support table discovery", cfg.Type)
 }
 
+func (r *Registry) DiscoverSourceColumns(ctx context.Context, cfg SourceConfig, table string) ([]hermod.ColumnInfo, error) {
+	src, err := r.createSource(cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer src.Close()
+
+	if d, ok := src.(hermod.ColumnDiscoverer); ok {
+		return d.DiscoverColumns(ctx, table)
+	}
+	return nil, fmt.Errorf("source type %s does not support column discovery", cfg.Type)
+}
+
 func (r *Registry) DiscoverSinkDatabases(ctx context.Context, cfg SinkConfig) ([]string, error) {
 	snk, err := r.createSink(cfg)
 	if err != nil {
@@ -871,6 +940,19 @@ func (r *Registry) DiscoverSinkTables(ctx context.Context, cfg SinkConfig) ([]st
 		return d.DiscoverTables(ctx)
 	}
 	return nil, fmt.Errorf("sink type %s does not support table discovery", cfg.Type)
+}
+
+func (r *Registry) DiscoverSinkColumns(ctx context.Context, cfg SinkConfig, table string) ([]hermod.ColumnInfo, error) {
+	snk, err := r.createSink(cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer snk.Close()
+
+	if d, ok := snk.(hermod.ColumnDiscoverer); ok {
+		return d.DiscoverColumns(ctx, table)
+	}
+	return nil, fmt.Errorf("sink type %s does not support column discovery", cfg.Type)
 }
 
 func (r *Registry) SampleTable(ctx context.Context, cfg SourceConfig, table string) (hermod.Message, error) {
@@ -975,6 +1057,22 @@ func (r *Registry) ExecuteSinkSQL(ctx context.Context, cfg SinkConfig, query str
 	defer rows.Close()
 
 	return scanRows(rows)
+}
+
+// ExecSinkStatement executes a non-query SQL statement (DDL/DML) against the sink.
+// It is intended for operations like TRUNCATE, ALTER, or DELETE that do not return rows.
+func (r *Registry) ExecSinkStatement(ctx context.Context, cfg SinkConfig, stmt string) error {
+	// Prefer using a direct DB connection for supported SQL drivers
+	db, err := r.getOrOpenDB(storage.Source{
+		ID:     "temp-sink-exec-" + cfg.Type,
+		Type:   cfg.Type,
+		Config: cfg.Config,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, stmt)
+	return err
 }
 
 func scanRows(rows *sql.Rows) ([]map[string]interface{}, error) {
@@ -1522,19 +1620,36 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 	data := currentMsg.Data()
 
 	// Broadcast live message for observability
-	// Clone data to avoid race conditions as the message continues through the pipeline
-	dataClone := make(map[string]interface{})
-	for k, v := range data {
-		dataClone[k] = v
-	}
-	go r.broadcastLiveMessage(LiveMessage{
-		WorkflowID: workflowID,
-		NodeID:     node.ID,
-		Timestamp:  time.Now(),
-		Data:       dataClone,
-	})
+	r.broadcastLiveMessageFromHermod(workflowID, node.ID, currentMsg, false, "")
 
 	switch node.Type {
+	case "approval":
+		// Human-in-the-loop approval gate
+		app := storage.Approval{
+			ID:         uuid.New().String(),
+			WorkflowID: workflowID,
+			NodeID:     node.ID,
+			MessageID:  msg.ID(),
+			Payload:    msg.Payload(),
+			Metadata:   msg.Metadata(),
+			Data:       msg.Data(),
+			Status:     "pending",
+			CreatedAt:  time.Now(),
+		}
+		if r.storage != nil {
+			_ = r.storage.CreateApproval(ctx, app)
+		}
+		// Emit live event/log for visibility
+		go r.broadcastLiveMessage(LiveMessage{
+			WorkflowID: workflowID,
+			NodeID:     node.ID,
+			Timestamp:  time.Now(),
+			Data:       map[string]interface{}{"approval_id": app.ID, "status": app.Status},
+		})
+		r.broadcastLogWithData(workflowID, "INFO", fmt.Sprintf("Approval requested at node %s", r.getNodeName(*node)), msg.ID())
+		// Halt the message until approved (no forward routing)
+		return nil, "pending", nil
+
 	case "validator":
 		// Use the new ValidatorTransformer via Registry
 		res, err := r.applyTransformation(ctx, currentMsg, "validator", node.Config)
@@ -1576,14 +1691,7 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
-			go r.broadcastLiveMessage(LiveMessage{
-				WorkflowID: workflowID,
-				NodeID:     node.ID,
-				Timestamp:  time.Now(),
-				Data:       dataClone,
-				IsError:    true,
-				Error:      err.Error(),
-			})
+			r.broadcastLiveMessageFromHermod(workflowID, node.ID, currentMsg, true, err.Error())
 		} else if res == nil {
 			span.SetAttributes(attribute.Bool("filtered", true))
 		}
@@ -1776,6 +1884,16 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 		return nil, err
 	}
 
+	msgToMap := func(m hermod.Message) map[string]interface{} {
+		if m == nil {
+			return nil
+		}
+		jb, _ := json.Marshal(m)
+		var res map[string]interface{}
+		_ = json.Unmarshal(jb, &res)
+		return res
+	}
+
 	var steps []WorkflowStepResult
 	adj := make(map[string][]string)
 	inDegree := make(map[string]int)
@@ -1815,7 +1933,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 		steps = append(steps, WorkflowStepResult{
 			NodeID:   sn.ID,
 			NodeType: "source",
-			Payload:  msg.Data(),
+			Payload:  msgToMap(msg),
 			Metadata: msg.Metadata(),
 		})
 	}
@@ -1865,7 +1983,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 				found := false
 				for i := range steps {
 					if steps[i].NodeID == currID {
-						steps[i].Payload = currMsg.Data()
+						steps[i].Payload = msgToMap(currMsg)
 						steps[i].Metadata = currMsg.Metadata()
 						steps[i].Branch = currBranch
 						found = true
@@ -1876,7 +1994,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 					steps = append(steps, WorkflowStepResult{
 						NodeID:   currID,
 						NodeType: currNode.Type,
-						Payload:  currMsg.Data(),
+						Payload:  msgToMap(currMsg),
 						Metadata: currMsg.Metadata(),
 						Branch:   currBranch,
 					})
@@ -2056,25 +2174,32 @@ func (r *Registry) GetSinkConfigs(id string) ([]SinkConfig, bool) {
 	return ae.snkConfigs, true
 }
 
+func (r *Registry) getNodeName(node storage.WorkflowNode) string {
+	if label, ok := node.Config["label"].(string); ok && label != "" {
+		return fmt.Sprintf("%s (%s)", label, node.ID)
+	}
+	return node.ID
+}
+
 func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) error {
 	// 1. Check if all nodes are configured and exist
 	for _, node := range wf.Nodes {
 		if node.Type == "source" {
 			if node.RefID == "" || node.RefID == "new" {
-				return fmt.Errorf("source node %s is not configured", node.ID)
+				return fmt.Errorf("source node %s is not configured", r.getNodeName(node))
 			}
 			if r.storage != nil {
 				if _, err := r.storage.GetSource(ctx, node.RefID); err != nil {
-					return fmt.Errorf("source node %s refers to missing source %s: %w", node.ID, node.RefID, err)
+					return fmt.Errorf("source node %s refers to missing source %s: %w", r.getNodeName(node), node.RefID, err)
 				}
 			}
 		} else if node.Type == "sink" {
 			if node.RefID == "" || node.RefID == "new" {
-				return fmt.Errorf("sink node %s is not configured", node.ID)
+				return fmt.Errorf("sink node %s is not configured", r.getNodeName(node))
 			}
 			if r.storage != nil {
 				if _, err := r.storage.GetSink(ctx, node.RefID); err != nil {
-					return fmt.Errorf("sink node %s refers to missing sink %s: %w", node.ID, node.RefID, err)
+					return fmt.Errorf("sink node %s refers to missing sink %s: %w", r.getNodeName(node), node.RefID, err)
 				}
 			}
 		}
@@ -2105,6 +2230,10 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 		visited[id] = 1
 		for _, nextID := range adj[id] {
 			if visited[nextID] == 1 {
+				node := findNodeByID(wf.Nodes, nextID)
+				if node != nil {
+					return fmt.Errorf("cycle detected at node %s", r.getNodeName(*node))
+				}
 				return fmt.Errorf("cycle detected at node %s", nextID)
 			}
 			if visited[nextID] == 0 {
@@ -2550,9 +2679,14 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 
 	edgeLabels := make(map[string]string)
 	inDegree := make(map[string]int)
+	// Visual breakpoints map: when true, messages should not traverse this edge
+	edgeBreakpoints := make(map[string]bool)
 	for _, edge := range wf.Edges {
 		if l, ok := edge.Config["label"].(string); ok && l != "" {
 			edgeLabels[edge.SourceID+":"+edge.TargetID] = l
+		}
+		if bp, ok := edge.Config["breakpoint"].(bool); ok && bp {
+			edgeBreakpoints[edge.SourceID+":"+edge.TargetID] = true
 		}
 		inDegree[edge.TargetID]++
 	}
@@ -2613,7 +2747,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 					if currMsg != nil {
 						msgID = currMsg.ID()
 					}
-					r.broadcastLogWithData(id, "ERROR", fmt.Sprintf("Node %s (%s) error: %v", currNode.ID, currNode.Type, err), msgID)
+					r.broadcastLogWithData(id, "ERROR", fmt.Sprintf("Node %s (%s) error: %v", r.getNodeName(*currNode), currNode.Type, err), msgID)
 					currBranch = "error"
 				}
 
@@ -2621,7 +2755,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 					// Record metrics and sample
 					pkgengine.WorkflowNodeProcessed.WithLabelValues(id, currNode.ID, currNode.Type).Inc()
 					eng.UpdateNodeMetric(currNode.ID, 1)
-					eng.UpdateNodeSample(currNode.ID, currMsg.Data())
+					eng.UpdateNodeSample(currNode.ID, r.getConsistentData(currMsg))
 				}
 				// currMsg could be nil if filtered
 			} else {
@@ -2629,7 +2763,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 				eng.RecordTraceStep(ctx, currMsg, currNode.ID, time.Now(), nil)
 				pkgengine.WorkflowNodeProcessed.WithLabelValues(id, currNode.ID, currNode.Type).Inc()
 				eng.UpdateNodeMetric(currNode.ID, 1)
-				eng.UpdateNodeSample(currNode.ID, currMsg.Data())
+				eng.UpdateNodeSample(currNode.ID, r.getConsistentData(currMsg))
 			}
 
 			if currNode.Type == "sink" && currMsg != nil {
@@ -2663,6 +2797,34 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 
 				receivedCount[targetID]++
 				if match && currMsg != nil {
+					// Visual Breakpoint: pause traversal on this edge if configured
+					if edgeBreakpoints[currID+":"+targetID] {
+						// Broadcast a live message indicating breakpoint pause and skip forwarding
+						r.broadcastLiveMessageFromHermod(id, currNode.ID, currMsg, false, "")
+						// Send additional info for breakpoint
+						r.broadcastLiveMessage(LiveMessage{
+							WorkflowID: id,
+							NodeID:     currNode.ID,
+							Timestamp:  time.Now(),
+							Data: map[string]interface{}{
+								"breakpoint": true,
+								"source":     currID,
+								"target":     targetID,
+							},
+						})
+						currNodeName := currID
+						if node := nodeMap[currID]; node != nil {
+							currNodeName = r.getNodeName(*node)
+						}
+						targetNodeName := targetID
+						if node := nodeMap[targetID]; node != nil {
+							targetNodeName = r.getNodeName(*node)
+						}
+						r.broadcastLogWithData(id, "INFO", fmt.Sprintf("Paused at breakpoint %s -> %s", currNodeName, targetNodeName), currMsg.ID())
+						// Do not forward along this edge while breakpoint is active
+						continue
+					}
+
 					eng.UpdateEdgeMetric(currID, targetID, 1)
 					strategy := ""
 					targetNode := nodeMap[targetID]
@@ -3160,7 +3322,7 @@ func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.Wo
 
 	processedMsg, branch, err := r.runWorkflowNode(workflowID, node, m)
 	if err != nil {
-		r.broadcastLog(workflowID, "error", fmt.Sprintf("Node %s error: %v", node.ID, err))
+		r.broadcastLog(workflowID, "error", fmt.Sprintf("Node %s error: %v", r.getNodeName(*node), err))
 		return
 	}
 
@@ -3195,6 +3357,93 @@ func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.Wo
 			r.runWorkflowNodeFromReplay(workflowID, targetNode, processedMsg, skipNodeID, wf, nodeMap, adj, sinks, sinkNodeToIndex)
 		}
 	}
+}
+
+// resumeFromNode continues traversal starting after startNodeID, forcing a specific branch label if provided.
+func (r *Registry) resumeFromNode(workflowID, startNodeID string, msg hermod.Message, wf storage.Workflow, nodeMap map[string]*storage.WorkflowNode, adj map[string][]string, sinks []hermod.Sink, sinkNodeToIndex map[string]int, branch string) {
+	var targets []string
+	if branch != "" {
+		for _, edge := range wf.Edges {
+			if edge.SourceID == startNodeID && edge.Config["label"] == branch {
+				targets = append(targets, edge.TargetID)
+			}
+		}
+	} else {
+		targets = adj[startNodeID]
+	}
+	for _, targetID := range targets {
+		if tn := nodeMap[targetID]; tn != nil {
+			r.runWorkflowNodeFromReplay(workflowID, tn, msg, startNodeID, wf, nodeMap, adj, sinks, sinkNodeToIndex)
+		}
+	}
+}
+
+// ResumeApproval resumes a halted workflow at an approval node with the specified decision branch ("approved" or "rejected").
+func (r *Registry) ResumeApproval(ctx context.Context, app storage.Approval, branch string) error {
+	if r.storage == nil {
+		return fmt.Errorf("registry storage not available")
+	}
+	wf, err := r.storage.GetWorkflow(ctx, app.WorkflowID)
+	if err != nil {
+		return err
+	}
+
+	// Build adjacency and node map
+	nodeMap := make(map[string]*storage.WorkflowNode)
+	adj := make(map[string][]string)
+	for i := range wf.Nodes {
+		nodeMap[wf.Nodes[i].ID] = &wf.Nodes[i]
+	}
+	for _, e := range wf.Edges {
+		adj[e.SourceID] = append(adj[e.SourceID], e.TargetID)
+	}
+
+	// Build sinks and index mapping
+	var sinks []hermod.Sink
+	sinkNodeToIndex := make(map[string]int)
+	for i := range wf.Nodes {
+		n := wf.Nodes[i]
+		if n.Type == "sink" {
+			dbSnk, e := r.storage.GetSink(ctx, n.RefID)
+			if e != nil {
+				for _, s := range sinks {
+					_ = s.Close()
+				}
+				return fmt.Errorf("failed to get sink %s: %w", n.RefID, e)
+			}
+			snkCfg := SinkConfig{ID: dbSnk.ID, Type: dbSnk.Type, Config: dbSnk.Config}
+			s, e := r.createSinkInternal(snkCfg)
+			if e != nil {
+				for _, s2 := range sinks {
+					_ = s2.Close()
+				}
+				return e
+			}
+			sinkNodeToIndex[n.ID] = len(sinks)
+			sinks = append(sinks, s)
+		}
+	}
+	defer func() {
+		for _, s := range sinks {
+			_ = s.Close()
+		}
+	}()
+
+	// Reconstruct message
+	m := message.AcquireMessage()
+	m.SetID(app.MessageID)
+	m.SetAfter(app.Payload)
+	for k, v := range app.Metadata {
+		m.SetMetadata(k, v)
+	}
+	for k, v := range app.Data {
+		m.SetData(k, v)
+	}
+
+	// Continue traversal from the approval node with forced branch
+	r.resumeFromNode(app.WorkflowID, app.NodeID, m, wf, nodeMap, adj, sinks, sinkNodeToIndex, branch)
+	message.ReleaseMessage(m)
+	return nil
 }
 
 func (r *Registry) stopEngine(id string, updateStorage bool) error {

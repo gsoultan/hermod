@@ -72,14 +72,16 @@ export function useStyledFlow() {
         ...edge,
         type: 'live',
         animated: isPathActive,
-        style: { 
+        style: {
           strokeWidth: isPathActive ? 3 : 2,
           stroke: isPathActive ? 'var(--mantine-color-blue-6)' : 'var(--mantine-color-gray-5)',
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          width: 20,
-          height: 20,
+          width: 18,
+          height: 18,
           color: isPathActive ? 'var(--mantine-color-blue-6)' : 'var(--mantine-color-gray-5)',
         },
       };
@@ -95,10 +97,11 @@ export function useStyledFlow() {
             source: node.id,
             target: dlqNode.id,
             animated: false,
-            style: { 
-              strokeDasharray: '5,5', 
+            style: {
+              strokeDasharray: '6 6',
+              strokeLinecap: 'round',
               stroke: 'var(--mantine-color-orange-6)',
-              opacity: 0.5 
+              opacity: 0.5,
             },
             markerEnd: {
               type: MarkerType.ArrowClosed,
@@ -118,10 +121,11 @@ export function useStyledFlow() {
             source: dlqNode.id,
             target: firstSource.id,
             animated: active,
-            style: { 
-              strokeDasharray: '5,5', 
+            style: {
+              strokeDasharray: '6 6',
+              strokeLinecap: 'round',
               stroke: 'var(--mantine-color-blue-6)',
-              strokeWidth: 2
+              strokeWidth: 2,
             },
             markerEnd: {
               type: MarkerType.ArrowClosed,

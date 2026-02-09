@@ -302,6 +302,27 @@ type LineageEdge struct {
 	WorkflowName string `json:"workflow_name"`
 }
 
+type Approval struct {
+	ID          string                 `json:"id"`
+	WorkflowID  string                 `json:"workflow_id"`
+	NodeID      string                 `json:"node_id"`
+	MessageID   string                 `json:"message_id"`
+	Payload     []byte                 `json:"payload"`
+	Metadata    map[string]string      `json:"metadata"`
+	Data        map[string]interface{} `json:"data"`
+	Status      string                 `json:"status"` // pending, approved, rejected
+	CreatedAt   time.Time              `json:"created_at"`
+	ProcessedAt *time.Time             `json:"processed_at,omitempty"`
+	ProcessedBy string                 `json:"processed_by,omitempty"`
+	Notes       string                 `json:"notes,omitempty"`
+}
+
+type ApprovalFilter struct {
+	CommonFilter
+	WorkflowID string
+	Status     string
+}
+
 type Storage interface {
 	// Init performs storage initialization/migrations and is safe to call multiple times.
 	Init(ctx context.Context) error
@@ -419,4 +440,11 @@ type Storage interface {
 	GetPlugin(ctx context.Context, id string) (Plugin, error)
 	InstallPlugin(ctx context.Context, id string) error
 	UninstallPlugin(ctx context.Context, id string) error
+
+	// Approvals
+	ListApprovals(ctx context.Context, filter ApprovalFilter) ([]Approval, int, error)
+	CreateApproval(ctx context.Context, app Approval) error
+	GetApproval(ctx context.Context, id string) (Approval, error)
+	UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string) error
+	DeleteApproval(ctx context.Context, id string) error
 }

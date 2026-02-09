@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/evaluator"
 )
 
 type Config struct {
@@ -108,23 +109,23 @@ func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 
 	switch s.config.Operation {
 	case "update":
-		id, ok := data[s.config.ExternalID].(string)
-		if !ok {
+		id := fmt.Sprintf("%v", evaluator.GetMsgValByPath(msg, s.config.ExternalID))
+		if id == "" || id == "<nil>" {
 			return fmt.Errorf("dynamics 365: external id field %s not found in data", s.config.ExternalID)
 		}
 		apiURL = fmt.Sprintf("%s(%s)", apiURL, id)
 		method = "PATCH"
 	case "upsert":
-		id, ok := data[s.config.ExternalID].(string)
-		if ok {
-			apiURL = fmt.Sprintf("%s(%s)", apiURL, id)
+		id := evaluator.GetMsgValByPath(msg, s.config.ExternalID)
+		if id != nil && fmt.Sprintf("%v", id) != "" {
+			apiURL = fmt.Sprintf("%s(%v)", apiURL, id)
 			method = "PATCH"
 		}
 		// If ID is not present, it will use POST to apiURL which is create (standard OData behavior if we don't handle it specifically)
 		// But in D365, PATCH with ID handles both update and create if the record doesn't exist (if configured so)
 	case "delete":
-		id, ok := data[s.config.ExternalID].(string)
-		if !ok {
+		id := fmt.Sprintf("%v", evaluator.GetMsgValByPath(msg, s.config.ExternalID))
+		if id == "" || id == "<nil>" {
 			return fmt.Errorf("dynamics 365: external id field %s not found in data", s.config.ExternalID)
 		}
 		apiURL = fmt.Sprintf("%s(%s)", apiURL, id)

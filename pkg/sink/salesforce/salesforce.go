@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/evaluator"
 )
 
 // SalesforceSink implements the hermod.Sink interface for Salesforce Bulk API 2.0.
@@ -100,11 +101,11 @@ func (s *SalesforceSink) Write(ctx context.Context, msg hermod.Message) error {
 		}
 	}
 
-	data := msg.Data()
-	return s.writeRecord(ctx, data)
+	return s.writeRecord(ctx, msg)
 }
 
-func (s *SalesforceSink) writeRecord(ctx context.Context, data map[string]interface{}) error {
+func (s *SalesforceSink) writeRecord(ctx context.Context, msg hermod.Message) error {
+	data := msg.Data()
 	s.mu.RLock()
 	instanceURL := s.instanceURL
 	accessToken := s.accessToken
@@ -115,20 +116,30 @@ func (s *SalesforceSink) writeRecord(ctx context.Context, data map[string]interf
 	method := "POST"
 
 	if s.operation == "update" || s.operation == "upsert" {
-		id, ok := data["Id"].(string)
+		idVal := evaluator.GetMsgValByPath(msg, "Id")
+		if idVal == nil {
+			idVal = evaluator.GetMsgValByPath(msg, "after.Id")
+		}
+		id, _ := idVal.(string)
+
 		if s.operation == "upsert" && s.externalID != "" {
-			extVal, extOk := data[s.externalID].(string)
-			if extOk {
+			extVal := fmt.Sprintf("%v", evaluator.GetMsgValByPath(msg, s.externalID))
+			if extVal != "" && extVal != "<nil>" {
 				url = fmt.Sprintf("%s/services/data/v59.0/sobjects/%s/%s/%s", instanceURL, s.object, s.externalID, extVal)
 				method = "PATCH"
 			}
-		} else if ok {
+		} else if id != "" {
 			url = fmt.Sprintf("%s/services/data/v59.0/sobjects/%s/%s", instanceURL, s.object, id)
 			method = "PATCH"
 		}
 	} else if s.operation == "delete" {
-		id, ok := data["Id"].(string)
-		if ok {
+		idVal := evaluator.GetMsgValByPath(msg, "Id")
+		if idVal == nil {
+			idVal = evaluator.GetMsgValByPath(msg, "before.Id")
+		}
+		id, _ := idVal.(string)
+
+		if id != "" {
 			url = fmt.Sprintf("%s/services/data/v59.0/sobjects/%s/%s", instanceURL, s.object, id)
 			method = "DELETE"
 			data = nil
@@ -159,7 +170,7 @@ func (s *SalesforceSink) writeRecord(ctx context.Context, data map[string]interf
 		if err := s.authenticate(ctx); err != nil {
 			return err
 		}
-		return s.writeRecord(ctx, data)
+		return s.writeRecord(ctx, msg)
 	}
 
 	if resp.StatusCode >= 400 {

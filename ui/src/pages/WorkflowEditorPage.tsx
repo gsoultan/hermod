@@ -40,6 +40,7 @@ import { useWorkflowStore } from './WorkflowEditor/store/useWorkflowStore';
 import { useStyledFlow } from './WorkflowEditor/hooks/useStyledFlow';
 import { EditorToolbar } from './WorkflowEditor/components/EditorToolbar';
 import { SidebarDrawer } from './WorkflowEditor/components/SidebarDrawer';
+import { NodeConfigModal } from './WorkflowEditor/components/NodeConfigModal';
 import { Modals } from './WorkflowEditor/components/Modals';
 import { LiveStreamInspector } from './WorkflowEditor/components/LiveStreamInspector';
 import { SchemaRegistryModal } from '../components/SchemaRegistryModal';
@@ -48,7 +49,9 @@ import { AIGeneratorModal } from './WorkflowEditor/components/AIGeneratorModal';
 import { AIFixModal } from './WorkflowEditor/components/AIFixModal';
 import { WorkflowContext } from './WorkflowEditor/nodes/BaseNode';
 import { LiveEdge } from './WorkflowEditor/components/LiveEdge';
+import { ConnectionLine } from './WorkflowEditor/components/ConnectionLine';
 import { IconChevronDown, IconChevronUp, IconClearAll, IconDeviceFloppy, IconPlayerPause, IconPlayerPlay, IconRefresh, IconSettings, IconTrash } from '@tabler/icons-react';
+import { useWorkflowLayout } from './WorkflowEditor/hooks/useWorkflowLayout';
 // Lazy-load heavy editor node components to reduce initial bundle size
 const SourceNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/SourceSinkNodes')).SourceNode }))
 const SinkNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/SourceSinkNodes')).SinkNode }))
@@ -60,6 +63,7 @@ const StatefulNode = lazy(async () => ({ default: (await import('./WorkflowEdito
 const NoteNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/MiscNodes')).NoteNode }))
 const ValidatorNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/MiscNodes')).ValidatorNode }))
 const ConditionNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/ConditionNode')).ConditionNode }))
+const ApprovalNode = lazy(async () => ({ default: (await import('./WorkflowEditor/nodes/ApprovalNode')).ApprovalNode }))
 
 const API_BASE = '/api';
 
@@ -69,6 +73,7 @@ const nodeTypes = {
   transformation: TransformationNode,
   validator: ValidatorNode,
   condition: ConditionNode,
+  approval: ApprovalNode,
   switch: SwitchNode,
   router: RouterNode,
   merge: MergeNode,
@@ -89,15 +94,11 @@ function EditorInner() {
   const { project, zoomIn, zoomOut, fitView: rfFitView } = useReactFlow();
   const { zoom } = useViewport();
   const lastInitializedId = useRef<string | null>(null);
+  const { onLayout } = useWorkflowLayout();
   
   const { 
     vhost, selectedNode, active, logsPaused, quickAddSource, nodes, edges, 
-    testResults, testInput, name, deadLetterSinkID, dlqThreshold,
-    prioritizeDLQ, maxRetries, retryInterval, reconnectInterval,
-    schemaType, schema, tags, workerID, dryRun, workspaceID,
-    cpuRequest, memoryRequest, throughputRequest,
-    cron, retentionDays, traceSampleRate, traceRetention, auditRetention,
-    idleTimeout, tier,
+    testResults, testInput, name, workerID,
     workflowStatus, logs, logsOpened, settingsOpened,
     onNodesChange, onEdgesChange,
     setName, setVHost, setWorkerID, setActive, setWorkflowStatus, 
@@ -107,7 +108,7 @@ function EditorInner() {
     setIdleTimeout, setTier,
     setNodes, setEdges, setLogs, setQuickAddSource,
     setWorkspaceID, setCPURequest, setMemoryRequest, setThroughputRequest,
-    setSelectedNode, setSettingsOpened, setDrawerOpened, updateNodeConfig,
+    setSelectedNode, setSettingsOpened, setDrawerOpened, setDrawerTab, updateNodeConfig,
     setTestResults, setTestModalOpened, setLogsOpened, setLogsPaused, setDryRun,
     setTraceInspectorOpened, setTraceMessageID, setSchemaRegistryOpened,
     schemaRegistryOpened, historyOpened, setHistoryOpened, liveStreamOpened, setLiveStreamOpened,
@@ -123,28 +124,7 @@ function EditorInner() {
     testResults: state.testResults,
     testInput: state.testInput,
     name: state.name,
-    deadLetterSinkID: state.deadLetterSinkID,
-    dlqThreshold: state.dlqThreshold,
-    prioritizeDLQ: state.prioritizeDLQ,
-    maxRetries: state.maxRetries,
-    retryInterval: state.retryInterval,
-    reconnectInterval: state.reconnectInterval,
-    schemaType: state.schemaType,
-    schema: state.schema,
-    tags: state.tags,
     workerID: state.workerID,
-    dryRun: state.dryRun,
-    workspaceID: state.workspaceID,
-    cpuRequest: state.cpuRequest,
-    memoryRequest: state.memoryRequest,
-    throughputRequest: state.throughputRequest,
-    cron: state.cron,
-    retentionDays: state.retentionDays,
-    traceSampleRate: state.traceSampleRate,
-    traceRetention: state.traceRetention,
-    auditRetention: state.auditRetention,
-    idleTimeout: state.idleTimeout,
-    tier: state.tier,
     workflowStatus: state.workflowStatus,
     logs: state.logs,
     logsOpened: state.logsOpened,
@@ -175,6 +155,7 @@ function EditorInner() {
     setCPURequest: state.setCPURequest,
     setMemoryRequest: state.setMemoryRequest,
     setThroughputRequest: state.setThroughputRequest,
+    setDrawerTab: state.setDrawerTab,
     setIdleTimeout: state.setIdleTimeout,
     setTier: state.setTier,
     setCron: state.setCron,
@@ -194,17 +175,18 @@ function EditorInner() {
     setTestModalOpened: state.setTestModalOpened,
     setLogsOpened: state.setLogsOpened,
     setLogsPaused: state.setLogsPaused,
-    setDryRun: state.setDryRun,
     setTraceInspectorOpened: state.setTraceInspectorOpened,
     setTraceMessageID: state.setTraceMessageID,
     setSchemaRegistryOpened: state.setSchemaRegistryOpened,
     setHistoryOpened: state.setHistoryOpened,
     setLiveStreamOpened: state.setLiveStreamOpened,
-    setAIGeneratorOpened: state.setAIGeneratorOpened
+    setAIGeneratorOpened: state.setAIGeneratorOpened,
+    setDryRun: state.setDryRun,
   })));
   const { styledNodes, styledEdges } = useStyledFlow();
 
   const { selectedVHost } = useVHost();
+  const [configModalOpen, setConfigModalOpen] = useState(false);
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
   const logScrollRef = useRef<HTMLDivElement>(null);
@@ -417,9 +399,16 @@ function EditorInner() {
 
   const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     setSelectedNode(node);
-    setSettingsOpened(true);
-    setDrawerOpened(false);
-  }, [setSelectedNode, setSettingsOpened, setDrawerOpened]);
+    // For source/sink/transformation/validator open the legacy popup config
+    if (node.type === 'source' || node.type === 'sink' || node.type === 'transformation' || node.type === 'validator') {
+      setConfigModalOpen(true);
+      return;
+    }
+    // For other nodes keep using the sidebar drawer Config tab
+    setSettingsOpened(false);
+    setDrawerOpened(true);
+    setDrawerTab('config');
+  }, [setSelectedNode, setSettingsOpened, setDrawerOpened, setDrawerTab]);
 
   const onEdgeClick = useCallback((_event: React.MouseEvent, edge: Edge) => {
     if (!testResults) return;
@@ -468,6 +457,7 @@ function EditorInner() {
       setEdges((eds) => addEdge(newEdge, eds));
       setQuickAddSource(null);
     }
+    return newNode;
   }, [quickAddSource, active, setEdges, setNodes, setQuickAddSource]);
 
   const onDragStart = (event: React.DragEvent, nodeType: string, refId: string, label: string, subType: string, extraData?: any) => {
@@ -492,8 +482,16 @@ function EditorInner() {
       y: event.clientY - reactFlowBounds.top,
     });
 
-    addNodeAtPosition(nodeType, refId, label, subType, position, extraData);
-  }, [project, addNodeAtPosition]);
+    const node = addNodeAtPosition(nodeType, refId, label, subType, position, extraData);
+    // Auto-select newly dropped node and open popup for modal-config types
+    setSelectedNode(node);
+    if (nodeType === 'source' || nodeType === 'sink' || nodeType === 'transformation' || nodeType === 'validator') {
+      setConfigModalOpen(true);
+    } else {
+      setDrawerOpened(true);
+      setDrawerTab('config');
+    }
+  }, [project, addNodeAtPosition, setSelectedNode, setDrawerOpened, setDrawerTab]);
 
   const handleInlineSave = (updatedData: Partial<Source | Sink>) => {
     if (!selectedNode) return;
@@ -506,6 +504,8 @@ function EditorInner() {
     setSelectedNode(null);
     queryClient.invalidateQueries({ queryKey: ['sources'] });
     queryClient.invalidateQueries({ queryKey: ['sinks'] });
+    // Auto-save workflow when a node configuration is saved to ensure state is consistent
+    saveMutation.mutate();
   };
 
   const deleteNode = (nodeId: string) => {
@@ -519,10 +519,11 @@ function EditorInner() {
   // Mutations
   const testMutation = useMutation<any, Error, { input: any, dryRun?: boolean }>({
     mutationFn: async ({ input, dryRun }) => {
+      const s = useWorkflowStore.getState();
       let msg = input;
       if (!msg) {
         try {
-          msg = JSON.parse(testInput);
+          msg = JSON.parse(s.testInput);
         } catch (e) {
           throw new Error('Invalid JSON in Input Message');
         }
@@ -533,17 +534,17 @@ function EditorInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workflow: { 
-            name: name, 
-            vhost: vhost, 
-            dead_letter_sink_id: deadLetterSinkID,
-            dlq_threshold: dlqThreshold,
-            prioritize_dlq: prioritizeDLQ,
-            max_retries: maxRetries,
-            retry_interval: retryInterval,
-            reconnect_interval: reconnectInterval,
-            schema_type: schemaType,
-            schema: schema,
-            nodes: nodes.map(n => ({
+            name: s.name, 
+            vhost: s.vhost, 
+            dead_letter_sink_id: s.deadLetterSinkID,
+            dlq_threshold: s.dlqThreshold,
+            prioritize_dlq: s.prioritizeDLQ,
+            max_retries: s.maxRetries,
+            retry_interval: s.retryInterval,
+            reconnect_interval: s.reconnectInterval,
+            schema_type: s.schemaType,
+            schema: s.schema,
+            nodes: s.nodes.map(n => ({
               id: n.id,
               type: n.type,
               ref_id: n.data.ref_id,
@@ -551,7 +552,7 @@ function EditorInner() {
               x: n.position.x,
               y: n.position.y
             })),
-            edges: edges.map(e => ({
+            edges: s.edges.map(e => ({
               id: e.id,
               source_id: e.source,
               target_id: e.target,
@@ -610,36 +611,116 @@ function EditorInner() {
     }
   }, [nodes, selectedNode, sources, testInput, testMutation, setTestModalOpened]);
 
+  const handleRefreshFields = useCallback(async () => {
+    let input = null;
+
+    // 1. Identify the primary source node to refresh from
+    const sourceNode = selectedNode?.type === 'source' ? selectedNode : nodes.find(n => n.type === 'source');
+    
+    if (sourceNode) {
+      const sourceData = sources?.data?.find((s: any) => s.id === sourceNode.data.ref_id);
+      if (sourceData) {
+        try {
+          notifications.show({ 
+            id: 'refresh-fields', 
+            title: 'Refreshing Fields', 
+            message: `Fetching fresh sample from ${sourceData.name || sourceNode.id}...`, 
+            loading: true,
+            autoClose: false,
+            withCloseButton: false
+          });
+          
+          let table = sourceData.config.table || sourceData.config.collection || '';
+          if (!table && sourceData.config.tables) {
+            table = sourceData.config.tables.split(',')[0].trim();
+          }
+
+          const res = await apiFetch(`${API_BASE}/sources/sample`, {
+            method: 'POST',
+            body: JSON.stringify({
+              source: { type: sourceData.type, config: sourceData.config },
+              table: table
+            })
+          });
+          
+          if (res.ok) {
+            const sampleMsg = await res.json();
+            // Handle CDC envelopes - parse them if they are strings for better UX in field explorer
+            if (sampleMsg && typeof sampleMsg === 'object') {
+              if (typeof sampleMsg.after === 'string') {
+                try { sampleMsg.after = JSON.parse(sampleMsg.after); } catch (_) {}
+              }
+              if (typeof sampleMsg.before === 'string') {
+                try { sampleMsg.before = JSON.parse(sampleMsg.before); } catch (_) {}
+              }
+            }
+
+            input = sampleMsg;
+            
+            // Persist the new sample to the source config so it's available for next time
+            await apiFetch(`${API_BASE}/sources/${sourceData.id}`, {
+              method: 'PUT',
+              body: JSON.stringify({ ...sourceData, sample: JSON.stringify(sampleMsg) })
+            });
+            
+            queryClient.invalidateQueries({ queryKey: ['sources'] });
+            notifications.update({ 
+              id: 'refresh-fields', 
+              title: 'Refresh Complete', 
+              message: 'Fresh sample fetched and saved.', 
+              color: 'green', 
+              loading: false,
+              autoClose: 2000
+            });
+          }
+        } catch (e: any) {
+          notifications.update({ 
+            id: 'refresh-fields', 
+            title: 'Refresh Partial', 
+            message: 'Could not fetch fresh sample from source. Re-simulating with existing data.', 
+            color: 'orange', 
+            loading: false,
+            autoClose: 3000
+          });
+        }
+      }
+    }
+
+    // 2. Trigger simulation (dry run) to update all downstream nodes and available fields
+    handleTest(input, true);
+  }, [selectedNode, nodes, sources, handleTest, queryClient]);
+
   const saveMutation = useMutation({
     mutationFn: async () => {
+      const s = useWorkflowStore.getState();
       const payload = {
-        name: name,
-        vhost: vhost,
-        active: active,
-        status: workflowStatus,
-        worker_id: workerID,
-        dead_letter_sink_id: deadLetterSinkID,
-        dlq_threshold: dlqThreshold,
-        prioritize_dlq: prioritizeDLQ,
-        max_retries: maxRetries,
-        retry_interval: retryInterval,
-        reconnect_interval: reconnectInterval,
-        idle_timeout: idleTimeout,
-        tier: tier,
-        dry_run: dryRun,
-        workspace_id: workspaceID,
-        cpu_request: cpuRequest,
-        memory_request: memoryRequest,
-        throughput_request: throughputRequest,
-        cron: cron,
-        retention_days: retentionDays,
-        trace_sample_rate: traceSampleRate,
-        trace_retention: traceRetention,
-        audit_retention: auditRetention,
-        schema_type: schemaType,
-        schema: schema,
-        tags: tags,
-        nodes: nodes.map(n => ({
+        name: s.name,
+        vhost: s.vhost,
+        active: s.active,
+        status: s.workflowStatus,
+        worker_id: s.workerID,
+        dead_letter_sink_id: s.deadLetterSinkID,
+        dlq_threshold: s.dlqThreshold,
+        prioritize_dlq: s.prioritizeDLQ,
+        max_retries: s.maxRetries,
+        retry_interval: s.retryInterval,
+        reconnect_interval: s.reconnectInterval,
+        idle_timeout: s.idleTimeout,
+        tier: s.tier,
+        dry_run: s.dryRun,
+        workspace_id: s.workspaceID,
+        cpu_request: s.cpuRequest,
+        memory_request: s.memoryRequest,
+        throughput_request: s.throughputRequest,
+        cron: s.cron,
+        retention_days: s.retentionDays,
+        trace_sample_rate: s.traceSampleRate,
+        trace_retention: s.traceRetention,
+        audit_retention: s.auditRetention,
+        schema_type: s.schemaType,
+        schema: s.schema,
+        tags: s.tags,
+        nodes: s.nodes.map(n => ({
           id: n.id,
           type: n.type,
           ref_id: n.data.ref_id,
@@ -647,7 +728,7 @@ function EditorInner() {
           x: n.position.x,
           y: n.position.y
         })),
-        edges: edges.map(e => ({
+        edges: s.edges.map(e => ({
           id: e.id,
           source_id: e.source,
           target_id: e.target,
@@ -761,12 +842,13 @@ function EditorInner() {
     }]
   ]);
 
-  const { incomingPayload, availableFields, sinkSchema } = useMemo(() => {
+  const { incomingPayload, availableFields, sinkSchema, upstreamSource } = useMemo(() => {
     let incomingPayload = null;
     let availableFields: string[] = [];
     let sinkSchema = null;
+    let upstreamSource = null;
 
-    if (!selectedNode) return { incomingPayload, availableFields, sinkSchema };
+    if (!selectedNode) return { incomingPayload, availableFields, sinkSchema, upstreamSource };
 
     // 1. Try to get payload from testResults (if simulation was run)
     if (testResults) {
@@ -787,20 +869,83 @@ function EditorInner() {
       }
     }
 
-    // 2. Try to get payload from selected node's upstream source if it has a sample
+    // 2. Fallback: Use nearest upstream data from immediate predecessors only
+    //    For each incoming edge, walk upstream until the NEAREST node with a payload/sample is found,
+    //    then stop. Merge those nearest payloads across all immediate predecessors.
     if (!incomingPayload) {
-      const upstreamEdges = edges.filter((e: Edge) => e.target === selectedNode?.id);
-      if (upstreamEdges.length > 0) {
-        const upstreamNode = nodes.find(n => n.id === upstreamEdges[0].source);
-        if (upstreamNode && upstreamNode.type === 'source') {
-          const sourceData = sources?.data?.find((s: any) => s.id === upstreamNode.data.ref_id);
-          if (sourceData && sourceData.sample) {
+      const incomingEdges = edges.filter((e: Edge) => e.target === selectedNode.id);
+      const mergedNearest: Record<string, any> = {};
+
+      // If there are no incoming edges (e.g., a lone source), try to find a reasonable sample
+      if (incomingEdges.length === 0) {
+        const localTestPayload = selectedNode.data?.testResult?.payload;
+        if (localTestPayload) {
+          incomingPayload = preparePayload(localTestPayload);
+          availableFields = getAllKeys(incomingPayload);
+        } else if (selectedNode.data?.lastSample) {
+          incomingPayload = preparePayload(selectedNode.data.lastSample);
+          availableFields = getAllKeys(incomingPayload);
+        } else if (selectedNode.type === 'source') {
+          const sourceData = sources?.data?.find((s: any) => s.id === selectedNode.data?.ref_id);
+          const rawSample = sourceData?.sample;
+          if (rawSample) {
             try {
-              const sample = JSON.parse(sourceData.sample);
+              const sample = typeof rawSample === 'string' ? JSON.parse(rawSample) : rawSample;
               incomingPayload = preparePayload(sample);
               availableFields = getAllKeys(incomingPayload);
-            } catch (e) {}
+            } catch (e) {
+              // ignore JSON parse errors silently
+            }
           }
+        }
+      } else {
+        const visited = new Set<string>();
+        const findNearestPayload = (nodeId: string): any | null => {
+          if (visited.has(nodeId)) return null;
+          visited.add(nodeId);
+          const node = nodes.find(n => n.id === nodeId);
+          if (!node) return null;
+
+          // Prefer computed testResult payload, then lastSample
+          const localTestPayload = node.data?.testResult?.payload;
+          if (localTestPayload) return preparePayload(localTestPayload);
+          const localLastSample = node.data?.lastSample;
+          if (localLastSample) return preparePayload(localLastSample);
+
+          // For source nodes, try stored sample
+          if (node.type === 'source') {
+            const sourceData = sources?.data?.find((s: any) => s.id === node.data?.ref_id);
+            const rawSample = sourceData?.sample;
+            if (rawSample) {
+              try {
+                const sample = typeof rawSample === 'string' ? JSON.parse(rawSample) : rawSample;
+                return preparePayload(sample);
+              } catch (e) {
+                return null;
+              }
+            }
+          }
+
+          // Otherwise, walk one step further upstream and return the FIRST nearest available payload
+          const inc = edges.filter((e: Edge) => e.target === nodeId);
+          for (const e of inc) {
+            const found = findNearestPayload(e.source);
+            if (found) return found;
+          }
+          return null;
+        };
+
+        // For each immediate predecessor, find its nearest available payload
+        for (const edge of incomingEdges) {
+          const payload = findNearestPayload(edge.source);
+          if (payload) {
+            deepMergeSim(mergedNearest, payload);
+          }
+        }
+
+        if (Object.keys(mergedNearest).length > 0) {
+          incomingPayload = preparePayload(mergedNearest);
+          availableFields = getAllKeys(incomingPayload);
         }
       }
     }
@@ -819,7 +964,31 @@ function EditorInner() {
       }
     }
 
-    return { incomingPayload, availableFields, sinkSchema };
+    // 4. Try to find the nearest upstream source node
+    const findNearestSource = (nodeId: string): any | null => {
+      const node = nodes.find(n => n.id === nodeId);
+      if (!node) return null;
+      if (node.type === 'source') {
+        return sources?.data?.find((s: any) => s.id === node.data?.ref_id);
+      }
+      const inc = edges.filter((e: Edge) => e.target === nodeId);
+      for (const e of inc) {
+        const found = findNearestSource(e.source);
+        if (found) return found;
+      }
+      return null;
+    };
+
+    const incomingEdgesForSource = edges.filter((e: Edge) => e.target === selectedNode.id);
+    for (const edge of incomingEdgesForSource) {
+      const src = findNearestSource(edge.source);
+      if (src) {
+        upstreamSource = src;
+        break;
+      }
+    }
+
+    return { incomingPayload, availableFields, sinkSchema, upstreamSource };
   }, [selectedNode, edges, nodes, testResults, sources, sinks]);
 
   if (isLoading && !isNew) return <Box p="xl" ta="center"><Text>Loading...</Text></Box>;
@@ -868,9 +1037,28 @@ function EditorInner() {
           onSave={handleSave}
           onTest={(dry) => handleTest(null, dry)}
           onConfigureTest={() => setTestModalOpened(true)}
-          onToggle={() => toggleMutation.mutate()}
+          onToggle={() => {
+            if (!active) {
+              // Ensure the latest workflow state is saved before starting
+              saveMutation.mutate(undefined, {
+                onSuccess: () => {
+                  toggleMutation.mutate();
+                }
+              });
+            } else {
+              toggleMutation.mutate();
+            }
+          }}
           onRebuild={() => rebuildMutation.mutate(0)}
           onClearTest={() => setTestResults(null)}
+          onAutoLayout={() => {
+            try {
+              onLayout('LR');
+              notifications.show({ message: 'Auto-layout applied', color: 'blue' });
+            } catch (e: any) {
+              notifications.show({ message: e?.message || 'Failed to layout', color: 'red' });
+            }
+          }}
           isSaving={saveMutation.isPending}
           isTesting={testMutation.isPending}
           isToggling={toggleMutation.isPending}
@@ -897,6 +1085,7 @@ function EditorInner() {
                 onDrop={onDrop}
                 nodeTypes={nodeTypes}
                 edgeTypes={edgeTypes}
+                connectionLineComponent={ConnectionLine}
                 defaultViewport={{ x: 0, y: 0, zoom: 1 }}
                 snapToGrid
                 snapGrid={[15, 15]}
@@ -915,6 +1104,24 @@ function EditorInner() {
                 />
               </ReactFlow>
             </Paper>
+
+            {/* Node Config Modal (restores popup UX for source/sink/transformation/validator) */}
+            <NodeConfigModal 
+              opened={configModalOpen} 
+              onClose={() => setConfigModalOpen(false)} 
+              selectedNode={selectedNode}
+              updateNodeConfig={updateNodeConfig}
+              onSave={handleInlineSave}
+              vhost={vhost}
+              workerID={workerID}
+              availableFields={availableFields}
+              incomingPayload={incomingPayload}
+              sources={sources?.data || []}
+              sinks={sinks?.data || []}
+              sinkSchema={sinkSchema}
+              onRefreshFields={handleRefreshFields}
+              isRefreshing={testMutation.isPending}
+            />
 
             {/* Live Log Panel */}
             <Paper withBorder radius="md" h={logsOpened ? 250 : 40} style={{ display: 'flex', flexDirection: 'column', transition: 'height 0.2s ease' }}>
@@ -998,8 +1205,16 @@ function EditorInner() {
               } else {
                 pos = project({ x: (bounds?.width || 400) / 2, y: (bounds?.height || 400) / 2 });
               }
-              addNodeAtPosition(type, refId, label, subType, pos, extraData);
-              if (quickAddSource) setDrawerOpened(false);
+              const node = addNodeAtPosition(type, refId, label, subType, pos, extraData);
+              // Select the newly added node and open popup/drawer accordingly
+              setSelectedNode(node);
+              if (type === 'source' || type === 'sink' || type === 'transformation' || type === 'validator') {
+                setConfigModalOpen(true);
+              } else {
+                setDrawerOpened(true);
+                setDrawerTab('settings');
+                if (quickAddSource) setDrawerOpened(false);
+              }
             }}
             sources={sources?.data || []}
             sinks={sinks?.data || []}
@@ -1048,6 +1263,8 @@ function EditorInner() {
                       initialData={selectedNodeData as Source | undefined} 
                       vhost={vhost}
                       workerID={workerID}
+                      onRefreshFields={handleRefreshFields}
+                      isRefreshing={testMutation.isPending}
                     />
                   )}
                   {selectedNode?.type === 'sink' && (
@@ -1062,6 +1279,9 @@ function EditorInner() {
                       availableFields={availableFields}
                       incomingPayload={incomingPayload}
                       sinks={sinks?.data || []}
+                      upstreamSource={upstreamSource}
+                      onRefreshFields={handleRefreshFields}
+                      isRefreshing={testMutation.isPending}
                     />
                   )}
                   {selectedNode && ['transformation', 'validator', 'condition', 'switch', 'router', 'merge', 'stateful', 'note'].includes(selectedNode.type!) && (
@@ -1074,6 +1294,8 @@ function EditorInner() {
                          incomingPayload={incomingPayload}
                          sources={sources?.data || []}
                          sinkSchema={sinkSchema}
+                         onRefreshFields={handleRefreshFields}
+                         isRefreshing={testMutation.isPending}
                        />
                        <Group justify="flex-end" mt="md">
                          <Button variant="light" onClick={() => {

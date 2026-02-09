@@ -194,32 +194,45 @@ func (m *DefaultMessage) MarshalJSON() ([]byte, error) {
 
 	res := make(map[string]interface{})
 
-	// 1. Merge data fields into root
-	for k, v := range m.data {
-		res[k] = v
-	}
+	// 1. If not a CDC event, merge data fields into root
+	// For CDC events, we keep the root clean and only include system fields + envelopes
+	if m.operation == "" {
+		for k, v := range m.data {
+			res[k] = v
+		}
 
-	// 2. If data is empty but payload is not, unmarshal payload into root
-	if len(m.data) == 0 && len(m.payload) > 0 {
-		json.Unmarshal(m.payload, &res)
+		// 2. If data is empty but payload is not, unmarshal payload into root
+		if len(m.data) == 0 && len(m.payload) > 0 {
+			json.Unmarshal(m.payload, &res)
+		}
 	}
 
 	// 3. Add system fields
 	if m.id != "" {
 		res["id"] = m.id
 	}
+
+	// CDC specific fields - only if it's a CDC event (has an operation)
 	if m.operation != "" {
 		res["operation"] = m.operation
+		if m.table != "" {
+			res["table"] = m.table
+		}
+		if m.schema != "" {
+			res["schema"] = m.schema
+		}
+		if len(m.before) > 0 {
+			res["before"] = json.RawMessage(m.before)
+		}
+		after := m.payload
+		if len(after) == 0 && len(m.data) > 0 {
+			after, _ = json.Marshal(m.data)
+		}
+		if len(after) > 0 {
+			res["after"] = json.RawMessage(after)
+		}
 	}
-	if m.table != "" {
-		res["table"] = m.table
-	}
-	if m.schema != "" {
-		res["schema"] = m.schema
-	}
-	if len(m.before) > 0 {
-		res["before"] = json.RawMessage(m.before)
-	}
+
 	if len(m.metadata) > 0 {
 		res["metadata"] = m.metadata
 	}

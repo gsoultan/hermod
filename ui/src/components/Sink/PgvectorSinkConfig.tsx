@@ -5,10 +5,10 @@ import { PostgresSinkConfig, type PostgresSinkConfigProps } from './PostgresSink
 export type PgvectorSinkConfigProps = Omit<PostgresSinkConfigProps, 'type'>
 
 export const PgvectorSinkConfig: FC<PgvectorSinkConfigProps> = (props) => {
-  const { config, updateConfig } = props
+  const { config, updateConfig, upstreamSource } = props
   return (
     <>
-      <PostgresSinkConfig {...props} type="postgres" />
+      <PostgresSinkConfig {...props} type="postgres" upstreamSource={upstreamSource} />
       <TextInput
         label="Vector Column"
         placeholder="embedding"

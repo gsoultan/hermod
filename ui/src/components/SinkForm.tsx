@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
-import { Button, Group, TextInput, Select, Stack, Alert, Divider, Text, Grid, Title, Code, List, ActionIcon, Modal, Card, ScrollArea, Badge, Autocomplete, Box, Switch, Textarea, PasswordInput, Fieldset } from '@mantine/core';
+import { Button, Group, TextInput, Select, Stack, Alert, Divider, Text, Grid, Title, Code, List, Modal, Card, ScrollArea, Badge, Box, Switch, Textarea, PasswordInput, Fieldset, SimpleGrid, ActionIcon } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
+import { useMutation, useSuspenseQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm, useStore } from '@tanstack/react-form';
 import { apiFetch, getRoleFromToken } from '../api';
 import { useVHost } from '../context/VHostContext';
@@ -11,6 +11,7 @@ import { RetryPolicyFields } from './Sink/RetryPolicyFields';
 import { SinkBasics } from './Sink/SinkBasics';
 // Heavy per-sink configs are lazy-loaded to reduce initial bundle size
 const PostgresSinkConfig = lazy(() => import('./Sink/PostgresSinkConfig').then(m => ({ default: m.PostgresSinkConfig })));
+const DatabaseSinkConfig = lazy(() => import('./Sink/DatabaseSinkConfig').then(m => ({ default: m.DatabaseSinkConfig })));
 const QueueSinkConfig = lazy(() => import('./Sink/QueueSinkConfig').then(m => ({ default: m.QueueSinkConfig })));
 const FTPSinkConfig = lazy(() => import('./Sink/FTPSinkConfig').then(m => ({ default: m.FTPSinkConfig })));
 const GoogleSheetsSinkConfig = lazy(() => import('./Sink/GoogleSheetsSinkConfig').then(m => ({ default: m.GoogleSheetsSinkConfig })));
@@ -92,12 +93,16 @@ interface SinkFormProps {
   availableFields?: string[];
   incomingPayload?: any;
   sinks?: Sink[];
+  upstreamSource?: any;
+  onRefreshFields?: () => void;
+  isRefreshing?: boolean;
 }
 
-export function SinkForm({ initialData, isEditing = false, embedded = false, onSave, vhost, workerID, availableFields = [], incomingPayload, sinks }: SinkFormProps) {
+export function SinkForm({ initialData, isEditing = false, embedded = false, onSave, vhost, workerID, availableFields = [], incomingPayload, sinks, upstreamSource, onRefreshFields, isRefreshing }: SinkFormProps) {
   const navigate = useNavigate();
   const { availableVHosts } = useVHost();
   const role = getRoleFromToken();
+  const queryClient = useQueryClient();
   const [testResult, setTestResult] = useState<{ status: 'ok' | 'error', message: string } | null>(null);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewResult, setPreviewResult] = useState<{ rendered: string, is_html: boolean } | null>(null);
@@ -124,6 +129,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
   });
 
   const sink = useStore(form.store, (state) => state.values) as any;
+  const isEditingResolved = Boolean(isEditing || (sink as any)?.id);
 
   const [tables, setTables] = useState<string[]>([]);
   const [loadingTables, setLoadingTables] = useState(false);
@@ -289,18 +295,26 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
 
   const submitMutation = useMutation({
     mutationFn: async (s: any) => {
-      const res = await apiFetch(`${API_BASE}/sinks${isEditing && initialData?.id ? `/${initialData.id}` : ''}`, {
-        method: isEditing ? 'PUT' : 'POST',
+      const id = s.id || initialData?.id;
+      const isUpdate = Boolean(isEditing || (id && id !== 'new'));
+      const res = await apiFetch(`${API_BASE}/sinks${isUpdate && id ? `/${id}` : ''}`, {
+        method: isUpdate ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(s),
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || `Failed to ${isEditing ? 'update' : 'create'} sink`);
+        throw new Error(data.error || `Failed to ${isUpdate ? 'update' : 'create'} sink`);
       }
       return res.json();
     },
     onSuccess: (data) => {
+      // Ensure sinks lists are refreshed across all filters/vhosts
+      try {
+        queryClient.invalidateQueries({ queryKey: ['sinks'] });
+      } catch (_) {
+        // ignore
+      }
       if (embedded && onSave) {
         onSave(data);
       } else {
@@ -453,16 +467,16 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
       case 's3-parquet':
         return (
           <>
-            <Group grow>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
               <TextInput label="Region" placeholder="us-east-1" value={config.region || ''} onChange={(e) => updateConfig('region', e.target.value)} required />
               <TextInput label="Bucket" placeholder="my-bucket" value={config.bucket || ''} onChange={(e) => updateConfig('bucket', e.target.value)} required />
-            </Group>
+            </SimpleGrid>
             <TextInput label="Key Prefix" placeholder="events/" value={config.key_prefix || ''} onChange={(e) => updateConfig('key_prefix', e.target.value)} />
             <TextInput label="Endpoint (S3-compatible)" placeholder="e.g. http://localhost:9000" value={config.endpoint || ''} onChange={(e) => updateConfig('endpoint', e.target.value)} />
-            <Group grow>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
               <TextInput label="Access Key" placeholder="Optional" value={config.access_key || ''} onChange={(e) => updateConfig('access_key', e.target.value)} />
               <TextInput label="Secret Key" type="password" placeholder="Optional" value={config.secret_key || ''} onChange={(e) => updateConfig('secret_key', e.target.value)} />
-            </Group>
+            </SimpleGrid>
             <TextInput 
               label="Parquet Schema (JSON)" 
               placeholder='{"Tag": "name=parquet_go_root, instanceid=1", "Fields": [{"Tag": "name=name, type=BYTE_ARRAY, convertedtype=UTF8"}]}' 
@@ -483,17 +497,17 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
       case 's3':
         return (
           <>
-            <Group grow>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
               <TextInput label="Region" placeholder="us-east-1" value={config.region || ''} onChange={(e) => updateConfig('region', e.target.value)} required />
               <TextInput label="Bucket" placeholder="my-bucket" value={config.bucket || ''} onChange={(e) => updateConfig('bucket', e.target.value)} required />
-            </Group>
+            </SimpleGrid>
             <TextInput label="Key Prefix" placeholder="events/" value={config.key_prefix || ''} onChange={(e) => updateConfig('key_prefix', e.target.value)} />
             <TextInput label="Endpoint (S3-compatible)" placeholder="e.g. http://localhost:9000" value={config.endpoint || ''} onChange={(e) => updateConfig('endpoint', e.target.value)} />
-            <Group grow>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
               <TextInput label="Access Key" placeholder="Optional" value={config.access_key || ''} onChange={(e) => updateConfig('access_key', e.target.value)} />
               <TextInput label="Secret Key" type="password" placeholder="Optional" value={config.secret_key || ''} onChange={(e) => updateConfig('secret_key', e.target.value)} />
-            </Group>
-            <Group grow>
+            </SimpleGrid>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
               <TextInput 
                 label="File Extension"
                 placeholder=".json or .csv"
@@ -508,7 +522,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
                 onChange={(e) => updateConfig('content_type', e.target.value)}
                 description="Optional. Sets the S3 Content-Type metadata."
               />
-            </Group>
+            </SimpleGrid>
             <Text size="sm" c="dimmed">
               Tip: To upload CSV bytes as-is, leave Format empty (pass-through) in the Advanced section and set File Extension to .csv.
             </Text>
@@ -653,10 +667,10 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
             <TextInput label="WebSocket URL" placeholder="wss://example.com/ingest" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
             <TextInput label="Headers" placeholder="Authorization: Bearer token, X-Proto: v1" value={config.headers || ''} onChange={(e) => updateConfig('headers', e.target.value)} />
             <TextInput label="Subprotocols" placeholder="proto1, proto2" value={config.subprotocols || ''} onChange={(e) => updateConfig('subprotocols', e.target.value)} />
-            <Group grow>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
               <TextInput label="Connect Timeout" placeholder="10s" value={config.connect_timeout || ''} onChange={(e) => updateConfig('connect_timeout', e.target.value)} />
               <TextInput label="Write Timeout" placeholder="10s" value={config.write_timeout || ''} onChange={(e) => updateConfig('write_timeout', e.target.value)} />
-            </Group>
+            </SimpleGrid>
             <TextInput label="Heartbeat Interval" placeholder="30s" value={config.heartbeat_interval || ''} onChange={(e) => updateConfig('heartbeat_interval', e.target.value)} />
             <Group>
               <Switch checked={config.require_ack === 'true'} onChange={(e) => updateConfig('require_ack', e.currentTarget.checked ? 'true' : 'false')} label="Require application ACK" />
@@ -665,10 +679,12 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
         );
       case 'postgres':
       case 'yugabyte':
+      case 'mssql':
+      case 'oracle':
         return (
           <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
             <PostgresSinkConfig
-              type={type}
+              type={type as 'postgres' | 'yugabyte'}
               config={config}
               tables={tables}
               discoveredDatabases={discoveredDatabases}
@@ -678,6 +694,8 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
               updateConfig={updateConfig}
               fetchDatabases={fetchDatabases}
               discoverTables={discoverTables}
+              availableFields={availableFields}
+              upstreamSource={upstreamSource}
             />
           </Suspense>
         );
@@ -694,6 +712,8 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
               updateConfig={updateConfig}
               fetchDatabases={fetchDatabases}
               discoverTables={discoverTables}
+              availableFields={availableFields}
+              upstreamSource={upstreamSource}
             />
           </Suspense>
         );
@@ -711,101 +731,27 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
         );
       case 'mysql':
       case 'mariadb':
-      case 'mssql':
-      case 'oracle':
-        return (
-          <>
-            <Group grow>
-              <TextInput label="Host" placeholder="localhost" value={config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} required />
-              <TextInput 
-                label="Port" 
-                placeholder={
-                  type === 'mysql' || type === 'mariadb' ? "3306" : 
-                  type === 'mssql' ? "1433" : 
-                  type === 'oracle' ? "1521" : "5432"
-                } 
-                value={config.port || ''} 
-                onChange={(e) => updateConfig('port', e.target.value)} 
-                required 
-              />
-            </Group>
-            <Group grow>
-              <TextInput label="User" placeholder="user" value={config.user || ''} onChange={(e) => updateConfig('user', e.target.value)} required />
-              <TextInput label="Password" type="password" placeholder="password" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} required />
-            </Group>
-            <Group align="flex-end" gap="xs">
-              <Autocomplete 
-                label="Database" 
-                placeholder="dbname" 
-                data={[...new Set([...(discoveredDatabases || []), config.dbname].filter(Boolean))]} 
-                value={config.dbname || ''} 
-                onChange={(val) => {
-                  updateConfig('dbname', val);
-                  if (val) discoverTables();
-                }} 
-                required 
-                style={{ flex: 1 }}
-              />
-              <ActionIcon aria-label="Discover databases" variant="light" size="lg" onClick={() => fetchDatabases()} loading={isFetchingDBs} title="Discover Databases">
-                <IconRefresh size="1.2rem" />
-              </ActionIcon>
-            </Group>
-            <Group align="flex-end" gap="xs">
-              <Select 
-                label="Target Table" 
-                placeholder="Select or type table name" 
-                data={tables || []} 
-                searchable 
-                value={config.table || ''} 
-                onChange={(val) => updateConfig('table', val || '')} 
-                rightSection={loadingTables ? <IconInfoCircle size={16} /> : null}
-                error={tablesError}
-                style={{ flex: 1 }}
-              />
-              <ActionIcon aria-label="Refresh tables" variant="light" size="lg" onClick={() => discoverTables()} loading={loadingTables} title="Refresh Tables">
-                <IconRefresh size="1.2rem" />
-              </ActionIcon>
-            </Group>
-            <TextInput 
-              label="OR Connection String" 
-              placeholder={
-                type === 'mysql' || type === 'mariadb' ? "user:pass@tcp(host:port)/dbname" : 
-                type === 'mssql' ? "sqlserver://..." :
-                type === 'oracle' ? "oracle://..." : ""
-              } 
-              value={config.connection_string || ''} 
-              onChange={(e) => updateConfig('connection_string', e.target.value)} 
-            />
-          </>
-        );
+      case 'clickhouse':
+      case 'mongodb':
+      case 'sqlite':
       case 'cassandra':
         return (
-          <>
-            <TextInput label="Hosts" placeholder="localhost" value={config.hosts || ''} onChange={(e) => updateConfig('hosts', e.target.value)} required />
-            <TextInput label="Keyspace" placeholder="keyspace" value={config.keyspace || ''} onChange={(e) => updateConfig('keyspace', e.target.value)} required />
-          </>
-        );
-      case 'sqlite':
-        return (
-          <>
-            <TextInput label="DB Path" placeholder="hermod.db" value={config.connection_string || config.db_path || ''} onChange={(e) => updateConfig('connection_string', e.target.value)} required />
-            <Group align="flex-end" gap="xs">
-              <Select 
-                label="Target Table" 
-                placeholder="Select or type table name" 
-                data={tables || []} 
-                searchable 
-                value={config.table || ''} 
-                onChange={(val) => updateConfig('table', val || '')} 
-                rightSection={loadingTables ? <IconInfoCircle size={16} /> : null}
-                error={tablesError}
-                style={{ flex: 1 }}
-              />
-              <ActionIcon aria-label="Refresh tables" variant="light" size="lg" onClick={() => discoverTables()} loading={loadingTables} title="Refresh Tables">
-                <IconRefresh size="1.2rem" />
-              </ActionIcon>
-            </Group>
-          </>
+          <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
+            <DatabaseSinkConfig
+              type={type}
+              config={config}
+              updateConfig={updateConfig}
+              tables={tables}
+              loadingTables={loadingTables}
+              discoverTables={discoverTables}
+              discoveredDatabases={discoveredDatabases}
+              isFetchingDBs={isFetchingDBs}
+              fetchDatabases={fetchDatabases}
+              availableFields={availableFields}
+              tablesError={tablesError}
+              upstreamSource={upstreamSource}
+            />
+          </Suspense>
         );
       case 'eventstore':
         return (
@@ -844,87 +790,6 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
             />
           </>
         );
-      case 'clickhouse':
-        return (
-          <>
-            <TextInput label="Address" placeholder="localhost:9000" value={config.addr || ''} onChange={(e) => updateConfig('addr', e.target.value)} required />
-            <Group align="flex-end" gap="xs">
-              <Autocomplete 
-                label="Database" 
-                placeholder="default" 
-                data={[...new Set([...(discoveredDatabases || []), config.database].filter(Boolean))]} 
-                value={config.database || ''} 
-                onChange={(val) => {
-                  updateConfig('database', val);
-                  if (val) discoverTables();
-                }} 
-                required 
-                style={{ flex: 1 }}
-              />
-              <ActionIcon aria-label="Discover databases" variant="light" size="lg" onClick={() => fetchDatabases()} loading={isFetchingDBs} title="Discover Databases">
-                <IconRefresh size="1.2rem" />
-              </ActionIcon>
-            </Group>
-            <Group align="flex-end" gap="xs">
-              <Select 
-                label="Target Table" 
-                placeholder="Select or type table name" 
-                data={tables || []} 
-                searchable 
-                value={config.table || ''} 
-                onChange={(val) => updateConfig('table', val || '')} 
-                rightSection={loadingTables ? <IconInfoCircle size={16} /> : null}
-                error={tablesError}
-                style={{ flex: 1 }}
-              />
-              <ActionIcon aria-label="Refresh tables" variant="light" size="lg" onClick={() => discoverTables()} loading={loadingTables} title="Refresh Tables">
-                <IconRefresh size="1.2rem" />
-              </ActionIcon>
-            </Group>
-          </>
-        );
-      case 'mongodb':
-        return (
-          <>
-            <TextInput label="URI" placeholder="mongodb://localhost:27017" value={config.uri || ''} onChange={(e) => updateConfig('uri', e.target.value)} required />
-            <Group align="flex-end" gap="xs">
-              <Autocomplete 
-                label="Database" 
-                placeholder="hermod" 
-                data={[...new Set([...(discoveredDatabases || []), config.database].filter(Boolean))]} 
-                value={config.database || ''} 
-                onChange={(val) => {
-                  updateConfig('database', val);
-                  if (val) discoverTables();
-                }} 
-                required 
-                style={{ flex: 1 }}
-              />
-              <ActionIcon aria-label="Discover databases" variant="light" size="lg" onClick={() => fetchDatabases()} loading={isFetchingDBs} title="Discover Databases">
-                <IconRefresh size="1.2rem" />
-              </ActionIcon>
-            </Group>
-            <Group align="flex-end" gap="xs">
-              <Select 
-                label="Target Collection" 
-                placeholder="Select or type collection name" 
-                data={tables || []} 
-                searchable 
-                value={config.table || config.collection || ''} 
-                onChange={(val) => {
-                  updateConfig('table', val || '');
-                  updateConfig('collection', val || '');
-                }} 
-                rightSection={loadingTables ? <IconInfoCircle size={16} /> : null}
-                error={tablesError}
-                style={{ flex: 1 }}
-              />
-              <ActionIcon aria-label="Refresh collections" variant="light" size="lg" onClick={() => discoverTables()} loading={loadingTables} title="Refresh Collections">
-                <IconRefresh size="1.2rem" />
-              </ActionIcon>
-            </Group>
-          </>
-        );
       case 'elasticsearch':
         return (
           <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
@@ -944,7 +809,13 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
       case 'snowflake':
         return (
           <Suspense fallback={<Text size="sm" c="dimmed">Loading configuration...</Text>}>
-            <SnowflakeSinkConfig form={form} />
+            <SnowflakeSinkConfig 
+              config={config} 
+              updateConfig={updateConfig} 
+              availableFields={availableFields}
+              tables={tables}
+              upstreamSource={upstreamSource}
+            />
           </Suspense>
         );
       case 'sap':
@@ -1442,6 +1313,11 @@ File: {{.table}}-{{.id}}.json`}
                 <Group gap="xs">
                   <IconList size="1rem" color="var(--mantine-color-gray-6)" />
                   <Text size="xs" fw={700}>AVAILABLE FIELDS</Text>
+                  {onRefreshFields && (
+                    <ActionIcon variant="subtle" size="xs" onClick={onRefreshFields} color="blue" title="Refresh Available Fields" loading={isRefreshing}>
+                      <IconRefresh size="0.8rem" />
+                    </ActionIcon>
+                  )}
                 </Group>
                 <Badge size="xs" variant="light">{availableFields.length}</Badge>
               </Group>
@@ -1793,7 +1669,7 @@ File: {{.table}}-{{.id}}.json`}
                       onChangeRetryInterval={(val) => updateConfig('retry_interval', val)}
                     />
 
-                    <Group grow>
+                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
                       <TextInput 
                         label="Circuit Threshold" 
                         placeholder="5" 
@@ -1810,9 +1686,9 @@ File: {{.table}}-{{.id}}.json`}
                         value={(sink.config || {}).circuit_interval || ''} 
                         onChange={(e) => updateConfig('circuit_interval', e.target.value)} 
                       />
-                    </Group>
+                    </SimpleGrid>
 
-                    <Group grow>
+                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
                       <TextInput 
                         label="Circuit Cool-off" 
                         placeholder="30s" 
@@ -1829,9 +1705,9 @@ File: {{.table}}-{{.id}}.json`}
                         value={(sink.config || {}).batch_size || ''} 
                         onChange={(e) => updateConfig('batch_size', e.target.value)} 
                       />
-                    </Group>
+                    </SimpleGrid>
 
-                    <Group grow>
+                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
                       <TextInput 
                         label="Batch Timeout" 
                         placeholder="100ms" 
@@ -1852,7 +1728,7 @@ File: {{.table}}-{{.id}}.json`}
                         onChange={(val) => updateConfig('dlq_sink_id', val || '')}
                         clearable
                       />
-                    </Group>
+                    </SimpleGrid>
                     <Switch 
                         label="Adaptive Batching" 
                         size="xs"
@@ -1925,7 +1801,7 @@ File: {{.table}}-{{.id}}.json`}
                   }} 
                   loading={submitMutation.isPending}
                 >
-                  {isEditing ? 'Save Changes' : (embedded ? 'Confirm' : 'Create Sink')}
+                  {isEditingResolved ? 'Save Changes' : (embedded ? 'Confirm' : 'Create Sink')}
                 </Button>
               </Group>
             </Stack>

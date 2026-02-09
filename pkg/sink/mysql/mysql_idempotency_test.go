@@ -35,7 +35,7 @@ func TestMySQLSink_IdempotentUpsert(t *testing.T) {
 	}
 	defer db.Exec("DROP TABLE IF EXISTS " + table)
 
-	snk := NewMySQLSink(dsn)
+	snk := NewMySQLSink(dsn, "", nil, true, "hard_delete", "", "", false, false)
 	ctx := context.Background()
 
 	// First write

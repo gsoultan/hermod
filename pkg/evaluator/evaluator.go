@@ -354,7 +354,107 @@ func GetValByPath(data map[string]interface{}, path string) interface{} {
 }
 
 func GetMsgValByPath(msg hermod.Message, path string) interface{} {
-	return GetValByPath(msg.Data(), path)
+	if path == "" || msg == nil {
+		return nil
+	}
+
+	// Expose CDC/meta virtual fields for filtering/templates
+	// Supported aliases:
+	//  - operation/op  → msg.Operation()
+	//  - table         → msg.Table()
+	//  - schema        → msg.Schema()
+	//  - meta.<key> or metadata.<key> → msg.Metadata()[key]
+	lower := strings.ToLower(path)
+	switch lower {
+	case "operation", "op":
+		op := msg.Operation()
+		if op != "" {
+			return string(op)
+		}
+	case "id":
+		if id := msg.ID(); id != "" {
+			return id
+		}
+	case "table":
+		if t := msg.Table(); t != "" {
+			return t
+		}
+	case "schema":
+		if s := msg.Schema(); s != "" {
+			return s
+		}
+	case "after":
+		if a := msg.After(); len(a) > 0 {
+			var val interface{}
+			if err := json.Unmarshal(a, &val); err == nil {
+				return val
+			}
+		}
+	case "before":
+		if b := msg.Before(); len(b) > 0 {
+			var val interface{}
+			if err := json.Unmarshal(b, &val); err == nil {
+				return val
+			}
+		}
+	}
+	if strings.HasPrefix(lower, "meta.") || strings.HasPrefix(lower, "metadata.") {
+		key := path[strings.Index(path, ".")+1:]
+		if md := msg.Metadata(); md != nil {
+			if v, ok := md[key]; ok {
+				return v
+			}
+		}
+	}
+
+	// 1) Try the path as-is
+	if v := GetValByPath(msg.Data(), path); v != nil {
+		return v
+	}
+
+	// 2) Try raw payloads if data doesn't have it
+	// This handles cases where Data() only contains "after" or is empty (like in deletes)
+	if strings.HasPrefix(lower, "before.") {
+		base := path[7:]
+		if v := getValueFromRaw(msg.Before(), base); v != nil {
+			return v
+		}
+		// Fallback to Data() if field not found in raw (could happen if manually structured)
+		if v := GetValByPath(msg.Data(), base); v != nil {
+			return v
+		}
+	}
+	if strings.HasPrefix(lower, "after.") {
+		base := path[6:]
+		if v := getValueFromRaw(msg.Payload(), base); v != nil {
+			return v
+		}
+		// Fallback to Data() if payload is empty or field not found in raw
+		if v := GetValByPath(msg.Data(), base); v != nil {
+			return v
+		}
+	}
+
+	// Try direct in before/after if not prefixed
+	if v := getValueFromRaw(msg.Payload(), path); v != nil {
+		return v
+	}
+	if v := getValueFromRaw(msg.Before(), path); v != nil {
+		return v
+	}
+
+	return nil
+}
+
+func getValueFromRaw(raw []byte, path string) interface{} {
+	if len(raw) == 0 {
+		return nil
+	}
+	res := gjson.GetBytes(raw, path)
+	if !res.Exists() {
+		return nil
+	}
+	return res.Value()
 }
 
 func SetValByPath(data map[string]interface{}, path string, val interface{}) {
@@ -396,7 +496,9 @@ func ToFloat64(val interface{}) (float64, bool) {
 	case int64:
 		return float64(v), true
 	case string:
-		f, err := strconv.ParseFloat(v, 64)
+		// Align with UI simulator: be lenient about surrounding whitespace
+		s := strings.TrimSpace(v)
+		f, err := strconv.ParseFloat(s, 64)
 		return f, err == nil
 	}
 	return 0, false
@@ -415,9 +517,11 @@ func ToInt64(val interface{}) (int64, bool) {
 	case float32:
 		return int64(v), true
 	case string:
-		i, err := strconv.ParseInt(v, 10, 64)
+		// Align with UI simulator: be lenient about surrounding whitespace
+		s := strings.TrimSpace(v)
+		i, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
-			f, err := strconv.ParseFloat(v, 64)
+			f, err := strconv.ParseFloat(s, 64)
 			return int64(f), err == nil
 		}
 		return i, true
@@ -480,7 +584,12 @@ func ResolveTemplate(temp string, data map[string]interface{}) string {
 			}
 			val = e.ParseAndEvaluate(msg, path)
 		} else {
-			val = GetValByPath(data, path)
+			// Support ".field" style (UI templates commonly use a leading dot)
+			p := path
+			if strings.HasPrefix(p, ".") {
+				p = strings.TrimPrefix(p, ".")
+			}
+			val = GetValByPath(data, p)
 		}
 
 		valStr := ""
@@ -512,8 +621,25 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]interface{})
 		match := false
 
 		fieldValRaw := GetMsgValByPath(msg, field)
-		fieldVal := fmt.Sprintf("%v", fieldValRaw)
-		valStr := fmt.Sprintf("%v", val)
+		// Treat missing values consistently as empty string (UI simulator behavior)
+		fieldVal := ""
+		if fieldValRaw != nil {
+			fieldVal = fmt.Sprintf("%v", fieldValRaw)
+		}
+
+		// Resolve templates/expressions in the value if present
+		var valResolved interface{} = val
+		if vs, ok := val.(string); ok {
+			if strings.Contains(vs, "{{") && strings.Contains(vs, "}}") {
+				valResolved = ResolveTemplate(vs, msg.Data())
+			} else {
+				valResolved = vs
+			}
+		}
+		valStr := ""
+		if valResolved != nil {
+			valStr = fmt.Sprintf("%v", valResolved)
+		}
 
 		switch op {
 		case "=":
@@ -522,7 +648,7 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]interface{})
 			match = fieldVal != valStr
 		case ">", ">=", "<", "<=":
 			v1, ok1 := ToFloat64(fieldValRaw)
-			v2, ok2 := ToFloat64(val)
+			v2, ok2 := ToFloat64(valResolved)
 			if ok1 && ok2 {
 				switch op {
 				case ">":
@@ -573,13 +699,44 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]interface{})
 
 type mockMessage struct {
 	hermod.Message
-	data map[string]interface{}
+	id       string
+	op       hermod.Operation
+	table    string
+	schema   string
+	data     map[string]interface{}
+	metadata map[string]string
 }
 
-func (m *mockMessage) Data() map[string]interface{} {
-	return m.data
-}
-
-func (m *mockMessage) Metadata() map[string]string {
+func (m *mockMessage) ID() string                   { return m.id }
+func (m *mockMessage) Operation() hermod.Operation  { return m.op }
+func (m *mockMessage) Table() string                { return m.table }
+func (m *mockMessage) Schema() string               { return m.schema }
+func (m *mockMessage) Data() map[string]interface{} { return m.data }
+func (m *mockMessage) Metadata() map[string]string  { return m.metadata }
+func (m *mockMessage) Before() []byte {
+	if b, ok := m.data["before"]; ok {
+		by, _ := json.Marshal(b)
+		return by
+	}
 	return nil
 }
+func (m *mockMessage) After() []byte {
+	if a, ok := m.data["after"]; ok {
+		by, _ := json.Marshal(a)
+		return by
+	}
+	return nil
+}
+func (m *mockMessage) Payload() []byte {
+	if a, ok := m.data["after"]; ok {
+		by, _ := json.Marshal(a)
+		return by
+	}
+	// Fallback to marshaling the whole data map if no "after"
+	by, _ := json.Marshal(m.data)
+	return by
+}
+func (m *mockMessage) SetMetadata(k, v string)         {}
+func (m *mockMessage) SetData(k string, v interface{}) {}
+func (m *mockMessage) Clone() hermod.Message           { return nil }
+func (m *mockMessage) ClearPayloads()                  {}

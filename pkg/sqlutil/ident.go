@@ -22,7 +22,7 @@ func QuoteIdent(driver, name string) (string, error) {
 
 	quote := func(s string) string {
 		switch driver {
-		case "pgx", "postgres":
+		case "pgx", "postgres", "snowflake", "oracle", "clickhouse", "cassandra", "yugabyte":
 			return "\"" + s + "\""
 		case "mysql", "mariadb", "sqlite":
 			return "`" + s + "`"
@@ -43,9 +43,11 @@ func QuoteIdent(driver, name string) (string, error) {
 // Placeholder returns a placeholder suitable for the driver and 1-based index.
 func Placeholder(driver string, index int) string {
 	switch driver {
-	case "pgx", "postgres":
+	case "pgx", "postgres", "yugabyte":
 		return fmt.Sprintf("$%d", index)
-	default: // mysql, mariadb, sqlite, mssql use '?'
+	case "oracle":
+		return fmt.Sprintf(":%d", index)
+	default: // mysql, mariadb, sqlite, mssql, snowflake, clickhouse, cassandra use '?'
 		return "?"
 	}
 }

@@ -255,6 +255,44 @@ func (c *CassandraSource) DiscoverTables(ctx context.Context) ([]string, error) 
 	return tables, nil
 }
 
+func (c *CassandraSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
+	if err := c.init(ctx); err != nil {
+		return nil, err
+	}
+
+	targetKS := ""
+	targetTable := table
+	if strings.Contains(table, ".") {
+		parts := strings.SplitN(table, ".", 2)
+		targetKS = parts[0]
+		targetTable = parts[1]
+	}
+
+	query := "SELECT column_name, type, kind FROM system_schema.columns WHERE table_name = ?"
+	args := []interface{}{targetTable}
+	if targetKS != "" {
+		query += " AND keyspace_name = ?"
+		args = append(args, targetKS)
+	}
+
+	iter := c.session.Query(query, args...).WithContext(ctx).Iter()
+	var columns []hermod.ColumnInfo
+	var name, ctype, kind string
+	for iter.Scan(&name, &ctype, &kind) {
+		columns = append(columns, hermod.ColumnInfo{
+			Name:       name,
+			Type:       ctype,
+			IsPK:       kind == "partition_key" || kind == "clustering",
+			IsNullable: kind != "partition_key" && kind != "clustering",
+			IsIdentity: false,
+		})
+	}
+	if err := iter.Close(); err != nil {
+		return nil, fmt.Errorf("failed to query columns: %w", err)
+	}
+	return columns, nil
+}
+
 func (c *CassandraSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	if err := c.init(ctx); err != nil {
 		return nil, err

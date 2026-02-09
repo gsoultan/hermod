@@ -375,6 +375,55 @@ func (o *OracleSource) DiscoverTables(ctx context.Context) ([]string, error) {
 	return tables, nil
 }
 
+func (o *OracleSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
+	if err := o.init(ctx); err != nil {
+		return nil, err
+	}
+	tableNameOnly := strings.ToUpper(table)
+	owner := ""
+	if strings.Contains(table, ".") {
+		parts := strings.Split(table, ".")
+		owner = strings.ToUpper(parts[0])
+		tableNameOnly = strings.ToUpper(parts[1])
+	}
+
+	query := `
+		SELECT column_name, data_type, nullable, 
+		(SELECT count(*) FROM all_cons_columns acc 
+		 JOIN all_constraints ac ON acc.constraint_name = ac.constraint_name 
+		 WHERE ac.table_name = utc.table_name AND ac.owner = utc.owner AND ac.constraint_type = 'P' AND acc.column_name = utc.column_name) as is_pk,
+		 NVL(identity_column, 'NO') as identity_column
+		FROM all_tab_cols utc 
+		WHERE table_name = :1 
+	`
+	args := []interface{}{tableNameOnly}
+	if owner != "" {
+		query += " AND owner = :2"
+		args = append(args, owner)
+	}
+	query += " ORDER BY column_id"
+
+	rows, err := o.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var columns []hermod.ColumnInfo
+	for rows.Next() {
+		var col hermod.ColumnInfo
+		var nullable, identity string
+		var isPK int
+		if err := rows.Scan(&col.Name, &col.Type, &nullable, &isPK, &identity); err != nil {
+			return nil, err
+		}
+		col.IsNullable = nullable == "Y"
+		col.IsPK = isPK > 0
+		col.IsIdentity = identity == "YES"
+		columns = append(columns, col)
+	}
+	return columns, nil
+}
+
 func (o *OracleSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	if err := o.init(ctx); err != nil {
 		return nil, err

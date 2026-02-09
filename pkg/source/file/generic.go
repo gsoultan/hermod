@@ -22,8 +22,10 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	awss3 "github.com/aws/aws-sdk-go/service/s3"
 	goftp "github.com/jlaffaye/ftp"
+	sftp "github.com/pkg/sftp"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
+	"golang.org/x/crypto/ssh"
 )
 
 // Backend enumerates supported storage backends for files.
@@ -34,6 +36,7 @@ const (
 	BackendHTTP  Backend = "http"
 	BackendS3    Backend = "s3" // handled by CSV-specific path or raw via presigned URL/HTTP
 	BackendFTP   Backend = "ftp"
+	BackendSFTP  Backend = "sftp"
 )
 
 // Format enumerates parsing/ingestion modes.
@@ -171,6 +174,47 @@ func (s *GenericFileSource) Ping(ctx context.Context) error {
 		}
 		_, err = c.List(s.cfg.FTPRootDir)
 		return err
+	case BackendSFTP:
+		addr := s.cfg.FTPAddr
+		if addr == "" {
+			// build from host/port in config if provided
+			host := os.Getenv("SFTP_HOST")
+			port := os.Getenv("SFTP_PORT")
+			if host != "" && port != "" {
+				addr = fmt.Sprintf("%s:%s", host, port)
+			} else {
+				return errors.New("sftp address is required (ftp_host:ftp_port or ftp_addr)")
+			}
+		}
+		auths := []ssh.AuthMethod{}
+		if s.cfg.FTPPass != "" {
+			auths = append(auths, ssh.Password(s.cfg.FTPPass))
+		}
+		if s.cfg.FTPUser == "" {
+			return errors.New("sftp username is required")
+		}
+		cfg := &ssh.ClientConfig{
+			User:            s.cfg.FTPUser,
+			Auth:            auths,
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			Timeout:         5 * time.Second,
+		}
+		conn, err := ssh.Dial("tcp", addr, cfg)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		cli, err := sftp.NewClient(conn)
+		if err != nil {
+			return err
+		}
+		defer cli.Close()
+		root := s.cfg.FTPRootDir
+		if root == "" {
+			root = "/"
+		}
+		_, err = cli.ReadDir(root)
+		return err
 	default:
 		return nil
 	}
@@ -266,6 +310,11 @@ func (s *GenericFileSource) csvReaderFor(ref *fileRef) *CSVSource {
 		return NewCSVSource(ref.FullPath, delim, hasHeader)
 	case BackendHTTP:
 		return NewHTTPCSVSource(ref.FullPath, delim, hasHeader, s.cfg.Headers)
+	case BackendSFTP:
+		if rc, err := s.fetchSFTPFileReader(ref); err == nil && rc != nil {
+			return NewCSVSourceFromReadCloser(rc, delim, hasHeader)
+		}
+		return NewCSVSource(ref.FullPath, delim, hasHeader)
 	default:
 		return NewCSVSource(ref.FullPath, delim, hasHeader)
 	}
@@ -328,6 +377,8 @@ func (s *GenericFileSource) listFiles(ctx context.Context) ([]fileRef, error) {
 		}}, nil
 	case BackendFTP:
 		return s.listFTP(ctx)
+	case BackendSFTP:
+		return s.listSFTP(ctx)
 	case BackendS3:
 		return s.listS3(ctx)
 	default:
@@ -511,6 +562,8 @@ func (s *GenericFileSource) readFileBytes(ctx context.Context, ref *fileRef) ([]
 		r = resp.Body
 	case BackendFTP:
 		r, err = s.fetchFTPFileReader(ref)
+	case BackendSFTP:
+		r, err = s.fetchSFTPFileReader(ref)
 	case BackendS3:
 		awsCfg := &aws.Config{Region: aws.String(s.cfg.S3Region)}
 		if s.cfg.S3Endpoint != "" {
@@ -571,6 +624,122 @@ type ftpReadCloser struct {
 }
 
 func (f *ftpReadCloser) Close() error { _ = f.ReadCloser.Close(); return f.c.Quit() }
+
+// SFTP listing and fetch helpers
+func (s *GenericFileSource) listSFTP(ctx context.Context) ([]fileRef, error) {
+	addr := s.cfg.FTPAddr
+	if addr == "" {
+		host := os.Getenv("SFTP_HOST")
+		port := os.Getenv("SFTP_PORT")
+		if host != "" && port != "" {
+			addr = fmt.Sprintf("%s:%s", host, port)
+		} else {
+			return nil, errors.New("sftp address is required (ftp_host:ftp_port or ftp_addr)")
+		}
+	}
+	auths := []ssh.AuthMethod{}
+	if s.cfg.FTPPass != "" {
+		auths = append(auths, ssh.Password(s.cfg.FTPPass))
+	}
+	if s.cfg.FTPUser == "" {
+		return nil, errors.New("sftp username is required")
+	}
+	cfg := &ssh.ClientConfig{
+		User:            s.cfg.FTPUser,
+		Auth:            auths,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         10 * time.Second,
+	}
+	conn, err := ssh.Dial("tcp", addr, cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	cli, err := sftp.NewClient(conn)
+	if err != nil {
+		return nil, err
+	}
+	defer cli.Close()
+	root := s.cfg.FTPRootDir
+	if root == "" {
+		root = "/"
+	}
+	entries, err := cli.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+	var refs []fileRef
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if s.cfg.Pattern != "" {
+			ok, _ := filepath.Match(s.cfg.Pattern, filepath.Base(name))
+			if !ok {
+				continue
+			}
+		}
+		mod := e.ModTime()
+		refs = append(refs, fileRef{Name: name, FullPath: filepath.Join(root, name), Size: e.Size(), ModTime: mod, Backend: BackendSFTP})
+	}
+	return refs, nil
+}
+
+func (s *GenericFileSource) fetchSFTPFileReader(ref *fileRef) (io.ReadCloser, error) {
+	addr := s.cfg.FTPAddr
+	if addr == "" {
+		host := os.Getenv("SFTP_HOST")
+		port := os.Getenv("SFTP_PORT")
+		if host != "" && port != "" {
+			addr = fmt.Sprintf("%s:%s", host, port)
+		} else {
+			return nil, errors.New("sftp address is required (ftp_host:ftp_port or ftp_addr)")
+		}
+	}
+	auths := []ssh.AuthMethod{}
+	if s.cfg.FTPPass != "" {
+		auths = append(auths, ssh.Password(s.cfg.FTPPass))
+	}
+	if s.cfg.FTPUser == "" {
+		return nil, errors.New("sftp username is required")
+	}
+	cfg := &ssh.ClientConfig{
+		User:            s.cfg.FTPUser,
+		Auth:            auths,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         15 * time.Second,
+	}
+	conn, err := ssh.Dial("tcp", addr, cfg)
+	if err != nil {
+		return nil, err
+	}
+	cli, err := sftp.NewClient(conn)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	f, err := cli.Open(ref.FullPath)
+	if err != nil {
+		cli.Close()
+		conn.Close()
+		return nil, err
+	}
+	// wrap closer to ensure sftp and ssh are closed when reader closed
+	return &sftpReadCloser{ReadCloser: f, cli: cli, conn: conn}, nil
+}
+
+type sftpReadCloser struct {
+	io.ReadCloser
+	cli  *sftp.Client
+	conn *ssh.Client
+}
+
+func (s *sftpReadCloser) Close() error {
+	_ = s.ReadCloser.Close()
+	_ = s.cli.Close()
+	return s.conn.Close()
+}
 
 func detectContentType(name string, b []byte) string {
 	if ct := mime.TypeByExtension(strings.ToLower(filepath.Ext(name))); ct != "" {

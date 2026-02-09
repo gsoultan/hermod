@@ -1,4 +1,6 @@
-import { TextInput, Stack, Group, Tabs, FileButton, Button, Divider, Checkbox, PasswordInput, NumberInput, Fieldset, Select, Text } from '@mantine/core';import { useState } from 'react';import { IconCloud, IconFileImport, IconLink, IconServer, IconUpload } from '@tabler/icons-react';
+import { TextInput, Stack, Group, Tabs, FileButton, Button, Divider, Checkbox, PasswordInput, NumberInput, Fieldset, Select, Text } from '@mantine/core';
+import { useState } from 'react';
+import { IconCloud, IconFileImport, IconLink, IconServer, IconUpload } from '@tabler/icons-react';
 interface FileSourceConfigProps {
   config: Record<string, any>;
   updateConfig: (key: string, value: any) => void;
@@ -139,6 +141,12 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
                 placeholder="*.csv" 
                 value={config.pattern || ''} 
                 onChange={(e) => updateConfig('pattern', e.target.value)} 
+              />
+              <Checkbox 
+                label="Use SFTP (SSH)" 
+                checked={config.use_sftp === 'true'} 
+                onChange={(e) => updateConfig('use_sftp', e.target.checked ? 'true' : 'false')}
+                description="Enable SFTP over SSH instead of plain FTP"
               />
             </Stack>
           </Fieldset>

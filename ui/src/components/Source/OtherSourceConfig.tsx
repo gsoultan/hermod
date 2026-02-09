@@ -1,4 +1,4 @@
-import { TextInput, Stack, Group, Select, JsonInput, Text, Divider, Button, Badge, List, Paper, Box } from '@mantine/core';
+import { TextInput, Stack, Group, Select, JsonInput, Text, Divider, Button, Badge, List, Paper, Box, Fieldset, SimpleGrid } from '@mantine/core';
 import { CronInput } from '../CronInput';
 import { SQLQueryBuilder } from '../SQLQueryBuilder';
 import { GenerateToken } from '../GenerateToken';
@@ -105,6 +105,27 @@ export function OtherSourceConfig({ config, updateConfig, sourceType, allSources
                 setBuilderOpened(false);
               }}
             />
+
+            <Divider my="sm" label="Submission Parameters" labelPosition="left" />
+            <Fieldset radius="md" legend="Parameters to include with submissions">
+              <Stack gap="sm">
+                <Text size="xs" c="dimmed">These parameters are merged into the submitted payload by the server and/or client embed.</Text>
+                <TextInput 
+                  label="Include Query Params (comma-separated keys)"
+                  placeholder="utm_source, campaign, user_id"
+                  value={config.form_param_keys || ''}
+                  onChange={(e) => updateConfig('form_param_keys', e.target.value)}
+                />
+                <JsonInput 
+                  label="Extra Params (JSON)"
+                  placeholder='{ "app": "marketing-site", "channel": "lead" }'
+                  value={config.form_extra_params || ''}
+                  onChange={(val) => updateConfig('form_extra_params', val)}
+                  minRows={6}
+                  formatOnBlur
+                />
+              </Stack>
+            </Fieldset>
           </Stack>
         )}
 
@@ -365,18 +386,18 @@ export function OtherSourceConfig({ config, updateConfig, sourceType, allSources
           value={config.subprotocols} 
           onChange={(e) => updateConfig('subprotocols', e.target.value)} 
         />
-        <Group grow>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <TextInput label="Connect Timeout" placeholder="10s" value={config.connect_timeout} onChange={(e) => updateConfig('connect_timeout', e.target.value)} />
           <TextInput label="Read Timeout" placeholder="10s" value={config.read_timeout} onChange={(e) => updateConfig('read_timeout', e.target.value)} />
-        </Group>
-        <Group grow>
+        </SimpleGrid>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <TextInput label="Heartbeat Interval" placeholder="30s" value={config.heartbeat_interval} onChange={(e) => updateConfig('heartbeat_interval', e.target.value)} />
           <TextInput label="Reconnect Base" placeholder="1s" value={config.reconnect_base} onChange={(e) => updateConfig('reconnect_base', e.target.value)} />
-        </Group>
-        <Group grow>
+        </SimpleGrid>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <TextInput label="Reconnect Max" placeholder="30s" value={config.reconnect_max} onChange={(e) => updateConfig('reconnect_max', e.target.value)} />
           <TextInput label="Max Message Bytes" placeholder="1048576" value={config.max_message_bytes} onChange={(e) => updateConfig('max_message_bytes', e.target.value)} />
-        </Group>
+        </SimpleGrid>
       </Stack>
     );
   }

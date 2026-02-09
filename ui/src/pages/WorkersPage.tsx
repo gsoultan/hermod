@@ -1,10 +1,11 @@
 import { IconEdit, IconPlus, IconSearch, IconServer, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
-import { Title, Table, Button, Group, Paper, Text, Box, Stack, Badge, TextInput, Pagination, ActionIcon } from '@mantine/core'
+import { Title, Table, Button, Group, Paper, Text, Box, Stack, Badge, TextInput, Pagination, ActionIcon, RingProgress, Tooltip, Center } from '@mantine/core'
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api'
 import { useNavigate } from '@tanstack/react-router'
-import type { Worker } from '../types'export function WorkersPage() {
+import type { Worker } from '../types'
+export function WorkersPage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -57,6 +58,50 @@ import type { Worker } from '../types'export function WorkersPage() {
           <Badge variant="dot" color={online ? 'green' : 'red'}>
             {online ? 'Online' : 'Offline'}
           </Badge>
+        </Table.Td>
+        <Table.Td>
+          {online ? (
+            <Group gap="xs">
+              <Tooltip label={`CPU Usage: ${Math.round((worker.cpu_usage || 0) * 100)}%`}>
+                <RingProgress
+                  size={40}
+                  thickness={4}
+                  roundCaps
+                  sections={[{ value: (worker.cpu_usage || 0) * 100, color: (worker.cpu_usage || 0) > 0.8 ? 'red' : 'blue' }]}
+                  label={
+                    <Center>
+                      <Text size="xs" fw={700} style={{ fontSize: '8px' }}>
+                        {Math.round((worker.cpu_usage || 0) * 100)}%
+                      </Text>
+                    </Center>
+                  }
+                />
+              </Tooltip>
+              <Text size="xs" c="dimmed">CPU</Text>
+            </Group>
+          ) : '-'}
+        </Table.Td>
+        <Table.Td>
+          {online ? (
+            <Group gap="xs">
+              <Tooltip label={`Memory Usage: ${Math.round((worker.memory_usage || 0) * 100)}%`}>
+                <RingProgress
+                  size={40}
+                  thickness={4}
+                  roundCaps
+                  sections={[{ value: (worker.memory_usage || 0) * 100, color: (worker.memory_usage || 0) > 0.8 ? 'orange' : 'teal' }]}
+                  label={
+                    <Center>
+                      <Text size="xs" fw={700} style={{ fontSize: '8px' }}>
+                        {Math.round((worker.memory_usage || 0) * 100)}%
+                      </Text>
+                    </Center>
+                  }
+                />
+              </Tooltip>
+              <Text size="xs" c="dimmed">Mem</Text>
+            </Group>
+          ) : '-'}
         </Table.Td>
         <Table.Td>
           {worker.host ? (
@@ -128,6 +173,8 @@ import type { Worker } from '../types'export function WorkersPage() {
               <Table.Tr>
                 <Table.Th>Name / ID</Table.Th>
                 <Table.Th>Status</Table.Th>
+                <Table.Th>CPU</Table.Th>
+                <Table.Th>Memory</Table.Th>
                 <Table.Th>Address</Table.Th>
                 <Table.Th>Description</Table.Th>
                 <Table.Th style={{ textAlign: 'right' }}>Actions</Table.Th>

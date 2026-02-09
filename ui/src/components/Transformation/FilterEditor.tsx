@@ -1,5 +1,7 @@
 import { IconPlus, IconTrash } from '@tabler/icons-react';
-import { Autocomplete, Button, Group, Select, Stack, Text, TextInput, ActionIcon } from '@mantine/core'export interface Condition {
+import { Autocomplete, Button, Group, Select, Stack, Text, ActionIcon } from '@mantine/core'
+import { TemplateField } from '../TemplateField'
+export interface Condition {
   field: string
   operator: string
   value: string
@@ -67,11 +69,11 @@ export function FilterEditor({ conditions = [], availableFields = [], onChange }
             <Text size="10px" c="dimmed">
               Value
             </Text>
-            <TextInput
-              placeholder="Value"
-              size="xs"
+            <TemplateField
+              placeholder="Value or click {x} to insert field"
               value={cond.value || ''}
-              onChange={(e) => updateCondition(index, 'value', e.target.value)}
+              onChange={(val) => updateCondition(index, 'value', val)}
+              availableFields={availableFields}
             />
           </Stack>
           <ActionIcon color="red" variant="subtle" onClick={() => removeCondition(index)} mb={2} aria-label="Remove condition">

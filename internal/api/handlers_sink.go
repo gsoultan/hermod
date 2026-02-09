@@ -2,11 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/user/hermod/internal/engine"
 	"github.com/user/hermod/internal/storage"
+	"github.com/user/hermod/pkg/sqlutil"
 )
 
 func (s *Server) registerSinkRoutes(mux *http.ServeMux) {
@@ -17,9 +20,11 @@ func (s *Server) registerSinkRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/sinks/test", s.editorOnly(s.testSink))
 	mux.Handle("POST /api/sinks/discover/databases", s.editorOnly(s.discoverSinkDatabases))
 	mux.Handle("POST /api/sinks/discover/tables", s.editorOnly(s.discoverSinkTables))
+	mux.Handle("POST /api/sinks/discover/columns", s.editorOnly(s.discoverSinkColumns))
 	mux.Handle("POST /api/sinks/sample", s.editorOnly(s.sampleSinkTable))
 	mux.Handle("POST /api/sinks/browse", s.editorOnly(s.browseSinkTable))
 	mux.Handle("POST /api/sinks/query", s.editorOnly(s.querySink))
+	mux.Handle("POST /api/sinks/truncate", s.editorOnly(s.truncateSinkTable))
 	mux.Handle("POST /api/sinks/smtp/preview", s.editorOnly(s.previewSmtpTemplate))
 	mux.Handle("POST /api/sinks/smtp/validate", s.editorOnly(s.validateEmail))
 	mux.Handle("DELETE /api/sinks/{id}", s.editorOnly(s.deleteSink))
@@ -241,6 +246,27 @@ func (s *Server) discoverSinkTables(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(tables)
 }
 
+func (s *Server) discoverSinkColumns(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Sink  storage.Sink `json:"sink"`
+		Table string       `json:"table"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg := engine.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
+	columns, err := s.registry.DiscoverSinkColumns(r.Context(), cfg, req.Table)
+	if err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(columns)
+}
+
 func (s *Server) sampleSinkTable(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Sink  storage.Sink `json:"sink"`
@@ -312,6 +338,127 @@ func (s *Server) querySink(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(results)
+}
+
+func (s *Server) truncateSinkTable(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Sink  storage.Sink `json:"sink"`
+		Table string       `json:"table"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Table == "" || req.Sink.Type == "" {
+		s.jsonError(w, "Missing sink type or table", http.StatusBadRequest)
+		return
+	}
+
+	// RBAC: editorOnly wrapper already applied.
+
+	// Build a dialect-appropriate truncate statement
+	stmt := ""
+	typeName := strings.ToLower(req.Sink.Type)
+	target := req.Table
+
+	// Helper to quote identifiers
+	quote := func(driver, name string) (string, error) {
+		return sqlutil.QuoteIdent(driver, name)
+	}
+
+	switch typeName {
+	case "postgres", "yugabyte":
+		q, err := quote("pgx", target)
+		if err != nil {
+			s.jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		stmt = fmt.Sprintf("TRUNCATE TABLE %s", q)
+	case "mysql", "mariadb":
+		q, err := quote("mysql", target)
+		if err != nil {
+			s.jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		stmt = fmt.Sprintf("TRUNCATE TABLE %s", q)
+	case "mssql":
+		q, err := quote("mssql", target)
+		if err != nil {
+			s.jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		stmt = fmt.Sprintf("TRUNCATE TABLE %s", q)
+	case "sqlite":
+		q, err := quote("sqlite", target)
+		if err != nil {
+			s.jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		stmt = fmt.Sprintf("DELETE FROM %s", q)
+	case "oracle":
+		q, err := quote("oracle", target)
+		if err != nil {
+			s.jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		stmt = fmt.Sprintf("TRUNCATE TABLE %s", q)
+	case "clickhouse":
+		full := target
+		if !strings.Contains(target, ".") {
+			db := getString(req.Sink.Config, "database")
+			if db != "" {
+				full = db + "." + target
+			}
+		}
+		q, err := quote("clickhouse", full)
+		if err != nil {
+			s.jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		stmt = fmt.Sprintf("TRUNCATE TABLE %s", q)
+	case "snowflake":
+		q, err := quote("snowflake", target)
+		if err != nil {
+			s.jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		stmt = fmt.Sprintf("TRUNCATE TABLE %s", q)
+	case "cassandra":
+		full := target
+		if !strings.Contains(target, ".") {
+			ks := getString(req.Sink.Config, "keyspace")
+			if ks != "" {
+				full = ks + "." + target
+			}
+		}
+		q, err := quote("cassandra", full)
+		if err != nil {
+			s.jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		// CQL supports TRUNCATE without TABLE
+		stmt = fmt.Sprintf("TRUNCATE %s", q)
+	default:
+		s.jsonError(w, "Unsupported sink type for truncate: "+req.Sink.Type, http.StatusBadRequest)
+		return
+	}
+
+	cfg := engine.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
+	if err := s.registry.ExecSinkStatement(r.Context(), cfg, stmt); err != nil {
+		s.jsonError(w, "Truncate failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// helper to read string from string map
+func getString(m map[string]string, key string) string {
+	if v, ok := m[key]; ok {
+		return v
+	}
+	return ""
 }
 
 func (s *Server) previewSmtpTemplate(w http.ResponseWriter, r *http.Request) {

@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
 	pkgengine "github.com/user/hermod/pkg/engine"
@@ -260,7 +262,7 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 				if w.workerGUID != "" && wf.WorkerID == w.workerGUID {
 					assigned = true
 				}
-			} else if w.isAssigned(wf.ID) {
+			} else if w.isAssigned(wf.ID, wf.OwnerID) {
 				assigned = true
 			}
 			if assigned {
@@ -320,7 +322,7 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 			assigned = true
 		}
 	} else {
-		if w.isAssigned(wf.ID) {
+		if w.isAssigned(wf.ID, wf.OwnerID) {
 			assigned = true
 		}
 	}
@@ -500,7 +502,7 @@ func (w *Worker) stopLeaseRenewal(workflowID string) {
 	w.renewMu.Unlock()
 }
 
-func (w *Worker) isAssigned(resourceID string) bool {
+func (w *Worker) isAssigned(resourceID string, currentOwnerID string) bool {
 	if w.workerGUID == "" {
 		// Legacy behavior if no GUID: simple ID-based sharding
 		if w.totalWorkers <= 1 {
@@ -536,27 +538,32 @@ func (w *Worker) isAssigned(resourceID string) bool {
 		return true
 	}
 
-	// 1. Resource Check
-	// Actually, for stability, we use a weighted distribution based on available capacity.
-	// For simplicity in this implementation, we use the hash to pick a candidate, but we "shift"
-	// the candidates based on their load.
-
-	// Better approach: Rendezvous Hashing or just simple load-balanced selection.
-	// We'll use a simplified version: calculate a score for each worker for this resourceID.
-	// Score = hash(workerID + resourceID) * (1.0 - CPUUsage)
-
+	// Rendezvous Hashing (Highest Random Weight) with Resource-Aware Weights and Hysteresis
 	var bestID string
 	var maxScore float64 = -1.0
 
 	for _, wrk := range online {
 		h := fnv.New32a()
-		h.Write([]byte(wrk.ID + resourceID))
+		h.Write([]byte(wrk.ID + ":" + resourceID))
 
-		// Weight by inverse of CPU usage (more free CPU = higher weight)
-		// We use 1.1 - usage to avoid zero weight and give a baseline.
-		weight := 1.1 - wrk.CPUUsage
-		if weight < 0.1 {
-			weight = 0.1
+		// Combined weight from available CPU and Memory
+		// Higher free resources = higher weight
+		cpuWeight := 1.1 - wrk.CPUUsage
+		memWeight := 1.1 - wrk.MemoryUsage
+
+		// Ensure weight is positive
+		if cpuWeight < 0.05 {
+			cpuWeight = 0.05
+		}
+		if memWeight < 0.05 {
+			memWeight = 0.05
+		}
+
+		weight := cpuWeight * memWeight
+
+		// Hysteresis: Give a 15% bonus to the current owner to prevent flapping due to minor load changes
+		if currentOwnerID != "" && wrk.ID == currentOwnerID {
+			weight *= 1.15
 		}
 
 		score := float64(h.Sum32()) * weight
@@ -595,25 +602,41 @@ func (w *Worker) hasResourceConfigChanged(workflowID string, sourceMap map[strin
 }
 
 func (w *Worker) getMetrics() (float64, float64) {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	// Memory usage in MB
-	memMB := float64(m.Alloc) / 1024 / 1024
-
-	// CPU usage proxy: Use a combination of NumGoroutine and NumCPU to get a load factor
-	// In production, one would use gopsutil or read /proc/stat
-	numCPU := float64(runtime.NumCPU())
-	numGoroutine := float64(runtime.NumGoroutine())
-
-	// Load factor: active goroutines per CPU.
-	// We normalize it so that 100 goroutines per core = 100% load (1.0)
-	cpuLoad := numGoroutine / (numCPU * 100.0)
-	if cpuLoad > 1.0 {
-		cpuLoad = 1.0
+	// Memory usage
+	v, err := mem.VirtualMemory()
+	memUsage := 0.0
+	if err == nil {
+		memUsage = v.UsedPercent / 100.0
+	} else {
+		// Fallback to runtime.MemStats if gopsutil fails
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		// Assuming 8GB total if we can't get it, or just use Alloc as a ratio
+		memUsage = float64(m.Alloc) / (1024 * 1024 * 1024 * 8) // 8GB baseline
 	}
 
-	return cpuLoad, memMB
+	// CPU usage
+	// We use a short interval to get a real reading without blocking the heartbeat too long.
+	// 100ms is usually enough for a decent delta.
+	c, err := cpu.Percent(100*time.Millisecond, false)
+	cpuUsage := 0.0
+	if err == nil && len(c) > 0 {
+		cpuUsage = c[0] / 100.0
+	} else {
+		// Fallback to goroutine-based proxy
+		numCPU := float64(runtime.NumCPU())
+		numGoroutine := float64(runtime.NumGoroutine())
+		cpuUsage = numGoroutine / (numCPU * 100.0)
+	}
+
+	if cpuUsage > 1.0 {
+		cpuUsage = 1.0
+	}
+	if memUsage > 1.0 {
+		memUsage = 1.0
+	}
+
+	return cpuUsage, memUsage
 }
 
 func (w *Worker) checkHealth(ctx context.Context) {
@@ -624,8 +647,8 @@ func (w *Worker) checkHealth(ctx context.Context) {
 
 	// Update worker heartbeat
 	if w.workerGUID != "" {
-		cpu, mem := w.getMetrics()
-		if err := w.storage.UpdateWorkerHeartbeat(ctx, w.workerGUID, cpu, mem); err != nil {
+		cpuUsage, memUsage := w.getMetrics()
+		if err := w.storage.UpdateWorkerHeartbeat(ctx, w.workerGUID, cpuUsage, memUsage); err != nil {
 			log.Printf("Worker: failed to update heartbeat: %v", err)
 		}
 	}
@@ -674,7 +697,7 @@ func (w *Worker) checkSourceHealth(ctx context.Context, src storage.Source) {
 		if w.workerGUID != "" && src.WorkerID == w.workerGUID {
 			assigned = true
 		}
-	} else if w.isAssigned(src.ID) {
+	} else if w.isAssigned(src.ID, src.WorkerID) {
 		assigned = true
 	}
 
@@ -722,7 +745,7 @@ func (w *Worker) checkSinkHealth(ctx context.Context, snk storage.Sink) {
 		if w.workerGUID != "" && snk.WorkerID == w.workerGUID {
 			assigned = true
 		}
-	} else if w.isAssigned(snk.ID) {
+	} else if w.isAssigned(snk.ID, snk.WorkerID) {
 		assigned = true
 	}
 

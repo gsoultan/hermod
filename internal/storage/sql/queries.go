@@ -39,6 +39,7 @@ const (
 	QueryInitOutboxTable             = "InitOutboxTable"
 	QueryInitWorkspacesTable         = "InitWorkspacesTable"
 	QueryInitPluginsTable            = "InitPluginsTable"
+	QueryInitApprovalsTable          = "InitApprovalsTable"
 
 	// Upserts
 	QueryUpdateNodeState = "UpdateNodeState"
@@ -170,6 +171,14 @@ const (
 	QueryUpdatePlugin    = "UpdatePlugin"
 	QueryInstallPlugin   = "InstallPlugin"
 	QueryUninstallPlugin = "UninstallPlugin"
+
+	// Approvals
+	QueryListApprovals        = "ListApprovals"
+	QueryCountApprovals       = "CountApprovals"
+	QueryCreateApproval       = "CreateApproval"
+	QueryGetApproval          = "GetApproval"
+	QueryUpdateApprovalStatus = "UpdateApprovalStatus"
+	QueryDeleteApproval       = "DeleteApproval"
 )
 
 var commonQueries = map[string]string{
@@ -371,6 +380,20 @@ var commonQueries = map[string]string{
             installed BOOLEAN DEFAULT FALSE,
             installed_at TIMESTAMP
         )`,
+	QueryInitApprovalsTable: `CREATE TABLE IF NOT EXISTS approvals (
+			id TEXT PRIMARY KEY,
+			workflow_id TEXT NOT NULL,
+			node_id TEXT NOT NULL,
+			message_id TEXT NOT NULL,
+			payload BLOB,
+			metadata TEXT,
+			data TEXT,
+			status TEXT DEFAULT 'pending',
+			created_at TIMESTAMP NOT NULL,
+			processed_at TIMESTAMP,
+			processed_by TEXT,
+			notes TEXT
+		)`,
 
 	QueryUpdateNodeState: "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES (?, ?, ?) ON CONFLICT(workflow_id, node_id) DO UPDATE SET state = excluded.state",
 	QuerySaveSetting:     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -482,6 +505,14 @@ var commonQueries = map[string]string{
 	QueryUpdatePlugin:     "UPDATE plugins SET name = ?, description = ?, author = ?, stars = ?, category = ?, certified = ?, type = ?, wasm_url = ?, installed = ?, installed_at = ? WHERE id = ?",
 	QueryInstallPlugin:    "UPDATE plugins SET installed = TRUE, installed_at = ? WHERE id = ?",
 	QueryUninstallPlugin:  "UPDATE plugins SET installed = FALSE, installed_at = NULL WHERE id = ?",
+
+	// Approvals
+	QueryListApprovals:        "SELECT id, workflow_id, node_id, message_id, payload, metadata, data, status, created_at, processed_at, processed_by, notes FROM approvals",
+	QueryCountApprovals:       "SELECT COUNT(*) FROM approvals",
+	QueryCreateApproval:       "INSERT INTO approvals (id, workflow_id, node_id, message_id, payload, metadata, data, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryGetApproval:          "SELECT id, workflow_id, node_id, message_id, payload, metadata, data, status, created_at, processed_at, processed_by, notes FROM approvals WHERE id = ?",
+	QueryUpdateApprovalStatus: "UPDATE approvals SET status = ?, processed_at = ?, processed_by = ?, notes = ? WHERE id = ?",
+	QueryDeleteApproval:       "DELETE FROM approvals WHERE id = ?",
 }
 
 var driverOverrides = map[string]map[string]string{

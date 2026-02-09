@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -175,6 +176,7 @@ type StatusUpdate struct {
 	SinkBufferFill   map[string]float64     `json:"sink_buffer_fill,omitempty"`
 	AverageDQScore   float64                `json:"average_dq_score,omitempty"`
 	AvgLatency       time.Duration          `json:"avg_latency,omitempty"`
+	PendingApprovals map[string]uint64      `json:"pending_approvals,omitempty"`
 }
 
 // Config holds configuration for the Engine.
@@ -531,11 +533,29 @@ func (e *Engine) RecordTraceStep(ctx context.Context, msg hermod.Message, nodeID
 		}
 	}
 
+	// Prepare trace data. Use consistent representation from MarshalJSON for CDC and non-CDC.
+	var dataCopy map[string]interface{}
+	if dm, ok := msg.(*message.DefaultMessage); ok {
+		msgJSON, _ := dm.MarshalJSON()
+		_ = json.Unmarshal(msgJSON, &dataCopy)
+	} else {
+		// Fallback for other message types
+		baseData := msg.Data()
+		if baseData != nil {
+			dataCopy = make(map[string]interface{}, len(baseData))
+			for k, v := range baseData {
+				dataCopy[k] = v
+			}
+		} else {
+			dataCopy = make(map[string]interface{})
+		}
+	}
+
 	step := hermod.TraceStep{
 		NodeID:    nodeID,
 		Timestamp: start,
 		Duration:  time.Since(start),
-		Data:      msg.Data(),
+		Data:      dataCopy,
 	}
 
 	if err != nil {

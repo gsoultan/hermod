@@ -343,6 +343,41 @@ func (m *MySQLSource) DiscoverTables(ctx context.Context) ([]string, error) {
 	return tables, nil
 }
 
+func (m *MySQLSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
+	if m.db == nil {
+		if err := m.init(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	query := `
+		SELECT COLUMN_NAME, DATA_TYPE, COALESCE(IS_NULLABLE = 'YES', 0), 
+		       COALESCE(COLUMN_KEY = 'PRI', 0), COALESCE(EXTRA = 'auto_increment', 0), COLUMN_DEFAULT 
+		FROM INFORMATION_SCHEMA.COLUMNS 
+		WHERE TABLE_NAME = ? AND TABLE_SCHEMA = DATABASE() 
+		ORDER BY ORDINAL_POSITION`
+
+	rows, err := m.db.QueryContext(ctx, query, table)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var columns []hermod.ColumnInfo
+	for rows.Next() {
+		var col hermod.ColumnInfo
+		var def *string
+		if err := rows.Scan(&col.Name, &col.Type, &col.IsNullable, &col.IsPK, &col.IsIdentity, &def); err != nil {
+			return nil, err
+		}
+		if def != nil {
+			col.Default = *def
+		}
+		columns = append(columns, col)
+	}
+	return columns, nil
+}
+
 func (m *MySQLSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	if m.db == nil {
 		if err := m.init(ctx); err != nil {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { 
   TextInput, Select, Stack, Alert, Divider, Text, Group, ActionIcon, 
-  Button, Code, List, Autocomplete, JsonInput, Badge, Grid,
+  Button, Code, List, Autocomplete, JsonInput, Badge, Grid, SimpleGrid,
   PasswordInput, NumberInput, Card, Tabs, ScrollArea, Box,
   Tooltip as MantineTooltip,
   Switch, Textarea, Modal, TagsInput
@@ -39,7 +39,8 @@ const QuickActions = lazy(() =>
 const SQLQueryBuilder = lazy(() =>
   import('./SQLQueryBuilder').then((m) => ({ default: m.SQLQueryBuilder }))
 );
-import { IconArrowRight, IconCloud, IconCode, IconDatabase, IconFunction, IconHelpCircle, IconInfoCircle, IconList, IconPlayerPlay, IconPlus, IconPuzzle, IconSearch, IconSettings, IconTrash, IconVariable } from '@tabler/icons-react';
+import { IconArrowRight, IconCloud, IconCode, IconDatabase, IconFunction, IconHelpCircle, IconInfoCircle, IconList, IconPlayerPlay, IconPlus, IconPuzzle, IconRefresh, IconSearch, IconSettings, IconTrash, IconVariable } from '@tabler/icons-react';
+import { TemplateField } from './TemplateField';
 interface TransformationFormProps {
   selectedNode: any;
   updateNodeConfig: (nodeId: string, config: any, replace?: boolean) => void;
@@ -48,11 +49,13 @@ interface TransformationFormProps {
   incomingPayload?: any;
   sources?: any[];
   sinkSchema?: any;
+  onRefreshFields?: () => void;
+  isRefreshing?: boolean;
 }
 
-export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimulation: _onRunSimulation, availableFields = [], incomingPayload, sources = [], sinkSchema }: TransformationFormProps) {
+export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimulation: _onRunSimulation, availableFields = [], incomingPayload, sources = [], sinkSchema, onRefreshFields, isRefreshing }: TransformationFormProps) {
   const [testing, setTesting] = useState(false);
-  const { fields: targetSchema, loading: loadingTarget } = useTargetSchema({ sinkSchema });
+  const { fields: targetSchema, loading: loadingTarget, refetch: refetchTarget } = useTargetSchema({ sinkSchema });
 
   const [previewResult, setPreviewResult] = useState<any>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -777,6 +780,64 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     </Stack>
   );
 
+  const renderPivotEditor = () => (
+    <Stack gap="xs">
+      <TextInput
+        label="Index Keys (Comma separated)"
+        placeholder="id,date"
+        value={selectedNode.data.indexKeys || ''}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { indexKeys: e.currentTarget.value })}
+        required
+      />
+      <TextInput
+        label="Attribute Field"
+        placeholder="attribute"
+        value={selectedNode.data.attributeField || 'attribute'}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { attributeField: e.currentTarget.value })}
+      />
+      <TextInput
+        label="Value Field"
+        placeholder="value"
+        value={selectedNode.data.valueField || 'value'}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { valueField: e.currentTarget.value })}
+      />
+      <Select
+        label="Aggregation Strategy"
+        data={[{ value: 'first', label: 'First' }, { value: 'concat', label: 'Concat' }]}
+        value={selectedNode.data.strategy || 'first'}
+        onChange={(val) => updateNodeConfig(selectedNode.id, { strategy: val || 'first' })}
+      />
+      <TextInput
+        label="Target Field (optional)"
+        placeholder="pivoted"
+        value={selectedNode.data.targetField || ''}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.currentTarget.value })}
+      />
+    </Stack>
+  );
+
+  const renderMulticastEditor = () => (
+    <Stack gap="xs">
+      <Alert icon={<IconInfoCircle size="1rem" />} color="blue">
+        Configure branches to clone the message. Each branch can select fields and optionally prefix them.
+      </Alert>
+      <Textarea
+        label="Branches (JSON)"
+        placeholder='[{"select":["a","b"],"prefix":"x_"}, {"select":["c"]}]'
+        value={selectedNode.data.branches || ''}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { branches: e.currentTarget.value })}
+        minRows={4}
+        autosize
+      />
+      <TextInput
+        label="Target Field"
+        placeholder="_fanout"
+        value={selectedNode.data.targetField || '_fanout'}
+        onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.currentTarget.value })}
+      />
+    </Stack>
+  );
+
   const renderRowCountEditor = () => (
     <Stack gap="xs">
       <TextInput
@@ -967,6 +1028,13 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
               <Group gap="xs">
                 <IconList size="1rem" color="var(--mantine-color-gray-6)" />
                 <Text size="xs" fw={700}>AVAILABLE FIELDS</Text>
+                {onRefreshFields && (
+                  <MantineTooltip label="Refresh sample data and fields" position="right">
+                    <ActionIcon variant="subtle" size="xs" onClick={() => { onRefreshFields(); refetchTarget(); }} color="blue" loading={isRefreshing}>
+                      <IconRefresh size="0.8rem" />
+                    </ActionIcon>
+                  </MantineTooltip>
+                )}
               </Group>
               <Badge size="xs" variant="light">{(availableFields || []).length}</Badge>
             </Group>
@@ -1406,6 +1474,8 @@ end`}
           {transType === 'fuzzy_lookup' && renderFuzzyLookupEditor()}
           {transType === 'term_extraction' && renderTermExtractionEditor()}
           {transType === 'unpivot' && renderUnpivotEditor()}
+          {transType === 'pivot' && renderPivotEditor()}
+          {transType === 'multicast' && renderMulticastEditor()}
           {transType === 'row_count' && renderRowCountEditor()}
           {transType === 'execute_sql' && renderExecuteSQLEditor()}
           {transType === 'scd' && renderSCDEditor()}
@@ -1565,32 +1635,26 @@ end`}
                     />
                   </Group>
                   <Divider label="Or use a full Query Template" labelPosition="center" />
-                  <Textarea
+                  <TemplateField
                     label="Query Template (SQL)"
-                    placeholder="SELECT * FROM users WHERE tenant_id = {{ source.tenant }} AND status = {{ 'active' }}"
+                    placeholder="SELECT * FROM users WHERE tenant_id = {{ .tenant_id }} AND status = 'active'"
                     value={selectedNode.data.queryTemplate || ''}
-                    onChange={(e) => updateNodeConfig(selectedNode.id, { queryTemplate: e.currentTarget.value })}
-                    autosize
-                    minRows={8}
-                    maxRows={20}
-                    styles={{ input: { fontFamily: 'monospace', fontSize: '13px' } }}
-                    description="When provided, Hermod executes this query with safe parameterization of {{ }} tokens. For MongoDB sources, use Where Clause instead."
+                    onChange={(val) => updateNodeConfig(selectedNode.id, { queryTemplate: val })}
+                    availableFields={availableFields}
+                    multiline
                   />
                 </Stack>
               </Tabs.Panel>
 
               <Tabs.Panel value="advanced">
                 <Stack gap="sm">
-                  <Textarea
+                  <TemplateField
                     label="Where Clause (SQL or MongoDB JSON)"
-                    placeholder="e.g. status = 'active' AND id = {{user_id}}"
+                    placeholder="status = 'active' AND id = {{ .user_id }}"
                     value={selectedNode.data.whereClause || ''}
-                    onChange={(e) => updateNodeConfig(selectedNode.id, { whereClause: e.target.value })}
-                    autosize
-                    minRows={3}
-                    maxRows={10}
-                    styles={{ input: { fontFamily: 'monospace', fontSize: '13px' } }}
-                    description="Overrides Table/Key Column if provided. Supports {{ field }} templates. For MongoDB, provide a JSON filter string."
+                    onChange={(val) => updateNodeConfig(selectedNode.id, { whereClause: val })}
+                    availableFields={availableFields}
+                    multiline
                   />
                   <Group grow align="flex-end">
                     <TextInput
@@ -2009,7 +2073,7 @@ end`}
           )}
 
           <Divider label="Error Handling" labelPosition="center" mt="xl" mb="md" />
-          <Group grow>
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
             <Select 
               label="On Error"
               description="Action to take when an error occurs during transformation."
@@ -2024,7 +2088,7 @@ end`}
               onChange={(e) => updateNodeConfig(selectedNode.id, { statusField: e.target.value })}
               description="Field to store success/error status."
             />
-          </Group>
+          </SimpleGrid>
         </Stack>
             </ScrollArea>
           </Box>

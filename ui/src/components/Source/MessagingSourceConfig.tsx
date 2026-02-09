@@ -1,4 +1,4 @@
-import { TextInput, Stack, Group, PasswordInput, Text } from '@mantine/core';
+import { TextInput, Stack, PasswordInput, Text, SimpleGrid } from '@mantine/core';
 
 interface MessagingSourceConfigProps {
   type: string;
@@ -13,10 +13,10 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
         <TextInput label="Brokers" placeholder="localhost:9092" value={config.brokers || ''} onChange={(e) => updateConfig('brokers', e.target.value)} required />
         <TextInput label="Topic" placeholder="topic" value={config.topic || ''} onChange={(e) => updateConfig('topic', e.target.value)} required />
         <TextInput label="Group ID" placeholder="hermod-consumer" value={config.group_id || ''} onChange={(e) => updateConfig('group_id', e.target.value)} />
-        <Group grow>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <TextInput label="Username" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
           <PasswordInput label="Password" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
-        </Group>
+        </SimpleGrid>
       </Stack>
     );
   }
@@ -26,10 +26,10 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
       <Stack gap="md">
         <TextInput label="NATS URL" placeholder="nats://localhost:4222" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
         <TextInput label="Subject" placeholder="events.>" value={config.subject || ''} onChange={(e) => updateConfig('subject', e.target.value)} required />
-        <Group grow>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <TextInput label="Queue Group" placeholder="hermod" value={config.queue || ''} onChange={(e) => updateConfig('queue', e.target.value)} />
           <TextInput label="Durable Name" placeholder="hermod-durable" value={config.durable_name || ''} onChange={(e) => updateConfig('durable_name', e.target.value)} />
-        </Group>
+        </SimpleGrid>
       </Stack>
     );
   }
@@ -45,18 +45,18 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
           updateConfig('topics', e.target.value);
           updateConfig('topic', e.target.value);
         }} required />
-        <Group grow>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <TextInput label="Client ID" placeholder="Optional" value={config.client_id || ''} onChange={(e) => updateConfig('client_id', e.target.value)} />
           <TextInput label="QoS" placeholder="0 | 1 | 2" value={config.qos || ''} onChange={(e) => updateConfig('qos', e.target.value)} />
-        </Group>
-        <Group grow>
+        </SimpleGrid>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <TextInput label="Username" placeholder="Optional" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
           <PasswordInput label="Password" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
-        </Group>
-        <Group grow>
+        </SimpleGrid>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <TextInput label="Keepalive (e.g., 30s)" placeholder="30s" value={config.keepalive || ''} onChange={(e) => updateConfig('keepalive', e.target.value)} />
           <TextInput label="Clean Session" placeholder="true | false" value={config.clean_session || ''} onChange={(e) => updateConfig('clean_session', e.target.value)} />
-        </Group>
+        </SimpleGrid>
         <TextInput label="TLS Insecure Skip Verify" placeholder="false" value={config.tls_insecure_skip_verify || ''} onChange={(e) => updateConfig('tls_insecure_skip_verify', e.target.value)} />
       </Stack>
     );

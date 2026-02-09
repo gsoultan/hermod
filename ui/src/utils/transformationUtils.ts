@@ -32,6 +32,33 @@ export const getValByPath = (obj: any, path: string) => {
   }, obj);
 };
 
+// Simple template resolver mirroring backend ResolveTemplate for UI simulation
+// Replaces tokens like {{.field.path}} with values from the payload. Also supports
+// calling basic expressions inside {{ ... }} by delegating to parseAndEvaluate when it
+// detects a function call (has parentheses at the end).
+export const resolveTemplateStr = (tpl: string, source: any): string => {
+  if (!tpl || typeof tpl !== 'string' || tpl.indexOf('{{') === -1) return String(tpl ?? '');
+  let out = tpl;
+  const re = /\{\{\s*([^}]+)\s*\}\}/g;
+  out = out.replace(re, (_m, inner: string) => {
+    const expr = String(inner || '').trim();
+    try {
+      // Function call (ends with ')') → evaluate
+      if (expr.endsWith(')')) {
+        const val = parseAndEvaluate(expr, source);
+        return val == null ? '' : String(val);
+      }
+      // Path reference (optionally starting with '.')
+      const p = expr.startsWith('.') ? expr.slice(1) : expr;
+      const v = getValByPath(source, p);
+      return v == null ? '' : String(v);
+    } catch {
+      return '';
+    }
+  });
+  return out;
+};
+
 export const setValByPath = (obj: any, path: string, val: any) => {
   if (!path || !obj) return;
   const parts = path.split('.');
@@ -237,7 +264,9 @@ export interface Condition {
 export const matchesCondition = (payload: any, cond: Condition): boolean => {
   const fieldVal = getValByPath(payload, cond.field);
   const op = cond.operator || '=';
-  const val = cond.value;
+  // Resolve value templates (e.g., {{.after.id}} or {{upper(source.name)}})
+  const rawVal = cond.value as any;
+  const val = typeof rawVal === 'string' && rawVal.includes('{{') ? resolveTemplateStr(rawVal, payload) : rawVal;
 
   if (['>', '>=', '<', '<='].includes(op)) {
     const v1 = Number(fieldVal);
@@ -259,6 +288,12 @@ export const matchesCondition = (payload: any, cond: Condition): boolean => {
     case '=': return s1 === s2;
     case '!=': return s1 !== s2;
     case 'contains': return s1.includes(s2);
+    case 'regex': {
+      try { return new RegExp(s2).test(s1); } catch { return false; }
+    }
+    case 'not_regex': {
+      try { return !new RegExp(s2).test(s1); } catch { return false; }
+    }
     case '>': return s1 > s2;
     case '>=': return s1 >= s2;
     case '<': return s1 < s2;
@@ -475,15 +510,26 @@ export const preparePayload = (payload: any) => {
       } else if (val && typeof val === 'object' && !Array.isArray(val)) {
         nested = val;
       }
-
-      if (key === 'after' && nested) {
-        Object.keys(nested).forEach(nk => {
-          if (!(nk in result)) {
-            result[nk] = nested[nk];
-          }
-        });
-      }
     });
+
+    // Enrich CDC metadata for simulator/UX: expose operation/table/schema at root
+    const hasCDC = !!(result as any).after || !!(result as any).before;
+    if (hasCDC) {
+      // Map Debezium-style op codes to readable operations if possible
+      const opVal = (result as any).operation || (result as any).op;
+      if (!('operation' in result) && typeof opVal === 'string') {
+        const map: Record<string, string> = { c: 'create', u: 'update', d: 'delete', r: 'snapshot' };
+        (result as any).operation = map[opVal] || opVal;
+      }
+      // Surface table/schema from common locations (e.g., source.table)
+      const src = (result as any).source || {};
+      if (!('table' in result) && typeof src.table === 'string') {
+        (result as any).table = src.table;
+      }
+      if (!('schema' in result) && typeof src.schema === 'string') {
+        (result as any).schema = src.schema;
+      }
+    }
   }
   return result;
 };

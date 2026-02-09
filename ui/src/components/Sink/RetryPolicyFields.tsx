@@ -1,4 +1,4 @@
-import { Group, TextInput } from '@mantine/core';
+import { TextInput, SimpleGrid } from '@mantine/core';
 
 interface RetryPolicyFieldsProps {
   maxRetries: string | number | undefined;
@@ -10,6 +10,7 @@ interface RetryPolicyFieldsProps {
 /**
  * Renders basic retry policy fields used by many sinks.
  * Keep this component small and focused; it is purely presentational.
+ * Balanced layout using SimpleGrid for consistent input alignment.
  */
 export function RetryPolicyFields({
   maxRetries,
@@ -18,7 +19,7 @@ export function RetryPolicyFields({
   onChangeRetryInterval,
 }: RetryPolicyFieldsProps) {
   return (
-    <Group grow>
+    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
       <TextInput
         label="Max Retries"
         placeholder="3"
@@ -33,6 +34,6 @@ export function RetryPolicyFields({
         value={retryInterval ?? ''}
         onChange={(e) => onChangeRetryInterval(e.currentTarget.value)}
       />
-    </Group>
+    </SimpleGrid>
   );
 }

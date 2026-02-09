@@ -4,6 +4,7 @@
 - **Keep it Simple**: Favor clear, readable code over clever or complex solutions.
 - **Consistency**: Follow existing patterns and naming conventions in the project.
 - **Small Commits**: Aim for small, logical changes that are easy to review.
+- **Production-Ready Changes**: Improvements and new features must be production-ready and fully implemented before merging; avoid partial or experimental commits.
 - **Avoid Bloat**: Keep implementations lean—avoid unnecessary abstractions, layers, and dependencies. Remove dead/unused code and prefer small, focused modules.
 - **Clean Code Patterns**:
     - **Avoid Deep Nesting**: Use guard clauses and early returns to handle edge cases and errors first. This keeps the "happy path" at the lowest indentation level and improves readability.
@@ -127,7 +128,9 @@
 - Always check for existing tests before making changes.
 - Ensure the project compiles after every change (both Go and UI).
 - Use `go run cmd/hermod/main.go --build-ui` to verify the full build and integration.
-- Update the README if any significant features are added or changed.
+- Always update `README.md` whenever new features are added or behavior changes.
+  - Add a short description, usage/enablement steps, and any relevant config flags, env vars, API endpoints, or UI paths.
+  - If UI is impacted, ensure `cd ui && bun run build` succeeds (or run `pwsh -File scripts/quick-verify.ps1`).
 
 - Lightweight verification (Windows): Prefer targeted, fast checks over repo-wide builds/tests.
   - Use the helper script `scripts/quick-verify.ps1` to build the main binary and run focused unit tests only (avoids `go test ./...` and `go build ./...`).

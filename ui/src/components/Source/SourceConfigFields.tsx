@@ -7,6 +7,7 @@ import { SapSourceConfig } from './SapSourceConfig';
 import { Dynamics365SourceConfig } from './Dynamics365SourceConfig';
 import { MainframeSourceConfig } from './MainframeSourceConfig';
 import { OtherSourceConfig } from './OtherSourceConfig';
+import { ExcelSourceConfig } from './ExcelSourceConfig';
 import type { FC } from 'react';
 import type { Source } from '../../types';
 
@@ -95,6 +96,17 @@ export const SourceConfigFields: FC<SourceConfigFieldsProps> = ({
         updateConfig={updateConfig} 
         handleFileUpload={handleFileUpload} 
         uploading={uploading} 
+      />
+    );
+  }
+
+  if (source.type === 'excel') {
+    return (
+      <ExcelSourceConfig 
+        config={source.config}
+        updateConfig={updateConfig}
+        handleFileUpload={handleFileUpload}
+        uploading={uploading}
       />
     );
   }

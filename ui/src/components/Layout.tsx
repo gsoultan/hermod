@@ -8,8 +8,10 @@ import { apiFetch, getRoleFromToken, getClaimsFromToken } from '../api';
 import { Spotlight, spotlight } from '@mantine/spotlight';
 import '@mantine/spotlight/styles.css';
 import { notifications } from '@mantine/notifications';
-import { IconActivity, IconBraces, IconChevronLeft, IconChevronRight, IconCloudUpload, IconDashboard, IconDatabase, IconGitBranch, IconGitMerge, IconHierarchy, IconHistory, IconList, IconLogout, IconMoon, IconPlus, IconPuzzle, IconRocket, IconSearch, IconServer, IconSettings, IconShieldLock, IconSun, IconUser, IconUsers, IconWorld } from '@tabler/icons-react';
+import { IconActivity, IconBraces, IconChevronLeft, IconChevronRight, IconCloudUpload, IconDashboard, IconDatabase, IconGitBranch, IconGitMerge, IconHierarchy, IconHistory, IconList, IconLogout, IconMoon, IconPlus, IconPuzzle, IconRocket, IconSearch, IconServer, IconSettings, IconShieldLock, IconSun, IconUser, IconUsers, IconWorld, IconChecklist } from '@tabler/icons-react';
 import type { Workflow } from '../types';
+import { ErrorBoundary } from './ErrorBoundary';
+
 interface LayoutProps {
   children: ReactNode;
 }
@@ -495,6 +497,7 @@ export function Layout({ children }: LayoutProps) {
               badge={dashboardStats?.active_sinks > 0 && <Badge size="xs" variant="filled" color="orange">{dashboardStats.active_sinks}</Badge>}
             />
             <SideLink to="/workflows" label="Workflows" icon={IconGitBranch} />
+            <SideLink to="/approvals" label="Approvals" icon={IconChecklist} />
             <SideLink to="/logs" label="Logs" icon={IconHistory} />
             <SideLink to="/schemas" label="Schema Registry" icon={IconBraces} />
             <SideLink to="/lineage" label="Data Lineage" icon={IconGitMerge} />
@@ -575,7 +578,9 @@ export function Layout({ children }: LayoutProps) {
               style: { pointerEvents: 'none' }
             }} 
           />
-          {children}
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
         </Box>
       </AppShell.Main>
     </AppShell>

@@ -1,7 +1,9 @@
 import { 
   ActionIcon, Button, Divider, Flex, Group, Paper, Select, Text, TextInput, Menu, Badge
 } from '@mantine/core';
-import { useShallow } from 'zustand/react/shallow';import { useWorkflowStore } from '../store/useWorkflowStore';import { IconActivity, IconChevronDown, IconDatabase, IconDeviceFloppy, IconEraser, IconFocus2, IconHistory, IconLayoutSidebarRight, IconPlayerPause, IconPlayerPlay, IconRefresh, IconSettings, IconShieldLock, IconSparkles, IconTerminal2, IconTimeline, IconZoomIn, IconZoomOut } from '@tabler/icons-react';
+import { useShallow } from 'zustand/react/shallow';
+import { useWorkflowStore } from '../store/useWorkflowStore';
+import { IconActivity, IconChevronDown, IconDatabase, IconDeviceFloppy, IconEraser, IconFocus2, IconHistory, IconLayoutSidebarRight, IconPlayerPause, IconPlayerPlay, IconRefresh, IconSettings, IconShieldLock, IconSparkles, IconTerminal2, IconTimeline, IconZoomIn, IconZoomOut } from '@tabler/icons-react';
 interface EditorToolbarProps {
   id: string;
   isNew: boolean;
@@ -11,6 +13,7 @@ interface EditorToolbarProps {
   onToggle: () => void;
   onRebuild: () => void;
   onClearTest: () => void;
+  onAutoLayout?: () => void;
   isSaving: boolean;
   isTesting: boolean;
   isToggling: boolean;
@@ -24,6 +27,7 @@ interface EditorToolbarProps {
 
 export function EditorToolbar({
   isNew, onSave, onTest, onConfigureTest, onToggle, onRebuild, onClearTest,
+  onAutoLayout,
   isSaving, isTesting, isToggling,
   zoom, zoomIn, zoomOut, fitView,
   vhosts, workers
@@ -110,6 +114,9 @@ export function EditorToolbar({
               </Button>
             </Menu.Target>
             <Menu.Dropdown>
+              <Menu.Item leftSection={<IconRefresh size="1rem" />} onClick={() => onAutoLayout?.()}>
+                Auto-Layout
+              </Menu.Item>
               <Menu.Item leftSection={<IconDatabase size="1rem" />} onClick={() => setSchemaRegistryOpened(true)}>
                 Schema Registry
               </Menu.Item>

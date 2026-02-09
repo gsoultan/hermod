@@ -895,6 +895,49 @@ func (p *PostgresSource) DiscoverTables(ctx context.Context) ([]string, error) {
 	return tables, nil
 }
 
+func (p *PostgresSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
+	if err := p.ensureConn(ctx); err != nil {
+		return nil, err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	query := `
+		SELECT column_name, data_type, COALESCE(is_nullable = 'YES', false), 
+		       EXISTS (
+		           SELECT 1 FROM information_schema.key_column_usage kcu
+		           JOIN information_schema.table_constraints tc ON kcu.constraint_name = tc.constraint_name
+		           WHERE (kcu.table_name = $1 OR kcu.table_schema || '.' || kcu.table_name = $1) 
+		           AND tc.constraint_type = 'PRIMARY KEY' AND kcu.column_name = columns.column_name
+		       ) as is_pk,
+		       COALESCE(is_identity = 'YES' OR column_default LIKE 'nextval%', false),
+		       column_default
+		FROM information_schema.columns
+		WHERE table_name = $1 OR table_schema || '.' || table_name = $1
+		ORDER BY ordinal_position`
+
+	rows, err := p.conn.Query(ctx, query, table)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query columns: %w", err)
+	}
+	defer rows.Close()
+
+	var columns []hermod.ColumnInfo
+	for rows.Next() {
+		var col hermod.ColumnInfo
+		var def *string
+		if err := rows.Scan(&col.Name, &col.Type, &col.IsNullable, &col.IsPK, &col.IsIdentity, &def); err != nil {
+			return nil, err
+		}
+		if def != nil {
+			col.Default = *def
+		}
+		columns = append(columns, col)
+	}
+	return columns, nil
+}
+
 func (p *PostgresSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	if err := p.ensureConn(ctx); err != nil {
 		return nil, err

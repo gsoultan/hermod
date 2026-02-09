@@ -5,9 +5,10 @@ import {
   Divider, ScrollArea, ActionIcon,
   SimpleGrid, Select, Checkbox, NumberInput,
   Grid, Badge, TagsInput, Code,
-  Radio, MultiSelect, Slider, Center, Tabs, Tooltip,
-  ThemeIcon, Title, Alert
-} from '@mantine/core';import { 
+  Radio, MultiSelect, Slider, Tabs, Tooltip,
+  ThemeIcon, Title, Alert, Table, FileInput, Image
+} from '@mantine/core';
+import { 
   DndContext, 
   closestCenter,
   KeyboardSensor,
@@ -26,12 +27,14 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { notifications } from '@mantine/notifications';import { IconAdjustments, IconArrowAutofitWidth, IconCalendar, IconChecklist, IconCopy, IconDeviceFloppy, IconEye, IconGripVertical, IconHash, IconHeading, IconInfoCircle, IconLayout, IconLayoutRows, IconLetterT, IconList, IconListCheck, IconMail, IconPhoto, IconPlus, IconSeparator, IconSettings, IconTrash } from '@tabler/icons-react';
+import { notifications } from '@mantine/notifications';
+import { IconAdjustments, IconArrowAutofitWidth, IconCalendar, IconChecklist, IconCopy, IconDeviceFloppy, IconEye, IconGripVertical, IconHash, IconHeading, IconInfoCircle, IconLayout, IconLayoutRows, IconLetterT, IconList, IconListCheck, IconMail, IconPhoto, IconPlus, IconSeparator, IconSettings, IconTrash } from '@tabler/icons-react';
 // --- Types ---
 
 export type FormFieldType = 
   | 'text' | 'number' | 'date' | 'datetime' | 'image' 
   | 'multiple' | 'one' | 'email' | 'date_range' | 'scale'
+  | 'table'
   | 'heading' | 'text_block' | 'divider' | 'page_break';
 
 export interface FormFieldItem {
@@ -54,6 +57,22 @@ export interface FormFieldItem {
   end_label?: string;
   section?: string;
   width?: 'auto' | 'half' | 'full';
+  // Advanced layout (overrides width when set)
+  colSpan?: number; // 1..12
+  // Conditional visibility
+  dependsOn?: string; // name of the field this depends on
+  operator?: 'eq' | 'ne' | 'gt' | 'lt' | 'includes';
+  value?: string | number | boolean;
+  // Table configuration (for type === 'table')
+  table?: {
+    bordered?: boolean;
+    columns: Array<{ 
+      key: string; 
+      label: string; 
+      type?: 'text' | 'number' | 'date' | 'datetime' | 'timestamp' | 'select' | 'one' | 'multiple';
+      options?: string[]; // for select/one/multiple
+    }>;
+  };
   content?: string;
   level?: 1 | 2 | 3;
 }
@@ -113,6 +132,7 @@ function SortableFieldItem({
       case 'one': return <IconList size="1.2rem" />;
       case 'email': return <IconMail size="1.2rem" />;
       case 'scale': return <IconArrowAutofitWidth size="1.2rem" />;
+      case 'table': return <IconLayout size="1.2rem" />;
       case 'heading': return <IconHeading size="1.2rem" />;
       case 'text_block': return <IconLetterT size="1.2rem" />;
       case 'divider': return <IconSeparator size="1.2rem" />;
@@ -346,6 +366,7 @@ export function FormLayoutBuilder({
                     {paletteItem('multiple', 'Multiple Choice', <IconListCheck size="0.9rem" />)}
                     {paletteItem('image', 'File Upload', <IconPhoto size="0.9rem" />)}
                     {paletteItem('scale', 'Linear Scale', <IconArrowAutofitWidth size="0.9rem" />)}
+                    {paletteItem('table', 'Table (rows x columns)', <IconLayout size="0.9rem" />)}
                   </SimpleGrid>
                 </Box>
 
@@ -569,6 +590,63 @@ export function FormLayoutBuilder({
                           )}
                         </>
                       )}
+
+                      {selectedField.type === 'table' && (
+                        <Stack gap="sm">
+                          <Group justify="space-between">
+                            <Text fw={600} size="sm">Table Columns</Text>
+                            <Button size="compact-xs" variant="light" onClick={() => {
+                              const cols = selectedField.table?.columns || [];
+                              const id = Math.random().toString(36).slice(2,7);
+                              updateField(selectedField.id, { table: { bordered: selectedField.table?.bordered, columns: [...cols, { key: `col_${id}`, label: 'Column', type: 'text' }] } });
+                            }}>Add Column</Button>
+                          </Group>
+                          <Stack gap={6}>
+                            {(selectedField.table?.columns || []).map((c, idx) => (
+                              <Group key={idx} align="flex-end" gap="xs">
+                                <TextInput label="Key" value={c.key} onChange={(e) => {
+                                  const cols = [...(selectedField.table?.columns || [])];
+                                  cols[idx] = { ...cols[idx], key: e.target.value };
+                                  updateField(selectedField.id, { table: { bordered: selectedField.table?.bordered, columns: cols } });
+                                }} />
+                                <TextInput label="Label" value={c.label} onChange={(e) => {
+                                  const cols = [...(selectedField.table?.columns || [])];
+                                  cols[idx] = { ...cols[idx], label: e.target.value };
+                                  updateField(selectedField.id, { table: { bordered: selectedField.table?.bordered, columns: cols } });
+                                }} />
+                                <Select label="Type" data={[ 'text','number','date','datetime','timestamp','select','one','multiple' ]} value={c.type || 'text'} onChange={(val) => {
+                                  const cols = [...(selectedField.table?.columns || [])];
+                                  cols[idx] = { ...cols[idx], type: (val as any) || 'text' };
+                                  updateField(selectedField.id, { table: { bordered: selectedField.table?.bordered, columns: cols } });
+                                }} />
+                                {(c.type === 'select' || c.type === 'one' || c.type === 'multiple') && (
+                                  <TagsInput 
+                                    label="Options" 
+                                    placeholder="Add option and press Enter"
+                                    value={c.options || []}
+                                    onChange={(val) => {
+                                      const cols = [...(selectedField.table?.columns || [])];
+                                      cols[idx] = { ...cols[idx], options: val } as any;
+                                      updateField(selectedField.id, { table: { bordered: selectedField.table?.bordered, columns: cols } });
+                                    }}
+                                  />
+                                )}
+                                <ActionIcon color="red" variant="light" onClick={() => {
+                                  const cols = (selectedField.table?.columns || []).filter((_, i) => i !== idx);
+                                  updateField(selectedField.id, { table: { bordered: selectedField.table?.bordered, columns: cols } });
+                                }}>
+                                  <IconTrash size="1rem" />
+                                </ActionIcon>
+                              </Group>
+                            ))}
+                          </Stack>
+                          <Checkbox 
+                            label="Bordered Table"
+                            checked={!!selectedField.table?.bordered}
+                            onChange={(e) => updateField(selectedField.id, { table: { bordered: e.currentTarget.checked, columns: selectedField.table?.columns || [] } })}
+                          />
+                        </Stack>
+                      )}
                     </Stack>
                   </Tabs.Panel>
 
@@ -624,6 +702,40 @@ export function FormLayoutBuilder({
                           onChange={(val) => updateField(selectedField.id, { number_kind: (val as any) || 'float' })} 
                         />
                       )}
+
+                      {!isLayoutOnly(selectedField.type) && (
+                        <>
+                          <Divider label="Conditional Visibility" labelPosition="left" my="xs" />
+                          <Select 
+                            label="Depends On Field"
+                            placeholder="Select field"
+                            data={fields.filter(f => f.id !== selectedField.id && !isLayoutOnly(f.type) && f.name).map(f => ({ value: f.name!, label: f.label || f.name! }))}
+                            value={selectedField.dependsOn || null as any}
+                            onChange={(val) => updateField(selectedField.id, { dependsOn: (val as string) || undefined })}
+                            clearable
+                          />
+                          <Group grow>
+                            <Select 
+                              label="Operator"
+                              data={[
+                                { value: 'eq', label: 'equals' },
+                                { value: 'ne', label: 'not equals' },
+                                { value: 'includes', label: 'includes (array)' },
+                                { value: 'gt', label: 'greater than' },
+                                { value: 'lt', label: 'less than' }
+                              ]}
+                              value={selectedField.operator || 'eq'}
+                              onChange={(val) => updateField(selectedField.id, { operator: (val as any) || 'eq' })}
+                            />
+                            <TextInput 
+                              label="Compare To"
+                              placeholder="value"
+                              value={selectedField.value as any || ''}
+                              onChange={(e) => updateField(selectedField.id, { value: e.target.value })}
+                            />
+                          </Group>
+                        </>
+                      )}
                     </Stack>
                   </Tabs.Panel>
 
@@ -641,6 +753,15 @@ export function FormLayoutBuilder({
                         ]} 
                         value={selectedField.width || 'full'} 
                         onChange={(val) => updateField(selectedField.id, { width: (val as any) || 'full' })} 
+                      />
+
+                      <NumberInput 
+                        label="Grid Columns (1–12)"
+                        description="Overrides width when set"
+                        value={selectedField.colSpan}
+                        min={1}
+                        max={12}
+                        onChange={(val) => updateField(selectedField.id, { colSpan: Number(val) || undefined })}
                       />
 
                       {selectedField.type === 'date_range' && (
@@ -694,6 +815,8 @@ export function FormLayoutBuilder({
 
 export function FormPreview({ opened, onClose, fields, title, description }: { opened: boolean; onClose: () => void; fields: FormFieldItem[]; title?: string; description?: string }) {
   const [currentPage, setCurrentPage] = useState(0);
+  const [values, setValues] = useState<Record<string, any>>({});
+  const [rowsByField, setRowsByField] = useState<Record<string, any[]>>({});
 
   const pages = useMemo(() => {
     const p: FormFieldItem[][] = [[]];
@@ -709,9 +832,25 @@ export function FormPreview({ opened, onClose, fields, title, description }: { o
     return p;
   }, [fields]);
 
+  const isVisible = (f: FormFieldItem) => {
+    if (!f.dependsOn) return true;
+    const cur = values[f.dependsOn];
+    const op = f.operator || 'eq';
+    const cmp = f.value;
+    switch (op) {
+      case 'eq': return String(cur) === String(cmp);
+      case 'ne': return String(cur) !== String(cmp);
+      case 'gt': return Number(cur) > Number(cmp);
+      case 'lt': return Number(cur) < Number(cmp);
+      case 'includes': return Array.isArray(cur) && (cmp !== undefined) ? cur.includes(cmp) : false;
+      default: return true;
+    }
+  };
+
   const renderField = (f: FormFieldItem) => {
+    if (!isVisible(f)) return null;
     const isHalf = f.width === 'half';
-    const gridSpan = isHalf ? 6 : 12;
+    const gridSpan = f.colSpan ? Math.min(12, Math.max(1, f.colSpan)) : (isHalf ? 6 : 12);
 
     const commonProps = {
       label: f.label || f.name,
@@ -738,19 +877,19 @@ export function FormPreview({ opened, onClose, fields, title, description }: { o
         content = <Divider my="lg" />;
         break;
       case 'text':
-        content = <TextInput {...commonProps} />;
+        content = <TextInput {...commonProps} value={values[f.name || ''] || ''} onChange={(e) => setValues(v => ({ ...v, [f.name!]: e.currentTarget.value }))} />;
         break;
       case 'number':
-        content = <NumberInput {...commonProps} step={f.number_kind === 'integer' ? 1 : 0.1} />;
+        content = <NumberInput {...commonProps} step={f.number_kind === 'integer' ? 1 : 0.1} value={values[f.name || ''] ?? undefined} onChange={(val) => setValues(v => ({ ...v, [f.name!]: val }))} />;
         break;
       case 'email':
-        content = <TextInput {...commonProps} type="email" />;
+        content = <TextInput {...commonProps} type="email" value={values[f.name || ''] || ''} onChange={(e) => setValues(v => ({ ...v, [f.name!]: e.currentTarget.value }))} />;
         break;
       case 'date':
-        content = <TextInput {...commonProps} type="date" />;
+        content = <TextInput {...commonProps} type="date" value={values[f.name || ''] || ''} onChange={(e) => setValues(v => ({ ...v, [f.name!]: e.currentTarget.value }))} />;
         break;
       case 'datetime':
-        content = <TextInput {...commonProps} type="datetime-local" />;
+        content = <TextInput {...commonProps} type="datetime-local" value={values[f.name || ''] || ''} onChange={(e) => setValues(v => ({ ...v, [f.name!]: e.currentTarget.value }))} />;
         break;
       case 'date_range':
         content = (
@@ -767,32 +906,43 @@ export function FormPreview({ opened, onClose, fields, title, description }: { o
       case 'image':
         content = (
           <Stack gap="xs">
-             <Text size="sm" fw={500}>{f.label || f.name}{f.required && <Text span c="red"> *</Text>}</Text>
-             <Paper withBorder p="md" radius="md" style={{ borderStyle: 'dashed' }}>
-                <Center h={100} style={{ flexDirection: 'column' }}>
-                  <IconPhoto size="2rem" color="gray" />
-                  <Text size="xs" c="dimmed">Image Upload Placeholder</Text>
-                </Center>
-             </Paper>
-             {f.help && <Text size="xs" c="dimmed">{f.help}</Text>}
+            <Group justify="space-between" align="flex-end">
+              <Text size="sm" fw={500}>{f.label || f.name}{f.required && <Text span c="red"> *</Text>}</Text>
+            </Group>
+            <FileInput 
+              accept="image/*" 
+              placeholder="Choose image..."
+              value={values[f.name || ''] || null}
+              onChange={(file) => setValues(v => ({ ...v, [f.name!]: file }))}
+            />
+            {values[f.name || ''] && (
+              <Image 
+                src={URL.createObjectURL(values[f.name || ''] as File)}
+                alt="preview"
+                radius="sm"
+                h={140}
+                fit="contain"
+              />
+            )}
+            {f.help && <Text size="xs" c="dimmed">{f.help}</Text>}
           </Stack>
         );
         break;
       case 'one':
         if (f.render === 'radio') {
           content = (
-            <Radio.Group {...commonProps}>
+            <Radio.Group {...commonProps} value={values[f.name || ''] || ''} onChange={(val) => setValues(v => ({ ...v, [f.name!]: val }))}>
               <Stack gap="xs" mt="xs">
                 {(f.options || []).map(opt => <Radio key={opt} value={opt} label={opt} />)}
               </Stack>
             </Radio.Group>
           );
         } else {
-          content = <Select {...commonProps} data={f.options || []} />;
+          content = <Select {...commonProps} data={f.options || []} value={values[f.name || ''] || null as any} onChange={(val) => setValues(v => ({ ...v, [f.name!]: val }))} />;
         }
         break;
       case 'multiple':
-        content = <MultiSelect {...commonProps} data={f.options || []} />;
+        content = <MultiSelect {...commonProps} data={f.options || []} value={(values[f.name || ''] as any) || []} onChange={(val) => setValues(v => ({ ...v, [f.name!]: val }))} />;
         break;
       case 'scale':
         content = (
@@ -811,6 +961,111 @@ export function FormPreview({ opened, onClose, fields, title, description }: { o
             {f.help && <Text size="xs" c="dimmed">{f.help}</Text>}
           </Stack>
         );
+        break;
+      case 'table':
+        {
+          const key = (f.name || f.id)!;
+          const rows = rowsByField[key] || [];
+          const cols = f.table?.columns || [];
+          const addRow = () => {
+            const empty: any = {};
+            cols.forEach(c => { empty[c.key] = ''; });
+            setRowsByField(s => ({ ...s, [key]: [...(s[key] || []), empty] }));
+          };
+          const removeRow = (idx: number) => {
+            setRowsByField(s => ({ ...s, [key]: (s[key] || []).filter((_, i) => i !== idx) }));
+          };
+          content = (
+            <Stack gap="xs">
+              <Group justify="space-between" align="center">
+                <Text size="sm" fw={500}>{f.label || f.name}{f.required && <Text span c="red"> *</Text>}</Text>
+                <Button size="compact-xs" variant="light" onClick={addRow}>Add Row</Button>
+              </Group>
+              <Table withTableBorder={!!f.table?.bordered} withColumnBorders={!!f.table?.bordered} horizontalSpacing="md" verticalSpacing="xs">
+                <Table.Thead>
+                  <Table.Tr>
+                    {cols.map(c => (<Table.Th key={c.key}>{c.label || c.key}</Table.Th>))}
+                    <Table.Th style={{ width: 60 }}></Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {rows.length === 0 ? (
+                    <Table.Tr>
+                      <Table.Td colSpan={cols.length + 1}>
+                        <Text size="xs" c="dimmed">No rows yet. Click "Add Row".</Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  ) : rows.map((r, rIdx) => (
+                    <Table.Tr key={rIdx}>
+                      {cols.map((c) => (
+                        <Table.Td key={c.key}>
+                          {c.type === 'number' ? (
+                            <NumberInput size="xs" value={r[c.key] ?? undefined} onChange={(val) => {
+                              setRowsByField(s => {
+                                const next = [...(s[key] || [])];
+                                next[rIdx] = { ...next[rIdx], [c.key]: val };
+                                return { ...s, [key]: next };
+                              });
+                            }} />
+                          ) : c.type === 'date' ? (
+                            <TextInput size="xs" type="date" value={r[c.key] || ''} onChange={(e) => {
+                              const val = e.currentTarget.value;
+                              setRowsByField(s => {
+                                const next = [...(s[key] || [])];
+                                next[rIdx] = { ...next[rIdx], [c.key]: val };
+                                return { ...s, [key]: next };
+                              });
+                            }} />
+                          ) : c.type === 'datetime' || c.type === 'timestamp' ? (
+                            <TextInput size="xs" type="datetime-local" value={r[c.key] || ''} onChange={(e) => {
+                              const val = e.currentTarget.value;
+                              setRowsByField(s => {
+                                const next = [...(s[key] || [])];
+                                next[rIdx] = { ...next[rIdx], [c.key]: val };
+                                return { ...s, [key]: next };
+                              });
+                            }} />
+                          ) : c.type === 'select' || c.type === 'one' ? (
+                            <Select size="xs" data={c.options || []} value={r[c.key] || null as any} onChange={(val) => {
+                              setRowsByField(s => {
+                                const next = [...(s[key] || [])];
+                                next[rIdx] = { ...next[rIdx], [c.key]: val };
+                                return { ...s, [key]: next };
+                              });
+                            }} />
+                          ) : c.type === 'multiple' ? (
+                            <MultiSelect size="xs" data={c.options || []} value={Array.isArray(r[c.key]) ? r[c.key] : []} onChange={(val) => {
+                              setRowsByField(s => {
+                                const next = [...(s[key] || [])];
+                                next[rIdx] = { ...next[rIdx], [c.key]: val };
+                                return { ...s, [key]: next };
+                              });
+                            }} />
+                          ) : (
+                            <TextInput size="xs" value={r[c.key] || ''} onChange={(e) => {
+                              const val = e.currentTarget.value;
+                              setRowsByField(s => {
+                                const next = [...(s[key] || [])];
+                                next[rIdx] = { ...next[rIdx], [c.key]: val };
+                                return { ...s, [key]: next };
+                              });
+                            }} />
+                          )}
+                        </Table.Td>
+                      ))}
+                      <Table.Td>
+                        <ActionIcon color="red" variant="subtle" onClick={() => removeRow(rIdx)}>
+                          <IconTrash size="1rem" />
+                        </ActionIcon>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+              {f.help && <Text size="xs" c="dimmed">{f.help}</Text>}
+            </Stack>
+          );
+        }
         break;
       default:
         content = <Text c="red">Unsupported field type: {f.type}</Text>;
@@ -855,7 +1110,40 @@ export function FormPreview({ opened, onClose, fields, title, description }: { o
                 </Button>
               </Group>
             )}
-            <Button ml="auto">Submit</Button>
+            <Button ml="auto" onClick={() => {
+              const payload: Record<string, any> = { ...values };
+              // attach table rows
+              fields.forEach((f) => {
+                if (f.type === 'table') {
+                  const key = (f.name || f.id)!;
+                  payload[key] = rowsByField[key] || [];
+                }
+              });
+              // include URL query params as _params
+              try {
+                const params = Object.fromEntries(new URLSearchParams(window.location.search).entries());
+                if (Object.keys(params).length) {
+                  payload._params = params;
+                }
+              } catch {}
+              // Serialize for preview; strip File objects to metadata to avoid errors
+              const safePayload = JSON.parse(JSON.stringify(payload, (_key, v) => {
+                // mark _key as used to satisfy strict TS configs
+                void _key;
+                if (v instanceof File) {
+                  return { _file: true, name: v.name, size: v.size, type: v.type };
+                }
+                return v;
+              }));
+              // Show a small toast and log the payload
+              notifications.show({
+                title: 'Preview Submission',
+                message: 'Open console to inspect the simulated payload.',
+                color: 'blue'
+              });
+              // eslint-disable-next-line no-console
+              console.log('Form Preview Payload:', safePayload);
+            }}>Submit</Button>
           </Group>
         </Paper>
       </Paper>

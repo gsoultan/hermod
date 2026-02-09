@@ -1,19 +1,16 @@
 import { 
   Tabs, Stack, Group, Paper, Text, ScrollArea, Box, ThemeIcon, UnstyledButton, rem, Title, useMantineColorScheme,
-  Select, Checkbox, NumberInput, TextInput, Alert, TagsInput, Divider, ActionIcon, Center, SimpleGrid
+  Select, Checkbox, NumberInput, TextInput, Alert, TagsInput, Divider, ActionIcon, SimpleGrid
 } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '../../../api';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '../store/useWorkflowStore';
-import { UnitTestForm } from '../../../components/UnitTestForm';
-import { useParams } from '@tanstack/react-router';
-import { SourceForm } from '../../../components/SourceForm';
-import { SinkForm } from '../../../components/SinkForm';
-import { TransformationForm } from '../../../components/TransformationForm';
+// import { UnitTestForm } from '../../../components/UnitTestForm';
+// Node configuration forms are presented in a modal (popup) from the editor page
 import { CronInput } from '../../../components/CronInput';
 import { AICopilot } from '../../../components/AICopilot';
-import { IconAdjustments, IconArrowsSplit, IconBrandDiscord, IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandSlack, IconBrandTiktok, IconBrandTwitter, IconBroadcast, IconChartBar, IconChecklist, IconCircles, IconCloud, IconCloudUpload, IconCode, IconDatabase, IconDatabaseExport, IconDeviceFloppy, IconExternalLink, IconEye, IconFileSpreadsheet, IconFilter, IconGitBranch, IconGitMerge, IconHistory, IconInfoCircle, IconLetterCase, IconMail, IconMessage, IconNote, IconNumbers, IconPercentage, IconPlaylist, IconPlus, IconPuzzle, IconRefresh, IconRobot, IconSearch, IconSettingsAutomation, IconShieldLock, IconTable, IconTableExport, IconTag, IconTags, IconTerminal2, IconTrash, IconVariable, IconWorld, IconX } from '@tabler/icons-react';
+import { IconAdjustments, IconArrowsSplit, IconBrandDiscord, IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandSlack, IconBrandTiktok, IconBrandTwitter, IconBroadcast, IconChartBar, IconChecklist, IconCircles, IconCloud, IconCloudUpload, IconCode, IconDatabase, IconDatabaseExport, IconDeviceFloppy, IconExternalLink, IconEye, IconFileSpreadsheet, IconFilter, IconGitBranch, IconGitMerge, IconHistory, IconInfoCircle, IconLetterCase, IconMail, IconMessage, IconNote, IconNumbers, IconPercentage, IconPlaylist, IconPlus, IconPuzzle, IconRefresh, IconRobot, IconSearch, IconSettingsAutomation, IconShieldLock, IconTable, IconTableExport, IconTag, IconTags, IconTerminal2, IconVariable, IconWorld, IconX, IconCircleCheck } from '@tabler/icons-react';
 interface SidebarDrawerProps {
   onDragStart: (event: any, nodeType: string, refId: string, label: string, subType: string, extraData?: any) => void;
   onAddItem: (type: string, refId: string, label: string, subType: string, Icon: any, color: string, extraData?: any) => void;
@@ -28,12 +25,12 @@ export function SidebarDrawer({
     drawerOpened, drawerTab, deadLetterSinkID, dlqThreshold, prioritizeDLQ, dryRun, 
     maxRetries, retryInterval, reconnectInterval, workspaceID, schemaType, schema, tags,
     cpuRequest, memoryRequest, throughputRequest,
-    selectedNode, vhost, workerID, cron,
+    cron,
     setDrawerOpened, setDrawerTab, setDeadLetterSinkID, setDlqThreshold, setPrioritizeDLQ, 
     setDryRun, setMaxRetries, setRetryInterval, setReconnectInterval, 
     setWorkspaceID, setSchemaType, setSchema, setTags, 
     setCPURequest, setMemoryRequest, setThroughputRequest, setCron,
-    updateNodeConfig
+    nodes
   } = useWorkflowStore(useShallow(state => ({
     drawerOpened: state.drawerOpened,
     drawerTab: state.drawerTab,
@@ -52,9 +49,7 @@ export function SidebarDrawer({
     memoryRequest: state.memoryRequest,
     throughputRequest: state.throughputRequest,
     cron: state.cron,
-    selectedNode: state.selectedNode,
-    vhost: state.vhost,
-    workerID: state.workerID,
+    nodes: state.nodes,
     setDrawerOpened: state.setDrawerOpened,
     setDrawerTab: state.setDrawerTab,
     setDeadLetterSinkID: state.setDeadLetterSinkID,
@@ -72,10 +67,8 @@ export function SidebarDrawer({
     setMemoryRequest: state.setMemoryRequest,
     setThroughputRequest: state.setThroughputRequest,
     setCron: state.setCron,
-    updateNodeConfig: state.updateNodeConfig
+    
   })));
-
-  const { id: workflowId } = useParams({ strict: false }) as any;
 
   const nodeCategories = [
     {
@@ -102,6 +95,7 @@ export function SidebarDrawer({
         { type: 'merge', refId: 'new', label: 'Merge', subType: 'merge', icon: IconGitMerge, color: 'cyan', description: 'Join multiple paths' },
         { type: 'transformation', refId: 'new', label: 'Aggregate', subType: 'aggregate', icon: IconDatabase, color: 'pink', description: 'Group and summarize records' },
         { type: 'stateful', refId: 'new', label: 'Stateful', subType: 'stateful', icon: IconDatabase, color: 'pink', description: 'Store and recall workflow state' },
+        { type: 'approval', refId: 'new', label: 'Approval (Human Gate)', subType: 'approval', icon: IconCircleCheck, color: 'green', description: 'Pause execution until approved or rejected' },
       ]
     },
     {
@@ -115,6 +109,8 @@ export function SidebarDrawer({
         { type: 'transformation', refId: 'new', label: 'Lua Script', subType: 'lua', icon: IconCode, color: 'teal', description: 'Custom logic with Lua' },
         { type: 'transformation', refId: 'new', label: 'WASM Transform', subType: 'wasm', icon: IconTerminal2, color: 'teal', description: 'Run high-performance WebAssembly' },
         { type: 'transformation', refId: 'new', label: 'Advanced', subType: 'advanced', icon: IconCode, color: 'teal', description: 'Power-user transforms' },
+        { type: 'transformation', refId: 'new', label: 'Pivot', subType: 'pivot', icon: IconTable, color: 'teal', description: 'Rotate rows into columns' },
+        { type: 'transformation', refId: 'new', label: 'Multicast', subType: 'multicast', icon: IconBroadcast, color: 'teal', description: 'Clone message to multiple branches' },
       ]
     },
     {
@@ -209,6 +205,16 @@ export function SidebarDrawer({
 
   if (!drawerOpened) return null;
 
+  const hasSource = Array.isArray(nodes) && nodes.some((n: any) => n.type === 'source');
+  const coercedTab = (() => {
+    // Map legacy 'nodes' tab to new 'transformations' tab
+    let t = drawerTab === 'nodes' ? 'transformations' : drawerTab;
+    // The old "Config" tab has been removed; redirect to "sources"
+    if (t === 'config') t = 'sources';
+    if (!hasSource && (t === 'transformations' || t === 'sinks')) return 'sources';
+    return t;
+  })();
+
   return (
     <Paper 
       withBorder 
@@ -237,20 +243,18 @@ export function SidebarDrawer({
           </ActionIcon>
         </Group>
 
-        <Tabs value={drawerTab} onChange={(val) => setDrawerTab(val || "nodes")} variant="pills" radius="md" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Tabs value={coercedTab} onChange={(val) => setDrawerTab(val || "sources")} variant="pills" radius="md" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <Tabs.List mb="sm" grow={false} style={{ flexWrap: 'nowrap', overflowX: 'auto', paddingBottom: 4 }}>
-            <Tabs.Tab value="nodes" leftSection={<IconPlus size="1rem" />} px="xs">Nodes</Tabs.Tab>
             <Tabs.Tab value="sources" leftSection={<IconDatabase size="1rem" />} px="xs">Sources</Tabs.Tab>
-            <Tabs.Tab value="sinks" leftSection={<IconCloudUpload size="1rem" />} px="xs">Sinks</Tabs.Tab>
+            <Tabs.Tab value="transformations" leftSection={<IconPlus size="1rem" />} px="xs" disabled={!hasSource}>Transformations</Tabs.Tab>
+            <Tabs.Tab value="sinks" leftSection={<IconCloudUpload size="1rem" />} px="xs" disabled={!hasSource}>Sinks</Tabs.Tab>
             <Tabs.Tab value="copilot" leftSection={<IconRobot size="1rem" />} px="xs">AI</Tabs.Tab>
-            {selectedNode && (
-              <Tabs.Tab value="config" leftSection={<IconAdjustments size="1rem" />} px="xs">Config</Tabs.Tab>
-            )}
+            {/* Config tab removed by request */}
             <Tabs.Tab value="settings" leftSection={<IconSettingsAutomation size="1rem" />} px="xs">Settings</Tabs.Tab>
           </Tabs.List>
 
           <Box style={{ flex: 1, overflow: 'hidden' }}>
-            <Tabs.Panel value="nodes" h="100%">
+            <Tabs.Panel value="transformations" h="100%">
               <ScrollArea h="100%" offsetScrollbars type="always" px="xs">
                 <Stack gap="lg" py="xs">
                   {plugins && plugins.length > 0 && (
@@ -373,7 +377,8 @@ export function SidebarDrawer({
                         { type: 'source', refId: 'new', label: 'Webhook', subType: 'webhook', icon: IconWorld, color: 'cyan', description: 'Receive HTTP POST events' },
                         { type: 'source', refId: 'new', label: 'Form Submission', subType: 'form', icon: IconWorld, color: 'cyan', description: 'Accept form submissions via HTTP' },
                         { type: 'source', refId: 'new', label: 'Cron / Schedule', subType: 'cron', icon: IconSettingsAutomation, color: 'cyan', description: 'Emit on a schedule' },
-                        { type: 'source', refId: 'new', label: 'CSV / File', subType: 'csv', icon: IconFileSpreadsheet, color: 'cyan', description: 'Read rows from CSV/TSV' },
+                        { type: 'source', refId: 'new', label: 'CSV / File', subType: 'file', icon: IconFileSpreadsheet, color: 'cyan', description: 'Read rows from CSV/TSV and files' },
+                        { type: 'source', refId: 'new', label: 'Excel (.xlsx)', subType: 'excel', icon: IconFileSpreadsheet, color: 'cyan', description: 'Stream rows from Excel workbooks' },
                         { type: 'source', refId: 'new', label: 'Google Sheets', subType: 'googlesheets', icon: IconFileSpreadsheet, color: 'cyan', description: 'Poll a Google Sheet' },
                         { type: 'source', refId: 'new', label: 'Google Analytics', subType: 'googleanalytics', icon: IconChartBar, color: 'cyan', description: 'Fetch reports from GA4' },
                         { type: 'source', refId: 'new', label: 'Firebase', subType: 'firebase', icon: IconDatabase, color: 'cyan', description: 'Poll Firestore collections' },
@@ -535,82 +540,7 @@ export function SidebarDrawer({
               </ScrollArea>
             </Tabs.Panel>
 
-            <Tabs.Panel value="config" h="100%">
-              {selectedNode ? (
-                <ScrollArea h="100%" offsetScrollbars type="always" px="xs">
-                  <Stack gap="md" py="xs">
-                    <Paper withBorder p="md" radius="md">
-                      <Group justify="space-between" mb="md">
-                        <Stack gap={0}>
-                          <Text size="xs" fw={800} c="dimmed" style={{ textTransform: 'uppercase' }}>Node Config</Text>
-                          <Title order={5}>{selectedNode.data.label}</Title>
-                        </Stack>
-                        <ActionIcon color="red" variant="light" onClick={() => {/* delete logic if needed here, but usually handles in canvas */}}>
-                          <IconTrash size="1rem" />
-                        </ActionIcon>
-                      </Group>
-
-                      <Stack gap="sm">
-                        {selectedNode.type === 'source' && (
-                          <SourceForm 
-                            initialData={selectedNode.data} 
-                            onSave={(cfg) => updateNodeConfig(selectedNode.id, cfg)}
-                            embedded
-                            vhost={vhost}
-                            workerID={workerID}
-                          />
-                        )}
-                        {selectedNode.type === 'source' && (selectedNode.data?.type === 'websocket') && (
-                          <Paper withBorder p="sm" radius="md">
-                            <Text size="xs" fw={800} c="dimmed" mb={6}>WebSocket Source Tips</Text>
-                            <Text size="xs" c="dimmed">
-                              Client mode dials <code>wss://</code> and ingests one frame per message. For server mode, create a Webhook source with path like <code>/api/ws/in/&lt;your_path&gt;</code> and connect producers to <code>GET /api/ws/in/&lt;your_path&gt;</code>.
-                            </Text>
-                          </Paper>
-                        )}
-                        {selectedNode.type === 'sink' && (
-                          <SinkForm 
-                            initialData={selectedNode.data} 
-                            onSave={(cfg) => updateNodeConfig(selectedNode.id, cfg)}
-                            embedded
-                          />
-                        )}
-                        {selectedNode.type === 'sink' && (selectedNode.data?.type === 'websocket') && (
-                          <Paper withBorder p="sm" radius="md">
-                            <Text size="xs" fw={800} c="dimmed" mb={6}>WebSocket Sink Tips</Text>
-                            <Text size="xs" c="dimmed">
-                              Publishes one frame per message. If you need a built‑in subscriber endpoint, connect web clients to <code>GET /api/ws/out/&lt;workflow_id&gt;</code> to receive live messages.
-                            </Text>
-                          </Paper>
-                        )}
-                        {(selectedNode.type === 'transformation' || selectedNode.type === 'validator') && (
-                          <TransformationForm 
-                            selectedNode={selectedNode}
-                            updateNodeConfig={updateNodeConfig}
-                            availableFields={[]}
-                          />
-                        )}
-                      </Stack>
-                    </Paper>
-
-                    {(selectedNode.type === 'transformation' || selectedNode.type === 'validator' || selectedNode.type === 'condition') && (
-                      <Paper withBorder p="md" radius="md">
-                        <UnitTestForm 
-                          workflowId={workflowId}
-                          nodeId={selectedNode.id}
-                          tests={selectedNode.data.unit_tests || []}
-                          onChange={(tests) => updateNodeConfig(selectedNode.id, { unit_tests: tests })}
-                        />
-                      </Paper>
-                    )}
-                  </Stack>
-                </ScrollArea>
-              ) : (
-                <Center h={200}>
-                  <Text c="dimmed">Select a node to configure it</Text>
-                </Center>
-              )}
-            </Tabs.Panel>
+            {/* Config panel removed by request */}
 
             <Tabs.Panel value="copilot" h="100%">
               <ScrollArea h="100%" offsetScrollbars type="always" px="xs">

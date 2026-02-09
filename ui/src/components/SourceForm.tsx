@@ -61,6 +61,7 @@ const SOURCE_TYPES = [
   { value: 'form', label: 'Form Submission' },
   { value: 'cron', label: 'Cron / Schedule' },
   { value: 'file', label: 'File / FTP / S3' },
+  { value: 'excel', label: 'Excel (.xlsx)' },
   { value: 'googlesheets', label: 'Google Sheets' },
   { value: 'googleanalytics', label: 'Google Analytics' },
   { value: 'firebase', label: 'Firebase' },
@@ -78,11 +79,13 @@ interface SourceFormProps {
   embedded?: boolean;
   onSave?: (data: any) => void;
   onRunSimulation?: (sample?: any) => void;
+  onRefreshFields?: () => void;
+  isRefreshing?: boolean;
   vhost?: string;
   workerID?: string;
 }
 
-export function SourceForm({ initialData, isEditing = false, embedded = false, onSave, onRunSimulation, vhost, workerID }: SourceFormProps) {
+export function SourceForm({ initialData, isEditing = false, embedded = false, onSave, onRunSimulation, onRefreshFields, isRefreshing, vhost, workerID }: SourceFormProps) {
   const { availableVHosts } = useVHost();
   const role = getRoleFromToken();
   const navigate = useNavigate();
@@ -141,6 +144,13 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
   const setupDescId = 'source-setup-modal-desc';
 
   const useCDCChecked = source.config?.use_cdc !== 'false';
+
+  // Derive edit mode from either the explicit prop or the presence of an id.
+  // This ensures correct labeling when editing from contexts that don't pass isEditing.
+  const isEditingResolved = Boolean(isEditing || (source as any)?.id);
+
+  // Only the "Form Submission" source type is allowed to save without a successful Test Connection.
+  const testRequired = (source as any)?.type !== 'form';
 
   const { data: vhostsResponse } = useSuspenseQuery<ApiListResponse<VHost>>({
     queryKey: ['vhosts'],
@@ -339,7 +349,7 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
               <Divider mt="md" />
               <Group justify="flex-end" pt="xs">
                 {!embedded && <Button variant="outline" size="xs" onClick={() => navigate({ to: '/sources' })}>Cancel</Button>}
-                {isEditing && isDatabaseSource(source.type) && (
+                {isEditingResolved && isDatabaseSource(source.type) && (
                   <Tooltip
                     label={
                       !source.id
@@ -351,7 +361,7 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
                             : 'Start a workflow that uses this source to enable snapshots'
                     }
                     withArrow
-                    disabled={!isEditing || (!source.id) || (!!hasActiveReferencingWorkflow)}
+                    disabled={!isEditingResolved || (!source.id) || (!!hasActiveReferencingWorkflow)}
                   >
                     <Button 
                       variant="outline" 
@@ -373,16 +383,27 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
                     </Button>
                   </Tooltip>
                 )}
-                <Button variant="outline" color="blue" size="xs" onClick={() => testMutation.mutate(source)} loading={testMutation.isPending}>Test Connection</Button>
+                {(source as any).type !== 'form' && (
+                  <Button 
+                    variant="outline" 
+                    color="blue" 
+                    size="xs" 
+                    onClick={() => testMutation.mutate(source)} 
+                    loading={testMutation.isPending}
+                  >
+                    Test Connection
+                  </Button>
+                )}
                 <Button 
                   size="xs"
-                  disabled={testResult?.status !== 'ok' || !source.name || (!embedded && !source.vhost)}
+                  // For non-Form sources, require a successful Test Connection before saving.
+                  disabled={(testRequired && testResult?.status !== 'ok') || !source.name || (!embedded && !source.vhost)}
                   onClick={() => {
                     submitMutation.mutate(source);
                   }} 
                   loading={submitMutation.isPending}
                 >
-                  {isEditing ? 'Save Changes' : (embedded ? 'Confirm' : 'Create Source')}
+                  {isEditingResolved ? 'Update Source' : (embedded ? 'Confirm' : 'Create Source')}
                 </Button>
               </Group>
             </Stack>
@@ -423,11 +444,17 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
             />
           ) : (
             <SamplePanel 
-              sampleData={sampleData}
-              isFetchingSample={isFetchingSample}
-              sampleError={sampleError}
+              sampleData={sampleData} 
+              isFetchingSample={isFetchingSample || !!isRefreshing} 
+              sampleError={sampleError} 
               onRunSimulation={onRunSimulation}
-              fetchSample={fetchSample}
+              fetchSample={(s) => {
+                if (onRefreshFields) {
+                  onRefreshFields();
+                } else {
+                  fetchSample(s);
+                }
+              }}
               source={source as any}
             />
           )}

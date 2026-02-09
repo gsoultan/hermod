@@ -233,6 +233,41 @@ func (s *SQLiteSource) DiscoverTables(ctx context.Context) ([]string, error) {
 	return tables, nil
 }
 
+func (s *SQLiteSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
+	if s.db == nil {
+		if err := s.init(ctx); err != nil {
+			return nil, err
+		}
+	}
+
+	query := fmt.Sprintf("PRAGMA table_info(%s)", table)
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var columns []hermod.ColumnInfo
+	for rows.Next() {
+		var col hermod.ColumnInfo
+		var cid int
+		var notnull int
+		var pk int
+		var def *string
+		if err := rows.Scan(&cid, &col.Name, &col.Type, &notnull, &def, &pk); err != nil {
+			return nil, err
+		}
+		col.IsNullable = notnull == 0
+		col.IsPK = pk > 0
+		col.IsIdentity = col.IsPK && strings.ToUpper(col.Type) == "INTEGER"
+		if def != nil {
+			col.Default = *def
+		}
+		columns = append(columns, col)
+	}
+	return columns, nil
+}
+
 func (s *SQLiteSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	if s.db == nil {
 		if err := s.init(ctx); err != nil {

@@ -27,7 +27,7 @@ func TestSQLiteSink_IdempotentByID(t *testing.T) {
 		t.Fatalf("create table: %v", err)
 	}
 
-	snk := NewSQLiteSink(dbPath)
+	snk := NewSQLiteSink(dbPath, "", nil, true, "hard_delete", "", "", false, false)
 	defer snk.Close()
 
 	// First write

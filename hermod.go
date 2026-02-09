@@ -15,6 +15,17 @@ const (
 	OpSnapshot Operation = "snapshot"
 )
 
+// SinkOperationMode defines how a sink should treat incoming messages.
+type SinkOperationMode string
+
+const (
+	SinkOpModeAuto   SinkOperationMode = "auto"   // Follow message operation
+	SinkOpModeInsert SinkOperationMode = "insert" // Always insert
+	SinkOpModeUpsert SinkOperationMode = "upsert" // Always upsert/merge
+	SinkOpModeUpdate SinkOperationMode = "update" // Always update
+	SinkOpModeDelete SinkOperationMode = "delete" // Always delete
+)
+
 // Message represents a generic message structure.
 // Using interface to allow different message implementations.
 type Message interface {
@@ -62,6 +73,20 @@ type ReadyChecker interface {
 type Discoverer interface {
 	DiscoverDatabases(ctx context.Context) ([]string, error)
 	DiscoverTables(ctx context.Context) ([]string, error)
+}
+
+// ColumnDiscoverer defines an optional interface for discovering columns of a table.
+type ColumnDiscoverer interface {
+	DiscoverColumns(ctx context.Context, table string) ([]ColumnInfo, error)
+}
+
+type ColumnInfo struct {
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	IsNullable bool   `json:"is_nullable"`
+	IsPK       bool   `json:"is_pk"`
+	IsIdentity bool   `json:"is_identity"`
+	Default    string `json:"default"`
 }
 
 // Stateful defines an optional interface for sources and sinks that have persistent state.

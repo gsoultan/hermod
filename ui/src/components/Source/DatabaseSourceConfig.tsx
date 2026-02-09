@@ -1,4 +1,4 @@
-import { TextInput, Stack, Group, Divider, Checkbox, PasswordInput, NumberInput, Fieldset, Switch, Text } from '@mantine/core';
+import { TextInput, Stack, Group, Divider, Checkbox, PasswordInput, NumberInput, Fieldset, Switch, Text, SimpleGrid } from '@mantine/core';
 
 interface DatabaseSourceConfigProps {
   type: string;
@@ -37,10 +37,10 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
         />
         {tablesInput}
         <Divider label="Initial Snapshot" labelPosition="center" />
-        <Group grow>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <NumberInput label="Batch Size" value={parseInt(config.snapshot_batch_size) || 1000} onChange={(val) => updateConfig('snapshot_batch_size', val.toString())} />
           <NumberInput label="Parallelism" value={parseInt(config.snapshot_parallelism) || 1} onChange={(val) => updateConfig('snapshot_parallelism', val.toString())} />
-        </Group>
+        </SimpleGrid>
       </Stack>
     );
   }
@@ -51,7 +51,7 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
       
       <Fieldset legend="Connection Details">
         <Stack gap="sm">
-          <Group grow>
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
             {type === 'cassandra' || type === 'scylladb' ? (
               <TextInput 
                 label="Hosts" 
@@ -67,16 +67,16 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
                 <TextInput label="Port" placeholder="5432" value={config.port || ''} onChange={(e) => updateConfig('port', e.target.value)} />
               </>
             )}
-          </Group>
-          <Group grow>
+          </SimpleGrid>
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
             <TextInput label="User" placeholder="user" value={config.user || ''} onChange={(e) => updateConfig('user', e.target.value)} />
             <PasswordInput label="Password" placeholder="password" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
-          </Group>
+          </SimpleGrid>
           {type === 'mongodb' ? (
-            <Group grow>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
               <TextInput label="Database" placeholder="my-db" value={config.database || ''} onChange={(e) => updateConfig('database', e.target.value)} required />
               <TextInput label="Collection" placeholder="my-collection" value={config.collection || ''} onChange={(e) => updateConfig('collection', e.target.value)} required />
-            </Group>
+            </SimpleGrid>
           ) : databaseInput}
           
           {type === 'mongodb' && (
@@ -101,10 +101,10 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
           {useCDCChecked ? (
             <>
               {type === 'postgres' && (
-                <Group grow>
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
                   <TextInput label="Slot Name" value={config.slot_name || ''} onChange={(e) => updateConfig('slot_name', e.target.value)} />
                   <TextInput label="Publication" value={config.publication_name || ''} onChange={(e) => updateConfig('publication_name', e.target.value)} />
-                </Group>
+                </SimpleGrid>
               )}
               {type === 'mssql' && (
                 <Checkbox 
@@ -116,17 +116,17 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
               )}
             </>
           ) : (
-            <Group grow>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
               <TextInput label="Incremental ID Field" placeholder="id" value={config.id_field || ''} onChange={(e) => updateConfig('id_field', e.target.value)} />
               <TextInput label="Poll Interval" placeholder="5s" value={config.poll_interval || '5s'} onChange={(e) => updateConfig('poll_interval', e.target.value)} />
-            </Group>
+            </SimpleGrid>
           )}
 
           <Divider label="Initial Snapshot" labelPosition="center" />
-          <Group grow>
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
             <NumberInput label="Batch Size" value={parseInt(config.snapshot_batch_size) || 1000} onChange={(val) => updateConfig('snapshot_batch_size', val.toString())} />
             <NumberInput label="Parallelism" value={parseInt(config.snapshot_parallelism) || 1} onChange={(val) => updateConfig('snapshot_parallelism', val.toString())} />
-          </Group>
+          </SimpleGrid>
         </Stack>
       </Fieldset>
     </Stack>

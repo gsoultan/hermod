@@ -16,6 +16,7 @@ import (
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/sqlutil"
 )
 
 // MSSQLSource implements the hermod.Source interface for MSSQL CDC.
@@ -989,6 +990,65 @@ func (m *MSSQLSource) DiscoverTables(ctx context.Context) ([]string, error) {
 	return tables, nil
 }
 
+func (m *MSSQLSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
+	if err := m.ping(ctx, false); err != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("database connection not initialized")
+	}
+
+	parts := strings.Split(table, ".")
+	tableName := parts[len(parts)-1]
+	schema := "dbo"
+	if len(parts) > 1 {
+		schema = parts[0]
+	}
+
+	query := `
+		SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, 
+		CASE WHEN EXISTS (
+			SELECT 1 FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu 
+			JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc ON kcu.CONSTRAINT_NAME = tc.CONSTRAINT_NAME 
+			WHERE kcu.TABLE_NAME = c.TABLE_NAME AND kcu.TABLE_SCHEMA = c.TABLE_SCHEMA 
+			AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY' AND kcu.COLUMN_NAME = c.COLUMN_NAME
+		) THEN 1 ELSE 0 END as IS_PK,
+		ISNULL(COLUMNPROPERTY(OBJECT_ID(TABLE_SCHEMA + '.' + TABLE_NAME), COLUMN_NAME, 'IsIdentity'), 0) as IS_IDENTITY,
+		COLUMN_DEFAULT
+		FROM INFORMATION_SCHEMA.COLUMNS c 
+		WHERE TABLE_NAME = ? AND TABLE_SCHEMA = ? 
+		ORDER BY ORDINAL_POSITION`
+
+	rows, err := db.QueryContext(ctx, query, tableName, schema)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var columns []hermod.ColumnInfo
+	for rows.Next() {
+		var col hermod.ColumnInfo
+		var nullable string
+		var isPK, isIdentity int
+		var def *string
+		if err := rows.Scan(&col.Name, &col.Type, &nullable, &isPK, &isIdentity, &def); err != nil {
+			return nil, err
+		}
+		col.IsNullable = nullable == "YES"
+		col.IsPK = isPK == 1
+		col.IsIdentity = isIdentity == 1
+		if def != nil {
+			col.Default = *def
+		}
+		columns = append(columns, col)
+	}
+	return columns, nil
+}
+
 func (m *MSSQLSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	if err := m.ping(ctx, false); err != nil {
 		return nil, err
@@ -1001,7 +1061,12 @@ func (m *MSSQLSource) Sample(ctx context.Context, table string) (hermod.Message,
 		return nil, fmt.Errorf("database connection not initialized")
 	}
 
-	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT TOP 1 * FROM %s", table))
+	quoted, err := sqlutil.QuoteIdent("mssql", table)
+	if err != nil {
+		return nil, fmt.Errorf("invalid table name: %w", err)
+	}
+
+	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT TOP 1 * FROM %s", quoted))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sample record: %w", err)
 	}

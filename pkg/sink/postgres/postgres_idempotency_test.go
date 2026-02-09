@@ -34,7 +34,7 @@ func TestPostgresSink_IdempotentUpsert(t *testing.T) {
 	}
 	defer pool.Exec(ctx, "DROP TABLE IF EXISTS "+table)
 
-	snk := NewPostgresSink(dsn)
+	snk := NewPostgresSink(dsn, "", nil, true, "hard_delete", "", "", false, false)
 
 	// First write
 	m1 := message.AcquireMessage()

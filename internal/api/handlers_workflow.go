@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/user/hermod"
 	"github.com/user/hermod/internal/governance"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/message"
@@ -400,9 +401,7 @@ func (s *Server) runNodeUnitTests(w http.ResponseWriter, r *http.Request) {
 	for _, ut := range targetNode.UnitTests {
 		start := time.Now()
 		msg := message.AcquireMessage()
-		for k, v := range ut.Input {
-			msg.SetData(k, v)
-		}
+		populateMessageFromMap(msg, ut.Input)
 
 		// Create a temporary transformation from the node config
 		trans := storage.Transformation{
@@ -761,9 +760,7 @@ func (s *Server) testWorkflow(w http.ResponseWriter, r *http.Request) {
 
 	msg := message.AcquireMessage()
 	defer message.ReleaseMessage(msg)
-	for k, v := range req.Message {
-		msg.SetData(k, v)
-	}
+	populateMessageFromMap(msg, req.Message)
 
 	steps, err := s.registry.TestWorkflow(r.Context(), req.Workflow, msg)
 	if err != nil {
@@ -787,9 +784,7 @@ func (s *Server) testTransformation(w http.ResponseWriter, r *http.Request) {
 
 	msg := message.AcquireMessage()
 	defer message.ReleaseMessage(msg)
-	for k, v := range req.Message {
-		msg.SetData(k, v)
-	}
+	populateMessageFromMap(msg, req.Message)
 
 	res, err := s.registry.TestTransformationPipeline(r.Context(), []storage.Transformation{req.Transformation}, msg)
 	if err != nil {
@@ -803,7 +798,7 @@ func (s *Server) testTransformation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(res[0].Data())
+	_ = json.NewEncoder(w).Encode(res[0])
 }
 
 func (s *Server) getMessageTrace(w http.ResponseWriter, r *http.Request) {
@@ -1005,4 +1000,74 @@ func (s *Server) rollbackWorkflow(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(wf)
+}
+
+func populateMessageFromMap(msg hermod.Message, data map[string]interface{}) {
+	for k, v := range data {
+		lower := strings.ToLower(k)
+		switch lower {
+		case "id":
+			if id, ok := v.(string); ok && id != "" {
+				if dm, ok := msg.(*message.DefaultMessage); ok {
+					dm.SetID(id)
+				}
+			}
+		case "operation", "op":
+			if op, ok := v.(string); ok && op != "" {
+				if dm, ok := msg.(*message.DefaultMessage); ok {
+					dm.SetOperation(hermod.Operation(op))
+				}
+			}
+		case "table":
+			if t, ok := v.(string); ok && t != "" {
+				if dm, ok := msg.(*message.DefaultMessage); ok {
+					dm.SetTable(t)
+				}
+			}
+		case "schema":
+			if s, ok := v.(string); ok && s != "" {
+				if dm, ok := msg.(*message.DefaultMessage); ok {
+					dm.SetSchema(s)
+				}
+			}
+		case "metadata":
+			if md, ok := v.(map[string]interface{}); ok {
+				for mk, mv := range md {
+					msg.SetMetadata(mk, fmt.Sprint(mv))
+				}
+			}
+		case "before":
+			if b, ok := v.(map[string]interface{}); ok {
+				jb, _ := json.Marshal(b)
+				if dm, ok := msg.(*message.DefaultMessage); ok {
+					dm.SetBefore(jb)
+				}
+			} else if s, ok := v.(string); ok {
+				if dm, ok := msg.(*message.DefaultMessage); ok {
+					dm.SetBefore([]byte(s))
+				}
+			}
+		case "after":
+			if a, ok := v.(map[string]interface{}); ok {
+				// For simulation purposes, we populate the root data with 'after' contents
+				// so transformations work correctly on the record fields.
+				for ak, av := range a {
+					msg.SetData(ak, av)
+				}
+			} else if s, ok := v.(string); ok {
+				var am map[string]interface{}
+				if err := json.Unmarshal([]byte(s), &am); err == nil {
+					for ak, av := range am {
+						msg.SetData(ak, av)
+					}
+				} else {
+					if dm, ok := msg.(*message.DefaultMessage); ok {
+						dm.SetAfter([]byte(s))
+					}
+				}
+			}
+		default:
+			msg.SetData(k, v)
+		}
+	}
 }

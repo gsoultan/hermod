@@ -1,4 +1,6 @@
-import { ActionIcon, Badge, Button, Group, Stack, Text, TextInput, Tooltip as MantineTooltip, Alert, Autocomplete } from '@mantine/core';import { IconArrowRight, IconBracketsContain, IconCode, IconInfoCircle, IconPlus, IconTrash, IconVariable } from '@tabler/icons-react';
+import { ActionIcon, Badge, Button, Group, Stack, Text, Alert, Autocomplete } from '@mantine/core';
+import { IconBracketsContain, IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react';
+import { TemplateField } from '../TemplateField';
 interface SetFieldEditorProps {
   selectedNode: any;
   updateNodeConfig: (nodeId: string, config: any, replace?: boolean) => void;
@@ -81,28 +83,14 @@ export function SetFieldEditor({ selectedNode, updateNodeConfig, availableFields
             value={field.path}
             onChange={(val) => updateFieldPath(field.fullKey, val)}
           />
-          <TextInput
+          <TemplateField
             placeholder={isAdvanced ? "Expression (e.g. upper(source.field))" : "Value (literal or source.path)"}
-            size="xs"
-            leftSection={isAdvanced ? <IconCode size="0.8rem" /> : <IconVariable size="0.8rem" />}
+            description={isAdvanced ? 'Use functions and source paths. Click {x} to insert fields.' : 'Click {x} to insert source fields without typing.'}
             value={String(field.value || '')}
-            onChange={(e) => updateFieldValue(field.fullKey, e.target.value)}
-            rightSection={
-              incomingPayload && (
-                <Group gap={2} px={4}>
-                  <MantineTooltip label="Use source value" position="top">
-                    <ActionIcon 
-                      size="xs" 
-                      variant="subtle" 
-                      onClick={() => updateFieldValue(field.fullKey, `source.${field.path}`)}
-                      disabled={!availableFields.includes(field.path)}
-                    >
-                      <IconArrowRight size="0.8rem" />
-                    </ActionIcon>
-                  </MantineTooltip>
-                </Group>
-              )
-            }
+            onChange={(val) => updateFieldValue(field.fullKey, val)}
+            availableFields={availableFields}
+            buildToken={(p) => `source.${p}`}
+            multiline={isAdvanced}
           />
           <ActionIcon aria-label="Remove field" color="red" variant="subtle" onClick={() => removeField(field.fullKey)} style={{ flex: 'none' }}>
             <IconTrash size="1rem" />

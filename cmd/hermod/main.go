@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/user/hermod/internal/ai"
 	"github.com/user/hermod/internal/api"
@@ -32,6 +34,7 @@ import (
 	"github.com/user/hermod/pkg/state"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"gopkg.in/yaml.v3"
 	_ "modernc.org/sqlite"
 )
 
@@ -45,6 +48,8 @@ func main() {
 	workerHost := flag.String("worker-host", "localhost", "host of the worker for self-registration")
 	workerPort := flag.Int("worker-port", 3000, "port of the worker for self-registration")
 	workerDescription := flag.String("worker-description", "", "description of the worker for self-registration")
+	workerIdentityPath := flag.String("worker-identity", "worker.yaml", "path to persist worker identity (id/token)")
+	initWorker := flag.Bool("init-worker", false, "initialize/register a worker locally (DB mode) and save identity, then exit")
 	buildUI := flag.Bool("build-ui", false, "build UI before starting")
 	port := flag.Int("port", 4000, "port for API server")
 	grpcPort := flag.Int("grpc-port", 50051, "port for gRPC server")
@@ -77,6 +82,9 @@ func main() {
 	}
 	if v := os.Getenv("HERMOD_WORKER_DESCRIPTION"); v != "" && *workerDescription == "" {
 		*workerDescription = v
+	}
+	if v := os.Getenv("HERMOD_WORKER_IDENTITY"); v != "" && *workerIdentityPath == "worker.yaml" {
+		*workerIdentityPath = v
 	}
 	if v := os.Getenv("HERMOD_WORKER_ID"); v != "" && *workerID == 0 {
 		if id, err := strconv.Atoi(v); err == nil {
@@ -257,11 +265,92 @@ func main() {
 				workerStore = engine.NewWorkerAPIClient(*platformURL, *workerToken)
 			}
 
+			// Auto-load or create worker identity if missing and not using remote platform URL
+			if (*workerGUID == "" || *workerToken == "") && *platformURL == "" {
+				// Try to load from identity file first
+				type workerIdentity struct {
+					ID          string `yaml:"id"`
+					Token       string `yaml:"token"`
+					Name        string `yaml:"name"`
+					Host        string `yaml:"host"`
+					Port        int    `yaml:"port"`
+					Description string `yaml:"description"`
+				}
+
+				loaded := false
+				if b, err := os.ReadFile(*workerIdentityPath); err == nil {
+					var wi workerIdentity
+					if yamlErr := yaml.Unmarshal(b, &wi); yamlErr == nil && wi.ID != "" && wi.Token != "" {
+						*workerGUID = wi.ID
+						*workerToken = wi.Token
+						if wi.Name != "" {
+							// Set as default registration values if provided
+							*workerDescription = wi.Description
+							*workerHost = wi.Host
+							if wi.Port != 0 {
+								*workerPort = wi.Port
+							}
+						}
+						loaded = true
+						fmt.Printf("Loaded worker identity from %s (id=%s)\n", *workerIdentityPath, wi.ID)
+					}
+				}
+
+				// If not loaded, create in local storage
+				if !loaded && store != nil {
+					id := uuid.New().String()
+					token := uuid.New().String()
+					hostname := id
+					if hn, err := os.Hostname(); err == nil && hn != "" {
+						hostname = hn
+					}
+					// Persist in DB first
+					if err := store.CreateWorker(ctx, storage.Worker{
+						ID:          id,
+						Name:        hostname,
+						Host:        *workerHost,
+						Port:        *workerPort,
+						Description: *workerDescription,
+						Token:       token,
+					}); err == nil {
+						*workerGUID = id
+						*workerToken = token
+						wi := workerIdentity{ID: id, Token: token, Name: hostname, Host: *workerHost, Port: *workerPort, Description: *workerDescription}
+						if data, err := yaml.Marshal(&wi); err == nil {
+							// Ensure directory exists if provided in path
+							_ = os.MkdirAll(filepath.Dir(*workerIdentityPath), 0o755)
+							_ = os.WriteFile(*workerIdentityPath, data, 0o600)
+							fmt.Printf("Saved worker identity to %s\n", *workerIdentityPath)
+						}
+					} else {
+						log.Printf("Warning: failed to auto-create worker identity: %v", err)
+					}
+				}
+			}
+
+			// Optional one-shot init and exit (local DB only)
+			if *initWorker {
+				if *platformURL != "" {
+					fmt.Println("-init-worker is only supported in local DB mode (no platform-url). Please create the worker via the Hermod UI and copy its token.")
+					return
+				}
+				if *workerGUID == "" || *workerToken == "" {
+					log.Println("Failed to initialize worker: missing GUID or token. Ensure database is configured.")
+					return
+				}
+				fmt.Printf("Worker initialized.\nID: %s\nToken: %s\nIdentity file: %s\n", *workerGUID, *workerToken, *workerIdentityPath)
+				fmt.Printf("Set environment:\n  HERMOD_WORKER_GUID=%s\n  HERMOD_WORKER_TOKEN=%s\n", *workerGUID, *workerToken)
+				return
+			}
+
 			worker := engine.NewWorker(workerStore, registry)
 			worker.SetWorkerConfig(*workerID, *totalWorkers, *workerGUID, *workerToken)
 
-			// Use GUID as default name
+			// Default registration info: prefer hostname if name is empty
 			name := *workerGUID
+			if hn, err := os.Hostname(); err == nil && hn != "" {
+				name = hn
+			}
 			worker.SetRegistrationInfo(name, *workerHost, *workerPort, *workerDescription)
 
 			go func() {

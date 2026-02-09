@@ -18,6 +18,7 @@ import (
 	"github.com/user/hermod/pkg/eventstore"
 	jsonfmt "github.com/user/hermod/pkg/formatter/json"
 	"github.com/user/hermod/pkg/idempotency"
+	sinkcassandra "github.com/user/hermod/pkg/sink/cassandra"
 	sinkclickhouse "github.com/user/hermod/pkg/sink/clickhouse"
 	"github.com/user/hermod/pkg/sink/discord"
 	sinkdynamics365 "github.com/user/hermod/pkg/sink/dynamics365"
@@ -34,8 +35,10 @@ import (
 	"github.com/user/hermod/pkg/sink/linkedin"
 	sinkmongodb "github.com/user/hermod/pkg/sink/mongodb"
 	sinkmqtt "github.com/user/hermod/pkg/sink/mqtt"
+	sinkmssql "github.com/user/hermod/pkg/sink/mssql"
 	sinkmysql "github.com/user/hermod/pkg/sink/mysql"
 	sinknats "github.com/user/hermod/pkg/sink/nats"
+	sinkoracle "github.com/user/hermod/pkg/sink/oracle"
 	"github.com/user/hermod/pkg/sink/pgvector"
 	sinkpostgres "github.com/user/hermod/pkg/sink/postgres"
 	"github.com/user/hermod/pkg/sink/pubsub"
@@ -63,6 +66,7 @@ import (
 	"github.com/user/hermod/pkg/source/db2"
 	sourcediscord "github.com/user/hermod/pkg/source/discord"
 	sourcedynamics365 "github.com/user/hermod/pkg/source/dynamics365"
+	sourceexcel "github.com/user/hermod/pkg/source/excel"
 	sourcefacebook "github.com/user/hermod/pkg/source/facebook"
 	sourcefile "github.com/user/hermod/pkg/source/file"
 	"github.com/user/hermod/pkg/source/firebase"
@@ -95,6 +99,7 @@ import (
 	"github.com/user/hermod/pkg/source/webhook"
 	sourcews "github.com/user/hermod/pkg/source/websocket"
 	"github.com/user/hermod/pkg/source/yugabyte"
+	"github.com/user/hermod/pkg/sqlutil"
 	"github.com/user/hermod/pkg/transformer"
 )
 
@@ -224,6 +229,50 @@ func CreateSource(cfg SourceConfig) (hermod.Source, error) {
 		src = sourceclickhouse.NewClickHouseSource(connString, tables, idField, pollInterval, useCDC)
 	case "mqtt":
 		return sourcemqtt.NewSource(cfg.Config)
+	case "excel":
+		// Excel Source (.xlsx only)
+		headerRow := 0
+		if v := cfg.Config["header_row"]; v != "" {
+			fmt.Sscanf(v, "%d", &headerRow)
+		}
+		startRow := 0
+		if v := cfg.Config["start_row"]; v != "" {
+			fmt.Sscanf(v, "%d", &startRow)
+		}
+		batchSize := 0
+		if v := cfg.Config["batch_size"]; v != "" {
+			fmt.Sscanf(v, "%d", &batchSize)
+		}
+		basePath := cfg.Config["base_path"]
+		if basePath == "" {
+			basePath = cfg.Config["local_path"]
+		}
+		ex := sourceexcel.New(basePath, cfg.Config["pattern"], cfg.Config["sheet"], headerRow, startRow, batchSize)
+		// Map additional backend config
+		sourceType := strings.ToLower(cfg.Config["source_type"])
+		ex.SourceType = sourceType
+		if sourceType == "http" {
+			ex.URL = cfg.Config["url"]
+			headers := make(map[string]string)
+			if h, ok := cfg.Config["headers"]; ok && h != "" {
+				pairs := strings.Split(h, ",")
+				for _, pair := range pairs {
+					kv := strings.SplitN(pair, ":", 2)
+					if len(kv) == 2 {
+						headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+					}
+				}
+			}
+			ex.Headers = headers
+		} else if sourceType == "s3" {
+			ex.S3Region = cfg.Config["s3_region"]
+			ex.S3Bucket = cfg.Config["s3_bucket"]
+			ex.S3KeyPrefix = cfg.Config["s3_key"]
+			ex.S3Endpoint = cfg.Config["s3_endpoint"]
+			ex.S3AccessKey = cfg.Config["s3_access_key"]
+			ex.S3SecretKey = cfg.Config["s3_secret_key"]
+		}
+		src = ex
 	case "file":
 		format := cfg.Config["format"]
 		if format == "csv" {
@@ -295,11 +344,27 @@ func CreateSource(cfg SourceConfig) (hermod.Source, error) {
 				}
 				gcfg.Headers = headers
 			case "ftp":
-				gcfg.Backend = sourcefile.BackendFTP
+				// Allow SFTP override via explicit source_type or flag
+				if cfg.Config["use_sftp"] == "true" {
+					gcfg.Backend = sourcefile.BackendSFTP
+				} else {
+					gcfg.Backend = sourcefile.BackendFTP
+				}
 				host := cfg.Config["ftp_host"]
 				port := cfg.Config["ftp_port"]
 				if port == "" {
 					port = "21"
+				}
+				gcfg.FTPAddr = fmt.Sprintf("%s:%s", host, port)
+				gcfg.FTPUser = cfg.Config["ftp_user"]
+				gcfg.FTPPass = cfg.Config["ftp_password"]
+				gcfg.FTPRootDir = cfg.Config["ftp_root"]
+			case "sftp":
+				gcfg.Backend = sourcefile.BackendSFTP
+				host := cfg.Config["ftp_host"]
+				port := cfg.Config["ftp_port"]
+				if port == "" {
+					port = "22"
 				}
 				gcfg.FTPAddr = fmt.Sprintf("%s:%s", host, port)
 				gcfg.FTPUser = cfg.Config["ftp_user"]
@@ -586,21 +651,52 @@ func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 	case "kafka":
 		brokers := strings.Split(cfg.Config["brokers"], ",")
 		return sinkkafka.NewKafkaSink(brokers, cfg.Config["topic"], cfg.Config["username"], cfg.Config["password"], fmttr, cfg.Config["transactional_id"]), nil
-	case "postgres", "yugabyte", "mssql", "oracle":
-		return sinkpostgres.NewPostgresSink(BuildConnectionString(cfg.Config, cfg.Type)), nil
+	case "postgres", "yugabyte":
+		mappings, _ := sqlutil.ParseColumnMappings(cfg.Config["column_mappings"])
+		useExisting := cfg.Config["use_existing_table"] == "true"
+		truncateTable := cfg.Config["truncate_table"] == "true"
+		syncColumns := cfg.Config["sync_columns"] == "true"
+		return sinkpostgres.NewPostgresSink(BuildConnectionString(cfg.Config, cfg.Type), cfg.Config["table"], mappings, useExisting, cfg.Config["delete_strategy"], cfg.Config["soft_delete_column"], cfg.Config["soft_delete_value"], cfg.Config["operation_mode"], truncateTable, syncColumns), nil
+	case "mssql":
+		mappings, _ := sqlutil.ParseColumnMappings(cfg.Config["column_mappings"])
+		useExisting := cfg.Config["use_existing_table"] == "true"
+		truncateTable := cfg.Config["truncate_table"] == "true"
+		syncColumns := cfg.Config["sync_columns"] == "true"
+		return sinkmssql.NewMSSQLSink(BuildConnectionString(cfg.Config, cfg.Type), cfg.Config["table"], mappings, useExisting, cfg.Config["delete_strategy"], cfg.Config["soft_delete_column"], cfg.Config["soft_delete_value"], cfg.Config["operation_mode"], truncateTable, syncColumns), nil
+	case "oracle":
+		mappings, _ := sqlutil.ParseColumnMappings(cfg.Config["column_mappings"])
+		useExisting := cfg.Config["use_existing_table"] == "true"
+		truncateTable := cfg.Config["truncate_table"] == "true"
+		syncColumns := cfg.Config["sync_columns"] == "true"
+		return sinkoracle.NewOracleSink(BuildConnectionString(cfg.Config, cfg.Type), cfg.Config["table"], mappings, useExisting, cfg.Config["delete_strategy"], cfg.Config["soft_delete_column"], cfg.Config["soft_delete_value"], cfg.Config["operation_mode"], truncateTable, syncColumns), nil
 	case "pgvector":
 		connString := BuildConnectionString(cfg.Config, "postgres")
+		mappings, _ := sqlutil.ParseColumnMappings(cfg.Config["column_mappings"])
+		useExisting := cfg.Config["use_existing_table"] == "true"
 		return pgvector.NewSink(
 			connString,
 			cfg.Config["table"],
 			cfg.Config["vector_column"],
 			cfg.Config["id_column"],
 			cfg.Config["metadata_column"],
+			mappings,
+			useExisting,
+			cfg.Config["delete_strategy"],
+			cfg.Config["soft_delete_column"],
+			cfg.Config["soft_delete_value"],
 		), nil
 	case "mysql", "mariadb":
-		return sinkmysql.NewMySQLSink(BuildConnectionString(cfg.Config, cfg.Type)), nil
+		mappings, _ := sqlutil.ParseColumnMappings(cfg.Config["column_mappings"])
+		useExisting := cfg.Config["use_existing_table"] == "true"
+		truncateTable := cfg.Config["truncate_table"] == "true"
+		syncColumns := cfg.Config["sync_columns"] == "true"
+		return sinkmysql.NewMySQLSink(BuildConnectionString(cfg.Config, cfg.Type), cfg.Config["table"], mappings, useExisting, cfg.Config["delete_strategy"], cfg.Config["soft_delete_column"], cfg.Config["soft_delete_value"], cfg.Config["operation_mode"], truncateTable, syncColumns), nil
 	case "sqlite":
-		return sinksqlite.NewSQLiteSink(BuildConnectionString(cfg.Config, cfg.Type)), nil
+		mappings, _ := sqlutil.ParseColumnMappings(cfg.Config["column_mappings"])
+		useExisting := cfg.Config["use_existing_table"] == "true"
+		truncateTable := cfg.Config["truncate_table"] == "true"
+		syncColumns := cfg.Config["sync_columns"] == "true"
+		return sinksqlite.NewSQLiteSink(BuildConnectionString(cfg.Config, cfg.Type), cfg.Config["table"], mappings, useExisting, cfg.Config["delete_strategy"], cfg.Config["soft_delete_column"], cfg.Config["soft_delete_value"], cfg.Config["operation_mode"], truncateTable, syncColumns), nil
 	case "eventstore":
 		driver := cfg.Config["driver"]
 		dsn := cfg.Config["dsn"]
@@ -618,11 +714,27 @@ func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 		store.SetTemplates(cfg.Config["stream_id_tpl"], cfg.Config["event_type_tpl"])
 		return store, nil
 	case "clickhouse":
-		return sinkclickhouse.NewClickHouseSink(cfg.Config["addr"], cfg.Config["database"]), nil
+		mappings, _ := sqlutil.ParseColumnMappings(cfg.Config["column_mappings"])
+		useExisting := cfg.Config["use_existing_table"] == "true"
+		truncateTable := cfg.Config["truncate_table"] == "true"
+		syncColumns := cfg.Config["sync_columns"] == "true"
+		return sinkclickhouse.NewClickHouseSink(cfg.Config["addr"], cfg.Config["database"], cfg.Config["table"], mappings, useExisting, cfg.Config["delete_strategy"], cfg.Config["soft_delete_column"], cfg.Config["soft_delete_value"], cfg.Config["operation_mode"], truncateTable, syncColumns), nil
+	case "cassandra":
+		mappings, _ := sqlutil.ParseColumnMappings(cfg.Config["column_mappings"])
+		useExisting := cfg.Config["use_existing_table"] == "true"
+		truncateTable := cfg.Config["truncate_table"] == "true"
+		syncColumns := cfg.Config["sync_columns"] == "true"
+		hosts := strings.Split(cfg.Config["hosts"], ",")
+		return sinkcassandra.NewCassandraSink(hosts, cfg.Config["keyspace"], cfg.Config["table"], mappings, useExisting, cfg.Config["delete_strategy"], cfg.Config["soft_delete_column"], cfg.Config["soft_delete_value"], cfg.Config["operation_mode"], truncateTable, syncColumns), nil
 	case "mongodb":
-		return sinkmongodb.NewMongoDBSink(cfg.Config["uri"], cfg.Config["database"]), nil
+		mappings, _ := sqlutil.ParseColumnMappings(cfg.Config["column_mappings"])
+		return sinkmongodb.NewMongoDBSink(cfg.Config["uri"], cfg.Config["database"], cfg.Config["table"], mappings, cfg.Config["delete_strategy"], cfg.Config["soft_delete_column"], cfg.Config["soft_delete_value"], cfg.Config["operation_mode"]), nil
 	case "snowflake":
-		return snowflake.NewSink(cfg.Config["connection_string"], fmttr), nil
+		mappings, _ := sqlutil.ParseColumnMappings(cfg.Config["column_mappings"])
+		useExisting := cfg.Config["use_existing_table"] == "true"
+		truncateTable := cfg.Config["truncate_table"] == "true"
+		syncColumns := cfg.Config["sync_columns"] == "true"
+		return snowflake.NewSink(cfg.Config["connection_string"], fmttr, cfg.Config["table"], mappings, useExisting, cfg.Config["delete_strategy"], cfg.Config["soft_delete_column"], cfg.Config["soft_delete_value"], cfg.Config["operation_mode"], truncateTable, syncColumns), nil
 	case "wasm":
 		t, ok := transformer.Get("wasm")
 		if !ok {

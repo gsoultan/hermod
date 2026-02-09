@@ -69,6 +69,86 @@ func NewMongoStorage(client *mongo.Client, dbName string) storage.Storage {
 	}
 }
 
+func (s *mongoStorage) ListApprovals(ctx context.Context, filter storage.ApprovalFilter) ([]storage.Approval, int, error) {
+	coll := s.db.Collection("approvals")
+	q := bson.M{}
+	if filter.WorkflowID != "" {
+		q["workflow_id"] = filter.WorkflowID
+	}
+	if filter.Status != "" {
+		q["status"] = filter.Status
+	}
+	total64, err := coll.CountDocuments(ctx, q)
+	if err != nil {
+		return nil, 0, err
+	}
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}})
+	if filter.Limit > 0 {
+		opts.SetLimit(int64(filter.Limit)).SetSkip(int64(filter.Page * filter.Limit))
+	}
+	cur, err := coll.Find(ctx, q, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cur.Close(ctx)
+	var apps []storage.Approval
+	for cur.Next(ctx) {
+		var a storage.Approval
+		if err := cur.Decode(&a); err != nil {
+			return nil, 0, err
+		}
+		apps = append(apps, a)
+	}
+	return apps, int(total64), nil
+}
+
+func (s *mongoStorage) CreateApproval(ctx context.Context, app storage.Approval) error {
+	if app.ID == "" {
+		app.ID = uuid.New().String()
+	}
+	_, err := s.db.Collection("approvals").InsertOne(ctx, app)
+	return err
+}
+
+func (s *mongoStorage) GetApproval(ctx context.Context, id string) (storage.Approval, error) {
+	var a storage.Approval
+	err := s.db.Collection("approvals").FindOne(ctx, bson.M{"id": id}).Decode(&a)
+	if err == mongo.ErrNoDocuments {
+		return a, storage.ErrNotFound
+	}
+	return a, err
+}
+
+func (s *mongoStorage) UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string) error {
+	upd := bson.M{
+		"$set": bson.M{
+			"status":       status,
+			"processed_at": time.Now(),
+			"processed_by": processedBy,
+			"notes":        notes,
+		},
+	}
+	res, err := s.db.Collection("approvals").UpdateOne(ctx, bson.M{"id": id}, upd)
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return storage.ErrNotFound
+	}
+	return nil
+}
+
+func (s *mongoStorage) DeleteApproval(ctx context.Context, id string) error {
+	res, err := s.db.Collection("approvals").DeleteOne(ctx, bson.M{"id": id})
+	if err != nil {
+		return err
+	}
+	if res.DeletedCount == 0 {
+		return storage.ErrNotFound
+	}
+	return nil
+}
+
 func (s *mongoStorage) Init(ctx context.Context) error {
 	// Create indexes
 	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests", "schemas", "message_traces", "workflow_versions"}
@@ -934,6 +1014,9 @@ func (s *mongoStorage) ListWorkers(ctx context.Context, filter storage.CommonFil
 func (s *mongoStorage) CreateWorker(ctx context.Context, worker storage.Worker) error {
 	if worker.ID == "" {
 		worker.ID = uuid.New().String()
+	}
+	if worker.Token == "" {
+		worker.Token = uuid.New().String()
 	}
 	coll := s.db.Collection("workers")
 	_, err := coll.InsertOne(ctx, bson.M{

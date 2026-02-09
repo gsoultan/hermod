@@ -21,9 +21,10 @@ import (
 type SourceType string
 
 const (
-	SourceTypeLocal SourceType = "local"
-	SourceTypeHTTP  SourceType = "http"
-	SourceTypeS3    SourceType = "s3"
+	SourceTypeLocal  SourceType = "local"
+	SourceTypeHTTP   SourceType = "http"
+	SourceTypeS3     SourceType = "s3"
+	SourceTypeCustom SourceType = "custom"
 )
 
 // CSVSource implements the hermod.Source interface for CSV files.
@@ -47,6 +48,9 @@ type CSVSource struct {
 	reader    *csv.Reader
 	headers   []string
 	finished  bool
+
+	// custom reader (for in-memory/remote streams like SFTP)
+	rc io.ReadCloser
 }
 
 // NewCSVSource creates a new CSVSource.
@@ -91,6 +95,19 @@ func NewS3CSVSource(region, bucket, key, endpoint, accessKey, secretKey string, 
 		s3SecretKey: secretKey,
 		delimiter:   delimiter,
 		hasHeader:   hasHeader,
+	}
+}
+
+// NewCSVSourceFromReadCloser creates a CSVSource backed by a provided reader (e.g., SFTP file stream).
+func NewCSVSourceFromReadCloser(rc io.ReadCloser, delimiter rune, hasHeader bool) *CSVSource {
+	if delimiter == 0 {
+		delimiter = ','
+	}
+	return &CSVSource{
+		sourceType: SourceTypeCustom,
+		delimiter:  delimiter,
+		hasHeader:  hasHeader,
+		rc:         rc,
 	}
 }
 
@@ -146,6 +163,11 @@ func (s *CSVSource) init(ctx context.Context) error {
 			return fmt.Errorf("failed to get object from s3: %w", err)
 		}
 		rc = resp.Body
+	case SourceTypeCustom:
+		if s.rc == nil {
+			return fmt.Errorf("custom CSV source: reader is nil")
+		}
+		rc = s.rc
 	default:
 		return fmt.Errorf("unsupported source type: %s", s.sourceType)
 	}

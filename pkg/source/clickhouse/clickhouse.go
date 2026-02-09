@@ -370,6 +370,35 @@ func (c *ClickHouseSource) DiscoverTables(ctx context.Context) ([]string, error)
 	return tables, nil
 }
 
+func (c *ClickHouseSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
+	if err := c.init(ctx); err != nil {
+		return nil, err
+	}
+
+	query := fmt.Sprintf("SELECT name, type, is_nullable = 'YES', is_in_primary_key, default_expression FROM system.columns WHERE table = '%s'", table)
+	rows, err := c.conn.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var columns []hermod.ColumnInfo
+	for rows.Next() {
+		var col hermod.ColumnInfo
+		var def string
+		var isNullable, isPK bool
+		if err := rows.Scan(&col.Name, &col.Type, &isNullable, &isPK, &def); err != nil {
+			return nil, err
+		}
+		col.IsNullable = isNullable
+		col.IsPK = isPK
+		col.IsIdentity = strings.Contains(strings.ToLower(def), "generateuuidv4") || strings.Contains(strings.ToLower(def), "nextval")
+		col.Default = def
+		columns = append(columns, col)
+	}
+	return columns, nil
+}
+
 func (c *ClickHouseSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	if err := c.init(ctx); err != nil {
 		return nil, err

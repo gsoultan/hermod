@@ -133,6 +133,27 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		tokenString, ok := extractBearerOrCookie(r)
 		if !ok {
+			// Fallback: allow worker token authentication for non-setup API calls
+			// Workers authenticate using the X-Worker-Token header.
+			if workerToken := r.Header.Get("X-Worker-Token"); workerToken != "" && s.storage != nil {
+				// Find a worker with the provided token. This is a simple linear scan; acceptable for typical small worker counts.
+				if workers, _, err := s.storage.ListWorkers(r.Context(), storage.CommonFilter{Limit: -1}); err == nil {
+					for _, wkr := range workers {
+						if wkr.Token == workerToken {
+							// Build a minimal user context with Editor role and full vhost access.
+							user := storage.User{
+								ID:       "worker:" + wkr.ID,
+								Username: "worker:" + wkr.Name,
+								Role:     storage.RoleEditor,
+								VHosts:   []string{"*"},
+							}
+							ctx := context.WithValue(r.Context(), userContextKey, &user)
+							next.ServeHTTP(w, r.WithContext(ctx))
+							return
+						}
+					}
+				}
+			}
 			s.jsonError(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}

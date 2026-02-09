@@ -21,6 +21,7 @@ func (s *Server) registerSourceRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/sources/test", s.editorOnly(s.testSource))
 	mux.Handle("POST /api/sources/discover/databases", s.editorOnly(s.discoverDatabases))
 	mux.Handle("POST /api/sources/discover/tables", s.editorOnly(s.discoverTables))
+	mux.Handle("POST /api/sources/discover/columns", s.editorOnly(s.discoverSourceColumns))
 	mux.Handle("POST /api/sources/sample", s.editorOnly(s.sampleSourceTable))
 	mux.Handle("POST /api/sources/query", s.editorOnly(s.querySource))
 	mux.Handle("POST /api/sources/upload", s.editorOnly(s.uploadFile))
@@ -308,13 +309,19 @@ func (s *Server) listWorkflowsReferencingSource(w http.ResponseWriter, r *http.R
 }
 
 func (s *Server) testSource(w http.ResponseWriter, r *http.Request) {
-	var src storage.Source
-	if err := json.NewDecoder(r.Body).Decode(&src); err != nil {
+	// Decode only the minimal fields required to test a source to avoid
+	// strict coupling with storage.Source (which includes optional fields
+	// like Sample that may vary in type across UIs).
+	var req struct {
+		Type   string            `json:"type"`
+		Config map[string]string `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	cfg := engine.SourceConfig{Type: src.Type, Config: src.Config}
+	cfg := engine.SourceConfig{Type: req.Type, Config: req.Config}
 	if err := s.registry.TestSource(r.Context(), cfg); err != nil {
 		s.jsonError(w, "Test failed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -325,13 +332,16 @@ func (s *Server) testSource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) discoverDatabases(w http.ResponseWriter, r *http.Request) {
-	var src storage.Source
-	if err := json.NewDecoder(r.Body).Decode(&src); err != nil {
+	var req struct {
+		Type   string            `json:"type"`
+		Config map[string]string `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	cfg := engine.SourceConfig{Type: src.Type, Config: src.Config}
+	cfg := engine.SourceConfig{Type: req.Type, Config: req.Config}
 	dbs, err := s.registry.DiscoverDatabases(r.Context(), cfg)
 	if err != nil {
 		s.jsonError(w, "Discovery failed: "+err.Error(), http.StatusBadRequest)
@@ -343,13 +353,16 @@ func (s *Server) discoverDatabases(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) discoverTables(w http.ResponseWriter, r *http.Request) {
-	var src storage.Source
-	if err := json.NewDecoder(r.Body).Decode(&src); err != nil {
+	var req struct {
+		Type   string            `json:"type"`
+		Config map[string]string `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	cfg := engine.SourceConfig{Type: src.Type, Config: src.Config}
+	cfg := engine.SourceConfig{Type: req.Type, Config: req.Config}
 	tables, err := s.registry.DiscoverTables(r.Context(), cfg)
 	if err != nil {
 		s.jsonError(w, "Discovery failed: "+err.Error(), http.StatusBadRequest)
@@ -360,10 +373,37 @@ func (s *Server) discoverTables(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(tables)
 }
 
+func (s *Server) discoverSourceColumns(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Source struct {
+			Type   string            `json:"type"`
+			Config map[string]string `json:"config"`
+		} `json:"source"`
+		Table string `json:"table"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg := engine.SourceConfig{Type: req.Source.Type, Config: req.Source.Config}
+	columns, err := s.registry.DiscoverSourceColumns(r.Context(), cfg, req.Table)
+	if err != nil {
+		s.jsonError(w, "Discovery failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(columns)
+}
+
 func (s *Server) sampleSourceTable(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Source storage.Source `json:"source"`
-		Table  string         `json:"table"`
+		Source struct {
+			Type   string            `json:"type"`
+			Config map[string]string `json:"config"`
+		} `json:"source"`
+		Table string `json:"table"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.jsonError(w, err.Error(), http.StatusBadRequest)
@@ -382,7 +422,10 @@ func (s *Server) sampleSourceTable(w http.ResponseWriter, r *http.Request) {
 		"id":        msg.ID(),
 		"operation": msg.Operation(),
 		"table":     msg.Table(),
+		"schema":    msg.Schema(),
+		"before":    string(msg.Before()),
 		"after":     string(msg.After()),
+		"metadata":  msg.Metadata(),
 	})
 }
 

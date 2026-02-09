@@ -170,6 +170,7 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		s.queries.get(QueryInitUsersTable),
 		s.queries.get(QueryInitVHostsTable),
 		s.queries.get(QueryInitWorkersTable),
+		s.queries.get(QueryInitApprovalsTable),
 	}
 
 	for _, q := range initQueries {
@@ -1496,6 +1497,13 @@ func (s *sqlStorage) ListWorkers(ctx context.Context, filter storage.CommonFilte
 }
 
 func (s *sqlStorage) CreateWorker(ctx context.Context, worker storage.Worker) error {
+	// Ensure ID and token are set to sane defaults when missing to simplify setup
+	if worker.ID == "" {
+		worker.ID = uuid.New().String()
+	}
+	if worker.Token == "" {
+		worker.Token = uuid.New().String()
+	}
 	_, err := s.exec(ctx, s.queries.get(QueryCreateWorker),
 		worker.ID, worker.Name, worker.Host, worker.Port, worker.Description, worker.Token, worker.LastSeen, worker.CPUUsage, worker.MemoryUsage)
 	return err
@@ -2438,6 +2446,132 @@ func (s *sqlStorage) UninstallPlugin(ctx context.Context, id string) error {
 		res, e := s.exec(ctx, s.queries.get(QueryUninstallPlugin), id)
 		if e != nil {
 			return e
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return storage.ErrNotFound
+		}
+		return nil
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) ListApprovals(ctx context.Context, filter storage.ApprovalFilter) ([]storage.Approval, int, error) {
+	query := s.queries.get(QueryListApprovals)
+	countQuery := s.queries.get(QueryCountApprovals)
+
+	var where []string
+	var args []any
+
+	if filter.WorkflowID != "" {
+		where = append(where, "workflow_id = ?")
+		args = append(args, filter.WorkflowID)
+	}
+	if filter.Status != "" {
+		where = append(where, "status = ?")
+		args = append(args, filter.Status)
+	}
+
+	if len(where) > 0 {
+		w := " WHERE " + strings.Join(where, " AND ")
+		query += w
+		countQuery += w
+	}
+
+	query += " ORDER BY created_at DESC"
+	if filter.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d OFFSET %d", filter.Limit, filter.Page*filter.Limit)
+	}
+
+	var total int
+	err := s.queryRow(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := s.query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var approvals []storage.Approval
+	for rows.Next() {
+		var a storage.Approval
+		var metadata, data string
+		var processedAt sql.NullTime
+		var processedBy, notes sql.NullString
+		err := rows.Scan(&a.ID, &a.WorkflowID, &a.NodeID, &a.MessageID, &a.Payload, &metadata, &data, &a.Status, &a.CreatedAt, &processedAt, &processedBy, &notes)
+		if err != nil {
+			return nil, 0, err
+		}
+		_ = json.Unmarshal([]byte(metadata), &a.Metadata)
+		_ = json.Unmarshal([]byte(data), &a.Data)
+		if processedAt.Valid {
+			a.ProcessedAt = &processedAt.Time
+		}
+		a.ProcessedBy = processedBy.String
+		a.Notes = notes.String
+		approvals = append(approvals, a)
+	}
+	return approvals, total, nil
+}
+
+func (s *sqlStorage) CreateApproval(ctx context.Context, app storage.Approval) error {
+	metadata, _ := json.Marshal(app.Metadata)
+	data, _ := json.Marshal(app.Data)
+
+	exec := func() error {
+		_, err := s.exec(ctx, s.queries.get(QueryCreateApproval),
+			app.ID, app.WorkflowID, app.NodeID, app.MessageID, app.Payload, string(metadata), string(data), app.Status, app.CreatedAt)
+		return err
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) GetApproval(ctx context.Context, id string) (storage.Approval, error) {
+	var a storage.Approval
+	var metadata, data string
+	var processedAt sql.NullTime
+	var processedBy, notes sql.NullString
+	err := s.queryRow(ctx, s.queries.get(QueryGetApproval), id).Scan(
+		&a.ID, &a.WorkflowID, &a.NodeID, &a.MessageID, &a.Payload, &metadata, &data, &a.Status, &a.CreatedAt, &processedAt, &processedBy, &notes)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return a, storage.ErrNotFound
+		}
+		return a, err
+	}
+	_ = json.Unmarshal([]byte(metadata), &a.Metadata)
+	_ = json.Unmarshal([]byte(data), &a.Data)
+	if processedAt.Valid {
+		a.ProcessedAt = &processedAt.Time
+	}
+	a.ProcessedBy = processedBy.String
+	a.Notes = notes.String
+	return a, nil
+}
+
+func (s *sqlStorage) UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string) error {
+	exec := func() error {
+		res, err := s.exec(ctx, s.queries.get(QueryUpdateApprovalStatus), status, time.Now(), processedBy, notes, id)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return storage.ErrNotFound
+		}
+		return nil
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) DeleteApproval(ctx context.Context, id string) error {
+	exec := func() error {
+		res, err := s.exec(ctx, s.queries.get(QueryDeleteApproval), id)
+		if err != nil {
+			return err
 		}
 		n, _ := res.RowsAffected()
 		if n == 0 {

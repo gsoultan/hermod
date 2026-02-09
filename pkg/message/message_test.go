@@ -98,7 +98,7 @@ func TestDefaultMessage_MarshalJSON(t *testing.T) {
 	}
 
 	// map keys are sorted alphabetically when marshaled
-	expected := `{"before":{"id":1,"name":"John Doe"},"id":"test-id","metadata":{"source":"mssql"},"name":"Johnathan Doe","operation":"update","schema":"dbo","table":"consumer"}`
+	expected := `{"after":{"id":1,"name":"Johnathan Doe"},"before":{"id":1,"name":"John Doe"},"id":"test-id","metadata":{"source":"mssql"},"operation":"update","schema":"dbo","table":"consumer"}`
 	if string(data) != expected {
 		t.Errorf("expected %s, got %s", expected, string(data))
 	}
@@ -125,6 +125,35 @@ func TestDefaultMessage_MarshalJSON(t *testing.T) {
 		t.Fatalf("MarshalJSON failed: %v", err)
 	}
 	expected = `{"foo":"bar","id":"dyn-id","num":123}`
+	if string(data) != expected {
+		t.Errorf("expected %s, got %s", expected, string(data))
+	}
+}
+
+func TestDefaultMessage_MarshalJSON_CDC_WithTransformation(t *testing.T) {
+	msg := AcquireMessage()
+	defer ReleaseMessage(msg)
+
+	msg.SetID("test-id")
+	msg.SetOperation(hermod.OpUpdate)
+	msg.SetTable("users")
+
+	// Simulate transformation adding "branch"
+	// SetData also populates m.data from payload if it was empty,
+	// but here we are setting them manually.
+	msg.SetData("id", 1)
+	msg.SetData("name", "John")
+	msg.SetData("branch", "NY")
+
+	data, err := msg.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON failed: %v", err)
+	}
+
+	// Should NOT have id, name, branch in root (except system id)
+	// and after should contain all of them.
+	// Note: SetData clears m.payload, so MarshalJSON reconstructs 'after' from m.data
+	expected := `{"after":{"branch":"NY","id":1,"name":"John"},"id":"test-id","operation":"update","table":"users"}`
 	if string(data) != expected {
 		t.Errorf("expected %s, got %s", expected, string(data))
 	}

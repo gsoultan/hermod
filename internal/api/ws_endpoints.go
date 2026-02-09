@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -57,11 +56,6 @@ func init() {
 // handleWSIn upgrades to a WebSocket and treats each incoming frame as a message
 // dispatched into the internal webhook bus at path /api/ws/in/{path...}.
 func (s *Server) handleWSIn(w http.ResponseWriter, r *http.Request) {
-	// In dev allow any origin to simplify local testing
-	if os.Getenv("HERMOD_ENV") != "production" {
-		upgrader.CheckOrigin = func(r *http.Request) bool { return true }
-	}
-
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		wsInErrors.Inc()
@@ -190,11 +184,6 @@ func (s *Server) handleWSIn(w http.ResponseWriter, r *http.Request) {
 
 // handleWSOut upgrades to a WebSocket and streams live messages for a workflow.
 func (s *Server) handleWSOut(w http.ResponseWriter, r *http.Request) {
-	// In dev allow any origin
-	if os.Getenv("HERMOD_ENV") != "production" {
-		upgrader.CheckOrigin = func(r *http.Request) bool { return true }
-	}
-
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		wsOutErrors.Inc()
@@ -203,10 +192,10 @@ func (s *Server) handleWSOut(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 	wsOutConnections.Inc()
 
-	workflowID := r.PathValue("workflowID")
-	if strings.TrimSpace(workflowID) == "" {
+	workflowID := strings.TrimSpace(r.PathValue("workflowID"))
+	if workflowID == "" {
 		// Fallback to query param for flexibility
-		workflowID = r.URL.Query().Get("workflow_id")
+		workflowID = strings.TrimSpace(r.URL.Query().Get("workflow_id"))
 	}
 
 	// Heartbeat
@@ -236,7 +225,7 @@ func (s *Server) handleWSOut(w http.ResponseWriter, r *http.Request) {
 		case <-ping.C:
 			_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
 		case evt := <-ch:
-			if workflowID != "" && evt.WorkflowID != workflowID {
+			if workflowID != "" && !strings.EqualFold(evt.WorkflowID, workflowID) {
 				continue
 			}
 			env := outEnv{

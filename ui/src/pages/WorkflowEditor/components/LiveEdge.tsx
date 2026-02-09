@@ -1,6 +1,8 @@
 import { memo, useMemo, useState } from 'react';
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from 'reactflow';
-import { HoverCard, Code, Stack, Text, ActionIcon, Tooltip } from '@mantine/core';import { useWorkflowStore } from '../store/useWorkflowStore';import { IconTrash } from '@tabler/icons-react';
+import { HoverCard, Code, Stack, Text, ActionIcon, Tooltip, Badge } from '@mantine/core';
+import { useWorkflowStore } from '../store/useWorkflowStore';
+import { IconTrash, IconPlayerPause, IconPlayerPlay } from '@tabler/icons-react';
 function formatPreview(val: any): string {
   try {
     if (typeof val === 'string') return val.length > 200 ? val.slice(0, 200) + '…' : val;
@@ -11,7 +13,7 @@ function formatPreview(val: any): string {
 }
 
 export const LiveEdge = memo((props: EdgeProps) => {
-  const { id, source, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, selected } = props;
+  const { id, source, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, selected, data } = props;
   const [edgePath, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
 
   const [hovered, setHovered] = useState(false);
@@ -21,6 +23,7 @@ export const LiveEdge = memo((props: EdgeProps) => {
   const edgeThroughput = useWorkflowStore(s => s.edgeThroughput);
   const nodeSamples = useWorkflowStore(s => s.nodeSamples);
   const setEdges = useWorkflowStore(s => s.setEdges);
+  const hasBreakpoint = !!(data as any)?.breakpoint;
 
   // Use per-edge throughput if available, else fall back to source node throughput
   const throughput = edgeThroughput[`${source}->${id.includes(':::') ? id.split(':::')[1] : props.target}`] ?? 
@@ -47,7 +50,8 @@ export const LiveEdge = memo((props: EdgeProps) => {
     <>
       <style>
         {`
-          @keyframes dash { to { stroke-dashoffset: -1000; } }
+          /* Animate dash movement from left → right along the edge path */
+          @keyframes dash { to { stroke-dashoffset: 1000; } }
           .react-flow__edge-path {
             transition: stroke-width 0.2s, stroke 0.2s;
           }
@@ -58,11 +62,15 @@ export const LiveEdge = memo((props: EdgeProps) => {
         path={edgePath}
         markerEnd={markerEnd}
         style={{
-          stroke: selected ? 'var(--mantine-color-blue-7)' : (pulseEnabled ? 'var(--mantine-color-blue-6)' : 'var(--mantine-color-gray-6)'),
+          stroke: hasBreakpoint
+            ? (selected ? 'var(--mantine-color-orange-7)' : 'var(--mantine-color-orange-6)')
+            : (selected ? 'var(--mantine-color-blue-7)' : (pulseEnabled ? 'var(--mantine-color-blue-6)' : 'var(--mantine-color-gray-6)')),
           strokeWidth: selected ? strokeWidth + 1.5 : strokeWidth,
-          strokeDasharray: pulseEnabled ? '8 6' : 'none',
+          strokeDasharray: hasBreakpoint ? '2 6' : (pulseEnabled ? '8 6' : 'none'),
           animation: dashAnim ? `${dashAnim}` : undefined,
-          cursor: 'pointer'
+          cursor: 'pointer',
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round'
         }}
       />
       <EdgeLabelRenderer>
@@ -84,7 +92,9 @@ export const LiveEdge = memo((props: EdgeProps) => {
                 width: 12, 
                 height: 12, 
                 borderRadius: 999, 
-                background: selected ? 'var(--mantine-color-blue-7)' : 'var(--mantine-color-blue-5)', 
+                background: hasBreakpoint
+                  ? (selected ? 'var(--mantine-color-orange-7)' : 'var(--mantine-color-orange-5)')
+                  : (selected ? 'var(--mantine-color-blue-7)' : 'var(--mantine-color-blue-5)'), 
                 cursor: 'help', 
                 opacity: 0.8,
                 border: selected ? '2px solid white' : 'none',
@@ -94,6 +104,7 @@ export const LiveEdge = memo((props: EdgeProps) => {
             <HoverCard.Dropdown>
               <Stack gap="xs" maw={360}>
                 <Text fw={700} size="xs">Recent messages ({samples.length})</Text>
+                {hasBreakpoint && <Badge size="xs" color="orange" variant="light">Breakpoint</Badge>}
                 {samples.length === 0 ? (
                   <Text size="xs" c="dimmed">No samples yet</Text>
                 ) : (
@@ -111,21 +122,41 @@ export const LiveEdge = memo((props: EdgeProps) => {
           </HoverCard>
 
           {(selected || hovered) && (
-            <Tooltip label="Remove connection" position="right" withArrow>
-              <ActionIcon 
-                color="red" 
-                variant="filled" 
-                size="sm" 
-                radius="xl"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setEdges((eds) => eds.filter((edge) => edge.id !== id));
-                }}
-                style={{ boxShadow: '0 0 4px rgba(0,0,0,0.2)' }}
-              >
-                <IconTrash size="0.9rem" />
-              </ActionIcon>
-            </Tooltip>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <Tooltip label={hasBreakpoint ? 'Remove breakpoint' : 'Add breakpoint'} position="right" withArrow>
+                <ActionIcon 
+                  color={hasBreakpoint ? 'orange' : 'gray'} 
+                  variant={hasBreakpoint ? 'filled' : 'light'} 
+                  size="sm" 
+                  radius="xl"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEdges((eds) => eds.map((edge) => edge.id === id ? {
+                      ...edge,
+                      data: { ...(edge.data || {}), breakpoint: !hasBreakpoint }
+                    } : edge));
+                  }}
+                  style={{ boxShadow: '0 0 4px rgba(0,0,0,0.2)' }}
+                >
+                  {hasBreakpoint ? <IconPlayerPlay size="0.9rem" /> : <IconPlayerPause size="0.9rem" />}
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label="Remove connection" position="right" withArrow>
+                <ActionIcon 
+                  color="red" 
+                  variant="filled" 
+                  size="sm" 
+                  radius="xl"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEdges((eds) => eds.filter((edge) => edge.id !== id));
+                  }}
+                  style={{ boxShadow: '0 0 4px rgba(0,0,0,0.2)' }}
+                >
+                  <IconTrash size="0.9rem" />
+                </ActionIcon>
+              </Tooltip>
+            </div>
           )}
         </div>
       </EdgeLabelRenderer>

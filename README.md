@@ -23,6 +23,8 @@ Hermod is built for mission-critical enterprise data workloads, providing robust
 - **Automated PII Scanning**: Built-in `mask` transformation detects and redacts sensitive data (PII/PHI) using a sophisticated regex-based discovery engine.
 - **Audit Logging**: Complete history of administrative changes and system events for security and compliance audits.
 - **Exactly-Once Semantics (EOS)**: Guarantees 100% data consistency using the **Transactional Outbox** pattern for SQL sources, ensuring messages are only acknowledged after successful delivery.
+- **Advanced Database Mapping & Schema Discovery**: Production-ready column mapping for all major databases (**Postgres**, **MySQL**, **MSSQL**, **Oracle**, **Snowflake**, **MongoDB**, etc.). Supports automatic table creation, identity/auto-increment columns, and "Smart Mapping" from both source and sink schemas.
+- **Resource-Aware Sharding**: Advanced worker sharding using Rendezvous hashing weighted by real-time CPU/Memory metrics. Ensures optimal workload distribution and prevents workflow flapping with built-in hysteresis.
 - **AI-Native Transformations**: Integrated "Cognitive ETL" nodes for **AI Enrichment** and **AI Mapping**, supporting OpenAI and local Ollama models.
 - **OpenTelemetry (OTLP) Native**: Built-in support for exporting internal traces and metrics to standard enterprise observability stacks via the OTLP protocol.
 - **Enterprise Connectivity**: Native, optimized connectors for high-scale enterprise sinks like **Snowflake**.
@@ -587,3 +589,10 @@ The workflow file is at `.github/workflows/ci.yml`. To enable optional SQL integ
   - POST /api/settings/test (admin-only) sends a test through configured channels in this order: Email → Slack → Discord → Webhook → Telegram. The UI displays per-channel results.
 
 These endpoints require an administrator role and are used by the UI automatically. No additional configuration is needed beyond saving your settings.
+
+## Contributing & Documentation
+
+- Always update `README.md` when you add a new feature or change user‑visible behavior.
+  - Include a brief description, how to enable/use it, and any relevant config flags, env vars, API endpoints, or UI locations.
+  - If the UI is affected, verify the UI builds (`cd ui && bun run build`) or run the quick verify script on Windows: `pwsh -File scripts/quick-verify.ps1`.
+  - Keep examples up to date; add a short note under the relevant section rather than creating separate long docs.

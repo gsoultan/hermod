@@ -1,4 +1,4 @@
-import { TextInput, Group, Select, Button, Stack, Fieldset } from '@mantine/core';
+import { TextInput, Group, Select, Button, Stack, Fieldset, SimpleGrid } from '@mantine/core';
 import { useEffect } from 'react';
 import type { Worker, Source } from '../../types';
 import type { FC } from 'react';
@@ -48,7 +48,7 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
           required
         />
         {!embedded && (
-          <Group grow>
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
             <Select 
               label="VHost" 
               placeholder="Select a virtual host" 
@@ -65,7 +65,7 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
               onChange={(val) => handleSourceChange({ worker_id: val || '' })}
               clearable
             />
-          </Group>
+          </SimpleGrid>
         )}
         <Group align="flex-end" grow>
           {!embedded ? (

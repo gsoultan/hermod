@@ -1,5 +1,7 @@
 import { notifications } from '@mantine/notifications';
 import { getToken, removeToken } from './auth/storage';
+import { IconAlertCircle, IconExternalLink } from '@tabler/icons-react';
+import { Text, Group, Anchor, Stack } from '@mantine/core';
 
 export function getClaimsFromToken(): any {
   const token = getToken();
@@ -65,24 +67,28 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
       }
 
       notifications.show({
-        title: 'Error',
+        title: <Text fw={700}>System Interruption</Text>,
         message: (
-          <div>
-            <div>{errorMessage}</div>
+          <Stack gap={4}>
+            <Text size="sm">{errorMessage}</Text>
             {workflowID && (
-              <div style={{ marginTop: '8px' }}>
-                <a 
+              <Group gap={4} mt={4}>
+                <IconExternalLink size="0.9rem" />
+                <Anchor 
                   href={`/logs?workflow_id=${workflowID}`} 
-                  style={{ color: 'white', fontWeight: 'bold', textDecoration: 'underline' }}
+                  underline="always"
+                  size="xs"
+                  fw={600}
                 >
                   View Workflow Logs
-                </a>
-              </div>
+                </Anchor>
+              </Group>
             )}
-          </div>
+          </Stack>
         ),
         color: 'red',
-        autoClose: workflowID ? 15000 : 5000,
+        icon: <IconAlertCircle size="1.1rem" />,
+        autoClose: workflowID ? 10000 : 5000,
       });
     }
     

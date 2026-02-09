@@ -360,6 +360,7 @@ func (s *Server) Routes() http.Handler {
 	s.registerSourceRoutes(mux)
 	s.registerSinkRoutes(mux)
 	s.registerWorkflowRoutes(mux)
+	s.registerApprovalRoutes(mux)
 	s.registerAuthRoutes(mux)
 	s.registerInfrastructureRoutes(mux)
 	s.registerSchemaRoutes(mux)

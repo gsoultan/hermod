@@ -434,6 +434,34 @@ func (m *MongoDBSource) DiscoverTables(ctx context.Context) ([]string, error) {
 	return db.ListCollectionNames(ctx, bson.M{})
 }
 
+func (m *MongoDBSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
+	client, err := GetClient(m.uri)
+	if err != nil {
+		return nil, err
+	}
+
+	var doc bson.M
+	err = client.Database(m.database).Collection(table).FindOne(ctx, bson.M{}).Decode(&doc)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return []hermod.ColumnInfo{}, nil
+		}
+		return nil, err
+	}
+
+	var columns []hermod.ColumnInfo
+	for k, v := range doc {
+		columns = append(columns, hermod.ColumnInfo{
+			Name:       k,
+			Type:       fmt.Sprintf("%T", v),
+			IsPK:       k == "_id",
+			IsIdentity: k == "_id",
+			IsNullable: k != "_id",
+		})
+	}
+	return columns, nil
+}
+
 func (m *MongoDBSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	client, err := GetClient(m.uri)
 	if err != nil {

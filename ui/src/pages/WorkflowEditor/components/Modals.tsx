@@ -1,11 +1,13 @@
 import { 
-  Alert, Button, Group, JsonInput, Modal, Stack, Text, Tabs, PasswordInput, Table, ScrollArea, Badge, Loader, TextInput, ThemeIcon, Code, Box, Paper
+  Alert, Button, Group, JsonInput, Modal, Stack, Text, Tabs, PasswordInput, Table, ScrollArea, Badge, Loader, TextInput, ThemeIcon, Code, Box, Paper, Tooltip
 } from '@mantine/core';
-import { useShallow } from 'zustand/react/shallow';import { useWorkflowStore } from '../store/useWorkflowStore';
+import { useShallow } from 'zustand/react/shallow';
+import { useWorkflowStore } from '../store/useWorkflowStore';
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { apiFetch } from '../../../api';
-import { formatDateTime } from '../../../utils/dateUtils';import { IconAlertCircle, IconBraces, IconCircleCheck, IconCircleX, IconClock, IconEye, IconInfoCircle, IconPlayerPlay, IconSearch, IconShieldLock, IconTimeline } from '@tabler/icons-react';
+import { formatDateTime } from '../../../utils/dateUtils';
+import { IconAlertCircle, IconBraces, IconCircleCheck, IconCircleX, IconClock, IconEye, IconInfoCircle, IconPlayerPlay, IconSearch, IconShieldLock, IconTimeline } from '@tabler/icons-react';
 interface ModalsProps {
   onRunSimulation: (input?: any) => void;
   isTesting: boolean;
@@ -20,7 +22,8 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
     complianceReportOpened,
     setTestModalOpened, setDlqInspectorOpened, setTestInput,
     setTraceInspectorOpened, setSampleInspectorOpened,
-    setComplianceReportOpened
+    setComplianceReportOpened,
+    nodes
   } = useWorkflowStore(useShallow(state => ({
     testModalOpened: state.testModalOpened,
     dlqInspectorOpened: state.dlqInspectorOpened,
@@ -37,7 +40,8 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
     setTestInput: state.setTestInput,
     setTraceInspectorOpened: state.setTraceInspectorOpened,
     setSampleInspectorOpened: state.setSampleInspectorOpened,
-    setComplianceReportOpened: state.setComplianceReportOpened
+    setComplianceReportOpened: state.setComplianceReportOpened,
+    nodes: state.nodes
   })));
 
   const [cryptoKey, setCryptoKey] = useState('');
@@ -419,8 +423,27 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
                         {step.error ? <IconCircleX size="0.8rem" /> : <IconCircleCheck size="0.8rem" />}
                       </ThemeIcon>
                       
-                      <Group justify="space-between">
-                        <Text fw={600} size="sm">Node: {step.node_id}</Text>
+                      <Group justify="space-between" align="center">
+                        {(() => {
+                          const node = Array.isArray(nodes) ? nodes.find((n: any) => n.id === step.node_id) : null;
+                          const type = (node?.type as string | undefined) || undefined;
+                          const label = (node?.data?.label as string | undefined) || (node?.data?.name as string | undefined);
+                          const subType = (node?.data?.transType as string | undefined) || (node?.data?.type as string | undefined);
+                          const cap = (s?: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : undefined;
+                          const shortId = (id: string) => id.length > 18 ? `${id.slice(0, 10)}…${id.slice(-4)}` : id;
+                          return (
+                            <Group gap="xs" wrap="nowrap">
+                              {type && <Badge size="xs" variant="light">{cap(type)}</Badge>}
+                              <Text fw={600} size="sm">{label || 'Unknown node'}</Text>
+                              {subType && (
+                                <Badge size="xs" variant="outline" color="gray">{subType}</Badge>
+                              )}
+                              <Tooltip label={step.node_id} withArrow>
+                                <Code fz="xs" c="dimmed">{shortId(step.node_id)}</Code>
+                              </Tooltip>
+                            </Group>
+                          );
+                        })()}
                         <Text size="xs" c="dimmed">{step.duration_ms || Math.round(step.duration / 1000000)}ms</Text>
                       </Group>
                       

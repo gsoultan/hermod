@@ -1,8 +1,9 @@
-import { IconClipboard, IconEye, IconEyeOff, IconKey, IconReload } from '@tabler/icons-react';
+import { IconClipboard, IconKey, IconReload, IconSettings } from '@tabler/icons-react';
 import { useState } from 'react'
 import type { FC } from 'react'
-import { Button, Group, NumberInput, Select, PasswordInput, Tooltip } from '@mantine/core'
-import { notifications } from '@mantine/notifications'import { apiFetch } from '../api'
+import { Button, Group, NumberInput, Select, PasswordInput, Tooltip, ActionIcon, Stack, Collapse, Text } from '@mantine/core'
+import { notifications } from '@mantine/notifications'
+import { apiFetch } from '../api'
 
 export interface GenerateTokenProps {
   label?: string
@@ -23,6 +24,7 @@ export const GenerateToken: FC<GenerateTokenProps> = ({
   const [encoding, setEncoding] = useState<'base64url' | 'hex'>(defaultEncoding)
   const [revealed, setRevealed] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [showConfig, setShowConfig] = useState(false)
 
   async function handleGenerate() {
     try {
@@ -35,10 +37,11 @@ export const GenerateToken: FC<GenerateTokenProps> = ({
       if (!res.ok) throw new Error('Failed to generate token')
       const json = await res.json()
       onChange(json.token)
+      setRevealed(true)
       notifications.show({
         color: 'green',
         title: 'Token generated',
-        message: 'A new secure token has been generated.',
+        message: 'A new secure token has been generated and revealed.',
       })
     } catch (e: any) {
       notifications.show({ color: 'red', title: 'Error', message: e?.message || 'Failed to generate token' })
@@ -57,51 +60,72 @@ export const GenerateToken: FC<GenerateTokenProps> = ({
   }
 
   return (
-    <Group align="end" gap="sm" wrap="nowrap">
-      <PasswordInput
-        label={label}
-        value={value}
-        onChange={(e) => onChange(e.currentTarget.value)}
-        visible={revealed}
-        onVisibilityChange={setRevealed}
-        leftSection={<IconKey size="1rem" />}
-        style={{ flex: 1 }}
-      />
-      <NumberInput
-        label="Len"
-        min={8}
-        max={64}
-        step={8}
-        value={length}
-        onChange={(v: string | number) => setLength(typeof v === 'number' ? v : defaultLength)}
-        style={{ width: 90 }}
-      />
-      <Select
-        label="Enc"
-        data={[
-          { value: 'base64url', label: 'base64url' },
-          { value: 'hex', label: 'hex' },
-        ]}
-        value={encoding}
-        onChange={(v: string | null) => setEncoding((v as any) || 'base64url')}
-        style={{ width: 120 }}
-      />
-      <Tooltip label="Generate">
-        <Button onClick={handleGenerate} loading={loading} variant="light" aria-label="Generate token">
-          <IconReload size="1rem" />
-        </Button>
-      </Tooltip>
-      <Tooltip label={revealed ? 'Hide' : 'Reveal'}>
-        <Button onClick={() => setRevealed((r) => !r)} variant="light" aria-label="Toggle visibility">
-          {revealed ? <IconEyeOff size="1rem" /> : <IconEye size="1rem" />}
-        </Button>
-      </Tooltip>
-      <Tooltip label="Copy">
-        <Button onClick={handleCopy} variant="light" aria-label="Copy token">
-          <IconClipboard size="1rem" />
-        </Button>
-      </Tooltip>
-    </Group>
+    <Stack gap="xs">
+      <Group align="end" gap="xs" wrap="nowrap">
+        <PasswordInput
+          label={label}
+          value={value}
+          onChange={(e) => onChange(e.currentTarget.value)}
+          visible={revealed}
+          onVisibilityChange={setRevealed}
+          leftSection={<IconKey size="1rem" />}
+          style={{ flex: 1 }}
+          placeholder="Click generate to create a new key"
+        />
+        <Group gap={5} align="end" wrap="nowrap">
+          <Tooltip label="Copy to clipboard">
+            <ActionIcon onClick={handleCopy} size="lg" variant="light" color="blue" disabled={!value} aria-label="Copy token">
+              <IconClipboard size="1.1rem" />
+            </ActionIcon>
+          </Tooltip>
+          <Tooltip label="Generate new key">
+            <Button 
+              onClick={handleGenerate} 
+              loading={loading} 
+              variant="filled" 
+              leftSection={<IconReload size="1rem" />}
+              px="md"
+            >
+              Generate
+            </Button>
+          </Tooltip>
+          <Tooltip label="Token settings">
+            <ActionIcon variant="subtle" color="gray" size="lg" onClick={() => setShowConfig(!showConfig)} aria-label="Toggle token settings">
+              <IconSettings size="1.1rem" />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
+      </Group>
+      
+      <Collapse in={showConfig}>
+        <Group gap="md" p="xs" style={{ border: '1px dashed var(--mantine-color-gray-3)', borderRadius: '4px' }}>
+          <NumberInput
+            label="Length"
+            size="xs"
+            min={8}
+            max={64}
+            step={8}
+            value={length}
+            onChange={(v) => setLength(typeof v === 'number' ? v : defaultLength)}
+            style={{ width: 80 }}
+          />
+          <Select
+            label="Encoding"
+            size="xs"
+            data={[
+              { value: 'base64url', label: 'base64url' },
+              { value: 'hex', label: 'hex' },
+            ]}
+            value={encoding}
+            onChange={(v) => setEncoding(v as any || 'base64url')}
+            style={{ width: 110 }}
+          />
+          <Text size="xs" c="dimmed" style={{ flex: 1 }}>
+            Configure the length and encoding of the generated secure token.
+          </Text>
+        </Group>
+      </Collapse>
+    </Stack>
   )
 }
 
