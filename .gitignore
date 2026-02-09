@@ -42,3 +42,4 @@
 /internal/api/test_setup.db-wal
 /internal/api/hermod_state.db
 /hermodctl.exe
+ui/stats.html
