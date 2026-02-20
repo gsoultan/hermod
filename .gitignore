@@ -27,7 +27,6 @@
 /db_config.yaml
 /internal/api/db_config.yaml
 /scripts/quick-verify.ps1
-/ui/bun.lock
 /internal/engine/e2e_sink.db-shm
 /internal/engine/e2e_sink.db
 /internal/engine/e2e_sink.db-wal
