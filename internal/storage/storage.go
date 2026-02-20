@@ -72,32 +72,32 @@ type Sink struct {
 }
 
 type Transformation struct {
-	Type   string                 `json:"type"`
-	Config map[string]interface{} `json:"config"`
+	Type   string         `json:"type"`
+	Config map[string]any `json:"config"`
 }
 
 type WorkflowNode struct {
-	ID        string                 `json:"id"`
-	Type      string                 `json:"type"`             // source, sink, transformer, condition, etc.
-	RefID     string                 `json:"ref_id,omitempty"` // ID of the source, sink, or transformation
-	Config    map[string]interface{} `json:"config,omitempty"`
-	X         float64                `json:"x"`
-	Y         float64                `json:"y"`
-	UnitTests []UnitTest             `json:"unit_tests,omitempty"`
+	ID        string         `json:"id"`
+	Type      string         `json:"type"`             // source, sink, transformer, condition, etc.
+	RefID     string         `json:"ref_id,omitempty"` // ID of the source, sink, or transformation
+	Config    map[string]any `json:"config,omitempty"`
+	X         float64        `json:"x"`
+	Y         float64        `json:"y"`
+	UnitTests []UnitTest     `json:"unit_tests,omitempty"`
 }
 
 type UnitTest struct {
-	Name           string                 `json:"name"`
-	Input          map[string]interface{} `json:"input"`
-	ExpectedOutput map[string]interface{} `json:"expected_output"`
-	Description    string                 `json:"description,omitempty"`
+	Name           string         `json:"name"`
+	Input          map[string]any `json:"input"`
+	ExpectedOutput map[string]any `json:"expected_output"`
+	Description    string         `json:"description,omitempty"`
 }
 
 type WorkflowEdge struct {
-	ID       string                 `json:"id"`
-	SourceID string                 `json:"source_id"`
-	TargetID string                 `json:"target_id"`
-	Config   map[string]interface{} `json:"config,omitempty"`
+	ID       string         `json:"id"`
+	SourceID string         `json:"source_id"`
+	TargetID string         `json:"target_id"`
+	Config   map[string]any `json:"config,omitempty"`
 }
 
 type WorkflowTier string
@@ -303,18 +303,18 @@ type LineageEdge struct {
 }
 
 type Approval struct {
-	ID          string                 `json:"id"`
-	WorkflowID  string                 `json:"workflow_id"`
-	NodeID      string                 `json:"node_id"`
-	MessageID   string                 `json:"message_id"`
-	Payload     []byte                 `json:"payload"`
-	Metadata    map[string]string      `json:"metadata"`
-	Data        map[string]interface{} `json:"data"`
-	Status      string                 `json:"status"` // pending, approved, rejected
-	CreatedAt   time.Time              `json:"created_at"`
-	ProcessedAt *time.Time             `json:"processed_at,omitempty"`
-	ProcessedBy string                 `json:"processed_by,omitempty"`
-	Notes       string                 `json:"notes,omitempty"`
+	ID          string            `json:"id"`
+	WorkflowID  string            `json:"workflow_id"`
+	NodeID      string            `json:"node_id"`
+	MessageID   string            `json:"message_id"`
+	Payload     []byte            `json:"payload"`
+	Metadata    map[string]string `json:"metadata"`
+	Data        map[string]any    `json:"data"`
+	Status      string            `json:"status"` // pending, approved, rejected
+	CreatedAt   time.Time         `json:"created_at"`
+	ProcessedAt *time.Time        `json:"processed_at,omitempty"`
+	ProcessedBy string            `json:"processed_by,omitempty"`
+	Notes       string            `json:"notes,omitempty"`
 }
 
 type ApprovalFilter struct {
@@ -406,8 +406,8 @@ type Storage interface {
 	SaveSetting(ctx context.Context, key string, value string) error
 
 	// Node State Management
-	UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error
-	GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error)
+	UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error
+	GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error)
 
 	// Schema Registry
 	ListSchemas(ctx context.Context, name string) ([]Schema, error)

@@ -19,7 +19,7 @@ type DiscordSource struct {
 	interval      time.Duration
 	lastMessageID string
 	client        *http.Client
-	items         []map[string]interface{}
+	items         []map[string]any
 	currentIndex  int
 	lastPoll      time.Time
 	baseURL       string // Added for testing
@@ -87,7 +87,7 @@ func (s *DiscordSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, fmt.Errorf("discord api returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var newMessages []map[string]interface{}
+	var newMessages []map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&newMessages); err != nil {
 		return nil, err
 	}
@@ -107,14 +107,14 @@ func (s *DiscordSource) Read(ctx context.Context) (hermod.Message, error) {
 	return s.messageFromData(item), nil
 }
 
-func (s *DiscordSource) messageFromData(data map[string]interface{}) hermod.Message {
+func (s *DiscordSource) messageFromData(data map[string]any) hermod.Message {
 	msg := message.AcquireMessage()
 	msg.SetID(data["id"].(string))
 	msg.SetOperation(hermod.OpCreate)
 	msg.SetMetadata("source", "discord")
 	msg.SetMetadata("channel_id", s.channelID)
 
-	if author, ok := data["author"].(map[string]interface{}); ok {
+	if author, ok := data["author"].(map[string]any); ok {
 		msg.SetMetadata("author_id", author["id"].(string))
 		msg.SetMetadata("author_username", author["username"].(string))
 	}

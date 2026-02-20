@@ -70,7 +70,7 @@ func New(basePath, pattern, sheet string, headerRow, startRow, batchSize int) *S
 // SetLogger enables structured logging from engine when available.
 func (s *Source) SetLogger(l hermod.Logger) { s.logger = l }
 
-func (s *Source) log(level, msg string, kv ...interface{}) {
+func (s *Source) log(level, msg string, kv ...any) {
 	if s.logger == nil {
 		return
 	}

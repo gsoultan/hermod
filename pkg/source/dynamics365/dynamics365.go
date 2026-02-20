@@ -167,7 +167,7 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 	}
 
 	var result struct {
-		Value []map[string]interface{} `json:"value"`
+		Value []map[string]any `json:"value"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err

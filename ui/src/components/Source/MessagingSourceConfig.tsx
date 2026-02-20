@@ -65,7 +65,18 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
   if (type.startsWith('rabbitmq')) {
     return (
       <Stack gap="md">
-        <TextInput label="RabbitMQ URL" placeholder="amqp://guest:guest@localhost:5672/" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
+        {!config.host && (
+           <TextInput label="RabbitMQ URL (Legacy)" placeholder="amqp://guest:guest@localhost:5672/" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} />
+        )}
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <TextInput label="Host" placeholder="localhost" value={config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} required={!config.url} />
+          <TextInput label="Port" placeholder={type === 'rabbitmq' ? '5552' : '5672'} value={config.port || ''} onChange={(e) => updateConfig('port', e.target.value)} />
+        </SimpleGrid>
+        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+          <TextInput label="Username" placeholder="guest" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
+          <PasswordInput label="Password" placeholder="guest" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
+          <TextInput label="Virtual Host" placeholder="/" value={config.dbname || ''} onChange={(e) => updateConfig('dbname', e.target.value)} />
+        </SimpleGrid>
         {type === 'rabbitmq' ? (
           <>
             <TextInput label="Stream Name" value={config.stream_name || ''} onChange={(e) => updateConfig('stream_name', e.target.value)} required />

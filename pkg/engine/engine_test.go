@@ -301,7 +301,7 @@ func (s *ackMockSource) Ack(ctx context.Context, msg hermod.Message) error {
 func TestEngineGracefulShutdown(t *testing.T) {
 	numMessages := 10
 	messages := make([]hermod.Message, numMessages)
-	for i := 0; i < numMessages; i++ {
+	for i := range numMessages {
 		m := message.AcquireMessage()
 		m.SetID(fmt.Sprintf("%d", i))
 		messages[i] = m
@@ -364,7 +364,7 @@ func TestEngineMultiSink(t *testing.T) {
 	}()
 
 	var received1, received2 bool
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		select {
 		case m := <-sink1.received:
 			if m.ID() != "test-multi-1" {
@@ -816,7 +816,7 @@ func TestSinkWriter_PerKeyShardingOrder(t *testing.T) {
 	keys := []string{"A", "B"}
 	countPerKey := 5
 	wg.Add(len(keys) * countPerKey)
-	for i := 0; i < countPerKey; i++ {
+	for i := range countPerKey {
 		for _, k := range keys {
 			m := message.AcquireMessage()
 			m.SetID(fmt.Sprintf("%s-%02d", k, i))
@@ -992,18 +992,18 @@ type testLogger struct {
 	errs  []string
 }
 
-func (l *testLogger) Debug(msg string, kv ...interface{}) {}
-func (l *testLogger) Info(msg string, kv ...interface{}) {
+func (l *testLogger) Debug(msg string, kv ...any) {}
+func (l *testLogger) Info(msg string, kv ...any) {
 	l.mu.Lock()
 	l.infos = append(l.infos, msg)
 	l.mu.Unlock()
 }
-func (l *testLogger) Warn(msg string, kv ...interface{}) {
+func (l *testLogger) Warn(msg string, kv ...any) {
 	l.mu.Lock()
 	l.warns = append(l.warns, msg)
 	l.mu.Unlock()
 }
-func (l *testLogger) Error(msg string, kv ...interface{}) {
+func (l *testLogger) Error(msg string, kv ...any) {
 	l.mu.Lock()
 	l.errs = append(l.errs, msg)
 	l.mu.Unlock()

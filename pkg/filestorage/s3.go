@@ -18,7 +18,7 @@ type S3Storage struct {
 }
 
 func NewS3Storage(ctx context.Context, endpoint, region, bucket, accessKey, secretKey string, useSSL bool) (*S3Storage, error) {
-	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
 		if endpoint != "" {
 			return aws.Endpoint{
 				PartitionID:   "aws",

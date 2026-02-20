@@ -12,14 +12,14 @@ import (
 type PollingSource struct {
 	db             *sql.DB
 	query          string
-	args           []interface{}
+	args           []any
 	interval       time.Duration
 	watermarkCol   string
-	watermarkValue interface{}
+	watermarkValue any
 	logger         hermod.Logger
 }
 
-func NewPollingSource(db *sql.DB, query string, interval time.Duration, watermarkCol string, initialWatermark interface{}) *PollingSource {
+func NewPollingSource(db *sql.DB, query string, interval time.Duration, watermarkCol string, initialWatermark any) *PollingSource {
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}

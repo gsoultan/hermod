@@ -18,7 +18,7 @@ type LinkedInSource struct {
 	interval     time.Duration
 	sinceID      string
 	client       *http.Client
-	items        []map[string]interface{}
+	items        []map[string]any
 	currentIndex int
 	lastPoll     time.Time
 	baseURL      string
@@ -79,19 +79,19 @@ func (s *LinkedInSource) Read(ctx context.Context) (hermod.Message, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		var errRes map[string]interface{}
+		var errRes map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&errRes)
 		return nil, fmt.Errorf("linkedin api returned status %d: %v", resp.StatusCode, errRes["message"])
 	}
 
 	var result struct {
-		Elements []map[string]interface{} `json:"elements"`
+		Elements []map[string]any `json:"elements"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 
-	var filtered []map[string]interface{}
+	var filtered []map[string]any
 	foundSince := false
 	for _, item := range result.Elements {
 		if s.sinceID != "" && item["id"] == s.sinceID {
@@ -116,7 +116,7 @@ func (s *LinkedInSource) Read(ctx context.Context) (hermod.Message, error) {
 	return s.messageFromData(item), nil
 }
 
-func (s *LinkedInSource) messageFromData(data map[string]interface{}) hermod.Message {
+func (s *LinkedInSource) messageFromData(data map[string]any) hermod.Message {
 	msg := message.AcquireMessage()
 	if id, ok := data["id"].(string); ok {
 		msg.SetID(id)
@@ -130,9 +130,9 @@ func (s *LinkedInSource) messageFromData(data map[string]interface{}) hermod.Mes
 	}
 
 	// Try to extract text from UGC post structure
-	if specificContent, ok := data["specificContent"].(map[string]interface{}); ok {
-		if shareContent, ok := specificContent["com.linkedin.ugc.ShareContent"].(map[string]interface{}); ok {
-			if shareCommentary, ok := shareContent["shareCommentary"].(map[string]interface{}); ok {
+	if specificContent, ok := data["specificContent"].(map[string]any); ok {
+		if shareContent, ok := specificContent["com.linkedin.ugc.ShareContent"].(map[string]any); ok {
+			if shareCommentary, ok := shareContent["shareCommentary"].(map[string]any); ok {
 				if text, ok := shareCommentary["text"].(string); ok {
 					msg.SetPayload([]byte(text))
 				}

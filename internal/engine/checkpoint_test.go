@@ -12,7 +12,7 @@ import (
 
 type mockCheckpointStorage struct {
 	BaseMockStorage
-	nodeStates map[string]interface{}
+	nodeStates map[string]any
 	source     storage.Source
 	sink       storage.Sink
 	workflow   storage.Workflow
@@ -35,16 +35,16 @@ func (m *mockCheckpointStorage) UpdateSourceState(ctx context.Context, id string
 	return nil
 }
 
-func (m *mockCheckpointStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error {
+func (m *mockCheckpointStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
 	if m.nodeStates == nil {
-		m.nodeStates = make(map[string]interface{})
+		m.nodeStates = make(map[string]any)
 	}
 	m.nodeStates[workflowID+":"+nodeID] = state
 	return nil
 }
 
-func (m *mockCheckpointStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error) {
-	res := make(map[string]interface{})
+func (m *mockCheckpointStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error) {
+	res := make(map[string]any)
 	prefix := workflowID + ":"
 	for k, v := range m.nodeStates {
 		if strings.HasPrefix(k, prefix) {
@@ -112,7 +112,7 @@ func (m *mockCheckpointSource) Close() error                   { return nil }
 
 func TestCheckpointAndRecovery(t *testing.T) {
 	store := &mockCheckpointStorage{
-		nodeStates: make(map[string]interface{}),
+		nodeStates: make(map[string]any),
 		source: storage.Source{
 			ID:   "src1",
 			Type: "mock",
@@ -125,7 +125,7 @@ func TestCheckpointAndRecovery(t *testing.T) {
 			ID: "wf1",
 			Nodes: []storage.WorkflowNode{
 				{ID: "n1", Type: "source", RefID: "src1"},
-				{ID: "n2", Type: "stateful", Config: map[string]interface{}{
+				{ID: "n2", Type: "stateful", Config: map[string]any{
 					"operation":   "count",
 					"field":       "val",
 					"outputField": "cnt",

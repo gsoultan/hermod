@@ -19,12 +19,12 @@ func init() { Register("pivot", &PivotTransformer{}) }
 
 type PivotTransformer struct{}
 
-func (t *PivotTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *PivotTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
 
-	idxRaw, _ := config["indexKeys"].([]interface{})
+	idxRaw, _ := config["indexKeys"].([]any)
 	if len(idxRaw) == 0 {
 		return msg, nil
 	}
@@ -50,8 +50,8 @@ func (t *PivotTransformer) Transform(ctx context.Context, msg hermod.Message, co
 	data := msg.Data()
 
 	// Build index object and key
-	idxVals := make([]interface{}, 0, len(indexKeys))
-	idxObj := make(map[string]interface{}, len(indexKeys))
+	idxVals := make([]any, 0, len(indexKeys))
+	idxObj := make(map[string]any, len(indexKeys))
 	for _, k := range indexKeys {
 		v := evaluator.GetValByPath(data, k)
 		idxObj[k] = v
@@ -63,14 +63,14 @@ func (t *PivotTransformer) Transform(ctx context.Context, msg hermod.Message, co
 	val := evaluator.GetValByPath(data, valField)
 
 	// Existing pivot map on message (supports streaming aggregation across multiple records)
-	var pivot map[string]interface{}
+	var pivot map[string]any
 	if pf := evaluator.GetValByPath(data, targetField); targetField != "" && pf != nil {
-		if m, ok := pf.(map[string]interface{}); ok {
+		if m, ok := pf.(map[string]any); ok {
 			pivot = m
 		}
 	}
 	if pivot == nil {
-		pivot = make(map[string]interface{})
+		pivot = make(map[string]any)
 	}
 
 	// Apply aggregation strategy

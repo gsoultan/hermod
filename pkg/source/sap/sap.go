@@ -104,7 +104,7 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 
 	var odataResp struct {
 		D struct {
-			Results []map[string]interface{} `json:"results"`
+			Results []map[string]any `json:"results"`
 		} `json:"d"`
 	}
 

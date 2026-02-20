@@ -30,7 +30,7 @@ func Provider() *schema.Provider {
 	}
 }
 
-func providerConfigure(d *schema.ResourceData) (interface{}, error) {
+func providerConfigure(d *schema.ResourceData) (any, error) {
 	config := Config{
 		Endpoint: d.Get("endpoint").(string),
 		Token:    d.Get("token").(string),

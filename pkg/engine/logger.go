@@ -32,7 +32,7 @@ func NewDefaultLogger() *DefaultLogger {
 	return &DefaultLogger{logger: l, sampler: samp, sampled: sampled}
 }
 
-func (l *DefaultLogger) log(event *zerolog.Event, msg string, keysAndValues ...interface{}) {
+func (l *DefaultLogger) log(event *zerolog.Event, msg string, keysAndValues ...any) {
 	for i := 0; i < len(keysAndValues); i += 2 {
 		key := fmt.Sprintf("%v", keysAndValues[i])
 		if i+1 < len(keysAndValues) {
@@ -45,17 +45,17 @@ func (l *DefaultLogger) log(event *zerolog.Event, msg string, keysAndValues ...i
 }
 
 // Debug logs a debug-level message with structured key/value pairs.
-func (l *DefaultLogger) Debug(msg string, keysAndValues ...interface{}) {
+func (l *DefaultLogger) Debug(msg string, keysAndValues ...any) {
 	l.log(l.logger.Debug(), msg, keysAndValues...)
 }
 
 // Info logs an info-level message with structured key/value pairs.
-func (l *DefaultLogger) Info(msg string, keysAndValues ...interface{}) {
+func (l *DefaultLogger) Info(msg string, keysAndValues ...any) {
 	l.log(l.logger.Info(), msg, keysAndValues...)
 }
 
 // Warn logs a warning-level message with structured key/value pairs.
-func (l *DefaultLogger) Warn(msg string, keysAndValues ...interface{}) {
+func (l *DefaultLogger) Warn(msg string, keysAndValues ...any) {
 	if l.sampler != nil {
 		l.log(l.sampled.Warn(), msg, keysAndValues...)
 		return
@@ -64,7 +64,7 @@ func (l *DefaultLogger) Warn(msg string, keysAndValues ...interface{}) {
 }
 
 // Error logs an error-level message with structured key/value pairs.
-func (l *DefaultLogger) Error(msg string, keysAndValues ...interface{}) {
+func (l *DefaultLogger) Error(msg string, keysAndValues ...any) {
 	if l.sampler != nil {
 		l.log(l.sampled.Error(), msg, keysAndValues...)
 		return

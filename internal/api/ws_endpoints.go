@@ -210,12 +210,12 @@ func (s *Server) handleWSOut(w http.ResponseWriter, r *http.Request) {
 	defer s.registry.UnsubscribeLiveMessages(ch)
 
 	type outEnv struct {
-		WorkflowID string                 `json:"workflow_id"`
-		NodeID     string                 `json:"node_id"`
-		Timestamp  time.Time              `json:"timestamp"`
-		Data       map[string]interface{} `json:"data"`
-		IsError    bool                   `json:"is_error"`
-		Error      string                 `json:"error,omitempty"`
+		WorkflowID string         `json:"workflow_id"`
+		NodeID     string         `json:"node_id"`
+		Timestamp  time.Time      `json:"timestamp"`
+		Data       map[string]any `json:"data"`
+		IsError    bool           `json:"is_error"`
+		Error      string         `json:"error,omitempty"`
 	}
 
 	for {

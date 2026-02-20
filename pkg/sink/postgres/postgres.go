@@ -62,7 +62,7 @@ func (s *PostgresSink) SetLogger(logger hermod.Logger) {
 	s.logger = logger
 }
 
-func (s *PostgresSink) log(level, msg string, keysAndValues ...interface{}) {
+func (s *PostgresSink) log(level, msg string, keysAndValues ...any) {
 	s.mu.Lock()
 	logger := s.logger
 	s.mu.Unlock()
@@ -412,7 +412,7 @@ func (s *PostgresSink) Browse(ctx context.Context, table string, limit int) ([]h
 			return nil, fmt.Errorf("failed to get values: %w", err)
 		}
 
-		record := make(map[string]interface{})
+		record := make(map[string]any)
 		for i, field := range fields {
 			val := values[i]
 			if b, ok := val.([]byte); ok {

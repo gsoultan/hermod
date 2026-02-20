@@ -68,7 +68,7 @@ func (s *SmtpSink) Write(ctx context.Context, msg hermod.Message) error {
 	data := msg.Data()
 
 	// Create a copy of the data and add system fields for the template
-	templateData := make(map[string]interface{})
+	templateData := make(map[string]any)
 	for k, v := range data {
 		templateData[k] = v
 	}
@@ -203,16 +203,16 @@ func (s *SmtpSink) Write(ctx context.Context, msg hermod.Message) error {
 
 // PrepareTemplateData enhances the data map for better template usability.
 // It unmarshals 'after' and 'before' JSON strings if present, and flattens 'after' fields.
-func PrepareTemplateData(data map[string]interface{}) map[string]interface{} {
+func PrepareTemplateData(data map[string]any) map[string]any {
 	// Try to unmarshal 'after' and 'before' if they are JSON strings
 	for _, key := range []string{"after", "before"} {
 		if val, ok := data[key]; ok {
-			var nested map[string]interface{}
+			var nested map[string]any
 			if str, ok := val.(string); ok && strings.HasPrefix(strings.TrimSpace(str), "{") {
 				if err := json.Unmarshal([]byte(str), &nested); err == nil {
 					data[key] = nested
 				}
-			} else if m, ok := val.(map[string]interface{}); ok {
+			} else if m, ok := val.(map[string]any); ok {
 				nested = m
 			}
 
@@ -253,7 +253,7 @@ func (s *SmtpSink) Close() error {
 	return nil
 }
 
-func renderTemplate(tmplStr string, data interface{}) (string, error) {
+func renderTemplate(tmplStr string, data any) (string, error) {
 	tmpl, err := template.New("smtp").Parse(tmplStr)
 	if err != nil {
 		return "", err

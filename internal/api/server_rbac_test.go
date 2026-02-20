@@ -161,10 +161,10 @@ func (f *fakeRBACStorage) SaveSetting(ctx context.Context, key string, value str
 	return nil
 }
 
-func (f *fakeRBACStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error {
+func (f *fakeRBACStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
 	return nil
 }
-func (f *fakeRBACStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+func (f *fakeRBACStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error) {
 	return nil, nil
 }
 

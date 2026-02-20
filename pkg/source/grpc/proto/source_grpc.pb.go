@@ -74,7 +74,7 @@ func RegisterSourceServiceServer(s grpc.ServiceRegistrar, srv SourceServiceServe
 	s.RegisterService(&SourceService_ServiceDesc, srv)
 }
 
-func _SourceService_Publish_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _SourceService_Publish_Handler(srv any, ctx context.Context, dec func(any) error, interceptor grpc.UnaryServerInterceptor) (any, error) {
 	in := new(PublishRequest)
 	if err := dec(in); err != nil {
 		return nil, err
@@ -86,7 +86,7 @@ func _SourceService_Publish_Handler(srv interface{}, ctx context.Context, dec fu
 		Server:     srv,
 		FullMethod: SourceService_Publish_FullMethodName,
 	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+	handler := func(ctx context.Context, req any) (any, error) {
 		return srv.(SourceServiceServer).Publish(ctx, req.(*PublishRequest))
 	}
 	return interceptor(ctx, in, info, handler)

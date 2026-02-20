@@ -244,7 +244,7 @@ func file_pkg_source_grpc_proto_source_proto_rawDescGZIP() []byte {
 }
 
 var file_pkg_source_grpc_proto_source_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_pkg_source_grpc_proto_source_proto_goTypes = []interface{}{
+var file_pkg_source_grpc_proto_source_proto_goTypes = []any{
 	(*PublishRequest)(nil),  // 0: hermod.source.grpc.v1.PublishRequest
 	(*PublishResponse)(nil), // 1: hermod.source.grpc.v1.PublishResponse
 	nil,                     // 2: hermod.source.grpc.v1.PublishRequest.MetadataEntry
@@ -266,7 +266,7 @@ func file_pkg_source_grpc_proto_source_proto_init() {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_pkg_source_grpc_proto_source_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
+		file_pkg_source_grpc_proto_source_proto_msgTypes[0].Exporter = func(v any, i int) any {
 			switch v := v.(*PublishRequest); i {
 			case 0:
 				return &v.state
@@ -278,7 +278,7 @@ func file_pkg_source_grpc_proto_source_proto_init() {
 				return nil
 			}
 		}
-		file_pkg_source_grpc_proto_source_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+		file_pkg_source_grpc_proto_source_proto_msgTypes[1].Exporter = func(v any, i int) any {
 			switch v := v.(*PublishResponse); i {
 			case 0:
 				return &v.state

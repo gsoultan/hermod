@@ -22,18 +22,18 @@ func TestTikTokSink_Write(t *testing.T) {
 			t.Errorf("expected Bearer test-token, got %s", r.Header.Get("Authorization"))
 		}
 
-		var body map[string]interface{}
+		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
 
-		sourceInfo := body["source_info"].(map[string]interface{})
+		sourceInfo := body["source_info"].(map[string]any)
 		if sourceInfo["video_url"] != "http://example.com/video.mp4" {
 			t.Errorf("expected video_url http://example.com/video.mp4, got %v", sourceInfo["video_url"])
 		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"error": nil})
+		json.NewEncoder(w).Encode(map[string]any{"error": nil})
 	}))
 	defer server.Close()
 

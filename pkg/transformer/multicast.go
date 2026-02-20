@@ -19,14 +19,14 @@ func init() { Register("multicast", &MulticastTransformer{}) }
 
 type MulticastTransformer struct{}
 
-func (t *MulticastTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *MulticastTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
-	branches, _ := config["branches"].([]interface{})
+	branches, _ := config["branches"].([]any)
 	if len(branches) == 0 {
 		// default: clone once
-		branches = []interface{}{map[string]interface{}{}}
+		branches = []any{map[string]any{}}
 	}
 	targetField, _ := config["targetField"].(string)
 	if targetField == "" {
@@ -34,12 +34,12 @@ func (t *MulticastTransformer) Transform(ctx context.Context, msg hermod.Message
 	}
 
 	src := msg.Data()
-	out := make([]interface{}, 0, len(branches))
+	out := make([]any, 0, len(branches))
 	for _, br := range branches {
-		bm, _ := br.(map[string]interface{})
+		bm, _ := br.(map[string]any)
 		// Selection
-		selected := map[string]interface{}{}
-		if sel, ok := bm["select"].([]interface{}); ok && len(sel) > 0 {
+		selected := map[string]any{}
+		if sel, ok := bm["select"].([]any); ok && len(sel) > 0 {
 			for _, k := range sel {
 				ks := toString(k)
 				if v, ok := src[ks]; ok {
@@ -53,7 +53,7 @@ func (t *MulticastTransformer) Transform(ctx context.Context, msg hermod.Message
 		}
 		// Prefix
 		if pfx, _ := bm["prefix"].(string); pfx != "" {
-			withPfx := make(map[string]interface{}, len(selected))
+			withPfx := make(map[string]any, len(selected))
 			for k, v := range selected {
 				withPfx[pfx+k] = v
 			}
@@ -65,7 +65,7 @@ func (t *MulticastTransformer) Transform(ctx context.Context, msg hermod.Message
 	return msg, nil
 }
 
-func toString(v interface{}) string {
+func toString(v any) string {
 	if s, ok := v.(string); ok {
 		return s
 	}

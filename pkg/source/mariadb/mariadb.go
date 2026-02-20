@@ -27,7 +27,7 @@ type MariaDBSource struct {
 	db           *sql.DB
 	mu           sync.Mutex
 	logger       hermod.Logger
-	lastIDs      map[string]interface{}
+	lastIDs      map[string]any
 	msgChan      chan hermod.Message
 }
 
@@ -41,7 +41,7 @@ func NewMariaDBSource(connString string, tables []string, idField string, pollIn
 		idField:      idField,
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
-		lastIDs:      make(map[string]interface{}),
+		lastIDs:      make(map[string]any),
 		msgChan:      make(chan hermod.Message, 1000),
 	}
 }
@@ -52,7 +52,7 @@ func (m *MariaDBSource) SetLogger(logger hermod.Logger) {
 	m.logger = logger
 }
 
-func (m *MariaDBSource) log(level, msg string, keysAndValues ...interface{}) {
+func (m *MariaDBSource) log(level, msg string, keysAndValues ...any) {
 	m.mu.Lock()
 	logger := m.logger
 	m.mu.Unlock()
@@ -127,7 +127,7 @@ func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 			}
 
 			var query string
-			var args []interface{}
+			var args []any
 
 			if lastID != nil && m.idField != "" {
 				quotedID, _ := sqlutil.QuoteIdent("mysql", m.idField)
@@ -144,8 +144,8 @@ func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 
 			if rows.Next() {
 				cols, _ := rows.Columns()
-				values := make([]interface{}, len(cols))
-				ptr := make([]interface{}, len(cols))
+				values := make([]any, len(cols))
+				ptr := make([]any, len(cols))
 				for i := range values {
 					ptr[i] = &values[i]
 				}
@@ -156,8 +156,8 @@ func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 				}
 				rows.Close()
 
-				record := make(map[string]interface{})
-				var currentID interface{}
+				record := make(map[string]any)
+				var currentID any
 				for i, col := range cols {
 					val := values[i]
 					if b, ok := val.([]byte); ok {
@@ -243,8 +243,8 @@ func (m *MariaDBSource) snapshotTable(ctx context.Context, table string) error {
 	}
 
 	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
+		values := make([]any, len(columns))
+		valuePtrs := make([]any, len(columns))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -253,7 +253,7 @@ func (m *MariaDBSource) snapshotTable(ctx context.Context, table string) error {
 			return err
 		}
 
-		record := make(map[string]interface{})
+		record := make(map[string]any)
 		for i, colName := range columns {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -398,8 +398,8 @@ func (m *MariaDBSource) Sample(ctx context.Context, table string) (hermod.Messag
 		return nil, err
 	}
 
-	columns := make([]interface{}, len(cols))
-	columnPointers := make([]interface{}, len(cols))
+	columns := make([]any, len(cols))
+	columnPointers := make([]any, len(cols))
 	for i := range columns {
 		columnPointers[i] = &columns[i]
 	}
@@ -408,7 +408,7 @@ func (m *MariaDBSource) Sample(ctx context.Context, table string) (hermod.Messag
 		return nil, err
 	}
 
-	record := make(map[string]interface{})
+	record := make(map[string]any)
 	for i, colName := range cols {
 		val := columns[i]
 		if b, ok := val.([]byte); ok {

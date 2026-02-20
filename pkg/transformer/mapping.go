@@ -18,14 +18,14 @@ func init() {
 
 type MappingTransformer struct{}
 
-func (t *MappingTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *MappingTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
 
 	field, _ := config["field"].(string)
 	mappingStr, _ := config["mapping"].(string)
-	var mapping map[string]interface{}
+	var mapping map[string]any
 	_ = json.Unmarshal([]byte(mappingStr), &mapping)
 
 	mappingType, _ := config["mappingType"].(string) // "exact", "range", "regex"

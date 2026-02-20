@@ -265,7 +265,7 @@ func (s *SQLiteSink) syncColumns(ctx context.Context, tx *sql.Tx, table string) 
 		var cid int
 		var name, dtype string
 		var notnull, pk int
-		var dflt interface{}
+		var dflt any
 		if err := rows.Scan(&cid, &name, &dtype, &notnull, &dflt, &pk); err != nil {
 			return err
 		}
@@ -516,8 +516,8 @@ func (s *SQLiteSink) Browse(ctx context.Context, table string, limit int) ([]her
 			return nil, fmt.Errorf("failed to get columns: %w", err)
 		}
 
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -526,7 +526,7 @@ func (s *SQLiteSink) Browse(ctx context.Context, table string, limit int) ([]her
 			return nil, err
 		}
 
-		record := make(map[string]interface{})
+		record := make(map[string]any)
 		for i, col := range cols {
 			val := values[i]
 			if b, ok := val.([]byte); ok {

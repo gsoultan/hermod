@@ -90,7 +90,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"two_factor_required": true,
 			"user_id":             user.ID,
 			"pending_token":       pendingTokenString,
@@ -678,7 +678,7 @@ func (s *Server) login2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify pending token
-	token, err := jwt.Parse(req.PendingToken, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(req.PendingToken, func(token *jwt.Token) (any, error) {
 		return []byte(dbCfg.JWTSecret), nil
 	})
 	if err != nil || !token.Valid {

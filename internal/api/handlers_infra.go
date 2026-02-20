@@ -913,7 +913,7 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var settings map[string]interface{}
+	var settings map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1339,7 +1339,7 @@ func NewClient(baseURL, token string) *Client {
 	return &Client{BaseURL: baseURL, Token: token}
 }
 
-func (c *Client) Publish(path string, data interface{}) error {
+func (c *Client) Publish(path string, data any) error {
 	body, _ := json.Marshal(data)
 	req, _ := http.NewRequest("POST", c.BaseURL+"/api/webhooks/"+path, bytes.NewBuffer(body))
 	req.Header.Set("Authorization", "Bearer "+c.Token)

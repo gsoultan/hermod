@@ -91,7 +91,7 @@ func (s *RedisSink) Write(ctx context.Context, msg hermod.Message) error {
 
 	err = s.client.XAdd(ctx, &redis.XAddArgs{
 		Stream: s.stream,
-		Values: map[string]interface{}{"data": data},
+		Values: map[string]any{"data": data},
 	}).Err()
 
 	if err != nil {

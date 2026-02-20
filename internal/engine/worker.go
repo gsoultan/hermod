@@ -275,6 +275,11 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 				if w.registry.IsEngineRunning(wf.ID) {
 					log.Printf("Worker: detected stale workflow %s running on this worker, scheduling graceful stop...", wf.ID)
 					go func(id string) {
+						defer func() {
+							if r := recover(); r != nil {
+								log.Printf("Panic in stale workflow stopper: %v", r)
+							}
+						}()
 						_ = w.registry.StopEngineWithoutUpdate(id)
 						w.stopLeaseRenewal(id)
 						if w.workerGUID != "" {
@@ -297,13 +302,11 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 
 	for i := range workflows {
 		wf := workflows[i]
-		wg.Add(1)
-		go func(wf storage.Workflow) {
-			defer wg.Done()
+		wg.Go(func() {
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 			w.syncWorkflow(ctx, wf, workerID, sourceMap, sinkMap)
-		}(wf)
+		})
 	}
 	wg.Wait()
 
@@ -332,6 +335,11 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 		if w.registry.IsEngineRunning(wf.ID) {
 			log.Printf("Worker: workflow %s is being handed off, stopping gracefully...", wf.ID)
 			go func(id string) {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("Panic in hand-off workflow stopper: %v", r)
+					}
+				}()
 				_ = w.registry.StopEngineWithoutUpdate(id)
 				w.stopLeaseRenewal(id)
 				if w.workerGUID != "" {
@@ -368,6 +376,11 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 			if isRunning {
 				log.Printf("Worker: stopping workflow %s (lease lost/expired), stopping gracefully...", wf.ID)
 				go func(id string) {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Panic in lease-lost workflow stopper: %v", r)
+						}
+					}()
 					_ = w.registry.StopEngineWithoutUpdate(id)
 					w.stopLeaseRenewal(id)
 				}(wf.ID)
@@ -470,6 +483,11 @@ func (w *Worker) startLeaseRenewal(workflowID string) {
 	w.renewMu.Unlock()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Panic in lease renewal: %v", r)
+			}
+		}()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -660,13 +678,11 @@ func (w *Worker) checkHealth(ctx context.Context) {
 		semaphore := make(chan struct{}, 5) // Limit to 5 concurrent health checks
 		for i := range sources {
 			src := sources[i]
-			wg.Add(1)
-			go func(s storage.Source) {
-				defer wg.Done()
+			wg.Go(func() {
 				semaphore <- struct{}{}
 				defer func() { <-semaphore }()
-				w.checkSourceHealth(ctx, s)
-			}(src)
+				w.checkSourceHealth(ctx, src)
+			})
 		}
 		wg.Wait()
 	}
@@ -678,13 +694,11 @@ func (w *Worker) checkHealth(ctx context.Context) {
 		semaphore := make(chan struct{}, 5) // Limit to 5 concurrent health checks
 		for i := range sinks {
 			snk := sinks[i]
-			wg.Add(1)
-			go func(s storage.Sink) {
-				defer wg.Done()
+			wg.Go(func() {
 				semaphore <- struct{}{}
 				defer func() { <-semaphore }()
-				w.checkSinkHealth(ctx, s)
-			}(snk)
+				w.checkSinkHealth(ctx, snk)
+			})
 		}
 		wg.Wait()
 	}

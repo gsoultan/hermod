@@ -26,7 +26,7 @@ type YugabyteSource struct {
 	conn         *pgx.Conn
 	mu           sync.Mutex
 	logger       hermod.Logger
-	lastIDs      map[string]interface{}
+	lastIDs      map[string]any
 	msgChan      chan hermod.Message
 }
 
@@ -40,7 +40,7 @@ func NewYugabyteSource(connString string, tables []string, idField string, pollI
 		idField:      idField,
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
-		lastIDs:      make(map[string]interface{}),
+		lastIDs:      make(map[string]any),
 		msgChan:      make(chan hermod.Message, 1000),
 	}
 }
@@ -51,7 +51,7 @@ func (y *YugabyteSource) SetLogger(logger hermod.Logger) {
 	y.logger = logger
 }
 
-func (y *YugabyteSource) log(level, msg string, keysAndValues ...interface{}) {
+func (y *YugabyteSource) log(level, msg string, keysAndValues ...any) {
 	y.mu.Lock()
 	logger := y.logger
 	y.mu.Unlock()
@@ -125,7 +125,7 @@ func (y *YugabyteSource) Read(ctx context.Context) (hermod.Message, error) {
 			}
 
 			var query string
-			var args []interface{}
+			var args []any
 
 			if lastID != nil && y.idField != "" {
 				quotedID, _ := sqlutil.QuoteIdent("pgx", y.idField)
@@ -149,8 +149,8 @@ func (y *YugabyteSource) Read(ctx context.Context) (hermod.Message, error) {
 				}
 				rows.Close()
 
-				record := make(map[string]interface{})
-				var currentID interface{}
+				record := make(map[string]any)
+				var currentID any
 				for i, field := range fields {
 					val := values[i]
 					if b, ok := val.([]byte); ok {
@@ -236,7 +236,7 @@ func (y *YugabyteSource) snapshotTable(ctx context.Context, table string) error 
 			return fmt.Errorf("failed to get values: %w", err)
 		}
 
-		record := make(map[string]interface{})
+		record := make(map[string]any)
 		for i, field := range fields {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -382,7 +382,7 @@ func (y *YugabyteSource) Sample(ctx context.Context, table string) (hermod.Messa
 		return nil, err
 	}
 
-	record := make(map[string]interface{})
+	record := make(map[string]any)
 	for i, field := range fields {
 		val := values[i]
 		if b, ok := val.([]byte); ok {

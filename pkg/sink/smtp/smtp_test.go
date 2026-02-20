@@ -73,16 +73,16 @@ func (m *mockMessage) Before() []byte              { return nil }
 func (m *mockMessage) After() []byte               { return []byte(`{"id":1}`) }
 func (m *mockMessage) Payload() []byte             { return nil }
 func (m *mockMessage) Metadata() map[string]string { return nil }
-func (m *mockMessage) Data() map[string]interface{} {
-	return map[string]interface{}{
+func (m *mockMessage) Data() map[string]any {
+	return map[string]any{
 		"id":   "123",
 		"name": "Test User",
 	}
 }
-func (m *mockMessage) SetMetadata(key, value string)         {}
-func (m *mockMessage) SetData(key string, value interface{}) {}
-func (m *mockMessage) Clone() hermod.Message                 { return m }
-func (m *mockMessage) ClearPayloads()                        {}
+func (m *mockMessage) SetMetadata(key, value string) {}
+func (m *mockMessage) SetData(key string, value any) {}
+func (m *mockMessage) Clone() hermod.Message         { return m }
+func (m *mockMessage) ClearPayloads()                {}
 
 func TestSmtpSink_Write_Template(t *testing.T) {
 	mock := &mockSender{}
@@ -214,7 +214,7 @@ func TestSmtpSink_ArrayParameter(t *testing.T) {
 
 	msg := message.AcquireMessage()
 	defer message.ReleaseMessage(msg)
-	msg.SetData("items", []map[string]interface{}{
+	msg.SetData("items", []map[string]any{
 		{"name": "Item 1", "price": 10.5},
 		{"name": "Item 2", "price": 20.0},
 	})

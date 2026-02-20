@@ -73,8 +73,8 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 
 		if rows.Next() {
 			cols, _ := rows.Columns()
-			values := make([]interface{}, len(cols))
-			ptr := make([]interface{}, len(cols))
+			values := make([]any, len(cols))
+			ptr := make([]any, len(cols))
 			for i := range values {
 				ptr[i] = &values[i]
 			}

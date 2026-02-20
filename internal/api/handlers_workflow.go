@@ -360,11 +360,11 @@ func (s *Server) getPIIStats(w http.ResponseWriter, r *http.Request) {
 }
 
 type UnitTestResult struct {
-	Name    string                 `json:"name"`
-	Passed  bool                   `json:"passed"`
-	Actual  map[string]interface{} `json:"actual"`
-	Error   string                 `json:"error,omitempty"`
-	Elapsed time.Duration          `json:"elapsed"`
+	Name    string         `json:"name"`
+	Passed  bool           `json:"passed"`
+	Actual  map[string]any `json:"actual"`
+	Error   string         `json:"error,omitempty"`
+	Elapsed time.Duration  `json:"elapsed"`
 }
 
 func (s *Server) runNodeUnitTests(w http.ResponseWriter, r *http.Request) {
@@ -406,7 +406,7 @@ func (s *Server) runNodeUnitTests(w http.ResponseWriter, r *http.Request) {
 		// Create a temporary transformation from the node config
 		trans := storage.Transformation{
 			Type:   targetNode.Type,
-			Config: make(map[string]interface{}),
+			Config: make(map[string]any),
 		}
 		if targetNode.Config != nil {
 			for k, v := range targetNode.Config {
@@ -421,7 +421,7 @@ func (s *Server) runNodeUnitTests(w http.ResponseWriter, r *http.Request) {
 		res, err := s.registry.TestTransformationPipeline(r.Context(), []storage.Transformation{trans}, msg)
 		message.ReleaseMessage(msg)
 
-		var actual map[string]interface{}
+		var actual map[string]any
 		passed := false
 		var errStr string
 
@@ -750,8 +750,8 @@ func (s *Server) rebuildWorkflow(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) testWorkflow(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Workflow storage.Workflow       `json:"workflow"`
-		Message  map[string]interface{} `json:"message"`
+		Workflow storage.Workflow `json:"workflow"`
+		Message  map[string]any   `json:"message"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
@@ -775,7 +775,7 @@ func (s *Server) testWorkflow(w http.ResponseWriter, r *http.Request) {
 func (s *Server) testTransformation(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Transformation storage.Transformation `json:"transformation"`
-		Message        map[string]interface{} `json:"message"`
+		Message        map[string]any         `json:"message"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.jsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
@@ -1002,7 +1002,7 @@ func (s *Server) rollbackWorkflow(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(wf)
 }
 
-func populateMessageFromMap(msg hermod.Message, data map[string]interface{}) {
+func populateMessageFromMap(msg hermod.Message, data map[string]any) {
 	for k, v := range data {
 		lower := strings.ToLower(k)
 		switch lower {
@@ -1031,13 +1031,13 @@ func populateMessageFromMap(msg hermod.Message, data map[string]interface{}) {
 				}
 			}
 		case "metadata":
-			if md, ok := v.(map[string]interface{}); ok {
+			if md, ok := v.(map[string]any); ok {
 				for mk, mv := range md {
 					msg.SetMetadata(mk, fmt.Sprint(mv))
 				}
 			}
 		case "before":
-			if b, ok := v.(map[string]interface{}); ok {
+			if b, ok := v.(map[string]any); ok {
 				jb, _ := json.Marshal(b)
 				if dm, ok := msg.(*message.DefaultMessage); ok {
 					dm.SetBefore(jb)
@@ -1048,14 +1048,14 @@ func populateMessageFromMap(msg hermod.Message, data map[string]interface{}) {
 				}
 			}
 		case "after":
-			if a, ok := v.(map[string]interface{}); ok {
+			if a, ok := v.(map[string]any); ok {
 				// For simulation purposes, we populate the root data with 'after' contents
 				// so transformations work correctly on the record fields.
 				for ak, av := range a {
 					msg.SetData(ak, av)
 				}
 			} else if s, ok := v.(string); ok {
-				var am map[string]interface{}
+				var am map[string]any
 				if err := json.Unmarshal([]byte(s), &am); err == nil {
 					for ak, av := range am {
 						msg.SetData(ak, av)

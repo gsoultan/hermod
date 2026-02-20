@@ -7,18 +7,18 @@ import (
 
 func TestPathSafeImplementation(t *testing.T) {
 	t.Run("getValByPath", func(t *testing.T) {
-		data := map[string]interface{}{
-			"user": map[string]interface{}{
-				"profile": map[string]interface{}{
+		data := map[string]any{
+			"user": map[string]any{
+				"profile": map[string]any{
 					"name": "John",
 				},
-				"tags": []interface{}{"a", "b", "c"},
+				"tags": []any{"a", "b", "c"},
 			},
 		}
 
 		tests := []struct {
 			path     string
-			expected interface{}
+			expected any
 		}{
 			{"user.profile.name", "John"},
 			{"user.tags.1", "b"},
@@ -36,8 +36,8 @@ func TestPathSafeImplementation(t *testing.T) {
 	})
 
 	t.Run("setValByPath", func(t *testing.T) {
-		data := map[string]interface{}{
-			"user": map[string]interface{}{
+		data := map[string]any{
+			"user": map[string]any{
 				"name": "John",
 			},
 		}
@@ -55,10 +55,10 @@ func TestPathSafeImplementation(t *testing.T) {
 		}
 
 		// Array append
-		setValByPath(data, "user.tags", []interface{}{"tag1"})
+		setValByPath(data, "user.tags", []any{"tag1"})
 		setValByPath(data, "user.tags.-1", "tag2")
 
-		tags := getValByPath(data, "user.tags").([]interface{})
+		tags := getValByPath(data, "user.tags").([]any)
 		if len(tags) != 2 || tags[1] != "tag2" {
 			t.Errorf("Expected tags append, got %v", tags)
 		}

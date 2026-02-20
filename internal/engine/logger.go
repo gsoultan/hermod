@@ -26,7 +26,7 @@ func NewDatabaseLogger(ctx context.Context, s LogCreator, workflowID string) *Da
 	}
 }
 
-func (l *DatabaseLogger) log(level string, msg string, keysAndValues ...interface{}) {
+func (l *DatabaseLogger) log(level string, msg string, keysAndValues ...any) {
 	log := storage.Log{
 		Timestamp:  time.Now(),
 		Level:      level,
@@ -65,18 +65,18 @@ func (l *DatabaseLogger) log(level string, msg string, keysAndValues ...interfac
 	_ = l.storage.CreateLog(l.ctx, log)
 }
 
-func (l *DatabaseLogger) Debug(msg string, keysAndValues ...interface{}) {
+func (l *DatabaseLogger) Debug(msg string, keysAndValues ...any) {
 	l.log("DEBUG", msg, keysAndValues...)
 }
 
-func (l *DatabaseLogger) Info(msg string, keysAndValues ...interface{}) {
+func (l *DatabaseLogger) Info(msg string, keysAndValues ...any) {
 	l.log("INFO", msg, keysAndValues...)
 }
 
-func (l *DatabaseLogger) Warn(msg string, keysAndValues ...interface{}) {
+func (l *DatabaseLogger) Warn(msg string, keysAndValues ...any) {
 	l.log("WARN", msg, keysAndValues...)
 }
 
-func (l *DatabaseLogger) Error(msg string, keysAndValues ...interface{}) {
+func (l *DatabaseLogger) Error(msg string, keysAndValues ...any) {
 	l.log("ERROR", msg, keysAndValues...)
 }

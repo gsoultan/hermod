@@ -12,7 +12,7 @@ import (
 func init() {
 	Register("lua", &LuaTransformer{
 		pool: &sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				L := lua.NewState()
 				return L
 			},
@@ -24,7 +24,7 @@ type LuaTransformer struct {
 	pool *sync.Pool
 }
 
-func (t *LuaTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *LuaTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -76,7 +76,7 @@ func (t *LuaTransformer) Transform(ctx context.Context, msg hermod.Message, conf
 	return msg, nil
 }
 
-func (t *LuaTransformer) toLValue(L *lua.LState, v interface{}) lua.LValue {
+func (t *LuaTransformer) toLValue(L *lua.LState, v any) lua.LValue {
 	switch val := v.(type) {
 	case string:
 		return lua.LString(val)
@@ -86,13 +86,13 @@ func (t *LuaTransformer) toLValue(L *lua.LState, v interface{}) lua.LValue {
 		return lua.LNumber(val)
 	case bool:
 		return lua.LBool(val)
-	case map[string]interface{}:
+	case map[string]any:
 		tbl := L.NewTable()
 		for k, v2 := range val {
 			tbl.RawSetString(k, t.toLValue(L, v2))
 		}
 		return tbl
-	case []interface{}:
+	case []any:
 		tbl := L.NewTable()
 		for i, v2 := range val {
 			tbl.RawSetInt(i+1, t.toLValue(L, v2))
@@ -103,7 +103,7 @@ func (t *LuaTransformer) toLValue(L *lua.LState, v interface{}) lua.LValue {
 	}
 }
 
-func (t *LuaTransformer) fromLValue(v lua.LValue) interface{} {
+func (t *LuaTransformer) fromLValue(v lua.LValue) any {
 	switch val := v.(type) {
 	case lua.LString:
 		return string(val)
@@ -126,14 +126,14 @@ func (t *LuaTransformer) fromLValue(v lua.LValue) interface{} {
 		})
 
 		if isArr && maxIdx > 0 {
-			arr := make([]interface{}, maxIdx)
+			arr := make([]any, maxIdx)
 			val.ForEach(func(k, v lua.LValue) {
 				arr[int(k.(lua.LNumber))-1] = t.fromLValue(v)
 			})
 			return arr
 		}
 
-		m := make(map[string]interface{})
+		m := make(map[string]any)
 		val.ForEach(func(k, v lua.LValue) {
 			m[k.String()] = t.fromLValue(v)
 		})

@@ -310,8 +310,8 @@ func (s *MySQLSink) Browse(ctx context.Context, table string, limit int) ([]herm
 			return nil, fmt.Errorf("failed to get columns: %w", err)
 		}
 
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -320,7 +320,7 @@ func (s *MySQLSink) Browse(ctx context.Context, table string, limit int) ([]herm
 			return nil, err
 		}
 
-		record := make(map[string]interface{})
+		record := make(map[string]any)
 		for i, col := range cols {
 			val := values[i]
 			if b, ok := val.([]byte); ok {

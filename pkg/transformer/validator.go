@@ -15,7 +15,7 @@ func init() {
 
 type ValidatorTransformer struct{}
 
-func (t *ValidatorTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *ValidatorTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	schema, _ := config["schema"].(string)
 	if schema == "" {
 		return msg, nil
@@ -41,15 +41,15 @@ func (t *ValidatorTransformer) Transform(ctx context.Context, msg hermod.Message
 	return msg, nil
 }
 
-func getMsgValByPath(msg hermod.Message, path string) interface{} {
+func getMsgValByPath(msg hermod.Message, path string) any {
 	if path == "" {
 		return nil
 	}
 	parts := strings.Split(path, ".")
-	var current interface{} = msg.Data()
+	var current any = msg.Data()
 
 	for _, part := range parts {
-		if m, ok := current.(map[string]interface{}); ok {
+		if m, ok := current.(map[string]any); ok {
 			current = m[part]
 		} else {
 			return nil

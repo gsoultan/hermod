@@ -220,7 +220,7 @@ func (s *CSVSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, fmt.Errorf("failed to read csv record: %w", err)
 	}
 
-	data := make(map[string]interface{})
+	data := make(map[string]any)
 	if len(s.headers) > 0 {
 		for i, val := range record {
 			if i < len(s.headers) {

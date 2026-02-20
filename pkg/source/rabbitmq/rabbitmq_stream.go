@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/amqp"
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/stream"
@@ -63,7 +64,7 @@ func (s *RabbitMQStreamSource) ensureConnected() error {
 		}
 
 		// Try to unmarshal JSON into Data() for dynamic structure
-		var jsonData map[string]interface{}
+		var jsonData map[string]any
 		if err := json.Unmarshal(data, &jsonData); err == nil {
 			for k, v := range jsonData {
 				hmsg.SetData(k, v)
@@ -112,6 +113,12 @@ func (s *RabbitMQStreamSource) Read(ctx context.Context) (hermod.Message, error)
 	case msg := <-s.messages:
 		return msg, nil
 	case err := <-s.errs:
+		s.mu.Lock()
+		if s.env != nil {
+			s.env.Close()
+			s.env = nil
+		}
+		s.mu.Unlock()
 		return nil, err
 	}
 }
@@ -138,6 +145,53 @@ func (s *RabbitMQStreamSource) Ack(ctx context.Context, msg hermod.Message) erro
 		return s.consumer.StoreCustomOffset(offset)
 	}
 	return nil
+}
+
+func (s *RabbitMQStreamSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	env, err := stream.NewEnvironment(stream.NewEnvironmentOptions().SetUri(s.url))
+	if err != nil {
+		return nil, fmt.Errorf("sample connection failed: %w", err)
+	}
+	defer env.Close()
+
+	var msg hermod.Message
+	done := make(chan struct{})
+
+	handleMessages := func(consumerContext stream.ConsumerContext, amqpMsg *amqp.Message) {
+		if amqpMsg == nil {
+			return
+		}
+
+		hmsg := message.AcquireMessage()
+		data := amqpMsg.GetData()
+		hmsg.SetPayload(data)
+
+		var jsonData map[string]any
+		if err := json.Unmarshal(data, &jsonData); err == nil {
+			for k, v := range jsonData {
+				hmsg.SetData(k, v)
+			}
+		} else {
+			hmsg.SetAfter(data)
+		}
+		msg = hmsg
+		close(done)
+	}
+
+	consumer, err := env.NewConsumer(s.stream, handleMessages, stream.NewConsumerOptions().SetOffset(stream.OffsetSpecification{}.Last()))
+	if err != nil {
+		return nil, fmt.Errorf("sample consumer failed: %w", err)
+	}
+	defer consumer.Close()
+
+	select {
+	case <-done:
+		return msg, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(2 * time.Second):
+		return nil, fmt.Errorf("sample timeout: no messages found")
+	}
 }
 
 func (s *RabbitMQStreamSource) Ping(ctx context.Context) error {

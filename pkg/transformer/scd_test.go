@@ -76,7 +76,7 @@ func TestSCDTransformer_AllTypes(t *testing.T) {
 		msg.SetData("id", 100)
 		msg.SetData("email", "user100@example.com")
 
-		config := map[string]interface{}{
+		config := map[string]any{
 			"scdType":        0,
 			"targetSourceId": "test",
 			"targetTable":    "dim_users",
@@ -108,12 +108,12 @@ func TestSCDTransformer_AllTypes(t *testing.T) {
 		msg.SetData("id", 300)
 		msg.SetData("email", "initial@example.com")
 
-		config := map[string]interface{}{
+		config := map[string]any{
 			"scdType":        3,
 			"targetSourceId": "test",
 			"targetTable":    "dim_users",
 			"businessKeys":   []string{"id"},
-			"columnMappings": map[string]interface{}{"email": "old_email"},
+			"columnMappings": map[string]any{"email": "old_email"},
 		}
 
 		tr.Transform(ctx, msg, config)
@@ -133,7 +133,7 @@ func TestSCDTransformer_AllTypes(t *testing.T) {
 		msg.SetData("id", 400)
 		msg.SetData("email", "v1@example.com")
 
-		config := map[string]interface{}{
+		config := map[string]any{
 			"scdType":        4,
 			"targetSourceId": "test",
 			"targetTable":    "dim_users",
@@ -166,7 +166,7 @@ func TestSCDTransformer_AllTypes(t *testing.T) {
 		msg.SetData("email", "user600@example.com")
 		msg.SetData("department", "Sales")
 
-		config := map[string]interface{}{
+		config := map[string]any{
 			"scdType":           6,
 			"targetSourceId":    "test",
 			"targetTable":       "dim_users",

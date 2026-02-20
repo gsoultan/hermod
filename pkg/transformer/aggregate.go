@@ -29,7 +29,7 @@ type AggregateTransformer struct {
 	states map[string]*aggState
 }
 
-func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}

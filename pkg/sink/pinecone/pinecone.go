@@ -69,9 +69,9 @@ func (s *Sink) Ping(ctx context.Context) error {
 // It expects the messages to have 'id', 'values' (float array), and optional 'metadata'.
 func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 	type Vector struct {
-		ID       string                 `json:"id"`
-		Values   []float64              `json:"values"`
-		Metadata map[string]interface{} `json:"metadata,omitempty"`
+		ID       string         `json:"id"`
+		Values   []float64      `json:"values"`
+		Metadata map[string]any `json:"metadata,omitempty"`
 	}
 
 	type UpsertRequest struct {
@@ -92,7 +92,7 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 		}
 
 		// Map Values (Embeddings)
-		if vals, ok := data["values"].([]interface{}); ok {
+		if vals, ok := data["values"].([]any); ok {
 			v.Values = make([]float64, len(vals))
 			for i, val := range vals {
 				if f, ok := val.(float64); ok {
@@ -106,7 +106,7 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 		}
 
 		// Map Metadata
-		if meta, ok := data["metadata"].(map[string]interface{}); ok {
+		if meta, ok := data["metadata"].(map[string]any); ok {
 			v.Metadata = meta
 		}
 

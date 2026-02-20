@@ -22,7 +22,7 @@ func TestJSONFormatter(t *testing.T) {
 			t.Fatalf("failed to format message: %v", err)
 		}
 
-		var parsed map[string]interface{}
+		var parsed map[string]any
 		err = json.Unmarshal(data, &parsed)
 		if err != nil {
 			t.Fatalf("failed to unmarshal JSON: %v", err)

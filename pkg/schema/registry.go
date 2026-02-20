@@ -126,7 +126,7 @@ func (r *StorageRegistry) checkJSONCompatibility(oldContent, newContent string) 
 	}
 
 	// 2. Structural compatibility check (simplified)
-	var oldSchema, newSchema map[string]interface{}
+	var oldSchema, newSchema map[string]any
 	if err := json.Unmarshal([]byte(oldContent), &oldSchema); err != nil {
 		return nil // Should not happen if it was registered
 	}
@@ -135,8 +135,8 @@ func (r *StorageRegistry) checkJSONCompatibility(oldContent, newContent string) 
 	}
 
 	// Simple check: new schema should not add new 'required' fields that weren't there
-	oldReq, _ := oldSchema["required"].([]interface{})
-	newReq, _ := newSchema["required"].([]interface{})
+	oldReq, _ := oldSchema["required"].([]any)
+	newReq, _ := newSchema["required"].([]any)
 
 	oldReqMap := make(map[string]bool)
 	for _, r := range oldReq {

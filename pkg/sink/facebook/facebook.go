@@ -68,7 +68,7 @@ func (s *FacebookSink) Write(ctx context.Context, msg hermod.Message) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		var result map[string]interface{}
+		var result map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&result)
 		return fmt.Errorf("facebook api returned status: %d, error: %v", resp.StatusCode, result["error"])
 	}

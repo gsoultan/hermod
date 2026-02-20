@@ -119,7 +119,7 @@ func (s *NatsJetStreamSource) Read(ctx context.Context) (hermod.Message, error) 
 	msg.SetPayload(m.Data)
 
 	// Try to unmarshal JSON into Data() for dynamic structure
-	var jsonData map[string]interface{}
+	var jsonData map[string]any
 	if err := json.Unmarshal(m.Data, &jsonData); err == nil {
 		for k, v := range jsonData {
 			msg.SetData(k, v)
@@ -208,7 +208,7 @@ func (s *NatsJetStreamSource) Sample(ctx context.Context, table string) (hermod.
 	msg.SetID(msgID)
 	msg.SetPayload(m.Data)
 
-	var jsonData map[string]interface{}
+	var jsonData map[string]any
 	if err := json.Unmarshal(m.Data, &jsonData); err == nil {
 		for k, v := range jsonData {
 			msg.SetData(k, v)

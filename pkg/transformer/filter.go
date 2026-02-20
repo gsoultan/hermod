@@ -16,7 +16,7 @@ func init() {
 
 type FilterTransformer struct{}
 
-func (t *FilterTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *FilterTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -24,7 +24,7 @@ func (t *FilterTransformer) Transform(ctx context.Context, msg hermod.Message, c
 	transType, _ := config["transType"].(string)
 
 	conditionsStr, _ := config["conditions"].(string)
-	var conditions []map[string]interface{}
+	var conditions []map[string]any
 	if conditionsStr != "" {
 		_ = json.Unmarshal([]byte(conditionsStr), &conditions)
 	}
@@ -35,7 +35,7 @@ func (t *FilterTransformer) Transform(ctx context.Context, msg hermod.Message, c
 		op, _ := config["operator"].(string)
 		val, _ := config["value"].(string)
 		if field != "" {
-			conditions = append(conditions, map[string]interface{}{
+			conditions = append(conditions, map[string]any{
 				"field":    field,
 				"operator": op,
 				"value":    val,

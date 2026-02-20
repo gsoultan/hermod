@@ -61,7 +61,7 @@ func (s *TikTokSink) Write(ctx context.Context, msg hermod.Message) error {
 		title = string(data)
 	}
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"source_info": map[string]string{
 			"source":    "PULL_FROM_URL",
 			"video_url": videoURL,
@@ -86,7 +86,7 @@ func (s *TikTokSink) Write(ctx context.Context, msg hermod.Message) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		var result map[string]interface{}
+		var result map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&result)
 		return fmt.Errorf("tiktok api returned status: %d, error: %v", resp.StatusCode, result["error"])
 	}

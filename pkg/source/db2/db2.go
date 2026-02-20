@@ -26,7 +26,7 @@ type DB2Source struct {
 	db           *sql.DB
 	mu           sync.Mutex
 	logger       hermod.Logger
-	lastIDs      map[string]interface{}
+	lastIDs      map[string]any
 	msgChan      chan hermod.Message
 }
 
@@ -40,7 +40,7 @@ func NewDB2Source(connString string, tables []string, idField string, pollInterv
 		idField:      idField,
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
-		lastIDs:      make(map[string]interface{}),
+		lastIDs:      make(map[string]any),
 		msgChan:      make(chan hermod.Message, 1000),
 	}
 }
@@ -51,7 +51,7 @@ func (d *DB2Source) SetLogger(logger hermod.Logger) {
 	d.logger = logger
 }
 
-func (d *DB2Source) log(level, msg string, keysAndValues ...interface{}) {
+func (d *DB2Source) log(level, msg string, keysAndValues ...any) {
 	d.mu.Lock()
 	logger := d.logger
 	d.mu.Unlock()
@@ -126,7 +126,7 @@ func (d *DB2Source) Read(ctx context.Context) (hermod.Message, error) {
 			}
 
 			var query string
-			var args []interface{}
+			var args []any
 
 			if lastID != nil && d.idField != "" {
 				quotedID, _ := sqlutil.QuoteIdent("db2", d.idField)
@@ -143,8 +143,8 @@ func (d *DB2Source) Read(ctx context.Context) (hermod.Message, error) {
 
 			if rows.Next() {
 				cols, _ := rows.Columns()
-				values := make([]interface{}, len(cols))
-				ptr := make([]interface{}, len(cols))
+				values := make([]any, len(cols))
+				ptr := make([]any, len(cols))
 				for i := range values {
 					ptr[i] = &values[i]
 				}
@@ -155,8 +155,8 @@ func (d *DB2Source) Read(ctx context.Context) (hermod.Message, error) {
 				}
 				rows.Close()
 
-				record := make(map[string]interface{})
-				var currentID interface{}
+				record := make(map[string]any)
+				var currentID any
 				for i, col := range cols {
 					val := values[i]
 					if b, ok := val.([]byte); ok {
@@ -241,8 +241,8 @@ func (d *DB2Source) snapshotTable(ctx context.Context, table string) error {
 	}
 
 	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
+		values := make([]any, len(columns))
+		valuePtrs := make([]any, len(columns))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -251,7 +251,7 @@ func (d *DB2Source) snapshotTable(ctx context.Context, table string) error {
 			return err
 		}
 
-		record := make(map[string]interface{})
+		record := make(map[string]any)
 		for i, colName := range columns {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -397,8 +397,8 @@ func (d *DB2Source) Sample(ctx context.Context, table string) (hermod.Message, e
 		return nil, err
 	}
 
-	columns := make([]interface{}, len(cols))
-	columnPointers := make([]interface{}, len(cols))
+	columns := make([]any, len(cols))
+	columnPointers := make([]any, len(cols))
 	for i := range columns {
 		columnPointers[i] = &columns[i]
 	}
@@ -407,7 +407,7 @@ func (d *DB2Source) Sample(ctx context.Context, table string) (hermod.Message, e
 		return nil, err
 	}
 
-	record := make(map[string]interface{})
+	record := make(map[string]any)
 	for i, colName := range cols {
 		val := columns[i]
 		if b, ok := val.([]byte); ok {

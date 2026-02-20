@@ -178,7 +178,7 @@ func (s *Server) wakeUpWorkflow(ctx context.Context, resourceType string, path s
 	return wokeUp
 }
 
-func (s *Server) recordAuditLog(r *http.Request, level, message, action string, workflowID, sourceID, sinkID string, data interface{}) {
+func (s *Server) recordAuditLog(r *http.Request, level, message, action string, workflowID, sourceID, sinkID string, data any) {
 	ctx := r.Context()
 	l := storage.Log{
 		Timestamp:  time.Now(),
@@ -369,6 +369,7 @@ func (s *Server) Routes() http.Handler {
 	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
 	mux.HandleFunc("GET /livez", s.handleLiveness)
 	mux.HandleFunc("GET /readyz", s.handleReadiness)
+	mux.HandleFunc("GET /api/version", s.handleVersion)
 
 	mux.HandleFunc("POST /api/webhooks/{path...}", s.handleWebhook)
 	mux.HandleFunc("GET /api/webhooks/{path...}", s.handleWebhook)
@@ -627,8 +628,8 @@ func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
 
 	// Attempt to parse as GraphQL
 	var gqlReq struct {
-		Query     string                 `json:"query"`
-		Variables map[string]interface{} `json:"variables"`
+		Query     string         `json:"query"`
+		Variables map[string]any `json:"variables"`
 	}
 
 	// Verify API Key
@@ -677,7 +678,7 @@ func (s *Server) handleGraphQL(w http.ResponseWriter, r *http.Request) {
 
 gql_dispatched:
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]any{
 		"data": map[string]string{"status": "dispatched", "id": msg.ID()},
 	})
 }
@@ -713,7 +714,7 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 
 	var body []byte
 	var err error
-	payload := map[string]interface{}{}
+	payload := map[string]any{}
 	ct := r.Header.Get("Content-Type")
 
 	if strings.Contains(ct, "application/json") {
@@ -741,11 +742,11 @@ func (s *Server) handleForm(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			// files (we do not store binary content; include metadata only)
-			files := map[string][]map[string]interface{}{}
+			files := map[string][]map[string]any{}
 			for k, fhs := range r.MultipartForm.File {
-				list := make([]map[string]interface{}, 0, len(fhs))
+				list := make([]map[string]any, 0, len(fhs))
 				for _, fh := range fhs {
-					list = append(list, map[string]interface{}{
+					list = append(list, map[string]any{
 						"filename": fh.Filename,
 						"size":     fh.Size,
 						"header":   fh.Header,
@@ -1541,7 +1542,7 @@ func (s *Server) startRateLimitCleanup() {
 				select {
 				case <-ticker.C:
 					now := time.Now()
-					s.formRateLimit.Range(func(key, value interface{}) bool {
+					s.formRateLimit.Range(func(key, value any) bool {
 						k := key.(string)
 						parts := strings.Split(k, ":")
 						if len(parts) >= 3 {
@@ -1564,7 +1565,7 @@ func (s *Server) startRateLimitCleanup() {
 	})
 }
 
-func (s *Server) botProtectionCheck(r *http.Request, payload map[string]interface{}, enable bool, minMs int, srcCfg map[string]string) error {
+func (s *Server) botProtectionCheck(r *http.Request, payload map[string]any, enable bool, minMs int, srcCfg map[string]string) error {
 	ct := r.Header.Get("Content-Type")
 	if !enable || (!strings.Contains(ct, "application/x-www-form-urlencoded") && !strings.Contains(ct, "multipart/form-data") && !strings.Contains(ct, "application/json")) {
 		return nil

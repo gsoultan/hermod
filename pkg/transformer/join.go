@@ -18,7 +18,7 @@ type JoinTransformer struct {
 	mu sync.Mutex
 }
 
-func (t *JoinTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *JoinTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -26,7 +26,7 @@ func (t *JoinTransformer) Transform(ctx context.Context, msg hermod.Message, con
 	mode, _ := config["mode"].(string) // "store" or "lookup"
 	key, _ := config["key"].(string)
 	namespace, _ := config["namespace"].(string)
-	fields, _ := config["fields"].([]interface{}) // optional: specific fields to join
+	fields, _ := config["fields"].([]any) // optional: specific fields to join
 	prefix, _ := config["prefix"].(string)
 
 	if namespace == "" {
@@ -63,7 +63,7 @@ func (t *JoinTransformer) Transform(ctx context.Context, msg hermod.Message, con
 			return msg, nil // Key not found
 		}
 		if data != nil {
-			var joinedData map[string]interface{}
+			var joinedData map[string]any
 			if err := json.Unmarshal(data, &joinedData); err == nil {
 				if prefix == "" {
 					prefix = "joined_"

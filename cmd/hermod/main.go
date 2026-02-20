@@ -28,6 +28,7 @@ import (
 	"github.com/user/hermod/internal/storage"
 	storagemongo "github.com/user/hermod/internal/storage/mongodb"
 	storagesql "github.com/user/hermod/internal/storage/sql"
+	"github.com/user/hermod/internal/version"
 	"github.com/user/hermod/pkg/crypto"
 	enginePkg "github.com/user/hermod/pkg/engine"
 	"github.com/user/hermod/pkg/secrets"
@@ -56,7 +57,12 @@ func main() {
 	dbType := flag.String("db-type", "sqlite", "database type: sqlite, postgres, mysql, mariadb, mongodb")
 	dbConn := flag.String("db-conn", "hermod.db", "database connection string")
 	masterKey := flag.String("master-key", "", "Master key for encryption (32 bytes)")
+	versionFlag := flag.Bool("version", false, "Print the version and exit")
 	flag.Parse()
+	if *versionFlag {
+		fmt.Printf("hermod %s\n", version.Version)
+		return
+	}
 
 	// Environment fallbacks to simplify production configuration
 	// Only apply when corresponding flag keeps its default value.

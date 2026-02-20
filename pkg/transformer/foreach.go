@@ -28,7 +28,7 @@ func init() {
 
 type ForeachTransformer struct{}
 
-func (t *ForeachTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *ForeachTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -65,14 +65,14 @@ func (t *ForeachTransformer) Transform(ctx context.Context, msg hermod.Message, 
 
 	raw := evaluator.GetMsgValByPath(msg, arrayPath)
 
-	// Normalize to []interface{}
-	var arr []interface{}
+	// Normalize to []any
+	var arr []any
 	if raw == nil {
 		arr = nil
-	} else if v, ok := raw.([]interface{}); ok {
+	} else if v, ok := raw.([]any); ok {
 		arr = v
-	} else if vMapSlice, ok := raw.([]map[string]interface{}); ok {
-		arr = make([]interface{}, 0, len(vMapSlice))
+	} else if vMapSlice, ok := raw.([]map[string]any); ok {
+		arr = make([]any, 0, len(vMapSlice))
 		for _, m := range vMapSlice {
 			arr = append(arr, m)
 		}
@@ -86,7 +86,7 @@ func (t *ForeachTransformer) Transform(ctx context.Context, msg hermod.Message, 
 			return nil, nil
 		}
 		// Ensure an empty array is materialized
-		msg.SetData(resultField, []interface{}{})
+		msg.SetData(resultField, []any{})
 		return msg, nil
 	}
 
@@ -96,21 +96,21 @@ func (t *ForeachTransformer) Transform(ctx context.Context, msg hermod.Message, 
 		max = limit
 	}
 
-	out := make([]interface{}, 0, max)
+	out := make([]any, 0, max)
 	for i := 0; i < max; i++ {
 		it := arr[i]
 
 		// If itemPath is set and item is object, extract nested value
 		if itemPath != "" {
-			if m, ok := it.(map[string]interface{}); ok {
+			if m, ok := it.(map[string]any); ok {
 				it = evaluator.GetValByPath(m, itemPath)
 			}
 		}
 
 		// If indexField is set and item is object, set index on a shallow copy
 		if indexField != "" {
-			if m, ok := it.(map[string]interface{}); ok {
-				cp := make(map[string]interface{}, len(m)+1)
+			if m, ok := it.(map[string]any); ok {
+				cp := make(map[string]any, len(m)+1)
 				for k, v := range m {
 					cp[k] = v
 				}

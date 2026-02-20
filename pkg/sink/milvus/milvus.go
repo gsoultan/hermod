@@ -134,7 +134,7 @@ func (s *Sink) Close() error {
 	return nil
 }
 
-func toFloat32Slice(v interface{}) []float32 {
+func toFloat32Slice(v any) []float32 {
 	switch val := v.(type) {
 	case []float32:
 		return val
@@ -144,7 +144,7 @@ func toFloat32Slice(v interface{}) []float32 {
 			res[i] = float32(x)
 		}
 		return res
-	case []interface{}:
+	case []any:
 		res := make([]float32, len(val))
 		for i, x := range val {
 			switch num := x.(type) {

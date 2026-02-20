@@ -164,8 +164,8 @@ func TestSanitizeValue(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		input    interface{}
-		expected interface{}
+		input    any
+		expected any
 	}{
 		{
 			name:     "string",
@@ -230,7 +230,7 @@ func TestSanitizeMap(t *testing.T) {
 	id1 := uuid.New()
 	id2 := uuid.New()
 
-	input := map[string]interface{}{
+	input := map[string]any{
 		"id":    id1,
 		"raw":   id2[:],
 		"name":  "test",
@@ -279,7 +279,7 @@ func TestMessageMarshalJSONSanitization(t *testing.T) {
 		t.Fatalf("failed to marshal message: %v", err)
 	}
 
-	var res map[string]interface{}
+	var res map[string]any
 	if err := json.Unmarshal(bz, &res); err != nil {
 		t.Fatalf("failed to unmarshal result: %v", err)
 	}

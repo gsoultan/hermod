@@ -27,7 +27,7 @@ type AIMapperTransformer struct {
 	AITransformer
 }
 
-func (t *AIMapperTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *AIMapperTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	targetSchema, _ := config["targetSchema"].(string)
 	hints, _ := config["hints"].(string)
 
@@ -41,7 +41,7 @@ func (t *AIMapperTransformer) Transform(ctx context.Context, msg hermod.Message,
 	return t.AITransformer.Transform(ctx, msg, config)
 }
 
-func (t *AITransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *AITransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -91,7 +91,7 @@ func (t *AITransformer) Transform(ctx context.Context, msg hermod.Message, confi
 		msg.SetData(targetField, result)
 	} else {
 		// If no target field, try to parse result as JSON and merge into data
-		var resultMap map[string]interface{}
+		var resultMap map[string]any
 		if err := json.Unmarshal([]byte(result), &resultMap); err == nil {
 			for k, v := range resultMap {
 				msg.SetData(k, v)
@@ -109,7 +109,7 @@ func (t *AITransformer) callOpenAI(ctx context.Context, endpoint, apiKey, model,
 		model = "gpt-3.5-turbo"
 	}
 
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"model": model,
 		"messages": []map[string]string{
 			{"role": "user", "content": prompt},
@@ -162,7 +162,7 @@ func (t *AITransformer) callOllama(ctx context.Context, endpoint, model, prompt 
 		model = "llama2"
 	}
 
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"model":  model,
 		"prompt": prompt,
 		"stream": false,

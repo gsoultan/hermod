@@ -60,7 +60,7 @@ func TestMaskTransformer_PII(t *testing.T) {
 			msg.SetID("1")
 			msg.SetData("content", tt.input)
 
-			config := map[string]interface{}{
+			config := map[string]any{
 				"field":    "content",
 				"maskType": "pii",
 			}

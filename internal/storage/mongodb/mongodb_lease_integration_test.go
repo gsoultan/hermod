@@ -45,13 +45,13 @@ func TestMongo_WorkflowLease_AcquireRenewRelease(t *testing.T) {
 	coll := client.Database(dbName).Collection("workflows")
 
 	wf := storage.Workflow{ID: uuid.New().String(), Name: "wf1", Active: true}
-	if _, err := coll.InsertOne(ctx, map[string]interface{}{
+	if _, err := coll.InsertOne(ctx, map[string]any{
 		"_id":       wf.ID,
 		"name":      wf.Name,
 		"active":    true,
 		"vhost":     "",
-		"nodes":     []interface{}{},
-		"edges":     []interface{}{},
+		"nodes":     []any{},
+		"edges":     []any{},
 		"status":    "",
 		"worker_id": "",
 	}); err != nil {
@@ -81,7 +81,7 @@ func TestMongo_WorkflowLease_AcquireRenewRelease(t *testing.T) {
 
 	// Force expiry by setting lease_until to past
 	past := time.Now().Add(-1 * time.Minute)
-	_, err = coll.UpdateByID(ctx, wf.ID, map[string]interface{}{"$set": map[string]interface{}{"lease_until": past}})
+	_, err = coll.UpdateByID(ctx, wf.ID, map[string]any{"$set": map[string]any{"lease_until": past}})
 	if err != nil {
 		t.Fatalf("force expire: %v", err)
 	}

@@ -44,7 +44,7 @@ func (t *WasmTransformer) getRuntime(ctx context.Context) wazero.Runtime {
 	return t.runtime
 }
 
-func (t *WasmTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *WasmTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -140,7 +140,7 @@ func (t *WasmTransformer) Transform(ctx context.Context, msg hermod.Message, con
 		return msg, fmt.Errorf("wasm execution failed: %w", err)
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		return msg, fmt.Errorf("failed to parse wasm output: %w", err)
 	}

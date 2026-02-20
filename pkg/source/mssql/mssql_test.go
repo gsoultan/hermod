@@ -11,7 +11,7 @@ func TestMSSQLSource_MapToMessage(t *testing.T) {
 
 	lsn := []byte{0x01, 0x02, 0x03}
 	seq := []byte{0x00, 0x00, 0x01}
-	data := map[string]interface{}{
+	data := map[string]any{
 		"id":   1,
 		"name": "John",
 	}

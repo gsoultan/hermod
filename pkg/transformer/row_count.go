@@ -14,7 +14,7 @@ func init() {
 
 type RowCountTransformer struct{}
 
-func (t *RowCountTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *RowCountTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}

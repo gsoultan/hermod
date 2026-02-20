@@ -25,7 +25,7 @@ func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	checks := make(map[string]interface{})
+	checks := make(map[string]any)
 	if s.lastReadyStatusSet && now.Sub(s.lastReadyStatusAt) < debounce {
 		s.respondReadiness(w, s.lastReadyStatus, statusFromBool(s.lastReadyStatus), checks)
 		return
@@ -41,7 +41,7 @@ func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
 			overallOK = false
 		}
 	}
-	checks["database"] = map[string]interface{}{"ok": dbOK}
+	checks["database"] = map[string]any{"ok": dbOK}
 
 	// 2. Workers Check
 	recentWorkers := 0
@@ -61,7 +61,7 @@ func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
 			overallOK = false
 		}
 	}
-	checks["workers"] = map[string]interface{}{
+	checks["workers"] = map[string]any{
 		"ttl_seconds": ttl,
 		"recent":      recentWorkers,
 		"stale":       staleWorkers,
@@ -89,7 +89,7 @@ func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
 			overallOK = false
 		}
 	}
-	checks["leases"] = map[string]interface{}{
+	checks["leases"] = map[string]any{
 		"ok":           leasesOK,
 		"total":        totalActive,
 		"active_owned": activeOwned,
@@ -118,13 +118,13 @@ func statusFromBool(ok bool) string {
 	return "error"
 }
 
-func (s *Server) respondReadiness(w http.ResponseWriter, ok bool, status string, checks map[string]interface{}) {
+func (s *Server) respondReadiness(w http.ResponseWriter, ok bool, status string, checks map[string]any) {
 	w.Header().Set("Content-Type", "application/json")
 	if !ok {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
 
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"version": "v1",
 		"status":  status,
 		"time":    time.Now().UTC().Format(time.RFC3339Nano),

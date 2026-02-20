@@ -109,7 +109,7 @@ func (s *RabbitMQQueueSource) run(ctx context.Context, msgs <-chan amqp.Delivery
 			hmsg.SetPayload(d.Body)
 
 			// Try to unmarshal JSON into Data() for dynamic structure
-			var jsonData map[string]interface{}
+			var jsonData map[string]any
 			if err := json.Unmarshal(d.Body, &jsonData); err == nil {
 				for k, v := range jsonData {
 					hmsg.SetData(k, v)
@@ -140,13 +140,12 @@ func (s *RabbitMQQueueSource) Read(ctx context.Context) (hermod.Message, error) 
 		return msg, nil
 	case err := <-s.errs:
 		// Attempt to reconnect on error
-		if err.Error() == "rabbitmq channel closed" {
-			s.mu.Lock()
-			if s.conn != nil {
-				s.conn.Close() // Force reconnection on next Read
-			}
-			s.mu.Unlock()
+		s.mu.Lock()
+		if s.conn != nil {
+			s.conn.Close() // Force reconnection on next Read
+			s.conn = nil
 		}
+		s.mu.Unlock()
 		return nil, err
 	}
 }
@@ -174,6 +173,51 @@ func (s *RabbitMQQueueSource) Ack(ctx context.Context, msg hermod.Message) error
 	}
 
 	return ch.Ack(tag, false)
+}
+
+func (s *RabbitMQQueueSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	conn, err := amqp.Dial(s.url)
+	if err != nil {
+		return nil, fmt.Errorf("sample connection failed: %w", err)
+	}
+	defer conn.Close()
+
+	ch, err := conn.Channel()
+	if err != nil {
+		return nil, fmt.Errorf("sample channel failed: %w", err)
+	}
+	defer ch.Close()
+
+	d, ok, err := ch.Get(s.queue, false) // false for auto-ack: we don't want to consume the message, but RabbitMQ doesn't have a pure "peek" without consumption.
+	// Actually, if we use Get with autoAck=false, the message is redelivered if we don't Ack it and close the channel.
+	if err != nil {
+		return nil, fmt.Errorf("sample get failed: %w", err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("queue is empty")
+	}
+
+	// We don't Ack, so it should stay in the queue when we close the channel.
+	// But to be extra safe, we could Nack it.
+	defer ch.Nack(d.DeliveryTag, false, true)
+
+	hmsg := message.AcquireMessage()
+	hmsg.SetPayload(d.Body)
+
+	var jsonData map[string]any
+	if err := json.Unmarshal(d.Body, &jsonData); err == nil {
+		for k, v := range jsonData {
+			hmsg.SetData(k, v)
+		}
+	} else {
+		hmsg.SetAfter(d.Body)
+	}
+
+	if d.MessageId != "" {
+		hmsg.SetID(d.MessageId)
+	}
+
+	return hmsg, nil
 }
 
 func (s *RabbitMQQueueSource) Ping(ctx context.Context) error {

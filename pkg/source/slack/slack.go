@@ -18,7 +18,7 @@ type SlackSource struct {
 	interval      time.Duration
 	lastTimestamp string
 	client        *http.Client
-	items         []map[string]interface{}
+	items         []map[string]any
 	currentIndex  int
 	lastPoll      time.Time
 	baseURL       string // Added for testing
@@ -82,9 +82,9 @@ func (s *SlackSource) Read(ctx context.Context) (hermod.Message, error) {
 	defer resp.Body.Close()
 
 	var result struct {
-		OK       bool                     `json:"ok"`
-		Messages []map[string]interface{} `json:"messages"`
-		Error    string                   `json:"error"`
+		OK       bool             `json:"ok"`
+		Messages []map[string]any `json:"messages"`
+		Error    string           `json:"error"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -113,7 +113,7 @@ func (s *SlackSource) Read(ctx context.Context) (hermod.Message, error) {
 	return s.messageFromData(item), nil
 }
 
-func (s *SlackSource) messageFromData(data map[string]interface{}) hermod.Message {
+func (s *SlackSource) messageFromData(data map[string]any) hermod.Message {
 	msg := message.AcquireMessage()
 	msg.SetID(data["ts"].(string))
 	msg.SetOperation(hermod.OpCreate)

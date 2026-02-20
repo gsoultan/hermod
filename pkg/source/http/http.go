@@ -23,7 +23,7 @@ type HTTPSource struct {
 	dataPath      string // Path to extract array from JSON response using GJSON
 	lastTimestamp time.Time
 	client        *http.Client
-	items         []interface{}
+	items         []any
 	currentIndex  int
 }
 
@@ -103,13 +103,13 @@ func (s *HTTPSource) Read(ctx context.Context) (hermod.Message, error) {
 			s.items = append(s.items, result.Value())
 		}
 	} else {
-		var data interface{}
+		var data any
 		if err := json.Unmarshal(body, &data); err != nil {
 			// If not JSON, return as raw string in a map
-			data = map[string]interface{}{"raw": string(body)}
+			data = map[string]any{"raw": string(body)}
 		}
 
-		if arr, ok := data.([]interface{}); ok {
+		if arr, ok := data.([]any); ok {
 			s.items = arr
 		} else {
 			s.items = append(s.items, data)
@@ -128,13 +128,13 @@ func (s *HTTPSource) Read(ctx context.Context) (hermod.Message, error) {
 	return s.messageFromData(item), nil
 }
 
-func (s *HTTPSource) messageFromData(data interface{}) hermod.Message {
+func (s *HTTPSource) messageFromData(data any) hermod.Message {
 	msg := message.AcquireMessage()
 	msg.SetID(uuid.New().String())
 	msg.SetMetadata("source", "http")
 	msg.SetMetadata("url", s.url)
 
-	if m, ok := data.(map[string]interface{}); ok {
+	if m, ok := data.(map[string]any); ok {
 		for k, v := range m {
 			msg.SetData(k, v)
 		}

@@ -18,7 +18,7 @@ type AdvancedTransformer struct {
 	evaluator *evaluator.Evaluator
 }
 
-func (t *AdvancedTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *AdvancedTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -26,7 +26,7 @@ func (t *AdvancedTransformer) Transform(ctx context.Context, msg hermod.Message,
 	transType, _ := config["transType"].(string)
 
 	if transType == "advanced" {
-		results := make(map[string]interface{})
+		results := make(map[string]any)
 		for k, v := range config {
 			if !strings.HasPrefix(k, "column.") {
 				continue

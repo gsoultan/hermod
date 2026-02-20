@@ -76,7 +76,7 @@ func (s *FTPSink) ensureClient(ctx context.Context) error {
 }
 
 // render applies text/template on a string with data.
-func render(tmpl string, data map[string]interface{}) (string, error) {
+func render(tmpl string, data map[string]any) (string, error) {
 	if tmpl == "" {
 		return "", nil
 	}
@@ -91,8 +91,8 @@ func render(tmpl string, data map[string]interface{}) (string, error) {
 	return buf.String(), nil
 }
 
-func (s *FTPSink) buildTemplateData(msg hermod.Message) map[string]interface{} {
-	data := map[string]interface{}{}
+func (s *FTPSink) buildTemplateData(msg hermod.Message) map[string]any {
+	data := map[string]any{}
 	for k, v := range msg.Data() {
 		data[k] = v
 	}

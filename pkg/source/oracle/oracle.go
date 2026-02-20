@@ -26,7 +26,7 @@ type OracleSource struct {
 	db           *sql.DB
 	mu           sync.Mutex
 	logger       hermod.Logger
-	lastIDs      map[string]interface{}
+	lastIDs      map[string]any
 	msgChan      chan hermod.Message
 }
 
@@ -40,7 +40,7 @@ func NewOracleSource(connString string, tables []string, idField string, pollInt
 		idField:      idField,
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
-		lastIDs:      make(map[string]interface{}),
+		lastIDs:      make(map[string]any),
 		msgChan:      make(chan hermod.Message, 1000),
 	}
 }
@@ -51,7 +51,7 @@ func (o *OracleSource) SetLogger(logger hermod.Logger) {
 	o.logger = logger
 }
 
-func (o *OracleSource) log(level, msg string, keysAndValues ...interface{}) {
+func (o *OracleSource) log(level, msg string, keysAndValues ...any) {
 	o.mu.Lock()
 	logger := o.logger
 	o.mu.Unlock()
@@ -125,7 +125,7 @@ func (o *OracleSource) Read(ctx context.Context) (hermod.Message, error) {
 			}
 
 			var query string
-			var args []interface{}
+			var args []any
 
 			if lastID != nil && o.idField != "" {
 				quotedID, _ := sqlutil.QuoteIdent("oracle", o.idField)
@@ -145,8 +145,8 @@ func (o *OracleSource) Read(ctx context.Context) (hermod.Message, error) {
 
 			if rows.Next() {
 				cols, _ := rows.Columns()
-				values := make([]interface{}, len(cols))
-				ptr := make([]interface{}, len(cols))
+				values := make([]any, len(cols))
+				ptr := make([]any, len(cols))
 				for i := range values {
 					ptr[i] = &values[i]
 				}
@@ -157,8 +157,8 @@ func (o *OracleSource) Read(ctx context.Context) (hermod.Message, error) {
 				}
 				rows.Close()
 
-				record := make(map[string]interface{})
-				var currentID interface{}
+				record := make(map[string]any)
+				var currentID any
 				for i, col := range cols {
 					val := values[i]
 					if b, ok := val.([]byte); ok {
@@ -243,8 +243,8 @@ func (o *OracleSource) snapshotTable(ctx context.Context, table string) error {
 	}
 
 	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
+		values := make([]any, len(columns))
+		valuePtrs := make([]any, len(columns))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -253,7 +253,7 @@ func (o *OracleSource) snapshotTable(ctx context.Context, table string) error {
 			return err
 		}
 
-		record := make(map[string]interface{})
+		record := make(map[string]any)
 		for i, colName := range columns {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -396,7 +396,7 @@ func (o *OracleSource) DiscoverColumns(ctx context.Context, table string) ([]her
 		FROM all_tab_cols utc 
 		WHERE table_name = :1 
 	`
-	args := []interface{}{tableNameOnly}
+	args := []any{tableNameOnly}
 	if owner != "" {
 		query += " AND owner = :2"
 		args = append(args, owner)
@@ -449,8 +449,8 @@ func (o *OracleSource) Sample(ctx context.Context, table string) (hermod.Message
 		return nil, err
 	}
 
-	columns := make([]interface{}, len(cols))
-	columnPointers := make([]interface{}, len(cols))
+	columns := make([]any, len(cols))
+	columnPointers := make([]any, len(cols))
 	for i := range columns {
 		columnPointers[i] = &columns[i]
 	}
@@ -459,7 +459,7 @@ func (o *OracleSource) Sample(ctx context.Context, table string) (hermod.Message
 		return nil, err
 	}
 
-	record := make(map[string]interface{})
+	record := make(map[string]any)
 	for i, colName := range cols {
 		val := columns[i]
 		if b, ok := val.([]byte); ok {

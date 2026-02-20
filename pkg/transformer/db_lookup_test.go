@@ -62,7 +62,7 @@ func TestDBLookup_SQL_WithWhereClause(t *testing.T) {
 	tr := &DBLookupTransformer{}
 	reg := fakeRegistry{db: db}
 
-	data := map[string]interface{}{"id": "2", "st": "INACTIVE"}
+	data := map[string]any{"id": "2", "st": "INACTIVE"}
 	where := "id = {{id}} AND status = '{{st}}'"
 	got, err := tr.lookupSQL(context.Background(), reg, src, "test", "", nil, where, "value", "", data)
 	if err != nil {
@@ -74,7 +74,7 @@ func TestDBLookup_SQL_WithWhereClause(t *testing.T) {
 }
 
 func TestParameterizeTemplate_SQLite(t *testing.T) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"user_id": 42,
 		"tenant":  "acme",
 	}
@@ -118,16 +118,16 @@ func TestDBLookup_SQL_BatchIN(t *testing.T) {
 		t.Fatalf("lookupSQL batch: %v", err)
 	}
 	// Expect a slice with two values in any order
-	arr, ok := got.([]interface{})
+	arr, ok := got.([]any)
 	if !ok {
-		t.Fatalf("expected []interface{}, got %#v", got)
+		t.Fatalf("expected []any, got %#v", got)
 	}
 	// Order is not guaranteed by SQL IN; sort-like check
-	vals := map[interface{}]bool{}
+	vals := map[any]bool{}
 	for _, v := range arr {
 		vals[v] = true
 	}
-	expected := []interface{}{"one", "three"}
+	expected := []any{"one", "three"}
 	for _, v := range expected {
 		if !vals[v] {
 			t.Fatalf("missing value %v in result %#v", v, arr)

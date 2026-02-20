@@ -14,7 +14,7 @@ func TestWasmTransformer_Transform_MissingBinary(t *testing.T) {
 	defer message.ReleaseMessage(msg)
 	msg.SetID("1")
 	msg.SetData("foo", "bar")
-	config := map[string]interface{}{
+	config := map[string]any{
 		"function": "transform",
 	}
 
@@ -41,7 +41,7 @@ func TestWasmTransformer_Base64Invalid(t *testing.T) {
 	msg.SetData("foo", "bar")
 
 	// Invalid WASM binary
-	config := map[string]interface{}{
+	config := map[string]any{
 		"wasmBytes": base64.StdEncoding.EncodeToString([]byte("invalid wasm")),
 	}
 

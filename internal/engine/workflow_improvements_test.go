@@ -17,7 +17,7 @@ func TestWorkflowImprovements(t *testing.T) {
 		// Test email masking
 		nodeEmail := &storage.WorkflowNode{
 			Type: "transformation",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"transType": "mask",
 				"field":     "email",
 				"maskType":  "email",
@@ -34,7 +34,7 @@ func TestWorkflowImprovements(t *testing.T) {
 		// Test partial masking
 		nodePhone := &storage.WorkflowNode{
 			Type: "transformation",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"transType": "mask",
 				"field":     "phone",
 				"maskType":  "partial",
@@ -59,7 +59,7 @@ func TestWorkflowImprovements(t *testing.T) {
 		nodeCount := &storage.WorkflowNode{
 			ID:   "count1",
 			Type: "stateful",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"operation":   "count",
 				"field":       "amount",
 				"outputField": "total_count",
@@ -69,7 +69,7 @@ func TestWorkflowImprovements(t *testing.T) {
 		nodeSum := &storage.WorkflowNode{
 			ID:   "sum1",
 			Type: "stateful",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"operation":   "sum",
 				"field":       "amount",
 				"outputField": "total_amount",

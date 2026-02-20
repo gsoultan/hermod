@@ -14,22 +14,22 @@ func TestHTTPSource_Read(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/array" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]interface{}{
+			json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 1, "name": "item1"},
 				{"id": 2, "name": "item2"},
 			})
 		} else if r.URL.Path == "/nested" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"status": "success",
-				"data": []map[string]interface{}{
+				"data": []map[string]any{
 					{"id": 3, "name": "item3"},
 					{"id": 4, "name": "item4"},
 				},
 			})
 		} else {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{"id": 0, "name": "single"})
+			json.NewEncoder(w).Encode(map[string]any{"id": 0, "name": "single"})
 		}
 	}))
 	defer ts.Close()

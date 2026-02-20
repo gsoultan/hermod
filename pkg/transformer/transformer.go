@@ -15,7 +15,7 @@ func PIIEngine() *pii.Engine {
 
 // Transformer defines the interface for data transformations.
 type Transformer interface {
-	Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error)
+	Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error)
 }
 
 // Registry manages the available transformers.

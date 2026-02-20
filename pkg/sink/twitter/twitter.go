@@ -72,7 +72,7 @@ func (s *TwitterSink) Write(ctx context.Context, msg hermod.Message) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		var result map[string]interface{}
+		var result map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&result)
 		return fmt.Errorf("twitter api returned status: %d, detail: %v", resp.StatusCode, result["detail"])
 	}

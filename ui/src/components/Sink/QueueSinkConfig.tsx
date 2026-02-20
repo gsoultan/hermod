@@ -46,14 +46,36 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
     case 'rabbitmq':
       return (
         <>
-          <TextInput label="URL" placeholder="rabbitmq-stream://guest:guest@localhost:5552" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
+          {!config.host && (
+            <TextInput label="RabbitMQ URL (Legacy)" placeholder="rabbitmq-stream://guest:guest@localhost:5552" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} />
+          )}
+          <Group grow>
+            <TextInput label="Host" placeholder="localhost" value={config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} required={!config.url} />
+            <TextInput label="Port" placeholder="5552" value={config.port || ''} onChange={(e) => updateConfig('port', e.target.value)} />
+          </Group>
+          <Group grow>
+            <TextInput label="Username" placeholder="guest" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
+            <TextInput label="Password" type="password" placeholder="guest" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
+            <TextInput label="Virtual Host" placeholder="/" value={config.dbname || ''} onChange={(e) => updateConfig('dbname', e.target.value)} />
+          </Group>
           <TextInput label="Stream Name" placeholder="hermod-stream" value={config.stream_name || ''} onChange={(e) => updateConfig('stream_name', e.target.value)} required />
         </>
       );
     case 'rabbitmq_queue':
       return (
         <>
-          <TextInput label="URL" placeholder="amqp://guest:guest@localhost:5672" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
+          {!config.host && (
+            <TextInput label="RabbitMQ URL (Legacy)" placeholder="amqp://guest:guest@localhost:5672" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} />
+          )}
+          <Group grow>
+            <TextInput label="Host" placeholder="localhost" value={config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} required={!config.url} />
+            <TextInput label="Port" placeholder="5672" value={config.port || ''} onChange={(e) => updateConfig('port', e.target.value)} />
+          </Group>
+          <Group grow>
+            <TextInput label="Username" placeholder="guest" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
+            <TextInput label="Password" type="password" placeholder="guest" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
+            <TextInput label="Virtual Host" placeholder="/" value={config.dbname || ''} onChange={(e) => updateConfig('dbname', e.target.value)} />
+          </Group>
           <TextInput label="Queue Name" placeholder="hermod-queue" value={config.queue_name || ''} onChange={(e) => updateConfig('queue_name', e.target.value)} required />
         </>
       );

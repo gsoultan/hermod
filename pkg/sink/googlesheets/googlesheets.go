@@ -93,7 +93,7 @@ func (s *GoogleSheetsSink) Write(ctx context.Context, msg hermod.Message) error 
 	}
 }
 
-func (s *GoogleSheetsSink) handleInsertRow(ctx context.Context, spreadsheetID string, sheetID int64, templateData map[string]interface{}, msg hermod.Message) error {
+func (s *GoogleSheetsSink) handleInsertRow(ctx context.Context, spreadsheetID string, sheetID int64, templateData map[string]any, msg hermod.Message) error {
 	idxStr, err := s.render(s.rowIndex, templateData)
 	if err != nil {
 		return err
@@ -136,13 +136,13 @@ func (s *GoogleSheetsSink) handleAppendRow(ctx context.Context, spreadsheetID, s
 	// For now, let's just put all values in a row.
 
 	// If the payload is an array, use it directly
-	var values []interface{}
+	var values []any
 	if payload := msg.After(); payload != nil {
-		var decoded interface{}
+		var decoded any
 		if err := json.Unmarshal(payload, &decoded); err == nil {
-			if arr, ok := decoded.([]interface{}); ok {
+			if arr, ok := decoded.([]any); ok {
 				values = arr
-			} else if m, ok := decoded.(map[string]interface{}); ok {
+			} else if m, ok := decoded.(map[string]any); ok {
 				// Sort keys to be deterministic
 				// Or maybe we should support a configuration for column order.
 				for _, v := range m {
@@ -159,13 +159,13 @@ func (s *GoogleSheetsSink) handleAppendRow(ctx context.Context, spreadsheetID, s
 	}
 
 	rb := &sheets.ValueRange{
-		Values: [][]interface{}{values},
+		Values: [][]any{values},
 	}
 	_, err := s.svc.Spreadsheets.Values.Append(spreadsheetID, sheetRange, rb).ValueInputOption("RAW").Context(ctx).Do()
 	return err
 }
 
-func (s *GoogleSheetsSink) handleInsertColumn(ctx context.Context, spreadsheetID string, sheetID int64, templateData map[string]interface{}) error {
+func (s *GoogleSheetsSink) handleInsertColumn(ctx context.Context, spreadsheetID string, sheetID int64, templateData map[string]any) error {
 	idxStr, err := s.render(s.columnIndex, templateData)
 	if err != nil {
 		return err
@@ -191,7 +191,7 @@ func (s *GoogleSheetsSink) handleInsertColumn(ctx context.Context, spreadsheetID
 	return err
 }
 
-func (s *GoogleSheetsSink) handleDeleteRow(ctx context.Context, spreadsheetID string, sheetID int64, templateData map[string]interface{}) error {
+func (s *GoogleSheetsSink) handleDeleteRow(ctx context.Context, spreadsheetID string, sheetID int64, templateData map[string]any) error {
 	idxStr, err := s.render(s.rowIndex, templateData)
 	if err != nil {
 		return err
@@ -216,7 +216,7 @@ func (s *GoogleSheetsSink) handleDeleteRow(ctx context.Context, spreadsheetID st
 	return err
 }
 
-func (s *GoogleSheetsSink) handleDeleteColumn(ctx context.Context, spreadsheetID string, sheetID int64, templateData map[string]interface{}) error {
+func (s *GoogleSheetsSink) handleDeleteColumn(ctx context.Context, spreadsheetID string, sheetID int64, templateData map[string]any) error {
 	idxStr, err := s.render(s.columnIndex, templateData)
 	if err != nil {
 		return err
@@ -267,9 +267,9 @@ func (s *GoogleSheetsSink) getSheetID(ctx context.Context, spreadsheetID, sheetR
 	return 0, fmt.Errorf("sheet not found: %s", sheetName)
 }
 
-func (s *GoogleSheetsSink) prepareTemplateData(msg hermod.Message) map[string]interface{} {
+func (s *GoogleSheetsSink) prepareTemplateData(msg hermod.Message) map[string]any {
 	data := msg.Data()
-	templateData := make(map[string]interface{})
+	templateData := make(map[string]any)
 	for k, v := range data {
 		templateData[k] = v
 	}
@@ -281,7 +281,7 @@ func (s *GoogleSheetsSink) prepareTemplateData(msg hermod.Message) map[string]in
 
 	// Unmarshal 'after' if it's JSON
 	if after := msg.After(); after != nil {
-		var nested map[string]interface{}
+		var nested map[string]any
 		if err := json.Unmarshal(after, &nested); err == nil {
 			templateData["after"] = nested
 			for k, v := range nested {
@@ -295,7 +295,7 @@ func (s *GoogleSheetsSink) prepareTemplateData(msg hermod.Message) map[string]in
 	return templateData
 }
 
-func (s *GoogleSheetsSink) render(tmplStr string, data interface{}) (string, error) {
+func (s *GoogleSheetsSink) render(tmplStr string, data any) (string, error) {
 	if !strings.Contains(tmplStr, "{{") {
 		return tmplStr, nil
 	}

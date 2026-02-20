@@ -35,8 +35,7 @@ func NewAutoscaler(s storage.Storage, m WorkerManager) *Autoscaler {
 }
 
 func (a *Autoscaler) Start() {
-	a.wg.Add(1)
-	go a.run()
+	a.wg.Go(a.run)
 }
 
 func (a *Autoscaler) Stop() {
@@ -45,7 +44,6 @@ func (a *Autoscaler) Stop() {
 }
 
 func (a *Autoscaler) run() {
-	defer a.wg.Done()
 	ticker := time.NewTicker(a.interval)
 	defer ticker.Stop()
 

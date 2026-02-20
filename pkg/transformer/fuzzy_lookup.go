@@ -15,7 +15,7 @@ func init() {
 
 type FuzzyLookupTransformer struct{}
 
-func (t *FuzzyLookupTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *FuzzyLookupTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -30,7 +30,7 @@ func (t *FuzzyLookupTransformer) Transform(ctx context.Context, msg hermod.Messa
 		threshold = 0.8
 	}
 
-	options, _ := config["options"].([]interface{})
+	options, _ := config["options"].([]any)
 	if len(options) == 0 {
 		return msg, nil
 	}

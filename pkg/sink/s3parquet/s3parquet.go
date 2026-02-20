@@ -44,7 +44,7 @@ func NewS3ParquetSink(ctx context.Context, region, bucket, keyPrefix, accessKey,
 }
 
 func (s *S3ParquetSink) getS3Client(ctx context.Context) (*s3.Client, error) {
-	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
 		if s.endpoint != "" {
 			return aws.Endpoint{
 				PartitionID:   "aws",

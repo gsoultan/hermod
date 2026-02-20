@@ -241,7 +241,7 @@ func (ns NotificationSettings) SendTelegram(ctx context.Context, title, message 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		var result map[string]interface{}
+		var result map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&result)
 		return fmt.Errorf("telegram api returned status: %d, error: %v", resp.StatusCode, result["description"])
 	}
@@ -285,12 +285,12 @@ func (ns NotificationSettings) SendSlack(ctx context.Context, title, message str
 		text += fmt.Sprintf("\n<%s/workflows/%s|View Details>", ns.BaseURL, wf.ID)
 	}
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"text": text,
-		"attachments": []map[string]interface{}{
+		"attachments": []map[string]any{
 			{
 				"color": "#ff0000",
-				"fields": []map[string]interface{}{
+				"fields": []map[string]any{
 					{"title": "Workflow", "value": wf.Name, "short": true},
 					{"title": "ID", "value": wf.ID, "short": true},
 					{"title": "Status", "value": "Error", "short": true},
@@ -354,14 +354,14 @@ func (ns NotificationSettings) SendDiscord(ctx context.Context, title, message s
 		content += fmt.Sprintf("\n[View Details](%s/workflows/%s)", ns.BaseURL, wf.ID)
 	}
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"content": content,
-		"embeds": []map[string]interface{}{
+		"embeds": []map[string]any{
 			{
 				"title":       title,
 				"description": message,
 				"color":       16711680, // Red
-				"fields": []map[string]interface{}{
+				"fields": []map[string]any{
 					{"name": "Workflow", "value": wf.Name, "inline": true},
 					{"name": "ID", "value": wf.ID, "inline": true},
 				},
@@ -419,7 +419,7 @@ func (ns NotificationSettings) SendGenericWebhook(ctx context.Context, title, me
 		return nil
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"title":       title,
 		"message":     message,
 		"workflow_id": wf.ID,

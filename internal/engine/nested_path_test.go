@@ -13,8 +13,8 @@ func TestNestedPathAccess(t *testing.T) {
 	msg := message.AcquireMessage()
 	defer message.ReleaseMessage(msg)
 
-	msg.SetData("user", map[string]interface{}{
-		"profile": map[string]interface{}{
+	msg.SetData("user", map[string]any{
+		"profile": map[string]any{
 			"name": "John Doe",
 			"age":  30,
 		},
@@ -24,7 +24,7 @@ func TestNestedPathAccess(t *testing.T) {
 	t.Run("Filter nested path", func(t *testing.T) {
 		node := &storage.WorkflowNode{
 			Type: "transformation",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"transType": "filter_data",
 				"field":     "user.profile.name",
 				"operator":  "=",
@@ -50,7 +50,7 @@ func TestNestedPathAccess(t *testing.T) {
 	t.Run("Advanced transformation nested path", func(t *testing.T) {
 		node := &storage.WorkflowNode{
 			Type: "transformation",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"transType":                "advanced",
 				"column.user.profile.name": "lower(source.user.profile.name)",
 			},
@@ -65,8 +65,8 @@ func TestNestedPathAccess(t *testing.T) {
 		}
 
 		data := res.Data()
-		user := data["user"].(map[string]interface{})
-		profile := user["profile"].(map[string]interface{})
+		user := data["user"].(map[string]any)
+		profile := user["profile"].(map[string]any)
 		if profile["name"] != "john doe" {
 			t.Errorf("Expected name to be 'john doe', got %v", profile["name"])
 		}
@@ -75,7 +75,7 @@ func TestNestedPathAccess(t *testing.T) {
 	t.Run("Condition nested path", func(t *testing.T) {
 		node := &storage.WorkflowNode{
 			Type: "condition",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"field":    "user.profile.age",
 				"operator": ">",
 				"value":    "25",
@@ -103,7 +103,7 @@ func TestNestedPathAccess(t *testing.T) {
 	t.Run("Mapping nested path", func(t *testing.T) {
 		node := &storage.WorkflowNode{
 			Type: "transformation",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"transType": "mapping",
 				"field":     "user.status",
 				"mapping":   "{\"active\": \"ENABLED\", \"inactive\": \"DISABLED\"}",
@@ -119,7 +119,7 @@ func TestNestedPathAccess(t *testing.T) {
 		}
 
 		data := res.Data()
-		user := data["user"].(map[string]interface{})
+		user := data["user"].(map[string]any)
 		if user["status"] != "ENABLED" {
 			t.Errorf("Expected status ENABLED, got %v", user["status"])
 		}

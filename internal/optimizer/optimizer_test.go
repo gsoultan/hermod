@@ -12,10 +12,10 @@ import (
 
 type mockLogger struct{}
 
-func (m *mockLogger) Debug(msg string, kv ...interface{}) {}
-func (m *mockLogger) Info(msg string, kv ...interface{})  {}
-func (m *mockLogger) Warn(msg string, kv ...interface{})  {}
-func (m *mockLogger) Error(msg string, kv ...interface{}) {}
+func (m *mockLogger) Debug(msg string, kv ...any) {}
+func (m *mockLogger) Info(msg string, kv ...any)  {}
+func (m *mockLogger) Warn(msg string, kv ...any)  {}
+func (m *mockLogger) Error(msg string, kv ...any) {}
 
 type mockSource struct{}
 

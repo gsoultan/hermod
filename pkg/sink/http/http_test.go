@@ -14,13 +14,13 @@ type mockMessage struct {
 	id string
 }
 
-func (m *mockMessage) ID() string                   { return m.id }
-func (m *mockMessage) Operation() hermod.Operation  { return hermod.OpCreate }
-func (m *mockMessage) Table() string                { return "test_table" }
-func (m *mockMessage) Schema() string               { return "test_schema" }
-func (m *mockMessage) Data() map[string]interface{} { return nil }
-func (m *mockMessage) Clone() hermod.Message        { return m }
-func (m *mockMessage) ClearPayloads()               {}
+func (m *mockMessage) ID() string                  { return m.id }
+func (m *mockMessage) Operation() hermod.Operation { return hermod.OpCreate }
+func (m *mockMessage) Table() string               { return "test_table" }
+func (m *mockMessage) Schema() string              { return "test_schema" }
+func (m *mockMessage) Data() map[string]any        { return nil }
+func (m *mockMessage) Clone() hermod.Message       { return m }
+func (m *mockMessage) ClearPayloads()              {}
 
 type mockFormatter struct{}
 

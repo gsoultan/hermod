@@ -4,15 +4,15 @@ import (
 	"strings"
 )
 
-func getConfigString(config map[string]interface{}, key string) string {
+func getConfigString(config map[string]any, key string) string {
 	if v, ok := config[key].(string); ok {
 		return v
 	}
 	return ""
 }
 
-func getConfigStringSlice(config map[string]interface{}, key string) []string {
-	if v, ok := config[key].([]interface{}); ok {
+func getConfigStringSlice(config map[string]any, key string) []string {
+	if v, ok := config[key].([]any); ok {
 		res := make([]string, 0, len(v))
 		for _, item := range v {
 			if s, ok := item.(string); ok {

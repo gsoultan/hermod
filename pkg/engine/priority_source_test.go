@@ -41,19 +41,19 @@ type priorityMockMessage struct {
 	md map[string]string
 }
 
-func (m *priorityMockMessage) ID() string                      { return m.id }
-func (m *priorityMockMessage) Metadata() map[string]string     { return m.md }
-func (m *priorityMockMessage) SetMetadata(k, v string)         { m.md[k] = v }
-func (m *priorityMockMessage) Operation() hermod.Operation     { return hermod.OpCreate }
-func (m *priorityMockMessage) Table() string                   { return "" }
-func (m *priorityMockMessage) Schema() string                  { return "" }
-func (m *priorityMockMessage) Before() []byte                  { return nil }
-func (m *priorityMockMessage) After() []byte                   { return nil }
-func (m *priorityMockMessage) Payload() []byte                 { return nil }
-func (m *priorityMockMessage) Data() map[string]interface{}    { return nil }
-func (m *priorityMockMessage) SetData(k string, v interface{}) {}
-func (m *priorityMockMessage) Clone() hermod.Message           { return m }
-func (m *priorityMockMessage) ClearPayloads()                  {}
+func (m *priorityMockMessage) ID() string                  { return m.id }
+func (m *priorityMockMessage) Metadata() map[string]string { return m.md }
+func (m *priorityMockMessage) SetMetadata(k, v string)     { m.md[k] = v }
+func (m *priorityMockMessage) Operation() hermod.Operation { return hermod.OpCreate }
+func (m *priorityMockMessage) Table() string               { return "" }
+func (m *priorityMockMessage) Schema() string              { return "" }
+func (m *priorityMockMessage) Before() []byte              { return nil }
+func (m *priorityMockMessage) After() []byte               { return nil }
+func (m *priorityMockMessage) Payload() []byte             { return nil }
+func (m *priorityMockMessage) Data() map[string]any        { return nil }
+func (m *priorityMockMessage) SetData(k string, v any)     {}
+func (m *priorityMockMessage) Clone() hermod.Message       { return m }
+func (m *priorityMockMessage) ClearPayloads()              {}
 
 func TestPrioritySource(t *testing.T) {
 	recovery := &priorityMockSource{

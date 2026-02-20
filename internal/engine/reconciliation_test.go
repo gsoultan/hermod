@@ -72,11 +72,11 @@ func (m *mockReconStorage) UpdateSink(ctx context.Context, snk storage.Sink) err
 	return nil
 }
 
-func (m *mockReconStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error {
+func (m *mockReconStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
 	return nil
 }
 
-func (m *mockReconStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+func (m *mockReconStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error) {
 	return nil, nil
 }
 

@@ -155,11 +155,11 @@ func (m *mockStorage) ListMessageTraces(ctx context.Context, workflowID string, 
 
 func (m *mockStorage) Init(ctx context.Context) error { return nil }
 
-func (m *mockStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error {
+func (m *mockStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
 	return nil
 }
 
-func (m *mockStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+func (m *mockStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error) {
 	return nil, nil
 }
 

@@ -41,10 +41,10 @@ func (m *mockAIStorage) ListUsers(ctx context.Context, filter storage.CommonFilt
 
 type mockLogger struct{}
 
-func (m *mockLogger) Info(msg string, keysAndValues ...interface{})  {}
-func (m *mockLogger) Error(msg string, keysAndValues ...interface{}) {}
-func (m *mockLogger) Debug(msg string, keysAndValues ...interface{}) {}
-func (m *mockLogger) Warn(msg string, keysAndValues ...interface{})  {}
+func (m *mockLogger) Info(msg string, keysAndValues ...any)  {}
+func (m *mockLogger) Error(msg string, keysAndValues ...any) {}
+func (m *mockLogger) Debug(msg string, keysAndValues ...any) {}
+func (m *mockLogger) Warn(msg string, keysAndValues ...any)  {}
 
 func setupTestEnv(t *testing.T) {
 	tempDir := t.TempDir()

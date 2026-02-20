@@ -242,7 +242,7 @@ func (s *Server) triggerSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.recordAuditLog(r, "INFO", "Triggered snapshot for source "+src.Name, "snapshot", "", id, "", map[string]interface{}{"tables": req.Tables})
+	s.recordAuditLog(r, "INFO", "Triggered snapshot for source "+src.Name, "snapshot", "", id, "", map[string]any{"tables": req.Tables})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "Snapshot triggered successfully"})
 }

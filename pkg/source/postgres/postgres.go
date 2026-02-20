@@ -70,7 +70,7 @@ func (p *PostgresSource) SetLogger(logger hermod.Logger) {
 	p.logger = logger
 }
 
-func (p *PostgresSource) log(level, msg string, keysAndValues ...interface{}) {
+func (p *PostgresSource) log(level, msg string, keysAndValues ...any) {
 	p.mu.Lock()
 	logger := p.logger
 	p.mu.Unlock()
@@ -311,7 +311,6 @@ func (p *PostgresSource) Read(ctx context.Context) (hermod.Message, error) {
 }
 
 func (p *PostgresSource) streamLoop(ctx context.Context) {
-	defer p.wg.Done()
 	defer func() {
 		p.mu.Lock()
 		p.initialized = false
@@ -442,7 +441,7 @@ func (p *PostgresSource) handleInsert(lsn pglogrepl.LSN, lm *pglogrepl.InsertMes
 	if ok {
 		res.SetTable(rel.RelationName)
 		res.SetSchema(rel.Namespace)
-		data := make(map[string]interface{})
+		data := make(map[string]any)
 		for i, col := range lm.Tuple.Columns {
 			if i < len(rel.Columns) {
 				data[rel.Columns[i].Name] = string(col.Data)
@@ -469,7 +468,7 @@ func (p *PostgresSource) handleUpdate(lsn pglogrepl.LSN, lm *pglogrepl.UpdateMes
 		res.SetTable(rel.RelationName)
 		res.SetSchema(rel.Namespace)
 		if lm.OldTuple != nil {
-			beforeData := make(map[string]interface{})
+			beforeData := make(map[string]any)
 			for i, col := range lm.OldTuple.Columns {
 				if i < len(rel.Columns) {
 					beforeData[rel.Columns[i].Name] = string(col.Data)
@@ -478,7 +477,7 @@ func (p *PostgresSource) handleUpdate(lsn pglogrepl.LSN, lm *pglogrepl.UpdateMes
 			beforeBytes, _ := json.Marshal(beforeData)
 			res.SetBefore(beforeBytes)
 		}
-		data := make(map[string]interface{})
+		data := make(map[string]any)
 		for i, col := range lm.NewTuple.Columns {
 			if i < len(rel.Columns) {
 				data[rel.Columns[i].Name] = string(col.Data)
@@ -505,7 +504,7 @@ func (p *PostgresSource) handleDelete(lsn pglogrepl.LSN, lm *pglogrepl.DeleteMes
 		res.SetTable(rel.RelationName)
 		res.SetSchema(rel.Namespace)
 		if lm.OldTuple != nil {
-			beforeData := make(map[string]interface{})
+			beforeData := make(map[string]any)
 			for i, col := range lm.OldTuple.Columns {
 				if i < len(rel.Columns) {
 					beforeData[rel.Columns[i].Name] = string(col.Data)
@@ -636,8 +635,9 @@ func (p *PostgresSource) init(ctx context.Context) error {
 	p.initialized = true
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
-	p.wg.Add(1)
-	go p.streamLoop(ctx)
+	p.wg.Go(func() {
+		p.streamLoop(ctx)
+	})
 
 	return nil
 }
@@ -747,8 +747,7 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 
 	replConn, err := pgx.ConnectConfig(ctx, replCfg)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 			if pgErr.Code == "28P01" {
 				return fmt.Errorf("replication connection failed: invalid password. Ensure user has replication privileges and correct credentials")
 			}
@@ -835,8 +834,7 @@ func (p *PostgresSource) DiscoverDatabases(ctx context.Context) ([]string, error
 	connect := func(cfg *pgx.ConnConfig) (*pgx.Conn, error) {
 		conn, err := pgx.ConnectConfig(ctx, cfg)
 		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "3D000" {
+			if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "3D000" {
 				// Try template1 if the specified DB doesn’t exist
 				clone := *cfg
 				clone.Database = "template1"
@@ -966,7 +964,7 @@ func (p *PostgresSource) Sample(ctx context.Context, table string) (hermod.Messa
 		return nil, fmt.Errorf("failed to get values: %w", err)
 	}
 
-	record := make(map[string]interface{})
+	record := make(map[string]any)
 	for i, field := range fields {
 		val := values[i]
 		if b, ok := val.([]byte); ok {
@@ -1040,7 +1038,7 @@ func (p *PostgresSource) snapshotTable(ctx context.Context, table string) error 
 			return fmt.Errorf("failed to get values: %w", err)
 		}
 
-		record := make(map[string]interface{})
+		record := make(map[string]any)
 		for i, field := range fields {
 			val := values[i]
 			if b, ok := val.([]byte); ok {

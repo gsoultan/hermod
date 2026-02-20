@@ -81,8 +81,8 @@ type RegistryStorage interface {
 	UpdateSource(ctx context.Context, src storage.Source) error
 	UpdateSourceState(ctx context.Context, id string, state map[string]string) error
 	UpdateSink(ctx context.Context, snk storage.Sink) error
-	UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error
-	GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error)
+	UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error
+	GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error)
 	RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error
 	PurgeAuditLogs(ctx context.Context, before time.Time) error
 	PurgeMessageTraces(ctx context.Context, before time.Time) error
@@ -94,12 +94,12 @@ type SourceFactory func(SourceConfig) (hermod.Source, error)
 type SinkFactory func(SinkConfig) (hermod.Sink, error)
 
 type LiveMessage struct {
-	WorkflowID string                 `json:"workflow_id"`
-	NodeID     string                 `json:"node_id"`
-	Timestamp  time.Time              `json:"timestamp"`
-	Data       map[string]interface{} `json:"data"`
-	IsError    bool                   `json:"is_error"`
-	Error      string                 `json:"error,omitempty"`
+	WorkflowID string         `json:"workflow_id"`
+	NodeID     string         `json:"node_id"`
+	Timestamp  time.Time      `json:"timestamp"`
+	Data       map[string]any `json:"data"`
+	IsError    bool           `json:"is_error"`
+	Error      string         `json:"error,omitempty"`
 }
 
 type PIIStats struct {
@@ -128,9 +128,9 @@ type Registry struct {
 	startTime           time.Time
 
 	notificationService *notification.Service
-	nodeStates          map[string]interface{}
+	nodeStates          map[string]any
 	nodeStatesMu        sync.Mutex
-	lookupCache         map[string]interface{}
+	lookupCache         map[string]any
 	lookupCacheMu       sync.RWMutex
 	dbPool              map[string]*sql.DB
 	dbPoolMu            sync.Mutex
@@ -190,8 +190,8 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		logSubs:             make(map[chan storage.Log]bool),
 		liveMsgSubs:         make(map[chan LiveMessage]bool),
 		notificationService: ns,
-		nodeStates:          make(map[string]interface{}),
-		lookupCache:         make(map[string]interface{}),
+		nodeStates:          make(map[string]any),
+		lookupCache:         make(map[string]any),
 		dbPool:              make(map[string]*sql.DB),
 		logger:              pkgengine.NewDefaultLogger(),
 		idleMonitorStop:     make(chan struct{}),
@@ -400,7 +400,7 @@ func (r *Registry) SubscribeDashboardStats() chan DashboardStats {
 	return ch
 }
 
-func getConfigString(config map[string]interface{}, key string) string {
+func getConfigString(config map[string]any, key string) string {
 	if val, ok := config[key]; ok {
 		if s, ok := val.(string); ok {
 			return s
@@ -582,8 +582,8 @@ func (r *Registry) broadcastLiveMessage(msg LiveMessage) {
 	}
 }
 
-func (r *Registry) getConsistentData(msg hermod.Message) map[string]interface{} {
-	data := make(map[string]interface{})
+func (r *Registry) getConsistentData(msg hermod.Message) map[string]any {
+	data := make(map[string]any)
 	if msg != nil {
 		if dm, ok := msg.(*message.DefaultMessage); ok {
 			// Use the consistent MarshalJSON representation
@@ -1001,7 +1001,7 @@ func (r *Registry) BrowseSinkTable(ctx context.Context, cfg SinkConfig, table st
 	return nil, fmt.Errorf("sink type %s does not support browsing", cfg.Type)
 }
 
-func (r *Registry) ExecuteSQL(ctx context.Context, cfg SourceConfig, query string) ([]map[string]interface{}, error) {
+func (r *Registry) ExecuteSQL(ctx context.Context, cfg SourceConfig, query string) ([]map[string]any, error) {
 	// 1. Try if the source already implements SQLExecutor
 	src, err := r.createSource(cfg)
 	if err == nil {
@@ -1030,7 +1030,7 @@ func (r *Registry) ExecuteSQL(ctx context.Context, cfg SourceConfig, query strin
 	return scanRows(rows)
 }
 
-func (r *Registry) ExecuteSinkSQL(ctx context.Context, cfg SinkConfig, query string) ([]map[string]interface{}, error) {
+func (r *Registry) ExecuteSinkSQL(ctx context.Context, cfg SinkConfig, query string) ([]map[string]any, error) {
 	// 1. Try if the sink already implements SQLExecutor
 	snk, err := r.createSink(cfg)
 	if err == nil {
@@ -1075,16 +1075,16 @@ func (r *Registry) ExecSinkStatement(ctx context.Context, cfg SinkConfig, stmt s
 	return err
 }
 
-func scanRows(rows *sql.Rows) ([]map[string]interface{}, error) {
+func scanRows(rows *sql.Rows) ([]map[string]any, error) {
 	cols, err := rows.Columns()
 	if err != nil {
 		return nil, err
 	}
 
-	var results []map[string]interface{}
+	var results []map[string]any
 	for rows.Next() {
-		columns := make([]interface{}, len(cols))
-		columnPointers := make([]interface{}, len(cols))
+		columns := make([]any, len(cols))
+		columnPointers := make([]any, len(cols))
 		for i := range columns {
 			columnPointers[i] = &columns[i]
 		}
@@ -1093,7 +1093,7 @@ func scanRows(rows *sql.Rows) ([]map[string]interface{}, error) {
 			return nil, err
 		}
 
-		m := make(map[string]interface{})
+		m := make(map[string]any)
 		for i, colName := range cols {
 			val := columns[i]
 			if b, ok := val.([]byte); ok {
@@ -1262,66 +1262,66 @@ func (m *multiSource) Close() error {
 	return nil
 }
 
-func toFloat64(val interface{}) (float64, bool) {
+func toFloat64(val any) (float64, bool) {
 	return evaluator.ToFloat64(val)
 }
 
-func toBool(val interface{}) bool {
+func toBool(val any) bool {
 	return evaluator.ToBool(val)
 }
 
-func getValByPath(data map[string]interface{}, path string) interface{} {
+func getValByPath(data map[string]any, path string) any {
 	return evaluator.GetValByPath(data, path)
 }
 
-func getMsgValByPath(msg hermod.Message, path string) interface{} {
+func getMsgValByPath(msg hermod.Message, path string) any {
 	return evaluator.GetMsgValByPath(msg, path)
 }
 
-func setValByPath(data map[string]interface{}, path string, val interface{}) {
+func setValByPath(data map[string]any, path string, val any) {
 	evaluator.SetValByPath(data, path, val)
 }
 
-func (r *Registry) getValByPath(data map[string]interface{}, path string) interface{} {
+func (r *Registry) getValByPath(data map[string]any, path string) any {
 	return evaluator.GetValByPath(data, path)
 }
 
-func (r *Registry) getMsgValByPath(msg hermod.Message, path string) interface{} {
+func (r *Registry) getMsgValByPath(msg hermod.Message, path string) any {
 	return evaluator.GetMsgValByPath(msg, path)
 }
 
-func (r *Registry) toFloat64(val interface{}) (float64, bool) {
+func (r *Registry) toFloat64(val any) (float64, bool) {
 	return evaluator.ToFloat64(val)
 }
 
-func (r *Registry) toBool(val interface{}) bool {
+func (r *Registry) toBool(val any) bool {
 	return evaluator.ToBool(val)
 }
 
-func (r *Registry) setValByPath(data map[string]interface{}, path string, val interface{}) {
+func (r *Registry) setValByPath(data map[string]any, path string, val any) {
 	evaluator.SetValByPath(data, path, val)
 }
 
-func (r *Registry) resolveTemplate(temp string, data map[string]interface{}) string {
+func (r *Registry) resolveTemplate(temp string, data map[string]any) string {
 	return evaluator.ResolveTemplate(temp, data)
 }
 
-func (r *Registry) evaluateConditions(msg hermod.Message, conditions []map[string]interface{}) bool {
+func (r *Registry) evaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 	return evaluator.EvaluateConditions(msg, conditions)
 }
 
-func (r *Registry) evaluateAdvancedExpression(msg hermod.Message, expr interface{}) interface{} {
+func (r *Registry) evaluateAdvancedExpression(msg hermod.Message, expr any) any {
 	return r.evaluator.EvaluateAdvancedExpression(msg, expr)
 }
 
-func (r *Registry) GetLookupCache(key string) (interface{}, bool) {
+func (r *Registry) GetLookupCache(key string) (any, bool) {
 	r.lookupCacheMu.RLock()
 	defer r.lookupCacheMu.RUnlock()
 	val, ok := r.lookupCache[key]
 	return val, ok
 }
 
-func (r *Registry) SetLookupCache(key string, value interface{}, ttl time.Duration) {
+func (r *Registry) SetLookupCache(key string, value any, ttl time.Duration) {
 	r.lookupCacheMu.Lock()
 	r.lookupCache[key] = value
 	r.lookupCacheMu.Unlock()
@@ -1341,6 +1341,9 @@ func (r *Registry) GetOrOpenDB(src storage.Source) (*sql.DB, error) {
 }
 
 func (r *Registry) GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, string, error) {
+	if r.storage == nil {
+		return nil, "", fmt.Errorf("registry storage is not initialized")
+	}
 	src, err := r.storage.GetSource(ctx, id)
 	if err != nil {
 		return nil, "", err
@@ -1350,10 +1353,13 @@ func (r *Registry) GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, str
 }
 
 func (r *Registry) GetSource(ctx context.Context, id string) (storage.Source, error) {
+	if r.storage == nil {
+		return storage.Source{}, fmt.Errorf("registry storage is not initialized")
+	}
 	return r.storage.GetSource(ctx, id)
 }
 
-func (r *Registry) parseAndEvaluate(msg hermod.Message, expr string) interface{} {
+func (r *Registry) parseAndEvaluate(msg hermod.Message, expr string) any {
 	return r.evaluator.ParseAndEvaluate(msg, expr)
 }
 
@@ -1393,11 +1399,11 @@ func (r *Registry) parseArgs(argsStr string) []string {
 	return args
 }
 
-func (r *Registry) callFunction(name string, args []interface{}) interface{} {
+func (r *Registry) callFunction(name string, args []any) any {
 	return r.evaluator.CallFunction(name, args)
 }
 
-func (r *Registry) mergeData(dst, src map[string]interface{}, strategy string) {
+func (r *Registry) mergeData(dst, src map[string]any, strategy string) {
 	if strategy == "" {
 		strategy = "deep"
 	}
@@ -1420,8 +1426,8 @@ func (r *Registry) mergeData(dst, src map[string]interface{}, strategy string) {
 		fallthrough
 	default:
 		for k, v := range src {
-			if srcMap, ok := v.(map[string]interface{}); ok {
-				if dstMap, ok := dst[k].(map[string]interface{}); ok {
+			if srcMap, ok := v.(map[string]any); ok {
+				if dstMap, ok := dst[k].(map[string]any); ok {
 					r.mergeData(dstMap, srcMap, "deep")
 					continue
 				}
@@ -1431,10 +1437,10 @@ func (r *Registry) mergeData(dst, src map[string]interface{}, strategy string) {
 	}
 }
 
-func deepMerge(dst, src map[string]interface{}) {
+func deepMerge(dst, src map[string]any) {
 	for k, v := range src {
-		if srcMap, ok := v.(map[string]interface{}); ok {
-			if dstMap, ok := dst[k].(map[string]interface{}); ok {
+		if srcMap, ok := v.(map[string]any); ok {
+			if dstMap, ok := dst[k].(map[string]any); ok {
 				deepMerge(dstMap, srcMap)
 				continue
 			}
@@ -1452,7 +1458,7 @@ func (r *Registry) TestTransformationPipeline(ctx context.Context, transformatio
 			continue
 		}
 
-		config := make(map[string]interface{})
+		config := make(map[string]any)
 		for k, v := range t.Config {
 			config[k] = v
 		}
@@ -1467,16 +1473,16 @@ func (r *Registry) TestTransformationPipeline(ctx context.Context, transformatio
 }
 
 type WorkflowStepResult struct {
-	NodeID   string                 `json:"node_id"`
-	NodeType string                 `json:"node_type"`
-	Payload  map[string]interface{} `json:"payload,omitempty"`
-	Metadata map[string]string      `json:"metadata,omitempty"`
-	Error    string                 `json:"error,omitempty"`
-	Filtered bool                   `json:"filtered,omitempty"`
-	Branch   string                 `json:"branch,omitempty"`
+	NodeID   string            `json:"node_id"`
+	NodeType string            `json:"node_type"`
+	Payload  map[string]any    `json:"payload,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+	Error    string            `json:"error,omitempty"`
+	Filtered bool              `json:"filtered,omitempty"`
+	Branch   string            `json:"branch,omitempty"`
 }
 
-func (r *Registry) applyTransformation(ctx context.Context, modifiedMsg hermod.Message, transType string, config map[string]interface{}) (hermod.Message, error) {
+func (r *Registry) applyTransformation(ctx context.Context, modifiedMsg hermod.Message, transType string, config map[string]any) (hermod.Message, error) {
 	res, err := r.doApplyTransformation(ctx, modifiedMsg, transType, config)
 	if err != nil {
 		onError := getConfigString(config, "onError")
@@ -1504,7 +1510,7 @@ func (r *Registry) applyTransformation(ctx context.Context, modifiedMsg hermod.M
 	return res, nil
 }
 
-func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod.Message, transType string, config map[string]interface{}) (hermod.Message, error) {
+func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod.Message, transType string, config map[string]any) (hermod.Message, error) {
 	if modifiedMsg == nil {
 		return nil, nil
 	}
@@ -1529,7 +1535,7 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 	return modifiedMsg, nil
 }
 
-func (r *Registry) recordPIIDiscoveries(msg hermod.Message, config map[string]interface{}) {
+func (r *Registry) recordPIIDiscoveries(msg hermod.Message, config map[string]any) {
 	if msg == nil {
 		return
 	}
@@ -1573,7 +1579,7 @@ func (r *Registry) recordPIIDiscoveries(msg hermod.Message, config map[string]in
 	}
 }
 
-func (r *Registry) scanForPII(data map[string]interface{}, found map[string]int) {
+func (r *Registry) scanForPII(data map[string]any, found map[string]int) {
 	for _, v := range data {
 		switch val := v.(type) {
 		case string:
@@ -1581,11 +1587,11 @@ func (r *Registry) scanForPII(data map[string]interface{}, found map[string]int)
 			for _, t := range types {
 				found[t]++
 			}
-		case map[string]interface{}:
+		case map[string]any:
 			r.scanForPII(val, found)
-		case []interface{}:
+		case []any:
 			for _, item := range val {
-				if m, ok := item.(map[string]interface{}); ok {
+				if m, ok := item.(map[string]any); ok {
 					r.scanForPII(m, found)
 				} else if s, ok := item.(string); ok {
 					types := transformer.PIIEngine().Discover(s)
@@ -1644,7 +1650,7 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 			WorkflowID: workflowID,
 			NodeID:     node.ID,
 			Timestamp:  time.Now(),
-			Data:       map[string]interface{}{"approval_id": app.ID, "status": app.Status},
+			Data:       map[string]any{"approval_id": app.ID, "status": app.Status},
 		})
 		r.broadcastLogWithData(workflowID, "INFO", fmt.Sprintf("Approval requested at node %s", r.getNodeName(*node)), msg.ID())
 		// Halt the message until approved (no forward routing)
@@ -1667,7 +1673,7 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 
 		if transType == "pipeline" {
 			stepsStr, _ := node.Config["steps"].(string)
-			var steps []map[string]interface{}
+			var steps []map[string]any
 			_ = json.Unmarshal([]byte(stepsStr), &steps)
 
 			var err error
@@ -1699,7 +1705,7 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 
 	case "condition":
 		conditionsStr, _ := node.Config["conditions"].(string)
-		var conditions []map[string]interface{}
+		var conditions []map[string]any
 		if conditionsStr != "" {
 			_ = json.Unmarshal([]byte(conditionsStr), &conditions)
 		}
@@ -1710,7 +1716,7 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 			op, _ := node.Config["operator"].(string)
 			val, _ := node.Config["value"].(string)
 			if field != "" {
-				conditions = append(conditions, map[string]interface{}{
+				conditions = append(conditions, map[string]any{
 					"field":    field,
 					"operator": op,
 					"value":    val,
@@ -1728,17 +1734,17 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 	case "router":
 		// rules is stored as a JSON array string in Config["rules"]
 		rulesStr, _ := node.Config["rules"].(string)
-		var rules []map[string]interface{}
+		var rules []map[string]any
 		_ = json.Unmarshal([]byte(rulesStr), &rules)
 
 		for _, rule := range rules {
 			label, _ := rule["label"].(string)
 
 			// Rule can have multiple conditions
-			var ruleConditions []map[string]interface{}
-			if condsRaw, ok := rule["conditions"].([]interface{}); ok {
+			var ruleConditions []map[string]any
+			if condsRaw, ok := rule["conditions"].([]any); ok {
 				for _, cr := range condsRaw {
-					if condMap, ok := cr.(map[string]interface{}); ok {
+					if condMap, ok := cr.(map[string]any); ok {
 						ruleConditions = append(ruleConditions, condMap)
 					}
 				}
@@ -1750,7 +1756,7 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 				op, _ := rule["operator"].(string)
 				val := rule["value"]
 				if field != "" && op != "" {
-					ruleConditions = append(ruleConditions, map[string]interface{}{
+					ruleConditions = append(ruleConditions, map[string]any{
 						"field":    field,
 						"operator": op,
 						"value":    val,
@@ -1771,7 +1777,7 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 	case "switch":
 		// cases is stored as a JSON array string in Config["cases"]
 		casesStr, _ := node.Config["cases"].(string)
-		var cases []map[string]interface{}
+		var cases []map[string]any
 		_ = json.Unmarshal([]byte(casesStr), &cases)
 
 		field, _ := node.Config["field"].(string)
@@ -1781,10 +1787,10 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 			label, _ := c["label"].(string)
 
 			// Check for conditions array in the case
-			var caseConditions []map[string]interface{}
-			if condsRaw, ok := c["conditions"].([]interface{}); ok {
+			var caseConditions []map[string]any
+			if condsRaw, ok := c["conditions"].([]any); ok {
 				for _, cr := range condsRaw {
-					if condMap, ok := cr.(map[string]interface{}); ok {
+					if condMap, ok := cr.(map[string]any); ok {
 						caseConditions = append(caseConditions, condMap)
 					}
 				}
@@ -1884,12 +1890,12 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 		return nil, err
 	}
 
-	msgToMap := func(m hermod.Message) map[string]interface{} {
+	msgToMap := func(m hermod.Message) map[string]any {
 		if m == nil {
 			return nil
 		}
 		jb, _ := json.Marshal(m)
-		var res map[string]interface{}
+		var res map[string]any
 		_ = json.Unmarshal(jb, &res)
 		return res
 	}
@@ -2409,7 +2415,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 
 	ctx := context.Background()
 	if r.storage == nil {
-		log.Printf("DEBUG: r.storage is NIL for workflow %s", id)
+		return fmt.Errorf("registry storage is not initialized, cannot start workflow %s", id)
 	}
 	if err := r.ValidateWorkflow(ctx, wf); err != nil {
 		return fmt.Errorf("workflow validation failed: %w", err)
@@ -2806,7 +2812,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 							WorkflowID: id,
 							NodeID:     currNode.ID,
 							Timestamp:  time.Now(),
-							Data: map[string]interface{}{
+							Data: map[string]any{
 								"breakpoint": true,
 								"source":     currID,
 								"target":     targetID,
@@ -3216,6 +3222,9 @@ func (r *Registry) StopEngineWithoutUpdate(id string) error {
 }
 
 func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromOffset int64) error {
+	if r.storage == nil {
+		return fmt.Errorf("registry storage is not initialized, cannot rebuild workflow %s", workflowID)
+	}
 	wf, err := r.storage.GetWorkflow(ctx, workflowID)
 	if err != nil {
 		return err
@@ -3650,6 +3659,26 @@ func BuildConnectionString(cfg map[string]string, sourceType string) string {
 
 	case "sqlite":
 		return cfg["path"]
+	case "rabbitmq", "rabbitmq_queue":
+		u := &url.URL{
+			Scheme: "amqp", // Default for queue
+			Host:   fmt.Sprintf("%s:%s", host, port),
+			Path:   "/" + dbname, // vhost
+		}
+		if sourceType == "rabbitmq" {
+			u.Scheme = "rabbitmq-stream"
+			if port == "" {
+				u.Host = fmt.Sprintf("%s:5552", host)
+			}
+		} else {
+			if port == "" {
+				u.Host = fmt.Sprintf("%s:5672", host)
+			}
+		}
+		if user != "" || password != "" {
+			u.User = url.UserPassword(user, password)
+		}
+		return u.String()
 	default:
 		return ""
 	}

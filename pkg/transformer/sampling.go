@@ -20,7 +20,7 @@ type SamplingTransformer struct {
 	rng *rand.Rand
 }
 
-func (t *SamplingTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *SamplingTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}

@@ -24,9 +24,9 @@ func NewAvroValidator(schemaStr string) (*AvroValidator, error) {
 	return &AvroValidator{schema: s}, nil
 }
 
-func (v *AvroValidator) Validate(ctx context.Context, data map[string]interface{}) error {
+func (v *AvroValidator) Validate(ctx context.Context, data map[string]any) error {
 	// Avro validation typically requires encoding to bytes.
-	// Since Hermod works with map[string]interface{}, we can attempt to marshal and then unmarshal/validate.
+	// Since Hermod works with map[string]any, we can attempt to marshal and then unmarshal/validate.
 	// Alternatively, we can use a library that validates maps directly against the schema.
 	// Hamba Avro supports marshaling maps.
 
@@ -54,7 +54,7 @@ func NewJSONSchemaValidator(schemaStr string) (*JSONSchemaValidator, error) {
 	return &JSONSchemaValidator{schema: schema}, nil
 }
 
-func (v *JSONSchemaValidator) Validate(ctx context.Context, data map[string]interface{}) error {
+func (v *JSONSchemaValidator) Validate(ctx context.Context, data map[string]any) error {
 	loader := gojsonschema.NewGoLoader(data)
 	result, err := v.schema.Validate(loader)
 	if err != nil {
@@ -104,7 +104,7 @@ func NewProtobufValidator(schemaStr string) (*ProtobufValidator, error) {
 	return &ProtobufValidator{descriptor: msgs[0]}, nil
 }
 
-func (v *ProtobufValidator) Validate(ctx context.Context, data map[string]interface{}) error {
+func (v *ProtobufValidator) Validate(ctx context.Context, data map[string]any) error {
 	msg := dynamic.NewMessage(v.descriptor)
 	// We need to convert map to dynamic message.
 	// This can be done via JSON if we want to be lazy, or manually.

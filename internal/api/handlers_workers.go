@@ -21,7 +21,7 @@ func (s *Server) listWorkers(w http.ResponseWriter, r *http.Request) {
 		sanitized[i] = workers[i]
 		sanitized[i].Token = ""
 	}
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"data":  sanitized,
 		"total": total,
 	})

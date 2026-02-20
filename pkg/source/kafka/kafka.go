@@ -71,7 +71,7 @@ func (s *KafkaSource) Read(ctx context.Context) (hermod.Message, error) {
 	msg.SetPayload(m.Value)
 
 	// Try to unmarshal JSON into Data() for dynamic structure
-	var jsonData map[string]interface{}
+	var jsonData map[string]any
 	if err := json.Unmarshal(m.Value, &jsonData); err == nil {
 		for k, v := range jsonData {
 			msg.SetData(k, v)

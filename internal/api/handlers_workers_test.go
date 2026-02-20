@@ -101,7 +101,7 @@ func TestUpdateWorkerPreservesToken(t *testing.T) {
 	s := &Server{storage: &fakeWorkerStorage{workers: map[string]storage.Worker{
 		"w1": {ID: "w1", Name: "old-name", Token: "secret"},
 	}}}
-	body := map[string]interface{}{"name": "new-name", "token": "evil"}
+	body := map[string]any{"name": "new-name", "token": "evil"}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest("PUT", "/api/workers/w1", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")

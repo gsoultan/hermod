@@ -72,7 +72,7 @@ func (s *GoogleAnalyticsSource) Read(ctx context.Context) (hermod.Message, error
 			row := s.rows[s.currentRow]
 			s.currentRow++
 
-			data := make(map[string]interface{})
+			data := make(map[string]any)
 
 			// Process dimensions
 			dimNames := strings.Split(s.dimensions, ",")

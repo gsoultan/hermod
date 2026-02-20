@@ -85,7 +85,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		// Public paths
 		if path == "/" || path == "/index.html" || path == "/setup" ||
 			path == "/api/login" || path == "/api/forgot-password" ||
-			path == "/api/config/status" ||
+			path == "/api/config/status" || path == "/api/version" ||
 			strings.HasPrefix(path, "/api/webhooks/") ||
 			strings.HasPrefix(path, "/api/forms/") ||
 			strings.HasPrefix(path, "/forms/") ||
@@ -319,7 +319,7 @@ func extractBearerOrCookie(r *http.Request) (string, bool) {
 }
 
 func parseSessionClaims(tokenString string, secret []byte) (SessionClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &SessionClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &SessionClaims{}, func(token *jwt.Token) (any, error) {
 		return secret, nil
 	})
 

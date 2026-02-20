@@ -25,7 +25,7 @@ type ScyllaDBSource struct {
 	cluster      *gocql.ClusterConfig
 	mu           sync.Mutex
 	logger       hermod.Logger
-	lastIDs      map[string]interface{}
+	lastIDs      map[string]any
 	msgChan      chan hermod.Message
 }
 
@@ -39,7 +39,7 @@ func NewScyllaDBSource(hosts []string, tables []string, idField string, pollInte
 		idField:      idField,
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
-		lastIDs:      make(map[string]interface{}),
+		lastIDs:      make(map[string]any),
 		msgChan:      make(chan hermod.Message, 1000),
 	}
 }
@@ -50,7 +50,7 @@ func (s *ScyllaDBSource) SetLogger(logger hermod.Logger) {
 	s.logger = logger
 }
 
-func (s *ScyllaDBSource) log(level, msg string, keysAndValues ...interface{}) {
+func (s *ScyllaDBSource) log(level, msg string, keysAndValues ...any) {
 	s.mu.Lock()
 	logger := s.logger
 	s.mu.Unlock()
@@ -123,7 +123,7 @@ func (s *ScyllaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 			s.mu.Unlock()
 
 			var query string
-			var args []interface{}
+			var args []any
 
 			if lastID != nil && s.idField != "" {
 				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? LIMIT 1 ALLOW FILTERING", table, s.idField)
@@ -134,16 +134,16 @@ func (s *ScyllaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 
 			iter := s.session.Query(query).WithContext(ctx).Iter()
 			columns := iter.Columns()
-			values := make([]interface{}, len(columns))
+			values := make([]any, len(columns))
 			for i := range values {
-				values[i] = new(interface{})
+				values[i] = new(any)
 			}
 
 			if iter.Scan(values...) {
-				record := make(map[string]interface{})
-				var currentID interface{}
+				record := make(map[string]any)
+				var currentID any
 				for i, col := range columns {
-					val := *(values[i].(*interface{}))
+					val := *(values[i].(*any))
 					if b, ok := val.([]byte); ok {
 						val = string(b)
 					}
@@ -215,18 +215,18 @@ func (s *ScyllaDBSource) snapshotTable(ctx context.Context, table string) error 
 	columns := iter.Columns()
 
 	for {
-		values := make([]interface{}, len(columns))
+		values := make([]any, len(columns))
 		for i := range values {
-			values[i] = new(interface{})
+			values[i] = new(any)
 		}
 
 		if !iter.Scan(values...) {
 			break
 		}
 
-		record := make(map[string]interface{})
+		record := make(map[string]any)
 		for i, col := range columns {
-			val := *(values[i].(*interface{}))
+			val := *(values[i].(*any))
 			if b, ok := val.([]byte); ok {
 				val = string(b)
 			}
@@ -348,9 +348,9 @@ func (s *ScyllaDBSource) Sample(ctx context.Context, table string) (hermod.Messa
 	iter := s.session.Query(query).WithContext(ctx).Iter()
 
 	columns := iter.Columns()
-	values := make([]interface{}, len(columns))
+	values := make([]any, len(columns))
 	for i := range values {
-		values[i] = new(interface{})
+		values[i] = new(any)
 	}
 
 	if !iter.Scan(values...) {
@@ -358,9 +358,9 @@ func (s *ScyllaDBSource) Sample(ctx context.Context, table string) (hermod.Messa
 		return nil, fmt.Errorf("no records found in table %s", table)
 	}
 
-	record := make(map[string]interface{})
+	record := make(map[string]any)
 	for i, col := range columns {
-		val := *(values[i].(*interface{}))
+		val := *(values[i].(*any))
 		if b, ok := val.([]byte); ok {
 			record[col.Name] = string(b)
 		} else {

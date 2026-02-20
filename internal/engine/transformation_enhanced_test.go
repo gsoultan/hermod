@@ -15,7 +15,7 @@ func TestEnhancedTransformations(t *testing.T) {
 		name     string
 		payload  string
 		expr     string
-		expected interface{}
+		expected any
 	}{
 		{
 			name:     "Trim function",
@@ -116,7 +116,7 @@ func TestTransformationPipelineEnhanced(t *testing.T) {
 	msg := message.AcquireMessage()
 	msg.SetAfter([]byte(`{"first_name": "John", "last_name": "Doe", "age": 30}`))
 
-	config := map[string]interface{}{
+	config := map[string]any{
 		"column.full_name": `concat(source.first_name, " ", source.last_name)`,
 		"column.initials":  `concat(substring(source.first_name, 0, 1), substring(source.last_name, 0, 1))`,
 		"column.is_adult":  `add(source.age, 0)`, // Just to test math in pipeline
@@ -127,7 +127,7 @@ func TestTransformationPipelineEnhanced(t *testing.T) {
 		t.Fatalf("Failed to apply transformation: %v", err)
 	}
 
-	var data map[string]interface{}
+	var data map[string]any
 	json.Unmarshal(res.After(), &data)
 
 	if data["full_name"] != "John Doe" {

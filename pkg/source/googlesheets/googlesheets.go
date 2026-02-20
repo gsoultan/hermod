@@ -74,7 +74,7 @@ func (s *GoogleSheetsSource) Read(ctx context.Context) (hermod.Message, error) {
 			row := resp.Values[rowIndex]
 			s.lastRow++
 
-			data := make(map[string]interface{})
+			data := make(map[string]any)
 			for i, val := range row {
 				data[fmt.Sprintf("col%d", i)] = val
 			}

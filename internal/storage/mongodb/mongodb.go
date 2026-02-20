@@ -1522,14 +1522,14 @@ func (s *mongoStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFi
 	return logs, int(total), nil
 }
 
-func (s *mongoStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error {
+func (s *mongoStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
 	coll := s.db.Collection("node_states")
 	opts := options.Update().SetUpsert(true)
 	_, err := coll.UpdateOne(ctx, bson.M{"workflow_id": workflowID, "node_id": nodeID}, bson.M{"$set": bson.M{"state": state, "updated_at": time.Now()}}, opts)
 	return err
 }
 
-func (s *mongoStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+func (s *mongoStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error) {
 	coll := s.db.Collection("node_states")
 	cursor, err := coll.Find(ctx, bson.M{"workflow_id": workflowID})
 	if err != nil {
@@ -1537,11 +1537,11 @@ func (s *mongoStorage) GetNodeStates(ctx context.Context, workflowID string) (ma
 	}
 	defer cursor.Close(ctx)
 
-	states := make(map[string]interface{})
+	states := make(map[string]any)
 	for cursor.Next(ctx) {
 		var res struct {
-			NodeID string      `bson:"node_id"`
-			State  interface{} `bson:"state"`
+			NodeID string `bson:"node_id"`
+			State  any    `bson:"state"`
 		}
 		if err := cursor.Decode(&res); err != nil {
 			return nil, err

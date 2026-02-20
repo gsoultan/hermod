@@ -25,7 +25,7 @@ type CassandraSource struct {
 	session      *gocql.Session
 	mu           sync.Mutex
 	logger       hermod.Logger
-	lastIDs      map[string]interface{}
+	lastIDs      map[string]any
 }
 
 func NewCassandraSource(hosts []string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *CassandraSource {
@@ -38,7 +38,7 @@ func NewCassandraSource(hosts []string, tables []string, idField string, pollInt
 		idField:      idField,
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
-		lastIDs:      make(map[string]interface{}),
+		lastIDs:      make(map[string]any),
 	}
 }
 
@@ -48,7 +48,7 @@ func (c *CassandraSource) SetLogger(logger hermod.Logger) {
 	c.logger = logger
 }
 
-func (c *CassandraSource) log(level, msg string, keysAndValues ...interface{}) {
+func (c *CassandraSource) log(level, msg string, keysAndValues ...any) {
 	c.mu.Lock()
 	logger := c.logger
 	c.mu.Unlock()
@@ -111,7 +111,7 @@ func (c *CassandraSource) Read(ctx context.Context) (hermod.Message, error) {
 			c.mu.Unlock()
 
 			var query string
-			var args []interface{}
+			var args []any
 
 			if lastID != nil && c.idField != "" {
 				// Cassandra doesn't support > on all types easily without ALLOW FILTERING or specific indexing
@@ -124,16 +124,16 @@ func (c *CassandraSource) Read(ctx context.Context) (hermod.Message, error) {
 
 			iter := c.session.Query(query).WithContext(ctx).Iter()
 			columns := iter.Columns()
-			values := make([]interface{}, len(columns))
+			values := make([]any, len(columns))
 			for i := range values {
-				values[i] = new(interface{})
+				values[i] = new(any)
 			}
 
 			if iter.Scan(values...) {
-				record := make(map[string]interface{})
-				var currentID interface{}
+				record := make(map[string]any)
+				var currentID any
 				for i, col := range columns {
-					val := *(values[i].(*interface{}))
+					val := *(values[i].(*any))
 					if b, ok := val.([]byte); ok {
 						val = string(b)
 					}
@@ -269,7 +269,7 @@ func (c *CassandraSource) DiscoverColumns(ctx context.Context, table string) ([]
 	}
 
 	query := "SELECT column_name, type, kind FROM system_schema.columns WHERE table_name = ?"
-	args := []interface{}{targetTable}
+	args := []any{targetTable}
 	if targetKS != "" {
 		query += " AND keyspace_name = ?"
 		args = append(args, targetKS)
@@ -303,9 +303,9 @@ func (c *CassandraSource) Sample(ctx context.Context, table string) (hermod.Mess
 	iter := c.session.Query(query).WithContext(ctx).Iter()
 
 	columns := iter.Columns()
-	values := make([]interface{}, len(columns))
+	values := make([]any, len(columns))
 	for i := range values {
-		values[i] = new(interface{})
+		values[i] = new(any)
 	}
 
 	if !iter.Scan(values...) {
@@ -313,9 +313,9 @@ func (c *CassandraSource) Sample(ctx context.Context, table string) (hermod.Mess
 		return nil, fmt.Errorf("no records found in table %s", table)
 	}
 
-	record := make(map[string]interface{})
+	record := make(map[string]any)
 	for i, col := range columns {
-		val := *(values[i].(*interface{}))
+		val := *(values[i].(*any))
 		if b, ok := val.([]byte); ok {
 			record[col.Name] = string(b)
 		} else {

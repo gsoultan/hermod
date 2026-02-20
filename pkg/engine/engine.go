@@ -8,6 +8,7 @@ import (
 	"hash/fnv"
 	"math/rand"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -67,7 +68,7 @@ type Engine struct {
 	deadLetterCount   uint64
 	nodeMetrics       map[string]uint64
 	nodeErrorMetrics  map[string]uint64
-	nodeSamples       map[string]interface{}
+	nodeSamples       map[string]any
 	edgeMetrics       map[string]uint64
 	nodeMetricsMu     sync.RWMutex
 
@@ -135,7 +136,7 @@ type pendingMessage struct {
 }
 
 var pendingMessagePool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &pendingMessage{
 			done: make(chan error, 1),
 		}
@@ -159,24 +160,24 @@ func releasePendingMessage(pm *pendingMessage) {
 }
 
 type StatusUpdate struct {
-	WorkflowID       string                 `json:"workflow_id,omitempty"`
-	EngineStatus     string                 `json:"engine_status,omitempty"`
-	SourceStatus     string                 `json:"source_status,omitempty"`
-	SourceID         string                 `json:"source_id,omitempty"`
-	SinkStatuses     map[string]string      `json:"sink_statuses,omitempty"`
-	SinkID           string                 `json:"sink_id,omitempty"`
-	SinkStatus       string                 `json:"sink_status,omitempty"`
-	ProcessedCount   uint64                 `json:"processed_count"`
-	DeadLetterCount  uint64                 `json:"dead_letter_count,omitempty"`
-	NodeMetrics      map[string]uint64      `json:"node_metrics,omitempty"`
-	NodeErrorMetrics map[string]uint64      `json:"node_error_metrics,omitempty"`
-	NodeSamples      map[string]interface{} `json:"node_samples,omitempty"`
-	EdgeMetrics      map[string]uint64      `json:"edge_metrics,omitempty"`
-	SinkCBStatuses   map[string]string      `json:"sink_cb_statuses,omitempty"`
-	SinkBufferFill   map[string]float64     `json:"sink_buffer_fill,omitempty"`
-	AverageDQScore   float64                `json:"average_dq_score,omitempty"`
-	AvgLatency       time.Duration          `json:"avg_latency,omitempty"`
-	PendingApprovals map[string]uint64      `json:"pending_approvals,omitempty"`
+	WorkflowID       string             `json:"workflow_id,omitempty"`
+	EngineStatus     string             `json:"engine_status,omitempty"`
+	SourceStatus     string             `json:"source_status,omitempty"`
+	SourceID         string             `json:"source_id,omitempty"`
+	SinkStatuses     map[string]string  `json:"sink_statuses,omitempty"`
+	SinkID           string             `json:"sink_id,omitempty"`
+	SinkStatus       string             `json:"sink_status,omitempty"`
+	ProcessedCount   uint64             `json:"processed_count"`
+	DeadLetterCount  uint64             `json:"dead_letter_count,omitempty"`
+	NodeMetrics      map[string]uint64  `json:"node_metrics,omitempty"`
+	NodeErrorMetrics map[string]uint64  `json:"node_error_metrics,omitempty"`
+	NodeSamples      map[string]any     `json:"node_samples,omitempty"`
+	EdgeMetrics      map[string]uint64  `json:"edge_metrics,omitempty"`
+	SinkCBStatuses   map[string]string  `json:"sink_cb_statuses,omitempty"`
+	SinkBufferFill   map[string]float64 `json:"sink_buffer_fill,omitempty"`
+	AverageDQScore   float64            `json:"average_dq_score,omitempty"`
+	AvgLatency       time.Duration      `json:"avg_latency,omitempty"`
+	PendingApprovals map[string]uint64  `json:"pending_approvals,omitempty"`
 }
 
 // Config holds configuration for the Engine.
@@ -451,6 +452,11 @@ func (e *Engine) SetOutboxStorage(outbox hermod.OutboxStorage) {
 }
 
 func (e *Engine) runOutboxRelay(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			e.logger.Error("Panic in runOutboxRelay internal", "error", r, "stack", string(debug.Stack()))
+		}
+	}()
 	if e.outboxStore == nil {
 		return
 	}
@@ -534,7 +540,7 @@ func (e *Engine) RecordTraceStep(ctx context.Context, msg hermod.Message, nodeID
 	}
 
 	// Prepare trace data. Use consistent representation from MarshalJSON for CDC and non-CDC.
-	var dataCopy map[string]interface{}
+	var dataCopy map[string]any
 	if dm, ok := msg.(*message.DefaultMessage); ok {
 		msgJSON, _ := dm.MarshalJSON()
 		_ = json.Unmarshal(msgJSON, &dataCopy)
@@ -542,12 +548,12 @@ func (e *Engine) RecordTraceStep(ctx context.Context, msg hermod.Message, nodeID
 		// Fallback for other message types
 		baseData := msg.Data()
 		if baseData != nil {
-			dataCopy = make(map[string]interface{}, len(baseData))
+			dataCopy = make(map[string]any, len(baseData))
 			for k, v := range baseData {
 				dataCopy[k] = v
 			}
 		} else {
-			dataCopy = make(map[string]interface{})
+			dataCopy = make(map[string]any)
 		}
 	}
 
@@ -584,17 +590,17 @@ func (e *Engine) UpdateNodeErrorMetric(nodeID string, count uint64) {
 }
 
 // UpdateNodeSample updates the last data sample for a specific workflow node.
-func (e *Engine) UpdateNodeSample(nodeID string, data map[string]interface{}) {
+func (e *Engine) UpdateNodeSample(nodeID string, data map[string]any) {
 	if data == nil {
 		return
 	}
 	e.nodeMetricsMu.Lock()
 	if e.nodeSamples == nil {
-		e.nodeSamples = make(map[string]interface{})
+		e.nodeSamples = make(map[string]any)
 	}
 	// Shallow copy of the map to avoid external modifications affecting the sample
 	// or vice versa. Deep copy would be safer but more expensive.
-	sample := make(map[string]interface{})
+	sample := make(map[string]any)
 	for k, v := range data {
 		sample[k] = v
 	}
@@ -841,11 +847,11 @@ func (e *Engine) recordSourceActivity() {
 	e.setSourceStatus("running")
 }
 
-func (e *Engine) redactData(data map[string]interface{}) map[string]interface{} {
+func (e *Engine) redactData(data map[string]any) map[string]any {
 	if data == nil {
 		return nil
 	}
-	redacted := make(map[string]interface{})
+	redacted := make(map[string]any)
 	sensitiveFields := []string{"password", "secret", "token", "key", "email", "phone", "address"}
 	for k, v := range data {
 		isSensitive := false
@@ -859,7 +865,7 @@ func (e *Engine) redactData(data map[string]interface{}) map[string]interface{} 
 
 		if isSensitive {
 			redacted[k] = "[REDACTED]"
-		} else if m, ok := v.(map[string]interface{}); ok {
+		} else if m, ok := v.(map[string]any); ok {
 			redacted[k] = e.redactData(m)
 		} else {
 			redacted[k] = v
@@ -922,7 +928,7 @@ func (e *Engine) GetStatus() StatusUpdate {
 		}
 	}
 	if len(e.nodeSamples) > 0 {
-		update.NodeSamples = make(map[string]interface{})
+		update.NodeSamples = make(map[string]any)
 		for k, v := range e.nodeSamples {
 			update.NodeSamples[k] = v
 		}
@@ -1155,11 +1161,9 @@ func (w *sinkWriter) run(ctx context.Context) {
 		// Spawn a run loop per shard channel
 		for i := 0; i < w.shardCount; i++ {
 			ch := w.shards[i]
-			w.shardWg.Add(1)
-			go func(c <-chan *pendingMessage) {
-				defer w.shardWg.Done()
-				w.runOn(ctx, c)
-			}(ch)
+			w.shardWg.Go(func() {
+				w.runOn(ctx, ch)
+			})
 		}
 		w.shardWg.Wait()
 		return
@@ -1169,6 +1173,11 @@ func (w *sinkWriter) run(ctx context.Context) {
 }
 
 func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
+	defer func() {
+		if r := recover(); r != nil {
+			w.engine.logger.Error("Panic in sinkWriter.runOn", "sink_id", w.sinkID, "error", r, "stack", string(debug.Stack()))
+		}
+	}()
 	if w.config.BackpressureStrategy == BPSpillToDisk {
 		path := w.config.SpillPath
 		if path == "" {
@@ -1521,11 +1530,9 @@ func (e *Engine) Start(ctx context.Context) error {
 			}
 		}
 		e.sinkWriters[i] = sw
-		writersWg.Add(1)
-		go func(w *sinkWriter) {
-			defer writersWg.Done()
-			w.run(ctx)
-		}(sw)
+		writersWg.Go(func() {
+			sw.run(ctx)
+		})
 	}
 
 	var wg sync.WaitGroup
@@ -1537,13 +1544,25 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	// Start Outbox Relay if enabled
 	if e.outboxStore != nil {
-		go e.runOutboxRelay(ctx)
+		wg.Go(func() {
+			defer func() {
+				if r := recover(); r != nil {
+					e.logger.Error("Panic in Outbox Relay", "error", r, "stack", string(debug.Stack()))
+				}
+			}()
+			e.runOutboxRelay(ctx)
+		})
 	}
 
 	defer ActiveEngines.Dec()
 
 	// Status Checker
-	go func() {
+	wg.Go(func() {
+		defer func() {
+			if r := recover(); r != nil {
+				e.logger.Error("Panic in Status Checker", "error", r, "stack", string(debug.Stack()))
+			}
+		}()
 		interval := e.config.StatusInterval
 		if interval == 0 {
 			interval = 1 * time.Second
@@ -1613,11 +1632,16 @@ func (e *Engine) Start(ctx context.Context) error {
 				e.notifyStatusChange()
 			}
 		}
-	}()
+	})
 
 	// Periodic Checkpointing
 	if e.config.CheckpointInterval > 0 {
-		go func() {
+		wg.Go(func() {
+			defer func() {
+				if r := recover(); r != nil {
+					e.logger.Error("Panic in Checkpointing", "error", r, "stack", string(debug.Stack()))
+				}
+			}()
 			ticker := time.NewTicker(e.config.CheckpointInterval)
 			defer ticker.Stop()
 			for {
@@ -1628,7 +1652,7 @@ func (e *Engine) Start(ctx context.Context) error {
 					_ = e.Checkpoint(ctx)
 				}
 			}
-		}()
+		})
 	}
 
 	// Pre-flight checks for Sinks (Sink failure turns off workflow)
@@ -1676,9 +1700,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	}
 
 	// Source to Buffer
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		reconnectAttempts := 0
 		for {
 			// Check source connection only if we are in a failed state or haven't had activity for a while
@@ -1888,7 +1910,7 @@ func (e *Engine) Start(ctx context.Context) error {
 				span.End()
 			}
 		}
-	}()
+	})
 
 	// Wait for Source worker to finish then close buffer
 	go func() {
@@ -1903,9 +1925,7 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	// Buffer to Sink
 	var sinkWg sync.WaitGroup
-	sinkWg.Add(1)
-	go func() {
-		defer sinkWg.Done()
+	sinkWg.Go(func() {
 		consumer, ok := e.buffer.(hermod.Consumer)
 		if !ok {
 			e.logger.Error("Buffer does not implement Consumer interface", "workflow_id", e.workflowID)
@@ -1928,9 +1948,8 @@ func (e *Engine) Start(ctx context.Context) error {
 			e.checkpointMu.Unlock()
 
 			e.inFlightSem <- struct{}{}
-			e.inFlightWg.Add(1)
-
-			go func(m hermod.Message) {
+			e.inFlightWg.Go(func() {
+				m := msg
 				ctx, span := tracer.Start(drainCtx, "ProcessMessage", trace.WithAttributes(
 					attribute.String("workflow_id", e.workflowID),
 					attribute.String("message_id", m.ID()),
@@ -1939,7 +1958,6 @@ func (e *Engine) Start(ctx context.Context) error {
 
 				defer func() {
 					<-e.inFlightSem
-					e.inFlightWg.Done()
 					// Release the message back to the pool
 					if dm, ok := m.(*message.DefaultMessage); ok {
 						message.ReleaseMessage(dm)
@@ -1996,9 +2014,9 @@ func (e *Engine) Start(ctx context.Context) error {
 							continue
 						}
 
-						swg.Add(1)
-						go func(i int, m hermod.Message) {
-							defer swg.Done()
+						swg.Go(func() {
+							i := rm.SinkIndex
+							m := rm.Message
 							sw := e.sinkWriters[i]
 							pm := acquirePendingMessage(m)
 
@@ -2019,7 +2037,7 @@ func (e *Engine) Start(ctx context.Context) error {
 								serrCh <- ctx.Err()
 								// We don't release pm here because it might still be in sw.ch and will be released by sw.run or after being pulled in BPDropOldest
 							}
-						}(rm.SinkIndex, rm.Message)
+						})
 					}
 					swg.Wait()
 					close(serrCh)
@@ -2054,7 +2072,7 @@ func (e *Engine) Start(ctx context.Context) error {
 				e.statusMu.Lock()
 				e.processedMessages++
 				e.statusMu.Unlock()
-			}(msg)
+			})
 
 			return nil
 		})
@@ -2066,12 +2084,20 @@ func (e *Engine) Start(ctx context.Context) error {
 		} else {
 			e.logger.Info("Buffer-to-Sink worker stopping", "workflow_id", e.workflowID)
 		}
-	}()
+	})
 
 	sinkWg.Wait()
 	for _, sw := range e.sinkWriters {
-		if sw != nil && sw.ch != nil {
-			close(sw.ch)
+		if sw != nil {
+			if sw.useShards {
+				for _, ch := range sw.shards {
+					if ch != nil {
+						close(ch)
+					}
+				}
+			} else if sw.ch != nil {
+				close(sw.ch)
+			}
 		}
 	}
 	// Drain sink writers with an optional timeout warning

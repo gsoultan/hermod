@@ -25,7 +25,7 @@ type SCDRegistry interface {
 	GetOrOpenDB(src storage.Source) (*sql.DB, error)
 }
 
-func (t *SCDTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *SCDTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -49,7 +49,7 @@ func (t *SCDTransformer) Transform(ctx context.Context, msg hermod.Message, conf
 	targetSourceID := getConfigString(config, "targetSourceId")
 	targetTable := getConfigString(config, "targetTable")
 
-	// Support both comma-separated string and []interface{} for keys/columns
+	// Support both comma-separated string and []any for keys/columns
 	businessKeys := getConfigStringSlice(config, "businessKeys")
 	if len(businessKeys) == 0 {
 		businessKeys = splitComma(getConfigString(config, "keys"))
@@ -112,7 +112,7 @@ func (t *SCDTransformer) handleType0(ctx context.Context, db *sql.DB, driver, ta
 
 	// 1. Check if record exists
 	whereParts := make([]string, 0, len(businessKeys))
-	args := make([]interface{}, 0, len(businessKeys))
+	args := make([]any, 0, len(businessKeys))
 	for i, key := range businessKeys {
 		quotedKey, err := sqlutil.QuoteIdent(driver, key)
 		if err != nil {
@@ -138,7 +138,7 @@ func (t *SCDTransformer) handleType0(ctx context.Context, db *sql.DB, driver, ta
 	return msg, nil
 }
 
-func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, table string, businessKeys []string, config map[string]interface{}, msg hermod.Message) (hermod.Message, error) {
+func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, table string, businessKeys []string, config map[string]any, msg hermod.Message) (hermod.Message, error) {
 	quotedTable, err := sqlutil.QuoteIdent(driver, table)
 	if err != nil {
 		return msg, err
@@ -146,7 +146,7 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 
 	// columnMappings: current_col -> previous_col
 	mappings := make(map[string]string)
-	if v, ok := config["columnMappings"].(map[string]interface{}); ok {
+	if v, ok := config["columnMappings"].(map[string]any); ok {
 		for k, val := range v {
 			if s, ok := val.(string); ok {
 				mappings[k] = s
@@ -169,7 +169,7 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 
 	// 1. Lookup existing record
 	whereParts := make([]string, 0, len(businessKeys))
-	args := make([]interface{}, 0, len(businessKeys))
+	args := make([]any, 0, len(businessKeys))
 	for i, key := range businessKeys {
 		quotedKey, _ := sqlutil.QuoteIdent(driver, key)
 		val := evaluator.GetMsgValByPath(msg, key)
@@ -195,8 +195,8 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 
 	if rows.Next() {
 		cols, _ := rows.Columns()
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -204,7 +204,7 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 			return msg, err
 		}
 
-		existingData := make(map[string]interface{})
+		existingData := make(map[string]any)
 		for i, col := range cols {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -216,7 +216,7 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 
 		changed := false
 		updateParts := make([]string, 0)
-		updateArgs := make([]interface{}, 0)
+		updateArgs := make([]any, 0)
 		idx := 1
 
 		for curr, prev := range mappings {
@@ -300,7 +300,7 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 	return msg, nil
 }
 
-func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, table string, businessKeys, compareFields []string, config map[string]interface{}, msg hermod.Message) (hermod.Message, error) {
+func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, table string, businessKeys, compareFields []string, config map[string]any, msg hermod.Message) (hermod.Message, error) {
 	quotedTable, err := sqlutil.QuoteIdent(driver, table)
 	if err != nil {
 		return msg, err
@@ -317,7 +317,7 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 
 	// 1. Lookup existing record
 	whereParts := make([]string, 0, len(businessKeys))
-	args := make([]interface{}, 0, len(businessKeys))
+	args := make([]any, 0, len(businessKeys))
 	for i, key := range businessKeys {
 		quotedKey, _ := sqlutil.QuoteIdent(driver, key)
 		val := evaluator.GetMsgValByPath(msg, key)
@@ -334,8 +334,8 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 
 	if rows.Next() {
 		cols, _ := rows.Columns()
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -343,7 +343,7 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 			return msg, err
 		}
 
-		existingData := make(map[string]interface{})
+		existingData := make(map[string]any)
 		for i, col := range cols {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -377,7 +377,7 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 			// Insert old record into history table
 			hCols := make([]string, 0, len(cols))
 			hPhs := make([]string, 0, len(cols))
-			hArgs := make([]interface{}, 0, len(cols))
+			hArgs := make([]any, 0, len(cols))
 			for i, col := range cols {
 				q, _ := sqlutil.QuoteIdent(driver, col)
 				hCols = append(hCols, q)
@@ -393,7 +393,7 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 
 			// Update current record (Type 1)
 			updateParts := make([]string, 0)
-			updateArgs := make([]interface{}, 0)
+			updateArgs := make([]any, 0)
 			uIdx := 1
 			for field, val := range msg.Data() {
 				isBK := false
@@ -441,7 +441,7 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 	return msg, nil
 }
 
-func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, table string, businessKeys []string, config map[string]interface{}, msg hermod.Message) (hermod.Message, error) {
+func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, table string, businessKeys []string, config map[string]any, msg hermod.Message) (hermod.Message, error) {
 	quotedTable, err := sqlutil.QuoteIdent(driver, table)
 	if err != nil {
 		return msg, err
@@ -472,7 +472,7 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 	qEndDate, _ := sqlutil.QuoteIdent(driver, endDateCol)
 
 	whereParts := make([]string, 0)
-	args := make([]interface{}, 0)
+	args := make([]any, 0)
 	idx := 1
 	for _, key := range businessKeys {
 		q, _ := sqlutil.QuoteIdent(driver, key)
@@ -498,14 +498,14 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 
 	if rows.Next() {
 		cols, _ := rows.Columns()
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
 		rows.Scan(valuePtrs...)
 
-		existingData := make(map[string]interface{})
+		existingData := make(map[string]any)
 		for i, col := range cols {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -541,7 +541,7 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 			if type1Changed {
 				// Update ALL rows for this business key
 				updateParts := make([]string, 0)
-				updateArgs := make([]interface{}, 0)
+				updateArgs := make([]any, 0)
 				uIdx := 1
 				for _, col := range type1Cols {
 					q, _ := sqlutil.QuoteIdent(driver, col)
@@ -572,7 +572,7 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 
 				// Expire current
 				expWhere := make([]string, 0)
-				expArgs := make([]interface{}, 0)
+				expArgs := make([]any, 0)
 				eIdx := 1
 				expArgs = append(expArgs, now)
 				setClause := fmt.Sprintf("%s = %s", qEndDate, sqlutil.Placeholder(driver, eIdx))
@@ -607,7 +607,7 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 				// Insert new
 				iCols := make([]string, 0)
 				iPhs := make([]string, 0)
-				iArgs := make([]interface{}, 0)
+				iArgs := make([]any, 0)
 				iIdx := 1
 				for field, val := range msg.Data() {
 					q, _ := sqlutil.QuoteIdent(driver, field)
@@ -658,7 +658,7 @@ func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, ta
 
 	// 1. Check if record exists
 	whereParts := make([]string, 0, len(businessKeys))
-	args := make([]interface{}, 0, len(businessKeys))
+	args := make([]any, 0, len(businessKeys))
 	for i, key := range businessKeys {
 		quotedKey, _ := sqlutil.QuoteIdent(driver, key)
 		val := evaluator.GetMsgValByPath(msg, key)
@@ -688,8 +688,8 @@ func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, ta
 	if rows.Next() {
 		// Existing record found
 		cols, _ := rows.Columns()
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -697,7 +697,7 @@ func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, ta
 			return msg, err
 		}
 
-		existingData := make(map[string]interface{})
+		existingData := make(map[string]any)
 		for i, col := range cols {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -725,7 +725,7 @@ func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, ta
 		if changed {
 			// UPDATE
 			updateParts := make([]string, 0)
-			updateArgs := make([]interface{}, 0)
+			updateArgs := make([]any, 0)
 			idx := 1
 			for field, val := range msg.Data() {
 				isBK := false
@@ -778,7 +778,7 @@ func (t *SCDTransformer) performInsert(ctx context.Context, db *sql.DB, driver, 
 	quotedTable, _ := sqlutil.QuoteIdent(driver, table)
 	cols := make([]string, 0)
 	phs := make([]string, 0)
-	insertArgs := make([]interface{}, 0)
+	insertArgs := make([]any, 0)
 	idx := 1
 	for field, val := range msg.Data() {
 		q, err := sqlutil.QuoteIdent(driver, field)
@@ -800,7 +800,7 @@ func (t *SCDTransformer) performInsert(ctx context.Context, db *sql.DB, driver, 
 	return msg, nil
 }
 
-func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, table string, businessKeys, compareFields []string, config map[string]interface{}, msg hermod.Message) (hermod.Message, error) {
+func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, table string, businessKeys, compareFields []string, config map[string]any, msg hermod.Message) (hermod.Message, error) {
 	quotedTable, err := sqlutil.QuoteIdent(driver, table)
 	if err != nil {
 		return msg, err
@@ -822,7 +822,7 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 
 	// 1. Find current active record
 	whereParts := make([]string, 0)
-	args := make([]interface{}, 0)
+	args := make([]any, 0)
 	idx := 1
 	for _, key := range businessKeys {
 		q, _ := sqlutil.QuoteIdent(driver, key)
@@ -853,8 +853,8 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 	if rows.Next() {
 		// Existing record found
 		cols, _ := rows.Columns()
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -862,7 +862,7 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 			return msg, err
 		}
 
-		existingData := make(map[string]interface{})
+		existingData := make(map[string]any)
 		for i, col := range cols {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -893,7 +893,7 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 
 			// Update old record
 			updateWhere := make([]string, 0)
-			updateArgs := make([]interface{}, 0)
+			updateArgs := make([]any, 0)
 			uIdx := 1
 			updateArgs = append(updateArgs, now)
 			setClause := fmt.Sprintf("%s = %s", qEndDate, sqlutil.Placeholder(driver, uIdx))
@@ -929,7 +929,7 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 			// Insert new record
 			iCols := make([]string, 0)
 			iPhs := make([]string, 0)
-			iArgs := make([]interface{}, 0)
+			iArgs := make([]any, 0)
 			iIdx := 1
 			for field, val := range msg.Data() {
 				q, err := sqlutil.QuoteIdent(driver, field)
@@ -972,7 +972,7 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 		// New record
 		iCols := make([]string, 0)
 		iPhs := make([]string, 0)
-		iArgs := make([]interface{}, 0)
+		iArgs := make([]any, 0)
 		iIdx := 1
 		for field, val := range msg.Data() {
 			q, err := sqlutil.QuoteIdent(driver, field)

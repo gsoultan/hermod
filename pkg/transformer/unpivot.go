@@ -14,12 +14,12 @@ func init() {
 
 type UnpivotTransformer struct{}
 
-func (t *UnpivotTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *UnpivotTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
 
-	pivotColumns, _ := config["pivotColumns"].([]interface{})
+	pivotColumns, _ := config["pivotColumns"].([]any)
 	if len(pivotColumns) == 0 {
 		return msg, nil
 	}
@@ -40,7 +40,7 @@ func (t *UnpivotTransformer) Transform(ctx context.Context, msg hermod.Message, 
 	}
 
 	data := msg.Data()
-	unpivoted := make([]interface{}, 0, len(pivotColumns))
+	unpivoted := make([]any, 0, len(pivotColumns))
 
 	for _, colRaw := range pivotColumns {
 		col := fmt.Sprintf("%v", colRaw)
@@ -51,7 +51,7 @@ func (t *UnpivotTransformer) Transform(ctx context.Context, msg hermod.Message, 
 		}
 
 		// Create a new record
-		newRecord := make(map[string]interface{})
+		newRecord := make(map[string]any)
 		for k, v := range data {
 			// Skip pivot columns in the new records?
 			// Usually yes, we want them removed from the base and added as attribute/value.

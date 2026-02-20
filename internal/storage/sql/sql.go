@@ -435,7 +435,7 @@ func (s *sqlStorage) autoMigrate(ctx context.Context) {
 func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error) {
 	baseQuery := s.queries.get(QueryListSources)
 	countQuery := s.queries.get(QueryCountSources)
-	var args []interface{}
+	var args []any
 	var where []string
 
 	if filter.Search != "" {
@@ -610,7 +610,7 @@ func (s *sqlStorage) GetSource(ctx context.Context, id string) (storage.Source, 
 func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter) ([]storage.Sink, int, error) {
 	baseQuery := s.queries.get(QueryListSinks)
 	countQuery := s.queries.get(QueryCountSinks)
-	var args []interface{}
+	var args []any
 	var where []string
 
 	if filter.Search != "" {
@@ -807,7 +807,7 @@ func (s *sqlStorage) execWithRetry(ctx context.Context, fn func() error) error {
 func (s *sqlStorage) ListUsers(ctx context.Context, filter storage.CommonFilter) ([]storage.User, int, error) {
 	baseQuery := s.queries.get(QueryListUsers)
 	countQuery := s.queries.get(QueryCountUsers)
-	var args []interface{}
+	var args []any
 	var where []string
 
 	if filter.Search != "" {
@@ -998,7 +998,7 @@ func (s *sqlStorage) GetWorkspace(ctx context.Context, id string) (storage.Works
 func (s *sqlStorage) ListVHosts(ctx context.Context, filter storage.CommonFilter) ([]storage.VHost, int, error) {
 	baseQuery := s.queries.get(QueryListVHosts)
 	countQuery := s.queries.get(QueryCountVHosts)
-	var args []interface{}
+	var args []any
 	var where []string
 
 	if filter.Search != "" {
@@ -1074,7 +1074,7 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 	if !strings.Contains(strings.ToUpper(query), "WHERE") {
 		query += " WHERE 1=1"
 	}
-	args := []interface{}{}
+	args := []any{}
 
 	if filter.VHost != "" && filter.VHost != "all" {
 		query += " AND vhost = ?"
@@ -1096,7 +1096,7 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 	if !strings.Contains(strings.ToUpper(countQuery), "WHERE") {
 		countQuery += " WHERE 1=1"
 	}
-	countArgs := []interface{}{}
+	countArgs := []any{}
 	if filter.VHost != "" && filter.VHost != "all" {
 		countQuery += " AND vhost = ?"
 		countArgs = append(countArgs, filter.VHost)
@@ -1436,7 +1436,7 @@ func (s *sqlStorage) ReleaseWorkflowLease(ctx context.Context, workflowID, owner
 func (s *sqlStorage) ListWorkers(ctx context.Context, filter storage.CommonFilter) ([]storage.Worker, int, error) {
 	baseQuery := s.queries.get(QueryListWorkers)
 	countQuery := s.queries.get(QueryCountWorkers)
-	var args []interface{}
+	var args []any
 	var where []string
 
 	if filter.Search != "" {
@@ -1555,7 +1555,7 @@ func (s *sqlStorage) GetWorker(ctx context.Context, id string) (storage.Worker, 
 
 func (s *sqlStorage) ListLogs(ctx context.Context, filter storage.LogFilter) ([]storage.Log, int, error) {
 	where := " WHERE 1=1"
-	var args []interface{}
+	var args []any
 
 	// Time bounds (if provided)
 	if !filter.Since.IsZero() {
@@ -1683,7 +1683,7 @@ func (s *sqlStorage) CreateLog(ctx context.Context, l storage.Log) error {
 
 func (s *sqlStorage) DeleteLogs(ctx context.Context, filter storage.LogFilter) error {
 	query := s.queries.get(QueryDeleteLogs) + " WHERE 1=1"
-	var args []interface{}
+	var args []any
 
 	if filter.SourceID != "" {
 		query += " AND source_id = ?"
@@ -1733,7 +1733,7 @@ func (s *sqlStorage) GetSetting(ctx context.Context, key string) (string, error)
 	return value, err
 }
 
-func (s *sqlStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error {
+func (s *sqlStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
 	stateJSON, err := json.Marshal(state)
 	if err != nil {
 		return err
@@ -1745,21 +1745,21 @@ func (s *sqlStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID str
 	return err
 }
 
-func (s *sqlStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+func (s *sqlStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error) {
 	rows, err := s.query(ctx, "SELECT node_id, state FROM workflow_node_states WHERE workflow_id = ?", workflowID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	states := make(map[string]interface{})
+	states := make(map[string]any)
 	for rows.Next() {
 		var nodeID, stateJSON string
 		if err := rows.Scan(&nodeID, &stateJSON); err != nil {
 			return nil, err
 		}
 
-		var state interface{}
+		var state any
 		if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
 			return nil, err
 		}
@@ -2007,7 +2007,7 @@ func (s *sqlStorage) DeleteFormSubmissions(ctx context.Context, filter storage.F
 func (s *sqlStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilter) ([]storage.AuditLog, int, error) {
 	baseQuery := "SELECT id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip FROM audit_logs"
 	countQuery := "SELECT COUNT(*) FROM audit_logs"
-	var args []interface{}
+	var args []any
 	var where []string
 
 	if filter.Search != "" {

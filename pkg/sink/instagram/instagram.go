@@ -75,8 +75,8 @@ func (s *InstagramSink) Write(ctx context.Context, msg hermod.Message) error {
 	defer resp.Body.Close()
 
 	var result struct {
-		ID    string      `json:"id"`
-		Error interface{} `json:"error"`
+		ID    string `json:"id"`
+		Error any    `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return err
@@ -113,7 +113,7 @@ func (s *InstagramSink) Write(ctx context.Context, msg hermod.Message) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		var resErr map[string]interface{}
+		var resErr map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&resErr)
 		return fmt.Errorf("instagram publish media error: %v", resErr["error"])
 	}

@@ -97,14 +97,14 @@ func dataSourceWorkspace() *schema.Resource {
 }
 
 // Implementations (stubs for build)
-func resourceWorkflowCreate(d *schema.ResourceData, m interface{}) error { return nil }
-func resourceWorkflowRead(d *schema.ResourceData, m interface{}) error   { return nil }
-func resourceWorkflowUpdate(d *schema.ResourceData, m interface{}) error { return nil }
-func resourceWorkflowDelete(d *schema.ResourceData, m interface{}) error { return nil }
+func resourceWorkflowCreate(d *schema.ResourceData, m any) error { return nil }
+func resourceWorkflowRead(d *schema.ResourceData, m any) error   { return nil }
+func resourceWorkflowUpdate(d *schema.ResourceData, m any) error { return nil }
+func resourceWorkflowDelete(d *schema.ResourceData, m any) error { return nil }
 
-func resourceWorkspaceCreate(d *schema.ResourceData, m interface{}) error { return nil }
-func resourceWorkspaceRead(d *schema.ResourceData, m interface{}) error   { return nil }
-func resourceWorkspaceUpdate(d *schema.ResourceData, m interface{}) error { return nil }
-func resourceWorkspaceDelete(d *schema.ResourceData, m interface{}) error { return nil }
+func resourceWorkspaceCreate(d *schema.ResourceData, m any) error { return nil }
+func resourceWorkspaceRead(d *schema.ResourceData, m any) error   { return nil }
+func resourceWorkspaceUpdate(d *schema.ResourceData, m any) error { return nil }
+func resourceWorkspaceDelete(d *schema.ResourceData, m any) error { return nil }
 
-func dataSourceWorkspaceRead(d *schema.ResourceData, m interface{}) error { return nil }
+func dataSourceWorkspaceRead(d *schema.ResourceData, m any) error { return nil }

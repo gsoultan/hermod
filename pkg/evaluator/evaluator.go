@@ -27,7 +27,7 @@ func NewEvaluator() *Evaluator {
 
 // ... existing helpers ...
 
-func (e *Evaluator) EvaluateAdvancedExpression(msg hermod.Message, expr interface{}) interface{} {
+func (e *Evaluator) EvaluateAdvancedExpression(msg hermod.Message, expr any) any {
 	valStr, ok := expr.(string)
 	if !ok {
 		return expr
@@ -35,7 +35,7 @@ func (e *Evaluator) EvaluateAdvancedExpression(msg hermod.Message, expr interfac
 	return e.ParseAndEvaluate(msg, valStr)
 }
 
-func (e *Evaluator) ParseAndEvaluate(msg hermod.Message, expr string) interface{} {
+func (e *Evaluator) ParseAndEvaluate(msg hermod.Message, expr string) any {
 	expr = strings.TrimSpace(expr)
 	if expr == "" {
 		return nil
@@ -95,7 +95,7 @@ func (e *Evaluator) ParseAndEvaluate(msg hermod.Message, expr string) interface{
 			if isFunc {
 				argsStr := expr[openParen+1 : len(expr)-1]
 				args := e.parseArgs(argsStr)
-				evaluatedArgs := make([]interface{}, len(args))
+				evaluatedArgs := make([]any, len(args))
 				for i, arg := range args {
 					evaluatedArgs[i] = e.ParseAndEvaluate(msg, arg)
 				}
@@ -146,7 +146,7 @@ func (e *Evaluator) parseArgs(argsStr string) []string {
 	return args
 }
 
-func (e *Evaluator) CallFunction(name string, args []interface{}) interface{} {
+func (e *Evaluator) CallFunction(name string, args []any) any {
 	switch strings.ToLower(name) {
 	case "lower":
 		if len(args) > 0 {
@@ -335,7 +335,7 @@ func (e *Evaluator) CallFunction(name string, args []interface{}) interface{} {
 
 // Path helpers
 
-func GetValByPath(data map[string]interface{}, path string) interface{} {
+func GetValByPath(data map[string]any, path string) any {
 	if path == "" {
 		return nil
 	}
@@ -353,7 +353,7 @@ func GetValByPath(data map[string]interface{}, path string) interface{} {
 	return res.Value()
 }
 
-func GetMsgValByPath(msg hermod.Message, path string) interface{} {
+func GetMsgValByPath(msg hermod.Message, path string) any {
 	if path == "" || msg == nil {
 		return nil
 	}
@@ -385,14 +385,14 @@ func GetMsgValByPath(msg hermod.Message, path string) interface{} {
 		}
 	case "after":
 		if a := msg.After(); len(a) > 0 {
-			var val interface{}
+			var val any
 			if err := json.Unmarshal(a, &val); err == nil {
 				return val
 			}
 		}
 	case "before":
 		if b := msg.Before(); len(b) > 0 {
-			var val interface{}
+			var val any
 			if err := json.Unmarshal(b, &val); err == nil {
 				return val
 			}
@@ -446,7 +446,7 @@ func GetMsgValByPath(msg hermod.Message, path string) interface{} {
 	return nil
 }
 
-func getValueFromRaw(raw []byte, path string) interface{} {
+func getValueFromRaw(raw []byte, path string) any {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -457,7 +457,7 @@ func getValueFromRaw(raw []byte, path string) interface{} {
 	return res.Value()
 }
 
-func SetValByPath(data map[string]interface{}, path string, val interface{}) {
+func SetValByPath(data map[string]any, path string, val any) {
 	if path == "" {
 		return
 	}
@@ -472,7 +472,7 @@ func SetValByPath(data map[string]interface{}, path string, val interface{}) {
 		return
 	}
 
-	var newData map[string]interface{}
+	var newData map[string]any
 	if err := json.Unmarshal(newJSON, &newData); err == nil {
 		for k := range data {
 			delete(data, k)
@@ -485,7 +485,7 @@ func SetValByPath(data map[string]interface{}, path string, val interface{}) {
 
 // Type conversion helpers
 
-func ToFloat64(val interface{}) (float64, bool) {
+func ToFloat64(val any) (float64, bool) {
 	switch v := val.(type) {
 	case float64:
 		return v, true
@@ -504,7 +504,7 @@ func ToFloat64(val interface{}) (float64, bool) {
 	return 0, false
 }
 
-func ToInt64(val interface{}) (int64, bool) {
+func ToInt64(val any) (int64, bool) {
 	switch v := val.(type) {
 	case int:
 		return int64(v), true
@@ -529,7 +529,7 @@ func ToInt64(val interface{}) (int64, bool) {
 	return 0, false
 }
 
-func ToBool(val interface{}) bool {
+func ToBool(val any) bool {
 	if val == nil {
 		return false
 	}
@@ -555,7 +555,7 @@ func ToBool(val interface{}) bool {
 
 // Template resolver
 
-func ResolveTemplate(temp string, data map[string]interface{}) string {
+func ResolveTemplate(temp string, data map[string]any) string {
 	result := temp
 	for {
 		start := strings.Index(result, "{{")
@@ -571,7 +571,7 @@ func ResolveTemplate(temp string, data map[string]interface{}) string {
 		fullTag := result[start : start+end+2]
 		path := strings.TrimSpace(result[start+2 : start+end])
 
-		var val interface{}
+		var val any
 		if strings.HasPrefix(path, "env.") {
 			envVar := strings.TrimPrefix(path, "env.")
 			val = os.Getenv(envVar)
@@ -609,7 +609,7 @@ func ResolveTemplate(temp string, data map[string]interface{}) string {
 
 // Condition evaluator
 
-func EvaluateConditions(msg hermod.Message, conditions []map[string]interface{}) bool {
+func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 	if len(conditions) == 0 {
 		return true
 	}
@@ -628,7 +628,7 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]interface{})
 		}
 
 		// Resolve templates/expressions in the value if present
-		var valResolved interface{} = val
+		var valResolved any = val
 		if vs, ok := val.(string); ok {
 			if strings.Contains(vs, "{{") && strings.Contains(vs, "}}") {
 				valResolved = ResolveTemplate(vs, msg.Data())
@@ -703,16 +703,16 @@ type mockMessage struct {
 	op       hermod.Operation
 	table    string
 	schema   string
-	data     map[string]interface{}
+	data     map[string]any
 	metadata map[string]string
 }
 
-func (m *mockMessage) ID() string                   { return m.id }
-func (m *mockMessage) Operation() hermod.Operation  { return m.op }
-func (m *mockMessage) Table() string                { return m.table }
-func (m *mockMessage) Schema() string               { return m.schema }
-func (m *mockMessage) Data() map[string]interface{} { return m.data }
-func (m *mockMessage) Metadata() map[string]string  { return m.metadata }
+func (m *mockMessage) ID() string                  { return m.id }
+func (m *mockMessage) Operation() hermod.Operation { return m.op }
+func (m *mockMessage) Table() string               { return m.table }
+func (m *mockMessage) Schema() string              { return m.schema }
+func (m *mockMessage) Data() map[string]any        { return m.data }
+func (m *mockMessage) Metadata() map[string]string { return m.metadata }
 func (m *mockMessage) Before() []byte {
 	if b, ok := m.data["before"]; ok {
 		by, _ := json.Marshal(b)
@@ -736,7 +736,7 @@ func (m *mockMessage) Payload() []byte {
 	by, _ := json.Marshal(m.data)
 	return by
 }
-func (m *mockMessage) SetMetadata(k, v string)         {}
-func (m *mockMessage) SetData(k string, v interface{}) {}
-func (m *mockMessage) Clone() hermod.Message           { return nil }
-func (m *mockMessage) ClearPayloads()                  {}
+func (m *mockMessage) SetMetadata(k, v string) {}
+func (m *mockMessage) SetData(k string, v any) {}
+func (m *mockMessage) Clone() hermod.Message   { return nil }
+func (m *mockMessage) ClearPayloads()          {}

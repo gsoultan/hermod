@@ -304,7 +304,7 @@ func (c *WorkerAPIClient) ReleaseWorkflowLease(ctx context.Context, workflowID, 
 	return nil
 }
 
-func (c *WorkerAPIClient) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
+func (c *WorkerAPIClient) doRequest(ctx context.Context, method, path string, body any) (*http.Response, error) {
 	var bodyReader *bytes.Reader
 	if body != nil {
 		b, err := json.Marshal(body)

@@ -25,15 +25,15 @@ func TestTestTransformation_JSONUnmarshalError(t *testing.T) {
 	server := NewServer(reg, &mockReproductionStorage{}, nil, nil)
 
 	// JSON payload with a number in transformation.config
-	reqBody := map[string]interface{}{
-		"transformation": map[string]interface{}{
+	reqBody := map[string]any{
+		"transformation": map[string]any{
 			"type": "mapping",
-			"config": map[string]interface{}{
+			"config": map[string]any{
 				"key1": "value1",
 				"key2": 123, // This was causing the error
 			},
 		},
-		"message": map[string]interface{}{
+		"message": map[string]any{
 			"foo": "bar",
 		},
 	}
@@ -49,7 +49,7 @@ func TestTestTransformation_JSONUnmarshalError(t *testing.T) {
 		t.Fatalf("Expected 200 OK, got %d: %s", rr.Code, rr.Body.String())
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}

@@ -130,7 +130,7 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 
 		query := fmt.Sprintf("INSERT INTO %s (%s, %s", s.table, s.idColumn, s.vectorColumn)
 		placeholders := "$1, $2"
-		args := []interface{}{id, vectorStr}
+		args := []any{id, vectorStr}
 
 		if s.metadataColumn != "" {
 			query += ", " + s.metadataColumn
@@ -379,13 +379,13 @@ func (s *Sink) Close() error {
 	return nil
 }
 
-func formatVector(v interface{}) string {
+func formatVector(v any) string {
 	switch val := v.(type) {
 	case []float32:
 		return formatFloat32(val)
 	case []float64:
 		return formatFloat64(val)
-	case []interface{}:
+	case []any:
 		var parts []string
 		for _, x := range val {
 			parts = append(parts, fmt.Sprintf("%v", x))

@@ -38,8 +38,8 @@ var lintCmd = &cobra.Command{
 		}
 
 		var wf struct {
-			Nodes []interface{} `json:"nodes"`
-			Edges []interface{} `json:"edges"`
+			Nodes []any `json:"nodes"`
+			Edges []any `json:"edges"`
 		}
 
 		if err := json.Unmarshal(data, &wf); err != nil {
@@ -88,7 +88,7 @@ var exportCmd = &cobra.Command{
 			return
 		}
 
-		var workflow interface{}
+		var workflow any
 		json.NewDecoder(resp.Body).Decode(&workflow)
 		out, _ := yaml.Marshal(workflow)
 		fmt.Println(string(out))
@@ -106,7 +106,7 @@ var importCmd = &cobra.Command{
 			return
 		}
 
-		var workflow interface{}
+		var workflow any
 		if err := yaml.Unmarshal(data, &workflow); err != nil {
 			fmt.Printf("Error parsing YAML: %v\n", err)
 			return

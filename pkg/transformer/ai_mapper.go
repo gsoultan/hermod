@@ -16,7 +16,7 @@ type AIMapper struct {
 	ai AITransformer
 }
 
-func (t *AIMapper) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *AIMapper) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -31,7 +31,7 @@ Target Schema: %s
 %s`, targetSchema, hints)
 
 	// Reuse AITransformer logic
-	mapperConfig := make(map[string]interface{})
+	mapperConfig := make(map[string]any)
 	for k, v := range config {
 		mapperConfig[k] = v
 	}

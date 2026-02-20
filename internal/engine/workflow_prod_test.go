@@ -57,7 +57,7 @@ func TestWorkflowOptimizationAndMetrics(t *testing.T) {
 		Name: "Production Workflow",
 		Nodes: []storage.WorkflowNode{
 			{ID: "node1", Type: "source", RefID: "src1"},
-			{ID: "node2", Type: "transformation", Config: map[string]interface{}{
+			{ID: "node2", Type: "transformation", Config: map[string]any{
 				"transType":    "advanced",
 				"column.email": "lower(source.email)",
 			}},
@@ -116,7 +116,7 @@ func TestWorkflowOptimizationAndMetrics(t *testing.T) {
 	// Test replace
 	nodeReplace := &storage.WorkflowNode{
 		Type: "transformation",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"transType":   "advanced",
 			"column.name": "replace(source.name, \"John\", \"Jane\")",
 		},
@@ -132,7 +132,7 @@ func TestWorkflowOptimizationAndMetrics(t *testing.T) {
 	// Test mapping
 	nodeMapping := &storage.WorkflowNode{
 		Type: "transformation",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"transType": "mapping",
 			"field":     "status",
 			"mapping":   "{\"1\": \"active\", \"0\": \"inactive\"}",

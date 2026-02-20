@@ -49,8 +49,8 @@ export function useSourceForm({
         tables: '',
         use_cdc: 'true',
         sslmode: 'disable',
-        slot_name: 'hermod_slot',
-        publication_name: 'hermod_pub',
+        slot_name: '',
+        publication_name: '',
         reconnect_intervals: '30s',
         ...(initialData?.config || {})
       },

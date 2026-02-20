@@ -28,7 +28,7 @@ func TestMappingEnhanced(t *testing.T) {
 		msg := message.AcquireMessage()
 		msg.SetAfter([]byte(`{"age": 25}`))
 
-		config := map[string]interface{}{
+		config := map[string]any{
 			"field":       "age",
 			"mappingType": "range",
 			"mapping":     `{"0-18": "child", "19-65": "adult", "66+": "senior"}`,
@@ -39,7 +39,7 @@ func TestMappingEnhanced(t *testing.T) {
 			t.Fatalf("Failed: %v", err)
 		}
 
-		var data map[string]interface{}
+		var data map[string]any
 		json.Unmarshal(res.After(), &data)
 		if data["age"] != "adult" {
 			t.Errorf("Expected adult, got %v", data["age"])
@@ -50,7 +50,7 @@ func TestMappingEnhanced(t *testing.T) {
 		msg := message.AcquireMessage()
 		msg.SetAfter([]byte(`{"status": "error_critical"}`))
 
-		config := map[string]interface{}{
+		config := map[string]any{
 			"field":       "status",
 			"mappingType": "regex",
 			"mapping":     `{"^error_.*": "failed", "ok": "success"}`,
@@ -61,7 +61,7 @@ func TestMappingEnhanced(t *testing.T) {
 			t.Fatalf("Failed: %v", err)
 		}
 
-		var data map[string]interface{}
+		var data map[string]any
 		json.Unmarshal(res.After(), &data)
 		if data["status"] != "failed" {
 			t.Errorf("Expected failed, got %v", data["status"])
@@ -77,7 +77,7 @@ func TestErrorPolicies(t *testing.T) {
 		msg.SetAfter([]byte(`{"id": 1}`))
 
 		// db_lookup will fail because source doesn't exist
-		config := map[string]interface{}{
+		config := map[string]any{
 			"sourceId":    "non-existent",
 			"table":       "users",
 			"keyColumn":   "id",
@@ -95,7 +95,7 @@ func TestErrorPolicies(t *testing.T) {
 		msg := message.AcquireMessage()
 		msg.SetAfter([]byte(`{"id": 1}`))
 
-		config := map[string]interface{}{
+		config := map[string]any{
 			"sourceId":    "non-existent",
 			"table":       "users",
 			"keyColumn":   "id",
@@ -110,7 +110,7 @@ func TestErrorPolicies(t *testing.T) {
 			t.Fatalf("Expected no error due to continue policy, got %v", err)
 		}
 
-		var data map[string]interface{}
+		var data map[string]any
 		json.Unmarshal(res.After(), &data)
 		if data["_status"] != "error" {
 			t.Errorf("Expected _status to be error, got %v", data["_status"])
@@ -124,7 +124,7 @@ func TestErrorPolicies(t *testing.T) {
 		msg := message.AcquireMessage()
 		msg.SetAfter([]byte(`{"id": 1}`))
 
-		config := map[string]interface{}{
+		config := map[string]any{
 			"sourceId":    "non-existent",
 			"table":       "users",
 			"keyColumn":   "id",

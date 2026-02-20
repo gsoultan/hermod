@@ -52,18 +52,18 @@ func (s *LinkedInSink) Write(ctx context.Context, msg hermod.Message) error {
 	}
 
 	// LinkedIn UGC Post structure
-	body := map[string]interface{}{
+	body := map[string]any{
 		"author":         s.personURN,
 		"lifecycleState": "PUBLISHED",
-		"specificContent": map[string]interface{}{
-			"com.linkedin.ugc.ShareContent": map[string]interface{}{
-				"shareCommentary": map[string]interface{}{
+		"specificContent": map[string]any{
+			"com.linkedin.ugc.ShareContent": map[string]any{
+				"shareCommentary": map[string]any{
 					"text": text,
 				},
 				"shareMediaCategory": "NONE",
 			},
 		},
-		"visibility": map[string]interface{}{
+		"visibility": map[string]any{
 			"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
 		},
 	}
@@ -85,7 +85,7 @@ func (s *LinkedInSink) Write(ctx context.Context, msg hermod.Message) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		var result map[string]interface{}
+		var result map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&result)
 		return fmt.Errorf("linkedin api returned status: %d, error: %v", resp.StatusCode, result["message"])
 	}

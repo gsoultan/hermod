@@ -165,10 +165,10 @@ func (m *BaseMockStorage) SaveSetting(ctx context.Context, key string, value str
 	return nil
 }
 
-func (m *BaseMockStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error {
+func (m *BaseMockStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
 	return nil
 }
-func (m *BaseMockStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+func (m *BaseMockStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error) {
 	return nil, nil
 }
 

@@ -131,7 +131,7 @@ func (s *SQLStore) WriteBatch(ctx context.Context, msgs []hermod.Message) error 
 		}
 
 		query := s.queries.get(QueryInsertEvent)
-		args := []interface{}{streamID, currentOffset, eventType, msg.Payload(), string(metadataJSON), time.Now()}
+		args := []any{streamID, currentOffset, eventType, msg.Payload(), string(metadataJSON), time.Now()}
 		if s.driver == "postgres" {
 			args[4] = metadataJSON
 		}
@@ -181,7 +181,7 @@ func (s *SQLStore) render(tplStr string, msg hermod.Message) string {
 		return tplStr
 	}
 	var buf bytes.Buffer
-	data := map[string]interface{}{
+	data := map[string]any{
 		"id":        msg.ID(),
 		"table":     msg.Table(),
 		"operation": msg.Operation(),
@@ -354,7 +354,7 @@ func (s *EventStoreSource) Close() error {
 
 func (s *SQLStore) ReadAll(ctx context.Context, fromOffset int64, limit int, streamID string) ([]Event, error) {
 	var query string
-	var args []interface{}
+	var args []any
 
 	query = s.queries.get(QueryReadAll)
 	if streamID != "" {

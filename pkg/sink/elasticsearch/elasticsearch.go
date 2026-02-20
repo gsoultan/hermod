@@ -200,7 +200,7 @@ func (s *ElasticsearchSink) renderIndex(msg hermod.Message) (string, error) {
 	}
 
 	data := msg.Data()
-	templateData := make(map[string]interface{})
+	templateData := make(map[string]any)
 	for k, v := range data {
 		templateData[k] = v
 	}
@@ -246,12 +246,12 @@ func (s *ElasticsearchSink) Browse(ctx context.Context, index string, limit int)
 		}
 	}
 
-	searchReq := map[string]interface{}{
+	searchReq := map[string]any{
 		"size": limit,
-		"query": map[string]interface{}{
-			"match_all": map[string]interface{}{},
+		"query": map[string]any{
+			"match_all": map[string]any{},
 		},
-		"sort": []map[string]interface{}{
+		"sort": []map[string]any{
 			{"_doc": "asc"},
 		},
 	}
@@ -354,7 +354,7 @@ func (s *ElasticsearchSink) DiscoverDatabases(ctx context.Context) ([]string, er
 		return nil, err
 	}
 	defer res.Body.Close()
-	var info map[string]interface{}
+	var info map[string]any
 	if err := json.NewDecoder(res.Body).Decode(&info); err != nil {
 		return nil, err
 	}
@@ -372,7 +372,7 @@ func (s *ElasticsearchSink) DiscoverTables(ctx context.Context) ([]string, error
 	}
 	defer res.Body.Close()
 
-	var indices []map[string]interface{}
+	var indices []map[string]any
 	if err := json.NewDecoder(res.Body).Decode(&indices); err != nil {
 		return nil, err
 	}
@@ -389,9 +389,9 @@ func (s *ElasticsearchSink) DiscoverTables(ctx context.Context) ([]string, error
 	return names, nil
 }
 
-func prepareTemplateData(data map[string]interface{}) map[string]interface{} {
+func prepareTemplateData(data map[string]any) map[string]any {
 	// Clone data to avoid modifying the original message data
-	newData := make(map[string]interface{}, len(data))
+	newData := make(map[string]any, len(data))
 	for k, v := range data {
 		newData[k] = v
 	}
@@ -399,7 +399,7 @@ func prepareTemplateData(data map[string]interface{}) map[string]interface{} {
 	// Try to unmarshal 'after' and 'before' if they are JSON strings
 	for _, key := range []string{"after", "before"} {
 		if val, ok := newData[key]; ok {
-			var nested map[string]interface{}
+			var nested map[string]any
 			if str, ok := val.(string); ok && strings.HasPrefix(strings.TrimSpace(str), "{") {
 				if err := json.Unmarshal([]byte(str), &nested); err == nil {
 					newData[key] = nested
@@ -408,7 +408,7 @@ func prepareTemplateData(data map[string]interface{}) map[string]interface{} {
 				if err := json.Unmarshal(b, &nested); err == nil {
 					newData[key] = nested
 				}
-			} else if m, ok := val.(map[string]interface{}); ok {
+			} else if m, ok := val.(map[string]any); ok {
 				nested = m
 			}
 

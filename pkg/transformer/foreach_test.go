@@ -10,14 +10,14 @@ import (
 func TestForeach_Basic(t *testing.T) {
 	msg := message.AcquireMessage()
 	defer message.ReleaseMessage(msg)
-	msg.SetData("items", []interface{}{1, 2, 3})
+	msg.SetData("items", []any{1, 2, 3})
 
 	tf, ok := Get("foreach")
 	if !ok {
 		t.Fatal("foreach transformer not registered")
 	}
 
-	res, err := tf.Transform(context.Background(), msg, map[string]interface{}{
+	res, err := tf.Transform(context.Background(), msg, map[string]any{
 		"arrayPath":   "items",
 		"resultField": "_fanout",
 	})
@@ -28,7 +28,7 @@ func TestForeach_Basic(t *testing.T) {
 		t.Fatal("unexpected nil result")
 	}
 	data := res.Data()
-	v, ok := data["_fanout"].([]interface{})
+	v, ok := data["_fanout"].([]any)
 	if !ok {
 		t.Fatalf("_fanout not an array: %#v", data["_fanout"])
 	}
@@ -40,13 +40,13 @@ func TestForeach_Basic(t *testing.T) {
 func TestForeach_ItemPath_Index_Limit(t *testing.T) {
 	msg := message.AcquireMessage()
 	defer message.ReleaseMessage(msg)
-	msg.SetData("rows", []interface{}{
-		map[string]interface{}{"id": 10, "name": "a"},
-		map[string]interface{}{"id": 20, "name": "b"},
+	msg.SetData("rows", []any{
+		map[string]any{"id": 10, "name": "a"},
+		map[string]any{"id": 20, "name": "b"},
 	})
 
 	tf, _ := Get("foreach")
-	res, err := tf.Transform(context.Background(), msg, map[string]interface{}{
+	res, err := tf.Transform(context.Background(), msg, map[string]any{
 		"arrayPath":  "rows",
 		"itemPath":   "id",
 		"indexField": "_i",
@@ -56,7 +56,7 @@ func TestForeach_ItemPath_Index_Limit(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	data := res.Data()
-	arr, ok := data["_fanout"].([]interface{})
+	arr, ok := data["_fanout"].([]any)
 	if !ok {
 		t.Fatalf("_fanout not an array")
 	}
@@ -68,10 +68,10 @@ func TestForeach_ItemPath_Index_Limit(t *testing.T) {
 func TestForeach_DropEmpty(t *testing.T) {
 	msg := message.AcquireMessage()
 	defer message.ReleaseMessage(msg)
-	msg.SetData("rows", []interface{}{})
+	msg.SetData("rows", []any{})
 
 	tf, _ := Get("foreach")
-	res, err := tf.Transform(context.Background(), msg, map[string]interface{}{
+	res, err := tf.Transform(context.Background(), msg, map[string]any{
 		"arrayPath": "rows",
 		"dropEmpty": true,
 	})

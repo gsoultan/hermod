@@ -65,7 +65,7 @@ func (s *BatchSQLSource) getLogger() hermod.Logger {
 	return s.logger
 }
 
-func (s *BatchSQLSource) log(level, msg string, keysAndValues ...interface{}) {
+func (s *BatchSQLSource) log(level, msg string, keysAndValues ...any) {
 	logger := s.getLogger()
 	if logger == nil {
 		return
@@ -178,8 +178,8 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 		}
 
 		for rows.Next() {
-			values := make([]interface{}, len(cols))
-			valuePtrs := make([]interface{}, len(cols))
+			values := make([]any, len(cols))
+			valuePtrs := make([]any, len(cols))
 			for i := range values {
 				valuePtrs[i] = &values[i]
 			}

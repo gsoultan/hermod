@@ -26,14 +26,14 @@ var benchCmd = &cobra.Command{
 
 		fmt.Printf("Benchmarking workflow %s for %d seconds...\n", workflowID, benchDuration)
 
-		var payload map[string]interface{}
+		var payload map[string]any
 		if benchPayload != "" {
 			json.Unmarshal([]byte(benchPayload), &payload)
 		} else {
-			payload = map[string]interface{}{"test": "data", "timestamp": time.Now().Unix()}
+			payload = map[string]any{"test": "data", "timestamp": time.Now().Unix()}
 		}
 
-		reqBody := map[string]interface{}{
+		reqBody := map[string]any{
 			"workflow_id": workflowID,
 			"message":     payload,
 		}

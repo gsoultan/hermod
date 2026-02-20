@@ -23,14 +23,14 @@ func init() {
 
 type APILookupTransformer struct{}
 
-func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
 
 	registry, ok := ctx.Value("registry").(interface {
-		GetLookupCache(key string) (interface{}, bool)
-		SetLookupCache(key string, value interface{}, ttl time.Duration)
+		GetLookupCache(key string) (any, bool)
+		SetLookupCache(key string, value any, ttl time.Duration)
 	})
 
 	if !ok {
@@ -66,7 +66,7 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 
 	// Append query parameters
 	if queryParamsStr != "" {
-		var qParams map[string]interface{}
+		var qParams map[string]any
 		if err := json.Unmarshal([]byte(queryParamsStr), &qParams); err == nil {
 			u, err := url.Parse(resolvedURL)
 			if err == nil {
@@ -123,7 +123,7 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 		}
 	}
 
-	var respData interface{}
+	var respData any
 	var lastErr error
 
 	for i := 0; i <= maxRetries; i++ {
@@ -145,7 +145,7 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 		}
 
 		if headersStr != "" {
-			var headers map[string]interface{}
+			var headers map[string]any
 			if err := json.Unmarshal([]byte(headersStr), &headers); err == nil {
 				for k, v := range headers {
 					vStr := fmt.Sprintf("%v", v)
@@ -205,9 +205,9 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 		return msg, fmt.Errorf("failed to execute api lookup after %d retries: %w", maxRetries, lastErr)
 	}
 
-	var resultVal interface{}
+	var resultVal any
 	if responsePath != "" && responsePath != "." {
-		if m, ok := respData.(map[string]interface{}); ok {
+		if m, ok := respData.(map[string]any); ok {
 			resultVal = evaluator.GetValByPath(m, responsePath)
 		} else {
 			resultVal = respData

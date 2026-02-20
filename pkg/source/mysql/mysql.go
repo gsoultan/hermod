@@ -45,7 +45,7 @@ func (m *MySQLSource) SetLogger(logger hermod.Logger) {
 	m.logger = logger
 }
 
-func (m *MySQLSource) log(level, msg string, keysAndValues ...interface{}) {
+func (m *MySQLSource) log(level, msg string, keysAndValues ...any) {
 	m.mu.Lock()
 	logger := m.logger
 	m.mu.Unlock()
@@ -133,7 +133,7 @@ type mysqlEventHandler struct {
 
 func (h *mysqlEventHandler) OnRow(e *canal.RowsEvent) error {
 	action := e.Action
-	var rows [][]interface{}
+	var rows [][]any
 	if action == canal.UpdateAction {
 		// For update, e.Rows contains [before, after, before, after, ...]
 		for i := 1; i < len(e.Rows); i += 2 {
@@ -145,7 +145,7 @@ func (h *mysqlEventHandler) OnRow(e *canal.RowsEvent) error {
 
 	for _, row := range rows {
 		msg := message.AcquireMessage()
-		data := make(map[string]interface{})
+		data := make(map[string]any)
 		for i, col := range e.Table.Columns {
 			val := row[i]
 			// Handle []byte values from go-mysql
@@ -404,8 +404,8 @@ func (m *MySQLSource) Sample(ctx context.Context, table string) (hermod.Message,
 		return nil, err
 	}
 
-	columns := make([]interface{}, len(cols))
-	columnPointers := make([]interface{}, len(cols))
+	columns := make([]any, len(cols))
+	columnPointers := make([]any, len(cols))
 	for i := range columns {
 		columnPointers[i] = &columns[i]
 	}
@@ -414,7 +414,7 @@ func (m *MySQLSource) Sample(ctx context.Context, table string) (hermod.Message,
 		return nil, err
 	}
 
-	record := make(map[string]interface{})
+	record := make(map[string]any)
 	for i, colName := range cols {
 		val := columns[i]
 		if b, ok := val.([]byte); ok {
@@ -477,8 +477,8 @@ func (m *MySQLSource) snapshotTable(ctx context.Context, table string) error {
 	}
 
 	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
+		values := make([]any, len(columns))
+		valuePtrs := make([]any, len(columns))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -487,7 +487,7 @@ func (m *MySQLSource) snapshotTable(ctx context.Context, table string) error {
 			return err
 		}
 
-		record := make(map[string]interface{})
+		record := make(map[string]any)
 		for i, colName := range columns {
 			val := values[i]
 			if b, ok := val.([]byte); ok {

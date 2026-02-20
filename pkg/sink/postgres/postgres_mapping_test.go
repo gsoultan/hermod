@@ -41,7 +41,7 @@ func TestPostgresSink_ColumnMapping(t *testing.T) {
 	defer message.ReleaseMessage(msg)
 	msg.SetID("u1")
 	msg.SetOperation(hermod.OpCreate)
-	data := map[string]interface{}{
+	data := map[string]any{
 		"id":   "u1",
 		"name": "John Doe",
 		"age":  30,

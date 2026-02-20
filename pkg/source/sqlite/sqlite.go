@@ -71,8 +71,8 @@ func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
 
 			if rows.Next() {
 				cols, _ := rows.Columns()
-				values := make([]interface{}, len(cols))
-				pointers := make([]interface{}, len(cols))
+				values := make([]any, len(cols))
+				pointers := make([]any, len(cols))
 				for i := range values {
 					pointers[i] = &values[i]
 				}
@@ -84,7 +84,7 @@ func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
 				rows.Close()
 
 				var currentRowID int64
-				data := make(map[string]interface{})
+				data := make(map[string]any)
 				for i, col := range cols {
 					val := values[i]
 					if b, ok := val.([]byte); ok {
@@ -294,8 +294,8 @@ func (s *SQLiteSource) Sample(ctx context.Context, table string) (hermod.Message
 		return nil, err
 	}
 
-	columns := make([]interface{}, len(cols))
-	columnPointers := make([]interface{}, len(cols))
+	columns := make([]any, len(cols))
+	columnPointers := make([]any, len(cols))
 	for i := range columns {
 		columnPointers[i] = &columns[i]
 	}
@@ -304,7 +304,7 @@ func (s *SQLiteSource) Sample(ctx context.Context, table string) (hermod.Message
 		return nil, err
 	}
 
-	record := make(map[string]interface{})
+	record := make(map[string]any)
 	for i, colName := range cols {
 		val := columns[i]
 		if b, ok := val.([]byte); ok {
@@ -373,8 +373,8 @@ func (s *SQLiteSource) snapshotTable(ctx context.Context, table string) error {
 	}
 
 	for rows.Next() {
-		columns := make([]interface{}, len(cols))
-		columnPointers := make([]interface{}, len(cols))
+		columns := make([]any, len(cols))
+		columnPointers := make([]any, len(cols))
 		for i := range columns {
 			columnPointers[i] = &columns[i]
 		}
@@ -383,7 +383,7 @@ func (s *SQLiteSource) snapshotTable(ctx context.Context, table string) error {
 			return err
 		}
 
-		record := make(map[string]interface{})
+		record := make(map[string]any)
 		for i, colName := range cols {
 			val := columns[i]
 			if b, ok := val.([]byte); ok {

@@ -17,7 +17,7 @@ type TikTokSource struct {
 	interval     time.Duration
 	cursor       int64
 	client       *http.Client
-	items        []map[string]interface{}
+	items        []map[string]any
 	currentIndex int
 	lastPoll     time.Time
 	baseURL      string
@@ -92,15 +92,15 @@ func (s *TikTokSource) Read(ctx context.Context) (hermod.Message, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		var errRes map[string]interface{}
+		var errRes map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&errRes)
 		return nil, fmt.Errorf("tiktok api returned status %d: %v", resp.StatusCode, errRes["error"])
 	}
 
 	var result struct {
 		Data struct {
-			Videos []map[string]interface{} `json:"videos"`
-			Cursor int64                    `json:"cursor"`
+			Videos []map[string]any `json:"videos"`
+			Cursor int64            `json:"cursor"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -119,7 +119,7 @@ func (s *TikTokSource) Read(ctx context.Context) (hermod.Message, error) {
 	return s.messageFromData(item), nil
 }
 
-func (s *TikTokSource) messageFromData(data map[string]interface{}) hermod.Message {
+func (s *TikTokSource) messageFromData(data map[string]any) hermod.Message {
 	msg := message.AcquireMessage()
 	if id, ok := data["id"].(string); ok {
 		msg.SetID(id)

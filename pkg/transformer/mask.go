@@ -15,7 +15,7 @@ func init() {
 
 type MaskTransformer struct{}
 
-func (t *MaskTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *MaskTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -52,7 +52,7 @@ func (t *MaskTransformer) Transform(ctx context.Context, msg hermod.Message, con
 	return msg, nil
 }
 
-func (t *MaskTransformer) scanAndMask(data map[string]interface{}, maskType string) {
+func (t *MaskTransformer) scanAndMask(data map[string]any, maskType string) {
 	for k, v := range data {
 		switch val := v.(type) {
 		case string:
@@ -68,11 +68,11 @@ func (t *MaskTransformer) scanAndMask(data map[string]interface{}, maskType stri
 				masked = "****"
 			}
 			data[k] = masked
-		case map[string]interface{}:
+		case map[string]any:
 			t.scanAndMask(val, maskType)
-		case []interface{}:
+		case []any:
 			for i, item := range val {
-				if m, ok := item.(map[string]interface{}); ok {
+				if m, ok := item.(map[string]any); ok {
 					t.scanAndMask(m, maskType)
 				} else if s, ok := item.(string); ok {
 					var masked string

@@ -15,8 +15,8 @@ func TestAITransformer_Transform(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/chat/completions" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"choices": []map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{
 					{
 						"message": map[string]string{
 							"content": "Positive",
@@ -32,7 +32,7 @@ func TestAITransformer_Transform(t *testing.T) {
 	msg := message.AcquireMessage()
 	msg.SetData("text", "I love this product!")
 
-	config := map[string]interface{}{
+	config := map[string]any{
 		"provider":    "openai",
 		"endpoint":    server.URL + "/v1/chat/completions",
 		"model":       "gpt-3.5-turbo",
@@ -54,7 +54,7 @@ func TestAITransformer_Transform_JSONMerge(t *testing.T) {
 	// Mock Ollama API
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"response": `{"category": "electronics", "priority": "high"}`,
 		})
 	}))
@@ -64,7 +64,7 @@ func TestAITransformer_Transform_JSONMerge(t *testing.T) {
 	msg := message.AcquireMessage()
 	msg.SetData("item", "laptop")
 
-	config := map[string]interface{}{
+	config := map[string]any{
 		"provider": "ollama",
 		"endpoint": server.URL,
 		"model":    "llama2",
@@ -87,7 +87,7 @@ func TestAITransformer_Transform_JSONMerge(t *testing.T) {
 func TestAIMapperTransformer_Transform(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"response": `{"full_name": "John Doe", "age": 30}`,
 		})
 	}))
@@ -99,7 +99,7 @@ func TestAIMapperTransformer_Transform(t *testing.T) {
 	msg.SetData("surname", "Doe")
 	msg.SetData("birth_year", 1994)
 
-	config := map[string]interface{}{
+	config := map[string]any{
 		"provider":     "ollama",
 		"endpoint":     server.URL,
 		"model":        "llama2",

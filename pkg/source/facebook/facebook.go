@@ -19,7 +19,7 @@ type FacebookSource struct {
 	interval     time.Duration
 	since        string // Unix timestamp
 	client       *http.Client
-	items        []map[string]interface{}
+	items        []map[string]any
 	currentIndex int
 	lastPoll     time.Time
 	baseURL      string
@@ -84,12 +84,12 @@ func (s *FacebookSource) Read(ctx context.Context) (hermod.Message, error) {
 		}
 		defer resp.Body.Close()
 		var feedResult struct {
-			Data []map[string]interface{} `json:"data"`
+			Data []map[string]any `json:"data"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&feedResult); err != nil {
 			return nil, err
 		}
-		var allComments []map[string]interface{}
+		var allComments []map[string]any
 		for _, post := range feedResult.Data {
 			postID := post["id"].(string)
 			commentURL := fmt.Sprintf("%s/%s/comments?access_token=%s&fields=id,message,created_time,from&limit=10", s.baseURL, postID, s.accessToken)
@@ -97,7 +97,7 @@ func (s *FacebookSource) Read(ctx context.Context) (hermod.Message, error) {
 			resp, err := s.client.Do(req)
 			if err == nil {
 				var commentResult struct {
-					Data []map[string]interface{} `json:"data"`
+					Data []map[string]any `json:"data"`
 				}
 				if json.NewDecoder(resp.Body).Decode(&commentResult) == nil {
 					for _, c := range commentResult.Data {
@@ -123,7 +123,7 @@ func (s *FacebookSource) Read(ctx context.Context) (hermod.Message, error) {
 		}
 		defer resp.Body.Close()
 		var insightResult struct {
-			Data []map[string]interface{} `json:"data"`
+			Data []map[string]any `json:"data"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&insightResult); err != nil {
 			return nil, err
@@ -149,13 +149,13 @@ func (s *FacebookSource) Read(ctx context.Context) (hermod.Message, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		var errRes map[string]interface{}
+		var errRes map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&errRes)
 		return nil, fmt.Errorf("facebook api returned status %d: %v", resp.StatusCode, errRes["error"])
 	}
 
 	var result struct {
-		Data []map[string]interface{} `json:"data"`
+		Data []map[string]any `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
@@ -164,7 +164,7 @@ func (s *FacebookSource) Read(ctx context.Context) (hermod.Message, error) {
 	return s.processItems(ctx, result.Data)
 }
 
-func (s *FacebookSource) processItems(ctx context.Context, data []map[string]interface{}) (hermod.Message, error) {
+func (s *FacebookSource) processItems(ctx context.Context, data []map[string]any) (hermod.Message, error) {
 	if len(data) == 0 {
 		return s.Read(ctx)
 	}
@@ -185,7 +185,7 @@ func (s *FacebookSource) processItems(ctx context.Context, data []map[string]int
 	return s.messageFromData(item), nil
 }
 
-func (s *FacebookSource) messageFromData(data map[string]interface{}) hermod.Message {
+func (s *FacebookSource) messageFromData(data map[string]any) hermod.Message {
 	msg := message.AcquireMessage()
 	if id, ok := data["id"].(string); ok {
 		msg.SetID(id)

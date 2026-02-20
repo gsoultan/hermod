@@ -60,7 +60,7 @@ func (m *MSSQLSource) SetLogger(logger hermod.Logger) {
 	m.logger = logger
 }
 
-func (m *MSSQLSource) log(level, msg string, keysAndValues ...interface{}) {
+func (m *MSSQLSource) log(level, msg string, keysAndValues ...any) {
 	m.mu.Lock()
 	logger := m.logger
 	m.mu.Unlock()
@@ -261,8 +261,8 @@ func (m *MSSQLSource) snapshotTable(ctx context.Context, table string) error {
 	}
 
 	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
+		values := make([]any, len(columns))
+		valuePtrs := make([]any, len(columns))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -271,7 +271,7 @@ func (m *MSSQLSource) snapshotTable(ctx context.Context, table string) error {
 			return err
 		}
 
-		record := make(map[string]interface{})
+		record := make(map[string]any)
 		for i, colName := range columns {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -637,8 +637,8 @@ func (m *MSSQLSource) processChangeRows(table string, rows *sql.Rows) ([]hermod.
 	var lastBeforeMsg *message.DefaultMessage
 
 	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
+		values := make([]any, len(columns))
+		valuePtrs := make([]any, len(columns))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
@@ -647,7 +647,7 @@ func (m *MSSQLSource) processChangeRows(table string, rows *sql.Rows) ([]hermod.
 			return nil, err
 		}
 
-		entry := make(map[string]interface{})
+		entry := make(map[string]any)
 		var rowLSN []byte
 		var rowSeq []byte
 		var operation int
@@ -712,7 +712,7 @@ func (m *MSSQLSource) processChangeRows(table string, rows *sql.Rows) ([]hermod.
 	return msgs, nil
 }
 
-func (m *MSSQLSource) mapToMessage(table string, op int, lsn []byte, seq []byte, data map[string]interface{}) *message.DefaultMessage {
+func (m *MSSQLSource) mapToMessage(table string, op int, lsn []byte, seq []byte, data map[string]any) *message.DefaultMessage {
 	msg := message.AcquireMessage()
 
 	schema, tableName := parseTableParts(table)
@@ -1081,8 +1081,8 @@ func (m *MSSQLSource) Sample(ctx context.Context, table string) (hermod.Message,
 		return nil, err
 	}
 
-	columns := make([]interface{}, len(cols))
-	columnPointers := make([]interface{}, len(cols))
+	columns := make([]any, len(cols))
+	columnPointers := make([]any, len(cols))
 	for i := range columns {
 		columnPointers[i] = &columns[i]
 	}
@@ -1091,7 +1091,7 @@ func (m *MSSQLSource) Sample(ctx context.Context, table string) (hermod.Message,
 		return nil, err
 	}
 
-	record := make(map[string]interface{})
+	record := make(map[string]any)
 	for i, colName := range cols {
 		val := columns[i]
 		if b, ok := val.([]byte); ok {

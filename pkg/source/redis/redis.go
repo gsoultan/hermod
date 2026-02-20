@@ -102,7 +102,7 @@ func (s *RedisSource) Read(ctx context.Context) (hermod.Message, error) {
 	if data, ok := xmsg.Values["data"].(string); ok {
 		msg.SetPayload([]byte(data))
 		// Try to unmarshal JSON into Data() for dynamic structure
-		var jsonData map[string]interface{}
+		var jsonData map[string]any
 		if err := json.Unmarshal([]byte(data), &jsonData); err == nil {
 			for k, v := range jsonData {
 				msg.SetData(k, v)
@@ -113,7 +113,7 @@ func (s *RedisSource) Read(ctx context.Context) (hermod.Message, error) {
 	} else if dataBytes, ok := xmsg.Values["data"].([]byte); ok {
 		msg.SetPayload(dataBytes)
 		// Try to unmarshal JSON into Data() for dynamic structure
-		var jsonData map[string]interface{}
+		var jsonData map[string]any
 		if err := json.Unmarshal(dataBytes, &jsonData); err == nil {
 			for k, v := range jsonData {
 				msg.SetData(k, v)
@@ -227,7 +227,7 @@ func (s *RedisSource) Sample(ctx context.Context, table string) (hermod.Message,
 
 	if data, ok := xmsg.Values["data"].(string); ok {
 		msg.SetPayload([]byte(data))
-		var jsonData map[string]interface{}
+		var jsonData map[string]any
 		if err := json.Unmarshal([]byte(data), &jsonData); err == nil {
 			for k, v := range jsonData {
 				msg.SetData(k, v)
@@ -237,7 +237,7 @@ func (s *RedisSource) Sample(ctx context.Context, table string) (hermod.Message,
 		}
 	} else if dataBytes, ok := xmsg.Values["data"].([]byte); ok {
 		msg.SetPayload(dataBytes)
-		var jsonData map[string]interface{}
+		var jsonData map[string]any
 		if err := json.Unmarshal(dataBytes, &jsonData); err == nil {
 			for k, v := range jsonData {
 				msg.SetData(k, v)

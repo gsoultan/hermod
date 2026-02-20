@@ -13,7 +13,7 @@ func TestRouterNode_Regex(t *testing.T) {
 	node := &storage.WorkflowNode{
 		ID:   "router1",
 		Type: "router",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"rules": `[
 				{"label": "high_priority", "field": "severity", "operator": "regex", "value": "^(high|critical)$"},
 				{"label": "low_priority", "field": "severity", "operator": "regex", "value": "^(low|medium)$"}

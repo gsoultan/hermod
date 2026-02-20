@@ -137,10 +137,10 @@ func (f *fakeStorage) GetSetting(ctx context.Context, key string) (string, error
 }
 func (f *fakeStorage) SaveSetting(ctx context.Context, key string, value string) error { return nil }
 
-func (f *fakeStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error {
+func (f *fakeStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
 	return nil
 }
-func (f *fakeStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+func (f *fakeStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error) {
 	return nil, nil
 }
 
@@ -283,9 +283,9 @@ func TestReadiness_Schema_And_NonGating(t *testing.T) {
 	}
 
 	var body struct {
-		Version string                 `json:"version"`
-		Status  string                 `json:"status"`
-		Checks  map[string]interface{} `json:"checks"`
+		Version string         `json:"version"`
+		Status  string         `json:"status"`
+		Checks  map[string]any `json:"checks"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatalf("invalid json: %v", err)
@@ -297,7 +297,7 @@ func TestReadiness_Schema_And_NonGating(t *testing.T) {
 		t.Fatalf("expected status ok, got %s", body.Status)
 	}
 	// Validate workers shape
-	workers, ok := body.Checks["workers"].(map[string]interface{})
+	workers, ok := body.Checks["workers"].(map[string]any)
 	if !ok {
 		t.Fatalf("missing workers check")
 	}
@@ -364,7 +364,7 @@ func TestReadiness_Leases_Check_And_Gating(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 	var body struct {
-		Checks map[string]map[string]interface{} `json:"checks"`
+		Checks map[string]map[string]any `json:"checks"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatalf("invalid json: %v", err)

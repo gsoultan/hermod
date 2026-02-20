@@ -62,7 +62,7 @@ func (m *VaultManager) Get(ctx context.Context, key string) (string, error) {
 	}
 
 	// KV v2 data is nested under "data"
-	data, ok := secret.Data["data"].(map[string]interface{})
+	data, ok := secret.Data["data"].(map[string]any)
 	if !ok {
 		return "", fmt.Errorf("invalid secret data format for %s", key)
 	}

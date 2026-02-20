@@ -22,7 +22,7 @@ type SchemaConfig struct {
 
 // Validator defines the interface for schema validation.
 type Validator interface {
-	Validate(ctx context.Context, data map[string]interface{}) error
+	Validate(ctx context.Context, data map[string]any) error
 	Type() SchemaType
 }
 

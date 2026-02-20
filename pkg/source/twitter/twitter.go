@@ -19,7 +19,7 @@ type TwitterSource struct {
 	interval     time.Duration
 	sinceID      string
 	client       *http.Client
-	items        []map[string]interface{}
+	items        []map[string]any
 	currentIndex int
 	lastPoll     time.Time
 	baseURL      string
@@ -116,13 +116,13 @@ func (s *TwitterSource) Read(ctx context.Context) (hermod.Message, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		var errRes map[string]interface{}
+		var errRes map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&errRes)
 		return nil, fmt.Errorf("twitter api returned status %d: %v", resp.StatusCode, errRes["detail"])
 	}
 
 	var result struct {
-		Data []map[string]interface{} `json:"data"`
+		Data []map[string]any `json:"data"`
 		Meta struct {
 			NewestID string `json:"newest_id"`
 		} `json:"meta"`
@@ -145,7 +145,7 @@ func (s *TwitterSource) Read(ctx context.Context) (hermod.Message, error) {
 	return s.messageFromData(item), nil
 }
 
-func (s *TwitterSource) messageFromData(data map[string]interface{}) hermod.Message {
+func (s *TwitterSource) messageFromData(data map[string]any) hermod.Message {
 	msg := message.AcquireMessage()
 	msg.SetID(data["id"].(string))
 	msg.SetOperation(hermod.OpCreate)

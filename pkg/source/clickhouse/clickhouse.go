@@ -25,7 +25,7 @@ type ClickHouseSource struct {
 	conn         clickhouse.Conn
 	mu           sync.Mutex
 	logger       hermod.Logger
-	lastIDs      map[string]interface{}
+	lastIDs      map[string]any
 	msgChan      chan hermod.Message
 }
 
@@ -39,7 +39,7 @@ func NewClickHouseSource(connString string, tables []string, idField string, pol
 		idField:      idField,
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
-		lastIDs:      make(map[string]interface{}),
+		lastIDs:      make(map[string]any),
 		msgChan:      make(chan hermod.Message, 1000),
 	}
 }
@@ -50,7 +50,7 @@ func (c *ClickHouseSource) SetLogger(logger hermod.Logger) {
 	c.logger = logger
 }
 
-func (c *ClickHouseSource) log(level, msg string, keysAndValues ...interface{}) {
+func (c *ClickHouseSource) log(level, msg string, keysAndValues ...any) {
 	c.mu.Lock()
 	logger := c.logger
 	c.mu.Unlock()
@@ -129,7 +129,7 @@ func (c *ClickHouseSource) Read(ctx context.Context) (hermod.Message, error) {
 			}
 
 			var query string
-			var args []interface{}
+			var args []any
 
 			if lastID != nil && c.idField != "" {
 				quotedID, _ := sqlutil.QuoteIdent("clickhouse", c.idField)
@@ -146,8 +146,8 @@ func (c *ClickHouseSource) Read(ctx context.Context) (hermod.Message, error) {
 
 			if rows.Next() {
 				columns := rows.Columns()
-				values := make([]interface{}, len(columns))
-				dest := make([]interface{}, len(columns))
+				values := make([]any, len(columns))
+				dest := make([]any, len(columns))
 				for i := range dest {
 					dest[i] = &values[i]
 				}
@@ -158,8 +158,8 @@ func (c *ClickHouseSource) Read(ctx context.Context) (hermod.Message, error) {
 				}
 				rows.Close()
 
-				record := make(map[string]interface{})
-				var currentID interface{}
+				record := make(map[string]any)
+				var currentID any
 				for i, col := range columns {
 					val := values[i]
 					if b, ok := val.([]byte); ok {
@@ -240,8 +240,8 @@ func (c *ClickHouseSource) snapshotTable(ctx context.Context, table string) erro
 
 	columns := rows.Columns()
 	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		dest := make([]interface{}, len(columns))
+		values := make([]any, len(columns))
+		dest := make([]any, len(columns))
 		for i := range dest {
 			dest[i] = &values[i]
 		}
@@ -250,7 +250,7 @@ func (c *ClickHouseSource) snapshotTable(ctx context.Context, table string) erro
 			return err
 		}
 
-		record := make(map[string]interface{})
+		record := make(map[string]any)
 		for i, colName := range columns {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -419,9 +419,9 @@ func (c *ClickHouseSource) Sample(ctx context.Context, table string) (hermod.Mes
 	}
 
 	columns := rows.Columns()
-	values := make([]interface{}, len(columns))
+	values := make([]any, len(columns))
 	// clickhouse-go v2 uses Scan for results
-	dest := make([]interface{}, len(columns))
+	dest := make([]any, len(columns))
 	for i := range dest {
 		dest[i] = &values[i]
 	}
@@ -430,7 +430,7 @@ func (c *ClickHouseSource) Sample(ctx context.Context, table string) (hermod.Mes
 		return nil, err
 	}
 
-	record := make(map[string]interface{})
+	record := make(map[string]any)
 	for i, colName := range columns {
 		val := values[i]
 		if b, ok := val.([]byte); ok {

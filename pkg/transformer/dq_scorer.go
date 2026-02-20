@@ -16,12 +16,12 @@ func init() {
 // DQScorerTransformer calculates a data quality score based on schema adherence and field completeness.
 type DQScorerTransformer struct{}
 
-func (t *DQScorerTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *DQScorerTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
 
-	requiredFields, _ := config["required_fields"].([]interface{})
+	requiredFields, _ := config["required_fields"].([]any)
 	data := msg.Data()
 	if data == nil {
 		return msg, nil

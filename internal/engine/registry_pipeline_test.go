@@ -29,11 +29,11 @@ func (m *mockStorage) GetSink(ctx context.Context, id string) (storage.Sink, err
 	return storage.Sink{ID: id}, nil
 }
 
-func (m *mockStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state interface{}) error {
+func (m *mockStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
 	return nil
 }
 
-func (m *mockStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]interface{}, error) {
+func (m *mockStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error) {
 	return nil, nil
 }
 
@@ -66,14 +66,14 @@ func TestTransformationPipelineRegistry(t *testing.T) {
 	transformations := []storage.Transformation{
 		{
 			Type: "advanced",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"column.email": "lower(source.email)",
 				"column.name":  "upper(source.name)",
 			},
 		},
 		{
 			Type: "filter_data",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"field":    "name",
 				"operator": "=",
 				"value":    "JOHN",
@@ -91,7 +91,7 @@ func TestTransformationPipelineRegistry(t *testing.T) {
 	}
 
 	// First result: transformed
-	var firstAfter map[string]interface{}
+	var firstAfter map[string]any
 	if err := json.Unmarshal(results[0].After(), &firstAfter); err != nil {
 		t.Fatalf("Failed to unmarshal first result: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestTransformationPipelineRegistry(t *testing.T) {
 	transformations2 := []storage.Transformation{
 		{
 			Type: "filter_data",
-			Config: map[string]interface{}{
+			Config: map[string]any{
 				"field":    "amount",
 				"operator": ">",
 				"value":    "100",
@@ -157,7 +157,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "advanced",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"column.email": "lower( source.email )",
 				},
 			},
@@ -168,7 +168,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to test pipeline: %v", err)
 		}
 
-		var after map[string]interface{}
+		var after map[string]any
 		json.Unmarshal(results[0].After(), &after)
 		if after["email"] != "john@example.com" {
 			t.Errorf("Expected john@example.com, got %v", after["email"])
@@ -182,7 +182,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "advanced",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"column.field": `replace(source.field, ",", ";")`,
 				},
 			},
@@ -193,7 +193,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to test pipeline: %v", err)
 		}
 
-		var after map[string]interface{}
+		var after map[string]any
 		json.Unmarshal(results[0].After(), &after)
 		if after["field"] != "a;b;c" {
 			t.Errorf("Expected a;b;c, got %v", after["field"])
@@ -207,7 +207,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "mask",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"field":    "email",
 					"maskType": "email",
 				},
@@ -219,7 +219,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to test pipeline: %v", err)
 		}
 
-		var after map[string]interface{}
+		var after map[string]any
 		json.Unmarshal(results[0].After(), &after)
 		if after["email"] != "****" {
 			t.Errorf("Expected **** for invalid email, got %v", after["email"])
@@ -233,7 +233,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "filter_data",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"field":    "missing",
 					"operator": "=",
 					"value":    "something",
@@ -259,7 +259,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "filter_data",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"conditions": `[{"field": "product", "operator": "=", "value": "iPhone"}, {"field": "status", "operator": "=", "value": "active"}]`,
 				},
 			},
@@ -291,7 +291,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "mask",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"field":    "user.email",
 					"maskType": "email",
 				},
@@ -303,9 +303,9 @@ func TestTransformationEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to test pipeline: %v", err)
 		}
 
-		var after map[string]interface{}
+		var after map[string]any
 		json.Unmarshal(results[0].After(), &after)
-		user := after["user"].(map[string]interface{})
+		user := after["user"].(map[string]any)
 		if user["email"] != "j****@example.com" {
 			t.Errorf("Expected j****@example.com, got %v", user["email"])
 		}
@@ -318,7 +318,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "set",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"column.new_field":    "value",
 					"column.nested.field": "nested_value",
 				},
@@ -330,12 +330,12 @@ func TestTransformationEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to test pipeline: %v", err)
 		}
 
-		var after map[string]interface{}
+		var after map[string]any
 		json.Unmarshal(results[0].After(), &after)
 		if after["new_field"] != "value" {
 			t.Errorf("Expected value, got %v", after["new_field"])
 		}
-		nested := after["nested"].(map[string]interface{})
+		nested := after["nested"].(map[string]any)
 		if nested["field"] != "nested_value" {
 			t.Errorf("Expected nested_value, got %v", nested["field"])
 		}
@@ -348,7 +348,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "set",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"column.copied": "source.existing",
 				},
 			},
@@ -359,7 +359,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to test pipeline: %v", err)
 		}
 
-		var after map[string]interface{}
+		var after map[string]any
 		json.Unmarshal(results[0].After(), &after)
 		if after["copied"] != "old_value" {
 			t.Errorf("Expected old_value, got %v", after["copied"])
@@ -373,7 +373,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "mapping",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"field":   "user.status",
 					"mapping": `{"1": "Active", "0": "Inactive"}`,
 				},
@@ -385,9 +385,9 @@ func TestTransformationEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to test pipeline: %v", err)
 		}
 
-		var after map[string]interface{}
+		var after map[string]any
 		json.Unmarshal(results[0].After(), &after)
-		user := after["user"].(map[string]interface{})
+		user := after["user"].(map[string]any)
 		if user["status"] != "Active" {
 			t.Errorf("Expected Active, got %v", user["status"])
 		}
@@ -411,7 +411,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 		transformations := []storage.Transformation{
 			{
 				Type: "api_lookup",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"url":          server.URL + "/users/{{user_id}}",
 					"targetField":  "user_profile",
 					"responsePath": ".",
@@ -424,9 +424,9 @@ func TestTransformationEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to test pipeline: %v", err)
 		}
 
-		var after map[string]interface{}
+		var after map[string]any
 		json.Unmarshal(results[0].After(), &after)
-		profile := after["user_profile"].(map[string]interface{})
+		profile := after["user_profile"].(map[string]any)
 		if profile["name"] != "John Doe" {
 			t.Errorf("Expected John Doe, got %v", profile["name"])
 		}
@@ -447,7 +447,7 @@ func TestWorkflowNodesEnhanced(t *testing.T) {
 				{
 					ID:   "cond-1",
 					Type: "condition",
-					Config: map[string]interface{}{
+					Config: map[string]any{
 						"conditions": `[{"field": "status", "operator": "=", "value": "active"}, {"field": "priority", "operator": ">", "value": "5"}]`,
 					},
 				},
@@ -455,7 +455,7 @@ func TestWorkflowNodesEnhanced(t *testing.T) {
 			},
 			Edges: []storage.WorkflowEdge{
 				{SourceID: "src-1", TargetID: "cond-1"},
-				{SourceID: "cond-1", TargetID: "sink-1", Config: map[string]interface{}{"label": "true"}},
+				{SourceID: "cond-1", TargetID: "sink-1", Config: map[string]any{"label": "true"}},
 			},
 		}
 
@@ -507,7 +507,7 @@ func TestWorkflowNodesEnhanced(t *testing.T) {
 				{
 					ID:   "switch-1",
 					Type: "switch",
-					Config: map[string]interface{}{
+					Config: map[string]any{
 						"cases": `[
 							{"label": "premium_electronics", "conditions": [{"field": "category", "operator": "=", "value": "electronics"}, {"field": "price", "operator": ">", "value": "1000"}]},
 							{"label": "budget_electronics", "conditions": [{"field": "category", "operator": "=", "value": "electronics"}, {"field": "price", "operator": "<=", "value": "1000"}]},
@@ -519,7 +519,7 @@ func TestWorkflowNodesEnhanced(t *testing.T) {
 			},
 			Edges: []storage.WorkflowEdge{
 				{SourceID: "src-1", TargetID: "switch-1"},
-				{SourceID: "switch-1", TargetID: "sink-1", Config: map[string]interface{}{"label": "premium_electronics"}},
+				{SourceID: "switch-1", TargetID: "sink-1", Config: map[string]any{"label": "premium_electronics"}},
 			},
 		}
 

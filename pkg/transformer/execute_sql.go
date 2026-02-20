@@ -16,7 +16,7 @@ func init() {
 
 type ExecuteSQLTransformer struct{}
 
-func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}

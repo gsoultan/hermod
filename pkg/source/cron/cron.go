@@ -40,7 +40,7 @@ func (s *CronSource) Read(ctx context.Context) (hermod.Message, error) {
 			msg.SetTable("cron")
 
 			if s.Payload != "" {
-				var data map[string]interface{}
+				var data map[string]any
 				if err := json.Unmarshal([]byte(s.Payload), &data); err == nil {
 					msg.SetAfter([]byte(s.Payload))
 				}

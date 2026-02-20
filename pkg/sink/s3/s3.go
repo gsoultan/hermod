@@ -25,7 +25,7 @@ type S3Sink struct {
 }
 
 func NewS3Sink(ctx context.Context, region, bucket, keyPrefix, accessKey, secretKey, endpoint string, formatter hermod.Formatter, suffix string, contentType string) (*S3Sink, error) {
-	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
 		if endpoint != "" {
 			return aws.Endpoint{
 				PartitionID:   "aws",

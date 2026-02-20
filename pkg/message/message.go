@@ -11,7 +11,7 @@ import (
 )
 
 // SanitizeValue converts special types (like UUIDs) to JSON-friendly strings.
-func SanitizeValue(v interface{}) interface{} {
+func SanitizeValue(v any) any {
 	if v == nil {
 		return nil
 	}
@@ -61,7 +61,7 @@ func SanitizeValue(v interface{}) interface{} {
 }
 
 // SanitizeMap sanitizes all values in a map.
-func SanitizeMap(m map[string]interface{}) map[string]interface{} {
+func SanitizeMap(m map[string]any) map[string]any {
 	for k, v := range m {
 		m[k] = SanitizeValue(v)
 	}
@@ -79,7 +79,7 @@ type DefaultMessage struct {
 	before    []byte
 	payload   []byte
 	metadata  map[string]string
-	data      map[string]interface{}
+	data      map[string]any
 }
 
 func (m *DefaultMessage) ID() string {
@@ -146,7 +146,7 @@ func (m *DefaultMessage) Metadata() map[string]string {
 	return m.metadata
 }
 
-func (m *DefaultMessage) Data() map[string]interface{} {
+func (m *DefaultMessage) Data() map[string]any {
 	m.mu.RLock()
 	if len(m.data) > 0 || len(m.payload) == 0 {
 		defer m.mu.RUnlock()
@@ -159,7 +159,7 @@ func (m *DefaultMessage) Data() map[string]interface{} {
 	if len(m.data) == 0 && len(m.payload) > 0 {
 		if err := json.Unmarshal(m.payload, &m.data); err != nil {
 			// If not a map, try as a slice
-			var slice []interface{}
+			var slice []any
 			if err := json.Unmarshal(m.payload, &slice); err == nil {
 				m.data["payload"] = slice
 			}
@@ -192,7 +192,7 @@ func (m *DefaultMessage) MarshalJSON() ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	res := make(map[string]interface{})
+	res := make(map[string]any)
 
 	// 1. If not a CDC event, merge data fields into root
 	// For CDC events, we keep the root clean and only include system fields + envelopes
@@ -278,10 +278,10 @@ func (m *DefaultMessage) ClearCachedPayload() {
 }
 
 var messagePool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &DefaultMessage{
 			metadata: make(map[string]string),
-			data:     make(map[string]interface{}),
+			data:     make(map[string]any),
 		}
 	},
 }
@@ -348,13 +348,13 @@ func (m *DefaultMessage) SetMetadata(key, value string) {
 	m.metadata[key] = value
 }
 
-func (m *DefaultMessage) SetData(key string, value interface{}) {
+func (m *DefaultMessage) SetData(key string, value any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// If data is empty but payload is not, try to unmarshal payload first
 	if len(m.data) == 0 && len(m.payload) > 0 {
-		var d map[string]interface{}
+		var d map[string]any
 		if err := json.Unmarshal(m.payload, &d); err == nil {
 			m.data = d
 		}
@@ -363,11 +363,11 @@ func (m *DefaultMessage) SetData(key string, value interface{}) {
 	if strings.Contains(key, ".") {
 		parts := strings.Split(key, ".")
 		current := m.data
-		for i := 0; i < len(parts)-1; i++ {
-			next, ok := current[parts[i]].(map[string]interface{})
+		for i := range len(parts) - 1 {
+			next, ok := current[parts[i]].(map[string]any)
 			if !ok {
 				// Try to see if it's another type of map or if it needs to be created
-				next = make(map[string]interface{})
+				next = make(map[string]any)
 				current[parts[i]] = next
 			}
 			current = next

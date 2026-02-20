@@ -57,7 +57,7 @@ type StatValidatorTransformer struct {
 	mu    sync.RWMutex
 }
 
-func (t *StatValidatorTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *StatValidatorTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	field, _ := config["field"].(string)
 	if field == "" {
 		return msg, nil

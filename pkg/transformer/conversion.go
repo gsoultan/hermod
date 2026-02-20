@@ -17,7 +17,7 @@ func init() {
 
 type DataConversionTransformer struct{}
 
-func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -36,7 +36,7 @@ func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Me
 		return msg, nil
 	}
 
-	var converted interface{}
+	var converted any
 	var err error
 
 	switch strings.ToLower(targetType) {
@@ -76,7 +76,7 @@ func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Me
 	return msg, nil
 }
 
-func (t *DataConversionTransformer) toInt(val interface{}) (interface{}, error) {
+func (t *DataConversionTransformer) toInt(val any) (any, error) {
 	switch v := val.(type) {
 	case int, int64, int32:
 		return v, nil
@@ -94,7 +94,7 @@ func (t *DataConversionTransformer) toInt(val interface{}) (interface{}, error) 
 	}
 }
 
-func (t *DataConversionTransformer) toFloat(val interface{}) (interface{}, error) {
+func (t *DataConversionTransformer) toFloat(val any) (any, error) {
 	switch v := val.(type) {
 	case float64:
 		return v, nil
@@ -113,11 +113,11 @@ func (t *DataConversionTransformer) toFloat(val interface{}) (interface{}, error
 	}
 }
 
-func (t *DataConversionTransformer) toBool(val interface{}) (interface{}, error) {
+func (t *DataConversionTransformer) toBool(val any) (any, error) {
 	return evaluator.ToBool(val), nil // Evaluator's ToBool is quite robust
 }
 
-func (t *DataConversionTransformer) toDate(val interface{}, format string) (interface{}, error) {
+func (t *DataConversionTransformer) toDate(val any, format string) (any, error) {
 	s := fmt.Sprintf("%v", val)
 	if format == "" {
 		format = time.RFC3339

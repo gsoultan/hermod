@@ -101,6 +101,6 @@ func (m *mockMessage) ID() string {
 	return m.id
 }
 
-func (m *mockMessage) Data() map[string]interface{} {
+func (m *mockMessage) Data() map[string]any {
 	return nil
 }

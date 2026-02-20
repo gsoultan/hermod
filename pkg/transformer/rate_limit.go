@@ -17,7 +17,7 @@ type RateLimitTransformer struct {
 	limiters map[string]*rate.Limiter
 }
 
-func (t *RateLimitTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *RateLimitTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -70,7 +70,7 @@ func (t *RateLimitTransformer) Transform(ctx context.Context, msg hermod.Message
 	return msg, nil
 }
 
-func interfaceToString(v interface{}) string {
+func interfaceToString(v any) string {
 	switch val := v.(type) {
 	case string:
 		return val

@@ -119,8 +119,8 @@ type wasmSinkAdapter struct {
 }
 
 func (a *wasmSinkAdapter) Write(ctx context.Context, msg hermod.Message) error {
-	// Convert map[string]string to map[string]interface{}
-	cfg := make(map[string]interface{})
+	// Convert map[string]string to map[string]any
+	cfg := make(map[string]any)
 	for k, v := range a.config {
 		cfg[k] = v
 	}

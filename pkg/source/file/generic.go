@@ -288,7 +288,7 @@ func (s *GenericFileSource) Read(ctx context.Context) (hermod.Message, error) {
 			}
 			if b != nil { // payload
 				// Write whole payload
-				for k, v := range map[string]interface{}{"file_name": filepath.Base(ref.Name), "file_size": ref.Size, "mod_time": ref.ModTime.Unix()} {
+				for k, v := range map[string]any{"file_name": filepath.Base(ref.Name), "file_size": ref.Size, "mod_time": ref.ModTime.Unix()} {
 					msg.SetData(k, v)
 				}
 				// Attach payload

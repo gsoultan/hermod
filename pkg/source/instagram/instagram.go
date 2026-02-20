@@ -18,7 +18,7 @@ type InstagramSource struct {
 	interval     time.Duration
 	sinceID      string
 	client       *http.Client
-	items        []map[string]interface{}
+	items        []map[string]any
 	currentIndex int
 	lastPoll     time.Time
 	baseURL      string
@@ -83,12 +83,12 @@ func (s *InstagramSource) Read(ctx context.Context) (hermod.Message, error) {
 		}
 		defer resp.Body.Close()
 		var mediaResult struct {
-			Data []map[string]interface{} `json:"data"`
+			Data []map[string]any `json:"data"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&mediaResult); err != nil {
 			return nil, err
 		}
-		var allComments []map[string]interface{}
+		var allComments []map[string]any
 		for _, m := range mediaResult.Data {
 			mediaID := m["id"].(string)
 			commentURL := fmt.Sprintf("%s/%s/comments?access_token=%s&fields=id,text,timestamp,username&limit=10", s.baseURL, mediaID, s.accessToken)
@@ -96,7 +96,7 @@ func (s *InstagramSource) Read(ctx context.Context) (hermod.Message, error) {
 			resp, err := s.client.Do(req)
 			if err == nil {
 				var commentResult struct {
-					Data []map[string]interface{} `json:"data"`
+					Data []map[string]any `json:"data"`
 				}
 				if json.NewDecoder(resp.Body).Decode(&commentResult) == nil {
 					for _, c := range commentResult.Data {
@@ -122,7 +122,7 @@ func (s *InstagramSource) Read(ctx context.Context) (hermod.Message, error) {
 		}
 		defer resp.Body.Close()
 		var insightResult struct {
-			Data []map[string]interface{} `json:"data"`
+			Data []map[string]any `json:"data"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&insightResult); err != nil {
 			return nil, err
@@ -145,13 +145,13 @@ func (s *InstagramSource) Read(ctx context.Context) (hermod.Message, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		var errRes map[string]interface{}
+		var errRes map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&errRes)
 		return nil, fmt.Errorf("instagram api returned status %d: %v", resp.StatusCode, errRes["error"])
 	}
 
 	var result struct {
-		Data []map[string]interface{} `json:"data"`
+		Data []map[string]any `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
@@ -160,8 +160,8 @@ func (s *InstagramSource) Read(ctx context.Context) (hermod.Message, error) {
 	return s.processItems(ctx, result.Data)
 }
 
-func (s *InstagramSource) processItems(ctx context.Context, data []map[string]interface{}) (hermod.Message, error) {
-	var filtered []map[string]interface{}
+func (s *InstagramSource) processItems(ctx context.Context, data []map[string]any) (hermod.Message, error) {
+	var filtered []map[string]any
 	foundSince := false
 	for _, item := range data {
 		if s.sinceID != "" && item["id"] == s.sinceID {
@@ -190,7 +190,7 @@ func (s *InstagramSource) processItems(ctx context.Context, data []map[string]in
 	return s.messageFromData(item), nil
 }
 
-func (s *InstagramSource) messageFromData(data map[string]interface{}) hermod.Message {
+func (s *InstagramSource) messageFromData(data map[string]any) hermod.Message {
 	msg := message.AcquireMessage()
 	if id, ok := data["id"].(string); ok {
 		msg.SetID(id)

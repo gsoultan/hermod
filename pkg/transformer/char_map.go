@@ -15,7 +15,7 @@ func init() {
 
 type CharMapTransformer struct{}
 
-func (t *CharMapTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *CharMapTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -25,7 +25,7 @@ func (t *CharMapTransformer) Transform(ctx context.Context, msg hermod.Message, 
 		return msg, nil
 	}
 
-	ops, _ := config["operations"].([]interface{})
+	ops, _ := config["operations"].([]any)
 	if len(ops) == 0 {
 		// Fallback to single operation if provided
 		if op, ok := config["operation"].(string); ok {

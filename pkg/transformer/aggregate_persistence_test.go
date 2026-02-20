@@ -29,7 +29,7 @@ func TestAggregateTransformer_Persistence(t *testing.T) {
 	ctx = context.WithValue(ctx, "workflow_id", "wf1")
 	ctx = context.WithValue(ctx, "node_id", "node1")
 
-	config := map[string]interface{}{
+	config := map[string]any{
 		"field":      "price",
 		"type":       "sum",
 		"persistent": true,

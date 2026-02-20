@@ -28,14 +28,14 @@ type DBLookupTransformer struct{}
 type RegistryProvider interface {
 	GetSource(ctx context.Context, id string) (storage.Source, error)
 	GetOrOpenDB(src storage.Source) (*sql.DB, error)
-	GetLookupCache() (map[string]interface{}, *sync.RWMutex) // This might need a better way
+	GetLookupCache() (map[string]any, *sync.RWMutex) // This might need a better way
 }
 
 // NOTE: Since we need Registry for storage and DB pool, we'll assume it's passed in context
 // or we need a cleaner way to provide these services.
 // For now, let's look at how we can access Registry from context as previously hinted in registry.go:893
 
-func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]interface{}) (hermod.Message, error) {
+func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
@@ -43,8 +43,8 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	registry, ok := ctx.Value("registry").(interface {
 		GetSource(ctx context.Context, id string) (storage.Source, error)
 		GetOrOpenDB(src storage.Source) (*sql.DB, error)
-		GetLookupCache(key string) (interface{}, bool)
-		SetLookupCache(key string, value interface{}, ttl time.Duration)
+		GetLookupCache(key string) (any, bool)
+		SetLookupCache(key string, value any, ttl time.Duration)
 	})
 
 	if !ok {
@@ -90,7 +90,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 		}
 	}
 
-	var resultVal interface{}
+	var resultVal any
 	if src.Type == "mongodb" {
 		// queryTemplate not supported for Mongo; use whereClause
 		resultVal, err = t.lookupMongoDB(ctx, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, msg.Data())
@@ -115,7 +115,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 		msg.SetData(targetField, resultVal)
 		// Optional flattening of results into top-level or prefixed fields
 		if flattenInto != "" {
-			if m, ok := resultVal.(map[string]interface{}); ok {
+			if m, ok := resultVal.(map[string]any); ok {
 				for k, v := range m {
 					if flattenInto == "." {
 						msg.SetData(k, v)
@@ -132,7 +132,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	return msg, nil
 }
 
-func (t *DBLookupTransformer) lookupMongoDB(ctx context.Context, src storage.Source, table, keyColumn string, keyVal interface{}, whereClause, valueColumn, defaultValue string, data map[string]interface{}) (interface{}, error) {
+func (t *DBLookupTransformer) lookupMongoDB(ctx context.Context, src storage.Source, table, keyColumn string, keyVal any, whereClause, valueColumn, defaultValue string, data map[string]any) (any, error) {
 	uri := src.Config["uri"]
 	if uri == "" {
 		host := src.Config["host"]
@@ -166,7 +166,7 @@ func (t *DBLookupTransformer) lookupMongoDB(ctx context.Context, src storage.Sou
 		}
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	err = coll.FindOne(ctx, filter).Decode(&result)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -175,7 +175,7 @@ func (t *DBLookupTransformer) lookupMongoDB(ctx context.Context, src storage.Sou
 		return nil, fmt.Errorf("mongo lookup failed: %w", err)
 	}
 
-	var finalResult interface{} = result
+	var finalResult any = result
 	if valueColumn != "" && valueColumn != "*" {
 		finalResult = result[valueColumn]
 	}
@@ -184,7 +184,7 @@ func (t *DBLookupTransformer) lookupMongoDB(ctx context.Context, src storage.Sou
 
 func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface {
 	GetOrOpenDB(src storage.Source) (*sql.DB, error)
-}, src storage.Source, table, keyColumn string, keyVal interface{}, whereClause, valueColumn, defaultValue string, data map[string]interface{}) (interface{}, error) {
+}, src storage.Source, table, keyColumn string, keyVal any, whereClause, valueColumn, defaultValue string, data map[string]any) (any, error) {
 	db, err := registry.GetOrOpenDB(src)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database for lookup: %w", err)
@@ -224,7 +224,7 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 	}
 
 	var whereParts []string
-	var args []interface{}
+	var args []any
 	nextIdx := 1
 	batchMode := false
 
@@ -251,7 +251,7 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 			if qerr != nil {
 				return nil, fmt.Errorf("invalid column in whereClause: %w", qerr)
 			}
-			var val interface{}
+			var val any
 			if strings.Contains(rhs, "{{") {
 				// Evaluate template into a value string and trim any surrounding quotes
 				s := evaluator.ResolveTemplate(rhs, data)
@@ -310,7 +310,7 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 		query += " LIMIT 1"
 	}
 
-	var resultVal interface{}
+	var resultVal any
 	if valueColumn == "*" || strings.Contains(valueColumn, ",") {
 		rows, err := db.QueryContext(ctx, query, args...)
 		if err != nil {
@@ -321,18 +321,18 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 		// If batch (IN) was used, return all rows as []map
 		isBatch := strings.Contains(strings.ToUpper(query), " IN (")
 		if isBatch {
-			var rowsOut []map[string]interface{}
+			var rowsOut []map[string]any
 			for rows.Next() {
 				cols, _ := rows.Columns()
-				values := make([]interface{}, len(cols))
-				valuePtrs := make([]interface{}, len(cols))
+				values := make([]any, len(cols))
+				valuePtrs := make([]any, len(cols))
 				for i := range values {
 					valuePtrs[i] = &values[i]
 				}
 				if err := rows.Scan(valuePtrs...); err != nil {
 					return nil, fmt.Errorf("failed to scan lookup results: %w", err)
 				}
-				rowMap := make(map[string]interface{})
+				rowMap := make(map[string]any)
 				for i, col := range cols {
 					val := values[i]
 					if b, ok := val.([]byte); ok {
@@ -350,8 +350,8 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 		} else {
 			if rows.Next() {
 				cols, _ := rows.Columns()
-				values := make([]interface{}, len(cols))
-				valuePtrs := make([]interface{}, len(cols))
+				values := make([]any, len(cols))
+				valuePtrs := make([]any, len(cols))
 				for i := range values {
 					valuePtrs[i] = &values[i]
 				}
@@ -360,7 +360,7 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 					return nil, fmt.Errorf("failed to scan lookup results: %w", err)
 				}
 
-				rowMap := make(map[string]interface{})
+				rowMap := make(map[string]any)
 				for i, col := range cols {
 					val := values[i]
 					if b, ok := val.([]byte); ok {
@@ -375,7 +375,7 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 			}
 		}
 	} else {
-		// If batch (IN) used with single column selection, return []interface{}
+		// If batch (IN) used with single column selection, return []any
 		isBatch := strings.Contains(strings.ToUpper(query), " IN (")
 		if isBatch {
 			rows, err := db.QueryContext(ctx, query, args...)
@@ -383,9 +383,9 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 				return nil, fmt.Errorf("failed to execute lookup query: %w", err)
 			}
 			defer rows.Close()
-			var list []interface{}
+			var list []any
 			for rows.Next() {
-				var v interface{}
+				var v any
 				if err := rows.Scan(&v); err != nil {
 					return nil, fmt.Errorf("failed to scan lookup results: %w", err)
 				}
@@ -417,7 +417,7 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 // lookupSQLWithTemplate executes a full custom SELECT template while safely parameterizing any {{ ... }} tokens.
 func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registry interface {
 	GetOrOpenDB(src storage.Source) (*sql.DB, error)
-}, src storage.Source, queryTemplate string, valueColumn string, data map[string]interface{}) (interface{}, error) {
+}, src storage.Source, queryTemplate string, valueColumn string, data map[string]any) (any, error) {
 	db, err := registry.GetOrOpenDB(src)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database for lookup: %w", err)
@@ -442,25 +442,25 @@ func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registr
 	}
 
 	// Decide scanning mode by valueColumn
-	var resultVal interface{}
+	var resultVal any
 	if valueColumn == "*" || valueColumn == "" || strings.Contains(valueColumn, ",") {
 		rows, err := db.QueryContext(ctx, sqlText, args...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute lookup query: %w", err)
 		}
 		defer rows.Close()
-		var rowsOut []map[string]interface{}
+		var rowsOut []map[string]any
 		for rows.Next() {
 			cols, _ := rows.Columns()
-			values := make([]interface{}, len(cols))
-			valuePtrs := make([]interface{}, len(cols))
+			values := make([]any, len(cols))
+			valuePtrs := make([]any, len(cols))
 			for i := range values {
 				valuePtrs[i] = &values[i]
 			}
 			if err := rows.Scan(valuePtrs...); err != nil {
 				return nil, fmt.Errorf("failed to scan lookup results: %w", err)
 			}
-			rowMap := make(map[string]interface{})
+			rowMap := make(map[string]any)
 			for i, col := range cols {
 				val := values[i]
 				if b, ok := val.([]byte); ok {
@@ -482,7 +482,7 @@ func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registr
 		}
 	} else {
 		// Single value expected
-		var v interface{}
+		var v any
 		err = db.QueryRowContext(ctx, sqlText, args...).Scan(&v)
 		if err != nil {
 			if err == sql.ErrNoRows {
@@ -501,9 +501,9 @@ func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registr
 // parameterizeTemplate replaces all {{ ... }} tokens in the SQL template with driver-specific placeholders
 // and returns the parameterized SQL text and a corresponding args slice.
 // Token content should be either a path like `source.foo` or a quoted literal. Paths are resolved against `data`.
-func parameterizeTemplate(driver, tpl string, data map[string]interface{}) (string, []interface{}) {
+func parameterizeTemplate(driver, tpl string, data map[string]any) (string, []any) {
 	var out strings.Builder
-	var args []interface{}
+	var args []any
 	i := 0
 	nextIdx := 1
 	for i < len(tpl) {
@@ -523,7 +523,7 @@ func parameterizeTemplate(driver, tpl string, data map[string]interface{}) (stri
 			}
 			token := strings.TrimSpace(tpl[i+2 : j])
 			// Resolve token value
-			var val interface{}
+			var val any
 			switch {
 			case strings.HasPrefix(token, "'") && strings.HasSuffix(token, "'"):
 				val = strings.Trim(token, "'")
@@ -550,15 +550,15 @@ func parameterizeTemplate(driver, tpl string, data map[string]interface{}) (stri
 	return out.String(), args
 }
 
-// getFromMapPath resolves a dotted path in a nested map[string]interface{}.
-func getFromMapPath(m map[string]interface{}, path string) interface{} {
+// getFromMapPath resolves a dotted path in a nested map[string]any.
+func getFromMapPath(m map[string]any, path string) any {
 	if m == nil || path == "" {
 		return nil
 	}
 	parts := strings.Split(path, ".")
-	var cur interface{} = m
+	var cur any = m
 	for _, p := range parts {
-		if mm, ok := cur.(map[string]interface{}); ok {
+		if mm, ok := cur.(map[string]any); ok {
 			cur = mm[p]
 		} else {
 			return nil
@@ -567,31 +567,31 @@ func getFromMapPath(m map[string]interface{}, path string) interface{} {
 	return cur
 }
 
-// asSlice tries to coerce v into a slice of interface{} for batch IN processing.
-func asSlice(v interface{}) ([]interface{}, bool) {
+// asSlice tries to coerce v into a slice of any for batch IN processing.
+func asSlice(v any) ([]any, bool) {
 	switch arr := v.(type) {
-	case []interface{}:
+	case []any:
 		return arr, true
 	case []string:
-		out := make([]interface{}, len(arr))
+		out := make([]any, len(arr))
 		for i, s := range arr {
 			out[i] = s
 		}
 		return out, true
 	case []int:
-		out := make([]interface{}, len(arr))
+		out := make([]any, len(arr))
 		for i, s := range arr {
 			out[i] = s
 		}
 		return out, true
 	case []int64:
-		out := make([]interface{}, len(arr))
+		out := make([]any, len(arr))
 		for i, s := range arr {
 			out[i] = s
 		}
 		return out, true
 	case []float64:
-		out := make([]interface{}, len(arr))
+		out := make([]any, len(arr))
 		for i, s := range arr {
 			out[i] = s
 		}

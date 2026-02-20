@@ -12,10 +12,10 @@ import (
 // noop logger to satisfy hermod.Logger
 type noopLogger struct{}
 
-func (noopLogger) Debug(string, ...interface{}) {}
-func (noopLogger) Info(string, ...interface{})  {}
-func (noopLogger) Warn(string, ...interface{})  {}
-func (noopLogger) Error(string, ...interface{}) {}
+func (noopLogger) Debug(string, ...any) {}
+func (noopLogger) Info(string, ...any)  {}
+func (noopLogger) Warn(string, ...any)  {}
+func (noopLogger) Error(string, ...any) {}
 
 // fake sink that reports idempotency results
 type reporterSink struct {

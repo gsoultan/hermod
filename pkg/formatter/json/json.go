@@ -44,7 +44,7 @@ func (f *JSONFormatter) Format(msg hermod.Message) ([]byte, error) {
 	}
 
 	// Fallback for other message implementations
-	data, err := json.Marshal(map[string]interface{}{
+	data, err := json.Marshal(map[string]any{
 		"id":        msg.ID(),
 		"operation": msg.Operation(),
 		"table":     msg.Table(),

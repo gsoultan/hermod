@@ -14,7 +14,7 @@ func TestAggregateTransformer_Tumbling(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	config := map[string]interface{}{
+	config := map[string]any{
 		"field":      "price",
 		"type":       "sum",
 		"window":     "1s",

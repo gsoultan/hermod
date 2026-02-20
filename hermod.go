@@ -37,9 +37,9 @@ type Message interface {
 	After() []byte
 	Payload() []byte // Primary data payload
 	Metadata() map[string]string
-	Data() map[string]interface{}
+	Data() map[string]any
 	SetMetadata(key, value string)
-	SetData(key string, value interface{})
+	SetData(key string, value any)
 	Clone() Message
 	ClearPayloads()
 }
@@ -112,7 +112,7 @@ type Snapshottable interface {
 
 // SQLExecutor is an interface for sources and sinks that can execute arbitrary SQL queries.
 type SQLExecutor interface {
-	ExecuteSQL(ctx context.Context, query string) ([]map[string]interface{}, error)
+	ExecuteSQL(ctx context.Context, query string) ([]map[string]any, error)
 }
 
 type Sink interface {
@@ -165,10 +165,10 @@ type Formatter interface {
 
 // Logger defines the interface for logging in Hermod.
 type Logger interface {
-	Debug(msg string, keysAndValues ...interface{})
-	Info(msg string, keysAndValues ...interface{})
-	Warn(msg string, keysAndValues ...interface{})
-	Error(msg string, keysAndValues ...interface{})
+	Debug(msg string, keysAndValues ...any)
+	Info(msg string, keysAndValues ...any)
+	Warn(msg string, keysAndValues ...any)
+	Error(msg string, keysAndValues ...any)
 }
 
 // Loggable defines an optional interface for things that support structured logging.
@@ -185,11 +185,11 @@ type StateStore interface {
 
 // TraceStep represents a single step in a message's journey.
 type TraceStep struct {
-	NodeID    string                 `json:"node_id"`
-	Timestamp time.Time              `json:"timestamp"`
-	Duration  time.Duration          `json:"duration"`
-	Data      map[string]interface{} `json:"data,omitempty"`
-	Error     string                 `json:"error,omitempty"`
+	NodeID    string         `json:"node_id"`
+	Timestamp time.Time      `json:"timestamp" omitzero:"true"`
+	Duration  time.Duration  `json:"duration" omitzero:"true"`
+	Data      map[string]any `json:"data,omitempty" omitzero:"true"`
+	Error     string         `json:"error,omitempty"`
 }
 
 // TraceRecorder defines the interface for recording message traces.
@@ -202,9 +202,9 @@ type OutboxItem struct {
 	ID         string            `json:"id"`
 	WorkflowID string            `json:"workflow_id"`
 	SinkID     string            `json:"sink_id"`
-	Payload    []byte            `json:"payload"`
-	Metadata   map[string]string `json:"metadata"`
-	CreatedAt  time.Time         `json:"created_at"`
+	Payload    []byte            `json:"payload" omitzero:"true"`
+	Metadata   map[string]string `json:"metadata" omitzero:"true"`
+	CreatedAt  time.Time         `json:"created_at" omitzero:"true"`
 	Attempts   int               `json:"attempts"`
 	LastError  string            `json:"last_error,omitempty"`
 	Status     string            `json:"status"` // pending, processing, failed

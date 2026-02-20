@@ -15,16 +15,16 @@ func TestRouterNode(t *testing.T) {
 	msg.SetData("status", "error_404")
 	msg.SetData("payload", "critical failure")
 
-	rules := []map[string]interface{}{
+	rules := []map[string]any{
 		{
 			"label": "critical",
-			"conditions": []map[string]interface{}{
+			"conditions": []map[string]any{
 				{"field": "payload", "operator": "contains", "value": "critical"},
 			},
 		},
 		{
 			"label": "not_found",
-			"conditions": []map[string]interface{}{
+			"conditions": []map[string]any{
 				{"field": "status", "operator": "regex", "value": "error_.*"},
 			},
 		},
@@ -34,7 +34,7 @@ func TestRouterNode(t *testing.T) {
 	node := &storage.WorkflowNode{
 		ID:   "router-1",
 		Type: "router",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"rules": string(rulesJSON),
 		},
 	}
