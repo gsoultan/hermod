@@ -7,9 +7,9 @@ import (
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/evaluator"
 	"github.com/user/hermod/pkg/sqlutil"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type MongoDBSink struct {
@@ -170,7 +170,7 @@ func (s *MongoDBSink) WriteBatch(ctx context.Context, msgs []hermod.Message) err
 }
 
 func (s *MongoDBSink) init(ctx context.Context) error {
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(s.uri))
+	client, err := mongo.Connect(options.Client().ApplyURI(s.uri))
 	if err != nil {
 		return fmt.Errorf("failed to connect to mongodb: %w", err)
 	}

@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/message"
 )
@@ -139,23 +139,22 @@ func (s *CSVSource) init(ctx context.Context) error {
 		}
 		rc = resp.Body
 	case SourceTypeS3:
-		awsCfg := &aws.Config{
-			Region: aws.String(s.s3Region),
-		}
-		if s.s3Endpoint != "" {
-			awsCfg.Endpoint = aws.String(s.s3Endpoint)
-			awsCfg.S3ForcePathStyle = aws.Bool(true)
-		}
-		if s.s3AccessKey != "" && s.s3SecretKey != "" {
-			awsCfg.Credentials = credentials.NewStaticCredentials(s.s3AccessKey, s.s3SecretKey, "")
+		cfg, err := config.LoadDefaultConfig(ctx,
+			config.WithRegion(s.s3Region),
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(s.s3AccessKey, s.s3SecretKey, "")),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to load aws config: %w", err)
 		}
 
-		sess, err := session.NewSession(awsCfg)
-		if err != nil {
-			return fmt.Errorf("failed to create aws session: %w", err)
-		}
-		svc := s3.New(sess)
-		resp, err := svc.GetObjectWithContext(ctx, &s3.GetObjectInput{
+		client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+			if s.s3Endpoint != "" {
+				o.BaseEndpoint = aws.String(s.s3Endpoint)
+				o.UsePathStyle = true
+			}
+		})
+
+		resp, err := client.GetObject(ctx, &s3.GetObjectInput{
 			Bucket: aws.String(s.s3Bucket),
 			Key:    aws.String(s.s3Key),
 		})
@@ -290,23 +289,22 @@ func (s *CSVSource) Ping(ctx context.Context) error {
 			return fmt.Errorf("http head request failed: status %d", resp.StatusCode)
 		}
 	case SourceTypeS3:
-		awsCfg := &aws.Config{
-			Region: aws.String(s.s3Region),
-		}
-		if s.s3Endpoint != "" {
-			awsCfg.Endpoint = aws.String(s.s3Endpoint)
-			awsCfg.S3ForcePathStyle = aws.Bool(true)
-		}
-		if s.s3AccessKey != "" && s.s3SecretKey != "" {
-			awsCfg.Credentials = credentials.NewStaticCredentials(s.s3AccessKey, s.s3SecretKey, "")
+		cfg, err := config.LoadDefaultConfig(ctx,
+			config.WithRegion(s.s3Region),
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(s.s3AccessKey, s.s3SecretKey, "")),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to load aws config: %w", err)
 		}
 
-		sess, err := session.NewSession(awsCfg)
-		if err != nil {
-			return err
-		}
-		svc := s3.New(sess)
-		_, err = svc.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+		client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+			if s.s3Endpoint != "" {
+				o.BaseEndpoint = aws.String(s.s3Endpoint)
+				o.UsePathStyle = true
+			}
+		})
+
+		_, err = client.HeadObject(ctx, &s3.HeadObjectInput{
 			Bucket: aws.String(s.s3Bucket),
 			Key:    aws.String(s.s3Key),
 		})

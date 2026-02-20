@@ -27,9 +27,9 @@ import (
 	"github.com/user/hermod/pkg/filestorage"
 	"github.com/user/hermod/pkg/secrets"
 	"github.com/user/hermod/pkg/state"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -481,7 +481,7 @@ func (s *Server) saveDBConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) initMongoStorage(ctx context.Context, conn string) (storage.Storage, error) {
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(conn))
+	client, err := mongo.Connect(options.Client().ApplyURI(conn))
 	if err != nil {
 		return nil, err
 	}
@@ -613,7 +613,7 @@ func (s *Server) testMSSQL(ctx context.Context, conn string) error {
 }
 
 func (s *Server) testMongoDB(ctx context.Context, conn string) error {
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(conn))
+	client, err := mongo.Connect(options.Client().ApplyURI(conn))
 	if err != nil {
 		return err
 	}
@@ -708,7 +708,7 @@ func (s *Server) listDatabases(w http.ResponseWriter, r *http.Request) {
 		}
 	case "mongodb":
 		var client *mongo.Client
-		client, err = mongo.Connect(ctx, options.Client().ApplyURI(req.Conn))
+		client, err = mongo.Connect(options.Client().ApplyURI(req.Conn))
 		if err == nil {
 			defer func() { _ = client.Disconnect(context.Background()) }()
 			var names []string

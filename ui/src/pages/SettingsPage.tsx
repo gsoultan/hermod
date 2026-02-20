@@ -3,9 +3,11 @@ import { Title, Text, Stack, Paper, Select, TextInput, Button, Group, PasswordIn
 import { useState, useRef, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api'
-import type { Workspace } from '../types'import { notifications } from '@mantine/notifications'
+import type { Workspace } from '../types'
+import { notifications } from '@mantine/notifications'
 import { formatDateTime } from '../utils/dateUtils'
 import { useDisclosure } from '@mantine/hooks'
+import { copyToClipboard, generateStrongPassword } from '../utils/cryptoUtils'
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -982,7 +984,20 @@ export function SettingsPage() {
                   value={cryptoKey}
                   onChange={(e) => setCryptoKey(e.currentTarget.value)}
                 />
-                <Group justify="flex-end">
+                <Group justify="space-between">
+                  <Group>
+                    <Button variant="light" size="xs" onClick={() => setCryptoKey(generateStrongPassword(32))}>
+                      Generate Key
+                    </Button>
+                    <Button
+                      variant="default"
+                      size="xs"
+                      onClick={() => cryptoKey && copyToClipboard(cryptoKey)}
+                      disabled={!cryptoKey}
+                    >
+                      Copy
+                    </Button>
+                  </Group>
                   <Button 
                     variant="light" 
                     color="red" 

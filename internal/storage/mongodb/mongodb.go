@@ -10,10 +10,9 @@ import (
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/crypto"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 var sensitiveKeys = map[string]bool{
@@ -835,7 +834,7 @@ func (s *mongoStorage) ListWorkspaces(ctx context.Context) ([]storage.Workspace,
 
 func (s *mongoStorage) CreateWorkspace(ctx context.Context, ws storage.Workspace) error {
 	if ws.ID == "" {
-		ws.ID = primitive.NewObjectID().Hex()
+		ws.ID = bson.NewObjectID().Hex()
 	}
 	if ws.CreatedAt.IsZero() {
 		ws.CreatedAt = time.Now()
@@ -1234,7 +1233,7 @@ func (s *mongoStorage) GetSetting(ctx context.Context, key string) (string, erro
 
 func (s *mongoStorage) SaveSetting(ctx context.Context, key string, value string) error {
 	coll := s.db.Collection("settings")
-	opts := options.Update().SetUpsert(true)
+	opts := options.UpdateOne().SetUpsert(true)
 	_, err := coll.UpdateOne(ctx, bson.M{"_id": key}, bson.M{"$set": bson.M{"value": value}}, opts)
 	return err
 }
@@ -1524,7 +1523,7 @@ func (s *mongoStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFi
 
 func (s *mongoStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
 	coll := s.db.Collection("node_states")
-	opts := options.Update().SetUpsert(true)
+	opts := options.UpdateOne().SetUpsert(true)
 	_, err := coll.UpdateOne(ctx, bson.M{"workflow_id": workflowID, "node_id": nodeID}, bson.M{"$set": bson.M{"state": state, "updated_at": time.Now()}}, opts)
 	return err
 }
@@ -1641,7 +1640,7 @@ func (s *mongoStorage) RecordTraceStep(ctx context.Context, workflowID, messageI
 			"created_at":  time.Now(),
 		},
 	}
-	opts := options.Update().SetUpsert(true)
+	opts := options.UpdateOne().SetUpsert(true)
 	_, err := coll.UpdateOne(ctx, filter, update, opts)
 	return err
 }

@@ -3,6 +3,7 @@ import { Title, Text, TextInput, Select, Button, Paper, Stack, Container, Steppe
 import { useMediaQuery } from '@mantine/hooks'
 import { useMutation } from '@tanstack/react-query'
 import { apiFetch } from '../api'
+import { copyToClipboard, generateStrongPassword } from '../utils/cryptoUtils'
 
 interface SetupPageProps {
   isConfigured: boolean
@@ -293,22 +294,6 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
     }
   }
 
-  function generateStrongPassword(len = 20) {
-    const bytes = new Uint8Array(len)
-    if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
-      window.crypto.getRandomValues(bytes)
-    } else {
-      for (let i = 0; i < len; i++) bytes[i] = Math.floor(Math.random() * 256)
-    }
-    // base64url without padding
-    const b64 = btoa(String.fromCharCode(...Array.from(bytes)))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/g, '')
-    // Trim to desired length range 16-40
-    const target = Math.max(16, Math.min(40, len))
-    return b64.slice(0, target)
-  }
 
   const dsnHelp = useMemo(() => {
     switch (dbType) {
@@ -609,7 +594,7 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
                     <Button
                       variant="default"
                       onClick={() => {
-                        if (navigator?.clipboard && cryptoMasterKey) navigator.clipboard.writeText(cryptoMasterKey)
+                        if (cryptoMasterKey) copyToClipboard(cryptoMasterKey)
                       }}
                       disabled={!cryptoMasterKey}
                     >
@@ -723,7 +708,7 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
                   <Button
                     variant="default"
                     onClick={() => {
-                      if (navigator?.clipboard && password) navigator.clipboard.writeText(password)
+                      if (password) copyToClipboard(password)
                     }}
                     disabled={!password}
                   >

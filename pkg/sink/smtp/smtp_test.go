@@ -33,6 +33,8 @@ func (m *mockSender) Validate(ctx context.Context, email string) error {
 	return nil
 }
 
+func (m *mockSender) SetRetryConfig(config gsmail.RetryConfig) {}
+
 type pingCounterSender struct {
 	mockSender
 	pingCount int

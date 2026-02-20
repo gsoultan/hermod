@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { TextInput, Group, Select, Checkbox, Textarea, Button, Stack, Tabs, ActionIcon, Tooltip, Divider, Text } from '@mantine/core';
 
-import { EmailLayoutBuilder } from '../EmailLayoutBuilder';import { IconAt, IconBrush, IconCloud, IconLink, IconPlayerPlay, IconTemplate } from '@tabler/icons-react';
+import { EmailLayoutBuilder } from '../EmailLayoutBuilder';
+import { IconAt, IconBrush, IconCloud, IconLink, IconPlayerPlay, IconTemplate, IconArrowsJoin, IconRefresh, IconShieldLock } from '@tabler/icons-react';
 interface SMTPSinkConfigProps {
   config: any;
   updateConfig: (key: string, value: string) => void;
@@ -80,6 +81,58 @@ export function SMTPSinkConfig({
         onChange={(e) => updateConfig('outlook_compatible', e.target.checked ? 'true' : 'false')}
         my="sm"
       />
+
+      <Divider label="Advanced & Reliability" labelPosition="center" my="md" />
+      
+      <Tabs defaultValue="pool" styles={{ panel: { paddingTop: '1rem' } }}>
+        <Tabs.List grow>
+          <Tabs.Tab value="pool" leftSection={<IconArrowsJoin size="1rem" />}>SMTP Pool</Tabs.Tab>
+          <Tabs.Tab value="retry" leftSection={<IconRefresh size="1rem" />}>Retry Strategy</Tabs.Tab>
+          <Tabs.Tab value="security" leftSection={<IconShieldLock size="1rem" />}>Security</Tabs.Tab>
+        </Tabs.List>
+
+        <Tabs.Panel value="pool">
+          <Stack gap="xs">
+            <Checkbox 
+              label="Enable Connection Pooling" 
+              description="Maintain a pool of idle connections to the SMTP server for better performance."
+              checked={config.enable_pool === 'true'} 
+              onChange={(e) => updateConfig('enable_pool', e.target.checked ? 'true' : 'false')}
+            />
+            {config.enable_pool === 'true' && (
+              <>
+                <Group grow>
+                  <TextInput label="Max Idle" placeholder="2" value={config.pool_max_idle || ''} onChange={(e) => updateConfig('pool_max_idle', e.target.value)} description="Max idle connections." />
+                  <TextInput label="Max Open" placeholder="0" value={config.pool_max_open || ''} onChange={(e) => updateConfig('pool_max_open', e.target.value)} description="Max total connections (0=unlimited)." />
+                </Group>
+                <TextInput label="Idle Timeout" placeholder="5m" value={config.pool_idle_timeout || ''} onChange={(e) => updateConfig('pool_idle_timeout', e.target.value)} description="Duration after which idle connections are closed (e.g. 1m, 5m)." />
+              </>
+            )}
+          </Stack>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="retry">
+           <Stack gap="xs">
+              <Group grow>
+                <TextInput label="Max Retries" placeholder="3" value={config.retry_max || ''} onChange={(e) => updateConfig('retry_max', e.target.value)} />
+                <TextInput label="Multiplier" placeholder="2.0" value={config.retry_multiplier || ''} onChange={(e) => updateConfig('retry_multiplier', e.target.value)} />
+              </Group>
+              <Group grow>
+                <TextInput label="Initial Interval" placeholder="1s" value={config.retry_initial_interval || ''} onChange={(e) => updateConfig('retry_initial_interval', e.target.value)} />
+                <TextInput label="Max Interval" placeholder="30s" value={config.retry_max_interval || ''} onChange={(e) => updateConfig('retry_max_interval', e.target.value)} />
+              </Group>
+           </Stack>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="security">
+           <Checkbox 
+              label="Insecure Skip Verify" 
+              description="Skip TLS certificate verification. NOT RECOMMENDED for production unless using self-signed certificates in a trusted network."
+              checked={config.insecure_skip_verify === 'true'} 
+              onChange={(e) => updateConfig('insecure_skip_verify', e.target.checked ? 'true' : 'false')}
+            />
+        </Tabs.Panel>
+      </Tabs>
 
       <Divider label="Idempotency (Duplicate Protection)" labelPosition="center" my="md" />
 

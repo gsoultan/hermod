@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -31,7 +32,7 @@ var lintCmd = &cobra.Command{
 	Short: "Lint a workflow configuration file",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		data, err := ioutil.ReadFile(args[0])
+		data, err := os.ReadFile(args[0])
 		if err != nil {
 			fmt.Printf("Error reading file: %v\n", err)
 			return
@@ -100,7 +101,7 @@ var importCmd = &cobra.Command{
 	Short: "Import a workflow configuration from YAML/JSON",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		data, err := ioutil.ReadFile(args[0])
+		data, err := os.ReadFile(args[0])
 		if err != nil {
 			fmt.Printf("Error reading file: %v\n", err)
 			return
@@ -129,7 +130,7 @@ var importCmd = &cobra.Command{
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-			body, _ := ioutil.ReadAll(resp.Body)
+			body, _ := io.ReadAll(resp.Body)
 			fmt.Printf("Import failed (%s): %s\n", resp.Status, string(body))
 			return
 		}
@@ -167,7 +168,7 @@ var testCmd = &cobra.Command{
 		}
 		defer resp.Body.Close()
 
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode != http.StatusOK {
 			fmt.Printf("❌ Test failed (%s): %s\n", resp.Status, string(body))
 			return

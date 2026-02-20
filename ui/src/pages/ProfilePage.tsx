@@ -3,7 +3,8 @@ import { Title, Paper, Stack, Group, Box, Text, TextInput, Button, Divider, Aler
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, apiJson } from '../api';
 import { notifications } from '@mantine/notifications';
-import { IconAlertCircle, IconCheck, IconDeviceFloppy, IconFingerprint, IconLock, IconMail, IconRefresh, IconShieldLock, IconTrash, IconUser, IconWorld } from '@tabler/icons-react';
+import { IconAlertCircle, IconCheck, IconDeviceFloppy, IconFingerprint, IconLock, IconMail, IconRefresh, IconShieldLock, IconTrash, IconUser, IconWorld, IconCopy } from '@tabler/icons-react';
+import { copyToClipboard } from '../utils/cryptoUtils';
 interface User {
   id: string;
   username: string;
@@ -301,6 +302,14 @@ export function ProfilePage() {
                       leftSection={<IconRefresh size="1rem" />}
                     >
                       Generate
+                    </Button>
+                    <Button
+                      variant="default"
+                      onClick={() => password && copyToClipboard(password)}
+                      disabled={!password}
+                      leftSection={<IconCopy size="1rem" />}
+                    >
+                      Copy
                     </Button>
                   </Group>
                   

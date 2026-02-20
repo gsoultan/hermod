@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/gsoultan/gsmail"
-	"github.com/gsoultan/gsmail/smtp"
+	gsmailSmtp "github.com/gsoultan/gsmail/smtp"
 	"github.com/user/hermod"
 )
 
@@ -47,7 +47,7 @@ const smtpPingInterval = 5 * time.Minute
 func NewSmtpSink(host string, port int, username, password string, ssl bool, from string, to []string, subject string, formatter hermod.Formatter,
 	templateSource, template, templateURL string, s3Config gsmail.S3Config, outlookCompatible bool) *SmtpSink {
 	return &SmtpSink{
-		sender:            smtp.NewSender(host, port, username, password, ssl),
+		sender:            gsmailSmtp.NewSender(host, port, username, password, ssl),
 		from:              from,
 		to:                to,
 		subject:           subject,
@@ -248,8 +248,30 @@ func (s *SmtpSink) Ping(ctx context.Context) error {
 	return err
 }
 
+// SetRetryConfig sets the retry configuration for the SMTP sender.
+func (s *SmtpSink) SetRetryConfig(config gsmail.RetryConfig) {
+	s.sender.SetRetryConfig(config)
+}
+
+// SetPoolConfig enables and configures the connection pool.
+func (s *SmtpSink) SetPoolConfig(config gsmailSmtp.PoolConfig) {
+	if sender, ok := s.sender.(*gsmailSmtp.Sender); ok {
+		sender.EnablePool(config)
+	}
+}
+
+// SetInsecureSkipVerify toggles TLS verification.
+func (s *SmtpSink) SetInsecureSkipVerify(v bool) {
+	if sender, ok := s.sender.(*gsmailSmtp.Sender); ok {
+		sender.InsecureSkipVerify = v
+	}
+}
+
 // Close closes the SMTP sink.
 func (s *SmtpSink) Close() error {
+	if c, ok := s.sender.(interface{ Close() error }); ok {
+		return c.Close()
+	}
 	return nil
 }
 

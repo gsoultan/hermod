@@ -17,10 +17,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	awss3 "github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	goftp "github.com/jlaffaye/ftp"
 	sftp "github.com/pkg/sftp"
 	"github.com/user/hermod"
@@ -445,27 +445,33 @@ func (s *GenericFileSource) listLocal() ([]fileRef, error) {
 }
 
 func (s *GenericFileSource) listS3(ctx context.Context) ([]fileRef, error) {
-	awsCfg := &aws.Config{Region: aws.String(s.cfg.S3Region)}
-	if s.cfg.S3Endpoint != "" {
-		awsCfg.Endpoint = aws.String(s.cfg.S3Endpoint)
-		awsCfg.S3ForcePathStyle = aws.Bool(true)
-	}
-	if s.cfg.S3AccessKey != "" && s.cfg.S3SecretKey != "" {
-		awsCfg.Credentials = credentials.NewStaticCredentials(s.cfg.S3AccessKey, s.cfg.S3SecretKey, "")
-	}
-	sess, err := session.NewSession(awsCfg)
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(s.cfg.S3Region),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(s.cfg.S3AccessKey, s.cfg.S3SecretKey, "")),
+	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load aws config: %w", err)
 	}
-	svc := awss3.New(sess)
+
+	svc := awss3.NewFromConfig(cfg, func(o *awss3.Options) {
+		if s.cfg.S3Endpoint != "" {
+			o.BaseEndpoint = aws.String(s.cfg.S3Endpoint)
+			o.UsePathStyle = true
+		}
+	})
+
+	paginator := awss3.NewListObjectsV2Paginator(svc, &awss3.ListObjectsV2Input{
+		Bucket: aws.String(s.cfg.S3Bucket),
+		Prefix: aws.String(s.cfg.S3Prefix),
+	})
+
 	var refs []fileRef
-	var token *string
-	for {
-		out, err := svc.ListObjectsV2WithContext(ctx, &awss3.ListObjectsV2Input{Bucket: aws.String(s.cfg.S3Bucket), Prefix: aws.String(s.cfg.S3Prefix), ContinuationToken: token})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, err
 		}
-		for _, obj := range out.Contents {
+		for _, obj := range page.Contents {
 			if obj.Key == nil {
 				continue
 			}
@@ -485,11 +491,6 @@ func (s *GenericFileSource) listS3(ctx context.Context) ([]fileRef, error) {
 				size = *obj.Size
 			}
 			refs = append(refs, fileRef{Name: key, FullPath: fmt.Sprintf("s3://%s/%s", s.cfg.S3Bucket, key), Size: size, ModTime: mod, Backend: BackendS3})
-		}
-		if out.IsTruncated != nil && *out.IsTruncated {
-			token = out.NextContinuationToken
-		} else {
-			break
 		}
 	}
 	return refs, nil
@@ -565,21 +566,26 @@ func (s *GenericFileSource) readFileBytes(ctx context.Context, ref *fileRef) ([]
 	case BackendSFTP:
 		r, err = s.fetchSFTPFileReader(ref)
 	case BackendS3:
-		awsCfg := &aws.Config{Region: aws.String(s.cfg.S3Region)}
-		if s.cfg.S3Endpoint != "" {
-			awsCfg.Endpoint = aws.String(s.cfg.S3Endpoint)
-			awsCfg.S3ForcePathStyle = aws.Bool(true)
+		cfg, err := config.LoadDefaultConfig(ctx,
+			config.WithRegion(s.cfg.S3Region),
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(s.cfg.S3AccessKey, s.cfg.S3SecretKey, "")),
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to load aws config: %w", err)
 		}
-		if s.cfg.S3AccessKey != "" && s.cfg.S3SecretKey != "" {
-			awsCfg.Credentials = credentials.NewStaticCredentials(s.cfg.S3AccessKey, s.cfg.S3SecretKey, "")
-		}
-		sess2, err2 := session.NewSession(awsCfg)
-		if err2 != nil {
-			return nil, nil, err2
-		}
-		svc := awss3.New(sess2)
+
+		svc := awss3.NewFromConfig(cfg, func(o *awss3.Options) {
+			if s.cfg.S3Endpoint != "" {
+				o.BaseEndpoint = aws.String(s.cfg.S3Endpoint)
+				o.UsePathStyle = true
+			}
+		})
+
 		key := strings.TrimPrefix(ref.Name, "/")
-		out, err2 := svc.GetObjectWithContext(ctx, &awss3.GetObjectInput{Bucket: aws.String(s.cfg.S3Bucket), Key: aws.String(key)})
+		out, err2 := svc.GetObject(ctx, &awss3.GetObjectInput{
+			Bucket: aws.String(s.cfg.S3Bucket),
+			Key:    aws.String(key),
+		})
 		if err2 != nil {
 			return nil, nil, err2
 		}

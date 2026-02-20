@@ -11,8 +11,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/user/hermod/internal/storage"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 func TestMongo_WorkflowLease_AcquireRenewRelease(t *testing.T) {
@@ -25,7 +25,7 @@ func TestMongo_WorkflowLease_AcquireRenewRelease(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	client, err := mongo.Connect(options.Client().ApplyURI(uri))
 	if err != nil {
 		t.Fatalf("mongo connect: %v", err)
 	}

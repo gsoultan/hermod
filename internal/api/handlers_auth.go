@@ -754,11 +754,13 @@ func (s *Server) login2FA(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) generatePasswordHandler(w http.ResponseWriter, r *http.Request) {
-	// Requires authentication
-	_, ok := r.Context().Value(userContextKey).(*storage.User)
-	if !ok {
-		s.jsonError(w, "Unauthorized", http.StatusUnauthorized)
-		return
+	// Requires authentication OR initial setup
+	if !s.isFirstRun(r.Context()) {
+		_, ok := r.Context().Value(userContextKey).(*storage.User)
+		if !ok {
+			s.jsonError(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	password, err := s.generateRandomPassword(16)

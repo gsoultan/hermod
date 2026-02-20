@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { Button, Group, TextInput, Stack, PasswordInput, Select, MultiSelect, Switch, Paper, Text } from '@mantine/core';
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { apiFetch } from '../api';
-import { useNavigate } from '@tanstack/react-router';import { IconShieldLock, IconShieldOff } from '@tabler/icons-react';
+import { useNavigate } from '@tanstack/react-router';
+import { IconShieldLock, IconShieldOff, IconRefresh, IconCopy } from '@tabler/icons-react';
+import { generateStrongPassword, copyToClipboard } from '../utils/cryptoUtils';
 export type Role = 'Administrator' | 'Editor' | 'Viewer';
 
 interface User {
@@ -87,12 +89,33 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
         onChange={(e) => setUser({ ...user, username: e.currentTarget.value })}
       />
       {!isEditing && (
-        <PasswordInput
-          label="Password"
-          required
-          value={user.password}
-          onChange={(e) => setUser({ ...user, password: e.currentTarget.value })}
-        />
+        <Stack gap="xs">
+          <PasswordInput
+            label="Password"
+            required
+            value={user.password}
+            onChange={(e) => setUser({ ...user, password: e.currentTarget.value })}
+          />
+          <Group justify="space-between">
+            <Button 
+              variant="light" 
+              size="xs" 
+              leftSection={<IconRefresh size="1rem" />}
+              onClick={() => setUser({ ...user, password: generateStrongPassword() })}
+            >
+              Generate Password
+            </Button>
+            <Button
+              variant="default"
+              size="xs"
+              leftSection={<IconCopy size="1rem" />}
+              onClick={() => user.password && copyToClipboard(user.password)}
+              disabled={!user.password}
+            >
+              Copy
+            </Button>
+          </Group>
+        </Stack>
       )}
       <TextInput
         label="Full Name"

@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	awss3 "github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 	xlsx "github.com/tealeg/xlsx"
 	"github.com/user/hermod"
@@ -320,29 +320,36 @@ func (s *Source) fetchHTTP(ctx context.Context, url string) ([]byte, error) {
 
 // listS3 returns a list of s3://bucket/key refs
 func (s *Source) listS3() ([]string, error) {
-	awsCfg := &aws.Config{Region: aws.String(s.S3Region)}
-	if s.S3Endpoint != "" {
-		awsCfg.Endpoint = aws.String(s.S3Endpoint)
-		awsCfg.S3ForcePathStyle = aws.Bool(true)
-	}
-	if s.S3AccessKey != "" && s.S3SecretKey != "" {
-		awsCfg.Credentials = credentials.NewStaticCredentials(s.S3AccessKey, s.S3SecretKey, "")
-	}
-	sess, err := session.NewSession(awsCfg)
+	ctx := context.Background()
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(s.S3Region),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(s.S3AccessKey, s.S3SecretKey, "")),
+	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load aws config: %w", err)
 	}
-	svc := awss3.New(sess)
+
+	svc := awss3.NewFromConfig(cfg, func(o *awss3.Options) {
+		if s.S3Endpoint != "" {
+			o.BaseEndpoint = aws.String(s.S3Endpoint)
+			o.UsePathStyle = true
+		}
+	})
+
 	// If S3KeyPrefix appears to be a single file (ends with .xlsx), still list but will yield that one
 	var refs []string
 	prefix := strings.TrimPrefix(s.S3KeyPrefix, "/")
-	var token *string
-	for {
-		out, err := svc.ListObjectsV2(&awss3.ListObjectsV2Input{Bucket: aws.String(s.S3Bucket), Prefix: aws.String(prefix), ContinuationToken: token})
+	paginator := awss3.NewListObjectsV2Paginator(svc, &awss3.ListObjectsV2Input{
+		Bucket: aws.String(s.S3Bucket),
+		Prefix: aws.String(prefix),
+	})
+
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, err
 		}
-		for _, obj := range out.Contents {
+		for _, obj := range page.Contents {
 			if obj.Key == nil {
 				continue
 			}
@@ -353,11 +360,6 @@ func (s *Source) listS3() ([]string, error) {
 				}
 			}
 			refs = append(refs, "s3://"+s.S3Bucket+"/"+key)
-		}
-		if out.IsTruncated != nil && *out.IsTruncated {
-			token = out.NextContinuationToken
-		} else {
-			break
 		}
 	}
 	// If no objects found but S3KeyPrefix looks like a direct key, add it explicitly
@@ -384,20 +386,23 @@ func (s *Source) fetchS3(ctx context.Context, ref string) ([]byte, error) {
 		bucket = s.S3Bucket
 		key = strings.TrimPrefix(s.S3KeyPrefix, "/")
 	}
-	awsCfg := &aws.Config{Region: aws.String(s.S3Region)}
-	if s.S3Endpoint != "" {
-		awsCfg.Endpoint = aws.String(s.S3Endpoint)
-		awsCfg.S3ForcePathStyle = aws.Bool(true)
-	}
-	if s.S3AccessKey != "" && s.S3SecretKey != "" {
-		awsCfg.Credentials = credentials.NewStaticCredentials(s.S3AccessKey, s.S3SecretKey, "")
-	}
-	sess, err := session.NewSession(awsCfg)
+
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(s.S3Region),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(s.S3AccessKey, s.S3SecretKey, "")),
+	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load aws config: %w", err)
 	}
-	svc := awss3.New(sess)
-	out, err := svc.GetObjectWithContext(ctx, &awss3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+
+	svc := awss3.NewFromConfig(cfg, func(o *awss3.Options) {
+		if s.S3Endpoint != "" {
+			o.BaseEndpoint = aws.String(s.S3Endpoint)
+			o.UsePathStyle = true
+		}
+	})
+
+	out, err := svc.GetObject(ctx, &awss3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
 	if err != nil {
 		return nil, err
 	}

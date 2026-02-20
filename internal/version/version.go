@@ -1,4 +1,5 @@
 package version
 
 // Version is the current version of Hermod.
-const Version = "v1.1.0 (Enterprise Edition)"
+// It is set at build time via ldflags.
+var Version = "v1.1.0 (Enterprise Edition)"

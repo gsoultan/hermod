@@ -12,6 +12,7 @@ import (
 	"crypto/x509"
 
 	"github.com/gsoultan/gsmail"
+	gsmailSmtp "github.com/gsoultan/gsmail/smtp"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/config"
 	"github.com/user/hermod/pkg/compression"
@@ -948,6 +949,57 @@ func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 			s3Config,
 			cfg.Config["outlook_compatible"] == "true",
 		)
+
+		// Wire insecure skip verify
+		if cfg.Config["insecure_skip_verify"] == "true" {
+			s.SetInsecureSkipVerify(true)
+		}
+
+		// Wire connection pool settings
+		if cfg.Config["enable_pool"] == "true" {
+			poolCfg := gsmailSmtp.PoolConfig{}
+			if val := cfg.Config["pool_max_idle"]; val != "" {
+				if i, err := strconv.Atoi(val); err == nil {
+					poolCfg.MaxIdle = i
+				}
+			}
+			if val := cfg.Config["pool_max_open"]; val != "" {
+				if i, err := strconv.Atoi(val); err == nil {
+					poolCfg.MaxOpen = i
+				}
+			}
+			if val := cfg.Config["pool_idle_timeout"]; val != "" {
+				if d, err := time.ParseDuration(val); err == nil {
+					poolCfg.IdleTimeout = d
+				}
+			}
+			s.SetPoolConfig(poolCfg)
+		}
+
+		// Wire retry settings if provided
+		if maxRetriesStr := cfg.Config["retry_max"]; maxRetriesStr != "" {
+			if maxRetries, err := strconv.Atoi(maxRetriesStr); err == nil {
+				retryCfg := gsmail.RetryConfig{
+					MaxRetries: maxRetries,
+				}
+				if initIntervalStr := cfg.Config["retry_initial_interval"]; initIntervalStr != "" {
+					if d, err := time.ParseDuration(initIntervalStr); err == nil {
+						retryCfg.InitialInterval = d
+					}
+				}
+				if maxIntervalStr := cfg.Config["retry_max_interval"]; maxIntervalStr != "" {
+					if d, err := time.ParseDuration(maxIntervalStr); err == nil {
+						retryCfg.MaxInterval = d
+					}
+				}
+				if multiplierStr := cfg.Config["retry_multiplier"]; multiplierStr != "" {
+					if f, err := strconv.ParseFloat(multiplierStr, 64); err == nil {
+						retryCfg.Multiplier = f
+					}
+				}
+				s.SetRetryConfig(retryCfg)
+			}
+		}
 
 		// Wire idempotency settings if enabled
 		if cfg.Config["enable_idempotency"] == "true" {

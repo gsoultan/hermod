@@ -21,7 +21,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w
+      - -s -w -X "github.com/user/hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
 
   - id: hermod-edge
     main: ./cmd/hermod-edge
@@ -38,7 +38,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w
+      - -s -w -X "github.com/user/hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
 
   - id: hermodctl
     main: ./cmd/hermodctl
@@ -55,13 +55,15 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w
+      - -s -w -X "github.com/user/hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
 
 archives:
-  - format: tar.gz
+  - formats:
+      - tar.gz
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE

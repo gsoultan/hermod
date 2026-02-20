@@ -219,6 +219,26 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
    hermod
    ```
 
+   #### Background OS Service Integration
+
+   Hermod can be integrated with OS-level service managers (systemd on Linux, Windows Services, macOS Launchd) directly from the binary. This ensures that Hermod starts automatically on boot and can be managed using standard system tools.
+
+   **Service commands:**
+   - `hermod --service install` - Install the service (requires administrative privileges).
+   - `hermod --service uninstall` - Remove the service.
+   - `hermod --service start` - Start the service.
+   - `hermod --service stop` - Stop the service.
+   - `hermod --service restart` - Restart the service.
+   - `hermod --service status` - Check the current service status.
+
+   **Example: Install as a worker service**
+   ```bash
+   # On Windows (Run as Administrator)
+   hermod.exe --mode=worker --platform-url="http://localhost:8080" --worker-guid="worker-1" --service install
+   hermod.exe --service start
+   ```
+
+   The service will be configured to run with all the flags provided during the `install` command (except for `--service` itself).
 
 ## Production Considerations
 

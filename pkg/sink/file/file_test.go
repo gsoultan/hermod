@@ -2,7 +2,6 @@ package file
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"strings"
 	"testing"
@@ -12,7 +11,7 @@ import (
 )
 
 func TestFileSink(t *testing.T) {
-	tmpfile, err := ioutil.TempFile("", "hermod-test-*.log")
+	tmpfile, err := os.CreateTemp("", "hermod-test-*.log")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +36,7 @@ func TestFileSink(t *testing.T) {
 		t.Fatalf("failed to write message: %v", err)
 	}
 
-	content, err := ioutil.ReadFile(tmpfile.Name())
+	content, err := os.ReadFile(tmpfile.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
