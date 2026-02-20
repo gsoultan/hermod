@@ -121,7 +121,7 @@ func main() {
 			}
 			if *mode == "build-only" {
 				fmt.Println("UI build complete. Exiting due to build-only mode.")
-				return
+				os.Exit(0)
 			}
 		}
 
@@ -340,16 +340,14 @@ func main() {
 				// Optional one-shot init and exit (local DB only)
 				if *initWorker {
 					if *platformURL != "" {
-						fmt.Println("-init-worker is only supported in local DB mode (no platform-url). Please create the worker via the Hermod UI and copy its token.")
-						return
+						log.Fatal("-init-worker is only supported in local DB mode (no platform-url). Please create the worker via the Hermod UI and copy its token.")
 					}
 					if *workerGUID == "" || *workerToken == "" {
-						log.Println("Failed to initialize worker: missing GUID or token. Ensure database is configured.")
-						return
+						log.Fatal("Failed to initialize worker: missing GUID or token. Ensure database is configured.")
 					}
 					fmt.Printf("Worker initialized.\nID: %s\nToken: %s\nIdentity file: %s\n", *workerGUID, *workerToken, *workerIdentityPath)
 					fmt.Printf("Set environment:\n  HERMOD_WORKER_GUID=%s\n  HERMOD_WORKER_TOKEN=%s\n", *workerGUID, *workerToken)
-					return
+					os.Exit(0)
 				}
 
 				worker := engine.NewWorker(workerStore, registry)
@@ -423,7 +421,7 @@ func main() {
 				} else {
 					// In worker-only mode without setup, we cannot proceed. Keep process alive to allow external configuration.
 					fmt.Println("Hermod is not configured yet. Please run API mode to complete setup. Exiting.")
-					return
+					os.Exit(1)
 				}
 			}
 

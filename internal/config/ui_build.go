@@ -28,7 +28,11 @@ func BuildUI() error {
 
 	// 3. bun install in ui directory
 	fmt.Println("Running 'bun install' in ui directory...")
-	if err := runCommand(uiDir, "bun", "install"); err != nil {
+	installArgs := []string{"install"}
+	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" {
+		installArgs = append(installArgs, "--frozen-lockfile")
+	}
+	if err := runCommand(uiDir, "bun", installArgs...); err != nil {
 		return fmt.Errorf("bun install failed: %w", err)
 	}
 
@@ -105,6 +109,7 @@ func runCommand(dir string, name string, args ...string) error {
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	fmt.Printf("Executing in %s: %s %v\n", dir, cmdName, args)
 	return cmd.Run()
 }
 
@@ -124,6 +129,10 @@ func ensureBun() error {
 	}
 	if _, err := os.Stat(bunPath); err == nil {
 		return nil
+	}
+
+	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" {
+		return fmt.Errorf("bun not found in PATH in CI environment. Ensure setup-bun step has run and is successful")
 	}
 
 	fmt.Println("Bun not found. Installing Bun...")
