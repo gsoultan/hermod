@@ -47,6 +47,15 @@ export function Layout({ children }: LayoutProps) {
     enabled: activePage !== '/login' && activePage !== '/setup' && activePage !== '/forgot-password',
   });
 
+  const { data: versionData } = useQuery({
+    queryKey: ['version'],
+    queryFn: async () => {
+      const res = await apiFetch('/api/version');
+      return res.json();
+    },
+    staleTime: Infinity,
+  });
+
   const workflows = workflowsResponse?.data || [];
 
   useEffect(() => {
@@ -553,6 +562,14 @@ export function Layout({ children }: LayoutProps) {
           >
             {desktopOpened && "Collapse Sidebar"}
           </Button>
+        </AppShell.Section>
+
+        <AppShell.Section p="xs">
+          <Tooltip label={`Hermod ${versionData?.version}`} position="right" disabled={desktopOpened}>
+            <Text size="xs" c="dimmed" ta="center">
+              {desktopOpened ? `Hermod ${versionData?.version}` : versionData?.version?.split(' ')[0]}
+            </Text>
+          </Tooltip>
         </AppShell.Section>
       </AppShell.Navbar>
 
