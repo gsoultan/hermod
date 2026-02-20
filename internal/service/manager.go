@@ -1,39 +1,47 @@
 package service
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/kardianos/service"
 )
 
 // Config represents the service configuration.
 type Config struct {
-	Name        string
-	DisplayName string
-	Description string
-	UserName    string
-	Arguments   []string
+	Name             string
+	DisplayName      string
+	Description      string
+	UserName         string
+	Arguments        []string
+	WorkingDirectory string
 }
 
 // program implements service.Interface.
 type program struct {
 	exit    chan struct{}
-	runFunc func()
+	runFunc func(ctx context.Context)
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
 func (p *program) Start(s service.Service) error {
 	// Start should not block. Do the actual work in a goroutine.
-	go p.runFunc()
+	go p.runFunc(p.ctx)
 	return nil
 }
 
 func (p *program) Stop(s service.Service) error {
 	// Stop should be graceful.
+	p.cancel()
 	close(p.exit)
 	return nil
 }
 
 // Manage handles service installation, uninstallation, starting, and stopping.
-func Manage(cfg Config, action string, runFunc func()) error {
+func Manage(cfg Config, action string, runFunc func(ctx context.Context)) error {
 	svcConfig := &service.Config{
 		Name:        cfg.Name,
 		DisplayName: cfg.DisplayName,
@@ -41,10 +49,36 @@ func Manage(cfg Config, action string, runFunc func()) error {
 		UserName:    cfg.UserName,
 		Arguments:   cfg.Arguments,
 	}
+	// Sensible service defaults for production
+	svcConfig.Option = service.KeyValue{
+		// Windows
+		"StartType":        "automatic",
+		"DelayedAutoStart": true,
+		"OnFailure":        "restart",
+		"ResetPeriod":      60,
+		// systemd (Linux)
+		"Restart":    "always",
+		"RestartSec": 10,
+		// launchd (macOS)
+		"RunAtLoad": true,
+		"KeepAlive": true,
+	}
 
+	if cfg.WorkingDirectory != "" {
+		svcConfig.WorkingDirectory = cfg.WorkingDirectory
+	} else {
+		// Default to the directory where the executable is located
+		if execPath, err := os.Executable(); err == nil {
+			svcConfig.WorkingDirectory = filepath.Dir(execPath)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
 	p := &program{
 		exit:    make(chan struct{}),
 		runFunc: runFunc,
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 
 	s, err := service.New(p, svcConfig)

@@ -93,6 +93,8 @@ type Server struct {
 	formRateLimit sync.Map
 	rateLimitOnce sync.Once
 	rateLimitQuit chan struct{}
+
+	grpcServer *googlegrpc.Server
 }
 
 // NewServer constructs a new Server with the provided engine registry and storage backend.
@@ -127,6 +129,19 @@ func NewServer(registry *engine.Registry, store storage.Storage, cfg *config.Con
 		}
 	}
 	return s
+}
+
+func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if s.storage == nil {
+		http.Error(w, "Service Unavailable: No storage", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.storage.Ping(r.Context()); err != nil {
+		http.Error(w, "Service Unavailable: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("READY"))
 }
 
 func (s *Server) wakeUpWorkflow(ctx context.Context, resourceType string, path string) bool {
@@ -347,6 +362,13 @@ func (s *Server) updateCryptoMasterKey(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
+
+	// Health checks
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+	mux.HandleFunc("GET /readyz", s.handleReadyz)
 
 	// Optional pprof endpoints guarded by env var
 	if os.Getenv("HERMOD_PPROF") == "true" {
@@ -1738,8 +1760,14 @@ func (s *Server) StartGRPC(addr string) error {
 	if err != nil {
 		return err
 	}
-	grpcServer := googlegrpc.NewServer()
-	proto.RegisterSourceServiceServer(grpcServer, &grpcsource.Server{Storage: s.storage})
+	s.grpcServer = googlegrpc.NewServer()
+	proto.RegisterSourceServiceServer(s.grpcServer, &grpcsource.Server{Storage: s.storage})
 	fmt.Printf("Starting Hermod gRPC server on %s...\n", addr)
-	return grpcServer.Serve(lis)
+	return s.grpcServer.Serve(lis)
+}
+
+func (s *Server) Stop() {
+	if s.grpcServer != nil {
+		s.grpcServer.GracefulStop()
+	}
 }

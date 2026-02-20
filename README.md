@@ -107,7 +107,7 @@ Hermod can be run as a standalone application. By default, it starts in **API Mo
    go run cmd/hermod/main.go --build-ui
    ```
 
-The UI will be available at `http://localhost:8080`.
+The UI will be available at `http://localhost:4000`.
 
 ### Multi-Platform Support
 
@@ -124,7 +124,7 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
    go run cmd/hermod/main.go
    ```
 
-   The UI will be available at `http://localhost:8080`.
+   The UI will be available at `http://localhost:4000`.
 
    You can customize the port and database for storing state:
    ```bash
@@ -149,7 +149,7 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
 
    To start a worker-only process connected to the platform:
    ```bash
-   go run cmd/hermod/main.go --mode=worker --platform-url="http://localhost:8080" --worker-id=0 --total-workers=2
+   go run cmd/hermod/main.go --mode=worker --platform-url="http://localhost:4000" --worker-id=0 --total-workers=2
    ```
 
    - `--mode=worker`: Runs only the engine worker (no API/UI).
@@ -165,14 +165,14 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
    1. Register a worker via the API or UI. Each worker should have a unique GUID.
    2. Start the worker process with the `--worker-guid` and `--platform-url` flags:
       ```bash
-      go run cmd/hermod/main.go --mode=worker --worker-guid="my-server-1" --platform-url="http://localhost:8080"
+      go run cmd/hermod/main.go --mode=worker --worker-guid="my-server-1" --platform-url="http://localhost:4000"
       ```
 
    #### Worker Self-Registration
    Instead of manually registering a worker in the UI, you can let the worker register itself upon its first run by providing additional flags:
 
    ```bash
-   go run cmd/hermod/main.go --mode=worker --worker-guid="my-server-1" --platform-url="http://localhost:8080" --worker-host="192.168.1.10"
+   go run cmd/hermod/main.go --mode=worker --worker-guid="my-server-1" --platform-url="http://localhost:4000" --worker-host="192.168.1.10"
    ```
 
    - `--worker-host`: The hostname or IP address where the worker is running.
@@ -192,7 +192,7 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
 
    Example single‑line command (shown in the UI after creation):
    ```bash
-   hermod --mode=worker --platform-url="http://localhost:8080" --worker-guid="<GUID>" --worker-token="<TOKEN>"
+   hermod --mode=worker --platform-url="http://localhost:4000" --worker-guid="<GUID>" --worker-token="<TOKEN>"
    ```
 
    If you prefer, the worker can self‑register with `--worker-host/--worker-port`, but you still need to provide the `--worker-token` obtained at creation time for authenticated API calls.
@@ -213,7 +213,7 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
    Example using env vars:
    ```bash
    export HERMOD_MODE=worker
-   export HERMOD_PLATFORM_URL=http://localhost:8080
+   export HERMOD_PLATFORM_URL=http://localhost:4000
    export HERMOD_WORKER_GUID=my-server-1
    export HERMOD_WORKER_TOKEN=secret-token
    hermod
@@ -231,14 +231,35 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
    - `hermod --service restart` - Restart the service.
    - `hermod --service status` - Check the current service status.
 
-   **Example: Install as a worker service**
+   **Examples: Install as a service**
    ```bash
-   # On Windows (Run as Administrator)
-   hermod.exe --mode=worker --platform-url="http://localhost:8080" --worker-guid="worker-1" --service install
+   # Windows (Run PowerShell as Administrator) — Worker mode
+   hermod.exe --mode=worker --platform-url="http://localhost:4000" --worker-guid="worker-1" --service install
    hermod.exe --service start
+
+   # Linux (systemd) — Worker mode
+   ./hermod --mode=worker --platform-url="http://localhost:4000" --worker-guid="worker-1" --service install
+   ./hermod --service start
+
+   # Windows — Standalone (API + Worker in one process)
+   hermod.exe --mode=standalone --service install
+   hermod.exe --service start
+
+   # Linux — Standalone
+   ./hermod --mode=standalone --service install
+   ./hermod --service start
    ```
 
-   The service will be configured to run with all the flags provided during the `install` command (except for `--service` itself).
+   Or use the helper scripts provided in `scripts/`:
+   ```bash
+   # Windows (PowerShell)
+   pwsh -File scripts/install-service.ps1 -Mode standalone
+
+   # Linux
+   bash scripts/install-service.sh standalone
+   ```
+
+   The service will be configured to run with all the flags provided during the `install` command (except for `--service` itself`).
 
 ## Production Considerations
 

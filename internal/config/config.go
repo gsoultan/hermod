@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/user/hermod/pkg/secrets"
@@ -86,17 +87,17 @@ type BufferConfig struct {
 }
 
 func LoadConfig(path string) (*Config, error) {
-	file, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open config file: %w", err)
+		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
-	defer file.Close()
+
+	content := SubstituteEnvVars(string(data))
 
 	var cfg Config
-	if err := yaml.NewDecoder(file).Decode(&cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(content), &cfg); err != nil {
 		// Try JSON if YAML fails
-		file.Seek(0, 0)
-		if err := json.NewDecoder(file).Decode(&cfg); err != nil {
+		if err := json.Unmarshal([]byte(content), &cfg); err != nil {
 			return nil, fmt.Errorf("failed to decode config file (tried YAML and JSON): %w", err)
 		}
 	}
@@ -112,13 +113,20 @@ func SaveConfig(path string, cfg *Config) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-var envRegex = regexp.MustCompile(`\${(\w+)}`)
+var envRegex = regexp.MustCompile(`\${(\w+)(?::-([^}]*))?}`)
 
 func SubstituteEnvVars(input string) string {
 	return envRegex.ReplaceAllStringFunc(input, func(m string) string {
-		envVar := envRegex.FindStringSubmatch(m)[1]
+		matches := envRegex.FindStringSubmatch(m)
+		if len(matches) < 2 {
+			return m
+		}
+		envVar := matches[1]
 		if val, ok := os.LookupEnv(envVar); ok {
 			return val
+		}
+		if len(matches) > 2 && strings.Contains(m, ":-") {
+			return matches[2]
 		}
 		return m
 	})

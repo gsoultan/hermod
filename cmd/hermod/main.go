@@ -19,6 +19,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/joho/godotenv"
 	"github.com/user/hermod/internal/ai"
 	"github.com/user/hermod/internal/api"
 	"github.com/user/hermod/internal/autoscaler"
@@ -41,6 +42,7 @@ import (
 )
 
 func main() {
+	_ = godotenv.Load()
 	mode := flag.String("mode", "standalone", "running mode: standalone, api, worker")
 	workerID := flag.Int("worker-id", 0, "ID of the worker (0 to total-workers-1)")
 	totalWorkers := flag.Int("total-workers", 1, "total number of workers for sharding")
@@ -58,6 +60,7 @@ func main() {
 	dbType := flag.String("db-type", "sqlite", "database type: sqlite, postgres, mysql, mariadb, mongodb")
 	dbConn := flag.String("db-conn", "hermod.db", "database connection string")
 	masterKey := flag.String("master-key", "", "Master key for encryption (32 bytes)")
+	configPath := flag.String("config", "config.yaml", "path to engine configuration file")
 	versionFlag := flag.Bool("version", false, "Print the version and exit")
 	serviceAction := flag.String("service", "", "Service action: install, uninstall, start, stop, restart, status")
 	flag.Parse()
@@ -66,7 +69,8 @@ func main() {
 		return
 	}
 
-	runFunc := func() {
+	runFunc := func(svcCtx context.Context) {
+		logger := enginePkg.NewDefaultLogger()
 		// Environment fallbacks to simplify production configuration
 		// Only apply when corresponding flag keeps its default value.
 		if v := os.Getenv("HERMOD_MODE"); v != "" && *mode == "standalone" {
@@ -104,6 +108,27 @@ func main() {
 			if tw, err := strconv.Atoi(v); err == nil {
 				*totalWorkers = tw
 			}
+		}
+
+		// Additional fallbacks for common settings
+		if v := os.Getenv("HERMOD_DB_TYPE"); v != "" && *dbType == "sqlite" {
+			*dbType = v
+		}
+		if v := os.Getenv("HERMOD_DB_CONN"); v != "" && *dbConn == "hermod.db" {
+			*dbConn = v
+		}
+		if v := os.Getenv("HERMOD_PORT"); v != "" && *port == 4000 {
+			if p, err := strconv.Atoi(v); err == nil {
+				*port = p
+			}
+		}
+		if v := os.Getenv("HERMOD_GRPC_PORT"); v != "" && *grpcPort == 50051 {
+			if p, err := strconv.Atoi(v); err == nil {
+				*grpcPort = p
+			}
+		}
+		if v := os.Getenv("HERMOD_CONFIG"); v != "" && *configPath == "config.yaml" {
+			*configPath = v
 		}
 
 		// Set master key from environment or flag
@@ -151,35 +176,34 @@ func main() {
 
 			if *mode == "worker" && *platformURL != "" {
 				// Worker mode with platform URL doesn't need direct DB access
-				fmt.Printf("Starting Hermod worker connecting to platform at %s...\n", *platformURL)
+				logger.Info("Starting Hermod worker connecting to platform", "platform_url", *platformURL)
 			} else {
 				if firstRun {
 					// Do not open any database on first run to avoid creating hermod.db implicitly.
-					fmt.Println("First run detected: starting API without database connection. Proceed to /setup to configure.")
+					logger.Info("First run detected: starting API without database connection. Proceed to /setup to configure.")
 				} else {
 					var err error
-					fmt.Println("Opening primary database ...")
+					logger.Info("Opening primary database ...", "type", dbTypeVal)
 					store, err = initStorage(dbTypeVal, dbConnVal)
 					if err != nil {
-						log.Printf("Warning: Failed to initialize primary storage: %v", err)
+						logger.Error("Failed to initialize primary storage", "error", err)
 					}
 
 					if logTypeVal != "" && logConnVal != "" {
-						fmt.Println("Opening logging database ...")
+						logger.Info("Opening logging database ...", "type", logTypeVal)
 						logStore, err = initStorage(logTypeVal, logConnVal)
 						if err != nil {
-							log.Printf("Warning: Failed to initialize logging storage: %v", err)
+							logger.Error("Failed to initialize logging storage", "error", err)
 						}
 					}
 				}
 			}
 
 			registry := engine.NewRegistry(store, logStore)
-			logger := enginePkg.NewDefaultLogger()
 			registry.SetLogger(logger)
 
 			// Load engine config
-			cfg, err := config.LoadConfig("config.yaml")
+			cfg, err := config.LoadConfig(*configPath)
 			if err != nil {
 				// Provide a default config if file is missing
 				cfg = &config.Config{}
@@ -248,15 +272,20 @@ func main() {
 			}
 
 			// Graceful shutdown
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(svcCtx)
 			sigChan := make(chan os.Signal, 1)
 			signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 			go func() {
-				sig := <-sigChan
-				fmt.Printf("\nReceived signal %v, shutting down gracefully...\n", sig)
+				select {
+				case sig := <-sigChan:
+					logger.Info("Received signal, shutting down gracefully...", "signal", sig)
+				case <-svcCtx.Done():
+					logger.Info("Service manager requested shutdown, shutting down gracefully...")
+				}
 				cancel()
 				registry.StopAll()
+				registry.Close()
 			}()
 
 			// Determine setup status (first run vs already configured)
@@ -264,7 +293,7 @@ func main() {
 
 			if !configured || !userSetup {
 				// First-time setup: always start API, but avoid starting worker to prevent unintended processing.
-				fmt.Println("First-time setup detected. Starting API only. Open http://localhost:" + strconv.Itoa(*port) + "/setup to configure Hermod.")
+				logger.Info("First-time setup detected. Starting API only.", "setup_url", "http://localhost:"+strconv.Itoa(*port)+"/setup")
 			}
 
 			// Start worker if not in api-only mode and setup is completed
@@ -411,21 +440,22 @@ func main() {
 				}()
 
 				<-ctx.Done()
-				fmt.Println("Shutting down API server...")
+				logger.Info("Shutting down API server...")
+				server.Stop()
 				_ = httpServer.Shutdown(context.Background())
 			} else {
 				// Worker only mode
 				if configured && userSetup {
-					fmt.Printf("Starting Hermod worker using %s storage...\n", dbTypeVal)
+					logger.Info("Starting Hermod worker", "storage", dbTypeVal)
 					<-ctx.Done()
 				} else {
 					// In worker-only mode without setup, we cannot proceed. Keep process alive to allow external configuration.
-					fmt.Println("Hermod is not configured yet. Please run API mode to complete setup. Exiting.")
+					logger.Error("Hermod is not configured yet. Please run API mode to complete setup. Exiting.")
 					os.Exit(1)
 				}
 			}
 
-			fmt.Println("Hermod shutdown complete")
+			logger.Info("Hermod shutdown complete")
 			return
 		}
 

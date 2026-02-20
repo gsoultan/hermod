@@ -327,6 +327,9 @@ type Storage interface {
 	// Init performs storage initialization/migrations and is safe to call multiple times.
 	Init(ctx context.Context) error
 
+	// Ping checks the connection to the storage.
+	Ping(ctx context.Context) error
+
 	ListSources(ctx context.Context, filter CommonFilter) ([]Source, int, error)
 	CreateSource(ctx context.Context, src Source) error
 	UpdateSource(ctx context.Context, src Source) error

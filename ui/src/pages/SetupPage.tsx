@@ -982,6 +982,21 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
                   </Stack>
                 )}
 
+                {/* Optional: Service installation helper */}
+                <Stack gap="xs" mt="md">
+                  <Text fw={600}>Run as a Service (optional)</Text>
+                  <Text size="sm">After saving, you can install Hermod as a background service:</Text>
+                  <Group align="end" gap="sm">
+                    <TextInput style={{ flex: 1 }} readOnly label="Windows (PowerShell, run as Administrator)" value={'hermod.exe -mode standalone -service install'} />
+                    <Button variant="default" onClick={() => copyToClipboard('hermod.exe -mode standalone -service install')}>Copy</Button>
+                  </Group>
+                  <Group align="end" gap="sm">
+                    <TextInput style={{ flex: 1 }} readOnly label="Linux (systemd)" value={'./hermod -mode standalone -service install'} />
+                    <Button variant="default" onClick={() => copyToClipboard('./hermod -mode standalone -service install')}>Copy</Button>
+                  </Group>
+                  <Text size="xs" c="dimmed">Tip: Use scripts/install-service.ps1 or scripts/install-service.sh for convenience.</Text>
+                </Stack>
+
                 {/* Database test has been removed from confirmation step; it exists on the Database step */}
 
                 {error && (

@@ -148,6 +148,10 @@ func (s *mongoStorage) DeleteApproval(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *mongoStorage) Ping(ctx context.Context) error {
+	return s.client.Ping(ctx, nil)
+}
+
 func (s *mongoStorage) Init(ctx context.Context) error {
 	// Create indexes
 	collections := []string{"sources", "sinks", "users", "vhosts", "workflows", "workers", "logs", "settings", "audit_logs", "webhook_requests", "schemas", "message_traces", "workflow_versions"}

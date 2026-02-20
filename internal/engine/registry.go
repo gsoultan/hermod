@@ -145,6 +145,9 @@ type Registry struct {
 
 	piiStats   map[string]*PIIStats
 	piiStatsMu sync.RWMutex
+
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 type activeEngine struct {
@@ -179,6 +182,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		logStore = s
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	reg := &Registry{
 		engines:             make(map[string]*activeEngine),
 		storage:             s,
@@ -201,6 +205,8 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		dqScorer:            governance.NewScorer(),
 		meshManager:         mesh.NewManager(pkgengine.NewDefaultLogger()),
 		piiStats:            make(map[string]*PIIStats),
+		ctx:                 ctx,
+		cancel:              cancel,
 	}
 
 	reg.optimizer = optimizer.NewOptimizer(reg.logger, func(wfID, title, msg string) {
@@ -224,8 +230,20 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 	// Start background maintenance routines
 	go reg.runIdleMonitor()
 	go reg.runRetentionPurge()
-	go reg.optimizer.Start(context.Background())
+	go reg.optimizer.Start(reg.ctx)
 	return reg
+}
+
+func (r *Registry) Close() {
+	r.cancel()
+
+	r.dbPoolMu.Lock()
+	defer r.dbPoolMu.Unlock()
+	for id, db := range r.dbPool {
+		r.logger.Info("Closing database connection pool", "source_id", id)
+		_ = db.Close()
+	}
+	r.dbPool = make(map[string]*sql.DB)
 }
 
 func (r *Registry) runRetentionPurge() {
@@ -237,7 +255,7 @@ func (r *Registry) runRetentionPurge() {
 
 	for {
 		select {
-		case <-r.idleMonitorStop:
+		case <-r.ctx.Done():
 			return
 		case <-ticker.C:
 			r.purgeRetention()
@@ -288,7 +306,7 @@ func (r *Registry) runIdleMonitor() {
 
 	for {
 		select {
-		case <-r.idleMonitorStop:
+		case <-r.ctx.Done():
 			return
 		case <-ticker.C:
 			r.checkIdleWorkflows()

@@ -143,6 +143,10 @@ func (s *sqlStorage) queryRow(ctx context.Context, query string, args ...any) *s
 	return s.db.QueryRowContext(ctx, q, args...)
 }
 
+func (s *sqlStorage) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
 func (s *sqlStorage) Init(ctx context.Context) error {
 	// SQLite specific optimizations
 	if s.driver == "sqlite" {
