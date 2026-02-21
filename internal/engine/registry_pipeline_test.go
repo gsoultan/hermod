@@ -55,7 +55,7 @@ func (m *mockStorage) ListWorkflows(ctx context.Context, filter storage.CommonFi
 
 func TestTransformationPipelineRegistry(t *testing.T) {
 	registry := NewRegistry(&mockStorage{})
-	ctx := context.Background()
+	ctx := t.Context()
 
 	msg := message.AcquireMessage()
 	msg.SetID("1")
@@ -148,7 +148,7 @@ func TestTransformationPipelineRegistry(t *testing.T) {
 
 func TestTransformationEdgeCases(t *testing.T) {
 	registry := NewRegistry(&mockStorage{})
-	ctx := context.Background()
+	ctx := t.Context()
 
 	t.Run("Advanced Parsing Spaces", func(t *testing.T) {
 		msg := message.AcquireMessage()
@@ -435,7 +435,7 @@ func TestTransformationEdgeCases(t *testing.T) {
 
 func TestWorkflowNodesEnhanced(t *testing.T) {
 	registry := NewRegistry(&mockStorage{})
-	ctx := context.Background()
+	ctx := t.Context()
 
 	t.Run("Condition Multi-Condition", func(t *testing.T) {
 		msg := message.AcquireMessage()

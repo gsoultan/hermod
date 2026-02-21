@@ -114,7 +114,7 @@ func TestWorkflowAutoDeactivation(t *testing.T) {
 	}, nil)
 
 	// Start workflow directly
-	wf, _ := store.GetWorkflow(context.Background(), wfID)
+	wf, _ := store.GetWorkflow(t.Context(), wfID)
 	err := r.StartWorkflow(wfID, wf)
 	if err != nil {
 		t.Fatalf("Failed to start workflow: %v", err)
@@ -124,7 +124,7 @@ func TestWorkflowAutoDeactivation(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Check storage
-	updatedWf, _ := store.GetWorkflow(context.Background(), wfID)
+	updatedWf, _ := store.GetWorkflow(t.Context(), wfID)
 	if !updatedWf.Active {
 		t.Errorf("Workflow should still be active after error, but it was deactivated")
 	}

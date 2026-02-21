@@ -20,7 +20,7 @@ func (f *fakeUserLister) ListUsers(ctx context.Context, filter storage.CommonFil
 }
 
 func TestComputeSetupStatus(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	cases := []struct {
 		name       string

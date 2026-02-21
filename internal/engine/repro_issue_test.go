@@ -47,7 +47,7 @@ func TestEngineStatusWhenReadHangs(t *testing.T) {
 		statusMu.Unlock()
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	go eng.Start(ctx)
@@ -107,7 +107,7 @@ func TestEngineStatusFlickering(t *testing.T) {
 		statusMu.Unlock()
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	go eng.Start(ctx)

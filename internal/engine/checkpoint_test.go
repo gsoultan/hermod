@@ -189,7 +189,7 @@ func TestCheckpointAndRecovery(t *testing.T) {
 	}
 
 	// Trigger checkpoint manually
-	err = active.engine.Checkpoint(context.Background())
+	err = active.engine.Checkpoint(t.Context())
 	if err != nil {
 		t.Fatalf("Checkpoint failed: %v", err)
 	}

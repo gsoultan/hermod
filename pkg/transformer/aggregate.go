@@ -87,7 +87,7 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 	}
 
 	// Reset if session window expired
-	if (windowType == "" || windowType == "session") && window > 0 && ok && now.Sub(state.Last) > window {
+	if (windowType == "" || windowType == "session") && window > 0 && ok && time.Since(state.Last) > window {
 		ok = false
 	}
 
@@ -100,7 +100,7 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 		// Cleanup old states periodically or if too many
 		if len(t.states) > 1000 {
 			for k, s := range t.states {
-				if now.Sub(s.Last) > window*2 && window > 0 {
+				if time.Since(s.Last) > window*2 && window > 0 {
 					delete(t.states, k)
 				}
 			}

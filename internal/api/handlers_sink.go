@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -68,7 +69,7 @@ func (s *Server) getSink(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	snk, err := s.storage.GetSink(r.Context(), id)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			s.jsonError(w, "Sink not found", http.StatusNotFound)
 		} else {
 			s.jsonError(w, "Failed to retrieve sink: "+err.Error(), http.StatusInternalServerError)

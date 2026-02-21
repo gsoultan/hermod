@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -516,7 +517,7 @@ func (s *Server) getWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	wf, err := s.storage.GetWorkflow(r.Context(), id)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			s.jsonError(w, "Workflow not found", http.StatusNotFound)
 		} else {
 			s.jsonError(w, "Failed to get workflow: "+err.Error(), http.StatusInternalServerError)
@@ -830,7 +831,7 @@ func (s *Server) getMessageTrace(w http.ResponseWriter, r *http.Request) {
 
 	trace, err := s.logStorage.GetMessageTrace(r.Context(), id, messageID)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			s.jsonError(w, "Trace not found", http.StatusNotFound)
 		} else {
 			s.jsonError(w, "Failed to get trace: "+err.Error(), http.StatusInternalServerError)
@@ -893,7 +894,7 @@ func (s *Server) getWorkflowVersion(w http.ResponseWriter, r *http.Request) {
 
 	v, err := s.storage.GetWorkflowVersion(r.Context(), id, version)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			s.jsonError(w, "Version not found", http.StatusNotFound)
 		} else {
 			s.jsonError(w, "Failed to get version: "+err.Error(), http.StatusInternalServerError)

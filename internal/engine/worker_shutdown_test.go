@@ -47,7 +47,7 @@ func TestWorker_ReleaseAllLeases(t *testing.T) {
 	w := NewWorker(store, nil)
 	w.SetWorkerConfig(0, 1, workerID, "")
 
-	ctx := context.Background()
+	ctx := t.Context()
 	w.ReleaseAllLeases(ctx)
 
 	store.mu.Lock()

@@ -59,7 +59,7 @@ func TestStatePersistence(t *testing.T) {
 		sourceID: "src-1",
 	}
 
-	err := sSource.Ack(context.Background(), nil)
+	err := sSource.Ack(t.Context(), nil)
 	if err != nil {
 		t.Fatalf("Ack failed: %v", err)
 	}

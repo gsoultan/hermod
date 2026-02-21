@@ -3,6 +3,7 @@ package file
 import (
 	"context"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -178,7 +179,7 @@ func (s *CSVSource) init(ctx context.Context) error {
 	if s.hasHeader {
 		headers, err := s.reader.Read()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				s.finished = true
 				return nil
 			}
@@ -211,7 +212,7 @@ func (s *CSVSource) Read(ctx context.Context) (hermod.Message, error) {
 	}
 
 	record, err := s.reader.Read()
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		s.finished = true
 		return nil, nil
 	}

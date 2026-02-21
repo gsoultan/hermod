@@ -34,7 +34,7 @@ func TestMappingEnhanced(t *testing.T) {
 			"mapping":     `{"0-18": "child", "19-65": "adult", "66+": "senior"}`,
 		}
 
-		res, err := registry.applyTransformation(context.Background(), msg, "mapping", config)
+		res, err := registry.applyTransformation(t.Context(), msg, "mapping", config)
 		if err != nil {
 			t.Fatalf("Failed: %v", err)
 		}
@@ -56,7 +56,7 @@ func TestMappingEnhanced(t *testing.T) {
 			"mapping":     `{"^error_.*": "failed", "ok": "success"}`,
 		}
 
-		res, err := registry.applyTransformation(context.Background(), msg, "mapping", config)
+		res, err := registry.applyTransformation(t.Context(), msg, "mapping", config)
 		if err != nil {
 			t.Fatalf("Failed: %v", err)
 		}
@@ -85,7 +85,7 @@ func TestErrorPolicies(t *testing.T) {
 			"targetField": "name",
 		}
 
-		_, err := registry.applyTransformation(context.Background(), msg, "db_lookup", config)
+		_, err := registry.applyTransformation(t.Context(), msg, "db_lookup", config)
 		if err == nil {
 			t.Error("Expected error for non-existent source, got nil")
 		}
@@ -105,7 +105,7 @@ func TestErrorPolicies(t *testing.T) {
 			"statusField": "_status",
 		}
 
-		res, err := registry.applyTransformation(context.Background(), msg, "db_lookup", config)
+		res, err := registry.applyTransformation(t.Context(), msg, "db_lookup", config)
 		if err != nil {
 			t.Fatalf("Expected no error due to continue policy, got %v", err)
 		}
@@ -133,7 +133,7 @@ func TestErrorPolicies(t *testing.T) {
 			"onError":     "drop",
 		}
 
-		res, err := registry.applyTransformation(context.Background(), msg, "db_lookup", config)
+		res, err := registry.applyTransformation(t.Context(), msg, "db_lookup", config)
 		if err != nil {
 			t.Fatalf("Expected no error due to drop policy, got %v", err)
 		}

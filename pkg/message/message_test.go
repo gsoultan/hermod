@@ -290,7 +290,7 @@ func TestMessageMarshalJSONSanitization(t *testing.T) {
 }
 
 func BenchmarkAcquireRelease(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		msg := AcquireMessage()
 		msg.SetID("id")
 		msg.SetPayload([]byte("payload"))
@@ -299,7 +299,7 @@ func BenchmarkAcquireRelease(b *testing.B) {
 }
 
 func BenchmarkNoPool(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		m := &DefaultMessage{
 			id:        "id",
 			operation: hermod.OpCreate,

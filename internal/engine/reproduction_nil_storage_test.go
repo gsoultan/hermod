@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"testing"
 
 	"github.com/user/hermod/internal/storage"
@@ -40,7 +39,7 @@ func TestStartWorkflow_NilStorage(t *testing.T) {
 
 func TestRebuildWorkflow_NilStorage(t *testing.T) {
 	r := NewRegistry(nil)
-	err := r.RebuildWorkflow(context.Background(), "wf1", 0)
+	err := r.RebuildWorkflow(t.Context(), "wf1", 0)
 	if err == nil {
 		t.Error("Expected error when storage is nil, but got nil")
 	} else {
@@ -53,7 +52,7 @@ func TestRebuildWorkflow_NilStorage(t *testing.T) {
 
 func TestGetOrOpenDBByID_NilStorage(t *testing.T) {
 	r := NewRegistry(nil)
-	_, _, err := r.GetOrOpenDBByID(context.Background(), "src1")
+	_, _, err := r.GetOrOpenDBByID(t.Context(), "src1")
 	if err == nil {
 		t.Error("Expected error when storage is nil, but got nil")
 	} else {
@@ -66,7 +65,7 @@ func TestGetOrOpenDBByID_NilStorage(t *testing.T) {
 
 func TestGetSource_NilStorage(t *testing.T) {
 	r := NewRegistry(nil)
-	_, err := r.GetSource(context.Background(), "src1")
+	_, err := r.GetSource(t.Context(), "src1")
 	if err == nil {
 		t.Error("Expected error when storage is nil, but got nil")
 	} else {

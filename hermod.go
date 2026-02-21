@@ -188,7 +188,7 @@ type TraceStep struct {
 	NodeID    string         `json:"node_id"`
 	Timestamp time.Time      `json:"timestamp" omitzero:"true"`
 	Duration  time.Duration  `json:"duration" omitzero:"true"`
-	Data      map[string]any `json:"data,omitempty" omitzero:"true"`
+	Data      map[string]any `json:"data" omitzero:"true"`
 	Error     string         `json:"error,omitempty"`
 }
 

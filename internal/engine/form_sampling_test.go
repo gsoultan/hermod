@@ -40,7 +40,7 @@ func TestFormSampling(t *testing.T) {
 		},
 	}
 	registry := NewRegistry(storage)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	cfg := SourceConfig{
 		Type: "form",

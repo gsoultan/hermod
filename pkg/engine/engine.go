@@ -1136,7 +1136,7 @@ func (sw *sinkWriter) recordFailure() {
 	}
 
 	now := time.Now()
-	if now.Sub(sw.cbLastFailure) > interval && sw.cbStatus == "closed" {
+	if time.Since(sw.cbLastFailure) > interval && sw.cbStatus == "closed" {
 		sw.cbFailCount = 1
 	} else {
 		sw.cbFailCount++

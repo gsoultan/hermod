@@ -30,8 +30,8 @@ type CommonFilter struct {
 	VHost       string
 	WorkspaceID string
 	// Since and Until bound time-based queries (e.g., logs). Zero value means not set.
-	Since time.Time
-	Until time.Time
+	Since time.Time `json:"since" omitzero:"true"`
+	Until time.Time `json:"until" omitzero:"true"`
 }
 
 type LogFilter struct {
@@ -56,7 +56,7 @@ type Source struct {
 	WorkspaceID string            `json:"workspace_id,omitempty"`
 	Config      map[string]string `json:"config"`
 	Sample      string            `json:"sample,omitempty"`
-	State       map[string]string `json:"state,omitempty"`
+	State       map[string]string `json:"state" omitzero:"true"`
 }
 
 type Sink struct {
@@ -80,10 +80,10 @@ type WorkflowNode struct {
 	ID        string         `json:"id"`
 	Type      string         `json:"type"`             // source, sink, transformer, condition, etc.
 	RefID     string         `json:"ref_id,omitempty"` // ID of the source, sink, or transformation
-	Config    map[string]any `json:"config,omitempty"`
+	Config    map[string]any `json:"config" omitzero:"true"`
 	X         float64        `json:"x"`
 	Y         float64        `json:"y"`
-	UnitTests []UnitTest     `json:"unit_tests,omitempty"`
+	UnitTests []UnitTest     `json:"unit_tests" omitzero:"true"`
 }
 
 type UnitTest struct {
@@ -97,7 +97,7 @@ type WorkflowEdge struct {
 	ID       string         `json:"id"`
 	SourceID string         `json:"source_id"`
 	TargetID string         `json:"target_id"`
-	Config   map[string]any `json:"config,omitempty"`
+	Config   map[string]any `json:"config" omitzero:"true"`
 }
 
 type WorkflowTier string
@@ -115,7 +115,7 @@ type Workflow struct {
 	Status            string         `json:"status,omitempty"`
 	WorkerID          string         `json:"worker_id"`
 	OwnerID           string         `json:"owner_id,omitempty"`
-	LeaseUntil        *time.Time     `json:"lease_until,omitempty"`
+	LeaseUntil        *time.Time     `json:"lease_until" omitzero:"true"`
 	Nodes             []WorkflowNode `json:"nodes"`
 	Edges             []WorkflowEdge `json:"edges"`
 	DeadLetterSinkID  string         `json:"dead_letter_sink_id,omitempty"`
@@ -134,7 +134,7 @@ type Workflow struct {
 	Cron              string   `json:"cron,omitempty"`
 	DLQThreshold      int      `json:"dlq_threshold,omitempty"`
 	TraceSampleRate   float64  `json:"trace_sample_rate,omitempty"`
-	Tags              []string `json:"tags,omitempty"`
+	Tags              []string `json:"tags" omitzero:"true"`
 	TraceRetention    string   `json:"trace_retention,omitempty"` // e.g. "7d", "30d"
 	AuditRetention    string   `json:"audit_retention,omitempty"` // e.g. "30d", "365d"
 	WorkspaceID       string   `json:"workspace_id,omitempty"`
@@ -161,7 +161,7 @@ type Worker struct {
 	Port        int        `json:"port"`
 	Description string     `json:"description"`
 	Token       string     `json:"token"`
-	LastSeen    *time.Time `json:"last_seen,omitempty"`
+	LastSeen    *time.Time `json:"last_seen" omitzero:"true"`
 	CPUUsage    float64    `json:"cpu_usage,omitempty"`
 	MemoryUsage float64    `json:"memory_usage,omitempty"`
 }
@@ -210,13 +210,13 @@ type AuditFilter struct {
 	EntityType string     `json:"entity_type"`
 	EntityID   string     `json:"entity_id"`
 	Action     string     `json:"action"`
-	From       *time.Time `json:"from"`
-	To         *time.Time `json:"to"`
+	From       *time.Time `json:"from" omitzero:"true"`
+	To         *time.Time `json:"to" omitzero:"true"`
 }
 
 type WebhookRequest struct {
 	ID        string            `json:"id"`
-	Timestamp time.Time         `json:"timestamp"`
+	Timestamp time.Time         `json:"timestamp" omitzero:"true"`
 	Path      string            `json:"path"`
 	Method    string            `json:"method"`
 	Headers   map[string]string `json:"headers"`
@@ -230,7 +230,7 @@ type WebhookRequestFilter struct {
 
 type FormSubmission struct {
 	ID        string    `json:"id"`
-	Timestamp time.Time `json:"timestamp"`
+	Timestamp time.Time `json:"timestamp" omitzero:"true"`
 	Path      string    `json:"path"`
 	Data      []byte    `json:"data"`
 	Status    string    `json:"status"` // pending, processing, completed, failed
@@ -248,7 +248,7 @@ type Schema struct {
 	Version   int       `json:"version"`
 	Type      string    `json:"type"`
 	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at"`
+	CreatedAt time.Time `json:"created_at" omitzero:"true"`
 }
 
 type Plugin struct {
@@ -262,7 +262,7 @@ type Plugin struct {
 	Type        string     `json:"type"` // WASM, Connector, Transformer
 	WasmURL     string     `json:"wasm_url,omitempty"`
 	Installed   bool       `json:"installed"`
-	InstalledAt *time.Time `json:"installed_at,omitempty"`
+	InstalledAt *time.Time `json:"installed_at" omitzero:"true"`
 }
 
 type TraceStep = hermod.TraceStep

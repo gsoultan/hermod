@@ -54,7 +54,7 @@ func TestAlertingOnStatusChange(t *testing.T) {
 	}
 
 	engStatusChange := func(update pkgengine.StatusUpdate) {
-		dbCtx := context.Background()
+		dbCtx := t.Context()
 		if workflow, err := r.storage.GetWorkflow(dbCtx, "wf-1"); err == nil {
 			prevStatus := workflow.Status
 			workflow.Status = update.EngineStatus
@@ -95,7 +95,7 @@ func TestDLQThresholdAlerting(t *testing.T) {
 
 	// Simulation function (replicates Registry's SetOnStatusChange logic)
 	onStatusChange := func(update pkgengine.StatusUpdate) {
-		dbCtx := context.Background()
+		dbCtx := t.Context()
 		if workflow, err := r.storage.GetWorkflow(dbCtx, "wf-dlq"); err == nil && workflow.DLQThreshold > 0 {
 			if update.DeadLetterCount >= uint64(workflow.DLQThreshold) {
 				r.notificationService.Notify(dbCtx, "DLQ Threshold Exceeded", "dlq alert", workflow)

@@ -83,7 +83,7 @@ func NewFileBufferWithCompressor(dir string, size int, comp compression.Compress
 func (b *FileBuffer) loadState() error {
 	data := make([]byte, 24)
 	n, err := b.stateFile.ReadAt(data, 0)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return fmt.Errorf("failed to read state file: %w", err)
 	}
 
@@ -217,7 +217,7 @@ func (b *FileBuffer) consumeWithOffsets(ctx context.Context, f *os.File, handler
 
 			msg, err := decodeMessage(reader)
 			if err != nil {
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					time.Sleep(10 * time.Millisecond)
 					continue
 				}

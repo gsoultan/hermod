@@ -11,11 +11,13 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	httppprof "net/http/pprof"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -129,19 +131,6 @@ func NewServer(registry *engine.Registry, store storage.Storage, cfg *config.Con
 		}
 	}
 	return s
-}
-
-func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	if s.storage == nil {
-		http.Error(w, "Service Unavailable: No storage", http.StatusServiceUnavailable)
-		return
-	}
-	if err := s.storage.Ping(r.Context()); err != nil {
-		http.Error(w, "Service Unavailable: "+err.Error(), http.StatusServiceUnavailable)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("READY"))
 }
 
 func (s *Server) wakeUpWorkflow(ctx context.Context, resourceType string, path string) bool {
@@ -363,12 +352,11 @@ func (s *Server) updateCryptoMasterKey(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
-	// Health checks
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("OK"))
-	})
-	mux.HandleFunc("GET /readyz", s.handleReadyz)
+	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
+	mux.HandleFunc("GET /healthz", s.handleLiveness)
+	mux.HandleFunc("GET /livez", s.handleLiveness)
+	mux.HandleFunc("GET /readyz", s.handleReadiness)
+	mux.HandleFunc("GET /api/version", s.handleVersion)
 
 	// Optional pprof endpoints guarded by env var
 	if os.Getenv("HERMOD_PPROF") == "true" {
@@ -387,11 +375,6 @@ func (s *Server) Routes() http.Handler {
 	s.registerInfrastructureRoutes(mux)
 	s.registerSchemaRoutes(mux)
 	s.registerMarketplaceRoutes(mux)
-
-	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
-	mux.HandleFunc("GET /livez", s.handleLiveness)
-	mux.HandleFunc("GET /readyz", s.handleReadiness)
-	mux.HandleFunc("GET /api/version", s.handleVersion)
 
 	mux.HandleFunc("POST /api/webhooks/{path...}", s.handleWebhook)
 	mux.HandleFunc("GET /api/webhooks/{path...}", s.handleWebhook)
@@ -460,6 +443,25 @@ func (s *Server) Routes() http.Handler {
 			stat, err := f.Stat()
 			f.Close()
 			if err == nil && !stat.IsDir() {
+				// Check for Brotli compression support
+				if strings.Contains(r.Header.Get("Accept-Encoding"), "br") {
+					brPath := path + ".br"
+					if brF, err := static.Open(brPath); err == nil {
+						brStat, err := brF.Stat()
+						if err == nil && !brStat.IsDir() {
+							// Found Brotli version!
+							defer brF.Close()
+							if ctype := mime.TypeByExtension(filepath.Ext(path)); ctype != "" {
+								w.Header().Set("Content-Type", ctype)
+							}
+							w.Header().Set("Content-Encoding", "br")
+							w.Header().Set("Vary", "Accept-Encoding")
+							http.ServeContent(w, r, path, brStat.ModTime(), brF.(io.ReadSeeker))
+							return
+						}
+						brF.Close()
+					}
+				}
 				fileServer.ServeHTTP(w, r)
 				return
 			}
@@ -470,12 +472,30 @@ func (s *Server) Routes() http.Handler {
 			// Serve index.html for SPA routing
 			f, err := static.Open("index.html")
 			if err == nil {
+				stat, err := f.Stat()
+				if err == nil && !stat.IsDir() {
+					// Check for Brotli compression support for SPA root
+					if strings.Contains(r.Header.Get("Accept-Encoding"), "br") {
+						brPath := "index.html.br"
+						if brF, err := static.Open(brPath); err == nil {
+							brStat, err := brF.Stat()
+							if err == nil && !brStat.IsDir() {
+								defer brF.Close()
+								w.Header().Set("Content-Type", "text/html; charset=utf-8")
+								w.Header().Set("Content-Encoding", "br")
+								w.Header().Set("Vary", "Accept-Encoding")
+								http.ServeContent(w, r, "index.html", brStat.ModTime(), brF.(io.ReadSeeker))
+								return
+							}
+							brF.Close()
+						}
+					}
+				}
 				f.Close()
 				r.URL.Path = "/"
 				fileServer.ServeHTTP(w, r)
 				return
 			}
-			// If index.html is also missing, return 404
 		}
 
 		http.NotFound(w, r)
@@ -1563,7 +1583,6 @@ func (s *Server) startRateLimitCleanup() {
 			for {
 				select {
 				case <-ticker.C:
-					now := time.Now()
 					s.formRateLimit.Range(func(key, value any) bool {
 						k := key.(string)
 						parts := strings.Split(k, ":")
@@ -1572,7 +1591,7 @@ func (s *Server) startRateLimitCleanup() {
 							// The last part is the key suffix we care about
 							datePart := parts[len(parts)-1]
 							if t, err := time.Parse("2006-01-02:15", datePart); err == nil {
-								if now.Sub(t) > 2*time.Hour {
+								if time.Since(t) > 2*time.Hour {
 									s.formRateLimit.Delete(key)
 								}
 							}

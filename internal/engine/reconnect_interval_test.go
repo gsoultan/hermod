@@ -172,7 +172,7 @@ func TestWorkerRestartOnSourceChange(t *testing.T) {
 	sourceMap := map[string]storage.Source{"src-1": store.src}
 	sinkMap := map[string]storage.Sink{"snk-1": {ID: "snk-1", Type: "stdout"}}
 
-	w.syncWorkflow(context.Background(), store.wf, "worker-1", sourceMap, sinkMap)
+	w.syncWorkflow(t.Context(), store.wf, "worker-1", sourceMap, sinkMap)
 
 	// After sync, it should have restarted, meaning it was stopped then started.
 	// In this test, syncWorkflow will call StopEngineWithoutUpdate then StartWorkflow.

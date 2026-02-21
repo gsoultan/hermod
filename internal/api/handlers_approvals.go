@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -42,7 +43,7 @@ func (s *Server) getApproval(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	app, err := s.storage.GetApproval(r.Context(), id)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			s.jsonError(w, "Approval not found", http.StatusNotFound)
 		} else {
 			s.jsonError(w, "Failed to get approval: "+err.Error(), http.StatusInternalServerError)
@@ -70,7 +71,7 @@ func (s *Server) handleApprovalDecision(w http.ResponseWriter, r *http.Request, 
 
 	app, err := s.storage.GetApproval(r.Context(), id)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			s.jsonError(w, "Approval not found", http.StatusNotFound)
 		} else {
 			s.jsonError(w, "Failed to get approval: "+err.Error(), http.StatusInternalServerError)

@@ -250,9 +250,7 @@ func (m *DefaultMessage) Reset() {
 	m.table = ""
 	m.schema = ""
 	m.clearPayloads()
-	for k := range m.metadata {
-		delete(m.metadata, k)
-	}
+	clear(m.metadata)
 }
 
 // ClearPayloads clears the data content of the message but keeps metadata/system fields.
@@ -265,9 +263,7 @@ func (m *DefaultMessage) ClearPayloads() {
 func (m *DefaultMessage) clearPayloads() {
 	m.before = m.before[:0]
 	m.payload = m.payload[:0]
-	for k := range m.data {
-		delete(m.data, k)
-	}
+	clear(m.data)
 }
 
 // ClearCachedPayload clears only the marshaled payload bytes.
@@ -337,9 +333,7 @@ func (m *DefaultMessage) SetPayload(payload []byte) {
 	defer m.mu.Unlock()
 	m.payload = append(m.payload[:0], payload...)
 	// Clear data map to keep it in sync
-	for k := range m.data {
-		delete(m.data, k)
-	}
+	clear(m.data)
 }
 
 func (m *DefaultMessage) SetMetadata(key, value string) {

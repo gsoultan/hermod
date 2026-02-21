@@ -26,7 +26,7 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 		t.Skip("integration: set HERMOD_INTEGRATION=1 to run")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// --- Platform storage (SQLite on disk) ---
 	stateDB, err := sql.Open("sqlite", "file:e2e_state.db?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)")
@@ -106,7 +106,7 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	w2.SetSyncInterval(500 * time.Millisecond)
 
 	// Start worker 1
-	ctx1, cancel1 := context.WithCancel(context.Background())
+	ctx1, cancel1 := context.WithCancel(t.Context())
 	defer cancel1()
 	go w1.Start(ctx1)
 
@@ -147,7 +147,7 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	cancel1()
 
 	// Start worker 2; it should steal the lease after TTL
-	ctx2, cancel2 := context.WithCancel(context.Background())
+	ctx2, cancel2 := context.WithCancel(t.Context())
 	defer cancel2()
 	go w2.Start(ctx2)
 

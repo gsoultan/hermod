@@ -529,7 +529,7 @@ func (r *Registry) broadcastStatus(update pkgengine.StatusUpdate) {
 	if len(r.dashboardSubs) > 0 {
 		now := time.Now()
 		// Throttle dashboard broadcasts to at most once per second to reduce overhead during high throughput
-		if now.Sub(r.lastDashboardUpdate) > 1*time.Second {
+		if time.Since(r.lastDashboardUpdate) > 1*time.Second {
 			r.lastDashboardUpdate = now
 
 			// Release statusSubsMu to avoid deadlock if GetDashboardStats needs it (it doesn't, but good practice)
@@ -2115,9 +2115,8 @@ func (r *Registry) GetDashboardStats(ctx context.Context, vhost string) (Dashboa
 
 		workers, _, err := r.storage.ListWorkers(ctx, storage.CommonFilter{Limit: 100})
 		if err == nil {
-			now := time.Now()
 			for _, w := range workers {
-				if w.LastSeen != nil && now.Sub(*w.LastSeen) < 2*time.Minute {
+				if w.LastSeen != nil && time.Since(*w.LastSeen) < 2*time.Minute {
 					stats.ActiveWorkers++
 				}
 			}

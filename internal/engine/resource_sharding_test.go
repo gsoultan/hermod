@@ -40,7 +40,7 @@ func TestResourceAwareSharding_Distribution(t *testing.T) {
 	w3.workerCacheTime = now
 
 	workflows := make([]string, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		workflows[i] = "wf-" + string(rune(i+100))
 	}
 	counts := make(map[string]int)
@@ -83,7 +83,7 @@ func TestResourceAwareSharding_LoadBalance(t *testing.T) {
 	wLight := &Worker{workerGUID: "worker-light", storage: ms, workerCache: ms.workers, workerCacheTime: time.Now()}
 
 	workflows := make([]string, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		workflows[i] = "wf-" + string(rune(i))
 	}
 

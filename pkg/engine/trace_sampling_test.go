@@ -43,8 +43,8 @@ func TestRecordTraceStep_DeterministicSampling(t *testing.T) {
 	msg := &mockMessage{id: msgID}
 
 	// Record multiple steps for the same message
-	for i := 0; i < 100; i++ {
-		e.RecordTraceStep(context.Background(), msg, "node-1", time.Now(), nil)
+	for range 100 {
+		e.RecordTraceStep(t.Context(), msg, "node-1", time.Now(), nil)
 	}
 
 	steps := recorder.GetSteps(msgID)
@@ -56,10 +56,10 @@ func TestRecordTraceStep_DeterministicSampling(t *testing.T) {
 	// Now check that different messages can have different sampling outcomes
 	sampledIn := 0
 	sampledOut := 0
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		mID := string(rune(i)) // Different ID each time
 		m := &mockMessage{id: mID}
-		e.RecordTraceStep(context.Background(), m, "node-1", time.Now(), nil)
+		e.RecordTraceStep(t.Context(), m, "node-1", time.Now(), nil)
 		if len(recorder.GetSteps(mID)) > 0 {
 			sampledIn++
 		} else {
@@ -84,7 +84,7 @@ func TestRecordTraceStep_Default(t *testing.T) {
 	msgID := "test-msg"
 	msg := &mockMessage{id: msgID}
 
-	e.RecordTraceStep(context.Background(), msg, "node-1", time.Now(), nil)
+	e.RecordTraceStep(t.Context(), msg, "node-1", time.Now(), nil)
 
 	steps := recorder.GetSteps(msgID)
 	if len(steps) != 1 {

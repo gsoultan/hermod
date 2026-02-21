@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -57,7 +58,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.storage.GetUserByUsername(r.Context(), creds.Username)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			s.jsonError(w, "invalid username or password", http.StatusUnauthorized)
 		} else {
 			s.jsonError(w, "database error: "+err.Error(), http.StatusInternalServerError)
@@ -314,7 +315,7 @@ func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.storage.GetUserByEmail(r.Context(), req.Email)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]string{"message": "If the email exists, a new password has been sent."})
 			return

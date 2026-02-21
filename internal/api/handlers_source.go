@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
@@ -71,7 +72,7 @@ func (s *Server) getSource(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	src, err := s.storage.GetSource(r.Context(), id)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			s.jsonError(w, "Source not found", http.StatusNotFound)
 		} else {
 			s.jsonError(w, "Failed to retrieve source: "+err.Error(), http.StatusInternalServerError)
@@ -158,7 +159,7 @@ func (s *Server) deleteSource(w http.ResponseWriter, r *http.Request) {
 
 	src, err := s.storage.GetSource(ctx, id)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			s.jsonError(w, "Source not found", http.StatusNotFound)
 		} else {
 			s.jsonError(w, "Failed to get source: "+err.Error(), http.StatusInternalServerError)
@@ -210,7 +211,7 @@ func (s *Server) triggerSnapshot(w http.ResponseWriter, r *http.Request) {
 
 	src, err := s.storage.GetSource(ctx, id)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			s.jsonError(w, "Source not found", http.StatusNotFound)
 		} else {
 			s.jsonError(w, "Failed to get source: "+err.Error(), http.StatusInternalServerError)
@@ -231,7 +232,7 @@ func (s *Server) triggerSnapshot(w http.ResponseWriter, r *http.Request) {
 		Tables []string `json:"tables"`
 	}
 	if r.ContentLength > 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 			s.jsonError(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -254,7 +255,7 @@ func (s *Server) listWorkflowsReferencingSource(w http.ResponseWriter, r *http.R
 
 	src, err := s.storage.GetSource(ctx, id)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			s.jsonError(w, "Source not found", http.StatusNotFound)
 		} else {
 			s.jsonError(w, "Failed to get source: "+err.Error(), http.StatusInternalServerError)

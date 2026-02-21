@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -31,7 +32,7 @@ func (s *Server) getWorker(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	worker, err := s.storage.GetWorker(r.Context(), id)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			s.jsonError(w, "worker not found", http.StatusNotFound)
 		} else {
 			s.jsonError(w, "failed to retrieve worker", http.StatusInternalServerError)
@@ -74,7 +75,7 @@ func (s *Server) updateWorker(w http.ResponseWriter, r *http.Request) {
 	// Preserve server-side token; do not allow token updates via this endpoint
 	existing, err := s.storage.GetWorker(r.Context(), id)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			s.jsonError(w, "worker not found", http.StatusNotFound)
 			return
 		}

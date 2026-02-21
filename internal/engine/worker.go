@@ -540,7 +540,7 @@ func (w *Worker) isAssigned(resourceID string, currentOwnerID string) bool {
 			now := time.Now()
 			for _, wrk := range workers {
 				// Worker is online if seen in the last 60 seconds
-				if wrk.LastSeen != nil && now.Sub(*wrk.LastSeen) < 1*time.Minute {
+				if wrk.LastSeen != nil && time.Since(*wrk.LastSeen) < 1*time.Minute {
 					online = append(online, wrk)
 				}
 			}

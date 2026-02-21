@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -18,11 +17,11 @@ import (
 func TestDeleteSinkProtection(t *testing.T) {
 	db, _ := sql.Open("sqlite", ":memory:")
 	store := sqlstorage.NewSQLStorage(db, "sqlite")
-	store.Init(context.Background())
+	store.Init(t.Context())
 	registry := engine.NewRegistry(store)
 	server := NewServer(registry, store, nil, nil)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// 1. Create a sink
 	sinkID := uuid.New().String()

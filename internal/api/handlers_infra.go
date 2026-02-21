@@ -1127,7 +1127,6 @@ func (s *Server) getMeshHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var health []ClusterHealth
-	now := time.Now()
 
 	// Fetch all workflows to count them per worker
 	wfs, _, _ := s.storage.ListWorkflows(ctx, storage.CommonFilter{})
@@ -1140,9 +1139,9 @@ func (s *Server) getMeshHealth(w http.ResponseWriter, r *http.Request) {
 
 	for _, wrk := range workers {
 		status := "online"
-		if wrk.LastSeen == nil || now.Sub(*wrk.LastSeen) > 1*time.Minute {
+		if wrk.LastSeen == nil || time.Since(*wrk.LastSeen) > 1*time.Minute {
 			status = "offline"
-		} else if now.Sub(*wrk.LastSeen) > 30*time.Second {
+		} else if time.Since(*wrk.LastSeen) > 30*time.Second {
 			status = "degraded"
 		}
 

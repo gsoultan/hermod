@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   Modal, ScrollArea, Stack, Box, Text, Group, Badge, 
-  ActionIcon, Tooltip, TextInput, SegmentedControl, Code
-} from '@mantine/core';import { useWorkflowStore } from '../store/useWorkflowStore';import { IconFilter, IconSearch, IconTerminal2, IconTrash } from '@tabler/icons-react';
+  ActionIcon, Tooltip, TextInput, SegmentedControl, Code,
+  Loader
+} from '@mantine/core';
+import { useWorkflowStore } from '../store/useWorkflowStore';
+import { IconFilter, IconSearch, IconTerminal2, IconTrash } from '@tabler/icons-react';
+import { useDataWorker } from '../../../hooks/useDataWorker';
 interface LiveMessage {
   workflow_id: string;
   node_id: string;
@@ -21,6 +25,8 @@ export function LiveStreamInspector({ opened, onClose, workflowId }: {
   const [paused, setPaused] = useState(false);
   const [search, setSearch] = useState('');
   const [filterNode, setFilterNode] = useState<string>('all');
+  const [filteredMessages, setFilteredMessages] = useState<LiveMessage[]>([]);
+  const { process, processing } = useDataWorker();
   const wsRef = useRef<WebSocket | null>(null);
   const nodes = useWorkflowStore(state => state.nodes);
 
@@ -47,11 +53,20 @@ export function LiveStreamInspector({ opened, onClose, workflowId }: {
     }
   }, [opened, paused, workflowId]);
 
-  const filteredMessages = messages.filter(m => {
-    const matchesSearch = !search || JSON.stringify(m.data).toLowerCase().includes(search.toLowerCase());
-    const matchesNode = filterNode === 'all' || m.node_id === filterNode;
-    return matchesSearch && matchesNode;
-  });
+  // Process filtering in worker whenever messages, search or filters change
+  useEffect(() => {
+    if (messages.length === 0) {
+      setFilteredMessages([]);
+      return;
+    }
+
+    process('filter', messages, {
+      filters: [{ field: 'node_id', value: filterNode }],
+      search: { query: search }
+    }).then(result => {
+      setFilteredMessages(result);
+    });
+  }, [messages, search, filterNode, process]);
 
   const nodeOptions = [
     { label: 'All Nodes', value: 'all' },
@@ -78,7 +93,7 @@ export function LiveStreamInspector({ opened, onClose, workflowId }: {
             <TextInput
               placeholder="Search data..."
               size="xs"
-              leftSection={<IconSearch size="0.8rem" />}
+              leftSection={processing ? <Loader size="0.8rem" /> : <IconSearch size="0.8rem" />}
               value={search}
               onChange={(e) => setSearch(e.currentTarget.value)}
               style={{ width: 200 }}

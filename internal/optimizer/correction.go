@@ -116,7 +116,7 @@ func (g *SelfCorrectionGate) applyFix(workflowID, nodeID string, action Correcti
 	// Rate limit corrections (once per 10 minutes per node/action)
 	lastFixes := g.history[key]
 	now := time.Now()
-	if len(lastFixes) > 0 && now.Sub(lastFixes[len(lastFixes)-1]) < 10*time.Minute {
+	if len(lastFixes) > 0 && time.Since(lastFixes[len(lastFixes)-1]) < 10*time.Minute {
 		return
 	}
 

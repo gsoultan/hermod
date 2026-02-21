@@ -26,7 +26,7 @@ func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
 	}
 
 	checks := make(map[string]any)
-	if s.lastReadyStatusSet && now.Sub(s.lastReadyStatusAt) < debounce {
+	if s.lastReadyStatusSet && time.Since(s.lastReadyStatusAt) < debounce {
 		s.respondReadiness(w, s.lastReadyStatus, statusFromBool(s.lastReadyStatus), checks)
 		return
 	}
@@ -51,7 +51,7 @@ func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
 		allWorkers, _, err := s.storage.ListWorkers(ctx, storage.CommonFilter{})
 		if err == nil {
 			for _, w := range allWorkers {
-				if w.LastSeen != nil && now.Sub(*w.LastSeen) < time.Duration(ttl)*time.Second {
+				if w.LastSeen != nil && time.Since(*w.LastSeen) < time.Duration(ttl)*time.Second {
 					recentWorkers++
 				} else {
 					staleWorkers++

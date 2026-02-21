@@ -70,14 +70,14 @@ func TestWorkflowOptimizationAndMetrics(t *testing.T) {
 	}
 
 	// Test Validation
-	if err := registry.ValidateWorkflow(context.Background(), wf); err != nil {
+	if err := registry.ValidateWorkflow(t.Context(), wf); err != nil {
 		t.Fatalf("Validation failed: %v", err)
 	}
 
 	// Test Cycle Detection
 	wfCycle := wf
 	wfCycle.Edges = append(wfCycle.Edges, storage.WorkflowEdge{ID: "e3", SourceID: "node2", TargetID: "node1"})
-	if err := registry.ValidateWorkflow(context.Background(), wfCycle); err == nil {
+	if err := registry.ValidateWorkflow(t.Context(), wfCycle); err == nil {
 		t.Errorf("Expected cycle detection error, got nil")
 	}
 
@@ -87,7 +87,7 @@ func TestWorkflowOptimizationAndMetrics(t *testing.T) {
 		{ID: "node1", Type: "source", RefID: "new"},
 		{ID: "node2", Type: "sink", RefID: "snk1"},
 	}
-	if err := registry.ValidateWorkflow(context.Background(), wfUnconfigured); err == nil {
+	if err := registry.ValidateWorkflow(t.Context(), wfUnconfigured); err == nil {
 		t.Errorf("Expected validation error for unconfigured node, got nil")
 	}
 
@@ -97,14 +97,14 @@ func TestWorkflowOptimizationAndMetrics(t *testing.T) {
 		{ID: "node1", Type: "source", RefID: "missing_id"},
 		{ID: "node2", Type: "sink", RefID: "snk1"},
 	}
-	if err := registry.ValidateWorkflow(context.Background(), wfMissing); err == nil {
+	if err := registry.ValidateWorkflow(t.Context(), wfMissing); err == nil {
 		t.Errorf("Expected validation error for missing source, got nil")
 	}
 
 	// Test Edge Integrity
 	wfEdgeFail := wf
 	wfEdgeFail.Edges = append(wfEdgeFail.Edges, storage.WorkflowEdge{ID: "e_fail", SourceID: "node1", TargetID: "missing_node"})
-	if err := registry.ValidateWorkflow(context.Background(), wfEdgeFail); err == nil {
+	if err := registry.ValidateWorkflow(t.Context(), wfEdgeFail); err == nil {
 		t.Errorf("Expected validation error for missing target node in edge, got nil")
 	}
 

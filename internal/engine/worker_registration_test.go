@@ -33,7 +33,7 @@ func TestWorker_SelfRegister(t *testing.T) {
 	worker.SetWorkerConfig(0, 1, "test-worker-1", "test-token")
 	worker.SetRegistrationInfo("Test Worker", "localhost", 8081, "A test worker")
 
-	ctx := context.Background()
+	ctx := t.Context()
 	err := worker.SelfRegister(ctx)
 	if err != nil {
 		t.Fatalf("SelfRegister failed: %v", err)
