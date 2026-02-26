@@ -1,4 +1,4 @@
-import { TextInput, Stack, PasswordInput, Text, SimpleGrid } from '@mantine/core';
+import { TextInput, Stack, PasswordInput, Text, SimpleGrid, Checkbox } from '@mantine/core';
 
 interface MessagingSourceConfigProps {
   type: string;
@@ -77,6 +77,7 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
           <PasswordInput label="Password" placeholder="guest" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
           <TextInput label="Virtual Host" placeholder="/" value={config.dbname || ''} onChange={(e) => updateConfig('dbname', e.target.value)} />
         </SimpleGrid>
+        <Checkbox label="Use SSL/TLS" checked={config.use_ssl === 'true'} onChange={(e) => updateConfig('use_ssl', e.currentTarget.checked ? 'true' : 'false')} />
         {type === 'rabbitmq' ? (
           <>
             <TextInput label="Stream Name" value={config.stream_name || ''} onChange={(e) => updateConfig('stream_name', e.target.value)} required />

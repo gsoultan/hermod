@@ -3615,10 +3615,16 @@ func BuildConnectionString(cfg map[string]string, sourceType string) string {
 	if cs, ok := cfg["uri"]; ok && cs != "" {
 		return cs
 	}
+	if cs, ok := cfg["url"]; ok && cs != "" {
+		return cs
+	}
 
 	host := cfg["host"]
 	port := cfg["port"]
 	user := cfg["user"]
+	if user == "" {
+		user = cfg["username"]
+	}
 	password := cfg["password"]
 	dbname := cfg["dbname"]
 
@@ -3677,19 +3683,35 @@ func BuildConnectionString(cfg map[string]string, sourceType string) string {
 	case "sqlite":
 		return cfg["path"]
 	case "rabbitmq", "rabbitmq_queue":
+		useSSL := strings.EqualFold(cfg["use_ssl"], "true")
 		u := &url.URL{
 			Scheme: "amqp", // Default for queue
 			Host:   fmt.Sprintf("%s:%s", host, port),
 			Path:   "/" + dbname, // vhost
 		}
+		if useSSL {
+			u.Scheme = "amqps"
+		}
+
 		if sourceType == "rabbitmq" {
 			u.Scheme = "rabbitmq-stream"
+			if useSSL {
+				u.Scheme = "rabbitmq-streams"
+			}
 			if port == "" {
-				u.Host = fmt.Sprintf("%s:5552", host)
+				p := "5552"
+				if useSSL {
+					p = "5551"
+				}
+				u.Host = fmt.Sprintf("%s:%s", host, p)
 			}
 		} else {
 			if port == "" {
-				u.Host = fmt.Sprintf("%s:5672", host)
+				p := "5672"
+				if useSSL {
+					p = "5671"
+				}
+				u.Host = fmt.Sprintf("%s:%s", host, p)
 			}
 		}
 		if user != "" || password != "" {

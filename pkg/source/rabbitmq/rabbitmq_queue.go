@@ -3,7 +3,9 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -33,6 +35,12 @@ func NewRabbitMQQueueSource(url string, queueName string) (*RabbitMQQueueSource,
 }
 
 func (s *RabbitMQQueueSource) ensureConnected() error {
+	if s.url == "" {
+		return errors.New("rabbitmq source url is not configured")
+	}
+	if !strings.HasPrefix(s.url, "amqp://") && !strings.HasPrefix(s.url, "amqps://") {
+		return errors.New("rabbitmq source url must start with 'amqp://' or 'amqps://'")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -113,6 +121,14 @@ func (s *RabbitMQQueueSource) run(ctx context.Context, msgs <-chan amqp.Delivery
 			if err := json.Unmarshal(d.Body, &jsonData); err == nil {
 				for k, v := range jsonData {
 					hmsg.SetData(k, v)
+				}
+			} else if fixed := message.TryFixJSON(d.Body); fixed != nil {
+				if err := json.Unmarshal(fixed, &jsonData); err == nil {
+					for k, v := range jsonData {
+						hmsg.SetData(k, v)
+					}
+				} else {
+					hmsg.SetAfter(d.Body) // Fallback for non-JSON
 				}
 			} else {
 				hmsg.SetAfter(d.Body) // Fallback for non-JSON
@@ -221,6 +237,12 @@ func (s *RabbitMQQueueSource) Sample(ctx context.Context, table string) (hermod.
 }
 
 func (s *RabbitMQQueueSource) Ping(ctx context.Context) error {
+	if s.url == "" {
+		return errors.New("rabbitmq source url is not configured")
+	}
+	if !strings.HasPrefix(s.url, "amqp://") && !strings.HasPrefix(s.url, "amqps://") {
+		return errors.New("rabbitmq source url must start with 'amqp://' or 'amqps://'")
+	}
 	s.mu.Lock()
 	conn := s.conn
 	s.mu.Unlock()

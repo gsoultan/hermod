@@ -41,3 +41,4 @@
 /internal/api/hermod_state.db
 /hermodctl.exe
 ui/stats.html
+/.output.txt

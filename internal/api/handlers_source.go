@@ -419,15 +419,7 @@ func (s *Server) sampleSourceTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"id":        msg.ID(),
-		"operation": msg.Operation(),
-		"table":     msg.Table(),
-		"schema":    msg.Schema(),
-		"before":    string(msg.Before()),
-		"after":     string(msg.After()),
-		"metadata":  msg.Metadata(),
-	})
+	_ = json.NewEncoder(w).Encode(msg)
 }
 
 func (s *Server) querySource(w http.ResponseWriter, r *http.Request) {

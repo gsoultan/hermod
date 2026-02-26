@@ -1,4 +1,4 @@
-import { TextInput, Group } from '@mantine/core';
+import { TextInput, Group, Checkbox } from '@mantine/core';
 
 interface QueueSinkConfigProps {
   type: string;
@@ -59,6 +59,7 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
             <TextInput label="Virtual Host" placeholder="/" value={config.dbname || ''} onChange={(e) => updateConfig('dbname', e.target.value)} />
           </Group>
           <TextInput label="Stream Name" placeholder="hermod-stream" value={config.stream_name || ''} onChange={(e) => updateConfig('stream_name', e.target.value)} required />
+          <Checkbox label="Use SSL/TLS" checked={config.use_ssl === 'true'} onChange={(e) => updateConfig('use_ssl', e.currentTarget.checked ? 'true' : 'false')} mt="xs" />
         </>
       );
     case 'rabbitmq_queue':
@@ -77,6 +78,7 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
             <TextInput label="Virtual Host" placeholder="/" value={config.dbname || ''} onChange={(e) => updateConfig('dbname', e.target.value)} />
           </Group>
           <TextInput label="Queue Name" placeholder="hermod-queue" value={config.queue_name || ''} onChange={(e) => updateConfig('queue_name', e.target.value)} required />
+          <Checkbox label="Use SSL/TLS" checked={config.use_ssl === 'true'} onChange={(e) => updateConfig('use_ssl', e.currentTarget.checked ? 'true' : 'false')} mt="xs" />
         </>
       );
     case 'redis':

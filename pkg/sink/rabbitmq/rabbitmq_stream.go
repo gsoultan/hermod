@@ -2,6 +2,7 @@ package rabbitmq
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -30,6 +31,9 @@ func NewRabbitMQStreamSink(url string, streamName string, formatter hermod.Forma
 }
 
 func (s *RabbitMQStreamSink) ensureConnected(ctx context.Context) error {
+	if s.url == "" {
+		return errors.New("rabbitmq stream sink url is not configured")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

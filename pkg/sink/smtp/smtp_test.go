@@ -264,6 +264,7 @@ func TestSmtpSink_SystemFieldsInTemplate(t *testing.T) {
 	mock := &mockSender{}
 	sink := &SmtpSink{
 		sender:   mock,
+		to:       []string{"to@example.com"},
 		template: `ID: {{.id}}, Table: {{.table}}, Op: {{.operation}}`,
 	}
 
@@ -289,6 +290,7 @@ func TestSmtpSink_IfElseTemplate(t *testing.T) {
 	mock := &mockSender{}
 	sink := &SmtpSink{
 		sender:   mock,
+		to:       []string{"to@example.com"},
 		template: `{{if eq .operation "create"}}New record added: {{.id}}{{else}}Record {{.id}} updated{{end}}`,
 	}
 
@@ -323,6 +325,7 @@ func TestSmtpSink_OutlookCompatible(t *testing.T) {
 	mock := &mockSender{}
 	sink := &SmtpSink{
 		sender:            mock,
+		to:                []string{"to@example.com"},
 		outlookCompatible: true,
 	}
 
@@ -353,6 +356,7 @@ func TestSmtpSink_JSONStringFields(t *testing.T) {
 	mock := &mockSender{}
 	sink := &SmtpSink{
 		sender:   mock,
+		to:       []string{"to@example.com"},
 		template: `ID: {{.after.id}}, Name: {{.after.name}}, FlatName: {{.name}}`,
 	}
 

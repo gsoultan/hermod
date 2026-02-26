@@ -14,6 +14,7 @@ import (
 	"github.com/gsoultan/gsmail"
 	gsmailSmtp "github.com/gsoultan/gsmail/smtp"
 	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/message"
 )
 
 // SmtpSink implements the hermod.Sink interface for SMTP.
@@ -73,6 +74,45 @@ func (s *SmtpSink) Write(ctx context.Context, msg hermod.Message) error {
 		templateData[k] = v
 	}
 
+	// If no structured data provided, try to unmarshal payload JSON for convenience
+	if len(templateData) == 0 && len(msg.Payload()) > 0 {
+		var payloadMap map[string]any
+		payload := msg.Payload()
+		if err := json.Unmarshal(payload, &payloadMap); err == nil {
+			for k, v := range payloadMap {
+				templateData[k] = v
+			}
+		} else {
+			// Try once more with a more lenient approach (handling trailing commas)
+			if cleaned := message.TryFixJSON(payload); cleaned != nil {
+				if err := json.Unmarshal(cleaned, &payloadMap); err == nil {
+					for k, v := range payloadMap {
+						templateData[k] = v
+					}
+				}
+			}
+		}
+	}
+
+	// If 'after'/'before' fields are not present in data, try to expose them from message payloads
+	if _, ok := templateData["after"]; !ok && len(msg.After()) > 0 {
+		// Try to parse as JSON, else keep as raw string
+		var afterMap map[string]any
+		if err := json.Unmarshal(msg.After(), &afterMap); err == nil {
+			templateData["after"] = afterMap
+		} else {
+			templateData["after"] = string(msg.After())
+		}
+	}
+	if _, ok := templateData["before"]; !ok && len(msg.Before()) > 0 {
+		var beforeMap map[string]any
+		if err := json.Unmarshal(msg.Before(), &beforeMap); err == nil {
+			templateData["before"] = beforeMap
+		} else {
+			templateData["before"] = string(msg.Before())
+		}
+	}
+
 	// Ensure system fields are available if not shadowed
 	if _, ok := templateData["id"]; !ok {
 		templateData["id"] = msg.ID()
@@ -103,9 +143,11 @@ func (s *SmtpSink) Write(ctx context.Context, msg hermod.Message) error {
 			// Split by comma in case the template variable contains multiple emails
 			parts := strings.Split(rendered, ",")
 			for _, p := range parts {
-				if trimmed := strings.TrimSpace(p); trimmed != "" {
-					to = append(to, trimmed)
+				trimmed := strings.TrimSpace(p)
+				if trimmed == "" || strings.EqualFold(trimmed, "<no value>") {
+					continue // skip unresolved or empty values
 				}
+				to = append(to, trimmed)
 			}
 		} else {
 			to = append(to, recipient)
@@ -114,6 +156,15 @@ func (s *SmtpSink) Write(ctx context.Context, msg hermod.Message) error {
 
 	// Normalize and de-duplicate recipients (case-insensitive)
 	to = normalizeAndDedupeEmails(to)
+
+	if len(to) == 0 {
+		// Diagnostic information: list available keys to help user debug
+		keys := make([]string, 0, len(templateData))
+		for k := range templateData {
+			keys = append(keys, k)
+		}
+		return fmt.Errorf("no valid recipients found after template resolution (tried: %v, available fields: %v)", s.to, keys)
+	}
 
 	subject := s.subject
 	if strings.Contains(subject, "{{") {
@@ -209,7 +260,13 @@ func PrepareTemplateData(data map[string]any) map[string]any {
 		if val, ok := data[key]; ok {
 			var nested map[string]any
 			if str, ok := val.(string); ok && strings.HasPrefix(strings.TrimSpace(str), "{") {
-				if err := json.Unmarshal([]byte(str), &nested); err == nil {
+				if err := json.Unmarshal([]byte(str), &nested); err != nil {
+					// Try lenient approach
+					if cleaned := message.TryFixJSON([]byte(str)); cleaned != nil {
+						_ = json.Unmarshal(cleaned, &nested)
+					}
+				}
+				if nested != nil {
 					data[key] = nested
 				}
 			} else if m, ok := val.(map[string]any); ok {

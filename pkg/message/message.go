@@ -3,12 +3,38 @@ package message
 import (
 	"encoding/json"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/google/uuid"
 	"github.com/user/hermod"
 )
+
+var (
+	trailingCommaBraceRegex   = regexp.MustCompile(`,(\s*})`)
+	trailingCommaBracketRegex = regexp.MustCompile(`,(\s*])`)
+)
+
+// TryFixJSON attempts to fix common JSON issues like trailing commas to make unmarshaling more lenient.
+func TryFixJSON(data []byte) []byte {
+	str := string(data)
+	trimmed := strings.TrimSpace(str)
+
+	// If it ends with a period, trim it (common in issue descriptions)
+	trimmed = strings.TrimSuffix(trimmed, ".")
+	trimmed = strings.TrimSpace(trimmed)
+
+	if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
+		return nil
+	}
+
+	// Remove trailing commas before closing braces/brackets using regex for robustness
+	fixed := trailingCommaBraceRegex.ReplaceAllString(trimmed, "$1")
+	fixed = trailingCommaBracketRegex.ReplaceAllString(fixed, "$1")
+
+	return []byte(fixed)
+}
 
 // SanitizeValue converts special types (like UUIDs) to JSON-friendly strings.
 func SanitizeValue(v any) any {
@@ -158,7 +184,13 @@ func (m *DefaultMessage) Data() map[string]any {
 	defer m.mu.Unlock()
 	if len(m.data) == 0 && len(m.payload) > 0 {
 		if err := json.Unmarshal(m.payload, &m.data); err != nil {
-			// If not a map, try as a slice
+			// Try lenient approach
+			if fixed := TryFixJSON(m.payload); fixed != nil {
+				if err := json.Unmarshal(fixed, &m.data); err == nil {
+					return m.data
+				}
+			}
+			// If still not a map, try as a slice
 			var slice []any
 			if err := json.Unmarshal(m.payload, &slice); err == nil {
 				m.data["payload"] = slice
@@ -351,6 +383,13 @@ func (m *DefaultMessage) SetData(key string, value any) {
 		var d map[string]any
 		if err := json.Unmarshal(m.payload, &d); err == nil {
 			m.data = d
+		} else {
+			// Try lenient approach
+			if fixed := TryFixJSON(m.payload); fixed != nil {
+				if err := json.Unmarshal(fixed, &d); err == nil {
+					m.data = d
+				}
+			}
 		}
 	}
 

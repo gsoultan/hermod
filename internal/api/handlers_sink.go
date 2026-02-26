@@ -286,12 +286,7 @@ func (s *Server) sampleSinkTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"id":        msg.ID(),
-		"operation": msg.Operation(),
-		"table":     msg.Table(),
-		"after":     string(msg.After()),
-	})
+	_ = json.NewEncoder(w).Encode(msg)
 }
 
 func (s *Server) browseSinkTable(w http.ResponseWriter, r *http.Request) {

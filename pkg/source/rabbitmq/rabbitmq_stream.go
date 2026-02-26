@@ -3,8 +3,10 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,6 +40,16 @@ func NewRabbitMQStreamSource(url string, streamName string, consumerName string)
 }
 
 func (s *RabbitMQStreamSource) ensureConnected() error {
+	if s.url == "" {
+		return errors.New("rabbitmq stream url is not configured")
+	}
+	if !strings.HasPrefix(s.url, "rabbitmq-stream://") && !strings.HasPrefix(s.url, "amqp://") {
+		// Note: rabbitmq-stream client might support amqp:// or its own scheme.
+		// Usually it's rabbitmq-stream:// or just a host:port but the error message
+		// mentioned amqp:// or amqps:// for the Queue version.
+		// Let's be safe and just check if it's empty for now, or use a broad check.
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -68,6 +80,14 @@ func (s *RabbitMQStreamSource) ensureConnected() error {
 		if err := json.Unmarshal(data, &jsonData); err == nil {
 			for k, v := range jsonData {
 				hmsg.SetData(k, v)
+			}
+		} else if fixed := message.TryFixJSON(data); fixed != nil {
+			if err := json.Unmarshal(fixed, &jsonData); err == nil {
+				for k, v := range jsonData {
+					hmsg.SetData(k, v)
+				}
+			} else {
+				hmsg.SetAfter(data) // Fallback for non-JSON
 			}
 		} else {
 			hmsg.SetAfter(data) // Fallback for non-JSON
@@ -195,6 +215,9 @@ func (s *RabbitMQStreamSource) Sample(ctx context.Context, table string) (hermod
 }
 
 func (s *RabbitMQStreamSource) Ping(ctx context.Context) error {
+	if s.url == "" {
+		return errors.New("rabbitmq stream url is not configured")
+	}
 	s.mu.Lock()
 	env := s.env
 	s.mu.Unlock()

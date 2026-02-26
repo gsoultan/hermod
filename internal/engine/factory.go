@@ -428,9 +428,9 @@ func CreateSource(cfg SourceConfig) (hermod.Source, error) {
 	case "redis":
 		src = sourceredis.NewRedisSource(cfg.Config["addr"], cfg.Config["password"], cfg.Config["stream"], cfg.Config["group"])
 	case "rabbitmq":
-		src, err = sourcerabbitmq.NewRabbitMQStreamSource(cfg.Config["url"], cfg.Config["stream_name"], cfg.Config["consumer_name"])
+		src, err = sourcerabbitmq.NewRabbitMQStreamSource(connString, cfg.Config["stream_name"], cfg.Config["consumer_name"])
 	case "rabbitmq_queue":
-		src, err = sourcerabbitmq.NewRabbitMQQueueSource(cfg.Config["url"], cfg.Config["queue_name"])
+		src, err = sourcerabbitmq.NewRabbitMQQueueSource(connString, cfg.Config["queue_name"])
 	case "webhook":
 		src = webhook.NewWebhookSource(cfg.Config["path"])
 	case "graphql":
@@ -642,9 +642,9 @@ func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 	case "mqtt":
 		return sinkmqtt.New(cfg.Config, fmttr)
 	case "rabbitmq":
-		return sinkrabbitmq.NewRabbitMQStreamSink(cfg.Config["url"], cfg.Config["stream_name"], fmttr)
+		return sinkrabbitmq.NewRabbitMQStreamSink(BuildConnectionString(cfg.Config, cfg.Type), cfg.Config["stream_name"], fmttr)
 	case "rabbitmq_queue":
-		return sinkrabbitmq.NewRabbitMQQueueSink(cfg.Config["url"], cfg.Config["queue_name"], fmttr)
+		return sinkrabbitmq.NewRabbitMQQueueSink(BuildConnectionString(cfg.Config, cfg.Type), cfg.Config["queue_name"], fmttr)
 	case "redis":
 		return sinkredis.NewRedisSink(cfg.Config["addr"], cfg.Config["password"], cfg.Config["stream"], fmttr)
 	case "file":

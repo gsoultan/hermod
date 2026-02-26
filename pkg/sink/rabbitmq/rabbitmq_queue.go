@@ -2,7 +2,9 @@ package rabbitmq
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -29,6 +31,12 @@ func NewRabbitMQQueueSink(url string, queueName string, formatter hermod.Formatt
 }
 
 func (s *RabbitMQQueueSink) ensureConnected(ctx context.Context) error {
+	if s.url == "" {
+		return errors.New("rabbitmq sink url is not configured")
+	}
+	if !strings.HasPrefix(s.url, "amqp://") && !strings.HasPrefix(s.url, "amqps://") {
+		return errors.New("rabbitmq sink url must start with 'amqp://' or 'amqps://'")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
