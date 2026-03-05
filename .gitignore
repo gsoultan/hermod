@@ -42,3 +42,6 @@
 /hermodctl.exe
 ui/stats.html
 /.output.txt
+config.yaml
+db_config.yaml
+worker.yaml
