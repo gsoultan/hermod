@@ -1,7 +1,6 @@
 package secrets
 
 import (
-	"context"
 	"os"
 	"testing"
 )
@@ -11,7 +10,7 @@ func TestEnvManager(t *testing.T) {
 	defer os.Unsetenv("HERMOD_TEST_SECRET")
 
 	mgr := &EnvManager{Prefix: "HERMOD_"}
-	val, err := mgr.Get(context.Background(), "TEST_SECRET")
+	val, err := mgr.Get(t.Context(), "TEST_SECRET")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -22,7 +21,7 @@ func TestEnvManager(t *testing.T) {
 	// Fallback test
 	os.Setenv("NO_PREFIX_SECRET", "direct-value")
 	defer os.Unsetenv("NO_PREFIX_SECRET")
-	val, err = mgr.Get(context.Background(), "NO_PREFIX_SECRET")
+	val, err = mgr.Get(t.Context(), "NO_PREFIX_SECRET")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -42,7 +41,7 @@ func TestCombinedManager(t *testing.T) {
 		Managers: []Manager{mgr1, mgr2},
 	}
 
-	val, err := combined.Get(context.Background(), "KEY")
+	val, err := combined.Get(t.Context(), "KEY")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,19 +57,19 @@ func TestResolveSecret(t *testing.T) {
 	mgr := &EnvManager{}
 
 	// Case 1: prefixed with secret:
-	val := ResolveSecret(context.Background(), mgr, "secret:SECRET_KEY")
+	val := ResolveSecret(t.Context(), mgr, "secret:SECRET_KEY")
 	if val != "resolved-value" {
 		t.Errorf("expected resolved-value, got %s", val)
 	}
 
 	// Case 2: not prefixed
-	val = ResolveSecret(context.Background(), mgr, "plain-value")
+	val = ResolveSecret(t.Context(), mgr, "plain-value")
 	if val != "plain-value" {
 		t.Errorf("expected plain-value, got %s", val)
 	}
 
 	// Case 3: prefixed but not found
-	val = ResolveSecret(context.Background(), mgr, "secret:NON_EXISTENT")
+	val = ResolveSecret(t.Context(), mgr, "secret:NON_EXISTENT")
 	if val != "secret:NON_EXISTENT" {
 		t.Errorf("expected secret:NON_EXISTENT, got %s", val)
 	}

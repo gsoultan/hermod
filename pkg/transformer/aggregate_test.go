@@ -1,7 +1,6 @@
 package transformer
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -12,7 +11,7 @@ func TestAggregateTransformer_Tumbling(t *testing.T) {
 	tr := &AggregateTransformer{
 		states: make(map[string]*aggState),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	config := map[string]any{
 		"field":      "price",

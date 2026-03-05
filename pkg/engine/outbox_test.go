@@ -91,13 +91,13 @@ func TestEngine_OutboxRelay(t *testing.T) {
 	}
 
 	// Add a pending item to outbox
-	outbox.CreateOutboxItem(context.Background(), hermod.OutboxItem{
+	outbox.CreateOutboxItem(t.Context(), hermod.OutboxItem{
 		WorkflowID: "test-wf",
 		Payload:    []byte(`{"hello":"world"}`),
 		Status:     "pending",
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	go e.runOutboxRelay(ctx)

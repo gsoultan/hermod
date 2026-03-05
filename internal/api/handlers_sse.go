@@ -3,19 +3,66 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/user/hermod/internal/sse"
 )
 
-// handleSSEStream streams events from the in-process SSE hub.
-// Query params:
-//   - stream: name of the stream (default: "default")
-//   - retry: reconnection delay in ms (optional)
+// handleSSEStream streams events from the data orchestration hub (GetDataHub).
+// Registered at /streams/sse
+// This endpoint is for SSESink clients.
 func (s *Server) handleSSEStream(w http.ResponseWriter, r *http.Request) {
+	s.serveSSE(w, r, sse.GetDataHub())
+}
+
+// handleInternalSSE streams events from the internal API hub (GetInternalHub).
+// Registered at /api/notifications/sse
+// This endpoint is for Hermod's own UI/management clients.
+func (s *Server) handleInternalSSE(w http.ResponseWriter, r *http.Request) {
+	s.serveSSE(w, r, sse.GetInternalHub())
+}
+
+func (s *Server) serveSSE(w http.ResponseWriter, r *http.Request, hub *sse.Hub) {
 	stream := r.URL.Query().Get("stream")
 	if stream == "" {
 		stream = "default"
+	}
+
+	// Check stream configuration for security (only applies to DataHub streams usually,
+	// but we check the hub passed in)
+	if cfg, ok := hub.GetStreamConfig(stream); ok {
+		// 1. Origin verification
+		if len(cfg.AllowedOrigins) > 0 {
+			origin := r.Header.Get("Origin")
+			allowed := false
+			for _, o := range cfg.AllowedOrigins {
+				if o == "*" || o == origin {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				http.Error(w, "origin not allowed", http.StatusForbidden)
+				return
+			}
+		}
+
+		// 2. Authentication
+		if cfg.AuthToken != "" {
+			// Check Authorization header first
+			auth := r.Header.Get("Authorization")
+			token := strings.TrimPrefix(auth, "Bearer ")
+			if token == "" {
+				// Fallback to query param for easier EventSource usage
+				token = r.URL.Query().Get("token")
+			}
+
+			if token != cfg.AuthToken {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -35,8 +82,8 @@ func (s *Server) handleSSEStream(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	// Subscribe
-	ch, unsubscribe := sse.GetHub().Subscribe(stream, 64)
+	// Subscribe to the hub
+	ch, unsubscribe := hub.Subscribe(stream, 64)
 	defer unsubscribe()
 
 	notify := r.Context().Done()

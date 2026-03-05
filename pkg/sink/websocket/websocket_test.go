@@ -45,7 +45,7 @@ func TestWebSocketSink_Write_WithAck(t *testing.T) {
 	msg.SetID("abc-123")
 	msg.SetPayload([]byte(`{"hello":"world"}`))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	if err := s.Write(ctx, msg); err != nil {
 		t.Fatalf("sink write failed: %v", err)

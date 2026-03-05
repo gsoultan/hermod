@@ -35,7 +35,7 @@ func TestWebSocketSource_Read(t *testing.T) {
 	wsURL := "ws" + srv.URL[len("http"):]
 	src := New(wsURL, nil, nil, 5*time.Second, 5*time.Second, 0, time.Second, 5*time.Second, 0)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	m, err := src.Read(ctx)
 	if err != nil {

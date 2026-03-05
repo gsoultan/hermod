@@ -36,7 +36,7 @@ func TestFailoverSink_Write(t *testing.T) {
 	s := NewFailoverSink(primary, []hermod.Sink{fallback})
 	msg := message.AcquireMessage()
 
-	err := s.Write(context.Background(), msg)
+	err := s.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -56,7 +56,7 @@ func TestFailoverSink_Write_PrimarySuccess(t *testing.T) {
 	s := NewFailoverSink(primary, []hermod.Sink{fallback})
 	msg := message.AcquireMessage()
 
-	err := s.Write(context.Background(), msg)
+	err := s.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -76,7 +76,7 @@ func TestFailoverSink_Write_AllFail(t *testing.T) {
 	s := NewFailoverSink(primary, []hermod.Sink{fallback})
 	msg := message.AcquireMessage()
 
-	err := s.Write(context.Background(), msg)
+	err := s.Write(t.Context(), msg)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

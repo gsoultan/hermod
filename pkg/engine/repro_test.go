@@ -60,7 +60,7 @@ func TestSinkStatusWhenSourceIsDown(t *testing.T) {
 		mu.Unlock()
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	go eng.Start(ctx)

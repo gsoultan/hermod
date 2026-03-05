@@ -1,11 +1,9 @@
 package discord
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 )
 
 func TestDiscordSource_Read(t *testing.T) {

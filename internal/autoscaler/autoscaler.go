@@ -3,12 +3,13 @@ package autoscaler
 import (
 	"context"
 	"fmt"
-	"log"
 	"os/exec"
 	"sync"
 	"time"
 
+	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
+	pkgengine "github.com/user/hermod/pkg/engine"
 )
 
 type WorkerManager interface {
@@ -19,6 +20,7 @@ type WorkerManager interface {
 type Autoscaler struct {
 	manager WorkerManager
 	storage storage.Storage
+	logger  hermod.Logger
 
 	interval time.Duration
 	stop     chan struct{}
@@ -29,6 +31,7 @@ func NewAutoscaler(s storage.Storage, m WorkerManager) *Autoscaler {
 	return &Autoscaler{
 		manager:  m,
 		storage:  s,
+		logger:   pkgengine.NewDefaultLogger(),
 		interval: 30 * time.Second,
 		stop:     make(chan struct{}),
 	}
@@ -64,7 +67,7 @@ func (a *Autoscaler) check() {
 	// 1. Get total requested resources across all ACTIVE workflows
 	workflows, _, err := a.storage.ListWorkflows(ctx, storage.CommonFilter{})
 	if err != nil {
-		log.Printf("Autoscaler: failed to list workflows: %v", err)
+		a.logger.Error("Autoscaler: failed to list workflows", "error", err)
 		return
 	}
 
@@ -83,7 +86,7 @@ func (a *Autoscaler) check() {
 	// 2. Get current worker count
 	workers, totalWorkers, err := a.manager.ListWorkers(ctx, storage.CommonFilter{})
 	if err != nil {
-		log.Printf("Autoscaler: failed to list workers: %v", err)
+		a.logger.Error("Autoscaler: failed to list workers", "error", err)
 		return
 	}
 
@@ -113,10 +116,9 @@ func (a *Autoscaler) check() {
 	}
 
 	if targetReplicas != totalWorkers {
-		log.Printf("Autoscaler: Scaling from %d to %d replicas (CPU: %.2f, Mem: %.2f, Msg/s: %d)",
-			totalWorkers, targetReplicas, totalCPU, totalMem, totalThroughput)
+		a.logger.Info("Autoscaler: scaling", "from", totalWorkers, "to", targetReplicas, "cpu", totalCPU, "mem", totalMem, "throughput", totalThroughput)
 		if err := a.manager.Scale(ctx, targetReplicas); err != nil {
-			log.Printf("Autoscaler: Scale failed: %v", err)
+			a.logger.Error("Autoscaler: scale failed", "error", err)
 		}
 	} else {
 		// Log health of existing workers
@@ -129,7 +131,7 @@ func (a *Autoscaler) check() {
 			avgCPU /= float64(totalWorkers)
 			avgMem /= float64(totalWorkers)
 		}
-		log.Printf("Autoscaler: Status OK. Replicas: %d, Avg Load: CPU %.2f, Mem %.2f", totalWorkers, avgCPU, avgMem)
+		a.logger.Debug("Autoscaler: status OK", "replicas", totalWorkers, "avg_cpu", avgCPU, "avg_mem", avgMem)
 	}
 }
 

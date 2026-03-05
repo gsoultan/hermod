@@ -4,7 +4,6 @@
 package redis
 
 import (
-	"context"
 	"os"
 	"testing"
 
@@ -40,7 +39,7 @@ func TestRedisSink_Write(t *testing.T) {
 	msg.SetSchema("public")
 	msg.SetAfter([]byte(`{"id": 1}`))
 
-	err = snk.Write(context.Background(), msg)
+	err = snk.Write(t.Context(), msg)
 	if err != nil {
 		t.Errorf("failed to write to RedisSink: %v", err)
 	}

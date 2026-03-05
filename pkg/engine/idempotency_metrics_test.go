@@ -42,7 +42,7 @@ func TestWriteToSink_EmitsIdempotencyMetrics(t *testing.T) {
 	rs := &reporterSink{dedup: true}
 
 	before := testutil.ToFloat64(IdempotencyDedupTotal.WithLabelValues(e.workflowID, sinkID))
-	if err := e.writeToSink(context.Background(), rs, msg, sinkID, 0); err != nil {
+	if err := e.writeToSink(t.Context(), rs, msg, sinkID, 0); err != nil {
 		t.Fatalf("writeToSink error: %v", err)
 	}
 	after := testutil.ToFloat64(IdempotencyDedupTotal.WithLabelValues(e.workflowID, sinkID))

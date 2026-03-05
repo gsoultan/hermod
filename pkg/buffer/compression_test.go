@@ -31,7 +31,7 @@ func TestFileBufferWithCompression(t *testing.T) {
 			}
 			defer fb.Close()
 
-			ctx := context.Background()
+			ctx := t.Context()
 
 			// Use large payload to trigger compression
 			largePayload := make([]byte, 2048)

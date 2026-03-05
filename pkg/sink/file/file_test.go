@@ -1,7 +1,6 @@
 package file
 
 import (
-	"context"
 	"os"
 	"strings"
 	"testing"
@@ -31,7 +30,7 @@ func TestFileSink(t *testing.T) {
 	msg.SetSchema("public")
 	msg.SetAfter([]byte(`{"name":"john"}`))
 
-	err = sink.Write(context.Background(), msg)
+	err = sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("failed to write message: %v", err)
 	}

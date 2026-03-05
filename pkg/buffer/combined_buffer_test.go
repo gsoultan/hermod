@@ -21,7 +21,7 @@ func TestCombinedBuffer_ProduceConsume(t *testing.T) {
 	}
 	defer cb.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	// Produce more than ring capacity to force spill to file

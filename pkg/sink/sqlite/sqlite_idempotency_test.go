@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
@@ -27,7 +26,7 @@ func TestSQLiteSink_IdempotentByID(t *testing.T) {
 		t.Fatalf("create table: %v", err)
 	}
 
-	snk := NewSQLiteSink(dbPath, "", nil, true, "hard_delete", "", "", false, false)
+	snk := NewSQLiteSink(dbPath, "", nil, true, "hard_delete", "", "", "", false, false)
 	defer snk.Close()
 
 	// First write
@@ -38,7 +37,7 @@ func TestSQLiteSink_IdempotentByID(t *testing.T) {
 	msg1.SetSchema("")
 	payload1, _ := json.Marshal(map[string]any{"value": 1})
 	msg1.SetPayload(payload1)
-	if err := snk.Write(context.Background(), msg1); err != nil {
+	if err := snk.Write(t.Context(), msg1); err != nil {
 		t.Fatalf("write 1: %v", err)
 	}
 	message.ReleaseMessage(msg1)
@@ -50,7 +49,7 @@ func TestSQLiteSink_IdempotentByID(t *testing.T) {
 	msg2.SetTable("mytable")
 	payload2, _ := json.Marshal(map[string]any{"value": 2})
 	msg2.SetPayload(payload2)
-	if err := snk.Write(context.Background(), msg2); err != nil {
+	if err := snk.Write(t.Context(), msg2); err != nil {
 		t.Fatalf("write 2: %v", err)
 	}
 	message.ReleaseMessage(msg2)

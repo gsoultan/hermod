@@ -46,7 +46,7 @@ func TestNilMessageHandling(t *testing.T) {
 	eng.SetIDs("workflow-1", "src-1", []string{"snk-1"})
 	eng.SetLogger(NewDefaultLogger())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
 
 	// Should not panic

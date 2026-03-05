@@ -16,7 +16,7 @@ func TestSQLiteSource_Read(t *testing.T) {
 	s := NewSQLiteSource(dbPath, []string{"test_table"}, true)
 	defer s.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	// Initialize DB and create table
@@ -61,7 +61,7 @@ func TestSQLiteSource_Ping(t *testing.T) {
 	s := NewSQLiteSource(dbPath, nil, false)
 	defer s.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	if err := s.Ping(ctx); err != nil {
 		t.Fatalf("failed to ping SQLiteSource: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestSQLiteSource_Sample(t *testing.T) {
 	s := NewSQLiteSource(dbPath, nil, false)
 	defer s.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	// Using Ping to initialize
 	if err := s.Ping(ctx); err != nil {
 		t.Fatalf("failed to init db: %v", err)

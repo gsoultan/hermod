@@ -1,7 +1,6 @@
 package transformer
 
 import (
-	"context"
 	"testing"
 
 	"github.com/user/hermod/pkg/message"
@@ -17,7 +16,7 @@ func TestForeach_Basic(t *testing.T) {
 		t.Fatal("foreach transformer not registered")
 	}
 
-	res, err := tf.Transform(context.Background(), msg, map[string]any{
+	res, err := tf.Transform(t.Context(), msg, map[string]any{
 		"arrayPath":   "items",
 		"resultField": "_fanout",
 	})
@@ -46,7 +45,7 @@ func TestForeach_ItemPath_Index_Limit(t *testing.T) {
 	})
 
 	tf, _ := Get("foreach")
-	res, err := tf.Transform(context.Background(), msg, map[string]any{
+	res, err := tf.Transform(t.Context(), msg, map[string]any{
 		"arrayPath":  "rows",
 		"itemPath":   "id",
 		"indexField": "_i",
@@ -71,7 +70,7 @@ func TestForeach_DropEmpty(t *testing.T) {
 	msg.SetData("rows", []any{})
 
 	tf, _ := Get("foreach")
-	res, err := tf.Transform(context.Background(), msg, map[string]any{
+	res, err := tf.Transform(t.Context(), msg, map[string]any{
 		"arrayPath": "rows",
 		"dropEmpty": true,
 	})

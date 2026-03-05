@@ -179,13 +179,13 @@ func TestCheckpointAndRecovery(t *testing.T) {
 	}
 	registry.nodeStatesMu.Unlock()
 
-	// Update source state
+	// Update source state via the multiSource (keys must be prefixed with nodeID)
 	active, ok := registry.engines["wf1"]
 	if !ok {
 		t.Fatalf("Engine not found")
 	}
 	if stateful, ok := active.engine.GetSource().(hermod.Stateful); ok {
-		stateful.SetState(map[string]string{"offset": "100"})
+		stateful.SetState(map[string]string{"n1:offset": "100"})
 	}
 
 	// Trigger checkpoint manually
@@ -217,14 +217,14 @@ func TestCheckpointAndRecovery(t *testing.T) {
 	}
 	registry.nodeStatesMu.Unlock()
 
-	// Verify source state recovered
+	// Verify source state recovered (multiSource prefixes keys with nodeID)
 	active2, ok := registry.engines["wf1"]
 	if !ok {
 		t.Fatalf("Engine not found after restart")
 	}
 	if stateful, ok := active2.engine.GetSource().(hermod.Stateful); ok {
-		if stateful.GetState()["offset"] != "100" {
-			t.Errorf("Expected recovered source offset 100, got %v", stateful.GetState()["offset"])
+		if stateful.GetState()["n1:offset"] != "100" {
+			t.Errorf("Expected recovered source offset 100, got %v", stateful.GetState()["n1:offset"])
 		}
 	} else {
 		t.Errorf("Source does not implement Stateful after restart")

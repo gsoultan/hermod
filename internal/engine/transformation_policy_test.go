@@ -11,7 +11,7 @@ import (
 )
 
 type policyMockStorage struct {
-	storage.Storage
+	BaseMockStorage
 }
 
 func (m *policyMockStorage) GetSource(ctx context.Context, id string) (storage.Source, error) {

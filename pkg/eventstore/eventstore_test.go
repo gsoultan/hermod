@@ -16,6 +16,7 @@ func TestDriverNormalization(t *testing.T) {
 	dbPath := "test_norm.db"
 	defer os.Remove(dbPath)
 	db, _ := sql.Open("sqlite", dbPath)
+	db.SetMaxOpenConns(1)
 	defer db.Close()
 
 	// "pgx" should be normalized to "postgres"
@@ -39,6 +40,7 @@ func TestEventStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open sqlite: %v", err)
 	}
+	db.SetMaxOpenConns(1)
 	defer db.Close()
 
 	store, err := NewSQLStore(db, "sqlite")
@@ -46,7 +48,7 @@ func TestEventStore(t *testing.T) {
 		t.Fatalf("failed to create SQLStore: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
 	// 1. Test Write (Sink)

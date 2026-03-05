@@ -3,11 +3,19 @@ package engine
 import (
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/state"
 	"testing"
 )
 
 func TestWorkflowImprovements(t *testing.T) {
 	registry := NewRegistry(nil)
+
+	// Use an in-memory state store so stateful tests start fresh each run
+	memStore, err := state.NewSQLiteStateStore(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create in-memory state store: %v", err)
+	}
+	registry.SetStateStore(memStore)
 
 	t.Run("Masking Transformation", func(t *testing.T) {
 		msg := message.AcquireMessage()

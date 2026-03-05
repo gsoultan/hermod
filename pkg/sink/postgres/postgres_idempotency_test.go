@@ -19,7 +19,7 @@ func TestPostgresSink_IdempotentUpsert(t *testing.T) {
 		t.Skip("integration: set HERMOD_INTEGRATION=1 and POSTGRES_DSN to run")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Fatalf("pgxpool: %v", err)

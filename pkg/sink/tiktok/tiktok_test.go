@@ -1,7 +1,6 @@
 package tiktok
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -44,7 +43,7 @@ func TestTikTokSink_Write(t *testing.T) {
 	msg.SetData("video_url", "http://example.com/video.mp4")
 	msg.SetData("title", "Test Video")
 
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -63,7 +62,7 @@ func TestTikTokSink_Ping(t *testing.T) {
 	sink := NewTikTokSink("test-token", nil)
 	sink.baseURL = server.URL
 
-	err := sink.Ping(context.Background())
+	err := sink.Ping(t.Context())
 	if err != nil {
 		t.Fatalf("Ping failed: %v", err)
 	}

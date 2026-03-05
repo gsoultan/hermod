@@ -1,7 +1,6 @@
 package sourcehttp
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -36,7 +35,7 @@ func TestHTTPSource_Read(t *testing.T) {
 
 	t.Run("Single Object", func(t *testing.T) {
 		source := NewHTTPSource(ts.URL, "GET", nil, 100*time.Millisecond, "")
-		msg, err := source.Read(context.Background())
+		msg, err := source.Read(t.Context())
 		if err != nil {
 			t.Fatalf("Read failed: %v", err)
 		}
@@ -49,7 +48,7 @@ func TestHTTPSource_Read(t *testing.T) {
 		source := NewHTTPSource(ts.URL+"/array", "GET", nil, 100*time.Millisecond, "")
 
 		// First read
-		msg1, err := source.Read(context.Background())
+		msg1, err := source.Read(t.Context())
 		if err != nil {
 			t.Fatalf("First read failed: %v", err)
 		}
@@ -58,7 +57,7 @@ func TestHTTPSource_Read(t *testing.T) {
 		}
 
 		// Second read (should come from buffer)
-		msg2, err := source.Read(context.Background())
+		msg2, err := source.Read(t.Context())
 		if err != nil {
 			t.Fatalf("Second read failed: %v", err)
 		}
@@ -70,7 +69,7 @@ func TestHTTPSource_Read(t *testing.T) {
 	t.Run("Nested Array with GJSON", func(t *testing.T) {
 		source := NewHTTPSource(ts.URL+"/nested", "GET", nil, 100*time.Millisecond, "data")
 
-		msg1, err := source.Read(context.Background())
+		msg1, err := source.Read(t.Context())
 		if err != nil {
 			t.Fatalf("First read failed: %v", err)
 		}
@@ -78,7 +77,7 @@ func TestHTTPSource_Read(t *testing.T) {
 			t.Errorf("Expected id 3, got %v", msg1.Data()["id"])
 		}
 
-		msg2, err := source.Read(context.Background())
+		msg2, err := source.Read(t.Context())
 		if err != nil {
 			t.Fatalf("Second read failed: %v", err)
 		}

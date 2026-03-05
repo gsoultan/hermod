@@ -191,9 +191,11 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 	if err != nil {
 		return msg, err
 	}
-	defer rows.Close()
 
+	var existingData map[string]any
+	found := false
 	if rows.Next() {
+		found = true
 		cols, _ := rows.Columns()
 		values := make([]any, len(cols))
 		valuePtrs := make([]any, len(cols))
@@ -201,10 +203,11 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
+			rows.Close()
 			return msg, err
 		}
 
-		existingData := make(map[string]any)
+		existingData = make(map[string]any)
 		for i, col := range cols {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -213,88 +216,91 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 				existingData[col] = val
 			}
 		}
+	}
+	rows.Close()
 
-		changed := false
-		updateParts := make([]string, 0)
-		updateArgs := make([]any, 0)
-		idx := 1
-
-		for curr, prev := range mappings {
-			newVal := evaluator.GetMsgValByPath(msg, curr)
-			oldVal := existingData[curr]
-
-			if !reflect.DeepEqual(newVal, oldVal) {
-				changed = true
-				// Move current to previous
-				qPrev, _ := sqlutil.QuoteIdent(driver, prev)
-				updateParts = append(updateParts, fmt.Sprintf("%s = %s", qPrev, sqlutil.Placeholder(driver, idx)))
-				updateArgs = append(updateArgs, oldVal)
-				idx++
-
-				// Update current
-				qCurr, _ := sqlutil.QuoteIdent(driver, curr)
-				updateParts = append(updateParts, fmt.Sprintf("%s = %s", qCurr, sqlutil.Placeholder(driver, idx)))
-				updateArgs = append(updateArgs, newVal)
-				idx++
-			}
-		}
-
-		if changed {
-			// Add any other fields from msg that are not in mappings or business keys
-			for field, val := range msg.Data() {
-				isBK := false
-				for _, bk := range businessKeys {
-					if bk == field {
-						isBK = true
-						break
-					}
-				}
-				if isBK {
-					continue
-				}
-				if _, ok := mappings[field]; ok {
-					continue
-				}
-				// Also check if it's a "previous" column
-				isPrev := false
-				for _, p := range mappings {
-					if p == field {
-						isPrev = true
-						break
-					}
-				}
-				if isPrev {
-					continue
-				}
-
-				q, err := sqlutil.QuoteIdent(driver, field)
-				if err != nil {
-					continue
-				}
-				updateParts = append(updateParts, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, idx)))
-				updateArgs = append(updateArgs, val)
-				idx++
-			}
-
-			updateWhere := make([]string, 0)
-			for _, bk := range businessKeys {
-				q, _ := sqlutil.QuoteIdent(driver, bk)
-				updateWhere = append(updateWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, idx)))
-				updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, bk))
-				idx++
-			}
-
-			updateQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, strings.Join(updateParts, ", "), strings.Join(updateWhere, " AND "))
-			_, err = db.ExecContext(ctx, updateQuery, updateArgs...)
-			if err != nil {
-				return msg, err
-			}
-			msg.SetMetadata("scd_action", "update")
-		} else {
-			msg.SetMetadata("scd_action", "none")
-		}
-	} else {
+	if !found {
 		return t.performInsert(ctx, db, driver, table, msg)
+	}
+
+	changed := false
+	updateParts := make([]string, 0)
+	updateArgs := make([]any, 0)
+	idx := 1
+
+	for curr, prev := range mappings {
+		newVal := evaluator.GetMsgValByPath(msg, curr)
+		oldVal := existingData[curr]
+
+		if !reflect.DeepEqual(newVal, oldVal) {
+			changed = true
+			// Move current to previous
+			qPrev, _ := sqlutil.QuoteIdent(driver, prev)
+			updateParts = append(updateParts, fmt.Sprintf("%s = %s", qPrev, sqlutil.Placeholder(driver, idx)))
+			updateArgs = append(updateArgs, oldVal)
+			idx++
+
+			// Update current
+			qCurr, _ := sqlutil.QuoteIdent(driver, curr)
+			updateParts = append(updateParts, fmt.Sprintf("%s = %s", qCurr, sqlutil.Placeholder(driver, idx)))
+			updateArgs = append(updateArgs, newVal)
+			idx++
+		}
+	}
+
+	if changed {
+		// Add any other fields from msg that are not in mappings or business keys
+		for field, val := range msg.Data() {
+			isBK := false
+			for _, bk := range businessKeys {
+				if bk == field {
+					isBK = true
+					break
+				}
+			}
+			if isBK {
+				continue
+			}
+			if _, ok := mappings[field]; ok {
+				continue
+			}
+			// Also check if it's a "previous" column
+			isPrev := false
+			for _, p := range mappings {
+				if p == field {
+					isPrev = true
+					break
+				}
+			}
+			if isPrev {
+				continue
+			}
+
+			q, err := sqlutil.QuoteIdent(driver, field)
+			if err != nil {
+				continue
+			}
+			updateParts = append(updateParts, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, idx)))
+			updateArgs = append(updateArgs, val)
+			idx++
+		}
+
+		updateWhere := make([]string, 0)
+		for _, bk := range businessKeys {
+			q, _ := sqlutil.QuoteIdent(driver, bk)
+			updateWhere = append(updateWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, idx)))
+			updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, bk))
+			idx++
+		}
+
+		updateQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, strings.Join(updateParts, ", "), strings.Join(updateWhere, " AND "))
+		_, err = db.ExecContext(ctx, updateQuery, updateArgs...)
+		if err != nil {
+			return msg, err
+		}
+		msg.SetMetadata("scd_action", "update")
+	} else {
+		msg.SetMetadata("scd_action", "none")
 	}
 
 	return msg, nil
@@ -330,20 +336,25 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 	if err != nil {
 		return msg, err
 	}
-	defer rows.Close()
 
+	var cols []string
+	var values []any
+	var existingData map[string]any
+	found := false
 	if rows.Next() {
-		cols, _ := rows.Columns()
-		values := make([]any, len(cols))
+		found = true
+		cols, _ = rows.Columns()
+		values = make([]any, len(cols))
 		valuePtrs := make([]any, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
+			rows.Close()
 			return msg, err
 		}
 
-		existingData := make(map[string]any)
+		existingData = make(map[string]any)
 		for i, col := range cols {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -352,92 +363,95 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 				existingData[col] = val
 			}
 		}
+	}
+	rows.Close()
 
-		changed := false
-		if len(compareFields) == 0 {
-			changed = true
-		} else {
-			for _, field := range compareFields {
-				newVal := evaluator.GetMsgValByPath(msg, field)
-				oldVal := existingData[field]
-				if !reflect.DeepEqual(newVal, oldVal) {
-					changed = true
-					break
-				}
-			}
-		}
-
-		if changed {
-			tx, err := db.BeginTx(ctx, nil)
-			if err != nil {
-				return msg, err
-			}
-			defer tx.Rollback()
-
-			// Insert old record into history table
-			hCols := make([]string, 0, len(cols))
-			hPhs := make([]string, 0, len(cols))
-			hArgs := make([]any, 0, len(cols))
-			for i, col := range cols {
-				q, _ := sqlutil.QuoteIdent(driver, col)
-				hCols = append(hCols, q)
-				hPhs = append(hPhs, sqlutil.Placeholder(driver, i+1))
-				hArgs = append(hArgs, values[i])
-			}
-
-			hQuery := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", quotedHistoryTable, strings.Join(hCols, ", "), strings.Join(hPhs, ", "))
-			_, err = tx.ExecContext(ctx, hQuery, hArgs...)
-			if err != nil {
-				return msg, fmt.Errorf("failed to insert into history table: %w", err)
-			}
-
-			// Update current record (Type 1)
-			updateParts := make([]string, 0)
-			updateArgs := make([]any, 0)
-			uIdx := 1
-			for field, val := range msg.Data() {
-				isBK := false
-				for _, bk := range businessKeys {
-					if bk == field {
-						isBK = true
-						break
-					}
-				}
-				if isBK {
-					continue
-				}
-				q, _ := sqlutil.QuoteIdent(driver, field)
-				updateParts = append(updateParts, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
-				updateArgs = append(updateArgs, val)
-				uIdx++
-			}
-
-			if len(updateParts) > 0 {
-				uWhere := make([]string, 0)
-				for _, bk := range businessKeys {
-					q, _ := sqlutil.QuoteIdent(driver, bk)
-					uWhere = append(uWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
-					updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, bk))
-					uIdx++
-				}
-				uQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, strings.Join(updateParts, ", "), strings.Join(uWhere, " AND "))
-				_, err = tx.ExecContext(ctx, uQuery, updateArgs...)
-				if err != nil {
-					return msg, fmt.Errorf("failed to update current record: %w", err)
-				}
-			}
-
-			if err := tx.Commit(); err != nil {
-				return msg, err
-			}
-			msg.SetMetadata("scd_action", "history_update")
-		} else {
-			msg.SetMetadata("scd_action", "none")
-		}
-	} else {
+	if !found {
 		return t.performInsert(ctx, db, driver, table, msg)
 	}
 
+	changed := false
+	if len(compareFields) == 0 {
+		changed = true
+	} else {
+		for _, field := range compareFields {
+			newVal := evaluator.GetMsgValByPath(msg, field)
+			oldVal := existingData[field]
+			if !reflect.DeepEqual(newVal, oldVal) {
+				changed = true
+				break
+			}
+		}
+	}
+
+	if !changed {
+		msg.SetMetadata("scd_action", "none")
+		return msg, nil
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return msg, err
+	}
+	defer tx.Rollback()
+
+	// Insert old record into history table
+	hCols := make([]string, 0, len(cols))
+	hPhs := make([]string, 0, len(cols))
+	hArgs := make([]any, 0, len(cols))
+	for i, col := range cols {
+		q, _ := sqlutil.QuoteIdent(driver, col)
+		hCols = append(hCols, q)
+		hPhs = append(hPhs, sqlutil.Placeholder(driver, i+1))
+		hArgs = append(hArgs, values[i])
+	}
+
+	hQuery := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", quotedHistoryTable, strings.Join(hCols, ", "), strings.Join(hPhs, ", "))
+	_, err = tx.ExecContext(ctx, hQuery, hArgs...)
+	if err != nil {
+		return msg, fmt.Errorf("failed to insert into history table: %w", err)
+	}
+
+	// Update current record (Type 1)
+	updateParts := make([]string, 0)
+	updateArgs := make([]any, 0)
+	uIdx := 1
+	for field, val := range msg.Data() {
+		isBK := false
+		for _, bk := range businessKeys {
+			if bk == field {
+				isBK = true
+				break
+			}
+		}
+		if isBK {
+			continue
+		}
+		q, _ := sqlutil.QuoteIdent(driver, field)
+		updateParts = append(updateParts, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
+		updateArgs = append(updateArgs, val)
+		uIdx++
+	}
+
+	if len(updateParts) > 0 {
+		uWhere := make([]string, 0)
+		for _, bk := range businessKeys {
+			q, _ := sqlutil.QuoteIdent(driver, bk)
+			uWhere = append(uWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
+			updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, bk))
+			uIdx++
+		}
+		uQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, strings.Join(updateParts, ", "), strings.Join(uWhere, " AND "))
+		_, err = tx.ExecContext(ctx, uQuery, updateArgs...)
+		if err != nil {
+			return msg, fmt.Errorf("failed to update current record: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return msg, err
+	}
+	msg.SetMetadata("scd_action", "history_update")
 	return msg, nil
 }
 
@@ -494,9 +508,11 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 	if err != nil {
 		return msg, err
 	}
-	defer rows.Close()
 
+	var existingData map[string]any
+	found := false
 	if rows.Next() {
+		found = true
 		cols, _ := rows.Columns()
 		values := make([]any, len(cols))
 		valuePtrs := make([]any, len(cols))
@@ -505,7 +521,7 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 		}
 		rows.Scan(valuePtrs...)
 
-		existingData := make(map[string]any)
+		existingData = make(map[string]any)
 		for i, col := range cols {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -514,139 +530,142 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 				existingData[col] = val
 			}
 		}
+	}
+	rows.Close()
 
-		type2Changed := false
-		for _, col := range type2Cols {
-			if !reflect.DeepEqual(evaluator.GetMsgValByPath(msg, col), existingData[col]) {
-				type2Changed = true
-				break
-			}
-		}
-
-		type1Changed := false
-		for _, col := range type1Cols {
-			if !reflect.DeepEqual(evaluator.GetMsgValByPath(msg, col), existingData[col]) {
-				type1Changed = true
-				break
-			}
-		}
-
-		if type2Changed || type1Changed {
-			tx, err := db.BeginTx(ctx, nil)
-			if err != nil {
-				return msg, err
-			}
-			defer tx.Rollback()
-
-			if type1Changed {
-				// Update ALL rows for this business key
-				updateParts := make([]string, 0)
-				updateArgs := make([]any, 0)
-				uIdx := 1
-				for _, col := range type1Cols {
-					q, _ := sqlutil.QuoteIdent(driver, col)
-					updateParts = append(updateParts, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
-					updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, col))
-					uIdx++
-				}
-
-				uWhere := make([]string, 0)
-				for _, bk := range businessKeys {
-					q, _ := sqlutil.QuoteIdent(driver, bk)
-					uWhere = append(uWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
-					updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, bk))
-					uIdx++
-				}
-
-				uQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, strings.Join(updateParts, ", "), strings.Join(uWhere, " AND "))
-				_, err = tx.ExecContext(ctx, uQuery, updateArgs...)
-				if err != nil {
-					return msg, err
-				}
-			}
-
-			if type2Changed {
-				// Standard Type 2 logic
-				now := time.Now()
-				qStartDate, _ := sqlutil.QuoteIdent(driver, startDateCol)
-
-				// Expire current
-				expWhere := make([]string, 0)
-				expArgs := make([]any, 0)
-				eIdx := 1
-				expArgs = append(expArgs, now)
-				setClause := fmt.Sprintf("%s = %s", qEndDate, sqlutil.Placeholder(driver, eIdx))
-				eIdx++
-				if currentFlagCol != "" {
-					qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
-					expArgs = append(expArgs, false)
-					setClause += fmt.Sprintf(", %s = %s", qFlag, sqlutil.Placeholder(driver, eIdx))
-					eIdx++
-				}
-
-				for _, bk := range businessKeys {
-					q, _ := sqlutil.QuoteIdent(driver, bk)
-					expWhere = append(expWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, eIdx)))
-					expArgs = append(expArgs, evaluator.GetMsgValByPath(msg, bk))
-					eIdx++
-				}
-				if currentFlagCol != "" {
-					qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
-					expWhere = append(expWhere, fmt.Sprintf("%s = %s", qFlag, sqlutil.Placeholder(driver, eIdx)))
-					expArgs = append(expArgs, true)
-				} else {
-					expWhere = append(expWhere, fmt.Sprintf("%s IS NULL", qEndDate))
-				}
-
-				expQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, setClause, strings.Join(expWhere, " AND "))
-				_, err = tx.ExecContext(ctx, expQuery, expArgs...)
-				if err != nil {
-					return msg, err
-				}
-
-				// Insert new
-				iCols := make([]string, 0)
-				iPhs := make([]string, 0)
-				iArgs := make([]any, 0)
-				iIdx := 1
-				for field, val := range msg.Data() {
-					q, _ := sqlutil.QuoteIdent(driver, field)
-					iCols = append(iCols, q)
-					iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
-					iArgs = append(iArgs, val)
-					iIdx++
-				}
-				iCols = append(iCols, qStartDate)
-				iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
-				iArgs = append(iArgs, now)
-				iIdx++
-
-				if currentFlagCol != "" {
-					qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
-					iCols = append(iCols, qFlag)
-					iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
-					iArgs = append(iArgs, true)
-				}
-
-				iQuery := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", quotedTable, strings.Join(iCols, ", "), strings.Join(iPhs, ", "))
-				_, err = tx.ExecContext(ctx, iQuery, iArgs...)
-				if err != nil {
-					return msg, err
-				}
-				msg.SetMetadata("scd_action", "hybrid_update_insert")
-			} else {
-				msg.SetMetadata("scd_action", "hybrid_update")
-			}
-
-			tx.Commit()
-		} else {
-			msg.SetMetadata("scd_action", "none")
-		}
-	} else {
+	if !found {
 		// New record
 		return t.handleType2(ctx, db, driver, table, businessKeys, nil, config, msg)
 	}
 
+	type2Changed := false
+	for _, col := range type2Cols {
+		if !reflect.DeepEqual(evaluator.GetMsgValByPath(msg, col), existingData[col]) {
+			type2Changed = true
+			break
+		}
+	}
+
+	type1Changed := false
+	for _, col := range type1Cols {
+		if !reflect.DeepEqual(evaluator.GetMsgValByPath(msg, col), existingData[col]) {
+			type1Changed = true
+			break
+		}
+	}
+
+	if !(type2Changed || type1Changed) {
+		msg.SetMetadata("scd_action", "none")
+		return msg, nil
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return msg, err
+	}
+	defer tx.Rollback()
+
+	if type1Changed {
+		// Update ALL rows for this business key
+		updateParts := make([]string, 0)
+		updateArgs := make([]any, 0)
+		uIdx := 1
+		for _, col := range type1Cols {
+			q, _ := sqlutil.QuoteIdent(driver, col)
+			updateParts = append(updateParts, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
+			updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, col))
+			uIdx++
+		}
+
+		uWhere := make([]string, 0)
+		for _, bk := range businessKeys {
+			q, _ := sqlutil.QuoteIdent(driver, bk)
+			uWhere = append(uWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
+			updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, bk))
+			uIdx++
+		}
+
+		uQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, strings.Join(updateParts, ", "), strings.Join(uWhere, " AND "))
+		_, err = tx.ExecContext(ctx, uQuery, updateArgs...)
+		if err != nil {
+			return msg, err
+		}
+	}
+
+	if type2Changed {
+		// Standard Type 2 logic
+		now := time.Now()
+		qStartDate, _ := sqlutil.QuoteIdent(driver, startDateCol)
+
+		// Expire current
+		expWhere := make([]string, 0)
+		expArgs := make([]any, 0)
+		eIdx := 1
+		expArgs = append(expArgs, now)
+		setClause := fmt.Sprintf("%s = %s", qEndDate, sqlutil.Placeholder(driver, eIdx))
+		eIdx++
+		if currentFlagCol != "" {
+			qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+			expArgs = append(expArgs, false)
+			setClause += fmt.Sprintf(", %s = %s", qFlag, sqlutil.Placeholder(driver, eIdx))
+			eIdx++
+		}
+
+		for _, bk := range businessKeys {
+			q, _ := sqlutil.QuoteIdent(driver, bk)
+			expWhere = append(expWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, eIdx)))
+			expArgs = append(expArgs, evaluator.GetMsgValByPath(msg, bk))
+			eIdx++
+		}
+		if currentFlagCol != "" {
+			qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+			expWhere = append(expWhere, fmt.Sprintf("%s = %s", qFlag, sqlutil.Placeholder(driver, eIdx)))
+			expArgs = append(expArgs, true)
+		} else {
+			expWhere = append(expWhere, fmt.Sprintf("%s IS NULL", qEndDate))
+		}
+
+		expQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, setClause, strings.Join(expWhere, " AND "))
+		_, err = tx.ExecContext(ctx, expQuery, expArgs...)
+		if err != nil {
+			return msg, err
+		}
+
+		// Insert new
+		iCols := make([]string, 0)
+		iPhs := make([]string, 0)
+		iArgs := make([]any, 0)
+		iIdx := 1
+		for field, val := range msg.Data() {
+			q, _ := sqlutil.QuoteIdent(driver, field)
+			iCols = append(iCols, q)
+			iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
+			iArgs = append(iArgs, val)
+			iIdx++
+		}
+		iCols = append(iCols, qStartDate)
+		iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
+		iArgs = append(iArgs, now)
+		iIdx++
+
+		if currentFlagCol != "" {
+			qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+			iCols = append(iCols, qFlag)
+			iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
+			iArgs = append(iArgs, true)
+		}
+
+		iQuery := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", quotedTable, strings.Join(iCols, ", "), strings.Join(iPhs, ", "))
+		_, err = tx.ExecContext(ctx, iQuery, iArgs...)
+		if err != nil {
+			return msg, err
+		}
+		msg.SetMetadata("scd_action", "hybrid_update_insert")
+	} else {
+		msg.SetMetadata("scd_action", "hybrid_update")
+	}
+
+	tx.Commit()
 	return msg, nil
 }
 
@@ -683,10 +702,11 @@ func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, ta
 	if err != nil {
 		return msg, fmt.Errorf("lookup failed: %w", err)
 	}
-	defer rows.Close()
 
+	var existingData map[string]any
+	found := false
 	if rows.Next() {
-		// Existing record found
+		found = true
 		cols, _ := rows.Columns()
 		values := make([]any, len(cols))
 		valuePtrs := make([]any, len(cols))
@@ -694,10 +714,11 @@ func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, ta
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
+			rows.Close()
 			return msg, err
 		}
 
-		existingData := make(map[string]any)
+		existingData = make(map[string]any)
 		for i, col := range cols {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -706,69 +727,73 @@ func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, ta
 				existingData[col] = val
 			}
 		}
+	}
+	rows.Close()
 
-		// Compare
-		changed := false
-		if len(compareFields) == 0 {
-			changed = true
-		} else {
-			for _, field := range compareFields {
-				newVal := evaluator.GetMsgValByPath(msg, field)
-				oldVal := existingData[field]
-				if !reflect.DeepEqual(newVal, oldVal) {
-					changed = true
-					break
-				}
-			}
-		}
-
-		if changed {
-			// UPDATE
-			updateParts := make([]string, 0)
-			updateArgs := make([]any, 0)
-			idx := 1
-			for field, val := range msg.Data() {
-				isBK := false
-				for _, bk := range businessKeys {
-					if bk == field {
-						isBK = true
-						break
-					}
-				}
-				if isBK {
-					continue
-				}
-
-				q, err := sqlutil.QuoteIdent(driver, field)
-				if err != nil {
-					continue
-				}
-				updateParts = append(updateParts, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, idx)))
-				updateArgs = append(updateArgs, val)
-				idx++
-			}
-
-			if len(updateParts) > 0 {
-				updateWhere := make([]string, 0)
-				for _, bk := range businessKeys {
-					q, _ := sqlutil.QuoteIdent(driver, bk)
-					updateWhere = append(updateWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, idx)))
-					updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, bk))
-					idx++
-				}
-
-				updateQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, strings.Join(updateParts, ", "), strings.Join(updateWhere, " AND "))
-				_, err = db.ExecContext(ctx, updateQuery, updateArgs...)
-				if err != nil {
-					return msg, fmt.Errorf("update failed: %w", err)
-				}
-				msg.SetMetadata("scd_action", "update")
-			}
-		} else {
-			msg.SetMetadata("scd_action", "none")
-		}
-	} else {
+	if !found {
 		return t.performInsert(ctx, db, driver, table, msg)
+	}
+
+	// Compare
+	changed := false
+	if len(compareFields) == 0 {
+		changed = true
+	} else {
+		for _, field := range compareFields {
+			newVal := evaluator.GetMsgValByPath(msg, field)
+			oldVal := existingData[field]
+			if !reflect.DeepEqual(newVal, oldVal) {
+				changed = true
+				break
+			}
+		}
+	}
+
+	if !changed {
+		msg.SetMetadata("scd_action", "none")
+		return msg, nil
+	}
+
+	// UPDATE
+	updateParts := make([]string, 0)
+	updateArgs := make([]any, 0)
+	idx := 1
+	for field, val := range msg.Data() {
+		isBK := false
+		for _, bk := range businessKeys {
+			if bk == field {
+				isBK = true
+				break
+			}
+		}
+		if isBK {
+			continue
+		}
+
+		q, err := sqlutil.QuoteIdent(driver, field)
+		if err != nil {
+			continue
+		}
+		updateParts = append(updateParts, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, idx)))
+		updateArgs = append(updateArgs, val)
+		idx++
+	}
+
+	if len(updateParts) > 0 {
+		updateWhere := make([]string, 0)
+		for _, bk := range businessKeys {
+			q, _ := sqlutil.QuoteIdent(driver, bk)
+			updateWhere = append(updateWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, idx)))
+			updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, bk))
+			idx++
+		}
+
+		updateQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, strings.Join(updateParts, ", "), strings.Join(updateWhere, " AND "))
+		_, err = db.ExecContext(ctx, updateQuery, updateArgs...)
+		if err != nil {
+			return msg, fmt.Errorf("update failed: %w", err)
+		}
+		msg.SetMetadata("scd_action", "update")
 	}
 
 	return msg, nil
@@ -846,12 +871,13 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 	if err != nil {
 		return msg, err
 	}
-	defer rows.Close()
 
+	var existingData map[string]any
+	found := false
 	now := time.Now()
 
 	if rows.Next() {
-		// Existing record found
+		found = true
 		cols, _ := rows.Columns()
 		values := make([]any, len(cols))
 		valuePtrs := make([]any, len(cols))
@@ -859,10 +885,11 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
+			rows.Close()
 			return msg, err
 		}
 
-		existingData := make(map[string]any)
+		existingData = make(map[string]any)
 		for i, col := range cols {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -871,104 +898,10 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 				existingData[col] = val
 			}
 		}
+	}
+	rows.Close()
 
-		// Compare
-		changed := false
-		for _, field := range compareFields {
-			newVal := evaluator.GetMsgValByPath(msg, field)
-			oldVal := existingData[field]
-			if !reflect.DeepEqual(newVal, oldVal) {
-				changed = true
-				break
-			}
-		}
-
-		if changed {
-			// Transaction: Update old, Insert new
-			tx, err := db.BeginTx(ctx, nil)
-			if err != nil {
-				return msg, err
-			}
-			defer tx.Rollback()
-
-			// Update old record
-			updateWhere := make([]string, 0)
-			updateArgs := make([]any, 0)
-			uIdx := 1
-			updateArgs = append(updateArgs, now)
-			setClause := fmt.Sprintf("%s = %s", qEndDate, sqlutil.Placeholder(driver, uIdx))
-			uIdx++
-			if currentFlagCol != "" {
-				qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
-				updateArgs = append(updateArgs, false)
-				setClause += fmt.Sprintf(", %s = %s", qFlag, sqlutil.Placeholder(driver, uIdx))
-				uIdx++
-			}
-
-			for _, key := range businessKeys {
-				q, _ := sqlutil.QuoteIdent(driver, key)
-				updateWhere = append(updateWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
-				updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, key))
-				uIdx++
-			}
-			if currentFlagCol != "" {
-				qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
-				updateWhere = append(updateWhere, fmt.Sprintf("%s = %s", qFlag, sqlutil.Placeholder(driver, uIdx)))
-				updateArgs = append(updateArgs, true)
-				uIdx++
-			} else {
-				updateWhere = append(updateWhere, fmt.Sprintf("%s IS NULL", qEndDate))
-			}
-
-			updateQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, setClause, strings.Join(updateWhere, " AND "))
-			_, err = tx.ExecContext(ctx, updateQuery, updateArgs...)
-			if err != nil {
-				return msg, err
-			}
-
-			// Insert new record
-			iCols := make([]string, 0)
-			iPhs := make([]string, 0)
-			iArgs := make([]any, 0)
-			iIdx := 1
-			for field, val := range msg.Data() {
-				q, err := sqlutil.QuoteIdent(driver, field)
-				if err != nil {
-					continue
-				}
-				iCols = append(iCols, q)
-				iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
-				iArgs = append(iArgs, val)
-				iIdx++
-			}
-			// Add metadata columns
-			iCols = append(iCols, qStartDate)
-			iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
-			iArgs = append(iArgs, now)
-			iIdx++
-
-			if currentFlagCol != "" {
-				qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
-				iCols = append(iCols, qFlag)
-				iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
-				iArgs = append(iArgs, true)
-				iIdx++
-			}
-
-			insertQuery := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", quotedTable, strings.Join(iCols, ", "), strings.Join(iPhs, ", "))
-			_, err = tx.ExecContext(ctx, insertQuery, iArgs...)
-			if err != nil {
-				return msg, err
-			}
-
-			if err := tx.Commit(); err != nil {
-				return msg, err
-			}
-			msg.SetMetadata("scd_action", "update_insert")
-		} else {
-			msg.SetMetadata("scd_action", "none")
-		}
-	} else {
+	if !found {
 		// New record
 		iCols := make([]string, 0)
 		iPhs := make([]string, 0)
@@ -1004,7 +937,105 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 			return msg, fmt.Errorf("initial insert failed: %w", err)
 		}
 		msg.SetMetadata("scd_action", "insert")
+		return msg, nil
 	}
 
+	// Compare
+	changed := false
+	for _, field := range compareFields {
+		newVal := evaluator.GetMsgValByPath(msg, field)
+		oldVal := existingData[field]
+		if !reflect.DeepEqual(newVal, oldVal) {
+			changed = true
+			break
+		}
+	}
+
+	if !changed {
+		msg.SetMetadata("scd_action", "none")
+		return msg, nil
+	}
+
+	// Transaction: Update old, Insert new
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return msg, err
+	}
+	defer tx.Rollback()
+
+	// Update old record
+	updateWhere := make([]string, 0)
+	updateArgs := make([]any, 0)
+	uIdx := 1
+	updateArgs = append(updateArgs, now)
+	setClause := fmt.Sprintf("%s = %s", qEndDate, sqlutil.Placeholder(driver, uIdx))
+	uIdx++
+	if currentFlagCol != "" {
+		qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+		updateArgs = append(updateArgs, false)
+		setClause += fmt.Sprintf(", %s = %s", qFlag, sqlutil.Placeholder(driver, uIdx))
+		uIdx++
+	}
+
+	for _, key := range businessKeys {
+		q, _ := sqlutil.QuoteIdent(driver, key)
+		updateWhere = append(updateWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
+		updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, key))
+		uIdx++
+	}
+	if currentFlagCol != "" {
+		qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+		updateWhere = append(updateWhere, fmt.Sprintf("%s = %s", qFlag, sqlutil.Placeholder(driver, uIdx)))
+		updateArgs = append(updateArgs, true)
+		uIdx++
+	} else {
+		updateWhere = append(updateWhere, fmt.Sprintf("%s IS NULL", qEndDate))
+	}
+
+	updateQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, setClause, strings.Join(updateWhere, " AND "))
+	_, err = tx.ExecContext(ctx, updateQuery, updateArgs...)
+	if err != nil {
+		return msg, err
+	}
+
+	// Insert new record
+	iCols := make([]string, 0)
+	iPhs := make([]string, 0)
+	iArgs := make([]any, 0)
+	iIdx := 1
+	for field, val := range msg.Data() {
+		q, err := sqlutil.QuoteIdent(driver, field)
+		if err != nil {
+			continue
+		}
+		iCols = append(iCols, q)
+		iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
+		iArgs = append(iArgs, val)
+		iIdx++
+	}
+	// Add metadata columns
+	iCols = append(iCols, qStartDate)
+	iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
+	iArgs = append(iArgs, now)
+	iIdx++
+
+	if currentFlagCol != "" {
+		qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+		iCols = append(iCols, qFlag)
+		iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
+		iArgs = append(iArgs, true)
+		iIdx++
+	}
+
+	insertQuery := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", quotedTable, strings.Join(iCols, ", "), strings.Join(iPhs, ", "))
+	_, err = tx.ExecContext(ctx, insertQuery, iArgs...)
+	if err != nil {
+		return msg, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return msg, err
+	}
+	msg.SetMetadata("scd_action", "update_insert")
 	return msg, nil
 }

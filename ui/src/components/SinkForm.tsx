@@ -1272,6 +1272,42 @@ File: {{.table}}-{{.id}}.json`}
             </List>
           </Stack>
         );
+      case 'sse':
+        return (
+          <Stack gap="xs">
+            <Title order={5}>Server-Sent Events (SSE) Sink</Title>
+            <Text size="sm">Streams events in real-time to web applications using the SSE protocol.</Text>
+            
+            <Text size="sm" fw={600} mt="xs">Client Integration:</Text>
+            <Code block mt="xs">
+{`const stream = "${sink.config?.stream || 'default'}";
+const token = "${sink.config?.auth_token || ''}";
+const url = \`/streams/sse?stream=\${stream}\${token ? \`&token=\${token}\` : ''}\`;
+
+const eventSource = new EventSource(url);
+
+eventSource.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log("New event:", data);
+};
+
+// Listen for specific CDC operations
+['create', 'update', 'delete'].forEach(op => {
+  eventSource.addEventListener(op, (e) => {
+    console.log(\`\${op} event:\`, JSON.parse(e.data));
+  });
+});`}
+            </Code>
+            
+            <Alert icon={<IconInfoCircle size="1rem" />} color="blue" mt="xs">
+              <Text size="xs">
+                Native <Code>EventSource</Code> doesn't support custom headers. 
+                Hermod allows passing the token via the <Code>token</Code> query parameter for compatibility.
+                For header-based auth, consider using a polyfill like <Code>event-source-polyfill</Code>.
+              </Text>
+            </Alert>
+          </Stack>
+        );
       case 'stdout':
         return (
           <Stack gap="xs">

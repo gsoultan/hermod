@@ -34,7 +34,7 @@ func TestExecWithRetry_BusyThenSuccess(t *testing.T) {
 		}
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	if err := s.execWithRetry(ctx, fn); err != nil {
 		t.Fatalf("expected success, got %v", err)
@@ -48,7 +48,7 @@ func TestExecWithRetry_NonBusyError(t *testing.T) {
 	s := &sqlStorage{}
 	exp := errors.New("boom")
 	fn := func() error { return exp }
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	if err := s.execWithRetry(ctx, fn); err != exp {
 		t.Fatalf("expected %v, got %v", exp, err)
@@ -58,7 +58,7 @@ func TestExecWithRetry_NonBusyError(t *testing.T) {
 func TestExecWithRetry_ContextCancel(t *testing.T) {
 	s := &sqlStorage{}
 	fn := func() error { return errors.New("database is locked (5) (SQLITE_BUSY)") }
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()
 	if err := s.execWithRetry(ctx, fn); err == nil {
 		t.Fatalf("expected context error, got nil")

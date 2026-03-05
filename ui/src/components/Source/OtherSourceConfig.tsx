@@ -42,15 +42,15 @@ export function OtherSourceConfig({ config, updateConfig, sourceType, allSources
     );
   }
 
-  if (sourceType === 'webhook' || sourceType === 'form') {
+  if (sourceType === 'webhook' || sourceType === 'form' || sourceType === 'grpc') {
     return (
       <Stack gap="md">
         <TextInput 
-          label={`${sourceType === 'webhook' ? 'Webhook' : 'Form'} Path`}
-          placeholder={`/api/${sourceType === 'webhook' ? 'webhooks' : 'forms'}/my-source`}
+          label={`${sourceType === 'webhook' ? 'Webhook' : sourceType === 'form' ? 'Form' : 'gRPC'} Path`}
+          placeholder={`/api/${sourceType === 'webhook' ? 'webhooks' : sourceType === 'form' ? 'forms' : 'grpc'}/my-source`}
           value={config.path} 
           onChange={(e) => updateConfig('path', e.target.value)} 
-          description={`Relative path for the ${sourceType}. Full URL will be: http://hermod-host:8080/api/${sourceType === 'webhook' ? 'webhooks' : 'forms'}/YOUR_PATH.`}
+          description={sourceType === 'grpc' ? 'Logical gRPC path for the source.' : `Relative path for the ${sourceType}. Full URL will be: http://hermod-host:8080/api/${sourceType === 'webhook' ? 'webhooks' : 'forms'}/YOUR_PATH.`}
           required 
         />
         {sourceType === 'webhook' && (

@@ -24,7 +24,7 @@ func TestMongo_WorkflowLease_AcquireRenewRelease(t *testing.T) {
 		t.Skip("integration: set MONGODB_URI to run")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	client, err := mongo.Connect(options.Client().ApplyURI(uri))
 	if err != nil {
 		t.Fatalf("mongo connect: %v", err)

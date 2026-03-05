@@ -69,7 +69,7 @@ func TestPrioritySource(t *testing.T) {
 
 	ps := NewPrioritySource(recovery, primary, nil)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// 1. Should read from recovery first
 	m1, err := ps.Read(ctx)

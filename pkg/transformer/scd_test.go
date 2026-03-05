@@ -27,6 +27,7 @@ func TestSCDTransformer_AllTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetMaxOpenConns(1)
 	defer db.Close()
 
 	// Create table
@@ -95,7 +96,7 @@ func TestSCDTransformer_AllTypes(t *testing.T) {
 		}
 
 		msg.SetData("email", "changed@example.com")
-		tr.Transform(ctx, msg, config)
+		_, _ = tr.Transform(ctx, msg, config)
 		db.QueryRow("SELECT email FROM dim_users WHERE id = 100").Scan(&email)
 		if email != "user100@example.com" {
 			t.Errorf("Type 0 should not update, but got %s", email)

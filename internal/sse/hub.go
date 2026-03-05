@@ -17,23 +17,45 @@ type Event struct {
 type Hub struct {
 	mu       sync.RWMutex
 	subs     map[string]map[chan Event]struct{}
+	configs  map[string]StreamConfig
 	shutdown chan struct{}
 }
 
+// StreamConfig holds security and other settings for an SSE stream.
+type StreamConfig struct {
+	AuthToken      string
+	AllowedOrigins []string
+}
+
 var (
-	defaultHub *Hub
-	once       sync.Once
+	internalHub  *Hub
+	internalOnce sync.Once
+	dataHub      *Hub
+	dataOnce     sync.Once
 )
 
-// GetHub returns the process-wide SSE hub.
-func GetHub() *Hub {
-	once.Do(func() {
-		defaultHub = &Hub{
+// GetInternalHub returns the SSE hub for internal API notifications.
+func GetInternalHub() *Hub {
+	internalOnce.Do(func() {
+		internalHub = &Hub{
 			subs:     make(map[string]map[chan Event]struct{}),
+			configs:  make(map[string]StreamConfig),
 			shutdown: make(chan struct{}),
 		}
 	})
-	return defaultHub
+	return internalHub
+}
+
+// GetDataHub returns the SSE hub for data orchestration (SSESink).
+func GetDataHub() *Hub {
+	dataOnce.Do(func() {
+		dataHub = &Hub{
+			subs:     make(map[string]map[chan Event]struct{}),
+			configs:  make(map[string]StreamConfig),
+			shutdown: make(chan struct{}),
+		}
+	})
+	return dataHub
 }
 
 // Publish sends an event to all subscribers of the topic.
@@ -132,4 +154,22 @@ func (h *Hub) WaitUntil(topic string, timeout time.Duration) bool {
 		time.Sleep(10 * time.Millisecond)
 	}
 	return false
+}
+
+// ConfigureStream sets the configuration for a specific stream.
+func (h *Hub) ConfigureStream(topic string, cfg StreamConfig) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.configs == nil {
+		h.configs = make(map[string]StreamConfig)
+	}
+	h.configs[topic] = cfg
+}
+
+// GetStreamConfig returns the configuration for a specific stream.
+func (h *Hub) GetStreamConfig(topic string) (StreamConfig, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	cfg, ok := h.configs[topic]
+	return cfg, ok
 }

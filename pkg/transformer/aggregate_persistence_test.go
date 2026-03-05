@@ -25,7 +25,7 @@ func TestAggregateTransformer_Persistence(t *testing.T) {
 	}
 
 	// Create context with state store and IDs
-	ctx := context.WithValue(context.Background(), hermod.StateStoreKey, ss)
+	ctx := context.WithValue(t.Context(), hermod.StateStoreKey, ss)
 	ctx = context.WithValue(ctx, "workflow_id", "wf1")
 	ctx = context.WithValue(ctx, "node_id", "node1")
 

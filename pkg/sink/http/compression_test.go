@@ -1,7 +1,6 @@
 package http
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -60,7 +59,7 @@ func TestHttpSinkCompression(t *testing.T) {
 			msg := message.AcquireMessage()
 			msg.SetPayload([]byte(testData))
 
-			err := sink.Write(context.Background(), msg)
+			err := sink.Write(t.Context(), msg)
 			if err != nil {
 				t.Fatalf("Write failed: %v", err)
 			}

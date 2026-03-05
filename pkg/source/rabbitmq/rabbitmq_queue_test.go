@@ -1,7 +1,6 @@
 package rabbitmq
 
 import (
-	"context"
 	"testing"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -43,7 +42,7 @@ func TestRabbitMQQueueSource_Sample(t *testing.T) {
 
 	// Test Sample
 	src, _ := NewRabbitMQQueueSource(url, queue)
-	msg, err := src.Sample(context.Background(), "")
+	msg, err := src.Sample(t.Context(), "")
 	if err != nil {
 		t.Fatalf("Sample failed: %v", err)
 	}

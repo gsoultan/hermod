@@ -1,7 +1,6 @@
 package observability
 
 import (
-	"context"
 	"testing"
 
 	"github.com/user/hermod/internal/config"
@@ -15,7 +14,7 @@ func TestInitOTLP_Basic(t *testing.T) {
 		Insecure:    true,
 	}
 
-	shutdown, err := InitOTLP(context.Background(), cfg)
+	shutdown, err := InitOTLP(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("Failed to init OTLP: %v", err)
 	}
@@ -25,7 +24,7 @@ func TestInitOTLP_Basic(t *testing.T) {
 	}
 
 	// Clean up
-	_ = shutdown(context.Background())
+	_ = shutdown(t.Context())
 }
 
 func TestInitOTLP_HTTP(t *testing.T) {
@@ -36,7 +35,7 @@ func TestInitOTLP_HTTP(t *testing.T) {
 		Insecure:    true,
 	}
 
-	shutdown, err := InitOTLP(context.Background(), cfg)
+	shutdown, err := InitOTLP(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("Failed to init OTLP HTTP: %v", err)
 	}
@@ -46,5 +45,5 @@ func TestInitOTLP_HTTP(t *testing.T) {
 	}
 
 	// Clean up
-	_ = shutdown(context.Background())
+	_ = shutdown(t.Context())
 }

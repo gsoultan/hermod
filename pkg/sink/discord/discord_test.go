@@ -1,7 +1,6 @@
 package discord
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -22,7 +21,7 @@ func TestDiscordSink_Write_Webhook(t *testing.T) {
 	msg := message.AcquireMessage()
 	msg.SetPayload([]byte("test message"))
 
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -42,7 +41,7 @@ func TestDiscordSink_Write_Bot(t *testing.T) {
 	msg := message.AcquireMessage()
 	msg.SetPayload([]byte("test message"))
 
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

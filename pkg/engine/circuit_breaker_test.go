@@ -26,7 +26,7 @@ func TestSinkWriter_CircuitBreaker(t *testing.T) {
 		ch: make(chan *pendingMessage, 10),
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	go sw.run(ctx)

@@ -15,7 +15,7 @@ func TestSSESink_PublishAndReceive(t *testing.T) {
 	sink := NewSSESink(stream, nil)
 
 	// Subscribe first to avoid race
-	ch, unsub := sse.GetHub().Subscribe(stream, 1)
+	ch, unsub := sse.GetDataHub().Subscribe(stream, 1)
 	defer unsub()
 
 	dm := message.AcquireMessage()
@@ -23,7 +23,7 @@ func TestSSESink_PublishAndReceive(t *testing.T) {
 	dm.SetOperation(hermod.OpCreate)
 	dm.SetData("hello", "world")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	if err := sink.Write(ctx, dm); err != nil {
@@ -40,5 +40,26 @@ func TestSSESink_PublishAndReceive(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatalf("timeout waiting for event")
+	}
+}
+
+func TestSSESink_WithSecurity(t *testing.T) {
+	stream := "secure-stream"
+	token := "secret-token"
+	origins := []string{"http://localhost:3000"}
+
+	_ = NewSSESink(stream, nil).WithSecurity(token, origins)
+
+	cfg, ok := sse.GetDataHub().GetStreamConfig(stream)
+	if !ok {
+		t.Fatal("config not found in hub")
+	}
+
+	if cfg.AuthToken != token {
+		t.Errorf("expected token %s, got %s", token, cfg.AuthToken)
+	}
+
+	if len(cfg.AllowedOrigins) != 1 || cfg.AllowedOrigins[0] != origins[0] {
+		t.Errorf("expected origins %v, got %v", origins, cfg.AllowedOrigins)
 	}
 }

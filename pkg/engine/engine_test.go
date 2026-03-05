@@ -100,7 +100,7 @@ func TestEngine(t *testing.T) {
 
 	eng := NewEngine(source, []hermod.Sink{sink}, rb)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
 	go func() {
@@ -135,7 +135,7 @@ func TestEngineRetry(t *testing.T) {
 		RetryInterval: 10 * time.Millisecond,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 
 	go func() {
@@ -166,7 +166,7 @@ func TestEngineSinkPreflightFail(t *testing.T) {
 	rb := buffer.NewRingBuffer(10)
 
 	eng := NewEngine(source, []hermod.Sink{sink}, rb)
-	err := eng.Start(context.Background())
+	err := eng.Start(t.Context())
 	expectedErr := "sink pre-flight checks failed after 3 attempts"
 	if err == nil || err.Error() != expectedErr {
 		t.Errorf("expected %q, got %v", expectedErr, err)
@@ -212,7 +212,7 @@ func TestEnginePerSinkRetry(t *testing.T) {
 		{MaxRetries: 5, RetryInterval: 1 * time.Millisecond},
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
 
 	go func() {
@@ -271,7 +271,7 @@ func TestEngineAck(t *testing.T) {
 
 	eng := NewEngine(source, []hermod.Sink{sink}, rb)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 
 	go func() {
@@ -313,7 +313,7 @@ func TestEngineGracefulShutdown(t *testing.T) {
 
 	eng := NewEngine(source, []hermod.Sink{sink}, rb)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -356,7 +356,7 @@ func TestEngineMultiSink(t *testing.T) {
 
 	eng := NewEngine(source, []hermod.Sink{sink1, sink2}, rb)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 
 	go func() {
@@ -432,7 +432,7 @@ func TestEngineSourceReconnect(t *testing.T) {
 	// Set very short reconnect interval for test
 	eng.SetSourceConfig(SourceConfig{ReconnectIntervals: []time.Duration{10 * time.Millisecond}})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
 
 	go func() {
@@ -477,7 +477,7 @@ func TestEngineSourceMultiReconnect(t *testing.T) {
 		},
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 	defer cancel()
 
 	start := time.Now()
@@ -523,7 +523,7 @@ func TestEngineSinkMultiRetry(t *testing.T) {
 		},
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 	defer cancel()
 
 	start := time.Now()
@@ -558,7 +558,7 @@ func TestEngineDryRun(t *testing.T) {
 		StatusInterval: 10 * time.Millisecond,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 
 	go func() {
@@ -613,7 +613,7 @@ func TestEngineValidation(t *testing.T) {
 		StatusInterval: 10 * time.Millisecond,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 	defer cancel()
 
 	go func() {
@@ -646,7 +646,7 @@ func TestEngineAdaptiveBatching(t *testing.T) {
 		},
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	go func() {
@@ -694,7 +694,7 @@ func (m *mockBatchSink) Ping(ctx context.Context) error { return nil }
 func (m *mockBatchSink) Close() error                   { return nil }
 
 func TestSinkWriter_BatchBytesFlush(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	// Engine mostly unused but required by sinkWriter
@@ -775,7 +775,7 @@ func TestSinkWriter_PerKeyShardingOrder(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping sharding order test on Windows CI due to timing flakiness")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 
 	e := &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: "wf-shard"}
@@ -853,7 +853,7 @@ func TestSinkWriter_PerKeyShardingOrder(t *testing.T) {
 }
 
 func TestBackpressure_DropNewest_Metric(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	wf := "wf-drop-newest"
@@ -895,7 +895,7 @@ func TestBackpressure_DropNewest_Metric(t *testing.T) {
 }
 
 func TestBackpressure_DropOldest_Metric(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	wf := "wf-drop-oldest"
@@ -934,7 +934,7 @@ func TestBackpressure_DropOldest_Metric(t *testing.T) {
 }
 
 func TestBackpressure_SpillToDisk_Metric(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 
 	wf := "wf-spill"
@@ -1041,7 +1041,7 @@ func TestEngine_DrainTimeoutBehavior(t *testing.T) {
 	tl := &testLogger{}
 	eng.SetLogger(tl)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	done := make(chan error, 1)

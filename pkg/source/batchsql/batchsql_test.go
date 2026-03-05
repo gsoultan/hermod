@@ -23,6 +23,7 @@ func TestBatchSQLSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetMaxOpenConns(1)
 	defer db.Close()
 
 	_, err = db.Exec("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)")
@@ -46,7 +47,7 @@ func TestBatchSQLSource(t *testing.T) {
 	source.SetLogger(pkgengine.NewDefaultLogger())
 	defer source.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	// First Read should start the cron and fetch both rows

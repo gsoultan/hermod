@@ -1,7 +1,6 @@
 package graphql
 
 import (
-	"context"
 	"testing"
 
 	"github.com/user/hermod"
@@ -18,7 +17,7 @@ func TestGraphQLSourceRead(t *testing.T) {
 		_ = Dispatch(path, msg)
 	}()
 
-	readMsg, err := src.Read(context.Background())
+	readMsg, err := src.Read(t.Context())
 	if err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}

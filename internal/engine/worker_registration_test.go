@@ -8,7 +8,7 @@ import (
 )
 
 type mockRegStorage struct {
-	storage.Storage
+	BaseMockStorage
 	workers map[string]storage.Worker
 }
 

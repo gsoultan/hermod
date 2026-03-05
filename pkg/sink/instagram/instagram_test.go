@@ -1,7 +1,6 @@
 package instagram
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -23,7 +22,7 @@ func TestInstagramSink_Write(t *testing.T) {
 	msg.SetPayload([]byte("Hello Instagram"))
 	msg.SetData("media_url", "https://example.com/image.jpg")
 
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -41,7 +40,7 @@ func TestInstagramSink_Ping(t *testing.T) {
 	sink := NewInstagramSink("test-token", "test-ig-user", nil)
 	sink.baseURL = server.URL
 
-	err := sink.Ping(context.Background())
+	err := sink.Ping(t.Context())
 	if err != nil {
 		t.Fatalf("Ping failed: %v", err)
 	}

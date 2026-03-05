@@ -65,7 +65,7 @@ func TestPublishAuthentication(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			if tt.token != "" {
 				ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("x-api-key", tt.token))
 			}

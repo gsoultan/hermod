@@ -1,7 +1,6 @@
 package sql
 
 import (
-	"context"
 	"database/sql"
 	"testing"
 	"time"
@@ -20,7 +19,7 @@ func newTestDB(t *testing.T) *sql.DB {
 }
 
 func TestWorkflowLease_AcquireRenewRelease(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	db := newTestDB(t)
 	defer db.Close()
 

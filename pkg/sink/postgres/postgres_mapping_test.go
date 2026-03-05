@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -18,7 +17,7 @@ func TestPostgresSink_ColumnMapping(t *testing.T) {
 		t.Skip("integration: set HERMOD_INTEGRATION=1 and POSTGRES_DSN to run")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Fatalf("pgxpool: %v", err)
@@ -34,7 +33,7 @@ func TestPostgresSink_ColumnMapping(t *testing.T) {
 		{SourceField: "age", TargetColumn: "user_age", DataType: "INTEGER"},
 	}
 
-	snk := NewPostgresSink(dsn, table, mappings, false, "hard_delete", "", "", false, false)
+	snk := NewPostgresSink(dsn, table, mappings, false, "hard_delete", "", "", "", false, false)
 
 	// Test table creation with mappings
 	msg := message.AcquireMessage()
@@ -93,7 +92,7 @@ func TestPostgresSink_ColumnMapping(t *testing.T) {
 		{SourceField: "after.id", TargetColumn: "user_id", DataType: "TEXT", IsPrimaryKey: true},
 		{SourceField: "after.name", TargetColumn: "full_name", DataType: "TEXT"},
 	}
-	snk3 := NewPostgresSink(dsn, table, mappings3, true, "hard_delete", "", "", false, false)
+	snk3 := NewPostgresSink(dsn, table, mappings3, true, "hard_delete", "", "", "", false, false)
 
 	msg3 := message.AcquireMessage()
 	defer message.ReleaseMessage(msg3)

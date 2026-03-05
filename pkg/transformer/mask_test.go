@@ -1,7 +1,6 @@
 package transformer
 
 import (
-	"context"
 	"testing"
 
 	"github.com/user/hermod/pkg/message"
@@ -9,7 +8,7 @@ import (
 
 func TestMaskTransformer_PII(t *testing.T) {
 	tr := &MaskTransformer{}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		name     string

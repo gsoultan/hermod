@@ -14,10 +14,11 @@ func TestSQLStorage_WorkflowStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open sqlite: %v", err)
 	}
+	db.SetMaxOpenConns(1)
 	defer db.Close()
 
 	s := NewSQLStorage(db, "sqlite")
-	ctx := context.Background()
+	ctx := t.Context()
 
 	if initer, ok := s.(interface{ Init(context.Context) error }); ok {
 		if err := initer.Init(ctx); err != nil {
@@ -67,10 +68,11 @@ func TestSQLStorage_ListAllSchemas(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open sqlite: %v", err)
 	}
+	db.SetMaxOpenConns(1)
 	defer db.Close()
 
 	s := NewSQLStorage(db, "sqlite")
-	ctx := context.Background()
+	ctx := t.Context()
 
 	if err := s.Init(ctx); err != nil {
 		t.Fatalf("failed to init storage: %v", err)

@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -463,7 +462,7 @@ func (s *Server) saveDBConfig(w http.ResponseWriter, r *http.Request) {
 			newLogStore, err = s.initSQLStorage(r.Context(), logCfg)
 		}
 		if err != nil {
-			log.Printf("Warning: failed to initialize new logging storage: %v", err)
+			s.registry.GetLogger().Warn("Failed to initialize new logging storage", "error", err)
 		}
 	}
 

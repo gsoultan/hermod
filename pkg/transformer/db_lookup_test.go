@@ -1,7 +1,6 @@
 package transformer
 
 import (
-	"context"
 	"database/sql"
 	"testing"
 
@@ -18,6 +17,7 @@ func TestDBLookup_SQL_ByKeyColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	db.SetMaxOpenConns(1)
 	defer db.Close()
 
 	_, err = db.Exec(`CREATE TABLE test (id TEXT PRIMARY KEY, value TEXT, status TEXT)`)
@@ -33,7 +33,7 @@ func TestDBLookup_SQL_ByKeyColumn(t *testing.T) {
 	tr := &DBLookupTransformer{}
 	reg := fakeRegistry{db: db}
 
-	got, err := tr.lookupSQL(context.Background(), reg, src, "test", "id", "1", "", "value", "", nil)
+	got, err := tr.lookupSQL(t.Context(), reg, src, "test", "id", "1", "", "value", "", nil)
 	if err != nil {
 		t.Fatalf("lookupSQL: %v", err)
 	}
@@ -47,6 +47,7 @@ func TestDBLookup_SQL_WithWhereClause(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	db.SetMaxOpenConns(1)
 	defer db.Close()
 
 	_, err = db.Exec(`CREATE TABLE test (id TEXT PRIMARY KEY, value TEXT, status TEXT)`)
@@ -64,7 +65,7 @@ func TestDBLookup_SQL_WithWhereClause(t *testing.T) {
 
 	data := map[string]any{"id": "2", "st": "INACTIVE"}
 	where := "id = {{id}} AND status = '{{st}}'"
-	got, err := tr.lookupSQL(context.Background(), reg, src, "test", "", nil, where, "value", "", data)
+	got, err := tr.lookupSQL(t.Context(), reg, src, "test", "", nil, where, "value", "", data)
 	if err != nil {
 		t.Fatalf("lookupSQL(where): %v", err)
 	}
@@ -97,6 +98,7 @@ func TestDBLookup_SQL_BatchIN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	db.SetMaxOpenConns(1)
 	defer db.Close()
 
 	_, err = db.Exec(`CREATE TABLE test (id TEXT PRIMARY KEY, value TEXT)`)
@@ -113,7 +115,7 @@ func TestDBLookup_SQL_BatchIN(t *testing.T) {
 	reg := fakeRegistry{db: db}
 
 	ids := []string{"1", "3"}
-	got, err := tr.lookupSQL(context.Background(), reg, src, "test", "id", ids, "", "value", "", nil)
+	got, err := tr.lookupSQL(t.Context(), reg, src, "test", "id", ids, "", "value", "", nil)
 	if err != nil {
 		t.Fatalf("lookupSQL batch: %v", err)
 	}

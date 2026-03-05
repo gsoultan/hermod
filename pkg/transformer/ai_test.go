@@ -1,7 +1,6 @@
 package transformer
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -40,7 +39,7 @@ func TestAITransformer_Transform(t *testing.T) {
 		"targetField": "sentiment",
 	}
 
-	result, err := tf.Transform(context.Background(), msg, config)
+	result, err := tf.Transform(t.Context(), msg, config)
 	if err != nil {
 		t.Fatalf("Transform failed: %v", err)
 	}
@@ -71,7 +70,7 @@ func TestAITransformer_Transform_JSONMerge(t *testing.T) {
 		"prompt":   "Classify item into JSON:",
 	}
 
-	result, err := tf.Transform(context.Background(), msg, config)
+	result, err := tf.Transform(t.Context(), msg, config)
 	if err != nil {
 		t.Fatalf("Transform failed: %v", err)
 	}
@@ -106,7 +105,7 @@ func TestAIMapperTransformer_Transform(t *testing.T) {
 		"targetSchema": `{"type": "object", "properties": {"full_name": {"type": "string"}, "age": {"type": "integer"}}}`,
 	}
 
-	result, err := tf.Transform(context.Background(), msg, config)
+	result, err := tf.Transform(t.Context(), msg, config)
 	if err != nil {
 		t.Fatalf("Transform failed: %v", err)
 	}

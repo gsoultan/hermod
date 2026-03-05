@@ -1,7 +1,6 @@
 package transformer
 
 import (
-	"context"
 	"encoding/base64"
 	"testing"
 
@@ -18,7 +17,7 @@ func TestWasmTransformer_Transform_MissingBinary(t *testing.T) {
 		"function": "transform",
 	}
 
-	_, err := tr.Transform(context.Background(), msg, config)
+	_, err := tr.Transform(t.Context(), msg, config)
 	if err == nil {
 		t.Fatal("expected error due to missing binary")
 	}
@@ -45,7 +44,7 @@ func TestWasmTransformer_Base64Invalid(t *testing.T) {
 		"wasmBytes": base64.StdEncoding.EncodeToString([]byte("invalid wasm")),
 	}
 
-	_, err := tr.Transform(context.Background(), msg, config)
+	_, err := tr.Transform(t.Context(), msg, config)
 	if err == nil {
 		t.Fatal("expected error due to invalid wasm binary")
 	}

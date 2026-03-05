@@ -54,7 +54,7 @@ func TestEngineSchemaValidation(t *testing.T) {
 	eng.SetValidator(v)
 
 	// 4. Run Engine
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 	defer cancel()
 
 	go func() {

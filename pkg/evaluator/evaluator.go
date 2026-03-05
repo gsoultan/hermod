@@ -258,6 +258,33 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 			return val
 		}
 		return ""
+	case "add":
+		if len(args) >= 2 {
+			v1, _ := ToFloat64(args[0])
+			v2, _ := ToFloat64(args[1])
+			return v1 + v2
+		}
+	case "sub":
+		if len(args) >= 2 {
+			v1, _ := ToFloat64(args[0])
+			v2, _ := ToFloat64(args[1])
+			return v1 - v2
+		}
+	case "mul":
+		if len(args) >= 2 {
+			v1, _ := ToFloat64(args[0])
+			v2, _ := ToFloat64(args[1])
+			return v1 * v2
+		}
+	case "div":
+		if len(args) >= 2 {
+			v1, _ := ToFloat64(args[0])
+			v2, _ := ToFloat64(args[1])
+			if v2 == 0 {
+				return nil
+			}
+			return v1 / v2
+		}
 	case "round":
 		if len(args) >= 1 {
 			v, _ := ToFloat64(args[0])

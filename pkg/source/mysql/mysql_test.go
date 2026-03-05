@@ -21,7 +21,7 @@ func TestMySQLSource_Read(t *testing.T) {
 	s := NewMySQLSource(dsn, true)
 	defer s.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
 	msg, err := s.Read(ctx)

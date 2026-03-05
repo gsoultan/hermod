@@ -98,7 +98,7 @@ func TestSmtpSink_Write_Template(t *testing.T) {
 	}
 
 	msg := &mockMessage{id: "123"}
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestSmtpSink_Write_PlainTemplate(t *testing.T) {
 	}
 
 	msg := &mockMessage{id: "123"}
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestSmtpSink_Write_DynamicRecipientsAndSubject(t *testing.T) {
 	msg.SetData("name", "John Doe")
 	msg.SetData("table", "users")
 
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestSmtpSink_NormalizeAndDedupeRecipients(t *testing.T) {
 		templateSource: "inline",
 	}
 	msg := &mockMessage{id: "123"}
-	if err := sink.Write(context.Background(), msg); err != nil {
+	if err := sink.Write(t.Context(), msg); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 	got := mock.lastEmail.To
@@ -221,7 +221,7 @@ func TestSmtpSink_ArrayParameter(t *testing.T) {
 		{"name": "Item 2", "price": 20.0},
 	})
 
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestSmtpSink_PayloadArray(t *testing.T) {
 	defer message.ReleaseMessage(msg)
 	msg.SetPayload([]byte(`["a", "b", "c"]`))
 
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestSmtpSink_SystemFieldsInTemplate(t *testing.T) {
 	msg.SetTable("users")
 	msg.SetOperation(hermod.OpUpdate)
 
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestSmtpSink_IfElseTemplate(t *testing.T) {
 	msg := message.AcquireMessage()
 	msg.SetID("101")
 	msg.SetOperation(hermod.OpCreate)
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestSmtpSink_IfElseTemplate(t *testing.T) {
 	msg = message.AcquireMessage()
 	msg.SetID("101")
 	msg.SetOperation(hermod.OpUpdate)
-	err = sink.Write(context.Background(), msg)
+	err = sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestSmtpSink_OutlookCompatible(t *testing.T) {
 	msg := message.AcquireMessage()
 	defer message.ReleaseMessage(msg)
 
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestSmtpSink_OutlookCompatible(t *testing.T) {
 	}
 
 	sink.outlookCompatible = false
-	err = sink.Write(context.Background(), msg)
+	err = sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -369,7 +369,7 @@ func TestSmtpSink_JSONStringFields(t *testing.T) {
 }`
 	msg.SetPayload([]byte(samplePayload))
 
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestSmtpSink_Ping(t *testing.T) {
 		sender: mock,
 	}
 
-	err := sink.Ping(context.Background())
+	err := sink.Ping(t.Context())
 	if err != nil {
 		t.Errorf("Ping failed for mock: %v", err)
 	}
@@ -407,7 +407,7 @@ func TestSmtpSink_Ping_RateLimit(t *testing.T) {
 	}
 
 	// First ping should go through
-	err := sink.Ping(context.Background())
+	err := sink.Ping(t.Context())
 	if err != nil {
 		t.Fatalf("First ping failed: %v", err)
 	}
@@ -416,7 +416,7 @@ func TestSmtpSink_Ping_RateLimit(t *testing.T) {
 	}
 
 	// Second ping immediately after should be rate limited
-	err = sink.Ping(context.Background())
+	err = sink.Ping(t.Context())
 	if err != nil {
 		t.Fatalf("Second ping failed: %v", err)
 	}
@@ -426,7 +426,7 @@ func TestSmtpSink_Ping_RateLimit(t *testing.T) {
 
 	// Manually reset lastPing to simulate time passage
 	sink.lastPing = time.Now().Add(-6 * time.Minute)
-	err = sink.Ping(context.Background())
+	err = sink.Ping(t.Context())
 	if err != nil {
 		t.Fatalf("Third ping failed: %v", err)
 	}
@@ -445,7 +445,7 @@ func TestSmtpSink_Write(t *testing.T) {
 	}
 
 	msg := &mockMessage{id: "123"}
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestSmtpSink_IdempotencySkipDuplicate(t *testing.T) {
 	defer message.ReleaseMessage(msg)
 	msg.SetID("dup-1")
 	// first write sends
-	if err := sink.Write(context.Background(), msg); err != nil {
+	if err := sink.Write(t.Context(), msg); err != nil {
 		t.Fatalf("first write failed: %v", err)
 	}
 	if !mock.sendCalled {
@@ -494,7 +494,7 @@ func TestSmtpSink_IdempotencySkipDuplicate(t *testing.T) {
 	}
 	// reset flag and attempt duplicate
 	mock.sendCalled = false
-	if err := sink.Write(context.Background(), msg); err != nil {
+	if err := sink.Write(t.Context(), msg); err != nil {
 		t.Fatalf("second write failed: %v", err)
 	}
 	if mock.sendCalled {
@@ -527,14 +527,14 @@ func TestSmtpSink_IdempotencyEmptyKeyFallback(t *testing.T) {
 		msg1 := message.AcquireMessage()
 		defer message.ReleaseMessage(msg1)
 		msg1.SetID("id-1")
-		if err := sink.Write(context.Background(), msg1); err != nil {
+		if err := sink.Write(t.Context(), msg1); err != nil {
 			t.Fatalf("first write msg1 failed: %v", err)
 		}
 		if !mock.sendCalled {
 			t.Fatalf("expected first send to be called for msg1")
 		}
 		mock.sendCalled = false
-		if err := sink.Write(context.Background(), msg1); err != nil {
+		if err := sink.Write(t.Context(), msg1); err != nil {
 			t.Fatalf("second write msg1 failed: %v", err)
 		}
 		if mock.sendCalled {
@@ -546,7 +546,7 @@ func TestSmtpSink_IdempotencyEmptyKeyFallback(t *testing.T) {
 		defer message.ReleaseMessage(msg2)
 		msg2.SetID("id-2")
 		mock.sendCalled = false
-		if err := sink.Write(context.Background(), msg2); err != nil {
+		if err := sink.Write(t.Context(), msg2); err != nil {
 			t.Fatalf("first write msg2 failed: %v", err)
 		}
 		if !mock.sendCalled {
@@ -574,12 +574,12 @@ func TestSmtpSink_IdempotencyEmptyKeyFallback(t *testing.T) {
 		msg1 := message.AcquireMessage()
 		defer message.ReleaseMessage(msg1)
 		msg1.SetID("a")
-		if err := sink.Write(context.Background(), msg1); err != nil {
+		if err := sink.Write(t.Context(), msg1); err != nil {
 			t.Fatalf("first write msg1 failed: %v", err)
 		}
 		mock.sendCalled = false
 		// duplicate
-		if err := sink.Write(context.Background(), msg1); err != nil {
+		if err := sink.Write(t.Context(), msg1); err != nil {
 			t.Fatalf("second write msg1 failed: %v", err)
 		}
 		if mock.sendCalled {
@@ -591,7 +591,7 @@ func TestSmtpSink_IdempotencyEmptyKeyFallback(t *testing.T) {
 		defer message.ReleaseMessage(msg2)
 		msg2.SetID("b")
 		mock.sendCalled = false
-		if err := sink.Write(context.Background(), msg2); err != nil {
+		if err := sink.Write(t.Context(), msg2); err != nil {
 			t.Fatalf("first write msg2 failed: %v", err)
 		}
 		if !mock.sendCalled {
@@ -621,7 +621,7 @@ func TestSmtpSink_RealSend(t *testing.T) {
 	msg.SetTable("test_table")
 	msg.SetOperation(hermod.OpSnapshot)
 
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Failed to send real email: %v", err)
 	}

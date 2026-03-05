@@ -30,7 +30,7 @@ func TestStorageRegistry_Register(t *testing.T) {
 	reg := NewStorageRegistry(mock)
 
 	// Register version 1
-	v1, err := reg.Register(context.Background(), "user", JSONSchema, `{"type": "object", "required": ["id"]}`)
+	v1, err := reg.Register(t.Context(), "user", JSONSchema, `{"type": "object", "required": ["id"]}`)
 	if err != nil {
 		t.Fatalf("failed to register v1: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestStorageRegistry_Register(t *testing.T) {
 	}
 
 	// Register version 2 (compatible)
-	v2, err := reg.Register(context.Background(), "user", JSONSchema, `{"type": "object", "required": ["id"], "properties": {"name": {"type": "string"}}}`)
+	v2, err := reg.Register(t.Context(), "user", JSONSchema, `{"type": "object", "required": ["id"], "properties": {"name": {"type": "string"}}}`)
 	if err != nil {
 		t.Fatalf("failed to register v2: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestStorageRegistry_Register(t *testing.T) {
 	}
 
 	// Register version 3 (incompatible - adding a new required field)
-	_, err = reg.Register(context.Background(), "user", JSONSchema, `{"type": "object", "required": ["id", "email"]}`)
+	_, err = reg.Register(t.Context(), "user", JSONSchema, `{"type": "object", "required": ["id", "email"]}`)
 	if err == nil {
 		t.Error("expected error when registering incompatible schema, got nil")
 	}

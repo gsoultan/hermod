@@ -14,10 +14,12 @@ import (
 // SSESink publishes messages to an in-process SSE hub under a named stream.
 // Clients can subscribe via the API endpoint to receive realtime events.
 type SSESink struct {
-	stream    string
-	formatter hermod.Formatter
-	logger    hermod.Logger
-	bufSize   int
+	stream         string
+	authToken      string
+	allowedOrigins []string
+	formatter      hermod.Formatter
+	logger         hermod.Logger
+	bufSize        int
 }
 
 func NewSSESink(stream string, formatter hermod.Formatter) *SSESink {
@@ -25,6 +27,18 @@ func NewSSESink(stream string, formatter hermod.Formatter) *SSESink {
 		stream = "default"
 	}
 	return &SSESink{stream: stream, formatter: formatter, bufSize: 64}
+}
+
+// WithSecurity configures authentication and origin verification for the SSE stream.
+func (s *SSESink) WithSecurity(token string, origins []string) *SSESink {
+	s.authToken = token
+	s.allowedOrigins = origins
+	// Register configuration with the hub
+	sse.GetDataHub().ConfigureStream(s.stream, sse.StreamConfig{
+		AuthToken:      token,
+		AllowedOrigins: origins,
+	})
+	return s
 }
 
 func (s *SSESink) SetLogger(l hermod.Logger) { s.logger = l }
@@ -53,7 +67,7 @@ func (s *SSESink) Write(ctx context.Context, msg hermod.Message) error {
 		Event: string(msg.Operation()),
 		Data:  data,
 	}
-	sse.GetHub().Publish(s.stream, ev)
+	sse.GetDataHub().Publish(s.stream, ev)
 
 	if s.logger != nil {
 		s.logger.Debug("SSE published", "stream", s.stream, "message_id", msg.ID())
@@ -63,7 +77,7 @@ func (s *SSESink) Write(ctx context.Context, msg hermod.Message) error {
 
 func (s *SSESink) Ping(ctx context.Context) error {
 	// Ping succeeds if hub is available; optionally ensure at least one subscriber in last 1s
-	_ = sse.GetHub()
+	_ = sse.GetDataHub()
 	return nil
 }
 
@@ -74,5 +88,5 @@ func (s *SSESink) WithBuffer(n int) *SSESink { s.bufSize = n; return s }
 
 // WaitForSubscribers waits for at least one subscriber on the stream up to d.
 func (s *SSESink) WaitForSubscribers(d time.Duration) bool {
-	return sse.GetHub().WaitUntil(s.stream, d)
+	return sse.GetDataHub().WaitUntil(s.stream, d)
 }

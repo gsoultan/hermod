@@ -12,7 +12,7 @@ func TestMariaDBSource_Ping(t *testing.T) {
 	s := NewMariaDBSource("user:pass@tcp(localhost:3306)/db", []string{"table1"}, "id", 1*time.Second, false)
 	defer s.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
 	err := s.Ping(ctx)

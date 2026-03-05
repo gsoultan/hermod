@@ -1,7 +1,6 @@
 package linkedin
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -25,7 +24,7 @@ func TestLinkedInSink_Write(t *testing.T) {
 	msg := message.AcquireMessage()
 	msg.SetPayload([]byte("Hello LinkedIn"))
 
-	err := sink.Write(context.Background(), msg)
+	err := sink.Write(t.Context(), msg)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -43,7 +42,7 @@ func TestLinkedInSink_Ping(t *testing.T) {
 	sink := NewLinkedInSink("test-token", "urn:li:person:123", nil)
 	sink.baseURL = server.URL
 
-	err := sink.Ping(context.Background())
+	err := sink.Ping(t.Context())
 	if err != nil {
 		t.Fatalf("Ping failed: %v", err)
 	}

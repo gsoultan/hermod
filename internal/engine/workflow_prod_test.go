@@ -8,7 +8,7 @@ import (
 )
 
 type mockProdStorage struct {
-	storage.Storage
+	BaseMockStorage
 	sources map[string]storage.Source
 	sinks   map[string]storage.Sink
 }

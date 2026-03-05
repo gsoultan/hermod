@@ -379,8 +379,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/webhooks/{path...}", s.handleWebhook)
 	mux.HandleFunc("GET /api/webhooks/{path...}", s.handleWebhook)
 	mux.HandleFunc("POST /api/graphql/{path...}", s.handleGraphQL)
-	// SSE streams
-	mux.HandleFunc("GET /api/sse/stream", s.handleSSEStream)
+	// Data orchestration streams (SSE)
+	mux.HandleFunc("GET /streams/sse", s.handleSSEStream)
+	// Internal API notifications (SSE)
+	mux.HandleFunc("GET /api/notifications/sse", s.handleInternalSSE)
 
 	// WebSocket server-mode endpoints
 	mux.HandleFunc("GET /api/ws/in/{path...}", s.handleWSIn)

@@ -104,7 +104,7 @@ func TestParallelSinks(t *testing.T) {
 	e.SetIDs("conn1", "src1", []string{"sink1", "sink2"})
 	e.SetConfig(Config{MaxRetries: 3, StatusInterval: 1 * time.Second})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	go e.Start(ctx)
@@ -148,7 +148,7 @@ func TestDeadLetterQueue(t *testing.T) {
 	// Set retries to 1 so it fails fast
 	e.SetConfig(Config{MaxRetries: 1, RetryInterval: 10 * time.Millisecond, StatusInterval: 1 * time.Second})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	go e.Start(ctx)

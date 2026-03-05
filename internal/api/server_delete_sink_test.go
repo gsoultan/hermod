@@ -15,9 +15,15 @@ import (
 )
 
 func TestDeleteSinkProtection(t *testing.T) {
-	db, _ := sql.Open("sqlite", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	db.SetMaxOpenConns(1)
 	store := sqlstorage.NewSQLStorage(db, "sqlite")
-	store.Init(t.Context())
+	if err := store.Init(t.Context()); err != nil {
+		t.Fatalf("failed to init store: %v", err)
+	}
 	registry := engine.NewRegistry(store)
 	server := NewServer(registry, store, nil, nil)
 
@@ -25,21 +31,25 @@ func TestDeleteSinkProtection(t *testing.T) {
 
 	// 1. Create a sink
 	sinkID := uuid.New().String()
-	store.CreateSink(ctx, storage.Sink{
+	if err := store.CreateSink(ctx, storage.Sink{
 		ID:   sinkID,
 		Name: "test_sink",
 		Type: "stdout",
-	})
+	}); err != nil {
+		t.Fatalf("failed to create sink: %v", err)
+	}
 
 	// 2. Create a workflow using this sink
-	store.CreateWorkflow(ctx, storage.Workflow{
+	if err := store.CreateWorkflow(ctx, storage.Workflow{
 		ID:   "wf1",
 		Name: "Workflow 1",
 		Nodes: []storage.WorkflowNode{
 			{ID: "n1", Type: "sink", RefID: sinkID},
 		},
 		Active: false,
-	})
+	}); err != nil {
+		t.Fatalf("failed to create workflow: %v", err)
+	}
 
 	// 3. Try to delete the sink
 	req := httptest.NewRequest("DELETE", "/api/sinks/"+sinkID, nil)
@@ -59,7 +69,7 @@ func TestDeleteSinkProtection(t *testing.T) {
 	}
 
 	// 4. Verify sink still exists
-	_, err := store.GetSink(ctx, sinkID)
+	_, err = store.GetSink(ctx, sinkID)
 	if err != nil {
 		t.Errorf("sink should still exist after failed deletion: %v", err)
 	}

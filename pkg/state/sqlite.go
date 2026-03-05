@@ -18,6 +18,7 @@ func NewSQLiteStateStore(path string) (hermod.StateStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite state store: %w", err)
 	}
+	db.SetMaxOpenConns(1)
 
 	_, err = db.Exec(commonQueries[QueryInitTable])
 	if err != nil {

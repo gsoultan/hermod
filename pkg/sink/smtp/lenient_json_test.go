@@ -1,7 +1,6 @@
 package smtp
 
 import (
-	"context"
 	"testing"
 
 	"github.com/user/hermod/pkg/message"
@@ -35,7 +34,7 @@ func TestSmtpSink_LenientJSON(t *testing.T) {
 	msg.SetData("isActive", true)
 	msg.SetData("name", "Alice Smith")
 
-	ctx := context.Background()
+	ctx := t.Context()
 	err := sink.Write(ctx, msg)
 	if err != nil {
 		t.Errorf("Case 1 (Valid JSON) failed: %v", err)

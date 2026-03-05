@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"hash/fnv"
-	"log"
 	"reflect"
 	"runtime"
 	"sort"
@@ -43,6 +42,7 @@ type WorkerStorage interface {
 type Worker struct {
 	storage           WorkerStorage
 	registry          *Registry
+	logger            hermod.Logger
 	interval          time.Duration
 	workerID          int
 	totalWorkers      int
@@ -62,9 +62,16 @@ type Worker struct {
 
 // NewWorker creates a new worker.
 func NewWorker(storage WorkerStorage, registry *Registry) *Worker {
+	var logger hermod.Logger = pkgengine.NewDefaultLogger()
+	if registry != nil {
+		if rl := registry.GetLogger(); rl != nil {
+			logger = rl
+		}
+	}
 	return &Worker{
 		storage:         storage,
 		registry:        registry,
+		logger:          logger,
 		interval:        10 * time.Second,
 		workerID:        0,
 		totalWorkers:    1,
@@ -115,14 +122,14 @@ func (w *Worker) Start(ctx context.Context) error {
 	// Self-register if GUID is provided
 	if w.workerGUID != "" {
 		if err := w.SelfRegister(ctx); err != nil {
-			log.Printf("Worker: self-registration failed: %v", err)
+			w.logger.Warn("Worker: self-registration failed", "error", err)
 		}
 	}
 
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
-	log.Println("Engine worker started. Checking for active workflows to resume...")
+	w.logger.Info("Engine worker started. Checking for active workflows to resume...")
 
 	// Initial sync
 	w.sync(ctx, true)
@@ -137,7 +144,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Worker: stopping background loop...")
+			w.logger.Info("Worker: stopping background loop...")
 			return ctx.Err()
 		case <-ticker.C:
 			w.sync(ctx, false)
@@ -152,11 +159,11 @@ func (w *Worker) ReleaseAllLeases(ctx context.Context) {
 		return
 	}
 
-	log.Printf("Worker: releasing all leases for %s...", w.workerGUID)
+	w.logger.Info("Worker: releasing all leases", "worker_guid", w.workerGUID)
 
 	workflows, _, err := w.storage.ListWorkflows(ctx, storage.CommonFilter{})
 	if err != nil {
-		log.Printf("Worker: failed to list workflows for lease release: %v", err)
+		w.logger.Error("Worker: failed to list workflows for lease release", "error", err)
 		return
 	}
 
@@ -165,14 +172,14 @@ func (w *Worker) ReleaseAllLeases(ctx context.Context) {
 		if wf.OwnerID == w.workerGUID {
 			err := w.storage.ReleaseWorkflowLease(ctx, wf.ID, w.workerGUID)
 			if err != nil {
-				log.Printf("Worker: failed to release lease for workflow %s: %v", wf.ID, err)
+				w.logger.Error("Worker: failed to release lease for workflow", "workflow_id", wf.ID, "error", err)
 			} else {
 				released++
 			}
 		}
 	}
 	if released > 0 {
-		log.Printf("Worker: released %d leases", released)
+		w.logger.Info("Worker: released leases", "count", released)
 	}
 }
 
@@ -189,7 +196,7 @@ func (w *Worker) SelfRegister(ctx context.Context) error {
 	}
 	// If error is something other than not found, surface it (avoid blind create on transient errors)
 	if err != nil && err != storage.ErrNotFound {
-		log.Printf("Worker: self-registration lookup failed for %s: %v", w.workerGUID, err)
+		w.logger.Error("Worker: self-registration lookup failed", "worker_guid", w.workerGUID, "error", err)
 		return err
 	}
 
@@ -199,7 +206,7 @@ func (w *Worker) SelfRegister(ctx context.Context) error {
 	}
 
 	// Not registered, create it
-	log.Printf("Worker: self-registering as %s...", w.workerGUID)
+	w.logger.Info("Worker: self-registering", "worker_guid", w.workerGUID)
 	return w.storage.CreateWorker(ctx, storage.Worker{
 		ID:          w.workerGUID,
 		Name:        name,
@@ -220,14 +227,14 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 	defer func() {
 		pkgengine.WorkerSyncDuration.WithLabelValues(workerID).Observe(time.Since(start).Seconds())
 		if r := recover(); r != nil {
-			log.Printf("Worker: sync panicked: %v", r)
+			w.logger.Error("Worker: sync panicked", "panic", r)
 			pkgengine.WorkerSyncErrors.WithLabelValues(workerID).Inc()
 		}
 	}()
 
 	workflows, _, err := w.storage.ListWorkflows(ctx, storage.CommonFilter{})
 	if err != nil {
-		log.Printf("Worker: failed to list workflows: %v", err)
+		w.logger.Error("Worker: failed to list workflows", "error", err)
 		pkgengine.WorkerSyncErrors.WithLabelValues(workerID).Inc()
 		return
 	}
@@ -235,7 +242,7 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 	// Pre-fetch all sources and sinks to avoid redundant storage calls in the loop
 	sources, _, err := w.storage.ListSources(ctx, storage.CommonFilter{})
 	if err != nil {
-		log.Printf("Worker: failed to list sources: %v", err)
+		w.logger.Error("Worker: failed to list sources", "error", err)
 		return
 	}
 	sourceMap := make(map[string]storage.Source)
@@ -245,7 +252,7 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 
 	sinks, _, err := w.storage.ListSinks(ctx, storage.CommonFilter{})
 	if err != nil {
-		log.Printf("Worker: failed to list sinks: %v", err)
+		w.logger.Error("Worker: failed to list sinks", "error", err)
 		return
 	}
 	sinkMap := make(map[string]storage.Sink)
@@ -273,11 +280,11 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 			} else {
 				// If not assigned to this worker, but it's currently running here (stale state)
 				if w.registry.IsEngineRunning(wf.ID) {
-					log.Printf("Worker: detected stale workflow %s running on this worker, scheduling graceful stop...", wf.ID)
+					w.logger.Warn("Worker: detected stale workflow running on this worker, scheduling graceful stop", "workflow_id", wf.ID)
 					go func(id string) {
 						defer func() {
 							if r := recover(); r != nil {
-								log.Printf("Panic in stale workflow stopper: %v", r)
+								w.logger.Error("Panic in stale workflow stopper", "panic", r)
 							}
 						}()
 						_ = w.registry.StopEngineWithoutUpdate(id)
@@ -294,7 +301,7 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 	pkgengine.WorkerLeasesOwned.WithLabelValues(workerID).Set(float64(ownedLeases))
 
 	if initial {
-		log.Printf("Worker: found %d active workflows assigned to this worker", assignedActiveCount)
+		w.logger.Info("Worker: found active workflows assigned to this worker", "count", assignedActiveCount)
 	}
 
 	var wg sync.WaitGroup
@@ -311,7 +318,7 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 	wg.Wait()
 
 	if initial {
-		log.Printf("Worker: initial sync complete")
+		w.logger.Info("Worker: initial sync complete")
 	}
 }
 
@@ -333,11 +340,11 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 	if !assigned {
 		// If it's running but no longer assigned, stop it and release lease if owned
 		if w.registry.IsEngineRunning(wf.ID) {
-			log.Printf("Worker: workflow %s is being handed off, stopping gracefully...", wf.ID)
+			w.logger.Info("Worker: workflow is being handed off, stopping gracefully", "workflow_id", wf.ID)
 			go func(id string) {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("Panic in hand-off workflow stopper: %v", r)
+						w.logger.Error("Panic in hand-off workflow stopper", "panic", r)
 					}
 				}()
 				_ = w.registry.StopEngineWithoutUpdate(id)
@@ -359,7 +366,7 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 			// Try to acquire (may steal if expired)
 			acquired, err := w.storage.AcquireWorkflowLease(ctx, wf.ID, w.workerGUID, w.leaseTTLSeconds)
 			if err != nil {
-				log.Printf("Worker: lease acquire error for %s: %v", wf.ID, err)
+				w.logger.Error("Worker: lease acquire error", "workflow_id", wf.ID, "error", err)
 			}
 			if acquired {
 				if wf.OwnerID != "" && wf.OwnerID != w.workerGUID {
@@ -374,11 +381,11 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 		if !owned {
 			// We don't own the workflow; ensure it's not running here
 			if isRunning {
-				log.Printf("Worker: stopping workflow %s (lease lost/expired), stopping gracefully...", wf.ID)
+				w.logger.Warn("Worker: stopping workflow (lease lost/expired)", "workflow_id", wf.ID)
 				go func(id string) {
 					defer func() {
 						if r := recover(); r != nil {
-							log.Printf("Panic in lease-lost workflow stopper: %v", r)
+							w.logger.Error("Panic in lease-lost workflow stopper", "panic", r)
 						}
 					}()
 					_ = w.registry.StopEngineWithoutUpdate(id)
@@ -390,7 +397,7 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 	}
 	if isRunning {
 		if !wf.Active {
-			log.Printf("Worker: stopping workflow %s (marked inactive in storage)", wf.ID)
+			w.logger.Info("Worker: stopping workflow (marked inactive in storage)", "workflow_id", wf.ID)
 			_ = w.registry.StopEngine(wf.ID)
 			w.stopLeaseRenewal(wf.ID)
 			if w.workerGUID != "" {
@@ -433,7 +440,7 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 				}
 
 				if configChanged {
-					log.Printf("Worker: configuration changed for workflow %s, restarting gracefully...", wf.ID)
+					w.logger.Info("Worker: configuration changed for workflow, restarting gracefully", "workflow_id", wf.ID)
 					// Mark as Restarting in storage for better UI visibility
 					_ = w.storage.UpdateWorkflowStatus(ctx, wf.ID, "Restarting")
 
@@ -452,10 +459,10 @@ func (w *Worker) syncWorkflow(ctx context.Context, wf storage.Workflow, workerID
 			// They will be woken up on-demand.
 			return
 		}
-		log.Printf("Worker: starting workflow %s...", wf.ID)
+		w.logger.Info("Worker: starting workflow", "workflow_id", wf.ID)
 		err := w.registry.StartWorkflow(wf.ID, wf)
 		if err != nil {
-			log.Printf("Worker: failed to start workflow %s: %v", wf.ID, err)
+			w.logger.Error("Worker: failed to start workflow", "workflow_id", wf.ID, "error", err)
 			pkgengine.WorkerSyncErrors.WithLabelValues(workerID).Inc()
 		} else if w.workerGUID != "" {
 			w.startLeaseRenewal(wf.ID)
@@ -485,7 +492,7 @@ func (w *Worker) startLeaseRenewal(workflowID string) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("Panic in lease renewal: %v", r)
+				w.logger.Error("Panic in lease renewal", "panic", r)
 			}
 		}()
 		ticker := time.NewTicker(interval)
@@ -501,7 +508,7 @@ func (w *Worker) startLeaseRenewal(workflowID string) {
 				ok, err := w.storage.RenewWorkflowLease(ctx, workflowID, w.workerGUID, w.leaseTTLSeconds)
 				if err != nil || !ok {
 					pkgengine.LeaseRenewErrorsTotal.WithLabelValues(w.workerGUID).Inc()
-					log.Printf("Worker: lease renew failed for %s (ok=%v err=%v), stopping engine", workflowID, ok, err)
+					w.logger.Error("Worker: lease renew failed, stopping engine", "workflow_id", workflowID, "ok", ok, "error", err)
 					_ = w.registry.StopEngineWithoutUpdate(workflowID)
 					w.stopLeaseRenewal(workflowID)
 					return
@@ -667,7 +674,7 @@ func (w *Worker) checkHealth(ctx context.Context) {
 	if w.workerGUID != "" {
 		cpuUsage, memUsage := w.getMetrics()
 		if err := w.storage.UpdateWorkerHeartbeat(ctx, w.workerGUID, cpuUsage, memUsage); err != nil {
-			log.Printf("Worker: failed to update heartbeat: %v", err)
+			w.logger.Error("Worker: failed to update heartbeat", "error", err)
 		}
 	}
 

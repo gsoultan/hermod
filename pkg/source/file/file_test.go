@@ -1,7 +1,6 @@
 package file
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,7 +26,7 @@ func TestCSVSource(t *testing.T) {
 	source := NewCSVSource(tmpfile.Name(), ',', true)
 	defer source.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Read first record
 	msg1, err := source.Read(ctx)
@@ -86,7 +85,7 @@ func TestCSVSourceNoHeader(t *testing.T) {
 	source := NewCSVSource(tmpfile.Name(), ',', false)
 	defer source.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	msg1, err := source.Read(ctx)
 	if err != nil {
@@ -112,7 +111,7 @@ func TestCSVSourceSample(t *testing.T) {
 	source := NewCSVSource(tmpfile.Name(), ',', true)
 	defer source.Close()
 
-	msg, err := source.Sample(context.Background(), "test")
+	msg, err := source.Sample(t.Context(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +142,7 @@ func TestHTTPCSVSource(t *testing.T) {
 	source := NewHTTPCSVSource(ts.URL+"/data.csv", ',', true, headers)
 	defer source.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	msg, err := source.Read(ctx)
 	if err != nil {
 		t.Fatalf("Failed to read from http: %v", err)

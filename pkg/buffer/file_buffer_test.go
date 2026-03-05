@@ -25,7 +25,7 @@ func TestFileBuffer(t *testing.T) {
 	}
 	defer fb.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	// Produce some messages
@@ -82,7 +82,7 @@ func TestFileBuffer_Persistence(t *testing.T) {
 
 		msg := message.AcquireMessage()
 		msg.SetID("persisted-msg")
-		if err := fb.Produce(context.Background(), msg); err != nil {
+		if err := fb.Produce(t.Context(), msg); err != nil {
 			t.Fatalf("failed to produce message: %v", err)
 		}
 		fb.Close()
@@ -97,7 +97,7 @@ func TestFileBuffer_Persistence(t *testing.T) {
 		defer fb.Close()
 
 		consumed := false
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 		defer cancel()
 
 		err = fb.Consume(ctx, func(ctx context.Context, msg hermod.Message) error {

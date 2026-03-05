@@ -390,6 +390,31 @@ Examples include:
 
 Browse the available templates in the `examples/templates/` directory or directly via the **Import Template** button in the Workflow Dashboard.
 
+## Real-time Data Streams (SSE)
+
+Hermod includes a built-in **SSE (Server-Sent Events) Sink** that allows you to stream data directly to web applications or any SSE-compatible client. This is ideal for real-time dashboards, live notifications, or reactive data orchestration without the complexity of a full message broker.
+
+### Security Features
+- **Authentication**: Secure your streams with an Auth Token. Clients must provide the token via the `Authorization: Bearer <token>` header or the `token` query parameter.
+- **Origin Verification**: Restrict access to specific web origins (CORS) to prevent unauthorized websites from subscribing to your data streams.
+- **Interactive Integration Guide**: The Hermod UI provides a real-time, tailored JavaScript snippet for each SSE Sink, including security parameters, to simplify client-side integration.
+
+### Consuming the Stream
+
+Clients can subscribe to a specific stream using the following endpoint:
+`GET /streams/sse?stream={stream_name}&token={optional_token}`
+
+The endpoint is separated from the management API to ensure data isolation and high throughput.
+
+### Sample Client
+
+A complete HTML/JavaScript sample demonstrating how to consume an SSE stream is available in the `examples/sse-sink/` directory.
+
+To use it:
+1.  Configure an **SSE Sink** in your workflow with a custom stream name and optional security settings.
+2.  Open `examples/sse-sink/index.html` in your browser.
+3.  Enter the stream name and connect to see live data.
+
 ## Observability
 
 Hermod provides built-in Prometheus metrics to monitor your data pipelines. Metrics are exposed via the `/metrics` endpoint on the API server.

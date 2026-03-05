@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -739,7 +738,7 @@ func (s *Server) rebuildWorkflow(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 		defer cancel()
 		if err := s.registry.RebuildWorkflow(ctx, id, req.FromOffset); err != nil {
-			log.Printf("RebuildWorkflow %s failed: %v", id, err)
+			s.registry.GetLogger().Error("RebuildWorkflow failed", "workflow_id", id, "error", err)
 		}
 	}()
 

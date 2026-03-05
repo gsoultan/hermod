@@ -1,7 +1,6 @@
 package http
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -38,7 +37,7 @@ func TestHttpSink_Write(t *testing.T) {
 	defer server.Close()
 
 	sink := NewHttpSink(server.URL, &mockFormatter{}, map[string]string{"X-Test": "Value"})
-	err := sink.Write(context.Background(), &mockMessage{id: "123"})
+	err := sink.Write(t.Context(), &mockMessage{id: "123"})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -55,7 +54,7 @@ func TestHttpSink_Ping(t *testing.T) {
 		defer server.Close()
 
 		sink := NewHttpSink(server.URL, &mockFormatter{}, nil)
-		err := sink.Ping(context.Background())
+		err := sink.Ping(t.Context())
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -72,7 +71,7 @@ func TestHttpSink_Ping(t *testing.T) {
 
 		sink := NewHttpSink(server.URL, &mockFormatter{}, nil)
 		sink.SetPingMethod("GET")
-		err := sink.Ping(context.Background())
+		err := sink.Ping(t.Context())
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}

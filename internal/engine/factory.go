@@ -920,7 +920,18 @@ func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 		return stdout.NewStdoutSink(fmttr), nil
 	case "sse":
 		stream := cfg.Config["stream"]
-		return sse.NewSSESink(stream, fmttr), nil
+		s := sse.NewSSESink(stream, fmttr)
+		if token := cfg.Config["auth_token"]; token != "" {
+			var origins []string
+			if o := cfg.Config["allowed_origins"]; o != "" {
+				origins = strings.Split(o, ",")
+				for i := range origins {
+					origins[i] = strings.TrimSpace(origins[i])
+				}
+			}
+			s.WithSecurity(token, origins)
+		}
+		return s, nil
 	case "smtp":
 		port, _ := strconv.Atoi(cfg.Config["port"])
 		ssl := cfg.Config["ssl"] == "true"
