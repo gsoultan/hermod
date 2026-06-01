@@ -1,7 +1,8 @@
 import { IconEdit, IconSearch, IconShieldLock, IconShieldOff, IconTrash, IconUserPlus, IconUsers } from '@tabler/icons-react';
 import { useState } from 'react'
 import { Title, Table, Button, Group, ActionIcon, Box, Paper, Text, Stack, TextInput, Pagination, Badge } from '@mantine/core'
-import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'import { apiFetch } from '@/api'
+import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '@/api'
 import { useNavigate } from '@tanstack/react-router'
 import type { User } from '@/types'
 
@@ -78,7 +79,7 @@ export function UsersPage() {
         `}
       </style>
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Stack gap="md">
             <Group gap="sm">
               <IconUsers size="2rem" color="var(--mantine-color-blue-filled)" />
@@ -108,7 +109,7 @@ export function UsersPage() {
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
           <Table verticalSpacing="md" horizontalSpacing="xl">
-            <Table.Thead bg="gray.0">
+            <Table.Thead bg="var(--mantine-color-dark-6)">
               <Table.Tr>
                 <Table.Th>Username</Table.Th>
                 <Table.Th>Full Name</Table.Th>
@@ -131,7 +132,7 @@ export function UsersPage() {
             </Table.Tbody>
           </Table>
           {totalPages > 1 && (
-            <Group justify="center" p="md" bg="gray.0" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
+            <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
               <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
             </Group>
           )}

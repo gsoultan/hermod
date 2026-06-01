@@ -2,7 +2,8 @@ import { IconActivity, IconArrowsLeftRight, IconCloudUpload, IconDatabase, IconL
 import { useState } from 'react'
 import { Text, TextInput, Button, Paper, Stack, Container, PasswordInput, Group, Anchor, Divider, Box, Center, useMantineColorScheme, SimpleGrid, Title, ThemeIcon, rem, Badge } from '@mantine/core'
 import { useMutation } from '@tanstack/react-query'
-import { useNavigate, useSearch, Link } from '@tanstack/react-router'import { apiFetch } from '@/api'
+import { useNavigate, useSearch, Link } from '@tanstack/react-router'
+import { apiFetch } from '@/api'
 import { setToken } from '../../auth/storage'
 
 export function LoginPage() {
@@ -163,7 +164,7 @@ export function LoginPage() {
                     left: -20, 
                     right: -20, 
                     bottom: -20, 
-                    background: 'white', 
+                    background: 'var(--mantine-color-white)', 
                     borderRadius: '50%', 
                     opacity: 0.1,
                     animation: 'pulse-glow 3s infinite'
@@ -218,7 +219,7 @@ export function LoginPage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: dark ? 'var(--mantine-color-dark-9)' : 'var(--mantine-color-gray-0)',
+            background: dark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-gray-0)',
           }}
         >
           <Container size="xs" w="100%" px="xl">

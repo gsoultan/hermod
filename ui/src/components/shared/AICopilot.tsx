@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { Stack, Text, Textarea, Button, Group, Code, ActionIcon, Tooltip, Paper, Badge, ThemeIcon, ScrollArea } from '@mantine/core';import { apiFetch } from '@/api';import { IconCheck, IconCopy, IconRobot, IconSparkles, IconTrash } from '@tabler/icons-react';
+import { Stack, Text, Textarea, Button, Group, Code, ActionIcon, Tooltip, Paper, Badge, ThemeIcon, ScrollArea } from '@mantine/core';
+import { apiFetch } from '@/api';
+import { IconCheck, IconCopy, IconRobot, IconSparkles, IconTrash } from '@tabler/icons-react';
 export function AICopilot() {
   const [prompt, setPrompt] = useState('');
   const [result, setResult] = useState<any>(null);
@@ -65,7 +67,7 @@ export function AICopilot() {
       </Button>
 
       {result && (
-        <Paper withBorder p="xs" radius="md" bg="gray.0" pos="relative">
+        <Paper withBorder p="xs" radius="md" bg="var(--mantine-color-body)" pos="relative">
           <Group justify="space-between" mb="xs">
             <Badge size="xs" color="violet">{result.language || 'Lua'}</Badge>
             <Group gap={4}>

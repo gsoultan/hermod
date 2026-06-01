@@ -3,13 +3,15 @@ import {
   Container, Title, Button, Group, Table, ActionIcon, Text, Badge, Paper, 
   Stack, TextInput, Pagination, Tooltip, Modal, JsonInput, Select, Menu, Checkbox
 } from '@mantine/core';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';import { lazy, Suspense } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { lazy, Suspense } from 'react'
 import { Link } from '@tanstack/react-router';
 import type { Workflow, Worker, Workspace } from '@/types';
 import { apiFetch } from '@/api';
 import { notifications } from '@mantine/notifications';
 import { useDisclosure } from '@mantine/hooks';
-import { useVHost } from '@/context/VHostContext';import { IconActivity, IconChevronDown, IconCopy, IconDownload, IconEdit, IconFolder, IconGitBranch, IconHierarchy, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
+import { useVHost } from '@/context/VHostContext';
+import { IconActivity, IconChevronDown, IconCopy, IconDownload, IconEdit, IconFolder, IconGitBranch, IconHierarchy, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
 const API_BASE = '/api';
 
 const TemplatesModal = lazy(() => import('./WorkflowsPage_TemplatesModal'))
@@ -253,7 +255,7 @@ export default function WorkflowsPage() {
           </Stack>
         </Modal>
 
-        <Paper p="md" withBorder radius="md">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Stack gap="md">
           <Group grow>
             <TextInput 
@@ -278,7 +280,7 @@ export default function WorkflowsPage() {
           </Group>
 
             <Table verticalSpacing="sm">
-              <Table.Thead>
+              <Table.Thead bg="var(--mantine-color-dark-6)">
                 <Table.Tr>
                   <Table.Th style={{ width: 40 }}>
                     <Checkbox 
@@ -410,7 +412,7 @@ export default function WorkflowsPage() {
               </Table.Tbody>
             </Table>
             {totalPages > 1 && (
-              <Group justify="center" p="md" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
+              <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
                 <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
               </Group>
             )}

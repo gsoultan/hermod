@@ -43,7 +43,7 @@ export function ErrorPage({ error, reset }: ErrorPageProps) {
           </Text>
         </Stack>
 
-        <Paper withBorder radius="lg" p={0} style={{ width: '100%', overflow: 'hidden', backgroundColor: 'var(--mantine-color-gray-0)' }}>
+        <Paper withBorder radius="lg" p={0} style={{ width: '100%', overflow: 'hidden', backgroundColor: 'var(--mantine-color-body)' }}>
           <Accordion variant="separated" styles={{ 
             item: { border: 'none', backgroundColor: 'transparent' },
             control: { padding: '16px 20px' },

@@ -40,7 +40,7 @@ export function FilterEditor({ conditions = [], availableFields = [], onChange }
           grow
           gap="xs"
           align="flex-end"
-          style={{ background: 'var(--mantine-color-gray-0)', padding: 8, borderRadius: 8 }}
+          style={{ background: 'var(--mantine-color-body)', padding: 8, borderRadius: 8 }}
         >
           <Stack gap={2}>
             <Text size="10px" c="dimmed">

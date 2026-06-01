@@ -140,7 +140,7 @@ export function WorkersPage() {
         `}
       </style>
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Stack gap="md">
             <Group gap="sm">
               <IconServer size="2rem" color="var(--mantine-color-blue-filled)" />
@@ -169,7 +169,7 @@ export function WorkersPage() {
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
           <Table verticalSpacing="md" horizontalSpacing="xl">
-            <Table.Thead bg="gray.0">
+            <Table.Thead bg="var(--mantine-color-dark-6)">
               <Table.Tr>
                 <Table.Th>Name / ID</Table.Th>
                 <Table.Th>Status</Table.Th>
@@ -192,7 +192,7 @@ export function WorkersPage() {
             </Table.Tbody>
           </Table>
           {totalPages > 1 && (
-            <Group justify="center" p="md" bg="gray.0" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
+            <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
               <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
             </Group>
           )}

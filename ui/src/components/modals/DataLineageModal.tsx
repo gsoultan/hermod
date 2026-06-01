@@ -1,8 +1,10 @@
-import { Modal, Box, Text, Group, ThemeIcon, Loader, Alert } from '@mantine/core';import { useQuery } from '@tanstack/react-query';
+import { Modal, Box, Text, Group, ThemeIcon, Loader, Alert } from '@mantine/core';
+import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
 import { ReactFlow, Background, Controls, MiniMap, type Node, type Edge, MarkerType } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useMemo } from 'react';import { IconAlertCircle, IconBroadcast, IconDatabase, IconGitBranch, IconPlug } from '@tabler/icons-react';
+import { useMemo } from 'react';
+import { IconAlertCircle, IconBroadcast, IconDatabase, IconGitBranch, IconPlug } from '@tabler/icons-react';
 interface LineageEdge {
   source_id: string;
   source_name: string;
@@ -165,7 +167,7 @@ export function DataLineageModal({ opened, onClose }: { opened: boolean; onClose
             nodes={nodes}
             edges={edges}
             fitView
-            style={{ background: 'var(--mantine-color-gray-0)' }}
+            style={{ background: 'var(--mantine-color-body)' }}
           >
             <Background color="#aaa" gap={20} />
             <Controls />

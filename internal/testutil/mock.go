@@ -117,10 +117,12 @@ func (m *BaseMockStorage) GetWorker(ctx context.Context, id string) (storage.Wor
 func (m *BaseMockStorage) ListLogs(ctx context.Context, filter storage.LogFilter) ([]storage.Log, int, error) {
 	return nil, 0, nil
 }
-func (m *BaseMockStorage) CreateLog(ctx context.Context, log storage.Log) error { return nil }
+func (m *BaseMockStorage) CreateLog(ctx context.Context, log storage.Log) error     { return nil }
+func (m *BaseMockStorage) CreateLogs(ctx context.Context, logs []storage.Log) error { return nil }
 func (m *BaseMockStorage) DeleteLogs(ctx context.Context, filter storage.LogFilter) error {
 	return nil
 }
+func (m *BaseMockStorage) PurgeLogs(ctx context.Context, before time.Time) error { return nil }
 
 func (m *BaseMockStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilter) ([]storage.AuditLog, int, error) {
 	return nil, 0, nil

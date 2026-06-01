@@ -1,10 +1,11 @@
 import { Title, Paper, Stack, Group, Box, Text } from '@mantine/core';
-import { UserForm } from '@/components/forms/UserForm';import { IconUserPlus } from '@tabler/icons-react';
+import { UserForm } from '@/components/forms/UserForm';
+import { IconUserPlus } from '@tabler/icons-react';
 export function AddUserPage() {
   return (
     <Box p="md">
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Group gap="sm">
             <IconUserPlus size="2rem" color="var(--mantine-color-blue-filled)" />
             <Box>

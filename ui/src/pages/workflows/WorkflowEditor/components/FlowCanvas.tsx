@@ -70,9 +70,11 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
 
   const { styledEdges } = useStyledFlow();
   
-  const allEdges = useMemo(() => {
-    return [...edges, ...styledEdges];
+  const allEdgesRaw = useMemo(() => {
+    return JSON.stringify([...edges, ...styledEdges]);
   }, [edges, styledEdges]);
+
+  const allEdges = useMemo(() => JSON.parse(allEdgesRaw), [allEdgesRaw]);
 
   const onConnect = useCallback((params: Connection) => {
     const label = params.sourceHandle?.split(':::')[0] || params.sourceHandle || '';
@@ -105,7 +107,7 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
       snapGrid={[15, 15]}
       fitViewOptions={{ padding: 0.2 }}
     >
-      <Background color={isDark ? '#333' : '#aaa'} gap={20} />
+      <Background color={isDark ? 'var(--mantine-color-dark-4)' : '#aaa'} gap={20} />
       <Controls />
       <MiniMap 
         nodeColor={(n) => {
@@ -114,7 +116,7 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
           return 'var(--mantine-color-violet-6)';
         }}
         style={{
-          backgroundColor: isDark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-white)',
+          backgroundColor: isDark ? 'var(--mantine-color-dark-6)' : 'var(--mantine-color-white)',
         }}
       />
     </ReactFlow>

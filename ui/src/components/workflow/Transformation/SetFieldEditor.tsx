@@ -74,7 +74,7 @@ export function SetFieldEditor({ selectedNode, updateNodeConfig, availableFields
       )}
 
       {fields.map((field, index) => (
-        <Group key={index} grow gap="xs" style={{ background: 'var(--mantine-color-gray-0)', padding: 8, borderRadius: 8 }}>
+        <Group key={index} grow gap="xs" style={{ background: 'var(--mantine-color-body)', padding: 8, borderRadius: 8 }}>
           <Autocomplete
             placeholder="Target Path"
             data={availableFields}

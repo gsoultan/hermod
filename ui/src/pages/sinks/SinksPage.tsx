@@ -137,7 +137,7 @@ export function SinksPage() {
         `}
       </style>
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Stack gap="md">
             <Group gap="sm">
               <IconExternalLink size="2rem" color="var(--mantine-color-blue-filled)" />
@@ -171,7 +171,7 @@ export function SinksPage() {
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
           <Table verticalSpacing="md" horizontalSpacing="xl">
-          <Table.Thead bg="gray.0">
+          <Table.Thead bg="var(--mantine-color-dark-6)">
             <Table.Tr>
               <Table.Th>Name</Table.Th>
               <Table.Th>Type</Table.Th>
@@ -186,7 +186,7 @@ export function SinksPage() {
               <Table.Tr key={snk.id}>
                 <Table.Td fw={500}>{snk.name}</Table.Td>
                 <Table.Td>
-                  <Text size="sm" component="span" px={8} py={2} bg="teal.0" c="teal.9" fw={600} style={{ borderRadius: '4px', textTransform: 'uppercase', fontSize: '10px' }}>
+                  <Text size="sm" component="span" px={8} py={2} bg="teal.9" c="white" fw={600} style={{ borderRadius: '4px', textTransform: 'uppercase', fontSize: '10px' }}>
                     {snk.type}
                   </Text>
                 </Table.Td>
@@ -242,7 +242,7 @@ export function SinksPage() {
                 </Table.Td>
                 <Table.Td>
                   {snk.worker_id ? (
-                    <Text size="sm" component="span" px={8} py={2} bg="gray.1" c="gray.7" fw={600} style={{ borderRadius: '4px', fontSize: '10px' }}>
+                    <Text size="sm" component="span" px={8} py={2} bg="var(--mantine-color-dark-4)" c="var(--mantine-color-dark-0)" fw={600} style={{ borderRadius: '4px', fontSize: '10px' }}>
                       {getWorkerName(snk.worker_id)}
                     </Text>
                   ) : '-'}
@@ -274,7 +274,7 @@ export function SinksPage() {
           </Table.Tbody>
         </Table>
         {totalPages > 1 && (
-          <Group justify="center" p="md" bg="gray.0" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
+          <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
             <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
           </Group>
         )}
@@ -295,7 +295,7 @@ export function SinksPage() {
           </Text>
           
           {activeWorkflowsUsingSink.length > 0 && (
-            <Paper withBorder p="sm" bg="red.0" style={{ borderColor: 'var(--mantine-color-red-2)' }}>
+            <Paper withBorder p="sm" bg="var(--mantine-color-red-light)" style={{ borderColor: 'var(--mantine-color-red-2)' }}>
               <Group gap="xs" mb="xs">
                 <IconAlertCircle size="1.2rem" color="var(--mantine-color-red-6)" />
                 <Text size="sm" fw={600} c="red.9">Warning: Related active workflows</Text>

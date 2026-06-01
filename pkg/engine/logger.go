@@ -4,21 +4,38 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/rs/zerolog"
 )
 
 // DefaultLogger is a simple logger that uses zerolog for zero-allocation structured logging.
 type DefaultLogger struct {
-	logger zerolog.Logger
-	// optional sampler to reduce log spam (e.g., Warn/Error)
+	logger  zerolog.Logger
 	sampler zerolog.Sampler
 	sampled zerolog.Logger
 }
 
 // NewDefaultLogger creates a DefaultLogger with stderr output and timestamps.
 func NewDefaultLogger() *DefaultLogger {
-	l := zerolog.New(os.Stderr).With().Timestamp().Logger()
+	output := os.Stderr
+	level := zerolog.InfoLevel
+
+	if v := os.Getenv("HERMOD_LOG_LEVEL"); v != "" {
+		switch strings.ToLower(v) {
+		case "debug":
+			level = zerolog.DebugLevel
+		case "info":
+			level = zerolog.InfoLevel
+		case "warn":
+			level = zerolog.WarnLevel
+		case "error":
+			level = zerolog.ErrorLevel
+		}
+	}
+
+	l := zerolog.New(output).Level(level).With().Timestamp().Logger()
+
 	var samp zerolog.Sampler
 	if v := os.Getenv("HERMOD_LOG_SAMPLE_N"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 1 {
@@ -33,8 +50,16 @@ func NewDefaultLogger() *DefaultLogger {
 }
 
 func (l *DefaultLogger) log(event *zerolog.Event, msg string, keysAndValues ...any) {
+	if event == nil || !event.Enabled() {
+		return
+	}
+
 	for i := 0; i < len(keysAndValues); i += 2 {
-		key := fmt.Sprintf("%v", keysAndValues[i])
+		key, ok := keysAndValues[i].(string)
+		if !ok {
+			key = fmt.Sprintf("%v", keysAndValues[i])
+		}
+
 		if i+1 < len(keysAndValues) {
 			event.Interface(key, keysAndValues[i+1])
 		} else {

@@ -320,7 +320,7 @@ export function DashboardPage() {
             <ScrollArea h={300} offsetScrollbars>
                 <Stack gap={8}>
                     {recentLogs.map(log => (
-                        <Paper key={log.id} withBorder p="xs" radius="sm" bg={log.level === 'ERROR' ? 'red.0' : undefined}>
+                        <Paper key={log.id} withBorder p="xs" radius="sm" bg={log.level === 'ERROR' ? 'var(--mantine-color-red-light)' : undefined}>
                           <Group wrap="nowrap" gap="xs">
                               <ThemeIcon size="sm" variant="light" color={log.level === 'ERROR' ? 'red' : log.level === 'WARN' ? 'yellow' : 'blue'}>
                                   {log.level === 'ERROR' ? <IconAlertCircle size={14} /> : <IconActivity size={14} />}

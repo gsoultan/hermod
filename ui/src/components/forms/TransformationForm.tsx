@@ -410,7 +410,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
           <Text size="xs" c="dimmed" ta="center">No cases defined. Messages will follow "default" branch.</Text>
         )}
         {cases.map((c, index) => (
-          <Card key={index} withBorder p="xs" bg="gray.0" radius="md">
+          <Card key={index} withBorder p="xs" bg="var(--mantine-color-body)" radius="md">
             <Stack gap="xs">
               <Group grow gap="xs" align="flex-end">
                 <TextInput
@@ -1081,7 +1081,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
           {transType === 'advanced' && <FunctionLibrary />}
 
-          <Card withBorder padding="xs" radius="md" bg="gray.0">
+          <Card withBorder padding="xs" radius="md" bg="var(--mantine-color-body)">
              <Group gap="xs" mb={4}>
                 <IconCode size="1rem" color="dimmed" />
                 <Text size="10px" fw={700} c="dimmed">RAW PAYLOAD</Text>

@@ -1,10 +1,11 @@
 import { Title, Paper, Stack, Group, Box, Text } from '@mantine/core';
-import { SinkForm } from '@/components/forms/SinkForm';import { IconExternalLink } from '@tabler/icons-react';
+import { SinkForm } from '@/components/forms/SinkForm';
+import { IconExternalLink } from '@tabler/icons-react';
 export function AddSinkPage() {
   return (
     <Box p="md">
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Group gap="sm">
             <IconExternalLink size="2rem" color="var(--mantine-color-blue-filled)" />
             <Box>

@@ -279,7 +279,7 @@ export function SidebarDrawer({
                   )}
 
                   {nodeCategories.map((cat) => (
-                    <Paper key={cat.title} withBorder p="xs" radius="md" bg={isDark ? 'dark.7' : 'gray.0'}>
+                    <Paper key={cat.title} withBorder p="xs" radius="md" bg="var(--mantine-color-body)">
                       <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>{cat.title}</Text>
                       <Stack gap={2}>
                         {cat.items.map(renderDraggableItem)}

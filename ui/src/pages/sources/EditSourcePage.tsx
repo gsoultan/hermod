@@ -1,7 +1,9 @@
-import { Title, Paper, Stack, Group, Box, Text, Center, Loader } from '@mantine/core';import { SourceForm } from '@/components/forms/SourceForm';
+import { Title, Paper, Stack, Group, Box, Text, Center, Loader } from '@mantine/core';
+import { SourceForm } from '@/components/forms/SourceForm';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
-import { useParams } from '@tanstack/react-router';import { IconDatabaseImport } from '@tabler/icons-react';
+import { useParams } from '@tanstack/react-router';
+import { IconDatabaseImport } from '@tabler/icons-react';
 export function EditSourcePage() {
   const { sourceId } = useParams({ from: '/sources/$sourceId/edit' });
 
@@ -25,7 +27,7 @@ export function EditSourcePage() {
   return (
     <Box p="md">
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Group gap="sm">
             <IconDatabaseImport size="2rem" color="var(--mantine-color-blue-filled)" />
             <Box>

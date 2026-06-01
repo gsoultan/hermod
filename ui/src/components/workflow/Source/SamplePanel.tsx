@@ -21,7 +21,7 @@ export const SamplePanel: FC<SamplePanelProps> = ({
   source
 }) => {
   return (
-    <Card withBorder shadow="sm" radius="md" p="md" h="100%" bg="var(--mantine-color-gray-0)">
+    <Card withBorder shadow="sm" radius="md" p="md" h="100%" bg="var(--mantine-color-body)">
       <Stack h="100%">
         <Group justify="space-between" px="xs">
           <Group gap="xs">
@@ -86,7 +86,7 @@ export const SamplePanel: FC<SamplePanelProps> = ({
               styles={{ 
                 root: { flex: 1, display: 'flex', flexDirection: 'column' },
                 wrapper: { flex: 1, display: 'flex', flexDirection: 'column' },
-                input: { flex: 1, fontFamily: 'monospace', fontSize: '11px', backgroundColor: 'var(--mantine-color-gray-0)' } 
+                input: { flex: 1, fontFamily: 'monospace', fontSize: '11px', backgroundColor: 'var(--mantine-color-body)' } 
               }}
             />
           </Stack>

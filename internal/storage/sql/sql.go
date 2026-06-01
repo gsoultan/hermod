@@ -1653,6 +1653,51 @@ func (s *sqlStorage) CreateLog(ctx context.Context, l storage.Log) error {
 	return s.execWithRetry(ctx, exec)
 }
 
+func (s *sqlStorage) CreateLogs(ctx context.Context, logs []storage.Log) error {
+	if len(logs) == 0 {
+		return nil
+	}
+
+	exec := func() error {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+
+		stmt, err := tx.PrepareContext(ctx, s.queries.get(QueryCreateLog))
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+
+		for _, l := range logs {
+			if l.ID == "" {
+				l.ID = uuid.New().String()
+			}
+			if l.Timestamp.IsZero() {
+				l.Timestamp = time.Now()
+			}
+
+			_, err = stmt.ExecContext(ctx,
+				l.ID, l.Timestamp, l.Level, l.Message,
+				sql.NullString{String: l.Action, Valid: l.Action != ""},
+				sql.NullString{String: l.SourceID, Valid: l.SourceID != ""},
+				sql.NullString{String: l.SinkID, Valid: l.SinkID != ""},
+				sql.NullString{String: l.WorkflowID, Valid: l.WorkflowID != ""},
+				sql.NullString{String: l.UserID, Valid: l.UserID != ""},
+				sql.NullString{String: l.Username, Valid: l.Username != ""},
+				sql.NullString{String: l.Data, Valid: l.Data != ""},
+			)
+			if err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
 func (s *sqlStorage) DeleteLogs(ctx context.Context, filter storage.LogFilter) error {
 	query := s.queries.get(QueryDeleteLogs) + " WHERE 1=1"
 	var args []any
@@ -1691,6 +1736,15 @@ func (s *sqlStorage) DeleteLogs(ctx context.Context, filter storage.LogFilter) e
 
 	exec := func() error {
 		_, e := s.exec(ctx, query, args...)
+		return e
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) PurgeLogs(ctx context.Context, before time.Time) error {
+	query := s.queries.get(QueryDeleteLogs) + " WHERE timestamp < ?"
+	exec := func() error {
+		_, e := s.exec(ctx, query, before)
 		return e
 	}
 	return s.execWithRetry(ctx, exec)

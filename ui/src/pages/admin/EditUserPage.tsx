@@ -1,9 +1,11 @@
 import { Title, Paper, Stack, Group, Box, Text, Center, Loader, Button, Modal, PasswordInput } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { useState } from 'react';import { UserForm } from '@/components/forms/UserForm';
+import { useState } from 'react';
+import { UserForm } from '@/components/forms/UserForm';
 import { useSuspenseQuery, useMutation } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
-import { useParams } from '@tanstack/react-router';import { IconLock, IconUsers } from '@tabler/icons-react';
+import { useParams } from '@tanstack/react-router';
+import { IconLock, IconUsers } from '@tabler/icons-react';
 export function EditUserPage() {
   const { userId } = useParams({ from: '/users/$userId/edit' });
   const [opened, { open, close }] = useDisclosure(false);
@@ -48,7 +50,7 @@ export function EditUserPage() {
   return (
     <Box p="md">
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Group justify="space-between">
             <Group gap="sm">
               <IconUsers size="2rem" color="var(--mantine-color-blue-filled)" />

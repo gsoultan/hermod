@@ -76,7 +76,7 @@ export function OtherSourceConfig({ config, updateConfig, sourceType, allSources
               Configure Form Fields
             </Button>
             {formFields.length > 0 && (
-              <Paper withBorder p="xs" radius="sm" bg="gray.0">
+              <Paper withBorder p="xs" radius="sm" bg="var(--mantine-color-body)">
                 <Text size="xs" fw={700} c="dimmed" mb={4}>FIELDS SUMMARY:</Text>
                 <Box style={{ maxHeight: '100px', overflowY: 'auto' }}>
                   <List size="xs" spacing={2}>

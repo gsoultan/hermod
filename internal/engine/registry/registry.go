@@ -66,12 +66,15 @@ type RegistryStorage interface {
 	UpdateSourceStatus(ctx context.Context, id string, status string) error
 	UpdateSinkStatus(ctx context.Context, id string, status string) error
 	CreateLog(ctx context.Context, log storage.Log) error
+	CreateLogs(ctx context.Context, logs []storage.Log) error
+	DeleteLogs(ctx context.Context, filter storage.LogFilter) error
 	UpdateSource(ctx context.Context, src storage.Source) error
 	UpdateSourceState(ctx context.Context, id string, state map[string]string) error
 	UpdateSink(ctx context.Context, snk storage.Sink) error
 	UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error
 	GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error)
 	RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error
+	PurgeLogs(ctx context.Context, before time.Time) error
 	PurgeAuditLogs(ctx context.Context, before time.Time) error
 	PurgeMessageTraces(ctx context.Context, before time.Time) error
 
@@ -277,6 +280,29 @@ func (r *Registry) purgeRetention() {
 				}
 			}
 		}
+
+		// Purge Workflow Logs
+		retentionDays := 30 // Default 30 days
+		if wf.RetentionDays != nil {
+			retentionDays = *wf.RetentionDays
+		}
+		if retentionDays > 0 {
+			before := time.Now().AddDate(0, 0, -retentionDays)
+			if r.logStorage != nil {
+				_ = r.logStorage.DeleteLogs(ctx, storage.LogFilter{
+					CommonFilter: storage.CommonFilter{Until: before},
+					WorkflowID:   wf.ID,
+				})
+			}
+		}
+	}
+
+	// Global purge for logs without workflow (system logs)
+	if r.logStorage != nil {
+		_ = r.logStorage.DeleteLogs(ctx, storage.LogFilter{
+			CommonFilter:    storage.CommonFilter{Until: time.Now().AddDate(0, 0, -30)},
+			WithoutWorkflow: true,
+		})
 	}
 }
 
@@ -332,12 +358,13 @@ func (r *Registry) checkIdleWorkflows() {
 				_ = r.stopEngine(wfID, false)
 
 				// 2. Update status to "Parked" in storage
-				if r.storage != nil {
+				s := r.GetStorage()
+				if s != nil {
 					ctx := context.Background()
-					if workflow, err := r.storage.GetWorkflow(ctx, wfID); err == nil {
+					if workflow, err := s.GetWorkflow(ctx, wfID); err == nil {
 						// Keep Active=true so it stays assigned, but Status=Parked to prevent auto-restart
 						workflow.Status = "Parked"
-						_ = r.storage.UpdateWorkflow(ctx, workflow)
+						_ = s.UpdateWorkflow(ctx, workflow)
 					}
 				}
 			}(id)
@@ -357,10 +384,51 @@ func (r *Registry) GetMeshManager() *mesh.Manager {
 	return r.meshManager
 }
 
+func (r *Registry) GetStorage() storage.Storage {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s, ok := r.storage.(storage.Storage); ok {
+		return s
+	}
+	return nil
+}
+
+func (r *Registry) GetLogStorage() storage.Storage {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s, ok := r.logStorage.(storage.Storage); ok {
+		return s
+	}
+	return nil
+}
+
 func (r *Registry) SetLogger(logger hermod.Logger) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.logger = logger
+}
+
+func (r *Registry) SetStorage(s storage.Storage) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.storage = s
+	if r.notificationService != nil {
+		r.notificationService.SetStorage(s)
+	}
+	if r.schemaRegistry != nil {
+		if sr, ok := r.schemaRegistry.(*schema.StorageRegistry); ok {
+			sr.SetStorage(s)
+		}
+	}
+}
+
+func (r *Registry) SetLogStorage(s storage.Storage) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.logStorage = s
+	if dl, ok := r.logger.(*DatabaseLogger); ok {
+		dl.UpdateStorage(s)
+	}
 }
 
 func (r *Registry) SetSecretManager(mgr secrets.Manager) {

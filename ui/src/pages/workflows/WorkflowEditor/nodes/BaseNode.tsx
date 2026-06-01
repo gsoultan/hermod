@@ -18,7 +18,7 @@ export const PlusHandle = ({ type, position, id, color, nodeId, style }: any) =>
       style={{ 
         width: 20, 
         height: 20, 
-        background: 'white',
+        background: 'var(--mantine-color-body)',
         [position === Position.Right ? 'right' : position === Position.Left ? 'left' : position === Position.Bottom ? 'bottom' : 'top']: -10,
         display: 'flex',
         alignItems: 'center',
@@ -50,7 +50,7 @@ export const TargetHandle = ({ position, color, style }: any) => {
       style={{ 
         width: 12, 
         height: 12, 
-        background: 'white',
+        background: 'var(--mantine-color-body)',
         [position === Position.Left ? 'left' : position === Position.Right ? 'right' : position === Position.Top ? 'top' : 'bottom']: -6,
         border: `2px solid var(--mantine-color-${color}-6)`,
         boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
@@ -112,7 +112,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: isDark ? 'var(--mantine-color-dark-6)' : 'white',
+        background: isDark ? 'var(--mantine-color-dark-5)' : 'white',
         border: `${borderWidth} ${borderStyle} var(--mantine-color-${cbOpen ? 'red' : (selected ? 'blue' : healthColor)}-6)`,
         borderRadius: '8px',
         padding: '12px',

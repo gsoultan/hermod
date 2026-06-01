@@ -69,7 +69,7 @@ export function WorkerForm({ initialData, isEditing = false }: WorkerFormProps) 
           The worker has been registered. Use the command below to install and run the worker on your server.
         </Alert>
 
-        <Paper withBorder p="md" radius="md" bg="gray.0">
+        <Paper withBorder p="md" radius="md" bg="var(--mantine-color-body)">
           <Stack gap="xs">
             <Group gap="xs">
               <IconTerminal size="1rem" />
@@ -123,7 +123,7 @@ export function WorkerForm({ initialData, isEditing = false }: WorkerFormProps) 
       />
 
       {worker.id && (
-        <Paper withBorder p="sm" radius="md" bg="gray.0">
+        <Paper withBorder p="sm" radius="md" bg="var(--mantine-color-body)">
           <Stack gap="xs">
             <Group gap="xs">
               <IconTerminal size="1rem" />

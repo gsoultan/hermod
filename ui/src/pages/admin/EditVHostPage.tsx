@@ -1,7 +1,9 @@
-import { Title, Paper, Stack, Group, Box, Text, Center, Loader } from '@mantine/core';import { VHostForm } from '@/components/forms/VHostForm';
+import { Title, Paper, Stack, Group, Box, Text, Center, Loader } from '@mantine/core';
+import { VHostForm } from '@/components/forms/VHostForm';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
-import { useParams } from '@tanstack/react-router';import { IconServer } from '@tabler/icons-react';
+import { useParams } from '@tanstack/react-router';
+import { IconServer } from '@tabler/icons-react';
 export function EditVHostPage() {
   const { vhostId } = useParams({ from: '/vhosts/$vhostId/edit' });
 
@@ -25,7 +27,7 @@ export function EditVHostPage() {
   return (
     <Box p="md">
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Group gap="sm">
             <IconServer size="2rem" color="var(--mantine-color-blue-filled)" />
             <Box>

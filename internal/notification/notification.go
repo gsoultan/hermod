@@ -77,6 +77,7 @@ func (ns NotificationSettings) Test(ctx context.Context) []TestResult {
 type Provider interface {
 	Send(ctx context.Context, title, message string, wf storage.Workflow) error
 	Type() string
+	SetStorage(s storage.Storage)
 }
 
 type Service struct {
@@ -95,6 +96,15 @@ func NewService(s storage.Storage) *Service {
 
 func (s *Service) AddProvider(p Provider) {
 	s.providers = append(s.providers, p)
+}
+
+func (s *Service) SetStorage(s2 storage.Storage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.storage = s2
+	for _, p := range s.providers {
+		p.SetStorage(s2)
+	}
 }
 
 func (s *Service) Notify(ctx context.Context, title, message string, wf storage.Workflow) {
@@ -139,6 +149,10 @@ func (p *UINotificationProvider) Send(ctx context.Context, title, message string
 
 func (p *UINotificationProvider) Type() string {
 	return "ui"
+}
+
+func (p *UINotificationProvider) SetStorage(s storage.Storage) {
+	p.storage = s
 }
 
 type EmailNotificationProvider struct {
@@ -187,6 +201,10 @@ func (ns NotificationSettings) SendEmail(ctx context.Context, title, message str
 
 func (p *EmailNotificationProvider) Type() string {
 	return "email"
+}
+
+func (p *EmailNotificationProvider) SetStorage(s storage.Storage) {
+	p.storage = s
 }
 
 type TelegramNotificationProvider struct {
@@ -251,6 +269,10 @@ func (ns NotificationSettings) SendTelegram(ctx context.Context, title, message 
 
 func (p *TelegramNotificationProvider) Type() string {
 	return "telegram"
+}
+
+func (p *TelegramNotificationProvider) SetStorage(s storage.Storage) {
+	p.storage = s
 }
 
 type SlackNotificationProvider struct {
@@ -320,6 +342,10 @@ func (ns NotificationSettings) SendSlack(ctx context.Context, title, message str
 
 func (p *SlackNotificationProvider) Type() string {
 	return "slack"
+}
+
+func (p *SlackNotificationProvider) SetStorage(s storage.Storage) {
+	p.storage = s
 }
 
 type DiscordNotificationProvider struct {
@@ -392,6 +418,10 @@ func (p *DiscordNotificationProvider) Type() string {
 	return "discord"
 }
 
+func (p *DiscordNotificationProvider) SetStorage(s storage.Storage) {
+	p.storage = s
+}
+
 type GenericWebhookProvider struct {
 	storage storage.Storage
 }
@@ -454,4 +484,8 @@ func (ns NotificationSettings) SendGenericWebhook(ctx context.Context, title, me
 
 func (p *GenericWebhookProvider) Type() string {
 	return "webhook"
+}
+
+func (p *GenericWebhookProvider) SetStorage(s storage.Storage) {
+	p.storage = s
 }

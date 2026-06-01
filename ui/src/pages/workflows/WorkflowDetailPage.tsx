@@ -569,7 +569,7 @@ export function WorkflowDetailPage() {
             
             <Box>
               <Text fw={700} size="sm" mb={4}>Message</Text>
-              <Paper withBorder p="xs" bg="gray.0">
+              <Paper withBorder p="xs" bg="var(--mantine-color-body)">
                 <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                   {(() => {
                     try {

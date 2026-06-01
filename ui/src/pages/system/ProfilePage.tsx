@@ -191,7 +191,7 @@ export function ProfilePage() {
   return (
     <Box p="md">
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Group gap="sm">
             <Avatar size="lg" radius="xl" color="blue" variant="filled">
               {user.full_name?.charAt(0) || user.username.charAt(0)}
@@ -398,7 +398,7 @@ export function ProfilePage() {
                     1. Scan this QR code with your authenticator app (like Google Authenticator, Authy, or Microsoft Authenticator):
                   </Text>
                   
-                  <Box style={{ display: 'flex', justifyContent: 'center' }} p="md" bg="gray.1">
+                  <Box style={{ display: 'flex', justifyContent: 'center' }} p="md" bg="var(--mantine-color-dark-6)">
                     {qrDataUrl ? (
                       <Image
                         src={qrDataUrl}

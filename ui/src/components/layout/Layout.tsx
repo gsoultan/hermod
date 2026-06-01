@@ -573,14 +573,14 @@ export function Layout({ children }: LayoutProps) {
         </AppShell.Section>
       </AppShell.Navbar>
 
-      <AppShell.Main bg="var(--mantine-color-gray-0)">
+      <AppShell.Main bg={dark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-gray-0)'}>
         <Box 
           p="md" 
           h="100%" 
           style={{ 
-            backgroundColor: 'white',
+            backgroundColor: dark ? 'var(--mantine-color-dark-6)' : 'var(--mantine-color-white)',
             borderRadius: '16px',
-            border: '1px solid var(--mantine-color-gray-2)',
+            border: `1px solid ${dark ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-gray-2)'}`,
             boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
             minHeight: 'calc(100vh - 100px)'
           }}

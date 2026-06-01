@@ -118,7 +118,7 @@ export function ApprovalsPage() {
   return (
     <Box p="md">
       <Stack gap="lg">
-        <Paper withBorder p="md" radius="md" bg="gray.0">
+        <Paper withBorder p="md" radius="md" bg="var(--mantine-color-body)">
           <Group justify="space-between" align="flex-end">
             <Stack gap={2} style={{ flex: 1 }}>
               <Title order={2} fw={800}>Approvals</Title>
@@ -141,7 +141,7 @@ export function ApprovalsPage() {
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
           <Table verticalSpacing="md" horizontalSpacing="xl">
-            <Table.Thead bg="gray.0">
+            <Table.Thead bg="var(--mantine-color-dark-6)">
               <Table.Tr>
                 <Table.Th>ID</Table.Th>
                 <Table.Th>Workflow</Table.Th>
@@ -163,7 +163,7 @@ export function ApprovalsPage() {
             </Table.Tbody>
           </Table>
           {pages > 1 && (
-            <Group justify="center" p="md" bg="gray.0" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
+            <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
               <Pagination total={pages} value={page} onChange={setPage} radius="md" />
             </Group>
           )}

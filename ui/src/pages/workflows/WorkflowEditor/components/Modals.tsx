@@ -534,7 +534,7 @@ export function Modals({ onRunSimulation, isTesting }: ModalsProps) {
             <Alert color="red" icon={<IconAlertCircle size="1rem" />}>{reportError}</Alert>
           ) : (
             <>
-              <Paper withBorder p="md" bg="gray.0">
+              <Paper withBorder p="md" bg="var(--mantine-color-body)">
                 <ScrollArea.Autosize mah={400}>
                   <Text style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '13px' }}>
                     {reportText}

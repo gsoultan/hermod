@@ -823,7 +823,7 @@ function EditorInner() {
           shadow="xs"
           style={{
             background: isDark
-              ? 'linear-gradient(180deg, var(--mantine-color-dark-7), var(--mantine-color-dark-6))'
+              ? 'linear-gradient(180deg, var(--mantine-color-dark-6), var(--mantine-color-dark-5))'
               : 'linear-gradient(180deg, var(--mantine-color-gray-0), var(--mantine-color-white))',
           }}
         >
@@ -1048,7 +1048,7 @@ function EditorInner() {
               </Box>
 
               {(selectedNode?.type === 'source' || selectedNode?.type === 'sink') && (selectedNode?.data?.testResult || selectedNode?.data?.lastSample) ? (
-                <Paper withBorder p="md" bg="gray.0">
+                <Paper withBorder p="md" bg="var(--mantine-color-body)">
                   <Stack gap="xs">
                     <Text fw={700} size="sm">Data Output</Text>
                     <Code block style={{ fontSize: '10px' }}>

@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { 
   Modal, TextInput, Button, Stack, Text, Group, ThemeIcon, 
   Paper, Code, Badge, Loader, ActionIcon, ScrollArea, Alert
-} from '@mantine/core';import { notifications } from '@mantine/notifications';
-import { apiFetch } from '../../../../api';import { IconAlertCircle, IconPlayerPlay, IconRocket, IconSparkles } from '@tabler/icons-react';
+} from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import { apiFetch } from '../../../../api';
+import { IconAlertCircle, IconPlayerPlay, IconRocket, IconSparkles } from '@tabler/icons-react';
 export function AIGeneratorModal({ opened, onClose, onGenerated }: { 
   opened: boolean, 
   onClose: () => void,
@@ -83,7 +85,7 @@ export function AIGeneratorModal({ opened, onClose, onGenerated }: {
 
         {suggestion && (
           <Stack gap="sm">
-            <Paper p="md" withBorder bg="gray.0">
+            <Paper p="md" withBorder bg="var(--mantine-color-body)">
               <Group justify="space-between" mb="xs">
                 <Text size="xs" fw={700}>GENERATED SCAFFOLD</Text>
                 <Badge color="green" variant="light">Ready</Badge>

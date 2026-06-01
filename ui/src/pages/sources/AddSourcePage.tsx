@@ -5,7 +5,7 @@ export function AddSourcePage() {
   return (
     <Box p="md">
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Group gap="sm">
             <IconDatabaseImport size="2rem" color="var(--mantine-color-blue-filled)" />
             <Box>

@@ -1372,7 +1372,7 @@ eventSource.onmessage = (event) => {
               />
             </Card>
 
-            <Card withBorder padding="xs" radius="md" bg="gray.0">
+            <Card withBorder padding="xs" radius="md" bg="var(--mantine-color-body)">
                <Group gap="xs" mb={4}>
                   <IconCode size="1rem" color="dimmed" />
                   <Text size="10px" fw={700} c="dimmed">RAW PAYLOAD</Text>
@@ -1606,7 +1606,7 @@ eventSource.onmessage = (event) => {
 
         {/* Column 3: Guide / Results */}
         <Grid.Col span={{ base: 12, md: 12, lg: 4 }}>
-          <Card withBorder shadow="sm" radius="md" p="md" h="100%" bg="var(--mantine-color-gray-0)">
+          <Card withBorder shadow="sm" radius="md" p="md" h="100%" bg="var(--mantine-color-body)">
             <Stack h="100%">
               <Group gap="xs" px="xs">
                 <IconInfoCircle size="1.2rem" color="var(--mantine-color-blue-6)" />
@@ -1845,7 +1845,7 @@ eventSource.onmessage = (event) => {
         </Grid.Col>
 
         <Grid.Col span={{ base: 12, md: 12, lg: 4 }}>
-          <Card withBorder shadow="sm" radius="md" p="md" h="100%" bg="var(--mantine-color-gray-0)">
+          <Card withBorder shadow="sm" radius="md" p="md" h="100%" bg="var(--mantine-color-body)">
             <Stack h="100%">
               <Group gap="xs" px="xs">
                 <IconInfoCircle size="1.2rem" color="var(--mantine-color-blue-6)" />

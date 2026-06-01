@@ -2,7 +2,8 @@ import { Title, Paper, Stack, Group, Box, Text, Center, Loader } from '@mantine/
 import { SinkForm } from '@/components/forms/SinkForm';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
-import { useParams } from '@tanstack/react-router';import { IconExternalLink } from '@tabler/icons-react';
+import { useParams } from '@tanstack/react-router';
+import { IconExternalLink } from '@tabler/icons-react';
 export function EditSinkPage() {
   const { sinkId } = useParams({ from: '/sinks/$sinkId/edit' });
 
@@ -26,7 +27,7 @@ export function EditSinkPage() {
   return (
     <Box p="md">
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Group gap="sm">
             <IconExternalLink size="2rem" color="var(--mantine-color-blue-filled)" />
             <Box>

@@ -40,7 +40,7 @@ export function WebhookHistory({
   const requests = (history && Array.isArray((history as any).data)) ? (history as any).data : [];
 
   return (
-    <Card withBorder shadow="sm" radius="md" p="md" h="100%" bg="var(--mantine-color-gray-0)">
+    <Card withBorder shadow="sm" radius="md" p="md" h="100%" bg="var(--mantine-color-body)">
       <Stack h="100%">
         <Group justify="space-between" px="xs">
           <Group gap="xs">

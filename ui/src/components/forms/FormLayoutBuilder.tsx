@@ -162,7 +162,7 @@ function SortableFieldItem({
           cursor: isOverlay ? 'grabbing' : 'pointer',
           border: isActive ? '2px solid var(--mantine-color-blue-filled)' : isDragging ? '2px dashed var(--mantine-color-gray-4)' : '1px solid var(--mantine-color-gray-3)',
           transition: 'all 0.2s ease',
-          backgroundColor: isActive ? 'var(--mantine-color-blue-0)' : 'white',
+          backgroundColor: isActive ? 'var(--mantine-color-blue-light)' : 'var(--mantine-color-body)',
           position: 'relative'
         }}
       >
@@ -316,12 +316,12 @@ export function FormLayoutBuilder({
       fullScreen
       padding={0}
       styles={{
-        header: { backgroundColor: 'var(--mantine-color-gray-0)', borderBottom: '1px solid var(--mantine-color-gray-3)', margin: 0, padding: '10px 20px' },
+        header: { backgroundColor: 'var(--mantine-color-body)', borderBottom: '1px solid var(--mantine-color-gray-3)', margin: 0, padding: '10px 20px' },
         body: { padding: 0 }
       }}
     >
       <Stack h="calc(100vh - 54px)" gap={0}>
-        <Group h={50} px="md" justify="space-between" bg="white" style={{ borderBottom: '1px solid var(--mantine-color-gray-2)' }}>
+        <Group h={50} px="md" justify="space-between" bg="var(--mantine-color-body)" style={{ borderBottom: '1px solid var(--mantine-color-gray-2)' }}>
           <Group gap="xs">
             <Button 
               leftSection={<IconEye size="1rem" />} 
@@ -352,7 +352,7 @@ export function FormLayoutBuilder({
         </Group>
 
         <Grid flex={1} m={0} gap={0}>
-          <Grid.Col span={2} style={{ borderRight: '1px solid var(--mantine-color-gray-2)' }} bg="gray.0">
+          <Grid.Col span={2} style={{ borderRight: '1px solid var(--mantine-color-gray-2)' }} bg="var(--mantine-color-body)">
             <ScrollArea h="calc(100vh - 104px)" p="md">
               <Stack gap="lg">
                 <Box>
@@ -387,10 +387,10 @@ export function FormLayoutBuilder({
             </ScrollArea>
           </Grid.Col>
 
-          <Grid.Col span={7} bg="gray.1" style={{ position: 'relative' }}>
+          <Grid.Col span={7} bg="var(--mantine-color-dark-9)" style={{ position: 'relative' }}>
             <ScrollArea h="calc(100vh - 104px)" p="xl">
               <Box maw={700} mx="auto">
-                <Paper shadow="md" radius="md" p={0} withBorder mih={600} style={{ backgroundColor: 'white', overflow: 'hidden' }}>
+                <Paper shadow="md" radius="md" p={0} withBorder mih={600} style={{ backgroundColor: 'var(--mantine-color-body)', overflow: 'hidden' }}>
                   {/* Form Header Decoration */}
                   <Box h={8} bg="blue" />
                   <Box 
@@ -398,7 +398,7 @@ export function FormLayoutBuilder({
                     style={{ 
                       borderBottom: '1px solid var(--mantine-color-gray-2)',
                       cursor: 'pointer',
-                      backgroundColor: isEditingHeader ? 'var(--mantine-color-blue-0)' : 'transparent',
+                      backgroundColor: isEditingHeader ? 'var(--mantine-color-blue-light)' : 'transparent',
                       transition: 'background-color 0.2s'
                     }}
                     onClick={() => {
@@ -483,7 +483,7 @@ export function FormLayoutBuilder({
             </ScrollArea>
           </Grid.Col>
 
-          <Grid.Col span={3} style={{ borderLeft: '1px solid var(--mantine-color-gray-2)' }} bg="white">
+          <Grid.Col span={3} style={{ borderLeft: '1px solid var(--mantine-color-gray-2)' }} bg="var(--mantine-color-body)">
             <ScrollArea h="calc(100vh - 104px)">
               {isEditingHeader ? (
                 <Stack p="md" gap="md">
@@ -1080,7 +1080,7 @@ export function FormPreview({ opened, onClose, fields, title, description }: { o
 
   return (
     <Modal opened={opened} onClose={onClose} title="Form Preview" size="xl">
-      <Paper p="xl" bg="gray.0" radius="md">
+      <Paper p="xl" bg="var(--mantine-color-body)" radius="md">
         <Paper p="xl" shadow="xs" radius="md" withBorder>
           <Box mb="xl" style={{ borderBottom: '1px solid var(--mantine-color-gray-2)', paddingBottom: '1rem' }}>
             <Title order={3}>{title || 'Untitled Form'}</Title>

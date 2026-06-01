@@ -13,6 +13,8 @@ export function SettingsPage() {
   const queryClient = useQueryClient();
   const [dbType, setDbType] = useState<string | null>('sqlite')
   const [dbConn, setDbConn] = useState('')
+  const [logDbType, setLogDbType] = useState<string | null>(null)
+  const [logDbConn, setLogDbConn] = useState('')
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
 
   // Secret Manager State
@@ -183,7 +185,7 @@ export function SettingsPage() {
   })
 
   const saveMutation = useMutation({
-    mutationFn: async (config: { type: string | null, conn: string }) => {
+    mutationFn: async (config: { type: string | null, conn: string, log_type?: string | null, log_conn?: string }) => {
       const response = await apiFetch('/api/config/database', {
         method: 'POST',
         headers: {
@@ -317,8 +319,12 @@ export function SettingsPage() {
   })
 
   const handleSave = () => {
-    setMessage(null)
-    saveMutation.mutate({ type: dbType, conn: dbConn })
+    saveMutation.mutate({ 
+      type: dbType, 
+      conn: dbConn,
+      log_type: logDbType,
+      log_conn: logDbConn
+    })
   }
 
   const handleSaveSecrets = () => {
@@ -394,6 +400,8 @@ export function SettingsPage() {
         if (aborted) return
         if (data.type) setDbType(data.type)
         if (typeof data.conn === 'string') setDbConn(data.conn)
+        if (data.log_type) setLogDbType(data.log_type)
+        if (typeof data.log_conn === 'string') setLogDbConn(data.log_conn)
       } catch (_) {
         // ignore
       }
@@ -600,6 +608,40 @@ export function SettingsPage() {
                 )}
                 <Group justify="flex-end">
                   <Button variant="light" size="xs" onClick={handleSave} loading={saveMutation.isPending}>Update Database</Button>
+                </Group>
+              </Stack>
+            </Paper>
+
+            <Paper withBorder p="md" radius="md">
+              <Group gap="xs" mb="md">
+                <IconDatabase size="1.2rem" color="orange" />
+                <Title order={4}>Log Database Configuration</Title>
+              </Group>
+              <Stack gap="md">
+                <Select
+                  label="Log Database Type"
+                  placeholder="Select database type"
+                  description="Choose a separate database for logs to improve performance and isolation."
+                  data={[
+                    { value: '', label: 'Use Primary Database' },
+                    { value: 'sqlite', label: 'SQLite' },
+                    { value: 'postgres', label: 'PostgreSQL' },
+                    { value: 'mysql', label: 'MySQL' },
+                    { value: 'mariadb', label: 'MariaDB' },
+                    { value: 'mongodb', label: 'MongoDB' },
+                    { value: 'pebble', label: 'Pebble (Local KV)' },
+                  ]}
+                  value={logDbType || ''}
+                  onChange={setLogDbType}
+                />
+                <TextInput
+                  label="Log Connection String / Path"
+                  placeholder={logDbType === 'pebble' ? 'logs.db' : (logDbType === 'sqlite' ? 'hermod_logs.db' : 'postgres://...')}
+                  value={logDbConn}
+                  onChange={(e) => setLogDbConn(e.currentTarget.value)}
+                />
+                <Group justify="flex-end">
+                  <Button variant="light" size="xs" onClick={handleSave} loading={saveMutation.isPending}>Update Log Database</Button>
                 </Group>
               </Stack>
             </Paper>

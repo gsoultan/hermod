@@ -1,10 +1,12 @@
-import { Title, Table, Group, Stack, Badge, Paper, Text, Box, ActionIcon, Tooltip, Select, TextInput, Pagination, Modal, ScrollArea, Code, Divider, Button } from '@mantine/core';import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Title, Table, Group, Stack, Badge, Paper, Text, Box, ActionIcon, Tooltip, Select, TextInput, Pagination, Modal, ScrollArea, Code, Divider, Button } from '@mantine/core';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
 import { useState, useEffect } from 'react';
 import { useDisclosure } from '@mantine/hooks';
 import { useSearch } from '@tanstack/react-router';
 
-import { formatDateTime } from '@/utils/dateUtils';import { IconActivity, IconEye, IconRefresh, IconSearch, IconTrash } from '@tabler/icons-react';
+import { formatDateTime } from '@/utils/dateUtils';
+import { IconActivity, IconEye, IconRefresh, IconSearch, IconTrash } from '@tabler/icons-react';
 const API_BASE = '/api';
 
 export function LogsPage() {
@@ -70,7 +72,7 @@ export function LogsPage() {
   return (
     <Box p="md" style={{ animation: 'fadeIn 0.5s ease-in-out' }}>
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Group gap="sm">
             <IconActivity size="2rem" color="var(--mantine-color-blue-filled)" />
             <Box style={{ flex: 1 }}>
@@ -147,7 +149,7 @@ export function LogsPage() {
 
         <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
           <Table verticalSpacing="sm" highlightOnHover layout="fixed">
-            <Table.Thead bg="gray.0">
+            <Table.Thead bg="var(--mantine-color-dark-6)">
               <Table.Tr>
                 <Table.Th style={{ width: 180 }}>Timestamp</Table.Th>
                 <Table.Th style={{ width: 80 }}>Level</Table.Th>
@@ -226,7 +228,7 @@ export function LogsPage() {
             </Table.Tbody>
           </Table>
           {totalPages > 1 && (
-            <Group justify="center" p="md" bg="gray.0" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
+            <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
               <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
             </Group>
           )}
@@ -263,7 +265,7 @@ export function LogsPage() {
 
             <Box>
               <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} mb={4}>Message</Text>
-              <Paper withBorder p="xs" bg="gray.0">
+              <Paper withBorder p="xs" bg="var(--mantine-color-dark-6)">
                 <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                   {(() => {
                     try {
@@ -317,7 +319,7 @@ export function LogsPage() {
               <Box style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} mb={4}>Action Data / Payload</Text>
                 <ScrollArea style={{ flex: 1, minHeight: 0 }} type="always">
-                  <Paper withBorder p="xs" bg="gray.0">
+                  <Paper withBorder p="xs" bg="var(--mantine-color-dark-6)">
                     <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                       {(() => {
                         try {

@@ -90,5 +90,5 @@ export function useStyledFlow() {
     return reliabilityEdges;
   }, [sinkData, sourceId, active, dlqNodeId, prioritizeDLQ]);
 
-  return { styledEdges };
+  return useMemo(() => ({ styledEdges }), [styledEdges]);
 }

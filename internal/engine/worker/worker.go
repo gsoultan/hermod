@@ -95,6 +95,11 @@ func (w *Worker) SetWorkerConfig(workerID, totalWorkers int, workerGUID string, 
 	w.workerToken = workerToken
 }
 
+// SetStorage updates the worker's storage backend.
+func (w *Worker) SetStorage(s storage.Storage) {
+	w.storage = s
+}
+
 // SetLeaseTTL allows configuring the lease TTL in seconds (default 30).
 func (w *Worker) SetLeaseTTL(ttlSeconds int) {
 	if ttlSeconds <= 0 {

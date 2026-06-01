@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { 
   Stack, TextInput, Button, Table, Text, 
   Paper, Group, ScrollArea, Alert, ActionIcon, Tooltip
-} from '@mantine/core';import { notifications } from '@mantine/notifications';import { IconAlertCircle, IconCopy, IconDatabase, IconPlayerPlay } from '@tabler/icons-react';
+} from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import { IconAlertCircle, IconCopy, IconDatabase, IconPlayerPlay } from '@tabler/icons-react';
 interface SQLQueryBuilderProps {
   type: 'source' | 'sink';
   config: any;
@@ -57,7 +59,7 @@ export function SQLQueryBuilder({ type, config, onSelectResult, initialQuery, on
 
   return (
     <Stack gap="md">
-      <Paper withBorder p="md" bg="gray.0">
+      <Paper withBorder p="md" bg="var(--mantine-color-body)">
         <Stack gap="xs">
           <Group justify="space-between">
             <Group gap="xs">
@@ -101,7 +103,7 @@ export function SQLQueryBuilder({ type, config, onSelectResult, initialQuery, on
 
       {results && (
         <Paper withBorder p={0} radius="md" style={{ overflow: 'hidden' }}>
-          <Group p="xs" bg="gray.1" justify="space-between">
+          <Group p="xs" bg="var(--mantine-color-dark-6)" justify="space-between">
             <Text size="xs" fw={500}>{results.length} rows returned</Text>
             {results.length > 0 && (
                <Tooltip label="Copy first row as JSON">

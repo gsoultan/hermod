@@ -1,7 +1,8 @@
 import { IconEdit, IconPlus, IconSearch, IconServer, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
 import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, TextInput, Pagination } from '@mantine/core'
-import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'import { apiFetch } from '@/api'
+import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '@/api'
 import { useNavigate } from '@tanstack/react-router'
 import type { VHost } from '@/types'
 
@@ -68,7 +69,7 @@ export function VHostsPage() {
         `}
       </style>
       <Stack gap="lg">
-        <Paper p="md" withBorder radius="md" bg="gray.0">
+        <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Stack gap="md">
             <Group gap="sm">
               <IconServer size="2rem" color="var(--mantine-color-blue-filled)" />
@@ -98,7 +99,7 @@ export function VHostsPage() {
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
           <Table verticalSpacing="md" horizontalSpacing="xl">
-            <Table.Thead bg="gray.0">
+            <Table.Thead bg="var(--mantine-color-dark-6)">
               <Table.Tr>
                 <Table.Th>Name</Table.Th>
                 <Table.Th>Description</Table.Th>
@@ -117,7 +118,7 @@ export function VHostsPage() {
             </Table.Tbody>
           </Table>
           {totalPages > 1 && (
-            <Group justify="center" p="md" bg="gray.0" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
+            <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
               <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />
             </Group>
           )}

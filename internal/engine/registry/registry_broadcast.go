@@ -133,8 +133,12 @@ func (r *Registry) broadcastLogWithData(engineID, level, msg, data string) {
 }
 
 func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {
-	if r.logStorage != nil {
-		err := r.logStorage.CreateLog(ctx, l)
+	r.mu.Lock()
+	ls := r.logStorage
+	r.mu.Unlock()
+
+	if ls != nil {
+		err := ls.CreateLog(ctx, l)
 
 		r.statusSubsMu.Lock()
 		for ch := range r.logSubs {
@@ -146,6 +150,52 @@ func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {
 		r.statusSubsMu.Unlock()
 
 		return err
+	}
+	return nil
+}
+
+func (r *Registry) CreateLogs(ctx context.Context, logs []storage.Log) error {
+	r.mu.Lock()
+	ls := r.logStorage
+	r.mu.Unlock()
+
+	if ls != nil {
+		err := ls.CreateLogs(ctx, logs)
+
+		r.statusSubsMu.Lock()
+		for _, l := range logs {
+			for ch := range r.logSubs {
+				select {
+				case ch <- l:
+				default:
+				}
+			}
+		}
+		r.statusSubsMu.Unlock()
+
+		return err
+	}
+	return nil
+}
+
+func (r *Registry) PurgeLogs(ctx context.Context, before time.Time) error {
+	r.mu.Lock()
+	ls := r.logStorage
+	r.mu.Unlock()
+
+	if ls != nil {
+		return ls.PurgeLogs(ctx, before)
+	}
+	return nil
+}
+
+func (r *Registry) DeleteLogs(ctx context.Context, filter storage.LogFilter) error {
+	r.mu.Lock()
+	ls := r.logStorage
+	r.mu.Unlock()
+
+	if ls != nil {
+		return ls.DeleteLogs(ctx, filter)
 	}
 	return nil
 }
@@ -194,7 +244,11 @@ func (r *Registry) broadcastLiveMessageFromHermod(workflowID, nodeID string, msg
 }
 
 func (r *Registry) RecordStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) {
-	if r.logStorage != nil {
-		_ = r.logStorage.RecordTraceStep(ctx, workflowID, messageID, step)
+	r.mu.Lock()
+	ls := r.logStorage
+	r.mu.Unlock()
+
+	if ls != nil {
+		_ = ls.RecordTraceStep(ctx, workflowID, messageID, step)
 	}
 }

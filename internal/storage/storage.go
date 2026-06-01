@@ -3,8 +3,9 @@ package storage
 import (
 	"context"
 	"errors"
-	"github.com/user/hermod"
 	"time"
+
+	"github.com/user/hermod"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -387,7 +388,9 @@ type Storage interface {
 
 	ListLogs(ctx context.Context, filter LogFilter) ([]Log, int, error)
 	CreateLog(ctx context.Context, log Log) error
+	CreateLogs(ctx context.Context, logs []Log) error
 	DeleteLogs(ctx context.Context, filter LogFilter) error
+	PurgeLogs(ctx context.Context, before time.Time) error
 
 	ListAuditLogs(ctx context.Context, filter AuditFilter) ([]AuditLog, int, error)
 	CreateAuditLog(ctx context.Context, log AuditLog) error

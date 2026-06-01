@@ -45,3 +45,5 @@ ui/stats.html
 config.yaml
 db_config.yaml
 worker.yaml
+main
+hermod_state.db

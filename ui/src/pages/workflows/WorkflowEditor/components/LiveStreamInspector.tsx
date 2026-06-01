@@ -153,7 +153,7 @@ export function LiveStreamInspector({ opened, onClose, workflowId }: {
                     p="xs" 
                     style={{ 
                       borderRadius: '4px', 
-                      background: msg.is_error ? 'var(--mantine-color-red-0)' : 'var(--mantine-color-gray-0)',
+                      background: msg.is_error ? 'var(--mantine-color-red-light)' : 'var(--mantine-color-body)',
                       border: `1px solid ${msg.is_error ? 'var(--mantine-color-red-2)' : 'var(--mantine-color-gray-2)'}`
                     }}
                   >

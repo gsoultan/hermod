@@ -28,6 +28,11 @@ func NewStorageRegistry(s storage.Storage) *StorageRegistry {
 	return &StorageRegistry{storage: s}
 }
 
+// SetStorage updates the storage backend.
+func (r *StorageRegistry) SetStorage(s storage.Storage) {
+	r.storage = s
+}
+
 // Register adds a new schema version to the registry.
 func (r *StorageRegistry) Register(ctx context.Context, name string, schemaType SchemaType, content string) (int, error) {
 	// 1. Validate the schema first

@@ -30,6 +30,7 @@ import (
 	"github.com/user/hermod/internal/service"
 	"github.com/user/hermod/internal/storage"
 	storagemongo "github.com/user/hermod/internal/storage/mongodb"
+	storagepebble "github.com/user/hermod/internal/storage/pebble"
 	storagesql "github.com/user/hermod/internal/storage/sql"
 	"github.com/user/hermod/internal/version"
 	enginePkg "github.com/user/hermod/pkg/engine"
@@ -58,7 +59,7 @@ func main() {
 	buildUI := flag.Bool("build-ui", false, "build UI before starting")
 	port := flag.Int("port", 4000, "port for API server")
 	grpcPort := flag.Int("grpc-port", 50051, "port for gRPC server")
-	dbType := flag.String("db-type", "sqlite", "database type: sqlite, postgres, mysql, mariadb, mongodb")
+	dbType := flag.String("db-type", "sqlite", "database type: sqlite, postgres, mysql, mariadb, mongodb, pebble")
 	dbConn := flag.String("db-conn", "hermod.db", "database connection string")
 	masterKey := flag.String("master-key", "", "Master key for encryption (32 bytes)")
 	configPath := flag.String("config", "config.yaml", "path to engine configuration file")
@@ -303,6 +304,7 @@ func main() {
 				logger.Info("First-time setup detected. Starting API only.", "setup_url", "http://localhost:"+strconv.Itoa(*port)+"/setup")
 			}
 
+			var wrk *worker.Worker
 			// Start worker if not in api-only mode and setup is completed
 			if (*mode == "worker" || *mode == "standalone") && configured && userSetup {
 				var workerStore worker.WorkerStorage = store
@@ -386,7 +388,7 @@ func main() {
 					os.Exit(0)
 				}
 
-				wrk := worker.NewWorker(workerStore, reg)
+				wrk = worker.NewWorker(workerStore, reg)
 				wrk.SetWorkerConfig(*workerID, *totalWorkers, *workerGUID, *workerToken)
 
 				// Default registration info: prefer hostname if name is empty
@@ -410,6 +412,9 @@ func main() {
 				aiSvc := ai.NewSelfHealingService(logger)
 
 				server := api.NewServer(reg, store, cfg, aiSvc, logStore)
+				if wrk != nil {
+					server.SetWorker(wrk)
+				}
 				storageName := dbTypeVal
 				if firstRun {
 					storageName = "unconfigured"
@@ -543,11 +548,17 @@ func initStorage(dbType, dbConn string) (storage.Storage, error) {
 			dbName = strings.Split(parts[3], "?")[0]
 		}
 		store = storagemongo.NewMongoStorage(client, dbName)
+	case "pebble":
+		var err error
+		store, err = storagepebble.NewPebbleStorage(dbConn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize Pebble storage: %v", err)
+		}
 	default:
 		return nil, fmt.Errorf("unsupported database type: %s", dbType)
 	}
 
-	if dbType != "mongodb" {
+	if dbType != "mongodb" && dbType != "pebble" {
 		db, err := sql.Open(driver, dbConn)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open database: %v", err)

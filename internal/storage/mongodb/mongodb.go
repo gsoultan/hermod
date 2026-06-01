@@ -1189,6 +1189,37 @@ func (s *mongoStorage) CreateLog(ctx context.Context, l storage.Log) error {
 	return err
 }
 
+func (s *mongoStorage) CreateLogs(ctx context.Context, logs []storage.Log) error {
+	if len(logs) == 0 {
+		return nil
+	}
+	var docs []any
+	for _, l := range logs {
+		if l.ID == "" {
+			l.ID = uuid.New().String()
+		}
+		if l.Timestamp.IsZero() {
+			l.Timestamp = time.Now()
+		}
+		docs = append(docs, bson.M{
+			"_id":         l.ID,
+			"timestamp":   l.Timestamp,
+			"level":       l.Level,
+			"message":     l.Message,
+			"action":      l.Action,
+			"source_id":   l.SourceID,
+			"sink_id":     l.SinkID,
+			"workflow_id": l.WorkflowID,
+			"user_id":     l.UserID,
+			"username":    l.Username,
+			"data":        l.Data,
+		})
+	}
+	coll := s.db.Collection("logs")
+	_, err := coll.InsertMany(ctx, docs)
+	return err
+}
+
 func (s *mongoStorage) DeleteLogs(ctx context.Context, filter storage.LogFilter) error {
 	coll := s.db.Collection("logs")
 	query := bson.M{}
@@ -1220,6 +1251,12 @@ func (s *mongoStorage) DeleteLogs(ctx context.Context, filter storage.LogFilter)
 	}
 
 	_, err := coll.DeleteMany(ctx, query)
+	return err
+}
+
+func (s *mongoStorage) PurgeLogs(ctx context.Context, before time.Time) error {
+	coll := s.db.Collection("logs")
+	_, err := coll.DeleteMany(ctx, bson.M{"timestamp": bson.M{"$lt": before}})
 	return err
 }
 
