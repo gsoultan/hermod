@@ -32,6 +32,7 @@ type WorkerStorage interface {
 	UpdateSource(ctx context.Context, src storage.Source) error
 	UpdateSink(ctx context.Context, snk storage.Sink) error
 	UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error
+	DeleteWorker(ctx context.Context, id string) error
 	CreateLog(ctx context.Context, log storage.Log) error
 	AcquireWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error)
 	RenewWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error)
@@ -139,6 +140,7 @@ func (w *Worker) Start(ctx context.Context) error {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		w.ReleaseAllLeases(cleanupCtx)
+		w.Deregister(cleanupCtx)
 	}()
 
 	for {
@@ -183,10 +185,47 @@ func (w *Worker) ReleaseAllLeases(ctx context.Context) {
 	}
 }
 
+// Deregister removes the worker entry from storage.
+func (w *Worker) Deregister(ctx context.Context) {
+	if w.workerGUID == "" {
+		return
+	}
+	w.logger.Info("Worker: deregistering", "worker_guid", w.workerGUID)
+	if err := w.storage.DeleteWorker(ctx, w.workerGUID); err != nil {
+		w.logger.Error("Worker: failed to deregister", "worker_guid", w.workerGUID, "error", err)
+	}
+}
+
 // SelfRegister registers the worker in the storage if it doesn't already exist.
 func (w *Worker) SelfRegister(ctx context.Context) error {
 	if w.workerGUID == "" {
 		return nil
+	}
+
+	// Clean up any stale worker entries from the same host/port OR same name.
+	// This prevents sharding conflicts when a worker restarts and receives a new GUID.
+	if w.workerHost != "" || w.workerName != "" {
+		workers, _, err := w.storage.ListWorkers(ctx, storage.CommonFilter{})
+		if err == nil {
+			for _, wrk := range workers {
+				if wrk.ID == w.workerGUID {
+					continue
+				}
+				match := false
+				if w.workerHost != "" && wrk.Host == w.workerHost && wrk.Port == w.workerPort {
+					match = true
+				}
+				if w.workerName != "" && wrk.Name == w.workerName {
+					match = true
+				}
+
+				if match {
+					w.logger.Info("Worker: removing stale entry for same host/port/name",
+						"stale_guid", wrk.ID, "name", wrk.Name, "host", wrk.Host, "port", wrk.Port)
+					_ = w.storage.DeleteWorker(ctx, wrk.ID)
+				}
+			}
+		}
 	}
 
 	_, err := w.storage.GetWorker(ctx, w.workerGUID)
@@ -276,23 +315,6 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 				assignedActiveCount++
 				if w.workerGUID != "" && wf.OwnerID == w.workerGUID && wf.LeaseUntil != nil && time.Now().Before(*wf.LeaseUntil) {
 					ownedLeases++
-				}
-			} else {
-				// If not assigned to this worker, but it's currently running here (stale state)
-				if w.registry.IsEngineRunning(wf.ID) {
-					w.logger.Warn("Worker: detected stale workflow running on this worker, scheduling graceful stop", "workflow_id", wf.ID)
-					go func(id string) {
-						defer func() {
-							if r := recover(); r != nil {
-								w.logger.Error("Panic in stale workflow stopper", "panic", r)
-							}
-						}()
-						_ = w.registry.StopEngineWithoutUpdate(id)
-						w.stopLeaseRenewal(id)
-						if w.workerGUID != "" {
-							_ = w.storage.ReleaseWorkflowLease(ctx, id, w.workerGUID)
-						}
-					}(wf.ID)
 				}
 			}
 		}
@@ -546,8 +568,8 @@ func (w *Worker) isAssigned(resourceID string, currentOwnerID string) bool {
 			var online []storage.Worker
 			now := time.Now()
 			for _, wrk := range workers {
-				// Worker is online if seen in the last 60 seconds
-				if wrk.LastSeen != nil && time.Since(*wrk.LastSeen) < 1*time.Minute {
+				// Worker is online if seen in the last 40 seconds (shorter window for faster stale node removal)
+				if wrk.LastSeen != nil && now.Sub(*wrk.LastSeen) < 40*time.Second {
 					online = append(online, wrk)
 				}
 			}
@@ -586,9 +608,21 @@ func (w *Worker) isAssigned(resourceID string, currentOwnerID string) bool {
 
 		weight := cpuWeight * memWeight
 
-		// Hysteresis: Give a 15% bonus to the current owner to prevent flapping due to minor load changes
+		// Freshness factor: Prefer workers that have been seen very recently.
+		// Workers seen within the last 20s (approx one heartbeat interval + margin) get a bonus.
+		if wrk.LastSeen != nil {
+			lastSeen := time.Since(*wrk.LastSeen)
+			if lastSeen < 20*time.Second {
+				weight *= 2.0
+			} else if lastSeen < 30*time.Second {
+				weight *= 1.2
+			}
+		}
+
+		// Hysteresis: Give a large bonus to the current owner to prevent flapping due to minor load changes.
+		// A 10.0x bonus ensures we only rebalance if the current owner is severely overloaded compared to others.
 		if currentOwnerID != "" && wrk.ID == currentOwnerID {
-			weight *= 1.15
+			weight *= 10.0
 		}
 
 		score := float64(h.Sum32()) * weight

@@ -175,9 +175,20 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		s.queries.get(QueryInitVHostsTable),
 		s.queries.get(QueryInitWorkersTable),
 		s.queries.get(QueryInitApprovalsTable),
+		s.queries.get(QueryInitSettingsTable),
+		s.queries.get(QueryInitAuditLogsTable),
+		s.queries.get(QueryInitSchemasTable),
+		s.queries.get(QueryInitMessageTraceStepsTable),
+		s.queries.get(QueryInitWorkflowVersionsTable),
+		s.queries.get(QueryInitOutboxTable),
+		s.queries.get(QueryInitWorkspacesTable),
+		s.queries.get(QueryInitPluginsTable),
 	}
 
 	for _, q := range initQueries {
+		if q == "" {
+			continue
+		}
 		if _, err := s.db.ExecContext(ctx, s.prepareQuery(q)); err != nil {
 			return fmt.Errorf("failed to init table: %w", err)
 		}
@@ -221,55 +232,12 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		_, _ = s.db.ExecContext(ctx, s.prepareQuery(q))
 	}
 
-	_, err := s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitSettingsTable)))
-	if err != nil {
-		return fmt.Errorf("failed to create settings table: %w", err)
-	}
-
-	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitAuditLogsTable)))
-	if err != nil {
-		return fmt.Errorf("failed to create audit_logs table: %w", err)
-	}
-
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_logs(timestamp DESC)"))
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id)"))
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id)"))
-
-	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitSchemasTable)))
-	if err != nil {
-		return fmt.Errorf("failed to create schemas table: %w", err)
-	}
-
-	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitMessageTraceStepsTable)))
-	if err != nil {
-		return fmt.Errorf("failed to create message_trace_steps table: %w", err)
-	}
-
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_trace_msg ON message_trace_steps(workflow_id, message_id)"))
-
-	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitWorkflowVersionsTable)))
-	if err != nil {
-		return fmt.Errorf("failed to create workflow_versions table: %w", err)
-	}
-
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_workflow_versions_id ON workflow_versions(workflow_id, version)"))
-
-	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitOutboxTable)))
-	if err != nil {
-		return fmt.Errorf("failed to create outbox table: %w", err)
-	}
-
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox(status, created_at)"))
-
-	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitWorkspacesTable)))
-	if err != nil {
-		return fmt.Errorf("failed to create workspaces table: %w", err)
-	}
-
-	_, err = s.db.ExecContext(ctx, s.prepareQuery(s.queries.get(QueryInitPluginsTable)))
-	if err != nil {
-		return fmt.Errorf("failed to create plugins table: %w", err)
-	}
 
 	s.seedPlugins(ctx)
 

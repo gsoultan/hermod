@@ -63,6 +63,7 @@ func main() {
 	configPath := flag.String("config", "config.yaml", "path to engine configuration file")
 	versionFlag := flag.Bool("version", false, "Print the version and exit")
 	serviceAction := flag.String("service", "", "Service action: install, uninstall, start, stop, restart, status")
+	disableAutoscaler := flag.Bool("disable-autoscaler", false, "disable the autoscaler service")
 	flag.Parse()
 	if *versionFlag {
 		fmt.Printf("hermod %s\n", version.Version)
@@ -70,6 +71,11 @@ func main() {
 	}
 
 	runFunc := func(svcCtx context.Context) {
+		if v := os.Getenv("HERMOD_DISABLE_AUTOSCALER"); v != "" {
+			if b, err := strconv.ParseBool(v); err == nil {
+				*disableAutoscaler = b
+			}
+		}
 		logger := enginePkg.NewDefaultLogger()
 		// Environment fallbacks to simplify production configuration
 		// Only apply when corresponding flag keeps its default value.
@@ -410,7 +416,7 @@ func main() {
 				fmt.Printf("Starting Hermod API server on :%d using %s storage...\n", *port, storageName)
 
 				// Start Autoscaler in control-plane mode
-				if (*mode == "api" || *mode == "standalone") && configured && userSetup {
+				if (*mode == "api" || *mode == "standalone") && configured && userSetup && !*disableAutoscaler {
 					manager := &autoscaler.KubernetesWorkerManager{
 						Namespace:  "hermod",
 						Deployment: "hermod-worker",
@@ -573,7 +579,7 @@ func initStorage(dbType, dbConn string) (storage.Storage, error) {
 		}
 		defer cancel()
 		if err := s.Init(initCtx); err != nil {
-			return store, fmt.Errorf("failed to initialize storage: %v", err)
+			return nil, fmt.Errorf("failed to initialize storage: %v", err)
 		}
 	}
 

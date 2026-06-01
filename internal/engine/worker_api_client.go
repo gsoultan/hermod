@@ -252,6 +252,19 @@ func (c *WorkerAPIClient) UpdateWorkerHeartbeat(ctx context.Context, id string, 
 	return nil
 }
 
+func (c *WorkerAPIClient) DeleteWorker(ctx context.Context, id string) error {
+	resp, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/workers/%s", id), nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("API error: %s", resp.Status)
+	}
+	return nil
+}
+
 func (c *WorkerAPIClient) ListWorkers(ctx context.Context, filter storage.CommonFilter) ([]storage.Worker, int, error) {
 	url := "/api/workers"
 	if filter.Limit > 0 {

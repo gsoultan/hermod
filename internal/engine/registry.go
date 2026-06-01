@@ -29,7 +29,6 @@ import (
 	"github.com/user/hermod/pkg/sink/failover"
 	"github.com/user/hermod/pkg/source/batchsql"
 	sourceform "github.com/user/hermod/pkg/source/form"
-	"github.com/user/hermod/pkg/state"
 	"github.com/user/hermod/pkg/transformer"
 	"go.opentelemetry.io/otel"
 	_ "modernc.org/sqlite"
@@ -207,14 +206,6 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 			}
 		}
 	})
-
-	// Initialize default state store
-	ss, err := state.NewSQLiteStateStore("hermod_state.db")
-	if err == nil {
-		reg.stateStore = ss
-	} else {
-		reg.logger.Warn("Failed to initialize state store", "error", err)
-	}
 
 	// Start background maintenance routines
 	go reg.runIdleMonitor()

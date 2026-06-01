@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"strings"
 	"sync"
@@ -335,9 +336,12 @@ func (p *PostgresSource) streamLoop(ctx context.Context) {
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
 				p.log("ERROR", "Replication stream error", "slot", p.slotName, "error", err)
-				select {
-				case p.errChan <- err:
-				case <-ctx.Done():
+				// Only send to errChan if it's not a connection error that we want to retry transparently
+				if !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "connection") {
+					select {
+					case p.errChan <- err:
+					case <-ctx.Done():
+					}
 				}
 			}
 			return
@@ -633,6 +637,9 @@ func (p *PostgresSource) init(ctx context.Context) error {
 
 	fmt.Println("Replication started successfully")
 	p.initialized = true
+	if p.cancel != nil {
+		p.cancel()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
 	p.wg.Go(func() {
