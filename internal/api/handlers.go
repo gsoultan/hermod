@@ -309,6 +309,11 @@ func extractBearerOrCookie(r *http.Request) (string, bool) {
 		return authHeader[7:], true
 	}
 
+	// Try query parameter (specifically for WebSockets)
+	if token := r.URL.Query().Get("token"); token != "" {
+		return token, true
+	}
+
 	// Try cookie
 	cookie, err := r.Cookie("hermod_session")
 	if err == nil {

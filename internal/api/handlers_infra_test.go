@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/user/hermod/internal/config"
-	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/mesh"
 	"github.com/user/hermod/internal/storage"
 )
@@ -144,7 +144,7 @@ func TestGetDBConfig_CorruptYAML_Returns500(t *testing.T) {
 
 func TestMeshHealth_Combined(t *testing.T) {
 	ms := &mockStorageMesh{}
-	reg := engine.NewRegistry(ms)
+	reg := registry.NewRegistry(ms)
 	s := NewServer(reg, ms, nil, nil)
 
 	// Register a cluster in mesh manager
@@ -196,7 +196,7 @@ func TestMeshHealth_Combined(t *testing.T) {
 
 func TestRegisterMeshCluster(t *testing.T) {
 	ms := &mockStorageMesh{}
-	reg := engine.NewRegistry(ms)
+	reg := registry.NewRegistry(ms)
 	s := NewServer(reg, ms, nil, nil)
 
 	cluster := mesh.Cluster{

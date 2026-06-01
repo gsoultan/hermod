@@ -6,7 +6,7 @@ import (
 )
 
 func TestCircuitBreakerTransitions(t *testing.T) {
-	e := &Engine{config: DefaultConfig()}
+	e := NewEngine(nil, nil, nil) // &Engine{config: DefaultConfig()}
 	sw := &sinkWriter{
 		engine: e,
 		sinkID: "s1",

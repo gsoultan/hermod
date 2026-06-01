@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/comm/message"
 )
 
 func TestDetermineIdempotencyKey_MetadataPreferred(t *testing.T) {

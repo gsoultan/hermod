@@ -3,7 +3,7 @@ import { RouterProvider } from '@tanstack/react-router'
 import { router } from '../router'
 import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { VHostProvider } from '../context/VHostContext'
+import { VHostProvider } from '@/context/VHostContext'
 
 describe('Auth redirect', () => {
   it('redirects unauthenticated users to /login', async () => {

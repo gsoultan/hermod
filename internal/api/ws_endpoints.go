@@ -11,8 +11,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/message"
-	"github.com/user/hermod/pkg/source/webhook"
+	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/comm/source/webhook"
 )
 
 // Prometheus metrics for WebSocket server endpoints

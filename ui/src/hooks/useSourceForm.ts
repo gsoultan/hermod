@@ -2,11 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { useStore } from '@tanstack/react-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiFetch } from '../api';
+import { apiFetch } from '@/api';
 import { notifications } from '@mantine/notifications';
 import { useNavigate } from '@tanstack/react-router';
-import type { Source, Workflow } from '../types';
-import { useWorkflowStore } from '../pages/WorkflowEditor/store/useWorkflowStore';
+import type { Source, Workflow } from '@/types';
+import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 
 const API_BASE = '/api';
 
@@ -29,8 +29,8 @@ export function useSourceForm({
 }: UseSourceFormProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const updateNodeConfig = useWorkflowStore(s => s.updateNodeConfig);
-  const selectedNode = useWorkflowStore(s => s.selectedNode);
+  const updateNodeConfig = useWorkflowStore((s: any) => s.updateNodeConfig);
+  const selectedNode = useWorkflowStore((s: any) => s.selectedNode);
   const [testResult, setTestResult] = useState<{ status: 'ok' | 'error', message: string } | null>(null);
   const form = useForm({
     defaultValues: {

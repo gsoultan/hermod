@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/hermod/pkg/secrets"
+	"github.com/user/hermod/pkg/security/secrets"
 	"gopkg.in/yaml.v3"
 )
 

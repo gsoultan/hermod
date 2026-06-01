@@ -638,6 +638,25 @@ Hermod ships with env-gated integration tests.
   - Postgres: set `HERMOD_INTEGRATION=1` and `POSTGRES_DSN` (e.g., `postgres://user:pass@host:5432/db?sslmode=disable`)
   - Run: `go test ./pkg/sink/mysql -tags=integration` and `go test ./pkg/sink/postgres -tags=integration`
 
+### UI Testing
+
+Hermod uses Vitest for unit/component testing and Cypress for End-to-End (E2E) testing.
+
+#### Unit & Component Tests
+```bash
+cd ui
+bun run test
+```
+
+#### End-to-End Tests (Cypress)
+1. Ensure the development server is running (default: `http://localhost:5173`).
+2. Run Cypress:
+```bash
+cd ui
+bun run cypress:run   # Headless mode
+bun run cypress:open  # Interactive mode
+```
+
 ## Continuous Integration (CI)
 
 This repository includes a GitHub Actions workflow that:

@@ -1,10 +1,10 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { VHostProvider } from '../context/VHostContext'
+import { VHostProvider } from '@/context/VHostContext'
 import { server } from '../test/setupTests'
 import { http, HttpResponse, delay } from 'msw'
-import { TransformationForm } from '../components/TransformationForm'
+import { TransformationForm } from '@/components/forms/TransformationForm'
 import { vi } from 'vitest'
 
 // Mock tanstack router Link to avoid heavy router

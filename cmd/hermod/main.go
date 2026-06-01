@@ -24,17 +24,18 @@ import (
 	"github.com/user/hermod/internal/api"
 	"github.com/user/hermod/internal/autoscaler"
 	"github.com/user/hermod/internal/config"
-	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/worker"
 	"github.com/user/hermod/internal/observability"
 	"github.com/user/hermod/internal/service"
 	"github.com/user/hermod/internal/storage"
 	storagemongo "github.com/user/hermod/internal/storage/mongodb"
 	storagesql "github.com/user/hermod/internal/storage/sql"
 	"github.com/user/hermod/internal/version"
-	"github.com/user/hermod/pkg/crypto"
 	enginePkg "github.com/user/hermod/pkg/engine"
-	"github.com/user/hermod/pkg/secrets"
-	"github.com/user/hermod/pkg/state"
+	"github.com/user/hermod/pkg/infra/state"
+	"github.com/user/hermod/pkg/security/crypto"
+	"github.com/user/hermod/pkg/security/secrets"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"gopkg.in/yaml.v3"
@@ -205,8 +206,8 @@ func main() {
 				}
 			}
 
-			registry := engine.NewRegistry(store, logStore)
-			registry.SetLogger(logger)
+			reg := registry.NewRegistry(store, logStore)
+			reg.SetLogger(logger)
 
 			// Load engine config
 			cfg, err := config.LoadConfig(*configPath)
@@ -233,7 +234,7 @@ func main() {
 				// Initialize secret manager if configured
 				if cfg.Secrets.Type != "" {
 					if mgr, err := secrets.NewManager(context.Background(), cfg.Secrets); err == nil {
-						registry.SetSecretManager(mgr)
+						reg.SetSecretManager(mgr)
 						fmt.Printf("Secret manager initialized: %s\n", cfg.Secrets.Type)
 					} else {
 						log.Printf("Warning: Failed to initialize secret manager: %v", err)
@@ -251,7 +252,7 @@ func main() {
 						Prefix:   cfg.StateStore.Prefix,
 					}
 					if ss, err := state.NewStateStore(stateCfg); err == nil {
-						registry.SetStateStore(ss)
+						reg.SetStateStore(ss)
 						fmt.Printf("State store initialized: %s\n", cfg.StateStore.Type)
 					} else {
 						log.Printf("Warning: Failed to initialize state store: %v", err)
@@ -274,7 +275,7 @@ func main() {
 				if cfg.Engine.DrainTimeout > 0 {
 					engCfg.DrainTimeout = cfg.Engine.DrainTimeout
 				}
-				registry.SetConfig(engCfg)
+				reg.SetConfig(engCfg)
 			}
 
 			// Graceful shutdown
@@ -290,8 +291,8 @@ func main() {
 					logger.Info("Service manager requested shutdown, shutting down gracefully...")
 				}
 				cancel()
-				registry.StopAll()
-				registry.Close()
+				reg.StopAll()
+				reg.Close()
 			}()
 
 			// Determine setup status (first run vs already configured)
@@ -304,9 +305,9 @@ func main() {
 
 			// Start worker if not in api-only mode and setup is completed
 			if (*mode == "worker" || *mode == "standalone") && configured && userSetup {
-				var workerStore engine.WorkerStorage = store
+				var workerStore worker.WorkerStorage = store
 				if *mode == "worker" && *platformURL != "" {
-					workerStore = engine.NewWorkerAPIClient(*platformURL, *workerToken)
+					workerStore = worker.NewWorkerAPIClient(*platformURL, *workerToken)
 				}
 
 				// Auto-load or create worker identity if missing and not using remote platform URL
@@ -385,18 +386,18 @@ func main() {
 					os.Exit(0)
 				}
 
-				worker := engine.NewWorker(workerStore, registry)
-				worker.SetWorkerConfig(*workerID, *totalWorkers, *workerGUID, *workerToken)
+				wrk := worker.NewWorker(workerStore, reg)
+				wrk.SetWorkerConfig(*workerID, *totalWorkers, *workerGUID, *workerToken)
 
 				// Default registration info: prefer hostname if name is empty
 				name := *workerGUID
 				if hn, err := os.Hostname(); err == nil && hn != "" {
 					name = hn
 				}
-				worker.SetRegistrationInfo(name, *workerHost, *workerPort, *workerDescription)
+				wrk.SetRegistrationInfo(name, *workerHost, *workerPort, *workerDescription)
 
 				go func() {
-					if err := worker.Start(ctx); err != nil {
+					if err := wrk.Start(ctx); err != nil {
 						if !errors.Is(err, context.Canceled) {
 							log.Printf("Worker failed: %v", err)
 						}
@@ -408,7 +409,7 @@ func main() {
 			if *mode == "api" || *mode == "standalone" {
 				aiSvc := ai.NewSelfHealingService(logger)
 
-				server := api.NewServer(registry, store, cfg, aiSvc, logStore)
+				server := api.NewServer(reg, store, cfg, aiSvc, logStore)
 				storageName := dbTypeVal
 				if firstRun {
 					storageName = "unconfigured"

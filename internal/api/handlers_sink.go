@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/factory"
 	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/sqlutil"
+	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
 func (s *Server) registerSinkRoutes(mux *http.ServeMux) {
@@ -201,7 +201,7 @@ func (s *Server) testSink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := engine.SinkConfig{Type: snk.Type, Config: snk.Config}
+	cfg := factory.SinkConfig{Type: snk.Type, Config: snk.Config}
 	if err := s.registry.TestSink(r.Context(), cfg); err != nil {
 		s.jsonError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -218,7 +218,7 @@ func (s *Server) discoverSinkDatabases(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := engine.SinkConfig{Type: snk.Type, Config: snk.Config}
+	cfg := factory.SinkConfig{Type: snk.Type, Config: snk.Config}
 	dbs, err := s.registry.DiscoverSinkDatabases(r.Context(), cfg)
 	if err != nil {
 		s.jsonError(w, err.Error(), http.StatusBadRequest)
@@ -236,7 +236,7 @@ func (s *Server) discoverSinkTables(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := engine.SinkConfig{Type: snk.Type, Config: snk.Config}
+	cfg := factory.SinkConfig{Type: snk.Type, Config: snk.Config}
 	tables, err := s.registry.DiscoverSinkTables(r.Context(), cfg)
 	if err != nil {
 		s.jsonError(w, err.Error(), http.StatusBadRequest)
@@ -257,7 +257,7 @@ func (s *Server) discoverSinkColumns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := engine.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
+	cfg := factory.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
 	columns, err := s.registry.DiscoverSinkColumns(r.Context(), cfg, req.Table)
 	if err != nil {
 		s.jsonError(w, err.Error(), http.StatusBadRequest)
@@ -278,7 +278,7 @@ func (s *Server) sampleSinkTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := engine.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
+	cfg := factory.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
 	msg, err := s.registry.SampleSinkTable(r.Context(), cfg, req.Table)
 	if err != nil {
 		s.jsonError(w, err.Error(), http.StatusBadRequest)
@@ -300,7 +300,7 @@ func (s *Server) browseSinkTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := engine.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
+	cfg := factory.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
 	msgs, err := s.registry.BrowseSinkTable(r.Context(), cfg, req.Table, req.Limit)
 	if err != nil {
 		s.jsonError(w, err.Error(), http.StatusBadRequest)
@@ -318,8 +318,8 @@ func (s *Server) browseSinkTable(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) querySink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Config engine.SinkConfig `json:"config"`
-		Query  string            `json:"query"`
+		Config factory.SinkConfig `json:"config"`
+		Query  string             `json:"query"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.jsonError(w, "Invalid request", http.StatusBadRequest)
@@ -439,7 +439,7 @@ func (s *Server) truncateSinkTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := engine.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
+	cfg := factory.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
 	if err := s.registry.ExecSinkStatement(r.Context(), cfg, stmt); err != nil {
 		s.jsonError(w, "Truncate failed: "+err.Error(), http.StatusBadRequest)
 		return

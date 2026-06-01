@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/storage"
 	sqlstorage "github.com/user/hermod/internal/storage/sql"
 	_ "modernc.org/sqlite"
@@ -24,7 +24,7 @@ func TestDeleteSinkProtection(t *testing.T) {
 	if err := store.Init(t.Context()); err != nil {
 		t.Fatalf("failed to init store: %v", err)
 	}
-	registry := engine.NewRegistry(store)
+	registry := registry.NewRegistry(store)
 	server := NewServer(registry, store, nil, nil)
 
 	ctx := t.Context()

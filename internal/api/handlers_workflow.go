@@ -14,7 +14,7 @@ import (
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/governance"
 	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/comm/message"
 )
 
 func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {

@@ -12,8 +12,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/buffer"
-	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/comm/buffer"
+	"github.com/user/hermod/pkg/comm/message"
 )
 
 type mockSource struct {
@@ -698,7 +698,7 @@ func TestSinkWriter_BatchBytesFlush(t *testing.T) {
 	defer cancel()
 
 	// Engine mostly unused but required by sinkWriter
-	e := &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: "wf-test"}
+	e := NewEngine(nil, nil, nil) // &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: "wf-test"}
 
 	mb := &mockBatchSink{batches: make(chan []hermod.Message, 1)}
 	cfg := SinkConfig{
@@ -778,7 +778,7 @@ func TestSinkWriter_PerKeyShardingOrder(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 
-	e := &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: "wf-shard"}
+	e := NewEngine(nil, nil, nil) // &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: "wf-shard"}
 	os := &orderSink{perKey: make(map[string][]string)}
 	var wg sync.WaitGroup
 	os.wg = &wg
@@ -858,7 +858,7 @@ func TestBackpressure_DropNewest_Metric(t *testing.T) {
 
 	wf := "wf-drop-newest"
 	sinkID := "sink-bp"
-	e := &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: wf}
+	e := NewEngine(nil, nil, nil) // &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: wf}
 
 	cfg := SinkConfig{BackpressureStrategy: BPDropNewest}
 	sw := &sinkWriter{
@@ -900,7 +900,7 @@ func TestBackpressure_DropOldest_Metric(t *testing.T) {
 
 	wf := "wf-drop-oldest"
 	sinkID := "sink-bp2"
-	e := &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: wf}
+	e := NewEngine(nil, nil, nil) // &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: wf}
 
 	cfg := SinkConfig{BackpressureStrategy: BPDropOldest}
 	sw := &sinkWriter{
@@ -939,7 +939,7 @@ func TestBackpressure_SpillToDisk_Metric(t *testing.T) {
 
 	wf := "wf-spill"
 	sinkID := "sink-spill"
-	e := &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: wf}
+	e := NewEngine(nil, nil, nil) // &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: wf}
 
 	// Prepare a temporary directory for spill buffer
 	dir, err := os.MkdirTemp("", "hermod-spill-test-")

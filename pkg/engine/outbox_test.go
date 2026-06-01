@@ -80,18 +80,13 @@ func TestEngine_OutboxRelay(t *testing.T) {
 	outbox := &mockOutboxStorage{}
 	buf := &mockBuffer{}
 
-	e := &Engine{
-		workflowID:  "test-wf",
-		outboxStore: outbox,
-		buffer:      buf,
-		logger:      NewDefaultLogger(),
-		config: Config{
-			OutboxRelayInterval: 10 * time.Millisecond,
-		},
-	}
+	e := NewEngine(nil, nil, buf)
+	e.workflowID = "test-wf"
+	e.outboxStore = outbox
+	e.config.OutboxRelayInterval = 10 * time.Millisecond
 
 	// Add a pending item to outbox
-	outbox.CreateOutboxItem(t.Context(), hermod.OutboxItem{
+	_ = outbox.CreateOutboxItem(t.Context(), hermod.OutboxItem{
 		WorkflowID: "test-wf",
 		Payload:    []byte(`{"hello":"world"}`),
 		Status:     "pending",

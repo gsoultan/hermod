@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/storage"
 )
 
@@ -21,7 +21,7 @@ func (m *mockReproductionStorage) CreateLog(ctx context.Context, log storage.Log
 }
 
 func TestTestTransformation_JSONUnmarshalError(t *testing.T) {
-	reg := engine.NewRegistry(&mockReproductionStorage{})
+	reg := registry.NewRegistry(&mockReproductionStorage{})
 	server := NewServer(reg, &mockReproductionStorage{}, nil, nil)
 
 	// JSON payload with a number in transformation.config

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/storage"
 )
 
@@ -271,7 +271,7 @@ func TestReadiness_Schema_And_NonGating(t *testing.T) {
 
 	s := NewServer(nil, fs, nil, nil)
 	// With a non-nil registry, registry check should be ok
-	s.registry = engine.NewRegistry(nil)
+	s.registry = registry.NewRegistry(nil)
 
 	h := s.Routes()
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)

@@ -7,8 +7,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/user/hermod/pkg/eventstore"
-	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/comm/eventstore"
+	"github.com/user/hermod/pkg/comm/message"
 	_ "modernc.org/sqlite"
 )
 

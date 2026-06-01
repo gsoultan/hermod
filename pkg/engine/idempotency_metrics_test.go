@@ -6,7 +6,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/comm/message"
 )
 
 // noop logger to satisfy hermod.Logger
@@ -29,7 +29,7 @@ func (r *reporterSink) Close() error                                        { re
 func (r *reporterSink) LastWriteIdempotent() (bool, bool)                   { return r.dedup, r.conflict }
 
 func TestWriteToSink_EmitsIdempotencyMetrics(t *testing.T) {
-	e := &Engine{}
+	e := NewEngine(nil, nil, nil) // &Engine{}
 	e.logger = noopLogger{}
 	e.workflowID = "wf1"
 	e.sinkConfigs = []SinkConfig{{}}

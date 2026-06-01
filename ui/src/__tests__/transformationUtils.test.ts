@@ -7,7 +7,7 @@ import {
   preparePayload, 
   deepMergeSim,
   type Condition 
-} from '../utils/transformationUtils'
+} from '@/utils/transformationUtils'
 
 describe('getValByPath', () => {
   const testCases: { name: string; obj: any; path: string; expected: any }[] = [

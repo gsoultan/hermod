@@ -3,7 +3,7 @@ import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '../test/setupTests'
 import { http, HttpResponse } from 'msw'
-import { WorkflowHistoryModal } from '../components/WorkflowHistoryModal'
+import { WorkflowHistoryModal } from '@/components/modals/WorkflowHistoryModal'
 import { vi } from 'vitest'
 
 describe('WorkflowHistoryModal', () => {

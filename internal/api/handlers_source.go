@@ -8,10 +8,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/factory"
 	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/message"
-	"github.com/user/hermod/pkg/source/webhook"
+	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/comm/source/webhook"
 )
 
 func (s *Server) registerSourceRoutes(mux *http.ServeMux) {
@@ -322,7 +322,7 @@ func (s *Server) testSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := engine.SourceConfig{Type: req.Type, Config: req.Config}
+	cfg := factory.SourceConfig{Type: req.Type, Config: req.Config}
 	if err := s.registry.TestSource(r.Context(), cfg); err != nil {
 		s.jsonError(w, "Test failed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -342,7 +342,7 @@ func (s *Server) discoverDatabases(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := engine.SourceConfig{Type: req.Type, Config: req.Config}
+	cfg := factory.SourceConfig{Type: req.Type, Config: req.Config}
 	dbs, err := s.registry.DiscoverDatabases(r.Context(), cfg)
 	if err != nil {
 		s.jsonError(w, "Discovery failed: "+err.Error(), http.StatusBadRequest)
@@ -363,7 +363,7 @@ func (s *Server) discoverTables(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := engine.SourceConfig{Type: req.Type, Config: req.Config}
+	cfg := factory.SourceConfig{Type: req.Type, Config: req.Config}
 	tables, err := s.registry.DiscoverTables(r.Context(), cfg)
 	if err != nil {
 		s.jsonError(w, "Discovery failed: "+err.Error(), http.StatusBadRequest)
@@ -387,7 +387,7 @@ func (s *Server) discoverSourceColumns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := engine.SourceConfig{Type: req.Source.Type, Config: req.Source.Config}
+	cfg := factory.SourceConfig{Type: req.Source.Type, Config: req.Source.Config}
 	columns, err := s.registry.DiscoverSourceColumns(r.Context(), cfg, req.Table)
 	if err != nil {
 		s.jsonError(w, "Discovery failed: "+err.Error(), http.StatusBadRequest)
@@ -411,7 +411,7 @@ func (s *Server) sampleSourceTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := engine.SourceConfig{Type: req.Source.Type, Config: req.Source.Config}
+	cfg := factory.SourceConfig{Type: req.Source.Type, Config: req.Source.Config}
 	msg, err := s.registry.SampleTable(r.Context(), cfg, req.Table)
 	if err != nil {
 		s.jsonError(w, "Sampling failed: "+err.Error(), http.StatusBadRequest)
@@ -424,8 +424,8 @@ func (s *Server) sampleSourceTable(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) querySource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Config engine.SourceConfig `json:"config"`
-		Query  string              `json:"query"`
+		Config factory.SourceConfig `json:"config"`
+		Query  string               `json:"query"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.jsonError(w, "Invalid request", http.StatusBadRequest)

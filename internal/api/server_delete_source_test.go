@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/storage"
 )
 
@@ -60,7 +60,7 @@ func (m *deleteSourceMockStorage) ListAuditLogs(ctx context.Context, filter stor
 }
 
 func TestDeleteSourceLogic(t *testing.T) {
-	registry := engine.NewRegistry(nil)
+	registry := registry.NewRegistry(nil)
 
 	t.Run("Prevent deletion of non-CDC source in use by workflow", func(t *testing.T) {
 		store := &deleteSourceMockStorage{

@@ -31,19 +31,16 @@ func (m *mockTraceRecorder) GetSteps(messageID string) []hermod.TraceStep {
 
 func TestRecordTraceStep_DeterministicSampling(t *testing.T) {
 	recorder := &mockTraceRecorder{}
-	e := &Engine{
-		traceRecorder: recorder,
-		workflowID:    "test-workflow",
-		config: Config{
-			TraceSampleRate: 0.5, // 50% sampling
-		},
-	}
+	e := NewEngine(nil, nil, nil)
+	e.traceRecorder = recorder
+	e.workflowID = "test-workflow"
+	e.config.TraceSampleRate = 0.5 // 50% sampling
 
 	msgID := "consistent-msg-id"
 	msg := &mockMessage{id: msgID}
 
 	// Record multiple steps for the same message
-	for range 100 {
+	for i := 0; i < 100; i++ {
 		e.RecordTraceStep(t.Context(), msg, "node-1", time.Now(), nil)
 	}
 
@@ -56,7 +53,7 @@ func TestRecordTraceStep_DeterministicSampling(t *testing.T) {
 	// Now check that different messages can have different sampling outcomes
 	sampledIn := 0
 	sampledOut := 0
-	for i := range 1000 {
+	for i := 0; i < 1000; i++ {
 		mID := string(rune(i)) // Different ID each time
 		m := &mockMessage{id: mID}
 		e.RecordTraceStep(t.Context(), m, "node-1", time.Now(), nil)
@@ -75,11 +72,10 @@ func TestRecordTraceStep_DeterministicSampling(t *testing.T) {
 
 func TestRecordTraceStep_Default(t *testing.T) {
 	recorder := &mockTraceRecorder{}
-	e := &Engine{
-		traceRecorder: recorder,
-		workflowID:    "test-workflow",
-		config:        DefaultConfig(),
-	}
+	e := NewEngine(nil, nil, nil)
+	e.traceRecorder = recorder
+	e.workflowID = "test-workflow"
+	e.config = DefaultConfig()
 
 	msgID := "test-msg"
 	msg := &mockMessage{id: msgID}

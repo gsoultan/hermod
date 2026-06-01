@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/sse"
 )
 
 func TestSSESecurity(t *testing.T) {
-	registry := engine.NewRegistry(nil)
+	registry := registry.NewRegistry(nil)
 	server := NewServer(registry, &mockStorage{}, nil, nil)
 	handler := server.Routes()
 	hub := sse.GetDataHub()

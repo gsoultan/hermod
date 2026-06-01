@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/schema"
+	"github.com/user/hermod/pkg/infra/schema"
 	"net/http"
 )
 

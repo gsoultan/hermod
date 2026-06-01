@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/sse"
 	"github.com/user/hermod/internal/storage"
 )
 
 func TestSSESeparation(t *testing.T) {
-	registry := engine.NewRegistry(nil)
+	registry := registry.NewRegistry(nil)
 	server := NewServer(registry, &mockStorage{}, nil, nil)
 	handler := server.Routes()
 
@@ -74,7 +74,7 @@ func TestSSESeparation(t *testing.T) {
 }
 
 func TestInternalSSERoute(t *testing.T) {
-	registry := engine.NewRegistry(nil)
+	registry := registry.NewRegistry(nil)
 	server := NewServer(registry, &mockStorage{}, nil, nil)
 
 	// 1. Verify internal endpoint path

@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/comm/message"
 )
 
 const idempotencyKeyMeta = "idempotency_key"

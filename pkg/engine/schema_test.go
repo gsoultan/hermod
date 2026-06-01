@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/buffer"
-	"github.com/user/hermod/pkg/message"
-	"github.com/user/hermod/pkg/schema"
+	"github.com/user/hermod/pkg/comm/buffer"
+	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/infra/schema"
 )
 
 func TestEngineSchemaValidation(t *testing.T) {

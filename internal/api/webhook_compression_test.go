@@ -7,10 +7,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/compression"
-	"github.com/user/hermod/pkg/source/webhook"
+	"github.com/user/hermod/pkg/comm/source/webhook"
+	"github.com/user/hermod/pkg/infra/compression"
 )
 
 type mockWebhookStorage struct {
@@ -33,7 +33,7 @@ func TestWebhookDecompression(t *testing.T) {
 	webhook.Register("/api/webhooks/test")
 	defer webhook.Unregister("/api/webhooks/test")
 
-	registry := engine.NewRegistry(nil)
+	registry := registry.NewRegistry(nil)
 	server := NewServer(registry, &mockWebhookStorage{}, nil, nil)
 	handler := server.Routes()
 

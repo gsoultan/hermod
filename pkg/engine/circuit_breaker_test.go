@@ -6,12 +6,13 @@ import (
 	"time"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/message"
+	"github.com/user/hermod/pkg/comm/message"
 )
 
 func TestSinkWriter_CircuitBreaker(t *testing.T) {
 	sink := &mockSink{received: make(chan hermod.Message, 10)}
-	eng := &Engine{logger: NewDefaultLogger()}
+	eng := NewEngine(nil, nil, nil)
+	eng.logger = NewDefaultLogger()
 	sw := &sinkWriter{
 		engine: eng,
 		sink:   sink,

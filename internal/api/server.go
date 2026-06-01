@@ -28,18 +28,18 @@ import (
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/ai"
 	"github.com/user/hermod/internal/config"
-	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/compression"
-	"github.com/user/hermod/pkg/crypto"
-	"github.com/user/hermod/pkg/filestorage"
-	"github.com/user/hermod/pkg/message"
-	"github.com/user/hermod/pkg/source/form"
-	"github.com/user/hermod/pkg/source/graphql"
-	grpcsource "github.com/user/hermod/pkg/source/grpc"
-	"github.com/user/hermod/pkg/source/grpc/proto"
-	"github.com/user/hermod/pkg/source/webhook"
-	"github.com/user/hermod/pkg/util"
+	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/comm/source/form"
+	"github.com/user/hermod/pkg/comm/source/graphql"
+	grpcsource "github.com/user/hermod/pkg/comm/source/grpc"
+	"github.com/user/hermod/pkg/comm/source/grpc/proto"
+	"github.com/user/hermod/pkg/comm/source/webhook"
+	"github.com/user/hermod/pkg/infra/compression"
+	"github.com/user/hermod/pkg/infra/filestorage"
+	"github.com/user/hermod/pkg/infra/util"
+	"github.com/user/hermod/pkg/security/crypto"
 	googlegrpc "google.golang.org/grpc"
 )
 
@@ -78,7 +78,7 @@ var staticFS embed.FS
 type Server struct {
 	storage     storage.Storage
 	logStorage  storage.Storage
-	registry    *engine.Registry
+	registry    *registry.Registry
 	ai          *ai.SelfHealingService
 	config      *config.Config
 	fileStorage filestorage.Storage
@@ -100,7 +100,7 @@ type Server struct {
 }
 
 // NewServer constructs a new Server with the provided engine registry and storage backend.
-func NewServer(registry *engine.Registry, store storage.Storage, cfg *config.Config, aiSvc *ai.SelfHealingService, ls ...storage.Storage) *Server {
+func NewServer(registry *registry.Registry, store storage.Storage, cfg *config.Config, aiSvc *ai.SelfHealingService, ls ...storage.Storage) *Server {
 	var logStore storage.Storage
 	if len(ls) > 0 {
 		logStore = ls[0]

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/buffer"
+	"github.com/user/hermod/pkg/comm/buffer"
 )
 
 type reproMockSource struct {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/hermod/internal/engine"
+	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/storage"
 )
 
@@ -164,7 +164,7 @@ func (m *mockStorage) GetNodeStates(ctx context.Context, workflowID string) (map
 }
 
 func TestAuthMiddleware(t *testing.T) {
-	registry := engine.NewRegistry(nil)
+	registry := registry.NewRegistry(nil)
 	// Use a mock storage that won't panic when used
 	server := NewServer(registry, &mockStorage{}, nil, nil)
 	handler := server.Routes()
