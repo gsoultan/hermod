@@ -3,14 +3,16 @@ package engine
 import (
 	"testing"
 	"time"
+
+	"github.com/user/hermod/pkg/engine/config"
 )
 
 func TestCircuitBreakerTransitions(t *testing.T) {
-	e := NewEngine(nil, nil, nil) // &Engine{config: DefaultConfig()}
+	e := NewEngine(nil, nil, nil) // &Engine{config: config.DefaultConfig()}
 	sw := &sinkWriter{
 		engine: e,
 		sinkID: "s1",
-		config: SinkConfig{
+		config: config.SinkConfig{
 			CircuitBreakerThreshold: 2,
 			CircuitBreakerInterval:  10 * time.Second,
 			CircuitBreakerCoolDown:  100 * time.Millisecond,

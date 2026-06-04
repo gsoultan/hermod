@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	pkgengine "github.com/user/hermod/pkg/engine"
+	"github.com/user/hermod/pkg/engine/telemetry"
 	_ "modernc.org/sqlite"
 )
 
@@ -44,7 +44,7 @@ func TestBatchSQLSource(t *testing.T) {
 	}
 
 	source := NewBatchSQLSource(provider, config)
-	source.SetLogger(pkgengine.NewDefaultLogger())
+	source.SetLogger(telemetry.NewDefaultLogger())
 	defer source.Close()
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -91,5 +91,49 @@ func TestBatchSQLSource(t *testing.T) {
 
 	if source.GetState()["last_value"] != "3" {
 		t.Errorf("expected last_value 3, got %s", source.GetState()["last_value"])
+	}
+}
+
+func TestBatchSQLSource_Sample(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec("CREATE TABLE sample_test (id INTEGER PRIMARY KEY, val TEXT)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec("INSERT INTO sample_test (val) VALUES ('sample1')")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	provider := &mockDBProvider{db: db}
+	config := Config{
+		SourceID: "test-source",
+		Cron:     "0 0 * * *",
+		Queries:  "[]",
+	}
+
+	source := NewBatchSQLSource(provider, config)
+	defer source.Close()
+
+	msg, err := source.Sample(t.Context(), "sample_test")
+	if err != nil {
+		t.Fatalf("Sample failed: %v", err)
+	}
+
+	if msg.Table() != "sample_test" {
+		t.Errorf("expected table sample_test, got %s", msg.Table())
+	}
+
+	if msg.Data()["val"] != "sample1" {
+		t.Errorf("expected val sample1, got %v", msg.Data()["val"])
+	}
+
+	if msg.Metadata()["sample"] != "true" {
+		t.Errorf("expected metadata sample=true, got %v", msg.Metadata()["sample"])
 	}
 }

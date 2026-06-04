@@ -46,6 +46,17 @@ export const LiveEdge = memo((props: EdgeProps) => {
     return `${dur}s linear infinite dash`;
   }, [throughput, pulseEnabled]);
 
+  const strokeColor = useMemo(() => {
+    if (hasBreakpoint) return selected ? 'var(--mantine-color-orange-7)' : 'var(--mantine-color-orange-6)';
+    if (!pulseEnabled) return selected ? 'var(--mantine-color-blue-7)' : 'var(--mantine-color-gray-6)';
+    
+    // Healthy: Blue/Green
+    // Backpressure: Orange (throughput drops while source node has high incoming?)
+    // Actually, let's use node status if available or error rate
+    // For now, let's simulate based on throughput thresholds or just use blue
+    return selected ? 'var(--mantine-color-blue-7)' : 'var(--mantine-color-blue-6)';
+  }, [hasBreakpoint, selected, pulseEnabled, throughput]);
+
   return (
     <>
       <style>
@@ -62,9 +73,7 @@ export const LiveEdge = memo((props: EdgeProps) => {
         path={edgePath}
         markerEnd={markerEnd}
         style={{
-          stroke: hasBreakpoint
-            ? (selected ? 'var(--mantine-color-orange-7)' : 'var(--mantine-color-orange-6)')
-            : (selected ? 'var(--mantine-color-blue-7)' : (pulseEnabled ? 'var(--mantine-color-blue-6)' : 'var(--mantine-color-gray-6)')),
+          stroke: strokeColor,
           strokeWidth: selected ? strokeWidth + 1.5 : strokeWidth,
           strokeDasharray: hasBreakpoint ? '2 6' : (pulseEnabled ? '8 6' : 'none'),
           animation: dashAnim ? `${dashAnim}` : undefined,

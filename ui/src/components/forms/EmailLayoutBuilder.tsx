@@ -162,7 +162,7 @@ function SortableBlock({
             {block.url ? (
               <img src={block.url} alt={block.alt} style={{ maxWidth: '100%', width: block.width }} />
             ) : (
-              <Center bg="var(--mantine-color-dark-6)" h={100} style={{ border: '1px dashed #ccc' }}>
+              <Center bg="var(--mantine-color-default-hover)" h={100} style={{ border: '1px dashed #ccc' }}>
                 <IconPhoto size="2rem" color="gray" />
               </Center>
             )}
@@ -227,7 +227,7 @@ function SortableBlock({
             {...attributes} 
             {...listeners} 
             px={4} 
-            bg="var(--mantine-color-dark-6)" 
+            bg="var(--mantine-color-default-hover)" 
             style={{ cursor: 'grab', borderRight: '1px solid var(--mantine-color-gray-2)' }}
           >
             <IconGripVertical size="1rem" color="gray" />
@@ -765,7 +765,7 @@ export function EmailLayoutBuilder({ opened, onClose, onApply, outlookCompatible
             </ScrollArea>
         </AppShell.Navbar>
 
-        <AppShell.Main bg="var(--mantine-color-dark-7)" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <AppShell.Main bg="var(--mantine-color-body)" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <ScrollArea style={{ flex: 1 }}>
                 <Center py="xl">
                     {viewMode === 'code' ? (

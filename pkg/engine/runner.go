@@ -9,6 +9,10 @@ import (
 	"time"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/engine/config"
+	"github.com/user/hermod/pkg/engine/idempotency"
+	"github.com/user/hermod/pkg/engine/source"
+	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
 type Runner struct {
@@ -33,7 +37,7 @@ func (r *Runner) Start(ctx context.Context) error {
 	if r.engine.config.PrioritizeDLQ && r.engine.deadLetterSink != nil {
 		if dlqSource, ok := r.engine.deadLetterSink.(hermod.Source); ok {
 			r.engine.logger.Info("DLQ Priority enabled: wrapping source with PriorityMultiplexer", "workflow_id", r.engine.workflowID)
-			r.engine.source = NewPrioritySource(dlqSource, r.engine.source, r.engine.logger)
+			r.engine.source = source.NewPrioritySource(dlqSource, r.engine.source, r.engine.logger)
 		}
 	}
 
@@ -46,7 +50,7 @@ func (r *Runner) Start(ctx context.Context) error {
 			sinkID = r.engine.sinkIDs[i]
 		}
 
-		cfg := SinkConfig{}
+		cfg := config.SinkConfig{}
 		if i < len(r.engine.sinkConfigs) {
 			cfg = r.engine.sinkConfigs[i]
 		}
@@ -83,7 +87,7 @@ func (r *Runner) Start(ctx context.Context) error {
 
 	r.engine.logger.Info("Starting Hermod Engine", "workflow_id", r.engine.workflowID)
 	r.engine.setStatus("connecting")
-	ActiveEngines.Inc()
+	telemetry.ActiveEngines.Inc()
 
 	// Start Outbox Relay if enabled
 	if r.engine.outboxStore != nil {
@@ -97,7 +101,7 @@ func (r *Runner) Start(ctx context.Context) error {
 		})
 	}
 
-	defer ActiveEngines.Dec()
+	defer telemetry.ActiveEngines.Dec()
 
 	// Status Checker
 	r.wg.Go(func() {
@@ -225,9 +229,8 @@ func (r *Runner) checkHealth(interval time.Duration) {
 
 	if err != nil {
 		r.engine.logger.Error("Background source health check failed", "workflow_id", r.engine.workflowID, "error", err.Error())
-		r.engine.statusTracker.mu.RLock()
-		recentActivity := !r.engine.statusTracker.lastMsgTime.IsZero() && time.Since(r.engine.statusTracker.lastMsgTime) < interval*2
-		r.engine.statusTracker.mu.RUnlock()
+		lastMsgTime := r.engine.statusTracker.GetLastMsgTime()
+		recentActivity := !lastMsgTime.IsZero() && time.Since(lastMsgTime) < interval*2
 
 		if !recentActivity {
 			r.engine.setSourceStatus("reconnecting")
@@ -273,9 +276,8 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 		if interval == 0 {
 			interval = 5 * time.Second
 		}
-		r.engine.statusTracker.mu.RLock()
-		needsPing := reconnectAttempts > 0 || r.engine.statusTracker.lastMsgTime.IsZero() || time.Since(r.engine.statusTracker.lastMsgTime) > interval
-		r.engine.statusTracker.mu.RUnlock()
+		lastMsgTime := r.engine.statusTracker.GetLastMsgTime()
+		needsPing := reconnectAttempts > 0 || lastMsgTime.IsZero() || time.Since(lastMsgTime) > interval
 		r.engine.mu.RUnlock()
 
 		if needsPing {
@@ -366,18 +368,23 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 				start := time.Now()
 				defer func() {
 					duration := time.Since(start)
-					ProcessingLatency.WithLabelValues(r.engine.workflowID).Observe(duration.Seconds())
+					telemetry.ProcessingLatency.WithLabelValues(r.engine.workflowID).Observe(duration.Seconds())
 					r.engine.adaptiveThrottle(drainCtx, duration)
+					if r.engine.DetectAnomaly(duration) {
+						r.engine.logger.Warn("Anomaly detected in message processing", "workflow_id", r.engine.workflowID, "message_id", m.ID(), "duration", duration.String())
+						m.SetMetadata("anomaly", "true")
+						m.SetMetadata("anomaly_reason", "latency_spike")
+					}
 				}()
 
 				// Ensure message has an idempotency key/ID set before routing to sinks
-				if key, _ := EnsureIdempotencyID(m); key == "" {
-					IdempotencyMissingTotal.WithLabelValues(r.engine.workflowID).Inc()
+				if key, _ := idempotency.EnsureIdempotencyID(m); key == "" {
+					telemetry.IdempotencyMissingTotal.WithLabelValues(r.engine.workflowID).Inc()
 				}
 
 				// Global workflow tracing
 				if r.engine.traceRecorder != nil {
-					r.engine.RecordTraceStep(drainCtx, m, "workflow_start", start, nil)
+					r.engine.RecordTraceStep(drainCtx, m, "workflow_start", start, nil, nil)
 				}
 
 				// Data validation
@@ -386,7 +393,7 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 					if err := r.engine.validator.Validate(drainCtx, m.Data()); err != nil {
 						r.engine.logger.Error("Message validation failed", "workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", err)
 						r.engine.UpdateNodeErrorMetric("validator", 1)
-						r.engine.RecordTraceStep(drainCtx, m, "validator", vstart, err)
+						r.engine.RecordTraceStep(drainCtx, m, "validator", vstart, nil, err)
 
 						if r.engine.deadLetterSink != nil {
 							m.SetMetadata("_hermod_validation_failed", "true")
@@ -397,7 +404,7 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 						return
 					}
 					r.engine.UpdateNodeMetric("validator", 1)
-					r.engine.RecordTraceStep(drainCtx, m, "validator", vstart, nil)
+					r.engine.RecordTraceStep(drainCtx, m, "validator", vstart, nil, nil)
 				}
 
 				// Routing
@@ -407,11 +414,11 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 					t, err := r.engine.router(drainCtx, m)
 					if err != nil {
 						r.engine.logger.Error("Routing failed", "workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", err)
-						r.engine.RecordTraceStep(drainCtx, m, "router", rstart, err)
+						r.engine.RecordTraceStep(drainCtx, m, "router", rstart, nil, err)
 						return
 					}
 					targets = t
-					r.engine.RecordTraceStep(drainCtx, m, "router", rstart, nil)
+					r.engine.RecordTraceStep(drainCtx, m, "router", rstart, nil, nil)
 				} else {
 					// Default: route to all sinks
 					targets = make([]RoutedMessage, len(r.engine.sinks))
@@ -421,6 +428,13 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 				}
 
 				if len(targets) == 0 {
+					// Even if filtered, we must acknowledge to prevent re-reading
+					if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
+						_ = r.engine.outboxStore.DeleteOutboxItem(drainCtx, outboxID)
+					} else {
+						_ = r.engine.source.Ack(drainCtx, m)
+					}
+					r.engine.statusTracker.IncProcessed()
 					return
 				}
 
@@ -435,6 +449,7 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 
 					sw := r.engine.sinkWriters[target.SinkIndex]
 					swg.Add(1)
+					target.Message.Retain()
 					pm := acquirePendingMessage(target.Message)
 					go func(sw *sinkWriter, pm *pendingMessage) {
 						defer swg.Done()
@@ -452,6 +467,7 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 				}
 				swg.Wait()
 				close(serrCh)
+				m.Release()
 				for err := range serrCh {
 					if err != nil {
 						r.engine.logger.Error("Sink write error", "workflow_id", r.engine.workflowID, "error", err)
@@ -469,7 +485,7 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 					return
 				}
 
-				MessagesProcessed.WithLabelValues(r.engine.workflowID, r.engine.sourceID).Inc()
+				telemetry.MessagesProcessed.WithLabelValues(r.engine.workflowID, r.engine.sourceID).Inc()
 				r.engine.statusTracker.IncProcessed()
 			}()
 			return nil

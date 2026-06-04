@@ -9,6 +9,9 @@ import (
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/governance"
+	"github.com/user/hermod/pkg/engine/config"
+	"github.com/user/hermod/pkg/engine/source"
+	"github.com/user/hermod/pkg/engine/telemetry"
 	"github.com/user/hermod/pkg/infra/schema"
 	"go.opentelemetry.io/otel"
 )
@@ -22,9 +25,9 @@ type Engine struct {
 	sinks          []hermod.Sink
 	buffer         hermod.Producer // Using Producer as a buffer
 	logger         hermod.Logger
-	config         Config
-	sinkConfigs    []SinkConfig
-	sourceConfig   SourceConfig
+	config         config.Config
+	sinkConfigs    []config.SinkConfig
+	sourceConfig   config.SourceConfig
 	deadLetterSink hermod.Sink
 	router         RouterFunc
 	validator      schema.Validator
@@ -37,10 +40,10 @@ type Engine struct {
 	sinkIDs    []string
 	sinkTypes  []string
 
-	onStatusChange func(StatusUpdate)
+	onStatusChange func(telemetry.StatusUpdate)
 
 	// Internal state tracking (Facade components)
-	statusTracker *StatusTracker
+	statusTracker *telemetry.StatusTracker
 	mu            sync.RWMutex
 	runner        *Runner
 
@@ -70,6 +73,14 @@ type Engine struct {
 	// Failure Simulation
 	failureSimMu sync.RWMutex
 	failUntil    time.Time
+
+	// Safe Mode (divert to DLQ)
+	safeModeMu sync.RWMutex
+	safeMode   bool
+
+	// Node-level backpressure
+	nodeSemsMu sync.RWMutex
+	nodeSems   map[string]chan struct{}
 }
 
 func NewEngine(source hermod.Source, sinks []hermod.Sink, buffer hermod.Producer) *Engine {
@@ -77,9 +88,9 @@ func NewEngine(source hermod.Source, sinks []hermod.Sink, buffer hermod.Producer
 		source:        source,
 		sinks:         sinks,
 		buffer:        buffer,
-		logger:        NewDefaultLogger(),
-		config:        DefaultConfig(),
-		statusTracker: NewStatusTracker(),
+		logger:        telemetry.NewDefaultLogger(),
+		config:        config.DefaultConfig(),
+		statusTracker: telemetry.NewStatusTracker(),
 		dqScorer:      governance.NewScorer(),
 	}
 	// initialize inflight semaphore using configured cap
@@ -94,10 +105,10 @@ func NewEngine(source hermod.Source, sinks []hermod.Sink, buffer hermod.Producer
 }
 
 // SetConfig sets the configuration for the engine.
-func (e *Engine) SetConfig(config Config) {
+func (e *Engine) SetConfig(cfg config.Config) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.config = config
+	e.config = cfg
 
 	// Resize inflight semaphore if empty
 	if e.inFlightSem != nil && len(e.inFlightSem) == 0 {
@@ -109,7 +120,7 @@ func (e *Engine) SetConfig(config Config) {
 	}
 }
 
-func (e *Engine) SetSinkConfigs(configs []SinkConfig) {
+func (e *Engine) SetSinkConfigs(configs []config.SinkConfig) {
 	e.mu.Lock()
 	e.sinkConfigs = configs
 	e.mu.Unlock()
@@ -132,13 +143,13 @@ func (e *Engine) SetSinkConfigs(configs []SinkConfig) {
 	}
 }
 
-func (e *Engine) GetSinkConfigs() []SinkConfig {
+func (e *Engine) GetSinkConfigs() []config.SinkConfig {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.sinkConfigs
 }
 
-func (e *Engine) UpdateSinkConfig(sinkID string, update func(*SinkConfig)) {
+func (e *Engine) UpdateSinkConfig(sinkID string, update func(*config.SinkConfig)) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -167,7 +178,7 @@ func (e *Engine) UpdateSinkConfig(sinkID string, update func(*SinkConfig)) {
 	}
 }
 
-func (e *Engine) SetSourceConfig(cfg SourceConfig) {
+func (e *Engine) SetSourceConfig(cfg config.SourceConfig) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.sourceConfig = cfg
@@ -202,7 +213,7 @@ func (e *Engine) SetTraceRecorder(tr hermod.TraceRecorder) {
 	e.traceRecorder = tr
 }
 
-func (e *Engine) SetOnStatusChange(fn func(StatusUpdate)) {
+func (e *Engine) SetOnStatusChange(fn func(telemetry.StatusUpdate)) {
 	e.onStatusChange = fn
 }
 
@@ -264,12 +275,12 @@ func (e *Engine) DrainDLQ(ctx context.Context) error {
 	defer e.mu.Unlock()
 
 	// Check if already wrapped
-	if _, ok := e.source.(*PrioritySource); ok {
+	if _, ok := e.source.(*source.PrioritySource); ok {
 		e.logger.Info("DLQ Drain requested: Source already prioritized", "workflow_id", e.workflowID)
 		return nil
 	}
 
-	e.source = NewPrioritySource(dlqSource, e.source, e.logger)
+	e.source = source.NewPrioritySource(dlqSource, e.source, e.logger)
 	e.logger.Info("DLQ Drain initiated: PrioritySource active", "workflow_id", e.workflowID)
 	return nil
 }
@@ -296,10 +307,7 @@ func (e *Engine) notifyStatusChange() {
 }
 
 func (e *Engine) recordSourceActivity() {
-	e.statusTracker.mu.Lock()
-	e.statusTracker.lastMsgTime = time.Now()
-	e.statusTracker.mu.Unlock()
-	e.setSourceStatus("running")
+	e.statusTracker.SetSourceStatus("running")
 }
 
 func (e *Engine) redactData(data map[string]any) map[string]any {
@@ -336,10 +344,10 @@ func (e *Engine) LastMsgTime() time.Time {
 }
 
 // GetStatus returns the current status of the engine.
-func (e *Engine) GetStatus() StatusUpdate {
+func (e *Engine) GetStatus() telemetry.StatusUpdate {
 	sourceStatus, sinkStatuses, engineStatus, _, processed, dlq, latency := e.statusTracker.GetStatus()
 
-	update := StatusUpdate{
+	update := telemetry.StatusUpdate{
 		WorkflowID:      e.workflowID,
 		EngineStatus:    engineStatus,
 		SourceStatus:    sourceStatus,
@@ -365,32 +373,22 @@ func (e *Engine) GetStatus() StatusUpdate {
 		}
 	}
 
-	e.statusTracker.mu.RLock()
-	if len(e.statusTracker.nodeMetrics) > 0 {
-		update.NodeMetrics = make(map[string]uint64)
-		for k, v := range e.statusTracker.nodeMetrics {
-			update.NodeMetrics[k] = v
-		}
+	nodeMetrics := e.statusTracker.GetNodeMetrics()
+	if len(nodeMetrics) > 0 {
+		update.NodeMetrics = nodeMetrics
 	}
-	if len(e.statusTracker.nodeErrorMetrics) > 0 {
-		update.NodeErrorMetrics = make(map[string]uint64)
-		for k, v := range e.statusTracker.nodeErrorMetrics {
-			update.NodeErrorMetrics[k] = v
-		}
+	nodeErrorMetrics := e.statusTracker.GetNodeErrorMetrics()
+	if len(nodeErrorMetrics) > 0 {
+		update.NodeErrorMetrics = nodeErrorMetrics
 	}
-	if len(e.statusTracker.nodeSamples) > 0 {
-		update.NodeSamples = make(map[string]any)
-		for k, v := range e.statusTracker.nodeSamples {
-			update.NodeSamples[k] = v
-		}
+	nodeSamples := e.statusTracker.GetNodeSamples()
+	if len(nodeSamples) > 0 {
+		update.NodeSamples = nodeSamples
 	}
-	if len(e.statusTracker.edgeMetrics) > 0 {
-		update.EdgeMetrics = make(map[string]uint64)
-		for k, v := range e.statusTracker.edgeMetrics {
-			update.EdgeMetrics[k] = v
-		}
+	edgeMetrics := e.statusTracker.GetEdgeMetrics()
+	if len(edgeMetrics) > 0 {
+		update.EdgeMetrics = edgeMetrics
 	}
-	e.statusTracker.mu.RUnlock()
 
 	if e.dqScorer != nil {
 		update.AverageDQScore = e.dqScorer.GetAverageScore(e.workflowID) * 100
@@ -440,6 +438,79 @@ func (e *Engine) isFailing() bool {
 	return time.Now().Before(e.failUntil)
 }
 
+func (e *Engine) SetSafeMode(enabled bool) {
+	e.safeModeMu.Lock()
+	defer e.safeModeMu.Unlock()
+	e.safeMode = enabled
+	if enabled {
+		e.logger.Warn("Engine ENTERED SAFE MODE: all traffic diverted to DLQ", "workflow_id", e.workflowID)
+	} else {
+		e.logger.Info("Engine EXITED SAFE MODE", "workflow_id", e.workflowID)
+	}
+}
+
+func (e *Engine) IsSafeMode() bool {
+	e.safeModeMu.RLock()
+	defer e.safeModeMu.RUnlock()
+	return e.safeMode
+}
+
+func (e *Engine) DetectAnomaly(duration time.Duration) bool {
+	avg := e.statusTracker.GetAvgLatency()
+	if avg == 0 {
+		return false
+	}
+	// Anomaly: 5x the average AND at least 500ms (to avoid noise on very fast pipelines)
+	return duration > avg*5 && duration > 500*time.Millisecond
+}
+
+// AcquireNode attempts to acquire a concurrency slot for a specific node.
+// This implements node-level backpressure.
+func (e *Engine) AcquireNode(ctx context.Context, nodeID string) error {
+	e.nodeSemsMu.RLock()
+	sem, ok := e.nodeSems[nodeID]
+	e.nodeSemsMu.RUnlock()
+
+	if !ok {
+		e.nodeSemsMu.Lock()
+		if e.nodeSems == nil {
+			e.nodeSems = make(map[string]chan struct{})
+		}
+		sem, ok = e.nodeSems[nodeID]
+		if !ok {
+			// Default node capacity from config or fallback
+			limit := e.config.MaxInflight / 2
+			if limit < 16 {
+				limit = 16
+			}
+			sem = make(chan struct{}, limit)
+			e.nodeSems[nodeID] = sem
+		}
+		e.nodeSemsMu.Unlock()
+	}
+
+	select {
+	case sem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// ReleaseNode releases a concurrency slot for a specific node.
+func (e *Engine) ReleaseNode(nodeID string) {
+	e.nodeSemsMu.RLock()
+	sem, ok := e.nodeSems[nodeID]
+	e.nodeSemsMu.RUnlock()
+	if ok {
+		select {
+		case <-sem:
+		default:
+			// Should not happen if AcquireNode was called
+		}
+	}
+}
+
 func (e *Engine) SimulateFailure(duration time.Duration) {
 	e.failureSimMu.Lock()
 	defer e.failureSimMu.Unlock()
@@ -454,4 +525,16 @@ func (e *Engine) Checkpoint(ctx context.Context) error {
 		return nil
 	}
 	return e.checkpoint.Checkpoint(ctx)
+}
+
+func (e *Engine) GetConcurrency() int {
+	return e.config.MaxInflight
+}
+
+func (e *Engine) UpdateConcurrency(n int) {
+	if n < 1 {
+		n = 1
+	}
+	e.config.MaxInflight = n
+	e.logger.Info("Engine: concurrency updated", "workflow_id", e.workflowID, "new_concurrency", n)
 }

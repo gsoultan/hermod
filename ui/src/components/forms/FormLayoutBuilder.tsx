@@ -387,7 +387,7 @@ export function FormLayoutBuilder({
             </ScrollArea>
           </Grid.Col>
 
-          <Grid.Col span={7} bg="var(--mantine-color-dark-9)" style={{ position: 'relative' }}>
+          <Grid.Col span={7} bg="var(--mantine-color-body)" style={{ position: 'relative' }}>
             <ScrollArea h="calc(100vh - 104px)" p="xl">
               <Box maw={700} mx="auto">
                 <Paper shadow="md" radius="md" p={0} withBorder mih={600} style={{ backgroundColor: 'var(--mantine-color-body)', overflow: 'hidden' }}>

@@ -7,7 +7,10 @@ This is the frontend for the Hermod data integration platform. It is built with 
 - **Drag-and-Drop Workflow Editor**: Design complex data pipelines visually using React Flow.
 - **Real-time Monitoring**: Monitor message throughput, error rates, and system logs via WebSockets.
 - **Pipeline Health Heatmaps**: Identify bottlenecks instantly with dynamic health-based node styling.
-- **Message Trace Visualization**: Track individual messages through the DAG to see latency and mutations.
+- **Message Trace Visualization & Data Diffs**: Track individual messages through the DAG to see latency and mutations with before/after state snapshots.
+- **Interactive Workflow Debugger**: Real-time interface to pause, step, and inspect live data flows.
+- **AIOps Stability Dashboard**: Monitor AI-driven optimization metrics (throughput, error rate, backpressure) and see automated tuning actions.
+- **Intelligent Alerting**: Global monitoring of data quality drift and system health anomalies.
 - **AI-Powered Editor**: Built-in configuration for AI Enrichment and AI Mapping nodes.
 - **Hermod CLI Support**: Optimized for managing workflows that are exported/imported via the CLI.
 - **Global Schema Registry**: Register and version data contracts (JSON Schema, Avro, Protobuf).

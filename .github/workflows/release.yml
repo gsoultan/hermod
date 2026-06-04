@@ -32,6 +32,15 @@ jobs:
       - name: Build UI
         run: go run cmd/hermod/main.go --build-ui --mode build-only
 
+      - name: Update version in source
+        run: |
+          ./scripts/update-version.sh
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add internal/version/version.go
+          git commit -m "chore: update version to ${{ github.ref_name }}" || echo "No changes to commit"
+          git push origin HEAD:main || echo "Failed to push"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:

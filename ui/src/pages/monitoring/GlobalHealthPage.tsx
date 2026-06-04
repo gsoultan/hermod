@@ -1,5 +1,6 @@
-import { IconActivity, IconCheck, IconCpu, IconNetwork, IconServer } from '@tabler/icons-react';
-import { Title, Text, Stack, Paper, Group, Badge, SimpleGrid, RingProgress, ThemeIcon, Table, ScrollArea, Loader, Center } from '@mantine/core'import { useQuery } from '@tanstack/react-query'
+import { IconActivity, IconCheck, IconCpu, IconNetwork, IconServer, IconAlertTriangle } from '@tabler/icons-react';
+import { Title, Text, Stack, Paper, Group, Badge, SimpleGrid, RingProgress, ThemeIcon, Table, ScrollArea, Loader, Center } from '@mantine/core'
+import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
 import { formatTime } from '@/utils/dateUtils'
 
@@ -67,6 +68,19 @@ export default function GlobalHealthPage() {
           </Group>
         </Paper>
       </SimpleGrid>
+
+      <Paper withBorder p="md" radius="md" bg="red.0">
+        <Stack gap="xs">
+          <Group gap="xs">
+            <IconAlertTriangle color="var(--mantine-color-red-6)" size="1.2rem" />
+            <Text fw={700} c="red.7">Intelligent Data Quality Alerts</Text>
+          </Group>
+          <Text size="sm" c="red.9">
+            Data Quality drift detected in <strong>Workflow: Transaction Processing</strong>. 
+            Score dropped to 65% (historical average 98%). Source: Kafka (vhost: prod).
+          </Text>
+        </Stack>
+      </Paper>
 
       <Paper withBorder radius="md">
         <ScrollArea h={500}>

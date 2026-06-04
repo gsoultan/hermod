@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
+
+	"log"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,8 +19,6 @@ import (
 	"github.com/user/hermod/pkg/comm/message"
 	"github.com/user/hermod/pkg/infra/evaluator"
 	"github.com/user/hermod/pkg/infra/sqlutil"
-	"log"
-	"sync"
 )
 
 // PostgresSink implements the hermod.Sink interface for PostgreSQL.
@@ -677,6 +679,67 @@ func (s *PostgresSink) syncColumns(ctx context.Context, executor interface {
 	return nil
 }
 
+func (s *PostgresSink) convertValue(val any, dataType string) any {
+	if val == nil {
+		return nil
+	}
+
+	dataType = strings.ToUpper(dataType)
+
+	// Handle JSON/JSONB
+	if strings.Contains(dataType, "JSON") {
+		switch v := val.(type) {
+		case string:
+			return v
+		case []byte:
+			return v
+		default:
+			b, err := json.Marshal(v)
+			if err != nil {
+				return val
+			}
+			return string(b)
+		}
+	}
+
+	// Handle UUID
+	if dataType == "UUID" {
+		if str, ok := val.(string); ok {
+			if u, err := uuid.Parse(str); err == nil {
+				return u
+			}
+		}
+	}
+
+	// Basic type conversion from string if needed
+	if str, ok := val.(string); ok {
+		switch {
+		case strings.Contains(dataType, "INT"):
+			if i, err := strconv.ParseInt(str, 10, 64); err == nil {
+				return i
+			}
+		case strings.Contains(dataType, "BOOL"):
+			if b, err := strconv.ParseBool(str); err == nil {
+				return b
+			}
+		case strings.Contains(dataType, "FLOAT") || strings.Contains(dataType, "DOUBLE") || strings.Contains(dataType, "NUMERIC"):
+			if f, err := strconv.ParseFloat(str, 64); err == nil {
+				return f
+			}
+		case strings.Contains(dataType, "TIMESTAMP") || strings.Contains(dataType, "DATE"):
+			// Try common layouts
+			layouts := []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"}
+			for _, layout := range layouts {
+				if t, err := time.Parse(layout, str); err == nil {
+					return t
+				}
+			}
+		}
+	}
+
+	return val
+}
+
 func (s *PostgresSink) upsertMapped(ctx context.Context, executor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }, table string, msg hermod.Message) error {
@@ -697,6 +760,7 @@ func (s *PostgresSink) upsertMapped(ctx context.Context, executor interface {
 	argIdx := 1
 	for _, m := range s.mappings {
 		val := evaluator.GetMsgValByPath(msg, m.SourceField)
+		val = s.convertValue(val, m.DataType)
 
 		if m.IsIdentity && (val == nil || val == "" || val == 0) {
 			continue
@@ -743,6 +807,8 @@ func (s *PostgresSink) insertMapped(ctx context.Context, executor interface {
 	argIdx := 1
 	for _, m := range s.mappings {
 		val := evaluator.GetMsgValByPath(msg, m.SourceField)
+		val = s.convertValue(val, m.DataType)
+
 		if m.IsIdentity && (val == nil || val == "" || val == 0) {
 			continue
 		}
@@ -773,6 +839,8 @@ func (s *PostgresSink) updateMapped(ctx context.Context, executor interface {
 	for _, m := range s.mappings {
 		if !m.IsPrimaryKey {
 			val := evaluator.GetMsgValByPath(msg, m.SourceField)
+			val = s.convertValue(val, m.DataType)
+
 			updates = append(updates, fmt.Sprintf("%s = $%d", m.TargetColumn, argIdx))
 			allArgs = append(allArgs, val)
 			argIdx++
@@ -781,6 +849,8 @@ func (s *PostgresSink) updateMapped(ctx context.Context, executor interface {
 	for _, m := range s.mappings {
 		if m.IsPrimaryKey {
 			val := evaluator.GetMsgValByPath(msg, m.SourceField)
+			val = s.convertValue(val, m.DataType)
+
 			pks = append(pks, fmt.Sprintf("%s = $%d", m.TargetColumn, argIdx))
 			allArgs = append(allArgs, val)
 			argIdx++

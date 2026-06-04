@@ -2,20 +2,13 @@ package autoscaler
 
 import (
 	"context"
-	"fmt"
-	"os/exec"
 	"sync"
 	"time"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
-	pkgengine "github.com/user/hermod/pkg/engine"
+	"github.com/user/hermod/pkg/engine/telemetry"
 )
-
-type WorkerManager interface {
-	ListWorkers(ctx context.Context, filter storage.CommonFilter) ([]storage.Worker, int, error)
-	Scale(ctx context.Context, replicas int) error
-}
 
 type Autoscaler struct {
 	manager WorkerManager
@@ -31,7 +24,7 @@ func NewAutoscaler(s storage.Storage, m WorkerManager) *Autoscaler {
 	return &Autoscaler{
 		manager:  m,
 		storage:  s,
-		logger:   pkgengine.NewDefaultLogger(),
+		logger:   telemetry.NewDefaultLogger(),
 		interval: 30 * time.Second,
 		stop:     make(chan struct{}),
 	}
@@ -71,40 +64,13 @@ func (a *Autoscaler) check() {
 		return
 	}
 
-	var totalCPU, totalMem float64
-	var totalThroughput int
-	activeWf := 0
-	for _, wf := range workflows {
-		if wf.Active {
-			activeWf++
-			totalCPU += wf.CPURequest
-			totalMem += wf.MemoryRequest
-			totalThroughput += wf.ThroughputRequest
-		}
-	}
+	targetReplicas := a.calculateTargetReplicas(workflows)
 
 	// 2. Get current worker count
-	workers, totalWorkers, err := a.manager.ListWorkers(ctx, storage.CommonFilter{})
+	_, totalWorkers, err := a.manager.ListWorkers(ctx, storage.CommonFilter{})
 	if err != nil {
 		a.logger.Error("Autoscaler: failed to list workers", "error", err)
 		return
-	}
-
-	// Calculate current capacity
-	// Assuming each worker has a baseline capacity if not specified
-	const workerCPUCapacity = 2.0    // 2 Cores
-	const workerMemCapacity = 4096.0 // 4GB
-
-	requiredByCPU := int(totalCPU/workerCPUCapacity) + 1
-	requiredByMem := int(totalMem/workerMemCapacity) + 1
-	requiredByThroughput := (totalThroughput / 5000) + 1 // 5k msg/s per worker baseline
-
-	targetReplicas := requiredByCPU
-	if requiredByMem > targetReplicas {
-		targetReplicas = requiredByMem
-	}
-	if requiredByThroughput > targetReplicas {
-		targetReplicas = requiredByThroughput
 	}
 
 	// Min/Max bounds
@@ -116,44 +82,31 @@ func (a *Autoscaler) check() {
 	}
 
 	if targetReplicas != totalWorkers {
-		a.logger.Info("Autoscaler: scaling", "from", totalWorkers, "to", targetReplicas, "cpu", totalCPU, "mem", totalMem, "throughput", totalThroughput)
+		a.logger.Info("Autoscaler: proactive scaling", "from", totalWorkers, "to", targetReplicas)
 		if err := a.manager.Scale(ctx, targetReplicas); err != nil {
 			a.logger.Error("Autoscaler: scale failed", "error", err)
 		}
-	} else {
-		// Log health of existing workers
-		var avgCPU, avgMem float64
-		if totalWorkers > 0 {
-			for _, w := range workers {
-				avgCPU += w.CPUUsage
-				avgMem += w.MemoryUsage
-			}
-			avgCPU /= float64(totalWorkers)
-			avgMem /= float64(totalWorkers)
+	}
+}
+
+func (a *Autoscaler) calculateTargetReplicas(workflows []storage.Workflow) int {
+	var totalCPU, totalMem float64
+	var totalThroughput int
+	for _, wf := range workflows {
+		if wf.Active {
+			// Proactive: Add 20% buffer for growth
+			totalCPU += wf.CPURequest * 1.2
+			totalMem += wf.MemoryRequest * 1.2
+			totalThroughput += int(float64(wf.ThroughputRequest) * 1.2)
 		}
-		a.logger.Debug("Autoscaler: status OK", "replicas", totalWorkers, "avg_cpu", avgCPU, "avg_mem", avgMem)
 	}
-}
 
-// KubernetesWorkerManager implements scaling via kubectl or K8s API
-type KubernetesWorkerManager struct {
-	Namespace  string
-	Deployment string
-	Storage    storage.Storage
-}
+	const workerCPUCapacity = 2.0
+	const workerMemCapacity = 4096.0
 
-func (k *KubernetesWorkerManager) ListWorkers(ctx context.Context, filter storage.CommonFilter) ([]storage.Worker, int, error) {
-	return k.Storage.ListWorkers(ctx, filter)
-}
+	reqByCPU := int(totalCPU/workerCPUCapacity) + 1
+	reqByMem := int(totalMem/workerMemCapacity) + 1
+	reqByThroughput := (totalThroughput / 5000) + 1
 
-func (k *KubernetesWorkerManager) Scale(ctx context.Context, replicas int) error {
-	// In production, use the K8s client-go library.
-	// As a robust alternative for this environment, we call kubectl.
-	cmd := exec.CommandContext(ctx, "kubectl", "scale", "deployment", k.Deployment,
-		"--replicas="+fmt.Sprintf("%d", replicas), "-n", k.Namespace)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("kubectl scale failed: %v, output: %s", err, string(output))
-	}
-	return nil
+	return max(reqByCPU, reqByMem, reqByThroughput)
 }

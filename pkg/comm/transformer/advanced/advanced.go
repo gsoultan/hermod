@@ -1,0 +1,57 @@
+package advanced
+
+import (
+	"context"
+	"github.com/user/hermod/pkg/comm/transformer"
+	"strings"
+
+	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/infra/evaluator"
+)
+
+func init() {
+	adv := &AdvancedTransformer{evaluator: evaluator.NewEvaluator()}
+	transformer.Register("advanced", adv)
+	transformer.Register("set", adv)
+}
+
+type AdvancedTransformer struct {
+	evaluator *evaluator.Evaluator
+}
+
+func (t *AdvancedTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
+	if msg == nil {
+		return nil, nil
+	}
+
+	transType, _ := config["transType"].(string)
+
+	if transType == "advanced" {
+		results := make(map[string]any)
+		for k, v := range config {
+			if !strings.HasPrefix(k, "column.") {
+				continue
+			}
+			colPath := strings.TrimPrefix(k, "column.")
+			result := t.evaluator.EvaluateAdvancedExpression(msg, v)
+			if result != nil {
+				results[colPath] = result
+			}
+		}
+
+		msg.ClearPayloads()
+		for colPath, result := range results {
+			msg.SetData(colPath, result)
+		}
+	} else { // "set"
+		for k, v := range config {
+			if strings.HasPrefix(k, "column.") {
+				colPath := strings.TrimPrefix(k, "column.")
+				result := t.evaluator.EvaluateAdvancedExpression(msg, v)
+				msg.SetData(colPath, result)
+			}
+		}
+	}
+
+	return msg, nil
+}

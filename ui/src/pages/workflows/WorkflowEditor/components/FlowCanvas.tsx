@@ -25,6 +25,11 @@ import {
   RouterNode, 
   MergeNode, 
   StatefulNode, 
+  WaitNode,
+  ForeachNode,
+  LogNode,
+  CollectNode,
+  DeduplicateNode,
   NoteNode 
 } from '../nodes/MiscNodes';
 import { ConditionNode } from '../nodes/ConditionNode';
@@ -41,6 +46,11 @@ const nodeTypes = {
   router: RouterNode,
   merge: MergeNode,
   stateful: StatefulNode,
+  wait: WaitNode,
+  foreach: ForeachNode,
+  log: LogNode,
+  collect: CollectNode,
+  deduplicate: DeduplicateNode,
   note: NoteNode,
 };
 
@@ -107,7 +117,7 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
       snapGrid={[15, 15]}
       fitViewOptions={{ padding: 0.2 }}
     >
-      <Background color={isDark ? 'var(--mantine-color-dark-4)' : '#aaa'} gap={20} />
+      <Background color={isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'} gap={20} />
       <Controls />
       <MiniMap 
         nodeColor={(n) => {
@@ -116,7 +126,7 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
           return 'var(--mantine-color-violet-6)';
         }}
         style={{
-          backgroundColor: isDark ? 'var(--mantine-color-dark-6)' : 'var(--mantine-color-white)',
+          backgroundColor: isDark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-body)',
         }}
       />
     </ReactFlow>

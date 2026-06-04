@@ -9,6 +9,8 @@ import (
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/engine"
+	"github.com/user/hermod/pkg/engine/config"
+	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
 type OptimizerConfig struct {
@@ -18,22 +20,24 @@ type OptimizerConfig struct {
 
 // Optimizer tracks engine metrics and suggests/applies runtime tunings.
 type Optimizer struct {
-	mu       sync.Mutex
-	registry map[string]*engine.Engine
-	logger   hermod.Logger
-	config   OptimizerConfig
-	gate     *SelfCorrectionGate
+	mu          sync.Mutex
+	registry    map[string]*engine.Engine
+	logger      hermod.Logger
+	config      OptimizerConfig
+	gate        *SelfCorrectionGate
+	aiOptimizer AIOptimizer
 }
 
-func NewOptimizer(logger hermod.Logger, notifier func(workflowID, title, message string)) *Optimizer {
+func NewOptimizer(logger hermod.Logger, aiOpt AIOptimizer, notifier func(workflowID, title, message string)) *Optimizer {
 	return &Optimizer{
 		registry: make(map[string]*engine.Engine),
 		logger:   logger,
 		config: OptimizerConfig{
 			OptimizationInterval: 30 * time.Second,
-			EnableAI:             false,
+			EnableAI:             true,
 		},
-		gate: NewSelfCorrectionGate(logger, notifier),
+		gate:        NewSelfCorrectionGate(logger, notifier),
+		aiOptimizer: aiOpt,
 	}
 }
 
@@ -121,7 +125,7 @@ func (o *Optimizer) optimizeEngine(id string, e *engine.Engine) {
 			o.logger.Info("Optimizer: high buffer pressure detected, increasing batch size and concurrency",
 				"workflow_id", id, "sink_id", sinkID, "fill", fmt.Sprintf("%.2f", fill))
 
-			e.UpdateSinkConfig(sinkID, func(cfg *engine.SinkConfig) {
+			e.UpdateSinkConfig(sinkID, func(cfg *config.SinkConfig) {
 				// Increase batch size to handle more volume per request
 				cfg.BatchSize = int(float64(cfg.BatchSize) * 1.2)
 				if cfg.BatchSize > 10000 {
@@ -136,7 +140,7 @@ func (o *Optimizer) optimizeEngine(id string, e *engine.Engine) {
 		} else if fill < 0.1 && status.ProcessedCount > 1000 {
 			// If buffer is very empty and we have processed enough messages (not just starting),
 			// maybe we can reduce batch size to improve latency.
-			e.UpdateSinkConfig(sinkID, func(cfg *engine.SinkConfig) {
+			e.UpdateSinkConfig(sinkID, func(cfg *config.SinkConfig) {
 				if cfg.BatchSize > 10 {
 					cfg.BatchSize = int(float64(cfg.BatchSize) * 0.8)
 					if cfg.BatchSize < 10 {
@@ -158,63 +162,13 @@ func (o *Optimizer) optimizeEngine(id string, e *engine.Engine) {
 	}
 }
 
-func (o *Optimizer) runAIOptimization(id string, e *engine.Engine, status engine.StatusUpdate) {
-	// AI-Driven Pattern Recognition
-	// In a real implementation, this would call an LLM with historical metrics.
-	// Here we implement advanced heuristic logic that simulates AI insights.
-
-	o.logger.Debug("Running AI optimization analysis", "workflow_id", id)
-
-	// Pattern 1: High Latency with Low Throughput (Congestion AI)
-	if status.ProcessedCount > 0 && status.AvgLatency > 500*time.Millisecond {
-		o.logger.Info("AI Insight: Pipeline congestion detected. Increasing parallelism and adjusting backoff.", "workflow_id", id)
-		for sinkID := range status.SinkBufferFill {
-			e.UpdateSinkConfig(sinkID, func(cfg *engine.SinkConfig) {
-				cfg.Concurrency++
-				if cfg.Concurrency > 20 {
-					cfg.Concurrency = 20
-				}
-				// Reduce retry interval slightly to recover faster if destination is just slow but up
-				cfg.RetryInterval = time.Duration(float64(cfg.RetryInterval) * 0.9)
-			})
-		}
+func (o *Optimizer) runAIOptimization(id string, e *engine.Engine, status telemetry.StatusUpdate) {
+	if o.aiOptimizer == nil {
+		return
 	}
-
-	// Pattern 2: Success Rate Decay (Stability AI)
-	successRate := 1.0
-	totalNodes := 0
-	for nodeID, count := range status.NodeMetrics {
-		if count > 0 {
-			totalNodes++
-			errCount := status.NodeErrorMetrics[nodeID]
-			nodeSR := 1.0 - (float64(errCount) / float64(count))
-			if nodeSR < successRate {
-				successRate = nodeSR
-			}
-		}
-	}
-
-	if totalNodes > 0 && successRate < 0.95 {
-		o.logger.Warn("AI Insight: Stability decay detected. Enabling stricter circuit breaking.", "workflow_id", id)
-		for sinkID := range status.SinkStatuses {
-			e.UpdateSinkConfig(sinkID, func(cfg *engine.SinkConfig) {
-				if cfg.CircuitBreakerThreshold > 5 {
-					cfg.CircuitBreakerThreshold = 5 // Tighten threshold
-				}
-				cfg.CircuitBreakerCoolDown *= 2 // Increase cooldown
-			})
-		}
-	}
-
-	// Pattern 3: High Error Rate + High Throughput (Burn AI)
-	if totalNodes > 0 && successRate < 0.7 && status.ProcessedCount > 5000 {
-		o.logger.Error("AI Insight: High-volume failure pattern (Burn). Enabling emergency throttling.", "workflow_id", id)
-		for sinkID := range status.SinkStatuses {
-			e.UpdateSinkConfig(sinkID, func(cfg *engine.SinkConfig) {
-				cfg.Concurrency = 1
-				cfg.BatchSize = 1
-				cfg.RetryInterval = 5 * time.Second // Slow down retries significantly
-			})
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := o.aiOptimizer.Optimize(ctx, id, e, status); err != nil {
+		o.logger.Error("AIOptimization failed", "error", err, "workflow_id", id)
 	}
 }

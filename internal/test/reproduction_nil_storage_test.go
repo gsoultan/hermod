@@ -1,15 +1,15 @@
 package test
 
 import (
-	"github.com/user/hermod/internal/engine/registry"
-	"github.com/user/hermod/internal/factory"
 	"testing"
+
+	"github.com/user/hermod/internal/engine/registry"
 
 	"github.com/user/hermod/internal/storage"
 )
 
 func TestStartWorkflow_NilStorage(t *testing.T) {
-	r := registry.Newregistry.Registry(nil)
+	r := registry.NewRegistry(nil)
 	wf := storage.Workflow{
 		ID: "901ae2bd-6206-4ca1-9ff7-3f055b9e7c9d",
 		Nodes: []storage.WorkflowNode{
@@ -40,7 +40,7 @@ func TestStartWorkflow_NilStorage(t *testing.T) {
 }
 
 func TestRebuildWorkflow_NilStorage(t *testing.T) {
-	r := registry.Newregistry.Registry(nil)
+	r := registry.NewRegistry(nil)
 	err := r.RebuildWorkflow(t.Context(), "wf1", 0)
 	if err == nil {
 		t.Error("Expected error when storage is nil, but got nil")
@@ -53,7 +53,7 @@ func TestRebuildWorkflow_NilStorage(t *testing.T) {
 }
 
 func TestGetOrOpenDBByID_NilStorage(t *testing.T) {
-	r := registry.Newregistry.Registry(nil)
+	r := registry.NewRegistry(nil)
 	_, _, err := r.GetOrOpenDBByID(t.Context(), "src1")
 	if err == nil {
 		t.Error("Expected error when storage is nil, but got nil")
@@ -66,7 +66,7 @@ func TestGetOrOpenDBByID_NilStorage(t *testing.T) {
 }
 
 func TestGetSource_NilStorage(t *testing.T) {
-	r := registry.Newregistry.Registry(nil)
+	r := registry.NewRegistry(nil)
 	_, err := r.GetSource(t.Context(), "src1")
 	if err == nil {
 		t.Error("Expected error when storage is nil, but got nil")

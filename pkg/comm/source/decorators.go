@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/user/hermod"
@@ -51,4 +52,52 @@ func (s *MetricsSource) IsReady(ctx context.Context) error {
 		return rc.IsReady(ctx)
 	}
 	return s.Source.Ping(ctx)
+}
+
+func (s *MetricsSource) DiscoverDatabases(ctx context.Context) ([]string, error) {
+	if d, ok := s.Source.(hermod.Discoverer); ok {
+		return d.DiscoverDatabases(ctx)
+	}
+	return nil, fmt.Errorf("source does not support database discovery")
+}
+
+func (s *MetricsSource) DiscoverTables(ctx context.Context) ([]string, error) {
+	if d, ok := s.Source.(hermod.Discoverer); ok {
+		return d.DiscoverTables(ctx)
+	}
+	return nil, fmt.Errorf("source does not support table discovery")
+}
+
+func (s *MetricsSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
+	if d, ok := s.Source.(hermod.ColumnDiscoverer); ok {
+		return d.DiscoverColumns(ctx, table)
+	}
+	return nil, fmt.Errorf("source does not support column discovery")
+}
+
+func (s *MetricsSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	if sm, ok := s.Source.(hermod.Sampler); ok {
+		return sm.Sample(ctx, table)
+	}
+	return nil, fmt.Errorf("source does not support sampling")
+}
+
+func (s *MetricsSource) Snapshot(ctx context.Context, tables ...string) error {
+	if sn, ok := s.Source.(hermod.Snapshottable); ok {
+		return sn.Snapshot(ctx, tables...)
+	}
+	return fmt.Errorf("source does not support manual snapshots")
+}
+
+func (s *MetricsSource) ExecuteSQL(ctx context.Context, query string) ([]map[string]any, error) {
+	if se, ok := s.Source.(hermod.SQLExecutor); ok {
+		return se.ExecuteSQL(ctx, query)
+	}
+	return nil, fmt.Errorf("%w: source does not support SQL execution", hermod.ErrNotSupported)
+}
+
+func (s *MetricsSource) SetLogger(logger hermod.Logger) {
+	if l, ok := s.Source.(hermod.Loggable); ok {
+		l.SetLogger(logger)
+	}
 }

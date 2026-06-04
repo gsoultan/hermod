@@ -158,5 +158,16 @@ func (r *StorageRegistry) checkJSONCompatibility(oldContent, newContent string) 
 		}
 	}
 
+	// Also check if any fields were removed from properties (if specified)
+	oldProps, _ := oldSchema["properties"].(map[string]any)
+	newProps, _ := newSchema["properties"].(map[string]any)
+	if oldProps != nil && newProps != nil {
+		for k := range oldProps {
+			if _, ok := newProps[k]; !ok {
+				return fmt.Errorf("backward compatibility broken: field '%s' was removed", k)
+			}
+		}
+	}
+
 	return nil
 }

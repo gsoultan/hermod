@@ -224,8 +224,11 @@ func (h *Handler) HandleWSOut(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ping.C:
 			_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
-		case evt := <-ch:
-			if workflowID != "" && !strings.EqualFold(evt.WorkflowID, workflowID) {
+		case evt, ok := <-ch:
+			if !ok {
+				return
+			}
+			if workflowID != "" && !strings.EqualFold(evt.WorkflowID, workflowID) && !strings.EqualFold(evt.WorkflowID, "test") {
 				continue
 			}
 			env := outEnv{

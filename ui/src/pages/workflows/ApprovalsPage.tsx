@@ -16,6 +16,8 @@ type Approval = {
   processed_at?: string
   processed_by?: string
   notes?: string
+  form_definition?: Record<string, any>
+  form_data?: Record<string, any>
   metadata?: Record<string, string>
   data?: Record<string, any>
 }
@@ -58,17 +60,19 @@ export function ApprovalsPage() {
 
   const [details, setDetails] = useState<Approval | null>(null)
   const [notes, setNotes] = useState('')
+  const [formData, setFormData] = useState<Record<string, any>>({})
 
   useEffect(() => {
     setNotes('')
-  }, [details?.id])
+    setFormData(details?.form_data || {})
+  }, [details?.id, details?.form_data])
 
   const approveMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await apiFetch(`/api/approvals/${id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes })
+        body: JSON.stringify({ notes, form_data: formData })
       })
       if (!res.ok) throw new Error('Failed to approve')
     },
@@ -83,7 +87,7 @@ export function ApprovalsPage() {
       const res = await apiFetch(`/api/approvals/${id}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes })
+        body: JSON.stringify({ notes, form_data: formData })
       })
       if (!res.ok) throw new Error('Failed to reject')
     },
@@ -141,7 +145,7 @@ export function ApprovalsPage() {
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
           <Table verticalSpacing="md" horizontalSpacing="xl">
-            <Table.Thead bg="var(--mantine-color-dark-6)">
+            <Table.Thead>
               <Table.Tr>
                 <Table.Th>ID</Table.Th>
                 <Table.Th>Workflow</Table.Th>
@@ -187,6 +191,50 @@ export function ApprovalsPage() {
                 <Text size="xs" fw={800} c="dimmed" mb={4}>Data</Text>
                 <pre style={{ margin: 0, maxHeight: 240, overflow: 'auto' }}>{JSON.stringify(details.data || {}, null, 2)}</pre>
               </Paper>
+
+              {details.form_definition?.fields && (
+                <Paper withBorder p="md" radius="md" bg="var(--mantine-color-gray-0)">
+                  <Text fw={700} size="sm" mb="md">Input Required</Text>
+                  <Stack gap="sm">
+                    {details.form_definition.fields.map((f: any) => (
+                      <Box key={f.name}>
+                        {f.type === 'text' && (
+                          <TextInput 
+                            label={f.label || f.name} 
+                            placeholder={f.placeholder} 
+                            required={f.required}
+                            disabled={details.status !== 'pending'}
+                            value={formData[f.name] || ''}
+                            onChange={(e) => setFormData(prev => ({ ...prev, [f.name]: e.currentTarget.value }))}
+                          />
+                        )}
+                        {f.type === 'textarea' && (
+                          <Textarea 
+                            label={f.label || f.name} 
+                            placeholder={f.placeholder} 
+                            required={f.required}
+                            disabled={details.status !== 'pending'}
+                            value={formData[f.name] || ''}
+                            onChange={(e) => setFormData(prev => ({ ...prev, [f.name]: e.currentTarget.value }))}
+                            autosize minRows={2}
+                          />
+                        )}
+                        {f.type === 'select' && (
+                          <Select 
+                            label={f.label || f.name} 
+                            data={f.options || []}
+                            required={f.required}
+                            disabled={details.status !== 'pending'}
+                            value={formData[f.name] || ''}
+                            onChange={(val) => setFormData(prev => ({ ...prev, [f.name]: val }))}
+                          />
+                        )}
+                      </Box>
+                    ))}
+                  </Stack>
+                </Paper>
+              )}
+
               {details.status === 'pending' ? (
                 <>
                   <Textarea label="Notes (optional)" placeholder="Reason or instructions..." value={notes} onChange={(e)=>setNotes(e.currentTarget.value)} autosize minRows={2} />

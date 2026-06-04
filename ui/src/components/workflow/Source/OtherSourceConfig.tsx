@@ -1,19 +1,16 @@
 import { TextInput, Stack, Group, Select, JsonInput, Text, Divider, Button, Badge, List, Paper, Box, Fieldset, SimpleGrid } from '@mantine/core';
 import { CronInput } from '../../shared/CronInput';
-import { SQLQueryBuilder } from '../../forms/SQLQueryBuilder';
 import { GenerateToken } from '../../shared/GenerateToken';
 import { FormLayoutBuilder, type FormFieldItem } from '../../forms/FormLayoutBuilder';
 import { useState } from 'react';
-import type { Source } from '@/types';
 import { IconLayout } from '@tabler/icons-react';
 interface OtherSourceConfigProps {
   config: Record<string, any>;
   updateConfig: (key: string, value: any) => void;
   sourceType: string;
-  allSources?: Source[];
 }
 
-export function OtherSourceConfig({ config, updateConfig, sourceType, allSources = [] }: OtherSourceConfigProps) {
+export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSourceConfigProps) {
   const [builderOpened, setBuilderOpened] = useState(false);
 
   const formFields: FormFieldItem[] = Array.isArray(config.fields) ? config.fields : [];
@@ -139,60 +136,6 @@ export function OtherSourceConfig({ config, updateConfig, sourceType, allSources
     );
   }
 
-  if (sourceType === 'batch_sql') {
-    return (
-      <Stack gap="md">
-        <Select 
-          label="Database Source" 
-          placeholder="Select source to run queries against"
-          data={allSources
-            .filter((s: Source) => ['postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'sqlite', 'clickhouse'].includes(s.type))
-            .map((s: Source) => ({ value: s.id, label: `${s.name} (${s.type})` }))}
-          value={config.source_id}
-          onChange={(val) => updateConfig('source_id', val || '')}
-          required
-        />
-        <CronInput 
-          label="Cron Schedule" 
-          placeholder="*/5 * * * *" 
-          value={config.cron} 
-          onChange={(val) => updateConfig('cron', val)} 
-          required
-          description="Standard cron expression (e.g. */5 * * * * for every 5 minutes)"
-        />
-        <TextInput 
-          label="Incremental Column" 
-          placeholder="id or created_at" 
-          value={config.incremental_column} 
-          onChange={(e) => updateConfig('incremental_column', e.target.value)} 
-          description="Column used to track progress between runs"
-        />
-        <Stack gap="xs">
-          <Text size="sm" fw={500}>SQL Queries</Text>
-          <Text size="xs" c="dimmed">Use {"{{.last_value}}"} to reference the last seen value from the incremental column.</Text>
-          <JsonInput
-            placeholder='["SELECT * FROM users WHERE id > {{.last_value}}", "SELECT * FROM orders WHERE id > {{.last_value}}"]'
-            value={config.queries}
-            onChange={(val) => updateConfig('queries', val)}
-            minRows={8}
-            autosize
-            maxRows={20}
-            styles={{ input: { fontFamily: 'monospace', fontSize: '13px' } }}
-            formatOnBlur
-          />
-          {config.source_id && (
-            <Stack gap="xs">
-              <Divider label="Test Query" labelPosition="center" />
-              <SQLQueryBuilder 
-                type="source" 
-                config={allSources.find((s: Source) => s.id === config.source_id)?.config || {}} 
-              />
-            </Stack>
-          )}
-        </Stack>
-      </Stack>
-    );
-  }
 
   if (sourceType === 'googlesheets') {
     return (

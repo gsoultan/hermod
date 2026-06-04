@@ -23,9 +23,21 @@ Hermod is built for mission-critical enterprise data workloads, providing robust
 - **Automated PII Scanning**: Built-in `mask` transformation detects and redacts sensitive data (PII/PHI) using a sophisticated regex-based discovery engine.
 - **Audit Logging**: Complete history of administrative changes and system events for security and compliance audits.
 - **Exactly-Once Semantics (EOS)**: Guarantees 100% data consistency using the **Transactional Outbox** pattern for SQL sources, ensuring messages are only acknowledged after successful delivery.
+- **Interactive Workflow Debugger**: Real-time message pausing, stepping, and inspection directly from the UI. Pause messages at any node to inspect payload state and resume processing when ready.
+- **Visual Lineage with Data Diffs**: Enhanced message tracing with "Before and After" snapshots for every transformation node in the DAG. Visually debug exactly how data is mutated at each step.
+- **AIOps & Self-Healing Optimization**: AI-driven performance tuning that automatically adjusts concurrency, batch sizes, and retry policies based on real-time throughput and error patterns.
+- **Intelligent Data Quality Alerts**: Automated detection of data quality drift using the `governance.Scorer`. Alerts trigger when schema adherence or DQ scores drift from historical averages.
+- **Global Mesh Governance**: A full "Control Plane" architecture that allows a central Hermod instance to manage multiple remote clusters, handling cross-region failover and global schema enforcement.
+- **WASM & Blueprint Marketplace**: Discover, version, and share custom WebAssembly transformers and Go-based workflow blueprints via an integrated Marketplace.
+- **Enterprise Connectivity & CDC**: Specialized Change Data Capture (CDC) sources for legacy systems like **Oracle (LogMiner)** and **IBM DB2** to facilitate modernization of legacy environments.
 - **Advanced Database Mapping & Schema Discovery**: Production-ready column mapping for all major databases (**Postgres**, **MySQL**, **MSSQL**, **Oracle**, **Snowflake**, **MongoDB**, etc.). Supports automatic table creation, identity/auto-increment columns, and "Smart Mapping" from both source and sink schemas.
 - **Resource-Aware Sharding**: Advanced worker sharding using Rendezvous hashing weighted by real-time CPU/Memory metrics. Ensures optimal workload distribution and prevents workflow flapping with built-in hysteresis.
-- **AI-Native Transformations**: Integrated "Cognitive ETL" nodes for **AI Enrichment** and **AI Mapping**, supporting OpenAI and local Ollama models.
+- **AI-Native Transformations**: Integrated "Cognitive ETL" nodes for **AI Enrichment** and **AI Mapping**, supporting OpenAI and local Ollama models. Includes **AI Mapping Suggestions** that automatically propose fixes for schema mismatches.
+- **Auto-Parallelization & Node-Level Backpressure**: The engine automatically detects independent branches in your DAG and executes them in parallel. Built-in node-level backpressure ensures that slow sinks or transformations don't block healthy execution paths.
+- **Self-Healing "Safe Mode" & Anomaly Detection**: Automatically detects processing anomalies (e.g., latency spikes) and can enter a "Safe Mode" during critical failures, diverting traffic to a Dead Letter Sink to preserve data and maintain system stability.
+- **Generic Protobuf Source**: A universal source that can dynamically load `.proto` files at runtime, providing type-safe ingestion for any Protobuf-based service without recompilation.
+- **Stateful Windowing**: Support for **Tumbling**, **Sliding**, and **Session** windows in aggregation nodes, enabling complex real-time analytics and time-series processing directly in the pipeline.
+- **Hot-Reloading for Scripts**: Transformation logic in **WASM** or **Lua** can be updated on-the-fly. The engine detects changes and reloads the logic without requiring a workflow restart.
 - **OpenTelemetry (OTLP) Native**: Built-in support for exporting internal traces and metrics to standard enterprise observability stacks via the OTLP protocol.
 - **Enterprise Connectivity**: Native, optimized connectors for high-scale enterprise sinks like **Snowflake**.
 
@@ -266,6 +278,7 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
 - **Logging**: Hermod uses a `Logger` interface and provides a default implementation using `zerolog` for zero-allocation structured logging. You can provide your own implementation via `eng.SetLogger(myLogger)`.
 - **Retries**: The `Engine` automatically retries failed `Sink.Write` operations. Configure this via `eng.SetConfig`.
 - **Health Checks**: Sources and Sinks implement a `Ping` method. The `Engine` performs pre-flight checks using `Ping` before starting.
+- **Startup Resilience**: Hermod is designed to be resilient to initial infrastructure failures. If the primary storage backend is unavailable at startup, the process will continue to run and retry the connection periodically until successful, enabling automatic recovery in orchestrated environments.
 - **Persistence**: For production use cases requiring absolute durability, use the `file_buffer` option. This ensures that even if the process crashes, messages read from the source but not yet written to the sink are persisted on disk.
 - **Graceful Shutdown**: The `Engine.Start` method respects the provided `context.Context`. When the context is cancelled, the engine will stop reading from the source, signal the buffer to close, and wait for all pending messages in the buffer to be written to the sink before exiting. This ensures no data loss during normal shutdown procedures.
 
@@ -281,6 +294,38 @@ You can tune SQLite's busy timeout via an environment variable (milliseconds):
 ```
 HERMOD_SQLITE_BUSY_TIMEOUT_MS=15000
 ```
+
+### Advanced Logic & Control Flow
+
+Hermod provides a suite of advanced nodes for complex data orchestration:
+
+- **Switch Node**: Branching logic based on message content. Supports multiple cases and a default path.
+- **Foreach Node (Fan-out)**: Splits a single message into multiple independent messages based on an array field. Adds `_fanout_group`, `_fanout_index`, and `_fanout_total` metadata.
+- **Collect Node (Fan-in)**: Synchronizes parallel branches from a `Foreach` node. Waits for all items in a group to arrive before emitting a single merged message.
+- **Deduplicate Node**: High-speed, in-memory deduplication using rotating Bloom filters. Prevents processing of duplicate messages within a rolling window.
+- **Wait Node**: Pauses execution for a specified duration (e.g., `10s`, `1h`). Durations > 30s are automatically suspended to the database for reliability.
+- **Approval Node (HITL)**: Halts the workflow and creates a manual approval request. Supports custom form definitions (JSON) that users fill out in the Approvals UI.
+- **Log Node**: Explicitly sends data or fields to the live logging system, helpful for debugging production workflows.
+- **Error Branching**: All nodes support an `error` output branch. If a node fails, the engine automatically routes the message along the `error` edge if configured.
+
+### Execution‑Level Fan‑out (Foreach Node)
+
+Hermod supports an execution‑level Foreach node that splits a single message into multiple independent messages based on an array path in the message data.
+
+- Configure in UI: Add a node of type `Foreach` and set the required "Array Path" (e.g., `items`, `data.rows`).
+- Runtime semantics:
+  - For each element in the array, the engine emits a new message downstream.
+  - Each emitted message includes helper fields in `data`:
+    - `_item`: the current array element
+    - `_index`: the 0‑based index
+  - And correlation metadata for observability/idempotency:
+    - `_fanout_group`: original message ID
+    - `_fanout_index`: current index (string)
+    - `_fanout_total`: total number of items (string)
+- Error handling: If the node fails (e.g., path missing or not an array), the engine routes the message along edges labeled `error` from the Foreach node.
+
+Notes:
+- This Foreach node is different from the legacy data‑level "foreach transformer" which materializes arrays inside a single message. The execution‑level node produces N downstream executions.
 
 Default is 15000 ms. WAL mode and other safe pragmas are enabled by default.
 

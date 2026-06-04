@@ -4,18 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/user/hermod/internal/engine/registry"
-	"github.com/user/hermod/internal/factory"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
-	"github.com/user/hermod/internal/factory"
 	"github.com/user/hermod/pkg/comm/buffer"
 	"github.com/user/hermod/pkg/engine"
+	"github.com/user/hermod/pkg/engine/config"
+	"github.com/user/hermod/pkg/engine/telemetry"
 )
+
+type mockSink struct{}
+
+func (m *mockSink) Write(ctx context.Context, msg hermod.Message) error { return nil }
+func (m *mockSink) Ping(ctx context.Context) error                      { return nil }
+func (m *mockSink) Close() error                                        { return nil }
 
 type hangingSource struct {
 	hermod.Source
@@ -44,7 +48,7 @@ func TestEngineStatusWhenReadHangs(t *testing.T) {
 
 	var status string
 	var statusMu sync.Mutex
-	eng.SetOnStatusChange(func(u engine.StatusUpdate) {
+	eng.SetOnStatusChange(func(u telemetry.StatusUpdate) {
 		statusMu.Lock()
 		status = u.EngineStatus
 		fmt.Printf("Status changed to: %s\n", u.EngineStatus)
@@ -97,14 +101,14 @@ func TestEngineStatusFlickering(t *testing.T) {
 	src := &flickeringSource{readErr: errors.New("read error")}
 	buf := buffer.NewRingBuffer(10)
 	eng := engine.NewEngine(src, []hermod.Sink{&mockSink{}}, buf)
-	eng.SetConfig(engine.Config{
+	eng.SetConfig(config.Config{
 		ReconnectInterval: 10 * time.Millisecond,
 		StatusInterval:    100 * time.Millisecond,
 	})
 
 	statuses := []string{}
 	var statusMu sync.Mutex
-	eng.SetOnStatusChange(func(u engine.StatusUpdate) {
+	eng.SetOnStatusChange(func(u telemetry.StatusUpdate) {
 		statusMu.Lock()
 		statuses = append(statuses, u.EngineStatus)
 		fmt.Printf("Status changed to: %s\n", u.EngineStatus)

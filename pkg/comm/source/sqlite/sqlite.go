@@ -411,3 +411,17 @@ func (s *SQLiteSource) snapshotTable(ctx context.Context, table string) error {
 	}
 	return rows.Err()
 }
+
+func (s *SQLiteSource) ExecuteSQL(ctx context.Context, query string) ([]map[string]any, error) {
+	if s.db == nil {
+		if err := s.init(ctx); err != nil {
+			return nil, err
+		}
+	}
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return sqlutil.ScanRows(rows)
+}

@@ -516,3 +516,15 @@ func (m *MySQLSource) snapshotTable(ctx context.Context, table string) error {
 
 	return rows.Err()
 }
+
+func (m *MySQLSource) ExecuteSQL(ctx context.Context, query string) ([]map[string]any, error) {
+	if err := m.init(ctx); err != nil {
+		return nil, err
+	}
+	rows, err := m.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return sqlutil.ScanRows(rows)
+}

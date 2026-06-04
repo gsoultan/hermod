@@ -17,6 +17,29 @@ import (
 	"github.com/user/hermod/pkg/comm/message"
 )
 
+// validateWorkflow performs lightweight server-side validation for workflow configuration.
+// Keeps UX-first by failing fast with clear messages. Extend as needed for more node types.
+func validateWorkflow(wf storage.Workflow) error {
+	for _, n := range wf.Nodes {
+		// Support both explicit node type and legacy transType config
+		nodeType := n.Type
+		if nodeType == "" {
+			if tt, ok := n.Config["transType"].(string); ok {
+				nodeType = tt
+			}
+		}
+
+		switch nodeType {
+		case "foreach", "fanout":
+			ap, _ := n.Config["arrayPath"].(string)
+			if strings.TrimSpace(ap) == "" {
+				return fmt.Errorf("node %s (foreach) requires non-empty config.arrayPath", n.ID)
+			}
+		}
+	}
+	return nil
+}
+
 func (h *Handler) RegisterWorkflowRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/workflows", h.ListWorkflows)
 	mux.HandleFunc("GET /api/workflows/{id}", h.GetWorkflow)
@@ -80,25 +103,36 @@ func (h *Handler) BatchToggleWorkflows(w http.ResponseWriter, r *http.Request) {
 		wf.Active = req.Active
 		if wf.Active {
 			wf.Status = "Active"
+			// Update DB first to avoid race with worker sync loop
+			if err := h.Storage.UpdateWorkflow(r.Context(), wf); err != nil {
+				results[id] = "Failed to update storage: " + err.Error()
+				continue
+			}
 			if err := h.Registry.StartWorkflow(id, wf); err != nil && !strings.Contains(err.Error(), "already running") {
+				// Rollback
+				wf.Active = false
+				wf.Status = "Error: " + err.Error()
+				_ = h.Storage.UpdateWorkflow(r.Context(), wf)
 				results[id] = "Failed to start: " + err.Error()
 				continue
 			}
 		} else {
+			wf.Active = false
 			wf.Status = "Stopped"
+			// Update DB first
+			if err := h.Storage.UpdateWorkflow(r.Context(), wf); err != nil {
+				results[id] = "Failed to update storage: " + err.Error()
+				continue
+			}
 			_ = h.Registry.StopEngine(id)
 		}
 
-		if err := h.Storage.UpdateWorkflow(r.Context(), wf); err != nil {
-			results[id] = "Failed to update storage: " + err.Error()
-		} else {
-			results[id] = "OK"
-			action := "STOP"
-			if req.Active {
-				action = "START"
-			}
-			h.RecordAuditLog(r, "INFO", "Batch workflow "+wf.Name+" "+action+"ed", action, wf.ID, "", "", nil)
+		results[id] = "OK"
+		action := "STOP"
+		if req.Active {
+			action = "START"
 		}
+		h.RecordAuditLog(r, "INFO", "Batch workflow "+wf.Name+" "+action+"ed", action, wf.ID, "", "", nil)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -562,6 +596,11 @@ func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := validateWorkflow(wf); err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	if err := h.Storage.CreateWorkflow(r.Context(), wf); err != nil {
 		h.JsonError(w, "Failed to create workflow: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -587,6 +626,11 @@ func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	nextVersion := 1
 	if len(versions) > 0 {
 		nextVersion = versions[0].Version + 1
+	}
+
+	if err := validateWorkflow(wf); err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	if err := h.Storage.UpdateWorkflow(r.Context(), wf); err != nil {
@@ -694,16 +738,20 @@ func (h *Handler) ToggleWorkflow(w http.ResponseWriter, r *http.Request) {
 
 		wf.Active = true
 		wf.Status = "Active"
+		if err := h.Storage.UpdateWorkflow(r.Context(), wf); err != nil {
+			h.JsonError(w, "Failed to update workflow: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		action = "START"
 		if err := h.Registry.StartWorkflow(id, wf); err != nil && !strings.Contains(err.Error(), "already running") {
+			// Rollback Active status if start failed
+			wf.Active = false
+			wf.Status = "Error: " + err.Error()
+			_ = h.Storage.UpdateWorkflow(r.Context(), wf)
 			h.JsonError(w, "Failed to start workflow: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-	}
-
-	if err := h.Storage.UpdateWorkflow(r.Context(), wf); err != nil {
-		h.JsonError(w, "Failed to update workflow: "+err.Error(), http.StatusInternalServerError)
-		return
 	}
 
 	h.RecordAuditLog(r, "INFO", "Workflow "+wf.Name+" "+action+"ed", action, wf.ID, "", "", nil)

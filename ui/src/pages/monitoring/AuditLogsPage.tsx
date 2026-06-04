@@ -97,7 +97,7 @@ export function AuditLogsPage() {
 
         <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
           <Table verticalSpacing="sm" highlightOnHover>
-            <Table.Thead bg="var(--mantine-color-dark-6)">
+            <Table.Thead>
               <Table.Tr>
                 <Table.Th style={{ width: 180 }}>Timestamp</Table.Th>
                 <Table.Th style={{ width: 120 }}>User</Table.Th>
@@ -209,7 +209,7 @@ export function AuditLogsPage() {
               <Box>
                 <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} mb={4}>Payload</Text>
                 <ScrollArea h={300} type="always">
-                  <Paper withBorder p="xs" bg="var(--mantine-color-dark-6)">
+                  <Paper withBorder p="xs" bg="var(--mantine-color-default-hover)">
                     <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                       {(() => {
                         try {

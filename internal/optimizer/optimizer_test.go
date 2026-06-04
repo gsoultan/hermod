@@ -8,6 +8,7 @@ import (
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/optimizer"
 	"github.com/user/hermod/pkg/engine"
+	"github.com/user/hermod/pkg/engine/config"
 )
 
 type mockLogger struct{}
@@ -32,12 +33,12 @@ func (m *mockSink) Close() error                                        { return
 
 func TestOptimizer_Heuristics(t *testing.T) {
 	logger := &mockLogger{}
-	opt := optimizer.NewOptimizer(logger, nil)
+	opt := optimizer.NewOptimizer(logger, nil, nil)
 
 	// Create a dummy engine with a sink
 	eng := engine.NewEngine(&mockSource{}, []hermod.Sink{&mockSink{}}, nil)
 	eng.SetIDs("test-wf", "src-1", []string{"sink-1"})
-	eng.SetSinkConfigs([]engine.SinkConfig{
+	eng.SetSinkConfigs([]config.SinkConfig{
 		{
 			BatchSize:    100,
 			BatchTimeout: 100 * time.Millisecond,
@@ -55,7 +56,7 @@ func TestOptimizer_Heuristics(t *testing.T) {
 	// Actually, we can't easily mock the internal buffer fill of sinkWriter from outside without running it.
 	// But we can check if UpdateSinkConfig works as expected when called by optimizer.
 
-	eng.UpdateSinkConfig("sink-1", func(cfg *engine.SinkConfig) {
+	eng.UpdateSinkConfig("sink-1", func(cfg *config.SinkConfig) {
 		cfg.BatchSize = 1000
 	})
 

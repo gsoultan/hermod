@@ -15,9 +15,11 @@ import (
 
 type FixSuggestion struct {
 	Explanation string  `json:"explanation"`
+	Description string  `json:"description,omitempty"`
 	FixAction   string  `json:"fix_action"` // "update_mapping", "add_node", "change_config"
 	ConfigPatch any     `json:"config_patch,omitempty"`
 	Confidence  float64 `json:"confidence"`
+	AutoFixable bool    `json:"auto_fixable"`
 }
 
 type SelfHealingService struct {
@@ -257,4 +259,30 @@ func (s *SelfHealingService) GenerateWorkflow(ctx context.Context, prompt string
 		"nodes": []any{},
 		"edges": []any{},
 	}, nil
+}
+
+// SuggestMapping analyzes source data and a target schema to suggest field mappings.
+func (s *SelfHealingService) SuggestMapping(ctx context.Context, sourceData map[string]any, targetSchema map[string]any) (string, error) {
+	if s.apiKey != "" || strings.HasPrefix(s.model, "ollama") {
+		systemPrompt := "Compare source data and target schema. Suggest field mappings. Return a human-readable list or JSON mapping."
+		userPrompt := fmt.Sprintf("Source Data: %+v\nTarget Schema: %+v", sourceData, targetSchema)
+		content, err := s.callLLM(ctx, systemPrompt, userPrompt)
+		if err == nil {
+			return content, nil
+		}
+	}
+
+	// Heuristic Fallback
+	var suggestions []string
+	for k := range sourceData {
+		for tk := range targetSchema {
+			if strings.EqualFold(k, tk) && k != tk {
+				suggestions = append(suggestions, fmt.Sprintf("Match found: '%s' -> '%s'", k, tk))
+			}
+		}
+	}
+	if len(suggestions) > 0 {
+		return "Suggested Mappings (Heuristic):\n" + strings.Join(suggestions, "\n"), nil
+	}
+	return "No clear mappings found (Heuristic). Please review manually.", nil
 }

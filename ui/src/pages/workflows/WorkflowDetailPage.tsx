@@ -10,7 +10,7 @@ import '@xyflow/react/dist/style.css';
 import { 
   Title, Button, Group, Paper, Stack, Text, Box, Divider, Badge, ScrollArea, Flex,
   ThemeIcon, Table, ActionIcon, Tooltip, Pagination, TextInput, Tabs, Modal, Code,
-  useMantineColorScheme, Grid, Loader, UnstyledButton, Alert
+  useMantineColorScheme, Grid, Loader, UnstyledButton, Alert, SimpleGrid
 } from '@mantine/core';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
@@ -18,7 +18,11 @@ import { apiFetch } from '@/api';
 import { getToken } from '@/auth/storage';
 import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import { formatDateTime } from '@/utils/dateUtils';
-import { IconArrowLeft, IconArrowsExchange, IconChartBar, IconChevronRight, IconCircleCheck, IconCircleX, IconClock, IconEye, IconHistory, IconInfoCircle, IconRefresh, IconRotateDot, IconSearch, IconTerminal2, IconTimeline } from '@tabler/icons-react';
+import { 
+  IconArrowLeft, IconArrowsExchange, IconChartBar, IconChevronRight, IconCircleCheck, IconCircleX, IconClock, IconEye, IconHistory, IconInfoCircle, IconRefresh, IconRotateDot, IconSearch, IconTerminal2, IconTimeline,
+  IconBug, IconBrain, IconActivity
+} from '@tabler/icons-react';
+import { WorkflowDebugger } from './WorkflowDebugger';
 import { DetailFlowCanvas } from './WorkflowEditor/components/DetailFlowCanvas';
 const API_BASE = '/api';
 
@@ -85,6 +89,7 @@ export function WorkflowDetailPage() {
   const [selectedLog, setSelectedLog] = useState<any>(null);
   const [opened, { open, close }] = useDisclosure(false);
   const [realtimeLogs, setRealtimeLogs] = useState<any[]>([]);
+  const [engineStatus, setEngineStatus] = useState<any>(null);
 
   const [nodes, setNodesRaw, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdgesRaw, onEdgesChange] = useEdgesState<Edge>([]);
@@ -170,6 +175,27 @@ export function WorkflowDetailPage() {
 
     return () => ws.close();
   }, [id, activeTab]);
+
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const token = getToken();
+    const tokenParam = token ? `&token=${token}` : '';
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/status?workflow_id=${id}${tokenParam}`;
+    const ws = new WebSocket(wsUrl);
+
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.workflow_id === id || !payload.workflow_id) {
+          setEngineStatus(payload);
+        }
+      } catch (err) {
+        console.error('Failed to parse status update', err);
+      }
+    };
+
+    return () => ws.close();
+  }, [id]);
 
   const logs = useMemo(() => {
     const fetchedLogs = (logsResponse as any)?.data || [];
@@ -295,6 +321,8 @@ export function WorkflowDetailPage() {
               <Tabs.Tab value="traces" leftSection={<IconTimeline size="1rem" />}>Message Traces</Tabs.Tab>
               <Tabs.Tab value="history" leftSection={<IconHistory size="1rem" />}>History</Tabs.Tab>
               <Tabs.Tab value="logs" leftSection={<IconTerminal2 size="1rem" />}>Logs</Tabs.Tab>
+              <Tabs.Tab value="debug" leftSection={<IconBug size="1rem" />}>Debugger</Tabs.Tab>
+              <Tabs.Tab value="opt" leftSection={<IconBrain size="1rem" />}>Optimization</Tabs.Tab>
             </Tabs.List>
 
             <Tabs.Panel value="graph" style={{ flex: 1, position: 'relative' }}>
@@ -395,9 +423,28 @@ export function WorkflowDetailPage() {
                                     </Alert>
                                   )}
                                   
-                                  {step.data && (
+                                  {(step.before || step.after) ? (
+                                    <Grid gap="md">
+                                      <Grid.Col span={{ base: 12, md: 6 }}>
+                                        <Text size="xs" fw={700} mb={4} c="dimmed">INPUT / BEFORE</Text>
+                                        <Paper withBorder p="xs" bg={isDark ? 'dark.8' : 'gray.0'}>
+                                          <ScrollArea h={200}>
+                                            <Code block bg="transparent" style={{ whiteSpace: 'pre' }}>{JSON.stringify(step.before || {}, null, 2)}</Code>
+                                          </ScrollArea>
+                                        </Paper>
+                                      </Grid.Col>
+                                      <Grid.Col span={{ base: 12, md: 6 }}>
+                                        <Text size="xs" fw={700} mb={4} c="dimmed">OUTPUT / AFTER</Text>
+                                        <Paper withBorder p="xs" bg={isDark ? 'dark.8' : 'gray.0'}>
+                                          <ScrollArea h={200}>
+                                            <Code block bg="transparent" style={{ whiteSpace: 'pre' }}>{JSON.stringify(step.after || step.data || {}, null, 2)}</Code>
+                                          </ScrollArea>
+                                        </Paper>
+                                      </Grid.Col>
+                                    </Grid>
+                                  ) : step.data && (
                                     <Box>
-                                      <Text size="xs" fw={700} mb={4} c="dimmed">OUTPUT DATA</Text>
+                                      <Text size="xs" fw={700} mb={4} c="dimmed">DATA</Text>
                                       <Code block>{JSON.stringify(step.data, null, 2)}</Code>
                                     </Box>
                                   )}
@@ -464,6 +511,71 @@ export function WorkflowDetailPage() {
                       </Table.Tbody>
                     </Table>
                   )}
+                </Stack>
+              </ScrollArea>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="debug" style={{ flex: 1, overflow: 'hidden' }}>
+              <WorkflowDebugger workflowId={id} />
+            </Tabs.Panel>
+
+            <Tabs.Panel value="opt" p="md" style={{ flex: 1, overflow: 'hidden' }}>
+              <ScrollArea h="100%">
+                <Stack gap="xl">
+                  <Box>
+                    <Title order={4} mb="xs">AI Stability & Optimization</Title>
+                    <Text size="sm" c="dimmed">Real-time performance metrics and AI-driven runtime tunings.</Text>
+                  </Box>
+
+                  <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
+                    <Paper withBorder p="md" radius="md">
+                      <Text size="xs" c="dimmed" fw={700} tt="uppercase">Throughput</Text>
+                      <Group justify="space-between" align="flex-end" gap={0}>
+                        <Text size="xl" fw={700}>{engineStatus?.throughput?.toFixed(1) || '0.0'} msg/s</Text>
+                        <ThemeIcon color="blue" variant="light"><IconActivity size={16} /></ThemeIcon>
+                      </Group>
+                    </Paper>
+                    <Paper withBorder p="md" radius="md">
+                      <Text size="xs" c="dimmed" fw={700} tt="uppercase">Error Rate</Text>
+                      <Group justify="space-between" align="flex-end" gap={0}>
+                        <Text size="xl" fw={700} color={(engineStatus?.error_rate || 0) > 0.05 ? 'red' : 'inherit'}>
+                          {((engineStatus?.error_rate || 0) * 100).toFixed(2)}%
+                        </Text>
+                        <ThemeIcon color="red" variant="light"><IconCircleX size={16} /></ThemeIcon>
+                      </Group>
+                    </Paper>
+                    <Paper withBorder p="md" radius="md">
+                      <Text size="xs" c="dimmed" fw={700} tt="uppercase">Backpressure</Text>
+                      <Group justify="space-between" align="flex-end" gap={0}>
+                        <Text size="xl" fw={700} color={(engineStatus?.backpressure || 0) > 0.8 ? 'orange' : 'inherit'}>
+                          {((engineStatus?.backpressure || 0) * 100).toFixed(0)}%
+                        </Text>
+                        <ThemeIcon color="orange" variant="light"><IconArrowsExchange size={16} /></ThemeIcon>
+                      </Group>
+                    </Paper>
+                  </SimpleGrid>
+
+                  <Box>
+                    <Title order={5} mb="md">Optimization Log</Title>
+                    <Paper withBorder p="md" bg={isDark ? 'dark.8' : 'gray.0'}>
+                      <Stack gap="xs">
+                        {engineStatus?.backpressure > 0.8 && (
+                          <Alert icon={<IconBrain size={16} />} title="AI Insight: Scaling Required" color="blue">
+                            High backpressure detected. AI Optimizer is increasing concurrency to handle the load.
+                          </Alert>
+                        )}
+                        {engineStatus?.error_rate > 0.05 && (
+                          <Alert icon={<IconBrain size={16} />} title="AI Insight: Stability Issue" color="orange">
+                            High error rate detected. AI is analyzing node failures and suggesting circuit breaker tunings.
+                          </Alert>
+                        )}
+                        {!engineStatus && <Text c="dimmed" size="sm">Waiting for real-time optimization data...</Text>}
+                        {engineStatus && engineStatus.throughput > 0 && (
+                          <Text size="sm" c="green">✓ System performing within optimal parameters.</Text>
+                        )}
+                      </Stack>
+                    </Paper>
+                  </Box>
                 </Stack>
               </ScrollArea>
             </Tabs.Panel>

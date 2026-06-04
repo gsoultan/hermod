@@ -55,7 +55,8 @@ func (h *Handler) GetApproval(w http.ResponseWriter, r *http.Request) {
 }
 
 type decisionBody struct {
-	Notes string `json:"notes"`
+	Notes    string         `json:"notes"`
+	FormData map[string]any `json:"form_data"`
 }
 
 func (h *Handler) ApproveApproval(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +89,7 @@ func (h *Handler) HandleApprovalDecision(w http.ResponseWriter, r *http.Request,
 		processedBy = u.Username
 	}
 
-	if err := h.Storage.UpdateApprovalStatus(r.Context(), id, status, processedBy, body.Notes); err != nil {
+	if err := h.Storage.UpdateApprovalStatus(r.Context(), id, status, processedBy, body.Notes, body.FormData); err != nil {
 		h.JsonError(w, "Failed to update approval: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

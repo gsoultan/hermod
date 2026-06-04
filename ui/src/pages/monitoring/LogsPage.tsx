@@ -149,7 +149,7 @@ export function LogsPage() {
 
         <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
           <Table verticalSpacing="sm" highlightOnHover layout="fixed">
-            <Table.Thead bg="var(--mantine-color-dark-6)">
+            <Table.Thead>
               <Table.Tr>
                 <Table.Th style={{ width: 180 }}>Timestamp</Table.Th>
                 <Table.Th style={{ width: 80 }}>Level</Table.Th>
@@ -265,7 +265,7 @@ export function LogsPage() {
 
             <Box>
               <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} mb={4}>Message</Text>
-              <Paper withBorder p="xs" bg="var(--mantine-color-dark-6)">
+              <Paper withBorder p="xs" bg="var(--mantine-color-default-hover)">
                 <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                   {(() => {
                     try {
@@ -319,7 +319,7 @@ export function LogsPage() {
               <Box style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }} mb={4}>Action Data / Payload</Text>
                 <ScrollArea style={{ flex: 1, minHeight: 0 }} type="always">
-                  <Paper withBorder p="xs" bg="var(--mantine-color-dark-6)">
+                  <Paper withBorder p="xs" bg="var(--mantine-color-default-hover)">
                     <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                       {(() => {
                         try {

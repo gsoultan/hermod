@@ -179,6 +179,11 @@ const (
 	QueryGetApproval          = "GetApproval"
 	QueryUpdateApprovalStatus = "UpdateApprovalStatus"
 	QueryDeleteApproval       = "DeleteApproval"
+
+	QueryInitSuspendedMessagesTable = "InitSuspendedMessagesTable"
+	QueryCreateSuspendedMessage     = "CreateSuspendedMessage"
+	QueryListSuspendedMessages      = "ListSuspendedMessages"
+	QueryDeleteSuspendedMessage     = "DeleteSuspendedMessage"
 )
 
 var commonQueries = map[string]string{
@@ -277,7 +282,9 @@ var commonQueries = map[string]string{
             audit_retention TEXT,
             cpu_request REAL DEFAULT 0,
             memory_request REAL DEFAULT 0,
-            throughput_request INTEGER DEFAULT 0
+            throughput_request INTEGER DEFAULT 0,
+            total_processed BIGINT DEFAULT 0,
+            total_errors BIGINT DEFAULT 0
         )`,
 	QueryInitWorkflowNodeStatesTable: `CREATE TABLE IF NOT EXISTS workflow_node_states (
 			workflow_id TEXT,
@@ -331,7 +338,8 @@ var commonQueries = map[string]string{
 			node_id TEXT NOT NULL,
 			timestamp TIMESTAMP NOT NULL,
 			duration_ms INTEGER,
-			data TEXT,
+			before_data TEXT,
+			after_data TEXT,
 			error TEXT
 		)`,
 	QueryInitWorkflowVersionsTable: `CREATE TABLE IF NOT EXISTS workflow_versions (
@@ -381,18 +389,30 @@ var commonQueries = map[string]string{
             installed_at TIMESTAMP
         )`,
 	QueryInitApprovalsTable: `CREATE TABLE IF NOT EXISTS approvals (
+            id TEXT PRIMARY KEY,
+            workflow_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            payload BLOB,
+            metadata TEXT,
+            data TEXT,
+            form_definition TEXT,
+            form_data TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TIMESTAMP NOT NULL,
+            processed_at TIMESTAMP,
+            processed_by TEXT,
+            notes TEXT
+        )`,
+	QueryInitSuspendedMessagesTable: `CREATE TABLE IF NOT EXISTS suspended_messages (
 			id TEXT PRIMARY KEY,
 			workflow_id TEXT NOT NULL,
 			node_id TEXT NOT NULL,
-			message_id TEXT NOT NULL,
 			payload BLOB,
 			metadata TEXT,
 			data TEXT,
-			status TEXT DEFAULT 'pending',
-			created_at TIMESTAMP NOT NULL,
-			processed_at TIMESTAMP,
-			processed_by TEXT,
-			notes TEXT
+			resume_at TIMESTAMP NOT NULL,
+			created_at TIMESTAMP NOT NULL
 		)`,
 
 	QueryUpdateNodeState: "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES (?, ?, ?) ON CONFLICT(workflow_id, node_id) DO UPDATE SET state = excluded.state",
@@ -431,13 +451,13 @@ var commonQueries = map[string]string{
 	QueryDeleteVHost: "DELETE FROM vhosts WHERE id = ?",
 	QueryGetVHost:    "SELECT id, name, description FROM vhosts WHERE id = ?",
 
-	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request FROM workflows",
+	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors FROM workflows",
 	QueryCountWorkflows:       "SELECT COUNT(*) FROM workflows",
-	QueryCreateWorkflow:       "INSERT INTO workflows (id, name, vhost, active, status, worker_id, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryUpdateWorkflow:       "UPDATE workflows SET name = ?, vhost = ?, active = ?, status = ?, worker_id = ?, nodes = ?, edges = ?, dead_letter_sink_id = ?, prioritize_dlq = ?, max_retries = ?, retry_interval = ?, reconnect_interval = ?, dry_run = ?, schema_type = ?, schema = ?, retention_days = ?, cron = ?, idle_timeout = ?, tier = ?, trace_sample_rate = ?, dlq_threshold = ?, tags = ?, workspace_id = ?, trace_retention = ?, audit_retention = ?, cpu_request = ?, memory_request = ?, throughput_request = ? WHERE id = ?",
+	QueryCreateWorkflow:       "INSERT INTO workflows (id, name, vhost, active, status, worker_id, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryUpdateWorkflow:       "UPDATE workflows SET name = ?, vhost = ?, active = ?, status = ?, worker_id = ?, nodes = ?, edges = ?, dead_letter_sink_id = ?, prioritize_dlq = ?, max_retries = ?, retry_interval = ?, reconnect_interval = ?, dry_run = ?, schema_type = ?, schema = ?, retention_days = ?, cron = ?, idle_timeout = ?, tier = ?, trace_sample_rate = ?, dlq_threshold = ?, tags = ?, workspace_id = ?, trace_retention = ?, audit_retention = ?, cpu_request = ?, memory_request = ?, throughput_request = ?, total_processed = ?, total_errors = ? WHERE id = ?",
 	QueryUpdateWorkflowStatus: "UPDATE workflows SET status = ? WHERE id = ?",
 	QueryDeleteWorkflow:       "DELETE FROM workflows WHERE id = ?",
-	QueryGetWorkflow:          "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request FROM workflows WHERE id = ?",
+	QueryGetWorkflow:          "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors FROM workflows WHERE id = ?",
 	QueryAcquireLease:         "UPDATE workflows SET owner_id = ?, lease_until = ? WHERE id = ? AND (owner_id IS NULL OR lease_until IS NULL OR lease_until < ? OR owner_id = ?)",
 	QueryRenewLease:           "UPDATE workflows SET lease_until = ? WHERE id = ? AND owner_id = ? AND lease_until IS NOT NULL AND lease_until >= ?",
 	QueryReleaseLease:         "UPDATE workflows SET owner_id = NULL, lease_until = NULL WHERE id = ? AND owner_id = ?",
@@ -487,8 +507,8 @@ var commonQueries = map[string]string{
 	QueryGetLatestSchema: "SELECT id, name, version, type, content, created_at FROM schemas WHERE name = ? ORDER BY version DESC LIMIT 1",
 	QueryCreateSchema:    "INSERT INTO schemas (id, name, version, type, content, created_at) VALUES (?, ?, ?, ?, ?, ?)",
 
-	QueryRecordTraceStep:   "INSERT INTO message_trace_steps (id, message_id, workflow_id, node_id, timestamp, duration_ms, data, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryGetMessageTrace:   "SELECT node_id, timestamp, duration_ms, data, error FROM message_trace_steps WHERE workflow_id = ? AND message_id = ? ORDER BY timestamp ASC",
+	QueryRecordTraceStep:   "INSERT INTO message_trace_steps (id, message_id, workflow_id, node_id, timestamp, duration_ms, before_data, after_data, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryGetMessageTrace:   "SELECT node_id, timestamp, duration_ms, before_data, after_data, error FROM message_trace_steps WHERE workflow_id = ? AND message_id = ? ORDER BY timestamp ASC",
 	QueryListMessageTraces: "SELECT DISTINCT message_id, MIN(timestamp) as start_time FROM message_trace_steps WHERE workflow_id = ? GROUP BY message_id ORDER BY start_time DESC LIMIT ?",
 
 	QueryCreateWorkflowVersion: "INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, config, created_at, created_by, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -507,12 +527,15 @@ var commonQueries = map[string]string{
 	QueryUninstallPlugin:  "UPDATE plugins SET installed = FALSE, installed_at = NULL WHERE id = ?",
 
 	// Approvals
-	QueryListApprovals:        "SELECT id, workflow_id, node_id, message_id, payload, metadata, data, status, created_at, processed_at, processed_by, notes FROM approvals",
+	QueryListApprovals:        "SELECT id, workflow_id, node_id, message_id, payload, metadata, data, form_definition, form_data, status, created_at, processed_at, processed_by, notes FROM approvals",
 	QueryCountApprovals:       "SELECT COUNT(*) FROM approvals",
-	QueryCreateApproval:       "INSERT INTO approvals (id, workflow_id, node_id, message_id, payload, metadata, data, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryGetApproval:          "SELECT id, workflow_id, node_id, message_id, payload, metadata, data, status, created_at, processed_at, processed_by, notes FROM approvals WHERE id = ?",
-	QueryUpdateApprovalStatus: "UPDATE approvals SET status = ?, processed_at = ?, processed_by = ?, notes = ? WHERE id = ?",
-	QueryDeleteApproval:       "DELETE FROM approvals WHERE id = ?",
+	QueryCreateApproval:       "INSERT INTO approvals (id, workflow_id, node_id, message_id, payload, metadata, data, form_definition, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryGetApproval:          "SELECT id, workflow_id, node_id, message_id, payload, metadata, data, form_definition, form_data, status, created_at, processed_at, processed_by, notes FROM approvals WHERE id = ?",
+	QueryUpdateApprovalStatus: "UPDATE approvals SET status = ?, processed_at = ?, processed_by = ?, notes = ?, form_data = ? WHERE id = ?",
+	// Suspended Messages
+	QueryCreateSuspendedMessage: "INSERT INTO suspended_messages (id, workflow_id, node_id, payload, metadata, data, resume_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryListSuspendedMessages:  "SELECT id, workflow_id, node_id, payload, metadata, data, resume_at, created_at FROM suspended_messages WHERE resume_at <= ?",
+	QueryDeleteSuspendedMessage: "DELETE FROM suspended_messages WHERE id = ?",
 }
 
 var driverOverrides = map[string]map[string]string{

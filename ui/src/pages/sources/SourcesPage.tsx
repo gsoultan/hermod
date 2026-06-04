@@ -164,7 +164,7 @@ export function SourcesPage() {
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
           <Table verticalSpacing="md" horizontalSpacing="xl">
-          <Table.Thead bg="var(--mantine-color-dark-6)">
+          <Table.Thead>
             <Table.Tr>
               <Table.Th>Name</Table.Th>
               <Table.Th>Type</Table.Th>
@@ -235,9 +235,9 @@ export function SourcesPage() {
                 </Table.Td>
                 <Table.Td>
                   {src.worker_id ? (
-                    <Text size="sm" component="span" px={8} py={2} bg="var(--mantine-color-dark-4)" c="var(--mantine-color-dark-0)" fw={600} style={{ borderRadius: '4px', fontSize: '10px' }}>
+                    <Badge variant="light" color="gray" size="sm">
                       {getWorkerName(src.worker_id)}
-                    </Text>
+                    </Badge>
                   ) : '-'}
                 </Table.Td>
                 <Table.Td>

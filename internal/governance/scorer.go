@@ -28,11 +28,12 @@ type DQResult struct {
 	DriftDetected bool               `json:"drift_detected"`
 }
 
-// Scorer calculates data quality scores for messages.
+// Scorer calculates data quality scores for messages and triggers alerts.
 type Scorer struct {
 	mu           sync.RWMutex
 	history      map[string][]float64
 	historyLimit int
+	notifier     func(workflowID string, title string, message string)
 }
 
 func NewScorer() *Scorer {
@@ -40,6 +41,12 @@ func NewScorer() *Scorer {
 		history:      make(map[string][]float64),
 		historyLimit: 100,
 	}
+}
+
+func (s *Scorer) SetNotifier(fn func(workflowID string, title string, message string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.notifier = fn
 }
 
 // Score calculates a DQ score for a message based on its payload and schema adherence.
@@ -106,11 +113,14 @@ func (s *Scorer) Score(ctx context.Context, workflowID string, msg hermod.Messag
 
 func (s *Scorer) updateHistoryAndCheckDrift(workflowID string, score float64) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
+	notifier := s.notifier
 	h := s.history[workflowID]
+	s.mu.Unlock()
+
 	if len(h) < 10 {
+		s.mu.Lock()
 		s.history[workflowID] = append(h, score)
+		s.mu.Unlock()
 		return false
 	}
 
@@ -125,11 +135,22 @@ func (s *Scorer) updateHistoryAndCheckDrift(workflowID string, score float64) bo
 	// Using a simple 30% threshold for now
 	drift := math.Abs(score-avg) > 0.3
 
+	if drift && notifier != nil {
+		notifier(workflowID, "Data Quality Drift Detected", fmt.Sprintf("Data quality score drifted significantly: current %.2f, historical avg %.2f", score*100, avg*100))
+	}
+
+	if score < 0.5 && notifier != nil {
+		notifier(workflowID, "Critical Data Quality Alert", fmt.Sprintf("Critical data quality drop: %.2f", score*100))
+	}
+
 	// Update history (FIFO)
+	s.mu.Lock()
+	h = s.history[workflowID]
 	if len(h) >= s.historyLimit {
 		h = h[1:]
 	}
 	s.history[workflowID] = append(h, score)
+	s.mu.Unlock()
 
 	return drift
 }

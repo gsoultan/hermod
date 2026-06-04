@@ -142,6 +142,8 @@ type Workflow struct {
 	CPURequest        float64  `json:"cpu_request,omitempty"`
 	MemoryRequest     float64  `json:"memory_request,omitempty"`
 	ThroughputRequest int      `json:"throughput_request,omitempty"`
+	TotalProcessed    uint64   `json:"total_processed,omitempty"`
+	TotalErrors       uint64   `json:"total_errors,omitempty"`
 }
 
 type Workspace struct {
@@ -304,24 +306,37 @@ type LineageEdge struct {
 }
 
 type Approval struct {
-	ID          string            `json:"id"`
-	WorkflowID  string            `json:"workflow_id"`
-	NodeID      string            `json:"node_id"`
-	MessageID   string            `json:"message_id"`
-	Payload     []byte            `json:"payload"`
-	Metadata    map[string]string `json:"metadata"`
-	Data        map[string]any    `json:"data"`
-	Status      string            `json:"status"` // pending, approved, rejected
-	CreatedAt   time.Time         `json:"created_at"`
-	ProcessedAt *time.Time        `json:"processed_at,omitempty"`
-	ProcessedBy string            `json:"processed_by,omitempty"`
-	Notes       string            `json:"notes,omitempty"`
+	ID             string            `json:"id"`
+	WorkflowID     string            `json:"workflow_id"`
+	NodeID         string            `json:"node_id"`
+	MessageID      string            `json:"message_id"`
+	Payload        []byte            `json:"payload"`
+	Metadata       map[string]string `json:"metadata"`
+	Data           map[string]any    `json:"data"`
+	FormDefinition map[string]any    `json:"form_definition,omitempty"`
+	FormData       map[string]any    `json:"form_data,omitempty"`
+	Status         string            `json:"status"` // pending, approved, rejected
+	CreatedAt      time.Time         `json:"created_at"`
+	ProcessedAt    *time.Time        `json:"processed_at,omitempty"`
+	ProcessedBy    string            `json:"processed_by,omitempty"`
+	Notes          string            `json:"notes,omitempty"`
 }
 
 type ApprovalFilter struct {
 	CommonFilter
 	WorkflowID string
 	Status     string
+}
+
+type SuspendedMessage struct {
+	ID         string            `json:"id"`
+	WorkflowID string            `json:"workflow_id"`
+	NodeID     string            `json:"node_id"`
+	Payload    []byte            `json:"payload"`
+	Metadata   map[string]string `json:"metadata"`
+	Data       map[string]any    `json:"data"`
+	ResumeAt   time.Time         `json:"resume_at"`
+	CreatedAt  time.Time         `json:"created_at"`
 }
 
 type Storage interface {
@@ -451,6 +466,11 @@ type Storage interface {
 	ListApprovals(ctx context.Context, filter ApprovalFilter) ([]Approval, int, error)
 	CreateApproval(ctx context.Context, app Approval) error
 	GetApproval(ctx context.Context, id string) (Approval, error)
-	UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string) error
+	UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string, formData map[string]any) error
 	DeleteApproval(ctx context.Context, id string) error
+
+	// Suspended Messages
+	CreateSuspendedMessage(ctx context.Context, m SuspendedMessage) error
+	ListSuspendedMessages(ctx context.Context, workflowID string, before time.Time) ([]SuspendedMessage, error)
+	DeleteSuspendedMessage(ctx context.Context, id string) error
 }

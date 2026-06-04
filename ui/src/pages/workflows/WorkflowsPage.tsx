@@ -280,7 +280,7 @@ export default function WorkflowsPage() {
           </Group>
 
             <Table verticalSpacing="sm">
-              <Table.Thead bg="var(--mantine-color-dark-6)">
+              <Table.Thead>
                 <Table.Tr>
                   <Table.Th style={{ width: 40 }}>
                     <Checkbox 

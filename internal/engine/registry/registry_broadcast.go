@@ -9,20 +9,20 @@ import (
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/comm/message"
-	pkgengine "github.com/user/hermod/pkg/engine"
+	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
 // --- Subscribe / Unsubscribe ---
 
-func (r *Registry) SubscribeStatus() chan pkgengine.StatusUpdate {
+func (r *Registry) SubscribeStatus() chan telemetry.StatusUpdate {
 	r.statusSubsMu.Lock()
 	defer r.statusSubsMu.Unlock()
-	ch := make(chan pkgengine.StatusUpdate, 100)
+	ch := make(chan telemetry.StatusUpdate, 100)
 	r.statusSubs[ch] = true
 	return ch
 }
 
-func (r *Registry) UnsubscribeStatus(ch chan pkgengine.StatusUpdate) {
+func (r *Registry) UnsubscribeStatus(ch chan telemetry.StatusUpdate) {
 	r.statusSubsMu.Lock()
 	defer r.statusSubsMu.Unlock()
 	delete(r.statusSubs, ch)
@@ -74,9 +74,71 @@ func (r *Registry) UnsubscribeLiveMessages(ch chan LiveMessage) {
 	close(ch)
 }
 
+func (r *Registry) SubscribeDebugger(workflowID string) chan DebuggerEvent {
+	r.debuggerSubsMu.Lock()
+	defer r.debuggerSubsMu.Unlock()
+	if r.debuggerSubs == nil {
+		r.debuggerSubs = make(map[string]map[chan DebuggerEvent]bool)
+	}
+	if r.debuggerSubs[workflowID] == nil {
+		r.debuggerSubs[workflowID] = make(map[chan DebuggerEvent]bool)
+	}
+	ch := make(chan DebuggerEvent, 10)
+	r.debuggerSubs[workflowID][ch] = true
+	return ch
+}
+
+func (r *Registry) UnsubscribeDebugger(workflowID string, ch chan DebuggerEvent) {
+	r.debuggerSubsMu.Lock()
+	defer r.debuggerSubsMu.Unlock()
+	if r.debuggerSubs[workflowID] != nil {
+		delete(r.debuggerSubs[workflowID], ch)
+		if len(r.debuggerSubs[workflowID]) == 0 {
+			delete(r.debuggerSubs, workflowID)
+		}
+	}
+	close(ch)
+}
+
+func (r *Registry) DebuggerCommand(workflowID, msgID, action string) {
+	key := workflowID + ":" + msgID
+	r.debugChansMu.Lock()
+	ch, ok := r.debugChans[key]
+	r.debugChansMu.Unlock()
+
+	if ok {
+		select {
+		case ch <- action:
+		default:
+		}
+	}
+}
+
+func (r *Registry) broadcastDebuggerEvent(ev DebuggerEvent) {
+	r.debuggerSubsMu.RLock()
+	subs := r.debuggerSubs[ev.WorkflowID]
+	if len(subs) == 0 {
+		r.debuggerSubsMu.RUnlock()
+		return
+	}
+	// Copy to avoid holding lock while sending
+	chans := make([]chan DebuggerEvent, 0, len(subs))
+	for ch := range subs {
+		chans = append(chans, ch)
+	}
+	r.debuggerSubsMu.RUnlock()
+
+	for _, ch := range chans {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
+}
+
 // --- Broadcast ---
 
-func (r *Registry) BroadcastStatus(update pkgengine.StatusUpdate) {
+func (r *Registry) BroadcastStatus(update telemetry.StatusUpdate) {
 	r.statusSubsMu.Lock()
 	for ch := range r.statusSubs {
 		select {
@@ -241,6 +303,52 @@ func (r *Registry) broadcastLiveMessageFromHermod(workflowID, nodeID string, msg
 		IsError:    isError,
 		Error:      errStr,
 	})
+}
+
+func (r *Registry) isDebuggerAttached(workflowID string) bool {
+	r.debuggerSubsMu.RLock()
+	defer r.debuggerSubsMu.RUnlock()
+	return len(r.debuggerSubs[workflowID]) > 0
+}
+
+func (r *Registry) pauseForDebugger(workflowID, nodeID string, msg hermod.Message) {
+	if msg == nil {
+		return
+	}
+
+	ev := DebuggerEvent{
+		WorkflowID: workflowID,
+		NodeID:     nodeID,
+		MsgID:      msg.ID(),
+		Data:       r.getConsistentData(msg),
+		State:      "paused",
+	}
+	r.broadcastDebuggerEvent(ev)
+
+	key := workflowID + ":" + msg.ID()
+	ch := make(chan string, 1)
+
+	r.debugChansMu.Lock()
+	r.debugChans[key] = ch
+	r.debugChansMu.Unlock()
+
+	defer func() {
+		r.debugChansMu.Lock()
+		delete(r.debugChans, key)
+		r.debugChansMu.Unlock()
+	}()
+
+	select {
+	case action := <-ch:
+		r.broadcastDebuggerEvent(DebuggerEvent{
+			WorkflowID: workflowID,
+			NodeID:     nodeID,
+			MsgID:      msg.ID(),
+			State:      action,
+		})
+	case <-time.After(5 * time.Minute):
+		// Timeout
+	}
 }
 
 func (r *Registry) RecordStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) {

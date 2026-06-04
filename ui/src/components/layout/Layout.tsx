@@ -399,7 +399,7 @@ export function Layout({ children }: LayoutProps) {
       }}
       padding="md"
     >
-      <AppShell.Header withBorder>
+      <AppShell.Header withBorder bg={dark ? 'var(--mantine-color-dark-7)' : 'white'}>
         <Group h="100%" px="lg" justify="space-between">
           <Group gap="xs">
             <Burger opened={mobileOpened} onClick={toggleMobile} hiddenFrom="sm" size="sm" />
@@ -484,7 +484,7 @@ export function Layout({ children }: LayoutProps) {
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="xs" withBorder>
+      <AppShell.Navbar p="xs" withBorder bg={dark ? 'var(--mantine-color-dark-7)' : 'white'}>
         <AppShell.Section grow component={ScrollArea} mx="-xs" px="xs">
           <Stack gap={4} px="sm" pt="md">
             {desktopOpened && (

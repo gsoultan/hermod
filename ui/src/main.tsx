@@ -8,23 +8,25 @@ import App from './App.tsx'
 
 const theme = createTheme({
   primaryColor: 'indigo',
+  defaultRadius: 'md',
   colors: {
     dark: [
-      '#d5d7e0',
-      '#acaebf',
-      '#8c8fa3',
-      '#666980',
-      '#4d4f66',
-      '#34354a',
-      '#18191c', // [6] Surface background
-      '#111111', // [7] App background
-      '#0d0d0d', // [8]
-      '#050505', // [9]
+      '#C1C2C5', // [0]
+      '#A6A7AB', // [1]
+      '#909296', // [2]
+      '#5C5F66', // [3]
+      '#373A40', // [4]
+      '#2C2E33', // [5]
+      '#25262B', // [6] Surface background
+      '#1A1B1E', // [7] App background
+      '#141517', // [8]
+      '#101113', // [9]
     ],
   },
   fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
   headings: {
     fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+    fontWeight: '700',
   },
   components: {
     Button: {
@@ -47,6 +49,27 @@ const theme = createTheme({
       defaultProps: {
         radius: 'md',
         withBorder: true,
+      },
+    },
+    Paper: {
+      defaultProps: {
+        radius: 'md',
+      },
+    },
+    Table: {
+      styles: {
+        thead: {
+          backgroundColor: 'var(--mantine-color-gray-0)',
+          '[data-mantine-color-scheme="dark"] &': {
+            backgroundColor: 'var(--mantine-color-dark-7)',
+          },
+        },
+        th: {
+          borderBottom: '1px solid var(--mantine-color-gray-2)',
+          '[data-mantine-color-scheme="dark"] &': {
+            borderBottom: '1px solid var(--mantine-color-dark-4)',
+          },
+        },
       },
     },
   },

@@ -12,7 +12,7 @@ import (
 
 	"github.com/user/hermod/internal/engine/registry"
 	internal_sql "github.com/user/hermod/internal/storage/sql"
-	pkgengine "github.com/user/hermod/pkg/engine"
+	"github.com/user/hermod/pkg/engine/telemetry"
 	_ "modernc.org/sqlite"
 )
 
@@ -32,7 +32,7 @@ func main() {
 	// Initialize Registry in Edge Mode
 	// (This assumes Registry handles lightweight operation or we can customize it)
 	reg := registry.NewRegistry(store)
-	reg.SetLogger(pkgengine.NewDefaultLogger())
+	reg.SetLogger(telemetry.NewDefaultLogger())
 
 	log.Printf("Hermod Edge Worker Node started with config: %s", *configPath)
 

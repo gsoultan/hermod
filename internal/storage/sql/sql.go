@@ -816,12 +816,14 @@ func (s *sqlStorage) ListUsers(ctx context.Context, filter storage.CommonFilter)
 	users := []storage.User{}
 	for rows.Next() {
 		var user storage.User
-		var vhostsStr string
-		if err := rows.Scan(&user.ID, &user.Username, &user.FullName, &user.Email, &user.Role, &vhostsStr, &user.TwoFactorEnabled); err != nil {
+		var vhostsStr, fullName, email sql.NullString
+		if err := rows.Scan(&user.ID, &user.Username, &fullName, &email, &user.Role, &vhostsStr, &user.TwoFactorEnabled); err != nil {
 			return nil, 0, err
 		}
-		if vhostsStr != "" {
-			if err := json.Unmarshal([]byte(vhostsStr), &user.VHosts); err != nil {
+		user.FullName = fullName.String
+		user.Email = email.String
+		if vhostsStr.Valid && vhostsStr.String != "" {
+			if err := json.Unmarshal([]byte(vhostsStr.String), &user.VHosts); err != nil {
 				return nil, 0, err
 			}
 		}
@@ -862,17 +864,20 @@ func (s *sqlStorage) DeleteUser(ctx context.Context, id string) error {
 
 func (s *sqlStorage) GetUser(ctx context.Context, id string) (storage.User, error) {
 	var user storage.User
-	var vhostsStr string
+	var vhostsStr, fullName, email, secret sql.NullString
 	err := s.queryRow(ctx, s.queries.get(QueryGetUser), id).
-		Scan(&user.ID, &user.Username, &user.Password, &user.FullName, &user.Email, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &user.TwoFactorSecret)
+		Scan(&user.ID, &user.Username, &user.Password, &fullName, &email, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &secret)
 	if err == sql.ErrNoRows {
 		return storage.User{}, storage.ErrNotFound
 	}
 	if err != nil {
 		return storage.User{}, err
 	}
-	if vhostsStr != "" {
-		if err := json.Unmarshal([]byte(vhostsStr), &user.VHosts); err != nil {
+	user.FullName = fullName.String
+	user.Email = email.String
+	user.TwoFactorSecret = secret.String
+	if vhostsStr.Valid && vhostsStr.String != "" {
+		if err := json.Unmarshal([]byte(vhostsStr.String), &user.VHosts); err != nil {
 			return storage.User{}, err
 		}
 	}
@@ -881,17 +886,20 @@ func (s *sqlStorage) GetUser(ctx context.Context, id string) (storage.User, erro
 
 func (s *sqlStorage) GetUserByUsername(ctx context.Context, username string) (storage.User, error) {
 	var user storage.User
-	var vhostsStr string
+	var vhostsStr, fullName, email, secret sql.NullString
 	err := s.queryRow(ctx, s.queries.get(QueryGetUserByUsername), username).
-		Scan(&user.ID, &user.Username, &user.Password, &user.FullName, &user.Email, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &user.TwoFactorSecret)
+		Scan(&user.ID, &user.Username, &user.Password, &fullName, &email, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &secret)
 	if err == sql.ErrNoRows {
 		return storage.User{}, storage.ErrNotFound
 	}
 	if err != nil {
 		return storage.User{}, err
 	}
-	if vhostsStr != "" {
-		if err := json.Unmarshal([]byte(vhostsStr), &user.VHosts); err != nil {
+	user.FullName = fullName.String
+	user.Email = email.String
+	user.TwoFactorSecret = secret.String
+	if vhostsStr.Valid && vhostsStr.String != "" {
+		if err := json.Unmarshal([]byte(vhostsStr.String), &user.VHosts); err != nil {
 			return storage.User{}, err
 		}
 	}
@@ -900,17 +908,20 @@ func (s *sqlStorage) GetUserByUsername(ctx context.Context, username string) (st
 
 func (s *sqlStorage) GetUserByEmail(ctx context.Context, email string) (storage.User, error) {
 	var user storage.User
-	var vhostsStr string
+	var vhostsStr, fullName, emailStr, secret sql.NullString
 	err := s.queryRow(ctx, s.queries.get(QueryGetUserByEmail), email).
-		Scan(&user.ID, &user.Username, &user.Password, &user.FullName, &user.Email, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &user.TwoFactorSecret)
+		Scan(&user.ID, &user.Username, &user.Password, &fullName, &emailStr, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &secret)
 	if err == sql.ErrNoRows {
 		return storage.User{}, storage.ErrNotFound
 	}
 	if err != nil {
 		return storage.User{}, err
 	}
-	if vhostsStr != "" {
-		if err := json.Unmarshal([]byte(vhostsStr), &user.VHosts); err != nil {
+	user.FullName = fullName.String
+	user.Email = emailStr.String
+	user.TwoFactorSecret = secret.String
+	if vhostsStr.Valid && vhostsStr.String != "" {
+		if err := json.Unmarshal([]byte(vhostsStr.String), &user.VHosts); err != nil {
 			return storage.User{}, err
 		}
 	}
@@ -927,9 +938,11 @@ func (s *sqlStorage) ListWorkspaces(ctx context.Context) ([]storage.Workspace, e
 	wss := []storage.Workspace{}
 	for rows.Next() {
 		var ws storage.Workspace
-		if err := rows.Scan(&ws.ID, &ws.Name, &ws.Description, &ws.MaxWorkflows, &ws.MaxCPU, &ws.MaxMemory, &ws.MaxThroughput, &ws.CreatedAt); err != nil {
+		var desc sql.NullString
+		if err := rows.Scan(&ws.ID, &ws.Name, &desc, &ws.MaxWorkflows, &ws.MaxCPU, &ws.MaxMemory, &ws.MaxThroughput, &ws.CreatedAt); err != nil {
 			return nil, err
 		}
+		ws.Description = desc.String
 		wss = append(wss, ws)
 	}
 	return wss, nil
@@ -960,10 +973,15 @@ func (s *sqlStorage) DeleteWorkspace(ctx context.Context, id string) error {
 func (s *sqlStorage) GetWorkspace(ctx context.Context, id string) (storage.Workspace, error) {
 	row := s.db.QueryRowContext(ctx, s.queries.get(QueryGetWorkspace), id)
 	var ws storage.Workspace
-	err := row.Scan(&ws.ID, &ws.Name, &ws.Description, &ws.MaxWorkflows, &ws.MaxCPU, &ws.MaxMemory, &ws.MaxThroughput, &ws.CreatedAt)
+	var desc sql.NullString
+	err := row.Scan(&ws.ID, &ws.Name, &desc, &ws.MaxWorkflows, &ws.MaxCPU, &ws.MaxMemory, &ws.MaxThroughput, &ws.CreatedAt)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return storage.Workspace{}, storage.ErrNotFound
+		}
 		return storage.Workspace{}, err
 	}
+	ws.Description = desc.String
 	return ws, nil
 }
 
@@ -1007,9 +1025,11 @@ func (s *sqlStorage) ListVHosts(ctx context.Context, filter storage.CommonFilter
 	vhosts := []storage.VHost{}
 	for rows.Next() {
 		var vhost storage.VHost
-		if err := rows.Scan(&vhost.ID, &vhost.Name, &vhost.Description); err != nil {
+		var desc sql.NullString
+		if err := rows.Scan(&vhost.ID, &vhost.Name, &desc); err != nil {
 			return nil, 0, err
 		}
+		vhost.Description = desc.String
 		vhosts = append(vhosts, vhost)
 	}
 	return vhosts, total, nil
@@ -1028,14 +1048,16 @@ func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 
 func (s *sqlStorage) GetVHost(ctx context.Context, id string) (storage.VHost, error) {
 	var vhost storage.VHost
+	var desc sql.NullString
 	err := s.queryRow(ctx, s.queries.get(QueryGetVHost), id).
-		Scan(&vhost.ID, &vhost.Name, &vhost.Description)
+		Scan(&vhost.ID, &vhost.Name, &desc)
 	if err == sql.ErrNoRows {
 		return storage.VHost{}, storage.ErrNotFound
 	}
 	if err != nil {
 		return storage.VHost{}, err
 	}
+	vhost.Description = desc.String
 	return vhost, nil
 }
 
@@ -1113,8 +1135,8 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		var schemaType, schema, cron, idleTimeout, tier, workspaceID, traceRetention, auditRetention sql.NullString
 		var traceSampleRate sql.NullFloat64
 		var cpuReq, memReq sql.NullFloat64
-		var throughputReq sql.NullInt64
-		if err := rows.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq); err != nil {
+		var throughputReq, totalProcessed, totalErrors sql.NullInt64
+		if err := rows.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors); err != nil {
 			return nil, 0, err
 		}
 		if cpuReq.Valid {
@@ -1125,6 +1147,12 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		}
 		if throughputReq.Valid {
 			wf.ThroughputRequest = int(throughputReq.Int64)
+		}
+		if totalProcessed.Valid {
+			wf.TotalProcessed = uint64(totalProcessed.Int64)
+		}
+		if totalErrors.Valid {
+			wf.TotalErrors = uint64(totalErrors.Int64)
 		}
 		if traceRetention.Valid {
 			wf.TraceRetention = traceRetention.String
@@ -1209,7 +1237,7 @@ func (s *sqlStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) er
 	exec := func() error {
 		_, e := s.exec(ctx,
 			s.queries.get(QueryCreateWorkflow),
-			wf.ID, wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest,
+			wf.ID, wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors,
 		)
 		return e
 	}
@@ -1224,7 +1252,7 @@ func (s *sqlStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) er
 	exec := func() error {
 		_, e := s.exec(ctx,
 			s.queries.get(QueryUpdateWorkflow),
-			wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.ID,
+			wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.ID,
 		)
 		return e
 	}
@@ -1259,8 +1287,8 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	var schemaType, schema, cron, idleTimeout, tier, workspaceID, traceRetention, auditRetention sql.NullString
 	var traceSampleRate sql.NullFloat64
 	var cpuReq, memReq sql.NullFloat64
-	var throughputReq sql.NullInt64
-	if err := row.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq); err != nil {
+	var throughputReq, totalProcessed, totalErrors sql.NullInt64
+	if err := row.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors); err != nil {
 		if err == sql.ErrNoRows {
 			return storage.Workflow{}, storage.ErrNotFound
 		}
@@ -1274,6 +1302,12 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	}
 	if throughputReq.Valid {
 		wf.ThroughputRequest = int(throughputReq.Int64)
+	}
+	if totalProcessed.Valid {
+		wf.TotalProcessed = uint64(totalProcessed.Int64)
+	}
+	if totalErrors.Valid {
+		wf.TotalErrors = uint64(totalErrors.Int64)
 	}
 	if traceRetention.Valid {
 		wf.TraceRetention = traceRetention.String
@@ -1751,12 +1785,12 @@ func (s *sqlStorage) PurgeLogs(ctx context.Context, before time.Time) error {
 }
 
 func (s *sqlStorage) GetSetting(ctx context.Context, key string) (string, error) {
-	var value string
+	var value sql.NullString
 	err := s.queryRow(ctx, s.queries.get(QueryGetSetting), key).Scan(&value)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
-	return value, err
+	return value.String, err
 }
 
 func (s *sqlStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
@@ -1780,14 +1814,17 @@ func (s *sqlStorage) GetNodeStates(ctx context.Context, workflowID string) (map[
 
 	states := make(map[string]any)
 	for rows.Next() {
-		var nodeID, stateJSON string
+		var nodeID string
+		var stateJSON sql.NullString
 		if err := rows.Scan(&nodeID, &stateJSON); err != nil {
 			return nil, err
 		}
 
 		var state any
-		if err := json.Unmarshal([]byte(stateJSON), &state); err != nil {
-			return nil, err
+		if stateJSON.Valid && stateJSON.String != "" {
+			if err := json.Unmarshal([]byte(stateJSON.String), &state); err != nil {
+				return nil, err
+			}
 		}
 		states[nodeID] = state
 	}
@@ -2183,11 +2220,12 @@ func (s *sqlStorage) CreateSchema(ctx context.Context, sc storage.Schema) error 
 
 func (s *sqlStorage) RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error {
 	id := uuid.New().String()
-	dataBytes, _ := json.Marshal(step.Data)
+	beforeBytes, _ := json.Marshal(step.Before)
+	afterBytes, _ := json.Marshal(step.After)
 
 	exec := func() error {
 		_, err := s.exec(ctx, s.queries.get(QueryRecordTraceStep),
-			id, messageID, workflowID, step.NodeID, step.Timestamp, step.Duration.Milliseconds(), string(dataBytes), step.Error)
+			id, messageID, workflowID, step.NodeID, step.Timestamp, step.Duration.Milliseconds(), string(beforeBytes), string(afterBytes), step.Error)
 		return err
 	}
 	return s.execWithRetry(ctx, exec)
@@ -2206,14 +2244,20 @@ func (s *sqlStorage) GetMessageTrace(ctx context.Context, workflowID, messageID 
 
 	for rows.Next() {
 		var step hermod.TraceStep
-		var dataStr string
-		var durationMs int64
-		if err := rows.Scan(&step.NodeID, &step.Timestamp, &durationMs, &dataStr, &step.Error); err != nil {
+		var beforeStr, afterStr, errorStr sql.NullString
+		var durationMs sql.NullInt64
+		if err := rows.Scan(&step.NodeID, &step.Timestamp, &durationMs, &beforeStr, &afterStr, &errorStr); err != nil {
 			return storage.MessageTrace{}, err
 		}
-		step.Duration = time.Duration(durationMs) * time.Millisecond
-		if dataStr != "" {
-			_ = json.Unmarshal([]byte(dataStr), &step.Data)
+		if durationMs.Valid {
+			step.Duration = time.Duration(durationMs.Int64) * time.Millisecond
+		}
+		step.Error = errorStr.String
+		if beforeStr.Valid && beforeStr.String != "" {
+			_ = json.Unmarshal([]byte(beforeStr.String), &step.Before)
+		}
+		if afterStr.Valid && afterStr.String != "" {
+			_ = json.Unmarshal([]byte(afterStr.String), &step.After)
 		}
 		tr.Steps = append(tr.Steps, step)
 	}
@@ -2271,15 +2315,18 @@ func (s *sqlStorage) ListWorkflowVersions(ctx context.Context, workflowID string
 	versions := []storage.WorkflowVersion{}
 	for rows.Next() {
 		var v storage.WorkflowVersion
-		var nodesStr, edgesStr string
-		if err := rows.Scan(&v.ID, &v.WorkflowID, &v.Version, &nodesStr, &edgesStr, &v.Config, &v.CreatedAt, &v.CreatedBy, &v.Message); err != nil {
+		var nodesStr, edgesStr, configStr, createdBy, message sql.NullString
+		if err := rows.Scan(&v.ID, &v.WorkflowID, &v.Version, &nodesStr, &edgesStr, &configStr, &v.CreatedAt, &createdBy, &message); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal([]byte(nodesStr), &v.Nodes); err != nil {
-			return nil, err
+		v.Config = configStr.String
+		v.CreatedBy = createdBy.String
+		v.Message = message.String
+		if nodesStr.Valid && nodesStr.String != "" {
+			_ = json.Unmarshal([]byte(nodesStr.String), &v.Nodes)
 		}
-		if err := json.Unmarshal([]byte(edgesStr), &v.Edges); err != nil {
-			return nil, err
+		if edgesStr.Valid && edgesStr.String != "" {
+			_ = json.Unmarshal([]byte(edgesStr.String), &v.Edges)
 		}
 		versions = append(versions, v)
 	}
@@ -2288,20 +2335,23 @@ func (s *sqlStorage) ListWorkflowVersions(ctx context.Context, workflowID string
 
 func (s *sqlStorage) GetWorkflowVersion(ctx context.Context, workflowID string, version int) (storage.WorkflowVersion, error) {
 	var v storage.WorkflowVersion
-	var nodesStr, edgesStr string
+	var nodesStr, edgesStr, configStr, createdBy, message sql.NullString
 	err := s.queryRow(ctx, s.queries.get(QueryGetWorkflowVersion), workflowID, version).Scan(
-		&v.ID, &v.WorkflowID, &v.Version, &nodesStr, &edgesStr, &v.Config, &v.CreatedAt, &v.CreatedBy, &v.Message)
+		&v.ID, &v.WorkflowID, &v.Version, &nodesStr, &edgesStr, &configStr, &v.CreatedAt, &createdBy, &message)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return v, storage.ErrNotFound
 		}
 		return v, err
 	}
-	if err := json.Unmarshal([]byte(nodesStr), &v.Nodes); err != nil {
-		return v, err
+	v.Config = configStr.String
+	v.CreatedBy = createdBy.String
+	v.Message = message.String
+	if nodesStr.Valid && nodesStr.String != "" {
+		_ = json.Unmarshal([]byte(nodesStr.String), &v.Nodes)
 	}
-	if err := json.Unmarshal([]byte(edgesStr), &v.Edges); err != nil {
-		return v, err
+	if edgesStr.Valid && edgesStr.String != "" {
+		_ = json.Unmarshal([]byte(edgesStr.String), &v.Edges)
 	}
 	return v, nil
 }
@@ -2524,15 +2574,25 @@ func (s *sqlStorage) ListApprovals(ctx context.Context, filter storage.ApprovalF
 	var approvals []storage.Approval
 	for rows.Next() {
 		var a storage.Approval
-		var metadata, data string
+		var metadata, data, formDefinition, formData sql.NullString
 		var processedAt sql.NullTime
 		var processedBy, notes sql.NullString
-		err := rows.Scan(&a.ID, &a.WorkflowID, &a.NodeID, &a.MessageID, &a.Payload, &metadata, &data, &a.Status, &a.CreatedAt, &processedAt, &processedBy, &notes)
+		err := rows.Scan(&a.ID, &a.WorkflowID, &a.NodeID, &a.MessageID, &a.Payload, &metadata, &data, &formDefinition, &formData, &a.Status, &a.CreatedAt, &processedAt, &processedBy, &notes)
 		if err != nil {
 			return nil, 0, err
 		}
-		_ = json.Unmarshal([]byte(metadata), &a.Metadata)
-		_ = json.Unmarshal([]byte(data), &a.Data)
+		if metadata.Valid {
+			_ = json.Unmarshal([]byte(metadata.String), &a.Metadata)
+		}
+		if data.Valid {
+			_ = json.Unmarshal([]byte(data.String), &a.Data)
+		}
+		if formDefinition.Valid {
+			_ = json.Unmarshal([]byte(formDefinition.String), &a.FormDefinition)
+		}
+		if formData.Valid {
+			_ = json.Unmarshal([]byte(formData.String), &a.FormData)
+		}
 		if processedAt.Valid {
 			a.ProcessedAt = &processedAt.Time
 		}
@@ -2546,10 +2606,11 @@ func (s *sqlStorage) ListApprovals(ctx context.Context, filter storage.ApprovalF
 func (s *sqlStorage) CreateApproval(ctx context.Context, app storage.Approval) error {
 	metadata, _ := json.Marshal(app.Metadata)
 	data, _ := json.Marshal(app.Data)
+	formDefinition, _ := json.Marshal(app.FormDefinition)
 
 	exec := func() error {
 		_, err := s.exec(ctx, s.queries.get(QueryCreateApproval),
-			app.ID, app.WorkflowID, app.NodeID, app.MessageID, app.Payload, string(metadata), string(data), app.Status, app.CreatedAt)
+			app.ID, app.WorkflowID, app.NodeID, app.MessageID, app.Payload, string(metadata), string(data), string(formDefinition), app.Status, app.CreatedAt)
 		return err
 	}
 	return s.execWithRetry(ctx, exec)
@@ -2557,19 +2618,29 @@ func (s *sqlStorage) CreateApproval(ctx context.Context, app storage.Approval) e
 
 func (s *sqlStorage) GetApproval(ctx context.Context, id string) (storage.Approval, error) {
 	var a storage.Approval
-	var metadata, data string
+	var metadata, data, formDefinition, formData sql.NullString
 	var processedAt sql.NullTime
 	var processedBy, notes sql.NullString
 	err := s.queryRow(ctx, s.queries.get(QueryGetApproval), id).Scan(
-		&a.ID, &a.WorkflowID, &a.NodeID, &a.MessageID, &a.Payload, &metadata, &data, &a.Status, &a.CreatedAt, &processedAt, &processedBy, &notes)
+		&a.ID, &a.WorkflowID, &a.NodeID, &a.MessageID, &a.Payload, &metadata, &data, &formDefinition, &formData, &a.Status, &a.CreatedAt, &processedAt, &processedBy, &notes)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return a, storage.ErrNotFound
 		}
 		return a, err
 	}
-	_ = json.Unmarshal([]byte(metadata), &a.Metadata)
-	_ = json.Unmarshal([]byte(data), &a.Data)
+	if metadata.Valid {
+		_ = json.Unmarshal([]byte(metadata.String), &a.Metadata)
+	}
+	if data.Valid {
+		_ = json.Unmarshal([]byte(data.String), &a.Data)
+	}
+	if formDefinition.Valid {
+		_ = json.Unmarshal([]byte(formDefinition.String), &a.FormDefinition)
+	}
+	if formData.Valid {
+		_ = json.Unmarshal([]byte(formData.String), &a.FormData)
+	}
 	if processedAt.Valid {
 		a.ProcessedAt = &processedAt.Time
 	}
@@ -2578,9 +2649,66 @@ func (s *sqlStorage) GetApproval(ctx context.Context, id string) (storage.Approv
 	return a, nil
 }
 
-func (s *sqlStorage) UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string) error {
+func (s *sqlStorage) CreateSuspendedMessage(ctx context.Context, m storage.SuspendedMessage) error {
+	metadata, _ := json.Marshal(m.Metadata)
+	data, _ := json.Marshal(m.Data)
+
 	exec := func() error {
-		res, err := s.exec(ctx, s.queries.get(QueryUpdateApprovalStatus), status, time.Now(), processedBy, notes, id)
+		_, err := s.exec(ctx, s.queries.get(QueryCreateSuspendedMessage),
+			m.ID, m.WorkflowID, m.NodeID, m.Payload, string(metadata), string(data), m.ResumeAt, m.CreatedAt)
+		return err
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) ListSuspendedMessages(ctx context.Context, workflowID string, before time.Time) ([]storage.SuspendedMessage, error) {
+	var query string
+	var args []any
+	if workflowID != "" {
+		query = s.queries.get(QueryListSuspendedMessages) + " AND workflow_id = ?"
+		args = []any{before, workflowID}
+	} else {
+		query = s.queries.get(QueryListSuspendedMessages)
+		args = []any{before}
+	}
+
+	rows, err := s.query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []storage.SuspendedMessage
+	for rows.Next() {
+		var m storage.SuspendedMessage
+		var metadata, data sql.NullString
+		err := rows.Scan(&m.ID, &m.WorkflowID, &m.NodeID, &m.Payload, &metadata, &data, &m.ResumeAt, &m.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		if metadata.Valid {
+			_ = json.Unmarshal([]byte(metadata.String), &m.Metadata)
+		}
+		if data.Valid {
+			_ = json.Unmarshal([]byte(data.String), &m.Data)
+		}
+		results = append(results, m)
+	}
+	return results, nil
+}
+
+func (s *sqlStorage) DeleteSuspendedMessage(ctx context.Context, id string) error {
+	exec := func() error {
+		_, err := s.exec(ctx, s.queries.get(QueryDeleteSuspendedMessage), id)
+		return err
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string, formData map[string]any) error {
+	formDataBytes, _ := json.Marshal(formData)
+	exec := func() error {
+		res, err := s.exec(ctx, s.queries.get(QueryUpdateApprovalStatus), status, time.Now(), processedBy, notes, string(formDataBytes), id)
 		if err != nil {
 			return err
 		}

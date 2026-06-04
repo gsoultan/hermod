@@ -1074,3 +1074,38 @@ func (p *PostgresSource) snapshotTable(ctx context.Context, table string) error 
 
 	return rows.Err()
 }
+
+func (p *PostgresSource) ExecuteSQL(ctx context.Context, query string) ([]map[string]any, error) {
+	if err := p.ensureConn(ctx); err != nil {
+		return nil, err
+	}
+
+	p.mu.Lock()
+	rows, err := p.conn.Query(ctx, query)
+	p.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	fields := rows.FieldDescriptions()
+	var results []map[string]any
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return nil, err
+		}
+
+		record := make(map[string]any)
+		for i, field := range fields {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				record[field.Name] = string(b)
+			} else {
+				record[field.Name] = val
+			}
+		}
+		results = append(results, record)
+	}
+	return results, nil
+}

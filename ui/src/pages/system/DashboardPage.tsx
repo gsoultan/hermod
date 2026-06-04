@@ -158,9 +158,16 @@ export function DashboardPage() {
         const timeDiff = (now - lastStatsRef.current.time) / 1000;
         const countDiff = data.total_processed - lastStatsRef.current.count;
         
+        // Skip calculation if we just started or if count dropped (engine restart)
+        if (lastStatsRef.current.count === 0 || countDiff < 0) {
+            lastStatsRef.current = { time: now, count: data.total_processed };
+            return;
+        }
+        
         if (timeDiff >= 1) {
-            const currentMps = Math.max(0, Math.round(countDiff / timeDiff));
-            setMps(currentMps);
+            const currentMps = Math.max(0, countDiff / timeDiff);
+            const roundedMps = currentMps > 10 ? Math.round(currentMps) : Number(currentMps.toFixed(1));
+            setMps(roundedMps);
             setMpsHistory(prev => [...prev.slice(1), currentMps]);
             lastStatsRef.current = { time: now, count: data.total_processed };
         }
@@ -204,7 +211,7 @@ export function DashboardPage() {
   const formatNumber = (num: number) => {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toString();
+    return num.toLocaleString();
   };
 
   const renderWidget = (id: string) => {
@@ -259,7 +266,7 @@ export function DashboardPage() {
                 <Text fw={700} size="sm">Real-time Throughput</Text>
                 <Text size="xs" c="dimmed">Messages per second (MPS)</Text>
               </div>
-              <Badge variant="filled" color="indigo" size="lg" radius="sm">{mps} MPS</Badge>
+              <Badge variant="filled" color="indigo" size="lg" radius="sm">{mps.toLocaleString()} MPS</Badge>
             </Group>
             <Box mt="auto" pt="xl">
               <ThroughputChart data={mpsHistory} />

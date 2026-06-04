@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 	"github.com/user/hermod"
@@ -106,6 +107,7 @@ type DefaultMessage struct {
 	payload   []byte
 	metadata  map[string]string
 	data      map[string]any
+	refCount  int32
 }
 
 func (m *DefaultMessage) ID() string {
@@ -272,6 +274,16 @@ func (m *DefaultMessage) MarshalJSON() ([]byte, error) {
 	return json.Marshal(res)
 }
 
+func (m *DefaultMessage) Release() {
+	if atomic.AddInt32(&m.refCount, -1) == 0 {
+		ReleaseMessage(m)
+	}
+}
+
+func (m *DefaultMessage) Retain() {
+	atomic.AddInt32(&m.refCount, 1)
+}
+
 // Reset clears the message state so it can be reused.
 func (m *DefaultMessage) Reset() {
 	m.mu.Lock()
@@ -316,7 +328,9 @@ var messagePool = sync.Pool{
 
 // AcquireMessage gets a message from the pool.
 func AcquireMessage() *DefaultMessage {
-	return messagePool.Get().(*DefaultMessage)
+	m := messagePool.Get().(*DefaultMessage)
+	atomic.StoreInt32(&m.refCount, 1)
+	return m
 }
 
 // ReleaseMessage returns a message to the pool.

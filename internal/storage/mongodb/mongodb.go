@@ -118,13 +118,14 @@ func (s *mongoStorage) GetApproval(ctx context.Context, id string) (storage.Appr
 	return a, err
 }
 
-func (s *mongoStorage) UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string) error {
+func (s *mongoStorage) UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string, formData map[string]any) error {
 	upd := bson.M{
 		"$set": bson.M{
 			"status":       status,
 			"processed_at": time.Now(),
 			"processed_by": processedBy,
 			"notes":        notes,
+			"form_data":    formData,
 		},
 	}
 	res, err := s.db.Collection("approvals").UpdateOne(ctx, bson.M{"id": id}, upd)
@@ -135,6 +136,33 @@ func (s *mongoStorage) UpdateApprovalStatus(ctx context.Context, id string, stat
 		return storage.ErrNotFound
 	}
 	return nil
+}
+
+func (s *mongoStorage) CreateSuspendedMessage(ctx context.Context, m storage.SuspendedMessage) error {
+	_, err := s.db.Collection("suspended_messages").InsertOne(ctx, m)
+	return err
+}
+
+func (s *mongoStorage) ListSuspendedMessages(ctx context.Context, workflowID string, before time.Time) ([]storage.SuspendedMessage, error) {
+	filter := bson.M{"resume_at": bson.M{"$lte": before}}
+	if workflowID != "" {
+		filter["workflow_id"] = workflowID
+	}
+	cursor, err := s.db.Collection("suspended_messages").Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var results []storage.SuspendedMessage
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+func (s *mongoStorage) DeleteSuspendedMessage(ctx context.Context, id string) error {
+	_, err := s.db.Collection("suspended_messages").DeleteOne(ctx, bson.M{"id": id})
+	return err
 }
 
 func (s *mongoStorage) DeleteApproval(ctx context.Context, id string) error {

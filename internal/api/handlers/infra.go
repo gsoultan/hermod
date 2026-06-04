@@ -64,6 +64,7 @@ func (h *Handler) RegisterInfrastructureRoutes(mux *http.ServeMux) {
 	// Prefill DB settings & test notifications
 	mux.HandleFunc("GET /api/config/database", h.GetDBConfig)
 	mux.HandleFunc("GET /api/workers", h.ListWorkers)
+	mux.HandleFunc("GET /api/workers/recommend", h.RecommendWorker)
 	mux.HandleFunc("GET /api/workers/{id}", h.GetWorker)
 	mux.HandleFunc("POST /api/workers", h.CreateWorker)
 	mux.HandleFunc("PUT /api/workers/{id}", h.UpdateWorker)
@@ -137,10 +138,16 @@ func (h *Handler) GetConfigStatus(w http.ResponseWriter, r *http.Request) {
 	configured := config.IsDBConfigured()
 	userSetup := false
 
-	if configured && h.Storage != nil {
-		users, _, err := h.Storage.ListUsers(r.Context(), storage.CommonFilter{})
-		if err == nil && len(users) > 0 {
-			userSetup = true
+	if configured {
+		if h.Storage == nil {
+			userSetup = true // Assume setup done if configured but DB down
+		} else {
+			users, _, err := h.Storage.ListUsers(r.Context(), storage.CommonFilter{Limit: 1})
+			if err == nil {
+				userSetup = len(users) > 0
+			} else {
+				userSetup = true // DB error: assume setup done for safety
+			}
 		}
 	}
 
@@ -1351,7 +1358,10 @@ func (h *Handler) RegisterMeshCluster(w http.ResponseWriter, r *http.Request) {
 		req.Status = "online"
 	}
 
-	mm.RegisterCluster(req)
+	if err := mm.RegisterCluster(r.Context(), req); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusCreated)
 }
 

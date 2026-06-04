@@ -17,6 +17,8 @@ import (
 	"github.com/user/hermod/pkg/comm/buffer"
 	"github.com/user/hermod/pkg/comm/message"
 	pkgengine "github.com/user/hermod/pkg/engine"
+	"github.com/user/hermod/pkg/engine/config"
+	"github.com/user/hermod/pkg/engine/telemetry"
 	"github.com/user/hermod/pkg/infra/compression"
 	"github.com/user/hermod/pkg/infra/schema"
 )
@@ -217,11 +219,11 @@ func createWorkflowBuffer() hermod.Producer {
 	}
 }
 
-// buildSinkEngineConfigs maps internal factory.SinkConfigs to pkgfactory.SinkConfig slice.
-func buildSinkEngineConfigs(snkConfigs []factory.SinkConfig) ([]string, []string, []pkgengine.SinkConfig) {
+// buildSinkEngineConfigs maps internal factory.SinkConfigs to config.SinkConfig slice.
+func buildSinkEngineConfigs(snkConfigs []factory.SinkConfig) ([]string, []string, []config.SinkConfig) {
 	sinkIDs := make([]string, len(snkConfigs))
 	sinkTypes := make([]string, len(snkConfigs))
-	pkgSnkConfigs := make([]pkgengine.SinkConfig, len(snkConfigs))
+	pkgSnkConfigs := make([]config.SinkConfig, len(snkConfigs))
 
 	for i, cfg := range snkConfigs {
 		sinkIDs[i] = cfg.ID
@@ -232,8 +234,8 @@ func buildSinkEngineConfigs(snkConfigs []factory.SinkConfig) ([]string, []string
 	return sinkIDs, sinkTypes, pkgSnkConfigs
 }
 
-func parseSinkEngineConfig(cfg factory.SinkConfig) pkgengine.SinkConfig {
-	psc := pkgengine.SinkConfig{}
+func parseSinkEngineConfig(cfg factory.SinkConfig) config.SinkConfig {
+	psc := config.SinkConfig{}
 	if val, ok := cfg.Config["max_retries"]; ok && val != "" {
 		if n, err := strconv.Atoi(val); err == nil {
 			psc.MaxRetries = n
@@ -291,7 +293,7 @@ func parseSinkEngineConfig(cfg factory.SinkConfig) pkgengine.SinkConfig {
 		}
 	}
 	if val, ok := cfg.Config["backpressure_strategy"]; ok && val != "" {
-		psc.BackpressureStrategy = pkgengine.BackpressureStrategy(val)
+		psc.BackpressureStrategy = config.BackpressureStrategy(val)
 	}
 	if val, ok := cfg.Config["backpressure_buffer"]; ok && val != "" {
 		if n, err := strconv.Atoi(val); err == nil {
@@ -403,7 +405,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 
 	// Set source config for engine reconnect loop
 	if len(srcConfigs) > 0 {
-		eng.SetSourceConfig(pkgengine.SourceConfig{
+		eng.SetSourceConfig(config.SourceConfig{
 			ReconnectIntervals: srcConfigs[0].ReconnectIntervals,
 		})
 	}
@@ -448,7 +450,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	r.setupWorkflowRouter(eng, id, sourceNodes, nodeMap, adj, edgeLabels, edgeBreakpoints, inDegree, sinkNodeToIndex)
 
 	// Per-source configuration
-	sourceEngineCfg := pkgengine.SourceConfig{}
+	sourceEngineCfg := config.SourceConfig{}
 	for _, sn := range sourceNodes {
 		dbSrc, _ := r.storage.GetSource(ctx, sn.RefID)
 
@@ -484,13 +486,22 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	r.setupWorkflowCallbacks(eng, id, wf)
 
 	r.engines[id] = &activeEngine{
-		engine:     eng,
-		cancel:     cancel,
-		done:       done,
-		srcConfigs: srcConfigs,
-		snkConfigs: snkConfigs,
-		isWorkflow: true,
-		workflow:   wf,
+		engine:          eng,
+		cancel:          cancel,
+		done:            done,
+		srcConfigs:      srcConfigs,
+		snkConfigs:      snkConfigs,
+		isWorkflow:      true,
+		workflow:        wf,
+		baseProcessed:   wf.TotalProcessed,
+		baseErrors:      wf.TotalErrors,
+		sinks:           sinks,
+		nodeMap:         nodeMap,
+		adj:             adj,
+		edgeLabels:      edgeLabels,
+		edgeBreakpoints: edgeBreakpoints,
+		inDegree:        inDegree,
+		sinkNodeToIndex: sinkNodeToIndex,
 	}
 
 	if r.optimizer != nil {
@@ -514,160 +525,31 @@ func (r *Registry) setupWorkflowRouter(
 	sinkNodeToIndex map[string]int,
 ) {
 	eng.SetRouter(func(ctx context.Context, msg hermod.Message) ([]pkgengine.RoutedMessage, error) {
-		var routed []pkgengine.RoutedMessage
-
 		sourceNodeID := msg.Metadata()["_source_node_id"]
 		if sourceNodeID == "" && len(sourceNodes) > 0 {
 			sourceNodeID = sourceNodes[0].ID
 		}
 
-		// Map for current messages at each node
-		currentMessages := make(map[string]hermod.Message)
-		currentMessages[sourceNodeID] = msg
-
-		receivedCount := make(map[string]int)
-		q := []string{sourceNodeID}
-		vis := make(map[string]bool)
-
-		for len(q) > 0 {
-			currID := q[0]
-			q = q[1:]
-
-			if vis[currID] {
-				continue
-			}
-			vis[currID] = true
-
-			currMsg := currentMessages[currID]
-
-			// Run current node if not source
-			currNode := nodeMap[currID]
-			if currNode == nil {
-				continue
-			}
-
-			var currBranch string
-			if currNode.Type != "source" {
-				var err error
-				start := time.Now()
-				inputMsg := currMsg
-				currMsg, currBranch, err = r.runWorkflowNode(id, currNode, inputMsg)
-				if currMsg != nil {
-					eng.RecordTraceStep(ctx, currMsg, currNode.ID, start, err)
-				} else {
-					eng.RecordTraceStep(ctx, inputMsg, currNode.ID, start, err)
-				}
-
-				if err != nil {
-					pkgengine.WorkflowNodeErrors.WithLabelValues(id, currNode.ID, currNode.Type).Inc()
-					eng.UpdateNodeErrorMetric(currNode.ID, 1)
-					msgID := ""
-					if currMsg != nil {
-						msgID = currMsg.ID()
-					}
-					r.broadcastLogWithData(id, "ERROR", fmt.Sprintf("Node %s (%s) error: %v", r.getNodeName(*currNode), currNode.Type, err), msgID)
-					currBranch = "error"
-				}
-
-				if currMsg != nil {
-					// Record metrics and sample
-					pkgengine.WorkflowNodeProcessed.WithLabelValues(id, currNode.ID, currNode.Type).Inc()
-					eng.UpdateNodeMetric(currNode.ID, 1)
-					eng.UpdateNodeSample(currNode.ID, r.getConsistentData(currMsg))
-				}
-				// currMsg could be nil if filtered
-			} else {
-				// Source node
-				eng.RecordTraceStep(ctx, currMsg, currNode.ID, time.Now(), nil)
-				pkgengine.WorkflowNodeProcessed.WithLabelValues(id, currNode.ID, currNode.Type).Inc()
-				eng.UpdateNodeMetric(currNode.ID, 1)
-				eng.UpdateNodeSample(currNode.ID, r.getConsistentData(currMsg))
-			}
-
-			if currNode.Type == "sink" && currMsg != nil {
-				if idx, ok := sinkNodeToIndex[currID]; ok {
-					routed = append(routed, pkgengine.RoutedMessage{
-						SinkIndex: idx,
-						Message:   currMsg,
-					})
-				}
-			}
-
-			targets := adj[currID]
-			for _, targetID := range targets {
-				// Check edge label for conditions/switch
-				edgeLabel := edgeLabels[currID+":"+targetID]
-
-				match := true
-				if currBranch == "error" {
-					if edgeLabel != "error" {
-						match = false
-					}
-				} else {
-					if edgeLabel == "error" {
-						match = false
-					} else if currNode.Type == "condition" || currNode.Type == "switch" {
-						if edgeLabel != "" && edgeLabel != currBranch {
-							match = false
-						}
-					}
-				}
-
-				receivedCount[targetID]++
-				if match && currMsg != nil {
-					// Visual Breakpoint: pause traversal on this edge if configured
-					if edgeBreakpoints[currID+":"+targetID] {
-						// Broadcast a live message indicating breakpoint pause and skip forwarding
-						r.broadcastLiveMessageFromHermod(id, currNode.ID, currMsg, false, "")
-						// Send additional info for breakpoint
-						r.broadcastLiveMessage(LiveMessage{
-							WorkflowID: id,
-							NodeID:     currNode.ID,
-							Timestamp:  time.Now(),
-							Data: map[string]any{
-								"breakpoint": true,
-								"source":     currID,
-								"target":     targetID,
-							},
-						})
-						currNodeName := currID
-						if node := nodeMap[currID]; node != nil {
-							currNodeName = r.getNodeName(*node)
-						}
-						targetNodeName := targetID
-						if node := nodeMap[targetID]; node != nil {
-							targetNodeName = r.getNodeName(*node)
-						}
-						r.broadcastLogWithData(id, "INFO", fmt.Sprintf("Paused at breakpoint %s -> %s", currNodeName, targetNodeName), currMsg.ID())
-						// Do not forward along this edge while breakpoint is active
-						continue
-					}
-
-					eng.UpdateEdgeMetric(currID, targetID, 1)
-					strategy := ""
-					targetNode := nodeMap[targetID]
-					if targetNode != nil {
-						strategy, _ = targetNode.Config["strategy"].(string)
-					}
-
-					if currentMessages[targetID] == nil {
-						currentMessages[targetID] = currMsg.Clone()
-					} else {
-						// Merge
-						r.mergeData(currentMessages[targetID].Data(), currMsg.Data(), strategy)
-						if dm, ok := currentMessages[targetID].(interface{ ClearCachedPayload() }); ok {
-							dm.ClearCachedPayload()
-						}
-					}
-				}
-
-				if receivedCount[targetID] == inDegree[targetID] {
-					q = append(q, targetID)
-				}
-			}
+		t := &workflowTraversal{
+			registry:        r,
+			eng:             eng,
+			workflowID:      id,
+			nodeMap:         nodeMap,
+			adj:             adj,
+			edgeLabels:      edgeLabels,
+			edgeBreakpoints: edgeBreakpoints,
+			inDegree:        inDegree,
+			sinkNodeToIndex: sinkNodeToIndex,
+			currentMessages: make(map[string]hermod.Message),
+			receivedCount:   make(map[string]int),
 		}
+		t.currentMessages[sourceNodeID] = msg
 
-		return routed, nil
+		t.wg.Add(1)
+		t.processNode(ctx, sourceNodeID)
+		t.wg.Wait()
+
+		return t.routed, nil
 	})
 }
 
@@ -696,11 +578,20 @@ func (r *Registry) setupSchemaValidation(eng *pkgengine.Engine, ctx context.Cont
 func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf storage.Workflow) {
 	if r.storage != nil {
 		eng.SetLogger(NewDatabaseLogger(context.Background(), r, id))
-		eng.SetOnStatusChange(func(update pkgengine.StatusUpdate) {
+		eng.SetOnStatusChange(func(update telemetry.StatusUpdate) {
 			dbCtx := context.Background()
 			if workflow, err := r.storage.GetWorkflow(dbCtx, id); err == nil {
 				prevStatus := workflow.Status
 				workflow.Status = update.EngineStatus
+
+				r.mu.Lock()
+				ae, ok := r.engines[id]
+				if ok {
+					workflow.TotalProcessed = ae.baseProcessed + update.ProcessedCount
+					workflow.TotalErrors = ae.baseErrors + update.DeadLetterCount
+				}
+				r.mu.Unlock()
+
 				_ = r.storage.UpdateWorkflow(dbCtx, workflow)
 
 				// Update Source status if it changed
@@ -791,7 +682,7 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 			return nil
 		})
 	} else {
-		eng.SetOnStatusChange(func(update pkgengine.StatusUpdate) {
+		eng.SetOnStatusChange(func(update telemetry.StatusUpdate) {
 			r.BroadcastStatus(update)
 		})
 	}
@@ -816,24 +707,21 @@ func (r *Registry) runWorkflowEngine(eng *pkgengine.Engine, ctx context.Context,
 	err := eng.Start(ctx)
 
 	// Check if it was cancelled by us
-	select {
-	case <-ctx.Done():
-		// Cancelled via StopEngine
+	if ctx.Err() != nil {
+		r.logger.Info("Workflow engine stopped (cancelled)", "workflow_id", id, "error", ctx.Err())
 		ms.Close()
 		for _, snk := range sinks {
 			snk.Close()
 		}
 		return
-	default:
-		// Stopped by itself or failed to start
 	}
 
 	if err != nil {
 		r.logger.Error("Workflow failed", "workflow_id", id, "error", err)
 		r.broadcastLog(id, "ERROR", fmt.Sprintf("Workflow failed: %v", err))
 	} else {
-		r.logger.Info("Workflow stopped gracefully", "workflow_id", id)
-		r.broadcastLog(id, "INFO", "Workflow stopped gracefully")
+		r.logger.Info("Workflow engine stopped naturally", "workflow_id", id)
+		r.broadcastLog(id, "INFO", "Workflow stopped naturally")
 	}
 
 	if r.storage != nil {
@@ -844,9 +732,12 @@ func (r *Registry) runWorkflowEngine(eng *pkgengine.Engine, ctx context.Context,
 				// Keep Active = true so reconciliation restarts it
 				r.logger.Error("Workflow failed, keeping active for reconciliation", "workflow_id", id, "error", err)
 			} else {
+				// Deactivate ONLY if it was not cancelled (which we already checked)
+				// and it's not a persistent workflow that should stay active.
+				// For now, we follow the existing logic but with better logging.
 				workflow.Active = false
 				workflow.Status = "Completed"
-				r.logger.Info("Workflow completed successfully", "workflow_id", id)
+				r.logger.Info("Workflow marked as inactive (completed)", "workflow_id", id)
 
 				// Update source and sinks only if we are deactivating
 				for _, node := range workflow.Nodes {
@@ -1068,41 +959,43 @@ func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.Wo
 	// Clone message to avoid side effects between branches
 	m := msg.Clone()
 
-	processedMsg, branch, err := r.runWorkflowNode(workflowID, node, m)
+	processedMsgs, branch, err := r.runWorkflowNode(workflowID, node, m)
 	if err != nil {
 		r.broadcastLog(workflowID, "error", fmt.Sprintf("Node %s error: %v", r.getNodeName(*node), err))
 		return
 	}
 
-	if processedMsg == nil {
+	if len(processedMsgs) == 0 {
 		return
 	}
 
-	if node.Type == "sink" {
-		idx, ok := sinkNodeToIndex[node.ID]
-		if ok && idx < len(sinks) {
-			sinks[idx].Write(context.Background(), processedMsg)
-		}
-		return
-	}
-
-	// Determine next nodes based on branch
-	var targets []string
-	if branch != "" {
-		// Find edges with this label
-		for _, edge := range wf.Edges {
-			if edge.SourceID == node.ID && edge.Config["label"] == branch {
-				targets = append(targets, edge.TargetID)
+	for _, processedMsg := range processedMsgs {
+		if node.Type == "sink" {
+			idx, ok := sinkNodeToIndex[node.ID]
+			if ok && idx < len(sinks) {
+				sinks[idx].Write(context.Background(), processedMsg)
 			}
+			continue
 		}
-	} else {
-		targets = adj[node.ID]
-	}
 
-	for _, targetID := range targets {
-		targetNode := nodeMap[targetID]
-		if targetNode != nil {
-			r.runWorkflowNodeFromReplay(workflowID, targetNode, processedMsg, skipNodeID, wf, nodeMap, adj, sinks, sinkNodeToIndex)
+		// Determine next nodes based on branch
+		var targets []string
+		if branch != "" {
+			// Find edges with this label
+			for _, edge := range wf.Edges {
+				if edge.SourceID == node.ID && edge.Config["label"] == branch {
+					targets = append(targets, edge.TargetID)
+				}
+			}
+		} else {
+			targets = adj[node.ID]
+		}
+
+		for _, targetID := range targets {
+			targetNode := nodeMap[targetID]
+			if targetNode != nil {
+				r.runWorkflowNodeFromReplay(workflowID, targetNode, processedMsg, skipNodeID, wf, nodeMap, adj, sinks, sinkNodeToIndex)
+			}
 		}
 	}
 }
@@ -1187,6 +1080,13 @@ func (r *Registry) ResumeApproval(ctx context.Context, app storage.Approval, bra
 	for k, v := range app.Data {
 		m.SetData(k, v)
 	}
+	if len(app.FormData) > 0 {
+		m.SetData("_approval_form", app.FormData)
+		// Also merge into root for convenience
+		for k, v := range app.FormData {
+			m.SetData(k, v)
+		}
+	}
 
 	// Continue traversal from the approval node with forced branch
 	r.resumeFromNode(app.WorkflowID, app.NodeID, m, wf, nodeMap, adj, sinks, sinkNodeToIndex, branch)
@@ -1247,6 +1147,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 	receivedCount := make(map[string]int)
 
 	for _, sn := range sourceNodes {
+		r.broadcastLiveMessageFromHermod(wf.ID, sn.ID, msg, false, "")
 		steps = append(steps, WorkflowStepResult{
 			NodeID:   sn.ID,
 			NodeType: "source",
@@ -1275,9 +1176,10 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 		// Run current node if it's not the source (already handled)
 		currNode := findNodeByID(wf.Nodes, currID)
 		var currBranch string
+		var msgs []hermod.Message
 		if currNode.Type != "source" {
 			var err error
-			currMsg, currBranch, err = r.runWorkflowNode("test", currNode, currMsg)
+			msgs, currBranch, err = r.runWorkflowNode(wf.ID, currNode, currMsg)
 			if err != nil {
 				steps = append(steps, WorkflowStepResult{
 					NodeID:   currID,
@@ -1285,7 +1187,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 					Error:    err.Error(),
 				})
 			}
-			if currMsg == nil {
+			if len(msgs) == 0 {
 				steps = append(steps, WorkflowStepResult{
 					NodeID:   currID,
 					NodeType: currNode.Type,
@@ -1295,6 +1197,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 			} else {
 				// Update step with output
 				found := false
+				currMsg = msgs[0] // Use first message for test result visualization
 				for i := range steps {
 					if steps[i].NodeID == currID {
 						steps[i].Payload = msgToMap(currMsg)
@@ -1314,6 +1217,8 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 					})
 				}
 			}
+		} else {
+			msgs = []hermod.Message{currMsg}
 		}
 
 		for _, targetID := range adj[currID] {

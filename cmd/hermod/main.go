@@ -20,11 +20,13 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
+	"github.com/user/hermod"
 	"github.com/user/hermod/internal/ai"
 	"github.com/user/hermod/internal/api"
 	"github.com/user/hermod/internal/autoscaler"
 	"github.com/user/hermod/internal/config"
 	"github.com/user/hermod/internal/engine/registry"
+	_ "github.com/user/hermod/internal/engine/registry/nodes"
 	"github.com/user/hermod/internal/engine/worker"
 	"github.com/user/hermod/internal/observability"
 	"github.com/user/hermod/internal/service"
@@ -33,7 +35,14 @@ import (
 	storagepebble "github.com/user/hermod/internal/storage/pebble"
 	storagesql "github.com/user/hermod/internal/storage/sql"
 	"github.com/user/hermod/internal/version"
-	enginePkg "github.com/user/hermod/pkg/engine"
+	_ "github.com/user/hermod/pkg/comm/transformer/advanced"
+	_ "github.com/user/hermod/pkg/comm/transformer/ai"
+	_ "github.com/user/hermod/pkg/comm/transformer/core"
+	_ "github.com/user/hermod/pkg/comm/transformer/logic"
+	_ "github.com/user/hermod/pkg/comm/transformer/lookup"
+	_ "github.com/user/hermod/pkg/comm/transformer/security"
+	engineConfig "github.com/user/hermod/pkg/engine/config"
+	"github.com/user/hermod/pkg/engine/telemetry"
 	"github.com/user/hermod/pkg/infra/state"
 	"github.com/user/hermod/pkg/security/crypto"
 	"github.com/user/hermod/pkg/security/secrets"
@@ -78,7 +87,7 @@ func main() {
 				*disableAutoscaler = b
 			}
 		}
-		logger := enginePkg.NewDefaultLogger()
+		logger := telemetry.NewDefaultLogger()
 		// Environment fallbacks to simplify production configuration
 		// Only apply when corresponding flag keeps its default value.
 		if v := os.Getenv("HERMOD_MODE"); v != "" && *mode == "standalone" {
@@ -195,6 +204,9 @@ func main() {
 					store, err = initStorage(dbTypeVal, dbConnVal)
 					if err != nil {
 						logger.Error("Failed to initialize primary storage", "error", err)
+						if store != nil {
+							go retryInit(svcCtx, store, "primary", logger)
+						}
 					}
 
 					if logTypeVal != "" && logConnVal != "" {
@@ -202,6 +214,9 @@ func main() {
 						logStore, err = initStorage(logTypeVal, logConnVal)
 						if err != nil {
 							logger.Error("Failed to initialize logging storage", "error", err)
+							if logStore != nil {
+								go retryInit(svcCtx, logStore, "logging", logger)
+							}
 						}
 					}
 				}
@@ -260,7 +275,7 @@ func main() {
 					}
 				}
 
-				engCfg := enginePkg.DefaultConfig()
+				engCfg := engineConfig.DefaultConfig()
 				if cfg.Engine.MaxRetries > 0 {
 					engCfg.MaxRetries = cfg.Engine.MaxRetries
 				}
@@ -312,99 +327,101 @@ func main() {
 					workerStore = worker.NewWorkerAPIClient(*platformURL, *workerToken)
 				}
 
-				// Auto-load or create worker identity if missing and not using remote platform URL
-				if (*workerGUID == "" || *workerToken == "") && *platformURL == "" {
-					// Try to load from identity file first
-					type workerIdentity struct {
-						ID          string `yaml:"id"`
-						Token       string `yaml:"token"`
-						Name        string `yaml:"name"`
-						Host        string `yaml:"host"`
-						Port        int    `yaml:"port"`
-						Description string `yaml:"description"`
-					}
+				if workerStore != nil {
+					// Auto-load or create worker identity if missing and not using remote platform URL
+					if (*workerGUID == "" || *workerToken == "") && *platformURL == "" {
+						// Try to load from identity file first
+						type workerIdentity struct {
+							ID          string `yaml:"id"`
+							Token       string `yaml:"token"`
+							Name        string `yaml:"name"`
+							Host        string `yaml:"host"`
+							Port        int    `yaml:"port"`
+							Description string `yaml:"description"`
+						}
 
-					loaded := false
-					if b, err := os.ReadFile(*workerIdentityPath); err == nil {
-						var wi workerIdentity
-						if yamlErr := yaml.Unmarshal(b, &wi); yamlErr == nil && wi.ID != "" && wi.Token != "" {
-							*workerGUID = wi.ID
-							*workerToken = wi.Token
-							if wi.Name != "" {
-								// Set as default registration values if provided
-								*workerDescription = wi.Description
-								*workerHost = wi.Host
-								if wi.Port != 0 {
-									*workerPort = wi.Port
+						loaded := false
+						if b, err := os.ReadFile(*workerIdentityPath); err == nil {
+							var wi workerIdentity
+							if yamlErr := yaml.Unmarshal(b, &wi); yamlErr == nil && wi.ID != "" && wi.Token != "" {
+								*workerGUID = wi.ID
+								*workerToken = wi.Token
+								if wi.Name != "" {
+									// Set as default registration values if provided
+									*workerDescription = wi.Description
+									*workerHost = wi.Host
+									if wi.Port != 0 {
+										*workerPort = wi.Port
+									}
 								}
+								loaded = true
+								fmt.Printf("Loaded worker identity from %s (id=%s)\n", *workerIdentityPath, wi.ID)
 							}
-							loaded = true
-							fmt.Printf("Loaded worker identity from %s (id=%s)\n", *workerIdentityPath, wi.ID)
 						}
-					}
 
-					// If not loaded, create in local storage
-					if !loaded && store != nil {
-						id := uuid.New().String()
-						token := uuid.New().String()
-						hostname := id
-						if hn, err := os.Hostname(); err == nil && hn != "" {
-							hostname = hn
-						}
-						// Persist in DB first
-						if err := store.CreateWorker(ctx, storage.Worker{
-							ID:          id,
-							Name:        hostname,
-							Host:        *workerHost,
-							Port:        *workerPort,
-							Description: *workerDescription,
-							Token:       token,
-						}); err == nil {
-							*workerGUID = id
-							*workerToken = token
-							wi := workerIdentity{ID: id, Token: token, Name: hostname, Host: *workerHost, Port: *workerPort, Description: *workerDescription}
-							if data, err := yaml.Marshal(&wi); err == nil {
-								// Ensure directory exists if provided in path
-								_ = os.MkdirAll(filepath.Dir(*workerIdentityPath), 0o755)
-								_ = os.WriteFile(*workerIdentityPath, data, 0o600)
-								fmt.Printf("Saved worker identity to %s\n", *workerIdentityPath)
+						// If not loaded, create in local storage
+						if !loaded && store != nil {
+							id := uuid.New().String()
+							token := uuid.New().String()
+							hostname := id
+							if hn, err := os.Hostname(); err == nil && hn != "" {
+								hostname = hn
 							}
-						} else {
-							log.Printf("Warning: failed to auto-create worker identity: %v", err)
+							// Persist in DB first
+							if err := store.CreateWorker(ctx, storage.Worker{
+								ID:          id,
+								Name:        hostname,
+								Host:        *workerHost,
+								Port:        *workerPort,
+								Description: *workerDescription,
+								Token:       token,
+							}); err == nil {
+								*workerGUID = id
+								*workerToken = token
+								wi := workerIdentity{ID: id, Token: token, Name: hostname, Host: *workerHost, Port: *workerPort, Description: *workerDescription}
+								if data, err := yaml.Marshal(&wi); err == nil {
+									// Ensure directory exists if provided in path
+									_ = os.MkdirAll(filepath.Dir(*workerIdentityPath), 0o755)
+									_ = os.WriteFile(*workerIdentityPath, data, 0o600)
+									fmt.Printf("Saved worker identity to %s\n", *workerIdentityPath)
+								}
+							} else {
+								log.Printf("Warning: failed to auto-create worker identity: %v", err)
+							}
 						}
 					}
-				}
 
-				// Optional one-shot init and exit (local DB only)
-				if *initWorker {
-					if *platformURL != "" {
-						log.Fatal("-init-worker is only supported in local DB mode (no platform-url). Please create the worker via the Hermod UI and copy its token.")
-					}
-					if *workerGUID == "" || *workerToken == "" {
-						log.Fatal("Failed to initialize worker: missing GUID or token. Ensure database is configured.")
-					}
-					fmt.Printf("Worker initialized.\nID: %s\nToken: %s\nIdentity file: %s\n", *workerGUID, *workerToken, *workerIdentityPath)
-					fmt.Printf("Set environment:\n  HERMOD_WORKER_GUID=%s\n  HERMOD_WORKER_TOKEN=%s\n", *workerGUID, *workerToken)
-					os.Exit(0)
-				}
-
-				wrk = worker.NewWorker(workerStore, reg)
-				wrk.SetWorkerConfig(*workerID, *totalWorkers, *workerGUID, *workerToken)
-
-				// Default registration info: prefer hostname if name is empty
-				name := *workerGUID
-				if hn, err := os.Hostname(); err == nil && hn != "" {
-					name = hn
-				}
-				wrk.SetRegistrationInfo(name, *workerHost, *workerPort, *workerDescription)
-
-				go func() {
-					if err := wrk.Start(ctx); err != nil {
-						if !errors.Is(err, context.Canceled) {
-							log.Printf("Worker failed: %v", err)
+					// Optional one-shot init and exit (local DB only)
+					if *initWorker {
+						if *platformURL != "" {
+							log.Fatal("-init-worker is only supported in local DB mode (no platform-url). Please create the worker via the Hermod UI and copy its token.")
 						}
+						if *workerGUID == "" || *workerToken == "" {
+							log.Fatal("Failed to initialize worker: missing GUID or token. Ensure database is configured.")
+						}
+						fmt.Printf("Worker initialized.\nID: %s\nToken: %s\nIdentity file: %s\n", *workerGUID, *workerToken, *workerIdentityPath)
+						fmt.Printf("Set environment:\n  HERMOD_WORKER_GUID=%s\n  HERMOD_WORKER_TOKEN=%s\n", *workerGUID, *workerToken)
+						os.Exit(0)
 					}
-				}()
+
+					wrk = worker.NewWorker(workerStore, reg)
+					wrk.SetWorkerConfig(*workerID, *totalWorkers, *workerGUID, *workerToken)
+
+					// Default registration info: prefer hostname if name is empty
+					name := *workerGUID
+					if hn, err := os.Hostname(); err == nil && hn != "" {
+						name = hn
+					}
+					wrk.SetRegistrationInfo(name, *workerHost, *workerPort, *workerDescription)
+
+					go func() {
+						if err := wrk.Start(ctx); err != nil {
+							if !errors.Is(err, context.Canceled) {
+								log.Printf("Worker failed: %v", err)
+							}
+						}
+					}()
+				}
 			}
 
 			// Start API if not in worker-only mode (always start API in first-time setup)
@@ -422,7 +439,7 @@ func main() {
 				fmt.Printf("Starting Hermod API server on :%d using %s storage...\n", *port, storageName)
 
 				// Start Autoscaler in control-plane mode
-				if (*mode == "api" || *mode == "standalone") && configured && userSetup && !*disableAutoscaler {
+				if (*mode == "api" || *mode == "standalone") && configured && userSetup && !*disableAutoscaler && store != nil {
 					manager := &autoscaler.KubernetesWorkerManager{
 						Namespace:  "hermod",
 						Deployment: "hermod-worker",
@@ -510,14 +527,17 @@ type userLister interface {
 
 func computeSetupStatus(ctx context.Context, store userLister, configuredFlag bool) (configured bool, userSetup bool) {
 	configured = configuredFlag
-	if !configured || store == nil {
-		return configured, false
+	if !configured {
+		return false, false
+	}
+	if store == nil {
+		return true, true // Configured but DB down
 	}
 	users, _, err := store.ListUsers(ctx, storage.CommonFilter{Limit: 1})
 	if err != nil {
-		return configured, false
+		return true, true // DB error: assume setup is done
 	}
-	return configured, len(users) > 0
+	return true, len(users) > 0
 }
 
 func initStorage(dbType, dbConn string) (storage.Storage, error) {
@@ -591,9 +611,25 @@ func initStorage(dbType, dbConn string) (storage.Storage, error) {
 		}
 		defer cancel()
 		if err := s.Init(initCtx); err != nil {
-			return nil, fmt.Errorf("failed to initialize storage: %v", err)
+			return store, fmt.Errorf("failed to initialize storage: %v", err)
 		}
 	}
 
 	return store, nil
+}
+
+func retryInit(ctx context.Context, store storage.Storage, name string, logger hermod.Logger) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := store.Init(ctx); err == nil {
+				logger.Info("Successfully initialized storage after retry", "type", name)
+				return
+			}
+		}
+	}
 }

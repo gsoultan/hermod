@@ -16,6 +16,7 @@ import (
 	_ "github.com/sijms/go-ora/v2"
 	_ "github.com/snowflakedb/gosnowflake"
 	"github.com/user/hermod"
+	"github.com/user/hermod/internal/ai"
 	"github.com/user/hermod/internal/factory"
 	"github.com/user/hermod/internal/governance"
 	"github.com/user/hermod/internal/mesh"
@@ -27,6 +28,8 @@ import (
 	sourceform "github.com/user/hermod/pkg/comm/source/form"
 	"github.com/user/hermod/pkg/comm/transformer"
 	pkgengine "github.com/user/hermod/pkg/engine"
+	"github.com/user/hermod/pkg/engine/config"
+	"github.com/user/hermod/pkg/engine/telemetry"
 	"github.com/user/hermod/pkg/infra/evaluator"
 	"github.com/user/hermod/pkg/infra/schema"
 	"github.com/user/hermod/pkg/security/secrets"
@@ -79,6 +82,12 @@ type RegistryStorage interface {
 	PurgeMessageTraces(ctx context.Context, before time.Time) error
 
 	CreateApproval(ctx context.Context, app storage.Approval) error
+	GetApproval(ctx context.Context, id string) (storage.Approval, error)
+	UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string, formData map[string]any) error
+
+	CreateSuspendedMessage(ctx context.Context, m storage.SuspendedMessage) error
+	ListSuspendedMessages(ctx context.Context, workflowID string, before time.Time) ([]storage.SuspendedMessage, error)
+	DeleteSuspendedMessage(ctx context.Context, id string) error
 }
 
 type SourceFactory func(factory.SourceConfig) (hermod.Source, error)
@@ -93,6 +102,14 @@ type LiveMessage struct {
 	Error      string         `json:"error,omitempty"`
 }
 
+type DebuggerEvent struct {
+	WorkflowID string         `json:"workflow_id"`
+	NodeID     string         `json:"node_id"`
+	MsgID      string         `json:"msg_id"`
+	Data       map[string]any `json:"data"`
+	State      string         `json:"state"` // "paused", "resumed", "aborted"
+}
+
 type PIIStats struct {
 	Discoveries map[string]uint64 `json:"discoveries"`
 	LastUpdated time.Time         `json:"last_updated"`
@@ -103,18 +120,22 @@ type Registry struct {
 	mu         sync.Mutex
 	storage    RegistryStorage
 	logStorage RegistryStorage
-	config     pkgengine.Config
+	config     config.Config
 
 	sourceFactory SourceFactory
 	sinkFactory   SinkFactory
 
 	evaluator *evaluator.Evaluator
 
-	statusSubs          map[chan pkgengine.StatusUpdate]bool
+	statusSubs          map[chan telemetry.StatusUpdate]bool
 	dashboardSubs       map[chan DashboardStats]bool
 	logSubs             map[chan storage.Log]bool
 	liveMsgSubs         map[chan LiveMessage]bool
+	debuggerSubs        map[string]map[chan DebuggerEvent]bool
 	statusSubsMu        sync.RWMutex
+	debuggerSubsMu      sync.RWMutex
+	debugChans          map[string]chan string
+	debugChansMu        sync.Mutex
 	lastDashboardUpdate time.Time
 	startTime           time.Time
 
@@ -152,6 +173,19 @@ type activeEngine struct {
 	transformations      []storage.Transformation
 	isWorkflow           bool
 	workflow             storage.Workflow
+	baseProcessed        uint64
+	baseErrors           uint64
+
+	// Live components
+	sinks []hermod.Sink
+
+	// Workflow maps for resuming
+	nodeMap         map[string]*storage.WorkflowNode
+	adj             map[string][]string
+	edgeLabels      map[string]string
+	edgeBreakpoints map[string]bool
+	inDegree        map[string]int
+	sinkNodeToIndex map[string]int
 }
 
 func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
@@ -178,29 +212,41 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		engines:             make(map[string]*activeEngine),
 		storage:             s,
 		logStorage:          logStore,
-		config:              pkgengine.DefaultConfig(),
+		config:              config.DefaultConfig(),
 		evaluator:           evaluator.NewEvaluator(),
-		statusSubs:          make(map[chan pkgengine.StatusUpdate]bool),
+		statusSubs:          make(map[chan telemetry.StatusUpdate]bool),
 		dashboardSubs:       make(map[chan DashboardStats]bool),
 		logSubs:             make(map[chan storage.Log]bool),
 		liveMsgSubs:         make(map[chan LiveMessage]bool),
+		debuggerSubs:        make(map[string]map[chan DebuggerEvent]bool),
+		debugChans:          make(map[string]chan string),
 		notificationService: ns,
 		nodeStates:          make(map[string]any),
 		lookupCache:         make(map[string]any),
 		dbPool:              make(map[string]*sql.DB),
-		logger:              pkgengine.NewDefaultLogger(),
+		logger:              telemetry.NewDefaultLogger(),
 		idleMonitorStop:     make(chan struct{}),
 		startTime:           time.Now(),
 		secretManager:       &secrets.EnvManager{Prefix: "HERMOD_SECRET_"},
 		schemaRegistry:      schema.NewStorageRegistry(s),
 		dqScorer:            governance.NewScorer(),
-		meshManager:         mesh.NewManager(pkgengine.NewDefaultLogger()),
+		meshManager:         mesh.NewManager(telemetry.NewDefaultLogger()),
 		piiStats:            make(map[string]*PIIStats),
 		ctx:                 ctx,
 		cancel:              cancel,
 	}
 
-	reg.optimizer = optimizer.NewOptimizer(reg.logger, func(wfID, title, msg string) {
+	reg.dqScorer.SetNotifier(func(wfID, title, msg string) {
+		ctx := context.Background()
+		if reg.storage != nil && reg.notificationService != nil {
+			wf, err := reg.storage.GetWorkflow(ctx, wfID)
+			if err == nil {
+				reg.notificationService.Notify(ctx, title, msg, wf)
+			}
+		}
+	})
+
+	reg.optimizer = optimizer.NewOptimizer(reg.logger, optimizer.NewAIOptimizer(ai.NewSelfHealingService(reg.logger), reg.logger), func(wfID, title, msg string) {
 		ctx := context.Background()
 		if reg.storage != nil && reg.notificationService != nil {
 			wf, err := reg.storage.GetWorkflow(ctx, wfID)
@@ -213,6 +259,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 	// Start background maintenance routines
 	go reg.runIdleMonitor()
 	go reg.runRetentionPurge()
+	go reg.startReconciliationLoop(ctx)
 	go reg.optimizer.Start(reg.ctx)
 	return reg
 }
@@ -670,7 +717,7 @@ func (r *Registry) resolveAndCreateSink(id string) (hermod.Sink, error) {
 	return r.createSinkInternal(snkCfg)
 }
 
-func (r *Registry) SetConfig(cfg pkgengine.Config) {
+func (r *Registry) SetConfig(cfg config.Config) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.config = cfg
@@ -835,12 +882,41 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 
 	// Try to use the new Transformer Registry
 	if t, ok := transformer.Get(transType); ok {
+		// Capture data before transformation for diffing
+		beforeData := make(map[string]any)
+		for k, v := range modifiedMsg.Data() {
+			beforeData[k] = v
+		}
+		start := time.Now()
+
 		// Pass Registry to transformer if it needs it (like for storage or lookup)
 		tctx := context.WithValue(ctx, "registry", r)
 		if r.stateStore != nil {
 			tctx = context.WithValue(tctx, hermod.StateStoreKey, r.stateStore)
 		}
 		res, err := t.Transform(tctx, modifiedMsg, config)
+
+		// Record trace step with before/after snapshots
+		workflowID, _ := modifiedMsg.Metadata()["_hermod_workflow_id"]
+		if workflowID != "" && r.logStorage != nil {
+			afterData := make(map[string]any)
+			if res != nil {
+				for k, v := range res.Data() {
+					afterData[k] = v
+				}
+			}
+			step := hermod.TraceStep{
+				NodeID:    transType,
+				Timestamp: start,
+				Duration:  time.Since(start),
+				Before:    beforeData,
+				After:     afterData,
+			}
+			if err != nil {
+				step.Error = err.Error()
+			}
+			_ = r.storage.RecordTraceStep(ctx, workflowID, modifiedMsg.ID(), step)
+		}
 
 		// Record PII discoveries for compliance dashboard
 		if transType == "mask" && res != nil {
@@ -929,11 +1005,11 @@ func (r *Registry) IsEngineRunning(id string) bool {
 	return ok
 }
 
-func (r *Registry) GetAllStatuses() []pkgengine.StatusUpdate {
+func (r *Registry) GetAllStatuses() []telemetry.StatusUpdate {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	statuses := make([]pkgengine.StatusUpdate, 0, len(r.engines))
+	statuses := make([]telemetry.StatusUpdate, 0, len(r.engines))
 	for _, ae := range r.engines {
 		statuses = append(statuses, ae.engine.GetStatus())
 	}
@@ -971,6 +1047,12 @@ func (r *Registry) GetDashboardStats(ctx context.Context, vhost string) (Dashboa
 		_, totalSnk, _ := r.storage.ListSinks(ctx, storage.CommonFilter{Limit: 1, VHost: vhost})
 		stats.TotalSinks = totalSnk
 
+		wfs, _, _ := r.storage.ListWorkflows(ctx, storage.CommonFilter{Limit: 1000, VHost: vhost})
+		for _, wf := range wfs {
+			stats.TotalProcessed += wf.TotalProcessed
+			stats.TotalErrors += wf.TotalErrors
+		}
+
 		workers, _, err := r.storage.ListWorkers(ctx, storage.CommonFilter{Limit: 100})
 		if err == nil {
 			for _, w := range workers {
@@ -993,8 +1075,6 @@ func (r *Registry) GetDashboardStats(ctx context.Context, vhost string) (Dashboa
 
 		stats.ActiveWorkflows++
 		status := ae.engine.GetStatus()
-		stats.TotalProcessed += status.ProcessedCount
-		stats.TotalErrors += status.DeadLetterCount
 
 		if status.EngineStatus == "failed" || status.EngineStatus == "error" {
 			stats.FailedWorkflows++

@@ -398,7 +398,7 @@ export function ProfilePage() {
                     1. Scan this QR code with your authenticator app (like Google Authenticator, Authy, or Microsoft Authenticator):
                   </Text>
                   
-                  <Box style={{ display: 'flex', justifyContent: 'center' }} p="md" bg="var(--mantine-color-dark-6)">
+                  <Box style={{ display: 'flex', justifyContent: 'center' }} p="md" bg="var(--mantine-color-default-hover)">
                     {qrDataUrl ? (
                       <Image
                         src={qrDataUrl}

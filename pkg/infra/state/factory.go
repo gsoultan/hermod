@@ -27,9 +27,16 @@ func NewStateStore(cfg Config) (hermod.StateStore, error) {
 		return NewRedisStateStore(cfg.Address, cfg.Password, cfg.DB, cfg.Prefix, 0), nil
 	case "etcd":
 		return NewEtcdStateStore([]string{cfg.Address}, cfg.Prefix, 5*time.Second)
+	case "memory":
+		return NewSQLiteStateStore(":memory:")
 	case "":
 		return NewSQLiteStateStore("hermod_state.db")
 	default:
 		return nil, fmt.Errorf("unsupported state store type: %s", cfg.Type)
 	}
+}
+
+func NewMemoryStore() hermod.StateStore {
+	store, _ := NewSQLiteStateStore(":memory:")
+	return store
 }

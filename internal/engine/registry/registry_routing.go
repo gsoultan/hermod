@@ -2,20 +2,14 @@ package registry
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/comm/message"
 	"github.com/user/hermod/pkg/infra/evaluator"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -215,6 +209,13 @@ func (s *statefulSource) DiscoverTables(ctx context.Context) ([]string, error) {
 	return nil, fmt.Errorf("source does not support table discovery")
 }
 
+func (s *statefulSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
+	if d, ok := s.Source.(hermod.ColumnDiscoverer); ok {
+		return d.DiscoverColumns(ctx, table)
+	}
+	return nil, fmt.Errorf("source does not support column discovery")
+}
+
 func (s *statefulSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	if d, ok := s.Source.(hermod.Sampler); ok {
 		return d.Sample(ctx, table)
@@ -229,6 +230,19 @@ func (s *statefulSource) Snapshot(ctx context.Context, tables ...string) error {
 	return fmt.Errorf("source %s does not support manual snapshots", s.sourceID)
 }
 
+func (s *statefulSource) ExecuteSQL(ctx context.Context, query string) ([]map[string]any, error) {
+	if se, ok := s.Source.(hermod.SQLExecutor); ok {
+		return se.ExecuteSQL(ctx, query)
+	}
+	return nil, fmt.Errorf("%w: source does not support SQL execution", hermod.ErrNotSupported)
+}
+
+func (s *statefulSource) SetLogger(logger hermod.Logger) {
+	if l, ok := s.Source.(hermod.Loggable); ok {
+		l.SetLogger(logger)
+	}
+}
+
 func (s *statefulSource) IsReady(ctx context.Context) error {
 	if r, ok := s.Source.(hermod.ReadyChecker); ok {
 		return r.IsReady(ctx)
@@ -238,7 +252,7 @@ func (s *statefulSource) IsReady(ctx context.Context) error {
 
 // --- Workflow Node Execution ---
 
-func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode, msg hermod.Message) (hermod.Message, string, error) {
+func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	if msg == nil {
 		return nil, "", nil
 	}
@@ -254,275 +268,12 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 	// Broadcast live message for observability
 	r.broadcastLiveMessageFromHermod(workflowID, node.ID, msg, false, "")
 
-	switch node.Type {
-	case "approval":
-		return r.runApprovalNode(ctx, span, workflowID, node, msg)
-	case "validator":
-		return r.runValidatorNode(ctx, span, msg, node)
-	case "transformation":
-		return r.runTransformationNode(ctx, span, workflowID, node, msg)
-	case "condition":
-		return r.runConditionNode(ctx, span, msg, node)
-	case "router":
-		return r.runRouterNode(ctx, span, msg, node)
-	case "switch":
-		return r.runSwitchNode(ctx, span, msg, node)
-	case "stateful":
-		return r.runStatefulNode(ctx, span, workflowID, node, msg)
-	case "merge":
-		// Merge is largely handled by the router which combines messages
-		return msg, "", nil
-	case "sink", "source":
-		return msg, "", nil
-	default:
-		return msg, "", nil
-	}
-}
-
-func (r *Registry) runApprovalNode(ctx context.Context, span trace.Span, workflowID string, node *storage.WorkflowNode, msg hermod.Message) (hermod.Message, string, error) {
-	app := storage.Approval{
-		ID:         uuid.New().String(),
-		WorkflowID: workflowID,
-		NodeID:     node.ID,
-		MessageID:  msg.ID(),
-		Payload:    msg.Payload(),
-		Metadata:   msg.Metadata(),
-		Data:       msg.Data(),
-		Status:     "pending",
-		CreatedAt:  time.Now(),
-	}
-	if r.storage != nil {
-		_ = r.storage.CreateApproval(ctx, app)
-	}
-	// Emit live event/log for visibility
-	go r.broadcastLiveMessage(LiveMessage{
-		WorkflowID: workflowID,
-		NodeID:     node.ID,
-		Timestamp:  time.Now(),
-		Data:       map[string]any{"approval_id": app.ID, "status": app.Status},
-	})
-	r.broadcastLogWithData(workflowID, "INFO", fmt.Sprintf("Approval requested at node %s", r.getNodeName(*node)), msg.ID())
-	// Halt the message until approved (no forward routing)
-	return nil, "pending", nil
-}
-
-func (r *Registry) runValidatorNode(ctx context.Context, span trace.Span, msg hermod.Message, node *storage.WorkflowNode) (hermod.Message, string, error) {
-	res, err := r.applyTransformation(ctx, msg, "validator", node.Config)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-	} else if res == nil {
-		span.SetAttributes(attribute.Bool("filtered", true))
-	}
-	return res, "", err
-}
-
-func (r *Registry) runTransformationNode(ctx context.Context, span trace.Span, workflowID string, node *storage.WorkflowNode, msg hermod.Message) (hermod.Message, string, error) {
-	transType, _ := node.Config["transType"].(string)
-	modifiedMsg := msg.Clone()
-
-	if transType == "pipeline" {
-		stepsStr, _ := node.Config["steps"].(string)
-		var steps []map[string]any
-		_ = json.Unmarshal([]byte(stepsStr), &steps)
-
-		var err error
-		for _, step := range steps {
-			st, _ := step["transType"].(string)
-			modifiedMsg, err = r.applyTransformation(ctx, modifiedMsg, st, step)
-			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, err.Error())
-				return nil, "", err
-			}
-			if modifiedMsg == nil {
-				span.SetAttributes(attribute.Bool("filtered", true))
-				return nil, "", nil // Filtered
-			}
-		}
-		return modifiedMsg, "", nil
+	if executor, ok := GetNodeExecutor(node.Type); ok {
+		return executor.Execute(ctx, r, workflowID, node, msg)
 	}
 
-	res, err := r.applyTransformation(ctx, modifiedMsg, transType, node.Config)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		r.broadcastLiveMessageFromHermod(workflowID, node.ID, msg, true, err.Error())
-	} else if res == nil {
-		span.SetAttributes(attribute.Bool("filtered", true))
-	}
-	return res, "", err
-}
-
-func (r *Registry) runConditionNode(ctx context.Context, span trace.Span, msg hermod.Message, node *storage.WorkflowNode) (hermod.Message, string, error) {
-	conditionsStr, _ := node.Config["conditions"].(string)
-	var conditions []map[string]any
-	if conditionsStr != "" {
-		_ = json.Unmarshal([]byte(conditionsStr), &conditions)
-	}
-
-	// Fallback to old format
-	if len(conditions) == 0 {
-		field, _ := node.Config["field"].(string)
-		op, _ := node.Config["operator"].(string)
-		val, _ := node.Config["value"].(string)
-		if field != "" {
-			conditions = append(conditions, map[string]any{
-				"field":    field,
-				"operator": op,
-				"value":    val,
-			})
-		}
-	}
-
-	if r.evaluateConditions(msg, conditions) {
-		span.SetAttributes(attribute.String("branch", "true"))
-		return msg, "true", nil
-	}
-	span.SetAttributes(attribute.String("branch", "false"))
-	return msg, "false", nil
-}
-
-func (r *Registry) runRouterNode(ctx context.Context, span trace.Span, msg hermod.Message, node *storage.WorkflowNode) (hermod.Message, string, error) {
-	// rules is stored as a JSON array string in Config["rules"]
-	rulesStr, _ := node.Config["rules"].(string)
-	var rules []map[string]any
-	_ = json.Unmarshal([]byte(rulesStr), &rules)
-
-	for _, rule := range rules {
-		label, _ := rule["label"].(string)
-
-		// Rule can have multiple conditions
-		var ruleConditions []map[string]any
-		if condsRaw, ok := rule["conditions"].([]any); ok {
-			for _, cr := range condsRaw {
-				if condMap, ok := cr.(map[string]any); ok {
-					ruleConditions = append(ruleConditions, condMap)
-				}
-			}
-		}
-
-		// If no conditions array, try single condition fields
-		if len(ruleConditions) == 0 {
-			field, _ := rule["field"].(string)
-			op, _ := rule["operator"].(string)
-			val := rule["value"]
-			if field != "" && op != "" {
-				ruleConditions = append(ruleConditions, map[string]any{
-					"field":    field,
-					"operator": op,
-					"value":    val,
-				})
-			}
-		}
-
-		if len(ruleConditions) > 0 {
-			if r.evaluateConditions(msg, ruleConditions) {
-				span.SetAttributes(attribute.String("branch", label))
-				return msg, label, nil
-			}
-		}
-	}
-	span.SetAttributes(attribute.String("branch", "default"))
-	return msg, "default", nil
-}
-
-func (r *Registry) runSwitchNode(ctx context.Context, span trace.Span, msg hermod.Message, node *storage.WorkflowNode) (hermod.Message, string, error) {
-	// cases is stored as a JSON array string in Config["cases"]
-	casesStr, _ := node.Config["cases"].(string)
-	var cases []map[string]any
-	_ = json.Unmarshal([]byte(casesStr), &cases)
-
-	field, _ := node.Config["field"].(string)
-	fieldValStr := fmt.Sprintf("%v", getMsgValByPath(msg, field))
-
-	for _, c := range cases {
-		label, _ := c["label"].(string)
-
-		// Check for conditions array in the case
-		var caseConditions []map[string]any
-		if condsRaw, ok := c["conditions"].([]any); ok {
-			for _, cr := range condsRaw {
-				if condMap, ok := cr.(map[string]any); ok {
-					caseConditions = append(caseConditions, condMap)
-				}
-			}
-		}
-
-		if len(caseConditions) > 0 {
-			if r.evaluateConditions(msg, caseConditions) {
-				span.SetAttributes(attribute.String("branch", label))
-				return msg, label, nil
-			}
-		} else {
-			// Fallback to value comparison with the main field
-			val, _ := c["value"].(string)
-			if val == fieldValStr {
-				span.SetAttributes(attribute.String("branch", label))
-				return msg, label, nil
-			}
-		}
-	}
-	span.SetAttributes(attribute.String("branch", "default"))
-	return msg, "default", nil
-}
-
-func (r *Registry) runStatefulNode(ctx context.Context, span trace.Span, workflowID string, node *storage.WorkflowNode, msg hermod.Message) (hermod.Message, string, error) {
-	op, _ := node.Config["operation"].(string) // "count", "sum"
-	field, _ := node.Config["field"].(string)
-	outputField, _ := node.Config["outputField"].(string)
-	if outputField == "" {
-		outputField = field + "_" + op
-	}
-
-	key := workflowID + ":" + node.ID
-	var currentVal float64
-
-	if r.stateStore != nil {
-		valBytes, err := r.stateStore.Get(ctx, "node:"+key)
-		if err == nil && valBytes != nil {
-			currentVal, _ = strconv.ParseFloat(string(valBytes), 64)
-		}
-	} else {
-		r.nodeStatesMu.Lock()
-		state, ok := r.nodeStates[key]
-		if !ok {
-			state = float64(0)
-		}
-		currentVal = state.(float64)
-		r.nodeStatesMu.Unlock()
-	}
-
-	switch op {
-	case "count":
-		currentVal++
-	case "sum":
-		val := getMsgValByPath(msg, field)
-		if v, ok := toFloat64(val); ok {
-			currentVal += v
-		}
-	}
-
-	if r.stateStore != nil {
-		_ = r.stateStore.Set(ctx, "node:"+key, []byte(fmt.Sprintf("%f", currentVal)))
-	} else {
-		r.nodeStatesMu.Lock()
-		r.nodeStates[key] = currentVal
-		r.nodeStatesMu.Unlock()
-	}
-
-	span.SetAttributes(attribute.Float64("current_val", currentVal))
-
-	modifiedMsg := msg.Clone()
-	dm, isDefault := modifiedMsg.(*message.DefaultMessage)
-	data := modifiedMsg.Data()
-
-	if isDefault {
-		dm.SetData(outputField, currentVal)
-	} else {
-		setValByPath(data, outputField, currentVal)
-	}
-	return modifiedMsg, "", nil
+	// Default/Fallback behavior (merging, sink, source, etc.)
+	return []hermod.Message{msg}, "", nil
 }
 
 // --- Helper Functions ---

@@ -1,6 +1,6 @@
 import { IconInfoCircle, IconRefresh } from '@tabler/icons-react';
 import { ActionIcon, Autocomplete, Group, TextInput, Switch, Stack, Divider, Select, Button } from '@mantine/core'
-import { useState, type FC } from 'react'
+import { useState, type FC, useEffect } from 'react'
 import { ColumnMappingEditor, type ColumnMapping } from './ColumnMappingEditor'
 import { apiFetch } from '@/api'
 import { notifications } from '@mantine/notifications'
@@ -125,6 +125,13 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
       setDiscoveringSource(false);
     }
   };
+
+  // Auto-discover columns when use_existing_table is enabled
+  useEffect(() => {
+    if (config.use_existing_table === 'true' && config.table && mappings.length === 0) {
+      handleSmartMap();
+    }
+  }, [config.use_existing_table, config.table]);
 
   return (
     <Stack gap="sm">

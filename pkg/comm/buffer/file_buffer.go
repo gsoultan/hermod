@@ -153,6 +153,12 @@ proceed:
 		return fmt.Errorf("failed to flush log: %w", err)
 	}
 
+	// Zero Data Loss: Fsync the log file
+	if err := b.logFile.Sync(); err != nil {
+		b.mu.Unlock()
+		return fmt.Errorf("failed to fsync log: %w", err)
+	}
+
 	b.produceCount++
 	if err := b.saveState(); err != nil {
 		// Non-fatal, but should log

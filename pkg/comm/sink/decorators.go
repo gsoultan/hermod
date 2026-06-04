@@ -76,7 +76,28 @@ func (s *TracingSink) ExecuteSQL(ctx context.Context, query string) ([]map[strin
 	if se, ok := s.Sink.(hermod.SQLExecutor); ok {
 		return se.ExecuteSQL(ctx, query)
 	}
-	return nil, fmt.Errorf("sink does not support SQL execution")
+	return nil, fmt.Errorf("%w: source does not support SQL execution", hermod.ErrNotSupported)
+}
+
+func (s *TracingSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
+	if d, ok := s.Sink.(hermod.Discoverer); ok {
+		return d.DiscoverDatabases(ctx)
+	}
+	return nil, fmt.Errorf("sink does not support database discovery")
+}
+
+func (s *TracingSink) DiscoverTables(ctx context.Context) ([]string, error) {
+	if d, ok := s.Sink.(hermod.Discoverer); ok {
+		return d.DiscoverTables(ctx)
+	}
+	return nil, fmt.Errorf("sink does not support table discovery")
+}
+
+func (s *TracingSink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
+	if d, ok := s.Sink.(hermod.ColumnDiscoverer); ok {
+		return d.DiscoverColumns(ctx, table)
+	}
+	return nil, fmt.Errorf("sink does not support column discovery")
 }
 
 // RetrySink wraps a Sink and adds retry logic.
@@ -169,5 +190,26 @@ func (s *RetrySink) ExecuteSQL(ctx context.Context, query string) ([]map[string]
 	if se, ok := s.Sink.(hermod.SQLExecutor); ok {
 		return se.ExecuteSQL(ctx, query)
 	}
-	return nil, fmt.Errorf("sink does not support SQL execution")
+	return nil, fmt.Errorf("%w: source does not support SQL execution", hermod.ErrNotSupported)
+}
+
+func (s *RetrySink) DiscoverDatabases(ctx context.Context) ([]string, error) {
+	if d, ok := s.Sink.(hermod.Discoverer); ok {
+		return d.DiscoverDatabases(ctx)
+	}
+	return nil, fmt.Errorf("sink does not support database discovery")
+}
+
+func (s *RetrySink) DiscoverTables(ctx context.Context) ([]string, error) {
+	if d, ok := s.Sink.(hermod.Discoverer); ok {
+		return d.DiscoverTables(ctx)
+	}
+	return nil, fmt.Errorf("sink does not support table discovery")
+}
+
+func (s *RetrySink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
+	if d, ok := s.Sink.(hermod.ColumnDiscoverer); ok {
+		return d.DiscoverColumns(ctx, table)
+	}
+	return nil, fmt.Errorf("sink does not support column discovery")
 }

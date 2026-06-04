@@ -54,7 +54,7 @@ const SourceNode = ({ data }: any) => {
         minWidth: 140, 
         maxWidth: 220,
         borderLeft: `4px solid var(--mantine-color-${getColor()}-6)`,
-        backgroundColor: isDark ? 'var(--mantine-color-dark-6)' : 'var(--mantine-color-white)',
+        backgroundColor: isDark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-body)',
       }}
     >
       <Handle type="source" position={Position.Right} style={{ visibility: 'hidden' }} />
@@ -88,7 +88,7 @@ const TransformationNode = ({ data }: any) => {
         minWidth: 140, 
         maxWidth: 220,
         borderLeft: `4px solid var(--mantine-color-violet-6)`,
-        backgroundColor: isDark ? 'var(--mantine-color-dark-6)' : 'var(--mantine-color-white)',
+        backgroundColor: isDark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-body)',
       }}
     >
       <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
@@ -130,7 +130,7 @@ const SinkNode = ({ data }: any) => {
         minWidth: 140, 
         maxWidth: 220,
         borderLeft: `4px solid var(--mantine-color-green-6)`,
-        backgroundColor: isDark ? 'var(--mantine-color-dark-6)' : 'var(--mantine-color-white)',
+        backgroundColor: isDark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-body)',
       }}
     >
       <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
@@ -158,6 +158,8 @@ const nodeTypes = {
   switch: TransformationNode,
   merge: TransformationNode,
   stateful: TransformationNode,
+  wait: TransformationNode,
+  foreach: TransformationNode,
 };
 
 interface DetailFlowCanvasProps {
@@ -211,7 +213,7 @@ export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, s
         nodeTypes={nodeTypes}
         fitView
       >
-        <Background color={isDark ? '#333' : '#aaa'} gap={20} />
+        <Background color={isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'} gap={20} />
         <Controls />
         <MiniMap 
           nodeColor={(n) => {
@@ -220,7 +222,7 @@ export function DetailFlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, s
             return 'var(--mantine-color-violet-6)';
           }}
           style={{
-            backgroundColor: isDark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-white)',
+            backgroundColor: isDark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-body)',
           }}
         />
       </ReactFlow>

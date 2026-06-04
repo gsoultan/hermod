@@ -30,9 +30,6 @@ const MappingEditor = lazy(() =>
 const SetFieldEditor = lazy(() =>
   import('../workflow/Transformation/SetFieldEditor').then((m) => ({ default: m.SetFieldEditor }))
 );
-const RouterEditor = lazy(() =>
-  import('../workflow/Transformation/RouterEditor').then((m) => ({ default: m.RouterEditor }))
-);
 const QuickActions = lazy(() =>
   import('../workflow/Transformation/QuickActions').then((m) => ({ default: m.QuickActions }))
 );
@@ -41,6 +38,32 @@ const SQLQueryBuilder = lazy(() =>
 );
 import { IconArrowRight, IconCloud, IconCode, IconDatabase, IconFunction, IconHelpCircle, IconInfoCircle, IconList, IconPlayerPlay, IconPlus, IconPuzzle, IconRefresh, IconSearch, IconSettings, IconTrash, IconVariable } from '@tabler/icons-react';
 import { TemplateField } from '../shared/TemplateField';
+
+// Modular configuration components (Junie compliance)
+import { WaitConfig } from '../workflow/Transformation/configs/logic/WaitConfig';
+import { ForeachConfig } from '../workflow/Transformation/configs/logic/ForeachConfig';
+import { MappingConfig } from '../workflow/Transformation/configs/data/MappingConfig';
+import { FilterConfig } from '../workflow/Transformation/configs/data/FilterConfig';
+import { LuaConfig } from '../workflow/Transformation/configs/script/LuaConfig';
+import { WasmConfig } from '../workflow/Transformation/configs/script/WasmConfig';
+import { StatefulConfig } from '../workflow/Transformation/configs/logic/StatefulConfig';
+import { ApprovalConfig } from '../workflow/Transformation/configs/logic/ApprovalConfig';
+import { ConditionConfig } from '../workflow/Transformation/configs/logic/ConditionConfig';
+import { RouterConfig } from '../workflow/Transformation/configs/logic/RouterConfig';
+import { SwitchConfig } from '../workflow/Transformation/configs/logic/SwitchConfig';
+import { AggregateConfig } from '../workflow/Transformation/configs/data/AggregateConfig';
+import { SetFieldsConfig } from '../workflow/Transformation/configs/data/SetFieldsConfig';
+import { LookupConfig } from '../workflow/Transformation/configs/enrichment/LookupConfig';
+import { PipelineConfig } from '../workflow/Transformation/configs/data/PipelineConfig';
+import { AdvancedConfig } from '../workflow/Transformation/configs/data/AdvancedConfig';
+import { ValidatorConfig } from '../workflow/Transformation/configs/data/ValidatorConfig';
+import { MaskConfig } from '../workflow/Transformation/configs/data/MaskConfig';
+import { RateLimitConfig } from '../workflow/Transformation/configs/logic/RateLimitConfig';
+import { SQLConfig } from '../workflow/Transformation/configs/enrichment/SQLConfig';
+import { MulticastConfig } from '../workflow/Transformation/configs/logic/MulticastConfig';
+import { LogConfig } from '../workflow/Transformation/configs/logic/LogConfig';
+import { CollectConfig } from '../workflow/Transformation/configs/logic/CollectConfig';
+import { DeduplicateConfig } from '../workflow/Transformation/configs/util/DeduplicateConfig';
 interface TransformationFormProps {
   selectedNode: any;
   updateNodeConfig: (nodeId: string, config: any, replace?: boolean) => void;
@@ -60,6 +83,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
   const [previewResult, setPreviewResult] = useState<any>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [sqlExplorerOpened, setSqlExplorerOpened] = useState(false);
   const [configSearch, setConfigSearch] = useState('');
   // Accessibility: IDs for help modal labelling
   const helpTitleId = 'transformation-help-modal-title';
@@ -346,178 +370,6 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
 
 
-  // Helper for Switch Cases
-  const renderSwitchEditor = () => {
-    let cases: any[] = [];
-    try {
-      cases = typeof selectedNode.data.cases === 'string' 
-        ? JSON.parse(selectedNode.data.cases || '[]')
-        : (selectedNode.data.cases || []);
-    } catch (e) {
-      cases = [];
-    }
-
-    const updateCase = (index: number, field: string, newValue: any) => {
-      const next = [...cases];
-      next[index] = { ...next[index], [field]: newValue };
-      updateNodeConfig(selectedNode.id, { cases: JSON.stringify(next) });
-    };
-
-    const removeCase = (index: number) => {
-      const next = cases.filter((_, i) => i !== index);
-      updateNodeConfig(selectedNode.id, { cases: JSON.stringify(next) });
-    };
-
-    const addCase = () => {
-      updateNodeConfig(selectedNode.id, { cases: JSON.stringify([...cases, { value: '', label: `case_${cases.length + 1}` }]) });
-    };
-
-    const addCaseCondition = (index: number) => {
-      const next = [...cases];
-      const conditions = next[index].conditions || [];
-      next[index].conditions = [...conditions, { field: '', operator: '=', value: '' }];
-      updateNodeConfig(selectedNode.id, { cases: JSON.stringify(next) });
-    };
-
-    const updateCaseCondition = (index: number, condIdx: number, field: string, value: string) => {
-      const next = [...cases];
-      const conditions = [...next[index].conditions];
-      conditions[condIdx] = { ...conditions[condIdx], [field]: value };
-      next[index].conditions = conditions;
-      updateNodeConfig(selectedNode.id, { cases: JSON.stringify(next) });
-    };
-
-    const removeCaseCondition = (index: number, condIdx: number) => {
-      const next = [...cases];
-      next[index].conditions = next[index].conditions.filter((_: any, i: number) => i !== condIdx);
-      updateNodeConfig(selectedNode.id, { cases: JSON.stringify(next) });
-    };
-
-    return (
-      <Stack gap="xs">
-        <Group justify="space-between">
-          <Text size="sm" fw={500}>Switch Cases</Text>
-          <Button 
-            size="compact-xs" 
-            variant="light" 
-            leftSection={<IconPlus size="1rem" />}
-            onClick={addCase}
-          >
-            Add Case
-          </Button>
-        </Group>
-        {cases.length === 0 && (
-          <Text size="xs" c="dimmed" ta="center">No cases defined. Messages will follow "default" branch.</Text>
-        )}
-        {cases.map((c, index) => (
-          <Card key={index} withBorder p="xs" bg="var(--mantine-color-body)" radius="md">
-            <Stack gap="xs">
-              <Group grow gap="xs" align="flex-end">
-                <TextInput
-                  placeholder="Edge Label"
-                  label="Branch Label"
-                  size="xs"
-                  value={c.label}
-                  onChange={(e) => updateCase(index, 'label', e.target.value)}
-                  required
-                />
-                <ActionIcon 
-                  aria-label="Remove switch case"
-                  color="red" 
-                  variant="subtle" 
-                  onClick={() => removeCase(index)} 
-                  mb={2} 
-                  style={{ flex: 'none' }}
-                >
-                  <IconTrash size="1rem" />
-                </ActionIcon>
-              </Group>
-              
-              {!c.conditions || c.conditions.length === 0 ? (
-                <Stack gap={4}>
-                  <Group grow gap="xs" align="flex-end">
-                    <TextInput
-                        placeholder="Value"
-                        label={`Match "${selectedNode.data.field || 'field'}" with:`}
-                        size="xs"
-                        value={c.value}
-                        onChange={(e) => updateCase(index, 'value', e.target.value)}
-                      />
-                      <Button 
-                        size="compact-xs" 
-                        variant="subtle" 
-                        onClick={() => updateCase(index, 'conditions', [{field: '', operator: '=', value: ''}])}
-                      >
-                        Use Conditions
-                      </Button>
-                  </Group>
-                </Stack>
-              ) : (
-                <Stack gap="xs" p={4} style={{ border: '1px dashed var(--mantine-color-gray-4)', borderRadius: 4 }}>
-                   <Group justify="space-between">
-                     <Text size="10px" fw={700} c="dimmed">CONDITIONS (AND)</Text>
-                     <ActionIcon 
-                       size="xs" 
-                       variant="subtle" 
-                       color="red"
-                       onClick={() => {
-                          const next = [...cases];
-                          delete next[index].conditions;
-                          updateNodeConfig(selectedNode.id, { cases: JSON.stringify(next) });
-                       }}
-                     >
-                       <IconTrash size="0.8rem" />
-                     </ActionIcon>
-                   </Group>
-                   {c.conditions.map((cond: any, condIdx: number) => (
-                      <Group key={condIdx} grow gap={4} align="flex-end">
-                        <Autocomplete 
-                          placeholder="Field" 
-                          data={availableFields || []}
-                          size="xs"
-                          value={cond.field || ''} 
-                          onChange={(val) => updateCaseCondition(index, condIdx, 'field', val)} 
-                        />
-                        <Select 
-                          data={['=', '!=', '>', '>=', '<', '<=', 'contains']} 
-                          size="xs"
-                          value={cond.operator || '='} 
-                          onChange={(val) => updateCaseCondition(index, condIdx, 'operator', val || '=')} 
-                          style={{ width: 80, flex: 'none' }}
-                        />
-                        <TextInput 
-                          placeholder="Value" 
-                          size="xs"
-                          value={cond.value || ''} 
-                          onChange={(e) => updateCaseCondition(index, condIdx, 'value', e.target.value)} 
-                        />
-                        <ActionIcon 
-                          aria-label="Remove switch condition"
-                          color="red" 
-                          variant="subtle" 
-                          onClick={() => removeCaseCondition(index, condIdx)} 
-                          style={{ flex: 'none' }}
-                        >
-                          <IconTrash size="0.8rem" />
-                        </ActionIcon>
-                      </Group>
-                   ))}
-                   <Button 
-                     size="compact-xs" 
-                     variant="light" 
-                     leftSection={<IconPlus size="0.8rem" />}
-                     onClick={() => addCaseCondition(index)}
-                   >
-                     Add Condition
-                   </Button>
-                </Stack>
-              )}
-            </Stack>
-          </Card>
-        ))}
-      </Stack>
-    );
-  };
 
 
 
@@ -1007,6 +859,67 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     </Card>
   );
 
+  const renderConfiguration = () => {
+    const commonProps = {
+      config: selectedNode.data,
+      updateNodeConfig,
+      nodeId: selectedNode.id,
+      availableFields,
+      sources,
+      incomingPayload,
+      onTest: testLookup,
+      testing
+    };
+
+    // Specific Node Type handling
+    if (selectedNode.type === 'wait') return <WaitConfig {...commonProps} />;
+    if (selectedNode.type === 'foreach') return <ForeachConfig {...commonProps} />;
+    if (selectedNode.type === 'collect') return <CollectConfig {...commonProps} />;
+    if (selectedNode.type === 'log') return <LogConfig {...commonProps} />;
+    if (selectedNode.type === 'deduplicate') return <DeduplicateConfig {...commonProps} />;
+    if (selectedNode.type === 'approval') return <ApprovalConfig {...commonProps} />;
+    if (selectedNode.type === 'stateful') return <StatefulConfig {...commonProps} />;
+    if (selectedNode.type === 'condition') return <ConditionConfig {...commonProps} />;
+    if (selectedNode.type === 'router') return <RouterConfig {...commonProps} />;
+    if (selectedNode.type === 'switch') return <SwitchConfig {...commonProps} />;
+    if (selectedNode.type === 'merge') {
+      return (
+        <Alert icon={<IconInfoCircle size="1rem" />} color="cyan">
+          <Text size="sm">Merge nodes join parallel paths by waiting for all incoming branches.</Text>
+        </Alert>
+      );
+    }
+
+    // Transformation Sub-types
+    switch (transType) {
+      case 'mapping': return <MappingConfig {...commonProps} />;
+      case 'filter': return <FilterConfig {...commonProps} />;
+      case 'lua': return <LuaConfig {...commonProps} />;
+      case 'wasm': return <WasmConfig {...commonProps} />;
+      case 'aggregate': return <AggregateConfig {...commonProps} />;
+      case 'set': return <SetFieldsConfig {...commonProps} onAddFromSource={addFromSource} addField={addField} />;
+      case 'lookup': return <LookupConfig {...commonProps} />;
+      case 'pipeline': return <PipelineConfig {...commonProps} />;
+      case 'validator': return <ValidatorConfig {...commonProps} />;
+      case 'mask': return <MaskConfig {...commonProps} />;
+      case 'rate_limit': return <RateLimitConfig {...commonProps} />;
+      case 'execute_sql':
+      case 'row_count':
+      case 'scd':
+        return <SQLConfig {...commonProps} />;
+      case 'multicast': return <MulticastConfig {...commonProps} />;
+      case 'advanced': return <AdvancedConfig {...commonProps} 
+                                onAddFromSource={addFromSource} 
+                                addField={addField} 
+                                transType={transType} />;
+      default: return (
+        <Alert color="gray">
+          <Text size="sm">Select a transformation type to begin configuration.</Text>
+        </Alert>
+      );
+    }
+  };
+
   return (
     <>
     <Grid gap="lg" style={{ minHeight: 'calc(100vh - 180px)' }}>
@@ -1143,54 +1056,9 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                   </Suspense>
                   <Divider label="Configuration" labelPosition="center" />
                   
-                  {/* Filterable Settings Sections */}
-                  {(!configSearch || "router".includes(configSearch.toLowerCase())) && transType === 'router' && (
-                    <Suspense fallback={<Text size="xs" c="dimmed">Loading router editor…</Text>}>
-                      <RouterEditor
-                        selectedNode={selectedNode}
-                        updateNodeConfig={updateNodeConfig}
-                        availableFields={availableFields}
-                      />
-                    </Suspense>
-                  )}
+                  {renderConfiguration()}
 
-                  {(!configSearch || "switch cases conditions".includes(configSearch.toLowerCase())) && transType === 'switch' && (
-                    <Stack gap="sm">
-                      <Autocomplete 
-                        label="Field to Switch On" 
-                        placeholder="e.g. status" 
-                        data={availableFields || []}
-                        value={selectedNode.data.field || ''} 
-                        onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })} 
-                        description="Field to branch on. Supports nested objects and arrays."
-                      />
-                      {renderSwitchEditor()}
-                      <Alert icon={<IconInfoCircle size="1rem" />} color="orange" py="xs">
-                        <Text size="xs">Matching messages will follow the edge with the corresponding label. Unmatched follow "default".</Text>
-                      </Alert>
-                    </Stack>
-                  )}
-
-                  {(!configSearch || "merge strategy".includes(configSearch.toLowerCase())) && transType === 'merge' && (
-                    <Stack gap="sm">
-                      <Select
-                        label="Merge Strategy"
-                        data={[
-                          { label: 'Deep Merge (Recursive)', value: 'deep' },
-                          { label: 'Shallow Merge (Root level)', value: 'shallow' },
-                          { label: 'Overwrite (Last wins)', value: 'overwrite' },
-                          { label: 'If Missing (First wins)', value: 'if_missing' }
-                        ]}
-                        value={selectedNode.data.strategy || 'deep'}
-                        onChange={(val) => updateNodeConfig(selectedNode.id, { strategy: val || 'deep' })}
-                      />
-                      <Alert icon={<IconInfoCircle size="1rem" />} color="pink" title="Merge Strategy">
-                        <Stack gap="xs">
-                          <Text size="xs">Merge nodes wait for ALL branches connected to them to complete before passing a single merged message.</Text>
-                        </Stack>
-                      </Alert>
-                    </Stack>
-                  )}
+                  <Divider label="Advanced" labelPosition="center" mt="xl" />
 
 
           {isForeach && (
@@ -1689,13 +1557,33 @@ end`}
                   </Group>
                   {selectedNode.data.sourceId && (
                     <Box mt="md">
-                      <Divider label="SQL Explorer" labelPosition="center" mb="sm" />
-                      <Suspense fallback={<Text size="xs" c="dimmed">Loading SQL builder…</Text>}>
-                        <SQLQueryBuilder 
-                          type="source" 
-                          config={(Array.isArray(sources) ? sources : []).find(s => s.id === selectedNode.data.sourceId)?.config || {}} 
-                        />
-                      </Suspense>
+                      <Button 
+                        leftSection={<IconSearch size={16} />}
+                        onClick={() => setSqlExplorerOpened(true)}
+                        variant="light"
+                        fullWidth
+                      >
+                        Explore Database (SQL)
+                      </Button>
+
+                      <Modal
+                        opened={sqlExplorerOpened}
+                        onClose={() => setSqlExplorerOpened(false)}
+                        title="Database Explorer"
+                        size="80%"
+                        radius="md"
+                      >
+                        <Suspense fallback={<Text size="xs" c="dimmed">Loading SQL builder…</Text>}>
+                          <SQLQueryBuilder 
+                            type="source" 
+                            sourceType={(Array.isArray(sources) ? sources : []).find(s => s.id === selectedNode.data.sourceId)?.type}
+                            config={(Array.isArray(sources) ? sources : []).find(s => s.id === selectedNode.data.sourceId)?.config || {}} 
+                          />
+                        </Suspense>
+                        <Group justify="flex-end" mt="md">
+                          <Button onClick={() => setSqlExplorerOpened(false)}>Close Explorer</Button>
+                        </Group>
+                      </Modal>
                     </Box>
                   )}
                 </Stack>

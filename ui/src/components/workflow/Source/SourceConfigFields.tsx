@@ -6,6 +6,7 @@ import { FileSourceConfig } from './FileSourceConfig';
 import { SapSourceConfig } from './SapSourceConfig';
 import { Dynamics365SourceConfig } from './Dynamics365SourceConfig';
 import { MainframeSourceConfig } from './MainframeSourceConfig';
+import { BatchSQLSourceConfig } from './BatchSQLSourceConfig';
 import { OtherSourceConfig } from './OtherSourceConfig';
 import { ExcelSourceConfig } from './ExcelSourceConfig';
 import type { FC } from 'react';
@@ -123,12 +124,21 @@ export const SourceConfigFields: FC<SourceConfigFieldsProps> = ({
     return <MainframeSourceConfig config={source.config} updateConfig={updateConfig} />;
   }
 
+  if (source.type === 'batch_sql') {
+    return (
+      <BatchSQLSourceConfig 
+        config={source.config} 
+        updateConfig={updateConfig} 
+        allSources={allSources} 
+      />
+    );
+  }
+
   return (
     <OtherSourceConfig 
       config={source.config} 
       updateConfig={updateConfig} 
       sourceType={source.type} 
-      allSources={allSources} 
     />
   );
 };

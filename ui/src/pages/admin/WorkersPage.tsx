@@ -169,7 +169,7 @@ export function WorkersPage() {
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
           <Table verticalSpacing="md" horizontalSpacing="xl">
-            <Table.Thead bg="var(--mantine-color-dark-6)">
+            <Table.Thead>
               <Table.Tr>
                 <Table.Th>Name / ID</Table.Th>
                 <Table.Th>Status</Table.Th>

@@ -5,7 +5,7 @@ import {
 import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
 import { useState } from 'react';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
-import { IconArrowsSplit, IconChecklist, IconCloud, IconCode, IconDatabase, IconEye, IconFilter, IconGitBranch, IconGitMerge, IconNote, IconPlaylist, IconSearch, IconShieldLock, IconTrash, IconVariable } from '@tabler/icons-react';
+import { IconArrowsSplit, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconEye, IconFilter, IconGitBranch, IconGitMerge, IconList, IconNote, IconPlaylist, IconSearch, IconShieldLock, IconTerminal2, IconTrash, IconVariable } from '@tabler/icons-react';
 export const ValidatorNode = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Validator" color="orange" icon={IconChecklist} data={data} selected={selected}>
@@ -155,6 +155,53 @@ export const StatefulNode = ({ id, data, selected }: any) => {
     <BaseNode id={id} type="Stateful" color="pink" icon={IconDatabase} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="pink" />
       <PlusHandle type="source" position={Position.Right} nodeId={id} color="pink" />
+    </BaseNode>
+  );
+};
+
+export const WaitNode = ({ id, data, selected }: any) => {
+  return (
+    <BaseNode id={id} type="Wait" color="blue" icon={IconClock} data={data} selected={selected}>
+      <TargetHandle position={Position.Left} color="blue" />
+      <PlusHandle type="source" position={Position.Right} nodeId={id} color="blue" />
+    </BaseNode>
+  );
+};
+
+export const ForeachNode = ({ id, data, selected }: any) => {
+  return (
+    <BaseNode id={id} type="Foreach" color="teal" icon={IconPlaylist} data={data} selected={selected}>
+      <TargetHandle position={Position.Left} color="teal" />
+      <PlusHandle type="source" position={Position.Right} nodeId={id} color="teal" />
+      <PlusHandle type="source" position={Position.Right} id="error" nodeId={id} color="red" style={{ top: 'auto', bottom: 10 }} />
+    </BaseNode>
+  );
+};
+
+export const LogNode = ({ id, data, selected }: any) => {
+  return (
+    <BaseNode id={id} type="Log" color="gray" icon={IconTerminal2} data={data} selected={selected}>
+      <TargetHandle position={Position.Left} color="gray" />
+      <PlusHandle type="source" position={Position.Right} nodeId={id} color="gray" />
+    </BaseNode>
+  );
+};
+
+export const CollectNode = ({ id, data, selected }: any) => {
+  return (
+    <BaseNode id={id} type="Collect" color="indigo" icon={IconList} data={data} selected={selected}>
+      <TargetHandle position={Position.Left} color="indigo" />
+      <PlusHandle type="source" position={Position.Right} nodeId={id} color="indigo" />
+    </BaseNode>
+  );
+};
+
+export const DeduplicateNode = ({ id, data, selected }: any) => {
+  return (
+    <BaseNode id={id} type="Deduplicate" color="violet" icon={IconCopy} data={data} selected={selected}>
+      <TargetHandle position={Position.Left} color="violet" />
+      <PlusHandle type="source" position={Position.Right} nodeId={id} color="violet" />
+      <PlusHandle type="source" position={Position.Right} id="duplicate" nodeId={id} color="gray" style={{ top: 'auto', bottom: 10 }} />
     </BaseNode>
   );
 };

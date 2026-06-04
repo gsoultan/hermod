@@ -89,7 +89,7 @@ func (h *Handler) HandleDashboardWS(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	vhost := r.URL.Query().Get("vhost")
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -175,12 +175,13 @@ func (h *Handler) HandleLiveMessagesWS(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		select {
-		case msg := <-ch:
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
 			// Match workflow ID (case-insensitive) or allow "test" messages if we are in test mode
-			if workflowID != "" && !strings.EqualFold(msg.WorkflowID, workflowID) {
-				// Special case: if we're testing a workflow, it might broadcast with ID "test"
-				// but we only want to show it if the current editor is also in some kind of test mode.
-				// For now, we strictly match, but EqualFold helps with UUID casing.
+			// If workflowID is provided, we also allow "test" messages because they belong to the current editor's simulation
+			if workflowID != "" && !strings.EqualFold(msg.WorkflowID, workflowID) && !strings.EqualFold(msg.WorkflowID, "test") {
 				continue
 			}
 			if err := conn.WriteJSON(msg); err != nil {
@@ -188,6 +189,45 @@ func (h *Handler) HandleLiveMessagesWS(w http.ResponseWriter, r *http.Request) {
 			}
 		case <-ticker.C:
 			if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
+				return
+			}
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+func (h *Handler) HandleDebuggerWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	workflowID := r.URL.Query().Get("workflow_id")
+
+	// Subscribe to debugger events
+	ch := h.Registry.SubscribeDebugger(workflowID)
+	defer h.Registry.UnsubscribeDebugger(workflowID, ch)
+
+	// Listen for commands from the UI
+	go func() {
+		for {
+			var cmd struct {
+				Action string `json:"action"`
+				MsgID  string `json:"msg_id"`
+			}
+			if err := conn.ReadJSON(&cmd); err != nil {
+				return
+			}
+			h.Registry.DebuggerCommand(workflowID, cmd.MsgID, cmd.Action)
+		}
+	}()
+
+	for {
+		select {
+		case ev := <-ch:
+			if err := conn.WriteJSON(ev); err != nil {
 				return
 			}
 		case <-r.Context().Done():

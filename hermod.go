@@ -2,7 +2,12 @@ package hermod
 
 import (
 	"context"
+	"errors"
 	"time"
+)
+
+var (
+	ErrNotSupported = errors.New("not supported")
 )
 
 // Operation defines the type of CDC operation.
@@ -42,6 +47,8 @@ type Message interface {
 	SetData(key string, value any)
 	Clone() Message
 	ClearPayloads()
+	Retain()
+	Release()
 }
 
 // Producer defines the interface for sending messages.
@@ -188,8 +195,10 @@ type TraceStep struct {
 	NodeID    string         `json:"node_id"`
 	Timestamp time.Time      `json:"timestamp" omitzero:"true"`
 	Duration  time.Duration  `json:"duration" omitzero:"true"`
-	Data      map[string]any `json:"data" omitzero:"true"`
+	Before    map[string]any `json:"before,omitempty" omitzero:"true"`
+	After     map[string]any `json:"after,omitempty" omitzero:"true"`
 	Error     string         `json:"error,omitempty"`
+	Lineage   string         `json:"lineage,omitempty"`
 }
 
 // TraceRecorder defines the interface for recording message traces.

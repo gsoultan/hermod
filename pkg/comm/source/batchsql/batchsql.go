@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
 // DBProvider defines the interface for obtaining database connections.
@@ -42,10 +44,14 @@ type BatchSQLSource struct {
 
 // NewBatchSQLSource creates a new BatchSQLSource.
 func NewBatchSQLSource(dbProvider DBProvider, config Config) *BatchSQLSource {
+	var opts []cron.Option
+	if len(strings.Fields(config.Cron)) > 5 {
+		opts = append(opts, cron.WithSeconds())
+	}
 	return &BatchSQLSource{
 		dbProvider: dbProvider,
 		config:     config,
-		cron:       cron.New(cron.WithSeconds()),
+		cron:       cron.New(opts...),
 		msgCh:      make(chan hermod.Message, 1000),
 		errCh:      make(chan error, 10),
 		state:      make(map[string]string),
@@ -138,7 +144,10 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 	s.log("INFO", "Starting scheduled batch SQL job", "source_id", s.config.SourceID)
 
 	db, _, err := s.dbProvider.GetOrOpenDBByID(ctx, s.config.SourceID)
-	if err != nil {
+	if err != nil || db == nil {
+		if err == nil {
+			err = fmt.Errorf("database not found for source id: %s", s.config.SourceID)
+		}
 		s.log("ERROR", "Failed to get database for batch job", "error", err)
 		select {
 		case s.errCh <- err:
@@ -236,6 +245,10 @@ func (s *BatchSQLSource) Ack(ctx context.Context, msg hermod.Message) error {
 
 // Ping checks if the schedule is valid.
 func (s *BatchSQLSource) Ping(ctx context.Context) error {
+	if len(strings.Fields(s.config.Cron)) > 5 {
+		_, err := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor).Parse(s.config.Cron)
+		return err
+	}
 	_, err := cron.ParseStandard(s.config.Cron)
 	return err
 }
@@ -248,4 +261,61 @@ func (s *BatchSQLSource) Close() error {
 		s.cron.Stop()
 	}
 	return nil
+}
+
+// Sample fetches a single record from the specified table for preview.
+func (s *BatchSQLSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	db, driver, err := s.dbProvider.GetOrOpenDBByID(ctx, s.config.SourceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database for sampling: %w", err)
+	}
+
+	quoted, err := sqlutil.QuoteIdent(driver, table)
+	if err != nil {
+		quoted = table
+	}
+
+	query := fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted)
+	s.log("DEBUG", "Executing sample query", "query", query)
+
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query sample record: %w", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, fmt.Errorf("no records found in table %s", table)
+	}
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	values := make([]any, len(cols))
+	valuePtrs := make([]any, len(cols))
+	for i := range values {
+		valuePtrs[i] = &values[i]
+	}
+
+	if err := rows.Scan(valuePtrs...); err != nil {
+		return nil, fmt.Errorf("failed to scan sample record: %w", err)
+	}
+
+	msg := message.AcquireMessage()
+	msg.SetID(fmt.Sprintf("sample-%s-%d", table, time.Now().Unix()))
+	msg.SetOperation(hermod.OpSnapshot)
+	msg.SetTable(table)
+	msg.SetMetadata("sample", "true")
+
+	for i, colName := range cols {
+		val := values[i]
+		if b, ok := val.([]byte); ok {
+			val = string(b)
+		}
+		msg.SetData(colName, val)
+	}
+
+	return msg, nil
 }

@@ -111,6 +111,34 @@ func (h *Handler) UpdateWorkerHeartbeat(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) RecommendWorker(w http.ResponseWriter, r *http.Request) {
+	workers, _, err := h.Storage.ListWorkers(r.Context(), storage.CommonFilter{Limit: -1})
+	if err != nil {
+		h.JsonError(w, "failed to list workers", http.StatusInternalServerError)
+		return
+	}
+
+	bestWorker := h.findBestWorker(workers)
+	w.Header().Set("Content-Type", "application/json")
+	bestWorker.Token = "" // Hide token
+	_ = json.NewEncoder(w).Encode(bestWorker)
+}
+
+func (h *Handler) findBestWorker(workers []storage.Worker) storage.Worker {
+	var bestWorker storage.Worker
+	minLoad := 3.0 // Max theoretical load (CPU 1.0 + Mem 1.0 + Density 1.0)
+
+	for _, wkr := range workers {
+		load := wkr.CPUUsage + wkr.MemoryUsage
+		// Add some weight for active workflows if available (placeholder for now)
+		if load < minLoad {
+			minLoad = load
+			bestWorker = wkr
+		}
+	}
+	return bestWorker
+}
+
 func (h *Handler) DeleteWorker(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := h.Storage.DeleteWorker(r.Context(), id); err != nil {

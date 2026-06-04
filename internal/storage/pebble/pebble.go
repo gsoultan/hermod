@@ -650,7 +650,19 @@ func (s *pebbleStorage) CreateApproval(ctx context.Context, app storage.Approval
 func (s *pebbleStorage) GetApproval(ctx context.Context, id string) (storage.Approval, error) {
 	return storage.Approval{}, fmt.Errorf("not implemented")
 }
-func (s *pebbleStorage) UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string) error {
+func (s *pebbleStorage) UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string, formData map[string]any) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (s *pebbleStorage) CreateSuspendedMessage(ctx context.Context, m storage.SuspendedMessage) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (s *pebbleStorage) ListSuspendedMessages(ctx context.Context, workflowID string, before time.Time) ([]storage.SuspendedMessage, error) {
+	return nil, nil
+}
+
+func (s *pebbleStorage) DeleteSuspendedMessage(ctx context.Context, id string) error {
 	return fmt.Errorf("not implemented")
 }
 func (s *pebbleStorage) DeleteApproval(ctx context.Context, id string) error {

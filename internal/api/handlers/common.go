@@ -492,15 +492,15 @@ func (h *Handler) IsFirstRun(ctx context.Context) bool {
 	if !config.IsDBConfigured() {
 		return true
 	}
-	// If storage is not initialized yet, treat as first-run to allow setup UI
+	// If storage is not initialized but config exists, it's a failed connection, not a first run.
 	if h.Storage == nil {
-		return true
+		return false
 	}
 	// Check if any user exists
-	_, total, err := h.Storage.ListUsers(ctx, storage.CommonFilter{})
+	_, total, err := h.Storage.ListUsers(ctx, storage.CommonFilter{Limit: 1})
 	if err != nil {
-		// Fail-open: consider first-run on error to avoid blocking setup
-		return true
+		// If already configured, a DB error should NOT trigger first-run state.
+		return false
 	}
 	return total == 0
 }

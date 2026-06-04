@@ -12,6 +12,8 @@ import (
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/buffer"
+	"github.com/user/hermod/pkg/engine/config"
+	"github.com/user/hermod/pkg/engine/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -22,7 +24,7 @@ type sinkWriter struct {
 	sink   hermod.Sink
 	sinkID string
 	index  int
-	config SinkConfig
+	config config.SinkConfig
 
 	ch chan *pendingMessage
 	// Optional sharding for per-key ordering with parallelism
@@ -68,6 +70,9 @@ func acquirePendingMessage(msg hermod.Message) *pendingMessage {
 }
 
 func releasePendingMessage(pm *pendingMessage) {
+	if pm.msg != nil {
+		pm.msg.Release()
+	}
 	pm.msg = nil
 	// Reset the done channel by reading if it has anything (should be empty though)
 	select {
@@ -97,6 +102,19 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 
 	if e.isFailing() {
 		return fmt.Errorf("simulated engine failure")
+	}
+
+	if e.IsSafeMode() && e.deadLetterSink != nil {
+		e.logger.Warn("Safe Mode Active: diverting message to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID())
+		msg.SetMetadata("_hermod_safe_mode", "true")
+		msg.SetMetadata("_hermod_original_sink", sinkID)
+		e.statusTracker.IncDeadLetter()
+		telemetry.DeadLetterCount.WithLabelValues(e.workflowID, sinkID).Inc()
+		if err := e.deadLetterSink.Write(ctx, msg); err != nil {
+			e.logger.Error("Failed to write to Dead Letter Sink in Safe Mode", "workflow_id", e.workflowID, "error", err)
+			return fmt.Errorf("safe mode diversion failed: %w", err)
+		}
+		return nil
 	}
 
 	// Pre-write validation
@@ -149,7 +167,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		idempStart := time.Now()
 		if err := snk.Write(ctx, msg); err != nil {
 			lastErr = err
-			SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Inc()
+			telemetry.SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Inc()
 			e.setSinkStatus(sinkID, "reconnecting")
 			e.setStatus("reconnecting:sink:" + sinkID)
 			e.logger.Warn("Sink write error, retrying", "workflow_id", e.workflowID, "attempt", j+1, "sink_id", sinkID, "error", err)
@@ -180,17 +198,17 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		if j > 0 {
 			e.logger.Info("Sink reconnected successfully", "workflow_id", e.workflowID, "sink_id", sinkID, "action", "reconnect")
 		}
-		SinkWriteCount.WithLabelValues(e.workflowID, sinkID).Inc()
+		telemetry.SinkWriteCount.WithLabelValues(e.workflowID, sinkID).Inc()
 		// Record observed latency for the sink write path (captures idempotency checks when present)
-		IdempotencyLatency.WithLabelValues(e.workflowID, sinkID).Observe(time.Since(idempStart).Seconds())
+		telemetry.IdempotencyLatency.WithLabelValues(e.workflowID, sinkID).Observe(time.Since(idempStart).Seconds())
 		// If sink reports idempotency effect, emit metrics
 		if reporter, ok := snk.(hermod.IdempotencyReporter); ok {
 			if dedup, conflict := reporter.LastWriteIdempotent(); dedup || conflict {
 				if dedup {
-					IdempotencyDedupTotal.WithLabelValues(e.workflowID, sinkID).Inc()
+					telemetry.IdempotencyDedupTotal.WithLabelValues(e.workflowID, sinkID).Inc()
 				}
 				if conflict {
-					IdempotencyConflictsTotal.WithLabelValues(e.workflowID, sinkID).Inc()
+					telemetry.IdempotencyConflictsTotal.WithLabelValues(e.workflowID, sinkID).Inc()
 				}
 			}
 		}
@@ -218,7 +236,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 
 			e.statusTracker.IncDeadLetter()
 
-			DeadLetterCount.WithLabelValues(e.workflowID, sinkID).Inc()
+			telemetry.DeadLetterCount.WithLabelValues(e.workflowID, sinkID).Inc()
 			if err := e.deadLetterSink.Write(ctx, msg); err != nil {
 				e.logger.Error("Failed to write to Dead Letter Sink", "workflow_id", e.workflowID, "error", err)
 				return fmt.Errorf("sink write error (and DLQ failed): %w", lastErr)
@@ -275,6 +293,23 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 		return nil
 	}
 
+	if e.IsSafeMode() && e.deadLetterSink != nil {
+		e.logger.Warn("Safe Mode Active: diverting batch to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "batch_size", len(msgs))
+		for _, m := range msgs {
+			if m == nil {
+				continue
+			}
+			m.SetMetadata("_hermod_safe_mode", "true")
+			m.SetMetadata("_hermod_original_sink", sinkID)
+			e.statusTracker.IncDeadLetter()
+			telemetry.DeadLetterCount.WithLabelValues(e.workflowID, sinkID).Inc()
+			if err := e.deadLetterSink.Write(ctx, m); err != nil {
+				e.logger.Error("Failed to write message from batch to Dead Letter Sink in Safe Mode", "workflow_id", e.workflowID, "error", err)
+			}
+		}
+		return nil
+	}
+
 	if len(msgs) == 1 {
 		return e.writeToSink(ctx, snk, msgs[0], sinkID, i)
 	}
@@ -310,7 +345,7 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 	for j := 0; j < maxRetries; j++ {
 		if err := snk.WriteBatch(ctx, msgs); err != nil {
 			lastErr = err
-			SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Add(float64(len(msgs)))
+			telemetry.SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Add(float64(len(msgs)))
 			e.setSinkStatus(sinkID, "reconnecting")
 			e.setStatus("reconnecting:sink:" + sinkID)
 			e.logger.Warn("Sink batch write error, retrying", "workflow_id", e.workflowID, "attempt", j+1, "sink_id", sinkID, "batch_size", len(msgs), "error", err)
@@ -338,7 +373,7 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 		if j > 0 {
 			e.logger.Info("Sink reconnected successfully", "workflow_id", e.workflowID, "sink_id", sinkID, "action", "reconnect")
 		}
-		SinkWriteCount.WithLabelValues(e.workflowID, sinkID).Add(float64(len(msgs)))
+		telemetry.SinkWriteCount.WithLabelValues(e.workflowID, sinkID).Add(float64(len(msgs)))
 		e.logger.Info("Batch written to sink",
 			"workflow_id", e.workflowID,
 			"sink_id", sinkID,
@@ -353,6 +388,41 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 		e.logger.Error("Sink batch write failed after retries", "workflow_id", e.workflowID, "sink_id", sinkID, "error", lastErr)
 		span.RecordError(lastErr)
 		span.SetStatus(codes.Error, lastErr.Error())
+
+		if e.deadLetterSink != nil || len(msgs) > 1 {
+			e.logger.Warn("Batch write failed, attempting individual writes to isolate errors", "workflow_id", e.workflowID, "sink_id", sinkID, "batch_size", len(msgs))
+
+			allSucceeded := true
+			for _, m := range msgs {
+				if m == nil {
+					continue
+				}
+				// Use writeToSink for individual processing (which already handles DLQ)
+				if err := e.writeToSink(ctx, snk, m, sinkID, i); err != nil {
+					allSucceeded = false
+					// We continue with other messages in the batch instead of stopping
+					// writeToSink already logged the error and handled DLQ if available
+				}
+			}
+
+			if allSucceeded {
+				return nil
+			}
+
+			// If some failed even after individual attempts, and we don't have a DLQ
+			// for those individual failures, writeToSink would have returned an error.
+			// But here we want to return nil if we managed to process the whole batch
+			// (either by success or by DLQing the individual failures).
+			// If writeToSink returned nil for all messages (either success or DLQ),
+			// then allSucceeded will be true.
+			// If it returned error for any message (meaning no DLQ or DLQ failed),
+			// then we still have a problem.
+			if !allSucceeded {
+				return fmt.Errorf("sink batch write failed and some messages could not be diverted: %w", lastErr)
+			}
+			return nil
+		}
+
 		return fmt.Errorf("sink batch write error: %w", lastErr)
 	}
 	return nil
@@ -460,7 +530,7 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			w.engine.logger.Error("Panic in sinkWriter.runOn", "sink_id", w.sinkID, "error", r, "stack", string(debug.Stack()))
 		}
 	}()
-	if w.config.BackpressureStrategy == BPSpillToDisk {
+	if w.config.BackpressureStrategy == config.BPSpillToDisk {
 		path := w.config.SpillPath
 		if path == "" {
 			path = ".hermod-spill-" + w.sinkID
@@ -535,11 +605,15 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 		var err error
 		if bs, ok := w.sink.(hermod.BatchSink); ok && len(msgs) > 1 {
 			err = w.engine.writeBatchToSink(ctx, bs, msgs, w.sinkID, w.index)
+			for _, pm := range batch {
+				pm.done <- err
+			}
 		} else {
-			for _, m := range msgs {
-				if e := w.engine.writeToSink(ctx, w.sink, m, w.sinkID, w.index); e != nil {
+			for i, m := range msgs {
+				e := w.engine.writeToSink(ctx, w.sink, m, w.sinkID, w.index)
+				batch[i].done <- e
+				if e != nil {
 					err = e
-					break // Stop processing this batch if one message fails after retries
 				}
 			}
 		}
@@ -574,9 +648,6 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			}
 		}
 
-		for _, pm := range batch {
-			pm.done <- err
-		}
 		batch = batch[:0]
 		batchBytes = 0
 	}
@@ -605,13 +676,13 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 
 // enqueueWithStrategy sends the pending message into the appropriate channel (single or sharded)
 // according to the configured backpressure strategy.
-func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage, strategy BackpressureStrategy) {
+func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage, strategy config.BackpressureStrategy) {
 	target := w.pickShard(pm.msg)
 	if strategy == "" {
-		strategy = BPBlock
+		strategy = config.BPBlock
 	}
 	switch strategy {
-	case BPDropOldest:
+	case config.BPDropOldest:
 		select {
 		case target <- pm:
 			// enqueued
@@ -623,31 +694,31 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 					old.done <- errors.New("dropped due to backpressure (drop_oldest)")
 					releasePendingMessage(old)
 				}
-				BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(BPDropOldest)).Inc()
+				telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPDropOldest)).Inc()
 			default:
 			}
 			select {
 			case target <- pm:
 			default:
 				pm.done <- errors.New("dropped due to backpressure (drop_oldest - overflow)")
-				BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(BPDropOldest)).Inc()
+				telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPDropOldest)).Inc()
 			}
 		}
-	case BPDropNewest:
+	case config.BPDropNewest:
 		select {
 		case target <- pm:
 		default:
 			pm.done <- errors.New("dropped due to backpressure (drop_newest)")
-			BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(BPDropNewest)).Inc()
+			telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPDropNewest)).Inc()
 		}
-	case BPSampling:
+	case config.BPSampling:
 		rate := w.config.SamplingRate
 		if rate <= 0 {
 			rate = 0.5
 		}
 		if rand.Float64() > rate {
 			pm.done <- errors.New("dropped due to sampling")
-			BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(BPSampling)).Inc()
+			telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPSampling)).Inc()
 		} else {
 			select {
 			case target <- pm:
@@ -655,7 +726,7 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 				pm.done <- ctx.Err()
 			}
 		}
-	case BPSpillToDisk:
+	case config.BPSpillToDisk:
 		select {
 		case target <- pm:
 			// enqueued in memory
@@ -666,7 +737,7 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 					pm.done <- fmt.Errorf("spill to disk failed: %w", err)
 				} else {
 					pm.done <- nil
-					BackpressureSpillTotal.WithLabelValues(w.engine.workflowID, w.sinkID).Inc()
+					telemetry.BackpressureSpillTotal.WithLabelValues(w.engine.workflowID, w.sinkID).Inc()
 				}
 			} else {
 				// Fallback: block like BPBlock

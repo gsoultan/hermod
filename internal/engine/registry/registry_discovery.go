@@ -2,12 +2,15 @@ package registry
 
 import (
 	"context"
-	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/factory"
 	"github.com/user/hermod/internal/storage"
+	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
 // --- Test Connectivity ---
@@ -153,7 +156,10 @@ func (r *Registry) BrowseSinkTable(ctx context.Context, cfg factory.SinkConfig, 
 	defer snk.Close()
 
 	if b, ok := snk.(hermod.Browser); ok {
-		return b.Browse(ctx, table, limit)
+		msgs, err := b.Browse(ctx, table, limit)
+		if err == nil {
+			return msgs, nil
+		}
 	}
 
 	if s, ok := snk.(hermod.Sampler); ok && limit == 1 {
@@ -175,7 +181,15 @@ func (r *Registry) ExecuteSQL(ctx context.Context, cfg factory.SourceConfig, que
 	if err == nil {
 		defer src.Close()
 		if e, ok := src.(hermod.SQLExecutor); ok {
-			return e.ExecuteSQL(ctx, query)
+			results, err := e.ExecuteSQL(ctx, query)
+			if err == nil {
+				return results, nil
+			}
+			// If it's not supported, fallback to generic execution.
+			// Otherwise, return the error (e.g. SQL syntax error).
+			if !errors.Is(err, hermod.ErrNotSupported) {
+				return nil, err
+			}
 		}
 	}
 
@@ -195,7 +209,7 @@ func (r *Registry) ExecuteSQL(ctx context.Context, cfg factory.SourceConfig, que
 	}
 	defer rows.Close()
 
-	return scanRows(rows)
+	return sqlutil.ScanRows(rows)
 }
 
 func (r *Registry) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkConfig, query string) ([]map[string]any, error) {
@@ -204,7 +218,13 @@ func (r *Registry) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkConfig, q
 	if err == nil {
 		defer snk.Close()
 		if e, ok := snk.(hermod.SQLExecutor); ok {
-			return e.ExecuteSQL(ctx, query)
+			results, err := e.ExecuteSQL(ctx, query)
+			if err == nil {
+				return results, nil
+			}
+			if !errors.Is(err, hermod.ErrNotSupported) {
+				return nil, err
+			}
 		}
 	}
 
@@ -224,7 +244,7 @@ func (r *Registry) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkConfig, q
 	}
 	defer rows.Close()
 
-	return scanRows(rows)
+	return sqlutil.ScanRows(rows)
 }
 
 // ExecSinkStatement executes a non-query SQL statement (DDL/DML) against the sink.
@@ -243,34 +263,24 @@ func (r *Registry) ExecSinkStatement(ctx context.Context, cfg factory.SinkConfig
 	return err
 }
 
-func scanRows(rows *sql.Rows) ([]map[string]any, error) {
-	cols, err := rows.Columns()
+func (r *Registry) GetSourceFormSamples(ctx context.Context, path string, limit int) ([]hermod.Message, error) {
+	subs, _, err := r.storage.ListFormSubmissions(ctx, storage.FormSubmissionFilter{
+		CommonFilter: storage.CommonFilter{Limit: limit},
+		Path:         path,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	var results []map[string]any
-	for rows.Next() {
-		columns := make([]any, len(cols))
-		columnPointers := make([]any, len(cols))
-		for i := range columns {
-			columnPointers[i] = &columns[i]
+	var msgs []hermod.Message
+	for _, s := range subs {
+		msg := message.AcquireMessage()
+		if err := json.Unmarshal(s.Data, &msg); err == nil {
+			msgs = append(msgs, msg)
+		} else {
+			msg.SetData("raw", string(s.Data))
+			msgs = append(msgs, msg)
 		}
-
-		if err := rows.Scan(columnPointers...); err != nil {
-			return nil, err
-		}
-
-		m := make(map[string]any)
-		for i, colName := range cols {
-			val := columns[i]
-			if b, ok := val.([]byte); ok {
-				m[colName] = string(b)
-			} else {
-				m[colName] = val
-			}
-		}
-		results = append(results, m)
 	}
-	return results, nil
+	return msgs, nil
 }
