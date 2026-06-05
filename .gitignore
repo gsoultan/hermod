@@ -47,3 +47,5 @@ db_config.yaml
 worker.yaml
 main
 hermod_state.db
+ui/bun.lock
+go.sum
