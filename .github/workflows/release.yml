@@ -28,10 +28,6 @@ jobs:
           bun-version: latest
           cache: 'bun'
           cache-dependency-path: ui/bun.lock
-
-      - name: Build UI
-        run: go run cmd/hermod/main.go --build-ui --mode build-only
-
       - name: Update version in source
         run: |
           ./scripts/update-version.sh
