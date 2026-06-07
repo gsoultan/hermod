@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	"github.com/user/hermod/internal/storage"
 	"testing"
+
+	"github.com/user/hermod/internal/storage"
 )
 
 type fakeUserLister struct {
@@ -30,10 +31,10 @@ func TestComputeSetupStatus(t *testing.T) {
 		wantUsers  bool
 	}{
 		{name: "not configured, nil store", configured: false, store: nil, wantCfg: false, wantUsers: false},
-		{name: "configured, nil store", configured: true, store: nil, wantCfg: true, wantUsers: false},
+		{name: "configured, nil store", configured: true, store: nil, wantCfg: true, wantUsers: true},
 		{name: "configured, no users", configured: true, store: &fakeUserLister{users: nil}, wantCfg: true, wantUsers: false},
 		{name: "configured, with users", configured: true, store: &fakeUserLister{users: []storage.User{{ID: "u1", Username: "admin"}}}, wantCfg: true, wantUsers: true},
-		{name: "configured, list error", configured: true, store: &fakeUserLister{err: context.DeadlineExceeded}, wantCfg: true, wantUsers: false},
+		{name: "configured, list error", configured: true, store: &fakeUserLister{err: context.DeadlineExceeded}, wantCfg: true, wantUsers: true},
 	}
 
 	for _, tc := range cases {

@@ -23,6 +23,9 @@ Hermod is built for mission-critical enterprise data workloads, providing robust
 - **Automated PII Scanning**: Built-in `mask` transformation detects and redacts sensitive data (PII/PHI) using a sophisticated regex-based discovery engine.
 - **Audit Logging**: Complete history of administrative changes and system events for security and compliance audits.
 - **Exactly-Once Semantics (EOS)**: Guarantees 100% data consistency using the **Transactional Outbox** pattern for SQL sources, ensuring messages are only acknowledged after successful delivery.
+- **Sequential Control Flow**: Explicitly chain sinks and transformations sequentially. Supports "Sinks as Transformers" by returning data from a sink back into the workflow pipeline.
+- **Stateful Event Correlation (Join/Zip)**: Wait for and join messages from multiple sources based on a common key before downstream delivery.
+- **Circuit Breaker & Failure Recovery**: Protect downstream systems with a built-in Circuit Breaker node. Automatically routes messages to failure branches when error thresholds are exceeded.
 - **Interactive Workflow Debugger**: Real-time message pausing, stepping, and inspection directly from the UI. Pause messages at any node to inspect payload state and resume processing when ready.
 - **Visual Lineage with Data Diffs**: Enhanced message tracing with "Before and After" snapshots for every transformation node in the DAG. Visually debug exactly how data is mutated at each step.
 - **AIOps & Self-Healing Optimization**: AI-driven performance tuning that automatically adjusts concurrency, batch sizes, and retry policies based on real-time throughput and error patterns.
@@ -109,14 +112,14 @@ Hermod can be run as a standalone application. By default, it starts in **API Mo
 
 1. Run the application:
    ```bash
-   go run cmd/hermod/main.go
+   go run ./cmd/hermod
    ```
 
    This will automatically build the UI (if not already built) and start the Go backend. The UI assets are served from the binary (or disk in dev mode).
 
    If you want to force a UI rebuild:
    ```bash
-   go run cmd/hermod/main.go --build-ui
+   go run ./cmd/hermod --build-ui
    ```
 
 The UI will be available at `http://localhost:4000`.
@@ -133,27 +136,27 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
 #### API Mode (Default)
    To start Hermod in API mode (which also serves the UI):
    ```bash
-   go run cmd/hermod/main.go
+   go run ./cmd/hermod
    ```
 
    The UI will be available at `http://localhost:4000`.
 
    You can customize the port and database for storing state:
    ```bash
-   go run cmd/hermod/main.go --port=8080 --db-type=sqlite --db-conn=hermod.db
+   go run ./cmd/hermod --port=8080 --db-type=sqlite --db-conn=~/.hermod/hermod.db
    ```
 
    Hermod supports multiple databases for storing its state (Sources, Sinks, Workflows):
-   - **SQLite**: `--db-type=sqlite --db-conn=hermod.db`
+   - **SQLite**: `--db-type=sqlite --db-conn=~/.hermod/hermod.db`
    - **PostgreSQL**: `--db-type=postgres --db-conn="postgres://user:pass@localhost:5432/hermod?sslmode=disable"`
    - **MySQL/MariaDB**: `--db-type=mysql --db-conn="user:pass@tcp(localhost:3306)/hermod"`
 
-   When running in API mode, Hermod saves its database configuration to `db_config.yaml` after the first successful setup or when updated via the UI. Subsequent starts will automatically use this configuration.
+   When running in API mode, Hermod saves its database configuration to `~/.hermod/db_config.yaml` after the first successful setup or when updated via the UI. Subsequent starts will automatically use this configuration.
 
    #### Standalone Mode
    In Standalone mode, both the API/UI and a worker are started in the same process:
    ```bash
-   go run cmd/hermod/main.go --mode=standalone
+   go run ./cmd/hermod --mode=standalone
    ```
 
    #### Worker Scaling and Sharding
@@ -161,7 +164,7 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
 
    To start a worker-only process connected to the platform:
    ```bash
-   go run cmd/hermod/main.go --mode=worker --platform-url="http://localhost:4000" --worker-id=0 --total-workers=2
+   go run ./cmd/hermod --mode=worker --platform-url="http://localhost:4000" --worker-id=0 --total-workers=2
    ```
 
    - `--mode=worker`: Runs only the engine worker (no API/UI).
@@ -177,14 +180,14 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
    1. Register a worker via the API or UI. Each worker should have a unique GUID.
    2. Start the worker process with the `--worker-guid` and `--platform-url` flags:
       ```bash
-      go run cmd/hermod/main.go --mode=worker --worker-guid="my-server-1" --platform-url="http://localhost:4000"
+      go run ./cmd/hermod --mode=worker --worker-guid="my-server-1" --platform-url="http://localhost:4000"
       ```
 
    #### Worker Self-Registration
    Instead of manually registering a worker in the UI, you can let the worker register itself upon its first run by providing additional flags:
 
    ```bash
-   go run cmd/hermod/main.go --mode=worker --worker-guid="my-server-1" --platform-url="http://localhost:4000" --worker-host="192.168.1.10"
+   go run ./cmd/hermod --mode=worker --worker-guid="my-server-1" --platform-url="http://localhost:4000" --worker-host="192.168.1.10"
    ```
 
    - `--worker-host`: The hostname or IP address where the worker is running.
@@ -515,7 +518,7 @@ Ordered concurrency via sharding (per sink):
 Idempotency store hygiene (SMTP / SQLite helper):
 
 - `enable_idempotency: true`
-- `idempotency_dsn: hermod.db`
+- `idempotency_dsn: ~/.hermod/hermod.db`
 - `idempotency_namespace: <string>` → isolates keys into a dedicated table (e.g., `smtp_idempotency_marketing`).
 - `idempotency_ttl: 72h` → hourly cleanup of stale keys keeps the store fast and small.
 
@@ -719,6 +722,10 @@ The workflow file is at `.github/workflows/ci.yml`. To enable optional SQL integ
   - POST /api/settings/test (admin-only) sends a test through configured channels in this order: Email → Slack → Discord → Webhook → Telegram. The UI displays per-channel results.
 
 These endpoints require an administrator role and are used by the UI automatically. No additional configuration is needed beyond saving your settings.
+
+## Roadmap
+
+For a detailed view of planned features and future development ideas, please refer to the [ROADMAP.md](ROADMAP.md) file.
 
 ## Contributing & Documentation
 

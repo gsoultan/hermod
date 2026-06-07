@@ -64,6 +64,9 @@ import { MulticastConfig } from '../workflow/Transformation/configs/logic/Multic
 import { LogConfig } from '../workflow/Transformation/configs/logic/LogConfig';
 import { CollectConfig } from '../workflow/Transformation/configs/logic/CollectConfig';
 import { DeduplicateConfig } from '../workflow/Transformation/configs/util/DeduplicateConfig';
+
+const JoinConfig = lazy(() => import('../workflow/Transformation/configs/logic/JoinConfig').then(m => ({ default: m.JoinConfig })));
+const CircuitBreakerConfig = lazy(() => import('../workflow/Transformation/configs/logic/CircuitBreakerConfig').then(m => ({ default: m.CircuitBreakerConfig })));
 interface TransformationFormProps {
   selectedNode: any;
   updateNodeConfig: (nodeId: string, config: any, replace?: boolean) => void;
@@ -873,6 +876,8 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
     // Specific Node Type handling
     if (selectedNode.type === 'wait') return <WaitConfig {...commonProps} />;
+    if (selectedNode.type === 'join') return <Suspense fallback={null}><JoinConfig {...commonProps} /></Suspense>;
+    if (selectedNode.type === 'circuit_breaker') return <Suspense fallback={null}><CircuitBreakerConfig {...commonProps} /></Suspense>;
     if (selectedNode.type === 'foreach') return <ForeachConfig {...commonProps} />;
     if (selectedNode.type === 'collect') return <CollectConfig {...commonProps} />;
     if (selectedNode.type === 'log') return <LogConfig {...commonProps} />;

@@ -89,6 +89,8 @@ export function SidebarDrawer({
     {
       title: 'Logic & Flow',
       items: [
+        { type: 'join', refId: 'new', label: 'Stateful Join', subType: 'join', icon: IconGitMerge, color: 'indigo', description: 'Wait and join multiple events by key' },
+        { type: 'circuit_breaker', refId: 'new', label: 'Circuit Breaker', subType: 'cb', icon: IconShieldLock, color: 'red', description: 'Stop flow on failure threshold' },
         { type: 'condition', refId: 'new', label: 'Condition (If)', subType: 'condition', icon: IconArrowsSplit, color: 'indigo', description: 'Branch flow by boolean rule' },
         { type: 'router', refId: 'new', label: 'Content Router', subType: 'router', icon: IconArrowsSplit, color: 'indigo', description: 'Route by pattern-based rules' },
         { type: 'switch', refId: 'new', label: 'Switch', subType: 'switch', icon: IconGitBranch, color: 'orange', description: 'Route by multi-case expression' },

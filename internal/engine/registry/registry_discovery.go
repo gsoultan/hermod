@@ -264,6 +264,9 @@ func (r *Registry) ExecSinkStatement(ctx context.Context, cfg factory.SinkConfig
 }
 
 func (r *Registry) GetSourceFormSamples(ctx context.Context, path string, limit int) ([]hermod.Message, error) {
+	if r.storage == nil {
+		return nil, nil
+	}
 	subs, _, err := r.storage.ListFormSubmissions(ctx, storage.FormSubmissionFilter{
 		CommonFilter: storage.CommonFilter{Limit: limit},
 		Path:         path,

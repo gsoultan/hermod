@@ -1038,7 +1038,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 			// default to local hermod.db if not provided
 			dsn := cfg.Config["idempotency_dsn"]
 			if dsn == "" {
-				dsn = "hermod.db"
+				dsn = config.GetConfigPath("hermod.db")
 			}
 			// optional namespace -> table suffix
 			table := "smtp_idempotency"

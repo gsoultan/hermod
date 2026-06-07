@@ -37,6 +37,9 @@ func (s *stubCtx) SetNodeState(key string, val any) {
 	}
 	s.state[key] = val
 }
+func (s *stubCtx) GetSink(workflowID, nodeID string) (hermod.Sink, bool) {
+	return nil, false
+}
 
 func TestForeach_Execute_Success(t *testing.T) {
 	n := &ForeachNode{}

@@ -898,7 +898,7 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 
 		// Record trace step with before/after snapshots
 		workflowID, _ := modifiedMsg.Metadata()["_hermod_workflow_id"]
-		if workflowID != "" && r.logStorage != nil {
+		if workflowID != "" && r.storage != nil {
 			afterData := make(map[string]any)
 			if res != nil {
 				for k, v := range res.Data() {
@@ -1266,12 +1266,14 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 		}
 
 		// Check for idempotency on sinks
-		for _, node := range wf.Nodes {
-			if node.Type == "sink" {
-				snk, err := r.storage.GetSink(ctx, node.RefID)
-				if err == nil {
-					if snk.Config["enable_idempotency"] != "true" {
-						r.logger.Warn("Workflow has PrioritizeDLQ enabled but sink does not have idempotency enabled; enable idempotency to avoid side effects during re-processing", "workflow_id", wf.ID, "sink_id", snk.ID)
+		if r.storage != nil {
+			for _, node := range wf.Nodes {
+				if node.Type == "sink" {
+					snk, err := r.storage.GetSink(ctx, node.RefID)
+					if err == nil {
+						if snk.Config["enable_idempotency"] != "true" {
+							r.logger.Warn("Workflow has PrioritizeDLQ enabled but sink does not have idempotency enabled; enable idempotency to avoid side effects during re-processing", "workflow_id", wf.ID, "sink_id", snk.ID)
+						}
 					}
 				}
 			}
@@ -1434,6 +1436,9 @@ type formStorageAdapter struct {
 }
 
 func (a *formStorageAdapter) CreateFormSubmission(ctx context.Context, sub sourceform.FormSubmission) error {
+	if a.storage == nil {
+		return nil
+	}
 	return a.storage.CreateFormSubmission(ctx, storage.FormSubmission{
 		ID:        sub.ID,
 		Timestamp: sub.Timestamp,
@@ -1444,6 +1449,9 @@ func (a *formStorageAdapter) CreateFormSubmission(ctx context.Context, sub sourc
 }
 
 func (a *formStorageAdapter) ListFormSubmissions(ctx context.Context, filter sourceform.FormSubmissionFilter) ([]sourceform.FormSubmission, int, error) {
+	if a.storage == nil {
+		return nil, 0, nil
+	}
 	subs, total, err := a.storage.ListFormSubmissions(ctx, storage.FormSubmissionFilter{
 		CommonFilter: storage.CommonFilter{
 			Page:  filter.Page,
@@ -1469,5 +1477,8 @@ func (a *formStorageAdapter) ListFormSubmissions(ctx context.Context, filter sou
 }
 
 func (a *formStorageAdapter) UpdateFormSubmissionStatus(ctx context.Context, id string, status string) error {
+	if a.storage == nil {
+		return nil
+	}
 	return a.storage.UpdateFormSubmissionStatus(ctx, id, status)
 }

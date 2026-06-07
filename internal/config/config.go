@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -102,10 +103,30 @@ func LoadConfig(path string) (*Config, error) {
 		}
 	}
 
+	// Resolve relative paths relative to the config file directory
+	configDir := filepath.Dir(path)
+	if cfg.StateStore.Type == "sqlite" && cfg.StateStore.Path != "" && !filepath.IsAbs(cfg.StateStore.Path) {
+		cfg.StateStore.Path = filepath.Join(configDir, cfg.StateStore.Path)
+	}
+	if cfg.Buffer.Path != "" && !filepath.IsAbs(cfg.Buffer.Path) {
+		cfg.Buffer.Path = filepath.Join(configDir, cfg.Buffer.Path)
+	}
+	if cfg.FileStorage.Type == "local" && cfg.FileStorage.LocalDir != "" && !filepath.IsAbs(cfg.FileStorage.LocalDir) {
+		cfg.FileStorage.LocalDir = filepath.Join(configDir, cfg.FileStorage.LocalDir)
+	}
+
 	return &cfg, nil
 }
 
 func SaveConfig(path string, cfg *Config) error {
+	// Ensure directory exists if path is in a non-existent directory
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create config directory: %w", err)
+		}
+	}
+
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err

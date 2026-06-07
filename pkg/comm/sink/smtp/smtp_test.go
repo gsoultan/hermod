@@ -85,6 +85,8 @@ func (m *mockMessage) SetMetadata(key, value string) {}
 func (m *mockMessage) SetData(key string, value any) {}
 func (m *mockMessage) Clone() hermod.Message         { return m }
 func (m *mockMessage) ClearPayloads()                {}
+func (m *mockMessage) Retain()                       {}
+func (m *mockMessage) Release()                      {}
 
 func TestSmtpSink_Write_Template(t *testing.T) {
 	mock := &mockSender{}

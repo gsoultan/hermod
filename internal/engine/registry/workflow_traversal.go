@@ -111,10 +111,13 @@ func (t *workflowTraversal) recordSuccess(node *storage.WorkflowNode, msgs []her
 
 func (t *workflowTraversal) routeMessage(ctx context.Context, node *storage.WorkflowNode, msg hermod.Message, branch string) {
 	if node.Type == "sink" {
-		if idx, ok := t.sinkNodeToIndex[node.ID]; ok {
-			t.routedMu.Lock()
-			t.routed = append(t.routed, pkgengine.RoutedMessage{SinkIndex: idx, Message: msg})
-			t.routedMu.Unlock()
+		isSeq, _ := node.Config["sequential"].(bool)
+		if !isSeq {
+			if idx, ok := t.sinkNodeToIndex[node.ID]; ok {
+				t.routedMu.Lock()
+				t.routed = append(t.routed, pkgengine.RoutedMessage{SinkIndex: idx, Message: msg})
+				t.routedMu.Unlock()
+			}
 		}
 	}
 

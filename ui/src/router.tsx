@@ -527,12 +527,10 @@ const forgotPasswordRoute = createRoute({
 })
 
 function SetupRouteComponent() {
-  const { isConfigured } = setupRoute.useSearch()
   const navigate = useNavigate()
   
   return (
     <SetupPage
-      isConfigured={isConfigured}
       onConfigured={() => {
         navigate({ to: '/' })
       }}
@@ -543,11 +541,6 @@ function SetupRouteComponent() {
 const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/setup',
-  validateSearch: (search: Record<string, unknown>) => {
-    return {
-      isConfigured: (search.isConfigured as boolean) || false,
-    }
-  },
   beforeLoad: async () => {
     const data = await getCachedConfigStatus()
     if (data.configured && data.user_setup) {

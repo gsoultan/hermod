@@ -122,6 +122,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
         format: 'json', 
         max_retries: '3', 
         retry_interval: '1s',
+        sequential: initialData?.config?.sequential ?? false,
         ...(initialData?.config || {})
       },
       ...(initialData?.id ? { id: initialData.id } : {})
@@ -1410,6 +1411,8 @@ eventSource.onmessage = (event) => {
                     onChangeWorkerId={(val: string) => handleSinkChange({ worker_id: val })}
                     type={sink.type}
                     onChangeType={(val: string) => handleSinkChange({ type: val })}
+                    sequential={sink.config?.sequential}
+                    onChangeSequential={(val: boolean) => updateConfig('sequential', val)}
                     vhostOptions={availableVHostsList}
                     workerOptions={(workers || []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
                     sinkTypes={SINK_TYPES}
@@ -1690,6 +1693,8 @@ eventSource.onmessage = (event) => {
                     onChangeWorkerId={(val: string) => handleSinkChange({ worker_id: val })}
                     type={sink.type}
                     onChangeType={(val: string) => handleSinkChange({ type: val })}
+                    sequential={sink.config?.sequential}
+                    onChangeSequential={(val: boolean) => updateConfig('sequential', val)}
                     vhostOptions={availableVHostsList}
                     workerOptions={(workers || []).map((w: any) => ({ value: w.id, label: w.name || w.id }))}
                     sinkTypes={SINK_TYPES}

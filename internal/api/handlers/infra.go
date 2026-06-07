@@ -198,7 +198,7 @@ func (h *Handler) GetSecretConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig("config.yaml")
+	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -230,7 +230,7 @@ func (h *Handler) UpdateSecretConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig("config.yaml")
+	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -245,7 +245,7 @@ func (h *Handler) UpdateSecretConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg.Secrets = secretCfg
-	if err := config.SaveConfig("config.yaml", cfg); err != nil {
+	if err := config.SaveConfig(config.GetConfigPath("config.yaml"), cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -270,7 +270,7 @@ func (h *Handler) GetStateStoreConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig("config.yaml")
+	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -293,14 +293,14 @@ func (h *Handler) UpdateStateStoreConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	cfg, err := config.LoadConfig("config.yaml")
+	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
 	}
 
 	cfg.StateStore = stateCfg
-	if err := config.SaveConfig("config.yaml", cfg); err != nil {
+	if err := config.SaveConfig(config.GetConfigPath("config.yaml"), cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -328,7 +328,7 @@ func (h *Handler) GetObservabilityConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	cfg, err := config.LoadConfig("config.yaml")
+	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -345,7 +345,7 @@ func (h *Handler) GetFileStorageConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig("config.yaml")
+	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -377,7 +377,7 @@ func (h *Handler) UpdateFileStorageConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	cfg, err := config.LoadConfig("config.yaml")
+	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -392,7 +392,7 @@ func (h *Handler) UpdateFileStorageConfig(w http.ResponseWriter, r *http.Request
 	}
 
 	cfg.FileStorage = fsCfg
-	if err := config.SaveConfig("config.yaml", cfg); err != nil {
+	if err := config.SaveConfig(config.GetConfigPath("config.yaml"), cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -418,14 +418,14 @@ func (h *Handler) UpdateObservabilityConfig(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	cfg, err := config.LoadConfig("config.yaml")
+	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
 	}
 
 	cfg.Observability = obsCfg
-	if err := config.SaveConfig("config.yaml", cfg); err != nil {
+	if err := config.SaveConfig(config.GetConfigPath("config.yaml"), cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -572,6 +572,8 @@ func (h *Handler) SaveDBConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.StoreMu.Lock()
+	oldStore := h.Storage
+	oldLogStore := h.LogStorage
 	h.Storage = newStore
 	if newLogStore != nil {
 		h.LogStorage = newLogStore
@@ -579,6 +581,22 @@ func (h *Handler) SaveDBConfig(w http.ResponseWriter, r *http.Request) {
 		h.LogStorage = newStore
 	}
 	h.StoreMu.Unlock()
+
+	// Close old storages after a small delay to ensure no in-flight requests are using them
+	go func() {
+		time.Sleep(1 * time.Second)
+		if oldStore != nil {
+			if closer, ok := oldStore.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+		}
+		// Only close oldLogStore if it's different from oldStore
+		if oldLogStore != nil && oldLogStore != oldStore {
+			if closer, ok := oldLogStore.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+		}
+	}()
 
 	// Update Registry to use new storage
 	if h.Registry != nil {
@@ -755,16 +773,15 @@ func (h *Handler) TestMongoDB(ctx context.Context, conn string) error {
 }
 
 func (h *Handler) TestPebble(ctx context.Context, path string) error {
-	// Pebble creates directories, so we just check if it can be opened.
+	// We check if Pebble can be opened (it will create the directory if it doesn't exist).
 	// Since we don't want to leave it open, we use a temporary storage instance.
 	store, err := pebblestorage.NewPebbleStorage(path)
 	if err != nil {
 		return err
 	}
-	// Unfortunately storage.Storage doesn't have Close(), but we know pebbleStorage does.
-	// However, it's internal. For testing purposes, just returning nil is okay
-	// if it didn't fail to open.
-	_ = store
+	if closer, ok := store.(interface{ Close() error }); ok {
+		defer closer.Close()
+	}
 	return nil
 }
 
@@ -1023,7 +1040,7 @@ func (h *Handler) FinalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := config.SaveConfig("config.yaml", &platformCfg); err != nil {
+	if err := config.SaveConfig(config.GetConfigPath("config.yaml"), &platformCfg); err != nil {
 		h.JsonError(w, "failed to save platform config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

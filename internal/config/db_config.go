@@ -1,8 +1,9 @@
 package config
 
 import (
-	"gopkg.in/yaml.v3"
 	"os"
+
+	"gopkg.in/yaml.v3"
 )
 
 type DBConfig struct {
@@ -14,11 +15,14 @@ type DBConfig struct {
 	CryptoMasterKey string `yaml:"crypto_master_key" json:"crypto_master_key"`
 }
 
-const DBConfigPath = "db_config.yaml"
+func getDBConfigPath() string {
+	return GetConfigPath("db_config.yaml")
+}
 
 func LoadDBConfig() (*DBConfig, error) {
 	var cfg DBConfig
-	data, err := os.ReadFile(DBConfigPath)
+	path := getDBConfigPath()
+	data, err := os.ReadFile(path)
 	if err == nil {
 		content := SubstituteEnvVars(string(data))
 		if err := yaml.Unmarshal([]byte(content), &cfg); err != nil {
@@ -57,15 +61,18 @@ func LoadDBConfig() (*DBConfig, error) {
 }
 
 func SaveDBConfig(cfg *DBConfig) error {
+	if err := EnsureConfigDir(); err != nil {
+		return err
+	}
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(DBConfigPath, data, 0644)
+	return os.WriteFile(getDBConfigPath(), data, 0644)
 }
 
 func IsDBConfigured() bool {
-	if _, err := os.Stat(DBConfigPath); err == nil {
+	if _, err := os.Stat(getDBConfigPath()); err == nil {
 		return true
 	}
 	// Also considered configured if minimal environment variables are set

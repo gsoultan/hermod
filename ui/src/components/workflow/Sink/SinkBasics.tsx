@@ -1,4 +1,4 @@
-import { Select, Stack, TextInput } from '@mantine/core';
+import { Select, Stack, TextInput, Switch } from '@mantine/core';
 
 interface SinkBasicsProps {
   embedded?: boolean;
@@ -10,6 +10,8 @@ interface SinkBasicsProps {
   onChangeWorkerId: (value: string) => void;
   type: string;
   onChangeType: (value: string) => void;
+  sequential?: boolean;
+  onChangeSequential?: (value: boolean) => void;
   vhostOptions: any[];
   workerOptions: any[];
   sinkTypes: any[];
@@ -25,6 +27,8 @@ export function SinkBasics({
   onChangeWorkerId,
   type,
   onChangeType,
+  sequential,
+  onChangeSequential,
   vhostOptions,
   workerOptions,
   sinkTypes,
@@ -38,6 +42,15 @@ export function SinkBasics({
         onChange={(e) => onChangeName(e.currentTarget.value)}
         required
       />
+
+      {onChangeSequential && (
+        <Switch
+          label="Sequential Execution"
+          description="If enabled, this sink executes in-line with the workflow and can block downstream nodes if it fails."
+          checked={sequential}
+          onChange={(e) => onChangeSequential(e.currentTarget.checked)}
+        />
+      )}
 
       {!embedded && (
         <Select

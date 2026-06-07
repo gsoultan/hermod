@@ -1,26 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Title, Text, TextInput, Select, Button, Paper, Stack, Container, Stepper, Group, PasswordInput, Alert, Progress, Checkbox, NumberInput } from '@mantine/core'
-import { useMediaQuery } from '@mantine/hooks'
+import { Title, Text, TextInput, Select, Button, Paper, Stack, Container, Group, PasswordInput, Alert, Progress, Checkbox, NumberInput, Stepper, SimpleGrid, ActionIcon, Tooltip } from '@mantine/core'
 import { useMutation } from '@tanstack/react-query'
+import { IconDatabase, IconUser, IconSettings, IconPlug, IconCheck, IconCopy, IconRefresh, IconSearch, IconEye, IconEyeOff } from '@tabler/icons-react'
 import { apiFetch } from '@/api'
 import { copyToClipboard, generateStrongPassword } from '@/utils/cryptoUtils'
 
 interface SetupPageProps {
-  isConfigured: boolean
   onConfigured: () => void
 }
 
-export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
-  const [active, setActive] = useState(0)
-  const showStepperDesc = useMediaQuery('(min-width: 62em)')
+export function SetupPage({ onConfigured }: SetupPageProps) {
   const [saving, setSaving] = useState(false)
-  
-  // Set initial step based on configuration status but allow going back
-  useState(() => {
-    if (isConfigured) {
-      setActive(1)
-    }
-  })
+  const [activeStep, setActiveStep] = useState(0)
+  const nextStep = () => setActiveStep((current) => (current < 4 ? current + 1 : current))
+  const prevStep = () => setActiveStep((current) => (current > 0 ? current - 1 : current))
   
   // Database setup state (local for this wizard session)
   const [dbType, setDbType] = useState<string | null>(null)
@@ -47,9 +40,11 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
   // User state
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
+  const [passwordVisible, setPasswordVisible] = useState(false)
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [cryptoMasterKey, setCryptoMasterKey] = useState('')
+  const [keyVisible, setKeyVisible] = useState(false)
 
   // SMTP state
   const [smtpHost, setSmtpHost] = useState('')
@@ -316,6 +311,7 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
     if (
       value === null ||
       value === 'sqlite' ||
+      value === 'pebble' ||
       value === 'postgres' ||
       value === 'mysql' ||
       value === 'mariadb' ||
@@ -349,11 +345,11 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
       setCryptoMasterKey(generateStrongPassword(32))
     }
 
-    // SQLite does not use builder fields
-    if (dbType === 'sqlite') {
+    // SQLite/Pebble does not use builder fields
+    if (dbType === 'sqlite' || dbType === 'pebble') {
       setUseBuilder(false)
-      // Provide a convenience default only after user explicitly selects sqlite
-      if (!dbConn) setDbConn('hermod.db')
+      // Provide a convenience default only after user explicitly selects it
+      if (!dbConn) setDbConn(dbType === 'sqlite' ? 'hermod.db' : 'hermod_pebble')
       return
     }
     setUseBuilder(true)
@@ -361,9 +357,9 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
     // Keep previous user/pw/dbname if present
   }, [dbType, cryptoMasterKey, dbConn])
 
-  // Build DSN when using builder (non-SQLite)
+  // Build DSN when using builder (non-SQLite/Pebble)
   useEffect(() => {
-    if (!useBuilder || !dbType || dbType === 'sqlite') return
+    if (!useBuilder || !dbType || dbType === 'sqlite' || dbType === 'pebble') return
     const h = host.trim() || 'localhost'
     const prt = (port || defaultPort(dbType)).trim()
     const u = user.trim()
@@ -400,7 +396,7 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
   // Build a temporary connection string optimized for listing databases
   function buildConnForFetch(): string {
     if (!dbType) return dbConn
-    if (!useBuilder || dbType === 'sqlite') return dbConn
+    if (!useBuilder || dbType === 'sqlite' || dbType === 'pebble') return dbConn
     const h = host.trim() || 'localhost'
     const prt = (port || defaultPort(dbType)).trim()
     const u = user.trim()
@@ -421,7 +417,7 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
   }
 
   async function handleFetchDatabases() {
-    if (!dbType || dbType === 'sqlite') return
+    if (!dbType || dbType === 'sqlite' || dbType === 'pebble') return
     try {
       setFetchingDBs(true)
       setFetchDBsError(null)
@@ -461,47 +457,85 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
     (!useSeparateLogDb || (Boolean(logDbType) && logDbConn.trim().length > 0))
 
   return (
-    <Container size="lg" mt={48}>
+    <Container size="md" py={48}>
       <Stack gap="xl">
         <Stack gap="xs" align="center">
           <Title order={1}>Welcome to Hermod</Title>
-          <Text c="dimmed">Complete the steps below to get started</Text>
+          <Text c="dimmed">Complete the configuration below to get started</Text>
         </Stack>
-        <div style={{ overflowX: 'auto' }}>
-          <Stepper active={active} onStepClick={setActive} allowNextStepsSelect={false} size="sm">
-          <Stepper.Step label="Database" description={showStepperDesc ? 'Storage configuration' : undefined}>
-            <Paper withBorder p="xl" radius="md" mt="xl">
+
+        <Paper withBorder p="xl" radius="md">
+          <Stepper active={activeStep} onStepClick={setActiveStep} allowNextStepsSelect={false} size="sm">
+            {/* Step 0: Database */}
+            <Stepper.Step label="Database" description="Storage" icon={<IconDatabase size={18} />}>
               <Stack gap="md">
-                <Select
-                  label="Database Type"
-                  placeholder="Select database type"
-                  data={[
-                    { value: 'sqlite', label: 'SQLite' },
-                    { value: 'postgres', label: 'PostgreSQL' },
-                    { value: 'mysql', label: 'MySQL' },
-                    { value: 'mariadb', label: 'MariaDB' },
-                    { value: 'mongodb', label: 'MongoDB' },
-                  ]}
-                  value={dbType}
-                  onChange={handleDbTypeChange}
-                />
+                <Title order={3}>Database Configuration</Title>
+                <Text size="sm" c="dimmed">Configure the primary database for system configuration and state.</Text>
+
+                <SimpleGrid cols={2} spacing="md" verticalSpacing="md">
+                  <Select
+                    label="Database Type"
+                    description="Select the database engine to use."
+                    placeholder="Select database type"
+                    data={[
+                      { value: 'sqlite', label: 'SQLite' },
+                      { value: 'pebble', label: 'Pebble' },
+                      { value: 'postgres', label: 'PostgreSQL' },
+                      { value: 'mysql', label: 'MySQL' },
+                      { value: 'mariadb', label: 'MariaDB' },
+                      { value: 'mongodb', label: 'MongoDB' },
+                    ]}
+                    value={dbType}
+                    onChange={handleDbTypeChange}
+                    required
+                  />
+                  <PasswordInput
+                    label="Crypto Master Key"
+                    description="Used to encrypt secrets. Minimum 16 chars."
+                    placeholder="Minimum 16 characters"
+                    required
+                    value={cryptoMasterKey}
+                    onChange={(e) => setCryptoMasterKey(e.currentTarget.value)}
+                    visible={keyVisible}
+                    onVisibilityChange={setKeyVisible}
+                    rightSectionWidth={92}
+                    rightSection={
+                      <Group gap={0} mr={5}>
+                        <Tooltip label="Generate Key">
+                          <ActionIcon variant="subtle" color="gray" onClick={() => setCryptoMasterKey(generateStrongPassword(32))}>
+                            <IconRefresh size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Copy Key">
+                          <ActionIcon variant="subtle" color="gray" onClick={() => { if (cryptoMasterKey) copyToClipboard(cryptoMasterKey) }} disabled={!cryptoMasterKey}>
+                            <IconCopy size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label={keyVisible ? "Hide Key" : "Show Key"}>
+                          <ActionIcon variant="subtle" color="gray" onClick={() => setKeyVisible(!keyVisible)}>
+                            {keyVisible ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    }
+                  />
+                </SimpleGrid>
 
                 {/* DSN builder vs raw input */}
-                {dbType !== 'sqlite' && useBuilder ? (
+                {(dbType !== 'sqlite' && dbType !== 'pebble') && useBuilder ? (
                   <Stack gap="sm">
-                    <Group grow>
-                      <TextInput label="Host" placeholder="localhost" value={host} onChange={(e) => setHost(e.currentTarget.value)} />
-                      <TextInput label="Port" placeholder={defaultPort(dbType)} value={port} onChange={(e) => setPort(e.currentTarget.value)} />
-                    </Group>
-                    <Group grow>
-                      <TextInput label="User" placeholder="user" value={user} onChange={(e) => setUser(e.currentTarget.value)} />
-                      <TextInput label="Password" type="password" placeholder="password" value={pw} onChange={(e) => setPw(e.currentTarget.value)} />
-                    </Group>
+                    <SimpleGrid cols={2} spacing="md" verticalSpacing="md">
+                      <TextInput label="Host" description="Database server address." placeholder="localhost" value={host} onChange={(e) => setHost(e.currentTarget.value)} />
+                      <TextInput label="Port" description="Connection port." placeholder={defaultPort(dbType)} value={port} onChange={(e) => setPort(e.currentTarget.value)} />
+                      <TextInput label="User" description="Auth username." placeholder="user" value={user} onChange={(e) => setUser(e.currentTarget.value)} />
+                      <TextInput label="Password" type="password" description="Auth password." placeholder="password" value={pw} onChange={(e) => setPw(e.currentTarget.value)} />
+                    </SimpleGrid>
+
                     {(dbType === 'postgres' || dbType === 'mysql' || dbType === 'mariadb' || dbType === 'mongodb') ? (
                       <Stack gap="xs">
                         <Group align="end">
-                          <TextInput style={{ flex: 1 }} label="Database" placeholder="hermod" value={dbname} onChange={(e) => setDbname(e.currentTarget.value)} />
-                          <Button loading={fetchingDBs} onClick={handleFetchDatabases}>Fetch databases</Button>
+                          <TextInput style={{ flex: 1 }} label="Database" description="Name of the database/schema." placeholder="hermod" value={dbname} onChange={(e) => setDbname(e.currentTarget.value)} />
+                          <Button loading={fetchingDBs} onClick={handleFetchDatabases} size="sm" leftSection={<IconSearch size={16} />}>Fetch</Button>
                         </Group>
                         {fetchDBsError && (
                           <Alert color="red" title="Failed to fetch databases">{fetchDBsError}</Alert>
@@ -509,6 +543,7 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
                         {availableDBs.length > 0 && (
                           <Select
                             label="Select a database"
+                            description="Choose an existing database from the server."
                             placeholder="Choose from server"
                             searchable
                             clearable
@@ -519,25 +554,25 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
                         )}
                       </Stack>
                     ) : (
-                      <TextInput label="Database" placeholder="hermod" value={dbname} onChange={(e) => setDbname(e.currentTarget.value)} />
+                      <TextInput label="Database" description="Database name." placeholder="hermod" value={dbname} onChange={(e) => setDbname(e.currentTarget.value)} />
                     )}
-                    <Text size="xs" c="dimmed">Preview</Text>
-                    <TextInput value={dbConn} onChange={(e) => setDbConn(e.currentTarget.value)} />
+                    <TextInput label="Connection String Preview" description="Auto-generated DSN." value={dbConn} onChange={(e) => setDbConn(e.currentTarget.value)} />
                     <Group justify="flex-end">
-                      <Button variant="subtle" onClick={() => setUseBuilder(false)}>Use raw connection string</Button>
+                      <Button variant="subtle" size="xs" onClick={() => setUseBuilder(false)}>Use raw connection string</Button>
                     </Group>
                   </Stack>
                 ) : (
                   <Stack gap="xs">
                     <TextInput
-                      label={dbType === 'sqlite' ? 'DB Path' : 'Connection String'}
-                      placeholder={dbType === 'sqlite' ? 'hermod.db' : 'postgres://user:pass@localhost:5432/db'}
+                      label={(dbType === 'sqlite' || dbType === 'pebble') ? 'DB Path' : 'Connection String'}
+                      description={(dbType === 'sqlite' || dbType === 'pebble') ? 'Path to DB file/directory.' : 'Full connection URI.'}
+                      placeholder={(dbType === 'sqlite' || dbType === 'pebble') ? (dbType === 'sqlite' ? 'hermod.db' : 'hermod_pebble') : 'postgres://user:pass@localhost:5432/db'}
                       value={dbConn}
                       onChange={(e) => setDbConn(e.currentTarget.value)}
                     />
-                    {dbType !== 'sqlite' && (
+                    {(dbType !== 'sqlite' && dbType !== 'pebble') && (
                       <Group justify="flex-end">
-                        <Button variant="subtle" onClick={() => setUseBuilder(true)}>Use DSN builder</Button>
+                        <Button variant="subtle" size="xs" onClick={() => setUseBuilder(true)}>Use DSN builder</Button>
                       </Group>
                     )}
                   </Stack>
@@ -547,19 +582,21 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
 
                 <Checkbox
                   label="Use a separate database for logging"
-                  description="Offload audit logs, workflow logs, and message traces to a different database to improve performance."
+                  description="Offload logs to a different database to improve performance."
                   checked={useSeparateLogDb}
                   onChange={(e) => setUseSeparateLogDb(e.currentTarget.checked)}
                 />
 
                 {useSeparateLogDb && (
                   <Paper withBorder p="md" radius="sm">
-                    <Stack gap="sm">
+                    <SimpleGrid cols={2} spacing="md" verticalSpacing="md">
                       <Select
                         label="Logging Database Type"
-                        placeholder="Select database type"
+                        description="Engine for audit and activity logs."
+                        placeholder="Select type"
                         data={[
                           { value: 'sqlite', label: 'SQLite' },
+                          { value: 'pebble', label: 'Pebble' },
                           { value: 'postgres', label: 'PostgreSQL' },
                           { value: 'mysql', label: 'MySQL' },
                           { value: 'mariadb', label: 'MariaDB' },
@@ -569,41 +606,17 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
                         onChange={(val) => setLogDbType(val)}
                       />
                       <TextInput
-                        label={logDbType === 'sqlite' ? 'Logging DB Path' : 'Logging Connection String'}
-                        placeholder={logDbType === 'sqlite' ? 'hermod_logs.db' : 'postgres://user:pass@localhost:5432/hermod_logs'}
+                        label={(logDbType === 'sqlite' || logDbType === 'pebble') ? 'Logging DB Path' : 'Logging Connection String'}
+                        description={(logDbType === 'sqlite' || logDbType === 'pebble') ? 'File/directory path for logs.' : 'Connection string for logs.'}
+                        placeholder={(logDbType === 'sqlite' || logDbType === 'pebble') ? (logDbType === 'sqlite' ? 'hermod_logs.db' : 'hermod_logs_pebble') : 'postgres://...'}
                         value={logDbConn}
                         onChange={(e) => setLogDbConn(e.currentTarget.value)}
                       />
-                    </Stack>
+                    </SimpleGrid>
                   </Paper>
                 )}
 
-                <Stack gap="xs">
-                  <PasswordInput
-                    label="Crypto Master Key"
-                    description="Used to encrypt sensitive data (secrets, credentials) in the database. MUST be at least 16 characters."
-                    placeholder="Minimum 16 characters"
-                    required
-                    value={cryptoMasterKey}
-                    onChange={(e) => setCryptoMasterKey(e.currentTarget.value)}
-                  />
-                  <Group justify="space-between">
-                    <Button variant="light" onClick={() => setCryptoMasterKey(generateStrongPassword(32))}>
-                      Generate Strong Key
-                    </Button>
-                    <Button
-                      variant="default"
-                      onClick={() => {
-                        if (cryptoMasterKey) copyToClipboard(cryptoMasterKey)
-                      }}
-                      disabled={!cryptoMasterKey}
-                    >
-                      Copy Key
-                    </Button>
-                  </Group>
-                </Stack>
-
-                {/* Test database connection and gate Next */}
+                {/* Test database connection */}
                 <Stack gap="xs">
                   {testDbMutation.isPending && <Text size="sm">Testing connection...</Text>}
                   {testDbMutation.isError && testResult?.error && (
@@ -612,410 +625,289 @@ export function SetupPage({ isConfigured, onConfigured }: SetupPageProps) {
                   {dbTestOk && testResult?.ok && (
                     <Alert color="green" title="Connection successful">Database connection looks good.</Alert>
                   )}
-                  <Group justify="space-between">
-                    <Button variant="default" onClick={() => testDbMutation.mutate()} disabled={!Boolean(dbType) || !(dbConn.trim().length > 0) || cryptoMasterKey.length < 16}>
-                      Test Connection
-                    </Button>
-                    <Button onClick={() => setActive(1)} disabled={!canDbNext}>
-                      Next
-                    </Button>
-                  </Group>
+                  <Button variant="outline" onClick={() => testDbMutation.mutate()} disabled={!Boolean(dbType) || !(dbConn.trim().length > 0) || cryptoMasterKey.length < 16}>
+                    Test Connection
+                  </Button>
                 </Stack>
               </Stack>
-            </Paper>
-          </Stepper.Step>
+            </Stepper.Step>
 
-          <Stepper.Step label="SMTP" description={showStepperDesc ? 'Email notifications (Optional)' : undefined}>
-            <Paper withBorder p="xl" radius="md" mt="xl">
+            {/* Step 1: Administrator */}
+            <Stepper.Step label="Admin" description="Account" icon={<IconUser size={18} />}>
               <Stack gap="md">
-                <Text size="sm">Configure SMTP to receive email notifications for workflow failures and system alerts. This step is optional.</Text>
+                <Title order={3}>Administrator Account</Title>
+                <Text size="sm" c="dimmed">Create the first administrative user for the platform.</Text>
                 
-                <Group grow>
-                  <TextInput label="SMTP Host" placeholder="smtp.example.com" value={smtpHost} onChange={(e) => setSmtpHost(e.currentTarget.value)} />
-                  <NumberInput label="SMTP Port" placeholder="587" value={smtpPort} onChange={setSmtpPort} />
-                </Group>
+                <SimpleGrid cols={2} spacing="md" verticalSpacing="md">
+                  <TextInput
+                    label="Username"
+                    description="Administrative login ID."
+                    placeholder="admin"
+                    required
+                    value={username}
+                    onChange={(e) => setUsername(e.currentTarget.value)}
+                  />
+                  <PasswordInput
+                    label="Password"
+                    description="Secure access password."
+                    placeholder="Your password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.currentTarget.value)}
+                    visible={passwordVisible}
+                    onVisibilityChange={setPasswordVisible}
+                    rightSectionWidth={92}
+                    rightSection={
+                      <Group gap={0} mr={5}>
+                        <Tooltip label="Generate Password">
+                          <ActionIcon variant="subtle" color="gray" onClick={() => setPassword(generateStrongPassword())}>
+                            <IconRefresh size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Copy Password">
+                          <ActionIcon variant="subtle" color="gray" onClick={() => { if (password) copyToClipboard(password) }} disabled={!password}>
+                            <IconCopy size={16} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label={passwordVisible ? "Hide Password" : "Show Password"}>
+                          <ActionIcon variant="subtle" color="gray" onClick={() => setPasswordVisible(!passwordVisible)}>
+                            {passwordVisible ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    }
+                  />
+                </SimpleGrid>
                 
-                <Group grow>
-                  <TextInput label="SMTP User" placeholder="user@example.com" value={smtpUser} onChange={(e) => setSmtpUser(e.currentTarget.value)} />
-                  <PasswordInput label="SMTP Password" placeholder="password" value={smtpPassword} onChange={(e) => setSmtpPassword(e.currentTarget.value)} />
-                </Group>
-
-                <Group grow>
-                  <TextInput label="From Email" placeholder="hermod@example.com" value={smtpFrom} onChange={(e) => setSmtpFrom(e.currentTarget.value)} />
-                  <TextInput label="Admin Email" placeholder="admin@example.com" value={defaultEmail} onChange={(e) => setDefaultEmail(e.currentTarget.value)} />
-                </Group>
-
-                <Checkbox label="Use SSL/TLS" checked={smtpSsl} onChange={(e) => setSmtpSsl(e.currentTarget.checked)} />
-
-                {/* Test SMTP configuration */}
-                <Stack gap="xs">
-                  {testSmtpMutation.isPending && <Text size="sm">Sending test email...</Text>}
-                  {smtpTest?.status === 'ok' && (
-                    <Alert color="green" title="SMTP test succeeded">
-                      Test email sent successfully{defaultEmail ? ` to ${defaultEmail}` : ''}.
-                    </Alert>
-                  )}
-                  {smtpTest?.status === 'skipped' && (
-                    <Alert color="yellow" title="SMTP test skipped">
-                      Provide SMTP Host and Admin Email to send a test.
-                    </Alert>
-                  )}
-                  {smtpTest?.status === 'error' && (
-                    <Alert color="red" title="SMTP test failed">{smtpTest.error}</Alert>
-                  )}
-                  <Group justify="space-between">
-                    <Button
-                      variant="default"
-                      onClick={() => testSmtpMutation.mutate()}
-                    >
-                      Test SMTP
-                    </Button>
-                  </Group>
-                </Stack>
-
-                <Group justify="space-between">
-                  <Button variant="default" onClick={() => setActive(0)}>Back</Button>
-                  <Group>
-                    <Button variant="subtle" onClick={() => setActive(2)}>Skip for now</Button>
-                    <Button onClick={() => setActive(2)}>Next</Button>
-                  </Group>
-                </Group>
-              </Stack>
-            </Paper>
-          </Stepper.Step>
-
-          <Stepper.Step label="Administrator" description={showStepperDesc ? 'Create admin account' : undefined}>
-            <Paper withBorder p="xl" radius="md" mt="xl">
-              <Stack gap="md">
-                <TextInput
-                  label="Username"
-                  placeholder="admin"
-                  required
-                  value={username}
-                  onChange={(e) => setUsername(e.currentTarget.value)}
-                />
-                <PasswordInput
-                  label="Password"
-                  placeholder="Your password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.currentTarget.value)}
-                />
-                <Group justify="space-between">
-                  <Button variant="light" onClick={() => setPassword(generateStrongPassword())}>
-                    Generate Strong Password
-                  </Button>
-                  <Button
-                    variant="default"
-                    onClick={() => {
-                      if (password) copyToClipboard(password)
-                    }}
-                    disabled={!password}
-                  >
-                    Copy Password
-                  </Button>
-                </Group>
                 <Group gap={8} align="center">
                   <Progress value={(pwScore / 5) * 100} color={pwColor} style={{ flex: 1 }} aria-label="Password strength" />
                   <Text size="xs" c={pwColor}>{pwLabel}</Text>
                 </Group>
-                <TextInput
-                  label="Full Name"
-                  placeholder="Administrator"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.currentTarget.value)}
-                />
-                <TextInput
-                  label="Email"
-                  placeholder="admin@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.currentTarget.value)}
-                />
 
-                <Group justify="space-between">
-                  <Button variant="default" onClick={() => setActive(1)}>Back</Button>
-                  <Button onClick={() => setActive(3)} disabled={!canAdminNext}>Next</Button>
-                </Group>
+                <SimpleGrid cols={2} spacing="md" verticalSpacing="md">
+                  <TextInput
+                    label="Full Name"
+                    description="Display name for the user."
+                    placeholder="Administrator"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.currentTarget.value)}
+                  />
+                  <TextInput
+                    label="Email"
+                    description="User contact email."
+                    placeholder="admin@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.currentTarget.value)}
+                  />
+                </SimpleGrid>
               </Stack>
-            </Paper>
-          </Stepper.Step>
+            </Stepper.Step>
 
-          <Stepper.Step label="Platform" description={showStepperDesc ? 'Engine & Buffer' : undefined}>
-            <Paper withBorder p="xl" radius="md" mt="xl">
+            {/* Step 2: Infrastructure */}
+            <Stepper.Step label="System" description="Config" icon={<IconSettings size={18} />}>
               <Stack gap="md">
-                <Text fw={600}>Engine Settings</Text>
-                <NumberInput label="Max Retries" value={maxRetries} onChange={(val) => setMaxRetries(Number(val))} />
-                <Group grow>
-                  <TextInput label="Retry Interval" placeholder="1s" value={retryInterval} onChange={(e) => setRetryInterval(e.currentTarget.value)} />
-                  <TextInput label="Reconnect Interval" placeholder="5s" value={reconnectInterval} onChange={(e) => setReconnectInterval(e.currentTarget.value)} />
-                </Group>
+                <Title order={4}>Engine Settings</Title>
+                <SimpleGrid cols={3} spacing="md" verticalSpacing="md">
+                  <NumberInput label="Max Retries" description="Maximum retry attempts." value={maxRetries} onChange={(val) => setMaxRetries(Number(val))} />
+                  <TextInput label="Retry Interval" description="Delay between retries." placeholder="1s" value={retryInterval} onChange={(e) => setRetryInterval(e.currentTarget.value)} />
+                  <TextInput label="Reconnect Interval" description="Broker reconnect delay." placeholder="5s" value={reconnectInterval} onChange={(e) => setReconnectInterval(e.currentTarget.value)} />
+                </SimpleGrid>
 
-                <Text fw={600} mt="md">Buffer Settings</Text>
-                <Select
-                  label="Buffer Type"
-                  data={[
-                    { value: 'ring_buffer', label: 'Ring Buffer (In-memory)' },
-                    { value: 'disk', label: 'Disk Buffer' },
-                    { value: 'nats', label: 'NATS' },
-                  ]}
-                  value={bufferType}
-                  onChange={(val) => setBufferType(val || 'ring_buffer')}
-                />
-                <NumberInput label="Buffer Size" value={bufferSize} onChange={(val) => setBufferSize(Number(val))} />
-                {bufferType === 'disk' && (
-                  <TextInput label="Buffer Path" placeholder="/tmp/hermod_buffer" value={bufferPath} onChange={(e) => setBufferPath(e.currentTarget.value)} />
-                )}
-                <Select
-                  label="Compression"
-                  data={[
-                    { value: 'none', label: 'None' },
-                    { value: 'gzip', label: 'Gzip' },
-                    { value: 'zstd', label: 'Zstd' },
-                  ]}
-                  value={bufferCompression}
-                  onChange={(val) => setBufferCompression(val || 'none')}
-                />
+                <Title order={4} mt="xs">Buffer Configuration</Title>
+                <SimpleGrid cols={2} spacing="md" verticalSpacing="md">
+                  <Select
+                    label="Buffer Type"
+                    description="Message storage mechanism."
+                    data={[
+                      { value: 'ring_buffer', label: 'Ring Buffer (In-memory)' },
+                      { value: 'disk', label: 'Disk Buffer' },
+                      { value: 'nats', label: 'NATS' },
+                    ]}
+                    value={bufferType}
+                    onChange={(val) => setBufferType(val || 'ring_buffer')}
+                  />
+                  <NumberInput label="Buffer Size" description="Max message capacity." value={bufferSize} onChange={(val) => setBufferSize(Number(val))} />
+                  <Select
+                    label="Compression"
+                    description="Buffered data compression."
+                    data={[
+                      { value: 'none', label: 'None' },
+                      { value: 'gzip', label: 'Gzip' },
+                      { value: 'zstd', label: 'Zstd' },
+                    ]}
+                    value={bufferCompression}
+                    onChange={(val) => setBufferCompression(val || 'none')}
+                  />
+                  {bufferType === 'disk' && (
+                    <TextInput label="Buffer Path" description="File path for disk buffer." placeholder="/tmp/hermod_buffer" value={bufferPath} onChange={(e) => setBufferPath(e.currentTarget.value)} />
+                  )}
+                </SimpleGrid>
 
-                <Group justify="space-between" mt="md">
-                  <Button variant="default" onClick={() => setActive(2)}>Back</Button>
-                  <Button onClick={() => setActive(4)}>Next</Button>
-                </Group>
-              </Stack>
-            </Paper>
-          </Stepper.Step>
+                <Title order={4} mt="xs">Secrets & State</Title>
+                <SimpleGrid cols={2} spacing="md" verticalSpacing="md">
+                  <Select
+                    label="Secrets Manager"
+                    description="Provider for credentials."
+                    data={[
+                      { value: 'env', label: 'Environment Variables' },
+                      { value: 'vault', label: 'HashiCorp Vault' },
+                      { value: 'openbao', label: 'OpenBao' },
+                      { value: 'aws', label: 'AWS Secrets Manager' },
+                      { value: 'azure', label: 'Azure Key Vault' },
+                    ]}
+                    value={secretsType}
+                    onChange={(val) => setSecretsType(val || 'env')}
+                  />
+                  <Select
+                    label="State Store"
+                    description="Engine for workflow state."
+                    data={[
+                      { value: 'sqlite', label: 'SQLite (Local)' },
+                      { value: 'redis', label: 'Redis' },
+                      { value: 'etcd', label: 'Etcd' },
+                    ]}
+                    value={stateStoreType}
+                    onChange={(val) => setStateStoreType(val || 'sqlite')}
+                  />
+                </SimpleGrid>
 
-          <Stepper.Step label="Secrets & State" description={showStepperDesc ? 'Security & Persistence' : undefined}>
-            <Paper withBorder p="xl" radius="md" mt="xl">
-              <Stack gap="md">
-                <Text fw={600}>Secret Manager</Text>
-                <Select
-                  label="Type"
-                  data={[
-                    { value: 'env', label: 'Environment Variables' },
-                    { value: 'vault', label: 'HashiCorp Vault' },
-                    { value: 'openbao', label: 'OpenBao' },
-                    { value: 'aws', label: 'AWS Secrets Manager' },
-                    { value: 'azure', label: 'Azure Key Vault' },
-                  ]}
-                  value={secretsType}
-                  onChange={(val) => setSecretsType(val || 'env')}
-                />
-                {(secretsType === 'vault' || secretsType === 'openbao') && (
+                <Paper withBorder p="md" radius="sm">
                   <Stack gap="sm">
-                    <TextInput label="Address" placeholder="https://vault.example.com:8200" value={vaultAddress} onChange={(e) => setVaultAddress(e.currentTarget.value)} />
-                    <PasswordInput label="Token" value={vaultToken} onChange={(e) => setVaultToken(e.currentTarget.value)} />
-                    <TextInput label="Mount Path" placeholder="secret" value={vaultMount} onChange={(e) => setVaultMount(e.currentTarget.value)} />
-                  </Stack>
-                )}
-                {secretsType === 'aws' && (
-                  <TextInput label="AWS Region" placeholder="us-east-1" value={awsRegion} onChange={(e) => setAwsRegion(e.currentTarget.value)} />
-                )}
-                {secretsType === 'azure' && (
-                  <TextInput label="Vault URL" placeholder="https://myvault.vault.azure.net/" value={azureVaultUrl} onChange={(e) => setAzureVaultUrl(e.currentTarget.value)} />
-                )}
-                {secretsType === 'env' && (
-                  <TextInput label="Env Prefix" placeholder="HERMOD_" value={secretsPrefix} onChange={(e) => setSecretsPrefix(e.currentTarget.value)} />
-                )}
-
-                <Text fw={600} mt="md">State Store</Text>
-                <Select
-                  label="Type"
-                  data={[
-                    { value: 'sqlite', label: 'SQLite (Local)' },
-                    { value: 'redis', label: 'Redis' },
-                    { value: 'etcd', label: 'Etcd' },
-                  ]}
-                  value={stateStoreType}
-                  onChange={(val) => setStateStoreType(val || 'sqlite')}
-                />
-                {stateStoreType === 'sqlite' && (
-                  <TextInput label="DB Path" placeholder="hermod_state.db" value={stateStorePath} onChange={(e) => setStateStorePath(e.currentTarget.value)} />
-                )}
-                {stateStoreType !== 'sqlite' && (
-                  <Stack gap="sm">
-                    <TextInput label="Address" placeholder="localhost:6379" value={stateStoreAddress} onChange={(e) => setStateStoreAddress(e.currentTarget.value)} />
-                    <PasswordInput label="Password" value={stateStorePassword} onChange={(e) => setStateStorePassword(e.currentTarget.value)} />
-                    {stateStoreType === 'redis' && (
-                      <NumberInput label="DB Index" value={stateStoreDB} onChange={(val) => setStateStoreDB(Number(val))} />
+                    {/* Secrets specific fields */}
+                    {(secretsType === 'vault' || secretsType === 'openbao') && (
+                      <SimpleGrid cols={2} spacing="md" verticalSpacing="md">
+                        <TextInput label="Address" description="Vault server URL." placeholder="https://vault:8200" value={vaultAddress} onChange={(e) => setVaultAddress(e.currentTarget.value)} />
+                        <PasswordInput label="Token" description="Vault access token." value={vaultToken} onChange={(e) => setVaultToken(e.currentTarget.value)} />
+                        <TextInput label="Mount Path" description="KV engine mount." placeholder="secret" value={vaultMount} onChange={(e) => setVaultMount(e.currentTarget.value)} />
+                      </SimpleGrid>
                     )}
+                    {secretsType === 'aws' && (
+                      <TextInput label="AWS Region" description="Target AWS region." placeholder="us-east-1" value={awsRegion} onChange={(e) => setAwsRegion(e.currentTarget.value)} />
+                    )}
+                    {secretsType === 'azure' && (
+                      <TextInput label="Vault URL" description="Azure Vault base URL." placeholder="https://myvault.vault.azure.net/" value={azureVaultUrl} onChange={(e) => setAzureVaultUrl(e.currentTarget.value)} />
+                    )}
+                    {secretsType === 'env' && (
+                      <TextInput label="Env Prefix" description="Prefix for env vars." placeholder="HERMOD_" value={secretsPrefix} onChange={(e) => setSecretsPrefix(e.currentTarget.value)} />
+                    )}
+
+                    {/* State store specific fields */}
+                    {stateStoreType === 'sqlite' && (
+                      <TextInput label="State DB Path" description="Path to state database." placeholder="hermod_state.db" value={stateStorePath} onChange={(e) => setStateStorePath(e.currentTarget.value)} />
+                    )}
+                    {stateStoreType !== 'sqlite' && (
+                      <SimpleGrid cols={2} spacing="md" verticalSpacing="md">
+                        <TextInput label="Address" description="Connection address." placeholder="localhost:6379" value={stateStoreAddress} onChange={(e) => setStateStoreAddress(e.currentTarget.value)} />
+                        <PasswordInput label="Password" description="Auth password." value={stateStorePassword} onChange={(e) => setStateStorePassword(e.currentTarget.value)} />
+                        {stateStoreType === 'redis' && (
+                          <NumberInput label="DB Index" description="Redis DB number." value={stateStoreDB} onChange={(val) => setStateStoreDB(Number(val))} />
+                        )}
+                      </SimpleGrid>
+                    )}
+                    <TextInput label="Prefix" description="Key prefix for state." placeholder="hermod:" value={stateStorePrefix} onChange={(e) => setStateStorePrefix(e.currentTarget.value)} />
                   </Stack>
-                )}
-                <TextInput label="Prefix" placeholder="hermod:" value={stateStorePrefix} onChange={(e) => setStateStorePrefix(e.currentTarget.value)} />
-
-                <Group justify="space-between" mt="md">
-                  <Button variant="default" onClick={() => setActive(3)}>Back</Button>
-                  <Button onClick={() => setActive(5)}>Next</Button>
-                </Group>
+                </Paper>
               </Stack>
-            </Paper>
-          </Stepper.Step>
+            </Stepper.Step>
 
-          <Stepper.Step label="Auth & Observability" description={showStepperDesc ? 'OIDC & OTLP' : undefined}>
-            <Paper withBorder p="xl" radius="md" mt="xl">
+            {/* Step 3: Connectors */}
+            <Stepper.Step label="Connectors" description="Integration" icon={<IconPlug size={18} />}>
               <Stack gap="md">
-                <Text fw={600}>OIDC Authentication</Text>
-                <Checkbox label="Enable OIDC" checked={oidcEnabled} onChange={(e) => setOidcEnabled(e.currentTarget.checked)} />
+                <Title order={4}>SMTP Notifications (Optional)</Title>
+                <SimpleGrid cols={2} spacing="md" verticalSpacing="md">
+                  <TextInput label="SMTP Host" description="Mail server hostname." placeholder="smtp.example.com" value={smtpHost} onChange={(e) => setSmtpHost(e.currentTarget.value)} />
+                  <NumberInput label="SMTP Port" description="Mail server port." placeholder="587" value={smtpPort} onChange={setSmtpPort} />
+                  <TextInput label="SMTP User" description="Mail auth username." placeholder="user@example.com" value={smtpUser} onChange={(e) => setSmtpUser(e.currentTarget.value)} />
+                  <PasswordInput label="SMTP Password" description="Mail auth password." placeholder="password" value={smtpPassword} onChange={(e) => setSmtpPassword(e.currentTarget.value)} />
+                  <TextInput label="From Email" description="Sender address." placeholder="hermod@example.com" value={smtpFrom} onChange={(e) => setSmtpFrom(e.currentTarget.value)} />
+                  <TextInput label="Admin Email" description="Default alert recipient." placeholder="admin@example.com" value={defaultEmail} onChange={(e) => setDefaultEmail(e.currentTarget.value)} />
+                </SimpleGrid>
+                <Checkbox label="Use SSL/TLS" description="Enable secure connection." checked={smtpSsl} onChange={(e) => setSmtpSsl(e.currentTarget.checked)} />
+                
+                <Stack gap="xs">
+                  {testSmtpMutation.isPending && <Text size="sm">Sending test email...</Text>}
+                  {smtpTest?.status === 'ok' && <Alert color="green">SMTP Test Succeeded</Alert>}
+                  {smtpTest?.status === 'error' && <Alert color="red">{smtpTest.error}</Alert>}
+                  <Button variant="outline" size="sm" onClick={() => testSmtpMutation.mutate()}>Test SMTP</Button>
+                </Stack>
+
+                <Title order={4} mt="md">Auth & Observability</Title>
+                <Checkbox label="Enable OIDC" description="Use OpenID Connect for auth." checked={oidcEnabled} onChange={(e) => setOidcEnabled(e.currentTarget.checked)} />
                 {oidcEnabled && (
-                  <Stack gap="sm">
-                    <TextInput label="Issuer URL" placeholder="https://auth.example.com/" value={oidcIssuer} onChange={(e) => setOidcIssuer(e.currentTarget.value)} />
-                    <TextInput label="Client ID" value={oidcClientId} onChange={(e) => setOidcClientId(e.currentTarget.value)} />
-                    <PasswordInput label="Client Secret" value={oidcClientSecret} onChange={(e) => setOidcClientSecret(e.currentTarget.value)} />
-                    <TextInput label="Redirect URL" value={oidcRedirect} onChange={(e) => setOidcRedirect(e.currentTarget.value)} />
-                    <TextInput label="Scopes (comma separated)" value={oidcScopes} onChange={(e) => setOidcScopes(e.currentTarget.value)} />
-                  </Stack>
+                  <SimpleGrid cols={2} spacing="md" verticalSpacing="md">
+                    <TextInput label="Issuer URL" description="Discovery endpoint." value={oidcIssuer} onChange={(e) => setOidcIssuer(e.currentTarget.value)} />
+                    <TextInput label="Client ID" description="Application ID." value={oidcClientId} onChange={(e) => setOidcClientId(e.currentTarget.value)} />
+                    <PasswordInput label="Client Secret" description="Application secret." value={oidcClientSecret} onChange={(e) => setOidcClientSecret(e.currentTarget.value)} />
+                    <TextInput label="Redirect URL" description="Auth callback URL." value={oidcRedirect} onChange={(e) => setOidcRedirect(e.currentTarget.value)} />
+                    <TextInput label="Scopes" description="Requested permissions." value={oidcScopes} onChange={(e) => setOidcScopes(e.currentTarget.value)} />
+                  </SimpleGrid>
                 )}
 
-                <Text fw={600} mt="md">Observability (OTLP)</Text>
-                <TextInput label="OTLP Endpoint" placeholder="http://localhost:4317" value={otlpEndpoint} onChange={(e) => setOtlpEndpoint(e.currentTarget.value)} />
-                <Select
-                  label="Protocol"
-                  data={[
-                    { value: 'grpc', label: 'gRPC' },
-                    { value: 'http', label: 'HTTP' },
-                  ]}
-                  value={otlpProtocol}
-                  onChange={(val) => setOtlpProtocol(val || 'grpc')}
-                />
-                <Checkbox label="Insecure" checked={otlpInsecure} onChange={(e) => setOtlpInsecure(e.currentTarget.checked)} />
-                <TextInput label="Service Name" value={otlpServiceName} onChange={(e) => setOtlpServiceName(e.currentTarget.value)} />
-
-                <Group justify="space-between" mt="md">
-                  <Button variant="default" onClick={() => setActive(4)}>Back</Button>
-                  <Button onClick={() => setActive(6)}>Next</Button>
-                </Group>
+                <SimpleGrid cols={2} spacing="md" mt="xs" verticalSpacing="md">
+                  <TextInput label="OTLP Endpoint" description="Collector address." placeholder="http://localhost:4317" value={otlpEndpoint} onChange={(e) => setOtlpEndpoint(e.currentTarget.value)} />
+                  <Select
+                    label="Protocol"
+                    description="Traces transmission."
+                    data={[{ value: 'grpc', label: 'gRPC' }, { value: 'http', label: 'HTTP' }]}
+                    value={otlpProtocol}
+                    onChange={(val) => setOtlpProtocol(val || 'grpc')}
+                  />
+                  <TextInput label="Service Name" description="Hermod service name." value={otlpServiceName} onChange={(e) => setOtlpServiceName(e.currentTarget.value)} />
+                  <Checkbox label="Insecure OTLP" description="Disable TLS for collector." checked={otlpInsecure} onChange={(e) => setOtlpInsecure(e.currentTarget.checked)} mt={30} />
+                </SimpleGrid>
               </Stack>
-            </Paper>
-          </Stepper.Step>
+            </Stepper.Step>
 
-          <Stepper.Step label="Worker" description={showStepperDesc ? 'Initial worker' : undefined}>
-            <Paper withBorder p="xl" radius="md" mt="xl">
+            {/* Step 4: Finalize */}
+            <Stepper.Step label="Finalize" description="Deploy" icon={<IconCheck size={18} />}>
               <Stack gap="md">
-                <Text size="sm">Register the first worker instance. This worker will process your workflows.</Text>
-                <TextInput label="Worker Name" value={workerName} onChange={(e) => setWorkerName(e.currentTarget.value)} required />
-                <Group grow>
-                  <TextInput label="Host / IP" value={workerHost} onChange={(e) => setWorkerHost(e.currentTarget.value)} required />
-                  <NumberInput label="Port" value={workerPort} onChange={(val) => setWorkerPort(Number(val))} required />
-                </Group>
-                <Group justify="space-between" mt="md">
-                  <Button variant="default" onClick={() => setActive(active - 1)}>Back</Button>
-                  <Button onClick={() => setActive(active + 1)}>Next Step</Button>
-                </Group>
+                <Title order={4}>Initial Worker Registration</Title>
+                <SimpleGrid cols={3} spacing="md" verticalSpacing="md">
+                  <TextInput label="Worker Name" description="Unique name." value={workerName} onChange={(e) => setWorkerName(e.currentTarget.value)} required />
+                  <TextInput label="Host / IP" description="Network address." value={workerHost} onChange={(e) => setWorkerHost(e.currentTarget.value)} required />
+                  <NumberInput label="Port" description="Listen port." value={workerPort} onChange={(val) => setWorkerPort(Number(val))} required />
+                </SimpleGrid>
+
+                <Title order={4} mt="md">Service Installation Commands</Title>
+                <Text size="sm" c="dimmed">Run these commands after saving to install Hermod as a background service.</Text>
+                <SimpleGrid cols={1} spacing="xs">
+                  <TextInput
+                    label="Windows (PowerShell)"
+                    readOnly
+                    value="hermod.exe -mode standalone -service install"
+                    rightSection={<Button variant="subtle" size="xs" onClick={() => copyToClipboard('hermod.exe -mode standalone -service install')}>Copy</Button>}
+                    rightSectionWidth={70}
+                  />
+                  <TextInput
+                    label="Linux (systemd)"
+                    readOnly
+                    value="./hermod -mode standalone -service install"
+                    rightSection={<Button variant="subtle" size="xs" onClick={() => copyToClipboard('./hermod -mode standalone -service install')}>Copy</Button>}
+                    rightSectionWidth={70}
+                  />
+                </SimpleGrid>
+
+                {error && <Alert color="red" title="Setup Error" mt="md">{error}</Alert>}
+                <Text fw={600} mt="md">Please review all settings. Clicking "Confirm & Save" will apply the configuration and initialize the database.</Text>
               </Stack>
-            </Paper>
-          </Stepper.Step>
+            </Stepper.Step>
+          </Stepper>
 
-          {/* Final step: Confirm & Save (all backend calls happen here) */}
-          <Stepper.Step label="Confirm & Save" description={showStepperDesc ? 'Review and apply configuration' : undefined}>
-            <Paper withBorder p="xl" radius="md" mt="xl">
-              <Stack gap="md">
-                <Text>Review your configuration before saving. No changes have been sent to the server yet.</Text>
-
-                <Stack gap={4}>
-                  <Text fw={600}>Database</Text>
-                  <Text size="sm">Type: {dbType || '-'}</Text>
-                  <Text size="sm">Connection: {dbConn}</Text>
-                  <Text size="sm">Crypto Key: {cryptoMasterKey ? `${cryptoMasterKey.slice(0,4)}***${cryptoMasterKey.slice(-4)}` : '-'}</Text>
-                </Stack>
-
-                <Stack gap={4}>
-                  <Text fw={600}>SMTP (optional)</Text>
-                  <Text size="sm">Host: {smtpHost || '-'}</Text>
-                  <Text size="sm">Port: {smtpPort || '-'}</Text>
-                  <Text size="sm">User: {smtpUser || '-'}</Text>
-                  <Text size="sm">From: {smtpFrom || '-'}</Text>
-                  <Text size="sm">Admin Email: {defaultEmail || '-'}</Text>
-                  <Text size="sm">SSL/TLS: {smtpSsl ? 'Yes' : 'No'}</Text>
-                </Stack>
-
-                <Stack gap={4}>
-                  <Text fw={600}>Administrator</Text>
-                  <Text size="sm">Username: {username}</Text>
-                  <Text size="sm">Full Name: {fullName || '-'}</Text>
-                  <Text size="sm">Email: {email || '-'}</Text>
-                </Stack>
-
-                <Stack gap={4}>
-                  <Text fw={600}>Platform (Engine & Buffer)</Text>
-                  <Text size="sm">Engine: {maxRetries} retries, {retryInterval} interval, {reconnectInterval} reconnect</Text>
-                  <Text size="sm">Buffer: {bufferType} ({bufferSize} size, {bufferCompression} compression)</Text>
-                </Stack>
-
-                <Stack gap={4}>
-                  <Text fw={600}>Secrets & State</Text>
-                  <Text size="sm">Secrets: {secretsType}</Text>
-                  <Text size="sm">State Store: {stateStoreType} ({stateStorePrefix})</Text>
-                </Stack>
-
-                <Stack gap={4}>
-                  <Text fw={600}>Auth & Observability</Text>
-                  <Text size="sm">OIDC: {oidcEnabled ? 'Enabled' : 'Disabled'}</Text>
-                  <Text size="sm">OTLP: {otlpEndpoint || 'Not configured'}</Text>
-                </Stack>
-
-                <Stack gap={4}>
-                  <Text fw={600}>Worker</Text>
-                  <Text size="sm">Name: {workerName}</Text>
-                  <Text size="sm">Address: {workerHost}:{workerPort}</Text>
-                </Stack>
-
-                {/* Optional helpers in final step */}
-                {(dbType === 'postgres' || dbType === 'mysql' || dbType === 'mariadb' || dbType === 'mongodb') && (
-                  <Stack gap="xs">
-                    {availableDBs.length > 0 ? (
-                      <Select
-                        label="Database"
-                        placeholder="Select database"
-                        searchable
-                        data={availableDBs.map((d) => ({ value: d, label: d }))}
-                        value={dbname}
-                        onChange={(val) => setDbname(val || '')}
-                      />
-                    ) : (
-                      <TextInput label="Database" placeholder="hermod" value={dbname} onChange={(e) => setDbname(e.currentTarget.value)} />
-                    )}
-                    <Group justify="flex-end">
-                      <Button variant="light" onClick={handleFetchDatabases} loading={fetchingDBs} disabled={!dbType}>
-                        Fetch databases
-                      </Button>
-                    </Group>
-                    {fetchDBsError && <Text c="red" size="sm">{fetchDBsError}</Text>}
-                  </Stack>
-                )}
-
-                {/* Optional: Service installation helper */}
-                <Stack gap="xs" mt="md">
-                  <Text fw={600}>Run as a Service (optional)</Text>
-                  <Text size="sm">After saving, you can install Hermod as a background service:</Text>
-                  <Group align="end" gap="sm">
-                    <TextInput style={{ flex: 1 }} readOnly label="Windows (PowerShell, run as Administrator)" value={'hermod.exe -mode standalone -service install'} />
-                    <Button variant="default" onClick={() => copyToClipboard('hermod.exe -mode standalone -service install')}>Copy</Button>
-                  </Group>
-                  <Group align="end" gap="sm">
-                    <TextInput style={{ flex: 1 }} readOnly label="Linux (systemd)" value={'./hermod -mode standalone -service install'} />
-                    <Button variant="default" onClick={() => copyToClipboard('./hermod -mode standalone -service install')}>Copy</Button>
-                  </Group>
-                  <Text size="xs" c="dimmed">Tip: Use scripts/install-service.ps1 or scripts/install-service.sh for convenience.</Text>
-                </Stack>
-
-                {/* Database test has been removed from confirmation step; it exists on the Database step */}
-
-                {error && (
-                  <Text c="red" size="sm">{error}</Text>
-                )}
-
-                <Group justify="space-between">
-                  <Button variant="default" onClick={() => setActive(6)}>Back</Button>
-                  <Group>
-                    <Button onClick={handleFinalSave} loading={saving} disabled={!canDbNext || !canAdminNext}>
-                      Confirm & Save
-                    </Button>
-                  </Group>
-                </Group>
-              </Stack>
-            </Paper>
-          </Stepper.Step>
-        </Stepper>
-        </div>
+          <Group justify="center" mt="xl">
+            {activeStep > 0 && (
+              <Button variant="default" onClick={prevStep}>Back</Button>
+            )}
+            {activeStep < 4 ? (
+              <Button onClick={nextStep} disabled={(activeStep === 0 && !canDbNext) || (activeStep === 1 && !canAdminNext)}>
+                Next Step
+              </Button>
+            ) : (
+              <Button size="lg" onClick={handleFinalSave} loading={saving} disabled={!canDbNext || !canAdminNext}>
+                Confirm & Save Configuration
+              </Button>
+            )}
+          </Group>
+        </Paper>
       </Stack>
     </Container>
   )

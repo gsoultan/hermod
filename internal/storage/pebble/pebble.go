@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +20,12 @@ type pebbleStorage struct {
 }
 
 func NewPebbleStorage(path string) (storage.Storage, error) {
+	if path == "" {
+		return nil, fmt.Errorf("pebble storage path cannot be empty")
+	}
+	if err := os.MkdirAll(path, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create pebble directory %s: %w", path, err)
+	}
 	db, err := pebble.Open(path, &pebble.Options{})
 	if err != nil {
 		return nil, err
@@ -31,6 +38,13 @@ func (s *pebbleStorage) Init(ctx context.Context) error {
 }
 
 func (s *pebbleStorage) Ping(ctx context.Context) error {
+	return nil
+}
+
+func (s *pebbleStorage) Close() error {
+	if s.db != nil {
+		return s.db.Close()
+	}
 	return nil
 }
 

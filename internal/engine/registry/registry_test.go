@@ -16,6 +16,10 @@ import (
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/internal/testutil"
 	"github.com/user/hermod/pkg/comm/message"
+	_ "github.com/user/hermod/pkg/comm/transformer/advanced"
+	_ "github.com/user/hermod/pkg/comm/transformer/core"
+	_ "github.com/user/hermod/pkg/comm/transformer/logic"
+	_ "github.com/user/hermod/pkg/comm/transformer/lookup"
 	"github.com/user/hermod/pkg/engine/telemetry"
 	"github.com/user/hermod/pkg/infra/state"
 )

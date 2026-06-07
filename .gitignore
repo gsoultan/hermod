@@ -45,6 +45,7 @@ ui/stats.html
 config.yaml
 db_config.yaml
 worker.yaml
+/.hermod
 main
 hermod_state.db
 ui/bun.lock

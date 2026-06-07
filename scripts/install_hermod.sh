@@ -37,8 +37,8 @@ cd $HERMOD_DIR/src
 
 # Build UI and Go binary
 # We run the build process. Ensure we have enough permissions.
-go run cmd/hermod/main.go --build-ui
-go build -o hermod cmd/hermod/main.go
+go run ./cmd/hermod --build-ui
+go build -o hermod ./cmd/hermod
 
 sudo mv hermod /usr/local/bin/hermod
 sudo chmod +x /usr/local/bin/hermod

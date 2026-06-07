@@ -10,38 +10,51 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/user/hermod/internal/config"
 	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/storage"
 	internal_sql "github.com/user/hermod/internal/storage/sql"
 	"github.com/user/hermod/pkg/engine/telemetry"
 	_ "modernc.org/sqlite"
 )
 
 func main() {
-	configPath := flag.String("config", "edge.yaml", "Path to edge configuration file")
-	flag.Parse()
+	_ = config.EnsureConfigDir()
+	configPath := parseFlags()
 
 	log.Println("Starting Hermod Edge Worker Node...")
+	store := initStorage()
+	reg := setupRegistry(store, *configPath)
 
-	// Initialize lightweight storage (SQLite)
-	db, err := sql.Open("sqlite", "edge_state.db")
+	ctx, cancel := setupContext()
+	defer cancel()
+
+	runReconciliationLoop(ctx, reg)
+}
+
+func parseFlags() *string {
+	configPath := flag.String("config", config.GetConfigPath("edge.yaml"), "Path to edge configuration file")
+	flag.Parse()
+	return configPath
+}
+
+func initStorage() storage.Storage {
+	db, err := sql.Open("sqlite", config.GetConfigPath("edge_state.db"))
 	if err != nil {
 		log.Fatalf("Failed to open SQLite: %v", err)
 	}
-	store := internal_sql.NewSQLStorage(db, "sqlite")
+	return internal_sql.NewSQLStorage(db, "sqlite")
+}
 
-	// Initialize Registry in Edge Mode
-	// (This assumes Registry handles lightweight operation or we can customize it)
+func setupRegistry(store storage.Storage, configPath string) *registry.Registry {
 	reg := registry.NewRegistry(store)
 	reg.SetLogger(telemetry.NewDefaultLogger())
+	log.Printf("Hermod Edge Worker Node started with config: %s", configPath)
+	return reg
+}
 
-	log.Printf("Hermod Edge Worker Node started with config: %s", *configPath)
-
-	// In a real scenario, the edge node would connect to a central controller
-	// and pull its assigned workflows. For now, we'll start a reconciliation loop.
+func setupContext() (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Handle signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -50,8 +63,10 @@ func main() {
 		log.Println("Shutting down Edge Worker Node...")
 		cancel()
 	}()
+	return ctx, cancel
+}
 
-	// Background reconciliation loop (simplified for edge)
+func runReconciliationLoop(ctx context.Context, reg *registry.Registry) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -61,9 +76,6 @@ func main() {
 			reg.StopAll()
 			return
 		case <-ticker.C:
-			// Edge nodes typically run a subset of workflows
-			// For now, we'll use the standard reconciliation logic from the registry
-			// if it were exposed, or just rely on manual start for this MVP.
 			log.Println("Edge heartbeat...")
 		}
 	}

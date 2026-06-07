@@ -44,9 +44,29 @@ func (r *Registry) SetNodeState(key string, val any) {
 }
 
 func (r *Registry) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
+	if r.storage == nil {
+		return nil
+	}
 	return r.storage.UpdateNodeState(ctx, workflowID, nodeID, state)
 }
 
 func (r *Registry) GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error) {
+	if r.storage == nil {
+		return make(map[string]any), nil
+	}
 	return r.storage.GetNodeStates(ctx, workflowID)
+}
+
+func (r *Registry) GetSink(workflowID, nodeID string) (hermod.Sink, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ae, ok := r.engines[workflowID]
+	if !ok {
+		return nil, false
+	}
+	idx, ok := ae.sinkNodeToIndex[nodeID]
+	if !ok || idx < 0 || idx >= len(ae.sinks) {
+		return nil, false
+	}
+	return ae.sinks[idx], true
 }
