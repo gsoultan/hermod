@@ -1,4 +1,5 @@
-import { Autocomplete, Loader, TagsInput } from '@mantine/core';
+import { Autocomplete, Loader, TagsInput, Alert, Stack, Text, Group } from '@mantine/core';
+import { IconInfoCircle } from '@tabler/icons-react';
 import { DatabaseSourceConfig } from './DatabaseSourceConfig';
 import { SocialSourceConfig } from './SocialSourceConfig';
 import { MessagingSourceConfig } from './MessagingSourceConfig';
@@ -49,18 +50,35 @@ export const SourceConfigFields: FC<SourceConfigFieldsProps> = ({
       .map((t: string) => t.trim())
       .filter((t: string) => t.length > 0);
 
+    const useCDC = source.config?.use_cdc !== 'false';
+    const showCDCWarning = source.type === 'postgres' && useCDC;
+
     const tablesInput = (
-      <TagsInput
-        label="Tables"
-        placeholder="Type a table name and press Enter"
-        data={discoveredTables || []}
-        value={tablesValue}
-        onChange={(vals) => updateConfig('tables', vals.map((t) => t.trim()).filter((t) => t.length > 0).join(','))}
-        description="Specify one or more tables to monitor for changes."
-        clearable
-        rightSection={isFetchingTables ? <Loader size="xs" /> : null}
-        onDropdownOpen={() => fetchTables()}
-      />
+      <Stack gap="xs">
+        <TagsInput
+          label="Tables"
+          placeholder="Type a table name and press Enter"
+          data={discoveredTables || []}
+          value={tablesValue}
+          onChange={(vals) => updateConfig('tables', vals.map((t) => t.trim()).filter((t) => t.length > 0).join(','))}
+          description="Specify one or more tables to monitor for changes."
+          clearable
+          rightSection={isFetchingTables ? <Loader size="xs" /> : null}
+          onDropdownOpen={() => fetchTables()}
+        />
+        {showCDCWarning && (
+          <Alert color="orange" variant="light" py="xs">
+            <Group gap="xs">
+              <IconInfoCircle size={16} />
+              <Text size="xs">
+                {tablesValue.length === 0 
+                  ? "No tables selected. For PostgreSQL, this defaults to 'ALL TABLES' unless previously configured with specific tables."
+                  : "Updating this list will synchronize the database publication. Removing all tables will delete the replication slot and publication."}
+              </Text>
+            </Group>
+          </Alert>
+        )}
+      </Stack>
     );
 
     const databaseInput = (

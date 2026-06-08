@@ -162,6 +162,13 @@ func (p *PostgresSource) ensurePublication(ctx context.Context) error {
 		return fmt.Errorf("failed to check publication details: %w", err)
 	}
 
+	// Handle case where all tables were removed
+	if len(p.tables) == 0 && !pubAllTables {
+		p.log("INFO", "All tables removed from publication, cleaning up", "publication", p.publicationName)
+		_ = p.dropPublicationAndSlot(ctx)
+		return fmt.Errorf("all tables removed from CDC source; publication and replication slot have been cleaned up")
+	}
+
 	if len(p.tables) == 0 {
 		if !pubAllTables {
 			_, err = p.conn.Exec(ctx, fmt.Sprintf("ALTER PUBLICATION %s SET FOR ALL TABLES", quotedPub))
@@ -192,7 +199,7 @@ func (p *PostgresSource) ensurePublication(ctx context.Context) error {
 		return nil
 	}
 
-	// Check if any tables are missing from the publication
+	// Check if any tables are missing OR if there are extra tables in the publication
 	rows, err := p.conn.Query(ctx, "SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname = $1", p.publicationName)
 	if err != nil {
 		return fmt.Errorf("failed to get publication tables: %w", err)
@@ -200,6 +207,7 @@ func (p *PostgresSource) ensurePublication(ctx context.Context) error {
 	defer rows.Close()
 
 	existingTables := make(map[string]bool)
+	numInPub := 0
 	for rows.Next() {
 		var schema, table string
 		if err := rows.Scan(&schema, &table); err != nil {
@@ -207,13 +215,18 @@ func (p *PostgresSource) ensurePublication(ctx context.Context) error {
 		}
 		existingTables[table] = true
 		existingTables[schema+"."+table] = true
+		numInPub++
 	}
 
 	needsUpdate := false
-	for _, t := range p.tables {
-		if !existingTables[t] {
-			needsUpdate = true
-			break
+	if numInPub != len(p.tables) {
+		needsUpdate = true
+	} else {
+		for _, t := range p.tables {
+			if !existingTables[t] {
+				needsUpdate = true
+				break
+			}
 		}
 	}
 
@@ -230,6 +243,17 @@ func (p *PostgresSource) ensurePublication(ctx context.Context) error {
 		p.log("INFO", "Updated publication tables", "publication", p.publicationName, "tables", strings.Join(p.tables, ", "))
 	}
 
+	return nil
+}
+
+func (p *PostgresSource) dropPublicationAndSlot(ctx context.Context) error {
+	quotedPub, err := sqlutil.QuoteIdent("postgres", p.publicationName)
+	if err == nil {
+		// Try to drop publication, ignore if it doesn't exist
+		_, _ = p.conn.Exec(ctx, fmt.Sprintf("DROP PUBLICATION IF EXISTS %s", quotedPub))
+	}
+	// Try to drop replication slot, ignore if it doesn't exist
+	_, _ = p.conn.Exec(ctx, "SELECT pg_drop_replication_slot($1)", p.slotName)
 	return nil
 }
 
