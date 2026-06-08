@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -198,7 +199,7 @@ func (h *Handler) GetSecretConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
+	cfg, err := config.LoadConfig(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -230,7 +231,7 @@ func (h *Handler) UpdateSecretConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
+	cfg, err := config.LoadConfig(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -245,7 +246,7 @@ func (h *Handler) UpdateSecretConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg.Secrets = secretCfg
-	if err := config.SaveConfig(config.GetConfigPath("config.yaml"), cfg); err != nil {
+	if err := config.SaveConfig(h.ConfigPath, cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -270,7 +271,7 @@ func (h *Handler) GetStateStoreConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
+	cfg, err := config.LoadConfig(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -293,14 +294,14 @@ func (h *Handler) UpdateStateStoreConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
+	cfg, err := config.LoadConfig(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
 	}
 
 	cfg.StateStore = stateCfg
-	if err := config.SaveConfig(config.GetConfigPath("config.yaml"), cfg); err != nil {
+	if err := config.SaveConfig(h.ConfigPath, cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -328,7 +329,7 @@ func (h *Handler) GetObservabilityConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
+	cfg, err := config.LoadConfig(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -345,7 +346,7 @@ func (h *Handler) GetFileStorageConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
+	cfg, err := config.LoadConfig(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -377,7 +378,7 @@ func (h *Handler) UpdateFileStorageConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
+	cfg, err := config.LoadConfig(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -392,7 +393,7 @@ func (h *Handler) UpdateFileStorageConfig(w http.ResponseWriter, r *http.Request
 	}
 
 	cfg.FileStorage = fsCfg
-	if err := config.SaveConfig(config.GetConfigPath("config.yaml"), cfg); err != nil {
+	if err := config.SaveConfig(h.ConfigPath, cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -418,14 +419,14 @@ func (h *Handler) UpdateObservabilityConfig(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	cfg, err := config.LoadConfig(config.GetConfigPath("config.yaml"))
+	cfg, err := config.LoadConfig(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
 	}
 
 	cfg.Observability = obsCfg
-	if err := config.SaveConfig(config.GetConfigPath("config.yaml"), cfg); err != nil {
+	if err := config.SaveConfig(h.ConfigPath, cfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -910,6 +911,8 @@ func (h *Handler) FinalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 		DB struct {
 			Type            string `json:"type"`
 			Conn            string `json:"conn"`
+			LogType         string `json:"log_type"`
+			LogConn         string `json:"log_conn"`
 			CryptoMasterKey string `json:"crypto_master_key"`
 		} `json:"db"`
 		Admin struct {
@@ -924,6 +927,8 @@ func (h *Handler) FinalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 				MaxRetries        int    `json:"max_retries"`
 				RetryInterval     string `json:"retry_interval"`
 				ReconnectInterval string `json:"reconnect_interval"`
+				MaxInflight       int    `json:"max_inflight"`
+				DrainTimeout      string `json:"drain_timeout"`
 			} `json:"engine"`
 			Buffer        config.BufferConfig        `json:"buffer"`
 			Secrets       secrets.Config             `json:"secrets"`
@@ -956,7 +961,13 @@ func (h *Handler) FinalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2) Persist DB config and initialize storage
-	cfg := config.DBConfig{Type: dbType, Conn: dbConn, CryptoMasterKey: req.DB.CryptoMasterKey}
+	cfg := config.DBConfig{
+		Type:            dbType,
+		Conn:            dbConn,
+		LogType:         req.DB.LogType,
+		LogConn:         req.DB.LogConn,
+		CryptoMasterKey: req.DB.CryptoMasterKey,
+	}
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = uuid.New().String()
 	}
@@ -1019,7 +1030,8 @@ func (h *Handler) FinalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 	// 5) Save platform config
 	platformCfg := config.Config{
 		Engine: config.EngineConfig{
-			MaxRetries: req.Config.Engine.MaxRetries,
+			MaxRetries:  req.Config.Engine.MaxRetries,
+			MaxInflight: req.Config.Engine.MaxInflight,
 		},
 		Buffer:        req.Config.Buffer,
 		Secrets:       req.Config.Secrets,
@@ -1039,11 +1051,17 @@ func (h *Handler) FinalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 			platformCfg.Engine.ReconnectInterval = d
 		}
 	}
+	if req.Config.Engine.DrainTimeout != "" {
+		if d, err := time.ParseDuration(req.Config.Engine.DrainTimeout); err == nil {
+			platformCfg.Engine.DrainTimeout = d
+		}
+	}
 
-	if err := config.SaveConfig(config.GetConfigPath("config.yaml"), &platformCfg); err != nil {
+	if err := config.SaveConfig(h.ConfigPath, &platformCfg); err != nil {
 		h.JsonError(w, "failed to save platform config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	log.Printf("Platform configuration saved to %s", h.ConfigPath)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

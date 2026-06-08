@@ -22,12 +22,16 @@ export const SapSourceConfig: FC<SapSourceConfigProps> = ({ config, updateConfig
           placeholder="100"
           value={config.client || ''}
           onChange={(e) => updateConfig('client', e.target.value)}
+          description="SAP client number"
+          mih={80}
         />
         <TextInput
           label="Poll Interval"
           placeholder="10s"
           value={config.poll_interval || '30s'}
           onChange={(e) => updateConfig('poll_interval', e.target.value)}
+          description="Delay between polls"
+          mih={80}
         />
       </Group>
       <Group grow>
@@ -35,11 +39,15 @@ export const SapSourceConfig: FC<SapSourceConfigProps> = ({ config, updateConfig
           label="Username"
           value={config.username || ''}
           onChange={(e) => updateConfig('username', e.target.value)}
+          description="SAP user ID"
+          mih={80}
         />
         <PasswordInput
           label="Password"
           value={config.password || ''}
           onChange={(e) => updateConfig('password', e.target.value)}
+          description="SAP password"
+          mih={80}
         />
       </Group>
       <TextInput

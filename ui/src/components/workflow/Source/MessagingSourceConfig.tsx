@@ -14,8 +14,20 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
         <TextInput label="Topic" placeholder="topic" value={config.topic || ''} onChange={(e) => updateConfig('topic', e.target.value)} required />
         <TextInput label="Group ID" placeholder="hermod-consumer" value={config.group_id || ''} onChange={(e) => updateConfig('group_id', e.target.value)} />
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <TextInput label="Username" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
-          <PasswordInput label="Password" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
+          <TextInput 
+            label="Username" 
+            value={config.username || ''} 
+            onChange={(e) => updateConfig('username', e.target.value)} 
+            description="Broker username"
+            mih={80}
+          />
+          <PasswordInput 
+            label="Password" 
+            value={config.password || ''} 
+            onChange={(e) => updateConfig('password', e.target.value)} 
+            description="Broker password"
+            mih={80}
+          />
         </SimpleGrid>
       </Stack>
     );
@@ -27,8 +39,22 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
         <TextInput label="NATS URL" placeholder="nats://localhost:4222" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
         <TextInput label="Subject" placeholder="events.>" value={config.subject || ''} onChange={(e) => updateConfig('subject', e.target.value)} required />
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <TextInput label="Queue Group" placeholder="hermod" value={config.queue || ''} onChange={(e) => updateConfig('queue', e.target.value)} />
-          <TextInput label="Durable Name" placeholder="hermod-durable" value={config.durable_name || ''} onChange={(e) => updateConfig('durable_name', e.target.value)} />
+          <TextInput 
+            label="Queue Group" 
+            placeholder="hermod" 
+            value={config.queue || ''} 
+            onChange={(e) => updateConfig('queue', e.target.value)} 
+            description="NATS queue group name"
+            mih={80}
+          />
+          <TextInput 
+            label="Durable Name" 
+            placeholder="hermod-durable" 
+            value={config.durable_name || ''} 
+            onChange={(e) => updateConfig('durable_name', e.target.value)} 
+            description="JetStream durable name"
+            mih={80}
+          />
         </SimpleGrid>
       </Stack>
     );
@@ -46,16 +72,57 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
           updateConfig('topic', e.target.value);
         }} required />
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <TextInput label="Client ID" placeholder="Optional" value={config.client_id || ''} onChange={(e) => updateConfig('client_id', e.target.value)} />
-          <TextInput label="QoS" placeholder="0 | 1 | 2" value={config.qos || ''} onChange={(e) => updateConfig('qos', e.target.value)} />
+          <TextInput 
+            label="Client ID" 
+            placeholder="Optional" 
+            value={config.client_id || ''} 
+            onChange={(e) => updateConfig('client_id', e.target.value)} 
+            description="MQTT client identifier"
+            mih={80}
+          />
+          <TextInput 
+            label="QoS" 
+            placeholder="0 | 1 | 2" 
+            value={config.qos || ''} 
+            onChange={(e) => updateConfig('qos', e.target.value)} 
+            description="Quality of Service level"
+            mih={80}
+          />
         </SimpleGrid>
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <TextInput label="Username" placeholder="Optional" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
-          <PasswordInput label="Password" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
+          <TextInput 
+            label="Username" 
+            placeholder="Optional" 
+            value={config.username || ''} 
+            onChange={(e) => updateConfig('username', e.target.value)} 
+            description="Broker username"
+            mih={80}
+          />
+          <PasswordInput 
+            label="Password" 
+            value={config.password || ''} 
+            onChange={(e) => updateConfig('password', e.target.value)} 
+            description="Broker password"
+            mih={80}
+          />
         </SimpleGrid>
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <TextInput label="Keepalive (e.g., 30s)" placeholder="30s" value={config.keepalive || ''} onChange={(e) => updateConfig('keepalive', e.target.value)} />
-          <TextInput label="Clean Session" placeholder="true | false" value={config.clean_session || ''} onChange={(e) => updateConfig('clean_session', e.target.value)} />
+          <TextInput 
+            label="Keepalive (e.g., 30s)" 
+            placeholder="30s" 
+            value={config.keepalive || ''} 
+            onChange={(e) => updateConfig('keepalive', e.target.value)} 
+            description="Connection keepalive"
+            mih={80}
+          />
+          <TextInput 
+            label="Clean Session" 
+            placeholder="true | false" 
+            value={config.clean_session || ''} 
+            onChange={(e) => updateConfig('clean_session', e.target.value)} 
+            description="Start with clean session"
+            mih={80}
+          />
         </SimpleGrid>
         <TextInput label="TLS Insecure Skip Verify" placeholder="false" value={config.tls_insecure_skip_verify || ''} onChange={(e) => updateConfig('tls_insecure_skip_verify', e.target.value)} />
       </Stack>
@@ -69,13 +136,49 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
            <TextInput label="RabbitMQ URL (Legacy)" placeholder="amqp://guest:guest@localhost:5672/" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} />
         )}
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <TextInput label="Host" placeholder="localhost" value={config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} required={!config.url} />
-          <TextInput label="Port" placeholder={type === 'rabbitmq' ? '5552' : '5672'} value={config.port || ''} onChange={(e) => updateConfig('port', e.target.value)} />
+          <TextInput 
+            label="Host" 
+            placeholder="localhost" 
+            value={config.host || ''} 
+            onChange={(e) => updateConfig('host', e.target.value)} 
+            required={!config.url} 
+            description="RabbitMQ server host"
+            mih={80}
+          />
+          <TextInput 
+            label="Port" 
+            placeholder={type === 'rabbitmq' ? '5552' : '5672'} 
+            value={config.port || ''} 
+            onChange={(e) => updateConfig('port', e.target.value)} 
+            description="RabbitMQ port"
+            mih={80}
+          />
         </SimpleGrid>
         <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-          <TextInput label="Username" placeholder="guest" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
-          <PasswordInput label="Password" placeholder="guest" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
-          <TextInput label="Virtual Host" placeholder="/" value={config.dbname || ''} onChange={(e) => updateConfig('dbname', e.target.value)} />
+          <TextInput 
+            label="Username" 
+            placeholder="guest" 
+            value={config.username || ''} 
+            onChange={(e) => updateConfig('username', e.target.value)} 
+            description="Login username"
+            mih={80}
+          />
+          <PasswordInput 
+            label="Password" 
+            placeholder="guest" 
+            value={config.password || ''} 
+            onChange={(e) => updateConfig('password', e.target.value)} 
+            description="Login password"
+            mih={80}
+          />
+          <TextInput 
+            label="Virtual Host" 
+            placeholder="/" 
+            value={config.dbname || ''} 
+            onChange={(e) => updateConfig('dbname', e.target.value)} 
+            description="RabbitMQ vhost"
+            mih={80}
+          />
         </SimpleGrid>
         <Checkbox label="Use SSL/TLS" checked={config.use_ssl === 'true'} onChange={(e) => updateConfig('use_ssl', e.currentTarget.checked ? 'true' : 'false')} />
         {type === 'rabbitmq' ? (

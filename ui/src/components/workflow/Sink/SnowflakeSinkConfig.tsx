@@ -129,12 +129,16 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
           placeholder="MY_DB"
           value={config.database || ''}
           onChange={(e) => updateConfig('database', e.target.value)}
+          description="Target database name"
+          mih={80}
         />
         <TextInput
           label="Schema (Override)"
           placeholder="PUBLIC"
           value={config.schema || ''}
           onChange={(e) => updateConfig('schema', e.target.value)}
+          description="Target schema name"
+          mih={80}
         />
       </Group>
 
@@ -144,12 +148,16 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
           placeholder="COMPUTE_WH"
           value={config.warehouse || ''}
           onChange={(e) => updateConfig('warehouse', e.target.value)}
+          description="Virtual warehouse name"
+          mih={80}
         />
         <TextInput
           label="Role"
           placeholder="ACCOUNTADMIN"
           value={config.role || ''}
           onChange={(e) => updateConfig('role', e.target.value)}
+          description="Snowflake access role"
+          mih={80}
         />
       </Group>
 
@@ -172,15 +180,17 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
       <Group grow>
         <Switch 
           label="Truncate Table (on start)" 
-          description="If enabled, Hermod truncates the table when the workflow starts"
+          description="Truncate table on startup"
           checked={config.truncate_table === 'true'} 
           onChange={(e) => updateConfig('truncate_table', e.currentTarget.checked ? 'true' : 'false')} 
+          mih={60}
         />
         <Switch 
           label="Sync Columns (on start)" 
-          description="Add/Modify columns to match the mappings on startup"
+          description="Sync columns on startup"
           checked={config.sync_columns === 'true'} 
           onChange={(e) => updateConfig('sync_columns', e.currentTarget.checked ? 'true' : 'false')} 
+          mih={60}
         />
       </Group>
 
@@ -259,14 +269,16 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
                   placeholder="is_deleted"
                   value={config.soft_delete_column || ''}
                   onChange={(e) => updateConfig('soft_delete_column', e.target.value)}
-                  description="Column to update when a record is deleted"
+                  description="Column to mark as deleted"
+                  mih={80}
                 />
                 <TextInput
                   label="Soft Delete Value"
                   placeholder="true"
                   value={config.soft_delete_value || ''}
                   onChange={(e) => updateConfig('soft_delete_value', e.target.value)}
-                  description="Value to set"
+                  description="Value to set on delete"
+                  mih={80}
                 />
               </Group>
             )}

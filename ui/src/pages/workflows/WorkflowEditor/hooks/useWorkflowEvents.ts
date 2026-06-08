@@ -9,7 +9,7 @@ export function useWorkflowEvents(
 ) {
   const { screenToFlowPosition } = useReactFlow();
   const { 
-    setNodes, setEdges, setSelectedNode, setDrawerOpened, setDrawerTab,
+    setNodes, setEdges, setSelectedNode, setDrawerOpened,
     setQuickAddSource, quickAddSource, active, testResults, setSettingsOpened
   } = useWorkflowStore();
 
@@ -49,10 +49,11 @@ export function useWorkflowEvents(
       setConfigModalOpen(true);
       return;
     }
-    setSettingsOpened(false);
-    setDrawerOpened(true);
-    setDrawerTab('config');
-  }, [setSelectedNode, setSettingsOpened, setDrawerOpened, setDrawerTab, setConfigModalOpen]);
+    // Logic/flow nodes (switch, router, condition, merge, stateful, etc.)
+    // are configured in the node settings modal, not the palette drawer.
+    setDrawerOpened(false);
+    setSettingsOpened(true);
+  }, [setSelectedNode, setSettingsOpened, setDrawerOpened, setConfigModalOpen]);
 
   const onEdgeClick = useCallback((_event: React.MouseEvent, edge: Edge) => {
     if (!testResults) return;
@@ -94,10 +95,10 @@ export function useWorkflowEvents(
     if (nodeType === 'source' || nodeType === 'sink' || nodeType === 'transformation' || nodeType === 'validator') {
       setConfigModalOpen(true);
     } else {
-      setDrawerOpened(true);
-      setDrawerTab('config');
+      setDrawerOpened(false);
+      setSettingsOpened(true);
     }
-  }, [screenToFlowPosition, addNodeAtPosition, setSelectedNode, setDrawerOpened, setDrawerTab, setConfigModalOpen, reactFlowWrapper]);
+  }, [screenToFlowPosition, addNodeAtPosition, setSelectedNode, setDrawerOpened, setSettingsOpened, setConfigModalOpen, reactFlowWrapper]);
 
   const deleteNode = (nodeId: string) => {
     setNodes((nds) => nds.filter((n) => n.id !== nodeId));

@@ -23,6 +23,7 @@ func (h *Handler) RegisterSourceRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/sources/discover/databases", h.EditorOnly(h.DiscoverDatabases))
 	mux.Handle("POST /api/sources/discover/tables", h.EditorOnly(h.DiscoverTables))
 	mux.Handle("POST /api/sources/discover/columns", h.EditorOnly(h.DiscoverSourceColumns))
+	mux.Handle("POST /api/sources/discover/replication", h.EditorOnly(h.DiscoverReplication))
 	mux.Handle("POST /api/sources/sample", h.EditorOnly(h.SampleSourceTable))
 	mux.Handle("POST /api/sources/query", h.EditorOnly(h.QuerySource))
 	mux.Handle("POST /api/sources/upload", h.EditorOnly(h.UploadFile))
@@ -314,8 +315,8 @@ func (h *Handler) TestSource(w http.ResponseWriter, r *http.Request) {
 	// strict coupling with storage.Source (which includes optional fields
 	// like Sample that may vary in type across UIs).
 	var req struct {
-		Type   string            `json:"type"`
-		Config map[string]string `json:"config"`
+		Type   string           `json:"type"`
+		Config hermod.StringMap `json:"config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
@@ -334,8 +335,8 @@ func (h *Handler) TestSource(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DiscoverDatabases(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Type   string            `json:"type"`
-		Config map[string]string `json:"config"`
+		Type   string           `json:"type"`
+		Config hermod.StringMap `json:"config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
@@ -355,8 +356,8 @@ func (h *Handler) DiscoverDatabases(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DiscoverTables(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Type   string            `json:"type"`
-		Config map[string]string `json:"config"`
+		Type   string           `json:"type"`
+		Config hermod.StringMap `json:"config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
@@ -377,8 +378,8 @@ func (h *Handler) DiscoverTables(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DiscoverSourceColumns(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Source struct {
-			Type   string            `json:"type"`
-			Config map[string]string `json:"config"`
+			Type   string           `json:"type"`
+			Config hermod.StringMap `json:"config"`
 		} `json:"source"`
 		Table string `json:"table"`
 	}
@@ -398,11 +399,44 @@ func (h *Handler) DiscoverSourceColumns(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(columns)
 }
 
+// DiscoverReplication returns the existing logical replication slots and
+// publications for a CDC source so the user can reuse one or create a new one.
+func (h *Handler) DiscoverReplication(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Type   string           `json:"type"`
+		Config hermod.StringMap `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg := factory.SourceConfig{Type: req.Type, Config: req.Config}
+
+	slots, err := h.Registry.DiscoverReplicationSlots(r.Context(), cfg)
+	if err != nil {
+		h.JsonError(w, "Discovery failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	publications, err := h.Registry.DiscoverPublications(r.Context(), cfg)
+	if err != nil {
+		h.JsonError(w, "Discovery failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"slots":        slots,
+		"publications": publications,
+	})
+}
+
 func (h *Handler) SampleSourceTable(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Source struct {
-			Type   string            `json:"type"`
-			Config map[string]string `json:"config"`
+			Type   string           `json:"type"`
+			Config hermod.StringMap `json:"config"`
 		} `json:"source"`
 		Table string `json:"table"`
 	}

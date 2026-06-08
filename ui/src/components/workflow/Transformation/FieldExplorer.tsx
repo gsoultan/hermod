@@ -1,6 +1,7 @@
 import { IconCheck, IconCopy, IconPlus, IconSearch } from '@tabler/icons-react';
 import { useState } from 'react'
-import { ActionIcon, Box, Group, ScrollArea, Stack, Text, TextInput, Tooltip as MantineTooltip } from '@mantine/core'import { getValByPath } from '../../../utils/transformationUtils'
+import { ActionIcon, Box, Group, ScrollArea, Stack, Text, TextInput, Tooltip as MantineTooltip } from '@mantine/core'
+import { getValByPath } from '../../../utils/transformationUtils'
 
 interface FieldExplorerProps {
   availableFields: string[]
@@ -43,8 +44,8 @@ export function FieldExplorer({ availableFields = [], incomingPayload, onAdd }: 
               }}
               style={{
                 borderRadius: 4,
-                background: 'var(--mantine-color-blue-0)',
-                border: '1px dashed var(--mantine-color-blue-2)',
+                background: 'var(--mantine-color-blue-light)',
+                border: '1px dashed var(--mantine-color-blue-light-color)',
                 cursor: 'grab',
               }}
             >

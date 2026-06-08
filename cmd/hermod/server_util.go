@@ -26,7 +26,7 @@ func runServer(ctx context.Context, o *Options, reg *registry.Registry, store, l
 
 func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, logStore storage.Storage, cfg *config.Config, wrk *worker.Worker, logger hermod.Logger, configured, userSetup bool) {
 	aiSvc := ai.NewSelfHealingService(logger)
-	server := api.NewServer(reg, store, cfg, aiSvc, logStore)
+	server := api.NewServer(reg, store, cfg, o.configPath, aiSvc, logStore)
 	if wrk != nil {
 		server.SetWorker(wrk)
 	}

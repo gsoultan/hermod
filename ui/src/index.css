@@ -16,3 +16,14 @@
     @apply antialiased;
   }
 }
+
+/*
+ * Keep fields inside multi-column rows (SimpleGrid / grown Group) visually
+ * aligned by reserving a consistent minimum height for their descriptions.
+ * This ensures every field in a row that holds more than one field has some
+ * height even when its short description is empty or wraps differently.
+ */
+.mantine-SimpleGrid-root .mantine-InputWrapper-description,
+[data-grow] .mantine-InputWrapper-description {
+  min-height: 1.2em;
+}

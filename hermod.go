@@ -87,6 +87,30 @@ type ColumnDiscoverer interface {
 	DiscoverColumns(ctx context.Context, table string) ([]ColumnInfo, error)
 }
 
+// ReplicationDiscoverer is an optional interface for CDC sources (e.g. PostgreSQL)
+// that can enumerate existing logical replication slots and publications so the
+// user can choose an existing one or decide to create a new one.
+type ReplicationDiscoverer interface {
+	DiscoverReplicationSlots(ctx context.Context) ([]ReplicationSlotInfo, error)
+	DiscoverPublications(ctx context.Context) ([]PublicationInfo, error)
+}
+
+// ReplicationSlotInfo describes an existing logical replication slot.
+type ReplicationSlotInfo struct {
+	Name     string `json:"name"`
+	Plugin   string `json:"plugin"`
+	SlotType string `json:"slot_type"`
+	Database string `json:"database"`
+	Active   bool   `json:"active"`
+}
+
+// PublicationInfo describes an existing publication and the tables it covers.
+type PublicationInfo struct {
+	Name      string   `json:"name"`
+	AllTables bool     `json:"all_tables"`
+	Tables    []string `json:"tables"`
+}
+
 type ColumnInfo struct {
 	Name       string `json:"name"`
 	Type       string `json:"type"`

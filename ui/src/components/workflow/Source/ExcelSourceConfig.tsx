@@ -82,8 +82,23 @@ export function ExcelSourceConfig({ config, updateConfig, handleFileUpload, uplo
           <Tabs.Panel value="s3" pt="md">
             <Stack gap="sm">
               <Group grow>
-                <TextInput label="Region" placeholder="us-east-1" value={config.s3_region || ''} onChange={(e) => updateConfig('s3_region', e.target.value)} />
-                <TextInput label="Bucket" placeholder="my-bucket" value={config.s3_bucket || ''} onChange={(e) => updateConfig('s3_bucket', e.target.value)} required />
+                <TextInput 
+                  label="Region" 
+                  placeholder="us-east-1" 
+                  value={config.s3_region || ''} 
+                  onChange={(e) => updateConfig('s3_region', e.target.value)} 
+                  description="AWS region"
+                  mih={80}
+                />
+                <TextInput 
+                  label="Bucket" 
+                  placeholder="my-bucket" 
+                  value={config.s3_bucket || ''} 
+                  onChange={(e) => updateConfig('s3_bucket', e.target.value)} 
+                  required 
+                  description="S3 bucket name"
+                  mih={80}
+                />
               </Group>
               <TextInput 
                 label="Key Prefix / Key" 
@@ -100,8 +115,20 @@ export function ExcelSourceConfig({ config, updateConfig, handleFileUpload, uplo
                 description="Optional: MinIO / custom S3 endpoint"
               />
               <Group grow>
-                <TextInput label="Access Key" value={config.s3_access_key || ''} onChange={(e) => updateConfig('s3_access_key', e.target.value)} />
-                <PasswordInput label="Secret Key" value={config.s3_secret_key || ''} onChange={(e) => updateConfig('s3_secret_key', e.target.value)} />
+                <TextInput 
+                  label="Access Key" 
+                  value={config.s3_access_key || ''} 
+                  onChange={(e) => updateConfig('s3_access_key', e.target.value)} 
+                  description="AWS access key ID"
+                  mih={80}
+                />
+                <PasswordInput 
+                  label="Secret Key" 
+                  value={config.s3_secret_key || ''} 
+                  onChange={(e) => updateConfig('s3_secret_key', e.target.value)} 
+                  description="AWS secret access key"
+                  mih={80}
+                />
               </Group>
               <TextInput 
                 label="Filename Pattern (optional)" 

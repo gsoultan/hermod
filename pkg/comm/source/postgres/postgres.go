@@ -22,6 +22,15 @@ import (
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
+// Default identifiers used when the user does not provide a replication slot
+// or publication name in the CDC source form. Postgres requires both to exist
+// (or be creatable) for logical replication to stream changes, so we fall back
+// to these safe, valid identifiers instead of failing with empty names.
+const (
+	defaultSlotName        = "hermod_slot"
+	defaultPublicationName = "hermod_pub"
+)
+
 // PostgresSource implements the hermod.Source interface for PostgreSQL CDC.
 type PostgresSource struct {
 	connString      string
@@ -46,6 +55,15 @@ type PostgresSource struct {
 }
 
 func NewPostgresSource(connString, slotName, publicationName string, tables []string, useCDC bool) *PostgresSource {
+	// Fall back to safe, valid identifiers when the form leaves these empty.
+	// Without a valid slot/publication name Postgres cannot create the logical
+	// replication slot, so no changes would ever be streamed.
+	if strings.TrimSpace(slotName) == "" {
+		slotName = defaultSlotName
+	}
+	if strings.TrimSpace(publicationName) == "" {
+		publicationName = defaultPublicationName
+	}
 	return &PostgresSource{
 		connString:      connString,
 		slotName:        slotName,
@@ -898,6 +916,90 @@ func (p *PostgresSource) DiscoverTables(ctx context.Context) ([]string, error) {
 		tables = append(tables, name)
 	}
 	return tables, nil
+}
+
+// DiscoverReplicationSlots returns all logical replication slots present in the
+// connected PostgreSQL instance. The UI uses this so users can reuse an existing
+// slot instead of always creating a new one.
+func (p *PostgresSource) DiscoverReplicationSlots(ctx context.Context) ([]hermod.ReplicationSlotInfo, error) {
+	if err := p.ensureConn(ctx); err != nil {
+		return nil, err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	rows, err := p.conn.Query(ctx, "SELECT slot_name, COALESCE(plugin, ''), COALESCE(slot_type, ''), COALESCE(database, ''), active FROM pg_replication_slots ORDER BY slot_name")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query replication slots: %w", err)
+	}
+	defer rows.Close()
+
+	slots := []hermod.ReplicationSlotInfo{}
+	for rows.Next() {
+		var s hermod.ReplicationSlotInfo
+		if err := rows.Scan(&s.Name, &s.Plugin, &s.SlotType, &s.Database, &s.Active); err != nil {
+			return nil, err
+		}
+		slots = append(slots, s)
+	}
+	return slots, rows.Err()
+}
+
+// DiscoverPublications returns all publications and the tables each one covers
+// so the user can pick an existing publication that already includes their table
+// or decide to create a new one.
+func (p *PostgresSource) DiscoverPublications(ctx context.Context) ([]hermod.PublicationInfo, error) {
+	if err := p.ensureConn(ctx); err != nil {
+		return nil, err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	rows, err := p.conn.Query(ctx, "SELECT pubname, puballtables FROM pg_publication ORDER BY pubname")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query publications: %w", err)
+	}
+	defer rows.Close()
+
+	pubs := []hermod.PublicationInfo{}
+	for rows.Next() {
+		var pub hermod.PublicationInfo
+		if err := rows.Scan(&pub.Name, &pub.AllTables); err != nil {
+			return nil, err
+		}
+		pub.Tables = []string{}
+		pubs = append(pubs, pub)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Populate the covered tables for publications that target specific tables.
+	for i := range pubs {
+		if pubs[i].AllTables {
+			continue
+		}
+		tableRows, err := p.conn.Query(ctx, "SELECT schemaname || '.' || tablename FROM pg_publication_tables WHERE pubname = $1 ORDER BY 1", pubs[i].Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query publication tables: %w", err)
+		}
+		for tableRows.Next() {
+			var t string
+			if err := tableRows.Scan(&t); err != nil {
+				tableRows.Close()
+				return nil, err
+			}
+			pubs[i].Tables = append(pubs[i].Tables, t)
+		}
+		err = tableRows.Err()
+		tableRows.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return pubs, nil
 }
 
 func (p *PostgresSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {

@@ -1,17 +1,21 @@
 package factory
 
-import "time"
+import (
+	"time"
+
+	"github.com/user/hermod"
+)
 
 type SourceConfig struct {
-	ID                 string            `json:"id"`
-	Type               string            `json:"type"`
-	Config             map[string]string `json:"config"`
-	State              map[string]string `json:"state"`
-	ReconnectIntervals []time.Duration   `json:"-"`
+	ID                 string           `json:"id"`
+	Type               string           `json:"type"`
+	Config             hermod.StringMap `json:"config"`
+	State              hermod.StringMap `json:"state"`
+	ReconnectIntervals []time.Duration  `json:"-"`
 }
 
 type SinkConfig struct {
-	ID     string            `json:"id"`
-	Type   string            `json:"type"`
-	Config map[string]string `json:"config"`
+	ID     string           `json:"id"`
+	Type   string           `json:"type"`
+	Config hermod.StringMap `json:"config"`
 }

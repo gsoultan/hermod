@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { TextInput, Group, Select, Textarea, Button, Stack, Switch, Text } from '@mantine/core';import { EmailLayoutBuilder } from '../../forms/EmailLayoutBuilder';import { IconAt, IconBrush } from '@tabler/icons-react';
+import { TextInput, Group, Select, Textarea, Button, Stack, Switch, Text } from '@mantine/core';
+import { EmailLayoutBuilder } from '../../forms/EmailLayoutBuilder';
+import { IconAt, IconBrush } from '@tabler/icons-react';
 interface NotificationSinkConfigProps {
   type: string;
   config: any;
@@ -43,21 +45,62 @@ export function NotificationSinkConfig({
             outlookCompatible={config.outlook_compatible === 'true'}
           />
           <Group grow>
-            <TextInput label="SMTP Host" placeholder="smtp.gmail.com" value={config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} required />
-            <TextInput label="SMTP Port" placeholder="587" value={config.port || ''} onChange={(e) => updateConfig('port', e.target.value)} required />
+            <TextInput 
+              label="SMTP Host" 
+              placeholder="smtp.gmail.com" 
+              value={config.host || ''} 
+              onChange={(e) => updateConfig('host', e.target.value)} 
+              required 
+              description="SMTP server host"
+              mih={80}
+            />
+            <TextInput 
+              label="SMTP Port" 
+              placeholder="587" 
+              value={config.port || ''} 
+              onChange={(e) => updateConfig('port', e.target.value)} 
+              required 
+              description="SMTP server port"
+              mih={80}
+            />
           </Group>
           <Group grow>
-            <TextInput label="Username" placeholder="user@gmail.com" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
-            <TextInput label="Password" type="password" placeholder="App password" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
+            <TextInput 
+              label="Username" 
+              placeholder="user@gmail.com" 
+              value={config.username || ''} 
+              onChange={(e) => updateConfig('username', e.target.value)} 
+              description="Login username"
+              mih={80}
+            />
+            <TextInput 
+              label="Password" 
+              type="password" 
+              placeholder="App password" 
+              value={config.password || ''} 
+              onChange={(e) => updateConfig('password', e.target.value)} 
+              description="Login password"
+              mih={80}
+            />
           </Group>
           <Group grow>
-            <TextInput label="From" placeholder="noreply@hermod.com" value={config.from || ''} onChange={(e) => updateConfig('from', e.target.value)} required />
+            <TextInput 
+              label="From" 
+              placeholder="noreply@hermod.com" 
+              value={config.from || ''} 
+              onChange={(e) => updateConfig('from', e.target.value)} 
+              required 
+              description="Sender email address"
+              mih={80}
+            />
             <TextInput 
               label="To (Dynamic Template)" 
               placeholder="{{.customer_email}}" 
               value={config.to || ''} 
               onChange={(e) => updateConfig('to', e.target.value)} 
               required 
+              description="Recipient email template"
+              mih={80}
               rightSection={
                 validateEmail && (
                   <Button variant="subtle" size="xs" loading={validateEmailLoading} onClick={() => validateEmail(config.to)}>

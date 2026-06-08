@@ -1,6 +1,25 @@
-import { ActionIcon, Badge, Button, Group, Stack, Text, Alert, Autocomplete } from '@mantine/core';
-import { IconBracketsContain, IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react';
+import {
+  ActionIcon,
+  Badge,
+  Button,
+  Group,
+  Stack,
+  Text,
+  Autocomplete,
+  rem,
+  Paper,
+  Box,
+  Tooltip,
+} from '@mantine/core';
+import {
+  IconBracketsContain,
+  IconPlus,
+  IconTrash,
+  IconCirclePlus,
+  IconEdit,
+} from '@tabler/icons-react';
 import { TemplateField } from '../../shared/TemplateField';
+
 interface SetFieldEditorProps {
   selectedNode: any;
   updateNodeConfig: (nodeId: string, config: any, replace?: boolean) => void;
@@ -11,7 +30,15 @@ interface SetFieldEditorProps {
   addField: (path?: string, value?: string) => void;
 }
 
-export function SetFieldEditor({ selectedNode, updateNodeConfig, availableFields = [], incomingPayload, transType, onAddFromSource, addField }: SetFieldEditorProps) {
+export function SetFieldEditor({
+  selectedNode,
+  updateNodeConfig,
+  availableFields = [],
+  incomingPayload,
+  transType,
+  onAddFromSource,
+  addField,
+}: SetFieldEditorProps) {
   const fields = Object.entries(selectedNode.data)
     .filter(([k]) => k.startsWith('column.'))
     .map(([k, v]) => ({ fullKey: k, path: k.replace('column.', ''), value: v }));
@@ -21,9 +48,15 @@ export function SetFieldEditor({ selectedNode, updateNodeConfig, availableFields
       Object.entries(selectedNode.data).filter(([k]) => !k.startsWith('column.'))
     );
     const otherFields = Object.fromEntries(
-      Object.entries(selectedNode.data).filter(([k]) => k.startsWith('column.') && k !== oldFullKey)
+      Object.entries(selectedNode.data).filter(
+        ([k]) => k.startsWith('column.') && k !== oldFullKey
+      )
     );
-    updateNodeConfig(selectedNode.id, { ...baseData, ...otherFields, [`column.${newPath}`]: selectedNode.data[oldFullKey] }, true);
+    updateNodeConfig(
+      selectedNode.id,
+      { ...baseData, ...otherFields, [`column.${newPath}`]: selectedNode.data[oldFullKey] },
+      true
+    );
   };
 
   const updateFieldValue = (fullKey: string, newValue: any) => {
@@ -43,68 +76,128 @@ export function SetFieldEditor({ selectedNode, updateNodeConfig, availableFields
   const isAdvanced = transType === 'advanced';
 
   return (
-    <Stack gap="xs">
-      <Group justify="space-between">
-        <Text size="sm" fw={500}>{isAdvanced ? 'Transformation Rules' : 'Fields to Set'}</Text>
-        {incomingPayload && (
+    <Stack gap="md">
+      <Group justify="space-between" align="flex-start">
+        <Stack gap={0}>
           <Group gap="xs">
-            <Text size="xs" c="dimmed">Quick add from source:</Text>
-            <Group gap={4}>
-              {availableFields.slice(0, 5).map(f => (
-                <Badge 
-                  key={f} 
-                  size="xs" 
-                  variant="light" 
+            <IconEdit size={rem(18)} className="text-indigo-500" />
+            <Text size="sm" fw={600}>
+              {isAdvanced ? 'Transformation Rules' : 'Field Mappings'}
+            </Text>
+          </Group>
+          <Text size="xs" c="dimmed">
+            {isAdvanced
+              ? 'Define complex transformations using expressions.'
+              : 'Set or update fields in the outgoing payload.'}
+          </Text>
+        </Stack>
+
+        {incomingPayload && (
+          <Box>
+            <Text size="10px" fw={700} c="dimmed" mb={4} tt="uppercase" ta="right">
+              Quick add from source
+            </Text>
+            <Group gap={4} justify="flex-end">
+              {availableFields.slice(0, 5).map((f) => (
+                <Badge
+                  key={f}
+                  size="xs"
+                  variant="light"
                   color="blue"
-                  style={{ cursor: 'pointer', textTransform: 'none' }}
+                  className="hover:scale-105 transition-transform cursor-pointer"
                   onClick={() => onAddFromSource(f)}
+                  leftSection={<IconPlus size={rem(10)} />}
+                  styles={{ label: { textTransform: 'none' } }}
                 >
-                  + {f}
+                  {f}
                 </Badge>
               ))}
             </Group>
-          </Group>
+          </Box>
         )}
       </Group>
 
-      {fields.length === 0 && (
-        <Alert icon={<IconInfoCircle size="1rem" />} color="gray" variant="outline">
-          <Text size="xs">No fields defined yet. Click "Add Field" or use the quick-add badges above to start.</Text>
-        </Alert>
+      {fields.length === 0 ? (
+        <Paper
+          withBorder
+          p="xl"
+          radius="md"
+          bg="var(--mantine-color-gray-0)"
+          className="dark:bg-dark-7"
+          style={{ borderStyle: 'dashed', textAlign: 'center' }}
+        >
+          <Stack gap="xs" align="center">
+            <IconCirclePlus size={rem(32)} className="text-gray-400" />
+            <Text size="xs" c="dimmed">
+              No fields defined yet. Click "Add Field" or use the quick-add badges above to start.
+            </Text>
+          </Stack>
+        </Paper>
+      ) : (
+        <Stack gap="xs">
+          {fields.map((field, index) => (
+            <Paper key={index} withBorder p="xs" radius="md" className="hover:border-indigo-200 transition-colors">
+              <Group grow gap="xs" align="flex-start">
+                <Box style={{ flex: 1.5 }}>
+                  <Text size="10px" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
+                    Target Path
+                  </Text>
+                  <Autocomplete
+                    placeholder="e.g. user.id"
+                    data={availableFields}
+                    size="xs"
+                    leftSection={<IconBracketsContain size={rem(14)} />}
+                    value={field.path}
+                    onChange={(val) => updateFieldPath(field.fullKey, val)}
+                    styles={{ input: { fontFamily: 'monospace' } }}
+                  />
+                </Box>
+                <Box style={{ flex: 3 }}>
+                  <Text size="10px" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
+                    Value / Expression
+                  </Text>
+                  <TemplateField
+                    placeholder={
+                      isAdvanced ? 'Expression (e.g. upper(source.field))' : 'Value or source path'
+                    }
+                    value={String(field.value || '')}
+                    onChange={(val) => updateFieldValue(field.fullKey, val)}
+                    availableFields={availableFields}
+                    buildToken={(p) => `source.${p}`}
+                    multiline={isAdvanced}
+                  />
+                  {isAdvanced && (
+                     <Text size="10px" c="dimmed" mt={2}>
+                        Use functions and source paths. Click {"{x}"} to insert fields.
+                     </Text>
+                  )}
+                </Box>
+                <Box style={{ flex: 'none', alignSelf: 'center' }}>
+                  <Tooltip label="Remove field">
+                    <ActionIcon
+                      aria-label="Remove field"
+                      color="red"
+                      variant="subtle"
+                      onClick={() => removeField(field.fullKey)}
+                    >
+                      <IconTrash size={rem(16)} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Box>
+              </Group>
+            </Paper>
+          ))}
+        </Stack>
       )}
 
-      {fields.map((field, index) => (
-        <Group key={index} grow gap="xs" style={{ background: 'var(--mantine-color-body)', padding: 8, borderRadius: 8 }}>
-          <Autocomplete
-            placeholder="Target Path"
-            data={availableFields}
-            size="xs"
-            leftSection={<IconBracketsContain size="0.8rem" />}
-            value={field.path}
-            onChange={(val) => updateFieldPath(field.fullKey, val)}
-          />
-          <TemplateField
-            placeholder={isAdvanced ? "Expression (e.g. upper(source.field))" : "Value (literal or source.path)"}
-            description={isAdvanced ? 'Use functions and source paths. Click {x} to insert fields.' : 'Click {x} to insert source fields without typing.'}
-            value={String(field.value || '')}
-            onChange={(val) => updateFieldValue(field.fullKey, val)}
-            availableFields={availableFields}
-            buildToken={(p) => `source.${p}`}
-            multiline={isAdvanced}
-          />
-          <ActionIcon aria-label="Remove field" color="red" variant="subtle" onClick={() => removeField(field.fullKey)} style={{ flex: 'none' }}>
-            <IconTrash size="1rem" />
-          </ActionIcon>
-        </Group>
-      ))}
-      <Button 
-        size="xs" 
-        variant="light" 
+      <Button
+        size="xs"
+        variant="light"
         fullWidth
-        leftSection={<IconPlus size="1rem" />}
+        leftSection={<IconPlus size={rem(16)} />}
         onClick={() => addField()}
       >
-        {isAdvanced ? 'Add Transformation Rule' : 'Add Field'}
+        {isAdvanced ? 'Add Transformation Rule' : 'Add New Field Mapping'}
       </Button>
     </Stack>
   );

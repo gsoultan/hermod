@@ -15,8 +15,22 @@ export function RateLimitConfig({ config, updateNodeConfig, nodeId, availableFie
         <Text size="sm">Control the flow of messages to prevent overwhelming downstream systems.</Text>
       </Alert>
       <Group grow>
-        <NumberInput label="MPS" description="Messages Per Second" min={0.1} value={config.mps || 100} onChange={(val) => updateNodeConfig(nodeId, { mps: val })} />
-        <NumberInput label="Burst" description="Max burst size" min={1} value={config.burst || 100} onChange={(val) => updateNodeConfig(nodeId, { burst: val })} />
+        <NumberInput 
+          label="MPS" 
+          description="Messages per sec" 
+          min={0.1} 
+          value={config.mps || 100} 
+          onChange={(val) => updateNodeConfig(nodeId, { mps: val })} 
+          mih={80}
+        />
+        <NumberInput 
+          label="Burst" 
+          description="Max burst size" 
+          min={1} 
+          value={config.burst || 100} 
+          onChange={(val) => updateNodeConfig(nodeId, { burst: val })} 
+          mih={80}
+        />
       </Group>
       <Select 
         label="Strategy"

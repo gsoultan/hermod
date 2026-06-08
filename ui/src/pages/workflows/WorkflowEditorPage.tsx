@@ -52,7 +52,7 @@ function EditorInner() {
     workflowStatus, settingsOpened,
     updateNodeConfig, setTestModalOpened,
     setTraceInspectorOpened, setTraceMessageID,
-    setQuickAddSource, setDrawerOpened, setDrawerTab,
+    setQuickAddSource, setDrawerOpened,
     setTestResults, setSelectedNode, setSettingsOpened
   } = useWorkflowStore(useShallow(state => ({
     vhost: state.vhost,
@@ -71,7 +71,6 @@ function EditorInner() {
     setTraceMessageID: state.setTraceMessageID,
     setQuickAddSource: state.setQuickAddSource,
     setDrawerOpened: state.setDrawerOpened,
-    setDrawerTab: state.setDrawerTab,
     setTestResults: state.setTestResults,
     setSelectedNode: state.setSelectedNode,
     setSettingsOpened: state.setSettingsOpened,
@@ -269,9 +268,10 @@ function EditorInner() {
               if (type === 'source' || type === 'sink' || type === 'transformation' || type === 'validator') {
                 setConfigModalOpen(true);
               } else {
-                setDrawerOpened(true);
-                setDrawerTab('settings');
-                if (quickAddSource) setDrawerOpened(false);
+                // Logic/flow nodes (switch, router, condition, merge, ...)
+                // open the node settings modal for configuration.
+                setDrawerOpened(false);
+                setSettingsOpened(true);
               }
             }}
             sources={sources?.data || []}

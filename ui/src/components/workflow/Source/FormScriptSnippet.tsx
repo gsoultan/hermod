@@ -13,7 +13,7 @@ export function FormScriptSnippet({ path }: FormScriptSnippetProps) {
   const scriptTag = `<script src="${scriptUrl}" async defer></script>`;
 
   return (
-    <Card withBorder p="md" radius="md" bg="var(--mantine-color-blue-0)">
+    <Card withBorder p="md" radius="md" bg="var(--mantine-color-blue-light)">
       <Stack gap="xs">
         <Group gap="xs">
           <IconBraces size="1.2rem" color="var(--mantine-color-blue-6)" />

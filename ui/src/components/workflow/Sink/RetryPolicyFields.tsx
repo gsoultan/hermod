@@ -26,6 +26,8 @@ export function RetryPolicyFields({
         size="xs"
         value={maxRetries ?? ''}
         onChange={(e) => onChangeMaxRetries(e.currentTarget.value)}
+        description="Max attempt count"
+        mih={80}
       />
       <TextInput
         label="Retry Interval"
@@ -33,6 +35,8 @@ export function RetryPolicyFields({
         size="xs"
         value={retryInterval ?? ''}
         onChange={(e) => onChangeRetryInterval(e.currentTarget.value)}
+        description="Delay between retries"
+        mih={80}
       />
     </SimpleGrid>
   );

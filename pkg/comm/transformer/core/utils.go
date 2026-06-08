@@ -61,10 +61,9 @@ func ParameterizeTemplate(driver, tpl string, data map[string]any) (string, []an
 			case strings.HasPrefix(token, "\"") && strings.HasSuffix(token, "\""):
 				val = strings.Trim(token, "\"")
 			default:
-				// allow optional source. prefix
-				if strings.HasPrefix(token, "source.") {
-					token = strings.TrimPrefix(token, "source.")
-				}
+				// allow optional source. prefix or leading dot
+				token = strings.TrimPrefix(token, "source.")
+				token = strings.TrimPrefix(token, ".")
 				// Use evaluator to get message value by path semantics
 				// We only have a map here, so mimic evaluator.GetMsgValByPath on the map
 				val = GetFromMapPath(data, token)

@@ -22,6 +22,8 @@ export const MainframeSourceConfig: FC<MainframeSourceConfigProps> = ({ config, 
           placeholder="50000"
           value={config.port || ''}
           onChange={(e) => updateConfig('port', e.target.value)}
+          description="Mainframe server port"
+          mih={80}
         />
         <Select
           label="Type"
@@ -31,6 +33,8 @@ export const MainframeSourceConfig: FC<MainframeSourceConfigProps> = ({ config, 
           ]}
           value={config.type || 'db2'}
           onChange={(val) => updateConfig('type', val)}
+          description="Mainframe storage type"
+          mih={80}
         />
       </Group>
       <Group grow>
@@ -38,11 +42,15 @@ export const MainframeSourceConfig: FC<MainframeSourceConfigProps> = ({ config, 
           label="Username"
           value={config.user || ''}
           onChange={(e) => updateConfig('user', e.target.value)}
+          description="Mainframe user ID"
+          mih={80}
         />
         <PasswordInput
           label="Password"
           value={config.password || ''}
           onChange={(e) => updateConfig('password', e.target.value)}
+          description="Mainframe password"
+          mih={80}
         />
       </Group>
       <Group grow>
@@ -51,12 +59,16 @@ export const MainframeSourceConfig: FC<MainframeSourceConfigProps> = ({ config, 
           placeholder="DB2P"
           value={config.database || ''}
           onChange={(e) => updateConfig('database', e.target.value)}
+          description="Target database name"
+          mih={80}
         />
         <TextInput
           label="Schema"
           placeholder="SYSIBM"
           value={config.schema || ''}
           onChange={(e) => updateConfig('schema', e.target.value)}
+          description="Target schema name"
+          mih={80}
         />
       </Group>
       <TextInput

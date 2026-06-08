@@ -81,6 +81,32 @@ func (r *Registry) DiscoverSourceColumns(ctx context.Context, cfg factory.Source
 	return nil, fmt.Errorf("source type %s does not support column discovery", cfg.Type)
 }
 
+func (r *Registry) DiscoverReplicationSlots(ctx context.Context, cfg factory.SourceConfig) ([]hermod.ReplicationSlotInfo, error) {
+	src, err := r.createSource(cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer src.Close()
+
+	if d, ok := src.(hermod.ReplicationDiscoverer); ok {
+		return d.DiscoverReplicationSlots(ctx)
+	}
+	return nil, fmt.Errorf("source type %s does not support replication slot discovery", cfg.Type)
+}
+
+func (r *Registry) DiscoverPublications(ctx context.Context, cfg factory.SourceConfig) ([]hermod.PublicationInfo, error) {
+	src, err := r.createSource(cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer src.Close()
+
+	if d, ok := src.(hermod.ReplicationDiscoverer); ok {
+		return d.DiscoverPublications(ctx)
+	}
+	return nil, fmt.Errorf("source type %s does not support publication discovery", cfg.Type)
+}
+
 // --- Sink Discovery ---
 
 func (r *Registry) DiscoverSinkDatabases(ctx context.Context, cfg factory.SinkConfig) ([]string, error) {

@@ -38,7 +38,7 @@ type Server struct {
 }
 
 // NewServer constructs a new Server with the provided engine registry and storage backend.
-func NewServer(registry *registry.Registry, store storage.Storage, cfg *config.Config, aiSvc *ai.SelfHealingService, ls ...storage.Storage) *Server {
+func NewServer(registry *registry.Registry, store storage.Storage, cfg *config.Config, configPath string, aiSvc *ai.SelfHealingService, ls ...storage.Storage) *Server {
 	var logStore storage.Storage
 	if len(ls) > 0 {
 		logStore = ls[0]
@@ -55,6 +55,7 @@ func NewServer(registry *registry.Registry, store storage.Storage, cfg *config.C
 		Registry:      registry,
 		AI:            aiSvc,
 		Config:        cfg,
+		ConfigPath:    configPath,
 		RateLimitQuit: make(chan struct{}),
 	}
 	// Initialize file storage from config; fallback to local uploads dir

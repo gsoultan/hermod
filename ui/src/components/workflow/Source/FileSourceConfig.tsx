@@ -1,4 +1,4 @@
-import { TextInput, Stack, Group, Tabs, FileButton, Button, Divider, Checkbox, PasswordInput, NumberInput, Fieldset, Select, Text } from '@mantine/core';
+import { TextInput, Stack, Group, Tabs, FileButton, Button, Divider, Checkbox, PasswordInput, NumberInput, Fieldset, Select } from '@mantine/core';
 import { useState } from 'react';
 import { IconCloud, IconFileImport, IconLink, IconServer, IconUpload } from '@tabler/icons-react';
 interface FileSourceConfigProps {
@@ -43,13 +43,15 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
                   placeholder="*.csv, *.pdf, data-*.json" 
                   value={config.pattern || ''} 
                   onChange={(e) => updateConfig('pattern', e.target.value)} 
-                  description="Filter files by name (Glob pattern)"
+                  description="Filter files by name (Glob)"
+                  mih={80}
                 />
                 <Checkbox 
                   label="Recursive Scan" 
                   checked={config.recursive === 'true'} 
                   onChange={(e) => updateConfig('recursive', e.target.checked ? 'true' : 'false')} 
                   description="Scan subdirectories"
+                  mih={80}
                   mt="xl"
                 />
               </Group>
@@ -93,8 +95,23 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
           <Fieldset legend="S3 Storage Settings">
             <Stack gap="sm">
               <Group grow>
-                <TextInput label="Region" placeholder="us-east-1" value={config.s3_region || ''} onChange={(e) => updateConfig('s3_region', e.target.value)} />
-                <TextInput label="Bucket" placeholder="my-bucket" value={config.s3_bucket || ''} onChange={(e) => updateConfig('s3_bucket', e.target.value)} required />
+                <TextInput 
+                  label="Region" 
+                  placeholder="us-east-1" 
+                  value={config.s3_region || ''} 
+                  onChange={(e) => updateConfig('s3_region', e.target.value)} 
+                  description="AWS region"
+                  mih={80}
+                />
+                <TextInput 
+                  label="Bucket" 
+                  placeholder="my-bucket" 
+                  value={config.s3_bucket || ''} 
+                  onChange={(e) => updateConfig('s3_bucket', e.target.value)} 
+                  required 
+                  description="S3 bucket name"
+                  mih={80}
+                />
               </Group>
               <TextInput 
                 label="Key Prefix" 
@@ -111,8 +128,20 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
                 description="Optional: Custom endpoint for MinIO, DigitalOcean Spaces, etc."
               />
               <Group grow>
-                <TextInput label="Access Key" value={config.s3_access_key || ''} onChange={(e) => updateConfig('s3_access_key', e.target.value)} />
-                <PasswordInput label="Secret Key" value={config.s3_secret_key || ''} onChange={(e) => updateConfig('s3_secret_key', e.target.value)} />
+                <TextInput 
+                  label="Access Key" 
+                  value={config.s3_access_key || ''} 
+                  onChange={(e) => updateConfig('s3_access_key', e.target.value)} 
+                  description="AWS access key ID"
+                  mih={80}
+                />
+                <PasswordInput 
+                  label="Secret Key" 
+                  value={config.s3_secret_key || ''} 
+                  onChange={(e) => updateConfig('s3_secret_key', e.target.value)} 
+                  description="AWS secret access key"
+                  mih={80}
+                />
               </Group>
             </Stack>
           </Fieldset>
@@ -122,12 +151,40 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
           <Fieldset legend="FTP / SFTP Settings">
             <Stack gap="sm">
               <Group grow>
-                <TextInput label="Host" placeholder="ftp.example.com" value={config.ftp_host || ''} onChange={(e) => updateConfig('ftp_host', e.target.value)} required />
-                <NumberInput label="Port" placeholder="21" value={config.ftp_port ? parseInt(config.ftp_port) : 21} onChange={(val) => updateConfig('ftp_port', val.toString())} />
+                <TextInput 
+                  label="Host" 
+                  placeholder="ftp.example.com" 
+                  value={config.ftp_host || ''} 
+                  onChange={(e) => updateConfig('ftp_host', e.target.value)} 
+                  required 
+                  description="FTP server host"
+                  mih={80}
+                />
+                <NumberInput 
+                  label="Port" 
+                  placeholder="21" 
+                  value={config.ftp_port ? parseInt(config.ftp_port) : 21} 
+                  onChange={(val) => updateConfig('ftp_port', val.toString())} 
+                  description="FTP server port"
+                  mih={80}
+                />
               </Group>
               <Group grow>
-                <TextInput label="Username" placeholder="ftpuser" value={config.ftp_user || ''} onChange={(e) => updateConfig('ftp_user', e.target.value)} />
-                <PasswordInput label="Password" value={config.ftp_password || ''} onChange={(e) => updateConfig('ftp_password', e.target.value)} />
+                <TextInput 
+                  label="Username" 
+                  placeholder="ftpuser" 
+                  value={config.ftp_user || ''} 
+                  onChange={(e) => updateConfig('ftp_user', e.target.value)} 
+                  description="Login username"
+                  mih={80}
+                />
+                <PasswordInput 
+                  label="Password" 
+                  value={config.ftp_password || ''} 
+                  onChange={(e) => updateConfig('ftp_password', e.target.value)} 
+                  description="Login password"
+                  mih={80}
+                />
               </Group>
               <TextInput 
                 label="Remote Directory" 
@@ -156,7 +213,7 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
       <Divider label="Ingestion & Format" labelPosition="center" />
       
       <Group grow align="flex-start">
-        <Stack gap="xs">
+        <Stack gap="xs" mih={80}>
           <Select 
             label="Data Format" 
             data={[
@@ -165,19 +222,16 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
             ]} 
             value={config.format || 'raw'} 
             onChange={(val: string | null) => updateConfig('format', val || 'raw')} 
+            description="Input file format"
           />
-          <Text size="xs" c="dimmed">
-            {config.format === 'csv' 
-              ? 'Files will be parsed line by line. Each row becomes a separate Hermod message.' 
-              : 'The entire file content will be sent as the message payload.'}
-          </Text>
         </Stack>
         <TextInput 
           label="Poll Interval" 
           placeholder="5m" 
           value={config.poll_interval || ''} 
           onChange={(e) => updateConfig('poll_interval', e.target.value)} 
-          description="E.g. 30s, 5m, 1h. Leave empty for one-time scan."
+          description="E.g. 30s, 5m, 1h"
+          mih={80}
         />
       </Group>
 

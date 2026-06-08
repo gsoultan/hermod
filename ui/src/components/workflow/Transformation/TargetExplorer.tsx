@@ -1,6 +1,7 @@
 import { IconInfoCircle, IconSearch, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
-import { ActionIcon, Alert, Box, Group, ScrollArea, Stack, Text, TextInput } from '@mantine/core'interface TargetExplorerProps {
+import { ActionIcon, Alert, Box, Group, ScrollArea, Stack, Text, TextInput } from '@mantine/core'
+interface TargetExplorerProps {
   fields: string[]
   sinkSchemaPresent: boolean
   currentMappings: Record<string, string>
@@ -32,7 +33,7 @@ export function TargetExplorer({
 
   const onDropToTarget = (e: React.DragEvent<HTMLDivElement>, column: string) => {
     e.preventDefault()
-    e.currentTarget.style.background = 'var(--mantine-color-green-0)'
+    e.currentTarget.style.background = 'var(--mantine-color-green-light)'
     const data = e.dataTransfer.getData('text/plain')
     if (data) onMap(column, data)
   }
@@ -60,22 +61,22 @@ export function TargetExplorer({
               p={6}
               onDragOver={(e) => {
                 e.preventDefault()
-                e.currentTarget.style.background = 'var(--mantine-color-green-1)'
+                e.currentTarget.style.background = 'var(--mantine-color-green-light)'
               }}
               onDragLeave={(e) => {
-                e.currentTarget.style.background = 'var(--mantine-color-green-0)'
+                e.currentTarget.style.background = 'var(--mantine-color-green-light)'
               }}
               onDrop={(e) => onDropToTarget(e, column)}
               style={{
                 borderRadius: 4,
-                background: 'var(--mantine-color-green-0)',
-                border: '1px dashed var(--mantine-color-green-3)',
+                background: 'var(--mantine-color-green-light)',
+                border: '1px dashed var(--mantine-color-green-light-color)',
                 cursor: 'default',
               }}
             >
               <Group justify="space-between" wrap="nowrap">
                 <Box style={{ overflow: 'hidden' }}>
-                  <Text size="xs" fw={700} c="green.9" truncate>
+                  <Text size="xs" fw={700} c="var(--mantine-color-green-light-color)" truncate>
                     {column}
                   </Text>
                   <Text size="10px" c="dimmed" truncate>

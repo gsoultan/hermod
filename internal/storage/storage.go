@@ -55,21 +55,21 @@ type Source struct {
 	Status      string            `json:"status,omitempty"`
 	WorkerID    string            `json:"worker_id"`
 	WorkspaceID string            `json:"workspace_id,omitempty"`
-	Config      map[string]string `json:"config"`
+	Config      hermod.StringMap  `json:"config"`
 	Sample      string            `json:"sample,omitempty"`
 	State       map[string]string `json:"state" omitzero:"true"`
 }
 
 type Sink struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Type        string            `json:"type"`
-	VHost       string            `json:"vhost"`
-	Active      bool              `json:"active"`
-	Status      string            `json:"status,omitempty"`
-	WorkerID    string            `json:"worker_id"`
-	WorkspaceID string            `json:"workspace_id,omitempty"`
-	Config      map[string]string `json:"config"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Type        string           `json:"type"`
+	VHost       string           `json:"vhost"`
+	Active      bool             `json:"active"`
+	Status      string           `json:"status,omitempty"`
+	WorkerID    string           `json:"worker_id"`
+	WorkspaceID string           `json:"workspace_id,omitempty"`
+	Config      hermod.StringMap `json:"config"`
 }
 
 type Transformation struct {

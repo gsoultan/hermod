@@ -1,4 +1,4 @@
-import { Autocomplete, Loader } from '@mantine/core';
+import { Autocomplete, Loader, TagsInput } from '@mantine/core';
 import { DatabaseSourceConfig } from './DatabaseSourceConfig';
 import { SocialSourceConfig } from './SocialSourceConfig';
 import { MessagingSourceConfig } from './MessagingSourceConfig';
@@ -44,15 +44,20 @@ export const SourceConfigFields: FC<SourceConfigFieldsProps> = ({
   };
 
   if (isDatabaseSource(source.type)) {
+    const tablesValue = (source.config?.tables || '')
+      .split(',')
+      .map((t: string) => t.trim())
+      .filter((t: string) => t.length > 0);
+
     const tablesInput = (
-      <Autocomplete
-        label="Tables (Comma separated)"
-        placeholder="users, orders"
+      <TagsInput
+        label="Tables"
+        placeholder="Type a table name and press Enter"
         data={discoveredTables || []}
-        value={source.config?.tables || ''}
-        onChange={(val) => updateConfig('tables', val)}
-        description="Specify which tables to monitor for changes."
-        required
+        value={tablesValue}
+        onChange={(vals) => updateConfig('tables', vals.map((t) => t.trim()).filter((t) => t.length > 0).join(','))}
+        description="Specify one or more tables to monitor for changes."
+        clearable
         rightSection={isFetchingTables ? <Loader size="xs" /> : null}
         onDropdownOpen={() => fetchTables()}
       />

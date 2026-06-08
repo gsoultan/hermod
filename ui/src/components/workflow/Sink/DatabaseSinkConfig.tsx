@@ -182,17 +182,41 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
     return (
       <>
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <TextInput label="Host" placeholder="localhost" value={config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} />
+          <TextInput 
+            label="Host" 
+            placeholder="localhost" 
+            value={config.host || ''} 
+            onChange={(e) => updateConfig('host', e.target.value)} 
+            description="Database server host"
+            mih={80}
+          />
           <TextInput 
             label="Port" 
             placeholder={type === 'mysql' || type === 'mariadb' ? '3306' : (type === 'mssql' ? '1433' : '5432')} 
             value={config.port || ''} 
             onChange={(e) => updateConfig('port', e.target.value)} 
+            description="Database port number"
+            mih={80}
           />
         </SimpleGrid>
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <TextInput label="User" placeholder="root" value={config.user || ''} onChange={(e) => updateConfig('user', e.target.value)} />
-          <TextInput label="Password" type="password" placeholder="secret" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
+          <TextInput 
+            label="User" 
+            placeholder="root" 
+            value={config.user || ''} 
+            onChange={(e) => updateConfig('user', e.target.value)} 
+            description="Database username"
+            mih={80}
+          />
+          <TextInput 
+            label="Password" 
+            type="password" 
+            placeholder="secret" 
+            value={config.password || ''} 
+            onChange={(e) => updateConfig('password', e.target.value)} 
+            description="Database password"
+            mih={80}
+          />
         </SimpleGrid>
         <Group align="flex-end" gap="xs">
           <Autocomplete 
@@ -266,15 +290,17 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
             <Switch 
               label="Truncate Table (on start)" 
-              description="If enabled, Hermod truncates the table when the workflow starts"
+              description="Truncate table when workflow starts"
               checked={config.truncate_table === 'true'} 
               onChange={(e) => updateConfig('truncate_table', e.currentTarget.checked ? 'true' : 'false')} 
+              mih={60}
             />
             <Switch 
               label="Sync Columns (on start)" 
-              description="Add/Modify columns to match the mappings on startup"
+              description="Add/Modify columns on startup"
               checked={config.sync_columns === 'true'} 
               onChange={(e) => updateConfig('sync_columns', e.currentTarget.checked ? 'true' : 'false')} 
+              mih={60}
             />
           </SimpleGrid>
 
@@ -353,14 +379,16 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
                       placeholder="is_deleted"
                       value={config.soft_delete_column || ''}
                       onChange={(e) => updateConfig('soft_delete_column', e.target.value)}
-                      description="Column to update when a record is deleted"
+                      description="Column to mark as deleted"
+                      mih={80}
                     />
                     <TextInput
                       label="Soft Delete Value"
                       placeholder="true"
                       value={config.soft_delete_value || ''}
                       onChange={(e) => updateConfig('soft_delete_value', e.target.value)}
-                      description="Value to set"
+                      description="Value to set on delete"
+                      mih={80}
                     />
                   </Group>
                 )}

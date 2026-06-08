@@ -75,6 +75,20 @@ func (s *MetricsSource) DiscoverColumns(ctx context.Context, table string) ([]he
 	return nil, fmt.Errorf("source does not support column discovery")
 }
 
+func (s *MetricsSource) DiscoverReplicationSlots(ctx context.Context) ([]hermod.ReplicationSlotInfo, error) {
+	if d, ok := s.Source.(hermod.ReplicationDiscoverer); ok {
+		return d.DiscoverReplicationSlots(ctx)
+	}
+	return nil, fmt.Errorf("source does not support replication slot discovery")
+}
+
+func (s *MetricsSource) DiscoverPublications(ctx context.Context) ([]hermod.PublicationInfo, error) {
+	if d, ok := s.Source.(hermod.ReplicationDiscoverer); ok {
+		return d.DiscoverPublications(ctx)
+	}
+	return nil, fmt.Errorf("source does not support publication discovery")
+}
+
 func (s *MetricsSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	if sm, ok := s.Source.(hermod.Sampler); ok {
 		return sm.Sample(ctx, table)

@@ -26,12 +26,45 @@ export function SMTPSinkConfig({
         outlookCompatible={config.outlook_compatible === 'true'}
       />
       <Group grow>
-        <TextInput label="Host" placeholder="smtp.example.com" value={config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} required />
-        <TextInput label="Port" placeholder="587" value={config.port || ''} onChange={(e) => updateConfig('port', e.target.value)} required />
+        <TextInput 
+          label="Host" 
+          placeholder="smtp.example.com" 
+          value={config.host || ''} 
+          onChange={(e) => updateConfig('host', e.target.value)} 
+          required 
+          description="SMTP server host"
+          mih={80}
+        />
+        <TextInput 
+          label="Port" 
+          placeholder="587" 
+          value={config.port || ''} 
+          onChange={(e) => updateConfig('port', e.target.value)} 
+          required 
+          description="SMTP server port"
+          mih={80}
+        />
       </Group>
       <Group grow>
-        <TextInput label="Username" placeholder="user@example.com" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} required />
-        <TextInput label="Password" type="password" placeholder="password" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} required />
+        <TextInput 
+          label="Username" 
+          placeholder="user@example.com" 
+          value={config.username || ''} 
+          onChange={(e) => updateConfig('username', e.target.value)} 
+          required 
+          description="Login username"
+          mih={80}
+        />
+        <TextInput 
+          label="Password" 
+          type="password" 
+          placeholder="password" 
+          value={config.password || ''} 
+          onChange={(e) => updateConfig('password', e.target.value)} 
+          required 
+          description="Login password"
+          mih={80}
+        />
       </Group>
       <Select 
           label="SSL" 
@@ -102,10 +135,30 @@ export function SMTPSinkConfig({
             {config.enable_pool === 'true' && (
               <>
                 <Group grow>
-                  <TextInput label="Max Idle" placeholder="2" value={config.pool_max_idle || ''} onChange={(e) => updateConfig('pool_max_idle', e.target.value)} description="Max idle connections." />
-                  <TextInput label="Max Open" placeholder="0" value={config.pool_max_open || ''} onChange={(e) => updateConfig('pool_max_open', e.target.value)} description="Max total connections (0=unlimited)." />
+                  <TextInput 
+                    label="Max Idle" 
+                    placeholder="2" 
+                    value={config.pool_max_idle || ''} 
+                    onChange={(e) => updateConfig('pool_max_idle', e.target.value)} 
+                    description="Maximum idle connections" 
+                    mih={80}
+                  />
+                  <TextInput 
+                    label="Max Open" 
+                    placeholder="0" 
+                    value={config.pool_max_open || ''} 
+                    onChange={(e) => updateConfig('pool_max_open', e.target.value)} 
+                    description="Maximum total connections" 
+                    mih={80}
+                  />
                 </Group>
-                <TextInput label="Idle Timeout" placeholder="5m" value={config.pool_idle_timeout || ''} onChange={(e) => updateConfig('pool_idle_timeout', e.target.value)} description="Duration after which idle connections are closed (e.g. 1m, 5m)." />
+                <TextInput 
+                  label="Idle Timeout" 
+                  placeholder="5m" 
+                  value={config.pool_idle_timeout || ''} 
+                  onChange={(e) => updateConfig('pool_idle_timeout', e.target.value)} 
+                  description="Timeout for idle connections" 
+                />
               </>
             )}
           </Stack>

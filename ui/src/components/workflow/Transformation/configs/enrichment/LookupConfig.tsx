@@ -1,5 +1,24 @@
-import { Stack, Tabs, Group, Select, TextInput, Button, JsonInput, PasswordInput } from '@mantine/core';
-import { IconPlayerPlay, IconSettings, IconCode, IconCloud } from '@tabler/icons-react';
+import {
+  Stack,
+  Tabs,
+  Group,
+  Select,
+  TextInput,
+  Button,
+  JsonInput,
+  PasswordInput,
+  rem,
+  Text,
+  Alert,
+  Card,
+} from '@mantine/core';
+import {
+  IconPlayerPlay,
+  IconInfoCircle,
+  IconWorld,
+  IconLock,
+  IconBox,
+} from '@tabler/icons-react';
 
 interface LookupConfigProps {
   config: any;
@@ -10,69 +29,177 @@ interface LookupConfigProps {
   testing: boolean;
 }
 
-export function LookupConfig({ config, updateNodeConfig, nodeId, onTest, testing }: LookupConfigProps) {
+export function LookupConfig({
+  config,
+  updateNodeConfig,
+  nodeId,
+  onTest,
+  testing,
+}: LookupConfigProps) {
   return (
-    <Tabs defaultValue="endpoint">
-      <Tabs.List>
-        <Tabs.Tab value="endpoint" leftSection={<IconCloud size="1rem" />}>Endpoint</Tabs.Tab>
-        <Tabs.Tab value="payload" leftSection={<IconCode size="1rem" />}>Payload</Tabs.Tab>
-        <Tabs.Tab value="settings" leftSection={<IconSettings size="1rem" />}>Settings</Tabs.Tab>
-      </Tabs.List>
+    <Stack gap="md">
+      <Alert
+        icon={<IconInfoCircle size={rem(18)} />}
+        color="blue"
+        variant="light"
+        radius="md"
+        title="HTTP Enrichment"
+      >
+        <Text size="sm">
+          Call an external API to enrich your data. Supports dynamic URLs and response mapping.
+        </Text>
+      </Alert>
 
-      <Tabs.Panel value="endpoint" pt="xs">
-        <Stack gap="sm">
-          <Group grow>
-            <Select
-              label="Method"
-              data={['GET', 'POST', 'PUT', 'DELETE', 'PATCH']}
-              value={config.method || 'GET'}
-              onChange={(val) => updateNodeConfig(nodeId, { method: val || 'GET' })}
-            />
-            <TextInput
-              label="Target Field (Message)"
-              placeholder="e.g. enriched_data"
-              value={config.targetField || ''}
-              onChange={(e) => updateNodeConfig(nodeId, { targetField: e.currentTarget.value })}
-            />
-          </Group>
-          <TextInput
-            label="URL"
-            placeholder="https://api.example.com/v1/users/{{user_id}}"
-            value={config.url || ''}
-            onChange={(e) => updateNodeConfig(nodeId, { url: e.currentTarget.value })}
-          />
-          <TextInput
-            label="Response JSON Path"
-            placeholder="e.g. data.profile.name (Use '.' for root)"
-            value={config.responsePath || ''}
-            onChange={(e) => updateNodeConfig(nodeId, { responsePath: e.currentTarget.value })}
-          />
-          <Button variant="light" color="orange" mt="xs" leftSection={<IconPlayerPlay size="0.8rem" />} onClick={onTest} loading={testing}>
-            Test API Call
-          </Button>
-        </Stack>
-      </Tabs.Panel>
+      <Tabs defaultValue="endpoint" variant="pills" radius="md">
+        <Tabs.List grow mb="md">
+          <Tabs.Tab value="endpoint" leftSection={<IconWorld size={rem(16)} />}>
+            Connection
+          </Tabs.Tab>
+          <Tabs.Tab value="payload" leftSection={<IconBox size={rem(16)} />}>
+            Payload
+          </Tabs.Tab>
+          <Tabs.Tab value="settings" leftSection={<IconLock size={rem(16)} />}>
+            Auth & Advanced
+          </Tabs.Tab>
+        </Tabs.List>
 
-      <Tabs.Panel value="payload" pt="xs">
-        <Stack gap="sm">
-          <JsonInput label="Headers (JSON)" value={config.headers || ''} onChange={(val) => updateNodeConfig(nodeId, { headers: val })} formatOnBlur minRows={4} />
-          <JsonInput label="Query Params (JSON)" value={config.queryParams || ''} onChange={(val) => updateNodeConfig(nodeId, { queryParams: val })} formatOnBlur minRows={4} />
-          {config.method !== 'GET' && <JsonInput label="Request Body (JSON)" value={config.body || ''} onChange={(val) => updateNodeConfig(nodeId, { body: val })} formatOnBlur minRows={6} />}
-        </Stack>
-      </Tabs.Panel>
+        <Tabs.Panel value="endpoint">
+          <Card withBorder radius="md" p="md">
+            <Stack gap="md">
+              <Group grow align="flex-start">
+                <Select
+                  label="HTTP Method"
+                  data={['GET', 'POST', 'PUT', 'DELETE', 'PATCH']}
+                  value={config.method || 'GET'}
+                  onChange={(val) => updateNodeConfig(nodeId, { method: val || 'GET' })}
+                  size="sm"
+                />
+                <TextInput
+                  label="Output Field"
+                  placeholder="enriched_data"
+                  value={config.targetField || ''}
+                  onChange={(e) => updateNodeConfig(nodeId, { targetField: e.currentTarget.value })}
+                  description="Where to store the result"
+                  size="sm"
+                />
+              </Group>
 
-      <Tabs.Panel value="settings" pt="xs">
-        <Stack gap="sm">
-          <Select label="Auth Type" data={[{label: 'None', value: ''}, {label: 'Basic', value: 'basic'}, {label: 'Bearer', value: 'bearer'}]} value={config.authType || ''} onChange={(val) => updateNodeConfig(nodeId, { authType: val || '' })} />
-          {config.authType === 'basic' && (
-            <Group grow>
-              <TextInput label="Username" value={config.username || ''} onChange={(e) => updateNodeConfig(nodeId, { username: e.currentTarget.value })} />
-              <PasswordInput label="Password" value={config.password || ''} onChange={(e) => updateNodeConfig(nodeId, { password: e.currentTarget.value })} />
-            </Group>
-          )}
-          {config.authType === 'bearer' && <PasswordInput label="Token" value={config.token || ''} onChange={(e) => updateNodeConfig(nodeId, { token: e.currentTarget.value })} />}
-        </Stack>
-      </Tabs.Panel>
-    </Tabs>
+              <TextInput
+                label="Target URL"
+                placeholder="https://api.example.com/v1/users/{{user_id}}"
+                value={config.url || ''}
+                onChange={(e) => updateNodeConfig(nodeId, { url: e.currentTarget.value })}
+                description="Supports Go template syntax for dynamic values."
+                size="sm"
+              />
+
+              <TextInput
+                label="Extract from Response (JSON Path)"
+                placeholder="data.profile.name (Use '.' for root)"
+                value={config.responsePath || ''}
+                onChange={(e) => updateNodeConfig(nodeId, { responsePath: e.currentTarget.value })}
+                description="Optional path to select specific part of the response."
+                size="sm"
+              />
+
+              <Button
+                variant="filled"
+                color="indigo"
+                mt="sm"
+                leftSection={<IconPlayerPlay size={rem(16)} />}
+                onClick={onTest}
+                loading={testing}
+                fullWidth
+              >
+                Test Endpoint
+              </Button>
+            </Stack>
+          </Card>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="payload">
+          <Card withBorder radius="md" p="md">
+            <Stack gap="md">
+              <JsonInput
+                label="HTTP Headers"
+                placeholder='{"Content-Type": "application/json"}'
+                value={config.headers || ''}
+                onChange={(val) => updateNodeConfig(nodeId, { headers: val })}
+                formatOnBlur
+                minRows={4}
+                size="sm"
+                styles={{ input: { fontFamily: 'monospace' } }}
+              />
+              <JsonInput
+                label="Query Parameters"
+                placeholder='{"api_key": "secret"}'
+                value={config.queryParams || ''}
+                onChange={(val) => updateNodeConfig(nodeId, { queryParams: val })}
+                formatOnBlur
+                minRows={4}
+                size="sm"
+                styles={{ input: { fontFamily: 'monospace' } }}
+              />
+              {config.method !== 'GET' && (
+                <JsonInput
+                  label="Request Body"
+                  placeholder='{"id": "{{user_id}}"}'
+                  value={config.body || ''}
+                  onChange={(val) => updateNodeConfig(nodeId, { body: val })}
+                  formatOnBlur
+                  minRows={6}
+                  size="sm"
+                  styles={{ input: { fontFamily: 'monospace' } }}
+                />
+              )}
+            </Stack>
+          </Card>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="settings">
+          <Card withBorder radius="md" p="md">
+            <Stack gap="md">
+              <Select
+                label="Authentication Type"
+                data={[
+                  { label: 'None', value: '' },
+                  { label: 'Basic Auth', value: 'basic' },
+                  { label: 'Bearer Token', value: 'bearer' },
+                ]}
+                value={config.authType || ''}
+                onChange={(val) => updateNodeConfig(nodeId, { authType: val || '' })}
+                size="sm"
+              />
+
+              {config.authType === 'basic' && (
+                <Stack gap="xs">
+                  <TextInput
+                    label="Username"
+                    value={config.username || ''}
+                    onChange={(e) => updateNodeConfig(nodeId, { username: e.currentTarget.value })}
+                    size="sm"
+                  />
+                  <PasswordInput
+                    label="Password"
+                    value={config.password || ''}
+                    onChange={(e) => updateNodeConfig(nodeId, { password: e.currentTarget.value })}
+                    size="sm"
+                  />
+                </Stack>
+              )}
+
+              {config.authType === 'bearer' && (
+                <PasswordInput
+                  label="Bearer Token"
+                  value={config.token || ''}
+                  onChange={(e) => updateNodeConfig(nodeId, { token: e.currentTarget.value })}
+                  size="sm"
+                />
+              )}
+            </Stack>
+          </Card>
+        </Tabs.Panel>
+      </Tabs>
+    </Stack>
   );
 }

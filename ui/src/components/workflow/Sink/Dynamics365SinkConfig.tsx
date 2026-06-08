@@ -31,6 +31,8 @@ export const Dynamics365SinkConfig: FC<Dynamics365SinkConfigProps> = ({ config, 
           value={config.client_id || ''}
           onChange={(e) => updateConfig('client_id', e.target.value)}
           required
+          description="Entra App ID"
+          mih={80}
         />
         <PasswordInput
           label="Client Secret"
@@ -38,16 +40,19 @@ export const Dynamics365SinkConfig: FC<Dynamics365SinkConfigProps> = ({ config, 
           value={config.client_secret || ''}
           onChange={(e) => updateConfig('client_secret', e.target.value)}
           required
+          description="Entra Client Secret"
+          mih={80}
         />
       </Group>
       <Group grow>
         <TextInput
           label="Entity Set Name"
           placeholder="accounts"
-          description="The OData entity set name"
+          description="The OData entity set"
           value={config.entity || ''}
           onChange={(e) => updateConfig('entity', e.target.value)}
           required
+          mih={80}
         />
         <Select
           label="Operation"
@@ -61,6 +66,8 @@ export const Dynamics365SinkConfig: FC<Dynamics365SinkConfigProps> = ({ config, 
           value={config.operation || 'create'}
           onChange={(val) => updateConfig('operation', val)}
           required
+          description="Sink action mode"
+          mih={80}
         />
       </Group>
       <TextInput

@@ -42,8 +42,22 @@ export function SwitchConfig({ config, updateNodeConfig, nodeId }: SwitchConfigP
           {cases.map((c: any, i: number) => (
             <Box key={i} p="xs" style={{ border: '1px solid var(--mantine-color-gray-3)', borderRadius: 'var(--mantine-radius-sm)' }}>
               <Group grow gap="xs">
-                <TextInput label="Value" placeholder="Match value" value={c.value || ''} onChange={(e) => updateCase(i, { value: e.currentTarget.value })} />
-                <TextInput label="Branch Label" placeholder="Branch name" value={c.label || ''} onChange={(e) => updateCase(i, { label: e.currentTarget.value })} />
+                <TextInput 
+                  label="Value" 
+                  placeholder="Match value" 
+                  value={c.value || ''} 
+                  onChange={(e) => updateCase(i, { value: e.currentTarget.value })} 
+                  description="Exact value"
+                  mih={80}
+                />
+                <TextInput 
+                  label="Branch Label" 
+                  placeholder="Branch name" 
+                  value={c.label || ''} 
+                  onChange={(e) => updateCase(i, { label: e.currentTarget.value })} 
+                  description="Output node"
+                  mih={80}
+                />
                 <ActionIcon color="red" variant="subtle" mt="xl" onClick={() => removeCase(i)}><IconTrash size="1rem" /></ActionIcon>
               </Group>
             </Box>

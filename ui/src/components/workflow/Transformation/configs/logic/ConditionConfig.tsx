@@ -1,4 +1,4 @@
-import { Stack, Alert, Text } from '@mantine/core';
+import { Stack, Alert, Text, rem } from '@mantine/core';
 import { IconInfoCircle } from '@tabler/icons-react';
 import { Suspense, lazy } from 'react';
 
@@ -13,15 +13,29 @@ interface ConditionConfigProps {
   availableFields: string[];
 }
 
-export function ConditionConfig({ config, updateNodeConfig, nodeId, availableFields }: ConditionConfigProps) {
+export function ConditionConfig({
+  config,
+  updateNodeConfig,
+  nodeId,
+  availableFields,
+}: ConditionConfigProps) {
   return (
     <Stack gap="md">
-      <Alert icon={<IconInfoCircle size="1rem" />} color="indigo">
-        <Text size="sm">Branch the workflow based on conditions. If matched, the 'true' branch is followed; otherwise 'false'.</Text>
+      <Alert
+        icon={<IconInfoCircle size={rem(18)} />}
+        color="indigo"
+        variant="light"
+        radius="md"
+        title="Conditional Branching"
+      >
+        <Text size="sm">
+          Branch the workflow based on conditions. If conditions match, the message follows the
+          'true' branch; otherwise, it follows the 'false' branch.
+        </Text>
       </Alert>
-      <Suspense fallback={<Text size="xs">Loading editor...</Text>}>
-        <FilterEditor 
-          conditions={config.conditions || []} 
+      <Suspense fallback={<Text size="xs" p="md">Loading conditions editor...</Text>}>
+        <FilterEditor
+          conditions={config.conditions || []}
           availableFields={availableFields}
           onChange={(val: any) => updateNodeConfig(nodeId, { conditions: val })}
         />

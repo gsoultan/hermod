@@ -31,6 +31,8 @@ export const Dynamics365SourceConfig: FC<Dynamics365SourceConfigProps> = ({ conf
           value={config.client_id || ''}
           onChange={(e) => updateConfig('client_id', e.target.value)}
           required
+          description="Entra App ID"
+          mih={80}
         />
         <PasswordInput
           label="Client Secret"
@@ -38,37 +40,45 @@ export const Dynamics365SourceConfig: FC<Dynamics365SourceConfigProps> = ({ conf
           value={config.client_secret || ''}
           onChange={(e) => updateConfig('client_secret', e.target.value)}
           required
+          description="Entra Client Secret"
+          mih={80}
         />
       </Group>
       <Group grow>
         <TextInput
           label="Entity Set Name"
           placeholder="accounts"
-          description="The OData entity set name to poll"
+          description="The OData entity set"
           value={config.entity || ''}
           onChange={(e) => updateConfig('entity', e.target.value)}
           required
+          mih={80}
         />
         <TextInput
           label="Poll Interval"
           placeholder="1m"
           value={config.poll_interval || '1m'}
           onChange={(e) => updateConfig('poll_interval', e.target.value)}
+          description="Delay between polls"
+          mih={80}
         />
       </Group>
       <Group grow>
         <TextInput
           label="ID Field"
           placeholder="modifiedon"
-          description="Field to use for delta tracking (must be sortable/filterable)"
+          description="Delta tracking field"
           value={config.id_field || ''}
           onChange={(e) => updateConfig('id_field', e.target.value)}
+          mih={80}
         />
         <TextInput
           label="Filter ($filter)"
           placeholder="statecode eq 0"
           value={config.filter || ''}
           onChange={(e) => updateConfig('filter', e.target.value)}
+          description="OData filter expression"
+          mih={80}
         />
       </Group>
     </Stack>

@@ -330,16 +330,58 @@ export function OtherSourceConfig({ config, updateConfig, sourceType }: OtherSou
           onChange={(e) => updateConfig('subprotocols', e.target.value)} 
         />
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <TextInput label="Connect Timeout" placeholder="10s" value={config.connect_timeout} onChange={(e) => updateConfig('connect_timeout', e.target.value)} />
-          <TextInput label="Read Timeout" placeholder="10s" value={config.read_timeout} onChange={(e) => updateConfig('read_timeout', e.target.value)} />
+          <TextInput 
+            label="Connect Timeout" 
+            placeholder="10s" 
+            value={config.connect_timeout} 
+            onChange={(e) => updateConfig('connect_timeout', e.target.value)} 
+            description="Initial connection timeout"
+            mih={80}
+          />
+          <TextInput 
+            label="Read Timeout" 
+            placeholder="10s" 
+            value={config.read_timeout} 
+            onChange={(e) => updateConfig('read_timeout', e.target.value)} 
+            description="Message read timeout"
+            mih={80}
+          />
         </SimpleGrid>
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <TextInput label="Heartbeat Interval" placeholder="30s" value={config.heartbeat_interval} onChange={(e) => updateConfig('heartbeat_interval', e.target.value)} />
-          <TextInput label="Reconnect Base" placeholder="1s" value={config.reconnect_base} onChange={(e) => updateConfig('reconnect_base', e.target.value)} />
+          <TextInput 
+            label="Heartbeat Interval" 
+            placeholder="30s" 
+            value={config.heartbeat_interval} 
+            onChange={(e) => updateConfig('heartbeat_interval', e.target.value)} 
+            description="Keep-alive ping frequency"
+            mih={80}
+          />
+          <TextInput 
+            label="Reconnect Base" 
+            placeholder="1s" 
+            value={config.reconnect_base} 
+            onChange={(e) => updateConfig('reconnect_base', e.target.value)} 
+            description="Initial backoff delay"
+            mih={80}
+          />
         </SimpleGrid>
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <TextInput label="Reconnect Max" placeholder="30s" value={config.reconnect_max} onChange={(e) => updateConfig('reconnect_max', e.target.value)} />
-          <TextInput label="Max Message Bytes" placeholder="1048576" value={config.max_message_bytes} onChange={(e) => updateConfig('max_message_bytes', e.target.value)} />
+          <TextInput 
+            label="Reconnect Max" 
+            placeholder="30s" 
+            value={config.reconnect_max} 
+            onChange={(e) => updateConfig('reconnect_max', e.target.value)} 
+            description="Maximum backoff delay"
+            mih={80}
+          />
+          <TextInput 
+            label="Max Message Bytes" 
+            placeholder="1048576" 
+            value={config.max_message_bytes} 
+            onChange={(e) => updateConfig('max_message_bytes', e.target.value)} 
+            description="Maximum message size"
+            mih={80}
+          />
         </SimpleGrid>
       </Stack>
     );

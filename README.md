@@ -411,6 +411,18 @@ If you want to ensure that historical failures are processed before new data (e.
 
 A sample template for this configuration is available at `examples/templates/reliability_recovery_dlq.json`.
 
+## PostgreSQL CDC: Replication Slots & Publications
+
+When using a PostgreSQL source in CDC mode, Hermod relies on a logical **replication slot** and a **publication**. The Source form now helps you reuse existing objects instead of guessing names:
+
+- **Discovery**: Opening the **Slot Name** or **Publication** dropdown queries the connected database (`pg_replication_slots`, `pg_publication`, `pg_publication_tables`) and lists what already exists. Publications that already cover your configured tables are highlighted.
+- **Choose or Create**: Pick an existing slot/publication from the list, or type a new name — Hermod will automatically create it on startup if it does not exist.
+- **Defaults**: If both fields are left blank, Hermod falls back to the safe defaults `hermod_slot` and `hermod_pub`.
+
+This is backed by the API endpoint `POST /api/sources/discover/replication`, which accepts `{ "type": "postgres", "config": { ... } }` and returns the available `slots` and `publications`.
+
+> **Requirement**: The database must have `wal_level = logical` and the connecting user must have replication privileges for slot creation to succeed.
+
 ## Workflow Versioning & Rollback
 
 Every time you save a workflow, Hermod automatically creates an immutable version in the database. This provides a complete audit trail and enables safe, rapid recovery:
@@ -655,6 +667,16 @@ Beyond simple mapping and filtering, Hermod supports complex business logic with
 - **PII Masking**: Automatically discover and redact sensitive information (Credit Cards, Emails, SSNs) using a built-in regex-based scanner.
 - **Stateful Aggregations**: Maintain running totals, counts, or windowed averages directly in the stream.
 - **Database/API Lookups**: Enrich incoming messages by querying external databases or HTTP APIs in real-time.
+
+### SQL Query Builder
+
+The DB Lookup transformation and SQL sources/sinks share an interactive SQL Query Builder in the Workflow Editor (`ui/src/components/forms/SQLQueryBuilder.tsx`). It is optimized for writing and editing long queries:
+
+- **Database Explorer**: Load tables, drill into columns (with types), and filter the table list. Click a table/column or the `+` icon to insert its name at the caret.
+- **Caret-aware Quick Insert**: Keyword shortcuts (`SELECT`, `FROM`, `WHERE`, `AND`, `OR`, `JOIN`, `LEFT/INNER JOIN`, `GROUP BY`, `ORDER BY`, `HAVING`, `LIMIT`, `OFFSET`, `DISTINCT`) and the dynamic `{{.last_value}}` variable are inserted at the current cursor position instead of appended at the end.
+- **Format Query**: A one-click formatter normalizes whitespace and breaks major clauses onto their own lines for readability.
+- **Fullscreen Editor**: Expand the editor into a large modal for comfortable editing of long, multi-line statements.
+- **Convenience**: Copy the query to the clipboard, see a live character/line counter, and run with `Cmd/Ctrl + Enter`.
 
 ## Leases and Single-Worker Ownership
 

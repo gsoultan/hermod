@@ -9,12 +9,43 @@ export function FTPSinkConfig({ config, updateConfig }: FTPSinkConfigProps) {
   return (
     <>
       <Group grow>
-        <TextInput label="Host" placeholder="ftp.example.com" value={config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} required />
-        <TextInput label="Port" placeholder="21" value={config.port || ''} onChange={(e) => updateConfig('port', e.target.value)} required />
+        <TextInput 
+          label="Host" 
+          placeholder="ftp.example.com" 
+          value={config.host || ''} 
+          onChange={(e) => updateConfig('host', e.target.value)} 
+          required 
+          description="FTP server host"
+          mih={80}
+        />
+        <TextInput 
+          label="Port" 
+          placeholder="21" 
+          value={config.port || ''} 
+          onChange={(e) => updateConfig('port', e.target.value)} 
+          required 
+          description="FTP server port"
+          mih={80}
+        />
       </Group>
       <Group grow>
-        <TextInput label="Username" placeholder="user" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
-        <TextInput label="Password" type="password" placeholder="password" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
+        <TextInput 
+          label="Username" 
+          placeholder="user" 
+          value={config.username || ''} 
+          onChange={(e) => updateConfig('username', e.target.value)} 
+          description="Login username"
+          mih={80}
+        />
+        <TextInput 
+          label="Password" 
+          type="password" 
+          placeholder="password" 
+          value={config.password || ''} 
+          onChange={(e) => updateConfig('password', e.target.value)} 
+          description="Login password"
+          mih={80}
+        />
       </Group>
       <Group grow>
         <Select 
@@ -23,8 +54,17 @@ export function FTPSinkConfig({ config, updateConfig }: FTPSinkConfigProps) {
           data={[{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }]}
           value={config.tls || 'false'}
           onChange={(value) => updateConfig('tls', value || 'false')}
+          description="Encryption mode"
+          mih={80}
         />
-        <TextInput label="Timeout" placeholder="30s" value={config.timeout || '30s'} onChange={(e) => updateConfig('timeout', e.target.value)} />
+        <TextInput 
+          label="Timeout" 
+          placeholder="30s" 
+          value={config.timeout || '30s'} 
+          onChange={(e) => updateConfig('timeout', e.target.value)} 
+          description="Connection timeout"
+          mih={80}
+        />
       </Group>
       <Divider my="sm" />
       <Text size="sm" c="dimmed">

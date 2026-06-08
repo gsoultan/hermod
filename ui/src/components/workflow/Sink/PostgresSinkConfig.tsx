@@ -136,18 +136,45 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
   return (
     <Stack gap="sm">
       <Group grow>
-        <TextInput label="Host" placeholder="localhost" value={config.host || ''} onChange={(e) => updateConfig('host', e.target.value)} required />
+        <TextInput 
+          label="Host" 
+          placeholder="localhost" 
+          value={config.host || ''} 
+          onChange={(e) => updateConfig('host', e.target.value)} 
+          required 
+          description="Postgres server host"
+          mih={80}
+        />
         <TextInput
           label="Port"
           placeholder="5432"
           value={config.port || ''}
           onChange={(e) => updateConfig('port', e.target.value)}
           required
+          description="Postgres server port"
+          mih={80}
         />
       </Group>
       <Group grow>
-        <TextInput label="User" placeholder="user" value={config.user || ''} onChange={(e) => updateConfig('user', e.target.value)} required />
-        <TextInput label="Password" type="password" placeholder="password" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} required />
+        <TextInput 
+          label="User" 
+          placeholder="user" 
+          value={config.user || ''} 
+          onChange={(e) => updateConfig('user', e.target.value)} 
+          required 
+          description="Database username"
+          mih={80}
+        />
+        <TextInput 
+          label="Password" 
+          type="password" 
+          placeholder="password" 
+          value={config.password || ''} 
+          onChange={(e) => updateConfig('password', e.target.value)} 
+          required 
+          description="Database password"
+          mih={80}
+        />
       </Group>
       <Group align="flex-end" gap="xs">
         <Autocomplete
@@ -192,15 +219,17 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
       <Group grow>
         <Switch 
           label="Truncate Table (on start)" 
-          description="If enabled, Hermod truncates the table when the workflow starts"
+          description="Truncate table on startup"
           checked={config.truncate_table === 'true'} 
           onChange={(e) => updateConfig('truncate_table', e.currentTarget.checked ? 'true' : 'false')} 
+          mih={60}
         />
         <Switch 
           label="Sync Columns (on start)" 
-          description="Add/Modify columns to match the mappings on startup"
+          description="Sync columns on startup"
           checked={config.sync_columns === 'true'} 
           onChange={(e) => updateConfig('sync_columns', e.currentTarget.checked ? 'true' : 'false')} 
+          mih={60}
         />
       </Group>
 
@@ -294,14 +323,16 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
                   placeholder="is_deleted"
                   value={config.soft_delete_column || ''}
                   onChange={(e) => updateConfig('soft_delete_column', e.target.value)}
-                  description="Column to update when a record is deleted"
+                  description="Column to mark as deleted"
+                  mih={80}
                 />
                 <TextInput
                   label="Soft Delete Value"
                   placeholder="true"
                   value={config.soft_delete_value || ''}
                   onChange={(e) => updateConfig('soft_delete_value', e.target.value)}
-                  description="Value to set"
+                  description="Value to set on delete"
+                  mih={80}
                 />
               </Group>
             )}

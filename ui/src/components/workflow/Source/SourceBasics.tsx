@@ -56,6 +56,8 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
               value={source.vhost}
               onChange={(val) => handleSourceChange({ vhost: val || '' })}
               required
+              description="Project or environment namespace"
+              mih={80}
             />
             <Select 
               label="Worker (Optional)" 
@@ -64,6 +66,8 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
               value={source.worker_id}
               onChange={(val) => handleSourceChange({ worker_id: val || '' })}
               clearable
+              description="Dedicated processing instance"
+              mih={80}
             />
           </SimpleGrid>
         )}

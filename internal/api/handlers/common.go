@@ -32,6 +32,7 @@ type Handler struct {
 	Worker      WorkerUpdater
 	AI          *ai.SelfHealingService
 	Config      *config.Config
+	ConfigPath  string
 	FileStorage filestorage.Storage
 
 	// StoreMu guards concurrent reads/writes to storage during hot-swap.

@@ -1,4 +1,4 @@
-import { Stack, Alert, Text } from '@mantine/core';
+import { Stack, Alert, Text, rem } from '@mantine/core';
 import { IconInfoCircle } from '@tabler/icons-react';
 import { Suspense, lazy } from 'react';
 
@@ -16,14 +16,31 @@ interface SetFieldsConfigProps {
   addField: (path?: string, value?: string) => void;
 }
 
-export function SetFieldsConfig({ config, updateNodeConfig, nodeId, availableFields, incomingPayload, onAddFromSource, addField }: SetFieldsConfigProps) {
+export function SetFieldsConfig({
+  config,
+  updateNodeConfig,
+  nodeId,
+  availableFields,
+  incomingPayload,
+  onAddFromSource,
+  addField,
+}: SetFieldsConfigProps) {
   return (
     <Stack gap="md">
-      <Alert icon={<IconInfoCircle size="1rem" />} color="violet">
-        <Text size="sm">Add new fields or override existing ones using fixed values or templates.</Text>
+      <Alert
+        icon={<IconInfoCircle size={rem(18)} />}
+        color="violet"
+        variant="light"
+        radius="md"
+        title="Field Transformation"
+      >
+        <Text size="sm">
+          Add new fields or override existing ones. Use <code>{'{{.field}}'}</code> to reference
+          incoming data.
+        </Text>
       </Alert>
-      <Suspense fallback={<Text size="xs">Loading editor...</Text>}>
-        <SetFieldEditor 
+      <Suspense fallback={<Text size="xs" p="md">Loading editor...</Text>}>
+        <SetFieldEditor
           selectedNode={{ id: nodeId, data: config }}
           updateNodeConfig={updateNodeConfig}
           availableFields={availableFields}
