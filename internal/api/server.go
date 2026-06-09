@@ -29,6 +29,12 @@ import (
 //go:embed all:static
 var staticFS embed.FS
 
+// IsUIEmbedded checks if the UI assets are embedded in the binary.
+func IsUIEmbedded() bool {
+	_, err := staticFS.ReadFile("static/index.html")
+	return err == nil
+}
+
 // Server is the HTTP API server for Hermod.
 // It wires routing, middleware, and access to the storage and engine registry.
 type Server struct {

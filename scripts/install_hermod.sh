@@ -6,9 +6,9 @@ set -e
 echo "Starting Hermod Installation..."
 
 # 1. Update system and install dependencies
-echo "Updating system and installing dependencies (Go, Bun)..."
+echo "Updating system and installing dependencies (Go, Bun, Unzip)..."
 sudo apt-get update
-sudo apt-get install -y golang-go git build-essential openssl curl
+sudo apt-get install -y golang-go git build-essential openssl curl unzip
 
 # 2. Setup Hermod Directory and User
 HERMOD_DIR="/opt/hermod"
@@ -59,6 +59,7 @@ Type=simple
 User=$HERMOD_USER
 WorkingDirectory=$DATA_DIR
 Environment=HERMOD_MASTER_KEY=$MASTER_KEY
+Environment=HERMOD_ENV=production
 # You can customize these flags (e.g., use postgres instead of sqlite)
 ExecStart=/usr/local/bin/hermod --port=8080 --db-type=sqlite --db-conn=$DATA_DIR/hermod.db
 Restart=always

@@ -695,6 +695,9 @@ Production defaults are secure by default:
 - Security headers: `Content-Security-Policy`, `X-Frame-Options=DENY`, `Referrer-Policy=no-referrer`, `X-Content-Type-Options=nosniff`.
 - HSTS can be forced with `HERMOD_HSTS_ENABLE=true` or when `X-Forwarded-Proto: https` is detected.
 - Worker registration requires `X-Worker-Registration-Token` when `HERMOD_ENV=production`. Provide the secret via `HERMOD_WORKER_REG_TOKEN`.
+- **UI Build & Deployment**:
+  - **Development**: If `HERMOD_ENV` is not `production`, Hermod automatically builds the UI on startup if the `ui/` source exists. This requires `bun`, `curl`, and `unzip`.
+  - **Production**: Set `HERMOD_ENV=production`. Hermod will skip runtime builds and serve assets from the embedded filesystem. Build the UI during CI/CD using `go run ./cmd/hermod --build-ui` before the final `go build`.
 
 ## Running Integration Tests
 

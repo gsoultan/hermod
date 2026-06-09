@@ -75,12 +75,18 @@ func BuildUI() error {
 
 // IsUIBuilt checks if the UI assets have been built and copied to the static directory.
 func IsUIBuilt() bool {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return false
-	}
+	cwd, _ := os.Getwd()
 	index := filepath.Join(cwd, "internal", "api", "static", "index.html")
-	_, err = os.Stat(index)
+	_, err := os.Stat(index)
+	return err == nil
+}
+
+// CanBuildUI checks if the source code for the UI is available to be built.
+func CanBuildUI() bool {
+	cwd, _ := os.Getwd()
+	uiDir := filepath.Join(cwd, "ui")
+	pkgJson := filepath.Join(uiDir, "package.json")
+	_, err := os.Stat(pkgJson)
 	return err == nil
 }
 
@@ -136,6 +142,17 @@ func ensureBun() error {
 	}
 
 	fmt.Println("Bun not found. Installing Bun...")
+
+	if runtime.GOOS != "windows" {
+		// Check for dependencies required by Bun's install script
+		if _, err := exec.LookPath("curl"); err != nil {
+			return fmt.Errorf("curl is required to install Bun. Please install curl (e.g., 'sudo apt install curl')")
+		}
+		if _, err := exec.LookPath("unzip"); err != nil {
+			return fmt.Errorf("unzip is required to install Bun. Please install unzip (e.g., 'sudo apt install unzip')")
+		}
+	}
+
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		cmd = exec.Command("powershell", "-Command", "irm https://bun.sh/install.ps1 | iex")

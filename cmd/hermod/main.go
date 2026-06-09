@@ -13,6 +13,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
 	"github.com/user/hermod"
+	"github.com/user/hermod/internal/api"
 	"github.com/user/hermod/internal/config"
 	"github.com/user/hermod/internal/service"
 	"github.com/user/hermod/internal/storage"
@@ -40,7 +41,7 @@ func main() {
 		return
 	}
 
-	if o.buildUI || (o.mode != "worker" && !config.IsUIBuilt()) {
+	if o.buildUI || (o.mode != "worker" && o.serviceAction == "" && !api.IsUIEmbedded() && !config.IsUIBuilt() && config.CanBuildUI() && os.Getenv("HERMOD_ENV") != "production") {
 		buildUIAndExit(o.mode)
 	}
 
