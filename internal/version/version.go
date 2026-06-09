@@ -9,7 +9,7 @@ import (
 // It is set at build time via ldflags.
 //
 //go:generate ../../scripts/update-version.sh
-var Version = "v1.2.3 (Enterprise Edition)"
+var Version = "v1.2.4 (Enterprise Edition)"
 
 func init() {
 	// If the version is still the default (possibly outdated in source) or "dev",
