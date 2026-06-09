@@ -299,9 +299,9 @@ func (h *Handler) SecurityHeadersMiddleware(next http.Handler) http.Handler {
 
 		csp := os.Getenv("HERMOD_CSP")
 		if csp == "" {
-			csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:;"
+			csp = "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com ws: wss:;"
 			if os.Getenv("HERMOD_ENV") == "production" {
-				csp = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:;"
+				csp = "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self'; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com ws: wss:;"
 			}
 		}
 		w.Header().Set("Content-Security-Policy", csp)

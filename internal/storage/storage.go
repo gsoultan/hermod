@@ -371,6 +371,7 @@ type Storage interface {
 
 	ListVHosts(ctx context.Context, filter CommonFilter) ([]VHost, int, error)
 	CreateVHost(ctx context.Context, vhost VHost) error
+	UpdateVHost(ctx context.Context, vhost VHost) error
 	DeleteVHost(ctx context.Context, id string) error
 	GetVHost(ctx context.Context, id string) (VHost, error)
 

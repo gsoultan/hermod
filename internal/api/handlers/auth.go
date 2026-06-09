@@ -41,8 +41,11 @@ func (h *Handler) RegisterAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/users/{id}/password", h.ChangeUserPassword)
 	mux.Handle("DELETE /api/users/{id}", h.AdminOnly(h.DeleteUser))
 	mux.HandleFunc("GET /api/vhosts", h.ListVHosts)
+	mux.HandleFunc("GET /api/vhosts/", h.ListVHosts)
 	mux.HandleFunc("GET /api/vhosts/{id}", h.GetVHost)
 	mux.Handle("POST /api/vhosts", h.AdminOnly(h.CreateVHost))
+	mux.Handle("POST /api/vhosts/", h.AdminOnly(h.CreateVHost))
+	mux.Handle("PUT /api/vhosts/{id}", h.AdminOnly(h.UpdateVHost))
 	mux.Handle("DELETE /api/vhosts/{id}", h.AdminOnly(h.DeleteVHost))
 }
 
@@ -896,6 +899,10 @@ func (h *Handler) CreateVHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if vh.ID == "" {
+		vh.ID = uuid.New().String()
+	}
+
 	if err := h.Storage.CreateVHost(r.Context(), vh); err != nil {
 		h.JsonError(w, "Failed to create vhost: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -904,6 +911,32 @@ func (h *Handler) CreateVHost(w http.ResponseWriter, r *http.Request) {
 	h.RecordAuditLog(r, "INFO", "Created vhost "+vh.Name, "create", vh.ID, "vhost", "", vh)
 
 	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(vh)
+}
+
+func (h *Handler) UpdateVHost(w http.ResponseWriter, r *http.Request) {
+	role, _ := h.GetRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		h.JsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	id := r.PathValue("id")
+	var vh storage.VHost
+	if err := json.NewDecoder(r.Body).Decode(&vh); err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	vh.ID = id
+
+	if err := h.Storage.UpdateVHost(r.Context(), vh); err != nil {
+		h.JsonError(w, "Failed to update vhost: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.RecordAuditLog(r, "INFO", "Updated vhost "+vh.Name, "update", vh.ID, "vhost", "", vh)
+
+	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(vh)
 }
 

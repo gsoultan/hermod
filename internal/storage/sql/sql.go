@@ -1041,6 +1041,12 @@ func (s *sqlStorage) CreateVHost(ctx context.Context, vhost storage.VHost) error
 	return err
 }
 
+func (s *sqlStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) error {
+	_, err := s.exec(ctx, s.queries.get(QueryUpdateVHost),
+		vhost.Name, vhost.Description, vhost.ID)
+	return err
+}
+
 func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 	_, err := s.exec(ctx, s.queries.get(QueryDeleteVHost), id)
 	return err

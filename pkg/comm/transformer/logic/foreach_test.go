@@ -1,8 +1,9 @@
 package logic
 
 import (
-	"github.com/user/hermod/pkg/comm/transformer"
 	"testing"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod/pkg/comm/message"
 )
@@ -12,7 +13,7 @@ func TestForeach_Basic(t *testing.T) {
 	defer message.ReleaseMessage(msg)
 	msg.SetData("items", []any{1, 2, 3})
 
-	tf, ok := Get("foreach")
+	tf, ok := transformer.Get("foreach")
 	if !ok {
 		t.Fatal("foreach transformer not registered")
 	}
@@ -45,7 +46,7 @@ func TestForeach_ItemPath_Index_Limit(t *testing.T) {
 		map[string]any{"id": 20, "name": "b"},
 	})
 
-	tf, _ := Get("foreach")
+	tf, _ := transformer.Get("foreach")
 	res, err := tf.Transform(t.Context(), msg, map[string]any{
 		"arrayPath":  "rows",
 		"itemPath":   "id",
@@ -70,7 +71,7 @@ func TestForeach_DropEmpty(t *testing.T) {
 	defer message.ReleaseMessage(msg)
 	msg.SetData("rows", []any{})
 
-	tf, _ := Get("foreach")
+	tf, _ := transformer.Get("foreach")
 	res, err := tf.Transform(t.Context(), msg, map[string]any{
 		"arrayPath": "rows",
 		"dropEmpty": true,

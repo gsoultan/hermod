@@ -110,3 +110,61 @@ func TestSQLStorage_ListAllSchemas(t *testing.T) {
 		}
 	}
 }
+
+func TestSQLStorage_VHosts(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+
+	s := NewSQLStorage(db, "sqlite")
+	ctx := t.Context()
+
+	if err := s.Init(ctx); err != nil {
+		t.Fatalf("failed to init storage: %v", err)
+	}
+
+	vh := storage.VHost{
+		ID:          "vh1",
+		Name:        "Test VHost",
+		Description: "A test vhost",
+	}
+
+	if err := s.CreateVHost(ctx, vh); err != nil {
+		t.Fatalf("failed to create vhost: %v", err)
+	}
+
+	got, err := s.GetVHost(ctx, "vh1")
+	if err != nil {
+		t.Fatalf("failed to get vhost: %v", err)
+	}
+
+	if got.Name != "Test VHost" {
+		t.Errorf("expected name Test VHost, got %s", got.Name)
+	}
+
+	vh.Description = "Updated description"
+	if err := s.UpdateVHost(ctx, vh); err != nil {
+		t.Fatalf("failed to update vhost: %v", err)
+	}
+
+	got, err = s.GetVHost(ctx, "vh1")
+	if err != nil {
+		t.Fatalf("failed to get vhost: %v", err)
+	}
+
+	if got.Description != "Updated description" {
+		t.Errorf("expected description Updated description, got %s", got.Description)
+	}
+
+	if err := s.DeleteVHost(ctx, "vh1"); err != nil {
+		t.Fatalf("failed to delete vhost: %v", err)
+	}
+
+	_, err = s.GetVHost(ctx, "vh1")
+	if err == nil {
+		t.Fatal("expected error getting deleted vhost, got nil")
+	}
+}

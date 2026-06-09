@@ -191,7 +191,7 @@ func TestReconnectAfterRegistryRestart(t *testing.T) {
 	}
 
 	// Sync should start it
-	w.SyncWorkflow(t.Context(), wf, "test-worker", nil, nil)
+	w.SyncWorkflow(t.Context(), wf, SyncContext{WorkerID: "test-worker"})
 	if !reg.IsEngineRunning(wfID) {
 		t.Fatalf("workflow should be running")
 	}
@@ -200,7 +200,7 @@ func TestReconnectAfterRegistryRestart(t *testing.T) {
 	reg.StopAll()
 
 	// Another sync should restart it
-	w.SyncWorkflow(t.Context(), wf, "test-worker", nil, nil)
+	w.SyncWorkflow(t.Context(), wf, SyncContext{WorkerID: "test-worker"})
 	if !reg.IsEngineRunning(wfID) {
 		t.Fatalf("workflow should be running again after reconnect")
 	}

@@ -2,8 +2,9 @@ package advanced
 
 import (
 	"encoding/base64"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"testing"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod/pkg/comm/message"
 )
@@ -25,7 +26,7 @@ func TestWasmTransformer_Transform_MissingBinary(t *testing.T) {
 }
 
 func TestWasmTransformer_Registration(t *testing.T) {
-	_, ok := Get("wasm")
+	_, ok := transformer.Get("wasm")
 	if !ok {
 		t.Fatal("wasm transformer not registered")
 	}

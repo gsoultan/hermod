@@ -772,6 +772,17 @@ func (s *mongoStorage) CreateVHost(ctx context.Context, vhost storage.VHost) err
 	return err
 }
 
+func (s *mongoStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) error {
+	coll := s.db.Collection("vhosts")
+	_, err := coll.UpdateOne(ctx, bson.M{"_id": vhost.ID}, bson.M{
+		"$set": bson.M{
+			"name":        vhost.Name,
+			"description": vhost.Description,
+		},
+	})
+	return err
+}
+
 func (s *mongoStorage) DeleteVHost(ctx context.Context, id string) error {
 	coll := s.db.Collection("vhosts")
 	_, err := coll.DeleteOne(ctx, bson.M{"_id": id})

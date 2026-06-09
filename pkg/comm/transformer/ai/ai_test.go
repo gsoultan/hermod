@@ -2,7 +2,6 @@ package ai
 
 import (
 	"encoding/json"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"net/http"
 	"net/http/httptest"
 	"testing"

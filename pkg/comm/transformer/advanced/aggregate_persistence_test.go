@@ -2,7 +2,6 @@ package advanced
 
 import (
 	"context"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"os"
 	"testing"
 

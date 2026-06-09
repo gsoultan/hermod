@@ -1,7 +1,6 @@
 package advanced
 
 import (
-	"github.com/user/hermod/pkg/comm/transformer"
 	"testing"
 	"time"
 

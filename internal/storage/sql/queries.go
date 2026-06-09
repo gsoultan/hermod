@@ -79,6 +79,7 @@ const (
 	QueryListVHosts  = "ListVHosts"
 	QueryCountVHosts = "CountVHosts"
 	QueryCreateVHost = "CreateVHost"
+	QueryUpdateVHost = "UpdateVHost"
 	QueryDeleteVHost = "DeleteVHost"
 	QueryGetVHost    = "GetVHost"
 
@@ -448,6 +449,7 @@ var commonQueries = map[string]string{
 	QueryListVHosts:  "SELECT id, name, description FROM vhosts",
 	QueryCountVHosts: "SELECT COUNT(*) FROM vhosts",
 	QueryCreateVHost: "INSERT INTO vhosts (id, name, description) VALUES (?, ?, ?)",
+	QueryUpdateVHost: "UPDATE vhosts SET name = ?, description = ? WHERE id = ?",
 	QueryDeleteVHost: "DELETE FROM vhosts WHERE id = ?",
 	QueryGetVHost:    "SELECT id, name, description FROM vhosts WHERE id = ?",
 

@@ -502,6 +502,9 @@ func (s *pebbleStorage) ListVHosts(ctx context.Context, filter storage.CommonFil
 func (s *pebbleStorage) CreateVHost(ctx context.Context, vhost storage.VHost) error {
 	return fmt.Errorf("not implemented")
 }
+func (s *pebbleStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) error {
+	return fmt.Errorf("not implemented")
+}
 func (s *pebbleStorage) DeleteVHost(ctx context.Context, id string) error {
 	return fmt.Errorf("not implemented")
 }
