@@ -28,6 +28,9 @@ func (h *Handler) RegisterAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/auth/2fa/login", h.Login2FA)
 	mux.HandleFunc("POST /api/auth/2fa/setup", h.Setup2FA)
 	mux.HandleFunc("POST /api/auth/2fa/verify", h.Verify2FA)
+	// Pre-auth (pending-token) enrollment endpoints to allow 2FA registration during login
+	mux.HandleFunc("POST /api/auth/2fa/setup/pending", h.Setup2FAPending)
+	mux.HandleFunc("POST /api/auth/2fa/verify/pending", h.Verify2FAPending)
 	mux.HandleFunc("POST /api/auth/2fa/disable", h.Disable2FA)
 	mux.HandleFunc("POST /api/auth/generate-password", h.GeneratePasswordHandler)
 	mux.HandleFunc("GET /api/auth/oidc", h.OidcLogin)
@@ -97,6 +100,29 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if user.TwoFactorEnabled {
+		// If 2FA is marked enabled but no secret is stored, the user must enroll now.
+		// This can happen if an admin toggled the flag without completing verification.
+		if strings.TrimSpace(user.TwoFactorSecret) == "" {
+			pendingToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+				"id":       user.ID,
+				"username": user.Username,
+				"pending":  true,
+				"exp":      time.Now().Add(time.Minute * 5).Unix(),
+			})
+			pendingTokenString, err := pendingToken.SignedString([]byte(dbCfg.JWTSecret))
+			if err != nil {
+				h.JsonError(w, "failed to generate pending token", http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"two_factor_enroll_required": true,
+				"user_id":                    user.ID,
+				"pending_token":              pendingTokenString,
+			})
+			return
+		}
 		pendingToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"id":       user.ID,
 			"username": user.Username,
@@ -653,6 +679,170 @@ func (h *Handler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 	h.RecordAuditLog(r, "INFO", "Enabled 2FA for "+user.Username, "update", user.ID, "user", "", nil)
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "2FA enabled"})
+}
+
+// Setup2FAPending starts 2FA enrollment using a pending login token (no session required).
+// Request body: { "user_id": "...", "pending_token": "..." }
+// Response: { "secret": "...", "url": "otpauth://..." }
+func (h *Handler) Setup2FAPending(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		UserID       string `json:"user_id"`
+		PendingToken string `json:"pending_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	dbCfg, err := config.LoadDBConfig()
+	if err != nil {
+		h.JsonError(w, "Failed to load config", http.StatusInternalServerError)
+		return
+	}
+
+	// Verify pending token
+	token, err := jwt.Parse(req.PendingToken, func(token *jwt.Token) (any, error) {
+		return []byte(dbCfg.JWTSecret), nil
+	})
+	if err != nil || !token.Valid {
+		h.JsonError(w, "Invalid or expired session", http.StatusUnauthorized)
+		return
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims["id"] != req.UserID || claims["pending"] != true {
+		h.JsonError(w, "Invalid session", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := h.Storage.GetUser(r.Context(), req.UserID)
+	if err != nil {
+		h.JsonError(w, "User not found", http.StatusUnauthorized)
+		return
+	}
+
+	// Only meaningful if 2FA is required but not yet registered.
+	if !user.TwoFactorEnabled || strings.TrimSpace(user.TwoFactorSecret) != "" {
+		h.JsonError(w, "2FA enrollment not required", http.StatusBadRequest)
+		return
+	}
+
+	key, err := totp.Generate(totp.GenerateOpts{Issuer: "Hermod", AccountName: user.Email})
+	if err != nil {
+		h.JsonError(w, "Failed to generate 2FA key", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"secret": key.Secret(),
+		"url":    key.URL(),
+	})
+}
+
+// Verify2FAPending finalizes 2FA enrollment using a pending token and immediately completes login.
+// Request body: { "user_id": "...", "pending_token": "...", "secret": "...", "code": "123456" }
+// Response: { "token": "..." } (also sets session cookie)
+func (h *Handler) Verify2FAPending(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		UserID       string `json:"user_id"`
+		PendingToken string `json:"pending_token"`
+		Secret       string `json:"secret"`
+		Code         string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if strings.TrimSpace(req.Secret) == "" || strings.TrimSpace(req.Code) == "" {
+		h.JsonError(w, "secret and code are required", http.StatusBadRequest)
+		return
+	}
+
+	dbCfg, err := config.LoadDBConfig()
+	if err != nil {
+		h.JsonError(w, "Failed to load config", http.StatusInternalServerError)
+		return
+	}
+
+	// Verify pending token
+	token, err := jwt.Parse(req.PendingToken, func(token *jwt.Token) (any, error) {
+		return []byte(dbCfg.JWTSecret), nil
+	})
+	if err != nil || !token.Valid {
+		h.JsonError(w, "Invalid or expired session", http.StatusUnauthorized)
+		return
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims["id"] != req.UserID || claims["pending"] != true {
+		h.JsonError(w, "Invalid session", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := h.Storage.GetUser(r.Context(), req.UserID)
+	if err != nil {
+		h.JsonError(w, "User not found", http.StatusUnauthorized)
+		return
+	}
+
+	// Must be in enrollment-required state
+	if !user.TwoFactorEnabled || strings.TrimSpace(user.TwoFactorSecret) != "" {
+		h.JsonError(w, "2FA enrollment not required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate code against provided secret
+	if !totp.Validate(req.Code, req.Secret) {
+		h.JsonError(w, "Invalid verification code", http.StatusUnauthorized)
+		return
+	}
+
+	// Persist secret and enable 2FA
+	user.TwoFactorSecret = req.Secret
+	// TwoFactorEnabled is already true; keep as-is.
+	if err := h.Storage.UpdateUser(r.Context(), user); err != nil {
+		h.JsonError(w, "Failed to update user", http.StatusInternalServerError)
+		return
+	}
+
+	// Issue final JWT and set cookie (completes login)
+	finalToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"id":       user.ID,
+		"username": user.Username,
+		"role":     string(user.Role),
+		"vhosts":   user.VHosts,
+		"exp":      time.Now().Add(time.Hour * 24).Unix(),
+	})
+	tokenString, err := finalToken.SignedString([]byte(dbCfg.JWTSecret))
+	if err != nil {
+		h.JsonError(w, "Failed to generate token", http.StatusInternalServerError)
+		return
+	}
+
+	isHTTPS := func(r *http.Request) bool {
+		if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+			return true
+		}
+		return r.TLS != nil
+	}
+	ss := SameSiteFromEnv()
+	cookie := &http.Cookie{
+		Name:     "hermod_session",
+		Value:    tokenString,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   isHTTPS(r),
+		SameSite: ss,
+		MaxAge:   24 * 60 * 60,
+	}
+	if ss == http.SameSiteNoneMode {
+		cookie.Secure = true
+	}
+	http.SetCookie(w, cookie)
+	h.RecordAuditLog(r, "INFO", "Enabled 2FA (during login) for "+user.Username, "update", user.ID, "user", "", nil)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
 }
 
 func (h *Handler) Disable2FA(w http.ResponseWriter, r *http.Request) {

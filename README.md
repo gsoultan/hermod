@@ -393,6 +393,45 @@ Hermod hardens the login flow to defend against brute-force attacks and informat
 
 These protections apply automatically and require no configuration. The relevant thresholds are defined as constants (`MaxLoginAttempts`, `LoginLockoutDuration`) in `internal/api/handlers/login_security.go`.
 
+### Two-Factor Authentication (2FA)
+
+Hermod supports TOTP-based Two-Factor Authentication (compatible with Google Authenticator, 1Password, Authy, etc.).
+
+- Enable 2FA (user self-service):
+  1. Start setup to get a temporary secret and provisioning URL (QR):
+     - `POST /api/auth/2fa/setup` (authenticated)
+     - Response: `{ "secret": "...", "url": "otpauth://totp/..." }`
+  2. Scan the QR code (or enter the secret) in your authenticator app and generate a 6‑digit code.
+  3. Confirm to enable 2FA permanently:
+     - `POST /api/auth/2fa/verify` with body `{ "secret": "...", "code": "123456" }`
+  4. On success, the server stores the secret and marks the account as 2FA‑enabled.
+
+- Disable 2FA:
+  - `POST /api/auth/2fa/disable` (authenticated)
+
+- Login flow with 2FA enabled:
+  1. Submit username and password:
+     - `POST /api/login` → returns `{ "two_factor_required": true, "user_id": "...", "pending_token": "..." }` when 2FA is enabled.
+  2. Complete login by submitting the 6‑digit TOTP code with the pending token:
+     - `POST /api/auth/2fa/login` with `{ "user_id": "...", "pending_token": "...", "code": "123456" }`
+     - On success, the API returns a session `token` and sets the `hermod_session` cookie.
+
+- First-time enrollment during login (when 2FA is enabled but not registered yet):
+  - If an administrator enabled 2FA for a user without completing registration, password login will respond with
+    `{ "two_factor_enroll_required": true, "user_id": "...", "pending_token": "..." }`.
+  - Use the pending token to enroll without a session:
+    1. Start enrollment and get a secret + provisioning URL (QR):
+       - `POST /api/auth/2fa/setup/pending` with `{ "user_id": "...", "pending_token": "..." }`
+       - Response: `{ "secret": "...", "url": "otpauth://..." }`
+    2. Verify and complete enrollment (also completes login):
+       - `POST /api/auth/2fa/verify/pending` with `{ "user_id": "...", "pending_token": "...", "secret": "...", "code": "123456" }`
+       - On success, the server persists the secret, issues a session token, and sets the `hermod_session` cookie.
+
+Notes:
+- 2FA secrets are never returned after verification; responses and cookies omit the secret.
+- Audit logs record 2FA enable/disable and successful 2FA logins.
+- The `HERMOD_JWT_SECRET` must be set (or present in `~/.hermod/db_config.yaml`) for token issuance.
+
 ## Reliability and Data Loss Prevention
 
 Hermod is designed to minimize data loss during operation and shutdown:
