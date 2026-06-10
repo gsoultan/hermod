@@ -32,6 +32,7 @@ type Worker struct {
 	cacheMu           sync.RWMutex
 	workerCache       []storage.Worker
 	workerCacheTime   time.Time
+	workerCacheTTL    time.Duration
 	currentCPU        float64
 	currentMem        float64
 }
@@ -89,6 +90,11 @@ func (w *Worker) SetSyncInterval(d time.Duration) {
 	w.interval = d
 }
 
+// SetWorkerCacheTTL sets the TTL for the worker sharding cache.
+func (w *Worker) SetWorkerCacheTTL(d time.Duration) {
+	w.workerCacheTTL = d
+}
+
 // SetRegistrationInfo sets the information used for self-registration.
 func (w *Worker) SetRegistrationInfo(name, host string, port int, description string) {
 	w.workerName = name
@@ -107,6 +113,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	defer ticker.Stop()
 
 	w.logger.Info("Engine worker started.")
+	w.checkHealth(ctx)
 	w.sync(ctx, true)
 
 	defer w.cleanup(ctx)
@@ -183,6 +190,7 @@ func (w *Worker) SelfRegister(ctx context.Context) error {
 		Port:        w.workerPort,
 		Description: w.workerDescription,
 		Token:       w.workerToken,
+		LastSeen:    new(time.Now()),
 	})
 }
 

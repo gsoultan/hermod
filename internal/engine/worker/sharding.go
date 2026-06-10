@@ -41,8 +41,12 @@ func (w *Worker) isAssignedResourceAware(resourceID string, currentOwnerID strin
 }
 
 func (w *Worker) refreshWorkerCache() {
+	ttl := w.workerCacheTTL
+	if ttl == 0 {
+		ttl = 10 * time.Second
+	}
 	w.cacheMu.RLock()
-	stale := time.Since(w.workerCacheTime) > 10*time.Second
+	stale := time.Since(w.workerCacheTime) > ttl
 	w.cacheMu.RUnlock()
 
 	if !stale {
@@ -51,7 +55,7 @@ func (w *Worker) refreshWorkerCache() {
 
 	w.cacheMu.Lock()
 	defer w.cacheMu.Unlock()
-	if time.Since(w.workerCacheTime) <= 10*time.Second {
+	if time.Since(w.workerCacheTime) <= ttl {
 		return
 	}
 
@@ -67,7 +71,7 @@ func (w *Worker) filterOnlineWorkers(workers []storage.Worker) []storage.Worker 
 	var online []storage.Worker
 	now := time.Now()
 	for _, wrk := range workers {
-		if wrk.LastSeen != nil && now.Sub(*wrk.LastSeen) < 40*time.Second {
+		if wrk.LastSeen != nil && now.Sub(*wrk.LastSeen) < 90*time.Second {
 			online = append(online, wrk)
 		}
 	}
@@ -108,9 +112,9 @@ func (w *Worker) calculateWeight(wrk storage.Worker) float64 {
 
 	if wrk.LastSeen != nil {
 		lastSeen := time.Since(*wrk.LastSeen)
-		if lastSeen < 20*time.Second {
+		if lastSeen < 30*time.Second {
 			weight *= 2.0
-		} else if lastSeen < 30*time.Second {
+		} else if lastSeen < 60*time.Second {
 			weight *= 1.2
 		}
 	}
