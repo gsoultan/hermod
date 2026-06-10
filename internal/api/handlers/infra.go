@@ -499,8 +499,9 @@ func (h *Handler) SaveDBConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if testErr != nil {
-			// Return 400 with a clear message so the UI can inform the user
-			h.JsonError(w, "failed to connect to primary database: "+testErr.Error(), http.StatusBadRequest)
+			// Return 400 with a clear message so the UI can inform the user.
+			// Sanitize the error to avoid leaking the database host/IP and port.
+			h.JsonError(w, "failed to connect to primary database: "+SanitizeDBError(testErr), http.StatusBadRequest)
 			return
 		}
 
@@ -525,7 +526,7 @@ func (h *Handler) SaveDBConfig(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if logTestErr != nil {
-				h.JsonError(w, "failed to connect to logging database: "+logTestErr.Error(), http.StatusBadRequest)
+				h.JsonError(w, "failed to connect to logging database: "+SanitizeDBError(logTestErr), http.StatusBadRequest)
 				return
 			}
 		}
@@ -548,8 +549,9 @@ func (h *Handler) SaveDBConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		// Extremely unlikely after a successful connectivity test, but handle gracefully
-		http.Error(w, "failed to initialize new primary storage: "+err.Error(), http.StatusInternalServerError)
+		// Extremely unlikely after a successful connectivity test, but handle gracefully.
+		// Sanitize to avoid leaking the database host/IP and port.
+		h.JsonError(w, "failed to initialize new primary storage: "+SanitizeDBError(err), http.StatusInternalServerError)
 		return
 	}
 
@@ -719,7 +721,8 @@ func (h *Handler) TestDBConfig(w http.ResponseWriter, r *http.Request) {
 	ok := (err == nil)
 	errStr := ""
 	if err != nil {
-		errStr = err.Error()
+		// Strip host/IP and port from the error so connection details are not leaked.
+		errStr = SanitizeDBError(err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -888,7 +891,7 @@ func (h *Handler) ListDatabases(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		h.JsonError(w, "failed to fetch databases: "+err.Error(), http.StatusBadRequest)
+		h.JsonError(w, "failed to fetch databases: "+SanitizeDBError(err), http.StatusBadRequest)
 		return
 	}
 
@@ -985,7 +988,7 @@ func (h *Handler) FinalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 		newStore, err = h.InitSQLStorage(r.Context(), cfg)
 	}
 	if err != nil {
-		h.JsonError(w, "failed to initialize storage: "+err.Error(), http.StatusInternalServerError)
+		h.JsonError(w, "failed to initialize storage: "+SanitizeDBError(err), http.StatusInternalServerError)
 		return
 	}
 	h.StoreMu.Lock()

@@ -384,6 +384,15 @@ Tracked actions include:
 
 Audit logs are stored in the primary database (SQL or MongoDB) and can be viewed by Administrators in the **Audit Logs** page in the dashboard.
 
+## Authentication & Account Security
+
+Hermod hardens the login flow to defend against brute-force attacks and information disclosure:
+
+- **Login Lockout**: After **5 consecutive failed login attempts** for a given username/IP combination, that combination is temporarily locked out for **15 minutes**. Locked requests receive an HTTP `429 Too Many Requests` response with a `Retry-After` header, and the event is recorded in the audit log. A successful login immediately clears the failure counter, and stale counters reset automatically after 15 minutes of inactivity.
+- **Sanitized Database Errors**: When Hermod cannot connect to its database, error messages returned to API/UI clients are sanitized to strip database host/IP addresses and ports (e.g. `dial tcp 10.0.0.5:5432: connection refused`). This prevents leaking internal infrastructure details during setup, connectivity tests, and login. Internal database errors during login are surfaced only as a generic `internal server error`.
+
+These protections apply automatically and require no configuration. The relevant thresholds are defined as constants (`MaxLoginAttempts`, `LoginLockoutDuration`) in `internal/api/handlers/login_security.go`.
+
 ## Reliability and Data Loss Prevention
 
 Hermod is designed to minimize data loss during operation and shutdown:

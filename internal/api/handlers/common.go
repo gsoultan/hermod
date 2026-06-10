@@ -48,6 +48,10 @@ type Handler struct {
 	FormRateLimit sync.Map
 	RateLimitOnce sync.Once
 	RateLimitQuit chan struct{}
+
+	// LoginAttempts tracks failed login attempts keyed by username+client IP
+	// to enforce account lockout after too many failures.
+	LoginAttempts sync.Map
 }
 
 type contextKey string

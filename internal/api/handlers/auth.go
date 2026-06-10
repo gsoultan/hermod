@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,20 +60,35 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce account lockout after too many failed attempts.
+	attemptKey := loginAttemptKey(creds.Username, r)
+	if locked, retryAfter := h.CheckLoginLockout(attemptKey); locked {
+		h.RecordAuditLog(r, "WARN", "Login blocked for "+creds.Username+" (too many failed attempts)", "login", "", "user", "", nil)
+		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
+		h.JsonError(w, "too many failed login attempts, please try again later", http.StatusTooManyRequests)
+		return
+	}
+
 	user, err := h.Storage.GetUserByUsername(r.Context(), creds.Username)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
+			h.RegisterFailedLogin(attemptKey)
 			h.JsonError(w, "invalid username or password", http.StatusUnauthorized)
 		} else {
-			h.JsonError(w, "database error: "+err.Error(), http.StatusInternalServerError)
+			// Never expose raw database errors (which can leak host/IP and port).
+			h.JsonError(w, "internal server error", http.StatusInternalServerError)
 		}
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(creds.Password)); err != nil {
+		h.RegisterFailedLogin(attemptKey)
 		h.JsonError(w, "invalid username or password", http.StatusUnauthorized)
 		return
 	}
+
+	// Successful credential check: clear any failed-attempt state.
+	h.ResetLoginAttempts(attemptKey)
 
 	dbCfg, err := config.LoadDBConfig()
 	if err != nil {
