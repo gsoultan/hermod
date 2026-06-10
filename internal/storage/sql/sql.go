@@ -198,6 +198,14 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 	// This ensures that existing databases are kept in sync with code-level schema changes.
 	s.autoMigrate(ctx)
 
+	// Backfill vhost ids that are missing (NULL or empty). Such rows can be
+	// created when a vhost is inserted directly into the database without an id,
+	// which makes them impossible to edit/delete from the UI because the edit
+	// route is keyed on the id. The vhost name is UNIQUE, so it is a safe and
+	// stable fallback identifier. This statement is idempotent.
+	_, _ = s.db.ExecContext(ctx, s.prepareQuery(
+		"UPDATE vhosts SET id = name WHERE (id IS NULL OR id = '') AND name IS NOT NULL AND name <> ''"))
+
 	// 3. Initialize indexes and other tables
 	indexQueries := []string{
 		// Logs
@@ -1036,6 +1044,11 @@ func (s *sqlStorage) ListVHosts(ctx context.Context, filter storage.CommonFilter
 }
 
 func (s *sqlStorage) CreateVHost(ctx context.Context, vhost storage.VHost) error {
+	// Guard against rows with an empty primary key, which cannot be edited or
+	// deleted later. The vhost name is UNIQUE and serves as a stable fallback id.
+	if vhost.ID == "" {
+		vhost.ID = vhost.Name
+	}
 	_, err := s.exec(ctx, s.queries.get(QueryCreateVHost),
 		vhost.ID, vhost.Name, vhost.Description)
 	return err

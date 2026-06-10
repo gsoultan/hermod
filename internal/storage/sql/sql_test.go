@@ -168,3 +168,54 @@ func TestSQLStorage_VHosts(t *testing.T) {
 		t.Fatal("expected error getting deleted vhost, got nil")
 	}
 }
+
+// TestSQLStorage_VHostEmptyIDBackfill verifies that vhosts inserted directly
+// into the database with an empty/NULL id (e.g. via a SQL console) get a stable
+// id backfilled on Init so they can be edited and deleted from the UI.
+func TestSQLStorage_VHostEmptyIDBackfill(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+
+	s := NewSQLStorage(db, "sqlite")
+	ctx := t.Context()
+
+	if err := s.Init(ctx); err != nil {
+		t.Fatalf("failed to init storage: %v", err)
+	}
+
+	// Simulate a vhost row created outside the application without an id.
+	if _, err := db.ExecContext(ctx,
+		"INSERT INTO vhosts (id, name, description) VALUES ('', 'default', 'orphan vhost')"); err != nil {
+		t.Fatalf("failed to insert empty-id vhost: %v", err)
+	}
+
+	// Re-run Init to trigger the idempotent backfill migration.
+	if err := s.Init(ctx); err != nil {
+		t.Fatalf("failed to re-init storage: %v", err)
+	}
+
+	got, err := s.GetVHost(ctx, "default")
+	if err != nil {
+		t.Fatalf("expected to fetch backfilled vhost by name as id: %v", err)
+	}
+	if got.ID != "default" {
+		t.Errorf("expected backfilled id 'default', got %q", got.ID)
+	}
+
+	// The backfilled vhost must now be editable (UpdateVHost keys on id).
+	got.Description = "now editable"
+	if err := s.UpdateVHost(ctx, got); err != nil {
+		t.Fatalf("failed to update backfilled vhost: %v", err)
+	}
+	updated, err := s.GetVHost(ctx, "default")
+	if err != nil {
+		t.Fatalf("failed to re-fetch vhost: %v", err)
+	}
+	if updated.Description != "now editable" {
+		t.Errorf("expected description 'now editable', got %q", updated.Description)
+	}
+}

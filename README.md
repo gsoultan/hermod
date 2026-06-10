@@ -527,6 +527,14 @@ Ordered concurrency via sharding (per sink):
 - `shard_key_meta`: metadata key used to shard (falls back to `Message.ID()`)
   - Guarantees per‑key ordering while parallelizing independent keys.
 
+#### High Availability and Failover
+Hermod workers are designed for high availability. When a worker is gracefully shut down:
+- It releases all active workflow leases.
+- It deregisters itself from the cluster.
+- Other workers automatically detect the change and re-shard the workflows.
+- Workflow execution moves to the remaining workers "smoothly" with minimal interruption.
+- For optimal failover speed, you can configure the worker cache TTL.
+
 Idempotency store hygiene (SMTP / SQLite helper):
 
 - `enable_idempotency: true`

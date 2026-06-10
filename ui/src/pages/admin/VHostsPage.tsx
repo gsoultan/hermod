@@ -43,12 +43,12 @@ export function VHostsPage() {
       <Table.Td>{vhost.description || '-'}</Table.Td>
       <Table.Td>
         <Group justify="flex-end">
-          <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/vhosts/${vhost.id}/edit` })} radius="md" aria-label="Edit vhost">
+          <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/vhosts/${vhost.id || vhost.name}/edit` })} radius="md" aria-label="Edit vhost">
             <IconEdit size="1.2rem" stroke={1.5} />
           </ActionIcon>
           <ActionIcon color="red" variant="light" onClick={() => {
             if (confirm('Are you sure you want to delete this vhost?')) {
-              deleteMutation.mutate(vhost.id);
+              deleteMutation.mutate(vhost.id || vhost.name);
             }
           }} radius="md" aria-label="Delete vhost">
             <IconTrash size="1.2rem" />
