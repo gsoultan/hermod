@@ -1,5 +1,5 @@
 import { IconActivity, IconArrowsLeftRight, IconCloudUpload, IconDatabase, IconLock, IconLogin, IconPuzzle, IconRocket, IconShield, IconUser } from '@tabler/icons-react';
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Text, TextInput, Button, Paper, Stack, Container, PasswordInput, Group, Anchor, Divider, Box, Center, useMantineColorScheme, SimpleGrid, Title, ThemeIcon, rem, Badge } from '@mantine/core'
 import { useMutation } from '@tanstack/react-query'
 import { useNavigate, useSearch, Link } from '@tanstack/react-router'
@@ -13,6 +13,10 @@ export function LoginPage() {
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [userId, setUserId] = useState<string | null>(null);
   const [pendingToken, setPendingToken] = useState<string | null>(null);
+  // First-time 2FA enrollment state (2FA enabled but no secret registered)
+  const [enrollRequired, setEnrollRequired] = useState(false);
+  const [enrollSecret, setEnrollSecret] = useState<string | null>(null);
+  const [enrollURL, setEnrollURL] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
   const { redirect } = useSearch({ from: '/login' })
@@ -38,6 +42,12 @@ export function LoginPage() {
     onSuccess: (data) => {
       if (data.two_factor_required) {
         setTwoFactorRequired(true);
+        setUserId(data.user_id);
+        setPendingToken(data.pending_token);
+        return;
+      }
+      if (data.two_factor_enroll_required) {
+        setEnrollRequired(true);
         setUserId(data.user_id);
         setPendingToken(data.pending_token);
         return;
@@ -79,10 +89,70 @@ export function LoginPage() {
     e.preventDefault()
     if (twoFactorRequired) {
       login2FAMutation.mutate({ user_id: userId, pending_token: pendingToken, code: twoFactorCode })
+    } else if (enrollRequired) {
+      // For enrollment, we verify using the just-provisioned secret and user-provided code
+      if (!userId || !pendingToken || !enrollSecret) {
+        setError('Enrollment session is missing required data')
+        return
+      }
+      verifyEnrollMutation.mutate({ user_id: userId, pending_token: pendingToken, secret: enrollSecret, code: twoFactorCode })
     } else {
       loginMutation.mutate({ username, password })
     }
   }
+
+  // Start enrollment automatically when required
+  useEffect(() => {
+    if (enrollRequired && userId && pendingToken && !enrollSecret && !setupEnrollMutation.isPending && !setupEnrollMutation.isSuccess) {
+      setupEnrollMutation.mutate({ user_id: userId, pending_token: pendingToken })
+    }
+  }, [enrollRequired, userId, pendingToken, enrollSecret])
+
+  // Begin enrollment (no session): fetch secret + otpauth URL
+  const setupEnrollMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiFetch('/api/auth/2fa/setup/pending', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      if (!response.ok) {
+        const errorData = await response.text()
+        throw new Error(errorData || 'Failed to start 2FA enrollment')
+      }
+      return response.json()
+    },
+    onSuccess: (data) => {
+      setEnrollSecret(data.secret)
+      setEnrollURL(data.url)
+    },
+    onError: (err) => {
+      setError(err instanceof Error ? err.message : 'An error occurred')
+    }
+  })
+
+  // Verify enrollment (and complete login)
+  const verifyEnrollMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiFetch('/api/auth/2fa/verify/pending', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      if (!response.ok) {
+        const errorData = await response.text()
+        throw new Error(errorData || 'Failed to verify 2FA enrollment')
+      }
+      return response.json()
+    },
+    onSuccess: (data) => {
+      setToken(data.token)
+      navigate({ to: redirect || '/' })
+    },
+    onError: (err) => {
+      setError(err instanceof Error ? err.message : 'An error occurred')
+    }
+  })
 
   return (
     <Box style={{ minHeight: '100vh', overflow: 'hidden' }}>
@@ -251,7 +321,7 @@ export function LoginPage() {
                 
                 <form onSubmit={handleLogin}>
                   <Stack gap="lg">
-                    {!twoFactorRequired ? (
+                    {!twoFactorRequired && !enrollRequired ? (
                       <>
                         <TextInput
                           label="Username"
@@ -279,7 +349,7 @@ export function LoginPage() {
                           </Group>
                         </Stack>
                       </>
-                    ) : (
+                    ) : twoFactorRequired ? (
                       <Stack gap="md">
                         <Title order={4} ta="center">Two-Factor Authentication</Title>
                         <Text size="sm" c="dimmed" ta="center">
@@ -304,6 +374,47 @@ export function LoginPage() {
                           Back to login
                         </Anchor>
                       </Stack>
+                    ) : (
+                      <Stack gap="md">
+                        <Title order={4} ta="center">Set up Two-Factor Authentication</Title>
+                        <Text size="sm" c="dimmed" ta="center">
+                          2FA is enabled for your account but not yet registered. Add this account to your authenticator app, then enter the 6-digit code below.
+                        </Text>
+                        {enrollURL && (
+                          <Anchor href={enrollURL} target="_blank" size="sm" ta="center">
+                            Open in Authenticator (otpauth URL)
+                          </Anchor>
+                        )}
+                        {enrollSecret && (
+                          <Text size="sm" ta="center">Secret: <strong>{enrollSecret}</strong></Text>
+                        )}
+                        <TextInput
+                          label="Verification Code"
+                          placeholder="000000"
+                          required
+                          size="md"
+                          maxLength={6}
+                          leftSection={<IconShield size="1.1rem" stroke={1.5} />}
+                          value={twoFactorCode}
+                          onChange={(e) => setTwoFactorCode(e.currentTarget.value)}
+                        />
+                        <Group justify="space-between">
+                          <Anchor 
+                            component="button" 
+                            type="button" 
+                            size="sm" 
+                            onClick={() => { setEnrollRequired(false); setEnrollSecret(null); setEnrollURL(null); setTwoFactorCode(''); }}
+                          >
+                            Back to login
+                          </Anchor>
+                          <Button 
+                            type="submit"
+                            loading={verifyEnrollMutation.isPending || setupEnrollMutation.isPending}
+                          >
+                            Verify & Enable 2FA
+                          </Button>
+                        </Group>
+                      </Stack>
                     )}
 
                     {error && (
@@ -314,17 +425,19 @@ export function LoginPage() {
                       </Paper>
                     )}
 
-                    <Button 
-                      type="submit" 
-                      fullWidth 
-                      size="md"
-                      loading={loginMutation.isPending || login2FAMutation.isPending}
-                      leftSection={<IconLogin size="1.2rem" stroke={1.5} />}
-                    >
-                      {twoFactorRequired ? 'Verify Code' : 'Sign In'}
-                    </Button>
+                    {!enrollRequired && (
+                      <Button 
+                        type="submit" 
+                        fullWidth 
+                        size="md"
+                        loading={loginMutation.isPending || login2FAMutation.isPending}
+                        leftSection={<IconLogin size="1.2rem" stroke={1.5} />}
+                      >
+                        {twoFactorRequired ? 'Verify Code' : 'Sign In'}
+                      </Button>
+                    )}
 
-                    {!twoFactorRequired && (
+                    {!twoFactorRequired && !enrollRequired && (
                       <>
                         <Divider label="or continue with" labelPosition="center" />
                         <Button 
