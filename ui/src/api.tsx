@@ -38,7 +38,13 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
     signal: options.signal,
   });
 
-  if (response.status === 401 && !url.includes('/api/login')) {
+  // Pre-auth endpoints (login + 2FA enrollment/verification) handle their own
+  // 401s inline. Redirecting to /login here would interrupt the 2FA flow and
+  // create a redirect loop when 2FA is enabled but not yet registered.
+  const isPreAuthEndpoint =
+    url.includes('/api/login') || url.includes('/api/auth/2fa/');
+
+  if (response.status === 401 && !isPreAuthEndpoint) {
     removeToken();
     const currentPath = window.location.pathname;
     if (currentPath !== '/login' && currentPath !== '/setup' && currentPath !== '/forgot-password') {

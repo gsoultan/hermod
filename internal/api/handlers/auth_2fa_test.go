@@ -280,3 +280,39 @@ func TestPendingEnrollmentFlow_DuringLogin(t *testing.T) {
 		t.Fatalf("expected user to have 2FA secret persisted and enabled, got: %+v", saved)
 	}
 }
+
+// TestAuthMiddleware_AllowsPreAuth2FAEndpoints ensures the pre-auth 2FA
+// endpoints are reachable without a session cookie/bearer. Without this, the
+// middleware returns 401 and the UI bounces the user back to /login, breaking
+// first-time 2FA enrollment after a correct username/password.
+func TestAuthMiddleware_AllowsPreAuth2FAEndpoints(t *testing.T) {
+	t.Setenv("HERMOD_JWT_SECRET", "testsecret")
+
+	ms := newTwoFAMockStorage()
+	h := &Handler{Storage: ms, LogStorage: ms}
+
+	reached := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := h.AuthMiddleware(next)
+
+	preAuthPaths := []string{
+		"/api/auth/2fa/login",
+		"/api/auth/2fa/setup/pending",
+		"/api/auth/2fa/verify/pending",
+	}
+	for _, p := range preAuthPaths {
+		reached = false
+		req := httptest.NewRequest(http.MethodPost, p, nil) // no Authorization header / cookie
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code == http.StatusUnauthorized {
+			t.Fatalf("path %s should be public (pending-token authenticated), got 401", p)
+		}
+		if !reached {
+			t.Fatalf("path %s did not reach the wrapped handler", p)
+		}
+	}
+}

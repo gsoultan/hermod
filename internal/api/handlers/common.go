@@ -122,8 +122,16 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 		path := r.URL.Path
 
 		// Public paths
+		//
+		// The pre-auth 2FA endpoints are intentionally public: the user has
+		// successfully passed username/password but does not yet hold a session.
+		// They authenticate themselves using the short-lived signed "pending"
+		// token issued by /api/login, so they must not require a session cookie.
 		if path == "/" || path == "/index.html" || path == "/setup" ||
 			path == "/api/login" || path == "/api/forgot-password" ||
+			path == "/api/auth/2fa/login" ||
+			path == "/api/auth/2fa/setup/pending" ||
+			path == "/api/auth/2fa/verify/pending" ||
 			path == "/api/config/status" || path == "/api/version" ||
 			strings.HasPrefix(path, "/api/webhooks/") ||
 			strings.HasPrefix(path, "/api/forms/") ||

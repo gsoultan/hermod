@@ -431,6 +431,7 @@ Notes:
 - 2FA secrets are never returned after verification; responses and cookies omit the secret.
 - Audit logs record 2FA enable/disable and successful 2FA logins.
 - The `HERMOD_JWT_SECRET` must be set (or present in `~/.hermod/db_config.yaml`) for token issuance.
+- The pre-auth endpoints `/api/auth/2fa/login`, `/api/auth/2fa/setup/pending`, and `/api/auth/2fa/verify/pending` do **not** require a session cookie: they are authenticated solely by the short-lived signed `pending_token` issued by `/api/login`. They are intentionally exempt from the session-auth middleware so the OTP-challenge and first-time enrollment steps can complete before a session exists. The UI also avoids redirecting to `/login` on a `401` from these endpoints (e.g. a wrong code), so users can retry without being bounced out.
 
 ## Reliability and Data Loss Prevention
 
