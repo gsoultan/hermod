@@ -423,6 +423,7 @@ Hermod supports TOTP-based Two-Factor Authentication (compatible with Google Aut
     1. Start enrollment and get a secret + provisioning URL (QR):
        - `POST /api/auth/2fa/setup/pending` with `{ "user_id": "...", "pending_token": "..." }`
        - Response: `{ "secret": "...", "url": "otpauth://..." }`
+       - The login page renders the `url` as a **scannable QR code** (generated locally in the browser) so it can be added by scanning with any authenticator app — Google Authenticator, Authy, Microsoft Authenticator, Apple/iOS Passwords, etc. The plaintext `secret` is also shown as a manual-entry fallback.
     2. Verify and complete enrollment (also completes login):
        - `POST /api/auth/2fa/verify/pending` with `{ "user_id": "...", "pending_token": "...", "secret": "...", "code": "123456" }`
        - On success, the server persists the secret, issues a session token, and sets the `hermod_session` cookie.

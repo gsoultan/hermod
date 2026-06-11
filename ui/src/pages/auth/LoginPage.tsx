@@ -1,6 +1,6 @@
 import { IconActivity, IconArrowsLeftRight, IconCloudUpload, IconDatabase, IconLock, IconLogin, IconPuzzle, IconRocket, IconShield, IconUser } from '@tabler/icons-react';
 import { useEffect, useState } from 'react'
-import { Text, TextInput, Button, Paper, Stack, Container, PasswordInput, Group, Anchor, Divider, Box, Center, useMantineColorScheme, SimpleGrid, Title, ThemeIcon, rem, Badge } from '@mantine/core'
+import { Text, TextInput, Button, Paper, Stack, Container, PasswordInput, Group, Anchor, Divider, Box, Center, useMantineColorScheme, SimpleGrid, Title, ThemeIcon, rem, Badge, Image } from '@mantine/core'
 import { useMutation } from '@tanstack/react-query'
 import { useNavigate, useSearch, Link } from '@tanstack/react-router'
 import { apiFetch } from '@/api'
@@ -17,6 +17,8 @@ export function LoginPage() {
   const [enrollRequired, setEnrollRequired] = useState(false);
   const [enrollSecret, setEnrollSecret] = useState<string | null>(null);
   const [enrollURL, setEnrollURL] = useState<string | null>(null);
+  // Scannable QR code (data URL) generated locally from the otpauth enroll URL
+  const [enrollQrDataUrl, setEnrollQrDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
   const { redirect } = useSearch({ from: '/login' })
@@ -107,6 +109,30 @@ export function LoginPage() {
       setupEnrollMutation.mutate({ user_id: userId, pending_token: pendingToken })
     }
   }, [enrollRequired, userId, pendingToken, enrollSecret])
+
+  // Generate the QR code locally from the otpauth URL so it can be scanned by
+  // authenticator apps (Google Authenticator, Authy, Apple/iOS Passwords, etc.).
+  // Generating locally avoids external services that may be blocked by CSP/network.
+  useEffect(() => {
+    let cancelled = false
+    async function gen() {
+      if (!enrollURL) {
+        setEnrollQrDataUrl(null)
+        return
+      }
+      try {
+        const QR = await import('qrcode')
+        const dataUrl = await QR.toDataURL(enrollURL, { width: 200, margin: 1, errorCorrectionLevel: 'M' })
+        if (!cancelled) setEnrollQrDataUrl(dataUrl)
+      } catch {
+        if (!cancelled) setEnrollQrDataUrl(null)
+      }
+    }
+    gen()
+    return () => {
+      cancelled = true
+    }
+  }, [enrollURL])
 
   // Begin enrollment (no session): fetch secret + otpauth URL
   const setupEnrollMutation = useMutation({
@@ -378,15 +404,24 @@ export function LoginPage() {
                       <Stack gap="md">
                         <Title order={4} ta="center">Set up Two-Factor Authentication</Title>
                         <Text size="sm" c="dimmed" ta="center">
-                          2FA is enabled for your account but not yet registered. Add this account to your authenticator app, then enter the 6-digit code below.
+                          2FA is enabled for your account but not yet registered. Scan the QR code below with your authenticator app (Google Authenticator, Authy, Microsoft Authenticator, Apple/iOS Passwords, etc.), then enter the 6-digit code.
                         </Text>
                         {enrollURL && (
-                          <Anchor href={enrollURL} target="_blank" size="sm" ta="center">
-                            Open in Authenticator (otpauth URL)
-                          </Anchor>
+                          <Box style={{ display: 'flex', justifyContent: 'center' }} p="md" bg="var(--mantine-color-default-hover)">
+                            {enrollQrDataUrl ? (
+                              <Image src={enrollQrDataUrl} w={200} h={200} alt="2FA QR code" />
+                            ) : (
+                              <Text size="sm" c="dimmed">Generating QR code…</Text>
+                            )}
+                          </Box>
                         )}
                         {enrollSecret && (
-                          <Text size="sm" ta="center">Secret: <strong>{enrollSecret}</strong></Text>
+                          <Text size="sm" ta="center">Can't scan? Enter this secret manually: <strong>{enrollSecret}</strong></Text>
+                        )}
+                        {enrollURL && (
+                          <Anchor href={enrollURL} size="xs" c="dimmed" ta="center">
+                            Open in Authenticator app (otpauth link)
+                          </Anchor>
                         )}
                         <TextInput
                           label="Verification Code"
