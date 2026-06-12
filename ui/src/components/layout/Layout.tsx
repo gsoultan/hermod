@@ -84,7 +84,7 @@ export function Layout({ children }: LayoutProps) {
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const dark = colorScheme === 'dark';
 
-  const { data: dashboardStats } = useQuery({
+  const { data: dashboardStats, isLoading: statsLoading } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
       const res = await apiFetch('/api/dashboard/stats');
@@ -93,7 +93,7 @@ export function Layout({ children }: LayoutProps) {
     enabled: activePage !== '/login' && activePage !== '/setup' && activePage !== '/forgot-password',
   });
 
-  const { data: workflowsResponse } = useQuery({
+  const { data: workflowsResponse, isLoading: workflowsLoading } = useQuery({
     queryKey: ['workflows-spotlight'],
     queryFn: async () => {
       const res = await apiFetch('/api/workflows');
@@ -102,7 +102,7 @@ export function Layout({ children }: LayoutProps) {
     enabled: activePage !== '/login' && activePage !== '/setup' && activePage !== '/forgot-password',
   });
 
-  const { data: versionData } = useQuery({
+  const { data: versionData, isLoading: versionLoading } = useQuery({
     queryKey: ['version'],
     queryFn: async () => {
       const res = await apiFetch('/api/version');
@@ -111,6 +111,7 @@ export function Layout({ children }: LayoutProps) {
     staleTime: Infinity,
   });
 
+  const isLoading = routerState.isLoading || statsLoading || workflowsLoading || versionLoading;
   const workflows = workflowsResponse?.data || [];
 
   useEffect(() => {
