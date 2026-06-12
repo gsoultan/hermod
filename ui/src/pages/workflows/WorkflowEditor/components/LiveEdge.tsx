@@ -13,7 +13,11 @@ function formatPreview(val: any): string {
 }
 
 export const LiveEdge = memo((props: EdgeProps) => {
-  const { id, source, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, selected, data } = props;
+  const { 
+    id, source, sourceX, sourceY, targetX, targetY, 
+    sourcePosition, targetPosition, markerEnd, selected, data,
+    deletable 
+  } = props;
   const [edgePath, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
 
   const [hovered, setHovered] = useState(false);
@@ -130,7 +134,7 @@ export const LiveEdge = memo((props: EdgeProps) => {
             </HoverCard.Dropdown>
           </HoverCard>
 
-          {(selected || hovered) && (
+          {(selected || hovered) && deletable !== false && (
             <div style={{ display: 'flex', gap: 6 }}>
               <Tooltip label={hasBreakpoint ? 'Remove breakpoint' : 'Add breakpoint'} position="right" withArrow>
                 <ActionIcon 

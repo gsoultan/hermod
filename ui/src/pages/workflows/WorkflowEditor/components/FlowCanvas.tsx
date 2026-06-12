@@ -55,6 +55,7 @@ const nodeTypes = {
 };
 
 const edgeTypes = {
+  default: LiveEdge,
   live: LiveEdge,
 };
 
@@ -91,6 +92,7 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
     const edge: Edge = {
       ...params,
       id: `edge_${Date.now()}`,
+      type: 'live',
       animated: active || false,
       style: { strokeWidth: 2 },
       data: { label }

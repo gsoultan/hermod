@@ -62,6 +62,8 @@ export function useWorkflowMutations(
               id: e.id,
               source_id: e.source,
               target_id: e.target,
+              source_handle: e.sourceHandle,
+              target_handle: e.targetHandle,
               config: e.data
             })),
           },
@@ -124,6 +126,8 @@ export function useWorkflowMutations(
           id: e.id,
           source_id: e.source,
           target_id: e.target,
+          source_handle: e.sourceHandle,
+          target_handle: e.targetHandle,
           config: e.data
         })),
       };

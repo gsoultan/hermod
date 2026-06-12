@@ -104,6 +104,11 @@ func runApp(svcCtx context.Context, o *Options) {
 	defer cancel()
 
 	configured, userSetup := computeSetupStatus(ctx, store, config.IsDBConfigured())
+	if isWorkerModeWithPlatform(o) {
+		// A remote worker relies on the platform for its configuration, so it
+		// has no local DB/config.yaml. Treat it as configured to allow startup.
+		configured, userSetup = true, true
+	}
 	logSetupStatus(logger, configured, userSetup, o.port)
 
 	wrk := setupWorker(ctx, o, reg, store, configured, userSetup)

@@ -421,8 +421,12 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	// Visual breakpoints map: when true, messages should not traverse this edge
 	edgeBreakpoints := make(map[string]bool)
 	for _, edge := range wf.Edges {
+		label := edge.SourceHandle
 		if l, ok := edge.Config["label"].(string); ok && l != "" {
-			edgeLabels[edge.SourceID+":"+edge.TargetID] = l
+			label = l
+		}
+		if label != "" {
+			edgeLabels[edge.SourceID+":"+edge.TargetID] = label
 		}
 		if bp, ok := edge.Config["breakpoint"].(bool); ok && bp {
 			edgeBreakpoints[edge.SourceID+":"+edge.TargetID] = true
@@ -983,7 +987,11 @@ func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.Wo
 		if branch != "" {
 			// Find edges with this label
 			for _, edge := range wf.Edges {
-				if edge.SourceID == node.ID && edge.Config["label"] == branch {
+				label := edge.SourceHandle
+				if l, ok := edge.Config["label"].(string); ok && l != "" {
+					label = l
+				}
+				if edge.SourceID == node.ID && label == branch {
 					targets = append(targets, edge.TargetID)
 				}
 			}
@@ -1005,7 +1013,11 @@ func (r *Registry) resumeFromNode(workflowID, startNodeID string, msg hermod.Mes
 	var targets []string
 	if branch != "" {
 		for _, edge := range wf.Edges {
-			if edge.SourceID == startNodeID && edge.Config["label"] == branch {
+			label := edge.SourceHandle
+			if l, ok := edge.Config["label"].(string); ok && l != "" {
+				label = l
+			}
+			if edge.SourceID == startNodeID && label == branch {
 				targets = append(targets, edge.TargetID)
 			}
 		}
@@ -1122,8 +1134,12 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 	// Map edges to labels for easy lookup
 	edgeLabels := make(map[string]string)
 	for _, edge := range wf.Edges {
+		label := edge.SourceHandle
 		if l, ok := edge.Config["label"].(string); ok && l != "" {
-			edgeLabels[edge.SourceID+":"+edge.TargetID] = l
+			label = l
+		}
+		if label != "" {
+			edgeLabels[edge.SourceID+":"+edge.TargetID] = label
 		}
 	}
 

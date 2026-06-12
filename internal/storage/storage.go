@@ -95,10 +95,12 @@ type UnitTest struct {
 }
 
 type WorkflowEdge struct {
-	ID       string         `json:"id"`
-	SourceID string         `json:"source_id"`
-	TargetID string         `json:"target_id"`
-	Config   map[string]any `json:"config" omitzero:"true"`
+	ID           string         `json:"id"`
+	SourceID     string         `json:"source_id"`
+	TargetID     string         `json:"target_id"`
+	SourceHandle string         `json:"source_handle,omitempty"`
+	TargetHandle string         `json:"target_handle,omitempty"`
+	Config       map[string]any `json:"config" omitzero:"true"`
 }
 
 type WorkflowTier string

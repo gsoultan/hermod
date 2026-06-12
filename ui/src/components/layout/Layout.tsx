@@ -16,6 +16,61 @@ interface LayoutProps {
   children: ReactNode;
 }
 
+interface SideLinkProps {
+  to: string;
+  label: string;
+  icon: React.FC<any>;
+  badge?: React.ReactNode;
+  children?: React.ReactNode;
+  desktopOpened: boolean;
+}
+
+const SideLink = ({ to, label, icon: Icon, badge, children, desktopOpened }: SideLinkProps) => {
+  const routerState = useRouterState();
+  const activePage = routerState.location.pathname;
+  
+  const link = (
+    <NavLink
+      component={Link}
+      to={to}
+      label={desktopOpened ? label : null}
+      leftSection={<Icon size="1.1rem" stroke={1.5} />}
+      rightSection={desktopOpened ? badge : null}
+      active={activePage === to || (to !== '/' && activePage.startsWith(to))}
+      variant="light"
+      styles={{
+        root: {
+          justifyContent: desktopOpened ? 'flex-start' : 'center',
+          paddingLeft: desktopOpened ? 'var(--mantine-spacing-sm)' : 0,
+          paddingRight: desktopOpened ? 'var(--mantine-spacing-sm)' : 0,
+          borderRadius: 'var(--mantine-radius-md)',
+          marginBottom: '4px',
+          transition: 'all 0.2s ease',
+        },
+        section: {
+          marginRight: desktopOpened ? 'var(--mantine-spacing-xs)' : 0,
+        },
+        label: {
+          fontWeight: 500,
+          fontSize: 'var(--mantine-font-size-sm)',
+        }
+      }}
+    >
+      {desktopOpened && children}
+    </NavLink>
+  );
+
+  if (desktopOpened) {
+    return link;
+  }
+
+  return (
+    <Tooltip label={label} position="right" withArrow transitionProps={{ duration: 0 }}>
+      {link}
+    </Tooltip>
+  );
+};
+
 export function Layout({ children }: LayoutProps) {
   const queryClient = useQueryClient();
   const [mobileOpened, { toggle: toggleMobile }] = useDisclosure();
@@ -75,50 +130,6 @@ export function Layout({ children }: LayoutProps) {
     return () => ws.close();
   }, [queryClient]);
 
-  const SideLink = ({ to, label, icon: Icon, badge, children }: { to: string; label: string; icon: React.FC<any>; badge?: React.ReactNode; children?: React.ReactNode }) => {
-    const link = (
-      <NavLink
-        component={Link}
-        to={to}
-        label={desktopOpened ? label : null}
-        leftSection={<Icon size="1.1rem" stroke={1.5} />}
-        rightSection={desktopOpened ? badge : null}
-        active={activePage === to || (to !== '/' && activePage.startsWith(to))}
-        variant="light"
-        styles={{
-          root: {
-            justifyContent: desktopOpened ? 'flex-start' : 'center',
-            paddingLeft: desktopOpened ? 'var(--mantine-spacing-sm)' : 0,
-            paddingRight: desktopOpened ? 'var(--mantine-spacing-sm)' : 0,
-            borderRadius: 'var(--mantine-radius-md)',
-            marginBottom: '4px',
-            transition: 'all 0.2s ease',
-          },
-          section: {
-            marginRight: desktopOpened ? 'var(--mantine-spacing-xs)' : 0,
-          },
-          label: {
-            fontWeight: 500,
-            fontSize: 'var(--mantine-font-size-sm)',
-          }
-        }}
-      >
-        {desktopOpened && children}
-      </NavLink>
-    );
-
-    if (desktopOpened) {
-      return link;
-    }
-
-    return (
-      <Tooltip label={label} position="right" withArrow transitionProps={{ duration: 0 }}>
-        {link}
-      </Tooltip>
-    );
-  };
-
-  const isLoading = useRouterState({ select: (s) => s.status === 'pending' });
   const { selectedVHost, setSelectedVHost, availableVHosts, setAvailableVHosts } = useVHost();
 
   useEffect(() => {
@@ -495,23 +506,23 @@ export function Layout({ children }: LayoutProps) {
               </Box>
             )}
             
-            <SideLink to="/" label="Dashboard" icon={IconDashboard}>
-              <SideLink to="/" label="Overview" icon={IconActivity} />
-              <SideLink to="/compliance" label="Compliance" icon={IconShieldLock} />
+            <SideLink to="/" label="Dashboard" icon={IconDashboard} desktopOpened={desktopOpened}>
+              <SideLink to="/" label="Overview" icon={IconActivity} desktopOpened={desktopOpened} />
+              <SideLink to="/compliance" label="Compliance" icon={IconShieldLock} desktopOpened={desktopOpened} />
             </SideLink>
-            <SideLink to="/sources" label="Sources" icon={IconList} 
+            <SideLink to="/sources" label="Sources" icon={IconList} desktopOpened={desktopOpened} 
               badge={dashboardStats?.active_sources > 0 && <Badge size="xs" variant="filled" color="indigo">{dashboardStats.active_sources}</Badge>} 
             />
-            <SideLink to="/sinks" label="Sinks" icon={IconActivity} 
+            <SideLink to="/sinks" label="Sinks" icon={IconActivity} desktopOpened={desktopOpened} 
               badge={dashboardStats?.active_sinks > 0 && <Badge size="xs" variant="filled" color="orange">{dashboardStats.active_sinks}</Badge>}
             />
-            <SideLink to="/workflows" label="Workflows" icon={IconGitBranch} />
-            <SideLink to="/approvals" label="Approvals" icon={IconChecklist} />
-            <SideLink to="/logs" label="Logs" icon={IconHistory} />
-            <SideLink to="/schemas" label="Schema Registry" icon={IconBraces} />
-            <SideLink to="/lineage" label="Data Lineage" icon={IconGitMerge} />
-            <SideLink to="/marketplace" label="Marketplace" icon={IconPuzzle} />
-            <SideLink to="/health" label="Mesh Health" icon={IconActivity} />
+            <SideLink to="/workflows" label="Workflows" icon={IconGitBranch} desktopOpened={desktopOpened} />
+            <SideLink to="/approvals" label="Approvals" icon={IconChecklist} desktopOpened={desktopOpened} />
+            <SideLink to="/logs" label="Logs" icon={IconHistory} desktopOpened={desktopOpened} />
+            <SideLink to="/schemas" label="Schema Registry" icon={IconBraces} desktopOpened={desktopOpened} />
+            <SideLink to="/lineage" label="Data Lineage" icon={IconGitMerge} desktopOpened={desktopOpened} />
+            <SideLink to="/marketplace" label="Marketplace" icon={IconPuzzle} desktopOpened={desktopOpened} />
+            <SideLink to="/health" label="Mesh Health" icon={IconActivity} desktopOpened={desktopOpened} />
             
             {isAdmin && (
               <>
@@ -522,9 +533,9 @@ export function Layout({ children }: LayoutProps) {
                     </Text>
                   </Box>
                 )}
-                <SideLink to="/vhosts" label="Virtual Hosts" icon={IconHierarchy} />
-                <SideLink to="/workers" label="Workers" icon={IconServer} />
-                <SideLink to="/users" label="Users" icon={IconUsers} />
+                <SideLink to="/vhosts" label="Virtual Hosts" icon={IconHierarchy} desktopOpened={desktopOpened} />
+                <SideLink to="/workers" label="Workers" icon={IconServer} desktopOpened={desktopOpened} />
+                <SideLink to="/users" label="Users" icon={IconUsers} desktopOpened={desktopOpened} />
                 
                 {desktopOpened && (
                   <Box mt="lg" mb={4} px="xs">
@@ -534,8 +545,8 @@ export function Layout({ children }: LayoutProps) {
                   </Box>
                 )}
                 
-                <SideLink to="/settings" label="Settings" icon={IconSettings} />
-                <SideLink to="/audit-logs" label="Audit Logs" icon={IconHistory} />
+                <SideLink to="/settings" label="Settings" icon={IconSettings} desktopOpened={desktopOpened} />
+                <SideLink to="/audit-logs" label="Audit Logs" icon={IconHistory} desktopOpened={desktopOpened} />
               </>
             )}
           </Stack>

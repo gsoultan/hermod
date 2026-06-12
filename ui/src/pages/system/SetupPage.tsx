@@ -872,13 +872,6 @@ export function SetupPage({ onConfigured }: SetupPageProps) {
                 <Text size="sm" c="dimmed">Run these commands after saving to install Hermod as a background service.</Text>
                 <SimpleGrid cols={1} spacing="xs">
                   <TextInput
-                    label="Windows (PowerShell)"
-                    readOnly
-                    value="hermod.exe -mode standalone -service install"
-                    rightSection={<Button variant="subtle" size="xs" onClick={() => copyToClipboard('hermod.exe -mode standalone -service install')}>Copy</Button>}
-                    rightSectionWidth={70}
-                  />
-                  <TextInput
                     label="Linux (systemd)"
                     readOnly
                     value="./hermod -mode standalone -service install"

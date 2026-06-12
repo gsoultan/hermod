@@ -34,6 +34,7 @@ export function useWorkflowEvents(
         source: quickAddSource.nodeId,
         sourceHandle: quickAddSource.handleId,
         target: newNode.id,
+        type: 'live',
         animated: active,
         style: { strokeWidth: active ? 3 : 2 },
       };

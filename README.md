@@ -128,7 +128,7 @@ The UI will be available at `http://localhost:4000`.
 
 Hermod is compiled for high performance and supports the following platforms and architectures:
 
-- **OS**: Linux (Ubuntu, Debian, RedHat, Alpine), macOS, Windows, FreeBSD, OpenBSD, NetBSD.
+- **OS**: Linux only (Ubuntu, Debian, RedHat, Alpine).
 - **Architecture**: `amd64`, `arm64`.
 
 You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from the [GitHub Releases](https://github.com/user/hermod/releases) page.
@@ -236,7 +236,7 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
 
    #### Background OS Service Integration
 
-   Hermod can be integrated with OS-level service managers (systemd on Linux, Windows Services, macOS Launchd) directly from the binary. This ensures that Hermod starts automatically on boot and can be managed using standard system tools.
+   Hermod can be integrated with the OS-level service manager (systemd on Linux) directly from the binary. This ensures that Hermod starts automatically on boot and can be managed using standard system tools.
 
    **Service commands:**
    - `hermod --service install` - Install the service (requires administrative privileges).
@@ -248,28 +248,17 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
 
    **Examples: Install as a service**
    ```bash
-   # Windows (Run PowerShell as Administrator) — Worker mode
-   hermod.exe --mode=worker --platform-url="http://localhost:4000" --worker-guid="worker-1" --service install
-   hermod.exe --service start
-
    # Linux (systemd) — Worker mode
    ./hermod --mode=worker --platform-url="http://localhost:4000" --worker-guid="worker-1" --service install
    ./hermod --service start
 
-   # Windows — Standalone (API + Worker in one process)
-   hermod.exe --mode=standalone --service install
-   hermod.exe --service start
-
-   # Linux — Standalone
+   # Linux — Standalone (API + Worker in one process)
    ./hermod --mode=standalone --service install
    ./hermod --service start
    ```
 
-   Or use the helper scripts provided in `scripts/`:
+   Or use the helper script provided in `scripts/`:
    ```bash
-   # Windows (PowerShell)
-   pwsh -File scripts/install-service.ps1 -Mode standalone
-
    # Linux
    bash scripts/install-service.sh standalone
    ```
