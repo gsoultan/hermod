@@ -272,7 +272,7 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
           error={tablesError}
         />
         {discoverTables && (
-          <ActionIcon aria-label="Refresh" variant="light" size="lg" onClick={discoverTables} loading={loadingTables}>
+          <ActionIcon aria-label="Refresh" variant="light" size="lg" onClick={() => discoverTables(true)} loading={loadingTables}>
             <IconRefresh size="1.2rem" />
           </ActionIcon>
         )}

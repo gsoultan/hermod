@@ -566,9 +566,9 @@ func (r *Registry) resolveSecrets(ctx context.Context, config map[string]string)
 	return resolved
 }
 
-func (r *Registry) createSource(cfg factory.SourceConfig) (hermod.Source, error) {
+func (r *Registry) createSource(ctx context.Context, cfg factory.SourceConfig) (hermod.Source, error) {
 	// Resolve secrets in config
-	cfg.Config = r.resolveSecrets(context.Background(), cfg.Config)
+	cfg.Config = r.resolveSecrets(ctx, cfg.Config)
 
 	r.mu.Lock()
 	logger := r.logger
@@ -602,9 +602,9 @@ func (r *Registry) createSource(cfg factory.SourceConfig) (hermod.Source, error)
 	return src, err
 }
 
-func (r *Registry) createSourceInternal(cfg factory.SourceConfig) (hermod.Source, error) {
+func (r *Registry) createSourceInternal(ctx context.Context, cfg factory.SourceConfig) (hermod.Source, error) {
 	// Resolve secrets in config
-	cfg.Config = r.resolveSecrets(context.Background(), cfg.Config)
+	cfg.Config = r.resolveSecrets(ctx, cfg.Config)
 
 	var src hermod.Source
 	var err error
@@ -645,12 +645,12 @@ func (r *Registry) createSourceInternal(cfg factory.SourceConfig) (hermod.Source
 	return src, err
 }
 
-func (r *Registry) createSink(cfg factory.SinkConfig) (hermod.Sink, error) {
+func (r *Registry) createSink(ctx context.Context, cfg factory.SinkConfig) (hermod.Sink, error) {
 	r.mu.Lock()
 	logger := r.logger
 	r.mu.Unlock()
 
-	snk, err := r.createSinkInternal(cfg)
+	snk, err := r.createSinkInternal(ctx, cfg)
 	if err == nil && logger != nil {
 		if l, ok := snk.(hermod.Loggable); ok {
 			l.SetLogger(logger)
@@ -659,16 +659,16 @@ func (r *Registry) createSink(cfg factory.SinkConfig) (hermod.Sink, error) {
 	return snk, err
 }
 
-func (r *Registry) createSinkInternal(cfg factory.SinkConfig) (hermod.Sink, error) {
+func (r *Registry) createSinkInternal(ctx context.Context, cfg factory.SinkConfig) (hermod.Sink, error) {
 	// Resolve secrets in config
-	cfg.Config = r.resolveSecrets(context.Background(), cfg.Config)
+	cfg.Config = r.resolveSecrets(ctx, cfg.Config)
 
 	if cfg.Type == "failover" {
 		primaryID := cfg.Config["primary_id"]
 		fallbackIDsStr := cfg.Config["fallback_ids"]
 		fallbackIDs := strings.Split(fallbackIDsStr, ",")
 
-		primarySink, err := r.resolveAndCreateSink(primaryID)
+		primarySink, err := r.resolveAndCreateSink(ctx, primaryID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create primary sink %s: %w", primaryID, err)
 		}
@@ -684,7 +684,7 @@ func (r *Registry) createSinkInternal(cfg factory.SinkConfig) (hermod.Sink, erro
 			if id == "" {
 				continue
 			}
-			f, err := r.resolveAndCreateSink(id)
+			f, err := r.resolveAndCreateSink(ctx, id)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create fallback sink %s: %w", id, err)
 			}
@@ -700,11 +700,10 @@ func (r *Registry) createSinkInternal(cfg factory.SinkConfig) (hermod.Sink, erro
 	return factory.CreateSink(cfg)
 }
 
-func (r *Registry) resolveAndCreateSink(id string) (hermod.Sink, error) {
+func (r *Registry) resolveAndCreateSink(ctx context.Context, id string) (hermod.Sink, error) {
 	if r.storage == nil {
 		return nil, fmt.Errorf("registry storage is not available")
 	}
-	ctx := context.Background()
 	dbSnk, err := r.storage.GetSink(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sink %s from storage: %w", id, err)
@@ -714,7 +713,7 @@ func (r *Registry) resolveAndCreateSink(id string) (hermod.Sink, error) {
 		Type:   dbSnk.Type,
 		Config: dbSnk.Config,
 	}
-	return r.createSinkInternal(snkCfg)
+	return r.createSinkInternal(ctx, snkCfg)
 }
 
 func (r *Registry) SetConfig(cfg config.Config) {
@@ -1253,7 +1252,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 			// Verify that the DLQ sink type is also a valid source type.
 			// CreateSource will return an error if the type is not supported as a source.
 			// We use a dummy config for validation.
-			testSrc, err := r.createSourceInternal(factory.SourceConfig{
+			testSrc, err := r.createSourceInternal(context.Background(), factory.SourceConfig{
 				Type:   dlqSink.Type,
 				Config: dlqSink.Config,
 			})

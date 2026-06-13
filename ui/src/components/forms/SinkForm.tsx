@@ -166,7 +166,23 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
     }
   };
 
-  const discoverTables = useCallback(async () => {
+  const lastDiscoveryParams = useRef<string>('');
+  const discoverTables = useCallback(async (force = false) => {
+    const params = JSON.stringify({
+      type: sink.type,
+      host: sink.config?.host,
+      port: sink.config?.port,
+      user: sink.config?.user,
+      database: sink.config?.database,
+      connection_string: sink.config?.connection_string,
+      uri: sink.config?.uri,
+      db_path: sink.config?.db_path,
+      schema: sink.config?.schema,
+    });
+
+    if (!force && params === lastDiscoveryParams.current) return;
+    lastDiscoveryParams.current = params;
+
     if (tablesAbortRef.current) tablesAbortRef.current.abort();
     const controller = new AbortController();
     tablesAbortRef.current = controller;
@@ -203,34 +219,31 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
     const hasConn = Boolean(host || connectionString || uri || dbPath);
     if (dbTypes.includes(sinkType) && hasConn) {
       const timer = setTimeout(() => {
-        discoverTablesCb();
-      }, 600);
+        discoverTables();
+      }, 800);
       return () => {
         clearTimeout(timer);
         if (tablesAbortRef.current) tablesAbortRef.current.abort();
       };
     }
-  }, [sinkType, host, connectionString, uri, dbPath, discoverTablesCb]);
+  }, [sinkType, host, connectionString, uri, dbPath, discoverTables]);
 
   const lastInitialDataId = useRef<string | null>(null);
 
   useEffect(() => {
-    if (initialData) {
-      // Use ref to ensure we only reset when initialData actually changes its identity or ID
-      if (lastInitialDataId.current !== (initialData.id || 'new')) {
-        const newValues = {
-          ...sink,
-          ...initialData,
-          config: {
-            ...(sink.config || {}),
-            ...(initialData.config || {})
-          }
-        };
-        form.reset(newValues);
-        lastInitialDataId.current = initialData.id || 'new';
-      }
+    if (initialData && lastInitialDataId.current !== (initialData.id || 'new')) {
+      const newValues = {
+        ...sink,
+        ...initialData,
+        config: {
+          ...(sink.config || {}),
+          ...(initialData.config || {})
+        }
+      };
+      form.reset(newValues);
+      lastInitialDataId.current = initialData.id || 'new';
     }
-  }, [initialData, form, sink]);
+  }, [initialData, form]);
 
   useEffect(() => {
     if (sinkType === 'stdout') {

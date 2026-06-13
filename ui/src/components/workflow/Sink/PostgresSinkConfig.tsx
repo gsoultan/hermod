@@ -204,7 +204,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
           error={tablesError}
           style={{ flex: 1 }}
         />
-        <ActionIcon aria-label="Refresh tables" variant="light" size="lg" onClick={() => discoverTables()} loading={loadingTables} title="Refresh Tables">
+        <ActionIcon aria-label="Refresh tables" variant="light" size="lg" onClick={() => discoverTables(true)} loading={loadingTables} title="Refresh Tables">
           <IconRefresh size="1.2rem" />
         </ActionIcon>
       </Group>

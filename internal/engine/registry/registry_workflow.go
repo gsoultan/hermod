@@ -74,7 +74,7 @@ func (r *Registry) buildWorkflowSources(ctx context.Context, wf storage.Workflow
 
 		srcConfigs = append(srcConfigs, srcCfg)
 
-		src, err := r.createSourceInternal(srcCfg)
+		src, err := r.createSourceInternal(ctx, srcCfg)
 		if err != nil {
 			for _, ss := range subSources {
 				ss.source.Close()
@@ -93,7 +93,7 @@ func (r *Registry) buildWorkflowSources(ctx context.Context, wf storage.Workflow
 }
 
 // discoverWorkflowSinks uses BFS from source nodes to find and create all sinks.
-func (r *Registry) discoverWorkflowSinks(wf storage.Workflow, ms *multiSource) ([]hermod.Sink, []factory.SinkConfig, map[string]int, error) {
+func (r *Registry) discoverWorkflowSinks(ctx context.Context, wf storage.Workflow, ms *multiSource) ([]hermod.Sink, []factory.SinkConfig, map[string]int, error) {
 	adj := make(map[string][]string)
 	for _, edge := range wf.Edges {
 		adj[edge.SourceID] = append(adj[edge.SourceID], edge.TargetID)
@@ -135,7 +135,7 @@ func (r *Registry) discoverWorkflowSinks(wf storage.Workflow, ms *multiSource) (
 				Type:   dbSnk.Type,
 				Config: dbSnk.Config,
 			}
-			snk, err := r.createSinkInternal(snkCfg)
+			snk, err := r.createSinkInternal(ctx, snkCfg)
 			if err != nil {
 				for _, s := range sinks {
 					s.Close()
@@ -350,7 +350,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	}
 
 	// 2. Discover and create sinks
-	sinks, snkConfigs, sinkNodeToIndex, err := r.discoverWorkflowSinks(wf, ms)
+	sinks, snkConfigs, sinkNodeToIndex, err := r.discoverWorkflowSinks(ctx, wf, ms)
 	if err != nil {
 		return err
 	}
@@ -392,7 +392,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 				Type:   dbDls.Type,
 				Config: dbDls.Config,
 			}
-			dls, err := r.createSinkInternal(dlsCfg)
+			dls, err := r.createSinkInternal(ctx, dlsCfg)
 			if err == nil {
 				eng.SetDeadLetterSink(dls)
 			} else {
@@ -899,7 +899,7 @@ func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromO
 		if node.Type == "sink" && node.ID != eventStoreNode.ID {
 			dbSnk, err := r.storage.GetSink(ctx, node.RefID)
 			if err == nil {
-				snk, err := r.createSinkInternal(factory.SinkConfig{ID: dbSnk.ID, Type: dbSnk.Type, Config: dbSnk.Config})
+				snk, err := r.createSinkInternal(ctx, factory.SinkConfig{ID: dbSnk.ID, Type: dbSnk.Type, Config: dbSnk.Config})
 				if err == nil {
 					sinkNodeToIndex[node.ID] = len(sinks)
 					sinks = append(sinks, snk)
@@ -924,7 +924,7 @@ func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromO
 	}
 	srcCfg.Config["from_offset"] = fmt.Sprintf("%d", fromOffset)
 
-	src, err := r.createSourceInternal(srcCfg)
+	src, err := r.createSourceInternal(ctx, srcCfg)
 	if err != nil {
 		return err
 	}
@@ -1065,7 +1065,7 @@ func (r *Registry) ResumeApproval(ctx context.Context, app storage.Approval, bra
 				return fmt.Errorf("failed to get sink %s: %w", n.RefID, e)
 			}
 			snkCfg := factory.SinkConfig{ID: dbSnk.ID, Type: dbSnk.Type, Config: dbSnk.Config}
-			s, e := r.createSinkInternal(snkCfg)
+			s, e := r.createSinkInternal(ctx, snkCfg)
 			if e != nil {
 				for _, s2 := range sinks {
 					_ = s2.Close()

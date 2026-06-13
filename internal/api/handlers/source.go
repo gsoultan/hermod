@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/user/hermod"
@@ -324,7 +326,10 @@ func (h *Handler) TestSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := factory.SourceConfig{Type: req.Type, Config: req.Config}
-	if err := h.Registry.TestSource(r.Context(), cfg); err != nil {
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	if err := h.Registry.TestSource(ctx, cfg); err != nil {
 		h.JsonError(w, "Test failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -344,7 +349,10 @@ func (h *Handler) DiscoverDatabases(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := factory.SourceConfig{Type: req.Type, Config: req.Config}
-	dbs, err := h.Registry.DiscoverDatabases(r.Context(), cfg)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	dbs, err := h.Registry.DiscoverDatabases(ctx, cfg)
 	if err != nil {
 		h.JsonError(w, "Discovery failed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -365,7 +373,10 @@ func (h *Handler) DiscoverTables(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := factory.SourceConfig{Type: req.Type, Config: req.Config}
-	tables, err := h.Registry.DiscoverTables(r.Context(), cfg)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	tables, err := h.Registry.DiscoverTables(ctx, cfg)
 	if err != nil {
 		h.JsonError(w, "Discovery failed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -389,7 +400,10 @@ func (h *Handler) DiscoverSourceColumns(w http.ResponseWriter, r *http.Request) 
 	}
 
 	cfg := factory.SourceConfig{Type: req.Source.Type, Config: req.Source.Config}
-	columns, err := h.Registry.DiscoverSourceColumns(r.Context(), cfg, req.Table)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	columns, err := h.Registry.DiscoverSourceColumns(ctx, cfg, req.Table)
 	if err != nil {
 		h.JsonError(w, "Discovery failed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -413,13 +427,16 @@ func (h *Handler) DiscoverReplication(w http.ResponseWriter, r *http.Request) {
 
 	cfg := factory.SourceConfig{Type: req.Type, Config: req.Config}
 
-	slots, err := h.Registry.DiscoverReplicationSlots(r.Context(), cfg)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	slots, err := h.Registry.DiscoverReplicationSlots(ctx, cfg)
 	if err != nil {
 		h.JsonError(w, "Discovery failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	publications, err := h.Registry.DiscoverPublications(r.Context(), cfg)
+	publications, err := h.Registry.DiscoverPublications(ctx, cfg)
 	if err != nil {
 		h.JsonError(w, "Discovery failed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -446,7 +463,10 @@ func (h *Handler) SampleSourceTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := factory.SourceConfig{Type: req.Source.Type, Config: req.Source.Config}
-	msg, err := h.Registry.SampleTable(r.Context(), cfg, req.Table)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	msg, err := h.Registry.SampleTable(ctx, cfg, req.Table)
 	if err != nil {
 		h.JsonError(w, "Sampling failed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -466,7 +486,10 @@ func (h *Handler) QuerySource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := h.Registry.ExecuteSQL(r.Context(), req.Config, req.Query)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	results, err := h.Registry.ExecuteSQL(ctx, req.Config, req.Query)
 	if err != nil {
 		h.JsonError(w, "Query failed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -487,7 +510,10 @@ func (h *Handler) ProxyFetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hreq, _ := http.NewRequestWithContext(r.Context(), req.Method, req.URL, nil)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	hreq, _ := http.NewRequestWithContext(ctx, req.Method, req.URL, nil)
 	for k, v := range req.Headers {
 		hreq.Header.Set(k, v)
 	}

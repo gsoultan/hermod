@@ -1,5 +1,6 @@
 import { IconInfoCircle, IconRefresh } from '@tabler/icons-react';
-import { TextInput, Stack, PasswordInput, Group, Autocomplete, ActionIcon, Select } from '@mantine/core'import type { FC } from 'react'
+import { TextInput, Stack, PasswordInput, Group, Autocomplete, ActionIcon, Select } from '@mantine/core'
+import type { FC } from 'react'
 
 export type ElasticsearchSinkConfigProps = {
   config: any
@@ -42,7 +43,7 @@ export const ElasticsearchSinkConfig: FC<ElasticsearchSinkConfigProps> = ({
           value={config.cluster_name || ''}
           onChange={(val) => {
             updateConfig('cluster_name', val)
-            if (val) discoverIndices()
+            if (val) discoverIndices(true)
           }}
           style={{ flex: 1 }}
         />
@@ -63,7 +64,7 @@ export const ElasticsearchSinkConfig: FC<ElasticsearchSinkConfigProps> = ({
           error={indicesError}
           style={{ flex: 1 }}
         />
-        <ActionIcon aria-label="Refresh indices" variant="light" size="lg" onClick={() => discoverIndices()} loading={loadingIndices} title="Refresh Indices">
+        <ActionIcon aria-label="Refresh indices" variant="light" size="lg" onClick={() => discoverIndices(true)} loading={loadingIndices} title="Refresh Indices">
           <IconRefresh size="1.2rem" />
         </ActionIcon>
       </Group>

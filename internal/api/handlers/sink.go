@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/user/hermod/internal/factory"
@@ -202,7 +204,10 @@ func (h *Handler) TestSink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := factory.SinkConfig{Type: snk.Type, Config: snk.Config}
-	if err := h.Registry.TestSink(r.Context(), cfg); err != nil {
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	if err := h.Registry.TestSink(ctx, cfg); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -219,7 +224,10 @@ func (h *Handler) DiscoverSinkDatabases(w http.ResponseWriter, r *http.Request) 
 	}
 
 	cfg := factory.SinkConfig{Type: snk.Type, Config: snk.Config}
-	dbs, err := h.Registry.DiscoverSinkDatabases(r.Context(), cfg)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	dbs, err := h.Registry.DiscoverSinkDatabases(ctx, cfg)
 	if err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -237,7 +245,10 @@ func (h *Handler) DiscoverSinkTables(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := factory.SinkConfig{Type: snk.Type, Config: snk.Config}
-	tables, err := h.Registry.DiscoverSinkTables(r.Context(), cfg)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	tables, err := h.Registry.DiscoverSinkTables(ctx, cfg)
 	if err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -258,7 +269,10 @@ func (h *Handler) DiscoverSinkColumns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := factory.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
-	columns, err := h.Registry.DiscoverSinkColumns(r.Context(), cfg, req.Table)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	columns, err := h.Registry.DiscoverSinkColumns(ctx, cfg, req.Table)
 	if err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -279,7 +293,10 @@ func (h *Handler) SampleSinkTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := factory.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
-	msg, err := h.Registry.SampleSinkTable(r.Context(), cfg, req.Table)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	msg, err := h.Registry.SampleSinkTable(ctx, cfg, req.Table)
 	if err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -301,7 +318,10 @@ func (h *Handler) BrowseSinkTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := factory.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
-	msgs, err := h.Registry.BrowseSinkTable(r.Context(), cfg, req.Table, req.Limit)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	msgs, err := h.Registry.BrowseSinkTable(ctx, cfg, req.Table, req.Limit)
 	if err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 		return
@@ -326,7 +346,10 @@ func (h *Handler) QuerySink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := h.Registry.ExecuteSinkSQL(r.Context(), req.Config, req.Query)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	results, err := h.Registry.ExecuteSinkSQL(ctx, req.Config, req.Query)
 	if err != nil {
 		h.JsonError(w, "Query failed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -440,7 +463,10 @@ func (h *Handler) TruncateSinkTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := factory.SinkConfig{Type: req.Sink.Type, Config: req.Sink.Config}
-	if err := h.Registry.ExecSinkStatement(r.Context(), cfg, stmt); err != nil {
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	if err := h.Registry.ExecSinkStatement(ctx, cfg, stmt); err != nil {
 		h.JsonError(w, "Truncate failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}

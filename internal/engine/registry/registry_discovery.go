@@ -16,7 +16,7 @@ import (
 // --- Test Connectivity ---
 
 func (r *Registry) TestSource(ctx context.Context, cfg factory.SourceConfig) error {
-	src, err := r.createSource(cfg)
+	src, err := r.createSource(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -32,7 +32,7 @@ func (r *Registry) TestSink(ctx context.Context, cfg factory.SinkConfig) error {
 	if cfg.Type == "stdout" {
 		return nil
 	}
-	snk, err := r.createSink(cfg)
+	snk, err := r.createSink(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -43,7 +43,7 @@ func (r *Registry) TestSink(ctx context.Context, cfg factory.SinkConfig) error {
 // --- Source Discovery ---
 
 func (r *Registry) DiscoverDatabases(ctx context.Context, cfg factory.SourceConfig) ([]string, error) {
-	src, err := r.createSource(cfg)
+	src, err := r.createSource(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (r *Registry) DiscoverDatabases(ctx context.Context, cfg factory.SourceConf
 }
 
 func (r *Registry) DiscoverTables(ctx context.Context, cfg factory.SourceConfig) ([]string, error) {
-	src, err := r.createSource(cfg)
+	src, err := r.createSource(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (r *Registry) DiscoverTables(ctx context.Context, cfg factory.SourceConfig)
 }
 
 func (r *Registry) DiscoverSourceColumns(ctx context.Context, cfg factory.SourceConfig, table string) ([]hermod.ColumnInfo, error) {
-	src, err := r.createSource(cfg)
+	src, err := r.createSource(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (r *Registry) DiscoverSourceColumns(ctx context.Context, cfg factory.Source
 }
 
 func (r *Registry) DiscoverReplicationSlots(ctx context.Context, cfg factory.SourceConfig) ([]hermod.ReplicationSlotInfo, error) {
-	src, err := r.createSource(cfg)
+	src, err := r.createSource(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (r *Registry) DiscoverReplicationSlots(ctx context.Context, cfg factory.Sou
 }
 
 func (r *Registry) DiscoverPublications(ctx context.Context, cfg factory.SourceConfig) ([]hermod.PublicationInfo, error) {
-	src, err := r.createSource(cfg)
+	src, err := r.createSource(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +110,7 @@ func (r *Registry) DiscoverPublications(ctx context.Context, cfg factory.SourceC
 // --- Sink Discovery ---
 
 func (r *Registry) DiscoverSinkDatabases(ctx context.Context, cfg factory.SinkConfig) ([]string, error) {
-	snk, err := r.createSink(cfg)
+	snk, err := r.createSink(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func (r *Registry) DiscoverSinkDatabases(ctx context.Context, cfg factory.SinkCo
 }
 
 func (r *Registry) DiscoverSinkTables(ctx context.Context, cfg factory.SinkConfig) ([]string, error) {
-	snk, err := r.createSink(cfg)
+	snk, err := r.createSink(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +136,7 @@ func (r *Registry) DiscoverSinkTables(ctx context.Context, cfg factory.SinkConfi
 }
 
 func (r *Registry) DiscoverSinkColumns(ctx context.Context, cfg factory.SinkConfig, table string) ([]hermod.ColumnInfo, error) {
-	snk, err := r.createSink(cfg)
+	snk, err := r.createSink(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (r *Registry) DiscoverSinkColumns(ctx context.Context, cfg factory.SinkConf
 // --- Sampling & Browsing ---
 
 func (r *Registry) SampleTable(ctx context.Context, cfg factory.SourceConfig, table string) (hermod.Message, error) {
-	src, err := r.createSource(cfg)
+	src, err := r.createSource(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +175,7 @@ func (r *Registry) SampleSinkTable(ctx context.Context, cfg factory.SinkConfig, 
 }
 
 func (r *Registry) BrowseSinkTable(ctx context.Context, cfg factory.SinkConfig, table string, limit int) ([]hermod.Message, error) {
-	snk, err := r.createSink(cfg)
+	snk, err := r.createSink(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +203,7 @@ func (r *Registry) BrowseSinkTable(ctx context.Context, cfg factory.SinkConfig, 
 
 func (r *Registry) ExecuteSQL(ctx context.Context, cfg factory.SourceConfig, query string) ([]map[string]any, error) {
 	// 1. Try if the source already implements SQLExecutor
-	src, err := r.createSource(cfg)
+	src, err := r.createSource(ctx, cfg)
 	if err == nil {
 		defer src.Close()
 		if e, ok := src.(hermod.SQLExecutor); ok {
@@ -240,7 +240,7 @@ func (r *Registry) ExecuteSQL(ctx context.Context, cfg factory.SourceConfig, que
 
 func (r *Registry) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkConfig, query string) ([]map[string]any, error) {
 	// 1. Try if the sink already implements SQLExecutor
-	snk, err := r.createSink(cfg)
+	snk, err := r.createSink(ctx, cfg)
 	if err == nil {
 		defer snk.Close()
 		if e, ok := snk.(hermod.SQLExecutor); ok {
