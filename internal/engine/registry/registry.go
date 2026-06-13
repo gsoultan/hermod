@@ -1032,9 +1032,6 @@ type DashboardStats struct {
 }
 
 func (r *Registry) GetDashboardStats(ctx context.Context, vhost string) (DashboardStats, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	stats := DashboardStats{
 		Uptime: int64(time.Since(r.startTime).Seconds()),
 	}
@@ -1065,6 +1062,9 @@ func (r *Registry) GetDashboardStats(ctx context.Context, vhost string) (Dashboa
 
 	activeSources := make(map[string]bool)
 	activeSinks := make(map[string]bool)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	for _, ae := range r.engines {
 		if vhost != "" && vhost != "all" {

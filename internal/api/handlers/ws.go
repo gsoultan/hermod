@@ -89,8 +89,12 @@ func (h *Handler) HandleDashboardWS(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	vhost := r.URL.Query().Get("vhost")
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+
+	// Heartbeat
+	pingTicker := time.NewTicker(30 * time.Second)
+	defer pingTicker.Stop()
 
 	for {
 		select {
@@ -100,6 +104,10 @@ func (h *Handler) HandleDashboardWS(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if err := conn.WriteJSON(stats); err != nil {
+				return
+			}
+		case <-pingTicker.C:
+			if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
 				return
 			}
 		case <-r.Context().Done():
