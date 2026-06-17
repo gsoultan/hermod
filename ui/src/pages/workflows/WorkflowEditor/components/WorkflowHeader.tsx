@@ -1,4 +1,5 @@
 import { Paper, Group, Title, Badge, Text, useMantineColorScheme } from '@mantine/core';
+import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
 
 interface WorkflowHeaderProps {
   id: string;
@@ -11,6 +12,7 @@ interface WorkflowHeaderProps {
 export function WorkflowHeader({ id, isNew, name, active, workflowStatus }: WorkflowHeaderProps) {
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
+  const status = normalizeWorkflowStatus(workflowStatus);
 
   return (
     <Paper
@@ -32,10 +34,10 @@ export function WorkflowHeader({ id, isNew, name, active, workflowStatus }: Work
           </Title>
           {!isNew && (
             <Badge
-              color={active ? 'green' : 'gray'}
+              color={status.color}
               variant="filled"
             >
-              {workflowStatus}
+              {status.label}
             </Badge>
           )}
         </Group>

@@ -12,6 +12,7 @@ import (
 	"github.com/gocql/gocql"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
 // CassandraSource implements the hermod.Source interface for Cassandra.
@@ -110,10 +111,17 @@ func (c *CassandraSource) Read(ctx context.Context) (hermod.Message, error) {
 			lastID := c.lastIDs[table]
 			c.mu.Unlock()
 
+			if err := sqlutil.ValidateIdent(table); err != nil {
+				return nil, err
+			}
+
 			var query string
 			var args []any
 
 			if lastID != nil && c.idField != "" {
+				if err := sqlutil.ValidateIdent(c.idField); err != nil {
+					return nil, err
+				}
 				// Cassandra doesn't support > on all types easily without ALLOW FILTERING or specific indexing
 				// But for polling we assume it's an incremental field (like a timestamp or counter)
 				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? LIMIT 1 ALLOW FILTERING", table, c.idField)
@@ -299,6 +307,9 @@ func (c *CassandraSource) Sample(ctx context.Context, table string) (hermod.Mess
 	}
 
 	// table here might be "keyspace.table" or just "table"
+	if err := sqlutil.ValidateIdent(table); err != nil {
+		return nil, err
+	}
 	query := fmt.Sprintf("SELECT * FROM %s LIMIT 1", table)
 	iter := c.session.Query(query).WithContext(ctx).Iter()
 

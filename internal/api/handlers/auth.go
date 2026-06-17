@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -96,6 +98,11 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	dbCfg, err := config.LoadDBConfig()
 	if err != nil {
 		h.JsonError(w, "failed to load config", http.StatusInternalServerError)
+		return
+	}
+	if strings.TrimSpace(dbCfg.JWTSecret) == "" {
+		// Refuse to sign tokens with an empty secret (would make them trivially forgeable).
+		h.JsonError(w, "server is misconfigured: missing JWT secret", http.StatusInternalServerError)
 		return
 	}
 
@@ -187,6 +194,39 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+var (
+	oidcProviderCache   = map[string]*oidc.Provider{}
+	oidcProviderCacheMu sync.RWMutex
+)
+
+// oidcProvider returns a cached OIDC provider for the configured issuer,
+// avoiding a discovery round-trip on every login/callback request.
+func oidcProvider(ctx context.Context, issuer string) (*oidc.Provider, error) {
+	oidcProviderCacheMu.RLock()
+	p, ok := oidcProviderCache[issuer]
+	oidcProviderCacheMu.RUnlock()
+	if ok {
+		return p, nil
+	}
+	p, err := oidc.NewProvider(ctx, issuer)
+	if err != nil {
+		return nil, err
+	}
+	oidcProviderCacheMu.Lock()
+	oidcProviderCache[issuer] = p
+	oidcProviderCacheMu.Unlock()
+	return p, nil
+}
+
+// requestIsHTTPS reports whether the request was served over TLS, honoring a
+// trusted X-Forwarded-Proto header set by a reverse proxy.
+func requestIsHTTPS(r *http.Request) bool {
+	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		return true
+	}
+	return r.TLS != nil
+}
+
 func (h *Handler) OidcLogin(w http.ResponseWriter, r *http.Request) {
 	if h.Config == nil || !h.Config.Auth.OIDC.Enabled {
 		h.JsonError(w, "OIDC is not enabled", http.StatusForbidden)
@@ -194,7 +234,7 @@ func (h *Handler) OidcLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	provider, err := oidc.NewProvider(ctx, h.Config.Auth.OIDC.IssuerURL)
+	provider, err := oidcProvider(ctx, h.Config.Auth.OIDC.IssuerURL)
 	if err != nil {
 		h.JsonError(w, "Failed to get provider: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -219,6 +259,8 @@ func (h *Handler) OidcLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    state,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   requestIsHTTPS(r),
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   300,
 	})
 
@@ -238,7 +280,7 @@ func (h *Handler) OidcCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider, err := oidc.NewProvider(ctx, h.Config.Auth.OIDC.IssuerURL)
+	provider, err := oidcProvider(ctx, h.Config.Auth.OIDC.IssuerURL)
 	if err != nil {
 		h.JsonError(w, "Failed to get provider: "+err.Error(), http.StatusInternalServerError)
 		return

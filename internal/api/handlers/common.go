@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -186,7 +187,8 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 				// Find a worker with the provided token. This is a simple linear scan; acceptable for typical small worker counts.
 				if workers, _, err := h.Storage.ListWorkers(r.Context(), storage.CommonFilter{Limit: -1}); err == nil {
 					for _, wkr := range workers {
-						if wkr.Token == workerToken {
+						// Constant-time comparison to avoid leaking the token via timing.
+						if wkr.Token != "" && subtle.ConstantTimeCompare([]byte(wkr.Token), []byte(workerToken)) == 1 {
 							// Build a minimal user context with Editor role and full vhost access.
 							user := storage.User{
 								ID:       "worker:" + wkr.ID,
@@ -207,6 +209,11 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 
 		dbCfg, err := config.LoadDBConfig()
 		if err != nil {
+			h.JsonError(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		if strings.TrimSpace(dbCfg.JWTSecret) == "" {
+			// Never validate tokens against an empty secret.
 			h.JsonError(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
@@ -372,8 +379,13 @@ func extractBearerOrCookie(r *http.Request) (string, bool) {
 
 func parseSessionClaims(tokenString string, secret []byte) (SessionClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &SessionClaims{}, func(token *jwt.Token) (any, error) {
+		// Pin the signing algorithm to HMAC to prevent algorithm-confusion attacks
+		// (e.g. "none" or RS256 forgery where a public key is treated as an HMAC secret).
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
 		return secret, nil
-	})
+	}, jwt.WithValidMethods([]string{"HS256"}))
 
 	if err != nil {
 		return SessionClaims{}, err

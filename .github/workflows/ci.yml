@@ -19,6 +19,20 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+      - name: Verify (vet)
+        run: go vet ./...
+      - name: Staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
+      - name: Govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
   ui-build:
     name: UI Build
     runs-on: ubuntu-latest

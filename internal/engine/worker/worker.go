@@ -171,6 +171,11 @@ func (w *Worker) Deregister(ctx context.Context) {
 
 // SelfRegister registers the worker in the storage if it doesn't already exist.
 func (w *Worker) SelfRegister(ctx context.Context) error {
+	defer func() {
+		if r := recover(); r != nil {
+			w.logger.Error("Worker: self-registration panicked", "panic", r)
+		}
+	}()
 	if w.workerGUID == "" {
 		return nil
 	}
@@ -199,14 +204,30 @@ func (w *Worker) cleanupStaleWorkerEntries(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	// Only remove entries that share this worker's identity (a previous
+	// registration of the same logical worker) AND are no longer alive. This
+	// avoids deleting a distinct, healthy peer that happens to share a name or
+	// host:port (e.g. behind NAT or with duplicate configuration).
+	staleAfter := time.Duration(max(1, w.leaseTTLSeconds)) * 3 * time.Second
 	for _, wrk := range workers {
 		if wrk.ID == w.workerGUID {
 			continue
 		}
-		if (w.workerHost != "" && wrk.Host == w.workerHost && wrk.Port == w.workerPort) || (w.workerName != "" && wrk.Name == w.workerName) {
+		sameIdentity := (w.workerHost != "" && wrk.Host == w.workerHost && wrk.Port == w.workerPort) ||
+			(w.workerName != "" && wrk.Name == w.workerName)
+		if sameIdentity && isWorkerStale(wrk, staleAfter) {
 			_ = w.storage.DeleteWorker(ctx, wrk.ID)
 		}
 	}
+}
+
+// isWorkerStale reports whether a worker registration has not been seen within
+// the given window and is therefore safe to reclaim.
+func isWorkerStale(wrk storage.Worker, staleAfter time.Duration) bool {
+	if wrk.LastSeen == nil {
+		return true
+	}
+	return time.Since(*wrk.LastSeen) > staleAfter
 }
 
 func (w *Worker) startLeaseRenewal(workflowID string) {
@@ -224,6 +245,11 @@ func (w *Worker) startLeaseRenewal(workflowID string) {
 }
 
 func (w *Worker) leaseRenewalLoop(ctx context.Context, workflowID string, interval time.Duration) {
+	defer func() {
+		if r := recover(); r != nil {
+			w.logger.Error("Worker: lease renewal panicked", "workflow_id", workflowID, "panic", r)
+		}
+	}()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {

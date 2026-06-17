@@ -40,6 +40,19 @@ func QuoteIdent(driver, name string) (string, error) {
 	return strings.Join(parts, "."), nil
 }
 
+// ValidateIdent verifies that an identifier (optionally schema/keyspace-qualified)
+// contains only safe characters, without altering its quoting. Use it for engines
+// (e.g. CQL) where identifiers are interpolated as-is, to prevent SQL/CQL injection.
+func ValidateIdent(name string) error {
+	if name == "" {
+		return fmt.Errorf("empty identifier")
+	}
+	if !identRe.MatchString(name) {
+		return fmt.Errorf("invalid identifier: %s", name)
+	}
+	return nil
+}
+
 // Placeholder returns a placeholder suitable for the driver and 1-based index.
 func Placeholder(driver string, index int) string {
 	switch driver {

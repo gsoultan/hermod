@@ -154,6 +154,9 @@ func (e *Engine) UpdateSinkConfig(sinkID string, update func(*config.SinkConfig)
 	defer e.mu.Unlock()
 
 	for i := range e.sinkConfigs {
+		if i >= len(e.sinkIDs) {
+			break
+		}
 		if e.sinkIDs[i] == sinkID {
 			update(&e.sinkConfigs[i])
 

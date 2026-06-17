@@ -464,10 +464,15 @@ func (h *Handler) SaveDBConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if cfg.JWTSecret == "" {
-		if existing, err := config.LoadDBConfig(); err == nil {
+		if existing, err := config.LoadDBConfig(); err == nil && strings.TrimSpace(existing.JWTSecret) != "" {
 			cfg.JWTSecret = existing.JWTSecret
 		} else {
-			cfg.JWTSecret = uuid.New().String()
+			secret, gerr := generateJWTSecret()
+			if gerr != nil {
+				h.JsonError(w, "failed to generate JWT secret", http.StatusInternalServerError)
+				return
+			}
+			cfg.JWTSecret = secret
 		}
 	}
 
@@ -972,7 +977,12 @@ func (h *Handler) FinalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 		CryptoMasterKey: req.DB.CryptoMasterKey,
 	}
 	if cfg.JWTSecret == "" {
-		cfg.JWTSecret = uuid.New().String()
+		secret, gerr := generateJWTSecret()
+		if gerr != nil {
+			h.JsonError(w, "failed to generate JWT secret", http.StatusInternalServerError)
+			return
+		}
+		cfg.JWTSecret = secret
 	}
 	if err := config.SaveDBConfig(&cfg); err != nil {
 		h.JsonError(w, "failed to save database config: "+err.Error(), http.StatusInternalServerError)
@@ -1068,6 +1078,16 @@ func (h *Handler) FinalizeInitialSetup(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// generateJWTSecret returns a cryptographically secure 256-bit secret encoded
+// as hex, suitable for signing HS256 session tokens.
+func generateJWTSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {

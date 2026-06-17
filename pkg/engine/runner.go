@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -30,8 +31,26 @@ func NewRunner(e *Engine) *Runner {
 	}
 }
 
-func (r *Runner) Start(ctx context.Context) error {
+func (r *Runner) Start(ctx context.Context) (err error) {
 	r.ctx, r.cancel = context.WithCancel(ctx)
+
+	// Isolate the workflow: a panic in any synchronous part of the engine
+	// (e.g. the source ingestion loop) must never crash the worker process or
+	// affect other workflows. Recover here, convert the panic into an error,
+	// and cancel the engine context so background goroutines unwind cleanly.
+	defer func() {
+		if rec := recover(); rec != nil {
+			r.engine.logger.Error("Panic in engine runner",
+				"workflow_id", r.engine.workflowID,
+				"panic", rec,
+				"stack", string(debug.Stack()))
+			r.engine.setStatus(fmt.Sprintf("Error: panic: %v", rec))
+			if r.cancel != nil {
+				r.cancel()
+			}
+			err = fmt.Errorf("engine panic: %v", rec)
+		}
+	}()
 
 	// Initialize Priority Source if enabled
 	if r.engine.config.PrioritizeDLQ && r.engine.deadLetterSink != nil {
@@ -361,6 +380,9 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 			r.engine.inFlightWg.Add(1)
 			go func() {
 				defer func() {
+					if p := recover(); p != nil {
+						r.engine.logger.Error("Panic in message processing loop", "workflow_id", r.engine.workflowID, "panic", p, "stack", string(debug.Stack()))
+					}
 					<-r.engine.inFlightSem
 					r.engine.inFlightWg.Done()
 				}()
@@ -452,7 +474,12 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 					target.Message.Retain()
 					pm := acquirePendingMessage(target.Message)
 					go func(sw *sinkWriter, pm *pendingMessage) {
-						defer swg.Done()
+						defer func() {
+							if p := recover(); p != nil {
+								r.engine.logger.Error("Panic in concurrent sink write", "workflow_id", r.engine.workflowID, "sink_id", sw.sinkID, "panic", p)
+							}
+							swg.Done()
+						}()
 						sw.enqueueWithStrategy(drainCtx, pm, sw.config.BackpressureStrategy)
 						select {
 						case err := <-pm.done:
@@ -461,6 +488,12 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 							}
 							releasePendingMessage(pm)
 						case <-drainCtx.Done():
+							// NOTE: do not release pm here. On cancellation the
+							// sink writer may still own this pending message (it
+							// can be sitting in the sink channel or an in-flight
+							// batch), so releasing it would return the pooled
+							// object while still in use. The owning sink writer
+							// drains and signals pm.done during shutdown.
 							serrCh <- drainCtx.Err()
 						}
 					}(sw, pm)

@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -12,6 +13,11 @@ import (
 )
 
 func (w *Worker) checkHealth(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			w.logger.Error("Worker: health check panicked", "panic", r)
+		}
+	}()
 	if time.Since(w.lastHealthCheck) < 30*time.Second {
 		return
 	}
@@ -37,19 +43,48 @@ func (w *Worker) getMetrics() (float64, float64) {
 	return min(1.0, cpuUsage), min(1.0, memUsage)
 }
 
+// maxConcurrentHealthChecks bounds how many resource health probes run in
+// parallel, preventing a goroutine/connection storm when many sources/sinks
+// are assigned to a single worker.
+const maxConcurrentHealthChecks = 8
+
 func (w *Worker) checkResourcesHealth(ctx context.Context) {
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrentHealthChecks)
+
 	sources, _, _ := w.storage.ListSources(ctx, storage.CommonFilter{})
 	for _, src := range sources {
 		if w.isResourceAssigned(src.ID, src.WorkerID) && !w.registry.IsResourceInUse(ctx, src.ID, "", true) {
-			w.checkSourceHealth(ctx, src)
+			s := src
+			sem <- struct{}{}
+			wg.Go(func() {
+				defer func() {
+					<-sem
+					if r := recover(); r != nil {
+						w.logger.Error("Worker: checkSourceHealth panicked", "source_id", s.ID, "panic", r)
+					}
+				}()
+				w.checkSourceHealth(ctx, s)
+			})
 		}
 	}
 	sinks, _, _ := w.storage.ListSinks(ctx, storage.CommonFilter{})
 	for _, snk := range sinks {
 		if w.isResourceAssigned(snk.ID, snk.WorkerID) && !w.registry.IsResourceInUse(ctx, snk.ID, "", false) {
-			w.checkSinkHealth(ctx, snk)
+			s := snk
+			sem <- struct{}{}
+			wg.Go(func() {
+				defer func() {
+					<-sem
+					if r := recover(); r != nil {
+						w.logger.Error("Worker: checkSinkHealth panicked", "sink_id", s.ID, "panic", r)
+					}
+				}()
+				w.checkSinkHealth(ctx, s)
+			})
 		}
 	}
+	wg.Wait()
 }
 
 func (w *Worker) isResourceAssigned(id, workerID string) bool {

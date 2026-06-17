@@ -546,6 +546,8 @@ func (r *Registry) setupWorkflowRouter(
 			sinkNodeToIndex: sinkNodeToIndex,
 			currentMessages: make(map[string]hermod.Message),
 			receivedCount:   make(map[string]int),
+			resolvedCount:   make(map[string]int),
+			fired:           make(map[string]bool),
 		}
 		t.currentMessages[sourceNodeID] = msg
 
@@ -583,6 +585,11 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 	if r.storage != nil {
 		eng.SetLogger(NewDatabaseLogger(context.Background(), r, id))
 		eng.SetOnStatusChange(func(update telemetry.StatusUpdate) {
+			// Ensure every broadcast carries the workflow ID so real-time UI
+			// consumers can reliably associate the update with this workflow.
+			if update.WorkflowID == "" {
+				update.WorkflowID = id
+			}
 			dbCtx := context.Background()
 			if workflow, err := r.storage.GetWorkflow(dbCtx, id); err == nil {
 				prevStatus := workflow.Status
@@ -696,14 +703,30 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 func (r *Registry) runWorkflowEngine(eng *pkgengine.Engine, ctx context.Context, cancel context.CancelFunc, done chan struct{}, id string, wf storage.Workflow, ms *multiSource, sinks []hermod.Sink) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			fmt.Printf("Workflow %s panicked: %v\n", id, rec)
-			debug.PrintStack()
+			// A panic in a single workflow must never crash the worker or impact
+			// other workflows. Recover here, log it, and keep the workflow active
+			// so the worker's reconciliation loop restarts it on the next sync.
+			r.logger.Error("Workflow engine panicked", "workflow_id", id, "panic", rec, "stack", string(debug.Stack()))
+			r.broadcastLog(id, "ERROR", fmt.Sprintf("Workflow panicked: %v", rec))
+			if r.storage != nil {
+				dbCtx := context.Background()
+				if workflow, errGet := r.storage.GetWorkflow(dbCtx, id); errGet == nil {
+					workflow.Status = fmt.Sprintf("Error: panic: %v", rec)
+					// Keep Active = true so reconciliation restarts it.
+					_ = r.storage.UpdateWorkflow(dbCtx, workflow)
+				}
+			}
 		}
 		r.mu.Lock()
 		delete(r.engines, id)
 		r.mu.Unlock()
 		if r.optimizer != nil {
 			r.optimizer.Unregister(id)
+		}
+		// Always release source and sink resources, even on panic, to avoid leaks.
+		ms.Close()
+		for _, snk := range sinks {
+			snk.Close()
 		}
 		close(done)
 	}()
@@ -713,10 +736,6 @@ func (r *Registry) runWorkflowEngine(eng *pkgengine.Engine, ctx context.Context,
 	// Check if it was cancelled by us
 	if ctx.Err() != nil {
 		r.logger.Info("Workflow engine stopped (cancelled)", "workflow_id", id, "error", ctx.Err())
-		ms.Close()
-		for _, snk := range sinks {
-			snk.Close()
-		}
 		return
 	}
 
@@ -759,11 +778,8 @@ func (r *Registry) runWorkflowEngine(eng *pkgengine.Engine, ctx context.Context,
 			_ = r.storage.UpdateWorkflow(dbCtx, workflow)
 		}
 	}
-
-	ms.Close()
-	for _, snk := range sinks {
-		snk.Close()
-	}
+	// Source and sink cleanup happens in the deferred function above so that it
+	// runs on every exit path, including panics.
 }
 
 // --- Workflow Lifecycle ---
@@ -1193,7 +1209,16 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 		currNode := findNodeByID(wf.Nodes, currID)
 		var currBranch string
 		var msgs []hermod.Message
-		if currNode.Type != "source" {
+		if currNode != nil && currNode.Type != "source" && currMsg == nil {
+			// Node reached only through branches that were not taken: it has no
+			// input message, so it is skipped. Its outgoing edges are still
+			// traversed below to keep downstream join counters consistent.
+			steps = append(steps, WorkflowStepResult{
+				NodeID:   currID,
+				NodeType: currNode.Type,
+				Filtered: true,
+			})
+		} else if currNode.Type != "source" {
 			var err error
 			msgs, currBranch, err = r.runWorkflowNode(wf.ID, currNode, currMsg)
 			if err != nil {

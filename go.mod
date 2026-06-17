@@ -1,6 +1,6 @@
 module github.com/user/hermod
 
-go 1.26
+go 1.26.4
 
 require (
 	cloud.google.com/go/firestore v1.15.0

@@ -87,6 +87,11 @@ func (w *Worker) syncAllWorkflows(ctx context.Context, workflows []storage.Workf
 	for i := range workflows {
 		wf := workflows[i]
 		wg.Go(func() {
+			defer func() {
+				if r := recover(); r != nil {
+					w.logger.Error("Worker: SyncWorkflow panicked", "workflow_id", wf.ID, "panic", r)
+				}
+			}()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			w.SyncWorkflow(ctx, wf, sctx)

@@ -18,6 +18,7 @@ import { apiFetch } from '@/api';
 import { getToken } from '@/auth/storage';
 import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import { formatDateTime } from '@/utils/dateUtils';
+import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
 import { 
   IconArrowLeft, IconArrowsExchange, IconChartBar, IconChevronRight, IconCircleCheck, IconCircleX, IconClock, IconEye, IconHistory, IconInfoCircle, IconRefresh, IconRotateDot, IconSearch, IconTerminal2, IconTimeline,
   IconBug, IconBrain, IconActivity
@@ -286,11 +287,18 @@ export function WorkflowDetailPage() {
                   <Badge color={workflow.active ? 'green' : 'gray'}>
                     {workflow.active ? 'Active' : 'Inactive'}
                   </Badge>
-                  {workflow.status && (
-                    <Badge variant="outline" color={workflow.status === 'running' ? 'green' : 'orange'}>
-                      {workflow.status}
-                    </Badge>
-                  )}
+                  {(() => {
+                    // Prefer the real-time engine status streamed over the status
+                    // WebSocket, falling back to the persisted workflow status.
+                    const liveStatus = engineStatus?.engine_status || workflow.status;
+                    if (!liveStatus) return null;
+                    const { label, color } = normalizeWorkflowStatus(liveStatus);
+                    return (
+                      <Badge variant="outline" color={color}>
+                        {label}
+                      </Badge>
+                    );
+                  })()}
                   {workflow.cron && (
                     <Badge color="indigo" leftSection={<IconClock size="0.8rem" />}>
                       {workflow.cron}

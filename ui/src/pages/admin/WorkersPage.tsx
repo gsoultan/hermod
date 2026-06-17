@@ -1,9 +1,10 @@
-import { IconEdit, IconPlus, IconSearch, IconServer, IconTrash } from '@tabler/icons-react';
+import { IconAlertTriangle, IconEdit, IconExternalLink, IconInfoCircle, IconPlus, IconSearch, IconServer, IconTerminal2, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
-import { Title, Table, Button, Group, Paper, Text, Box, Stack, Badge, TextInput, Pagination, ActionIcon, RingProgress, Tooltip, Center } from '@mantine/core'
+import { Title, Table, Button, Group, Paper, Text, Box, Stack, Badge, TextInput, Pagination, ActionIcon, RingProgress, Tooltip, Center, Alert, Modal, Code, List, CopyButton } from '@mantine/core'
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
 import { useNavigate } from '@tanstack/react-router'
+import { useDisclosure } from '@mantine/hooks'
 import type { Worker } from '@/types'
 export function WorkersPage() {
   const queryClient = useQueryClient()
@@ -11,6 +12,8 @@ export function WorkersPage() {
   const [search, setSearch] = useState('')
   const [activePage, setPage] = useState(1)
   const itemsPerPage = 30
+  const [opened, { open, close }] = useDisclosure(false)
+  const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null)
 
   const { data: workersResponse } = useSuspenseQuery<any>({
     queryKey: ['workers', activePage, search],
@@ -44,6 +47,17 @@ export function WorkersPage() {
     return (now.getTime() - date.getTime()) < 120000;
   };
 
+  const formatLastSeen = (lastSeen?: string) => {
+    if (!lastSeen) return 'Never';
+    const date = new Date(lastSeen);
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return date.toLocaleDateString();
+  };
+
   const rows = workers.map((worker: Worker) => {
     const online = isOnline(worker.last_seen);
     return (
@@ -55,9 +69,16 @@ export function WorkersPage() {
           </Stack>
         </Table.Td>
         <Table.Td>
-          <Badge variant="dot" color={online ? 'green' : 'red'}>
-            {online ? 'Online' : 'Offline'}
-          </Badge>
+          <Stack gap={0}>
+            <Badge variant="dot" color={online ? 'green' : 'red'}>
+              {online ? 'Online' : 'Offline'}
+            </Badge>
+            {!online && (
+              <Text size="xs" c="dimmed" mt={4}>
+                Last seen: {formatLastSeen(worker.last_seen)}
+              </Text>
+            )}
+          </Stack>
         </Table.Td>
         <Table.Td>
           {online ? (
@@ -113,6 +134,13 @@ export function WorkersPage() {
         <Table.Td>{worker.description || '-'}</Table.Td>
         <Table.Td>
           <Group justify="flex-end">
+            {!online && (
+              <Tooltip label="How to start this worker">
+                <ActionIcon variant="light" color="orange" onClick={() => { setSelectedWorker(worker); open(); }} radius="md">
+                  <IconTerminal2 size="1.2rem" />
+                </ActionIcon>
+              </Tooltip>
+            )}
             <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/workers/${worker.id}/edit` })} radius="md" aria-label="Edit worker">
               <IconEdit size="1.2rem" stroke={1.5} />
             </ActionIcon>
@@ -140,6 +168,11 @@ export function WorkersPage() {
         `}
       </style>
       <Stack gap="lg">
+        {workers.length > 0 && workers.every(w => !isOnline(w.last_seen)) && (
+          <Alert icon={<IconAlertTriangle size="1rem" />} title="All Workers Offline" color="red" radius="md" variant="filled">
+            Hermod cannot process any workflows because all registered workers are currently offline. Please start at least one worker to resume processing.
+          </Alert>
+        )}
         <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Stack gap="md">
             <Group gap="sm">
@@ -198,6 +231,49 @@ export function WorkersPage() {
           )}
         </Paper>
       </Stack>
+      
+      <Modal opened={opened} onClose={close} title="How to Start Worker" size="lg" radius="md">
+        {selectedWorker && (
+          <Stack gap="md">
+            <Alert icon={<IconInfoCircle size="1rem" />} color="blue">
+              To start this worker, you need to run the Hermod binary on the target machine with the following parameters.
+            </Alert>
+            
+            <Text fw={700} size="sm">Option 1: Command Line</Text>
+            <Box style={{ position: 'relative' }}>
+              <Code block p="md" radius="md">
+                {`hermod --mode worker --worker-guid "${selectedWorker.id}" --platform-url "${window.location.origin}" --worker-token "<YOUR_TOKEN>"`}
+              </Code>
+              <CopyButton value={`hermod --mode worker --worker-guid "${selectedWorker.id}" --platform-url "${window.location.origin}" --worker-token "<YOUR_TOKEN>"`}>
+                {({ copied, copy }) => (
+                  <Button 
+                    size="compact-xs" 
+                    variant="light" 
+                    color={copied ? 'teal' : 'blue'} 
+                    onClick={copy}
+                    style={{ position: 'absolute', top: 10, right: 10 }}
+                  >
+                    {copied ? 'Copied' : 'Copy'}
+                  </Button>
+                )}
+              </CopyButton>
+            </Box>
+            
+            <Text fw={700} size="sm">Option 2: Environment Variables</Text>
+            <Code block p="md" radius="md">
+              {`HERMOD_MODE=worker\nHERMOD_WORKER_GUID=${selectedWorker.id}\nHERMOD_PLATFORM_URL=${window.location.origin}\nHERMOD_WORKER_TOKEN=<YOUR_TOKEN>`}
+            </Code>
+
+            <Text size="sm" c="dimmed">
+              Note: Replace <Code>{`<YOUR_TOKEN>`}</Code> with the token generated when you registered the worker. If you lost the token, you may need to re-register the worker or check the <Code>worker.yaml</Code> file on the worker machine.
+            </Text>
+
+            <Group justify="flex-end" mt="md">
+              <Button onClick={close}>Close</Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
     </Box>
   )
 }

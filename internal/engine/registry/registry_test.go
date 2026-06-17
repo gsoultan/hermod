@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -518,12 +519,12 @@ func (m *mockMultiStorage) GetSource(ctx context.Context, id string) (storage.So
 
 type mockSource struct {
 	hermod.Source
-	readCount int
+	readCount atomic.Int64
 	readErr   error
 }
 
 func (m *mockSource) Read(ctx context.Context) (hermod.Message, error) {
-	m.readCount++
+	m.readCount.Add(1)
 	return nil, m.readErr
 }
 func (m *mockSource) Ack(ctx context.Context, msg hermod.Message) error { return nil }
@@ -567,7 +568,7 @@ func TestMultiSource_Aggregation(t *testing.T) {
 	go mSource.Read(ctx)
 	time.Sleep(20 * time.Millisecond)
 
-	if s1.readCount == 0 && s2.readCount == 0 {
+	if s1.readCount.Load() == 0 && s2.readCount.Load() == 0 {
 		t.Error("Expected at least one read from sources")
 	}
 }

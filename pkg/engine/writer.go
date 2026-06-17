@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/user/hermod"
@@ -51,8 +52,9 @@ type sinkWriter struct {
 }
 
 type pendingMessage struct {
-	msg  hermod.Message
-	done chan error
+	msg      hermod.Message
+	done     chan error
+	released atomic.Bool
 }
 
 var pendingMessagePool = sync.Pool{
@@ -66,10 +68,19 @@ var pendingMessagePool = sync.Pool{
 func acquirePendingMessage(msg hermod.Message) *pendingMessage {
 	pm := pendingMessagePool.Get().(*pendingMessage)
 	pm.msg = msg
+	pm.released.Store(false)
 	return pm
 }
 
 func releasePendingMessage(pm *pendingMessage) {
+	// Guard against double-release: a pendingMessage has a single owner (the
+	// goroutine that selects on pm.done). Backpressure eviction must never
+	// release a message owned by another goroutine, but we keep this guard so a
+	// stray double-release can never corrupt the pool or drive the message
+	// refcount below zero.
+	if !pm.released.CompareAndSwap(false, true) {
+		return
+	}
 	if pm.msg != nil {
 		pm.msg.Release()
 	}
@@ -548,6 +559,13 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 		} else {
 			// Start a consumer for the spill buffer
 			go func() {
+				defer func() {
+					if p := recover(); p != nil {
+						if w.engine != nil && w.engine.logger != nil {
+							w.engine.logger.Error("Panic in spill buffer consumer", "sink_id", w.sinkID, "panic", p)
+						}
+					}
+				}()
 				if consumer, ok := w.spillBuffer.(hermod.Consumer); ok {
 					_ = consumer.Consume(ctx, func(ctx context.Context, msg hermod.Message) error {
 						// Try to put back into the main channel
@@ -691,8 +709,10 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 			select {
 			case old := <-target:
 				if old != nil {
+					// Signal the eviction to the owning goroutine; that owner is
+					// responsible for releasing the pending message. Releasing it
+					// here would double-release the pooled object (use-after-free).
 					old.done <- errors.New("dropped due to backpressure (drop_oldest)")
-					releasePendingMessage(old)
 				}
 				telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPDropOldest)).Inc()
 			default:

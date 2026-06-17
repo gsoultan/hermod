@@ -58,8 +58,22 @@ func (h *Handler) HandleStatusWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	workflowID := strings.TrimSpace(r.URL.Query().Get("workflow_id"))
+
 	ch := h.Registry.SubscribeStatus()
 	defer h.Registry.UnsubscribeStatus(ch)
+
+	// Send an initial snapshot of the current engine statuses so the UI reflects
+	// the real-time backend state immediately on connect, even for idle workflows
+	// that are not actively broadcasting status updates.
+	for _, snapshot := range h.Registry.GetAllStatuses() {
+		if workflowID != "" && !strings.EqualFold(snapshot.WorkflowID, workflowID) {
+			continue
+		}
+		if err := conn.WriteJSON(snapshot); err != nil {
+			return
+		}
+	}
 
 	// Heartbeat
 	ticker := time.NewTicker(30 * time.Second)
@@ -68,6 +82,9 @@ func (h *Handler) HandleStatusWS(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case update := <-ch:
+			if workflowID != "" && !strings.EqualFold(update.WorkflowID, workflowID) {
+				continue
+			}
 			if err := conn.WriteJSON(update); err != nil {
 				return
 			}

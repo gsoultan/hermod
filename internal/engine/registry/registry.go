@@ -158,6 +158,11 @@ type Registry struct {
 	piiStats   map[string]*PIIStats
 	piiStatsMu sync.RWMutex
 
+	// reconciling tracks suspended messages currently being resumed so overlapping
+	// reconciliation ticks on the same worker cannot process the same message twice.
+	reconciling   map[string]struct{}
+	reconcilingMu sync.Mutex
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -232,6 +237,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		dqScorer:            governance.NewScorer(),
 		meshManager:         mesh.NewManager(telemetry.NewDefaultLogger()),
 		piiStats:            make(map[string]*PIIStats),
+		reconciling:         make(map[string]struct{}),
 		ctx:                 ctx,
 		cancel:              cancel,
 	}
@@ -277,6 +283,11 @@ func (r *Registry) Close() {
 }
 
 func (r *Registry) runRetentionPurge() {
+	defer func() {
+		if p := recover(); p != nil {
+			r.logger.Error("Registry: retention purge panicked", "panic", p)
+		}
+	}()
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
@@ -354,6 +365,11 @@ func (r *Registry) purgeRetention() {
 }
 
 func (r *Registry) runIdleMonitor() {
+	defer func() {
+		if p := recover(); p != nil {
+			r.logger.Error("Registry: idle monitor panicked", "panic", p)
+		}
+	}()
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 

@@ -22,6 +22,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:

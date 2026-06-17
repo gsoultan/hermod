@@ -10,6 +10,7 @@ import (
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
 type Config struct {
@@ -63,8 +64,17 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 		if err := s.initDB(); err != nil {
 			return nil, err
 		}
-		// Improved DB2 Read with basic polling
-		query := fmt.Sprintf("SELECT * FROM %s.%s FETCH FIRST 1 ROWS ONLY", s.config.Schema, s.config.Table)
+		// Improved DB2 Read with basic polling. Validate and quote the
+		// schema-qualified table to prevent SQL injection via configuration.
+		qualified := s.config.Table
+		if s.config.Schema != "" {
+			qualified = s.config.Schema + "." + s.config.Table
+		}
+		quotedTable, err := sqlutil.QuoteIdent("db2", qualified)
+		if err != nil {
+			return nil, err
+		}
+		query := fmt.Sprintf("SELECT * FROM %s FETCH FIRST 1 ROWS ONLY", quotedTable)
 		rows, err := s.db.QueryContext(ctx, query)
 		if err != nil {
 			return nil, err

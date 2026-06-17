@@ -24,11 +24,18 @@ type workflowTraversal struct {
 	sinkNodeToIndex map[string]int
 	currentMessages map[string]hermod.Message
 	msgMu           sync.Mutex
-	receivedCount   map[string]int
-	countMu         sync.Mutex
-	routed          []pkgengine.RoutedMessage
-	routedMu        sync.Mutex
-	wg              sync.WaitGroup
+	// receivedCount counts incoming edges that actually delivered a message.
+	receivedCount map[string]int
+	// resolvedCount counts incoming edges that have been resolved, whether they
+	// delivered a message or were pruned (e.g. the edge belongs to a branch that
+	// was not taken). A node becomes ready once every incoming edge is resolved.
+	resolvedCount map[string]int
+	// fired guards against a node being scheduled (or skipped) more than once.
+	fired    map[string]bool
+	countMu  sync.Mutex
+	routed   []pkgengine.RoutedMessage
+	routedMu sync.Mutex
+	wg       sync.WaitGroup
 }
 
 func (t *workflowTraversal) processNode(ctx context.Context, currID string) {
@@ -87,9 +94,44 @@ func (t *workflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 		t.recordSuccess(node, msgs)
 	}
 
-	for _, m := range msgs {
-		t.routeMessage(ctx, node, m, branch)
+	// Route produced messages to sink outputs (per message).
+	t.routeToSink(node, msgs)
+
+	// Resolve every outgoing edge exactly once for this node execution. Edges on
+	// branches that were taken deliver the produced messages; all other edges
+	// are pruned so that downstream join nodes can still reach their expected
+	// in-degree instead of stalling forever.
+	for _, targetID := range t.adj[node.ID] {
+		if t.shouldFollowEdge(node, targetID, branch) && len(msgs) > 0 {
+			t.eng.UpdateEdgeMetric(node.ID, targetID, uint64(len(msgs)))
+			for _, m := range msgs {
+				t.deliverToTarget(targetID, m)
+			}
+			t.resolveEdge(ctx, targetID, true)
+		} else {
+			t.resolveEdge(ctx, targetID, false)
+		}
 	}
+}
+
+// routeToSink appends produced messages to the routed output when the node is a
+// non-sequential sink node.
+func (t *workflowTraversal) routeToSink(node *storage.WorkflowNode, msgs []hermod.Message) {
+	if node.Type != "sink" {
+		return
+	}
+	if isSeq, _ := node.Config["sequential"].(bool); isSeq {
+		return
+	}
+	idx, ok := t.sinkNodeToIndex[node.ID]
+	if !ok {
+		return
+	}
+	t.routedMu.Lock()
+	for _, m := range msgs {
+		t.routed = append(t.routed, pkgengine.RoutedMessage{SinkIndex: idx, Message: m})
+	}
+	t.routedMu.Unlock()
 }
 
 func (t *workflowTraversal) recordError(node *storage.WorkflowNode, msgs []hermod.Message, err error) {
@@ -109,27 +151,6 @@ func (t *workflowTraversal) recordSuccess(node *storage.WorkflowNode, msgs []her
 	t.eng.UpdateNodeSample(node.ID, t.registry.getConsistentData(msgs[0]))
 }
 
-func (t *workflowTraversal) routeMessage(ctx context.Context, node *storage.WorkflowNode, msg hermod.Message, branch string) {
-	if node.Type == "sink" {
-		isSeq, _ := node.Config["sequential"].(bool)
-		if !isSeq {
-			if idx, ok := t.sinkNodeToIndex[node.ID]; ok {
-				t.routedMu.Lock()
-				t.routed = append(t.routed, pkgengine.RoutedMessage{SinkIndex: idx, Message: msg})
-				t.routedMu.Unlock()
-			}
-		}
-	}
-
-	for _, targetID := range t.adj[node.ID] {
-		if t.shouldFollowEdge(node, targetID, branch) {
-			// Record per-edge metric using correct source/target
-			t.eng.UpdateEdgeMetric(node.ID, targetID, 1)
-			t.followEdge(ctx, targetID, msg)
-		}
-	}
-}
-
 func (t *workflowTraversal) shouldFollowEdge(node *storage.WorkflowNode, targetID string, branch string) bool {
 	edgeLabel := t.edgeLabels[node.ID+":"+targetID]
 	if branch == "error" {
@@ -144,8 +165,9 @@ func (t *workflowTraversal) shouldFollowEdge(node *storage.WorkflowNode, targetI
 	return true
 }
 
-func (t *workflowTraversal) followEdge(ctx context.Context, targetID string, msg hermod.Message) {
-
+// deliverToTarget stores (or merges) a message destined for targetID so that it
+// becomes the input message for that node once it is scheduled.
+func (t *workflowTraversal) deliverToTarget(targetID string, msg hermod.Message) {
 	t.msgMu.Lock()
 	if t.currentMessages[targetID] == nil {
 		t.currentMessages[targetID] = msg.Clone()
@@ -157,12 +179,39 @@ func (t *workflowTraversal) followEdge(ctx context.Context, targetID string, msg
 		t.registry.mergeData(t.currentMessages[targetID].Data(), msg.Data(), strategy)
 	}
 	t.msgMu.Unlock()
+}
 
+// resolveEdge marks one incoming edge of targetID as resolved. delivered is true
+// when the edge carried a message, false when it was pruned. When all incoming
+// edges are resolved the node is scheduled (if it received at least one message)
+// or skipped (propagating the prune to its own descendants).
+func (t *workflowTraversal) resolveEdge(ctx context.Context, targetID string, delivered bool) {
 	t.countMu.Lock()
-	t.receivedCount[targetID]++
-	if t.receivedCount[targetID] == t.inDegree[targetID] {
-		t.wg.Add(1)
-		go t.processNode(ctx, targetID)
+	if delivered {
+		t.receivedCount[targetID]++
+	}
+	t.resolvedCount[targetID]++
+
+	fire, skip := false, false
+	if t.resolvedCount[targetID] >= t.inDegree[targetID] && !t.fired[targetID] {
+		t.fired[targetID] = true
+		if t.receivedCount[targetID] > 0 {
+			fire = true
+		} else {
+			skip = true
+		}
 	}
 	t.countMu.Unlock()
+
+	switch {
+	case fire:
+		t.wg.Add(1)
+		go t.processNode(ctx, targetID)
+	case skip:
+		// The node will never run; propagate the prune to its descendants so
+		// that deeper join nodes can still reach their expected in-degree.
+		for _, child := range t.adj[targetID] {
+			t.resolveEdge(ctx, child, false)
+		}
+	}
 }

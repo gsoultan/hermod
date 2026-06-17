@@ -68,7 +68,9 @@ func SaveDBConfig(cfg *DBConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(getDBConfigPath(), data, 0644)
+	// db_config.yaml holds sensitive secrets (JWTSecret, CryptoMasterKey),
+	// so it must not be world/group readable.
+	return os.WriteFile(getDBConfigPath(), data, 0600)
 }
 
 func IsDBConfigured() bool {

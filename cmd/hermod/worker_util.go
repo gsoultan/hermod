@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
 	"github.com/google/uuid"
 	"github.com/user/hermod/internal/engine/registry"
@@ -64,6 +65,11 @@ func getWorkerName(guid string) string {
 
 func startWorkerAsync(ctx context.Context, wrk *worker.Worker) {
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("CRITICAL: Worker process panicked: %v\n%s", r, string(debug.Stack()))
+			}
+		}()
 		if err := wrk.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("Worker failed: %v", err)
 		}

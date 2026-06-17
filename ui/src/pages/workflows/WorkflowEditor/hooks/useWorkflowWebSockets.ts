@@ -2,17 +2,83 @@ import { useEffect } from 'react';
 import { getToken } from '@/auth/storage';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 
+const MAX_RECONNECT_DELAY = 30000;
+const BASE_RECONNECT_DELAY = 1000;
+
+/**
+ * connectWithReconnect opens a WebSocket and transparently re-establishes the
+ * connection (with capped exponential backoff) whenever it closes unexpectedly.
+ * It returns a teardown function that permanently stops reconnection and closes
+ * the active socket.
+ */
+function connectWithReconnect(
+  buildUrl: () => string,
+  onMessage: (event: MessageEvent) => void,
+): () => void {
+  let ws: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let attempt = 0;
+  let closed = false;
+
+  const open = () => {
+    if (closed) return;
+
+    ws = new WebSocket(buildUrl());
+
+    ws.onmessage = onMessage;
+
+    ws.onopen = () => {
+      attempt = 0;
+    };
+
+    ws.onclose = () => {
+      if (closed) return;
+      // Reconnect with capped exponential backoff and jitter to avoid a
+      // thundering herd of reconnect attempts.
+      const delay = Math.min(
+        BASE_RECONNECT_DELAY * 2 ** attempt,
+        MAX_RECONNECT_DELAY,
+      );
+      attempt += 1;
+      const jitter = delay * (0.8 + Math.random() * 0.4);
+      reconnectTimer = setTimeout(open, jitter);
+    };
+
+    ws.onerror = () => {
+      // Force a close so the onclose handler schedules a reconnect.
+      ws?.close();
+    };
+  };
+
+  open();
+
+  return () => {
+    closed = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (ws) {
+      ws.onclose = null;
+      ws.onerror = null;
+      ws.close();
+    }
+  };
+}
+
+function getWsProtocol(): string {
+  return window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+}
+
 export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: boolean) {
   // WebSocket for logs
   useEffect(() => {
     if (!id || id === 'new' || !active || logsPaused) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const token = getToken();
-    const tokenParam = token ? `&token=${token}` : '';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws/logs?workflow_id=${id}${tokenParam}`);
+    const buildUrl = () => {
+      const token = getToken();
+      const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
+      return `${getWsProtocol()}//${window.location.host}/api/ws/logs?workflow_id=${encodeURIComponent(id)}${tokenParam}`;
+    };
 
-    ws.onmessage = (event) => {
+    const onMessage = (event: MessageEvent) => {
       try {
         const log = JSON.parse(event.data);
         useWorkflowStore.setState((state) => {
@@ -22,27 +88,35 @@ export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: b
             return { logs: [log, ...state.logs].slice(0, 100) };
           }
         });
-      } catch (e) {}
+      } catch (e) {
+        // Ignore malformed log frames.
+      }
     };
 
-    return () => ws.close();
+    return connectWithReconnect(buildUrl, onMessage);
   }, [id, active, logsPaused]);
 
-  // WebSocket for status
+  // WebSocket for status.
+  // Not gated on `active`: the engine reports lifecycle transitions
+  // (running, reconnecting, restarting, stopping, stopped) in real time, so the
+  // connection must stay open regardless of the workflow's active flag to keep
+  // the UI status in sync with the backend engine.
   useEffect(() => {
-    if (!id || id === 'new' || !active) return;
+    if (!id || id === 'new') return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const token = getToken();
-    const tokenParam = token ? `?token=${token}` : '';
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/status${tokenParam}`;
-    const ws = new WebSocket(wsUrl);
+    const buildUrl = () => {
+      const token = getToken();
+      const base = `${getWsProtocol()}//${window.location.host}/api/ws/status`;
+      return token
+        ? `${base}?token=${encodeURIComponent(token)}&workflow_id=${encodeURIComponent(id)}`
+        : `${base}?workflow_id=${encodeURIComponent(id)}`;
+    };
 
-    ws.onmessage = (event) => {
+    const onMessage = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
         const updates = Array.isArray(data) ? data : [data];
-        
+
         updates.forEach(update => {
           if (update.workflow_id === id) {
             const currentStore = useWorkflowStore.getState();
@@ -104,9 +178,11 @@ export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: b
             }
           }
         });
-      } catch (e) {}
+      } catch (e) {
+        // Ignore malformed status frames.
+      }
     };
 
-    return () => ws.close();
-  }, [id, active]);
+    return connectWithReconnect(buildUrl, onMessage);
+  }, [id]);
 }
