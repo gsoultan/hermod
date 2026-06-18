@@ -80,7 +80,7 @@ func encodeMessage(w io.Writer, msg hermod.Message, comp compression.Compressor)
 	// Write header: Magic (3 bytes) + Algo (1 byte) + UncompressedSize (4 bytes) + DataLength (4 bytes)
 	var header [12]byte
 	binary.LittleEndian.PutUint32(header[0:4], encodingMagic)
-	header[3] = byte(algoToByte(algo))
+	header[3] = algoToByte(algo)
 	binary.LittleEndian.PutUint32(header[4:8], uint32(len(tmp)))
 	binary.LittleEndian.PutUint32(header[8:12], uint32(len(dataToLowLevel)))
 

@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -22,7 +23,7 @@ func init() {
 func (e *JoinExecutor) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	keyPath, _ := node.Config["key_path"].(string)
 	if keyPath == "" {
-		return nil, "error", fmt.Errorf("join node requires key_path")
+		return nil, "error", errors.New("join node requires key_path")
 	}
 
 	key := fmt.Sprintf("%v", evaluator.GetMsgValByPath(msg, keyPath))

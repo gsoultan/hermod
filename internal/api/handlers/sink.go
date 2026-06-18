@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -158,7 +157,7 @@ func (h *Handler) DeleteSink(w http.ResponseWriter, r *http.Request) {
 
 	snk, err := h.Storage.GetSink(ctx, id)
 	if err != nil {
-		if err == storage.ErrNotFound {
+		if errors.Is(err, storage.ErrNotFound) {
 			h.JsonError(w, "Sink not found", http.StatusNotFound)
 		} else {
 			h.JsonError(w, "Failed to get sink: "+err.Error(), http.StatusInternalServerError)
@@ -392,35 +391,35 @@ func (h *Handler) TruncateSinkTable(w http.ResponseWriter, r *http.Request) {
 			h.JsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		stmt = fmt.Sprintf("TRUNCATE TABLE %s", q)
+		stmt = "TRUNCATE TABLE " + q
 	case "mysql", "mariadb":
 		q, err := quote("mysql", target)
 		if err != nil {
 			h.JsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		stmt = fmt.Sprintf("TRUNCATE TABLE %s", q)
+		stmt = "TRUNCATE TABLE " + q
 	case "mssql":
 		q, err := quote("mssql", target)
 		if err != nil {
 			h.JsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		stmt = fmt.Sprintf("TRUNCATE TABLE %s", q)
+		stmt = "TRUNCATE TABLE " + q
 	case "sqlite":
 		q, err := quote("sqlite", target)
 		if err != nil {
 			h.JsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		stmt = fmt.Sprintf("DELETE FROM %s", q)
+		stmt = "DELETE FROM " + q
 	case "oracle":
 		q, err := quote("oracle", target)
 		if err != nil {
 			h.JsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		stmt = fmt.Sprintf("TRUNCATE TABLE %s", q)
+		stmt = "TRUNCATE TABLE " + q
 	case "clickhouse":
 		full := target
 		if !strings.Contains(target, ".") {
@@ -434,14 +433,14 @@ func (h *Handler) TruncateSinkTable(w http.ResponseWriter, r *http.Request) {
 			h.JsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		stmt = fmt.Sprintf("TRUNCATE TABLE %s", q)
+		stmt = "TRUNCATE TABLE " + q
 	case "snowflake":
 		q, err := quote("snowflake", target)
 		if err != nil {
 			h.JsonError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		stmt = fmt.Sprintf("TRUNCATE TABLE %s", q)
+		stmt = "TRUNCATE TABLE " + q
 	case "cassandra":
 		full := target
 		if !strings.Contains(target, ".") {
@@ -456,7 +455,7 @@ func (h *Handler) TruncateSinkTable(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// CQL supports TRUNCATE without TABLE
-		stmt = fmt.Sprintf("TRUNCATE %s", q)
+		stmt = "TRUNCATE " + q
 	default:
 		h.JsonError(w, "Unsupported sink type for truncate: "+req.Sink.Type, http.StatusBadRequest)
 		return

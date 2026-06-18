@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"
@@ -34,7 +35,8 @@ func (t *MappingTransformer) Transform(ctx context.Context, msg hermod.Message, 
 	fieldValRaw := evaluator.GetMsgValByPath(msg, field)
 	fieldVal := fmt.Sprintf("%v", fieldValRaw)
 
-	if mappingType == "range" {
+	switch mappingType {
+	case "range":
 		val, ok := evaluator.ToFloat64(fieldValRaw)
 		if ok {
 			for k, v := range mapping {
@@ -57,7 +59,7 @@ func (t *MappingTransformer) Transform(ctx context.Context, msg hermod.Message, 
 				}
 			}
 		}
-	} else if mappingType == "regex" {
+	case "regex":
 		for k, v := range mapping {
 			matched, _ := regexp.MatchString(k, fieldVal)
 			if matched {
@@ -65,7 +67,7 @@ func (t *MappingTransformer) Transform(ctx context.Context, msg hermod.Message, 
 				return msg, nil
 			}
 		}
-	} else {
+	default:
 		// exact (default)
 		if newVal, ok := mapping[fieldVal]; ok {
 			msg.SetData(field, newVal)

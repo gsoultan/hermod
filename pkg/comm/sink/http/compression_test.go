@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/user/hermod/pkg/comm/message"
@@ -12,9 +13,11 @@ import (
 
 func TestHttpSinkCompression(t *testing.T) {
 	testData := "this is a long enough message to trigger compression. "
+	var testDataSb15 strings.Builder
 	for i := 0; i < 200; i++ {
-		testData += "more data to make it much larger than 1024 bytes "
+		testDataSb15.WriteString("more data to make it much larger than 1024 bytes ")
 	}
+	testData += testDataSb15.String()
 
 	algorithms := []compression.Algorithm{compression.LZ4, compression.Snappy, compression.Zstd}
 

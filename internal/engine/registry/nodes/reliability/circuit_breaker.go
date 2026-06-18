@@ -22,6 +22,12 @@ func (e *CircuitBreakerExecutor) Execute(ctx context.Context, nctx registry.Node
 		threshold = 5
 	}
 
+	if state.Status != "OPEN" && state.Failures >= int(threshold) {
+		state.Status = "OPEN"
+		state.LastFailure = time.Now()
+		e.setCBState(nctx, node.ID, state)
+	}
+
 	if state.Status == "OPEN" {
 		if time.Since(state.LastFailure) > 30*time.Second {
 			state.Status = "HALF_OPEN"

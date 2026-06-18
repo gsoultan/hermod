@@ -88,7 +88,7 @@ func (s *RabbitMQQueueSink) Write(ctx context.Context, msg hermod.Message) error
 	s.mu.Unlock()
 
 	if ch == nil {
-		return fmt.Errorf("rabbitmq channel not connected")
+		return errors.New("rabbitmq channel not connected")
 	}
 
 	var data []byte

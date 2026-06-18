@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,7 +38,7 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 	})
 
 	if !ok {
-		return msg, fmt.Errorf("registry not found in context")
+		return msg, errors.New("registry not found in context")
 	}
 
 	method := core.GetConfigString(config, "method")
@@ -161,9 +162,10 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 		}
 
 		// Auth
-		if authType == "basic" {
+		switch authType {
+		case "basic":
 			req.SetBasicAuth(evaluator.ResolveTemplate(username, data), evaluator.ResolveTemplate(password, data))
-		} else if authType == "bearer" {
+		case "bearer":
 			req.Header.Set("Authorization", "Bearer "+evaluator.ResolveTemplate(token, data))
 		}
 
@@ -178,7 +180,7 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 			resp.Body.Close()
 			cancel()
 			lastErr = fmt.Errorf("api lookup returned status %d", resp.StatusCode)
-			if resp.StatusCode >= 500 || resp.StatusCode == 429 {
+			if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 				continue // Retryable
 			}
 			break // Non-retryable

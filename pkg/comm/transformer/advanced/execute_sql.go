@@ -3,6 +3,7 @@ package advanced
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -30,7 +31,7 @@ func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Messag
 	})
 
 	if !ok {
-		return msg, fmt.Errorf("registry not found in context")
+		return msg, errors.New("registry not found in context")
 	}
 
 	sourceID, _ := config["sourceId"].(string)
@@ -64,7 +65,7 @@ func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Messag
 
 	sqlText, args := core.ParameterizeTemplate(driver, queryTemplate, msg.Data())
 	if strings.TrimSpace(sqlText) == "" {
-		return msg, fmt.Errorf("empty queryTemplate after processing")
+		return msg, errors.New("empty queryTemplate after processing")
 	}
 
 	res, err := db.ExecContext(ctx, sqlText, args...)

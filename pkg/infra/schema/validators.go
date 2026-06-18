@@ -3,7 +3,9 @@ package schema
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/hamba/avro/v2"
 	"github.com/jhump/protoreflect/desc"
@@ -62,9 +64,11 @@ func (v *JSONSchemaValidator) Validate(ctx context.Context, data map[string]any)
 	}
 	if !result.Valid() {
 		var errs string
+		var errsSb65 strings.Builder
 		for _, desc := range result.Errors() {
-			errs += desc.String() + "; "
+			errsSb65.WriteString(desc.String() + "; ")
 		}
+		errs += errsSb65.String()
 		return fmt.Errorf("JSON schema validation failed: %s", errs)
 	}
 	return nil
@@ -91,14 +95,14 @@ func NewProtobufValidator(schemaStr string) (*ProtobufValidator, error) {
 		return nil, fmt.Errorf("failed to parse protobuf schema: %w", err)
 	}
 	if len(fds) == 0 {
-		return nil, fmt.Errorf("no descriptors found in protobuf schema")
+		return nil, errors.New("no descriptors found in protobuf schema")
 	}
 
 	// We assume the first message in the first file is the one to validate against.
 	// In a real scenario, we might want to specify the message name.
 	msgs := fds[0].GetMessageTypes()
 	if len(msgs) == 0 {
-		return nil, fmt.Errorf("no message types found in protobuf schema")
+		return nil, errors.New("no message types found in protobuf schema")
 	}
 
 	return &ProtobufValidator{descriptor: msgs[0]}, nil

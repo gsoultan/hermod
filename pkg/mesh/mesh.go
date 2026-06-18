@@ -115,7 +115,7 @@ func (r *Router) RouteMessage(ctx context.Context, targetClusterID string, msg h
 		return fmt.Errorf("mesh: marshal message: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", node.Endpoint+"/api/mesh/receive", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, node.Endpoint+"/api/mesh/receive", bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("mesh: create request: %w", err)
 	}

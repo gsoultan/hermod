@@ -24,7 +24,7 @@ func (c *MeshClient) Forward(ctx context.Context, msg hermod.Message) error {
 		return fmt.Errorf("mesh: marshal message: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.endpoint+"/api/mesh/receive", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint+"/api/mesh/receive", bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("mesh: create request: %w", err)
 	}

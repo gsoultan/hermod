@@ -8,7 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"fmt"
+	"errors"
 	"io"
 )
 
@@ -64,7 +64,7 @@ func Decrypt(cryptoText string) (string, error) {
 
 	nonceSize := gcm.NonceSize()
 	if len(ciphertext) < nonceSize {
-		return "", fmt.Errorf("ciphertext too short")
+		return "", errors.New("ciphertext too short")
 	}
 
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]

@@ -29,7 +29,7 @@ func (f *mockFormatter) Format(msg hermod.Message) ([]byte, error) {
 
 func TestHttpSink_Write(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			t.Errorf("expected POST method, got %s", r.Method)
 		}
 		w.WriteHeader(http.StatusOK)
@@ -46,7 +46,7 @@ func TestHttpSink_Write(t *testing.T) {
 func TestHttpSink_Ping(t *testing.T) {
 	t.Run("default HEAD", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != "HEAD" {
+			if r.Method != http.MethodHead {
 				t.Errorf("expected HEAD method, got %s", r.Method)
 			}
 			w.WriteHeader(http.StatusOK)
@@ -62,7 +62,7 @@ func TestHttpSink_Ping(t *testing.T) {
 
 	t.Run("custom GET", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != "GET" {
+			if r.Method != http.MethodGet {
 				t.Errorf("expected GET method, got %s", r.Method)
 			}
 			w.WriteHeader(http.StatusOK)

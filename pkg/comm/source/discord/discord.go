@@ -70,7 +70,7 @@ func (s *DiscordSource) Read(ctx context.Context) (hermod.Message, error) {
 		apiURL = fmt.Sprintf("%s&after=%s", apiURL, s.lastMessageID)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (s *DiscordSource) Ack(ctx context.Context, msg hermod.Message) error {
 
 // Ping checks the connection to Discord.
 func (s *DiscordSource) Ping(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", s.baseURL+"/users/@me", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/users/@me", nil)
 	if err != nil {
 		return err
 	}

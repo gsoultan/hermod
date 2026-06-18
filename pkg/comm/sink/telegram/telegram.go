@@ -52,7 +52,7 @@ func (s *TelegramSink) Write(ctx context.Context, msg hermod.Message) error {
 		"parse_mode": "Markdown",
 	})
 
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -93,7 +93,7 @@ func (s *TelegramSink) WriteBatch(ctx context.Context, msgs []hermod.Message) er
 // Ping checks the connection to Telegram API.
 func (s *TelegramSink) Ping(ctx context.Context) error {
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/getMe", s.token)
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return err
 	}

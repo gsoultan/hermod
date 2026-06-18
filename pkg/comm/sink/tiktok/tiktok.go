@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -54,7 +55,7 @@ func (s *TikTokSink) Write(ctx context.Context, msg hermod.Message) error {
 		// If no video_url in data, we can't publish a video.
 		// However, as a sink we might just want to post the payload as title if possible,
 		// but TikTok requires a video.
-		return fmt.Errorf("tiktok sink requires 'video_url' in message data")
+		return errors.New("tiktok sink requires 'video_url' in message data")
 	}
 
 	if title == "" {
@@ -71,8 +72,8 @@ func (s *TikTokSink) Write(ctx context.Context, msg hermod.Message) error {
 		},
 	})
 
-	apiURL := fmt.Sprintf("%s/post/publish/video/init/", s.baseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(body))
+	apiURL := s.baseURL + "/post/publish/video/init/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -111,7 +112,7 @@ func (s *TikTokSink) WriteBatch(ctx context.Context, msgs []hermod.Message) erro
 
 // Ping checks the connection to TikTok API.
 func (s *TikTokSink) Ping(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", s.baseURL+"/user/info/", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/user/info/", nil)
 	if err != nil {
 		return err
 	}

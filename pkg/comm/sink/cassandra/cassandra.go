@@ -165,7 +165,7 @@ func (s *CassandraSink) deleteMapped(ctx context.Context, batch *gocql.Batch, ta
 	for _, m := range s.mappings {
 		if m.IsPrimaryKey {
 			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			pks = append(pks, fmt.Sprintf("%s = ?", m.TargetColumn))
+			pks = append(pks, m.TargetColumn+" = ?")
 			args = append(args, val)
 		}
 	}

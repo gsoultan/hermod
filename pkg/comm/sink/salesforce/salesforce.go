@@ -63,7 +63,7 @@ func (s *SalesforceSink) authenticate(ctx context.Context) error {
 	payload := fmt.Sprintf("grant_type=password&client_id=%s&client_secret=%s&username=%s&password=%s%s",
 		s.clientID, s.clientSecret, s.username, s.password, s.securityToken)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,8 @@ func (s *SalesforceSink) writeRecord(ctx context.Context, msg hermod.Message) er
 	url := fmt.Sprintf("%s/services/data/v59.0/sobjects/%s", instanceURL, s.object)
 	method := "POST"
 
-	if s.operation == "update" || s.operation == "upsert" {
+	switch s.operation {
+	case "update", "upsert":
 		idVal := evaluator.GetMsgValByPath(msg, "Id")
 		if idVal == nil {
 			idVal = evaluator.GetMsgValByPath(msg, "after.Id")
@@ -132,7 +133,7 @@ func (s *SalesforceSink) writeRecord(ctx context.Context, msg hermod.Message) er
 			url = fmt.Sprintf("%s/services/data/v59.0/sobjects/%s/%s", instanceURL, s.object, id)
 			method = "PATCH"
 		}
-	} else if s.operation == "delete" {
+	case "delete":
 		idVal := evaluator.GetMsgValByPath(msg, "Id")
 		if idVal == nil {
 			idVal = evaluator.GetMsgValByPath(msg, "before.Id")
@@ -209,7 +210,7 @@ func (s *SalesforceSink) WriteBatch(ctx context.Context, msgs []hermod.Message) 
 
 func (s *SalesforceSink) createJob(ctx context.Context) (string, error) {
 	s.mu.RLock()
-	url := fmt.Sprintf("%s/services/data/v59.0/jobs/ingest", s.instanceURL)
+	url := s.instanceURL + "/services/data/v59.0/jobs/ingest"
 	accessToken := s.accessToken
 	s.mu.RUnlock()
 
@@ -224,7 +225,7 @@ func (s *SalesforceSink) createJob(ctx context.Context) (string, error) {
 	}
 
 	body, _ := json.Marshal(jobSpec)
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -271,7 +272,7 @@ func (s *SalesforceSink) uploadJobData(ctx context.Context, jobID string, msgs [
 		csvBuf.WriteString(strings.Join(row, ",") + "\n")
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, "PUT", url, &csvBuf)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPut, url, &csvBuf)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "text/csv")
 
@@ -290,7 +291,7 @@ func (s *SalesforceSink) closeJob(ctx context.Context, jobID string) error {
 	s.mu.RUnlock()
 
 	body := []byte(`{"state":"UploadComplete"}`)
-	req, _ := http.NewRequestWithContext(ctx, "PATCH", url, bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPatch, url, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -307,11 +308,11 @@ func (s *SalesforceSink) Ping(ctx context.Context) error {
 		return s.authenticate(ctx)
 	}
 	s.mu.RLock()
-	url := fmt.Sprintf("%s/services/data/v59.0/", s.instanceURL)
+	url := s.instanceURL + "/services/data/v59.0/"
 	accessToken := s.accessToken
 	s.mu.RUnlock()
 
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	resp, err := s.client.Do(req)
 	if err != nil {

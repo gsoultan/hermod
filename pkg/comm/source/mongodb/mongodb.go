@@ -3,6 +3,7 @@ package mongodb
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -320,13 +321,13 @@ func (m *MongoDBSource) Ack(ctx context.Context, msg hermod.Message) error {
 	if tokenHex == "" {
 		return nil
 	}
-	token, err := hex.DecodeString(tokenHex)
-	if err != nil {
-		return nil
+	// A malformed resume token is ignored: acking must still succeed, we just
+	// keep the previously stored token.
+	if token, err := hex.DecodeString(tokenHex); err == nil {
+		m.mu.Lock()
+		m.lastResumeToken = bson.Raw(token)
+		m.mu.Unlock()
 	}
-	m.mu.Lock()
-	m.lastResumeToken = bson.Raw(token)
-	m.mu.Unlock()
 	return nil
 }
 
@@ -363,7 +364,7 @@ func (m *MongoDBSource) IsReady(ctx context.Context) error {
 	isSharded := hasMsg && msg == "isdbgrid"
 
 	if !hasSetName && !isSharded {
-		return fmt.Errorf("mongodb change streams require a replica set or sharded cluster. Current deployment is a standalone instance")
+		return errors.New("mongodb change streams require a replica set or sharded cluster. Current deployment is a standalone instance")
 	}
 
 	return nil
@@ -443,7 +444,7 @@ func (m *MongoDBSource) DiscoverColumns(ctx context.Context, table string) ([]he
 	var doc bson.M
 	err = client.Database(m.database).Collection(table).FindOne(ctx, bson.M{}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return []hermod.ColumnInfo{}, nil
 		}
 		return nil, err
@@ -473,7 +474,7 @@ func (m *MongoDBSource) Sample(ctx context.Context, table string) (hermod.Messag
 		targetColl = m.collection
 	}
 	if targetColl == "" {
-		return nil, fmt.Errorf("no collection specified for sampling")
+		return nil, errors.New("no collection specified for sampling")
 	}
 
 	coll := client.Database(m.database).Collection(targetColl)

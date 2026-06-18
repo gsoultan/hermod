@@ -56,7 +56,7 @@ func (s *FacebookSink) Write(ctx context.Context, msg hermod.Message) error {
 	params.Set("message", messageText)
 	params.Set("access_token", s.accessToken)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL+"?"+params.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL+"?"+params.Encode(), nil)
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func (s *FacebookSink) Ping(ctx context.Context) error {
 	params.Set("access_token", s.accessToken)
 	params.Set("fields", "id,name")
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL+"?"+params.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL+"?"+params.Encode(), nil)
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,7 @@
 package sqlutil
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -13,7 +14,7 @@ var identRe = regexp.MustCompile(`^[A-Za-z0-9_\.]+$`)
 // Drivers: pgx/postgres -> "name", mysql/mariadb/sqlite -> `name`, mssql -> [name].
 func QuoteIdent(driver, name string) (string, error) {
 	if name == "" {
-		return "", fmt.Errorf("empty identifier")
+		return "", errors.New("empty identifier")
 	}
 	if !identRe.MatchString(name) {
 		return "", fmt.Errorf("invalid identifier: %s", name)
@@ -45,7 +46,7 @@ func QuoteIdent(driver, name string) (string, error) {
 // (e.g. CQL) where identifiers are interpolated as-is, to prevent SQL/CQL injection.
 func ValidateIdent(name string) error {
 	if name == "" {
-		return fmt.Errorf("empty identifier")
+		return errors.New("empty identifier")
 	}
 	if !identRe.MatchString(name) {
 		return fmt.Errorf("invalid identifier: %s", name)

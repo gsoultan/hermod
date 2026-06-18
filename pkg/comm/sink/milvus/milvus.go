@@ -110,7 +110,7 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 		columns = append(columns, entity.NewColumnVarChar(s.config.IDColumn, stringIDs))
 	}
 
-	columns = append(columns, entity.NewColumnFloatVector(s.config.VectorColumn, int(len(vectors[0])), vectors))
+	columns = append(columns, entity.NewColumnFloatVector(s.config.VectorColumn, len(vectors[0]), vectors))
 
 	_, err := s.client.Insert(ctx, s.config.CollectionName, s.config.PartitionName, columns...)
 	return err

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -51,7 +52,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	})
 
 	if !ok {
-		return msg, fmt.Errorf("registry not found in context")
+		return msg, errors.New("registry not found in context")
 	}
 
 	sourceID := core.GetConfigString(config, "sourceId")
@@ -172,7 +173,7 @@ func (t *DBLookupTransformer) lookupMongoDB(ctx context.Context, src storage.Sou
 	var result map[string]any
 	err = coll.FindOne(ctx, filter).Decode(&result)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("mongo lookup failed: %w", err)
@@ -278,7 +279,7 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 			args = append(args, val)
 		}
 		if len(whereParts) == 0 {
-			return nil, fmt.Errorf("invalid whereClause: no conditions parsed")
+			return nil, errors.New("invalid whereClause: no conditions parsed")
 		}
 	} else if keyColumn != "" {
 		qkey, qerr := sqlutil.QuoteIdent(driver, keyColumn)
@@ -300,12 +301,11 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 			batchMode = true
 		} else {
 			ph := sqlutil.Placeholder(driver, nextIdx)
-			nextIdx++
 			whereParts = append(whereParts, fmt.Sprintf("%s = %s", qkey, ph))
 			args = append(args, keyVal)
 		}
 	} else {
-		return nil, fmt.Errorf("either whereClause or keyColumn must be provided for db_lookup")
+		return nil, errors.New("either whereClause or keyColumn must be provided for db_lookup")
 	}
 
 	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s", selectList, quotedTable, strings.Join(whereParts, " AND "))
@@ -404,7 +404,7 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 		} else {
 			err = db.QueryRowContext(ctx, query, args...).Scan(&resultVal)
 			if err != nil {
-				if err == sql.ErrNoRows {
+				if errors.Is(err, sql.ErrNoRows) {
 					return nil, nil
 				}
 				return nil, fmt.Errorf("failed to execute lookup query: %w", err)
@@ -441,7 +441,7 @@ func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registr
 
 	sqlText, args := core.ParameterizeTemplate(driver, queryTemplate, data)
 	if strings.TrimSpace(sqlText) == "" {
-		return nil, fmt.Errorf("empty queryTemplate after processing")
+		return nil, errors.New("empty queryTemplate after processing")
 	}
 
 	// Decide scanning mode by valueColumn
@@ -488,7 +488,7 @@ func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registr
 		var v any
 		err = db.QueryRowContext(ctx, sqlText, args...).Scan(&v)
 		if err != nil {
-			if err == sql.ErrNoRows {
+			if errors.Is(err, sql.ErrNoRows) {
 				return nil, nil
 			}
 			return nil, fmt.Errorf("failed to execute lookup query: %w", err)

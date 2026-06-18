@@ -2,8 +2,11 @@ package nats
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -97,7 +100,7 @@ func (s *NatsJetStreamSource) Read(ctx context.Context) (hermod.Message, error) 
 
 	m, err := sub.NextMsgWithContext(ctx)
 	if err != nil {
-		if err == nats.ErrTimeout {
+		if errors.Is(err, nats.ErrTimeout) {
 			return nil, nil // Return nil msg on timeout to allow loop to continue
 		}
 		return nil, err
@@ -109,10 +112,10 @@ func (s *NatsJetStreamSource) Read(ctx context.Context) (hermod.Message, error) 
 	// Better: use metadata or some unique property
 	metadata, _ := m.Metadata()
 	if metadata != nil {
-		msgID = fmt.Sprintf("%d", metadata.Sequence.Stream)
+		msgID = strconv.FormatUint(metadata.Sequence.Stream, 10)
 	}
 	if msgID == "" {
-		msgID = m.Subject + "_" + fmt.Sprintf("%x", m.Data)
+		msgID = m.Subject + "_" + hex.EncodeToString(m.Data)
 	}
 
 	msg.SetID(msgID)
@@ -199,10 +202,10 @@ func (s *NatsJetStreamSource) Sample(ctx context.Context, table string) (hermod.
 	msgID := m.Subject
 	metadata, _ := m.Metadata()
 	if metadata != nil {
-		msgID = fmt.Sprintf("%d", metadata.Sequence.Stream)
+		msgID = strconv.FormatUint(metadata.Sequence.Stream, 10)
 	}
 	if msgID == "" {
-		msgID = m.Subject + "_" + fmt.Sprintf("%x", m.Data)
+		msgID = m.Subject + "_" + hex.EncodeToString(m.Data)
 	}
 
 	msg.SetID(msgID)

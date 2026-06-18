@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -715,7 +716,7 @@ func (r *Registry) createSinkInternal(ctx context.Context, cfg factory.SinkConfi
 
 func (r *Registry) resolveAndCreateSink(ctx context.Context, id string) (hermod.Sink, error) {
 	if r.storage == nil {
-		return nil, fmt.Errorf("registry storage is not available")
+		return nil, errors.New("registry storage is not available")
 	}
 	dbSnk, err := r.storage.GetSink(ctx, id)
 	if err != nil {
@@ -763,7 +764,7 @@ func (r *Registry) GetOrOpenDB(src storage.Source) (*sql.DB, error) {
 
 func (r *Registry) GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, string, error) {
 	if r.storage == nil {
-		return nil, "", fmt.Errorf("registry storage is not initialized")
+		return nil, "", errors.New("registry storage is not initialized")
 	}
 	src, err := r.storage.GetSource(ctx, id)
 	if err != nil {
@@ -775,7 +776,7 @@ func (r *Registry) GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, str
 
 func (r *Registry) GetSource(ctx context.Context, id string) (storage.Source, error) {
 	if r.storage == nil {
-		return storage.Source{}, fmt.Errorf("registry storage is not initialized")
+		return storage.Source{}, errors.New("registry storage is not initialized")
 	}
 	return r.storage.GetSource(ctx, id)
 }
@@ -1145,7 +1146,8 @@ func (r *Registry) getNodeName(node storage.WorkflowNode) string {
 func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) error {
 	// 1. Check if all nodes are configured and exist
 	for _, node := range wf.Nodes {
-		if node.Type == "source" {
+		switch node.Type {
+		case "source":
 			if node.RefID == "" || node.RefID == "new" {
 				return fmt.Errorf("source node %s is not configured", r.getNodeName(node))
 			}
@@ -1154,7 +1156,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 					return fmt.Errorf("source node %s refers to missing source %s: %w", r.getNodeName(node), node.RefID, err)
 				}
 			}
-		} else if node.Type == "sink" {
+		case "sink":
 			if node.RefID == "" || node.RefID == "new" {
 				return fmt.Errorf("sink node %s is not configured", r.getNodeName(node))
 			}
@@ -1174,7 +1176,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 		}
 	}
 	if len(sourceNodes) == 0 {
-		return fmt.Errorf("workflow must have at least one source node")
+		return errors.New("workflow must have at least one source node")
 	}
 
 	// 3. Reachability and cycle detection
@@ -1219,7 +1221,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 	}
 
 	if !hasSink {
-		return fmt.Errorf("no sink node reachable from any source")
+		return errors.New("no sink node reachable from any source")
 	}
 
 	// 4. Check for disconnected nodes (optional, but good for production)
@@ -1243,7 +1245,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 	// 6. DLQ Prioritization requirements
 	if wf.PrioritizeDLQ {
 		if wf.DeadLetterSinkID == "" {
-			return fmt.Errorf("PrioritizeDLQ is enabled but no Dead Letter Sink is configured")
+			return errors.New("PrioritizeDLQ is enabled but no Dead Letter Sink is configured")
 		}
 		if r.storage != nil {
 			dlqSink, err := r.storage.GetSink(ctx, wf.DeadLetterSinkID)

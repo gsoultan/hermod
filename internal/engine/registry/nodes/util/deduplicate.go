@@ -33,7 +33,7 @@ func (n *DeduplicateNode) Execute(ctx context.Context, nctx registry.NodeContext
 
 	f := n.getFilter(workflowID, node.ID)
 	if f.Test([]byte(key)) {
-		nctx.BroadcastLog(workflowID, "INFO", fmt.Sprintf("Duplicate detected for key: %s", key), msg.ID())
+		nctx.BroadcastLog(workflowID, "INFO", "Duplicate detected for key: "+key, msg.ID())
 		return nil, "duplicate", nil
 	}
 

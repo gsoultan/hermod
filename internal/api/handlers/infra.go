@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -496,7 +497,7 @@ func (h *Handler) SaveDBConfig(w http.ResponseWriter, r *http.Request) {
 		case "mongodb":
 			testErr = h.TestMongoDB(ctx, cfg.Conn)
 		case "pebble":
-			testErr = fmt.Errorf("pebble is only supported for logging database")
+			testErr = errors.New("pebble is only supported for logging database")
 		case "mssql":
 			testErr = h.TestMSSQL(ctx, cfg.Conn)
 		default:
@@ -562,11 +563,12 @@ func (h *Handler) SaveDBConfig(w http.ResponseWriter, r *http.Request) {
 
 	var newLogStore storage.Storage
 	if cfg.LogType != "" && cfg.LogConn != "" {
-		if cfg.LogType == "mongodb" {
+		switch cfg.LogType {
+		case "mongodb":
 			newLogStore, err = h.InitMongoStorage(r.Context(), cfg.LogConn)
-		} else if cfg.LogType == "pebble" {
+		case "pebble":
 			newLogStore, err = h.InitPebbleStorage(r.Context(), cfg.LogConn)
-		} else {
+		default:
 			// Create a temporary DBConfig for initSQLStorage
 			logCfg := config.DBConfig{
 				Type: cfg.LogType,

@@ -202,7 +202,7 @@ func (s *RabbitMQStreamSource) Sample(ctx context.Context, table string) (hermod
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-time.After(2 * time.Second):
-		return nil, fmt.Errorf("sample timeout: no messages found")
+		return nil, errors.New("sample timeout: no messages found")
 	}
 }
 

@@ -86,7 +86,7 @@ func (e *Evaluator) ParseAndEvaluate(msg hermod.Message, expr string) any {
 			// Verify it looks like a function name
 			isFunc := true
 			for _, c := range funcName {
-				if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+				if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
 					isFunc = false
 					break
 				}
@@ -163,15 +163,15 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 	case "replace":
 		if len(args) >= 3 {
 			s := fmt.Sprintf("%v", args[0])
-			old := fmt.Sprintf("%v", args[1])
-			new := fmt.Sprintf("%v", args[2])
-			return strings.ReplaceAll(s, old, new)
+			oldVal := fmt.Sprintf("%v", args[1])
+			newVal := fmt.Sprintf("%v", args[2])
+			return strings.ReplaceAll(s, oldVal, newVal)
 		}
 	case "concat":
 		var sb strings.Builder
 		for _, arg := range args {
 			if arg != nil {
-				sb.WriteString(fmt.Sprintf("%v", arg))
+				fmt.Fprintf(&sb, "%v", arg)
 			}
 		}
 		return sb.String()
@@ -466,11 +466,7 @@ func GetMsgValByPath(msg hermod.Message, path string) any {
 	if v := getValueFromRaw(msg.Payload(), path); v != nil {
 		return v
 	}
-	if v := getValueFromRaw(msg.Before(), path); v != nil {
-		return v
-	}
-
-	return nil
+	return getValueFromRaw(msg.Before(), path)
 }
 
 func getValueFromRaw(raw []byte, path string) any {
@@ -652,7 +648,7 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 		}
 
 		// Resolve templates/expressions in the value if present
-		var valResolved any = val
+		valResolved := val
 		if vs, ok := val.(string); ok {
 			if strings.Contains(vs, "{{") && strings.Contains(vs, "}}") {
 				valResolved = ResolveTemplate(vs, msg.Data())

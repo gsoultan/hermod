@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -247,7 +248,7 @@ func (m *MySQLSource) IsReady(ctx context.Context) error {
 		return fmt.Errorf("failed to check mysql 'log_bin': %w", err)
 	}
 	if logBin != "ON" {
-		return fmt.Errorf("mysql 'log_bin' must be 'ON' for CDC. Please enable binary logging in your MySQL configuration")
+		return errors.New("mysql 'log_bin' must be 'ON' for CDC. Please enable binary logging in your MySQL configuration")
 	}
 
 	// Check for binlog_row_image = FULL (recommended)
@@ -316,6 +317,9 @@ func (m *MySQLSource) DiscoverDatabases(ctx context.Context) ([]string, error) {
 		}
 		databases = append(databases, name)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return databases, nil
 }
 
@@ -339,6 +343,9 @@ func (m *MySQLSource) DiscoverTables(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 		tables = append(tables, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return tables, nil
 }
@@ -374,6 +381,9 @@ func (m *MySQLSource) DiscoverColumns(ctx context.Context, table string) ([]herm
 			col.Default = *def
 		}
 		columns = append(columns, col)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return columns, nil
 }
@@ -465,7 +475,7 @@ func (m *MySQLSource) snapshotTable(ctx context.Context, table string) error {
 		return fmt.Errorf("invalid table name %q: %w", table, err)
 	}
 
-	rows, err := m.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	rows, err := m.db.QueryContext(ctx, "SELECT * FROM "+quoted)
 	if err != nil {
 		return fmt.Errorf("failed to query table %q: %w", table, err)
 	}

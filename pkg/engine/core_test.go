@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -46,7 +47,7 @@ type mockSink struct {
 func (s *mockSink) Write(ctx context.Context, msg hermod.Message) error {
 	if s.fail > 0 {
 		s.fail--
-		return fmt.Errorf("mock sink error")
+		return errors.New("mock sink error")
 	}
 	if s.received != nil {
 		// Clone before handing the message to the test channel: a message is
@@ -163,7 +164,7 @@ type failPingSink struct {
 }
 
 func (s *failPingSink) Ping(ctx context.Context) error {
-	return fmt.Errorf("sink ping failed")
+	return errors.New("sink ping failed")
 }
 
 func TestEngineSinkPreflightFail(t *testing.T) {
@@ -309,7 +310,7 @@ func TestEngineGracefulShutdown(t *testing.T) {
 	messages := make([]hermod.Message, numMessages)
 	for i := range numMessages {
 		m := message.AcquireMessage()
-		m.SetID(fmt.Sprintf("%d", i))
+		m.SetID(strconv.Itoa(i))
 		messages[i] = m
 	}
 
@@ -417,7 +418,7 @@ func (s *mockSourceWithPing) Ping(ctx context.Context) error {
 	defer s.mu.Unlock()
 	s.pingCount++
 	if s.pingCount <= s.failPings {
-		return fmt.Errorf("ping failed")
+		return errors.New("ping failed")
 	}
 	return nil
 }
@@ -603,7 +604,7 @@ func TestEngineValidation(t *testing.T) {
 		},
 		validateFunc: func(msg hermod.Message) error {
 			if msg.Data()["status"] == "invalid" {
-				return fmt.Errorf("invalid payload")
+				return errors.New("invalid payload")
 			}
 			return nil
 		},
@@ -1207,7 +1208,7 @@ func TestNilMessageHandling(t *testing.T) {
 
 	// Should not panic
 	err := eng.Start(ctx)
-	if err != nil && err != context.DeadlineExceeded {
+	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Engine stopped with error: %v", err)
 	}
 }

@@ -2,9 +2,9 @@ package buffer
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,7 +29,7 @@ func TestCombinedBuffer_ProduceConsume(t *testing.T) {
 	const N = 32
 	for i := 0; i < N; i++ {
 		m := message.AcquireMessage()
-		m.SetID(fmt.Sprintf("%d", i))
+		m.SetID(strconv.Itoa(i))
 		if err := cb.Produce(ctx, m); err != nil {
 			t.Fatalf("produce %d: %v", i, err)
 		}

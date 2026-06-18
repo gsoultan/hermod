@@ -45,7 +45,7 @@ func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 func (s *Sink) Ping(ctx context.Context) error {
 	// Simplified ping: check if we can get index info
 	url := fmt.Sprintf("https://controller.%s.pinecone.io/databases/%s", s.config.Environment, s.config.IndexName)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
@@ -131,7 +131,7 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 
 	// Host URL calculation (simplified for example)
 	url := fmt.Sprintf("https://%s-%s.svc.%s.pinecone.io/vectors/upsert", s.config.IndexName, s.config.Environment, s.config.Environment)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}

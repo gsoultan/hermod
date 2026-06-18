@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/user/hermod"
@@ -79,7 +80,7 @@ func (s *TikTokSource) Read(ctx context.Context) (hermod.Message, error) {
 		apiURL = fmt.Sprintf("%s/video/list/?access_token=%s", s.baseURL, s.accessToken)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -146,8 +147,8 @@ func (s *TikTokSource) Ack(ctx context.Context, msg hermod.Message) error {
 
 // Ping checks the connection to TikTok.
 func (s *TikTokSource) Ping(ctx context.Context) error {
-	apiURL := fmt.Sprintf("%s/user/info/", s.baseURL)
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	apiURL := s.baseURL + "/user/info/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return err
 	}
@@ -166,7 +167,7 @@ func (s *TikTokSource) Ping(ctx context.Context) error {
 // GetState returns the current state of the source.
 func (s *TikTokSource) GetState() map[string]string {
 	return map[string]string{
-		"cursor": fmt.Sprintf("%d", s.cursor),
+		"cursor": strconv.FormatInt(s.cursor, 10),
 	}
 }
 

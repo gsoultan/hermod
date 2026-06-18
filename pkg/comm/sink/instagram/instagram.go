@@ -3,6 +3,7 @@ package instagram
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -41,7 +42,7 @@ func (s *InstagramSink) Write(ctx context.Context, msg hermod.Message) error {
 	}
 
 	if !ok || mediaURL == "" {
-		return fmt.Errorf("instagram sink requires media_url or image_url in message data")
+		return errors.New("instagram sink requires media_url or image_url in message data")
 	}
 
 	var caption string
@@ -63,7 +64,7 @@ func (s *InstagramSink) Write(ctx context.Context, msg hermod.Message) error {
 	params.Set("caption", caption)
 	params.Set("access_token", s.accessToken)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL+"?"+params.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL+"?"+params.Encode(), nil)
 	if err != nil {
 		return err
 	}
@@ -102,7 +103,7 @@ func (s *InstagramSink) Write(ctx context.Context, msg hermod.Message) error {
 	params.Set("creation_id", creationID)
 	params.Set("access_token", s.accessToken)
 
-	req, err = http.NewRequestWithContext(ctx, "POST", publishURL+"?"+params.Encode(), nil)
+	req, err = http.NewRequestWithContext(ctx, http.MethodPost, publishURL+"?"+params.Encode(), nil)
 	if err != nil {
 		return err
 	}
@@ -143,7 +144,7 @@ func (s *InstagramSink) Ping(ctx context.Context) error {
 	params.Set("access_token", s.accessToken)
 	params.Set("fields", "id,username")
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL+"?"+params.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL+"?"+params.Encode(), nil)
 	if err != nil {
 		return err
 	}

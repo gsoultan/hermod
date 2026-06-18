@@ -3,8 +3,9 @@ package logic
 import (
 	"context"
 	"errors"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"strconv"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"

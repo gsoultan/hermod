@@ -2,6 +2,7 @@ package failover
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 
@@ -145,7 +146,7 @@ func (s *FailoverSink) writeBatchFailover(ctx context.Context, msgs []hermod.Mes
 		}
 	}
 
-	return fmt.Errorf("all sinks in failover group failed batch write")
+	return errors.New("all sinks in failover group failed batch write")
 }
 
 func (s *FailoverSink) writeBatchRoundRobin(ctx context.Context, msgs []hermod.Message) error {

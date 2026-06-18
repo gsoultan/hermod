@@ -198,13 +198,13 @@ func TestSCDTransformer_AllTypes(t *testing.T) {
 		tr.Transform(ctx, msg, config)
 
 		rows, _ := db.Query("SELECT email FROM dim_users WHERE id = 600")
+		defer rows.Close()
 		for rows.Next() {
 			var email string
-			rows.Scan(&email)
+			_ = rows.Scan(&email)
 			if email != "new_email@example.com" {
 				t.Errorf("Type 1 change should update all rows, but found %s", email)
 			}
 		}
-		rows.Close()
 	})
 }

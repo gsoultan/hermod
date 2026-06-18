@@ -177,7 +177,7 @@ func (s *Sink) deleteMapped(ctx context.Context, tx *sql.Tx, table string, msg h
 	for _, m := range s.mappings {
 		if m.IsPrimaryKey {
 			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			pks = append(pks, fmt.Sprintf("%s = ?", m.TargetColumn))
+			pks = append(pks, m.TargetColumn+" = ?")
 			args = append(args, val)
 		}
 	}
@@ -238,7 +238,7 @@ func (s *Sink) DiscoverColumns(ctx context.Context, table string) ([]hermod.Colu
 	}
 
 	// In Snowflake, we use DESCRIBE TABLE
-	query := fmt.Sprintf("DESCRIBE TABLE %s", table)
+	query := "DESCRIBE TABLE " + table
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err

@@ -50,7 +50,7 @@ func TestExecWithRetry_NonBusyError(t *testing.T) {
 	fn := func() error { return exp }
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	if err := s.execWithRetry(ctx, fn); err != exp {
+	if err := s.execWithRetry(ctx, fn); !errors.Is(err, exp) {
 		t.Fatalf("expected %v, got %v", exp, err)
 	}
 }

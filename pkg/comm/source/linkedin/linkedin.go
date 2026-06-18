@@ -65,7 +65,7 @@ func (s *LinkedInSource) Read(ctx context.Context) (hermod.Message, error) {
 
 	apiURL := fmt.Sprintf("%s/ugcPosts?q=author&author=%s&count=20", s.baseURL, s.personURN)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func (s *LinkedInSource) Ack(ctx context.Context, msg hermod.Message) error {
 
 // Ping checks the connection to LinkedIn.
 func (s *LinkedInSource) Ping(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", s.baseURL+"/me", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/me", nil)
 	if err != nil {
 		return err
 	}

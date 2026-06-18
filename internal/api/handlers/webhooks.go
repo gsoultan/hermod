@@ -107,7 +107,7 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 dispatched:
-	if r.Method == "GET" {
+	if r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msg.ID()})
 		return

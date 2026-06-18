@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -428,7 +427,7 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	_ = json.Unmarshal([]byte(val), &ns)
 
 	sender := smtp.NewSender(ns.SMTPHost, ns.SMTPPort, ns.SMTPUser, ns.SMTPPassword, ns.SMTPSSL)
-	emailBody := fmt.Sprintf("Your new password is: %s", newPass)
+	emailBody := "Your new password is: " + newPass
 	email := gsmail.Email{
 		From:    ns.SMTPFrom,
 		To:      []string{user.Email},

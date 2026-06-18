@@ -3,6 +3,7 @@ package advanced
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -46,7 +47,7 @@ func (t *SCDTransformer) Transform(ctx context.Context, msg hermod.Message, conf
 
 	registry, ok := ctx.Value(hermod.RegistryKey).(SCDRegistry)
 	if !ok {
-		return msg, fmt.Errorf("registry not found in context")
+		return msg, errors.New("registry not found in context")
 	}
 
 	targetSourceID := core.GetConfigString(config, "targetSourceId")
@@ -129,7 +130,7 @@ func (t *SCDTransformer) handleType0(ctx context.Context, db *sql.DB, driver, ta
 	query := fmt.Sprintf("SELECT 1 FROM %s WHERE %s", quotedTable, strings.Join(whereParts, " AND "))
 	var dummy int
 	err = db.QueryRowContext(ctx, query, args...).Scan(&dummy)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		// Not found, INSERT
 		return t.performInsert(ctx, db, driver, table, msg)
 	} else if err != nil {
@@ -503,7 +504,7 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 		whereParts = append(whereParts, fmt.Sprintf("%s = %s", qFlag, sqlutil.Placeholder(driver, idx)))
 		args = append(args, true)
 	} else {
-		whereParts = append(whereParts, fmt.Sprintf("%s IS NULL", qEndDate))
+		whereParts = append(whereParts, qEndDate+" IS NULL")
 	}
 
 	query := fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, strings.Join(whereParts, " AND "))
@@ -557,7 +558,7 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 		}
 	}
 
-	if !(type2Changed || type1Changed) {
+	if !type2Changed && !type1Changed {
 		msg.SetMetadata("scd_action", "none")
 		return msg, nil
 	}
@@ -625,7 +626,7 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 			expWhere = append(expWhere, fmt.Sprintf("%s = %s", qFlag, sqlutil.Placeholder(driver, eIdx)))
 			expArgs = append(expArgs, true)
 		} else {
-			expWhere = append(expWhere, fmt.Sprintf("%s IS NULL", qEndDate))
+			expWhere = append(expWhere, qEndDate+" IS NULL")
 		}
 
 		expQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, setClause, strings.Join(expWhere, " AND "))
@@ -863,9 +864,8 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 		qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
 		whereParts = append(whereParts, fmt.Sprintf("%s = %s", qFlag, sqlutil.Placeholder(driver, idx)))
 		args = append(args, true)
-		idx++
 	} else {
-		whereParts = append(whereParts, fmt.Sprintf("%s IS NULL", qEndDate))
+		whereParts = append(whereParts, qEndDate+" IS NULL")
 	}
 
 	selectCols := "*"
@@ -931,7 +931,6 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 			iCols = append(iCols, qFlag)
 			iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
 			iArgs = append(iArgs, true)
-			iIdx++
 		}
 
 		insertQuery := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", quotedTable, strings.Join(iCols, ", "), strings.Join(iPhs, ", "))
@@ -990,9 +989,8 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 		qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
 		updateWhere = append(updateWhere, fmt.Sprintf("%s = %s", qFlag, sqlutil.Placeholder(driver, uIdx)))
 		updateArgs = append(updateArgs, true)
-		uIdx++
 	} else {
-		updateWhere = append(updateWhere, fmt.Sprintf("%s IS NULL", qEndDate))
+		updateWhere = append(updateWhere, qEndDate+" IS NULL")
 	}
 
 	updateQuery := fmt.Sprintf("UPDATE %s SET %s WHERE %s", quotedTable, setClause, strings.Join(updateWhere, " AND "))
@@ -1027,7 +1025,6 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 		iCols = append(iCols, qFlag)
 		iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
 		iArgs = append(iArgs, true)
-		iIdx++
 	}
 
 	insertQuery := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", quotedTable, strings.Join(iCols, ", "), strings.Join(iPhs, ", "))

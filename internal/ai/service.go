@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -38,7 +39,7 @@ func NewSelfHealingService(logger hermod.Logger) *SelfHealingService {
 
 func (s *SelfHealingService) callLLM(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	if s.apiKey == "" && !strings.HasPrefix(s.model, "ollama") {
-		return "", fmt.Errorf("AI service not configured: OPENAI_API_KEY is missing")
+		return "", errors.New("AI service not configured: OPENAI_API_KEY is missing")
 	}
 
 	url := "https://api.openai.com/v1/chat/completions"
@@ -55,7 +56,7 @@ func (s *SelfHealingService) callLLM(ctx context.Context, systemPrompt, userProm
 	}
 
 	body, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -88,7 +89,7 @@ func (s *SelfHealingService) callLLM(ctx context.Context, systemPrompt, userProm
 	}
 
 	if len(res.Choices) == 0 {
-		return "", fmt.Errorf("AI service returned no choices")
+		return "", errors.New("AI service returned no choices")
 	}
 
 	return res.Choices[0].Message.Content, nil

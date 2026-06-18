@@ -118,7 +118,7 @@ func (w *Worker) selfWorkerEntry(now time.Time) storage.Worker {
 
 func (w *Worker) calculateBestWorker(online []storage.Worker, resourceID string, currentOwnerID string) string {
 	var bestID string
-	var maxScore float64 = -1.0
+	var maxScore = -1.0
 
 	for _, wrk := range online {
 		score := w.calculateScore(wrk, resourceID, currentOwnerID)

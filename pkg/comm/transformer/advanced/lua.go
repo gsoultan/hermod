@@ -3,9 +3,10 @@ package advanced
 import (
 	"context"
 	"fmt"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"strings"
 	"sync"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
 	lua "github.com/yuin/gopher-lua"

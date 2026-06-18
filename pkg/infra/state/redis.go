@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -28,7 +29,7 @@ func NewRedisStateStore(addr, password string, db int, prefix string, ttl time.D
 
 func (s *RedisStateStore) Get(ctx context.Context, key string) ([]byte, error) {
 	val, err := s.client.Get(ctx, s.prefix+key).Bytes()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, nil
 	}
 	return val, err

@@ -3,6 +3,7 @@ package twitter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -74,7 +75,7 @@ func (s *TwitterSource) Read(ctx context.Context) (hermod.Message, error) {
 	switch s.mode {
 	case "mentions":
 		// Get user ID first then mentions
-		userReq, _ := http.NewRequestWithContext(ctx, "GET", s.baseURL+"/users/me", nil)
+		userReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/users/me", nil)
 		userReq.Header.Set("Authorization", "Bearer "+s.token)
 		userResp, err := s.client.Do(userReq)
 		if err != nil {
@@ -87,7 +88,7 @@ func (s *TwitterSource) Read(ctx context.Context) (hermod.Message, error) {
 			} `json:"data"`
 		}
 		if json.NewDecoder(userResp.Body).Decode(&userResult) != nil {
-			return nil, fmt.Errorf("failed to get twitter user info")
+			return nil, errors.New("failed to get twitter user info")
 		}
 		apiURL = fmt.Sprintf("%s/users/%s/mentions?max_results=10", s.baseURL, userResult.Data.ID)
 
@@ -103,7 +104,7 @@ func (s *TwitterSource) Read(ctx context.Context) (hermod.Message, error) {
 		apiURL = fmt.Sprintf("%s&since_id=%s", apiURL, s.sinceID)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +172,7 @@ func (s *TwitterSource) Ack(ctx context.Context, msg hermod.Message) error {
 
 // Ping checks the connection to Twitter.
 func (s *TwitterSource) Ping(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", s.baseURL+"/users/me", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/users/me", nil)
 	if err != nil {
 		return err
 	}

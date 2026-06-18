@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/user/hermod/pkg/comm/transformer"
@@ -43,12 +44,13 @@ func (t *JoinTransformer) Transform(ctx context.Context, msg hermod.Message, con
 	}
 
 	if store == nil {
-		return msg, fmt.Errorf("state store not available for join")
+		return msg, errors.New("state store not available for join")
 	}
 
 	stateKey := fmt.Sprintf("join:%s:%s", namespace, joinKey)
 
-	if mode == "store" {
+	switch mode {
+	case "store":
 		data, err := json.Marshal(msg.Data())
 		if err != nil {
 			return msg, err
@@ -56,11 +58,10 @@ func (t *JoinTransformer) Transform(ctx context.Context, msg hermod.Message, con
 		if err := store.Set(ctx, stateKey, data); err != nil {
 			return msg, err
 		}
-	} else if mode == "lookup" {
-		data, err := store.Get(ctx, stateKey)
-		if err != nil {
-			return msg, nil // Key not found
-		}
+	case "lookup":
+		// A missing key (non-nil error or nil data) simply means there is nothing
+		// to join, so the message passes through unchanged.
+		data, _ := store.Get(ctx, stateKey)
 		if data != nil {
 			var joinedData map[string]any
 			if err := json.Unmarshal(data, &joinedData); err == nil {

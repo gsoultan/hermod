@@ -2,7 +2,6 @@ package registry
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/user/hermod/internal/storage"
@@ -87,7 +86,7 @@ func (r *Registry) resumeSuspendedMessage(ctx context.Context, sm storage.Suspen
 		m.SetData(k, v)
 	}
 
-	r.BroadcastLog(sm.WorkflowID, "INFO", fmt.Sprintf("Resuming suspended message at node %s", sm.NodeID), m.ID())
+	r.BroadcastLog(sm.WorkflowID, "INFO", "Resuming suspended message at node "+sm.NodeID, m.ID())
 
 	// AE has the needed maps
 	r.resumeFromNode(sm.WorkflowID, sm.NodeID, m, ae.workflow, ae.nodeMap, ae.adj, ae.sinks, ae.sinkNodeToIndex, "")

@@ -123,7 +123,7 @@ func (s *CSVSource) init(ctx context.Context) error {
 		}
 		rc = file
 	case SourceTypeHTTP:
-		req, err := http.NewRequestWithContext(ctx, "GET", s.url, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url, nil)
 		if err != nil {
 			return fmt.Errorf("failed to create http request: %w", err)
 		}
@@ -165,7 +165,7 @@ func (s *CSVSource) init(ctx context.Context) error {
 		rc = resp.Body
 	case SourceTypeCustom:
 		if s.rc == nil {
-			return fmt.Errorf("custom CSV source: reader is nil")
+			return errors.New("custom CSV source: reader is nil")
 		}
 		rc = s.rc
 	default:
@@ -237,9 +237,10 @@ func (s *CSVSource) Read(ctx context.Context) (hermod.Message, error) {
 
 	msg := message.AcquireMessage()
 	idBase := s.filePath
-	if s.sourceType == SourceTypeHTTP {
+	switch s.sourceType {
+	case SourceTypeHTTP:
 		idBase = s.url
-	} else if s.sourceType == SourceTypeS3 {
+	case SourceTypeS3:
 		idBase = fmt.Sprintf("s3://%s/%s", s.s3Bucket, s.s3Key)
 	}
 	msg.SetID(fmt.Sprintf("%s-%d", filepath.Base(idBase), time.Now().UnixNano()))
@@ -274,7 +275,7 @@ func (s *CSVSource) Ping(ctx context.Context) error {
 			return fmt.Errorf("csv file not found or inaccessible: %w", err)
 		}
 	case SourceTypeHTTP:
-		req, err := http.NewRequestWithContext(ctx, "HEAD", s.url, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodHead, s.url, nil)
 		if err != nil {
 			return err
 		}

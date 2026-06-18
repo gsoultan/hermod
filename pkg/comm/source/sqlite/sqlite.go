@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -189,7 +190,7 @@ func (s *SQLiteSource) Close() error {
 func (s *SQLiteSource) GetState() map[string]string {
 	state := make(map[string]string)
 	for table, id := range s.lastIDs {
-		state[table] = fmt.Sprintf("%d", id)
+		state[table] = strconv.FormatInt(id, 10)
 	}
 	return state
 }
@@ -361,7 +362,7 @@ func (s *SQLiteSource) snapshotTable(ctx context.Context, table string) error {
 		return fmt.Errorf("invalid table name %q: %w", table, err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	rows, err := s.db.QueryContext(ctx, "SELECT * FROM "+quoted)
 	if err != nil {
 		return fmt.Errorf("failed to query table %q: %w", table, err)
 	}

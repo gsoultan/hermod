@@ -11,7 +11,7 @@ import (
 
 func TestTikTokSink_Write(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			t.Errorf("expected POST request, got %s", r.Method)
 		}
 		if r.URL.Path != "/post/publish/video/init/" {

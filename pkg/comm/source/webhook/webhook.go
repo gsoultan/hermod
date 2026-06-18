@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -67,7 +68,7 @@ func (s *WebhookSource) Read(ctx context.Context) (hermod.Message, error) {
 	select {
 	case msg, ok := <-s.ch:
 		if !ok {
-			return nil, fmt.Errorf("webhook source closed")
+			return nil, errors.New("webhook source closed")
 		}
 		return msg, nil
 	case <-ctx.Done():

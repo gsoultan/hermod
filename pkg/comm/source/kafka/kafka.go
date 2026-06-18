@@ -3,7 +3,9 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -81,8 +83,8 @@ func (s *KafkaSource) Read(ctx context.Context) (hermod.Message, error) {
 	}
 
 	msg.SetMetadata("kafka_topic", m.Topic)
-	msg.SetMetadata("kafka_partition", fmt.Sprintf("%d", m.Partition))
-	msg.SetMetadata("kafka_offset", fmt.Sprintf("%d", m.Offset))
+	msg.SetMetadata("kafka_partition", strconv.Itoa(m.Partition))
+	msg.SetMetadata("kafka_offset", strconv.FormatInt(m.Offset, 10))
 
 	return msg, nil
 }
@@ -93,7 +95,7 @@ func (s *KafkaSource) Ack(ctx context.Context, msg hermod.Message) error {
 	offsetStr := msg.Metadata()["kafka_offset"]
 
 	if topic == "" || partitionStr == "" || offsetStr == "" {
-		return fmt.Errorf("missing kafka metadata in message")
+		return errors.New("missing kafka metadata in message")
 	}
 
 	var partition int

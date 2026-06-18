@@ -69,7 +69,7 @@ func (h *Handler) HandleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			h.JsonError(w, fmt.Sprintf("Failed to download plugin WASM: received status %s", resp.Status), http.StatusInternalServerError)
+			h.JsonError(w, "Failed to download plugin WASM: received status "+resp.Status, http.StatusInternalServerError)
 			return
 		}
 

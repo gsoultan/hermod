@@ -222,7 +222,7 @@ func (s *ScyllaDBSource) snapshotTable(ctx context.Context, table string) error 
 	if err := sqlutil.ValidateIdent(table); err != nil {
 		return err
 	}
-	iter := s.session.Query(fmt.Sprintf("SELECT * FROM %s", table)).WithContext(ctx).Iter()
+	iter := s.session.Query("SELECT * FROM " + table).WithContext(ctx).Iter()
 	columns := iter.Columns()
 
 	for {

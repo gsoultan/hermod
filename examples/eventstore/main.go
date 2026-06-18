@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/user/hermod/pkg/comm/eventstore"
@@ -37,7 +38,7 @@ func main() {
 	go func() {
 		for i := 1; i <= 5; i++ {
 			msg := message.AcquireMessage()
-			msg.SetID(fmt.Sprintf("%d", i))
+			msg.SetID(strconv.Itoa(i))
 			msg.SetTable("orders")
 			msg.SetOperation("created")
 			msg.SetPayload([]byte(fmt.Sprintf(`{"order_id": %d, "amount": %d}`, i, i*100)))

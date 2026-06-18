@@ -29,7 +29,8 @@ func (t *SamplingTransformer) Transform(ctx context.Context, msg hermod.Message,
 
 	sampleType, _ := config["type"].(string) // "percentage" or "row"
 
-	if sampleType == "percentage" || sampleType == "" {
+	switch sampleType {
+	case "percentage", "":
 		percentage, _ := evaluator.ToFloat64(config["percentage"])
 		if percentage <= 0 {
 			return nil, nil // Filter all
@@ -42,7 +43,7 @@ func (t *SamplingTransformer) Transform(ctx context.Context, msg hermod.Message,
 			return msg, nil
 		}
 		return nil, nil
-	} else if sampleType == "row" {
+	case "row":
 		// Row sampling (every Nth row)
 		// This needs state to keep track of row count
 		// For now, let's stick to percentage as it's more common in stateless transformations

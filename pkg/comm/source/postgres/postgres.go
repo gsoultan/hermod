@@ -166,7 +166,7 @@ func (p *PostgresSource) ensurePublication(ctx context.Context) error {
 	if len(p.tables) == 0 && !pubAllTables {
 		p.log("INFO", "All tables removed from publication, cleaning up", "publication", p.publicationName)
 		_ = p.dropPublicationAndSlot(ctx)
-		return fmt.Errorf("all tables removed from CDC source; publication and replication slot have been cleaned up")
+		return errors.New("all tables removed from CDC source; publication and replication slot have been cleaned up")
 	}
 
 	if len(p.tables) == 0 {
@@ -250,7 +250,7 @@ func (p *PostgresSource) dropPublicationAndSlot(ctx context.Context) error {
 	quotedPub, err := sqlutil.QuoteIdent("postgres", p.publicationName)
 	if err == nil {
 		// Try to drop publication, ignore if it doesn't exist
-		_, _ = p.conn.Exec(ctx, fmt.Sprintf("DROP PUBLICATION IF EXISTS %s", quotedPub))
+		_, _ = p.conn.Exec(ctx, "DROP PUBLICATION IF EXISTS "+quotedPub)
 	}
 	// Try to drop replication slot, ignore if it doesn't exist
 	_, _ = p.conn.Exec(ctx, "SELECT pg_drop_replication_slot($1)", p.slotName)
@@ -263,7 +263,7 @@ func (p *PostgresSource) createPublicationWithAllTables(ctx context.Context, quo
 		return fmt.Errorf("failed to discover tables for publication fallback: %w", err)
 	}
 	if len(allTables) == 0 {
-		return fmt.Errorf("no tables found in database")
+		return errors.New("no tables found in database")
 	}
 	quotedTables := make([]string, len(allTables))
 	for i, t := range allTables {
@@ -284,7 +284,7 @@ func (p *PostgresSource) setPublicationWithAllTables(ctx context.Context, quoted
 		return fmt.Errorf("failed to discover tables for publication fallback: %w", err)
 	}
 	if len(allTables) == 0 {
-		return fmt.Errorf("no tables found in database")
+		return errors.New("no tables found in database")
 	}
 	quotedTables := make([]string, len(allTables))
 	for i, t := range allTables {
@@ -792,7 +792,7 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 	if err != nil {
 		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 			if pgErr.Code == "28P01" {
-				return fmt.Errorf("replication connection failed: invalid password. Ensure user has replication privileges and correct credentials")
+				return errors.New("replication connection failed: invalid password. Ensure user has replication privileges and correct credentials")
 			}
 			if pgErr.Code == "28000" {
 				return fmt.Errorf("replication connection failed: user does not have replication privileges. Run 'ALTER USER %s REPLICATION'", replCfg.User)
@@ -1151,7 +1151,7 @@ func (p *PostgresSource) snapshotTable(ctx context.Context, table string) error 
 	}
 
 	p.mu.Lock()
-	rows, err := p.conn.Query(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	rows, err := p.conn.Query(ctx, "SELECT * FROM "+quoted)
 	p.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("failed to query table %q: %w", table, err)

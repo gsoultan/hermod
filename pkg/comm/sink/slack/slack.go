@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -61,7 +62,7 @@ func (s *SlackSink) Write(ctx context.Context, msg hermod.Message) error {
 		return s.sendBotMessage(ctx, text)
 	}
 
-	return fmt.Errorf("slack sink not configured: missing webhook_url or token/channel_id")
+	return errors.New("slack sink not configured: missing webhook_url or token/channel_id")
 }
 
 func (s *SlackSink) sendWebhook(ctx context.Context, text string) error {
@@ -69,7 +70,7 @@ func (s *SlackSink) sendWebhook(ctx context.Context, text string) error {
 		"text": text,
 	})
 
-	req, err := http.NewRequestWithContext(ctx, "POST", s.webhookURL, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.webhookURL, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -95,7 +96,7 @@ func (s *SlackSink) sendBotMessage(ctx context.Context, text string) error {
 		"text":    text,
 	})
 
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -141,7 +142,7 @@ func (s *SlackSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 // Ping checks the connection to Slack.
 func (s *SlackSink) Ping(ctx context.Context) error {
 	if s.webhookURL != "" {
-		req, err := http.NewRequestWithContext(ctx, "HEAD", s.webhookURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodHead, s.webhookURL, nil)
 		if err != nil {
 			return err
 		}
@@ -158,7 +159,7 @@ func (s *SlackSink) Ping(ctx context.Context) error {
 
 	if s.token != "" {
 		apiURL := s.baseURL + "/auth.test"
-		req, err := http.NewRequestWithContext(ctx, "POST", apiURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, nil)
 		if err != nil {
 			return err
 		}
@@ -174,12 +175,12 @@ func (s *SlackSink) Ping(ctx context.Context) error {
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&result)
 		if !result.OK {
-			return fmt.Errorf("slack token invalid")
+			return errors.New("slack token invalid")
 		}
 		return nil
 	}
 
-	return fmt.Errorf("slack sink not configured")
+	return errors.New("slack sink not configured")
 }
 
 // Close closes the Slack sink.

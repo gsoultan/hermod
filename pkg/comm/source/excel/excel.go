@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -289,7 +290,7 @@ func (s *Source) readNextRowFromFile(ctx context.Context, path string) (hermod.M
 		} else {
 			m.SetMetadata("sheet", sh.Name)
 		}
-		m.SetMetadata("row_index", fmt.Sprintf("%d", current))
+		m.SetMetadata("row_index", strconv.Itoa(current))
 
 		s.rowIdx = current + 1
 		return m, false, nil

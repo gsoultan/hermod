@@ -2,6 +2,7 @@ package sink
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"time"
@@ -83,21 +84,21 @@ func (s *TracingSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
 	if d, ok := s.Sink.(hermod.Discoverer); ok {
 		return d.DiscoverDatabases(ctx)
 	}
-	return nil, fmt.Errorf("sink does not support database discovery")
+	return nil, errors.New("sink does not support database discovery")
 }
 
 func (s *TracingSink) DiscoverTables(ctx context.Context) ([]string, error) {
 	if d, ok := s.Sink.(hermod.Discoverer); ok {
 		return d.DiscoverTables(ctx)
 	}
-	return nil, fmt.Errorf("sink does not support table discovery")
+	return nil, errors.New("sink does not support table discovery")
 }
 
 func (s *TracingSink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
 	if d, ok := s.Sink.(hermod.ColumnDiscoverer); ok {
 		return d.DiscoverColumns(ctx, table)
 	}
-	return nil, fmt.Errorf("sink does not support column discovery")
+	return nil, errors.New("sink does not support column discovery")
 }
 
 // RetrySink wraps a Sink and adds retry logic.
@@ -205,19 +206,19 @@ func (s *RetrySink) DiscoverDatabases(ctx context.Context) ([]string, error) {
 	if d, ok := s.Sink.(hermod.Discoverer); ok {
 		return d.DiscoverDatabases(ctx)
 	}
-	return nil, fmt.Errorf("sink does not support database discovery")
+	return nil, errors.New("sink does not support database discovery")
 }
 
 func (s *RetrySink) DiscoverTables(ctx context.Context) ([]string, error) {
 	if d, ok := s.Sink.(hermod.Discoverer); ok {
 		return d.DiscoverTables(ctx)
 	}
-	return nil, fmt.Errorf("sink does not support table discovery")
+	return nil, errors.New("sink does not support table discovery")
 }
 
 func (s *RetrySink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
 	if d, ok := s.Sink.(hermod.ColumnDiscoverer); ok {
 		return d.DiscoverColumns(ctx, table)
 	}
-	return nil, fmt.Errorf("sink does not support column discovery")
+	return nil, errors.New("sink does not support column discovery")
 }

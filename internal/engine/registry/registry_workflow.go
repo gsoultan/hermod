@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -34,7 +35,7 @@ func (r *Registry) buildWorkflowSources(ctx context.Context, wf storage.Workflow
 		}
 	}
 	if len(sourceNodes) == 0 {
-		return nil, nil, fmt.Errorf("workflow must have at least one source node")
+		return nil, nil, errors.New("workflow must have at least one source node")
 	}
 
 	var srcConfigs []factory.SourceConfig
@@ -158,7 +159,7 @@ func (r *Registry) discoverWorkflowSinks(ctx context.Context, wf storage.Workflo
 
 	if len(sinks) == 0 {
 		ms.Close()
-		return nil, nil, nil, fmt.Errorf("workflow must have at least one sink node reachable from sources")
+		return nil, nil, nil, errors.New("workflow must have at least one sink node reachable from sources")
 	}
 	return sinks, snkConfigs, sinkNodeToIndex, nil
 }
@@ -764,11 +765,12 @@ func (r *Registry) runWorkflowEngine(eng *pkgengine.Engine, ctx context.Context,
 
 				// Update source and sinks only if we are deactivating
 				for _, node := range workflow.Nodes {
-					if node.Type == "source" {
+					switch node.Type {
+					case "source":
 						if !r.IsResourceInUse(dbCtx, node.RefID, id, true) {
 							_ = r.storage.UpdateSourceStatus(dbCtx, node.RefID, "")
 						}
-					} else if node.Type == "sink" {
+					case "sink":
 						if !r.IsResourceInUse(dbCtx, node.RefID, id, false) {
 							_ = r.storage.UpdateSinkStatus(dbCtx, node.RefID, "")
 						}
@@ -853,9 +855,10 @@ func (r *Registry) stopEngine(id string, updateStorage bool) error {
 
 			// Update source and sinks
 			for _, node := range workflow.Nodes {
-				if node.Type == "source" {
+				switch node.Type {
+				case "source":
 					_ = r.storage.UpdateSourceStatus(ctx, node.RefID, "")
-				} else if node.Type == "sink" {
+				case "sink":
 					_ = r.storage.UpdateSinkStatus(ctx, node.RefID, "")
 				}
 			}
@@ -938,7 +941,7 @@ func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromO
 	if srcCfg.Config == nil {
 		srcCfg.Config = make(map[string]string)
 	}
-	srcCfg.Config["from_offset"] = fmt.Sprintf("%d", fromOffset)
+	srcCfg.Config["from_offset"] = strconv.FormatInt(fromOffset, 10)
 
 	src, err := r.createSourceInternal(ctx, srcCfg)
 	if err != nil {
@@ -1050,7 +1053,7 @@ func (r *Registry) resumeFromNode(workflowID, startNodeID string, msg hermod.Mes
 // ResumeApproval resumes a halted workflow at an approval node with the specified decision branch ("approved" or "rejected").
 func (r *Registry) ResumeApproval(ctx context.Context, app storage.Approval, branch string) error {
 	if r.storage == nil {
-		return fmt.Errorf("registry storage not available")
+		return errors.New("registry storage not available")
 	}
 	wf, err := r.storage.GetWorkflow(ctx, app.WorkflowID)
 	if err != nil {
@@ -1168,7 +1171,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 	}
 
 	if len(sourceNodes) == 0 {
-		return nil, fmt.Errorf("no source node found")
+		return nil, errors.New("no source node found")
 	}
 
 	currentMessages := make(map[string]hermod.Message)

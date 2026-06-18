@@ -185,6 +185,10 @@ func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 
 				return msg, nil
 			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("mariadb poll error: %w", err)
+			}
 			rows.Close()
 		}
 
@@ -231,7 +235,7 @@ func (m *MariaDBSource) snapshotTable(ctx context.Context, table string) error {
 		return fmt.Errorf("invalid table name %q: %w", table, err)
 	}
 
-	rows, err := m.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	rows, err := m.db.QueryContext(ctx, "SELECT * FROM "+quoted)
 	if err != nil {
 		return fmt.Errorf("failed to query table %q: %w", table, err)
 	}
@@ -349,6 +353,9 @@ func (m *MariaDBSource) DiscoverDatabases(ctx context.Context) ([]string, error)
 		}
 		databases = append(databases, name)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return databases, nil
 }
 
@@ -370,6 +377,9 @@ func (m *MariaDBSource) DiscoverTables(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 		tables = append(tables, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return tables, nil
 }

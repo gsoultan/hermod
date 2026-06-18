@@ -101,8 +101,8 @@ func (r *StorageRegistry) GetLatestValidator(ctx context.Context, name string) (
 func (r *StorageRegistry) CheckCompatibility(ctx context.Context, name string, schemaType SchemaType, content string) error {
 	latest, err := r.storage.GetLatestSchema(ctx, name)
 	if err != nil {
-		// No previous version, so it's compatible
-		return nil
+		// No previous version exists, so the schema is trivially compatible.
+		return nil //nolint:nilerr // absence of a prior schema means there is nothing to be incompatible with
 	}
 
 	if latest.Type != string(schemaType) {
@@ -133,7 +133,9 @@ func (r *StorageRegistry) checkJSONCompatibility(oldContent, newContent string) 
 	// 2. Structural compatibility check (simplified)
 	var oldSchema, newSchema map[string]any
 	if err := json.Unmarshal([]byte(oldContent), &oldSchema); err != nil {
-		return nil // Should not happen if it was registered
+		// The stored schema was validated at registration time, so this should not
+		// happen; treat an unreadable old schema as compatible rather than erroring.
+		return nil //nolint:nilerr // previously-registered schema is assumed valid
 	}
 	if err := json.Unmarshal([]byte(newContent), &newSchema); err != nil {
 		return fmt.Errorf("invalid new schema JSON: %w", err)

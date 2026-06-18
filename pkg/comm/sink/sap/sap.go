@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -65,7 +66,7 @@ func (s *Sink) writeOData(ctx context.Context, msg hermod.Message) error {
 		return fmt.Errorf("sap odata: marshal payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -123,14 +124,14 @@ func (s *Sink) Ping(ctx context.Context) error {
 
 func (s *Sink) TestConnection(ctx context.Context) error {
 	if s.config.Host == "" {
-		return fmt.Errorf("sap: host is required")
+		return errors.New("sap: host is required")
 	}
 	url := fmt.Sprintf("%s/sap/opu/odata/sap/%s/$metadata", s.config.Host, s.config.Service)
 	if s.config.Client != "" {
 		url += "?sap-client=" + s.config.Client
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}

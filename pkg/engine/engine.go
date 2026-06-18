@@ -2,7 +2,7 @@ package engine
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"sync"
 	"time"
 
@@ -275,12 +275,12 @@ func (e *Engine) GetSinks() []hermod.Sink {
 // DrainDLQ attempts to wrap the current source with a PrioritySource to drain DLQ messages.
 func (e *Engine) DrainDLQ(ctx context.Context) error {
 	if e.deadLetterSink == nil {
-		return fmt.Errorf("no dead letter sink configured for this workflow")
+		return errors.New("no dead letter sink configured for this workflow")
 	}
 
 	dlqSource, ok := e.deadLetterSink.(hermod.Source)
 	if !ok {
-		return fmt.Errorf("dead letter sink does not support reading")
+		return errors.New("dead letter sink does not support reading")
 	}
 
 	e.mu.Lock()

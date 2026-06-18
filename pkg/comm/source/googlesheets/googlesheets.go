@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/user/hermod"
@@ -87,7 +88,7 @@ func (s *GoogleSheetsSource) Read(ctx context.Context) (hermod.Message, error) {
 			msg.SetAfter(payload)
 			msg.SetMetadata("source", "googlesheets")
 			msg.SetMetadata("spreadsheet_id", s.spreadsheetID)
-			msg.SetMetadata("row_index", fmt.Sprintf("%d", rowIndex))
+			msg.SetMetadata("row_index", strconv.Itoa(rowIndex))
 
 			return msg, nil
 		}
@@ -120,7 +121,7 @@ func (s *GoogleSheetsSource) Close() error {
 
 func (s *GoogleSheetsSource) GetState() map[string]string {
 	return map[string]string{
-		"last_row": fmt.Sprintf("%d", s.lastRow),
+		"last_row": strconv.Itoa(s.lastRow),
 	}
 }
 

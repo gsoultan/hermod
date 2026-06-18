@@ -29,7 +29,7 @@ func NewWorkerAPIClient(baseURL string, token string) *WorkerAPIClient {
 }
 
 func (c *WorkerAPIClient) GetWorker(ctx context.Context, id string) (storage.Worker, error) {
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/workers/%s", id), nil)
+	resp, err := c.doRequest(ctx, "GET", "/api/workers/"+id, nil)
 	if err != nil {
 		return storage.Worker{}, err
 	}
@@ -65,7 +65,7 @@ func (c *WorkerAPIClient) ListWorkflows(ctx context.Context, filter storage.Comm
 	if filter.Limit > 0 {
 		url = fmt.Sprintf("%s?page=%d&limit=%d&search=%s", url, filter.Page, filter.Limit, filter.Search)
 	} else if filter.Limit == -1 {
-		url = fmt.Sprintf("%s?limit=0", url) // 0 means no limit in our storage implementation
+		url = url + "?limit=0" // 0 means no limit in our storage implementation
 	}
 
 	resp, err := c.doRequest(ctx, "GET", url, nil)
@@ -87,7 +87,7 @@ func (c *WorkerAPIClient) ListWorkflows(ctx context.Context, filter storage.Comm
 }
 
 func (c *WorkerAPIClient) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/workflows/%s", id), nil)
+	resp, err := c.doRequest(ctx, "GET", "/api/workflows/"+id, nil)
 	if err != nil {
 		return storage.Workflow{}, err
 	}
@@ -103,7 +103,7 @@ func (c *WorkerAPIClient) GetWorkflow(ctx context.Context, id string) (storage.W
 }
 
 func (c *WorkerAPIClient) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error {
-	resp, err := c.doRequest(ctx, "PUT", fmt.Sprintf("/api/workflows/%s", wf.ID), wf)
+	resp, err := c.doRequest(ctx, "PUT", "/api/workflows/"+wf.ID, wf)
 	if err != nil {
 		return err
 	}
@@ -130,7 +130,7 @@ func (c *WorkerAPIClient) UpdateWorkflowStatus(ctx context.Context, id string, s
 }
 
 func (c *WorkerAPIClient) GetSource(ctx context.Context, id string) (storage.Source, error) {
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/sources/%s", id), nil)
+	resp, err := c.doRequest(ctx, "GET", "/api/sources/"+id, nil)
 	if err != nil {
 		return storage.Source{}, err
 	}
@@ -146,7 +146,7 @@ func (c *WorkerAPIClient) GetSource(ctx context.Context, id string) (storage.Sou
 }
 
 func (c *WorkerAPIClient) GetSink(ctx context.Context, id string) (storage.Sink, error) {
-	resp, err := c.doRequest(ctx, "GET", fmt.Sprintf("/api/sinks/%s", id), nil)
+	resp, err := c.doRequest(ctx, "GET", "/api/sinks/"+id, nil)
 	if err != nil {
 		return storage.Sink{}, err
 	}
@@ -210,7 +210,7 @@ func (c *WorkerAPIClient) ListSinks(ctx context.Context, filter storage.CommonFi
 }
 
 func (c *WorkerAPIClient) UpdateSource(ctx context.Context, src storage.Source) error {
-	resp, err := c.doRequest(ctx, "PUT", fmt.Sprintf("/api/sources/%s", src.ID), src)
+	resp, err := c.doRequest(ctx, "PUT", "/api/sources/"+src.ID, src)
 	if err != nil {
 		return err
 	}
@@ -223,7 +223,7 @@ func (c *WorkerAPIClient) UpdateSource(ctx context.Context, src storage.Source) 
 }
 
 func (c *WorkerAPIClient) UpdateSink(ctx context.Context, snk storage.Sink) error {
-	resp, err := c.doRequest(ctx, "PUT", fmt.Sprintf("/api/sinks/%s", snk.ID), snk)
+	resp, err := c.doRequest(ctx, "PUT", "/api/sinks/"+snk.ID, snk)
 	if err != nil {
 		return err
 	}
@@ -253,7 +253,7 @@ func (c *WorkerAPIClient) UpdateWorkerHeartbeat(ctx context.Context, id string, 
 }
 
 func (c *WorkerAPIClient) DeleteWorker(ctx context.Context, id string) error {
-	resp, err := c.doRequest(ctx, "DELETE", fmt.Sprintf("/api/workers/%s", id), nil)
+	resp, err := c.doRequest(ctx, "DELETE", "/api/workers/"+id, nil)
 	if err != nil {
 		return err
 	}

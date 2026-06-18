@@ -152,7 +152,7 @@ func (s *HTTPSource) Ping(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", s.url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url, nil)
 	if err != nil {
 		return err
 	}

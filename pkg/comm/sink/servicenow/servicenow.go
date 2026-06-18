@@ -37,7 +37,7 @@ func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 	data := msg.Data()
 	payload, _ := json.Marshal(data)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 
 func (s *Sink) Ping(ctx context.Context) error {
 	url := fmt.Sprintf("%s/api/now/table/%s?sysparm_limit=1", s.config.InstanceURL, s.config.Table)
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	req.SetBasicAuth(s.config.Username, s.config.Password)
 
 	resp, err := s.client.Do(req)

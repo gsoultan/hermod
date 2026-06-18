@@ -2,6 +2,7 @@ package grpcsource
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -78,7 +79,7 @@ func (s *GrpcSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, ctx.Err()
 	case msg, ok := <-s.ch:
 		if !ok {
-			return nil, fmt.Errorf("gRPC source closed")
+			return nil, errors.New("gRPC source closed")
 		}
 		return msg, nil
 	}
@@ -118,11 +119,11 @@ func (s *Server) Publish(ctx context.Context, req *proto.PublishRequest) (*proto
 			if apiKey != "" {
 				md, ok := metadata.FromIncomingContext(ctx)
 				if !ok {
-					return nil, fmt.Errorf("missing metadata")
+					return nil, errors.New("missing metadata")
 				}
 				tokens := md.Get("x-api-key")
 				if len(tokens) == 0 || tokens[0] != apiKey {
-					return nil, fmt.Errorf("invalid api key")
+					return nil, errors.New("invalid api key")
 				}
 			}
 		}

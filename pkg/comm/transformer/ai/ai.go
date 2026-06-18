@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
 )
@@ -32,9 +34,9 @@ func (t *AIMapperTransformer) Transform(ctx context.Context, msg hermod.Message,
 	targetSchema, _ := config["targetSchema"].(string)
 	hints, _ := config["hints"].(string)
 
-	prompt := fmt.Sprintf("Map the following data to this JSON schema: %s", targetSchema)
+	prompt := "Map the following data to this JSON schema: " + targetSchema
 	if hints != "" {
-		prompt += fmt.Sprintf("\nHints: %s", hints)
+		prompt += "\nHints: " + hints
 	}
 	prompt += "\nOutput ONLY valid JSON that matches the schema. Do not include any explanations or markdown blocks."
 
@@ -55,11 +57,12 @@ func (t *AITransformer) Transform(ctx context.Context, msg hermod.Message, confi
 	targetField, _ := config["targetField"].(string)
 
 	if endpoint == "" {
-		if provider == "openai" {
+		switch provider {
+		case "openai":
 			endpoint = "https://api.openai.com/v1/chat/completions"
-		} else if provider == "ollama" {
+		case "ollama":
 			endpoint = "http://localhost:11434/api/generate"
-		} else if provider == "" {
+		case "":
 			provider = "openai"
 			endpoint = "https://api.openai.com/v1/chat/completions"
 		}
@@ -76,11 +79,12 @@ func (t *AITransformer) Transform(ctx context.Context, msg hermod.Message, confi
 	var result string
 	var err error
 
-	if provider == "openai" {
+	switch provider {
+	case "openai":
 		result, err = t.callOpenAI(ctx, endpoint, apiKey, model, fullPrompt)
-	} else if provider == "ollama" {
+	case "ollama":
 		result, err = t.callOllama(ctx, endpoint, model, fullPrompt)
-	} else {
+	default:
 		return nil, fmt.Errorf("unsupported AI provider: %s", provider)
 	}
 
@@ -118,7 +122,7 @@ func (t *AITransformer) callOpenAI(ctx context.Context, endpoint, apiKey, model,
 	}
 
 	bodyBytes, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		return "", err
 	}
@@ -152,7 +156,7 @@ func (t *AITransformer) callOpenAI(ctx context.Context, endpoint, apiKey, model,
 	}
 
 	if len(res.Choices) == 0 {
-		return "", fmt.Errorf("no choices returned from openai")
+		return "", errors.New("no choices returned from openai")
 	}
 
 	return res.Choices[0].Message.Content, nil
@@ -170,7 +174,7 @@ func (t *AITransformer) callOllama(ctx context.Context, endpoint, model, prompt 
 	}
 
 	bodyBytes, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		return "", err
 	}

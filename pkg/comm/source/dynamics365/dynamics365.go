@@ -3,6 +3,7 @@ package dynamics365
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -72,7 +73,7 @@ func (s *Source) authenticate(ctx context.Context) error {
 	data.Set("client_secret", s.config.ClientSecret)
 	data.Set("scope", s.config.Resource+"/.default")
 
-	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return err
 	}
@@ -138,7 +139,7 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 
 	fullURL := apiURL + "?" + params.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +159,7 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 		s.mu.Lock()
 		s.token = "" // Force re-auth next time
 		s.mu.Unlock()
-		return nil, fmt.Errorf("dynamics 365: unauthorized")
+		return nil, errors.New("dynamics 365: unauthorized")
 	}
 
 	if resp.StatusCode >= 400 {
@@ -206,8 +207,8 @@ func (s *Source) Ping(ctx context.Context) error {
 		return err
 	}
 
-	apiURL := fmt.Sprintf("%s/api/data/v9.2/$metadata", strings.TrimSuffix(s.config.Resource, "/"))
-	req, _ := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	apiURL := strings.TrimSuffix(s.config.Resource, "/") + "/api/data/v9.2/$metadata"
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 
 	s.mu.RLock()
 	token := s.token

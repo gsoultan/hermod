@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -45,7 +46,7 @@ func buildClientOptions(cfg map[string]string) (*paho.ClientOptions, []string, b
 		brokerURL = strings.TrimSpace(cfg["url"])
 	}
 	if brokerURL == "" {
-		return nil, nil, 0, fmt.Errorf("mqtt: broker_url is required")
+		return nil, nil, 0, errors.New("mqtt: broker_url is required")
 	}
 
 	opts := paho.NewClientOptions()
@@ -123,7 +124,7 @@ func buildClientOptions(cfg map[string]string) (*paho.ClientOptions, []string, b
 		}
 	}
 	if len(topics) == 0 {
-		return nil, nil, 0, fmt.Errorf("mqtt: at least one topic is required")
+		return nil, nil, 0, errors.New("mqtt: at least one topic is required")
 	}
 
 	return opts, topics, qos, nil
@@ -217,7 +218,7 @@ func (s *Source) ensureClient() error {
 	c := paho.NewClient(s.opts)
 	token := c.Connect()
 	if ok := token.WaitTimeout(15 * time.Second); !ok {
-		return fmt.Errorf("mqtt: connect timeout")
+		return errors.New("mqtt: connect timeout")
 	}
 	if err := token.Error(); err != nil {
 		return fmt.Errorf("mqtt: connect failed: %w", err)
@@ -261,7 +262,7 @@ func (s *Source) Ping(ctx context.Context) error {
 		return err
 	}
 	if !s.client.IsConnectionOpen() {
-		return fmt.Errorf("mqtt: not connected")
+		return errors.New("mqtt: not connected")
 	}
 	return nil
 }
@@ -305,7 +306,7 @@ func (s *Source) Sample(ctx context.Context, table string) (hermod.Message, erro
 	client := paho.NewClient(opts)
 	token := client.Connect()
 	if !token.WaitTimeout(10 * time.Second) {
-		return nil, fmt.Errorf("mqtt: connect timeout while sampling")
+		return nil, errors.New("mqtt: connect timeout while sampling")
 	}
 	if err := token.Error(); err != nil {
 		return nil, fmt.Errorf("mqtt: connect failed while sampling: %w", err)
@@ -314,7 +315,7 @@ func (s *Source) Sample(ctx context.Context, table string) (hermod.Message, erro
 
 	select {
 	case <-ctx.Done():
-		return nil, fmt.Errorf("mqtt: no message received within timeout; publish a message to the topic and retry")
+		return nil, errors.New("mqtt: no message received within timeout; publish a message to the topic and retry")
 	case m := <-incoming:
 		return buildSampleMessage(m), nil
 	}

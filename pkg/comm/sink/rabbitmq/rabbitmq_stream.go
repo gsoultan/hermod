@@ -71,7 +71,7 @@ func (s *RabbitMQStreamSink) Write(ctx context.Context, msg hermod.Message) erro
 	s.mu.Unlock()
 
 	if producer == nil {
-		return fmt.Errorf("rabbitmq stream producer not connected")
+		return errors.New("rabbitmq stream producer not connected")
 	}
 
 	var data []byte

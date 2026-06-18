@@ -82,8 +82,8 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 		// Window i starts at i*slide and ends at i*slide + window.
 		// So i*slide <= now < i*slide + window
 		// i <= now/slide and i > (now-window)/slide
-		firstIndex := int64(now.Add(-window).UnixNano()/slide.Nanoseconds()) + 1
-		lastIndex := int64(now.UnixNano() / slide.Nanoseconds())
+		firstIndex := now.Add(-window).UnixNano()/slide.Nanoseconds() + 1
+		lastIndex := now.UnixNano() / slide.Nanoseconds()
 
 		for i := firstIndex; i <= lastIndex; i++ {
 			sKey := fmt.Sprintf("%s:%s:%s:%s:s:%d", workflowID, nodeID, field, groupVal, i)

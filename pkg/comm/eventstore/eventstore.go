@@ -5,7 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -103,7 +105,7 @@ func (s *SQLStore) WriteBatch(ctx context.Context, msgs []hermod.Message) error 
 			queryLast := s.queries.get(QueryGetLastOffset)
 
 			err = tx.QueryRowContext(ctx, queryLast, streamID).Scan(&lastOffset)
-			if err != nil && err != sql.ErrNoRows {
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return err
 			}
 			if lastOffset.Valid {
@@ -297,7 +299,7 @@ func (s *EventStoreSource) GetState() map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return map[string]string{
-		"last_offset": fmt.Sprintf("%d", s.lastOffset),
+		"last_offset": strconv.FormatInt(s.lastOffset, 10),
 	}
 }
 
@@ -333,9 +335,9 @@ func (s *EventStoreSource) toMessage(e Event) hermod.Message {
 	}
 
 	// Add some internal metadata
-	msg.SetMetadata("eventstore_global_offset", fmt.Sprintf("%d", e.GlobalOffset))
+	msg.SetMetadata("eventstore_global_offset", strconv.FormatInt(e.GlobalOffset, 10))
 	msg.SetMetadata("eventstore_stream_id", e.StreamID)
-	msg.SetMetadata("eventstore_stream_offset", fmt.Sprintf("%d", e.StreamOffset))
+	msg.SetMetadata("eventstore_stream_offset", strconv.FormatInt(e.StreamOffset, 10))
 
 	return msg
 }

@@ -112,10 +112,8 @@ func (h *Handler) HandleForm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Bot protection
-	enableBot := true
-	if srcCfg["bot_protection"] == "false" {
-		enableBot = false
-	}
+	enableBot := srcCfg["bot_protection"] != "false"
+
 	minMs := 2000 // default 2 seconds
 	if m, err := strconv.Atoi(srcCfg["min_submit_time"]); err == nil {
 		minMs = m
@@ -228,7 +226,7 @@ func (h *Handler) ServeFormPage(w http.ResponseWriter, r *http.Request) {
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     "hf_issued",
-		Value:    fmt.Sprint(issued),
+		Value:    strconv.FormatInt(issued, 10),
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,

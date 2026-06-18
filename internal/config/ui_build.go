@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -138,7 +139,7 @@ func ensureBun() error {
 	}
 
 	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" {
-		return fmt.Errorf("bun not found in PATH in CI environment. Ensure setup-bun step has run and is successful")
+		return errors.New("bun not found in PATH in CI environment. Ensure setup-bun step has run and is successful")
 	}
 
 	fmt.Println("Bun not found. Installing Bun...")
@@ -146,10 +147,10 @@ func ensureBun() error {
 	if runtime.GOOS != "windows" {
 		// Check for dependencies required by Bun's install script
 		if _, err := exec.LookPath("curl"); err != nil {
-			return fmt.Errorf("curl is required to install Bun. Please install curl (e.g., 'sudo apt install curl')")
+			return errors.New("curl is required to install Bun. Please install curl (e.g., 'sudo apt install curl')")
 		}
 		if _, err := exec.LookPath("unzip"); err != nil {
-			return fmt.Errorf("unzip is required to install Bun. Please install unzip (e.g., 'sudo apt install unzip')")
+			return errors.New("unzip is required to install Bun. Please install unzip (e.g., 'sudo apt install unzip')")
 		}
 	}
 

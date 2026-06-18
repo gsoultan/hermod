@@ -26,7 +26,7 @@ func (k *KubernetesWorkerManager) Scale(ctx context.Context, replicas int) error
 		fmt.Sprintf("--replicas=%d", replicas), "-n", k.Namespace)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("kubectl scale failed: %v, output: %s", err, string(output))
+		return fmt.Errorf("kubectl scale failed: %w, output: %s", err, string(output))
 	}
 	return nil
 }

@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
-	"google.golang.org/api/analyticsdata/v1beta"
+	analyticsdata "google.golang.org/api/analyticsdata/v1beta"
 	"google.golang.org/api/option"
 )
 
@@ -77,7 +78,7 @@ func (s *GoogleAnalyticsSource) Read(ctx context.Context) (hermod.Message, error
 			// Process dimensions
 			dimNames := strings.Split(s.dimensions, ",")
 			for i, dim := range row.DimensionValues {
-				name := "dimension_" + fmt.Sprint(i)
+				name := "dimension_" + strconv.Itoa(i)
 				if i < len(dimNames) {
 					name = strings.TrimSpace(dimNames[i])
 				}
@@ -87,7 +88,7 @@ func (s *GoogleAnalyticsSource) Read(ctx context.Context) (hermod.Message, error
 			// Process metrics
 			metricNames := strings.Split(s.metrics, ",")
 			for i, metric := range row.MetricValues {
-				name := "metric_" + fmt.Sprint(i)
+				name := "metric_" + strconv.Itoa(i)
 				if i < len(metricNames) {
 					name = strings.TrimSpace(metricNames[i])
 				}

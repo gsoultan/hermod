@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"text/template"
 
@@ -114,7 +115,7 @@ func (s *ElasticsearchSink) WriteBatch(ctx context.Context, msgs []hermod.Messag
 
 		switch op {
 		case hermod.OpDelete:
-			buf.WriteString(fmt.Sprintf(`{ "delete" : { "_index" : "%s", "_id" : "%s" } }%s`, index, msg.ID(), "\n"))
+			fmt.Fprintf(&buf, `{ "delete" : { "_index" : "%s", "_id" : "%s" } }%s`, index, msg.ID(), "\n")
 		default:
 			var data []byte
 			if s.formatter != nil {
@@ -125,7 +126,7 @@ func (s *ElasticsearchSink) WriteBatch(ctx context.Context, msgs []hermod.Messag
 			} else {
 				data = msg.Payload()
 			}
-			buf.WriteString(fmt.Sprintf(`{ "index" : { "_index" : "%s", "_id" : "%s" } }%s`, index, msg.ID(), "\n"))
+			fmt.Fprintf(&buf, `{ "index" : { "_index" : "%s", "_id" : "%s" } }%s`, index, msg.ID(), "\n")
 			buf.Write(data)
 			buf.WriteByte('\n')
 		}
@@ -339,7 +340,7 @@ func (s *ElasticsearchSink) Ack(ctx context.Context, msg hermod.Message) error {
 
 	if res.IsError() {
 		// If already deleted, it might return 404, which is fine for Ack
-		if res.StatusCode == 404 {
+		if res.StatusCode == http.StatusNotFound {
 			return nil
 		}
 		return fmt.Errorf("delete error: %s", res.String())

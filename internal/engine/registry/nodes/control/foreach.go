@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/engine/registry"
@@ -42,8 +43,8 @@ func (n *ForeachNode) Execute(ctx context.Context, nctx registry.NodeContext, wo
 		m.SetData("_index", i)
 		// Correlation/idempotency metadata for downstream sinks and debugging
 		m.SetMetadata("_fanout_group", msg.ID())
-		m.SetMetadata("_fanout_index", fmt.Sprintf("%d", i))
-		m.SetMetadata("_fanout_total", fmt.Sprintf("%d", len(arr)))
+		m.SetMetadata("_fanout_index", strconv.Itoa(i))
+		m.SetMetadata("_fanout_total", strconv.Itoa(len(arr)))
 		results = append(results, m)
 	}
 

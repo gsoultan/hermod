@@ -32,7 +32,7 @@ func TestLoginLockoutHTTP(t *testing.T) {
 
 	doLogin := func() int {
 		body := strings.NewReader(`{"username":"alice","password":"wrong"}`)
-		req := httptest.NewRequest("POST", "/api/login", body)
+		req := httptest.NewRequest(http.MethodPost, "/api/login", body)
 		req.RemoteAddr = "203.0.113.77:5555"
 		w := httptest.NewRecorder()
 		h.Login(w, req)
@@ -54,7 +54,7 @@ func TestLoginLockoutHTTP(t *testing.T) {
 
 func TestLoginLockoutAfterMaxAttempts(t *testing.T) {
 	h := &Handler{}
-	r := httptest.NewRequest("POST", "/api/login", nil)
+	r := httptest.NewRequest(http.MethodPost, "/api/login", nil)
 	r.RemoteAddr = "203.0.113.5:54321"
 	key := loginAttemptKey("alice", r)
 
@@ -83,9 +83,9 @@ func TestLoginLockoutAfterMaxAttempts(t *testing.T) {
 }
 
 func TestLoginAttemptKeyScoping(t *testing.T) {
-	r1 := httptest.NewRequest("POST", "/api/login", nil)
+	r1 := httptest.NewRequest(http.MethodPost, "/api/login", nil)
 	r1.RemoteAddr = "203.0.113.5:1111"
-	r2 := httptest.NewRequest("POST", "/api/login", nil)
+	r2 := httptest.NewRequest(http.MethodPost, "/api/login", nil)
 	r2.RemoteAddr = "198.51.100.9:2222"
 
 	if loginAttemptKey("bob", r1) == loginAttemptKey("bob", r2) {

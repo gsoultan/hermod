@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -51,56 +52,56 @@ func (s *MetricsSource) IsReady(ctx context.Context) error {
 	if rc, ok := s.Source.(hermod.ReadyChecker); ok {
 		return rc.IsReady(ctx)
 	}
-	return s.Source.Ping(ctx)
+	return s.Ping(ctx)
 }
 
 func (s *MetricsSource) DiscoverDatabases(ctx context.Context) ([]string, error) {
 	if d, ok := s.Source.(hermod.Discoverer); ok {
 		return d.DiscoverDatabases(ctx)
 	}
-	return nil, fmt.Errorf("source does not support database discovery")
+	return nil, errors.New("source does not support database discovery")
 }
 
 func (s *MetricsSource) DiscoverTables(ctx context.Context) ([]string, error) {
 	if d, ok := s.Source.(hermod.Discoverer); ok {
 		return d.DiscoverTables(ctx)
 	}
-	return nil, fmt.Errorf("source does not support table discovery")
+	return nil, errors.New("source does not support table discovery")
 }
 
 func (s *MetricsSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
 	if d, ok := s.Source.(hermod.ColumnDiscoverer); ok {
 		return d.DiscoverColumns(ctx, table)
 	}
-	return nil, fmt.Errorf("source does not support column discovery")
+	return nil, errors.New("source does not support column discovery")
 }
 
 func (s *MetricsSource) DiscoverReplicationSlots(ctx context.Context) ([]hermod.ReplicationSlotInfo, error) {
 	if d, ok := s.Source.(hermod.ReplicationDiscoverer); ok {
 		return d.DiscoverReplicationSlots(ctx)
 	}
-	return nil, fmt.Errorf("source does not support replication slot discovery")
+	return nil, errors.New("source does not support replication slot discovery")
 }
 
 func (s *MetricsSource) DiscoverPublications(ctx context.Context) ([]hermod.PublicationInfo, error) {
 	if d, ok := s.Source.(hermod.ReplicationDiscoverer); ok {
 		return d.DiscoverPublications(ctx)
 	}
-	return nil, fmt.Errorf("source does not support publication discovery")
+	return nil, errors.New("source does not support publication discovery")
 }
 
 func (s *MetricsSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	if sm, ok := s.Source.(hermod.Sampler); ok {
 		return sm.Sample(ctx, table)
 	}
-	return nil, fmt.Errorf("source does not support sampling")
+	return nil, errors.New("source does not support sampling")
 }
 
 func (s *MetricsSource) Snapshot(ctx context.Context, tables ...string) error {
 	if sn, ok := s.Source.(hermod.Snapshottable); ok {
 		return sn.Snapshot(ctx, tables...)
 	}
-	return fmt.Errorf("source does not support manual snapshots")
+	return errors.New("source does not support manual snapshots")
 }
 
 func (s *MetricsSource) ExecuteSQL(ctx context.Context, query string) ([]map[string]any, error) {

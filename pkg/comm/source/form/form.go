@@ -2,6 +2,7 @@ package form
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -80,7 +81,7 @@ func (s *FormSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, ctx.Err()
 	case msg, ok := <-s.ch:
 		if !ok {
-			return nil, fmt.Errorf("form source closed")
+			return nil, errors.New("form source closed")
 		}
 		// If we got it from the channel, it's already "dispatched" but we should still check if it's in DB
 		// Actually, if we use the channel, we should still mark it as processing/completed in DB later.
@@ -98,7 +99,7 @@ func (s *FormSource) Read(ctx context.Context) (hermod.Message, error) {
 			return nil, ctx.Err()
 		case msg, ok := <-s.ch:
 			if !ok {
-				return nil, fmt.Errorf("form source closed")
+				return nil, errors.New("form source closed")
 			}
 			return msg, nil
 		}
@@ -132,7 +133,7 @@ func (s *FormSource) Read(ctx context.Context) (hermod.Message, error) {
 			return nil, ctx.Err()
 		case msg, ok := <-s.ch:
 			if !ok {
-				return nil, fmt.Errorf("form source closed")
+				return nil, errors.New("form source closed")
 			}
 			return msg, nil
 		case <-time.After(5 * time.Second):
@@ -150,7 +151,7 @@ func (s *FormSource) Ack(ctx context.Context, msg hermod.Message) error {
 
 func (s *FormSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	if s.Storage == nil {
-		return nil, fmt.Errorf("form source storage not initialized")
+		return nil, errors.New("form source storage not initialized")
 	}
 	subs, _, err := s.Storage.ListFormSubmissions(ctx, FormSubmissionFilter{
 		Path:  s.Path,

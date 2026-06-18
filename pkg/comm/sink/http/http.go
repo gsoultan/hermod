@@ -63,7 +63,7 @@ func (s *HttpSink) Write(ctx context.Context, msg hermod.Message) error {
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", s.url, bytes.NewBuffer(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, bytes.NewBuffer(data))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -157,7 +157,7 @@ func (s *HttpSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error 
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", s.url, bytes.NewBuffer(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, bytes.NewBuffer(payload))
 	if err != nil {
 		return fmt.Errorf("failed to create batch request: %w", err)
 	}

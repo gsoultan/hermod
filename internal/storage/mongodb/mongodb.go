@@ -2,6 +2,7 @@ package mongodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -112,7 +113,7 @@ func (s *mongoStorage) CreateApproval(ctx context.Context, app storage.Approval)
 func (s *mongoStorage) GetApproval(ctx context.Context, id string) (storage.Approval, error) {
 	var a storage.Approval
 	err := s.db.Collection("approvals").FindOne(ctx, bson.M{"id": id}).Decode(&a)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return a, storage.ErrNotFound
 	}
 	return a, err
@@ -284,7 +285,7 @@ func (s *mongoStorage) AcquireWorkflowLease(ctx context.Context, workflowID, own
 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
 
 	res := coll.FindOneAndUpdate(ctx, filter, update, opts)
-	if res.Err() == mongo.ErrNoDocuments {
+	if errors.Is(res.Err(), mongo.ErrNoDocuments) {
 		return false, nil
 	}
 	if err := res.Err(); err != nil {
@@ -306,7 +307,7 @@ func (s *mongoStorage) RenewWorkflowLease(ctx context.Context, workflowID, owner
 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
 
 	res := coll.FindOneAndUpdate(ctx, filter, update, opts)
-	if res.Err() == mongo.ErrNoDocuments {
+	if errors.Is(res.Err(), mongo.ErrNoDocuments) {
 		return false, nil
 	}
 	if err := res.Err(); err != nil {
@@ -369,7 +370,7 @@ func (s *mongoStorage) ListSources(ctx context.Context, filter storage.CommonFil
 			return nil, 0, err
 		}
 		src.Source.ID = src.ID
-		src.Source.Config = decryptConfig(src.Source.Config)
+		src.Config = decryptConfig(src.Config)
 		sources = append(sources, src.Source)
 	}
 
@@ -440,14 +441,14 @@ func (s *mongoStorage) GetSource(ctx context.Context, id string) (storage.Source
 		ID             string `bson:"_id"`
 	}
 	err := coll.FindOne(ctx, bson.M{"_id": id}).Decode(&src)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return storage.Source{}, storage.ErrNotFound
 	}
 	if err != nil {
 		return storage.Source{}, err
 	}
 	src.Source.ID = src.ID
-	src.Source.Config = decryptConfig(src.Source.Config)
+	src.Config = decryptConfig(src.Config)
 	return src.Source, nil
 }
 
@@ -497,7 +498,7 @@ func (s *mongoStorage) ListSinks(ctx context.Context, filter storage.CommonFilte
 			return nil, 0, err
 		}
 		snk.Sink.ID = snk.ID
-		snk.Sink.Config = decryptConfig(snk.Sink.Config)
+		snk.Config = decryptConfig(snk.Config)
 		sinks = append(sinks, snk.Sink)
 	}
 
@@ -558,14 +559,14 @@ func (s *mongoStorage) GetSink(ctx context.Context, id string) (storage.Sink, er
 		ID           string `bson:"_id"`
 	}
 	err := coll.FindOne(ctx, bson.M{"_id": id}).Decode(&snk)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return storage.Sink{}, storage.ErrNotFound
 	}
 	if err != nil {
 		return storage.Sink{}, err
 	}
 	snk.Sink.ID = snk.ID
-	snk.Sink.Config = decryptConfig(snk.Sink.Config)
+	snk.Config = decryptConfig(snk.Config)
 	return snk.Sink, nil
 }
 
@@ -611,7 +612,7 @@ func (s *mongoStorage) ListUsers(ctx context.Context, filter storage.CommonFilte
 			return nil, 0, err
 		}
 		u.User.ID = u.ID
-		u.User.Password = "" // Don't return password
+		u.Password = "" // Don't return password
 		users = append(users, u.User)
 	}
 
@@ -668,7 +669,7 @@ func (s *mongoStorage) GetUser(ctx context.Context, id string) (storage.User, er
 		ID           string `bson:"_id"`
 	}
 	err := coll.FindOne(ctx, bson.M{"_id": id}).Decode(&u)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return storage.User{}, storage.ErrNotFound
 	}
 	if err != nil {
@@ -685,7 +686,7 @@ func (s *mongoStorage) GetUserByUsername(ctx context.Context, username string) (
 		ID           string `bson:"_id"`
 	}
 	err := coll.FindOne(ctx, bson.M{"username": username}).Decode(&u)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return storage.User{}, storage.ErrNotFound
 	}
 	if err != nil {
@@ -702,7 +703,7 @@ func (s *mongoStorage) GetUserByEmail(ctx context.Context, email string) (storag
 		ID           string `bson:"_id"`
 	}
 	err := coll.FindOne(ctx, bson.M{"email": email}).Decode(&u)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return storage.User{}, storage.ErrNotFound
 	}
 	if err != nil {
@@ -796,7 +797,7 @@ func (s *mongoStorage) GetVHost(ctx context.Context, id string) (storage.VHost, 
 		ID            string `bson:"_id"`
 	}
 	err := coll.FindOne(ctx, bson.M{"_id": id}).Decode(&v)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return storage.VHost{}, storage.ErrNotFound
 	}
 	if err != nil {
@@ -895,7 +896,7 @@ func (s *mongoStorage) GetWorkspace(ctx context.Context, id string) (storage.Wor
 	var ws storage.Workspace
 	err := s.db.Collection("workspaces").FindOne(ctx, bson.M{"id": id}).Decode(&ws)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return storage.Workspace{}, storage.ErrNotFound
 		}
 		return storage.Workspace{}, err
@@ -996,7 +997,7 @@ func (s *mongoStorage) GetWorkflow(ctx context.Context, id string) (storage.Work
 		ID               string `bson:"_id"`
 	}
 	err := coll.FindOne(ctx, bson.M{"_id": id}).Decode(&wf)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return storage.Workflow{}, storage.ErrNotFound
 	}
 	if err != nil {
@@ -1113,7 +1114,7 @@ func (s *mongoStorage) GetWorker(ctx context.Context, id string) (storage.Worker
 		ID             string `bson:"_id"`
 	}
 	err := coll.FindOne(ctx, bson.M{"_id": id}).Decode(&w)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return storage.Worker{}, storage.ErrNotFound
 	}
 	if err != nil {
@@ -1305,7 +1306,7 @@ func (s *mongoStorage) GetSetting(ctx context.Context, key string) (string, erro
 		Value string `bson:"value"`
 	}
 	err := coll.FindOne(ctx, bson.M{"_id": key}).Decode(&res)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return "", nil
 	}
 	return res.Value, err
@@ -1444,7 +1445,7 @@ func (s *mongoStorage) GetWebhookRequest(ctx context.Context, id string) (storag
 		ID                     string `bson:"_id"`
 	}
 	err := coll.FindOne(ctx, bson.M{"_id": id}).Decode(&r)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return storage.WebhookRequest{}, storage.ErrNotFound
 	}
 	if err != nil {
@@ -1677,7 +1678,7 @@ func (s *mongoStorage) GetSchema(ctx context.Context, name string, version int) 
 	filter := bson.M{"name": name, "version": version}
 	var sc storage.Schema
 	err := coll.FindOne(ctx, filter).Decode(&sc)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return storage.Schema{}, fmt.Errorf("schema %s version %d not found", name, version)
 	}
 	return sc, err
@@ -1689,7 +1690,7 @@ func (s *mongoStorage) GetLatestSchema(ctx context.Context, name string) (storag
 	opts := options.FindOne().SetSort(bson.D{{Key: "version", Value: -1}})
 	var sc storage.Schema
 	err := coll.FindOne(ctx, filter, opts).Decode(&sc)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return storage.Schema{}, fmt.Errorf("schema %s not found", name)
 	}
 	return sc, err
@@ -1742,7 +1743,7 @@ func (s *mongoStorage) GetMessageTrace(ctx context.Context, workflowID, messageI
 	filter := bson.M{"workflow_id": workflowID, "message_id": messageID}
 	var tr storage.MessageTrace
 	err := coll.FindOne(ctx, filter).Decode(&tr)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return storage.MessageTrace{}, storage.ErrNotFound
 	}
 	return tr, err
@@ -1794,7 +1795,7 @@ func (s *mongoStorage) GetWorkflowVersion(ctx context.Context, workflowID string
 	var v storage.WorkflowVersion
 	err := coll.FindOne(ctx, filter).Decode(&v)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return v, storage.ErrNotFound
 		}
 		return v, err
@@ -1885,11 +1886,12 @@ func (s *mongoStorage) GetLineage(ctx context.Context) ([]storage.LineageEdge, e
 		wfSinks := []storage.Sink{}
 
 		for _, node := range wf.Nodes {
-			if node.Type == "source" {
+			switch node.Type {
+			case "source":
 				if src, ok := srcMap[node.RefID]; ok {
 					wfSources = append(wfSources, src)
 				}
-			} else if node.Type == "sink" {
+			case "sink":
 				if snk, ok := snkMap[node.RefID]; ok {
 					wfSinks = append(wfSinks, snk)
 				}

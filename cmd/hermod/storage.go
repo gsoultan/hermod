@@ -57,7 +57,7 @@ func initNoSQLStorage(dbType, dbConn string) (storage.Storage, error) {
 	if dbType == "mongodb" {
 		client, err := mongo.Connect(options.Client().ApplyURI(dbConn))
 		if err != nil {
-			return nil, fmt.Errorf("failed to connect to MongoDB: %v", err)
+			return nil, fmt.Errorf("failed to connect to MongoDB: %w", err)
 		}
 		dbName := "hermod"
 		if parts := strings.Split(dbConn, "/"); len(parts) > 3 {
@@ -67,7 +67,7 @@ func initNoSQLStorage(dbType, dbConn string) (storage.Storage, error) {
 	}
 	store, err := storagepebble.NewPebbleStorage(dbConn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize Pebble storage: %v", err)
+		return nil, fmt.Errorf("failed to initialize Pebble storage: %w", err)
 	}
 	return store, nil
 }
@@ -76,7 +76,7 @@ func initSQLStorage(dbType, dbConn string) (storage.Storage, error) {
 	driver, conn := getSQLDriverAndConn(dbType, dbConn)
 	db, err := sql.Open(driver, conn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %v", err)
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 	configureSQLDB(db, dbType)
 	return storagesql.NewSQLStorage(db, driver), nil
@@ -130,7 +130,7 @@ func postInitStorage(store storage.Storage) (storage.Storage, error) {
 		defer cancel()
 	}
 	if err := s.Init(ctx); err != nil {
-		return store, fmt.Errorf("failed to initialize storage: %v", err)
+		return store, fmt.Errorf("failed to initialize storage: %w", err)
 	}
 	return store, nil
 }

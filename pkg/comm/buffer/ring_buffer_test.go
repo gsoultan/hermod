@@ -3,10 +3,11 @@ package buffer
 import (
 	"context"
 	"errors"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
 	"testing"
 	"time"
+
+	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/comm/message"
 )
 
 func TestRingBuffer(t *testing.T) {

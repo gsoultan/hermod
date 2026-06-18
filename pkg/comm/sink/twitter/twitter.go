@@ -58,7 +58,7 @@ func (s *TwitterSink) Write(ctx context.Context, msg hermod.Message) error {
 		"text": text,
 	})
 
-	req, err := http.NewRequestWithContext(ctx, "POST", s.baseURL+"/tweets", bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.baseURL+"/tweets", bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -97,7 +97,7 @@ func (s *TwitterSink) WriteBatch(ctx context.Context, msgs []hermod.Message) err
 
 // Ping checks the connection to Twitter API.
 func (s *TwitterSink) Ping(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", s.baseURL+"/users/me", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/users/me", nil)
 	if err != nil {
 		return err
 	}

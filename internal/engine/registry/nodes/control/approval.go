@@ -2,7 +2,6 @@ package control
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,7 +32,7 @@ func (n *ApprovalNode) Execute(ctx context.Context, nctx registry.NodeContext, w
 		_ = store.CreateApproval(ctx, app)
 	}
 
-	nctx.BroadcastLog(workflowID, "INFO", fmt.Sprintf("Approval requested at node %s", node.ID), msg.ID())
+	nctx.BroadcastLog(workflowID, "INFO", "Approval requested at node "+node.ID, msg.ID())
 
 	// Halt the message until approved (no forward routing)
 	return nil, "pending", nil

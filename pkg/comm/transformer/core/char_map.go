@@ -3,8 +3,9 @@ package core
 import (
 	"context"
 	"fmt"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"strings"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"

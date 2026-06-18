@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -85,7 +86,7 @@ func (s *RedisSource) Read(ctx context.Context) (hermod.Message, error) {
 	}).Result()
 
 	if err != nil {
-		if err == redis.Nil {
+		if errors.Is(err, redis.Nil) {
 			return nil, nil // No new data
 		}
 		return nil, fmt.Errorf("failed to read from redis stream: %w", err)
@@ -153,7 +154,7 @@ func (s *RedisSource) Ack(ctx context.Context, msg hermod.Message) error {
 	s.mu.Unlock()
 
 	if client == nil {
-		return fmt.Errorf("redis client not initialized")
+		return errors.New("redis client not initialized")
 	}
 	return client.XAck(ctx, s.stream, s.group, msg.ID()).Err()
 }
@@ -233,7 +234,7 @@ func (s *RedisSource) Sample(ctx context.Context, table string) (hermod.Message,
 	}
 
 	if len(msgs) == 0 {
-		return nil, fmt.Errorf("redis stream is empty")
+		return nil, errors.New("redis stream is empty")
 	}
 
 	xmsg := msgs[0]

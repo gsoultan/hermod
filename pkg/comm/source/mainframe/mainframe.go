@@ -3,8 +3,10 @@ package mainframe
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -147,7 +149,7 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 }
 
 func (s *Source) GetState() map[string]string {
-	return map[string]string{"last_pos": fmt.Sprintf("%d", s.lastPos)}
+	return map[string]string{"last_pos": strconv.FormatInt(s.lastPos, 10)}
 }
 
 func (s *Source) SetState(state map[string]string) {
@@ -166,7 +168,7 @@ func (s *Source) Name() string {
 
 func (s *Source) TestConnection(ctx context.Context) error {
 	if s.config.Host == "" {
-		return fmt.Errorf("mainframe: host is required")
+		return errors.New("mainframe: host is required")
 	}
 	if s.config.Type == "db2" {
 		if err := s.initDB(); err != nil {

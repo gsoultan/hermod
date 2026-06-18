@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -59,7 +60,7 @@ func (s *Sink) authenticate(ctx context.Context) error {
 	data.Set("client_secret", s.config.ClientSecret)
 	data.Set("scope", s.config.Resource+"/.default")
 
-	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return err
 	}
@@ -159,7 +160,7 @@ func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 		s.mu.Lock()
 		s.token = ""
 		s.mu.Unlock()
-		return fmt.Errorf("dynamics 365: unauthorized")
+		return errors.New("dynamics 365: unauthorized")
 	}
 
 	if resp.StatusCode >= 400 {
@@ -178,8 +179,8 @@ func (s *Sink) Ping(ctx context.Context) error {
 		return err
 	}
 
-	apiURL := fmt.Sprintf("%s/api/data/v9.2/$metadata", strings.TrimSuffix(s.config.Resource, "/"))
-	req, _ := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	apiURL := strings.TrimSuffix(s.config.Resource, "/") + "/api/data/v9.2/$metadata"
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 
 	s.mu.RLock()
 	token := s.token

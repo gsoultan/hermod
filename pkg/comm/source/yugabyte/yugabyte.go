@@ -223,7 +223,7 @@ func (y *YugabyteSource) snapshotTable(ctx context.Context, table string) error 
 		return fmt.Errorf("invalid table name %q: %w", table, err)
 	}
 
-	rows, err := y.conn.Query(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	rows, err := y.conn.Query(ctx, "SELECT * FROM "+quoted)
 	if err != nil {
 		return fmt.Errorf("failed to query table %q: %w", table, err)
 	}

@@ -22,7 +22,7 @@ var benchCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		workflowID := args[0]
-		url := fmt.Sprintf("%s/api/workflows/test", viper.GetString("url"))
+		url := viper.GetString("url") + "/api/workflows/test"
 
 		fmt.Printf("Benchmarking workflow %s for %d seconds...\n", workflowID, benchDuration)
 
@@ -53,7 +53,7 @@ var benchCmd = &cobra.Command{
 				break loop
 			default:
 				reqStart := time.Now()
-				req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
+				req, _ := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
 				req.Header.Set("Content-Type", "application/json")
 				if key := viper.GetString("key"); key != "" {
 					req.Header.Set("Authorization", "Bearer "+key)

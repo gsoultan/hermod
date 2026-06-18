@@ -2,10 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
+	"net/http"
+	"strconv"
+
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/infra/schema"
-	"net/http"
 )
 
 func (h *Handler) ListSchemas(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +80,7 @@ func (h *Handler) RegisterSchema(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.RecordAuditLog(r, "INFO", "Registered schema "+req.Name+" version "+fmt.Sprintf("%d", version), "REGISTER", "", "", "", req)
+	h.RecordAuditLog(r, "INFO", "Registered schema "+req.Name+" version "+strconv.Itoa(version), "REGISTER", "", "", "", req)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{

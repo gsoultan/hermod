@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -106,11 +107,12 @@ func (s *MSSQLSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 		switch op {
 		case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
 			if len(s.mappings) > 0 {
-				if s.operationMode == "insert" {
+				switch s.operationMode {
+				case "insert":
 					err = s.insertMapped(ctx, tx, table, msg)
-				} else if s.operationMode == "update" {
+				case "update":
 					err = s.updateMapped(ctx, tx, table, msg)
-				} else {
+				default:
 					err = s.upsertMapped(ctx, tx, table, msg)
 				}
 			} else {
@@ -168,7 +170,7 @@ func (s *MSSQLSink) upsertMapped(ctx context.Context, tx *sql.Tx, table string, 
 
 		quoted, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
 		cols = append(cols, quoted)
-		selectCols = append(selectCols, fmt.Sprintf("? AS %s", quoted))
+		selectCols = append(selectCols, "? AS "+quoted)
 		args = append(args, val)
 
 		if m.IsPrimaryKey {
@@ -239,16 +241,16 @@ func (s *MSSQLSink) updateMapped(ctx context.Context, tx *sql.Tx, table string, 
 		val := evaluator.GetMsgValByPath(msg, m.SourceField)
 		quoted, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
 		if m.IsPrimaryKey {
-			pks = append(pks, fmt.Sprintf("%s = ?", quoted))
+			pks = append(pks, quoted+" = ?")
 			pkArgs = append(pkArgs, val)
 		} else {
-			updates = append(updates, fmt.Sprintf("%s = ?", quoted))
+			updates = append(updates, quoted+" = ?")
 			args = append(args, val)
 		}
 	}
 
 	if len(pks) == 0 {
-		return fmt.Errorf("cannot update without primary key mappings")
+		return errors.New("cannot update without primary key mappings")
 	}
 	if len(updates) == 0 {
 		return nil
@@ -278,7 +280,7 @@ func (s *MSSQLSink) deleteMapped(ctx context.Context, tx *sql.Tx, table string, 
 		if m.IsPrimaryKey {
 			val := evaluator.GetMsgValByPath(msg, m.SourceField)
 			qCol, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
-			pks = append(pks, fmt.Sprintf("%s = ?", qCol))
+			pks = append(pks, qCol+" = ?")
 			args = append(args, val)
 		}
 	}
@@ -325,7 +327,7 @@ func (s *MSSQLSink) ensureTable(ctx context.Context, tx *sql.Tx, table string) e
 
 	if exists {
 		if s.autoTruncate {
-			if _, err := tx.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", quoted)); err != nil {
+			if _, err := tx.ExecContext(ctx, "TRUNCATE TABLE "+quoted); err != nil {
 				return fmt.Errorf("failed to truncate table %s: %w", table, err)
 			}
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -38,11 +39,11 @@ func New(cfg map[string]string, formatter hermod.Formatter) (*Sink, error) {
 		brokerURL = strings.TrimSpace(cfg["url"])
 	}
 	if brokerURL == "" {
-		return nil, fmt.Errorf("mqtt: broker_url is required")
+		return nil, errors.New("mqtt: broker_url is required")
 	}
 	topic := strings.TrimSpace(cfg["topic"])
 	if topic == "" {
-		return nil, fmt.Errorf("mqtt: topic is required")
+		return nil, errors.New("mqtt: topic is required")
 	}
 
 	opts := paho.NewClientOptions().AddBroker(brokerURL)
@@ -119,7 +120,7 @@ func (s *Sink) ensureClient(ctx context.Context) error {
 	c := paho.NewClient(s.opts)
 	token := c.Connect()
 	if !token.WaitTimeout(15 * time.Second) {
-		return fmt.Errorf("mqtt: connect timeout")
+		return errors.New("mqtt: connect timeout")
 	}
 	if err := token.Error(); err != nil {
 		return fmt.Errorf("mqtt: connect failed: %w", err)

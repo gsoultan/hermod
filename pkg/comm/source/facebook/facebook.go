@@ -74,7 +74,7 @@ func (s *FacebookSource) Read(ctx context.Context) (hermod.Message, error) {
 	case "comments":
 		// Get comments for recent posts
 		apiURL = fmt.Sprintf("%s/%s/feed?access_token=%s&fields=id&limit=5", s.baseURL, s.pageID, s.accessToken)
-		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -93,7 +93,7 @@ func (s *FacebookSource) Read(ctx context.Context) (hermod.Message, error) {
 		for _, post := range feedResult.Data {
 			postID := post["id"].(string)
 			commentURL := fmt.Sprintf("%s/%s/comments?access_token=%s&fields=id,message,created_time,from&limit=10", s.baseURL, postID, s.accessToken)
-			req, _ := http.NewRequestWithContext(ctx, "GET", commentURL, nil)
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, commentURL, nil)
 			resp, err := s.client.Do(req)
 			if err == nil {
 				var commentResult struct {
@@ -113,7 +113,7 @@ func (s *FacebookSource) Read(ctx context.Context) (hermod.Message, error) {
 	case "insights":
 		// Page insights
 		apiURL = fmt.Sprintf("%s/%s/insights?access_token=%s&metric=page_impressions,page_engaged_users,page_views_total&period=day", s.baseURL, s.pageID, s.accessToken)
-		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -137,7 +137,7 @@ func (s *FacebookSource) Read(ctx context.Context) (hermod.Message, error) {
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +218,7 @@ func (s *FacebookSource) Ack(ctx context.Context, msg hermod.Message) error {
 // Ping checks the connection to Facebook.
 func (s *FacebookSource) Ping(ctx context.Context) error {
 	apiURL := fmt.Sprintf("%s/%s?access_token=%s&fields=id,name", s.baseURL, s.pageID, s.accessToken)
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return err
 	}

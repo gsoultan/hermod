@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -66,7 +67,7 @@ func (s *DiscordSink) Write(ctx context.Context, msg hermod.Message) error {
 		return s.sendBotMessage(ctx, content)
 	}
 
-	return fmt.Errorf("discord sink not configured: missing webhook_url or token/channel_id")
+	return errors.New("discord sink not configured: missing webhook_url or token/channel_id")
 }
 
 func (s *DiscordSink) sendWebhook(ctx context.Context, content string) error {
@@ -74,7 +75,7 @@ func (s *DiscordSink) sendWebhook(ctx context.Context, content string) error {
 		"content": content,
 	})
 
-	req, err := http.NewRequestWithContext(ctx, "POST", s.webhookURL, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.webhookURL, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -99,7 +100,7 @@ func (s *DiscordSink) sendBotMessage(ctx context.Context, content string) error 
 		"content": content,
 	})
 
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -137,7 +138,7 @@ func (s *DiscordSink) WriteBatch(ctx context.Context, msgs []hermod.Message) err
 // Ping checks the connection to Discord.
 func (s *DiscordSink) Ping(ctx context.Context) error {
 	if s.webhookURL != "" {
-		req, err := http.NewRequestWithContext(ctx, "GET", s.webhookURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.webhookURL, nil)
 		if err != nil {
 			return err
 		}
@@ -154,7 +155,7 @@ func (s *DiscordSink) Ping(ctx context.Context) error {
 	}
 
 	if s.token != "" {
-		req, err := http.NewRequestWithContext(ctx, "GET", s.baseURL+"/users/@me", nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/users/@me", nil)
 		if err != nil {
 			return err
 		}
@@ -170,7 +171,7 @@ func (s *DiscordSink) Ping(ctx context.Context) error {
 		return nil
 	}
 
-	return fmt.Errorf("discord sink not configured")
+	return errors.New("discord sink not configured")
 }
 
 // Close closes the Discord sink.

@@ -2,6 +2,7 @@ package util
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/mail"
 	"net/textproto"
@@ -87,7 +88,8 @@ func VerifyEmailExists(ctx context.Context, address string) (bool, string) {
 			}
 			if err != nil {
 				// If it is a 550 response, it's likely non-existent
-				if te, ok := err.(*textproto.Error); ok {
+				te := &textproto.Error{}
+				if errors.As(err, &te) {
 					if te.Code == 550 {
 						return
 					}

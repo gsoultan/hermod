@@ -2,6 +2,7 @@ package buffer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -64,7 +65,7 @@ func TestFileBufferWithCompression(t *testing.T) {
 				return nil
 			})
 
-			if err != nil && err != context.Canceled && err != context.DeadlineExceeded {
+			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("consume failed: %v", err)
 			}
 

@@ -93,7 +93,11 @@ func (s *Source) connect(ctx context.Context) error {
 	if s.tlsCfg != nil {
 		s.dlr.TLSClientConfig = s.tlsCfg
 	}
-	c, _, err := s.dlr.DialContext(cctx, s.url, hdr)
+	c, resp, err := s.dlr.DialContext(cctx, s.url, hdr)
+	if resp != nil && resp.Body != nil {
+		// The handshake response body is unused; close it to avoid leaking the connection.
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		return err
 	}

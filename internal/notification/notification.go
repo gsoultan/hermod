@@ -164,8 +164,8 @@ func NewEmailNotificationProvider(s storage.Storage) *EmailNotificationProvider 
 }
 
 func (p *EmailNotificationProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
-	val, err := p.storage.GetSetting(ctx, "notification_settings")
-	if err != nil || val == "" {
+	val, _ := p.storage.GetSetting(ctx, "notification_settings")
+	if val == "" {
 		return nil
 	}
 
@@ -216,8 +216,8 @@ func NewTelegramNotificationProvider(s storage.Storage) *TelegramNotificationPro
 }
 
 func (p *TelegramNotificationProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
-	val, err := p.storage.GetSetting(ctx, "notification_settings")
-	if err != nil || val == "" {
+	val, _ := p.storage.GetSetting(ctx, "notification_settings")
+	if val == "" {
 		return nil
 	}
 
@@ -246,7 +246,7 @@ func (ns NotificationSettings) SendTelegram(ctx context.Context, title, message 
 		"parse_mode": "Markdown",
 	})
 
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -284,8 +284,8 @@ func NewSlackNotificationProvider(s storage.Storage) *SlackNotificationProvider 
 }
 
 func (p *SlackNotificationProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
-	val, err := p.storage.GetSetting(ctx, "notification_settings")
-	if err != nil || val == "" {
+	val, _ := p.storage.GetSetting(ctx, "notification_settings")
+	if val == "" {
 		return nil
 	}
 
@@ -321,7 +321,7 @@ func (ns NotificationSettings) SendSlack(ctx context.Context, title, message str
 		},
 	})
 
-	req, err := http.NewRequestWithContext(ctx, "POST", ns.SlackWebhook, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ns.SlackWebhook, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -357,8 +357,8 @@ func NewDiscordNotificationProvider(s storage.Storage) *DiscordNotificationProvi
 }
 
 func (p *DiscordNotificationProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
-	val, err := p.storage.GetSetting(ctx, "notification_settings")
-	if err != nil || val == "" {
+	val, _ := p.storage.GetSetting(ctx, "notification_settings")
+	if val == "" {
 		return nil
 	}
 
@@ -395,7 +395,7 @@ func (ns NotificationSettings) SendDiscord(ctx context.Context, title, message s
 		},
 	})
 
-	req, err := http.NewRequestWithContext(ctx, "POST", ns.DiscordWebhook, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ns.DiscordWebhook, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
@@ -431,8 +431,8 @@ func NewGenericWebhookProvider(s storage.Storage) *GenericWebhookProvider {
 }
 
 func (p *GenericWebhookProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
-	val, err := p.storage.GetSetting(ctx, "notification_settings")
-	if err != nil || val == "" {
+	val, _ := p.storage.GetSetting(ctx, "notification_settings")
+	if val == "" {
 		return nil
 	}
 
@@ -463,7 +463,7 @@ func (ns NotificationSettings) SendGenericWebhook(ctx context.Context, title, me
 
 	body, _ := json.Marshal(data)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", ns.WebhookURL, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ns.WebhookURL, bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}

@@ -3,9 +3,10 @@ package ai
 import (
 	"context"
 	"fmt"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"regexp"
 	"strings"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"

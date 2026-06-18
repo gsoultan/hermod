@@ -3,10 +3,11 @@ package core
 import (
 	"context"
 	"fmt"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -118,11 +119,12 @@ func (s *MySQLSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 		switch op {
 		case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
 			if len(s.mappings) > 0 {
-				if s.operationMode == "insert" {
+				switch s.operationMode {
+				case "insert":
 					err = s.insertMapped(ctx, tx, table, msg)
-				} else if s.operationMode == "update" {
+				case "update":
 					err = s.updateMapped(ctx, tx, table, msg)
-				} else {
+				default:
 					err = s.upsertMapped(ctx, tx, table, msg)
 				}
 			} else {
@@ -437,7 +439,7 @@ func (s *MySQLSink) ensureTable(ctx context.Context, tx *sql.Tx, table string) e
 
 	if exists {
 		if s.autoTruncate {
-			if _, err := tx.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", quotedTable)); err != nil {
+			if _, err := tx.ExecContext(ctx, "TRUNCATE TABLE "+quotedTable); err != nil {
 				return fmt.Errorf("truncate table %s: %w", table, err)
 			}
 		}
@@ -649,7 +651,7 @@ func (s *MySQLSink) updateMapped(ctx context.Context, tx *sql.Tx, table string, 
 	}
 
 	if len(pks) == 0 {
-		return fmt.Errorf("cannot update without primary key mappings")
+		return errors.New("cannot update without primary key mappings")
 	}
 	if len(updates) == 0 {
 		return nil

@@ -181,7 +181,7 @@ func (s *ClickHouseSink) deleteMapped(ctx context.Context, table string, msg her
 	for _, m := range s.mappings {
 		if m.IsPrimaryKey {
 			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			pks = append(pks, fmt.Sprintf("%s = ?", m.TargetColumn))
+			pks = append(pks, m.TargetColumn+" = ?")
 			args = append(args, val)
 		}
 	}
@@ -324,7 +324,7 @@ func (s *ClickHouseSink) ensureTable(ctx context.Context, table string) error {
 	}
 
 	// Ensure database exists
-	dbQuery := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", s.database)
+	dbQuery := "CREATE DATABASE IF NOT EXISTS " + s.database
 	if err := s.conn.Exec(ctx, dbQuery); err != nil {
 		// Ignore errors for database creation as user might not have permissions
 	}

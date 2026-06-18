@@ -3,9 +3,11 @@ package state
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/user/hermod"
+	// modernc.org/sqlite registers the pure-Go "sqlite" database/sql driver via init().
 	_ "modernc.org/sqlite"
 )
 
@@ -32,7 +34,7 @@ func NewSQLiteStateStore(path string) (hermod.StateStore, error) {
 func (s *SQLiteStateStore) Get(ctx context.Context, key string) ([]byte, error) {
 	var val []byte
 	err := s.db.QueryRowContext(ctx, commonQueries[QueryGet], key).Scan(&val)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

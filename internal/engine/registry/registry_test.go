@@ -3,7 +3,7 @@ package registry
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"reflect"
 	"strings"
 	"sync"
@@ -781,7 +781,7 @@ type policyMockStorage struct {
 
 func (m *policyMockStorage) GetSource(ctx context.Context, id string) (storage.Source, error) {
 	if id == "non-existent" {
-		return storage.Source{}, fmt.Errorf("source not found")
+		return storage.Source{}, errors.New("source not found")
 	}
 	return storage.Source{ID: id, Type: "sqlite"}, nil
 }

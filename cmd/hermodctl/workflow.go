@@ -72,7 +72,7 @@ var exportCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		client := &http.Client{Timeout: 10 * time.Second}
 		url := fmt.Sprintf("%s/api/workflows/%s", viper.GetString("url"), args[0])
-		req, _ := http.NewRequest("GET", url, nil)
+		req, _ := http.NewRequest(http.MethodGet, url, nil)
 		if key := viper.GetString("key"); key != "" {
 			req.Header.Set("Authorization", "Bearer "+key)
 		}
@@ -115,8 +115,8 @@ var importCmd = &cobra.Command{
 
 		jsonData, _ := json.Marshal(workflow)
 		client := &http.Client{Timeout: 10 * time.Second}
-		url := fmt.Sprintf("%s/api/workflows", viper.GetString("url"))
-		req, _ := http.NewRequest("POST", url, bytes.NewReader(jsonData))
+		url := viper.GetString("url") + "/api/workflows"
+		req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(jsonData))
 		req.Header.Set("Content-Type", "application/json")
 		if key := viper.GetString("key"); key != "" {
 			req.Header.Set("Authorization", "Bearer "+key)
@@ -155,7 +155,7 @@ var testCmd = &cobra.Command{
 		client := &http.Client{Timeout: 10 * time.Second}
 		reqBody := bytes.NewBufferString(payload)
 		url := fmt.Sprintf("%s/api/workflows/%s/test", viper.GetString("url"), workflowID)
-		req, _ := http.NewRequest("POST", url, reqBody)
+		req, _ := http.NewRequest(http.MethodPost, url, reqBody)
 		req.Header.Set("Content-Type", "application/json")
 		if key := viper.GetString("key"); key != "" {
 			req.Header.Set("Authorization", "Bearer "+key)

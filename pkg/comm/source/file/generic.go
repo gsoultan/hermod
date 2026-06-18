@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -114,7 +115,7 @@ func (s *GenericFileSource) GetState() map[string]string {
 	defer s.mu.Unlock()
 	st := map[string]string{}
 	if !s.lastMTime.IsZero() {
-		st["last_mtime_unix"] = fmt.Sprintf("%d", s.lastMTime.Unix())
+		st["last_mtime_unix"] = strconv.FormatInt(s.lastMTime.Unix(), 10)
 	}
 	return st
 }
@@ -308,7 +309,7 @@ func (s *GenericFileSource) Sample(ctx context.Context, table string) (hermod.Me
 		return nil, err
 	}
 	if len(files) == 0 {
-		return nil, fmt.Errorf("no files found to sample")
+		return nil, errors.New("no files found to sample")
 	}
 	ref := &files[0]
 
@@ -329,7 +330,7 @@ func (s *GenericFileSource) Sample(ctx context.Context, table string) (hermod.Me
 		return nil, err
 	}
 	msg := message.AcquireMessage()
-	msg.SetID(fmt.Sprintf("%s-sample", filepath.Base(ref.Name)))
+	msg.SetID(filepath.Base(ref.Name) + "-sample")
 	msg.SetMetadata("source", "file")
 	msg.SetMetadata("backend", string(ref.Backend))
 	for k, v := range meta {
@@ -454,9 +455,9 @@ func (s *GenericFileSource) listLocal() ([]fileRef, error) {
 		return refs, nil
 	}
 	if s.cfg.Recursive {
-		filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+		_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
-				return nil
+				return nil //nolint:nilerr // skip entries that cannot be accessed and continue walking
 			}
 			if d.IsDir() {
 				return nil
@@ -466,7 +467,7 @@ func (s *GenericFileSource) listLocal() ([]fileRef, error) {
 			}
 			fi, e := os.Stat(p)
 			if e != nil {
-				return nil
+				return nil //nolint:nilerr // skip files that cannot be stat'd and continue walking
 			}
 			refs = append(refs, fileRef{Name: filepath.Base(p), FullPath: p, Size: fi.Size(), ModTime: fi.ModTime(), Backend: BackendLocal})
 			return nil

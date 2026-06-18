@@ -2,6 +2,7 @@ package fcm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -121,7 +122,7 @@ func (s *FCMSink) Write(ctx context.Context, msg hermod.Message) error {
 	} else {
 		// If no destination is specified, we can't send the message.
 		// Keep the error text stable for tests.
-		return fmt.Errorf("fcm destination (token, topic, or condition) not found in message metadata")
+		return errors.New("fcm destination (token, topic, or condition) not found in message metadata")
 	}
 
 	// Optionally add notification details if present in metadata

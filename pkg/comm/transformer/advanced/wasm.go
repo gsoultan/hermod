@@ -2,15 +2,18 @@ package advanced
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
@@ -127,10 +130,10 @@ func (t *WasmTransformer) Transform(ctx context.Context, msg hermod.Message, con
 	}
 
 	if len(bin) == 0 {
-		return msg, fmt.Errorf("wasm binary not provided")
+		return msg, errors.New("wasm binary not provided")
 	}
 
-	cacheKey := fmt.Sprintf("%x", bin)
+	cacheKey := hex.EncodeToString(bin)
 
 	r := t.getRuntime(ctx)
 

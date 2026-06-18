@@ -3,6 +3,7 @@ package factory
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -263,7 +264,8 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 		// Map additional backend config
 		sourceType := strings.ToLower(cfg.Config["source_type"])
 		ex.SourceType = sourceType
-		if sourceType == "http" {
+		switch sourceType {
+		case "http":
 			ex.URL = cfg.Config["url"]
 			headers := make(map[string]string)
 			if h, ok := cfg.Config["headers"]; ok && h != "" {
@@ -276,7 +278,7 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 				}
 			}
 			ex.Headers = headers
-		} else if sourceType == "s3" {
+		case "s3":
 			ex.S3Region = cfg.Config["s3_region"]
 			ex.S3Bucket = cfg.Config["s3_bucket"]
 			ex.S3KeyPrefix = cfg.Config["s3_key"]
@@ -294,7 +296,8 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 			}
 			hasHeader := cfg.Config["has_header"] == "true"
 			sourceType := cfg.Config["source_type"]
-			if sourceType == "http" {
+			switch sourceType {
+			case "http":
 				headers := make(map[string]string)
 				if h, ok := cfg.Config["headers"]; ok && h != "" {
 					pairs := strings.Split(h, ",")
@@ -306,7 +309,7 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 					}
 				}
 				src = sourcefile.NewHTTPCSVSource(cfg.Config["url"], delimiter, hasHeader, headers)
-			} else if sourceType == "s3" {
+			case "s3":
 				src = sourcefile.NewS3CSVSource(
 					cfg.Config["s3_region"],
 					cfg.Config["s3_bucket"],
@@ -317,7 +320,7 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 					delimiter,
 					hasHeader,
 				)
-			} else {
+			default:
 				src = sourcefile.NewCSVSource(cfg.Config["file_path"], delimiter, hasHeader)
 			}
 		} else {
@@ -649,11 +652,12 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 
 	var fmttr hermod.Formatter
 	format := cfg.Config["format"]
-	if format == "payload" {
+	switch format {
+	case "payload":
 		f := jsonfmt.NewJSONFormatter()
 		f.SetMode(jsonfmt.ModePayload)
 		fmttr = f
-	} else if format == "cdc" || format == "json" {
+	case "cdc", "json":
 		fmttr = jsonfmt.NewJSONFormatter()
 	}
 
@@ -760,7 +764,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 	case "wasm":
 		t, ok := transformer.Get("wasm")
 		if !ok {
-			return nil, fmt.Errorf("wasm transformer not registered")
+			return nil, errors.New("wasm transformer not registered")
 		}
 		return &wasmSinkAdapter{
 			transformer: t,
@@ -1051,7 +1055,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 					}
 				}
 				if len(sanitized) > 0 {
-					table = fmt.Sprintf("smtp_idempotency_%s", string(sanitized))
+					table = "smtp_idempotency_" + string(sanitized)
 				}
 			}
 			store, err := idempotency.NewSQLiteStoreWithTable(dsn, table)
@@ -1156,17 +1160,18 @@ func BuildConnectionString(cfg map[string]string, sourceType string) string {
 			Path:   "/" + dbname,
 		}
 
-		if sourceType == "mssql" {
+		switch sourceType {
+		case "mssql":
 			u.Scheme = "sqlserver"
 			u.Path = ""
 			q := u.Query()
 			q.Set("database", dbname)
 			u.RawQuery = q.Encode()
-		} else if sourceType == "oracle" {
+		case "oracle":
 			u.Scheme = "oracle"
-		} else if sourceType == "clickhouse" {
+		case "clickhouse":
 			u.Scheme = "clickhouse"
-		} else if sourceType == "yugabyte" {
+		case "yugabyte":
 			u.Scheme = "postgres"
 		}
 

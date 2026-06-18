@@ -3,6 +3,7 @@ package pebble
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -21,7 +22,7 @@ type pebbleStorage struct {
 
 func NewPebbleStorage(path string) (storage.Storage, error) {
 	if path == "" {
-		return nil, fmt.Errorf("pebble storage path cannot be empty")
+		return nil, errors.New("pebble storage path cannot be empty")
 	}
 	if err := os.MkdirAll(path, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create pebble directory %s: %w", path, err)
@@ -348,7 +349,7 @@ func (s *pebbleStorage) RecordTraceStep(ctx context.Context, workflowID, message
 	if err == nil {
 		defer closer.Close()
 		_ = json.Unmarshal(val, &trace)
-	} else if err == pebble.ErrNotFound {
+	} else if errors.Is(err, pebble.ErrNotFound) {
 		trace = storage.MessageTrace{
 			WorkflowID: workflowID,
 			MessageID:  messageID,
@@ -358,7 +359,7 @@ func (s *pebbleStorage) RecordTraceStep(ctx context.Context, workflowID, message
 		return err
 	}
 
-	trace.Steps = append(trace.Steps, storage.TraceStep(step))
+	trace.Steps = append(trace.Steps, step)
 	data, _ := json.Marshal(trace)
 	return s.db.Set([]byte(key), data, pebble.Sync)
 }
@@ -367,7 +368,7 @@ func (s *pebbleStorage) GetMessageTrace(ctx context.Context, workflowID, message
 	key := fmt.Sprintf("t:%s:%s", workflowID, messageID)
 	val, closer, err := s.db.Get([]byte(key))
 	if err != nil {
-		if err == pebble.ErrNotFound {
+		if errors.Is(err, pebble.ErrNotFound) {
 			return storage.MessageTrace{}, storage.ErrNotFound
 		}
 		return storage.MessageTrace{}, err
@@ -437,242 +438,242 @@ func (s *pebbleStorage) PurgeMessageTraces(ctx context.Context, before time.Time
 // Stubs for non-log methods
 
 func (s *pebbleStorage) ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error) {
-	return nil, 0, fmt.Errorf("not implemented")
+	return nil, 0, errors.New("not implemented")
 }
 func (s *pebbleStorage) CreateSource(ctx context.Context, src storage.Source) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateSource(ctx context.Context, src storage.Source) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateSourceStatus(ctx context.Context, id string, status string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateSourceState(ctx context.Context, id string, state map[string]string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) DeleteSource(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) GetSource(ctx context.Context, id string) (storage.Source, error) {
-	return storage.Source{}, fmt.Errorf("not implemented")
+	return storage.Source{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) ListSinks(ctx context.Context, filter storage.CommonFilter) ([]storage.Sink, int, error) {
-	return nil, 0, fmt.Errorf("not implemented")
+	return nil, 0, errors.New("not implemented")
 }
 func (s *pebbleStorage) CreateSink(ctx context.Context, snk storage.Sink) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateSink(ctx context.Context, snk storage.Sink) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateSinkStatus(ctx context.Context, id string, status string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) DeleteSink(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) GetSink(ctx context.Context, id string) (storage.Sink, error) {
-	return storage.Sink{}, fmt.Errorf("not implemented")
+	return storage.Sink{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) ListUsers(ctx context.Context, filter storage.CommonFilter) ([]storage.User, int, error) {
-	return nil, 0, fmt.Errorf("not implemented")
+	return nil, 0, errors.New("not implemented")
 }
 func (s *pebbleStorage) CreateUser(ctx context.Context, user storage.User) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateUser(ctx context.Context, user storage.User) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) DeleteUser(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) GetUser(ctx context.Context, id string) (storage.User, error) {
-	return storage.User{}, fmt.Errorf("not implemented")
+	return storage.User{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) GetUserByUsername(ctx context.Context, username string) (storage.User, error) {
-	return storage.User{}, fmt.Errorf("not implemented")
+	return storage.User{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) GetUserByEmail(ctx context.Context, email string) (storage.User, error) {
-	return storage.User{}, fmt.Errorf("not implemented")
+	return storage.User{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) ListVHosts(ctx context.Context, filter storage.CommonFilter) ([]storage.VHost, int, error) {
-	return nil, 0, fmt.Errorf("not implemented")
+	return nil, 0, errors.New("not implemented")
 }
 func (s *pebbleStorage) CreateVHost(ctx context.Context, vhost storage.VHost) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) DeleteVHost(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) GetVHost(ctx context.Context, id string) (storage.VHost, error) {
-	return storage.VHost{}, fmt.Errorf("not implemented")
+	return storage.VHost{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) ListWorkflows(ctx context.Context, filter storage.CommonFilter) ([]storage.Workflow, int, error) {
-	return nil, 0, fmt.Errorf("not implemented")
+	return nil, 0, errors.New("not implemented")
 }
 func (s *pebbleStorage) ListWorkspaces(ctx context.Context) ([]storage.Workspace, error) {
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }
 func (s *pebbleStorage) CreateWorkspace(ctx context.Context, ws storage.Workspace) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) GetWorkspace(ctx context.Context, id string) (storage.Workspace, error) {
-	return storage.Workspace{}, fmt.Errorf("not implemented")
+	return storage.Workspace{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) DeleteWorkspace(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) DeleteWorkflow(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
-	return storage.Workflow{}, fmt.Errorf("not implemented")
+	return storage.Workflow{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) AcquireWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error) {
-	return false, fmt.Errorf("not implemented")
+	return false, errors.New("not implemented")
 }
 func (s *pebbleStorage) RenewWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error) {
-	return false, fmt.Errorf("not implemented")
+	return false, errors.New("not implemented")
 }
 func (s *pebbleStorage) ReleaseWorkflowLease(ctx context.Context, workflowID, ownerID string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) ListWorkers(ctx context.Context, filter storage.CommonFilter) ([]storage.Worker, int, error) {
-	return nil, 0, fmt.Errorf("not implemented")
+	return nil, 0, errors.New("not implemented")
 }
 func (s *pebbleStorage) CreateWorker(ctx context.Context, worker storage.Worker) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateWorker(ctx context.Context, worker storage.Worker) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) DeleteWorker(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) GetWorker(ctx context.Context, id string) (storage.Worker, error) {
-	return storage.Worker{}, fmt.Errorf("not implemented")
+	return storage.Worker{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) ListWebhookRequests(ctx context.Context, filter storage.WebhookRequestFilter) ([]storage.WebhookRequest, int, error) {
-	return nil, 0, fmt.Errorf("not implemented")
+	return nil, 0, errors.New("not implemented")
 }
 func (s *pebbleStorage) CreateWebhookRequest(ctx context.Context, req storage.WebhookRequest) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) GetWebhookRequest(ctx context.Context, id string) (storage.WebhookRequest, error) {
-	return storage.WebhookRequest{}, fmt.Errorf("not implemented")
+	return storage.WebhookRequest{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) DeleteWebhookRequests(ctx context.Context, filter storage.WebhookRequestFilter) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) CreateFormSubmission(ctx context.Context, sub storage.FormSubmission) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) ListFormSubmissions(ctx context.Context, filter storage.FormSubmissionFilter) ([]storage.FormSubmission, int, error) {
-	return nil, 0, fmt.Errorf("not implemented")
+	return nil, 0, errors.New("not implemented")
 }
 func (s *pebbleStorage) GetFormSubmission(ctx context.Context, id string) (storage.FormSubmission, error) {
-	return storage.FormSubmission{}, fmt.Errorf("not implemented")
+	return storage.FormSubmission{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateFormSubmissionStatus(ctx context.Context, id string, status string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) DeleteFormSubmissions(ctx context.Context, filter storage.FormSubmissionFilter) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) GetSetting(ctx context.Context, key string) (string, error) {
-	return "", fmt.Errorf("not implemented")
+	return "", errors.New("not implemented")
 }
 func (s *pebbleStorage) SaveSetting(ctx context.Context, key string, value string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error) {
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }
 func (s *pebbleStorage) ListSchemas(ctx context.Context, name string) ([]storage.Schema, error) {
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }
 func (s *pebbleStorage) ListAllSchemas(ctx context.Context) ([]storage.Schema, error) {
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }
 func (s *pebbleStorage) GetSchema(ctx context.Context, name string, version int) (storage.Schema, error) {
-	return storage.Schema{}, fmt.Errorf("not implemented")
+	return storage.Schema{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) GetLatestSchema(ctx context.Context, name string) (storage.Schema, error) {
-	return storage.Schema{}, fmt.Errorf("not implemented")
+	return storage.Schema{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) CreateSchema(ctx context.Context, schema storage.Schema) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) CreateWorkflowVersion(ctx context.Context, version storage.WorkflowVersion) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) ListWorkflowVersions(ctx context.Context, workflowID string) ([]storage.WorkflowVersion, error) {
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }
 func (s *pebbleStorage) GetWorkflowVersion(ctx context.Context, workflowID string, version int) (storage.WorkflowVersion, error) {
-	return storage.WorkflowVersion{}, fmt.Errorf("not implemented")
+	return storage.WorkflowVersion{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) CreateOutboxItem(ctx context.Context, item storage.OutboxItem) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) ListOutboxItems(ctx context.Context, status string, limit int) ([]storage.OutboxItem, error) {
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }
 func (s *pebbleStorage) DeleteOutboxItem(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateOutboxItem(ctx context.Context, item storage.OutboxItem) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) GetLineage(ctx context.Context) ([]storage.LineageEdge, error) {
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }
 func (s *pebbleStorage) ListPlugins(ctx context.Context) ([]storage.Plugin, error) {
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.New("not implemented")
 }
 func (s *pebbleStorage) GetPlugin(ctx context.Context, id string) (storage.Plugin, error) {
-	return storage.Plugin{}, fmt.Errorf("not implemented")
+	return storage.Plugin{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) InstallPlugin(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) UninstallPlugin(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) ListApprovals(ctx context.Context, filter storage.ApprovalFilter) ([]storage.Approval, int, error) {
-	return nil, 0, fmt.Errorf("not implemented")
+	return nil, 0, errors.New("not implemented")
 }
 func (s *pebbleStorage) CreateApproval(ctx context.Context, app storage.Approval) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) GetApproval(ctx context.Context, id string) (storage.Approval, error) {
-	return storage.Approval{}, fmt.Errorf("not implemented")
+	return storage.Approval{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string, formData map[string]any) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 
 func (s *pebbleStorage) CreateSuspendedMessage(ctx context.Context, m storage.SuspendedMessage) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 
 func (s *pebbleStorage) ListSuspendedMessages(ctx context.Context, workflowID string, before time.Time) ([]storage.SuspendedMessage, error) {
@@ -680,8 +681,8 @@ func (s *pebbleStorage) ListSuspendedMessages(ctx context.Context, workflowID st
 }
 
 func (s *pebbleStorage) DeleteSuspendedMessage(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }
 func (s *pebbleStorage) DeleteApproval(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
+	return errors.New("not implemented")
 }

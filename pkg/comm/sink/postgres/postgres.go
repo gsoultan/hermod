@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -151,11 +152,12 @@ func (s *PostgresSink) WriteBatch(ctx context.Context, msgs []hermod.Message) er
 			switch op {
 			case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
 				if len(s.mappings) > 0 {
-					if s.operationMode == "insert" {
+					switch s.operationMode {
+					case "insert":
 						err = s.insertMapped(ctx, executor, table, msg)
-					} else if s.operationMode == "update" {
+					case "update":
 						err = s.updateMapped(ctx, executor, table, msg)
-					} else {
+					default:
 						err = s.upsertMapped(ctx, executor, table, msg)
 					}
 				} else {
@@ -213,7 +215,7 @@ func (s *PostgresSink) Begin(ctx context.Context) error {
 
 func (s *PostgresSink) Commit(ctx context.Context) error {
 	if s.tx == nil {
-		return fmt.Errorf("no active transaction")
+		return errors.New("no active transaction")
 	}
 	err := s.tx.Commit(ctx)
 	s.tx = nil
@@ -231,7 +233,7 @@ func (s *PostgresSink) Rollback(ctx context.Context) error {
 
 func (s *PostgresSink) Prepare(ctx context.Context) (string, error) {
 	if s.tx == nil {
-		return "", fmt.Errorf("no active transaction")
+		return "", errors.New("no active transaction")
 	}
 	txID := uuid.New().String()
 	_, err := s.tx.Exec(ctx, fmt.Sprintf("PREPARE TRANSACTION '%s'", txID))
@@ -520,7 +522,7 @@ func (s *PostgresSink) ensureTable(ctx context.Context, executor interface {
 
 	if exists {
 		if s.autoTruncate {
-			if _, err := executor.Exec(ctx, fmt.Sprintf("TRUNCATE TABLE %s", quotedTable)); err != nil {
+			if _, err := executor.Exec(ctx, "TRUNCATE TABLE "+quotedTable); err != nil {
 				return fmt.Errorf("failed to truncate table %s: %w", table, err)
 			}
 		}
@@ -833,7 +835,7 @@ func (s *PostgresSink) updateMapped(ctx context.Context, executor interface {
 	}
 
 	if len(pks) == 0 {
-		return fmt.Errorf("cannot update without primary key mappings")
+		return errors.New("cannot update without primary key mappings")
 	}
 	if len(updates) == 0 {
 		return nil

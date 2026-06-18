@@ -44,7 +44,7 @@ var simulateCmd = &cobra.Command{
 		// or provide a placeholder for local execution.
 
 		client := &http.Client{Timeout: 30 * time.Second}
-		url := fmt.Sprintf("%s/api/workflows/simulate", viper.GetString("url"))
+		url := viper.GetString("url") + "/api/workflows/simulate"
 
 		payload := map[string]any{
 			"workflow": string(wfData),
@@ -52,7 +52,7 @@ var simulateCmd = &cobra.Command{
 		}
 		jsonPayload, _ := json.Marshal(payload)
 
-		req, _ := http.NewRequest("POST", url, bytes.NewReader(jsonPayload))
+		req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(jsonPayload))
 		req.Header.Set("Content-Type", "application/json")
 		if key := viper.GetString("key"); key != "" {
 			req.Header.Set("Authorization", "Bearer "+key)

@@ -126,7 +126,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 	}
 
 	if e.isFailing() {
-		return fmt.Errorf("simulated engine failure")
+		return errors.New("simulated engine failure")
 	}
 
 	if e.IsSafeMode() && e.deadLetterSink != nil {

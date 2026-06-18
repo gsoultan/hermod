@@ -339,9 +339,10 @@ func (s *sqlStorage) autoMigrate(ctx context.Context) {
 		var current strings.Builder
 		parenCount := 0
 		for _, r := range body {
-			if r == '(' {
+			switch r {
+			case '(':
 				parenCount++
-			} else if r == ')' {
+			case ')':
 				parenCount--
 			}
 			if r == ',' && parenCount == 0 {
@@ -490,6 +491,9 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 			src.Config = decryptConfig(src.Config)
 		}
 		sources = append(sources, src)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
 	}
 	return sources, total, nil
 }
@@ -657,6 +661,9 @@ func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter)
 			snk.Config = decryptConfig(snk.Config)
 		}
 		sinks = append(sinks, snk)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
 	}
 	return sinks, total, nil
 }
@@ -836,6 +843,9 @@ func (s *sqlStorage) ListUsers(ctx context.Context, filter storage.CommonFilter)
 			}
 		}
 		users = append(users, user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
 	}
 	return users, total, nil
 }
@@ -2456,11 +2466,12 @@ func (s *sqlStorage) GetLineage(ctx context.Context) ([]storage.LineageEdge, err
 		wfSinks := []storage.Sink{}
 
 		for _, node := range wf.Nodes {
-			if node.Type == "source" {
+			switch node.Type {
+			case "source":
 				if src, ok := srcMap[node.RefID]; ok {
 					wfSources = append(wfSources, src)
 				}
-			} else if node.Type == "sink" {
+			case "sink":
 				if snk, ok := snkMap[node.RefID]; ok {
 					wfSinks = append(wfSinks, snk)
 				}

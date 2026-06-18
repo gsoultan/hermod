@@ -3,12 +3,13 @@ package buffer
 import (
 	"context"
 	"errors"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/infra/compression"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/infra/compression"
 )
 
 // CombinedBuffer is a two-tier buffer: in-memory ring for speed and file-backed

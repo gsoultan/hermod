@@ -100,7 +100,7 @@ func (h *Handler) UpdateWorkerHeartbeat(w http.ResponseWriter, r *http.Request) 
 		CPUUsage    float64 `json:"cpu_usage"`
 		MemoryUsage float64 `json:"memory_usage"`
 	}
-	if r.Method == "POST" && r.Body != nil {
+	if r.Method == http.MethodPost && r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 	}
 

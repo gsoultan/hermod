@@ -38,6 +38,7 @@ func TestFullServerVHostsRouting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
 		t.Errorf("Expected not 404, got 404")
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -339,7 +340,7 @@ func (h *Handler) CorsMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 
-		if r.Method == "OPTIONS" {
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -395,7 +396,7 @@ func parseSessionClaims(tokenString string, secret []byte) (SessionClaims, error
 		return *claims, nil
 	}
 
-	return SessionClaims{}, fmt.Errorf("invalid token")
+	return SessionClaims{}, errors.New("invalid token")
 }
 
 func (h *Handler) RecordAuditLog(r *http.Request, level, message, action string, workflowID, sourceID, sinkID string, data any) {
@@ -592,7 +593,7 @@ func (h *Handler) BotProtectionCheck(r *http.Request, payload map[string]any, en
 			token = t
 		}
 		if token == "" {
-			return fmt.Errorf("missing bot protection token")
+			return errors.New("missing bot protection token")
 		}
 
 		// Verify Turnstile token
@@ -602,14 +603,14 @@ func (h *Handler) BotProtectionCheck(r *http.Request, payload map[string]any, en
 			"remoteip": {r.RemoteAddr},
 		})
 		if err != nil {
-			return fmt.Errorf("failed to verify bot protection")
+			return errors.New("failed to verify bot protection")
 		}
 		defer resp.Body.Close()
 		var res struct {
 			Success bool `json:"success"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil || !res.Success {
-			return fmt.Errorf("bot detected (turnstile)")
+			return errors.New("bot detected (turnstile)")
 		}
 	}
 
@@ -619,7 +620,7 @@ func (h *Handler) BotProtectionCheck(r *http.Request, payload map[string]any, en
 		hp = v
 	}
 	if strings.TrimSpace(hp) != "" {
-		return fmt.Errorf("bot detected")
+		return errors.New("bot detected")
 	}
 
 	// Minimum submit time window (skip for JSON/API submissions)
@@ -631,7 +632,7 @@ func (h *Handler) BotProtectionCheck(r *http.Request, payload map[string]any, en
 			formToken = t
 		}
 		if tokenCookie != nil && (formToken == "" || tokenCookie.Value != formToken) {
-			return fmt.Errorf("invalid form token")
+			return errors.New("invalid form token")
 		}
 
 		issuedCookie, _ := r.Cookie("hf_issued")
@@ -639,7 +640,7 @@ func (h *Handler) BotProtectionCheck(r *http.Request, payload map[string]any, en
 			if ms, convErr := strconv.ParseInt(issuedCookie.Value, 10, 64); convErr == nil && minMs > 0 {
 				elapsed := time.Since(time.UnixMilli(ms)).Milliseconds()
 				if elapsed < int64(minMs) {
-					return fmt.Errorf("submitted too quickly")
+					return errors.New("submitted too quickly")
 				}
 			}
 		}

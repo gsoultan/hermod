@@ -40,8 +40,8 @@ var monitorCmd = &cobra.Command{
 
 func fetchStatus() {
 	client := &http.Client{Timeout: 5 * time.Second}
-	url := fmt.Sprintf("%s/api/infra/health", viper.GetString("url"))
-	req, _ := http.NewRequest("GET", url, nil)
+	url := viper.GetString("url") + "/api/infra/health"
+	req, _ := http.NewRequest(http.MethodGet, url, nil)
 	if key := viper.GetString("key"); key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}

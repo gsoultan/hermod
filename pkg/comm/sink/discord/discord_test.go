@@ -10,7 +10,7 @@ import (
 
 func TestDiscordSink_Write_Webhook(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
 		w.WriteHeader(http.StatusOK)

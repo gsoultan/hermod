@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/user/hermod"
@@ -77,12 +78,14 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 
 	if len(params) > 0 {
 		url += "?" + params[0]
+		var urlSb80 strings.Builder
 		for i := 1; i < len(params); i++ {
-			url += "&" + params[i]
+			urlSb80.WriteString("&" + params[i])
 		}
+		url += urlSb80.String()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +144,7 @@ func (s *Source) Ack(ctx context.Context, msg hermod.Message) error {
 
 func (s *Source) Ping(ctx context.Context) error {
 	url := fmt.Sprintf("%s/sap/opu/odata/sap/%s/$metadata", s.config.Host, s.config.Service)
-	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if s.config.Username != "" {
 		req.SetBasicAuth(s.config.Username, s.config.Password)
 	}

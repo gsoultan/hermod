@@ -1,8 +1,9 @@
 package message
 
 import (
-	"github.com/google/uuid"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func BenchmarkSanitizeValue(b *testing.B) {

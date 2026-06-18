@@ -73,7 +73,7 @@ func (s *InstagramSource) Read(ctx context.Context) (hermod.Message, error) {
 	case "comments":
 		// To get comments, we first get the media IDs
 		apiURL = fmt.Sprintf("%s/%s/media?access_token=%s&fields=id&limit=5", s.baseURL, s.igUserID, s.accessToken)
-		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -92,7 +92,7 @@ func (s *InstagramSource) Read(ctx context.Context) (hermod.Message, error) {
 		for _, m := range mediaResult.Data {
 			mediaID := m["id"].(string)
 			commentURL := fmt.Sprintf("%s/%s/comments?access_token=%s&fields=id,text,timestamp,username&limit=10", s.baseURL, mediaID, s.accessToken)
-			req, _ := http.NewRequestWithContext(ctx, "GET", commentURL, nil)
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, commentURL, nil)
 			resp, err := s.client.Do(req)
 			if err == nil {
 				var commentResult struct {
@@ -112,7 +112,7 @@ func (s *InstagramSource) Read(ctx context.Context) (hermod.Message, error) {
 	case "insights":
 		// Get user insights
 		apiURL = fmt.Sprintf("%s/%s/insights?access_token=%s&metric=impressions,reach,profile_views&period=day", s.baseURL, s.igUserID, s.accessToken)
-		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -133,7 +133,7 @@ func (s *InstagramSource) Read(ctx context.Context) (hermod.Message, error) {
 		apiURL = fmt.Sprintf("%s/%s/media?access_token=%s&fields=id,caption,media_type,media_url,permalink,timestamp,username&limit=20", s.baseURL, s.igUserID, s.accessToken)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +223,7 @@ func (s *InstagramSource) Ack(ctx context.Context, msg hermod.Message) error {
 // Ping checks the connection to Instagram.
 func (s *InstagramSource) Ping(ctx context.Context) error {
 	apiURL := fmt.Sprintf("%s/%s?access_token=%s&fields=id,username", s.baseURL, s.igUserID, s.accessToken)
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return err
 	}

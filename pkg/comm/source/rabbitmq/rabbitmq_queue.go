@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -110,7 +111,7 @@ func (s *RabbitMQQueueSource) run(ctx context.Context, msgs <-chan amqp.Delivery
 			return
 		case d, ok := <-msgs:
 			if !ok {
-				s.errs <- fmt.Errorf("rabbitmq channel closed")
+				s.errs <- errors.New("rabbitmq channel closed")
 				return
 			}
 			hmsg := message.AcquireMessage()
@@ -139,7 +140,7 @@ func (s *RabbitMQQueueSource) run(ctx context.Context, msgs <-chan amqp.Delivery
 				hmsg.SetID(d.MessageId)
 			}
 			// Store delivery tag in metadata for Ack
-			hmsg.SetMetadata("delivery_tag", fmt.Sprintf("%d", d.DeliveryTag))
+			hmsg.SetMetadata("delivery_tag", strconv.FormatUint(d.DeliveryTag, 10))
 			s.messages <- hmsg
 		}
 	}
@@ -172,7 +173,7 @@ func (s *RabbitMQQueueSource) Ack(ctx context.Context, msg hermod.Message) error
 	}
 	tagStr := msg.Metadata()["delivery_tag"]
 	if tagStr == "" {
-		return fmt.Errorf("missing delivery_tag in message metadata")
+		return errors.New("missing delivery_tag in message metadata")
 	}
 
 	var tag uint64
@@ -185,7 +186,7 @@ func (s *RabbitMQQueueSource) Ack(ctx context.Context, msg hermod.Message) error
 	s.mu.Unlock()
 
 	if ch == nil {
-		return fmt.Errorf("rabbitmq channel not connected")
+		return errors.New("rabbitmq channel not connected")
 	}
 
 	return ch.Ack(tag, false)
@@ -210,7 +211,7 @@ func (s *RabbitMQQueueSource) Sample(ctx context.Context, table string) (hermod.
 		return nil, fmt.Errorf("sample get failed: %w", err)
 	}
 	if !ok {
-		return nil, fmt.Errorf("queue is empty")
+		return nil, errors.New("queue is empty")
 	}
 
 	// We don't Ack, so it should stay in the queue when we close the channel.

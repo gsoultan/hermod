@@ -3,6 +3,7 @@ package firebase
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -87,7 +88,7 @@ func (s *FirebaseSource) Read(ctx context.Context) (hermod.Message, error) {
 
 		iter := query.Documents(ctx)
 		doc, err := iter.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -133,7 +134,7 @@ func (s *FirebaseSource) Ping(ctx context.Context) error {
 	// Try to get one document to ping
 	iter := s.client.Collection(s.collection).Limit(1).Documents(ctx)
 	_, err := iter.Next()
-	if err == iterator.Done {
+	if errors.Is(err, iterator.Done) {
 		return nil
 	}
 	return err

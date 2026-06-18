@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -106,7 +107,7 @@ func (m *MSSQLSource) resolveTable(ctx context.Context, table string) (*tableInf
 	db := m.db
 	m.mu.Unlock()
 	if db == nil {
-		return nil, fmt.Errorf("database connection not initialized")
+		return nil, errors.New("database connection not initialized")
 	}
 
 	var info tableInfo
@@ -117,7 +118,7 @@ func (m *MSSQLSource) resolveTable(ctx context.Context, table string) (*tableInf
 		return &info, nil
 	}
 
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("failed to resolve table %s: %w", table, err)
 	}
 
@@ -238,7 +239,7 @@ func (m *MSSQLSource) snapshotTable(ctx context.Context, table string) error {
 	db := m.db
 	m.mu.Unlock()
 	if db == nil {
-		return fmt.Errorf("database connection not initialized")
+		return errors.New("database connection not initialized")
 	}
 
 	// MSSQL uses [] for quoting
@@ -249,7 +250,7 @@ func (m *MSSQLSource) snapshotTable(ctx context.Context, table string) error {
 	}
 	quoted := strings.Join(quotedParts, ".")
 
-	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", quoted))
+	rows, err := db.QueryContext(ctx, "SELECT * FROM "+quoted)
 	if err != nil {
 		return fmt.Errorf("failed to query table %q: %w", table, err)
 	}
@@ -310,7 +311,7 @@ func (m *MSSQLSource) poll(ctx context.Context) error {
 	db := m.db
 	m.mu.Unlock()
 	if db == nil {
-		return fmt.Errorf("database connection not initialized")
+		return errors.New("database connection not initialized")
 	}
 
 	if len(m.captures) == 0 {
@@ -375,7 +376,7 @@ func (m *MSSQLSource) discoverCaptures(ctx context.Context) error {
 		db := m.db
 		m.mu.Unlock()
 		if db == nil {
-			return fmt.Errorf("database connection not initialized")
+			return errors.New("database connection not initialized")
 		}
 
 		rows, err := db.QueryContext(ctx, queryDiscoverCaptures)
@@ -509,7 +510,7 @@ func (m *MSSQLSource) ensureDatabaseCDC(ctx context.Context) error {
 	db := m.db
 	m.mu.Unlock()
 	if db == nil {
-		return fmt.Errorf("database connection not initialized")
+		return errors.New("database connection not initialized")
 	}
 
 	var isCDCEnabled bool
@@ -539,7 +540,7 @@ func (m *MSSQLSource) ensureTableCDC(ctx context.Context, table string) (*tableI
 	db := m.db
 	m.mu.Unlock()
 	if db == nil {
-		return nil, fmt.Errorf("database connection not initialized")
+		return nil, errors.New("database connection not initialized")
 	}
 
 	// 2. Check if CDC is enabled on the database
@@ -551,7 +552,7 @@ func (m *MSSQLSource) ensureTableCDC(ctx context.Context, table string) (*tableI
 
 	if !isDatabaseCDCEnabled {
 		if !m.autoEnableCDC {
-			return nil, fmt.Errorf("CDC is not enabled on database and auto_enable_cdc is false")
+			return nil, errors.New("CDC is not enabled on database and auto_enable_cdc is false")
 		}
 		if err := m.ensureDatabaseCDC(ctx); err != nil {
 			return nil, err
@@ -562,11 +563,11 @@ func (m *MSSQLSource) ensureTableCDC(ctx context.Context, table string) (*tableI
 	var isTracked bool
 	err = db.QueryRowContext(ctx, queryCheckTableCDC, info.objectID).Scan(&isTracked)
 
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("failed to check if CDC is enabled on table %s.%s: %w", info.schema, info.name, err)
 	}
 
-	if err == sql.ErrNoRows || !isTracked {
+	if errors.Is(err, sql.ErrNoRows) || !isTracked {
 		if !m.autoEnableCDC {
 			return nil, fmt.Errorf("CDC is not enabled for table %s.%s and auto_enable_cdc is false", info.schema, info.name)
 		}
@@ -586,7 +587,7 @@ func (m *MSSQLSource) pollTable(ctx context.Context, table, capture string, maxL
 	db := m.db
 	m.mu.Unlock()
 	if db == nil {
-		return nil, fmt.Errorf("database connection not initialized")
+		return nil, errors.New("database connection not initialized")
 	}
 
 	var minLSN []byte
@@ -882,7 +883,7 @@ func (m *MSSQLSource) ping(ctx context.Context, checkCDC bool) error {
 	}
 	if !isCDCEnabled {
 		if !m.autoEnableCDC {
-			return fmt.Errorf("CDC is not enabled on database. Please enable it using 'sys.sp_cdc_enable_db' or set auto_enable_cdc to true")
+			return errors.New("CDC is not enabled on database. Please enable it using 'sys.sp_cdc_enable_db' or set auto_enable_cdc to true")
 		}
 		if err := m.ensureDatabaseCDC(ctx); err != nil {
 			return fmt.Errorf("failed to auto-enable CDC on database: %w (ensure user has db_owner role)", err)
@@ -900,7 +901,7 @@ func (m *MSSQLSource) ping(ctx context.Context, checkCDC bool) error {
 
 			err = db.QueryRowContext(ctx, queryCheckTableCDC, info.objectID).Scan(&isTableCDCEnabled)
 			if err != nil {
-				if err == sql.ErrNoRows {
+				if errors.Is(err, sql.ErrNoRows) {
 					return fmt.Errorf("CDC is not enabled for table '%s'. Please enable it or set auto_enable_cdc to true", table)
 				}
 				return fmt.Errorf("failed to check CDC status for table '%s': %w", table, err)
@@ -941,7 +942,7 @@ func (m *MSSQLSource) DiscoverDatabases(ctx context.Context) ([]string, error) {
 	db := m.db
 	m.mu.Unlock()
 	if db == nil {
-		return nil, fmt.Errorf("database connection not initialized")
+		return nil, errors.New("database connection not initialized")
 	}
 
 	rows, err := db.QueryContext(ctx, queryDiscoverDatabases)
@@ -970,7 +971,7 @@ func (m *MSSQLSource) DiscoverTables(ctx context.Context) ([]string, error) {
 	db := m.db
 	m.mu.Unlock()
 	if db == nil {
-		return nil, fmt.Errorf("database connection not initialized")
+		return nil, errors.New("database connection not initialized")
 	}
 
 	rows, err := db.QueryContext(ctx, queryDiscoverTables)
@@ -999,7 +1000,7 @@ func (m *MSSQLSource) DiscoverColumns(ctx context.Context, table string) ([]herm
 	db := m.db
 	m.mu.Unlock()
 	if db == nil {
-		return nil, fmt.Errorf("database connection not initialized")
+		return nil, errors.New("database connection not initialized")
 	}
 
 	parts := strings.Split(table, ".")
@@ -1058,7 +1059,7 @@ func (m *MSSQLSource) Sample(ctx context.Context, table string) (hermod.Message,
 	db := m.db
 	m.mu.Unlock()
 	if db == nil {
-		return nil, fmt.Errorf("database connection not initialized")
+		return nil, errors.New("database connection not initialized")
 	}
 
 	quoted, err := sqlutil.QuoteIdent("mssql", table)
@@ -1066,7 +1067,7 @@ func (m *MSSQLSource) Sample(ctx context.Context, table string) (hermod.Message,
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
 
-	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT TOP 1 * FROM %s", quoted))
+	rows, err := db.QueryContext(ctx, "SELECT TOP 1 * FROM "+quoted)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sample record: %w", err)
 	}

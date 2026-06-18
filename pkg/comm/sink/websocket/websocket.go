@@ -70,7 +70,11 @@ func (s *Sink) ensureConn(ctx context.Context) error {
 	if s.tlsCfg != nil {
 		s.dialer.TLSClientConfig = s.tlsCfg
 	}
-	c, _, err := s.dialer.DialContext(cctx, s.url, hdr)
+	c, resp, err := s.dialer.DialContext(cctx, s.url, hdr)
+	if resp != nil && resp.Body != nil {
+		// The handshake response body is unused; close it to avoid leaking the connection.
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		return err
 	}

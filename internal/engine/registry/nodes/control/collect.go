@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -45,7 +46,7 @@ func (n *CollectNode) handleCollection(ctx context.Context, nctx registry.NodeCo
 	key := fmt.Sprintf("collect:%s:%s:%s", workflowID, node.ID, groupID)
 	store := nctx.StateStore()
 	if store == nil {
-		return nil, "", fmt.Errorf("collect: state store not available")
+		return nil, "", errors.New("collect: state store not available")
 	}
 
 	items := n.loadItems(ctx, store, key)

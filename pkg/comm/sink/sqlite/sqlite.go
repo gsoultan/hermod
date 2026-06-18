@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -110,11 +111,12 @@ func (s *SQLiteSink) WriteBatch(ctx context.Context, msgs []hermod.Message) erro
 		switch op {
 		case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
 			if len(s.mappings) > 0 {
-				if s.operationMode == "insert" {
+				switch s.operationMode {
+				case "insert":
 					err = s.insertMapped(ctx, tx, table, msg)
-				} else if s.operationMode == "update" {
+				case "update":
 					err = s.updateMapped(ctx, tx, table, msg)
-				} else {
+				default:
 					err = s.upsertMapped(ctx, tx, table, msg)
 				}
 			} else {
@@ -210,7 +212,7 @@ func (s *SQLiteSink) ensureTable(ctx context.Context, tx *sql.Tx, table string) 
 
 	if exists {
 		if s.autoTruncate {
-			if _, err := tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s", quotedTable)); err != nil {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM "+quotedTable); err != nil {
 				return fmt.Errorf("failed to truncate table %s: %w", table, err)
 			}
 		}
@@ -370,7 +372,7 @@ func (s *SQLiteSink) updateMapped(ctx context.Context, tx *sql.Tx, table string,
 	}
 
 	if len(pks) == 0 {
-		return fmt.Errorf("cannot update without primary key mappings")
+		return errors.New("cannot update without primary key mappings")
 	}
 	if len(updates) == 0 {
 		return nil

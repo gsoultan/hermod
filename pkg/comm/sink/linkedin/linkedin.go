@@ -70,7 +70,7 @@ func (s *LinkedInSink) Write(ctx context.Context, msg hermod.Message) error {
 
 	jsonBody, _ := json.Marshal(body)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", s.baseURL+"/ugcPosts", bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.baseURL+"/ugcPosts", bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (s *LinkedInSink) WriteBatch(ctx context.Context, msgs []hermod.Message) er
 
 // Ping checks the connection to LinkedIn API.
 func (s *LinkedInSink) Ping(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", s.baseURL+"/me", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/me", nil)
 	if err != nil {
 		return err
 	}

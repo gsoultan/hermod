@@ -2,6 +2,7 @@ package mongodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/user/hermod"
@@ -223,7 +224,7 @@ func (s *MongoDBSink) DiscoverColumns(ctx context.Context, table string) ([]herm
 	var doc bson.M
 	err := s.client.Database(s.database).Collection(table).FindOne(ctx, bson.M{}).Decode(&doc)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return []hermod.ColumnInfo{}, nil
 		}
 		return nil, err

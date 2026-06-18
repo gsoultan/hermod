@@ -3,6 +3,7 @@ package slack
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -69,7 +70,7 @@ func (s *SlackSource) Read(ctx context.Context) (hermod.Message, error) {
 		apiURL = fmt.Sprintf("%s&oldest=%s", apiURL, s.lastTimestamp)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +143,7 @@ func (s *SlackSource) Ack(ctx context.Context, msg hermod.Message) error {
 
 // Ping checks the connection to Slack.
 func (s *SlackSource) Ping(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "POST", s.baseURL+"/auth.test", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.baseURL+"/auth.test", nil)
 	if err != nil {
 		return err
 	}
@@ -158,7 +159,7 @@ func (s *SlackSource) Ping(ctx context.Context) error {
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&result)
 	if !result.OK {
-		return fmt.Errorf("slack token invalid")
+		return errors.New("slack token invalid")
 	}
 	return nil
 }

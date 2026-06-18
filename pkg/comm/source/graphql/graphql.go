@@ -2,6 +2,7 @@ package graphql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -74,7 +75,7 @@ func (s *GraphQLSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, ctx.Err()
 	case msg, ok := <-s.ch:
 		if !ok {
-			return nil, fmt.Errorf("GraphQL source closed")
+			return nil, errors.New("GraphQL source closed")
 		}
 		return msg, nil
 	}

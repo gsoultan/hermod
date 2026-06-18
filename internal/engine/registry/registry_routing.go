@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -33,7 +34,7 @@ func (m *multiSource) Read(ctx context.Context) (hermod.Message, error) {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
-		return nil, fmt.Errorf("multiSource closed")
+		return nil, errors.New("multiSource closed")
 	}
 
 	for _, s := range m.sources {
@@ -198,28 +199,28 @@ func (s *statefulSource) DiscoverDatabases(ctx context.Context) ([]string, error
 	if d, ok := s.Source.(hermod.Discoverer); ok {
 		return d.DiscoverDatabases(ctx)
 	}
-	return nil, fmt.Errorf("source does not support database discovery")
+	return nil, errors.New("source does not support database discovery")
 }
 
 func (s *statefulSource) DiscoverTables(ctx context.Context) ([]string, error) {
 	if d, ok := s.Source.(hermod.Discoverer); ok {
 		return d.DiscoverTables(ctx)
 	}
-	return nil, fmt.Errorf("source does not support table discovery")
+	return nil, errors.New("source does not support table discovery")
 }
 
 func (s *statefulSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
 	if d, ok := s.Source.(hermod.ColumnDiscoverer); ok {
 		return d.DiscoverColumns(ctx, table)
 	}
-	return nil, fmt.Errorf("source does not support column discovery")
+	return nil, errors.New("source does not support column discovery")
 }
 
 func (s *statefulSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	if d, ok := s.Source.(hermod.Sampler); ok {
 		return d.Sample(ctx, table)
 	}
-	return nil, fmt.Errorf("source does not support sampling")
+	return nil, errors.New("source does not support sampling")
 }
 
 func (s *statefulSource) Snapshot(ctx context.Context, tables ...string) error {

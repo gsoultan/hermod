@@ -31,7 +31,7 @@ func (s *MeshSink) Write(ctx context.Context, msg hermod.Message) error {
 // Ping checks the health of the target cluster.
 func (s *MeshSink) Ping(ctx context.Context) error {
 	client := &http.Client{Timeout: 5 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, "GET", s.targetCluster.Endpoint+"/health", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.targetCluster.Endpoint+"/health", nil)
 	if err != nil {
 		return err
 	}
