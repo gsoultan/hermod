@@ -196,14 +196,54 @@ func (r *Registry) DiscoverSinkColumns(ctx context.Context, cfg factory.SinkConf
 func (r *Registry) SampleTable(ctx context.Context, cfg factory.SourceConfig, table string) (hermod.Message, error) {
 	src, err := r.createSource(ctx, cfg)
 	if err != nil {
+		// The source cannot even be created right now (e.g. it is exclusively
+		// held by the running workflow). Fall back to the latest record the
+		// source actually delivered downstream, if any.
+		if msg, ok := loadDeliveredSample(cfg.ID); ok {
+			return msg, nil
+		}
 		return nil, err
 	}
 	defer src.Close()
 
-	if s, ok := src.(hermod.Sampler); ok {
-		return s.Sample(ctx, table)
+	s, ok := src.(hermod.Sampler)
+	if !ok {
+		// The source type has no native sampling support, but it may still be
+		// actively delivering data in a running workflow.
+		if msg, ok := loadDeliveredSample(cfg.ID); ok {
+			return msg, nil
+		}
+		return nil, fmt.Errorf("source type %s does not support sampling", cfg.Type)
 	}
-	return nil, fmt.Errorf("source type %s does not support sampling", cfg.Type)
+
+	msg, err := s.Sample(ctx, table)
+	if err == nil && hasSampleData(msg) {
+		return msg, nil
+	}
+
+	// A passive Sample came back empty (or errored). This is the common case
+	// for streaming sources whose live workflow consumer drains every
+	// available record. Surface the latest delivered record instead so the
+	// sample is never empty while data is flowing.
+	if fallback, ok := loadDeliveredSample(cfg.ID); ok {
+		return fallback, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return msg, nil
+}
+
+// hasSampleData reports whether a sampled message carries any usable content
+// (decoded data fields or a raw payload/before/after body).
+func hasSampleData(msg hermod.Message) bool {
+	if msg == nil {
+		return false
+	}
+	if len(msg.Data()) > 0 {
+		return true
+	}
+	return len(msg.Payload()) > 0 || len(msg.After()) > 0 || len(msg.Before()) > 0
 }
 
 func (r *Registry) SampleSinkTable(ctx context.Context, cfg factory.SinkConfig, table string) (hermod.Message, error) {

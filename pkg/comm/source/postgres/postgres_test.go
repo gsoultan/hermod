@@ -50,6 +50,34 @@ func TestPostgresSource_DefaultSlotAndPublication(t *testing.T) {
 	}
 }
 
+func TestPostgresSource_CloseUninitializedIsSafeAndIdempotent(t *testing.T) {
+	// Lightweight operations (test connection, fetch tables/databases, etc.)
+	// open the metadata connection without marking the source initialized.
+	// Close must still release that connection (and reset state) so repeated
+	// requests do not leak connections and take the worker offline. It must
+	// also be safe to call multiple times.
+	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "", "", nil, false)
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("first Close on uninitialized source: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("second Close on uninitialized source: %v", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn != nil {
+		t.Errorf("metadata connection not released after Close: got %v", s.conn)
+	}
+	if s.replConn != nil {
+		t.Errorf("replication connection not released after Close: got %v", s.replConn)
+	}
+	if s.initialized {
+		t.Error("source still marked initialized after Close")
+	}
+}
+
 func TestPostgresSource_Read(t *testing.T) {
 	// Skip test if no postgres is running
 	t.Skip("Skipping test that requires a running Postgres instance")

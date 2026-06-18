@@ -99,3 +99,20 @@ func TestPostgresSink_ConvertValue(t *testing.T) {
 		})
 	}
 }
+
+func TestPostgresSink_CloseIsIdempotent(t *testing.T) {
+	// Close must be safe to call when no pool was ever created (e.g. a failed
+	// test connection) and safe to call repeatedly, without panicking or
+	// leaking a closed pool reference.
+	s := NewPostgresSink("postgres://user:pass@localhost:5432/db", "t", nil, false, "", "", "", "auto", false, false)
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	if s.pool != nil {
+		t.Errorf("pool not reset to nil after Close: got %v", s.pool)
+	}
+}

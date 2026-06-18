@@ -393,8 +393,15 @@ func (s *PostgresSink) Ping(ctx context.Context) error {
 }
 
 func (s *PostgresSink) Close() error {
+	// Guard with connMu (the same lock init uses) so closing the pool is safe
+	// for concurrent use and never races with a concurrent lazy init. Resetting
+	// the pool to nil lets a subsequent operation re-establish it instead of
+	// using a closed pool, and makes Close idempotent.
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
 	if s.pool != nil {
 		s.pool.Close()
+		s.pool = nil
 	}
 	return nil
 }

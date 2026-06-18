@@ -6,6 +6,69 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+func TestRabbitMQQueueSource_SampleFromLastConsumed(t *testing.T) {
+	tests := []struct {
+		name        string
+		stored      bool
+		body        []byte
+		wantErr     bool
+		wantPayload string
+		wantField   string
+		wantValue   any
+	}{
+		{
+			name:    "no message consumed yet",
+			stored:  false,
+			wantErr: true,
+		},
+		{
+			name:        "json payload decoded into data",
+			stored:      true,
+			body:        []byte(`{"test":"data"}`),
+			wantPayload: `{"test":"data"}`,
+			wantField:   "test",
+			wantValue:   "data",
+		},
+		{
+			name:        "non-json payload preserved as payload",
+			stored:      true,
+			body:        []byte("plain text"),
+			wantPayload: "plain text",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			url := "amqp://guest:guest@localhost:5672/"
+			queue := "test_last_consumed_" + tc.name
+			src, _ := NewRabbitMQQueueSource(url, queue)
+
+			if tc.stored {
+				storeLastConsumed(url, queue, tc.body)
+			}
+
+			msg, err := src.sampleFromLastConsumed()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("sampleFromLastConsumed failed: %v", err)
+			}
+			if got := string(msg.Payload()); got != tc.wantPayload {
+				t.Errorf("payload = %q; want %q", got, tc.wantPayload)
+			}
+			if tc.wantField != "" {
+				if got := msg.Data()[tc.wantField]; got != tc.wantValue {
+					t.Errorf("data[%q] = %v; want %v", tc.wantField, got, tc.wantValue)
+				}
+			}
+		})
+	}
+}
+
 func TestRabbitMQQueueSource_Sample(t *testing.T) {
 	// Skip if no RabbitMQ is available
 	t.Skip("Skipping RabbitMQ integration test; needs live RabbitMQ")

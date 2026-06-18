@@ -811,10 +811,15 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 func (p *PostgresSource) Close() error {
 	p.log("INFO", "Closing PostgresSource", "slot", p.slotName, "publication", p.publicationName)
 	p.mu.Lock()
-	if !p.initialized {
-		p.mu.Unlock()
-		return nil
-	}
+
+	// Even when the source was never fully initialized for CDC streaming, the
+	// metadata connection (p.conn) may have been opened by lightweight
+	// operations such as Ping (test connection), DiscoverTables/Columns or
+	// replication-slot/publication discovery. Those paths call ensureConn
+	// without setting p.initialized, so an early return here would leak the
+	// underlying pgx connection on every test/fetch request and eventually
+	// exhaust the database/file-descriptor limits, taking the worker offline.
+	wasInitialized := p.initialized
 	p.initialized = false
 
 	if p.cancel != nil {
@@ -837,7 +842,9 @@ func (p *PostgresSource) Close() error {
 	// Wait for streamLoop to finish
 	p.wg.Wait()
 
-	if !persistent {
+	// Only attempt slot/publication cleanup when CDC streaming was actually
+	// initialized; otherwise no replication slot was created by this source.
+	if wasInitialized && !persistent {
 		p.log("INFO", "Cleaning up non-persistent replication slot and publication", "slot", slotName, "publication", publicationName)
 		// Need a new connection for cleanup
 		conn, err := pgx.Connect(context.Background(), p.connString)

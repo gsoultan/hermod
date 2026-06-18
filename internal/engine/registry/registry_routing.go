@@ -59,6 +59,11 @@ func (m *multiSource) Read(ctx context.Context) (hermod.Message, error) {
 					}
 					if msg != nil {
 						msg.SetMetadata("_source_node_id", ss.nodeID)
+						// Remember the latest record this source actually
+						// forwarded downstream so passive sampling can surface
+						// real data even when the live consumer drains the
+						// source (see lastDeliveredSamples).
+						recordDeliveredSample(ss.sourceID, msg)
 						select {
 						case m.msgChan <- msg:
 						case <-ctx.Done():

@@ -1,6 +1,7 @@
 package rabbitmq
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,31 @@ type RabbitMQQueueSource struct {
 	errs     chan error
 	cancel   context.CancelFunc
 	mu       sync.Mutex
+}
+
+// lastConsumedCache stores the most recently consumed raw payload per
+// url+queue. When a workflow is actively consuming a queue (auto-ack=false,
+// no prefetch limit) every available message is held in that consumer's
+// unacked buffer, leaving the queue empty for a passive `Basic.Get`. Sampling
+// therefore falls back to the latest message that was actually consumed so the
+// UI never shows an empty sample while data is flowing.
+var lastConsumedCache sync.Map // map[string][]byte
+
+func lastConsumedKey(url, queue string) string {
+	return url + "|" + queue
+}
+
+func storeLastConsumed(url, queue string, body []byte) {
+	lastConsumedCache.Store(lastConsumedKey(url, queue), bytes.Clone(body))
+}
+
+func loadLastConsumed(url, queue string) ([]byte, bool) {
+	v, ok := lastConsumedCache.Load(lastConsumedKey(url, queue))
+	if !ok {
+		return nil, false
+	}
+	body, ok := v.([]byte)
+	return body, ok
 }
 
 func NewRabbitMQQueueSource(url string, queueName string) (*RabbitMQQueueSource, error) {
@@ -114,6 +140,10 @@ func (s *RabbitMQQueueSource) run(ctx context.Context, msgs <-chan amqp.Delivery
 				s.errs <- errors.New("rabbitmq channel closed")
 				return
 			}
+			// Remember the latest consumed payload so passive sampling can
+			// surface it even when the queue is drained by this consumer.
+			storeLastConsumed(s.url, s.queue, d.Body)
+
 			hmsg := message.AcquireMessage()
 			hmsg.SetPayload(d.Body)
 
@@ -211,30 +241,49 @@ func (s *RabbitMQQueueSource) Sample(ctx context.Context, table string) (hermod.
 		return nil, fmt.Errorf("sample get failed: %w", err)
 	}
 	if !ok {
-		return nil, errors.New("queue is empty")
+		// The queue is empty for a passive Get. This commonly happens when a
+		// running workflow consumer holds every available message in its
+		// unacked buffer. Fall back to the latest message we actually consumed.
+		return s.sampleFromLastConsumed()
 	}
 
 	// We don't Ack, so it should stay in the queue when we close the channel.
 	// But to be extra safe, we could Nack it.
 	defer ch.Nack(d.DeliveryTag, false, true)
 
+	return buildSampleMessage(d.Body, d.MessageId), nil
+}
+
+// sampleFromLastConsumed returns a message built from the most recently
+// consumed payload for this queue, if one has been observed.
+func (s *RabbitMQQueueSource) sampleFromLastConsumed() (hermod.Message, error) {
+	body, ok := loadLastConsumed(s.url, s.queue)
+	if !ok {
+		return nil, errors.New("queue is empty")
+	}
+	return buildSampleMessage(body, ""), nil
+}
+
+// buildSampleMessage converts a raw payload into a hermod.Message, decoding
+// JSON into the message data when possible.
+func buildSampleMessage(body []byte, messageID string) hermod.Message {
 	hmsg := message.AcquireMessage()
-	hmsg.SetPayload(d.Body)
+	hmsg.SetPayload(body)
 
 	var jsonData map[string]any
-	if err := json.Unmarshal(d.Body, &jsonData); err == nil {
+	if err := json.Unmarshal(body, &jsonData); err == nil {
 		for k, v := range jsonData {
 			hmsg.SetData(k, v)
 		}
 	} else {
-		hmsg.SetAfter(d.Body)
+		hmsg.SetAfter(body)
 	}
 
-	if d.MessageId != "" {
-		hmsg.SetID(d.MessageId)
+	if messageID != "" {
+		hmsg.SetID(messageID)
 	}
 
-	return hmsg, nil
+	return hmsg
 }
 
 func (s *RabbitMQQueueSource) Ping(ctx context.Context) error {
