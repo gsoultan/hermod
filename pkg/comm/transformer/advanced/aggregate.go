@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"sync"
 	"time"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"
@@ -25,17 +26,6 @@ type aggState struct {
 	Last      time.Time `json:"last"`
 	Start     time.Time `json:"start"`
 	IsSession bool      `json:"is_session"`
-}
-
-func (s *aggState) merge(other *aggState) {
-	s.Count += other.Count
-	s.Sum += other.Sum
-	if other.Start.Before(s.Start) {
-		s.Start = other.Start
-	}
-	if other.Last.After(s.Last) {
-		s.Last = other.Last
-	}
 }
 
 type AggregateTransformer struct {
@@ -68,8 +58,8 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 		groupVal = fmt.Sprintf("%v", evaluator.GetMsgValByPath(msg, groupBy))
 	}
 
-	workflowID, _ := ctx.Value("workflow_id").(string)
-	nodeID, _ := ctx.Value("node_id").(string)
+	workflowID, _ := ctx.Value(hermod.WorkflowIDKey).(string)
+	nodeID, _ := ctx.Value(hermod.NodeIDKey).(string)
 
 	now := time.Now()
 	stateKey := ""

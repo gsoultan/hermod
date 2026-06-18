@@ -25,20 +25,8 @@ type S3Sink struct {
 }
 
 func NewS3Sink(ctx context.Context, region, bucket, keyPrefix, accessKey, secretKey, endpoint string, formatter hermod.Formatter, suffix string, contentType string) (*S3Sink, error) {
-	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
-		if endpoint != "" {
-			return aws.Endpoint{
-				PartitionID:   "aws",
-				URL:           endpoint,
-				SigningRegion: region,
-			}, nil
-		}
-		return aws.Endpoint{}, &aws.EndpointNotFoundError{}
-	})
-
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
-		config.WithEndpointResolverWithOptions(customResolver),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
 	)
 	if err != nil {
@@ -47,6 +35,7 @@ func NewS3Sink(ctx context.Context, region, bucket, keyPrefix, accessKey, secret
 
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		if endpoint != "" {
+			o.BaseEndpoint = aws.String(endpoint)
 			o.UsePathStyle = true
 		}
 	})

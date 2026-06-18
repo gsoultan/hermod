@@ -168,18 +168,15 @@ type Registry struct {
 }
 
 type activeEngine struct {
-	engine               *pkgengine.Engine
-	cancel               context.CancelFunc
-	done                 <-chan struct{}
-	srcConfigs           []factory.SourceConfig
-	snkConfigs           []factory.SinkConfig
-	transformationGroups []string
-	transformationIDs    []string
-	transformations      []storage.Transformation
-	isWorkflow           bool
-	workflow             storage.Workflow
-	baseProcessed        uint64
-	baseErrors           uint64
+	engine        *pkgengine.Engine
+	cancel        context.CancelFunc
+	done          <-chan struct{}
+	srcConfigs    []factory.SourceConfig
+	snkConfigs    []factory.SinkConfig
+	isWorkflow    bool
+	workflow      storage.Workflow
+	baseProcessed uint64
+	baseErrors    uint64
 
 	// Live components
 	sinks []hermod.Sink
@@ -689,7 +686,7 @@ func (r *Registry) createSinkInternal(ctx context.Context, cfg factory.SinkConfi
 			return nil, fmt.Errorf("failed to create primary sink %s: %w", primaryID, err)
 		}
 
-		strategy, _ := cfg.Config["strategy"]
+		strategy := cfg.Config["strategy"]
 		if strategy == "" {
 			strategy = "failover"
 		}
@@ -817,18 +814,6 @@ func (r *Registry) mergeData(dst, src map[string]any, strategy string) {
 	}
 }
 
-func deepMerge(dst, src map[string]any) {
-	for k, v := range src {
-		if srcMap, ok := v.(map[string]any); ok {
-			if dstMap, ok := dst[k].(map[string]any); ok {
-				deepMerge(dstMap, srcMap)
-				continue
-			}
-		}
-		dst[k] = v
-	}
-}
-
 func (r *Registry) TestTransformationPipeline(ctx context.Context, transformations []storage.Transformation, msg hermod.Message) ([]hermod.Message, error) {
 	results := make([]hermod.Message, len(transformations))
 	currentMsg := msg.Clone()
@@ -905,14 +890,14 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 		start := time.Now()
 
 		// Pass Registry to transformer if it needs it (like for storage or lookup)
-		tctx := context.WithValue(ctx, "registry", r)
+		tctx := context.WithValue(ctx, hermod.RegistryKey, r)
 		if r.stateStore != nil {
 			tctx = context.WithValue(tctx, hermod.StateStoreKey, r.stateStore)
 		}
 		res, err := t.Transform(tctx, modifiedMsg, config)
 
 		// Record trace step with before/after snapshots
-		workflowID, _ := modifiedMsg.Metadata()["_hermod_workflow_id"]
+		workflowID := modifiedMsg.Metadata()["_hermod_workflow_id"]
 		if workflowID != "" && r.storage != nil {
 			afterData := make(map[string]any)
 			if res != nil {
@@ -969,7 +954,7 @@ func (r *Registry) recordPIIDiscoveries(msg hermod.Message, config map[string]an
 	}
 
 	if len(foundTypes) > 0 {
-		workflowID, _ := msg.Metadata()["_hermod_workflow_id"]
+		workflowID := msg.Metadata()["_hermod_workflow_id"]
 		if workflowID == "" {
 			return
 		}

@@ -613,12 +613,6 @@ func (p *PostgresSource) ensureReplConnNoLock(ctx context.Context) error {
 	return nil
 }
 
-func (p *PostgresSource) ensureReplConn(ctx context.Context) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.ensureReplConnNoLock(ctx)
-}
-
 func (p *PostgresSource) init(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

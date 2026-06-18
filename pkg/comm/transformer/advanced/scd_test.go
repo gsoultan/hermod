@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/comm/message"
 	_ "modernc.org/sqlite"
@@ -69,7 +70,7 @@ func TestSCDTransformer_AllTypes(t *testing.T) {
 			Type: "sqlite",
 		},
 	}
-	ctx := context.WithValue(context.Background(), "registry", reg)
+	ctx := context.WithValue(context.Background(), hermod.RegistryKey, reg)
 
 	// Test Type 0 (Fixed)
 	t.Run("Type 0", func(t *testing.T) {

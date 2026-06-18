@@ -255,6 +255,9 @@ type contextKey string
 
 const (
 	StateStoreKey contextKey = "stateStore"
+	RegistryKey   contextKey = "registry"
+	WorkflowIDKey contextKey = "workflow_id"
+	NodeIDKey     contextKey = "node_id"
 )
 
 // Handler is a function type for processing received messages.

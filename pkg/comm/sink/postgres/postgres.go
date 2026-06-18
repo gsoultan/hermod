@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"log"
 	"sync"
 
 	"github.com/google/uuid"
@@ -62,32 +61,6 @@ func (s *PostgresSink) SetLogger(logger hermod.Logger) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.logger = logger
-}
-
-func (s *PostgresSink) log(level, msg string, keysAndValues ...any) {
-	s.mu.Lock()
-	logger := s.logger
-	s.mu.Unlock()
-
-	if logger == nil {
-		if len(keysAndValues) > 0 {
-			log.Printf("[%s] %s %v", level, msg, keysAndValues)
-		} else {
-			log.Printf("[%s] %s", level, msg)
-		}
-		return
-	}
-
-	switch level {
-	case "DEBUG":
-		logger.Debug(msg, keysAndValues...)
-	case "INFO":
-		logger.Info(msg, keysAndValues...)
-	case "WARN":
-		logger.Warn(msg, keysAndValues...)
-	case "ERROR":
-		logger.Error(msg, keysAndValues...)
-	}
 }
 
 func (s *PostgresSink) Write(ctx context.Context, msg hermod.Message) error {
@@ -541,7 +514,9 @@ func (s *PostgresSink) ensureTable(ctx context.Context, executor interface {
 	}
 	checkQuery += ")"
 
-	err = executor.QueryRow(ctx, checkQuery, checkArgs...).Scan(&exists)
+	if err := executor.QueryRow(ctx, checkQuery, checkArgs...).Scan(&exists); err != nil {
+		return fmt.Errorf("failed to check table existence for %s: %w", table, err)
+	}
 
 	if exists {
 		if s.autoTruncate {

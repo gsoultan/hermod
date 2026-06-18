@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/user/hermod/pkg/comm/transformer"
-	"sync"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"
@@ -15,9 +15,7 @@ func init() {
 	transformer.Register("join", &JoinTransformer{})
 }
 
-type JoinTransformer struct {
-	mu sync.Mutex
-}
+type JoinTransformer struct{}
 
 func (t *JoinTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {

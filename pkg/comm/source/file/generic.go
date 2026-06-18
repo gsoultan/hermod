@@ -1,9 +1,7 @@
 package file
 
 import (
-	"bytes"
 	"context"
-	"encoding/csv"
 	"errors"
 	"fmt"
 	"io"
@@ -801,30 +799,4 @@ func detectContentType(name string, b []byte) string {
 		return http.DetectContentType(b[:512])
 	}
 	return http.DetectContentType(b)
-}
-
-// newCSVSourceFromReader creates a temporary CSVSource backed by an io.ReadCloser stream.
-// We emulate the existing CSVSource by writing bytes into memory and serving via http-style path.
-func newCSVSourceFromReader(name string, rc io.ReadCloser, delimiter rune, hasHeader bool) *CSVSource {
-	// Read all into memory to reuse CSVSource which expects os.File/http/S3 body
-	buf, _ := io.ReadAll(rc)
-	_ = rc.Close()
-	return &CSVSource{
-		sourceType: SourceTypeHTTP,
-		url:        name,
-		delimiter:  delimiter,
-		hasHeader:  hasHeader,
-		reader:     csvReaderFromBytes(buf, delimiter),
-	}
-}
-
-// csvReaderFromBytes returns a *csv.Reader over bytes.
-func csvReaderFromBytes(b []byte, delimiter rune) *csv.Reader {
-	r := bytes.NewReader(b)
-	cr := csv.NewReader(r)
-	if delimiter == 0 {
-		delimiter = ','
-	}
-	cr.Comma = delimiter
-	return cr
 }

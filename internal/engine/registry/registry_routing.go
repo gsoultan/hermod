@@ -3,7 +3,6 @@ package registry
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/user/hermod"
@@ -278,48 +277,12 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 
 // --- Helper Functions ---
 
-func toFloat64(val any) (float64, bool) {
-	return evaluator.ToFloat64(val)
-}
-
-func toBool(val any) bool {
-	return evaluator.ToBool(val)
-}
-
 func getValByPath(data map[string]any, path string) any {
 	return evaluator.GetValByPath(data, path)
 }
 
-func getMsgValByPath(msg hermod.Message, path string) any {
-	return evaluator.GetMsgValByPath(msg, path)
-}
-
 func setValByPath(data map[string]any, path string, val any) {
 	evaluator.SetValByPath(data, path, val)
-}
-
-func (r *Registry) getValByPath(data map[string]any, path string) any {
-	return evaluator.GetValByPath(data, path)
-}
-
-func (r *Registry) getMsgValByPath(msg hermod.Message, path string) any {
-	return evaluator.GetMsgValByPath(msg, path)
-}
-
-func (r *Registry) toFloat64(val any) (float64, bool) {
-	return evaluator.ToFloat64(val)
-}
-
-func (r *Registry) toBool(val any) bool {
-	return evaluator.ToBool(val)
-}
-
-func (r *Registry) setValByPath(data map[string]any, path string, val any) {
-	evaluator.SetValByPath(data, path, val)
-}
-
-func (r *Registry) resolveTemplate(temp string, data map[string]any) string {
-	return evaluator.ResolveTemplate(temp, data)
 }
 
 func (r *Registry) evaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
@@ -328,50 +291,6 @@ func (r *Registry) evaluateConditions(msg hermod.Message, conditions []map[strin
 
 func (r *Registry) evaluateAdvancedExpression(msg hermod.Message, expr any) any {
 	return r.evaluator.EvaluateAdvancedExpression(msg, expr)
-}
-
-func (r *Registry) parseAndEvaluate(msg hermod.Message, expr string) any {
-	return r.evaluator.ParseAndEvaluate(msg, expr)
-}
-
-func (r *Registry) parseArgs(argsStr string) []string {
-	var args []string
-	var current strings.Builder
-	parenCount := 0
-	inQuotes := false
-	var quoteChar byte
-
-	for i := 0; i < len(argsStr); i++ {
-		c := argsStr[i]
-		if (c == '"' || c == '\'') && (i == 0 || argsStr[i-1] != '\\') {
-			if !inQuotes {
-				inQuotes = true
-				quoteChar = c
-			} else if c == quoteChar {
-				inQuotes = false
-			}
-			current.WriteByte(c)
-		} else if !inQuotes && c == '(' {
-			parenCount++
-			current.WriteByte(c)
-		} else if !inQuotes && c == ')' {
-			parenCount--
-			current.WriteByte(c)
-		} else if !inQuotes && parenCount == 0 && c == ',' {
-			args = append(args, strings.TrimSpace(current.String()))
-			current.Reset()
-		} else {
-			current.WriteByte(c)
-		}
-	}
-	if current.Len() > 0 || len(args) > 0 {
-		args = append(args, strings.TrimSpace(current.String()))
-	}
-	return args
-}
-
-func (r *Registry) callFunction(name string, args []any) any {
-	return r.evaluator.CallFunction(name, args)
 }
 
 func findNodeByID(nodes []storage.WorkflowNode, id string) *storage.WorkflowNode {

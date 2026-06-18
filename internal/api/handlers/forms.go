@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/user/hermod/internal/storage"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 type FormField struct {
@@ -318,7 +320,7 @@ func (h *Handler) RenderField(f FormField) string {
 	}
 	label := f.Label
 	if label == "" {
-		label = strings.Title(strings.ReplaceAll(f.Name, "_", " "))
+		label = cases.Title(language.English).String(strings.ReplaceAll(f.Name, "_", " "))
 	}
 	star := ""
 	requiredAttr := ""

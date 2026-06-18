@@ -3,6 +3,7 @@ package advanced
 import (
 	"context"
 	"fmt"
+
 	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
@@ -51,12 +52,9 @@ func (t *PivotTransformer) Transform(ctx context.Context, msg hermod.Message, co
 	data := msg.Data()
 
 	// Build index object and key
-	idxVals := make([]any, 0, len(indexKeys))
 	idxObj := make(map[string]any, len(indexKeys))
 	for _, k := range indexKeys {
-		v := evaluator.GetValByPath(data, k)
-		idxObj[k] = v
-		idxVals = append(idxVals, v)
+		idxObj[k] = evaluator.GetValByPath(data, k)
 	}
 
 	// Current attribute/value

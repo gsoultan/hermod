@@ -31,7 +31,7 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 		return nil, nil
 	}
 
-	registry, ok := ctx.Value("registry").(interface {
+	registry, ok := ctx.Value(hermod.RegistryKey).(interface {
 		GetLookupCache(key string) (any, bool)
 		SetLookupCache(key string, value any, ttl time.Duration)
 	})

@@ -43,7 +43,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 		return nil, nil
 	}
 
-	registry, ok := ctx.Value("registry").(interface {
+	registry, ok := ctx.Value(hermod.RegistryKey).(interface {
 		GetSource(ctx context.Context, id string) (storage.Source, error)
 		GetOrOpenDB(src storage.Source) (*sql.DB, error)
 		GetLookupCache(key string) (any, bool)

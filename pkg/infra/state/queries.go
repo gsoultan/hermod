@@ -13,9 +13,3 @@ var commonQueries = map[string]string{
 	QuerySet:       `INSERT INTO states (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
 	QueryDelete:    `DELETE FROM states WHERE key = ?`,
 }
-
-var driverOverrides = map[string]map[string]string{
-	"mysql": {
-		QuerySet: `INSERT INTO states (key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value=VALUES(value)`,
-	},
-}

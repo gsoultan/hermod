@@ -158,7 +158,7 @@ func (s *FCMSink) Ping(ctx context.Context) error {
 	})
 
 	// If the error is about invalid token, it means we reached FCM, so "ping" is successful.
-	if err != nil && (messaging.IsRegistrationTokenNotRegistered(err) || messaging.IsInvalidArgument(err)) {
+	if err != nil && (messaging.IsUnregistered(err) || messaging.IsInvalidArgument(err)) {
 		return nil
 	}
 

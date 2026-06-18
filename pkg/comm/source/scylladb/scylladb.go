@@ -140,7 +140,7 @@ func (s *ScyllaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 				query = fmt.Sprintf("SELECT * FROM %s LIMIT 1", table)
 			}
 
-			iter := s.session.Query(query).WithContext(ctx).Iter()
+			iter := s.session.Query(query, args...).WithContext(ctx).Iter()
 			columns := iter.Columns()
 			values := make([]any, len(columns))
 			for i := range values {

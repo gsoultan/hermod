@@ -167,7 +167,7 @@ func TestNestedPathAccess(t *testing.T) {
 		}
 
 		node.Config["value"] = "Jane Doe"
-		res, _, err = registry.runWorkflowNode("test", node, msg)
+		res, _, _ = registry.runWorkflowNode("test", node, msg)
 		if res != nil {
 			t.Errorf("Expected message to be filtered, but it was not nil")
 		}

@@ -12,7 +12,6 @@ import (
 type PollingSource struct {
 	db             *sql.DB
 	query          string
-	args           []any
 	interval       time.Duration
 	watermarkCol   string
 	watermarkValue any

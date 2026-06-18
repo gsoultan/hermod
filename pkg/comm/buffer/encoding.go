@@ -18,16 +18,19 @@ const (
 
 var bufferPool = sync.Pool{
 	New: func() any {
-		return make([]byte, 4096)
+		b := make([]byte, 0, 4096)
+		return &b
 	},
 }
 
 func encodeMessage(w io.Writer, msg hermod.Message, comp compression.Compressor) error {
 	// Instead of many small writes, let's buffer in memory first
-	buf := bufferPool.Get().([]byte)
-	defer bufferPool.Put(buf)
-
-	tmp := buf[:0]
+	bufp := bufferPool.Get().(*[]byte)
+	tmp := (*bufp)[:0]
+	defer func() {
+		*bufp = tmp[:0]
+		bufferPool.Put(bufp)
+	}()
 
 	// Helper to append length-prefixed data
 	appendString := func(s string) {

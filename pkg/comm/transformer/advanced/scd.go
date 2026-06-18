@@ -44,7 +44,7 @@ func (t *SCDTransformer) Transform(ctx context.Context, msg hermod.Message, conf
 		}
 	}
 
-	registry, ok := ctx.Value("registry").(SCDRegistry)
+	registry, ok := ctx.Value(hermod.RegistryKey).(SCDRegistry)
 	if !ok {
 		return msg, fmt.Errorf("registry not found in context")
 	}

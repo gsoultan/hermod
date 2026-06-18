@@ -2,9 +2,10 @@ package security
 
 import (
 	"context"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"os"
 	"time"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
 )
@@ -20,8 +21,8 @@ func (t *AuditTransformer) Transform(ctx context.Context, msg hermod.Message, co
 		return nil, nil
 	}
 
-	workflowID, _ := ctx.Value("workflow_id").(string)
-	nodeID, _ := ctx.Value("node_id").(string)
+	workflowID, _ := ctx.Value(hermod.WorkflowIDKey).(string)
+	nodeID, _ := ctx.Value(hermod.NodeIDKey).(string)
 	hostname, _ := os.Hostname()
 
 	prefix, _ := config["prefix"].(string)

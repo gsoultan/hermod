@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -61,10 +60,8 @@ type Engine struct {
 	inFlightWg  sync.WaitGroup
 
 	// Adaptive Throughput
-	latencyAvg       time.Duration
-	throughputTarget int
-	lastPollAdjust   time.Time
-	throttleDelay    time.Duration
+	lastPollAdjust time.Time
+	throttleDelay  time.Duration
 
 	// stopMu protects hard-stop sequences
 	stopMu  sync.Mutex
@@ -323,33 +320,6 @@ func (e *Engine) notifyStatusChange() {
 
 func (e *Engine) recordSourceActivity() {
 	e.statusTracker.SetSourceStatus("running")
-}
-
-func (e *Engine) redactData(data map[string]any) map[string]any {
-	if data == nil {
-		return nil
-	}
-	redacted := make(map[string]any)
-	sensitiveFields := []string{"password", "secret", "token", "key", "email", "phone", "address"}
-	for k, v := range data {
-		isSensitive := false
-		lowerK := strings.ToLower(k)
-		for _, sf := range sensitiveFields {
-			if strings.Contains(lowerK, sf) {
-				isSensitive = true
-				break
-			}
-		}
-
-		if isSensitive {
-			redacted[k] = "[REDACTED]"
-		} else if m, ok := v.(map[string]any); ok {
-			redacted[k] = e.redactData(m)
-		} else {
-			redacted[k] = v
-		}
-	}
-	return redacted
 }
 
 // LastMsgTime returns the time of the last message received from the source.

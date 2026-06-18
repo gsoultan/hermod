@@ -612,10 +612,7 @@ func ResolveTemplate(temp string, data map[string]any) string {
 			val = e.ParseAndEvaluate(msg, path)
 		} else {
 			// Support ".field" style (UI templates commonly use a leading dot)
-			p := path
-			if strings.HasPrefix(p, ".") {
-				p = strings.TrimPrefix(p, ".")
-			}
+			p := strings.TrimPrefix(path, ".")
 			val = GetValByPath(data, p)
 		}
 

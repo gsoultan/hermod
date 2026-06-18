@@ -1,0 +1,100 @@
+# golangci-lint configuration for Hermod.
+# Best-practice + secure Go linting. See .junie/agents.md "Go Linting" section.
+# Compatible with golangci-lint v2 (latest).
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  # Start from the standard set and explicitly enable the secure/best-practice linters.
+  default: standard
+  enable:
+    # --- Security ---
+    - gosec          # Inspects source code for security problems.
+    - bodyclose      # Checks whether HTTP response bodies are closed.
+    - noctx          # Finds HTTP requests sent without context.Context.
+    - rowserrcheck   # Checks whether sql.Rows.Err is checked.
+    - sqlclosecheck  # Checks that sql.Rows/Stmt are closed.
+    # --- Correctness ---
+    - errcheck       # Never ignore returned errors.
+    - errorlint      # Enforces errors.Is/errors.As and %w wrapping.
+    - nilerr         # Finds code returning nil even though err is non-nil.
+    - copyloopvar    # Detects unnecessary loop variable copies.
+    # --- Style & Readability ---
+    - revive         # Fast, configurable, extensible style linter.
+    - misspell       # Finds commonly misspelled English words.
+    - unconvert      # Removes unnecessary type conversions.
+    - unparam        # Reports unused function parameters.
+    - gocritic       # Opinionated, comprehensive checks.
+    # --- Complexity (aligned with readability rules) ---
+    - gocyclo        # Cyclomatic complexity.
+    - funlen         # Function length limit.
+    - gocognit       # Cognitive complexity.
+    # --- Modernization (Go 1.26 idioms) ---
+    - usestdlibvars  # Encourages using stdlib constants/vars.
+    - perfsprint     # Encourages faster alternatives to fmt.Sprintf.
+
+  settings:
+    funlen:
+      lines: 50          # Functions should ideally be <= 50 lines.
+      statements: 40
+    gocyclo:
+      min-complexity: 15
+    gocognit:
+      min-complexity: 20
+    gosec:
+      excludes:
+        - G115           # Allow integer conversions where intentionally validated.
+    errcheck:
+      check-type-assertions: true
+      # Allow explicit, intentional discards via `_ = f()`.
+      check-blank: false
+    revive:
+      # Focus on correctness/robustness rules; documentation-only rules
+      # (package-comments, exported) are intentionally omitted to keep the
+      # baseline pragmatic while staying strict on real issues.
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: if-return
+        - name: increment-decrement
+        - name: var-declaration
+        - name: range
+        - name: receiver-naming
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unreachable-code
+        - name: redefines-builtin-id
+
+  exclusions:
+    generated: lax
+    rules:
+      # Generated protobuf/gRPC code should not be linted.
+      - path: '\.pb\.go$'
+        linters:
+          - gosec
+          - revive
+          - gocritic
+          - unparam
+          - unconvert
+      # Relax complexity/security rules in tests.
+      - path: '_test\.go$'
+        linters:
+          - funlen
+          - gocyclo
+          - gocognit
+          - gosec
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt      # Standard Go formatting.
+    - goimports  # Manage and group imports.

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	_ "github.com/snowflakedb/gosnowflake"
@@ -20,8 +19,6 @@ type Sink struct {
 	db               *sql.DB
 	connString       string
 	formatter        hermod.Formatter
-	mu               sync.Mutex
-	verifiedTables   sync.Map
 	tableName        string
 	mappings         []sqlutil.ColumnMapping
 	useExistingTable bool
@@ -29,8 +26,6 @@ type Sink struct {
 	softDeleteColumn string
 	softDeleteValue  string
 	operationMode    string
-	autoTruncate     bool
-	autoSync         bool
 }
 
 func NewSink(connString string, formatter hermod.Formatter, tableName string, mappings []sqlutil.ColumnMapping, useExistingTable bool, deleteStrategy string, softDeleteColumn string, softDeleteValue string, operationMode string, autoTruncate bool, autoSync bool) *Sink {
@@ -47,8 +42,6 @@ func NewSink(connString string, formatter hermod.Formatter, tableName string, ma
 		softDeleteColumn: softDeleteColumn,
 		softDeleteValue:  softDeleteValue,
 		operationMode:    operationMode,
-		autoTruncate:     autoTruncate,
-		autoSync:         autoSync,
 	}
 }
 
@@ -267,128 +260,6 @@ func (s *Sink) DiscoverColumns(ctx context.Context, table string) ([]hermod.Colu
 		columns = append(columns, col)
 	}
 	return columns, nil
-}
-func (s *Sink) ensureTable(ctx context.Context, tx *sql.Tx, table string) error {
-	if _, ok := s.verifiedTables.Load(table); ok {
-		return nil
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, ok := s.verifiedTables.Load(table); ok {
-		return nil
-	}
-
-	// Ensure schema exists if provided
-	schema := ""
-	tableNameOnly := table
-	if strings.Contains(table, ".") {
-		parts := strings.SplitN(table, ".", 2)
-		schema = parts[0]
-		tableNameOnly = parts[1]
-		quotedSchema, err := sqlutil.QuoteIdent("postgres", schema)
-		if err != nil {
-			return fmt.Errorf("invalid schema name: %w", err)
-		}
-		schemaQuery := fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", quotedSchema)
-		if _, err := tx.ExecContext(ctx, schemaQuery); err != nil {
-			// Ignore errors for schema creation
-		}
-	}
-
-	quotedTable, err := sqlutil.QuoteIdent("postgres", table)
-	if err != nil {
-		return fmt.Errorf("invalid table name: %w", err)
-	}
-
-	// Check if table exists
-	var exists bool
-	checkQuery := "SELECT count(*) FROM information_schema.tables WHERE table_name = ? AND table_schema = ?"
-	schemaToUse := strings.ToUpper(schema)
-	if schemaToUse == "" {
-		schemaToUse = "PUBLIC"
-	}
-	var count int
-	if err := tx.QueryRowContext(ctx, checkQuery, strings.ToUpper(tableNameOnly), schemaToUse).Scan(&count); err == nil {
-		exists = count > 0
-	}
-
-	if exists {
-		if s.autoTruncate {
-			if _, err := tx.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", quotedTable)); err != nil {
-				return fmt.Errorf("truncate table %s: %w", table, err)
-			}
-		}
-		if s.autoSync && len(s.mappings) > 0 {
-			if err := s.syncColumns(ctx, tx, table); err != nil {
-				return fmt.Errorf("sync columns %s: %w", table, err)
-			}
-		}
-	} else {
-		var tableQuery string
-		if len(s.mappings) > 0 {
-			var cols []string
-			for _, m := range s.mappings {
-				dataType := m.DataType
-				if dataType == "" {
-					dataType = "TEXT"
-				}
-				colDef := fmt.Sprintf("%s %s", m.TargetColumn, dataType)
-				if m.IsIdentity {
-					if strings.Contains(strings.ToUpper(dataType), "INT") || strings.Contains(strings.ToUpper(dataType), "NUMBER") {
-						colDef += " AUTOINCREMENT"
-					} else {
-						colDef += " DEFAULT UUID_STRING()"
-					}
-				}
-				if m.IsPrimaryKey {
-					colDef += " PRIMARY KEY"
-				} else if !m.IsNullable {
-					colDef += " NOT NULL"
-				}
-				cols = append(cols, colDef)
-			}
-			tableQuery = fmt.Sprintf("CREATE TABLE %s (%s)", quotedTable, strings.Join(cols, ", "))
-		} else {
-			tableQuery = fmt.Sprintf("CREATE TABLE %s (id TEXT PRIMARY KEY, data VARIANT)", quotedTable)
-		}
-
-		if _, err := tx.ExecContext(ctx, tableQuery); err != nil {
-			return fmt.Errorf("create table: %w", err)
-		}
-	}
-
-	s.verifiedTables.Store(table, true)
-	return nil
-}
-
-func (s *Sink) syncColumns(ctx context.Context, tx *sql.Tx, table string) error {
-	currentCols, err := s.DiscoverColumns(ctx, table)
-	if err != nil {
-		return err
-	}
-
-	colMap := make(map[string]bool)
-	for _, col := range currentCols {
-		colMap[strings.ToUpper(col.Name)] = true
-	}
-
-	quotedTable, _ := sqlutil.QuoteIdent("postgres", table)
-
-	for _, m := range s.mappings {
-		if !colMap[strings.ToUpper(m.TargetColumn)] {
-			dataType := m.DataType
-			if dataType == "" {
-				dataType = "TEXT"
-			}
-			alterQuery := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", quotedTable, m.TargetColumn, dataType)
-			if _, err := tx.ExecContext(ctx, alterQuery); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func (s *Sink) upsertMapped(ctx context.Context, tx *sql.Tx, table string, msg hermod.Message) error {

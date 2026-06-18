@@ -2,10 +2,11 @@ package advanced
 
 import (
 	"context"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"math/rand"
 	"strconv"
 	"time"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"
@@ -55,8 +56,8 @@ func (t *SamplingTransformer) Transform(ctx context.Context, msg hermod.Message,
 			return msg, nil
 		}
 
-		workflowID, _ := ctx.Value("workflow_id").(string)
-		nodeID, _ := ctx.Value("node_id").(string)
+		workflowID, _ := ctx.Value(hermod.WorkflowIDKey).(string)
+		nodeID, _ := ctx.Value(hermod.NodeIDKey).(string)
 		stateKey := "sampling:" + workflowID + ":" + nodeID
 
 		var store hermod.StateStore

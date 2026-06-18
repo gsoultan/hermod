@@ -398,37 +398,6 @@ func parseSessionClaims(tokenString string, secret []byte) (SessionClaims, error
 	return SessionClaims{}, fmt.Errorf("invalid token")
 }
 
-func isPrivateIP(ip net.IP) bool {
-	if ip == nil {
-		return false
-	}
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-
-	// IPv4 private ranges
-	if ip4 := ip.To4(); ip4 != nil {
-		privateIPBlocks := []string{
-			"10.0.0.0/8",
-			"172.16.0.0/12",
-			"192.168.0.0/16",
-		}
-		for _, block := range privateIPBlocks {
-			_, ipNet, _ := net.ParseCIDR(block)
-			if ipNet.Contains(ip) {
-				return true
-			}
-		}
-	} else {
-		// IPv6 unique local address (fc00::/7)
-		if len(ip) == net.IPv6len {
-			return ip[0]&0xfe == 0xfc
-		}
-	}
-
-	return false
-}
-
 func (h *Handler) RecordAuditLog(r *http.Request, level, message, action string, workflowID, sourceID, sinkID string, data any) {
 	ctx := r.Context()
 	l := storage.Log{

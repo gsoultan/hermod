@@ -1258,8 +1258,6 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 					})
 				}
 			}
-		} else {
-			msgs = []hermod.Message{currMsg}
 		}
 
 		for _, targetID := range adj[currID] {

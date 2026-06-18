@@ -130,7 +130,7 @@ func (c *CassandraSource) Read(ctx context.Context) (hermod.Message, error) {
 				query = fmt.Sprintf("SELECT * FROM %s LIMIT 1", table)
 			}
 
-			iter := c.session.Query(query).WithContext(ctx).Iter()
+			iter := c.session.Query(query, args...).WithContext(ctx).Iter()
 			columns := iter.Columns()
 			values := make([]any, len(columns))
 			for i := range values {

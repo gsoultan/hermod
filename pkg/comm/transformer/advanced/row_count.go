@@ -3,8 +3,9 @@ package advanced
 import (
 	"context"
 	"fmt"
-	"github.com/user/hermod/pkg/comm/transformer"
 	"strconv"
+
+	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
 )
@@ -25,8 +26,8 @@ func (t *RowCountTransformer) Transform(ctx context.Context, msg hermod.Message,
 		variableName = "row_count"
 	}
 
-	workflowID, _ := ctx.Value("workflow_id").(string)
-	nodeID, _ := ctx.Value("node_id").(string)
+	workflowID, _ := ctx.Value(hermod.WorkflowIDKey).(string)
+	nodeID, _ := ctx.Value(hermod.NodeIDKey).(string)
 	stateKey := fmt.Sprintf("rowcount:%s:%s:%s", workflowID, nodeID, variableName)
 
 	var store hermod.StateStore

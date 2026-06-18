@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,10 +35,10 @@ func TestCombinedBuffer_ProduceConsume(t *testing.T) {
 		}
 	}
 
-	consumed := 0
+	var consumed atomic.Int64
 	go func() {
 		_ = cb.Consume(ctx, func(_ context.Context, _m hermod.Message) error {
-			consumed++
+			consumed.Add(1)
 			return nil
 		})
 	}()
@@ -45,12 +46,12 @@ func TestCombinedBuffer_ProduceConsume(t *testing.T) {
 	// Wait for consumption
 	deadline := time.Now().Add(1 * time.Second)
 	for time.Now().Before(deadline) {
-		if consumed >= N {
+		if consumed.Load() >= N {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if consumed < N {
-		t.Fatalf("expected to consume %d, got %d", N, consumed)
+	if consumed.Load() < N {
+		t.Fatalf("expected to consume %d, got %d", N, consumed.Load())
 	}
 }

@@ -44,20 +44,8 @@ func NewS3ParquetSink(ctx context.Context, region, bucket, keyPrefix, accessKey,
 }
 
 func (s *S3ParquetSink) getS3Client(ctx context.Context) (*s3.Client, error) {
-	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
-		if s.endpoint != "" {
-			return aws.Endpoint{
-				PartitionID:   "aws",
-				URL:           s.endpoint,
-				SigningRegion: region,
-			}, nil
-		}
-		return aws.Endpoint{}, &aws.EndpointNotFoundError{}
-	})
-
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(s.region),
-		config.WithEndpointResolverWithOptions(customResolver),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(s.accessKey, s.secretKey, "")),
 	)
 	if err != nil {
@@ -66,6 +54,7 @@ func (s *S3ParquetSink) getS3Client(ctx context.Context) (*s3.Client, error) {
 
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		if s.endpoint != "" {
+			o.BaseEndpoint = aws.String(s.endpoint)
 			o.UsePathStyle = true
 		}
 	})
