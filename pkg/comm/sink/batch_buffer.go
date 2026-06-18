@@ -15,7 +15,6 @@ type BatchBufferSink struct {
 	maxWaitTime time.Duration
 	buffer      []hermod.Message
 	mu          sync.Mutex
-	timer       *time.Timer
 	ctx         context.Context
 	cancel      context.CancelFunc
 }

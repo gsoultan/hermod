@@ -1,9 +1,11 @@
 package mqtt
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -24,6 +26,7 @@ import (
 // - Graceful shutdown
 type Source struct {
 	mu     sync.RWMutex
+	cfg    map[string]string
 	client paho.Client
 	opts   *paho.ClientOptions
 	topics []string
@@ -32,24 +35,17 @@ type Source struct {
 	closed bool
 }
 
-// NewSource constructs a new MQTT source. Expected config keys:
-// - broker_url: e.g. tcp://localhost:1883, ssl://broker:8883, ws://..., wss://...
-// - topics: comma-separated list of topic filters
-// - client_id: optional client identifier
-// - username, password: optional auth
-// - qos: 0|1|2
-// - clean_session: true|false (default true)
-// - keepalive: duration in seconds (default 30)
-// - tls_insecure_skip_verify: true|false (default false)
-// - max_reconnect_interval: duration (e.g., 30s)
-func NewSource(cfg map[string]string) (*Source, error) {
+// buildClientOptions translates the raw config map into Paho client options plus
+// the resolved topic filters and QoS. It is shared by NewSource and Sample so a
+// preview connects with exactly the same broker/auth/TLS settings as ingestion.
+func buildClientOptions(cfg map[string]string) (*paho.ClientOptions, []string, byte, error) {
 	brokerURL := strings.TrimSpace(cfg["broker_url"])
 	if brokerURL == "" {
 		// Backward-compat key: url
 		brokerURL = strings.TrimSpace(cfg["url"])
 	}
 	if brokerURL == "" {
-		return nil, fmt.Errorf("mqtt: broker_url is required")
+		return nil, nil, 0, fmt.Errorf("mqtt: broker_url is required")
 	}
 
 	opts := paho.NewClientOptions()
@@ -70,8 +66,7 @@ func NewSource(cfg map[string]string) (*Source, error) {
 	// Clean session default true
 	cleanSession := true
 	if v := strings.TrimSpace(cfg["clean_session"]); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err == nil {
+		if b, err := strconv.ParseBool(v); err == nil {
 			cleanSession = b
 		}
 	}
@@ -123,16 +118,35 @@ func NewSource(cfg map[string]string) (*Source, error) {
 	topics := parseCSV(cfg["topics"])
 	if len(topics) == 0 {
 		// Backward-compat single topic key
-		t := strings.TrimSpace(cfg["topic"])
-		if t != "" {
+		if t := strings.TrimSpace(cfg["topic"]); t != "" {
 			topics = []string{t}
 		}
 	}
 	if len(topics) == 0 {
-		return nil, fmt.Errorf("mqtt: at least one topic is required")
+		return nil, nil, 0, fmt.Errorf("mqtt: at least one topic is required")
+	}
+
+	return opts, topics, qos, nil
+}
+
+// NewSource constructs a new MQTT source. Expected config keys:
+// - broker_url: e.g. tcp://localhost:1883, ssl://broker:8883, ws://..., wss://...
+// - topics: comma-separated list of topic filters
+// - client_id: optional client identifier
+// - username, password: optional auth
+// - qos: 0|1|2
+// - clean_session: true|false (default true)
+// - keepalive: duration in seconds (default 30)
+// - tls_insecure_skip_verify: true|false (default false)
+// - max_reconnect_interval: duration (e.g., 30s)
+func NewSource(cfg map[string]string) (*Source, error) {
+	opts, topics, qos, err := buildClientOptions(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	s := &Source{
+		cfg:    cfg,
 		opts:   opts,
 		topics: topics,
 		qos:    qos,
@@ -250,6 +264,85 @@ func (s *Source) Ping(ctx context.Context) error {
 		return fmt.Errorf("mqtt: not connected")
 	}
 	return nil
+}
+
+// Sample connects to the broker, subscribes to the configured topics, and waits
+// for a single message so the UI can preview the payload and surface its keys as
+// available fields for downstream transformation/sink nodes. It uses a dedicated
+// connection with a clean session and a fresh client ID, so it never disturbs
+// the running ingestion consumer; MQTT delivers by broadcast, so sampling is
+// non-destructive and does not consume or skip real data.
+func (s *Source) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	s.mu.RLock()
+	cfg := s.cfg
+	s.mu.RUnlock()
+
+	opts, topics, qos, err := buildClientOptions(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// Buffered so the broker callback never blocks if we have already returned.
+	incoming := make(chan paho.Message, 1)
+	opts.SetClientID("")       // fresh random ID to avoid clashing with the consumer
+	opts.SetCleanSession(true) // never join a durable session when sampling
+	opts.AutoReconnect = false
+	opts.SetDefaultPublishHandler(func(_ paho.Client, m paho.Message) {
+		select {
+		case incoming <- m:
+		default:
+		}
+	})
+	opts.OnConnect = func(c paho.Client) {
+		for _, t := range topics {
+			c.Subscribe(t, qos, nil)
+		}
+	}
+
+	client := paho.NewClient(opts)
+	token := client.Connect()
+	if !token.WaitTimeout(10 * time.Second) {
+		return nil, fmt.Errorf("mqtt: connect timeout while sampling")
+	}
+	if err := token.Error(); err != nil {
+		return nil, fmt.Errorf("mqtt: connect failed while sampling: %w", err)
+	}
+	defer client.Disconnect(250)
+
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("mqtt: no message received within timeout; publish a message to the topic and retry")
+	case m := <-incoming:
+		return buildSampleMessage(m), nil
+	}
+}
+
+// buildSampleMessage converts a received MQTT message into a hermod.Message,
+// decoding JSON payloads into top-level fields so the workflow editor can list
+// them as available fields; non-JSON payloads are preserved under "after".
+func buildSampleMessage(m paho.Message) hermod.Message {
+	payload := bytes.Clone(m.Payload())
+	msg := message.AcquireMessage()
+	msg.SetID(fmt.Sprintf("%s:%d", m.Topic(), m.MessageID()))
+	msg.SetPayload(payload)
+
+	var jsonData map[string]any
+	if err := json.Unmarshal(payload, &jsonData); err == nil {
+		for k, v := range jsonData {
+			msg.SetData(k, v)
+		}
+	} else {
+		msg.SetAfter(payload)
+	}
+
+	msg.SetMetadata("topic", m.Topic())
+	msg.SetMetadata("qos", strconv.Itoa(int(m.Qos())))
+	msg.SetMetadata("retained", strconv.FormatBool(m.Retained()))
+	msg.SetMetadata("sample", "true")
+	return msg
 }
 
 func (s *Source) Close() error {

@@ -197,7 +197,8 @@ func TestRecordTraceStep_Default(t *testing.T) {
 
 type mockMessage struct {
 	hermod.Message
-	id string
+	id   string
+	meta map[string]string
 }
 
 func (m *mockMessage) ID() string {
@@ -206,6 +207,20 @@ func (m *mockMessage) ID() string {
 
 func (m *mockMessage) Data() map[string]any {
 	return nil
+}
+
+func (m *mockMessage) Metadata() map[string]string {
+	if m.meta == nil {
+		m.meta = make(map[string]string)
+	}
+	return m.meta
+}
+
+func (m *mockMessage) SetMetadata(key, value string) {
+	if m.meta == nil {
+		m.meta = make(map[string]string)
+	}
+	m.meta[key] = value
 }
 
 func (m *mockMessage) Retain()  {}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/user/hermod/internal/storage"
+	"github.com/user/hermod/pkg/comm/transformer/core"
 	_ "modernc.org/sqlite"
 )
 
@@ -80,7 +81,7 @@ func TestParameterizeTemplate_SQLite(t *testing.T) {
 		"tenant":  "acme",
 	}
 	tpl := "SELECT * FROM users WHERE id = {{ source.user_id }} AND status = {{ 'active' }} AND tenant = {{ source.tenant }}"
-	sqlText, args := parameterizeTemplate("sqlite", tpl, data)
+	sqlText, args := core.ParameterizeTemplate("sqlite", tpl, data)
 	expectedSQL := "SELECT * FROM users WHERE id = ? AND status = ? AND tenant = ?"
 	if sqlText != expectedSQL {
 		t.Fatalf("SQL mismatch. expected %q, got %q", expectedSQL, sqlText)

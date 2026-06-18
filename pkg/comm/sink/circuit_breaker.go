@@ -9,6 +9,9 @@ import (
 	"github.com/user/hermod"
 )
 
+// ErrCircuitOpen is returned when the circuit breaker is open and rejecting requests.
+var ErrCircuitOpen = errors.New("circuit breaker is open")
+
 type state int
 
 const (
@@ -37,10 +40,33 @@ func NewCircuitBreakerSink(s hermod.Sink, threshold int, timeout time.Duration) 
 
 func (s *CircuitBreakerSink) Write(ctx context.Context, msg hermod.Message) error {
 	if !s.allowRequest() {
-		return errors.New("circuit breaker is open")
+		return ErrCircuitOpen
 	}
 
 	err := s.Sink.Write(ctx, msg)
+	s.recordResult(err)
+	return err
+}
+
+// WriteBatch routes batch writes through the circuit breaker. Without this
+// method the embedded BatchSink's WriteBatch would be promoted directly,
+// bypassing the breaker entirely.
+func (s *CircuitBreakerSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
+	if !s.allowRequest() {
+		return ErrCircuitOpen
+	}
+
+	bs, ok := s.Sink.(hermod.BatchSink)
+	if !ok {
+		for _, m := range msgs {
+			if err := s.Write(ctx, m); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	err := bs.WriteBatch(ctx, msgs)
 	s.recordResult(err)
 	return err
 }

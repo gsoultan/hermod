@@ -330,7 +330,7 @@ export function LoginPage() {
 
               <Stack gap={5}>
                 <Title order={2} fw={800}>Welcome back</Title>
-                <Text c="dimmed" size="sm">Please enter your details to sign in</Text>
+                <Text c="dimmed" size="sm">Sign in to your account to continue</Text>
               </Stack>
 
               <Paper withBorder p={40} radius="lg" shadow="md" style={{ position: 'relative', overflow: 'hidden' }}>

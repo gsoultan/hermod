@@ -70,13 +70,50 @@ func (w *Worker) refreshWorkerCache() {
 func (w *Worker) filterOnlineWorkers(workers []storage.Worker) []storage.Worker {
 	var online []storage.Worker
 	now := time.Now()
+	threshold := w.onlineThreshold()
+	selfPresent := false
 	for _, wrk := range workers {
-		if wrk.LastSeen != nil && now.Sub(*wrk.LastSeen) < 90*time.Second {
+		if wrk.ID == w.workerGUID {
+			// This worker knows it is alive, so always include itself with a
+			// freshly-stamped entry (local CPU/mem, LastSeen=now) regardless of
+			// how stale its persisted heartbeat is. Excluding self - or letting
+			// a lagging heartbeat strip its freshness weight - would make the
+			// worker stop all of its own workflows even though it is healthy.
+			selfPresent = true
+			online = append(online, w.selfWorkerEntry(now))
+			continue
+		}
+		if wrk.LastSeen != nil && now.Sub(*wrk.LastSeen) < threshold {
 			online = append(online, wrk)
 		}
 	}
+	if !selfPresent && w.workerGUID != "" {
+		online = append(online, w.selfWorkerEntry(now))
+	}
 	sort.Slice(online, func(i, j int) bool { return online[i].ID < online[j].ID })
 	return online
+}
+
+// onlineThreshold is the window within which a peer's last heartbeat is
+// considered alive for load-balancing. It is derived from the lease TTL so the
+// online view stays consistent with lease expiry and stale-entry reclamation.
+func (w *Worker) onlineThreshold() time.Duration {
+	return time.Duration(max(1, w.leaseTTLSeconds)) * 3 * time.Second
+}
+
+// selfWorkerEntry synthesizes an online entry for this worker using its locally
+// known resource usage, used when the persisted heartbeat is missing or stale.
+func (w *Worker) selfWorkerEntry(now time.Time) storage.Worker {
+	seen := now
+	return storage.Worker{
+		ID:          w.workerGUID,
+		Name:        w.workerName,
+		Host:        w.workerHost,
+		Port:        w.workerPort,
+		CPUUsage:    w.currentCPU,
+		MemoryUsage: w.currentMem,
+		LastSeen:    &seen,
+	}
 }
 
 func (w *Worker) calculateBestWorker(online []storage.Worker, resourceID string, currentOwnerID string) string {

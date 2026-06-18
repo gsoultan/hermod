@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -94,7 +95,9 @@ func (s *BatchSQLSource) SetState(state map[string]string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if state != nil {
-		s.state = state
+		// Clone to avoid aliasing the caller's map, which would let external
+		// code mutate our state concurrently with runBatch (data race).
+		s.state = maps.Clone(state)
 	}
 }
 
@@ -102,7 +105,9 @@ func (s *BatchSQLSource) SetState(state map[string]string) {
 func (s *BatchSQLSource) GetState() map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.state
+	// Return a copy so callers can read/iterate safely while runBatch keeps
+	// updating the internal state under the same lock.
+	return maps.Clone(s.state)
 }
 
 // Read blocks until the next batch of results is available.
@@ -215,6 +220,13 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 					}
 				}
 			}
+
+			// Persist the watermark before emitting the message so that any
+			// consumer observing this message is guaranteed to also observe the
+			// updated state (avoids a read-before-write ordering race).
+			s.mu.Lock()
+			s.state["last_value"] = newLastValue
+			s.mu.Unlock()
 
 			select {
 			case s.msgCh <- msg:

@@ -103,6 +103,7 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
     setSampleData,
     isFetchingSample,
     sampleError,
+    lastSampledAt,
     testInput,
     setTestInput,
     selectedSampleTable,
@@ -447,6 +448,9 @@ export function SourceForm({ initialData, isEditing = false, embedded = false, o
               sampleData={sampleData} 
               isFetchingSample={isFetchingSample || !!isRefreshing} 
               sampleError={sampleError} 
+              lastSampledAt={lastSampledAt}
+              testOk={testResult?.status === 'ok'}
+              saved={isEditingResolved}
               onRunSimulation={onRunSimulation}
               fetchSample={(s) => {
                 if (onRefreshFields) {

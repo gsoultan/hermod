@@ -86,6 +86,14 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // jsdom only exposes window.localStorage for non-opaque origins. The default
+    // "about:blank" URL is opaque, which leaves localStorage undefined and breaks
+    // any component/test relying on persisted auth tokens. Pin a real origin.
+    environmentOptions: {
+      jsdom: {
+        url: 'http://localhost',
+      },
+    },
     setupFiles: 'src/test/setupTests.ts',
     globals: true,
     css: true,

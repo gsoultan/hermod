@@ -344,7 +344,7 @@ func (s *CSVSource) Sample(ctx context.Context, table string) (hermod.Message, e
 	// For sample, we re-init and read one record
 	// This is not very efficient for remote sources but works for a sample
 
-	// Create a copy of the source to avoid messign with current state if already initialized
+	// Create a copy of the source to avoid messing with current state if already initialized.
 	var sampleSource *CSVSource
 	switch s.sourceType {
 	case SourceTypeLocal:
@@ -353,6 +353,11 @@ func (s *CSVSource) Sample(ctx context.Context, table string) (hermod.Message, e
 		sampleSource = NewHTTPCSVSource(s.url, s.delimiter, s.hasHeader, s.headersMap)
 	case SourceTypeS3:
 		sampleSource = NewS3CSVSource(s.s3Region, s.s3Bucket, s.s3Key, s.s3Endpoint, s.s3AccessKey, s.s3SecretKey, s.delimiter, s.hasHeader)
+	default:
+		// A custom reader (e.g. an SFTP stream) cannot be safely re-opened for
+		// sampling, and any unknown source type would otherwise cause a nil
+		// pointer dereference below. Fail gracefully instead of panicking.
+		return nil, fmt.Errorf("sampling is not supported for csv source type %q", s.sourceType)
 	}
 
 	if err := sampleSource.init(ctx); err != nil {

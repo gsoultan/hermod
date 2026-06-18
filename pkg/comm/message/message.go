@@ -241,20 +241,22 @@ func (m *DefaultMessage) MarshalJSON() ([]byte, error) {
 		}
 	}
 
-	// 3. Add system fields
+	// 3. Add system fields. table/schema identify the record's origin and are
+	// meaningful for both CDC and non-CDC messages, so they are emitted whenever
+	// set (a non-CDC message produced by a source still carries its table).
 	if m.id != "" {
 		res["id"] = m.id
+	}
+	if m.table != "" {
+		res["table"] = m.table
+	}
+	if m.schema != "" {
+		res["schema"] = m.schema
 	}
 
 	// CDC specific fields - only if it's a CDC event (has an operation)
 	if m.operation != "" {
 		res["operation"] = m.operation
-		if m.table != "" {
-			res["table"] = m.table
-		}
-		if m.schema != "" {
-			res["schema"] = m.schema
-		}
 		if len(m.before) > 0 {
 			res["before"] = json.RawMessage(m.before)
 		}

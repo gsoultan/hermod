@@ -208,7 +208,7 @@ func (w *Worker) cleanupStaleWorkerEntries(ctx context.Context) {
 	// registration of the same logical worker) AND are no longer alive. This
 	// avoids deleting a distinct, healthy peer that happens to share a name or
 	// host:port (e.g. behind NAT or with duplicate configuration).
-	staleAfter := time.Duration(max(1, w.leaseTTLSeconds)) * 3 * time.Second
+	staleAfter := w.onlineThreshold()
 	for _, wrk := range workers {
 		if wrk.ID == w.workerGUID {
 			continue
@@ -259,7 +259,10 @@ func (w *Worker) leaseRenewalLoop(ctx context.Context, workflowID string, interv
 		case <-ticker.C:
 			ok, err := w.storage.RenewWorkflowLease(ctx, workflowID, w.workerGUID, w.leaseTTLSeconds)
 			if err != nil || !ok {
-				_ = w.registry.StopEngineWithoutUpdate(workflowID)
+				w.logger.Warn("Worker: lease renewal failed, stopping workflow", "workflow_id", workflowID, "renewed", ok, "error", err)
+				if w.registry != nil {
+					_ = w.registry.StopEngineWithoutUpdate(workflowID)
+				}
 				w.stopLeaseRenewal(workflowID)
 				return
 			}

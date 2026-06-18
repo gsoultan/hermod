@@ -8,6 +8,32 @@ export const server = setupServer(
   ),
 )
 
+// Node exposes an experimental, disabled `localStorage` global that shadows
+// jsdom's implementation, leaving `localStorage.setItem` undefined in tests.
+// Install a small in-memory polyfill so persisted auth/session logic works.
+class MemoryStorage implements Storage {
+  private store = new Map<string, string>()
+  get length() { return this.store.size }
+  clear() { this.store.clear() }
+  getItem(key: string) { return this.store.has(key) ? this.store.get(key)! : null }
+  key(index: number) { return Array.from(this.store.keys())[index] ?? null }
+  removeItem(key: string) { this.store.delete(key) }
+  setItem(key: string, value: string) { this.store.set(key, String(value)) }
+}
+
+function installStorage(name: 'localStorage' | 'sessionStorage') {
+  const current = (globalThis as any)[name]
+  if (current && typeof current.setItem === 'function') return
+  const storage = new MemoryStorage()
+  Object.defineProperty(globalThis, name, { configurable: true, value: storage })
+  if (typeof window !== 'undefined') {
+    Object.defineProperty(window, name, { configurable: true, value: storage })
+  }
+}
+
+installStorage('localStorage')
+installStorage('sessionStorage')
+
 // jsdom does not implement matchMedia; Mantine uses it to detect color scheme
 Object.defineProperty(window, 'matchMedia', {
   writable: true,

@@ -37,6 +37,12 @@ type sinkWriter struct {
 
 	// Spill to Disk
 	spillBuffer hermod.Producer
+	// spillCancel stops the spill-buffer consumer goroutine, and spillWg waits
+	// for it to fully return. The consumer feeds messages back into w.ch, so it
+	// must be stopped before w.ch is closed to avoid a send-on-closed-channel
+	// race/panic during shutdown.
+	spillCancel context.CancelFunc
+	spillWg     sync.WaitGroup
 
 	// Circuit Breaker state
 	cbMu          sync.RWMutex
@@ -45,8 +51,11 @@ type sinkWriter struct {
 	cbOpenUntil   time.Time
 	cbStatus      string // "closed", "open", "half-open"
 
-	// Adaptive Batching
-	currentBatchSize int
+	// Adaptive Batching. currentBatchSize is exported observability state that
+	// may be read concurrently (status snapshots, tests) while a writer goroutine
+	// adjusts it, so it is an atomic. The actual hot-loop batch sizing uses a
+	// goroutine-local copy (see runOn) to keep sharded writers race-free.
+	currentBatchSize atomic.Int64
 	batchTimeout     time.Duration
 	updateMu         sync.RWMutex
 }
@@ -93,7 +102,12 @@ func releasePendingMessage(pm *pendingMessage) {
 	pendingMessagePool.Put(pm)
 }
 
-func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Message, sinkID string, i int) error {
+// writeToSink writes a single message to the sink with retry/reconnect.
+// Optional onAttemptError observers are invoked on every individual sink write
+// failure (including transient failures that a later retry recovers from). This
+// lets callers (e.g. the circuit breaker) account for the underlying sink
+// health even when retries ultimately succeed.
+func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Message, sinkID string, i int, onAttemptError ...func()) error {
 	// Trace single write
 	var span trace.Span
 	ctx, span = tracer.Start(ctx, "sink.write", trace.WithAttributes(
@@ -178,6 +192,11 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		idempStart := time.Now()
 		if err := snk.Write(ctx, msg); err != nil {
 			lastErr = err
+			for _, observe := range onAttemptError {
+				if observe != nil {
+					observe()
+				}
+			}
 			telemetry.SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Inc()
 			e.setSinkStatus(sinkID, "reconnecting")
 			e.setStatus("reconnecting:sink:" + sinkID)
@@ -461,6 +480,13 @@ func (sw *sinkWriter) checkCircuitBreaker() error {
 	return nil
 }
 
+// circuitState returns the current circuit breaker status in a thread-safe way.
+func (sw *sinkWriter) circuitState() string {
+	sw.cbMu.Lock()
+	defer sw.cbMu.Unlock()
+	return sw.cbStatus
+}
+
 func (sw *sinkWriter) recordSuccess() {
 	sw.cbMu.Lock()
 	defer sw.cbMu.Unlock()
@@ -519,7 +545,88 @@ func (sw *sinkWriter) recordFailure() {
 	}
 }
 
+// shutdownSpill stops the spill-buffer consumer (if any) and waits for it to
+// fully return. It must be called before w.ch is closed so the consumer can
+// never send on a closed channel. It is safe to call when no spill consumer is
+// running.
+func (w *sinkWriter) shutdownSpill() {
+	w.updateMu.RLock()
+	cancel := w.spillCancel
+	w.updateMu.RUnlock()
+	if cancel != nil {
+		cancel()
+	}
+	w.spillWg.Wait()
+}
+
+// setupSpillBuffer eagerly creates the spill-to-disk buffer. It is called
+// synchronously by the runner during sinkWriter construction, before any
+// producer or writer goroutine starts, so that w.spillBuffer can be read by the
+// producer path (enqueueWithStrategy) without a data race.
+func (w *sinkWriter) setupSpillBuffer() {
+	if w.config.BackpressureStrategy != config.BPSpillToDisk {
+		return
+	}
+	path := w.config.SpillPath
+	if path == "" {
+		path = ".hermod-spill-" + w.sinkID
+	}
+	maxSize := w.config.SpillMaxSize
+	if maxSize <= 0 {
+		maxSize = 100 * 1024 * 1024 // 100MB default
+	}
+	spill, err := buffer.NewFileBuffer(path, maxSize)
+	if err != nil {
+		if w.engine != nil && w.engine.logger != nil {
+			w.engine.logger.Error("Failed to initialize spill buffer", "sink_id", w.sinkID, "path", path, "error", err)
+		}
+		return
+	}
+	w.spillBuffer = spill
+}
+
+// startSpillConsumer starts the spill-buffer consumer (once) under a dedicated
+// child context tracked by spillWg, so it can be stopped and waited for before
+// w.ch is closed. The consumer re-enqueues spilled messages into w.ch; a late
+// send on a closed channel would otherwise race/panic.
+func (w *sinkWriter) startSpillConsumer(ctx context.Context) {
+	consumer, ok := w.spillBuffer.(hermod.Consumer)
+	if !ok {
+		return
+	}
+	spillCtx, cancel := context.WithCancel(ctx)
+	w.updateMu.Lock()
+	w.spillCancel = cancel
+	w.updateMu.Unlock()
+	w.spillWg.Go(func() {
+		defer func() {
+			if p := recover(); p != nil {
+				if w.engine != nil && w.engine.logger != nil {
+					w.engine.logger.Error("Panic in spill buffer consumer", "sink_id", w.sinkID, "panic", p)
+				}
+			}
+		}()
+		_ = consumer.Consume(spillCtx, func(ctx context.Context, msg hermod.Message) error {
+			// Try to put back into the main channel. Since we are spilling, we
+			// want to prioritize messages in sw.ch but also drain the spill
+			// buffer when there is room.
+			pm := acquirePendingMessage(msg)
+			select {
+			case w.ch <- pm:
+				// Successfully re-enqueued
+				return nil
+			case <-ctx.Done():
+				releasePendingMessage(pm)
+				return ctx.Err()
+			}
+		})
+	})
+}
+
 func (w *sinkWriter) run(ctx context.Context) {
+	// Start the spill consumer once (it feeds back into the single w.ch).
+	w.startSpillConsumer(ctx)
+
 	if w.useShards && w.shardCount > 1 && len(w.shards) == w.shardCount {
 		// Spawn a run loop per shard channel
 		for i := 0; i < w.shardCount; i++ {
@@ -541,64 +648,23 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			w.engine.logger.Error("Panic in sinkWriter.runOn", "sink_id", w.sinkID, "error", r, "stack", string(debug.Stack()))
 		}
 	}()
-	if w.config.BackpressureStrategy == config.BPSpillToDisk {
-		path := w.config.SpillPath
-		if path == "" {
-			path = ".hermod-spill-" + w.sinkID
-		}
-		maxSize := w.config.SpillMaxSize
-		if maxSize <= 0 {
-			maxSize = 100 * 1024 * 1024 // 100MB default
-		}
-		var err error
-		w.spillBuffer, err = buffer.NewFileBuffer(path, maxSize)
-		if err != nil {
-			if w.engine != nil && w.engine.logger != nil {
-				w.engine.logger.Error("Failed to initialize spill buffer", "sink_id", w.sinkID, "path", path, "error", err)
-			}
-		} else {
-			// Start a consumer for the spill buffer
-			go func() {
-				defer func() {
-					if p := recover(); p != nil {
-						if w.engine != nil && w.engine.logger != nil {
-							w.engine.logger.Error("Panic in spill buffer consumer", "sink_id", w.sinkID, "panic", p)
-						}
-					}
-				}()
-				if consumer, ok := w.spillBuffer.(hermod.Consumer); ok {
-					_ = consumer.Consume(ctx, func(ctx context.Context, msg hermod.Message) error {
-						// Try to put back into the main channel
-						// Since we are spilling, we want to prioritize messages in sw.ch
-						// but also drain the spill buffer when there is room.
-						pm := acquirePendingMessage(msg)
-						select {
-						case w.ch <- pm:
-							// Successfully re-enqueued
-							return nil
-						case <-ctx.Done():
-							releasePendingMessage(pm)
-							return ctx.Err()
-						}
-					})
-				}
-			}()
-		}
+	// Batch sizing state is kept goroutine-local. A sharded sink runs one runOn
+	// per shard channel; sharing these on the sinkWriter would let multiple
+	// shard goroutines mutate the same fields concurrently (data race) and let
+	// one shard's adaptive sizing clobber another's.
+	batchSize := w.config.BatchSize
+	if batchSize < 1 {
+		batchSize = 1
 	}
-	w.currentBatchSize = w.config.BatchSize
-	if w.currentBatchSize < 1 {
-		w.currentBatchSize = 1
-	}
-	w.batchTimeout = w.config.BatchTimeout
-	if w.batchTimeout == 0 {
-		w.batchTimeout = 100 * time.Millisecond
+	w.currentBatchSize.Store(int64(batchSize))
+	batchTimeout := w.config.BatchTimeout
+	if batchTimeout == 0 {
+		batchTimeout = 100 * time.Millisecond
 	}
 
-	batch := make([]*pendingMessage, 0, w.currentBatchSize)
+	batch := make([]*pendingMessage, 0, batchSize)
 	var batchBytes int
-	w.updateMu.RLock()
-	ticker := time.NewTicker(w.batchTimeout)
-	w.updateMu.RUnlock()
+	ticker := time.NewTicker(batchTimeout)
 	defer ticker.Stop()
 
 	flush := func() {
@@ -621,49 +687,71 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 		}
 
 		var err error
+		// transientFailure tracks whether the underlying sink reported any write
+		// failure during this flush, even one that a retry later recovered from.
+		// A sink that fails on (almost) every attempt is unhealthy, so the circuit
+		// breaker must observe these transient failures rather than only the final
+		// post-retry outcome (otherwise retries would mask a failing sink forever).
+		transientFailure := false
+		observeAttemptErr := func() { transientFailure = true }
+		// perMsgErr holds the result for each message so we can settle the
+		// circuit-breaker state BEFORE signaling pm.done. If we signaled
+		// completion first, a waiter could observe the breaker state before this
+		// flush has finished updating it (a race the circuit-breaker test
+		// exercises): the breaker accounting must be visible the moment a caller
+		// learns the write finished.
+		var perMsgErr []error
+		isBatch := false
 		if bs, ok := w.sink.(hermod.BatchSink); ok && len(msgs) > 1 {
+			isBatch = true
 			err = w.engine.writeBatchToSink(ctx, bs, msgs, w.sinkID, w.index)
-			for _, pm := range batch {
-				pm.done <- err
-			}
 		} else {
+			perMsgErr = make([]error, len(msgs))
 			for i, m := range msgs {
-				e := w.engine.writeToSink(ctx, w.sink, m, w.sinkID, w.index)
-				batch[i].done <- e
+				e := w.engine.writeToSink(ctx, w.sink, m, w.sinkID, w.index, observeAttemptErr)
+				perMsgErr[i] = e
 				if e != nil {
 					err = e
 				}
 			}
 		}
 
-		if err != nil {
+		if err != nil || transientFailure {
 			w.recordFailure()
 		} else {
 			w.recordSuccess()
 		}
 
-		// Adaptive Batching logic
+		// Signal completion only after the breaker state has been updated.
+		if isBatch {
+			for _, pm := range batch {
+				pm.done <- err
+			}
+		} else {
+			for i := range batch {
+				batch[i].done <- perMsgErr[i]
+			}
+		}
+
+		// Adaptive Batching logic (operates on the goroutine-local batchSize).
 		if w.config.AdaptiveBatching {
 			duration := time.Since(start)
 			if err == nil {
 				// If we are fast and have more messages waiting, increase batch size
-				w.updateMu.Lock()
-				if duration < w.batchTimeout/2 && len(w.ch) > w.currentBatchSize/2 {
-					w.currentBatchSize = int(float64(w.currentBatchSize) * 1.1)
-					if w.currentBatchSize > 5000 {
-						w.currentBatchSize = 5000
+				if duration < batchTimeout/2 && len(input) > batchSize/2 {
+					batchSize = int(float64(batchSize) * 1.1)
+					if batchSize > 5000 {
+						batchSize = 5000
 					}
 				}
-				w.updateMu.Unlock()
 			} else {
 				// If we had error or were slow, decrease batch size
-				w.updateMu.Lock()
-				w.currentBatchSize = int(float64(w.currentBatchSize) * 0.7)
-				if w.currentBatchSize < 1 {
-					w.currentBatchSize = 1
+				batchSize = int(float64(batchSize) * 0.7)
+				if batchSize < 1 {
+					batchSize = 1
 				}
-				w.updateMu.Unlock()
 			}
+			w.currentBatchSize.Store(int64(batchSize))
 		}
 
 		batch = batch[:0]
@@ -683,7 +771,7 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 				batchBytes += len(pm.msg.Payload())
 			}
 			// flush when reaching count or byte thresholds
-			if len(batch) >= w.currentBatchSize || (w.config.BatchBytes > 0 && batchBytes >= w.config.BatchBytes) {
+			if len(batch) >= batchSize || (w.config.BatchBytes > 0 && batchBytes >= w.config.BatchBytes) {
 				flush()
 			}
 		case <-ticker.C:
@@ -752,8 +840,15 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 			// enqueued in memory
 		default:
 			if w.spillBuffer != nil {
-				// Spill the raw message so we can reload later
-				if err := w.spillBuffer.Produce(ctx, pm.msg); err != nil {
+				// Spill the raw message so we can reload later. Produce takes
+				// ownership of the message and releases it back to the pool, so
+				// detach it from pm first; otherwise releasePendingMessage (called
+				// by the owning goroutine after pm.done) would release it a second
+				// time, recycling the message while it is still being read
+				// elsewhere (use-after-free / data race).
+				err := w.spillBuffer.Produce(ctx, pm.msg)
+				pm.msg = nil
+				if err != nil {
 					pm.done <- fmt.Errorf("spill to disk failed: %w", err)
 				} else {
 					pm.done <- nil

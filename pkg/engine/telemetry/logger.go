@@ -61,7 +61,14 @@ func (l *DefaultLogger) log(event *zerolog.Event, msg string, keysAndValues ...a
 		}
 
 		if i+1 < len(keysAndValues) {
-			event.Interface(key, keysAndValues[i+1])
+			// error values must be rendered via their Error() string. Passing an
+			// error to Interface JSON-marshals it to "{}" (errors have no
+			// exported fields), which silently drops the message.
+			if errVal, ok := keysAndValues[i+1].(error); ok {
+				event.AnErr(key, errVal)
+			} else {
+				event.Interface(key, keysAndValues[i+1])
+			}
 		} else {
 			event.Interface(key, nil)
 		}

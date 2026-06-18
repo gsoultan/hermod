@@ -1,4 +1,4 @@
-package telemetry
+package engine
 
 import (
 	"context"
@@ -9,15 +9,25 @@ import (
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/buffer"
+	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
 type statusMockSource struct {
 	hermod.Source
+	mu      sync.Mutex
 	pingErr error
 }
 
 func (m *statusMockSource) Ping(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.pingErr
+}
+
+func (m *statusMockSource) setPingErr(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pingErr = err
 }
 
 func (m *statusMockSource) Read(ctx context.Context) (hermod.Message, error) {
@@ -27,11 +37,20 @@ func (m *statusMockSource) Read(ctx context.Context) (hermod.Message, error) {
 
 type statusMockSink struct {
 	hermod.Sink
+	mu      sync.Mutex
 	pingErr error
 }
 
 func (m *statusMockSink) Ping(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.pingErr
+}
+
+func (m *statusMockSink) setPingErr(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pingErr = err
 }
 
 func TestEngineGranularStatus(t *testing.T) {
@@ -48,10 +67,10 @@ func TestEngineGranularStatus(t *testing.T) {
 	})
 
 	var mu sync.Mutex
-	var lastUpdate StatusUpdate
+	var lastUpdate telemetry.StatusUpdate
 	updateCount := 0
 
-	eng.SetOnStatusChange(func(u StatusUpdate) {
+	eng.SetOnStatusChange(func(u telemetry.StatusUpdate) {
 		mu.Lock()
 		lastUpdate = u
 		updateCount++
@@ -79,7 +98,7 @@ func TestEngineGranularStatus(t *testing.T) {
 	mu.Unlock()
 
 	// Simulate source failure
-	src.pingErr = errors.New("source down")
+	src.setPingErr(errors.New("source down"))
 	time.Sleep(150 * time.Millisecond) // Wait for status checker
 
 	mu.Lock()
@@ -92,8 +111,8 @@ func TestEngineGranularStatus(t *testing.T) {
 	mu.Unlock()
 
 	// Simulate sink failure
-	src.pingErr = nil
-	snk1.pingErr = errors.New("sink down")
+	src.setPingErr(nil)
+	snk1.setPingErr(errors.New("sink down"))
 	time.Sleep(150 * time.Millisecond)
 
 	mu.Lock()

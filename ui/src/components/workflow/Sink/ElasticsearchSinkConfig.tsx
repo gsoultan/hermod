@@ -1,5 +1,5 @@
-import { IconInfoCircle, IconRefresh } from '@tabler/icons-react';
-import { TextInput, Stack, PasswordInput, Group, Autocomplete, ActionIcon, Select } from '@mantine/core'
+import { IconRefresh } from '@tabler/icons-react';
+import { TextInput, Stack, PasswordInput, Group, Autocomplete, ActionIcon, Loader } from '@mantine/core'
 import type { FC } from 'react'
 
 export type ElasticsearchSinkConfigProps = {
@@ -11,7 +11,7 @@ export type ElasticsearchSinkConfigProps = {
   loadingIndices: boolean
   indicesError: string | null
   fetchDatabases: () => void
-  discoverIndices: () => void
+  discoverIndices: (force?: boolean) => void
 }
 
 export const ElasticsearchSinkConfig: FC<ElasticsearchSinkConfigProps> = ({
@@ -52,15 +52,14 @@ export const ElasticsearchSinkConfig: FC<ElasticsearchSinkConfigProps> = ({
         </ActionIcon>
       </Group>
       <Group align="flex-end" gap="xs">
-        <Select
+        <Autocomplete
           label="Index"
           description="Target index name (supports Go templates)"
           placeholder="my-index-{{.table}}"
           data={indices || []}
-          searchable
           value={config.index || ''}
           onChange={(val) => updateConfig('index', val || '')}
-          rightSection={loadingIndices ? <IconInfoCircle size={16} /> : null}
+          rightSection={loadingIndices ? <Loader size={16} /> : null}
           error={indicesError}
           style={{ flex: 1 }}
         />

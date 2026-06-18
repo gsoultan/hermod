@@ -120,20 +120,31 @@ func (e *Engine) SetConfig(cfg config.Config) {
 	}
 }
 
+// snapshotSinkWriters returns the current sink-writer slice header under stopMu.
+// The slice is published once during startup (runner.Start); reading it under
+// the lifecycle lock guarantees callers observe the fully-initialized slice and
+// never race with that publish.
+func (e *Engine) snapshotSinkWriters() []*sinkWriter {
+	e.stopMu.Lock()
+	defer e.stopMu.Unlock()
+	return e.sinkWriters
+}
+
 func (e *Engine) SetSinkConfigs(configs []config.SinkConfig) {
 	e.mu.Lock()
 	e.sinkConfigs = configs
 	e.mu.Unlock()
 
 	// Update active sink writers
-	for i, sw := range e.sinkWriters {
+	for i, sw := range e.snapshotSinkWriters() {
 		if i < len(configs) {
 			sw.updateMu.Lock()
 			sw.config = configs[i]
-			sw.currentBatchSize = configs[i].BatchSize
-			if sw.currentBatchSize < 1 {
-				sw.currentBatchSize = 1
+			batchSize := configs[i].BatchSize
+			if batchSize < 1 {
+				batchSize = 1
 			}
+			sw.currentBatchSize.Store(int64(batchSize))
 			sw.batchTimeout = configs[i].BatchTimeout
 			if sw.batchTimeout == 0 {
 				sw.batchTimeout = 100 * time.Millisecond
@@ -161,14 +172,15 @@ func (e *Engine) UpdateSinkConfig(sinkID string, update func(*config.SinkConfig)
 			update(&e.sinkConfigs[i])
 
 			// Also update the writer if it exists
-			for _, sw := range e.sinkWriters {
+			for _, sw := range e.snapshotSinkWriters() {
 				if sw.sinkID == sinkID {
 					sw.updateMu.Lock()
 					sw.config = e.sinkConfigs[i]
-					sw.currentBatchSize = e.sinkConfigs[i].BatchSize
-					if sw.currentBatchSize < 1 {
-						sw.currentBatchSize = 1
+					batchSize := e.sinkConfigs[i].BatchSize
+					if batchSize < 1 {
+						batchSize = 1
 					}
+					sw.currentBatchSize.Store(int64(batchSize))
 					sw.batchTimeout = e.sinkConfigs[i].BatchTimeout
 					if sw.batchTimeout == 0 {
 						sw.batchTimeout = 100 * time.Millisecond
@@ -363,7 +375,7 @@ func (e *Engine) GetStatus() telemetry.StatusUpdate {
 
 	update.SinkCBStatuses = make(map[string]string)
 	update.SinkBufferFill = make(map[string]float64)
-	for _, sw := range e.sinkWriters {
+	for _, sw := range e.snapshotSinkWriters() {
 		sw.cbMu.Lock()
 		update.SinkCBStatuses[sw.sinkID] = sw.cbStatus
 		sw.cbMu.Unlock()

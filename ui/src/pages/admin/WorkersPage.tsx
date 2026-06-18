@@ -1,6 +1,6 @@
-import { IconAlertTriangle, IconEdit, IconExternalLink, IconInfoCircle, IconPlus, IconSearch, IconServer, IconTerminal2, IconTrash } from '@tabler/icons-react';
+import { IconAlertTriangle, IconEdit, IconInfoCircle, IconPlus, IconSearch, IconServer, IconTerminal2, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
-import { Title, Table, Button, Group, Paper, Text, Box, Stack, Badge, TextInput, Pagination, ActionIcon, RingProgress, Tooltip, Center, Alert, Modal, Code, List, CopyButton } from '@mantine/core'
+import { Title, Table, Button, Group, Paper, Text, Box, Stack, Badge, TextInput, Pagination, ActionIcon, RingProgress, Tooltip, Center, Alert, Modal, Code, CopyButton } from '@mantine/core'
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
 import { useNavigate } from '@tanstack/react-router'
@@ -241,7 +241,7 @@ export function WorkersPage() {
             
             <Text fw={700} size="sm">Option 1: Command Line</Text>
             <Box style={{ position: 'relative' }}>
-              <Code block p="md" radius="md">
+              <Code block p="md">
                 {`hermod --mode worker --worker-guid "${selectedWorker.id}" --platform-url "${window.location.origin}" --worker-token "<YOUR_TOKEN>"`}
               </Code>
               <CopyButton value={`hermod --mode worker --worker-guid "${selectedWorker.id}" --platform-url "${window.location.origin}" --worker-token "<YOUR_TOKEN>"`}>
@@ -260,7 +260,7 @@ export function WorkersPage() {
             </Box>
             
             <Text fw={700} size="sm">Option 2: Environment Variables</Text>
-            <Code block p="md" radius="md">
+            <Code block p="md">
               {`HERMOD_MODE=worker\nHERMOD_WORKER_GUID=${selectedWorker.id}\nHERMOD_PLATFORM_URL=${window.location.origin}\nHERMOD_WORKER_TOKEN=<YOUR_TOKEN>`}
             </Code>
 

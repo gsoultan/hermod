@@ -510,6 +510,17 @@ export const preparePayload = (payload: any) => {
       } else if (val && typeof val === 'object' && !Array.isArray(val)) {
         nested = val;
       }
+
+      // Hoist nested CDC payload fields (e.g. from "after") to the root so the
+      // workflow editor can surface them as available fields. Existing root
+      // keys always win so we never clobber metadata like "table" or "op".
+      if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+        Object.keys(nested).forEach(nestedKey => {
+          if (!(nestedKey in result)) {
+            result[nestedKey] = nested[nestedKey];
+          }
+        });
+      }
     });
 
     // Enrich CDC metadata for simulator/UX: expose operation/table/schema at root

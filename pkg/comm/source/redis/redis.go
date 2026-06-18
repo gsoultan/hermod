@@ -98,35 +98,50 @@ func (s *RedisSource) Read(ctx context.Context) (hermod.Message, error) {
 	xmsg := streams[0].Messages[0]
 	msg := message.AcquireMessage()
 	msg.SetID(xmsg.ID)
-
-	if data, ok := xmsg.Values["data"].(string); ok {
-		msg.SetPayload([]byte(data))
-		// Try to unmarshal JSON into Data() for dynamic structure
-		var jsonData map[string]any
-		if err := json.Unmarshal([]byte(data), &jsonData); err == nil {
-			for k, v := range jsonData {
-				msg.SetData(k, v)
-			}
-		} else {
-			msg.SetAfter([]byte(data)) // Fallback for non-JSON
-		}
-	} else if dataBytes, ok := xmsg.Values["data"].([]byte); ok {
-		msg.SetPayload(dataBytes)
-		// Try to unmarshal JSON into Data() for dynamic structure
-		var jsonData map[string]any
-		if err := json.Unmarshal(dataBytes, &jsonData); err == nil {
-			for k, v := range jsonData {
-				msg.SetData(k, v)
-			}
-		} else {
-			msg.SetAfter(dataBytes) // Fallback for non-JSON
-		}
-	}
+	applyStreamValues(msg, xmsg.Values)
 
 	msg.SetMetadata("redis_stream", s.stream)
 	msg.SetMetadata("redis_group", s.group)
 
 	return msg, nil
+}
+
+// applyStreamValues populates a message's fields from a Redis stream entry so
+// that downstream transformation/sink nodes can see the data as available
+// fields. The common convention stores the JSON-encoded payload under a single
+// "data" field; when that field is absent we expose every field/value pair so
+// previews still surface usable fields regardless of the producer's layout.
+func applyStreamValues(msg *message.DefaultMessage, values map[string]any) {
+	if raw, ok := streamDataBytes(values["data"]); ok {
+		msg.SetPayload(raw)
+		var jsonData map[string]any
+		if err := json.Unmarshal(raw, &jsonData); err == nil {
+			for k, v := range jsonData {
+				msg.SetData(k, v)
+			}
+		} else {
+			msg.SetAfter(raw) // Fallback for non-JSON
+		}
+		return
+	}
+
+	// Fallback: surface arbitrary field/value pairs as top-level fields.
+	for k, v := range values {
+		msg.SetData(k, v)
+	}
+}
+
+// streamDataBytes normalizes the Redis "data" field, which the client may
+// return as either a string or a byte slice, into raw bytes.
+func streamDataBytes(v any) ([]byte, bool) {
+	switch d := v.(type) {
+	case string:
+		return []byte(d), true
+	case []byte:
+		return d, true
+	default:
+		return nil, false
+	}
 }
 
 func (s *RedisSource) Ack(ctx context.Context, msg hermod.Message) error {
@@ -224,28 +239,7 @@ func (s *RedisSource) Sample(ctx context.Context, table string) (hermod.Message,
 	xmsg := msgs[0]
 	msg := message.AcquireMessage()
 	msg.SetID(xmsg.ID)
-
-	if data, ok := xmsg.Values["data"].(string); ok {
-		msg.SetPayload([]byte(data))
-		var jsonData map[string]any
-		if err := json.Unmarshal([]byte(data), &jsonData); err == nil {
-			for k, v := range jsonData {
-				msg.SetData(k, v)
-			}
-		} else {
-			msg.SetAfter([]byte(data))
-		}
-	} else if dataBytes, ok := xmsg.Values["data"].([]byte); ok {
-		msg.SetPayload(dataBytes)
-		var jsonData map[string]any
-		if err := json.Unmarshal(dataBytes, &jsonData); err == nil {
-			for k, v := range jsonData {
-				msg.SetData(k, v)
-			}
-		} else {
-			msg.SetAfter(dataBytes)
-		}
-	}
+	applyStreamValues(msg, xmsg.Values)
 
 	msg.SetMetadata("redis_stream", s.stream)
 	msg.SetMetadata("sample", "true")

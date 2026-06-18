@@ -60,9 +60,22 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 		}
 	}
 
-	// Initialize Sink Writers
+	// Pre-flight checks: verify every sink is reachable before starting the
+	// pipeline so we fail fast on a misconfigured/unreachable sink instead of
+	// silently buffering messages that can never be delivered. Sources keep
+	// their own runtime reconnect loop (see runSourceToBuffer), so they are not
+	// part of this hard pre-flight.
+	if err := r.preflightSinks(r.ctx); err != nil {
+		r.engine.setStatus("Error: " + err.Error())
+		r.cancel()
+		return err
+	}
+
+	// Initialize Sink Writers. The slice is built locally and published under
+	// stopMu so concurrent readers (GetStatus via the status checker, dynamic
+	// config updates) never observe a partially-initialized slice.
 	var writersWg sync.WaitGroup
-	r.engine.sinkWriters = make([]*sinkWriter, len(r.engine.sinks))
+	sinkWriters := make([]*sinkWriter, len(r.engine.sinks))
 	for i, snk := range r.engine.sinks {
 		sinkID := ""
 		if i < len(r.engine.sinkIDs) {
@@ -80,14 +93,14 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 		}
 
 		sw := &sinkWriter{
-			engine:           r.engine,
-			sink:             snk,
-			sinkID:           sinkID,
-			index:            i,
-			config:           cfg,
-			ch:               make(chan *pendingMessage, bufferCap),
-			currentBatchSize: cfg.BatchSize,
+			engine: r.engine,
+			sink:   snk,
+			sinkID: sinkID,
+			index:  i,
+			config: cfg,
+			ch:     make(chan *pendingMessage, bufferCap),
 		}
+		sw.currentBatchSize.Store(int64(cfg.BatchSize))
 		// Initialize sharding if configured
 		if cfg.ShardCount > 1 {
 			sw.useShards = true
@@ -98,7 +111,16 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 				sw.shards[si] = make(chan *pendingMessage, bufferCap)
 			}
 		}
-		r.engine.sinkWriters[i] = sw
+		// Eagerly initialize the spill-to-disk buffer (if configured) before any
+		// producer or writer goroutine starts, so the producer path can read
+		// sw.spillBuffer without a data race.
+		sw.setupSpillBuffer()
+		sinkWriters[i] = sw
+	}
+	r.engine.stopMu.Lock()
+	r.engine.sinkWriters = sinkWriters
+	r.engine.stopMu.Unlock()
+	for _, sw := range sinkWriters {
 		writersWg.Go(func() {
 			sw.run(r.ctx)
 		})
@@ -177,8 +199,19 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 	r.runSourceToBuffer(r.ctx)
 
 	sinkWg.Wait()
+	// Wait for all in-flight per-message processing goroutines to finish before
+	// closing the sink channels. Those goroutines (tracked by inFlightWg, not
+	// sinkWg) are senders to sw.ch; closing the channel while they are still
+	// sending would be a send-on-closed-channel race/panic.
+	r.engine.inFlightWg.Wait()
 	for _, sw := range r.engine.sinkWriters {
 		if sw != nil {
+			// Stop the spill-buffer consumer (which feeds back into sw.ch) and
+			// wait for it to return before closing the channel, otherwise it can
+			// send on a closed channel (race/panic). The source-to-buffer fan-out
+			// has already finished (sinkWg.Wait above), so the spill consumer is
+			// the only remaining sender to sw.ch.
+			sw.shutdownSpill()
 			if sw.useShards {
 				for _, ch := range sw.shards {
 					if ch != nil {
@@ -286,6 +319,74 @@ func (r *Runner) checkHealth(interval time.Duration) {
 	}
 }
 
+// preflightAttempts is the number of times a sink is pinged during startup
+// pre-flight before the engine gives up and fails to start.
+const preflightAttempts = 3
+
+// preflightSinks pings every configured sink (up to preflightAttempts times each
+// with a short backoff) before the pipeline starts. It returns an error as soon
+// as any sink remains unreachable, so a misconfigured sink fails the engine fast
+// instead of silently accumulating undeliverable messages.
+func (r *Runner) preflightSinks(ctx context.Context) error {
+	for i, snk := range r.engine.sinks {
+		if snk == nil {
+			continue
+		}
+		sinkID := ""
+		if i < len(r.engine.sinkIDs) {
+			sinkID = r.engine.sinkIDs[i]
+		}
+		if err := r.pingWithRetry(ctx, snk.Ping); err != nil {
+			r.engine.logger.Error("Sink pre-flight check failed",
+				"workflow_id", r.engine.workflowID,
+				"sink_id", sinkID,
+				"attempts", preflightAttempts,
+				"error", err)
+			return fmt.Errorf("sink pre-flight checks failed after %d attempts", preflightAttempts)
+		}
+	}
+	return nil
+}
+
+// pingWithRetry invokes ping up to preflightAttempts times, returning nil on the
+// first success. Between attempts it waits a short, bounded backoff and honors
+// context cancellation so it can never block startup indefinitely.
+func (r *Runner) pingWithRetry(ctx context.Context, ping func(context.Context) error) error {
+	const backoff = 50 * time.Millisecond
+	var err error
+	for attempt := 0; attempt < preflightAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+		if err = ping(ctx); err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
+// reconnectWait returns how long to wait before the next source reconnect
+// attempt. It honors the configured SourceConfig.ReconnectIntervals (indexing by
+// attempt and clamping to the last entry once exhausted) and only falls back to
+// the supplied default interval when no reconnect intervals are configured.
+func (r *Runner) reconnectWait(attempt int, fallback time.Duration) time.Duration {
+	r.engine.mu.RLock()
+	intervals := r.engine.sourceConfig.ReconnectIntervals
+	r.engine.mu.RUnlock()
+	if len(intervals) == 0 {
+		return fallback
+	}
+	idx := attempt
+	if idx >= len(intervals) {
+		idx = len(intervals) - 1
+	}
+	return intervals[idx]
+}
+
 func (r *Runner) runSourceToBuffer(ctx context.Context) {
 	reconnectAttempts := 0
 	for {
@@ -316,7 +417,7 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 				select {
 				case <-ctx.Done():
 					return
-				case <-time.After(interval):
+				case <-time.After(r.reconnectWait(reconnectAttempts, interval)):
 					reconnectAttempts++
 					continue
 				}
@@ -347,9 +448,21 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 
 			m, err := r.engine.source.Read(ctx)
 			if err != nil {
-				if !errors.Is(err, context.Canceled) {
-					r.engine.logger.Error("Source read error", "workflow_id", r.engine.workflowID, "error", err)
-					r.engine.setSourceStatus("error")
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					continue
+				}
+				r.engine.logger.Error("Source read error", "workflow_id", r.engine.workflowID, "error", err)
+				// A read failure means the source is (temporarily) unable to
+				// deliver data. Surface it as a recoverable reconnect rather than
+				// a silent error so the status reflects "reconnecting:source" and
+				// the loop backs off before retrying instead of hot-spinning.
+				r.engine.setSourceStatus("reconnecting")
+				r.engine.setStatus("reconnecting:source")
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(r.reconnectWait(reconnectAttempts, interval)):
+					reconnectAttempts++
 				}
 				continue
 			}
@@ -500,7 +613,11 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 				}
 				swg.Wait()
 				close(serrCh)
-				m.Release()
+				// NOTE: do not release m yet. It is still needed below for the
+				// source acknowledgement (Ack reads m.ID()) and the outbox lookup
+				// (m.Metadata()). Releasing it here recycles the message and would
+				// clear its identity before Ack runs (use-after-release).
+				defer m.Release()
 				for err := range serrCh {
 					if err != nil {
 						r.engine.logger.Error("Sink write error", "workflow_id", r.engine.workflowID, "error", err)

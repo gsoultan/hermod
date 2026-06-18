@@ -1,5 +1,5 @@
-import { TextInput, Group, ActionIcon, Title, Stack, Badge, Autocomplete, Switch, Divider, SimpleGrid, Select, Button } from '@mantine/core';
-import { IconRefresh, IconInfoCircle } from '@tabler/icons-react';
+import { TextInput, Group, ActionIcon, Title, Stack, Badge, Autocomplete, Switch, Divider, SimpleGrid, Select, Button, Loader } from '@mantine/core';
+import { IconRefresh } from '@tabler/icons-react';
 import { useState, type FC } from 'react';
 import { ColumnMappingEditor, type ColumnMapping } from './ColumnMappingEditor';
 import { apiFetch } from '@/api';
@@ -11,7 +11,7 @@ interface DatabaseSinkConfigProps {
   updateConfig: (key: string, value: any) => void;
   tables: string[];
   loadingTables?: boolean;
-  discoverTables?: () => void;
+  discoverTables?: (force?: boolean) => void;
   discoveredDatabases?: string[];
   isFetchingDBs?: boolean;
   fetchDatabases?: () => void;
@@ -268,7 +268,7 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
           }} 
           required 
           style={{ flex: 1 }}
-          rightSection={loadingTables ? <IconInfoCircle size={16} /> : null}
+          rightSection={loadingTables ? <Loader size={16} /> : null}
           error={tablesError}
         />
         {discoverTables && (

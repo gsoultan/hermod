@@ -9,7 +9,7 @@ interface WorkflowHeaderProps {
   workflowStatus: string;
 }
 
-export function WorkflowHeader({ id, isNew, name, active, workflowStatus }: WorkflowHeaderProps) {
+export function WorkflowHeader({ id, isNew, name, workflowStatus }: WorkflowHeaderProps) {
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
   const status = normalizeWorkflowStatus(workflowStatus);

@@ -1,5 +1,5 @@
-import { IconInfoCircle, IconRefresh } from '@tabler/icons-react';
-import { ActionIcon, Autocomplete, Group, TextInput, Switch, Stack, Divider, Select, Button } from '@mantine/core'
+import { IconRefresh } from '@tabler/icons-react';
+import { ActionIcon, Autocomplete, Group, TextInput, Switch, Stack, Divider, Select, Button, Loader } from '@mantine/core'
 import { useState, type FC, useEffect } from 'react'
 import { ColumnMappingEditor, type ColumnMapping } from './ColumnMappingEditor'
 import { apiFetch } from '@/api'
@@ -15,7 +15,7 @@ export type PostgresSinkConfigProps = {
   tablesError: string | null
   updateConfig: (key: string, value: any) => void
   fetchDatabases: () => void
-  discoverTables: () => void
+  discoverTables: (force?: boolean) => void
   availableFields?: string[]
   upstreamSource?: any
 }
@@ -200,7 +200,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
           data={tables || []}
           value={config.table || ''}
           onChange={(val) => updateConfig('table', val || '')}
-          rightSection={loadingTables ? <IconInfoCircle size={16} /> : null}
+          rightSection={loadingTables ? <Loader size={16} /> : null}
           error={tablesError}
           style={{ flex: 1 }}
         />

@@ -66,12 +66,16 @@ func (a *Autoscaler) check() {
 
 	targetReplicas := a.calculateTargetReplicas(workflows)
 
-	// 2. Get current worker count
-	_, totalWorkers, err := a.manager.ListWorkers(ctx, storage.CommonFilter{})
+	// 2. Get current worker count. Scaling decisions must be based on workers
+	// that are actually alive: stale/offline workers (those whose heartbeat has
+	// lapsed) must not be counted, otherwise the autoscaler over-counts capacity
+	// and fails to scale up when workers have silently died.
+	workers, _, err := a.manager.ListWorkers(ctx, storage.CommonFilter{})
 	if err != nil {
 		a.logger.Error("Autoscaler: failed to list workers", "error", err)
 		return
 	}
+	onlineWorkers := countOnlineWorkers(workers)
 
 	// Min/Max bounds
 	if targetReplicas < 1 {
@@ -81,12 +85,30 @@ func (a *Autoscaler) check() {
 		targetReplicas = 20
 	}
 
-	if targetReplicas != totalWorkers {
-		a.logger.Info("Autoscaler: proactive scaling", "from", totalWorkers, "to", targetReplicas)
+	if targetReplicas != onlineWorkers {
+		a.logger.Info("Autoscaler: proactive scaling", "from", onlineWorkers, "to", targetReplicas)
 		if err := a.manager.Scale(ctx, targetReplicas); err != nil {
 			a.logger.Error("Autoscaler: scale failed", "error", err)
 		}
 	}
+}
+
+// workerOnlineThreshold is the maximum age of a worker's last heartbeat for it
+// to still be considered online for scaling decisions.
+const workerOnlineThreshold = time.Minute
+
+// countOnlineWorkers returns the number of workers whose last heartbeat is
+// within workerOnlineThreshold of now. Workers without a heartbeat or with a
+// stale one are treated as offline.
+func countOnlineWorkers(workers []storage.Worker) int {
+	cutoff := time.Now().Add(-workerOnlineThreshold)
+	count := 0
+	for _, w := range workers {
+		if w.LastSeen != nil && w.LastSeen.After(cutoff) {
+			count++
+		}
+	}
+	return count
 }
 
 func (a *Autoscaler) calculateTargetReplicas(workflows []storage.Workflow) int {

@@ -212,7 +212,6 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
   const connectionString = sink.config?.connection_string;
   const uri = sink.config?.uri;
   const dbPath = sink.config?.db_path;
-  const discoverTablesCb = useCallback(() => discoverTables(), [discoverTables]);
 
   useEffect(() => {
     const dbTypes = ['postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'yugabyte', 'cassandra', 'sqlite', 'clickhouse', 'mongodb'];

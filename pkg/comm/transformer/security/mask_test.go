@@ -1,7 +1,6 @@
 package security
 
 import (
-	"github.com/user/hermod/pkg/comm/transformer"
 	"testing"
 
 	"github.com/user/hermod/pkg/comm/message"

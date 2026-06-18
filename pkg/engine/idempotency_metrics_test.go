@@ -1,4 +1,4 @@
-package idempotency
+package engine
 
 import (
 	"context"
@@ -7,17 +7,18 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
-// noop logger to satisfy hermod.Logger
-type noopLogger struct{}
+// idempNoopLogger is a no-op logger used to satisfy hermod.Logger in tests.
+type idempNoopLogger struct{}
 
-func (noopLogger) Debug(string, ...any) {}
-func (noopLogger) Info(string, ...any)  {}
-func (noopLogger) Warn(string, ...any)  {}
-func (noopLogger) Error(string, ...any) {}
+func (idempNoopLogger) Debug(string, ...any) {}
+func (idempNoopLogger) Info(string, ...any)  {}
+func (idempNoopLogger) Warn(string, ...any)  {}
+func (idempNoopLogger) Error(string, ...any) {}
 
-// fake sink that reports idempotency results
+// reporterSink is a fake sink that reports idempotency results.
 type reporterSink struct {
 	dedup    bool
 	conflict bool
@@ -29,8 +30,8 @@ func (r *reporterSink) Close() error                                        { re
 func (r *reporterSink) LastWriteIdempotent() (bool, bool)                   { return r.dedup, r.conflict }
 
 func TestWriteToSink_EmitsIdempotencyMetrics(t *testing.T) {
-	e := NewEngine(nil, nil, nil) // &Engine{}
-	e.logger = noopLogger{}
+	e := NewEngine(nil, nil, nil)
+	e.logger = idempNoopLogger{}
 	e.workflowID = "wf1"
 	e.sinkConfigs = []SinkConfig{{}}
 
@@ -41,11 +42,11 @@ func TestWriteToSink_EmitsIdempotencyMetrics(t *testing.T) {
 	sinkID := "s1"
 	rs := &reporterSink{dedup: true}
 
-	before := testutil.ToFloat64(IdempotencyDedupTotal.WithLabelValues(e.workflowID, sinkID))
+	before := testutil.ToFloat64(telemetry.IdempotencyDedupTotal.WithLabelValues(e.workflowID, sinkID))
 	if err := e.writeToSink(t.Context(), rs, msg, sinkID, 0); err != nil {
 		t.Fatalf("writeToSink error: %v", err)
 	}
-	after := testutil.ToFloat64(IdempotencyDedupTotal.WithLabelValues(e.workflowID, sinkID))
+	after := testutil.ToFloat64(telemetry.IdempotencyDedupTotal.WithLabelValues(e.workflowID, sinkID))
 	if after != before+1 {
 		t.Fatalf("expected dedup metric to increment by 1, got before=%v after=%v", before, after)
 	}

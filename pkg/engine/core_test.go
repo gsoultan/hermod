@@ -49,7 +49,11 @@ func (s *mockSink) Write(ctx context.Context, msg hermod.Message) error {
 		return fmt.Errorf("mock sink error")
 	}
 	if s.received != nil {
-		s.received <- msg
+		// Clone before handing the message to the test channel: a message is
+		// only guaranteed valid for the duration of Write, after which the
+		// engine may release/recycle it back into the pool. Storing the raw
+		// reference races with that recycling and can surface a cleared ID.
+		s.received <- msg.Clone()
 	}
 	return nil
 }
@@ -662,13 +666,13 @@ func TestEngineAdaptiveBatching(t *testing.T) {
 	sw := eng.sinkWriters[0]
 	eng.stopMu.Unlock()
 
-	if sw.currentBatchSize == 0 {
+	if sw.currentBatchSize.Load() == 0 {
 		t.Error("currentBatchSize should be initialized")
 	}
 
 	// Since mockSink is fast, currentBatchSize should have increased
-	if sw.currentBatchSize < 10 {
-		t.Errorf("Expected currentBatchSize to stay at least 10, got %d", sw.currentBatchSize)
+	if sw.currentBatchSize.Load() < 10 {
+		t.Errorf("Expected currentBatchSize to stay at least 10, got %d", sw.currentBatchSize.Load())
 	}
 }
 
@@ -711,13 +715,12 @@ func TestSinkWriter_BatchBytesFlush(t *testing.T) {
 	}
 
 	sw := &sinkWriter{
-		engine:           e,
-		sink:             mb,
-		sinkID:           "sink-test",
-		index:            0,
-		config:           cfg,
-		ch:               make(chan *pendingMessage, 10),
-		currentBatchSize: cfg.BatchSize,
+		engine: e,
+		sink:   mb,
+		sinkID: "sink-test",
+		index:  0,
+		config: cfg,
+		ch:     make(chan *pendingMessage, 10),
 	}
 
 	// Start writer
@@ -793,13 +796,12 @@ func TestSinkWriter_PerKeyShardingOrder(t *testing.T) {
 	}
 
 	sw := &sinkWriter{
-		engine:           e,
-		sink:             os,
-		sinkID:           "sink-sharded",
-		index:            0,
-		config:           cfg,
-		ch:               make(chan *pendingMessage, 100),
-		currentBatchSize: cfg.BatchSize,
+		engine: e,
+		sink:   os,
+		sinkID: "sink-sharded",
+		index:  0,
+		config: cfg,
+		ch:     make(chan *pendingMessage, 100),
 	}
 	// Initialize shards like in engine
 	if cfg.ShardCount > 1 {
@@ -860,7 +862,8 @@ func TestBackpressure_DropNewest_Metric(t *testing.T) {
 
 	wf := "wf-drop-newest"
 	sinkID := "sink-bp"
-	e := NewEngine(nil, nil, nil) // &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: wf}
+	e := NewEngine(nil, nil, nil)
+	e.workflowID = wf
 
 	cfg := config.SinkConfig{BackpressureStrategy: config.BPDropNewest}
 	sw := &sinkWriter{
@@ -902,7 +905,8 @@ func TestBackpressure_DropOldest_Metric(t *testing.T) {
 
 	wf := "wf-drop-oldest"
 	sinkID := "sink-bp2"
-	e := NewEngine(nil, nil, nil) // &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: wf}
+	e := NewEngine(nil, nil, nil)
+	e.workflowID = wf
 
 	cfg := config.SinkConfig{BackpressureStrategy: config.BPDropOldest}
 	sw := &sinkWriter{
@@ -941,7 +945,8 @@ func TestBackpressure_SpillToDisk_Metric(t *testing.T) {
 
 	wf := "wf-spill"
 	sinkID := "sink-spill"
-	e := NewEngine(nil, nil, nil) // &Engine{logger: NewDefaultLogger(), config: DefaultConfig(), workflowID: wf}
+	e := NewEngine(nil, nil, nil)
+	e.workflowID = wf
 
 	// Prepare a temporary directory for spill buffer
 	dir, err := os.MkdirTemp("", "hermod-spill-test-")

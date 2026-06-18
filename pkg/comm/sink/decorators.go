@@ -119,71 +119,79 @@ func NewRetrySink(s hermod.Sink, maxRetries int, retryInterval time.Duration, lo
 
 func (s *RetrySink) Write(ctx context.Context, msg hermod.Message) error {
 	var lastErr error
-	maxRetries := s.maxRetries
-	if maxRetries <= 0 {
-		maxRetries = 1
-	}
+	maxRetries := max(s.maxRetries, 1)
 
-	for i := 0; i < maxRetries; i++ {
-		if err := s.Sink.Write(ctx, msg); err != nil {
-			lastErr = err
-			if s.logger != nil {
-				s.logger.Warn("Sink write error, retrying", "attempt", i+1, "error", err)
-			}
-
-			interval := time.Duration(i+1) * s.retryInterval
-			jitter := 0.8 + rand.Float64()*0.4
-			interval = time.Duration(float64(interval) * jitter)
-
-			select {
-			case <-time.After(interval):
-				continue
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+	for i := range maxRetries {
+		err := s.Sink.Write(ctx, msg)
+		if err == nil {
+			return nil
 		}
-		return nil
+		lastErr = err
+		if s.logger != nil {
+			s.logger.Warn("Sink write error, retrying", "attempt", i+1, "error", err)
+		}
+
+		// Do not wait after the final attempt; we are about to return the error.
+		if i == maxRetries-1 {
+			break
+		}
+
+		if err := s.waitBeforeRetry(ctx, i); err != nil {
+			return err
+		}
 	}
 	return fmt.Errorf("sink write failed after %d retries: %w", maxRetries, lastErr)
 }
 
+// waitBeforeRetry sleeps for a jittered, linearly-increasing backoff interval
+// based on the attempt index, returning early if the context is cancelled.
+func (s *RetrySink) waitBeforeRetry(ctx context.Context, attempt int) error {
+	interval := time.Duration(attempt+1) * s.retryInterval
+	jitter := 0.8 + rand.Float64()*0.4
+	interval = time.Duration(float64(interval) * jitter)
+
+	select {
+	case <-time.After(interval):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (s *RetrySink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
-	if bs, ok := s.Sink.(hermod.BatchSink); ok {
-		var lastErr error
-		maxRetries := s.maxRetries
-		if maxRetries <= 0 {
-			maxRetries = 1
-		}
-
-		for i := 0; i < maxRetries; i++ {
-			if err := bs.WriteBatch(ctx, msgs); err != nil {
-				lastErr = err
-				if s.logger != nil {
-					s.logger.Warn("Sink batch write error, retrying", "attempt", i+1, "error", err)
-				}
-
-				interval := time.Duration(i+1) * s.retryInterval
-				jitter := 0.8 + rand.Float64()*0.4
-				interval = time.Duration(float64(interval) * jitter)
-
-				select {
-				case <-time.After(interval):
-					continue
-				case <-ctx.Done():
-					return ctx.Err()
-				}
+	bs, ok := s.Sink.(hermod.BatchSink)
+	if !ok {
+		for _, m := range msgs {
+			if err := s.Write(ctx, m); err != nil {
+				return err
 			}
-			return nil
 		}
-		return fmt.Errorf("sink batch write failed after %d retries: %w", maxRetries, lastErr)
+		return nil
 	}
 
-	for _, m := range msgs {
-		if err := s.Write(ctx, m); err != nil {
+	var lastErr error
+	maxRetries := max(s.maxRetries, 1)
+
+	for i := range maxRetries {
+		err := bs.WriteBatch(ctx, msgs)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if s.logger != nil {
+			s.logger.Warn("Sink batch write error, retrying", "attempt", i+1, "error", err)
+		}
+
+		// Do not wait after the final attempt; we are about to return the error.
+		if i == maxRetries-1 {
+			break
+		}
+
+		if err := s.waitBeforeRetry(ctx, i); err != nil {
 			return err
 		}
 	}
-	return nil
+	return fmt.Errorf("sink batch write failed after %d retries: %w", maxRetries, lastErr)
 }
 
 func (s *RetrySink) ExecuteSQL(ctx context.Context, query string) ([]map[string]any, error) {

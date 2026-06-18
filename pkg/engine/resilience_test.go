@@ -214,8 +214,8 @@ func TestSinkWriter_CircuitBreaker(t *testing.T) {
 	sink.fail = 1
 	sw.ch <- pm1
 	<-pm1.done
-	if sw.cbStatus != "closed" {
-		t.Errorf("expected closed, got %s", sw.cbStatus)
+	if st := sw.circuitState(); st != "closed" {
+		t.Errorf("expected closed, got %s", st)
 	}
 
 	// Trigger failure 2 -> Open circuit
@@ -223,8 +223,8 @@ func TestSinkWriter_CircuitBreaker(t *testing.T) {
 	sink.fail = 1
 	sw.ch <- pm2
 	<-pm2.done
-	if sw.cbStatus != "open" {
-		t.Errorf("expected open, got %s", sw.cbStatus)
+	if st := sw.circuitState(); st != "open" {
+		t.Errorf("expected open, got %s", st)
 	}
 
 	// Send message while open -> should fail immediately without sink write
@@ -242,8 +242,8 @@ func TestSinkWriter_CircuitBreaker(t *testing.T) {
 	pm4 := acquirePendingMessage(message.AcquireMessage())
 	sw.ch <- pm4
 	<-pm4.done
-	if sw.cbStatus != "closed" {
-		t.Errorf("expected closed after success in half-open, got %s", sw.cbStatus)
+	if st := sw.circuitState(); st != "closed" {
+		t.Errorf("expected closed after success in half-open, got %s", st)
 	}
 }
 

@@ -136,7 +136,7 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
             {loading && <Badge color="blue" variant="light" size="xs">Running</Badge>}
           </Group>
           <Button size="compact-xs" variant="light" leftSection={<IconPlayerPlay size="0.8rem" />} onClick={onRun} loading={!!loading}>
-            Run
+            Run Preview
           </Button>
         </Group>
 

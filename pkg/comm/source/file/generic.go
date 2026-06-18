@@ -301,6 +301,52 @@ func (s *GenericFileSource) Read(ctx context.Context) (hermod.Message, error) {
 	}
 }
 
+// Sample reads a single record/file for preview purposes. It is non-destructive:
+// it does not mutate the ingestion queue or the watermark, so calling it from the
+// UI does not skip or consume real data during a subsequent run.
+func (s *GenericFileSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
+	files, err := s.listFiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no files found to sample")
+	}
+	ref := &files[0]
+
+	if s.cfg.Format == FormatCSV {
+		csvSrc := s.csvReaderFor(ref)
+		if csvSrc == nil {
+			return nil, fmt.Errorf("failed to open csv reader for %s", ref.Name)
+		}
+		if err := csvSrc.init(ctx); err != nil {
+			return nil, err
+		}
+		defer csvSrc.Close()
+		return csvSrc.Read(ctx)
+	}
+
+	b, meta, err := s.readFileBytes(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	msg := message.AcquireMessage()
+	msg.SetID(fmt.Sprintf("%s-sample", filepath.Base(ref.Name)))
+	msg.SetMetadata("source", "file")
+	msg.SetMetadata("backend", string(ref.Backend))
+	for k, v := range meta {
+		msg.SetMetadata(k, v)
+	}
+	msg.SetData("file_name", filepath.Base(ref.Name))
+	msg.SetData("file_size", ref.Size)
+	msg.SetData("mod_time", ref.ModTime.Unix())
+	if b != nil {
+		msg.SetMetadata("content_type", meta["content_type"])
+		msg.SetAfter(b)
+	}
+	return msg, nil
+}
+
 func (s *GenericFileSource) csvReaderFor(ref *fileRef) *CSVSource {
 	// Determine how to open CSV depending on backend
 	delim := ','

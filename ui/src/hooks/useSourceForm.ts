@@ -7,6 +7,7 @@ import { notifications } from '@mantine/notifications';
 import { useNavigate } from '@tanstack/react-router';
 import type { Source, Workflow } from '@/types';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
+import { humanizeSampleError } from '@/components/workflow/Source/sourceSampling';
 
 const API_BASE = '/api';
 
@@ -68,6 +69,7 @@ export function useSourceForm({
   const [sampleData, setSampleData] = useState<Record<string, any> | null>(null);
   const [isFetchingSample, setIsFetchingSample] = useState(false);
   const [sampleError, setSampleError] = useState<string | null>(null);
+  const [lastSampledAt, setLastSampledAt] = useState<number | null>(null);
   const [testInput, setTestInput] = useState<string>('');
   const [selectedSampleTable, setSelectedSampleTable] = useState<string>('');
   const [showSetup, setShowSetup] = useState(false);
@@ -147,6 +149,7 @@ export function useSourceForm({
 
     setSampleData(data);
     setSampleError(null);
+    setLastSampledAt(Date.now());
 
     // 1) Persist to server (Source.sample) when editing an existing source
     try {
@@ -215,7 +218,7 @@ export function useSourceForm({
       }
     } catch (e: any) {
       setSampleData(null);
-      setSampleError(e.message || 'Failed to fetch sample data');
+      setSampleError(humanizeSampleError(e?.message, s?.type));
     } finally {
       setIsFetchingSample(false);
     }
@@ -475,6 +478,7 @@ export function useSourceForm({
     isFetchingSample,
     sampleError,
     setSampleError,
+    lastSampledAt,
     testInput,
     setTestInput,
     selectedSampleTable,

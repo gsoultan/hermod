@@ -18,7 +18,7 @@ func (w *Worker) checkHealth(ctx context.Context) {
 			w.logger.Error("Worker: health check panicked", "panic", r)
 		}
 	}()
-	if time.Since(w.lastHealthCheck) < 30*time.Second {
+	if time.Since(w.lastHealthCheck) < w.heartbeatInterval() {
 		return
 	}
 	w.lastHealthCheck = time.Now()
@@ -28,6 +28,15 @@ func (w *Worker) checkHealth(ctx context.Context) {
 		_ = w.storage.UpdateWorkerHeartbeat(ctx, w.workerGUID, cpuUsage, memUsage)
 	}
 	w.checkResourcesHealth(ctx)
+}
+
+// heartbeatInterval is how often the worker samples resource usage and refreshes
+// its persisted heartbeat. It tracks the lease TTL (capped at 30s) so that with
+// short TTLs the worker's liveness stays well within the online window, while
+// keeping the historical 30s cadence for the default 30s TTL.
+func (w *Worker) heartbeatInterval() time.Duration {
+	secs := min(30, max(5, w.leaseTTLSeconds))
+	return time.Duration(secs) * time.Second
 }
 
 func (w *Worker) getMetrics() (float64, float64) {
