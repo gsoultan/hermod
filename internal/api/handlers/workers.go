@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"os/exec"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/user/hermod/internal/storage"
@@ -146,4 +149,91 @@ func (h *Handler) DeleteWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// StartWorker launches an offline worker by relaunching the current hermod
+// binary in worker mode on the platform host. It is restricted to administrators.
+func (h *Handler) StartWorker(w http.ResponseWriter, r *http.Request) {
+	role, _ := h.GetRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		h.JsonError(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	id := r.PathValue("id")
+	worker, err := h.Storage.GetWorker(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			h.JsonError(w, "worker not found", http.StatusNotFound)
+		} else {
+			h.JsonError(w, "failed to retrieve worker", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	exePath, err := os.Executable()
+	if err != nil {
+		h.JsonError(w, "failed to locate hermod executable", http.StatusInternalServerError)
+		return
+	}
+
+	pid, err := spawnWorkerProcess(exePath, worker, platformURLFromRequest(r))
+	if err != nil {
+		h.JsonError(w, "failed to start worker process", http.StatusInternalServerError)
+		return
+	}
+
+	h.RecordAuditLog(r, "info", "Started worker "+worker.Name, "START", "", "", "", map[string]any{"worker_id": worker.ID})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":    "starting",
+		"worker_id": worker.ID,
+		"pid":       pid,
+	})
+}
+
+// spawnWorkerProcess starts the hermod binary in worker mode for the given
+// worker and returns the new process PID. The process is detached so it
+// keeps running independently of the API request lifecycle.
+// It is a package-level variable so it can be substituted in tests.
+var spawnWorkerProcess = func(exePath string, worker storage.Worker, platformURL string) (int, error) {
+	args := []string{
+		"--mode", "worker",
+		"--worker-guid", worker.ID,
+		"--worker-token", worker.Token,
+		"--platform-url", platformURL,
+	}
+	if worker.Host != "" {
+		args = append(args, "--worker-host", worker.Host)
+	}
+	if worker.Port != 0 {
+		args = append(args, "--worker-port", strconv.Itoa(worker.Port))
+	}
+
+	// #nosec G204 -- exePath is the current trusted hermod binary and arguments
+	// are derived from the stored worker record, not arbitrary user input.
+	cmd := exec.Command(exePath, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	// Reap the child asynchronously to avoid leaving a zombie process.
+	go func() { _ = cmd.Wait() }()
+	return cmd.Process.Pid, nil
+}
+
+// platformURLFromRequest reconstructs the platform API base URL from the
+// incoming request so the spawned worker can connect back to this server.
+func platformURLFromRequest(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	}
+	return scheme + "://" + r.Host
 }

@@ -1,10 +1,11 @@
-import { IconAlertTriangle, IconEdit, IconInfoCircle, IconPlus, IconSearch, IconServer, IconTerminal2, IconTrash } from '@tabler/icons-react';
+import { IconAlertTriangle, IconEdit, IconInfoCircle, IconPlayerPlay, IconPlus, IconSearch, IconServer, IconTerminal2, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
 import { Title, Table, Button, Group, Paper, Text, Box, Stack, Badge, TextInput, Pagination, ActionIcon, RingProgress, Tooltip, Center, Alert, Modal, Code, CopyButton } from '@mantine/core'
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
 import { useNavigate } from '@tanstack/react-router'
 import { useDisclosure } from '@mantine/hooks'
+import { notifications } from '@mantine/notifications'
 import type { Worker } from '@/types'
 export function WorkersPage() {
   const queryClient = useQueryClient()
@@ -34,6 +35,32 @@ export function WorkersPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workers'] })
+    }
+  })
+
+  const startMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiFetch(`/api/workers/${id}/start`, { method: 'POST' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error || 'Failed to start worker')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      notifications.show({
+        title: 'Worker starting',
+        message: 'The worker process has been launched. It may take a moment to come online.',
+        color: 'green',
+      })
+      queryClient.invalidateQueries({ queryKey: ['workers'] })
+    },
+    onError: (err: Error) => {
+      notifications.show({
+        title: 'Failed to start worker',
+        message: err.message,
+        color: 'red',
+      })
     }
   })
 
@@ -135,8 +162,15 @@ export function WorkersPage() {
         <Table.Td>
           <Group justify="flex-end">
             {!online && (
-              <Tooltip label="How to start this worker">
-                <ActionIcon variant="light" color="orange" onClick={() => { setSelectedWorker(worker); open(); }} radius="md">
+              <Tooltip label="Start this worker">
+                <ActionIcon variant="light" color="green" onClick={() => startMutation.mutate(worker.id)} loading={startMutation.isPending && startMutation.variables === worker.id} radius="md" aria-label="Start worker">
+                  <IconPlayerPlay size="1.2rem" />
+                </ActionIcon>
+              </Tooltip>
+            )}
+            {!online && (
+              <Tooltip label="How to start this worker manually">
+                <ActionIcon variant="light" color="orange" onClick={() => { setSelectedWorker(worker); open(); }} radius="md" aria-label="Worker start instructions">
                   <IconTerminal2 size="1.2rem" />
                 </ActionIcon>
               </Tooltip>
