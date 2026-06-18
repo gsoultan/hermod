@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
-	"time"
-
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -21,12 +21,26 @@ import (
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
+// pgExecutor abstracts the subset of pgx behaviour shared by *pgxpool.Pool,
+// *pgxpool.Tx and pgx.Tx, allowing the sink to operate transparently inside or
+// outside an explicit transaction.
+type pgExecutor interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+const pgDriver = "pgx"
+
 // PostgresSink implements the hermod.Sink interface for PostgreSQL.
+// All exported methods are safe for concurrent use.
 type PostgresSink struct {
 	connString       string
 	pool             *pgxpool.Pool
 	logger           hermod.Logger
 	mu               sync.Mutex
+	connMu           sync.Mutex
+	tableLocks       sync.Map
 	tx               pgx.Tx
 	verifiedTables   sync.Map
 	tableName        string
@@ -64,141 +78,228 @@ func (s *PostgresSink) SetLogger(logger hermod.Logger) {
 	s.logger = logger
 }
 
+func (s *PostgresSink) getLogger() hermod.Logger {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.logger
+}
+
+// quoteTable validates and quotes a (optionally schema-qualified) table identifier.
+func quoteTable(table string) (string, error) {
+	return sqlutil.QuoteIdent(pgDriver, table)
+}
+
+// quoteColumn validates and quotes a single column identifier.
+func quoteColumn(column string) (string, error) {
+	if err := sqlutil.ValidateIdent(column); err != nil {
+		return "", fmt.Errorf("invalid column name %q: %w", column, err)
+	}
+	return sqlutil.QuoteIdent(pgDriver, column)
+}
+
+// isEmptyIdentity reports whether an identity column value should be omitted so
+// the database can generate it. It is type-safe across the numeric kinds that
+// convertValue and JSON decoding may produce.
+func isEmptyIdentity(val any) bool {
+	switch v := val.(type) {
+	case nil:
+		return true
+	case string:
+		return v == ""
+	case int:
+		return v == 0
+	case int32:
+		return v == 0
+	case int64:
+		return v == 0
+	case uint:
+		return v == 0
+	case uint32:
+		return v == 0
+	case uint64:
+		return v == 0
+	case float32:
+		return v == 0
+	case float64:
+		return v == 0
+	default:
+		return false
+	}
+}
+
 func (s *PostgresSink) Write(ctx context.Context, msg hermod.Message) error {
 	return s.WriteBatch(ctx, []hermod.Message{msg})
 }
 
 func (s *PostgresSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
-	// Filter nil messages
+	msgs = filterNilMessages(msgs)
+	if len(msgs) == 0 {
+		return nil
+	}
+	if err := s.init(ctx); err != nil {
+		return err
+	}
+
+	executor, localTx, err := s.beginExecution(ctx)
+	if err != nil {
+		return err
+	}
+	if localTx != nil {
+		defer func() { _ = localTx.Rollback(ctx) }()
+	}
+
+	// Messages are applied in their original order to preserve change-data-capture
+	// semantics (e.g. a delete followed by an insert for the same key).
+	for _, msg := range msgs {
+		if err := s.applyMessage(ctx, executor, msg); err != nil {
+			return err
+		}
+	}
+
+	if localTx != nil {
+		return localTx.Commit(ctx)
+	}
+	return nil
+}
+
+// filterNilMessages removes nil entries while preserving order.
+func filterNilMessages(msgs []hermod.Message) []hermod.Message {
 	filtered := make([]hermod.Message, 0, len(msgs))
 	for _, m := range msgs {
 		if m != nil {
 			filtered = append(filtered, m)
 		}
 	}
-	msgs = filtered
+	return filtered
+}
 
-	if len(msgs) == 0 {
-		return nil
+// beginExecution returns the executor to use. When an explicit transaction is
+// active it is reused; otherwise a new transaction is started and returned so
+// the caller can commit or roll it back.
+func (s *PostgresSink) beginExecution(ctx context.Context) (pgExecutor, pgx.Tx, error) {
+	if external := s.currentTx(); external != nil {
+		return external, nil, nil
 	}
-	if s.pool == nil {
-		if err := s.init(ctx); err != nil {
-			return err
-		}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	return tx, tx, nil
+}
 
-	// Group by table and operation
-	groups := make(map[string][]hermod.Message)
-	for _, msg := range msgs {
-		table := s.tableName
-		if table == "" {
-			table = msg.Table()
-			if msg.Schema() != "" {
-				table = fmt.Sprintf("%s.%s", msg.Schema(), table)
-			}
-		}
-		op := msg.Operation()
-		if s.operationMode != "auto" && s.operationMode != "" {
-			switch s.operationMode {
-			case "insert":
-				op = hermod.OpCreate
-			case "upsert":
-				op = hermod.OpUpdate
-			case "update":
-				op = hermod.OpUpdate
-			case "delete":
-				op = hermod.OpDelete
-			}
-		}
-
-		if op == "" {
-			op = hermod.OpCreate
-		}
-
-		key := fmt.Sprintf("%s:%s", table, string(op))
-		groups[key] = append(groups[key], msg)
+func (s *PostgresSink) applyMessage(ctx context.Context, executor pgExecutor, msg hermod.Message) error {
+	table := s.resolveTable(msg)
+	if err := s.ensureTable(ctx, executor, table); err != nil {
+		return fmt.Errorf("ensure table %s: %w", table, err)
 	}
-
-	var executor interface {
-		Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-		Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-		QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-	}
-
-	if s.tx != nil {
-		executor = s.tx
-	} else {
-		tx, err := s.pool.Begin(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to begin transaction: %w", err)
-		}
-		defer tx.Rollback(ctx)
-		executor = tx
-	}
-
-	for key, group := range groups {
-		parts := strings.SplitN(key, ":", 2)
-		table := parts[0]
-
-		// Ensure table exists
-		if err := s.ensureTable(ctx, executor, table); err != nil {
-			return fmt.Errorf("ensure table %s: %w", table, err)
-		}
-
-		op := hermod.Operation(parts[1])
-
-		for _, msg := range group {
-			var err error
-			switch op {
-			case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
-				if len(s.mappings) > 0 {
-					switch s.operationMode {
-					case "insert":
-						err = s.insertMapped(ctx, executor, table, msg)
-					case "update":
-						err = s.updateMapped(ctx, executor, table, msg)
-					default:
-						err = s.upsertMapped(ctx, executor, table, msg)
-					}
-				} else {
-					query := fmt.Sprintf(commonQueries[QueryUpsert], table)
-					_, err = executor.Exec(ctx, query, msg.ID(), msg.Payload())
-				}
-			case hermod.OpDelete:
-				if s.deleteStrategy == "ignore" {
-					continue
-				}
-				if len(s.mappings) > 0 {
-					err = s.deleteMapped(ctx, executor, table, msg)
-				} else {
-					query := fmt.Sprintf(commonQueries[QueryDelete], table)
-					_, err = executor.Exec(ctx, query, msg.ID())
-				}
-			default:
-				err = fmt.Errorf("unsupported operation: %s", op)
-			}
-
-			if err != nil {
-				return fmt.Errorf("batch write error on message %s: %w", msg.ID(), err)
-			}
-		}
-	}
-
-	if s.tx == nil {
-		if tx, ok := executor.(pgx.Tx); ok {
-			return tx.Commit(ctx)
-		}
+	if err := s.applyOperation(ctx, executor, table, msg); err != nil {
+		return fmt.Errorf("batch write error on message %s: %w", msg.ID(), err)
 	}
 	return nil
 }
 
+func (s *PostgresSink) resolveTable(msg hermod.Message) string {
+	if s.tableName != "" {
+		return s.tableName
+	}
+	table := msg.Table()
+	if msg.Schema() != "" {
+		return fmt.Sprintf("%s.%s", msg.Schema(), table)
+	}
+	return table
+}
+
+func (s *PostgresSink) resolveOperation(msg hermod.Message) hermod.Operation {
+	op := msg.Operation()
+	switch s.operationMode {
+	case "insert":
+		op = hermod.OpCreate
+	case "upsert", "update":
+		op = hermod.OpUpdate
+	case "delete":
+		op = hermod.OpDelete
+	}
+	if op == "" {
+		op = hermod.OpCreate
+	}
+	return op
+}
+
+func (s *PostgresSink) applyOperation(ctx context.Context, executor pgExecutor, table string, msg hermod.Message) error {
+	switch op := s.resolveOperation(msg); op {
+	case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
+		return s.applyUpsert(ctx, executor, table, msg)
+	case hermod.OpDelete:
+		if s.deleteStrategy == "ignore" {
+			return nil
+		}
+		return s.applyDelete(ctx, executor, table, msg)
+	default:
+		return fmt.Errorf("unsupported operation: %s", op)
+	}
+}
+
+func (s *PostgresSink) applyUpsert(ctx context.Context, executor pgExecutor, table string, msg hermod.Message) error {
+	if len(s.mappings) > 0 {
+		switch s.operationMode {
+		case "insert":
+			return s.insertMapped(ctx, executor, table, msg)
+		case "update":
+			return s.updateMapped(ctx, executor, table, msg)
+		default:
+			return s.upsertMapped(ctx, executor, table, msg)
+		}
+	}
+	quoted, err := quoteTable(table)
+	if err != nil {
+		return fmt.Errorf("invalid table name: %w", err)
+	}
+	_, err = executor.Exec(ctx, fmt.Sprintf(commonQueries[QueryUpsert], quoted), msg.ID(), msg.Payload())
+	return err
+}
+
+func (s *PostgresSink) applyDelete(ctx context.Context, executor pgExecutor, table string, msg hermod.Message) error {
+	if len(s.mappings) > 0 {
+		return s.deleteMapped(ctx, executor, table, msg)
+	}
+	quoted, err := quoteTable(table)
+	if err != nil {
+		return fmt.Errorf("invalid table name: %w", err)
+	}
+	_, err = executor.Exec(ctx, fmt.Sprintf(commonQueries[QueryDelete], quoted), msg.ID())
+	return err
+}
+
+// init lazily creates the connection pool. It is safe for concurrent use and
+// idempotent: only the first successful call establishes the pool.
 func (s *PostgresSink) init(ctx context.Context) error {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	if s.pool != nil {
+		return nil
+	}
 	pool, err := pgxpool.New(ctx, s.connString)
 	if err != nil {
 		return fmt.Errorf("failed to create postgres pool: %w", err)
 	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return fmt.Errorf("failed to ping postgres: %w", err)
+	}
 	s.pool = pool
-	return s.pool.Ping(ctx)
+	return nil
+}
+
+func (s *PostgresSink) currentTx() pgx.Tx {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.tx
+}
+
+func (s *PostgresSink) setTx(tx pgx.Tx) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tx = tx
 }
 
 func (s *PostgresSink) Begin(ctx context.Context) error {
@@ -209,42 +310,53 @@ func (s *PostgresSink) Begin(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	s.tx = tx
+	s.setTx(tx)
 	return nil
 }
 
 func (s *PostgresSink) Commit(ctx context.Context) error {
-	if s.tx == nil {
+	tx := s.currentTx()
+	if tx == nil {
 		return errors.New("no active transaction")
 	}
-	err := s.tx.Commit(ctx)
-	s.tx = nil
+	err := tx.Commit(ctx)
+	s.setTx(nil)
 	return err
 }
 
 func (s *PostgresSink) Rollback(ctx context.Context) error {
-	if s.tx == nil {
+	tx := s.currentTx()
+	if tx == nil {
 		return nil
 	}
-	err := s.tx.Rollback(ctx)
-	s.tx = nil
+	err := tx.Rollback(ctx)
+	s.setTx(nil)
 	return err
 }
 
 func (s *PostgresSink) Prepare(ctx context.Context) (string, error) {
-	if s.tx == nil {
+	tx := s.currentTx()
+	if tx == nil {
 		return "", errors.New("no active transaction")
 	}
 	txID := uuid.New().String()
-	_, err := s.tx.Exec(ctx, fmt.Sprintf("PREPARE TRANSACTION '%s'", txID))
-	if err != nil {
+	// PREPARE TRANSACTION only accepts a string literal, not a bind parameter.
+	// txID is a server-generated UUID, so it is safe to interpolate.
+	if _, err := tx.Exec(ctx, fmt.Sprintf("PREPARE TRANSACTION '%s'", txID)); err != nil {
 		return "", err
 	}
-	s.tx = nil
+	// PREPARE TRANSACTION ends the server-side transaction but the pgx wrapper
+	// still owns the pooled connection. Rolling back releases it back to the
+	// pool (the redundant ROLLBACK is a harmless no-op on the server).
+	_ = tx.Rollback(ctx)
+	s.setTx(nil)
 	return txID, nil
 }
 
 func (s *PostgresSink) CommitPrepared(ctx context.Context, txID string) error {
+	if err := validateTxID(txID); err != nil {
+		return err
+	}
 	if err := s.init(ctx); err != nil {
 		return err
 	}
@@ -253,6 +365,9 @@ func (s *PostgresSink) CommitPrepared(ctx context.Context, txID string) error {
 }
 
 func (s *PostgresSink) RollbackPrepared(ctx context.Context, txID string) error {
+	if err := validateTxID(txID); err != nil {
+		return err
+	}
 	if err := s.init(ctx); err != nil {
 		return err
 	}
@@ -260,11 +375,19 @@ func (s *PostgresSink) RollbackPrepared(ctx context.Context, txID string) error 
 	return err
 }
 
+// validateTxID ensures a prepared-transaction identifier is a well-formed UUID
+// before it is interpolated into a COMMIT/ROLLBACK PREPARED statement, which
+// does not accept bind parameters.
+func validateTxID(txID string) error {
+	if _, err := uuid.Parse(txID); err != nil {
+		return fmt.Errorf("invalid prepared transaction id: %w", err)
+	}
+	return nil
+}
+
 func (s *PostgresSink) Ping(ctx context.Context) error {
-	if s.pool == nil {
-		if err := s.init(ctx); err != nil {
-			return err
-		}
+	if err := s.init(ctx); err != nil {
+		return err
 	}
 	return s.pool.Ping(ctx)
 }
@@ -277,10 +400,8 @@ func (s *PostgresSink) Close() error {
 }
 
 func (s *PostgresSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
-	if s.pool == nil {
-		if err := s.init(ctx); err != nil {
-			return nil, err
-		}
+	if err := s.init(ctx); err != nil {
+		return nil, err
 	}
 
 	rows, err := s.pool.Query(ctx, commonQueries[QueryListDatabases])
@@ -301,10 +422,8 @@ func (s *PostgresSink) DiscoverDatabases(ctx context.Context) ([]string, error) 
 }
 
 func (s *PostgresSink) DiscoverTables(ctx context.Context) ([]string, error) {
-	if s.pool == nil {
-		if err := s.init(ctx); err != nil {
-			return nil, err
-		}
+	if err := s.init(ctx); err != nil {
+		return nil, err
 	}
 
 	rows, err := s.pool.Query(ctx, commonQueries[QueryListTables])
@@ -325,10 +444,8 @@ func (s *PostgresSink) DiscoverTables(ctx context.Context) ([]string, error) {
 }
 
 func (s *PostgresSink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
-	if s.pool == nil {
-		if err := s.init(ctx); err != nil {
-			return nil, err
-		}
+	if err := s.init(ctx); err != nil {
+		return nil, err
 	}
 
 	rows, err := s.pool.Query(ctx, commonQueries[QueryListColumns], table)
@@ -364,13 +481,14 @@ func (s *PostgresSink) Sample(ctx context.Context, table string) (hermod.Message
 }
 
 func (s *PostgresSink) Browse(ctx context.Context, table string, limit int) ([]hermod.Message, error) {
-	if s.pool == nil {
-		if err := s.init(ctx); err != nil {
-			return nil, err
-		}
+	if err := s.init(ctx); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 1
 	}
 
-	quoted, err := sqlutil.QuoteIdent("pgx", table)
+	quoted, err := quoteTable(table)
 	if err != nil {
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
@@ -414,248 +532,354 @@ func (s *PostgresSink) Browse(ctx context.Context, table string, limit int) ([]h
 	return msgs, nil
 }
 
-func (s *PostgresSink) deleteMapped(ctx context.Context, executor interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-}, table string, msg hermod.Message) error {
-	data := msg.Data()
-	if data == nil {
-		// Try to parse from before payload if Data() is nil (it usually is for delete)
-		if len(msg.Before()) > 0 {
-			if err := json.Unmarshal(msg.Before(), &data); err != nil {
-				return fmt.Errorf("failed to parse message before data: %w", err)
-			}
-		} else if len(msg.Payload()) > 0 {
-			if err := json.Unmarshal(msg.Payload(), &data); err != nil {
-				return fmt.Errorf("failed to parse message payload: %w", err)
-			}
-		}
-	}
-
-	var pks []string
-	var args []any
-	argIdx := 1
-
-	for _, m := range s.mappings {
-		if m.IsPrimaryKey {
-			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			pks = append(pks, fmt.Sprintf("%s = $%d", m.TargetColumn, argIdx))
-			args = append(args, val)
-			argIdx++
-		}
-	}
-
-	if len(pks) == 0 {
-		// Fallback to ID if no PK mapped
-		query := fmt.Sprintf(commonQueries[QueryDelete], table)
-		_, err := executor.Exec(ctx, query, msg.ID())
-		return err
-	}
-
-	if s.deleteStrategy == "soft_delete" && s.softDeleteColumn != "" {
-		query := fmt.Sprintf("UPDATE %s SET %s = $%d WHERE %s",
-			table, s.softDeleteColumn, argIdx, strings.Join(pks, " AND "))
-		args = append(args, s.softDeleteValue)
-		_, err := executor.Exec(ctx, query, args...)
-		return err
-	}
-
-	query := fmt.Sprintf("DELETE FROM %s WHERE %s", table, strings.Join(pks, " AND "))
-	_, err := executor.Exec(ctx, query, args...)
-	return err
-}
-
-func (s *PostgresSink) ensureTable(ctx context.Context, executor interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}, table string) error {
-	if _, ok := s.verifiedTables.Load(table); ok {
-		return nil
-	}
-
-	// Double check with mutex to avoid concurrent creation
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Re-check after acquiring lock
-	if _, ok := s.verifiedTables.Load(table); ok {
-		return nil
-	}
-
-	// Check if it's schema-qualified
-	schema := ""
-	tableNameOnly := table
-	if strings.Contains(table, ".") {
-		parts := strings.SplitN(table, ".", 2)
-		schema = parts[0]
-		tableNameOnly = parts[1]
-		quotedSchema, err := sqlutil.QuoteIdent("pgx", schema)
-		if err != nil {
-			return fmt.Errorf("invalid schema name: %w", err)
-		}
-		schemaQuery := fmt.Sprintf(commonQueries[QueryCreateSchema], quotedSchema)
-		if _, err := executor.Exec(ctx, schemaQuery); err != nil {
-			// Ignore errors for schema creation
-		}
-	}
-
-	quotedTable, err := sqlutil.QuoteIdent("pgx", table)
+func (s *PostgresSink) deleteMapped(ctx context.Context, executor pgExecutor, table string, msg hermod.Message) error {
+	quoted, err := quoteTable(table)
 	if err != nil {
 		return fmt.Errorf("invalid table name: %w", err)
 	}
 
-	// Check if table exists
-	var exists bool
-	checkQuery := "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1"
-	checkArgs := []any{tableNameOnly}
-	if schema != "" {
-		checkQuery += " AND table_schema = $2"
-		checkArgs = append(checkArgs, schema)
-	} else {
-		checkQuery += " AND table_schema = current_schema()"
+	pks, args, err := s.primaryKeyPredicates(msg, 1)
+	if err != nil {
+		return err
 	}
-	checkQuery += ")"
 
-	if err := executor.QueryRow(ctx, checkQuery, checkArgs...).Scan(&exists); err != nil {
+	if len(pks) == 0 {
+		// Fallback to the synthetic id column when no primary key is mapped.
+		_, err := executor.Exec(ctx, fmt.Sprintf(commonQueries[QueryDelete], quoted), msg.ID())
+		return err
+	}
+
+	if s.deleteStrategy == "soft_delete" && s.softDeleteColumn != "" {
+		col, err := quoteColumn(s.softDeleteColumn)
+		if err != nil {
+			return err
+		}
+		query := fmt.Sprintf("UPDATE %s SET %s = $%d WHERE %s",
+			quoted, col, len(args)+1, strings.Join(pks, " AND "))
+		args = append(args, s.softDeleteValue)
+		_, err = executor.Exec(ctx, query, args...)
+		return err
+	}
+
+	query := fmt.Sprintf("DELETE FROM %s WHERE %s", quoted, strings.Join(pks, " AND "))
+	_, err = executor.Exec(ctx, query, args...)
+	return err
+}
+
+// primaryKeyPredicates builds "col = $N" predicates for every primary-key
+// mapping, returning the quoted predicates and the converted bind values.
+func (s *PostgresSink) primaryKeyPredicates(msg hermod.Message, startIdx int) ([]string, []any, error) {
+	var pks []string
+	var args []any
+	argIdx := startIdx
+	for _, m := range s.mappings {
+		if !m.IsPrimaryKey {
+			continue
+		}
+		col, err := quoteColumn(m.TargetColumn)
+		if err != nil {
+			return nil, nil, err
+		}
+		val := s.convertValue(evaluator.GetMsgValByPath(msg, m.SourceField), m.DataType)
+		pks = append(pks, fmt.Sprintf("%s = $%d", col, argIdx))
+		args = append(args, val)
+		argIdx++
+	}
+	return pks, args, nil
+}
+
+func (s *PostgresSink) ensureTable(ctx context.Context, executor pgExecutor, table string) error {
+	if _, ok := s.verifiedTables.Load(table); ok {
+		return nil
+	}
+
+	// A per-table lock prevents concurrent DDL for the same table while still
+	// allowing writes to unrelated tables to proceed in parallel.
+	unlock := s.lockTable(table)
+	defer unlock()
+
+	if _, ok := s.verifiedTables.Load(table); ok {
+		return nil
+	}
+
+	schema, tableNameOnly := splitSchemaTable(table)
+	if schema != "" {
+		s.ensureSchema(ctx, executor, schema)
+	}
+
+	quotedTable, err := quoteTable(table)
+	if err != nil {
+		return fmt.Errorf("invalid table name: %w", err)
+	}
+
+	exists, err := tableExists(ctx, executor, schema, tableNameOnly)
+	if err != nil {
 		return fmt.Errorf("failed to check table existence for %s: %w", table, err)
 	}
 
 	if exists {
-		if s.autoTruncate {
-			if _, err := executor.Exec(ctx, "TRUNCATE TABLE "+quotedTable); err != nil {
-				return fmt.Errorf("failed to truncate table %s: %w", table, err)
-			}
+		if err := s.reconcileExistingTable(ctx, executor, table, quotedTable); err != nil {
+			return err
 		}
-		if s.autoSync && len(s.mappings) > 0 {
-			if err := s.syncColumns(ctx, executor, table); err != nil {
-				return fmt.Errorf("failed to sync columns for table %s: %w", table, err)
-			}
-		}
-	} else {
-		var tableQuery string
-		if len(s.mappings) > 0 {
-			var cols []string
-			for _, m := range s.mappings {
-				dataType := m.DataType
-				if dataType == "" {
-					dataType = "TEXT" // Default
-				}
-				colDef := fmt.Sprintf("%s %s", m.TargetColumn, dataType)
-				if m.IsIdentity {
-					if strings.ToUpper(dataType) == "UUID" {
-						colDef += " DEFAULT gen_random_uuid()"
-					} else if strings.Contains(strings.ToUpper(dataType), "INT") {
-						if strings.Contains(strings.ToUpper(dataType), "BIG") {
-							dataType = "BIGSERIAL"
-						} else {
-							dataType = "SERIAL"
-						}
-						colDef = fmt.Sprintf("%s %s", m.TargetColumn, dataType)
-					}
-				}
-				if m.IsPrimaryKey {
-					colDef += " PRIMARY KEY"
-				} else if !m.IsNullable {
-					colDef += " NOT NULL"
-				}
-				cols = append(cols, colDef)
-			}
-			tableQuery = fmt.Sprintf("CREATE TABLE %s (%s)", quotedTable, strings.Join(cols, ", "))
-		} else {
-			tableQuery = fmt.Sprintf(commonQueries[QueryCreateTable], quotedTable)
-		}
-
-		if _, err := executor.Exec(ctx, tableQuery); err != nil {
-			return fmt.Errorf("create table: %w", err)
-		}
+	} else if err := s.createTable(ctx, executor, quotedTable); err != nil {
+		return err
 	}
 
 	s.verifiedTables.Store(table, true)
 	return nil
 }
 
-func (s *PostgresSink) syncColumns(ctx context.Context, executor interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-}, table string) error {
-	rows, err := executor.Query(ctx, commonQueries[QueryListColumns], table)
+// lockTable returns an unlock function for a per-table mutex.
+func (s *PostgresSink) lockTable(table string) func() {
+	v, _ := s.tableLocks.LoadOrStore(table, &sync.Mutex{})
+	m, _ := v.(*sync.Mutex)
+	m.Lock()
+	return m.Unlock
+}
+
+func splitSchemaTable(table string) (schema, name string) {
+	if idx := strings.Index(table, "."); idx >= 0 {
+		return table[:idx], table[idx+1:]
+	}
+	return "", table
+}
+
+// ensureSchema best-effort creates the schema. Failures (e.g. insufficient
+// privileges) are logged but not fatal, mirroring PostgreSQL search-path semantics.
+func (s *PostgresSink) ensureSchema(ctx context.Context, executor pgExecutor, schema string) {
+	quotedSchema, err := quoteColumn(schema)
+	if err != nil {
+		return
+	}
+	if _, err := executor.Exec(ctx, fmt.Sprintf(commonQueries[QueryCreateSchema], quotedSchema)); err != nil {
+		if l := s.getLogger(); l != nil {
+			l.Debug("postgres sink: schema creation skipped", "schema", schema, "error", err.Error())
+		}
+	}
+}
+
+func tableExists(ctx context.Context, executor pgExecutor, schema, name string) (bool, error) {
+	query := commonQueries[QueryTableExists]
+	args := []any{name}
+	if schema != "" {
+		query += " AND table_schema = $2"
+		args = append(args, schema)
+	} else {
+		query += " AND table_schema = current_schema()"
+	}
+	query += ")"
+
+	var exists bool
+	if err := executor.QueryRow(ctx, query, args...).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func (s *PostgresSink) reconcileExistingTable(ctx context.Context, executor pgExecutor, table, quotedTable string) error {
+	if s.autoTruncate {
+		if _, err := executor.Exec(ctx, "TRUNCATE TABLE "+quotedTable); err != nil {
+			return fmt.Errorf("failed to truncate table %s: %w", table, err)
+		}
+	}
+	if s.autoSync && len(s.mappings) > 0 {
+		if err := s.syncColumns(ctx, executor, table); err != nil {
+			return fmt.Errorf("failed to sync columns for table %s: %w", table, err)
+		}
+	}
+	return nil
+}
+
+func (s *PostgresSink) createTable(ctx context.Context, executor pgExecutor, quotedTable string) error {
+	var query string
+	if len(s.mappings) > 0 {
+		cols := make([]string, 0, len(s.mappings))
+		for _, m := range s.mappings {
+			colDef, err := buildColumnDefinition(m)
+			if err != nil {
+				return err
+			}
+			cols = append(cols, colDef)
+		}
+		query = fmt.Sprintf("CREATE TABLE %s (%s)", quotedTable, strings.Join(cols, ", "))
+	} else {
+		query = fmt.Sprintf(commonQueries[QueryCreateTable], quotedTable)
+	}
+	if _, err := executor.Exec(ctx, query); err != nil {
+		return fmt.Errorf("create table: %w", err)
+	}
+	return nil
+}
+
+// buildColumnDefinition renders a safe "col TYPE [constraints]" fragment for a mapping.
+func buildColumnDefinition(m sqlutil.ColumnMapping) (string, error) {
+	col, err := quoteColumn(m.TargetColumn)
+	if err != nil {
+		return "", err
+	}
+	dataType, err := resolveDataType(m)
+	if err != nil {
+		return "", err
+	}
+	def := col + " " + dataType
+	if m.IsIdentity && strings.EqualFold(dataType, "UUID") {
+		def += " DEFAULT gen_random_uuid()"
+	}
+	switch {
+	case m.IsPrimaryKey:
+		def += " PRIMARY KEY"
+	case !m.IsNullable:
+		def += " NOT NULL"
+	}
+	return def, nil
+}
+
+// resolveDataType applies defaults and identity-to-serial promotion, then
+// validates the resulting type so it can be safely interpolated into DDL.
+func resolveDataType(m sqlutil.ColumnMapping) (string, error) {
+	dataType := m.DataType
+	if dataType == "" {
+		dataType = "TEXT"
+	}
+	if m.IsIdentity && strings.Contains(strings.ToUpper(dataType), "INT") {
+		if strings.Contains(strings.ToUpper(dataType), "BIG") {
+			dataType = "BIGSERIAL"
+		} else {
+			dataType = "SERIAL"
+		}
+	}
+	if err := validateDataType(dataType); err != nil {
+		return "", err
+	}
+	return dataType, nil
+}
+
+var dataTypeRe = regexp.MustCompile(`^[A-Za-z0-9_ ,()]+$`)
+
+func validateDataType(dataType string) error {
+	if !dataTypeRe.MatchString(dataType) {
+		return fmt.Errorf("invalid column data type: %q", dataType)
+	}
+	return nil
+}
+
+func (s *PostgresSink) syncColumns(ctx context.Context, executor pgExecutor, table string) error {
+	current, err := loadColumns(ctx, executor, table)
 	if err != nil {
 		return err
 	}
+
+	quotedTable, err := quoteTable(table)
+	if err != nil {
+		return err
+	}
+
+	if err := s.addOrAlterColumns(ctx, executor, quotedTable, current); err != nil {
+		return err
+	}
+	s.dropUnmappedColumns(ctx, executor, quotedTable, current)
+	return nil
+}
+
+func loadColumns(ctx context.Context, executor pgExecutor, table string) (map[string]hermod.ColumnInfo, error) {
+	rows, err := executor.Query(ctx, commonQueries[QueryListColumns], table)
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 
-	currentCols := make(map[string]hermod.ColumnInfo)
+	cols := make(map[string]hermod.ColumnInfo)
 	for rows.Next() {
 		var col hermod.ColumnInfo
 		var def *string
 		if err := rows.Scan(&col.Name, &col.Type, &col.IsNullable, &col.IsPK, &col.IsIdentity, &def); err != nil {
-			return err
+			return nil, err
 		}
 		if def != nil {
 			col.Default = *def
 		}
-		currentCols[col.Name] = col
+		cols[col.Name] = col
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return cols, nil
+}
 
-	quotedTable, _ := sqlutil.QuoteIdent("pgx", table)
-
-	// Add or Modify columns
+func (s *PostgresSink) addOrAlterColumns(ctx context.Context, executor pgExecutor, quotedTable string, current map[string]hermod.ColumnInfo) error {
 	for _, m := range s.mappings {
-		col, exists := currentCols[m.TargetColumn]
-		dataType := m.DataType
-		if dataType == "" {
-			dataType = "TEXT"
-		}
-
+		existing, exists := current[m.TargetColumn]
 		if !exists {
-			colDef := fmt.Sprintf("%s %s", m.TargetColumn, dataType)
-			if m.IsIdentity {
-				if strings.ToUpper(dataType) == "UUID" {
-					colDef += " DEFAULT gen_random_uuid()"
-				} else if strings.Contains(strings.ToUpper(dataType), "INT") {
-					if strings.Contains(strings.ToUpper(dataType), "BIG") {
-						dataType = "BIGSERIAL"
-					} else {
-						dataType = "SERIAL"
-					}
-					colDef = fmt.Sprintf("%s %s", m.TargetColumn, dataType)
-				}
-			}
-			if m.IsPrimaryKey {
-				colDef += " PRIMARY KEY"
-			} else if !m.IsNullable {
-				colDef += " NOT NULL"
-			}
-			alterQuery := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", quotedTable, colDef)
-			if _, err := executor.Exec(ctx, alterQuery); err != nil {
+			colDef, err := buildColumnDefinition(m)
+			if err != nil {
 				return err
 			}
-		} else {
-			// Basic type check
-			if !strings.EqualFold(col.Type, dataType) && !strings.Contains(strings.ToLower(dataType), strings.ToLower(col.Type)) {
-				alterQuery := fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s", quotedTable, m.TargetColumn, dataType)
-				if _, err := executor.Exec(ctx, alterQuery); err != nil {
-					return err
-				}
+			if _, err := executor.Exec(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", quotedTable, colDef)); err != nil {
+				return err
 			}
+			continue
+		}
+		if err := alterColumnType(ctx, executor, quotedTable, m, existing); err != nil {
+			return err
 		}
 	}
-
-	// Drop columns not in mappings
-	mappingCols := make(map[string]bool)
-	for _, m := range s.mappings {
-		mappingCols[m.TargetColumn] = true
-	}
-	for colName := range currentCols {
-		if !mappingCols[colName] {
-			alterQuery := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", quotedTable, colName)
-			_, _ = executor.Exec(ctx, alterQuery)
-		}
-	}
-
 	return nil
 }
 
+func alterColumnType(ctx context.Context, executor pgExecutor, quotedTable string, m sqlutil.ColumnMapping, existing hermod.ColumnInfo) error {
+	dataType, err := baseDataType(m)
+	if err != nil {
+		return err
+	}
+	if strings.EqualFold(existing.Type, dataType) || strings.Contains(strings.ToLower(dataType), strings.ToLower(existing.Type)) {
+		return nil
+	}
+	col, err := quoteColumn(m.TargetColumn)
+	if err != nil {
+		return err
+	}
+	_, err = executor.Exec(ctx, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s", quotedTable, col, dataType))
+	return err
+}
+
+// dropUnmappedColumns removes columns absent from the configured mappings. This
+// is a destructive operation gated by autoSync; failures are logged rather than
+// aborting the sync so a single protected column cannot stall ingestion.
+func (s *PostgresSink) dropUnmappedColumns(ctx context.Context, executor pgExecutor, quotedTable string, current map[string]hermod.ColumnInfo) {
+	mapped := make(map[string]bool, len(s.mappings))
+	for _, m := range s.mappings {
+		mapped[m.TargetColumn] = true
+	}
+	for name := range current {
+		if mapped[name] {
+			continue
+		}
+		col, err := quoteColumn(name)
+		if err != nil {
+			continue
+		}
+		if _, err := executor.Exec(ctx, fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", quotedTable, col)); err != nil {
+			if l := s.getLogger(); l != nil {
+				l.Warn("postgres sink: failed to drop unmapped column", "column", name, "error", err.Error())
+			}
+		}
+	}
+}
+
+// baseDataType returns the validated, non-serial column type used for ALTER ... TYPE.
+func baseDataType(m sqlutil.ColumnMapping) (string, error) {
+	dataType := m.DataType
+	if dataType == "" {
+		dataType = "TEXT"
+	}
+	if err := validateDataType(dataType); err != nil {
+		return "", err
+	}
+	return dataType, nil
+}
+
+// convertValue coerces a source value into a representation the pgx driver can
+// bind for the target column type. Unrecognised values are returned unchanged.
 func (s *PostgresSink) convertValue(val any, dataType string) any {
 	if val == nil {
 		return nil
@@ -663,133 +887,146 @@ func (s *PostgresSink) convertValue(val any, dataType string) any {
 
 	dataType = strings.ToUpper(dataType)
 
-	// Handle JSON/JSONB
 	if strings.Contains(dataType, "JSON") {
-		switch v := val.(type) {
-		case string:
-			return v
-		case []byte:
-			return v
-		default:
-			b, err := json.Marshal(v)
-			if err != nil {
-				return val
-			}
-			return string(b)
-		}
+		return marshalJSONValue(val)
 	}
-
-	// Handle UUID
 	if dataType == "UUID" {
-		if str, ok := val.(string); ok {
-			if u, err := uuid.Parse(str); err == nil {
-				return u
-			}
-		}
+		return parseUUIDValue(val)
 	}
 
-	// Basic type conversion from string if needed
+	str, ok := val.(string)
+	if !ok {
+		return val
+	}
+	return coerceStringValue(str, dataType)
+}
+
+func marshalJSONValue(val any) any {
+	switch v := val.(type) {
+	case string:
+		return v
+	case []byte:
+		return v
+	default:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return val
+		}
+		return string(b)
+	}
+}
+
+func parseUUIDValue(val any) any {
 	if str, ok := val.(string); ok {
-		switch {
-		case strings.Contains(dataType, "INT"):
-			if i, err := strconv.ParseInt(str, 10, 64); err == nil {
-				return i
-			}
-		case strings.Contains(dataType, "BOOL"):
-			if b, err := strconv.ParseBool(str); err == nil {
-				return b
-			}
-		case strings.Contains(dataType, "FLOAT") || strings.Contains(dataType, "DOUBLE") || strings.Contains(dataType, "NUMERIC"):
-			if f, err := strconv.ParseFloat(str, 64); err == nil {
-				return f
-			}
-		case strings.Contains(dataType, "TIMESTAMP") || strings.Contains(dataType, "DATE"):
-			// Try common layouts
-			layouts := []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"}
-			for _, layout := range layouts {
-				if t, err := time.Parse(layout, str); err == nil {
-					return t
-				}
-			}
+		if u, err := uuid.Parse(str); err == nil {
+			return u
 		}
 	}
-
 	return val
 }
 
-func (s *PostgresSink) upsertMapped(ctx context.Context, executor interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-}, table string, msg hermod.Message) error {
-	data := msg.Data()
-	if data == nil {
-		// Try to parse from payload if Data() is nil
-		if err := json.Unmarshal(msg.Payload(), &data); err != nil {
-			return fmt.Errorf("failed to parse message data: %w", err)
+func coerceStringValue(str, dataType string) any {
+	switch {
+	case strings.Contains(dataType, "INT"):
+		if i, err := strconv.ParseInt(str, 10, 64); err == nil {
+			return i
+		}
+	case strings.Contains(dataType, "BOOL"):
+		if b, err := strconv.ParseBool(str); err == nil {
+			return b
+		}
+	case strings.Contains(dataType, "FLOAT"), strings.Contains(dataType, "DOUBLE"), strings.Contains(dataType, "NUMERIC"):
+		if f, err := strconv.ParseFloat(str, 64); err == nil {
+			return f
+		}
+	case strings.Contains(dataType, "TIMESTAMP"), strings.Contains(dataType, "DATE"):
+		return parseTimeValue(str)
+	}
+	return str
+}
+
+func parseTimeValue(str string) any {
+	layouts := []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, str); err == nil {
+			return t
 		}
 	}
+	return str
+}
 
-	var cols []string
-	var placeholders []string
+func (s *PostgresSink) upsertMapped(ctx context.Context, executor pgExecutor, table string, msg hermod.Message) error {
+	quoted, err := quoteTable(table)
+	if err != nil {
+		return fmt.Errorf("invalid table name: %w", err)
+	}
+
+	var cols, placeholders, updates, pks []string
 	var args []any
-	var updates []string
-	var pks []string
-
 	argIdx := 1
 	for _, m := range s.mappings {
-		val := evaluator.GetMsgValByPath(msg, m.SourceField)
-		val = s.convertValue(val, m.DataType)
-
-		if m.IsIdentity && (val == nil || val == "" || val == 0) {
+		val := s.convertValue(evaluator.GetMsgValByPath(msg, m.SourceField), m.DataType)
+		if m.IsIdentity && isEmptyIdentity(val) {
 			continue
 		}
-
-		cols = append(cols, m.TargetColumn)
+		col, err := quoteColumn(m.TargetColumn)
+		if err != nil {
+			return err
+		}
+		cols = append(cols, col)
 		placeholders = append(placeholders, fmt.Sprintf("$%d", argIdx))
 		args = append(args, val)
 		argIdx++
-
 		if m.IsPrimaryKey {
-			pks = append(pks, m.TargetColumn)
+			pks = append(pks, col)
 		} else {
-			updates = append(updates, fmt.Sprintf("%s = EXCLUDED.%s", m.TargetColumn, m.TargetColumn))
+			updates = append(updates, fmt.Sprintf("%s = EXCLUDED.%s", col, col))
 		}
 	}
 
-	if len(pks) == 0 {
-		// Fallback to simple insert if no PK
-		query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-			table, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
-		_, err := executor.Exec(ctx, query, args...)
-		return err
+	if len(cols) == 0 {
+		return nil
 	}
 
-	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) ON CONFLICT (%s) DO UPDATE SET %s",
-		table,
-		strings.Join(cols, ", "),
-		strings.Join(placeholders, ", "),
-		strings.Join(pks, ", "),
-		strings.Join(updates, ", "))
-
-	_, err := executor.Exec(ctx, query, args...)
+	query := buildUpsertQuery(quoted, cols, placeholders, pks, updates)
+	_, err = executor.Exec(ctx, query, args...)
 	return err
 }
 
-func (s *PostgresSink) insertMapped(ctx context.Context, executor interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-}, table string, msg hermod.Message) error {
-	var cols []string
-	var placeholders []string
-	var args []any
+// buildUpsertQuery composes the INSERT ... ON CONFLICT statement, degrading to a
+// plain INSERT (no primary key) or DO NOTHING (only primary-key columns) as needed.
+func buildUpsertQuery(quotedTable string, cols, placeholders, pks, updates []string) string {
+	insert := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
+		quotedTable, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+	if len(pks) == 0 {
+		return insert
+	}
+	if len(updates) == 0 {
+		return fmt.Sprintf("%s ON CONFLICT (%s) DO NOTHING", insert, strings.Join(pks, ", "))
+	}
+	return fmt.Sprintf("%s ON CONFLICT (%s) DO UPDATE SET %s",
+		insert, strings.Join(pks, ", "), strings.Join(updates, ", "))
+}
 
+func (s *PostgresSink) insertMapped(ctx context.Context, executor pgExecutor, table string, msg hermod.Message) error {
+	quoted, err := quoteTable(table)
+	if err != nil {
+		return fmt.Errorf("invalid table name: %w", err)
+	}
+
+	var cols, placeholders []string
+	var args []any
 	argIdx := 1
 	for _, m := range s.mappings {
-		val := evaluator.GetMsgValByPath(msg, m.SourceField)
-		val = s.convertValue(val, m.DataType)
-
-		if m.IsIdentity && (val == nil || val == "" || val == 0) {
+		val := s.convertValue(evaluator.GetMsgValByPath(msg, m.SourceField), m.DataType)
+		if m.IsIdentity && isEmptyIdentity(val) {
 			continue
 		}
-		cols = append(cols, m.TargetColumn)
+		col, err := quoteColumn(m.TargetColumn)
+		if err != nil {
+			return err
+		}
+		cols = append(cols, col)
 		placeholders = append(placeholders, fmt.Sprintf("$%d", argIdx))
 		args = append(args, val)
 		argIdx++
@@ -800,40 +1037,38 @@ func (s *PostgresSink) insertMapped(ctx context.Context, executor interface {
 	}
 
 	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-		table, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
-	_, err := executor.Exec(ctx, query, args...)
+		quoted, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+	_, err = executor.Exec(ctx, query, args...)
 	return err
 }
 
-func (s *PostgresSink) updateMapped(ctx context.Context, executor interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-}, table string, msg hermod.Message) error {
-	var updates []string
-	var pks []string
-
-	argIdx := 1
-	var allArgs []any
-	for _, m := range s.mappings {
-		if !m.IsPrimaryKey {
-			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			val = s.convertValue(val, m.DataType)
-
-			updates = append(updates, fmt.Sprintf("%s = $%d", m.TargetColumn, argIdx))
-			allArgs = append(allArgs, val)
-			argIdx++
-		}
+func (s *PostgresSink) updateMapped(ctx context.Context, executor pgExecutor, table string, msg hermod.Message) error {
+	quoted, err := quoteTable(table)
+	if err != nil {
+		return fmt.Errorf("invalid table name: %w", err)
 	}
+
+	var updates []string
+	var args []any
+	argIdx := 1
 	for _, m := range s.mappings {
 		if m.IsPrimaryKey {
-			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			val = s.convertValue(val, m.DataType)
-
-			pks = append(pks, fmt.Sprintf("%s = $%d", m.TargetColumn, argIdx))
-			allArgs = append(allArgs, val)
-			argIdx++
+			continue
 		}
+		col, err := quoteColumn(m.TargetColumn)
+		if err != nil {
+			return err
+		}
+		val := s.convertValue(evaluator.GetMsgValByPath(msg, m.SourceField), m.DataType)
+		updates = append(updates, fmt.Sprintf("%s = $%d", col, argIdx))
+		args = append(args, val)
+		argIdx++
 	}
 
+	pks, pkArgs, err := s.primaryKeyPredicates(msg, argIdx)
+	if err != nil {
+		return err
+	}
 	if len(pks) == 0 {
 		return errors.New("cannot update without primary key mappings")
 	}
@@ -841,8 +1076,9 @@ func (s *PostgresSink) updateMapped(ctx context.Context, executor interface {
 		return nil
 	}
 
+	args = append(args, pkArgs...)
 	query := fmt.Sprintf("UPDATE %s SET %s WHERE %s",
-		table, strings.Join(updates, ", "), strings.Join(pks, " AND "))
-	_, err := executor.Exec(ctx, query, allArgs...)
+		quoted, strings.Join(updates, ", "), strings.Join(pks, " AND "))
+	_, err = executor.Exec(ctx, query, args...)
 	return err
 }
