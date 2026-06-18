@@ -211,7 +211,10 @@ func (s *Sink) init() error {
 	db.SetMaxIdleConns(10)
 	db.SetConnMaxIdleTime(60 * time.Second)
 	s.db = db
-	return s.db.Ping()
+	// Note: do not eagerly Ping here. sql.Open does not establish a
+	// connection, and a context-less Ping can block indefinitely. Callers
+	// verify connectivity via PingContext using a context with a deadline.
+	return nil
 }
 
 func (s *Sink) Ping(ctx context.Context) error {

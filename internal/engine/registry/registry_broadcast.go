@@ -29,6 +29,15 @@ func (r *Registry) UnsubscribeStatus(ch chan telemetry.StatusUpdate) {
 	close(ch)
 }
 
+// StatusSubscriberCount returns the number of active status subscribers.
+// It is primarily useful for observability and tests that assert subscribers
+// are released when a client disconnects.
+func (r *Registry) StatusSubscriberCount() int {
+	r.statusSubsMu.Lock()
+	defer r.statusSubsMu.Unlock()
+	return len(r.statusSubs)
+}
+
 func (r *Registry) SubscribeDashboardStats() chan DashboardStats {
 	r.statusSubsMu.Lock()
 	defer r.statusSubsMu.Unlock()

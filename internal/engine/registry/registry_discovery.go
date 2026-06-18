@@ -32,12 +32,49 @@ func (r *Registry) TestSink(ctx context.Context, cfg factory.SinkConfig) error {
 	if cfg.Type == "stdout" {
 		return nil
 	}
-	snk, err := r.createSink(ctx, cfg)
-	if err != nil {
-		return err
+
+	_, err := runWithContext(ctx, func() (struct{}, error) {
+		snk, err := r.createSink(ctx, cfg)
+		if err != nil {
+			return struct{}{}, err
+		}
+		defer snk.Close()
+		return struct{}{}, snk.Ping(ctx)
+	})
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return fmt.Errorf("sink connection test timed out: %w", err)
 	}
-	defer snk.Close()
-	return snk.Ping(ctx)
+	return err
+}
+
+// runWithContext executes fn in a separate goroutine and races its completion
+// against the context deadline. Some sink/driver implementations may perform
+// blocking network operations (e.g. a context-less driver dial) that do not
+// honor the provided context. Without this guard such a call could hang far
+// beyond the request deadline and surface as an upstream gateway timeout (524).
+//
+// When the context is cancelled before fn returns, the caller is unblocked
+// immediately with the context error. The goroutine is left to finish on its
+// own (it cannot be force-stopped); fn is expected to release its own resources
+// (e.g. via a deferred Close) once the underlying operation eventually returns.
+func runWithContext[T any](ctx context.Context, fn func() (T, error)) (T, error) {
+	type result struct {
+		val T
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		val, err := fn()
+		ch <- result{val: val, err: err}
+	}()
+
+	select {
+	case res := <-ch:
+		return res.val, res.err
+	case <-ctx.Done():
+		var zero T
+		return zero, ctx.Err()
+	}
 }
 
 // --- Source Discovery ---
@@ -110,42 +147,48 @@ func (r *Registry) DiscoverPublications(ctx context.Context, cfg factory.SourceC
 // --- Sink Discovery ---
 
 func (r *Registry) DiscoverSinkDatabases(ctx context.Context, cfg factory.SinkConfig) ([]string, error) {
-	snk, err := r.createSink(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer snk.Close()
+	return runWithContext(ctx, func() ([]string, error) {
+		snk, err := r.createSink(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		defer snk.Close()
 
-	if d, ok := snk.(hermod.Discoverer); ok {
-		return d.DiscoverDatabases(ctx)
-	}
-	return nil, fmt.Errorf("sink type %s does not support database discovery", cfg.Type)
+		if d, ok := snk.(hermod.Discoverer); ok {
+			return d.DiscoverDatabases(ctx)
+		}
+		return nil, fmt.Errorf("sink type %s does not support database discovery", cfg.Type)
+	})
 }
 
 func (r *Registry) DiscoverSinkTables(ctx context.Context, cfg factory.SinkConfig) ([]string, error) {
-	snk, err := r.createSink(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer snk.Close()
+	return runWithContext(ctx, func() ([]string, error) {
+		snk, err := r.createSink(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		defer snk.Close()
 
-	if d, ok := snk.(hermod.Discoverer); ok {
-		return d.DiscoverTables(ctx)
-	}
-	return nil, fmt.Errorf("sink type %s does not support table discovery", cfg.Type)
+		if d, ok := snk.(hermod.Discoverer); ok {
+			return d.DiscoverTables(ctx)
+		}
+		return nil, fmt.Errorf("sink type %s does not support table discovery", cfg.Type)
+	})
 }
 
 func (r *Registry) DiscoverSinkColumns(ctx context.Context, cfg factory.SinkConfig, table string) ([]hermod.ColumnInfo, error) {
-	snk, err := r.createSink(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer snk.Close()
+	return runWithContext(ctx, func() ([]hermod.ColumnInfo, error) {
+		snk, err := r.createSink(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		defer snk.Close()
 
-	if d, ok := snk.(hermod.ColumnDiscoverer); ok {
-		return d.DiscoverColumns(ctx, table)
-	}
-	return nil, fmt.Errorf("sink type %s does not support column discovery", cfg.Type)
+		if d, ok := snk.(hermod.ColumnDiscoverer); ok {
+			return d.DiscoverColumns(ctx, table)
+		}
+		return nil, fmt.Errorf("sink type %s does not support column discovery", cfg.Type)
+	})
 }
 
 // --- Sampling & Browsing ---

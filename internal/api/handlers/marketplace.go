@@ -1,16 +1,65 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
 
 	"github.com/user/hermod/internal/storage"
 )
+
+// pluginIDPattern restricts plugin identifiers to a safe character set so they
+// can never be used to traverse outside the plugin cache directory.
+var pluginIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+
+// maxPluginWasmSize caps the size of a downloaded plugin (32 MiB) to prevent
+// disk-fill denial-of-service attacks.
+const maxPluginWasmSize = 32 << 20
+
+// validatePluginID ensures the identifier is safe to use as a filename and
+// cannot escape the plugin cache directory via path traversal.
+func validatePluginID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	if strings.Contains(id, "..") {
+		return false
+	}
+	return pluginIDPattern.MatchString(id)
+}
+
+// isSafeWasmURL only permits http(s) URLs that do not target loopback,
+// link-local, or otherwise private/internal addresses (SSRF protection).
+func isSafeWasmURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	host := u.Hostname()
+	if host == "" {
+		return false
+	}
+	// Reject direct IP literals that point to private/loopback ranges.
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return false
+		}
+	}
+	return true
+}
 
 func (h *Handler) RegisterMarketplaceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/marketplace/plugins", h.HandleListPlugins)
@@ -21,7 +70,7 @@ func (h *Handler) RegisterMarketplaceRoutes(mux *http.ServeMux) {
 
 func (h *Handler) GetPluginCacheDir() string {
 	dir := filepath.Join("data", "plugins")
-	_ = os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0o750)
 	return dir
 }
 
@@ -44,8 +93,8 @@ func (h *Handler) HandleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.ID == "" {
-		h.JsonError(w, "Plugin ID is required", http.StatusBadRequest)
+	if !validatePluginID(req.ID) {
+		h.JsonError(w, "Invalid plugin ID", http.StatusBadRequest)
 		return
 	}
 
@@ -61,30 +110,8 @@ func (h *Handler) HandleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 
 	// Download WASM if URL is provided
 	if plugin.WasmURL != "" {
-		resp, err := http.Get(plugin.WasmURL)
-		if err != nil {
-			h.JsonError(w, fmt.Sprintf("Failed to download plugin WASM from %s: %s", plugin.WasmURL, err.Error()), http.StatusInternalServerError)
-			return
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			h.JsonError(w, "Failed to download plugin WASM: received status "+resp.Status, http.StatusInternalServerError)
-			return
-		}
-
-		cacheDir := h.GetPluginCacheDir()
-		cachePath := filepath.Join(cacheDir, req.ID+".wasm")
-		out, err := os.Create(cachePath)
-		if err != nil {
-			h.JsonError(w, "Failed to create local plugin file: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer out.Close()
-
-		_, err = io.Copy(out, resp.Body)
-		if err != nil {
-			h.JsonError(w, "Failed to save plugin WASM: "+err.Error(), http.StatusInternalServerError)
+		if err := h.downloadPluginWasm(r.Context(), plugin.WasmURL, req.ID); err != nil {
+			h.JsonError(w, err.Error(), http.StatusBadGateway)
 			return
 		}
 	}
@@ -99,6 +126,45 @@ func (h *Handler) HandleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "installed"})
 }
 
+// downloadPluginWasm fetches a plugin's WASM payload with SSRF protection,
+// a bounded timeout, and a size cap, then stores it in the plugin cache.
+func (h *Handler) downloadPluginWasm(ctx context.Context, wasmURL, id string) error {
+	if !isSafeWasmURL(wasmURL) {
+		return errors.New("plugin WASM URL is not allowed")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wasmURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to build plugin download request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return errors.New("failed to download plugin WASM")
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return errors.New("failed to download plugin WASM: received status " + resp.Status)
+	}
+
+	cachePath := filepath.Join(h.GetPluginCacheDir(), id+".wasm")
+	out, err := os.Create(cachePath) //nolint:gosec // id is validated by validatePluginID before use
+	if err != nil {
+		return errors.New("failed to create local plugin file")
+	}
+	defer func() { _ = out.Close() }()
+
+	if _, err := io.Copy(out, io.LimitReader(resp.Body, maxPluginWasmSize)); err != nil {
+		return errors.New("failed to save plugin WASM")
+	}
+	return nil
+}
+
 func (h *Handler) HandleUninstallPlugin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID string `json:"id"`
@@ -108,8 +174,8 @@ func (h *Handler) HandleUninstallPlugin(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if req.ID == "" {
-		h.JsonError(w, "Plugin ID is required", http.StatusBadRequest)
+	if !validatePluginID(req.ID) {
+		h.JsonError(w, "Invalid plugin ID", http.StatusBadRequest)
 		return
 	}
 

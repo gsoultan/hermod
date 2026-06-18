@@ -51,6 +51,72 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+const (
+	// wsHeartbeat is the interval between server-initiated WebSocket ping
+	// frames. It must be comfortably below the idle timeout of any intermediary
+	// proxy (e.g. Cloudflare drops idle WebSocket connections after ~100s) so
+	// the connection is kept alive end-to-end.
+	wsHeartbeat = 30 * time.Second
+
+	// wsPongWait is how long we wait for a pong (or any inbound frame) before
+	// treating the peer as gone. It must be larger than wsHeartbeat so a single
+	// missed pong does not tear down a healthy connection.
+	wsPongWait = 2*wsHeartbeat + 10*time.Second
+
+	// wsWriteWait bounds a single write so a stalled peer or a half-open
+	// connection behind a reverse proxy (such as Cloudflare) cannot block the
+	// handler goroutine indefinitely and leak resources.
+	wsWriteWait = 10 * time.Second
+
+	// wsMaxMessageSize caps inbound frames. These endpoints only expect small
+	// control frames and tiny JSON commands, so a small limit prevents a
+	// malicious client from forcing large allocations.
+	wsMaxMessageSize = 4096
+)
+
+// wsWriteJSON writes v as JSON, bounding the write with a deadline so a stalled
+// peer (or an idle reverse proxy) cannot block the caller forever.
+func wsWriteJSON(conn *websocket.Conn, v any) error {
+	if err := conn.SetWriteDeadline(time.Now().Add(wsWriteWait)); err != nil {
+		return err
+	}
+	return conn.WriteJSON(v)
+}
+
+// wsWritePing sends a ping control frame with a bounded write deadline.
+func wsWritePing(conn *websocket.Conn) error {
+	return conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsWriteWait))
+}
+
+// startWSReadPump configures read deadlines and a pong handler, then starts a
+// goroutine that drains inbound frames so the connection can process control
+// frames (pong/close) and observe client disconnects. The returned channel is
+// closed once the peer goes away or the connection becomes unreadable.
+//
+// This is required because hijacked WebSocket connections do not have their
+// request context canceled when the client disconnects. Without an active
+// reader the server cannot observe the close handshake and would keep the
+// subscription (and its goroutine) alive until the next failed write, leaking
+// resources for long-lived streams such as /api/ws/status.
+func startWSReadPump(conn *websocket.Conn) <-chan struct{} {
+	conn.SetReadLimit(wsMaxMessageSize)
+	_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+	return done
+}
+
 func (h *Handler) HandleStatusWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -59,6 +125,9 @@ func (h *Handler) HandleStatusWS(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	workflowID := strings.TrimSpace(r.URL.Query().Get("workflow_id"))
+
+	// Actively read so we can observe pong/close frames and client disconnects.
+	done := startWSReadPump(conn)
 
 	ch := h.Registry.SubscribeStatus()
 	defer h.Registry.UnsubscribeStatus(ch)
@@ -70,13 +139,13 @@ func (h *Handler) HandleStatusWS(w http.ResponseWriter, r *http.Request) {
 		if workflowID != "" && !strings.EqualFold(snapshot.WorkflowID, workflowID) {
 			continue
 		}
-		if err := conn.WriteJSON(snapshot); err != nil {
+		if err := wsWriteJSON(conn, snapshot); err != nil {
 			return
 		}
 	}
 
 	// Heartbeat
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(wsHeartbeat)
 	defer ticker.Stop()
 
 	for {
@@ -85,13 +154,15 @@ func (h *Handler) HandleStatusWS(w http.ResponseWriter, r *http.Request) {
 			if workflowID != "" && !strings.EqualFold(update.WorkflowID, workflowID) {
 				continue
 			}
-			if err := conn.WriteJSON(update); err != nil {
+			if err := wsWriteJSON(conn, update); err != nil {
 				return
 			}
 		case <-ticker.C:
-			if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
+			if err := wsWritePing(conn); err != nil {
 				return
 			}
+		case <-done:
+			return
 		case <-r.Context().Done():
 			return
 		}
@@ -106,11 +177,15 @@ func (h *Handler) HandleDashboardWS(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	vhost := r.URL.Query().Get("vhost")
+
+	// Actively read so we can observe pong/close frames and client disconnects.
+	done := startWSReadPump(conn)
+
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	// Heartbeat
-	pingTicker := time.NewTicker(30 * time.Second)
+	pingTicker := time.NewTicker(wsHeartbeat)
 	defer pingTicker.Stop()
 
 	for {
@@ -120,13 +195,15 @@ func (h *Handler) HandleDashboardWS(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			if err := conn.WriteJSON(stats); err != nil {
+			if err := wsWriteJSON(conn, stats); err != nil {
 				return
 			}
 		case <-pingTicker.C:
-			if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
+			if err := wsWritePing(conn); err != nil {
 				return
 			}
+		case <-done:
+			return
 		case <-r.Context().Done():
 			return
 		}
@@ -143,6 +220,9 @@ func (h *Handler) HandleLogsWS(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	workflowID := strings.TrimSpace(query.Get("workflow_id"))
 
+	// Actively read so we can observe pong/close frames and client disconnects.
+	done := startWSReadPump(conn)
+
 	// Send initial logs
 	filter := storage.LogFilter{
 		WorkflowID: workflowID,
@@ -150,7 +230,7 @@ func (h *Handler) HandleLogsWS(w http.ResponseWriter, r *http.Request) {
 	filter.Limit = 100
 	initialLogs, _, err := h.Storage.ListLogs(r.Context(), filter)
 	if err == nil {
-		if err := conn.WriteJSON(initialLogs); err != nil {
+		if err := wsWriteJSON(conn, initialLogs); err != nil {
 			return
 		}
 	}
@@ -159,7 +239,7 @@ func (h *Handler) HandleLogsWS(w http.ResponseWriter, r *http.Request) {
 	defer h.Registry.UnsubscribeLogs(ch)
 
 	// Heartbeat
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(wsHeartbeat)
 	defer ticker.Stop()
 
 	for {
@@ -168,13 +248,15 @@ func (h *Handler) HandleLogsWS(w http.ResponseWriter, r *http.Request) {
 			if workflowID != "" && !strings.EqualFold(log.WorkflowID, workflowID) {
 				continue
 			}
-			if err := conn.WriteJSON(log); err != nil {
+			if err := wsWriteJSON(conn, log); err != nil {
 				return
 			}
 		case <-ticker.C:
-			if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
+			if err := wsWritePing(conn); err != nil {
 				return
 			}
+		case <-done:
+			return
 		case <-r.Context().Done():
 			return
 		}
@@ -191,11 +273,14 @@ func (h *Handler) HandleLiveMessagesWS(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	workflowID := strings.TrimSpace(query.Get("workflow_id"))
 
+	// Actively read so we can observe pong/close frames and client disconnects.
+	done := startWSReadPump(conn)
+
 	ch := h.Registry.SubscribeLiveMessages()
 	defer h.Registry.UnsubscribeLiveMessages(ch)
 
 	// Heartbeat
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(wsHeartbeat)
 	defer ticker.Stop()
 
 	for {
@@ -209,13 +294,15 @@ func (h *Handler) HandleLiveMessagesWS(w http.ResponseWriter, r *http.Request) {
 			if workflowID != "" && !strings.EqualFold(msg.WorkflowID, workflowID) && !strings.EqualFold(msg.WorkflowID, "test") {
 				continue
 			}
-			if err := conn.WriteJSON(msg); err != nil {
+			if err := wsWriteJSON(conn, msg); err != nil {
 				return
 			}
 		case <-ticker.C:
-			if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second)); err != nil {
+			if err := wsWritePing(conn); err != nil {
 				return
 			}
+		case <-done:
+			return
 		case <-r.Context().Done():
 			return
 		}
@@ -235,8 +322,20 @@ func (h *Handler) HandleDebuggerWS(w http.ResponseWriter, r *http.Request) {
 	ch := h.Registry.SubscribeDebugger(workflowID)
 	defer h.Registry.UnsubscribeDebugger(workflowID, ch)
 
-	// Listen for commands from the UI
+	// Keep-alive configuration so the connection survives idle periods behind a
+	// reverse proxy (e.g. Cloudflare) and so we can observe pong/close frames.
+	conn.SetReadLimit(wsMaxMessageSize)
+	_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	})
+
+	// Listen for commands from the UI. When the read loop exits (client
+	// disconnect, read error, or read timeout) we close done so the writer
+	// goroutine can stop instead of leaking until the next failed write.
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		for {
 			var cmd struct {
 				Action string `json:"action"`
@@ -245,16 +344,28 @@ func (h *Handler) HandleDebuggerWS(w http.ResponseWriter, r *http.Request) {
 			if err := conn.ReadJSON(&cmd); err != nil {
 				return
 			}
+			// A valid command also proves the peer is alive, so extend the deadline.
+			_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
 			h.Registry.DebuggerCommand(workflowID, cmd.MsgID, cmd.Action)
 		}
 	}()
 
+	// Heartbeat
+	ticker := time.NewTicker(wsHeartbeat)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case ev := <-ch:
-			if err := conn.WriteJSON(ev); err != nil {
+			if err := wsWriteJSON(conn, ev); err != nil {
 				return
 			}
+		case <-ticker.C:
+			if err := wsWritePing(conn); err != nil {
+				return
+			}
+		case <-done:
+			return
 		case <-r.Context().Done():
 			return
 		}

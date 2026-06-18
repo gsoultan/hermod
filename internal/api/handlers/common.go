@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -330,14 +331,55 @@ func (h *Handler) SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// allowedCORSOrigins returns the configured cross-origin allow-list parsed from
+// the HERMOD_ALLOWED_ORIGINS environment variable (comma-separated). When empty,
+// cross-origin credentialed requests are denied by default (same-origin only).
+func allowedCORSOrigins() []string {
+	raw := strings.TrimSpace(os.Getenv("HERMOD_ALLOWED_ORIGINS"))
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, o := range strings.Split(raw, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// isCORSOriginAllowed performs an exact, case-insensitive match of the request
+// origin against the configured allow-list. A "*" entry allows any origin but,
+// per the Fetch spec, credentials are then disabled by the caller.
+func isCORSOriginAllowed(origin string, allowed []string) (ok bool, wildcard bool) {
+	for _, a := range allowed {
+		if a == "*" {
+			return true, true
+		}
+		if strings.EqualFold(a, origin) {
+			return true, false
+		}
+	}
+	return false, false
+}
+
 func (h *Handler) CorsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			// Origin varies the response, so advertise it to caches/proxies.
+			w.Header().Add("Vary", "Origin")
+			if allowed, wildcard := isCORSOriginAllowed(origin, allowedCORSOrigins()); allowed {
+				if wildcard {
+					// Wildcard origins cannot be combined with credentials.
+					w.Header().Set("Access-Control-Allow-Origin", "*")
+				} else {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Access-Control-Allow-Credentials", "true")
+				}
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			}
 		}
 
 		if r.Method == http.MethodOptions {
@@ -500,6 +542,25 @@ func (h *Handler) IsFirstRun(ctx context.Context) bool {
 	return total == 0
 }
 
+// hostMatches reports whether the host of the given URL exactly equals the
+// allowed host. The allowed value may be a bare host or a full origin URL.
+func hostMatches(rawURL, allowed string) bool {
+	if rawURL == "" {
+		return false
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	allowedHost := allowed
+	if strings.Contains(allowed, "://") {
+		if au, aerr := url.Parse(allowed); aerr == nil && au.Host != "" {
+			allowedHost = au.Host
+		}
+	}
+	return strings.EqualFold(u.Host, allowedHost)
+}
+
 func (h *Handler) IsOriginAllowed(origin, referer, allowed string) bool {
 	if allowed == "" {
 		return true
@@ -510,8 +571,9 @@ func (h *Handler) IsOriginAllowed(origin, referer, allowed string) bool {
 		if a == "" {
 			continue
 		}
-		// Basic check: origin or referer contains the allowed domain
-		if (origin != "" && strings.Contains(origin, a)) || (referer != "" && strings.Contains(referer, a)) {
+		// Exact host comparison to avoid substring spoofing
+		// (e.g. "example.com" matching "evil-example.com.attacker.io").
+		if hostMatches(origin, a) || hostMatches(referer, a) {
 			return true
 		}
 	}
@@ -533,15 +595,17 @@ func (h *Handler) IsRateLimited(r *http.Request, sourceID string, limit int) boo
 	}
 
 	key := fmt.Sprintf("%s:%s:%s", sourceID, ip, time.Now().Format("2006-01-02:15"))
-	val, ok := h.FormRateLimit.Load(key)
-	count := 0
-	if ok {
-		count = val.(int)
+
+	// Atomically increment-and-check to avoid a TOCTOU race under concurrency.
+	val, _ := h.FormRateLimit.LoadOrStore(key, new(atomic.Int64))
+	counter, ok := val.(*atomic.Int64)
+	if !ok {
+		// Defensive: should never happen, but never panic on a hot path.
+		return false
 	}
-	if count >= limit {
+	if counter.Add(1) > int64(limit) {
 		return true
 	}
-	h.FormRateLimit.Store(key, count+1)
 
 	// Lazy start cleanup
 	h.StartRateLimitCleanup()
@@ -551,33 +615,93 @@ func (h *Handler) IsRateLimited(r *http.Request, sourceID string, limit int) boo
 
 func (h *Handler) StartRateLimitCleanup() {
 	h.RateLimitOnce.Do(func() {
-		go func() {
-			ticker := time.NewTicker(1 * time.Hour)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					h.FormRateLimit.Range(func(key, value any) bool {
-						k := key.(string)
-						parts := strings.Split(k, ":")
-						if len(parts) >= 3 {
-							// Format: sourceID:IP:YYYY-MM-DD:HH
-							// The last part is the key suffix we care about
-							datePart := parts[len(parts)-1]
-							if t, err := time.Parse("2006-01-02:15", datePart); err == nil {
-								if time.Since(t) > 2*time.Hour {
-									h.FormRateLimit.Delete(key)
-								}
-							}
-						}
-						return true
-					})
-				case <-h.RateLimitQuit:
-					return
-				}
-			}
-		}()
+		// Ensure a non-nil quit channel even when the Handler was constructed
+		// directly (e.g. in tests) without initializing RateLimitQuit.
+		quit := h.RateLimitQuit
+		if quit == nil {
+			quit = make(chan struct{})
+			h.RateLimitQuit = quit
+		}
+		go h.rateLimitCleanupLoop(quit)
 	})
+}
+
+// rateLimitCleanupLoop periodically purges stale rate-limit counters until the
+// quit channel is closed.
+func (h *Handler) rateLimitCleanupLoop(quit <-chan struct{}) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			h.purgeExpiredRateLimits()
+		case <-quit:
+			return
+		}
+	}
+}
+
+// purgeExpiredRateLimits removes rate-limit counters whose hourly window is more
+// than two hours old.
+func (h *Handler) purgeExpiredRateLimits() {
+	h.FormRateLimit.Range(func(key, _ any) bool {
+		k, ok := key.(string)
+		if !ok {
+			return true
+		}
+		// Format: sourceID:IP:YYYY-MM-DD:HH — the last part is the window.
+		parts := strings.Split(k, ":")
+		if len(parts) < 3 {
+			return true
+		}
+		t, err := time.Parse("2006-01-02:15", parts[len(parts)-1])
+		if err == nil && time.Since(t) > 2*time.Hour {
+			h.FormRateLimit.Delete(key)
+		}
+		return true
+	})
+}
+
+// verifyTurnstile validates a Cloudflare Turnstile token using a context-aware
+// HTTP client with a bounded timeout. The client port is stripped from the
+// remote address before it is sent upstream.
+func (h *Handler) verifyTurnstile(r *http.Request, payload map[string]any, secret string) error {
+	token, _ := payload["cf-turnstile-response"].(string)
+	if token == "" {
+		return errors.New("missing bot protection token")
+	}
+
+	remoteIP, _, splitErr := net.SplitHostPort(r.RemoteAddr)
+	if splitErr != nil {
+		remoteIP = r.RemoteAddr
+	}
+
+	form := url.Values{
+		"secret":   {secret},
+		"response": {token},
+		"remoteip": {remoteIP},
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, "https://challenges.cloudflare.com/turnstile/v0/siteverify", strings.NewReader(form.Encode()))
+	if reqErr != nil {
+		return errors.New("failed to verify bot protection")
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return errors.New("failed to verify bot protection")
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var res struct {
+		Success bool `json:"success"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil || !res.Success {
+		return errors.New("bot detected (turnstile)")
+	}
+	return nil
 }
 
 func (h *Handler) BotProtectionCheck(r *http.Request, payload map[string]any, enable bool, minMs int, srcCfg map[string]string) error {
@@ -588,63 +712,43 @@ func (h *Handler) BotProtectionCheck(r *http.Request, payload map[string]any, en
 
 	// Turnstile check if configured
 	if srcCfg != nil && srcCfg["turnstile_secret"] != "" {
-		token := ""
-		if t, ok := payload["cf-turnstile-response"].(string); ok {
-			token = t
-		}
-		if token == "" {
-			return errors.New("missing bot protection token")
-		}
-
-		// Verify Turnstile token
-		resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", url.Values{
-			"secret":   {srcCfg["turnstile_secret"]},
-			"response": {token},
-			"remoteip": {r.RemoteAddr},
-		})
-		if err != nil {
-			return errors.New("failed to verify bot protection")
-		}
-		defer resp.Body.Close()
-		var res struct {
-			Success bool `json:"success"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil || !res.Success {
-			return errors.New("bot detected (turnstile)")
+		if err := h.verifyTurnstile(r, payload, srcCfg["turnstile_secret"]); err != nil {
+			return err
 		}
 	}
 
 	// Honeypot field must be empty
-	hp := ""
-	if v, ok := payload["website"].(string); ok {
-		hp = v
-	}
-	if strings.TrimSpace(hp) != "" {
+	if hp, ok := payload["website"].(string); ok && strings.TrimSpace(hp) != "" {
 		return errors.New("bot detected")
 	}
 
-	// Minimum submit time window (skip for JSON/API submissions)
+	// Token + minimum submit time window (skip for JSON/API submissions)
 	if !strings.Contains(ct, "application/json") {
-		// Token check
-		tokenCookie, _ := r.Cookie("hf_token")
-		formToken := ""
-		if t, ok := payload["hf_token"].(string); ok {
-			formToken = t
-		}
-		if tokenCookie != nil && (formToken == "" || tokenCookie.Value != formToken) {
-			return errors.New("invalid form token")
-		}
-
-		issuedCookie, _ := r.Cookie("hf_issued")
-		if issuedCookie != nil && issuedCookie.Value != "" {
-			if ms, convErr := strconv.ParseInt(issuedCookie.Value, 10, 64); convErr == nil && minMs > 0 {
-				elapsed := time.Since(time.UnixMilli(ms)).Milliseconds()
-				if elapsed < int64(minMs) {
-					return errors.New("submitted too quickly")
-				}
-			}
-		}
+		return verifyFormTiming(r, payload, minMs)
 	}
 
+	return nil
+}
+
+// verifyFormTiming validates the anti-bot form token and the minimum submit
+// time window for browser (non-JSON) form submissions.
+func verifyFormTiming(r *http.Request, payload map[string]any, minMs int) error {
+	tokenCookie, _ := r.Cookie("hf_token")
+	formToken, _ := payload["hf_token"].(string)
+	if tokenCookie != nil && (formToken == "" || tokenCookie.Value != formToken) {
+		return errors.New("invalid form token")
+	}
+
+	issuedCookie, _ := r.Cookie("hf_issued")
+	if issuedCookie == nil || issuedCookie.Value == "" || minMs <= 0 {
+		return nil
+	}
+	ms, convErr := strconv.ParseInt(issuedCookie.Value, 10, 64)
+	if convErr != nil {
+		return nil
+	}
+	if time.Since(time.UnixMilli(ms)).Milliseconds() < int64(minMs) {
+		return errors.New("submitted too quickly")
+	}
 	return nil
 }

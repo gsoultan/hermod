@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,22 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
+
+// formPathPattern restricts public form paths to a safe character set so they
+// can never be reflected as markup or script (XSS protection).
+var formPathPattern = regexp.MustCompile(`^[a-zA-Z0-9/_.-]+$`)
+
+// isValidFormPath reports whether the supplied path is safe to reflect back in
+// HTML/JS responses and to use for source lookups.
+func isValidFormPath(path string) bool {
+	if path == "" || len(path) > 256 {
+		return false
+	}
+	if strings.Contains(path, "..") {
+		return false
+	}
+	return formPathPattern.MatchString(path)
+}
 
 type FormField struct {
 	ID string `json:"id"`
@@ -177,8 +194,8 @@ func (h *Handler) HandleForm(w http.ResponseWriter, r *http.Request) {
 // ServeFormPage renders a public HTML form for a configured form source path.
 func (h *Handler) ServeFormPage(w http.ResponseWriter, r *http.Request) {
 	path := r.PathValue("path")
-	if path == "" {
-		http.Error(w, "Path is required", http.StatusBadRequest)
+	if !isValidFormPath(path) {
+		http.Error(w, "Invalid form path", http.StatusBadRequest)
 		return
 	}
 	fullPath := "/api/forms/" + path
@@ -254,7 +271,7 @@ func (h *Handler) ServeFormPage(w http.ResponseWriter, r *http.Request) {
 	if description != "" {
 		sb.WriteString("<p class=\"desc\">" + h.HtmlEscape(description) + "</p>")
 	}
-	sb.WriteString("<form method=\"POST\" action=\"" + fullPath + "\" enctype=\"multipart/form-data\">")
+	sb.WriteString("<form method=\"POST\" action=\"" + h.HtmlEscape(fullPath) + "\" enctype=\"multipart/form-data\">")
 	sb.WriteString("<input type=\"hidden\" name=\"hf_token\" value=\"" + token + "\">")
 	sb.WriteString("<input type=\"hidden\" name=\"website\" value=\"\">") // Honeypot
 
@@ -276,17 +293,27 @@ func (h *Handler) ServeFormPage(w http.ResponseWriter, r *http.Request) {
 // ServeFormScript returns a small JS snippet to embed a form.
 func (h *Handler) ServeFormScript(w http.ResponseWriter, r *http.Request) {
 	path := r.PathValue("path")
-	if path == "" {
-		http.Error(w, "Path is required", http.StatusBadRequest)
+	if !isValidFormPath(path) {
+		http.Error(w, "Invalid form path", http.StatusBadRequest)
 		return
 	}
 
+	// JSON-encode the validated path so it is safely embedded as a JS string
+	// literal, preventing any breakout even if the allow-list changes.
+	encodedPath, err := json.Marshal(path)
+	if err != nil {
+		http.Error(w, "Invalid form path", http.StatusBadRequest)
+		return
+	}
+	pathLiteral := string(encodedPath)
+
 	script := `(function() {
     function init() {
-        const containers = document.querySelectorAll('[data-hermod-form="` + path + `"]');
+        const formPath = ` + pathLiteral + `;
+        const containers = document.querySelectorAll('[data-hermod-form="' + formPath + '"]');
         containers.forEach(container => {
             const iframe = document.createElement('iframe');
-            iframe.src = window.location.origin + '/forms/` + path + `';
+            iframe.src = window.location.origin + '/forms/' + formPath;
             iframe.style.width = '100%';
             iframe.style.border = 'none';
             iframe.style.overflow = 'hidden';
