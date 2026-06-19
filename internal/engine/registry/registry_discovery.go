@@ -16,16 +16,22 @@ import (
 // --- Test Connectivity ---
 
 func (r *Registry) TestSource(ctx context.Context, cfg factory.SourceConfig) error {
-	src, err := r.createSource(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	defer src.Close()
+	_, err := runWithContext(ctx, func() (struct{}, error) {
+		src, err := r.createSource(ctx, cfg)
+		if err != nil {
+			return struct{}{}, err
+		}
+		defer src.Close()
 
-	if readyChecker, ok := src.(hermod.ReadyChecker); ok {
-		return readyChecker.IsReady(ctx)
+		if readyChecker, ok := src.(hermod.ReadyChecker); ok {
+			return struct{}{}, readyChecker.IsReady(ctx)
+		}
+		return struct{}{}, src.Ping(ctx)
+	})
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return fmt.Errorf("source connection test timed out: %w", err)
 	}
-	return src.Ping(ctx)
+	return err
 }
 
 func (r *Registry) TestSink(ctx context.Context, cfg factory.SinkConfig) error {

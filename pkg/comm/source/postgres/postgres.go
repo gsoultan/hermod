@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"strings"
 	"sync"
@@ -353,123 +352,315 @@ func (p *PostgresSource) Read(ctx context.Context) (hermod.Message, error) {
 	}
 }
 
+// standbyMessageTimeout is how often we proactively send a Standby Status
+// Update to Postgres while the stream is idle. Postgres terminates a walsender
+// that does not hear from its standby within wal_sender_timeout (default 60s);
+// without periodic heartbeats the replication connection is silently dropped
+// after some idle time and CDC stops delivering changes. Sending well within
+// that window keeps the connection alive across quiet periods.
+const standbyMessageTimeout = 10 * time.Second
+
+// maxStreamReconnectBackoff caps the exponential backoff used when the
+// replication stream needs to be re-established (e.g. after a Postgres or
+// network restart).
+const maxStreamReconnectBackoff = 30 * time.Second
+
+// slotReleaseTimeout bounds how long we wait for Postgres to mark a logical
+// replication slot as inactive after terminating the backend that held it.
+const slotReleaseTimeout = 10 * time.Second
+
+// streamLoop continuously consumes the logical replication stream. It is
+// designed to be resilient: when the connection drops (Postgres restart,
+// worker reconnect, transient network failure) it transparently re-establishes
+// the publication, slot and replication stream and resumes from the slot's
+// confirmed flush LSN, so changes from tracked tables keep flowing without an
+// engine restart. It only returns when the owning context is cancelled (Close).
 func (p *PostgresSource) streamLoop(ctx context.Context) {
-	defer func() {
-		p.mu.Lock()
-		p.initialized = false
-		if p.replConn != nil {
-			p.replConn.Close(context.Background())
-			p.replConn = nil
-		}
-		p.mu.Unlock()
-	}()
+	defer p.teardownStream()
 	p.log("INFO", "Starting streamLoop", "slot", p.slotName)
 
-	for {
-		p.mu.Lock()
-		conn := p.replConn
-		p.mu.Unlock()
-
-		if conn == nil || conn.IsClosed() {
-			return
-		}
-
-		msg, err := conn.PgConn().ReceiveMessage(ctx)
+	backoff := time.Second
+	for ctx.Err() == nil {
+		conn, err := p.acquireStreamConn(ctx)
 		if err != nil {
-			if !errors.Is(err, context.Canceled) {
-				p.log("ERROR", "Replication stream error", "slot", p.slotName, "error", err)
-				// Only send to errChan if it's not a connection error that we want to retry transparently
-				if !errors.Is(err, io.EOF) && !strings.Contains(err.Error(), "connection") {
-					select {
-					case p.errChan <- err:
-					case <-ctx.Done():
-					}
-				}
-			}
+			backoff = p.waitStreamBackoff(ctx, err, backoff)
+			continue
+		}
+		backoff = time.Second
+
+		err = p.consumeStream(ctx, conn)
+		if err == nil || ctx.Err() != nil || errors.Is(err, context.Canceled) {
 			return
 		}
+		p.log("WARN", "Replication stream interrupted, reconnecting", "slot", p.slotName, "error", err)
+		// Drop the broken connection so the next iteration recreates it.
+		p.closeReplConn()
+	}
+}
 
-		switch m := msg.(type) {
-		case *pgproto3.ErrorResponse:
-			p.log("ERROR", "Postgres error response", "slot", p.slotName, "error", m.Message)
-			select {
-			case p.errChan <- fmt.Errorf("postgres error: %s", m.Message):
-			case <-ctx.Done():
-			}
-			return
-		case *pgproto3.CopyData:
-			switch m.Data[0] {
-			case 'k': // Primary Keepalive Message
-				pka, err := pglogrepl.ParsePrimaryKeepaliveMessage(m.Data[1:])
-				if err != nil {
-					p.log("ERROR", "Failed to parse keepalive", "error", err)
-					continue
-				}
+// waitStreamBackoff logs the reconnect failure and sleeps for the current
+// backoff window (honouring cancellation), returning the next backoff value.
+func (p *PostgresSource) waitStreamBackoff(ctx context.Context, err error, backoff time.Duration) time.Duration {
+	if ctx.Err() != nil {
+		return backoff
+	}
+	p.log("ERROR", "Failed to (re)establish replication stream", "slot", p.slotName, "error", err)
+	select {
+	case <-ctx.Done():
+	case <-time.After(backoff):
+	}
+	return min(backoff*2, maxStreamReconnectBackoff)
+}
 
-				p.mu.Lock()
-				p.lastReceivedLSN = pka.ServerWALEnd
-				if pka.ReplyRequested {
-					err = pglogrepl.SendStandbyStatusUpdate(ctx, conn.PgConn(), pglogrepl.StandbyStatusUpdate{
-						WALWritePosition: p.lastReceivedLSN,
-						WALFlushPosition: p.lastAckedLSN,
-						WALApplyPosition: p.lastAckedLSN,
-					})
-				}
-				p.mu.Unlock()
+// teardownStream marks the source uninitialized and closes the replication
+// connection when streamLoop exits.
+func (p *PostgresSource) teardownStream() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.initialized = false
+	p.closeReplConnLocked()
+}
 
-				if err != nil {
-					if !errors.Is(err, context.Canceled) {
-						p.log("ERROR", "Failed to send keepalive response", "error", err)
-						select {
-						case p.errChan <- err:
-						case <-ctx.Done():
-						}
-					}
-					return
-				}
-			case 'w': // XLogData
-				xld, err := pglogrepl.ParseXLogData(m.Data[1:])
-				if err != nil {
-					p.log("ERROR", "Failed to parse xlog data", "error", err)
-					continue
-				}
+// closeReplConn closes and clears the replication connection.
+func (p *PostgresSource) closeReplConn() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.closeReplConnLocked()
+}
 
-				p.mu.Lock()
-				p.lastReceivedLSN = xld.WALStart
-				p.mu.Unlock()
+// closeReplConnLocked closes and clears the replication connection. Callers
+// must hold p.mu.
+func (p *PostgresSource) closeReplConnLocked() {
+	if p.replConn != nil {
+		_ = p.replConn.Close(context.Background())
+		p.replConn = nil
+	}
+}
 
-				logicalMsg, err := pglogrepl.Parse(xld.WALData)
-				if err != nil {
-					fmt.Printf("Failed to parse logical msg: %v\n", err)
-					continue
-				}
+// acquireStreamConn returns a live replication connection that has an active
+// logical replication stream. If the current connection is healthy it is
+// reused; otherwise the publication, slot and stream are re-established.
+func (p *PostgresSource) acquireStreamConn(ctx context.Context) (*pgx.Conn, error) {
+	p.mu.Lock()
+	conn := p.replConn
+	p.mu.Unlock()
 
-				switch lm := logicalMsg.(type) {
-				case *pglogrepl.RelationMessage:
-					p.mu.Lock()
-					p.relations[lm.RelationID] = lm
-					p.mu.Unlock()
-				case *pglogrepl.InsertMessage:
-					select {
-					case p.msgChan <- p.handleInsert(xld.WALStart, lm):
-					case <-ctx.Done():
-						return
-					}
-				case *pglogrepl.UpdateMessage:
-					select {
-					case p.msgChan <- p.handleUpdate(xld.WALStart, lm):
-					case <-ctx.Done():
-						return
-					}
-				case *pglogrepl.DeleteMessage:
-					select {
-					case p.msgChan <- p.handleDelete(xld.WALStart, lm):
-					case <-ctx.Done():
-						return
-					}
-				}
+	if conn != nil && !conn.IsClosed() {
+		return conn, nil
+	}
+
+	if err := p.reconnectStream(ctx); err != nil {
+		return nil, err
+	}
+
+	p.mu.Lock()
+	conn = p.replConn
+	p.mu.Unlock()
+	if conn == nil {
+		return nil, errors.New("replication connection unavailable after reconnect")
+	}
+	return conn, nil
+}
+
+// reconnectStream re-establishes everything required to stream changes: the
+// metadata connection, the publication and replication slot, the replication
+// connection itself, and finally the replication stream. It is safe to call
+// repeatedly and resumes from the slot's confirmed flush LSN.
+func (p *PostgresSource) reconnectStream(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if err := p.ensureConnNoLock(ctx); err != nil {
+		return err
+	}
+	if err := p.ensurePublication(ctx); err != nil {
+		return err
+	}
+	if err := p.ensureReplicationSlot(ctx); err != nil {
+		return err
+	}
+
+	p.closeReplConnLocked()
+	if err := p.ensureReplConnNoLock(ctx); err != nil {
+		return err
+	}
+
+	p.seedLSNFromSlotLocked(ctx)
+	if err := p.startReplicationWithReclaimLocked(ctx); err != nil {
+		return fmt.Errorf("failed to start replication: %w", err)
+	}
+	p.log("INFO", "Replication stream (re)established", "slot", p.slotName, "publication", p.publicationName)
+	return nil
+}
+
+// consumeStream reads from the replication connection until it errors or the
+// context is cancelled. It uses a deadline-bounded receive so it can send
+// periodic Standby Status Updates (heartbeats) even when no changes arrive,
+// keeping the connection alive within Postgres' wal_sender_timeout window.
+func (p *PostgresSource) consumeStream(ctx context.Context, conn *pgx.Conn) error {
+	nextStandby := time.Now().Add(standbyMessageTimeout)
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if conn.IsClosed() {
+			return errors.New("replication connection closed")
+		}
+		if err := p.maybeSendStandby(ctx, conn, &nextStandby); err != nil {
+			return err
+		}
+
+		msg, err := p.receiveMessage(ctx, conn, nextStandby)
+		if err != nil {
+			return err
+		}
+		if msg == nil {
+			// Deadline reached without a message: time to send the next
+			// heartbeat. The connection is still usable, so keep streaming.
+			continue
+		}
+		if err := p.handleReplicationMessage(ctx, conn, msg); err != nil {
+			return err
+		}
+	}
+}
+
+// maybeSendStandby sends a heartbeat Standby Status Update when the deadline
+// pointed to by next has elapsed, advancing it to the next interval.
+func (p *PostgresSource) maybeSendStandby(ctx context.Context, conn *pgx.Conn, next *time.Time) error {
+	if time.Now().Before(*next) {
+		return nil
+	}
+	if err := p.sendStandbyStatus(ctx, conn); err != nil {
+		return fmt.Errorf("send standby status update: %w", err)
+	}
+	*next = time.Now().Add(standbyMessageTimeout)
+	return nil
+}
+
+// receiveMessage performs a deadline-bounded receive. It returns (nil, nil)
+// when the deadline elapses (signalling it is time to send a heartbeat) so the
+// connection can be kept alive during idle periods.
+func (p *PostgresSource) receiveMessage(ctx context.Context, conn *pgx.Conn, deadline time.Time) (pgproto3.BackendMessage, error) {
+	recvCtx, cancel := context.WithDeadline(ctx, deadline)
+	msg, err := conn.PgConn().ReceiveMessage(recvCtx)
+	cancel()
+	if err == nil {
+		return msg, nil
+	}
+	if pgconn.Timeout(err) {
+		return nil, nil
+	}
+	if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return nil, err
+}
+
+// sendStandbyStatus reports the current write/flush positions to Postgres,
+// confirming progress and acting as a keepalive.
+func (p *PostgresSource) sendStandbyStatus(ctx context.Context, conn *pgx.Conn) error {
+	p.mu.Lock()
+	write := p.lastReceivedLSN
+	flush := p.lastAckedLSN
+	p.mu.Unlock()
+	return pglogrepl.SendStandbyStatusUpdate(ctx, conn.PgConn(), pglogrepl.StandbyStatusUpdate{
+		WALWritePosition: write,
+		WALFlushPosition: flush,
+		WALApplyPosition: flush,
+	})
+}
+
+// handleReplicationMessage dispatches a single backend message received on the
+// replication stream. A returned error signals the stream should be torn down
+// and reconnected.
+func (p *PostgresSource) handleReplicationMessage(ctx context.Context, conn *pgx.Conn, msg pgproto3.BackendMessage) error {
+	switch m := msg.(type) {
+	case *pgproto3.ErrorResponse:
+		return fmt.Errorf("postgres error: %s", m.Message)
+	case *pgproto3.CopyData:
+		return p.handleCopyData(ctx, conn, m.Data)
+	default:
+		return nil
+	}
+}
+
+// handleCopyData processes the CopyData payloads that carry keepalives and
+// WAL data on the logical replication stream.
+func (p *PostgresSource) handleCopyData(ctx context.Context, conn *pgx.Conn, data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	switch data[0] {
+	case pglogrepl.PrimaryKeepaliveMessageByteID:
+		pka, err := pglogrepl.ParsePrimaryKeepaliveMessage(data[1:])
+		if err != nil {
+			p.log("ERROR", "Failed to parse keepalive", "error", err)
+			return nil
+		}
+		p.mu.Lock()
+		if pka.ServerWALEnd > p.lastReceivedLSN {
+			p.lastReceivedLSN = pka.ServerWALEnd
+		}
+		p.mu.Unlock()
+		if pka.ReplyRequested {
+			if err := p.sendStandbyStatus(ctx, conn); err != nil {
+				return fmt.Errorf("send keepalive response: %w", err)
 			}
 		}
+		return nil
+	case pglogrepl.XLogDataByteID:
+		return p.handleXLogData(ctx, data[1:])
+	default:
+		return nil
+	}
+}
+
+// handleXLogData parses a WAL data chunk and forwards any resulting change
+// (insert/update/delete) to consumers, tracking relation metadata along the way.
+func (p *PostgresSource) handleXLogData(ctx context.Context, data []byte) error {
+	xld, err := pglogrepl.ParseXLogData(data)
+	if err != nil {
+		p.log("ERROR", "Failed to parse xlog data", "error", err)
+		return nil
+	}
+
+	p.mu.Lock()
+	if xld.WALStart > p.lastReceivedLSN {
+		p.lastReceivedLSN = xld.WALStart
+	}
+	p.mu.Unlock()
+
+	logicalMsg, err := pglogrepl.Parse(xld.WALData)
+	if err != nil {
+		p.log("ERROR", "Failed to parse logical replication message", "error", err)
+		return nil
+	}
+
+	switch lm := logicalMsg.(type) {
+	case *pglogrepl.RelationMessage:
+		p.mu.Lock()
+		p.relations[lm.RelationID] = lm
+		p.mu.Unlock()
+		return nil
+	case *pglogrepl.InsertMessage:
+		return p.dispatch(ctx, p.handleInsert(xld.WALStart, lm))
+	case *pglogrepl.UpdateMessage:
+		return p.dispatch(ctx, p.handleUpdate(xld.WALStart, lm))
+	case *pglogrepl.DeleteMessage:
+		return p.dispatch(ctx, p.handleDelete(xld.WALStart, lm))
+	default:
+		return nil
+	}
+}
+
+// dispatch delivers a change message to consumers, respecting cancellation.
+func (p *PostgresSource) dispatch(ctx context.Context, msg hermod.Message) error {
+	select {
+	case p.msgChan <- msg:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -634,14 +825,48 @@ func (p *PostgresSource) init(ctx context.Context) error {
 		return err
 	}
 
-	fmt.Printf("Initializing PostgresSource for slot %s and publication %s\n", p.slotName, p.publicationName)
+	p.log("INFO", "Initializing PostgresSource", "slot", p.slotName, "publication", p.publicationName)
 
-	// Retry initialization a few times as some operations might take time or fail transiently
+	if err := p.ensurePublicationAndSlotLocked(ctx); err != nil {
+		return err
+	}
+
+	// Seed the in-memory LSNs from the slot's confirmed flush position so that,
+	// after a restart, standby status updates report a correct flush position
+	// instead of 0 (which would otherwise be sent until the first Ack and could
+	// skew replication-lag accounting).
+	p.seedLSNFromSlotLocked(ctx)
+
+	// Start replication from LSN 0 so Postgres resumes from the slot's
+	// confirmed_flush_lsn (i.e. exactly where streaming left off before any
+	// Postgres/worker restart) instead of losing buffered changes.
+	if err := p.startReplicationWithReclaimLocked(ctx); err != nil {
+		return fmt.Errorf("failed to start replication: %w", err)
+	}
+
+	p.log("INFO", "Replication started successfully", "slot", p.slotName)
+	p.initialized = true
+	if p.cancel != nil {
+		p.cancel()
+	}
+	streamCtx, cancel := context.WithCancel(context.Background())
+	p.cancel = cancel
+	p.wg.Go(func() {
+		p.streamLoop(streamCtx)
+	})
+
+	return nil
+}
+
+// ensurePublicationAndSlotLocked makes sure the publication and replication
+// slot exist, retrying a few times since these operations can fail transiently
+// right after a Postgres restart. Callers must hold p.mu.
+func (p *PostgresSource) ensurePublicationAndSlotLocked(ctx context.Context) error {
 	var err error
 	for attempt := 1; attempt <= 3; attempt++ {
 		if err = p.ensurePublication(ctx); err == nil {
 			if err = p.ensureReplicationSlot(ctx); err == nil {
-				break
+				return nil
 			}
 		}
 		if attempt < 3 {
@@ -653,36 +878,137 @@ func (p *PostgresSource) init(ctx context.Context) error {
 			}
 		}
 	}
-	if err != nil {
-		return err
+	return err
+}
+
+// startReplicationLocked begins logical replication on the current replication
+// connection. Callers must hold p.mu.
+func (p *PostgresSource) startReplicationLocked(ctx context.Context) error {
+	if p.typeMap == nil {
+		p.typeMap = pgtype.NewMap()
 	}
-
-	p.typeMap = pgtype.NewMap()
-
-	// Start replication from LSN 0 (standard for logical slots to resume from where they left off)
-	fmt.Printf("Starting replication for slot %s from LSN 0...\n", p.slotName)
-	err = pglogrepl.StartReplication(ctx, p.replConn.PgConn(), p.slotName, 0, pglogrepl.StartReplicationOptions{
+	if p.replConn == nil {
+		return errors.New("replication connection not initialized")
+	}
+	// Starting from LSN 0 tells Postgres to resume from the slot's
+	// confirmed_flush_lsn, guaranteeing no committed changes are skipped.
+	return pglogrepl.StartReplication(ctx, p.replConn.PgConn(), p.slotName, 0, pglogrepl.StartReplicationOptions{
 		PluginArgs: []string{
 			"proto_version '1'",
 			"publication_names '" + p.publicationName + "'",
 		},
 	})
+}
+
+// startReplicationWithReclaimLocked starts logical replication, transparently
+// reclaiming the slot if Postgres still considers it active. After an
+// ungraceful Hermod/worker restart the previous walsender connection lingers
+// and keeps the slot "active" until wal_sender_timeout elapses (which can be
+// large or disabled), so a plain StartReplication keeps failing and CDC never
+// resumes even though the worker appears online. Detecting the active-slot
+// error, terminating the stale backend and retrying lets streaming resume
+// immediately. Callers must hold p.mu.
+func (p *PostgresSource) startReplicationWithReclaimLocked(ctx context.Context) error {
+	p.reclaimSlotIfStaleLocked(ctx)
+	err := p.startReplicationLocked(ctx)
+	if err == nil || !isSlotActiveError(err) {
+		return err
+	}
+	p.log("WARN", "StartReplication failed because slot is still active; reclaiming and retrying",
+		"slot", p.slotName, "error", err)
+	p.reclaimSlotIfStaleLocked(ctx)
+	return p.startReplicationLocked(ctx)
+}
+
+// isSlotActiveError reports whether err indicates the replication slot is
+// already in use by another backend (Postgres SQLSTATE 55006 / object_in_use).
+func isSlotActiveError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "55006" {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "is active for pid") || strings.Contains(msg, "already active")
+}
+
+// reclaimSlotIfStaleLocked terminates the backend that currently holds the
+// replication slot, if any, so this source can take over streaming. This is
+// the key to resuming CDC after an ungraceful restart, where the slot remains
+// bound to a dead connection. The metadata connection (p.conn) is used because
+// the replication connection cannot run regular SQL. Failures are non-fatal:
+// the caller retries and falls back to normal backoff. Callers must hold p.mu.
+func (p *PostgresSource) reclaimSlotIfStaleLocked(ctx context.Context) {
+	if p.conn == nil {
+		return
+	}
+	var activePID *int32
+	err := p.conn.QueryRow(ctx,
+		"SELECT active_pid FROM pg_replication_slots WHERE slot_name = $1 AND active",
+		p.slotName,
+	).Scan(&activePID)
+	if err != nil || activePID == nil {
+		return
+	}
+	p.log("WARN", "Replication slot held by a stale backend; terminating it to take over",
+		"slot", p.slotName, "active_pid", *activePID)
+	if _, err := p.conn.Exec(ctx, "SELECT pg_terminate_backend($1)", *activePID); err != nil {
+		p.log("WARN", "Failed to terminate stale slot holder",
+			"slot", p.slotName, "active_pid", *activePID, "error", err)
+		return
+	}
+	p.waitSlotReleasedLocked(ctx)
+}
+
+// waitSlotReleasedLocked polls until the slot is no longer active or the
+// slotReleaseTimeout elapses, since Postgres releases the slot a moment after
+// the holding backend is terminated. Callers must hold p.mu.
+func (p *PostgresSource) waitSlotReleasedLocked(ctx context.Context) {
+	deadline := time.Now().Add(slotReleaseTimeout)
+	for time.Now().Before(deadline) {
+		var active bool
+		err := p.conn.QueryRow(ctx,
+			"SELECT COALESCE((SELECT active FROM pg_replication_slots WHERE slot_name = $1), false)",
+			p.slotName,
+		).Scan(&active)
+		if err != nil || !active {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
+// seedLSNFromSlotLocked initializes lastReceivedLSN/lastAckedLSN from the
+// slot's confirmed_flush_lsn so that, after any restart, progress reporting
+// starts from the real persisted position rather than 0. Callers must hold
+// p.mu. Failures are non-fatal: streaming can still proceed from the slot.
+func (p *PostgresSource) seedLSNFromSlotLocked(ctx context.Context) {
+	if p.conn == nil {
+		return
+	}
+	var lsnText *string
+	err := p.conn.QueryRow(ctx,
+		"SELECT confirmed_flush_lsn::text FROM pg_replication_slots WHERE slot_name = $1",
+		p.slotName,
+	).Scan(&lsnText)
+	if err != nil || lsnText == nil || *lsnText == "" {
+		return
+	}
+	lsn, err := pglogrepl.ParseLSN(*lsnText)
 	if err != nil {
-		return fmt.Errorf("failed to start replication: %w", err)
+		return
 	}
-
-	fmt.Println("Replication started successfully")
-	p.initialized = true
-	if p.cancel != nil {
-		p.cancel()
+	if lsn > p.lastAckedLSN {
+		p.lastAckedLSN = lsn
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	p.cancel = cancel
-	p.wg.Go(func() {
-		p.streamLoop(ctx)
-	})
-
-	return nil
+	if lsn > p.lastReceivedLSN {
+		p.lastReceivedLSN = lsn
+	}
 }
 
 func (p *PostgresSource) Ack(ctx context.Context, msg hermod.Message) error {
@@ -767,7 +1093,7 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 	}
 	var walLevel string
 	if err := normalConn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
-		normalConn.Close(ctx)
+		_ = normalConn.Close(ctx)
 		return fmt.Errorf("failed to check wal_level: %w", err)
 	}
 	// Close normal connection as early as possible
@@ -831,11 +1157,9 @@ func (p *PostgresSource) Close() error {
 	publicationName := p.publicationName
 
 	// Close connections to unblock ReceiveMessage if context cancel doesn't
-	if p.replConn != nil {
-		p.replConn.Close(context.Background())
-	}
+	p.closeReplConnLocked()
 	if p.conn != nil {
-		p.conn.Close(context.Background())
+		_ = p.conn.Close(context.Background())
 	}
 	p.mu.Unlock()
 
@@ -849,7 +1173,7 @@ func (p *PostgresSource) Close() error {
 		// Need a new connection for cleanup
 		conn, err := pgx.Connect(context.Background(), p.connString)
 		if err == nil {
-			defer conn.Close(context.Background())
+			defer func() { _ = conn.Close(context.Background()) }()
 			_, _ = conn.Exec(context.Background(), "SELECT pg_drop_replication_slot($1)", slotName)
 			// Optional: Drop publication if it was created by us and not used elsewhere
 			// _, _ = conn.Exec(context.Background(), "DROP PUBLICATION "+publicationName)
@@ -899,7 +1223,7 @@ func (p *PostgresSource) DiscoverDatabases(ctx context.Context) ([]string, error
 	if err != nil {
 		return nil, fmt.Errorf("connect for discovery: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	rows, err := conn.Query(ctx, "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY 1")
 	if err != nil {

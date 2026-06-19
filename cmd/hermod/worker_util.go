@@ -35,6 +35,14 @@ func setupWorker(ctx context.Context, cancel context.CancelFunc, o *Options, reg
 		return nil
 	}
 
+	// In platform-worker mode the registry is created without a local database,
+	// so workflow startup would fail with "registry storage is not initialized".
+	// Back the registry with the platform API client so it can resolve sources,
+	// sinks and workflows remotely.
+	if apiClient, ok := workerStore.(*worker.WorkerAPIClient); ok {
+		reg.SetStorage(worker.NewAPIStorage(apiClient))
+	}
+
 	handleWorkerIdentity(ctx, o, store)
 	wrk := worker.NewWorker(workerStore, reg)
 	wrk.SetWorkerConfig(o.workerID, o.totalWorkers, o.workerGUID, o.workerToken)

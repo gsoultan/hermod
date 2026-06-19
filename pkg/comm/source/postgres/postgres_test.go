@@ -2,8 +2,14 @@ package postgres
 
 import (
 	"context"
+	"encoding/binary"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/jackc/pglogrepl"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 )
 
 func TestPostgresSource_DefaultSlotAndPublication(t *testing.T) {
@@ -75,6 +81,122 @@ func TestPostgresSource_CloseUninitializedIsSafeAndIdempotent(t *testing.T) {
 	}
 	if s.initialized {
 		t.Error("source still marked initialized after Close")
+	}
+}
+
+// buildKeepalive constructs a Primary Keepalive Message CopyData payload.
+// Layout (after the 'k' byte): ServerWALEnd (8) | ServerTime (8) | ReplyRequested (1).
+func buildKeepalive(walEnd pglogrepl.LSN, replyRequested bool) []byte {
+	data := make([]byte, 1+8+8+1)
+	data[0] = pglogrepl.PrimaryKeepaliveMessageByteID
+	binary.BigEndian.PutUint64(data[1:9], uint64(walEnd))
+	binary.BigEndian.PutUint64(data[9:17], uint64(time.Now().UnixMicro()))
+	if replyRequested {
+		data[17] = 1
+	}
+	return data
+}
+
+func TestPostgresSource_HandleCopyData_KeepaliveAdvancesLSN(t *testing.T) {
+	tests := []struct {
+		name    string
+		start   pglogrepl.LSN
+		walEnd  pglogrepl.LSN
+		wantLSN pglogrepl.LSN
+	}{
+		{"advances on higher WAL end", 100, 200, 200},
+		{"does not regress on lower WAL end", 300, 200, 300},
+		{"keeps value on equal WAL end", 150, 150, 150},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true)
+			s.lastReceivedLSN = tc.start
+
+			// ReplyRequested=false so no replication connection is needed.
+			if err := s.handleCopyData(t.Context(), nil, buildKeepalive(tc.walEnd, false)); err != nil {
+				t.Fatalf("handleCopyData returned error: %v", err)
+			}
+
+			s.mu.Lock()
+			got := s.lastReceivedLSN
+			s.mu.Unlock()
+			if got != tc.wantLSN {
+				t.Errorf("lastReceivedLSN = %d, want %d", got, tc.wantLSN)
+			}
+		})
+	}
+}
+
+func TestPostgresSource_HandleCopyData_EmptyIsSafe(t *testing.T) {
+	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true)
+	if err := s.handleCopyData(t.Context(), nil, nil); err != nil {
+		t.Fatalf("handleCopyData(nil) returned error: %v", err)
+	}
+}
+
+func TestPostgresSource_HandleReplicationMessage_ErrorResponse(t *testing.T) {
+	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true)
+	err := s.handleReplicationMessage(t.Context(), nil, &pgproto3.ErrorResponse{Message: "boom"})
+	if err == nil {
+		t.Fatal("expected error for ErrorResponse, got nil")
+	}
+}
+
+func TestPostgresSource_Dispatch_DeliversMessage(t *testing.T) {
+	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true)
+	msg := s.handleInsert(42, &pglogrepl.InsertMessage{})
+
+	if err := s.dispatch(t.Context(), msg); err != nil {
+		t.Fatalf("dispatch returned error: %v", err)
+	}
+	select {
+	case got := <-s.msgChan:
+		if got != msg {
+			t.Errorf("dispatched message mismatch")
+		}
+	default:
+		t.Fatal("expected message on msgChan, found none")
+	}
+}
+
+func TestPostgresSource_Dispatch_RespectsCancellation(t *testing.T) {
+	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true)
+	// Fill the buffered channel so dispatch must block, then cancel.
+	for i := range cap(s.msgChan) {
+		s.msgChan <- s.handleInsert(pglogrepl.LSN(i), &pglogrepl.InsertMessage{})
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err := s.dispatch(ctx, s.handleInsert(1, &pglogrepl.InsertMessage{}))
+	if err == nil {
+		t.Fatal("expected context error when channel is full and ctx cancelled")
+	}
+}
+
+func TestIsSlotActiveError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil error", nil, false},
+		{"sqlstate 55006", &pgconn.PgError{Code: "55006", Message: "boom"}, true},
+		{"message is active for pid", errors.New(`replication slot "hermod_slot" is active for PID 1234`), true},
+		{"message already active", errors.New("replication slot already active"), true},
+		{"unrelated pg error", &pgconn.PgError{Code: "42601", Message: "syntax error"}, false},
+		{"unrelated error", errors.New("connection refused"), false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isSlotActiveError(tc.err); got != tc.want {
+				t.Errorf("isSlotActiveError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
 	}
 }
 
