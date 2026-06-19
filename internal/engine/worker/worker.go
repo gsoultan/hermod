@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"fmt"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -156,8 +158,16 @@ func (w *Worker) pollShutdownRequest(ctx context.Context) bool {
 	return false
 }
 
-// Start starts the worker loop.
-func (w *Worker) Start(ctx context.Context) error {
+// Start starts the worker loop. It is hardened so that an unexpected panic in
+// any synchronous step (registration, polling, sync, health checks or cleanup)
+// is recovered and surfaced as an error instead of crashing the host process.
+func (w *Worker) Start(ctx context.Context) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			w.logger.Error("Worker: Start panicked", "panic", r, "stack", string(debug.Stack()))
+			err = fmt.Errorf("worker start panicked: %v", r)
+		}
+	}()
 	if w.workerGUID != "" {
 		_ = w.SelfRegister(ctx)
 	}
@@ -187,6 +197,11 @@ func (w *Worker) Start(ctx context.Context) error {
 }
 
 func (w *Worker) cleanup(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			w.logger.Error("Worker: cleanup panicked", "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	w.ReleaseAllLeases(cleanupCtx)

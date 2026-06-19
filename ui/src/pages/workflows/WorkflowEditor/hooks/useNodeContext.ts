@@ -5,9 +5,10 @@ import { useShallow } from 'zustand/react/shallow';
 import { getAllKeys, deepMergeSim, preparePayload } from '@/utils/transformationUtils';
 
 export function useNodeContext(selectedNode: Node | null, testResults: any[] | null, sources: any[], sinks: any[]) {
-  const { nodes, edges } = useWorkflowStore(useShallow(state => ({
+  const { nodes, edges, nodeSamples } = useWorkflowStore(useShallow(state => ({
     nodes: state.nodes,
-    edges: state.edges
+    edges: state.edges,
+    nodeSamples: state.nodeSamples
   })));
 
   const contextDataRaw = useMemo(() => {
@@ -49,6 +50,10 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
         } else if (selectedNode.data?.lastSample) {
           incomingPayload = preparePayload(selectedNode.data.lastSample);
           availableFields = getAllKeys(incomingPayload);
+        } else if (nodeSamples?.[selectedNode.id]) {
+          // Live sample captured from a running workflow (e.g. RabbitMQ source).
+          incomingPayload = preparePayload(nodeSamples[selectedNode.id]);
+          availableFields = getAllKeys(incomingPayload);
         } else if (selectedNode.type === 'source') {
           const sourceData = sources?.find((s: any) => s.id === selectedNode.data?.ref_id);
           const rawSample = sourceData?.sample;
@@ -72,6 +77,8 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
           if (localTestPayload) return preparePayload(localTestPayload);
           const localLastSample = node.data?.lastSample;
           if (localLastSample) return preparePayload(localLastSample);
+          const liveSample = nodeSamples?.[nodeId];
+          if (liveSample) return preparePayload(liveSample);
 
           if (node.type === 'source') {
             const sourceData = sources?.find((s: any) => s.id === node.data?.ref_id);
@@ -145,7 +152,7 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
     }
 
     return JSON.stringify({ incomingPayload, availableFields, sinkSchema, upstreamSource });
-  }, [selectedNode?.id, edges, nodes, testResults, sources, sinks]);
+  }, [selectedNode?.id, edges, nodes, testResults, sources, sinks, nodeSamples]);
 
   return useMemo(() => JSON.parse(contextDataRaw), [contextDataRaw]);
 }
