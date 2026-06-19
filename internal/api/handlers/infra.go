@@ -72,6 +72,7 @@ func (h *Handler) RegisterInfrastructureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/workers/{id}", h.UpdateWorker)
 	mux.HandleFunc("POST /api/workers/{id}/heartbeat", h.UpdateWorkerHeartbeat)
 	mux.HandleFunc("POST /api/workers/{id}/start", h.StartWorker)
+	mux.HandleFunc("POST /api/workers/{id}/shutdown", h.ShutdownWorker)
 	mux.HandleFunc("DELETE /api/workers/{id}", h.DeleteWorker)
 	mux.HandleFunc("GET /api/logs", h.ListLogs)
 	mux.HandleFunc("POST /api/logs", h.CreateLog)

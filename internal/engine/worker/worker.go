@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/user/hermod"
@@ -35,6 +36,8 @@ type Worker struct {
 	workerCacheTTL    time.Duration
 	currentCPU        float64
 	currentMem        float64
+	draining          atomic.Bool
+	shutdownFunc      context.CancelFunc
 }
 
 // NewWorker creates a new worker.
@@ -103,6 +106,56 @@ func (w *Worker) SetRegistrationInfo(name, host string, port int, description st
 	w.workerDescription = description
 }
 
+// SetShutdownFunc registers a callback used to stop the host process after the
+// worker has gracefully drained. It is typically the application's context
+// cancel function so a dedicated worker process exits cleanly.
+func (w *Worker) SetShutdownFunc(fn context.CancelFunc) {
+	w.shutdownFunc = fn
+}
+
+// RequestShutdown asks this worker to begin a graceful shutdown if the given id
+// matches its own GUID. It is safe to call concurrently and is a no-op for a
+// different identity.
+func (w *Worker) RequestShutdown(id string) {
+	if id != "" && id == w.workerGUID {
+		w.draining.Store(true)
+	}
+}
+
+// IsDraining reports whether a graceful shutdown has been requested.
+func (w *Worker) IsDraining() bool {
+	return w.draining.Load()
+}
+
+// TriggerShutdown invokes the registered shutdown callback, if any, to stop the
+// host process. It is called after the worker has drained.
+func (w *Worker) TriggerShutdown() {
+	if w.shutdownFunc != nil {
+		w.shutdownFunc()
+	}
+}
+
+// pollShutdownRequest checks whether the platform has flagged this worker for a
+// graceful shutdown by reading its own record. It returns true once draining
+// should begin.
+func (w *Worker) pollShutdownRequest(ctx context.Context) bool {
+	if w.draining.Load() {
+		return true
+	}
+	if w.workerGUID == "" {
+		return false
+	}
+	self, err := w.storage.GetWorker(ctx, w.workerGUID)
+	if err != nil {
+		return false
+	}
+	if self.Draining {
+		w.draining.Store(true)
+		return true
+	}
+	return false
+}
+
 // Start starts the worker loop.
 func (w *Worker) Start(ctx context.Context) error {
 	if w.workerGUID != "" {
@@ -123,6 +176,10 @@ func (w *Worker) Start(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			if w.pollShutdownRequest(ctx) {
+				w.logger.Info("Worker: graceful shutdown requested by platform; draining and handing off workflows")
+				return nil
+			}
 			w.sync(ctx, false)
 			w.checkHealth(ctx)
 		}

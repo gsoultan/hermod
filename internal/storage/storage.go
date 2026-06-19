@@ -169,6 +169,10 @@ type Worker struct {
 	LastSeen    *time.Time `json:"last_seen" omitzero:"true"`
 	CPUUsage    float64    `json:"cpu_usage,omitempty"`
 	MemoryUsage float64    `json:"memory_usage,omitempty"`
+	// Draining is a transient flag (never persisted) used to signal a running
+	// worker that the platform has requested a graceful shutdown. It is set on
+	// API responses by the platform when an administrator triggers a shutdown.
+	Draining bool `json:"draining,omitempty"`
 }
 
 type Role string

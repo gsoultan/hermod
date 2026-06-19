@@ -46,6 +46,7 @@ export interface Worker {
   last_seen?: string;
   cpu_usage?: number;
   memory_usage?: number;
+  draining?: boolean;
 }
 
 export interface VHost {

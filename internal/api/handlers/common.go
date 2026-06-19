@@ -26,6 +26,9 @@ import (
 
 type WorkerUpdater interface {
 	SetStorage(s storage.Storage)
+	// RequestShutdown asks an in-process worker whose GUID matches id to begin
+	// a graceful shutdown. It is a no-op for workers with a different identity.
+	RequestShutdown(id string)
 }
 
 type Handler struct {
@@ -55,6 +58,29 @@ type Handler struct {
 	// LoginAttempts tracks failed login attempts keyed by username+client IP
 	// to enforce account lockout after too many failures.
 	LoginAttempts sync.Map
+
+	// DrainingWorkers tracks worker IDs for which an administrator has requested
+	// a graceful shutdown. Workers learn of the request when they poll their own
+	// record (the flag is surfaced as storage.Worker.Draining on API responses).
+	DrainingWorkers sync.Map
+}
+
+// MarkWorkerDraining records that a graceful shutdown has been requested for the
+// given worker so the next time it polls its own record it begins draining.
+func (h *Handler) MarkWorkerDraining(id string) {
+	h.DrainingWorkers.Store(id, true)
+}
+
+// IsWorkerDraining reports whether a graceful shutdown has been requested for
+// the given worker.
+func (h *Handler) IsWorkerDraining(id string) bool {
+	_, ok := h.DrainingWorkers.Load(id)
+	return ok
+}
+
+// ClearWorkerDraining removes any pending shutdown request for the given worker.
+func (h *Handler) ClearWorkerDraining(id string) {
+	h.DrainingWorkers.Delete(id)
 }
 
 type contextKey string

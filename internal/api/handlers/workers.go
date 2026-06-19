@@ -24,6 +24,8 @@ func (h *Handler) ListWorkers(w http.ResponseWriter, r *http.Request) {
 	for i := range workers {
 		sanitized[i] = workers[i]
 		sanitized[i].Token = ""
+		// Surface any pending graceful-shutdown request so the UI can reflect it.
+		sanitized[i].Draining = h.IsWorkerDraining(workers[i].ID)
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"data":  sanitized,
@@ -45,6 +47,9 @@ func (h *Handler) GetWorker(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	// Do not expose the worker token on read
 	worker.Token = ""
+	// Surface any pending graceful-shutdown request so a polling worker can
+	// begin draining and the UI can reflect the draining state.
+	worker.Draining = h.IsWorkerDraining(id)
 	_ = json.NewEncoder(w).Encode(worker)
 }
 
@@ -148,7 +153,51 @@ func (h *Handler) DeleteWorker(w http.ResponseWriter, r *http.Request) {
 		h.JsonError(w, "failed to delete worker", http.StatusInternalServerError)
 		return
 	}
+	// Drop any pending shutdown request so a future re-registration with the
+	// same ID is not immediately drained.
+	h.ClearWorkerDraining(id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ShutdownWorker requests a graceful shutdown of a running worker. The worker
+// finishes in-flight work, releases its workflow leases (which other workers
+// immediately re-acquire, moving the workflows elsewhere), deregisters and
+// exits. It is restricted to administrators.
+func (h *Handler) ShutdownWorker(w http.ResponseWriter, r *http.Request) {
+	role, _ := h.GetRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		h.JsonError(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	id := r.PathValue("id")
+	worker, err := h.Storage.GetWorker(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			h.JsonError(w, "worker not found", http.StatusNotFound)
+		} else {
+			h.JsonError(w, "failed to retrieve worker", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Flag the worker as draining so it gracefully shuts down when it next polls
+	// its own record over the API.
+	h.MarkWorkerDraining(id)
+	// Best-effort fast path for an in-process (standalone) worker, which talks to
+	// storage directly and would not otherwise see the API-surfaced flag.
+	if h.Worker != nil {
+		h.Worker.RequestShutdown(id)
+	}
+
+	h.RecordAuditLog(r, "info", "Requested graceful shutdown of worker "+worker.Name, "STOP", "", "", "", map[string]any{"worker_id": worker.ID})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":    "draining",
+		"worker_id": worker.ID,
+	})
 }
 
 // StartWorker launches an offline worker by relaunching the current hermod

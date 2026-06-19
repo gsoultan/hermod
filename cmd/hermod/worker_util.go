@@ -25,7 +25,7 @@ type workerIdentity struct {
 	Description string `yaml:"description"`
 }
 
-func setupWorker(ctx context.Context, o *Options, reg *registry.Registry, store storage.Storage, configured, userSetup bool) *worker.Worker {
+func setupWorker(ctx context.Context, cancel context.CancelFunc, o *Options, reg *registry.Registry, store storage.Storage, configured, userSetup bool) *worker.Worker {
 	if !shouldStartWorker(o, configured, userSetup) {
 		return nil
 	}
@@ -39,6 +39,12 @@ func setupWorker(ctx context.Context, o *Options, reg *registry.Registry, store 
 	wrk := worker.NewWorker(workerStore, reg)
 	wrk.SetWorkerConfig(o.workerID, o.totalWorkers, o.workerGUID, o.workerToken)
 	wrk.SetRegistrationInfo(getWorkerName(o.workerGUID), o.workerHost, o.workerPort, o.workerDescription)
+	// A dedicated worker process should exit once it has gracefully drained in
+	// response to a platform shutdown request. Cancelling the app context unblocks
+	// runWorkerOnly and runs the standard shutdown path.
+	if o.mode == "worker" {
+		wrk.SetShutdownFunc(cancel)
+	}
 
 	startWorkerAsync(ctx, wrk)
 	return wrk
@@ -72,6 +78,12 @@ func startWorkerAsync(ctx context.Context, wrk *worker.Worker) {
 		}()
 		if err := wrk.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("Worker failed: %v", err)
+		}
+		// If the loop exited because of a platform-requested graceful shutdown,
+		// stop the host process (no-op when no shutdown func is set).
+		if wrk.IsDraining() {
+			log.Printf("Worker drained after shutdown request; stopping process")
+			wrk.TriggerShutdown()
 		}
 	}()
 }

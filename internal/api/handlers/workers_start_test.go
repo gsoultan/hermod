@@ -22,6 +22,8 @@ func (m *workerStartMockStorage) GetWorker(_ context.Context, _ string) (storage
 	return m.worker, nil
 }
 
+func (m *workerStartMockStorage) DeleteWorker(_ context.Context, _ string) error { return nil }
+
 func (m *workerStartMockStorage) CreateLog(_ context.Context, _ storage.Log) error { return nil }
 
 func (m *workerStartMockStorage) CreateAuditLog(_ context.Context, _ storage.AuditLog) error {

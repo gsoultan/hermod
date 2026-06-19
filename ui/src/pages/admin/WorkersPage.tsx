@@ -1,4 +1,4 @@
-import { IconAlertTriangle, IconEdit, IconInfoCircle, IconPlayerPlay, IconPlus, IconSearch, IconServer, IconTerminal2, IconTrash } from '@tabler/icons-react';
+import { IconAlertTriangle, IconEdit, IconInfoCircle, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconServer, IconTerminal2, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
 import { Title, Table, Button, Group, Paper, Text, Box, Stack, Badge, TextInput, Pagination, ActionIcon, RingProgress, Tooltip, Center, Alert, Modal, Code, CopyButton } from '@mantine/core'
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -64,6 +64,32 @@ export function WorkersPage() {
     }
   })
 
+  const shutdownMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiFetch(`/api/workers/${id}/shutdown`, { method: 'POST' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error || 'Failed to shut down worker')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      notifications.show({
+        title: 'Graceful shutdown requested',
+        message: 'The worker is draining. Its running workflows will move to other available workers, then it will stop.',
+        color: 'blue',
+      })
+      queryClient.invalidateQueries({ queryKey: ['workers'] })
+    },
+    onError: (err: Error) => {
+      notifications.show({
+        title: 'Failed to shut down worker',
+        message: err.message,
+        color: 'red',
+      })
+    }
+  })
+
   const totalPages = Math.ceil(totalItems / itemsPerPage)
 
   const isOnline = (lastSeen?: string) => {
@@ -97,8 +123,8 @@ export function WorkersPage() {
         </Table.Td>
         <Table.Td>
           <Stack gap={0}>
-            <Badge variant="dot" color={online ? 'green' : 'red'}>
-              {online ? 'Online' : 'Offline'}
+            <Badge variant="dot" color={worker.draining ? 'orange' : online ? 'green' : 'red'}>
+              {worker.draining ? 'Draining' : online ? 'Online' : 'Offline'}
             </Badge>
             {!online && (
               <Text size="xs" c="dimmed" mt={4}>
@@ -161,6 +187,17 @@ export function WorkersPage() {
         <Table.Td>{worker.description || '-'}</Table.Td>
         <Table.Td>
           <Group justify="flex-end">
+            {online && (
+              <Tooltip label="Gracefully shut down this worker (its workflows move to other workers)">
+                <ActionIcon variant="light" color="orange" onClick={() => {
+                  if (confirm('Gracefully shut down this worker? Its running workflows will be handed off to other available workers.')) {
+                    shutdownMutation.mutate(worker.id);
+                  }
+                }} loading={shutdownMutation.isPending && shutdownMutation.variables === worker.id} radius="md" aria-label="Shut down worker">
+                  <IconPlayerStop size="1.2rem" />
+                </ActionIcon>
+              </Tooltip>
+            )}
             {!online && (
               <Tooltip label="Start this worker">
                 <ActionIcon variant="light" color="green" onClick={() => startMutation.mutate(worker.id)} loading={startMutation.isPending && startMutation.variables === worker.id} radius="md" aria-label="Start worker">
