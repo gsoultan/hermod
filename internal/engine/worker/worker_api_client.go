@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -318,7 +319,7 @@ func (c *WorkerAPIClient) ReleaseWorkflowLease(ctx context.Context, workflowID, 
 }
 
 func (c *WorkerAPIClient) doRequest(ctx context.Context, method, path string, body any) (*http.Response, error) {
-	var bodyReader *bytes.Reader
+	var bodyReader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
