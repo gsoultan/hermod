@@ -50,7 +50,14 @@ type PostgresSource struct {
 	errChan         chan error
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
-	logger          hermod.Logger
+	// logMu guards logger only. It is intentionally separate from mu: log() is
+	// called from many code paths that already hold mu (init, Close and every
+	// *Locked helper). Since mu is a non-reentrant sync.Mutex, having log()
+	// acquire mu would self-deadlock and silently freeze the streaming goroutine
+	// (the source would appear "online" but never deliver changes). A dedicated
+	// lock lets logging run safely regardless of whether mu is held.
+	logMu  sync.RWMutex
+	logger hermod.Logger
 }
 
 func NewPostgresSource(connString, slotName, publicationName string, tables []string, useCDC bool) *PostgresSource {
@@ -83,15 +90,17 @@ func (p *PostgresSource) SetPersistentSlot(persistent bool) {
 }
 
 func (p *PostgresSource) SetLogger(logger hermod.Logger) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.logMu.Lock()
+	defer p.logMu.Unlock()
 	p.logger = logger
 }
 
 func (p *PostgresSource) log(level, msg string, keysAndValues ...any) {
-	p.mu.Lock()
+	// Use logMu (not mu): log() is frequently called by callers that already
+	// hold mu, so locking mu here would deadlock (see the logMu field comment).
+	p.logMu.RLock()
 	logger := p.logger
-	p.mu.Unlock()
+	p.logMu.RUnlock()
 
 	if logger == nil {
 		// Fallback to standard log if no structured logger is set, to ensure timestamps
@@ -934,24 +943,48 @@ func isSlotActiveError(err error) bool {
 }
 
 // reclaimSlotIfStaleLocked terminates the backend that currently holds the
-// replication slot, if any, so this source can take over streaming. This is
-// the key to resuming CDC after an ungraceful restart, where the slot remains
-// bound to a dead connection. The metadata connection (p.conn) is used because
-// the replication connection cannot run regular SQL. Failures are non-fatal:
-// the caller retries and falls back to normal backoff. Callers must hold p.mu.
+// replication slot ONLY when that backend is genuinely stale (its PID is no
+// longer present in pg_stat_activity, e.g. the previous walsender died in an
+// ungraceful Hermod/worker crash but the slot is still marked active during the
+// TCP keepalive grace window). It deliberately does NOT terminate a live holder.
+//
+// This is critical for stability: when more than one engine instance contends
+// for the same slot (overlapping restarts, multiple worker processes — the
+// production logs showed several hermod PIDs all "Closing PostgresSource" on the
+// same slot), blindly terminating whichever backend holds the slot makes the
+// instances kill each other's healthy walsender in an endless ping-pong, so no
+// stream ever survives and CDC silently delivers nothing while the worker looks
+// online. By only reclaiming dead holders, two live instances never fight: the
+// loser simply backs off (single-consumer-per-slot is the Hermod convention and
+// is enforced by the worker lease layer). The metadata connection (p.conn) is
+// used because the replication connection cannot run regular SQL. Failures are
+// non-fatal: the caller retries and falls back to normal backoff. Callers must
+// hold p.mu.
 func (p *PostgresSource) reclaimSlotIfStaleLocked(ctx context.Context) {
 	if p.conn == nil {
 		return
 	}
 	var activePID *int32
+	var holderAlive bool
 	err := p.conn.QueryRow(ctx,
-		"SELECT active_pid FROM pg_replication_slots WHERE slot_name = $1 AND active",
+		`SELECT s.active_pid,
+		        EXISTS (SELECT 1 FROM pg_stat_activity a WHERE a.pid = s.active_pid)
+		   FROM pg_replication_slots s
+		  WHERE s.slot_name = $1 AND s.active`,
 		p.slotName,
-	).Scan(&activePID)
+	).Scan(&activePID, &holderAlive)
 	if err != nil || activePID == nil {
 		return
 	}
-	p.log("WARN", "Replication slot held by a stale backend; terminating it to take over",
+	if holderAlive {
+		// A live backend is streaming from this slot. It is either this source's
+		// own previous connection or another live consumer; terminating it would
+		// start a mutual-kill loop. Leave it alone and let the caller back off.
+		p.log("INFO", "Replication slot held by a live backend; backing off instead of terminating",
+			"slot", p.slotName, "active_pid", *activePID)
+		return
+	}
+	p.log("WARN", "Replication slot held by a dead backend; terminating it to take over",
 		"slot", p.slotName, "active_pid", *activePID)
 	if _, err := p.conn.Exec(ctx, "SELECT pg_terminate_backend($1)", *activePID); err != nil {
 		p.log("WARN", "Failed to terminate stale slot holder",

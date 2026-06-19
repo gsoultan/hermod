@@ -198,6 +198,10 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 
 	r.runSourceToBuffer(r.ctx)
 
+	// The source ingestion loop has exited because the engine is stopping, so
+	// release the source's resources now (see closeSourceOnShutdown).
+	r.closeSourceOnShutdown()
+
 	sinkWg.Wait()
 	// Wait for all in-flight per-message processing goroutines to finish before
 	// closing the sink channels. Those goroutines (tracked by inFlightWg, not
@@ -269,6 +273,24 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 	}
 	r.engine.setStatus("Stopped")
 	return nil
+}
+
+// closeSourceOnShutdown closes the engine's source on the graceful shutdown
+// path. This is critical for CDC sources (e.g. Postgres): their replication
+// stream runs on an independent background context and is only torn down by
+// Close(). Previously Close() was invoked solely from HardStop(), so a normal
+// stop/restart (config change, lease handoff, worker shutdown) leaked the
+// streaming goroutine and left the replication slot active. The next source
+// instance would then contend with the leaked one for the same slot, so CDC
+// silently stopped delivering data even though the worker appeared online.
+// Close is safe to call here and is idempotent with HardStop.
+func (r *Runner) closeSourceOnShutdown() {
+	if r.engine.source == nil {
+		return
+	}
+	if err := r.engine.source.Close(); err != nil {
+		r.engine.logger.Warn("Error closing source during shutdown", "workflow_id", r.engine.workflowID, "error", err)
+	}
 }
 
 func (r *Runner) checkHealth(interval time.Duration) {

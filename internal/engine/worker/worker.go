@@ -316,6 +316,26 @@ func (w *Worker) startLeaseRenewal(workflowID string) {
 	go w.leaseRenewalLoop(ctx, workflowID, interval)
 }
 
+// leaseRenewalOutcome classifies the result of a single lease renewal attempt.
+type leaseRenewalOutcome int
+
+const (
+	// leaseHeld means the lease is still owned (renewed or re-acquired in place).
+	leaseHeld leaseRenewalOutcome = iota
+	// leaseTransientError means the renewal could not be confirmed due to a
+	// transient failure (e.g. slow storage / API timeout) and should be retried.
+	leaseTransientError
+	// leaseLost means the lease is genuinely owned by another worker.
+	leaseLost
+)
+
+// maxLeaseRenewalFailures bounds consecutive transient renewal failures before
+// the engine is stopped. A single slow storage call (the log shows
+// "context deadline exceeded") must not tear the engine down — and with it the
+// CDC source — but persistent failures eventually should so a truly lost lease
+// does not stream forever.
+const maxLeaseRenewalFailures = 3
+
 func (w *Worker) leaseRenewalLoop(ctx context.Context, workflowID string, interval time.Duration) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -324,22 +344,65 @@ func (w *Worker) leaseRenewalLoop(ctx context.Context, workflowID string, interv
 	}()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	transientFailures := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			ok, err := w.storage.RenewWorkflowLease(ctx, workflowID, w.workerGUID, w.leaseTTLSeconds)
-			if err != nil || !ok {
-				w.logger.Warn("Worker: lease renewal failed, stopping workflow", "workflow_id", workflowID, "renewed", ok, "error", err)
-				if w.registry != nil {
-					_ = w.registry.StopEngineWithoutUpdate(workflowID)
+			switch w.renewLeaseOnce(ctx, workflowID) {
+			case leaseHeld:
+				transientFailures = 0
+			case leaseTransientError:
+				transientFailures++
+				if transientFailures < maxLeaseRenewalFailures {
+					continue
 				}
-				w.stopLeaseRenewal(workflowID)
+				w.logger.Warn("Worker: lease renewal failing persistently, stopping workflow", "workflow_id", workflowID, "failures", transientFailures)
+				w.stopEngineForLostLease(workflowID)
+				return
+			case leaseLost:
+				w.logger.Warn("Worker: lease lost to another owner, stopping workflow", "workflow_id", workflowID)
+				w.stopEngineForLostLease(workflowID)
 				return
 			}
 		}
 	}
+}
+
+// renewLeaseOnce attempts to keep this worker's lease on the workflow. It first
+// renews; if renewal updates no row (lease lapsed or changed owner) it tries to
+// re-acquire in place before declaring the lease lost. Transient errors are
+// distinguished from a genuine loss so a slow storage path does not force a
+// teardown.
+func (w *Worker) renewLeaseOnce(ctx context.Context, workflowID string) leaseRenewalOutcome {
+	renewed, err := w.storage.RenewWorkflowLease(ctx, workflowID, w.workerGUID, w.leaseTTLSeconds)
+	if err != nil {
+		w.logger.Warn("Worker: lease renewal errored, will retry", "workflow_id", workflowID, "error", err)
+		return leaseTransientError
+	}
+	if renewed {
+		return leaseHeld
+	}
+	acquired, aerr := w.storage.AcquireWorkflowLease(ctx, workflowID, w.workerGUID, w.leaseTTLSeconds)
+	if aerr != nil {
+		w.logger.Warn("Worker: lease re-acquire errored, will retry", "workflow_id", workflowID, "error", aerr)
+		return leaseTransientError
+	}
+	if acquired {
+		w.logger.Info("Worker: lease re-acquired in place", "workflow_id", workflowID)
+		return leaseHeld
+	}
+	return leaseLost
+}
+
+// stopEngineForLostLease stops the engine and tears down the renewal loop when
+// the lease can no longer be held.
+func (w *Worker) stopEngineForLostLease(workflowID string) {
+	if w.registry != nil {
+		_ = w.registry.StopEngineWithoutUpdate(workflowID)
+	}
+	w.stopLeaseRenewal(workflowID)
 }
 
 func (w *Worker) stopLeaseRenewal(workflowID string) {

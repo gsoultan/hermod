@@ -214,3 +214,38 @@ func TestPostgresSource_Read(t *testing.T) {
 		t.Fatalf("failed to read from PostgresSource: %v", err)
 	}
 }
+
+// noopLogger is a minimal hermod.Logger used to exercise the logging path.
+type noopLogger struct{}
+
+func (noopLogger) Debug(string, ...any) {}
+func (noopLogger) Info(string, ...any)  {}
+func (noopLogger) Warn(string, ...any)  {}
+func (noopLogger) Error(string, ...any) {}
+
+// TestLogDoesNotDeadlockWhileHoldingMu guards against a regression where log()
+// acquired the same non-reentrant mutex (mu) that init(), Close() and every
+// *Locked helper already hold when they log. That self-deadlock silently froze
+// the streaming goroutine, so the source appeared "online" but never delivered
+// CDC changes. log() must use its own lock (logMu) and therefore be safe to
+// call while mu is held.
+func TestLogDoesNotDeadlockWhileHoldingMu(t *testing.T) {
+	s := NewPostgresSource("postgres://localhost/db", "slot", "pub", nil, true)
+	s.SetLogger(noopLogger{})
+
+	done := make(chan struct{})
+	go func() {
+		// Reproduce the exact call pattern of init()/Close()/*Locked helpers:
+		// hold mu, then log.
+		s.mu.Lock()
+		s.log("INFO", "logging while holding mu must not deadlock", "k", "v")
+		s.mu.Unlock()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("log() deadlocked while mu was held; logging must not acquire mu")
+	}
+}

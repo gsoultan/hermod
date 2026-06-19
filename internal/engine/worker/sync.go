@@ -1,11 +1,14 @@
 package worker
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"reflect"
 	"sync"
 	"time"
 
+	"github.com/user/hermod/internal/factory"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/engine/telemetry"
 )
@@ -200,7 +203,7 @@ func (w *Worker) hasConfigChanged(wf storage.Workflow, sctx SyncContext) bool {
 	if !ok {
 		return true
 	}
-	if !reflect.DeepEqual(curWf.Nodes, wf.Nodes) || !reflect.DeepEqual(curWf.Edges, wf.Edges) {
+	if !jsonEqual(curWf.Nodes, wf.Nodes) || !jsonEqual(curWf.Edges, wf.Edges) {
 		return true
 	}
 	// Simplified check for other fields
@@ -232,25 +235,57 @@ func (w *Worker) stopWorkflow(ctx context.Context, id string) {
 }
 
 func (w *Worker) hasResourceConfigChanged(workflowID string, sourceMap map[string]storage.Source, sinkMap map[string]storage.Sink) bool {
-	srcConfigs, ok := w.registry.GetSourceConfigs(workflowID)
-	if ok {
-		for _, sc := range srcConfigs {
-			if dbSrc, exists := sourceMap[sc.ID]; exists {
-				if !reflect.DeepEqual(dbSrc.Config, sc.Config) || dbSrc.Type != sc.Type {
-					return true
-				}
-			}
-		}
+	if srcConfigs, ok := w.registry.GetSourceConfigs(workflowID); ok && sourceConfigsChanged(srcConfigs, sourceMap) {
+		return true
 	}
-	snkConfigs, ok := w.registry.GetSinkConfigs(workflowID)
-	if ok {
-		for _, sc := range snkConfigs {
-			if dbSnk, exists := sinkMap[sc.ID]; exists {
-				if !reflect.DeepEqual(dbSnk.Config, sc.Config) || dbSnk.Type != sc.Type {
-					return true
-				}
-			}
+	if snkConfigs, ok := w.registry.GetSinkConfigs(workflowID); ok && sinkConfigsChanged(snkConfigs, sinkMap) {
+		return true
+	}
+	return false
+}
+
+// sourceConfigsChanged reports whether any running source config differs from
+// its stored counterpart.
+func sourceConfigsChanged(running []factory.SourceConfig, stored map[string]storage.Source) bool {
+	for _, sc := range running {
+		dbSrc, exists := stored[sc.ID]
+		if !exists {
+			continue
+		}
+		if !jsonEqual(dbSrc.Config, sc.Config) || dbSrc.Type != sc.Type {
+			return true
 		}
 	}
 	return false
+}
+
+// sinkConfigsChanged reports whether any running sink config differs from its
+// stored counterpart.
+func sinkConfigsChanged(running []factory.SinkConfig, stored map[string]storage.Sink) bool {
+	for _, sc := range running {
+		dbSnk, exists := stored[sc.ID]
+		if !exists {
+			continue
+		}
+		if !jsonEqual(dbSnk.Config, sc.Config) || dbSnk.Type != sc.Type {
+			return true
+		}
+	}
+	return false
+}
+
+// jsonEqual reports whether a and b are equal after canonical JSON encoding.
+// It is more robust than reflect.DeepEqual for configs that survive a DB/JSON
+// round-trip: JSON encoding canonicalizes map key ordering and collapses
+// numerically-equal values (e.g. int 1 vs float64 1) that would otherwise make
+// reflect.DeepEqual report a spurious change and trigger an endless
+// restart loop. It falls back to reflect.DeepEqual if either value cannot be
+// marshaled.
+func jsonEqual(a, b any) bool {
+	ab, err1 := json.Marshal(a)
+	bb, err2 := json.Marshal(b)
+	if err1 != nil || err2 != nil {
+		return reflect.DeepEqual(a, b)
+	}
+	return bytes.Equal(ab, bb)
 }

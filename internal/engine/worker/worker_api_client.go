@@ -303,15 +303,22 @@ func (c *WorkerAPIClient) CreateLog(ctx context.Context, log storage.Log) error 
 	return nil
 }
 
-// Lease APIs (stubs for platform client for now). Platform endpoints can be
-// added later; returning false keeps behavior conservative when using the API
-// client as storage.
+// Lease APIs for the platform-backed client. The platform does not yet expose
+// dedicated lease endpoints; for an API-backed remote worker, assignment is
+// already enforced by matching wf.WorkerID against the worker's GUID (see
+// isWorkflowAssigned). In that model there is no separate lease backend that
+// can be "lost", so acquire/renew report the lease as owned. Returning false
+// here would make leaseRenewalLoop interpret every tick as "lease lost" and
+// repeatedly tear down healthy engines (closing CDC sources), which is the
+// worst possible default. Treating "no lease backend" as "always owned" keeps
+// engines stable while remaining safe because real ownership is enforced by
+// the explicit worker assignment.
 func (c *WorkerAPIClient) AcquireWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error) {
-	return false, nil
+	return true, nil
 }
 
 func (c *WorkerAPIClient) RenewWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error) {
-	return false, nil
+	return true, nil
 }
 
 func (c *WorkerAPIClient) ReleaseWorkflowLease(ctx context.Context, workflowID, ownerID string) error {
