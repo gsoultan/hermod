@@ -278,3 +278,97 @@ func TestPostgresSource_ReplConnRefusedWhenPooled(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+// TestBuildReplicationAppName verifies the application_name is stable, tagged
+// and bounded to Postgres' NAMEDATALEN-1 limit so it round-trips through
+// pg_stat_activity without truncation breaking the own-orphan equality check.
+func TestBuildReplicationAppName(t *testing.T) {
+	tests := []struct {
+		name   string
+		host   string
+		slot   string
+		assert func(t *testing.T, got string)
+	}{
+		{
+			name: "Prefixed",
+			host: "host1",
+			slot: "event_slot",
+			assert: func(t *testing.T, got string) {
+				if got != "hermod-cdc-host1-event_slot" {
+					t.Errorf("got %q", got)
+				}
+			},
+		},
+		{
+			name: "EmptyHostFallsBack",
+			host: "  ",
+			slot: "s",
+			assert: func(t *testing.T, got string) {
+				if got != "hermod-cdc-unknown-s" {
+					t.Errorf("got %q", got)
+				}
+			},
+		},
+		{
+			name: "BoundedToNameDataLen",
+			host: strings.Repeat("h", 100),
+			slot: strings.Repeat("s", 100),
+			assert: func(t *testing.T, got string) {
+				if len(got) != maxAppNameLen {
+					t.Errorf("len = %d; want %d", len(got), maxAppNameLen)
+				}
+				if !strings.HasPrefix(got, replicationAppNamePrefix) {
+					t.Errorf("missing prefix: %q", got)
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.assert(t, buildReplicationAppName(tc.host, tc.slot))
+		})
+	}
+}
+
+// TestIsOwnOrphanLocked verifies that only a live holder advertising our own
+// instance-unique application_name (and not our current connection) is treated
+// as reclaimable; a foreign consumer or an empty/mismatched name is never.
+func TestIsOwnOrphanLocked(t *testing.T) {
+	const ourAppName = "hermod-cdc-host1-slot"
+
+	tests := []struct {
+		name      string
+		appName   string
+		holderApp string
+		want      bool
+	}{
+		{name: "OwnOrphanMatches", appName: ourAppName, holderApp: ourAppName, want: true},
+		{name: "ForeignConsumer", appName: ourAppName, holderApp: "psql", want: false},
+		{name: "EmptyHolder", appName: ourAppName, holderApp: "", want: false},
+		{name: "NoOwnAppName", appName: "", holderApp: ourAppName, want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &PostgresSource{appName: tc.appName}
+			// replConn is nil here, so the PID guard is skipped: a matching
+			// application_name with a different PID is our reclaimable orphan.
+			if got := p.isOwnOrphanLocked(12345, tc.holderApp); got != tc.want {
+				t.Errorf("isOwnOrphanLocked(%q) = %v; want %v", tc.holderApp, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestNewPostgresSource_SetsAppName ensures the constructor tags every source
+// with a non-empty, prefixed replication application_name.
+func TestNewPostgresSource_SetsAppName(t *testing.T) {
+	p := NewPostgresSource("postgres://localhost/db", "event_slot", "pub", nil, true)
+	if !strings.HasPrefix(p.appName, replicationAppNamePrefix) {
+		t.Errorf("appName %q must start with %q", p.appName, replicationAppNamePrefix)
+	}
+	if !strings.Contains(p.appName, "event_slot") {
+		t.Errorf("appName %q should embed the slot name", p.appName)
+	}
+}

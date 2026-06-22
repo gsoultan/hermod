@@ -104,6 +104,7 @@ func runApp(svcCtx context.Context, o *Options) {
 	reg, cfg := setupRegistry(store, logStore, logger, o)
 	ctx, cancel := setupSignalHandler(svcCtx, logger, reg, store, logStore)
 	defer cancel()
+	runtimetune.StartScavenger(ctx)
 
 	configured, userSetup := computeSetupStatus(ctx, store, config.IsDBConfigured())
 	if isWorkerModeWithPlatform(o) {

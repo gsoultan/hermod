@@ -14,6 +14,7 @@ import (
 	"github.com/robfig/cron/v3"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -53,7 +54,7 @@ func NewBatchSQLSource(dbProvider DBProvider, config Config) *BatchSQLSource {
 		dbProvider: dbProvider,
 		config:     config,
 		cron:       cron.New(opts...),
-		msgCh:      make(chan hermod.Message, 1000),
+		msgCh:      make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 		errCh:      make(chan error, 10),
 		state:      make(map[string]string),
 	}

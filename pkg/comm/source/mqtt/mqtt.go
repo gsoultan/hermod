@@ -16,6 +16,7 @@ import (
 	paho "github.com/eclipse/paho.mqtt.golang"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 )
 
 // Source implements hermod.Source for MQTT brokers using Eclipse Paho.
@@ -151,7 +152,7 @@ func NewSource(cfg map[string]string) (*Source, error) {
 		opts:   opts,
 		topics: topics,
 		qos:    qos,
-		msgCh:  make(chan hermod.Message, 1024),
+		msgCh:  make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 	}
 
 	// Global message handler pushes to channel

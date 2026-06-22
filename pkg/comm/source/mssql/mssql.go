@@ -17,6 +17,7 @@ import (
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -51,7 +52,7 @@ func NewMSSQLSource(connString string, tables []string, autoEnableCDC bool, useC
 		useCDC:        useCDC,
 		tableLSNs:     make(map[string][]byte),
 		captures:      make(map[string]string),
-		msgChan:       make(chan hermod.Message, 1000),
+		msgChan:       make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 	}
 }
 

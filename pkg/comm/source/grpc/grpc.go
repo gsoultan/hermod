@@ -9,6 +9,7 @@ import (
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/comm/message"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 	"github.com/user/hermod/pkg/comm/source/grpc/proto"
 	"google.golang.org/grpc/metadata"
 )
@@ -25,7 +26,7 @@ func Register(path string) chan hermod.Message {
 	if ch, ok := registry[path]; ok {
 		return ch
 	}
-	ch := make(chan hermod.Message, 1024)
+	ch := make(chan hermod.Message, sourcebuf.DefaultSourceBuffer)
 	registry[path] = ch
 	return ch
 }

@@ -60,6 +60,12 @@ User=$HERMOD_USER
 WorkingDirectory=$DATA_DIR
 Environment=HERMOD_MASTER_KEY=$MASTER_KEY
 Environment=HERMOD_ENV=production
+# Memory tuning: soft Go heap limit + aggressive GC keep the live heap small,
+# and the cgroup ceilings make any leak fail fast instead of swapping the host.
+Environment=GOMEMLIMIT=400MiB
+Environment=GOGC=50
+MemoryHigh=500M
+MemoryMax=700M
 # You can customize these flags (e.g., use postgres instead of sqlite)
 ExecStart=/usr/local/bin/hermod --port=8080 --db-type=sqlite --db-conn=$DATA_DIR/hermod.db
 Restart=always

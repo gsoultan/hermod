@@ -10,6 +10,7 @@ import (
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 	_ "modernc.org/sqlite"
 )
@@ -32,7 +33,7 @@ func NewSQLiteSource(dbPath string, tables []string, useCDC bool) *SQLiteSource 
 		tables:  tables,
 		useCDC:  useCDC,
 		lastIDs: make(map[string]int64),
-		msgChan: make(chan hermod.Message, 1000),
+		msgChan: make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 	}
 }
 

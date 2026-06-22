@@ -212,6 +212,17 @@ export function WorkflowDetailPage() {
     return fetchedLogs;
   }, [logsResponse, realtimeLogs, activePage, debouncedSearch]);
 
+  // Build a lookup of node id -> human-readable name so the Message Journey
+  // can display the node's label instead of the confusing internal UUID.
+  const nodeNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const node of ((workflow as any)?.nodes || []) as any[]) {
+      const label = node?.config?.label || node?.name;
+      if (node?.id && label) map.set(node.id, label);
+    }
+    return map;
+  }, [workflow]);
+
   const lastInitializedId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -444,8 +455,15 @@ export function WorkflowDetailPage() {
                               
                               <Paper withBorder p="md" radius="md" shadow="xs">
                                 <Stack gap="xs">
-                                  <Group justify="space-between">
-                                    <Text fw={700}>Node: {step.node_id}</Text>
+                                  <Group justify="space-between" align="flex-start">
+                                    <Box>
+                                      <Text fw={700}>Node: {nodeNameById.get(step.node_id) || step.node_id}</Text>
+                                      {nodeNameById.get(step.node_id) && (
+                                        <Tooltip label="Internal node ID" withArrow>
+                                          <Text size="xs" c="dimmed">ID: <Code>{step.node_id}</Code></Text>
+                                        </Tooltip>
+                                      )}
+                                    </Box>
                                     <Badge leftSection={<IconClock size="0.8rem" />} variant="light">
                                       {step.duration_ms || Math.round(step.duration / 1000000)}ms
                                     </Badge>

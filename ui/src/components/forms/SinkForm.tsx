@@ -173,7 +173,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
       host: sink.config?.host,
       port: sink.config?.port,
       user: sink.config?.user,
-      database: sink.config?.database,
+      dbname: sink.config?.dbname,
       connection_string: sink.config?.connection_string,
       uri: sink.config?.uri,
       db_path: sink.config?.db_path,
@@ -212,11 +212,16 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
   const connectionString = sink.config?.connection_string;
   const uri = sink.config?.uri;
   const dbPath = sink.config?.db_path;
+  const dbName = sink.config?.dbname;
 
   useEffect(() => {
     const dbTypes = ['postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'yugabyte', 'cassandra', 'sqlite', 'clickhouse', 'mongodb'];
+    // These vendors require a database name before discovery can succeed.
+    // Without this gate the effect fires on the first host keystroke with an
+    // empty dbname, the backend returns 400, and the stale failure is cached.
+    const needsDb = ['postgres', 'yugabyte', 'mysql', 'mariadb', 'mssql', 'oracle'].includes(sinkType);
     const hasConn = Boolean(host || connectionString || uri || dbPath);
-    if (dbTypes.includes(sinkType) && hasConn) {
+    if (dbTypes.includes(sinkType) && hasConn && (!needsDb || dbName)) {
       const timer = setTimeout(() => {
         discoverTables();
       }, 800);
@@ -225,7 +230,7 @@ export function SinkForm({ initialData, isEditing = false, embedded = false, onS
         if (tablesAbortRef.current) tablesAbortRef.current.abort();
       };
     }
-  }, [sinkType, host, connectionString, uri, dbPath, discoverTables]);
+  }, [sinkType, host, connectionString, uri, dbPath, dbName, discoverTables]);
 
   const lastInitialDataId = useRef<string | null>(null);
 

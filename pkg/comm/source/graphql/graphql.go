@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/user/hermod"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 )
 
 var (
@@ -21,7 +22,7 @@ func Register(path string) chan hermod.Message {
 	if ch, ok := registry[path]; ok {
 		return ch
 	}
-	ch := make(chan hermod.Message, 1024)
+	ch := make(chan hermod.Message, sourcebuf.DefaultSourceBuffer)
 	registry[path] = ch
 	return ch
 }

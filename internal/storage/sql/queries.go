@@ -514,7 +514,7 @@ var commonQueries = map[string]string{
 	QueryListMessageTraces: "SELECT DISTINCT message_id, MIN(timestamp) as start_time FROM message_trace_steps WHERE workflow_id = ? GROUP BY message_id ORDER BY start_time DESC LIMIT ? OFFSET ?",
 
 	QueryCreateWorkflowVersion: "INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, config, created_at, created_by, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryListWorkflowVersions:  "SELECT id, workflow_id, version, nodes, edges, config, created_at, created_by, message FROM workflow_versions WHERE workflow_id = ? ORDER BY version DESC",
+	QueryListWorkflowVersions:  "SELECT id, workflow_id, version, created_at, created_by, message FROM workflow_versions WHERE workflow_id = ? ORDER BY version DESC",
 	QueryGetWorkflowVersion:    "SELECT id, workflow_id, version, nodes, edges, config, created_at, created_by, message FROM workflow_versions WHERE workflow_id = ? AND version = ?",
 
 	QueryCreateOutboxItem: "INSERT INTO outbox (id, workflow_id, sink_id, payload, metadata, created_at, attempts, last_error, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",

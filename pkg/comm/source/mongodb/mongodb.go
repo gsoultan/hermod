@@ -10,6 +10,7 @@ import (
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -71,7 +72,7 @@ func NewMongoDBSource(uri, database, collection string, useCDC bool) *MongoDBSou
 		database:   database,
 		collection: collection,
 		useCDC:     useCDC,
-		msgChan:    make(chan hermod.Message, 1000),
+		msgChan:    make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 	}
 }
 

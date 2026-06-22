@@ -12,6 +12,7 @@ import (
 	"github.com/gocql/gocql"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -41,7 +42,7 @@ func NewScyllaDBSource(hosts []string, tables []string, idField string, pollInte
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
 		lastIDs:      make(map[string]any),
-		msgChan:      make(chan hermod.Message, 1000),
+		msgChan:      make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 	}
 }
 

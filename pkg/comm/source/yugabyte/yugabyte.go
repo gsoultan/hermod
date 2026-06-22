@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -41,7 +42,7 @@ func NewYugabyteSource(connString string, tables []string, idField string, pollI
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
 		lastIDs:      make(map[string]any),
-		msgChan:      make(chan hermod.Message, 1000),
+		msgChan:      make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 	}
 }
 

@@ -2384,19 +2384,12 @@ func (s *sqlStorage) ListWorkflowVersions(ctx context.Context, workflowID string
 	versions := []storage.WorkflowVersion{}
 	for rows.Next() {
 		var v storage.WorkflowVersion
-		var nodesStr, edgesStr, configStr, createdBy, message sql.NullString
-		if err := rows.Scan(&v.ID, &v.WorkflowID, &v.Version, &nodesStr, &edgesStr, &configStr, &v.CreatedAt, &createdBy, &message); err != nil {
+		var createdBy, message sql.NullString
+		if err := rows.Scan(&v.ID, &v.WorkflowID, &v.Version, &v.CreatedAt, &createdBy, &message); err != nil {
 			return nil, err
 		}
-		v.Config = configStr.String
 		v.CreatedBy = createdBy.String
 		v.Message = message.String
-		if nodesStr.Valid && nodesStr.String != "" {
-			_ = json.Unmarshal([]byte(nodesStr.String), &v.Nodes)
-		}
-		if edgesStr.Valid && edgesStr.String != "" {
-			_ = json.Unmarshal([]byte(edgesStr.String), &v.Edges)
-		}
 		versions = append(versions, v)
 	}
 	return versions, nil

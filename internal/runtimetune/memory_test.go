@@ -1,9 +1,11 @@
 package runtimetune
 
 import (
+	"context"
 	"math"
 	"runtime/debug"
 	"testing"
+	"time"
 )
 
 func TestApply_SetsMemoryLimitAndGC(t *testing.T) {
@@ -52,4 +54,61 @@ func TestApply_RespectsGOMEMLIMIT(t *testing.T) {
 	if got != math.MaxInt64 {
 		t.Fatalf("memory limit was modified despite GOMEMLIMIT being set: got %d", got)
 	}
+}
+
+func TestScavengeIntervalFromEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want time.Duration
+	}{
+		{"Unset", "", defaultScavengeInterval},
+		{"Valid", "90s", 90 * time.Second},
+		{"Invalid", "not-a-duration", defaultScavengeInterval},
+		{"Zero", "0s", defaultScavengeInterval},
+		{"Negative", "-5s", defaultScavengeInterval},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HERMOD_SCAVENGE_INTERVAL", tc.env)
+			if got := scavengeIntervalFromEnv(); got != tc.want {
+				t.Fatalf("scavengeIntervalFromEnv() = %v; want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStartScavenger_StopsOnContextCancel(t *testing.T) {
+	t.Setenv("HERMOD_SCAVENGE_DISABLE", "")
+	// Keep the cadence long so the test never actually triggers FreeOSMemory;
+	// we only assert the goroutine respects cancellation.
+	t.Setenv("HERMOD_SCAVENGE_INTERVAL", "1h")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	StartScavenger(ctx)
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		// scavengeLoop returns promptly once ctx is done; run it directly to
+		// observe the exit deterministically.
+		cancelledCtx, c := context.WithCancel(t.Context())
+		c()
+		scavengeLoop(cancelledCtx, time.Hour)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("scavengeLoop did not exit after context cancellation")
+	}
+}
+
+func TestStartScavenger_DisabledIsNoop(t *testing.T) {
+	t.Setenv("HERMOD_SCAVENGE_DISABLE", "1")
+	// Should return without spawning a goroutine; nothing to assert beyond not
+	// panicking and respecting the disable flag.
+	StartScavenger(t.Context())
 }

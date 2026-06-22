@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 	hermod "github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 )
 
 // Source is a client-mode WebSocket source that dials a ws/wss URL and
@@ -69,7 +70,7 @@ func New(url string, headers map[string]string, subprotocols []string, connectTi
 		reconnectMax:      reconnectMax,
 		maxMessageBytes:   maxMessageBytes,
 		dlr:               websocket.Dialer{Subprotocols: subprotocols},
-		out:               make(chan hermod.Message, 1024),
+		out:               make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 		quit:              make(chan struct{}),
 	}
 	return s
@@ -229,7 +230,7 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 	// Start loop on first Read
 	s.mu.Lock()
 	if s.out == nil {
-		s.out = make(chan hermod.Message, 1024)
+		s.out = make(chan hermod.Message, sourcebuf.DefaultSourceBuffer)
 	}
 	if s.quit == nil {
 		s.quit = make(chan struct{})

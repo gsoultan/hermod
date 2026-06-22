@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
+)
+
+const (
+	// defaultCacheBytes bounds Pebble's block cache. This memory lives off the
+	// Go heap, so GOMEMLIMIT/GOGC never reclaim it; capping it explicitly keeps
+	// Hermod within its lightweight resident-set budget.
+	defaultCacheBytes int64 = 32 << 20 // 32 MB
+	// defaultMemTableBytes bounds the in-memory write buffer.
+	defaultMemTableBytes uint64 = 8 << 20 // 8 MB
+	// defaultMaxOpenFiles caps the number of open SSTable file descriptors.
+	defaultMaxOpenFiles = 256
 )
 
 type pebbleStorage struct {
@@ -27,11 +39,44 @@ func NewPebbleStorage(path string) (storage.Storage, error) {
 	if err := os.MkdirAll(path, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create pebble directory %s: %w", path, err)
 	}
-	db, err := pebble.Open(path, &pebble.Options{})
+	cache := pebble.NewCache(cacheBytesFromEnv())
+	// Open retains its own reference to the cache; release ours so the cache is
+	// freed when the database is closed.
+	defer cache.Unref()
+
+	db, err := pebble.Open(path, newPebbleOptions(cache))
 	if err != nil {
 		return nil, err
 	}
 	return &pebbleStorage{db: db}, nil
+}
+
+// newPebbleOptions returns conservative, explicitly-bounded options so the
+// engine's off-heap footprint (block cache, memtables, compaction buffers,
+// open files) stays small and predictable instead of using Pebble's larger
+// machine-scaled defaults.
+func newPebbleOptions(cache *pebble.Cache) *pebble.Options {
+	return &pebble.Options{
+		Cache:                       cache,
+		MemTableSize:                defaultMemTableBytes,
+		MemTableStopWritesThreshold: 2,
+		MaxOpenFiles:                defaultMaxOpenFiles,
+		L0CompactionThreshold:       2,
+		MaxConcurrentCompactions:    func() int { return 1 },
+	}
+}
+
+// cacheBytesFromEnv allows operators to tune the block cache via
+// HERMOD_PEBBLE_CACHE_MB, falling back to a small default. Invalid or
+// non-positive values are ignored so a misconfiguration cannot disable the
+// cache or set an unbounded size.
+func cacheBytesFromEnv() int64 {
+	if v := os.Getenv("HERMOD_PEBBLE_CACHE_MB"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n << 20
+		}
+	}
+	return defaultCacheBytes
 }
 
 func (s *pebbleStorage) Init(ctx context.Context) error {

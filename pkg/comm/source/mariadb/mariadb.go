@@ -13,6 +13,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -42,7 +43,7 @@ func NewMariaDBSource(connString string, tables []string, idField string, pollIn
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
 		lastIDs:      make(map[string]any),
-		msgChan:      make(chan hermod.Message, 1000),
+		msgChan:      make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 	}
 }
 

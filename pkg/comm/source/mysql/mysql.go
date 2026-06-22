@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -35,7 +36,7 @@ func NewMySQLSource(connString string, useCDC bool) *MySQLSource {
 	return &MySQLSource{
 		connString: connString,
 		useCDC:     useCDC,
-		msgChan:    make(chan hermod.Message, 1000),
+		msgChan:    make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 		errChan:    make(chan error, 10),
 	}
 }

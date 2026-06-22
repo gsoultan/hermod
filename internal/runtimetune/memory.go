@@ -4,9 +4,11 @@
 package runtimetune
 
 import (
+	"context"
 	"os"
 	"runtime/debug"
 	"strconv"
+	"time"
 )
 
 const (
@@ -21,6 +23,12 @@ const (
 	defaultGCPercent = 50
 
 	bytesPerMB = 1 << 20
+
+	// defaultScavengeInterval is how often the idle scavenger returns unused
+	// memory to the operating system. A messaging daemon is rarely allocation
+	// bound, so a couple of minutes keeps the reported resident set close to the
+	// real live set without meaningful CPU cost.
+	defaultScavengeInterval = 2 * time.Minute
 )
 
 // Apply configures the soft memory limit and GC percentage for the process.
@@ -57,4 +65,40 @@ func applyGCPercent() {
 		return
 	}
 	debug.SetGCPercent(defaultGCPercent)
+}
+
+// StartScavenger launches a background goroutine that periodically returns
+// freed memory to the operating system via debug.FreeOSMemory, so the resident
+// set drops during quiet periods instead of clinging to its peak. The goroutine
+// exits when ctx is cancelled, giving it a clear, cancellable lifecycle.
+//
+// It is a no-op when HERMOD_SCAVENGE_DISABLE is set, and the cadence can be
+// tuned with HERMOD_SCAVENGE_INTERVAL (a Go duration such as "90s").
+func StartScavenger(ctx context.Context) {
+	if os.Getenv("HERMOD_SCAVENGE_DISABLE") != "" {
+		return
+	}
+	go scavengeLoop(ctx, scavengeIntervalFromEnv())
+}
+
+func scavengeLoop(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			debug.FreeOSMemory()
+		}
+	}
+}
+
+func scavengeIntervalFromEnv() time.Duration {
+	if v := os.Getenv("HERMOD_SCAVENGE_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultScavengeInterval
 }

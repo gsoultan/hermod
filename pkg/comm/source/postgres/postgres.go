@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 	"github.com/user/hermod/pkg/infra/pgxutil"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
@@ -31,6 +33,42 @@ const (
 	defaultPublicationName = "hermod_pub"
 )
 
+// replicationAppNamePrefix tags the logical replication connection so a
+// restarted source can recognise (and reclaim) its own orphaned walsender,
+// while never terminating a foreign consumer of the same slot.
+const replicationAppNamePrefix = "hermod-cdc-"
+
+// maxAppNameLen bounds the application_name to Postgres' NAMEDATALEN-1 limit so
+// the value we store matches the value we later read back from
+// pg_stat_activity (Postgres silently truncates longer names, which would
+// otherwise break the own-orphan equality check).
+const maxAppNameLen = 63
+
+// buildReplicationAppName derives a stable, instance-unique application_name
+// from the host and slot. It is stable across restarts of the same worker (so
+// an orphaned walsender from a previous run is recognised as our own) yet
+// distinct from other hosts/slots (so we never reclaim a foreign consumer).
+func buildReplicationAppName(host, slotName string) string {
+	if strings.TrimSpace(host) == "" {
+		host = "unknown"
+	}
+	name := replicationAppNamePrefix + host + "-" + slotName
+	if len(name) > maxAppNameLen {
+		name = name[:maxAppNameLen]
+	}
+	return name
+}
+
+// hostnameOrUnknown returns the OS hostname, falling back to a constant when it
+// cannot be determined so the derived application_name is always non-empty.
+func hostnameOrUnknown() string {
+	host, err := os.Hostname()
+	if err != nil || strings.TrimSpace(host) == "" {
+		return "unknown"
+	}
+	return host
+}
+
 // PostgresSource implements the hermod.Source interface for PostgreSQL CDC.
 type PostgresSource struct {
 	connString      string
@@ -40,6 +78,7 @@ type PostgresSource struct {
 	useCDC          bool
 	pooled          bool      // Whether connString targets a transaction/statement pooler (PgBouncer)
 	persistentSlot  bool      // Whether to keep the slot on Close
+	appName         string    // Stable, instance-unique application_name for the replication connection
 	conn            *pgx.Conn // Standard connection for metadata
 	replConn        *pgx.Conn // Replication connection for streaming
 	typeMap         *pgtype.Map
@@ -80,8 +119,9 @@ func NewPostgresSource(connString, slotName, publicationName string, tables []st
 		useCDC:          useCDC,
 		pooled:          pgxutil.IsPooledConnString(connString),
 		persistentSlot:  true, // Default to persistent for reliability
+		appName:         buildReplicationAppName(hostnameOrUnknown(), slotName),
 		relations:       make(map[uint32]*pglogrepl.RelationMessage),
-		msgChan:         make(chan hermod.Message, 1000),
+		msgChan:         make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 		errChan:         make(chan error, 10),
 	}
 }
@@ -831,6 +871,14 @@ func (p *PostgresSource) ensureReplConnNoLock(ctx context.Context) error {
 		connConfig.RuntimeParams = make(map[string]string)
 	}
 	connConfig.RuntimeParams["replication"] = "database"
+	// Tag the replication connection with a stable, instance-unique
+	// application_name. This lets reclaimSlotIfStaleLocked recognise a walsender
+	// left behind by a previous (ungracefully terminated) run of this same
+	// worker as our own orphan and reclaim it, without ever terminating a
+	// foreign live consumer of the slot.
+	if strings.TrimSpace(p.appName) != "" {
+		connConfig.RuntimeParams["application_name"] = p.appName
+	}
 
 	p.replConn, err = pgx.ConnectConfig(ctx, connConfig)
 	if err != nil {
@@ -986,18 +1034,26 @@ func isSlotActiveError(err error) bool {
 }
 
 // reclaimSlotIfStaleLocked terminates the backend that currently holds the
-// replication slot ONLY when that backend is genuinely stale (its PID is no
-// longer present in pg_stat_activity, e.g. the previous walsender died in an
-// ungraceful Hermod/worker crash but the slot is still marked active during the
-// TCP keepalive grace window). It deliberately does NOT terminate a live holder.
+// replication slot when that backend is safe to reclaim, namely:
 //
-// This is critical for stability: when more than one engine instance contends
-// for the same slot (overlapping restarts, multiple worker processes — the
-// production logs showed several hermod PIDs all "Closing PostgresSource" on the
-// same slot), blindly terminating whichever backend holds the slot makes the
-// instances kill each other's healthy walsender in an endless ping-pong, so no
-// stream ever survives and CDC silently delivers nothing while the worker looks
-// online. By only reclaiming dead holders, two live instances never fight: the
+//   - it is genuinely dead (its PID is no longer present in pg_stat_activity,
+//     e.g. the previous walsender died in an ungraceful Hermod/worker crash but
+//     the slot is still marked active during the TCP keepalive grace window); or
+//   - it is this source's OWN orphaned walsender, left behind by a previous
+//     ungraceful run of the same worker, recognised by our instance-unique
+//     application_name (see isOwnOrphanLocked). Reclaiming our own orphan lets a
+//     restarted worker re-attach to a persistent slot immediately instead of
+//     looping on the "is active for PID …" error until wal_sender_timeout
+//     elapses.
+//
+// It deliberately does NOT terminate a foreign live holder. This is critical for
+// stability: when more than one engine instance contends for the same slot
+// (overlapping restarts, multiple worker processes — the production logs showed
+// several hermod PIDs all "Closing PostgresSource" on the same slot), blindly
+// terminating whichever backend holds the slot makes the instances kill each
+// other's healthy walsender in an endless ping-pong, so no stream ever survives
+// and CDC silently delivers nothing while the worker looks online. By reclaiming
+// only dead holders and our own orphans, two live instances never fight: the
 // loser simply backs off (single-consumer-per-slot is the Hermod convention and
 // is enforced by the worker lease layer). The metadata connection (p.conn) is
 // used because the replication connection cannot run regular SQL. Failures are
@@ -1009,32 +1065,59 @@ func (p *PostgresSource) reclaimSlotIfStaleLocked(ctx context.Context) {
 	}
 	var activePID *int32
 	var holderAlive bool
+	var holderAppName string
 	err := p.conn.QueryRow(ctx,
 		`SELECT s.active_pid,
-		        EXISTS (SELECT 1 FROM pg_stat_activity a WHERE a.pid = s.active_pid)
+		        EXISTS (SELECT 1 FROM pg_stat_activity a WHERE a.pid = s.active_pid),
+		        COALESCE((SELECT a.application_name FROM pg_stat_activity a
+		                    WHERE a.pid = s.active_pid), '')
 		   FROM pg_replication_slots s
 		  WHERE s.slot_name = $1 AND s.active`,
 		p.slotName,
-	).Scan(&activePID, &holderAlive)
+	).Scan(&activePID, &holderAlive, &holderAppName)
 	if err != nil || activePID == nil {
 		return
 	}
-	if holderAlive {
-		// A live backend is streaming from this slot. It is either this source's
-		// own previous connection or another live consumer; terminating it would
-		// start a mutual-kill loop. Leave it alone and let the caller back off.
+	if holderAlive && !p.isOwnOrphanLocked(*activePID, holderAppName) {
+		// A foreign live backend is streaming from this slot (a different host,
+		// slot consumer or our own current connection). Terminating it would
+		// start a mutual-kill loop, so leave it alone and let the caller back
+		// off (single-consumer-per-slot is the Hermod convention).
 		p.log("INFO", "Replication slot held by a live backend; backing off instead of terminating",
-			"slot", p.slotName, "active_pid", *activePID)
+			"slot", p.slotName, "active_pid", *activePID, "holder_application_name", holderAppName)
 		return
 	}
-	p.log("WARN", "Replication slot held by a dead backend; terminating it to take over",
-		"slot", p.slotName, "active_pid", *activePID)
+	if holderAlive {
+		p.log("WARN", "Replication slot held by our own orphaned walsender; terminating it to take over",
+			"slot", p.slotName, "active_pid", *activePID, "application_name", holderAppName)
+	} else {
+		p.log("WARN", "Replication slot held by a dead backend; terminating it to take over",
+			"slot", p.slotName, "active_pid", *activePID)
+	}
 	if _, err := p.conn.Exec(ctx, "SELECT pg_terminate_backend($1)", *activePID); err != nil {
 		p.log("WARN", "Failed to terminate stale slot holder",
 			"slot", p.slotName, "active_pid", *activePID, "error", err)
 		return
 	}
 	p.waitSlotReleasedLocked(ctx)
+}
+
+// isOwnOrphanLocked reports whether a live slot holder is this source's own
+// previous walsender, left behind by an ungraceful restart, rather than a
+// foreign live consumer. It is treated as our orphan only when the holder
+// advertises our instance-unique application_name AND its PID differs from our
+// current replication connection's backend PID, so we never terminate our own
+// active stream nor a different host/consumer. Callers must hold p.mu.
+func (p *PostgresSource) isOwnOrphanLocked(activePID int32, holderAppName string) bool {
+	if strings.TrimSpace(p.appName) == "" || holderAppName != p.appName {
+		return false
+	}
+	if p.replConn != nil && !p.replConn.IsClosed() {
+		if pgConn := p.replConn.PgConn(); pgConn != nil && int64(pgConn.PID()) == int64(activePID) {
+			return false
+		}
+	}
+	return true
 }
 
 // waitSlotReleasedLocked polls until the slot is no longer active or the

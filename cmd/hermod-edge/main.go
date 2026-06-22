@@ -30,6 +30,7 @@ func main() {
 
 	ctx, cancel := setupContext()
 	defer cancel()
+	runtimetune.StartScavenger(ctx)
 
 	runReconciliationLoop(ctx, reg)
 }
