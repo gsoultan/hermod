@@ -283,6 +283,26 @@ func (r *Registry) broadcastLiveMessage(msg LiveMessage) {
 	}
 }
 
+// hasLiveMessageSubscribers reports whether any client is currently watching the
+// live message stream. It is used to skip the (expensive) full-payload
+// serialization performed by broadcastLiveMessageFromHermod when nobody is
+// observing, which is the common case and a major source of allocation churn.
+func (r *Registry) hasLiveMessageSubscribers() bool {
+	r.statusSubsMu.RLock()
+	defer r.statusSubsMu.RUnlock()
+	return len(r.liveMsgSubs) > 0
+}
+
+// hasStatusObservers reports whether any client is watching status, dashboard
+// or live-message streams. Node payload samples are only consumed by these
+// observers, so capturing them (which copies the message payload) is skipped
+// entirely when nobody is connected.
+func (r *Registry) hasStatusObservers() bool {
+	r.statusSubsMu.RLock()
+	defer r.statusSubsMu.RUnlock()
+	return len(r.statusSubs) > 0 || len(r.dashboardSubs) > 0 || len(r.liveMsgSubs) > 0
+}
+
 func (r *Registry) getConsistentData(msg hermod.Message) map[string]any {
 	data := make(map[string]any)
 	if msg != nil {
@@ -302,6 +322,12 @@ func (r *Registry) getConsistentData(msg hermod.Message) map[string]any {
 }
 
 func (r *Registry) broadcastLiveMessageFromHermod(workflowID, nodeID string, msg hermod.Message, isError bool, errStr string) {
+	// Skip all work (including the full-payload JSON round-trip in
+	// getConsistentData) when no client is watching the live stream.
+	if !r.hasLiveMessageSubscribers() {
+		return
+	}
+
 	data := r.getConsistentData(msg)
 
 	r.broadcastLiveMessage(LiveMessage{
@@ -383,11 +409,24 @@ func (r *Registry) recordSourceIngestTrace(ctx context.Context, workflowID, sour
 	if nodeID == "" {
 		nodeID = "source"
 	}
-	r.RecordStep(ctx, workflowID, msg.ID(), hermod.TraceStep{
-		NodeID:    nodeID,
-		Timestamp: time.Now(),
-		After:     r.getConsistentData(msg),
-		Lineage:   "source_ingest",
-	})
+	// Only build and persist the trace step (which serializes the whole
+	// payload) when a log store is actually configured to receive it.
+	if r.hasLogStorage() {
+		r.RecordStep(ctx, workflowID, msg.ID(), hermod.TraceStep{
+			NodeID:    nodeID,
+			Timestamp: time.Now(),
+			After:     r.getConsistentData(msg),
+			Lineage:   "source_ingest",
+		})
+	}
 	r.broadcastLiveMessageFromHermod(workflowID, nodeID, msg, false, "")
+}
+
+// hasLogStorage reports whether a log storage backend is configured. Trace
+// steps are only meaningful (and only serialized) when there is somewhere to
+// persist them.
+func (r *Registry) hasLogStorage() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.logStorage != nil
 }

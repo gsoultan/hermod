@@ -37,9 +37,20 @@ func (r *Registry) GetNodeState(key string) (any, bool) {
 	return val, ok
 }
 
+// maxNodeStates bounds the in-memory node state map so it cannot grow without
+// limit. Node state is best-effort scratch storage; when the cap is reached the
+// oldest-style growth is curbed by dropping an arbitrary existing entry.
+const maxNodeStates = 10000
+
 func (r *Registry) SetNodeState(key string, val any) {
 	r.nodeStatesMu.Lock()
 	defer r.nodeStatesMu.Unlock()
+	if _, exists := r.nodeStates[key]; !exists && len(r.nodeStates) >= maxNodeStates {
+		for k := range r.nodeStates {
+			delete(r.nodeStates, k)
+			break
+		}
+	}
 	r.nodeStates[key] = val
 }
 

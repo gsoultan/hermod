@@ -15,6 +15,7 @@ import (
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/api"
 	"github.com/user/hermod/internal/config"
+	"github.com/user/hermod/internal/runtimetune"
 	"github.com/user/hermod/internal/service"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/internal/version"
@@ -32,6 +33,7 @@ import (
 )
 
 func main() {
+	runtimetune.Apply()
 	_ = godotenv.Load()
 	_ = config.EnsureConfigDir()
 

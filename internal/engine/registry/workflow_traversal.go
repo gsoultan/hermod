@@ -148,7 +148,11 @@ func (t *workflowTraversal) recordError(node *storage.WorkflowNode, msgs []hermo
 func (t *workflowTraversal) recordSuccess(node *storage.WorkflowNode, msgs []hermod.Message) {
 	telemetry.WorkflowNodeProcessed.WithLabelValues(t.workflowID, node.ID, node.Type).Inc()
 	t.eng.UpdateNodeMetric(node.ID, uint64(len(msgs)))
-	t.eng.UpdateNodeSample(node.ID, t.registry.getConsistentData(msgs[0]))
+	// Capturing a node payload sample copies the whole message; only do it when
+	// a client is actually watching the status/dashboard/live streams.
+	if t.registry.hasStatusObservers() {
+		t.eng.UpdateNodeSample(node.ID, t.registry.getConsistentData(msgs[0]))
+	}
 }
 
 func (t *workflowTraversal) shouldFollowEdge(node *storage.WorkflowNode, targetID string, branch string) bool {

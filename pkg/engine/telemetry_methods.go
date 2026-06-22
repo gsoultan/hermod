@@ -81,12 +81,12 @@ func (e *Engine) UpdateNodeErrorMetric(nodeID string, count uint64) {
 	e.statusTracker.UpdateNodeErrorMetric(nodeID, count)
 }
 
+// UpdateNodeSample stores the latest payload sample for a node. Callers must
+// pass an independent map (e.g. produced by Registry.getConsistentData) that is
+// not mutated afterwards; the value is stored as-is to avoid an extra
+// full-payload JSON round-trip on every message.
 func (e *Engine) UpdateNodeSample(nodeID string, data map[string]any) {
-	// Deep copy sample to avoid mutation
-	sampleJSON, _ := json.Marshal(data)
-	var sampleCopy map[string]any
-	_ = json.Unmarshal(sampleJSON, &sampleCopy)
-	e.statusTracker.UpdateNodeSample(nodeID, sampleCopy)
+	e.statusTracker.UpdateNodeSample(nodeID, data)
 }
 
 func (e *Engine) UpdateEdgeMetric(sourceNodeID string, targetNodeID string, count uint64) {

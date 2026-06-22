@@ -164,17 +164,28 @@ func (r *Registry) discoverWorkflowSinks(ctx context.Context, wf storage.Workflo
 	return sinks, snkConfigs, sinkNodeToIndex, nil
 }
 
+// defaultRingBufferCap is the default in-memory ring buffer capacity. It favors
+// a small footprint suitable for the lightweight, low-memory target and can be
+// raised via HERMOD_BUFFER_RING_CAP for high-throughput deployments.
+const defaultRingBufferCap = 256
+
+// ringBufferCap returns the configured ring buffer capacity, falling back to
+// defaultRingBufferCap when HERMOD_BUFFER_RING_CAP is unset or invalid.
+func ringBufferCap() int {
+	if v := strings.TrimSpace(os.Getenv("HERMOD_BUFFER_RING_CAP")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultRingBufferCap
+}
+
 // createWorkflowBuffer selects the appropriate buffer based on environment variables.
 func createWorkflowBuffer() hermod.Producer {
 	bufType := strings.ToLower(strings.TrimSpace(os.Getenv("HERMOD_BUFFER_TYPE")))
 	switch bufType {
 	case "combined_buffer", "combined":
-		ringCap := 1000
-		if v := strings.TrimSpace(os.Getenv("HERMOD_BUFFER_RING_CAP")); v != "" {
-			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				ringCap = n
-			}
-		}
+		ringCap := ringBufferCap()
 		fileDir := strings.TrimSpace(os.Getenv("HERMOD_BUFFER_DIR"))
 		fileSize := 0
 		if v := strings.TrimSpace(os.Getenv("HERMOD_FILEBUFFER_SIZE")); v != "" {
@@ -212,11 +223,11 @@ func createWorkflowBuffer() hermod.Producer {
 		fb, err := buffer.NewFileBufferWithCompressor(fileDir, fileSize, compressor)
 		if err != nil {
 			log.Printf("Registry: failed to create FileBuffer, falling back to ring: %v", err)
-			return buffer.NewRingBuffer(1000)
+			return buffer.NewRingBuffer(ringBufferCap())
 		}
 		return fb
 	default:
-		return buffer.NewRingBuffer(1000)
+		return buffer.NewRingBuffer(ringBufferCap())
 	}
 }
 

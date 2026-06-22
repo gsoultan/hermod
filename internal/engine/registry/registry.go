@@ -143,7 +143,7 @@ type Registry struct {
 	notificationService *notification.Service
 	nodeStates          map[string]any
 	nodeStatesMu        sync.Mutex
-	lookupCache         map[string]any
+	lookupCache         map[string]lookupCacheEntry
 	lookupCacheMu       sync.RWMutex
 	dbPool              map[string]*sql.DB
 	dbPoolMu            sync.Mutex
@@ -225,7 +225,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		debugChans:          make(map[string]chan string),
 		notificationService: ns,
 		nodeStates:          make(map[string]any),
-		lookupCache:         make(map[string]any),
+		lookupCache:         make(map[string]lookupCacheEntry),
 		dbPool:              make(map[string]*sql.DB),
 		logger:              telemetry.NewDefaultLogger(),
 		idleMonitorStop:     make(chan struct{}),
@@ -736,25 +736,79 @@ func (r *Registry) SetConfig(cfg config.Config) {
 	r.config = cfg
 }
 
-func (r *Registry) GetLookupCache(key string) (any, bool) {
-	r.lookupCacheMu.RLock()
-	defer r.lookupCacheMu.RUnlock()
-	val, ok := r.lookupCache[key]
-	return val, ok
+// maxLookupCacheSize bounds the number of entries kept in the in-memory lookup
+// cache so it cannot grow without limit and leak memory.
+const maxLookupCacheSize = 10000
+
+// lookupCacheEntry is a cached value with an optional expiry time. A zero
+// expiry means the entry never expires.
+type lookupCacheEntry struct {
+	value  any
+	expiry time.Time
 }
 
-func (r *Registry) SetLookupCache(key string, value any, ttl time.Duration) {
-	r.lookupCacheMu.Lock()
-	r.lookupCache[key] = value
-	r.lookupCacheMu.Unlock()
-
-	if ttl > 0 {
-		go func() {
-			time.Sleep(ttl)
-			r.lookupCacheMu.Lock()
+func (r *Registry) GetLookupCache(key string) (any, bool) {
+	r.lookupCacheMu.RLock()
+	entry, ok := r.lookupCache[key]
+	r.lookupCacheMu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	if !entry.expiry.IsZero() && time.Now().After(entry.expiry) {
+		// Lazily evict the expired entry.
+		r.lookupCacheMu.Lock()
+		if cur, still := r.lookupCache[key]; still && cur.expiry == entry.expiry {
 			delete(r.lookupCache, key)
-			r.lookupCacheMu.Unlock()
-		}()
+		}
+		r.lookupCacheMu.Unlock()
+		return nil, false
+	}
+	return entry.value, true
+}
+
+// SetLookupCache stores a value with an optional TTL. Expired entries are
+// reclaimed lazily on read and during a bounded sweep on write, so no
+// per-key goroutine is spawned (which previously leaked goroutines and memory
+// under high lookup throughput).
+func (r *Registry) SetLookupCache(key string, value any, ttl time.Duration) {
+	var expiry time.Time
+	if ttl > 0 {
+		expiry = time.Now().Add(ttl)
+	}
+
+	r.lookupCacheMu.Lock()
+	defer r.lookupCacheMu.Unlock()
+
+	if _, exists := r.lookupCache[key]; !exists && len(r.lookupCache) >= maxLookupCacheSize {
+		r.evictLookupCacheLocked()
+	}
+	r.lookupCache[key] = lookupCacheEntry{value: value, expiry: expiry}
+}
+
+// evictLookupCacheLocked frees space in the lookup cache. It first drops all
+// expired entries; if that is not enough it removes the entry with the nearest
+// expiry (and, failing that, an arbitrary entry) to enforce the size bound.
+// Callers must hold lookupCacheMu.
+func (r *Registry) evictLookupCacheLocked() {
+	now := time.Now()
+	for k, e := range r.lookupCache {
+		if !e.expiry.IsZero() && now.After(e.expiry) {
+			delete(r.lookupCache, k)
+		}
+	}
+	if len(r.lookupCache) < maxLookupCacheSize {
+		return
+	}
+	var victim string
+	var victimExpiry time.Time
+	for k, e := range r.lookupCache {
+		if victim == "" || (!e.expiry.IsZero() && (victimExpiry.IsZero() || e.expiry.Before(victimExpiry))) {
+			victim = k
+			victimExpiry = e.expiry
+		}
+	}
+	if victim != "" {
+		delete(r.lookupCache, victim)
 	}
 }
 

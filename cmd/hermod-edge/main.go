@@ -12,6 +12,7 @@ import (
 
 	"github.com/user/hermod/internal/config"
 	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/runtimetune"
 	"github.com/user/hermod/internal/storage"
 	internal_sql "github.com/user/hermod/internal/storage/sql"
 	"github.com/user/hermod/pkg/engine/telemetry"
@@ -19,6 +20,7 @@ import (
 )
 
 func main() {
+	runtimetune.Apply()
 	_ = config.EnsureConfigDir()
 	configPath := parseFlags()
 
