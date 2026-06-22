@@ -382,6 +382,11 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	}
 	engCfg.PrioritizeDLQ = wf.PrioritizeDLQ
 	engCfg.DryRun = wf.DryRun
+	// Apply the per-workflow trace sample rate BEFORE SetConfig: SetConfig copies
+	// the config by value into the engine, so any field set on engCfg afterwards
+	// would never reach the engine and per-workflow tracing would be silently
+	// ignored (the engine's RecordTraceStep early-returns when the rate is <= 0).
+	engCfg.TraceSampleRate = wf.TraceSampleRate
 	eng.SetConfig(engCfg)
 
 	// Set Dead Letter Sink if configured
@@ -436,7 +441,6 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	}
 
 	eng.SetTraceRecorder(r)
-	engCfg.TraceSampleRate = wf.TraceSampleRate
 
 	adj := make(map[string][]string)
 	for _, edge := range wf.Edges {
@@ -530,10 +534,21 @@ func (r *Registry) setupWorkflowRouter(
 	sinkNodeToIndex map[string]int,
 ) {
 	eng.SetRouter(func(ctx context.Context, msg hermod.Message) ([]pkgengine.RoutedMessage, error) {
+		// Stamp the workflow id onto every message as it enters the workflow.
+		// Downstream trace recording (doApplyTransformation) and PII discovery
+		// stats (recordPIIDiscoveries) read "_hermod_workflow_id" from message
+		// metadata; without this stamp those per-node trace steps and stats are
+		// always skipped, leaving the message trace empty of node detail.
+		msg.SetMetadata("_hermod_workflow_id", id)
+
 		sourceNodeID := msg.Metadata()["_source_node_id"]
 		if sourceNodeID == "" && len(sourceNodes) > 0 {
 			sourceNodeID = sourceNodes[0].ID
 		}
+
+		// Record an ingestion trace step at the source node so the message
+		// trace always shows "message received" even before any transform runs.
+		r.recordSourceIngestTrace(ctx, id, sourceNodeID, msg)
 
 		t := &workflowTraversal{
 			registry:        r,

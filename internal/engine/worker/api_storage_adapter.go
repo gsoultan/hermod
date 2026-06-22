@@ -193,7 +193,7 @@ func (a *apiStorage) RecordTraceStep(ctx context.Context, workflowID, messageID 
 func (a *apiStorage) GetMessageTrace(ctx context.Context, workflowID, messageID string) (storage.MessageTrace, error) {
 	return storage.MessageTrace{}, storage.ErrNotFound
 }
-func (a *apiStorage) ListMessageTraces(ctx context.Context, workflowID string, limit int) ([]storage.MessageTrace, error) {
+func (a *apiStorage) ListMessageTraces(ctx context.Context, workflowID string, limit, offset int) ([]storage.MessageTrace, error) {
 	return nil, nil
 }
 

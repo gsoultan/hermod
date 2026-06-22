@@ -1749,10 +1749,13 @@ func (s *mongoStorage) GetMessageTrace(ctx context.Context, workflowID, messageI
 	return tr, err
 }
 
-func (s *mongoStorage) ListMessageTraces(ctx context.Context, workflowID string, limit int) ([]storage.MessageTrace, error) {
+func (s *mongoStorage) ListMessageTraces(ctx context.Context, workflowID string, limit, offset int) ([]storage.MessageTrace, error) {
 	coll := s.db.Collection("message_traces")
 	filter := bson.M{"workflow_id": workflowID}
 	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(int64(limit))
+	if offset > 0 {
+		opts.SetSkip(int64(offset))
+	}
 	cursor, err := coll.Find(ctx, filter, opts)
 	if err != nil {
 		return nil, err

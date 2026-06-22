@@ -194,7 +194,7 @@ func (m *BaseMockStorage) RecordTraceStep(ctx context.Context, workflowID, messa
 func (m *BaseMockStorage) GetMessageTrace(ctx context.Context, workflowID, messageID string) (storage.MessageTrace, error) {
 	return storage.MessageTrace{}, storage.ErrNotFound
 }
-func (m *BaseMockStorage) ListMessageTraces(ctx context.Context, workflowID string, limit int) ([]storage.MessageTrace, error) {
+func (m *BaseMockStorage) ListMessageTraces(ctx context.Context, workflowID string, limit, offset int) ([]storage.MessageTrace, error) {
 	return nil, nil
 }
 

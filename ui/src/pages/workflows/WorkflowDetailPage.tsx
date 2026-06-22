@@ -32,11 +32,14 @@ export function WorkflowDetailPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string | null>('graph');
   const [selectedTraceID, setSelectedTraceID] = useState<string | null>(null);
+  const [tracePage, setTracePage] = useState(1);
+  const TRACES_PER_PAGE = 50;
 
   const { data: traces, isLoading: isTracesLoading } = useQuery({
-    queryKey: ['traces', id],
+    queryKey: ['traces', id, tracePage],
     queryFn: async () => {
-      const res = await apiFetch(`/api/workflows/${id}/traces`);
+      const offset = (tracePage - 1) * TRACES_PER_PAGE;
+      const res = await apiFetch(`/api/workflows/${id}/traces?limit=${TRACES_PER_PAGE}&offset=${offset}`);
       if (!res.ok) throw new Error('Failed to fetch traces');
       return res.json();
     },
@@ -378,6 +381,31 @@ export function WorkflowDetailPage() {
                         </UnstyledButton>
                       )) : null)}
                     </ScrollArea>
+                    <Group
+                      justify="space-between"
+                      p="xs"
+                      style={{ borderTop: `1px solid ${isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'}` }}
+                    >
+                      <Button
+                        size="xs"
+                        variant="default"
+                        leftSection={<IconArrowLeft size="0.9rem" />}
+                        disabled={tracePage <= 1 || isTracesLoading}
+                        onClick={() => setTracePage((p) => Math.max(1, p - 1))}
+                      >
+                        Previous
+                      </Button>
+                      <Text size="xs" c="dimmed">Page {tracePage}</Text>
+                      <Button
+                        size="xs"
+                        variant="default"
+                        rightSection={<IconChevronRight size="0.9rem" />}
+                        disabled={!Array.isArray(traces) || (traces as any[]).length < TRACES_PER_PAGE || isTracesLoading}
+                        onClick={() => setTracePage((p) => p + 1)}
+                      >
+                        Next
+                      </Button>
+                    </Group>
                   </Stack>
                 </Grid.Col>
                 <Grid.Col span={8} h="100%">

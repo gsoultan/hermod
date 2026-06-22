@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"
+	"github.com/user/hermod/pkg/infra/pgxutil"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -151,7 +152,11 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 }
 
 func (s *Sink) init(ctx context.Context) error {
-	pool, err := pgxpool.New(ctx, s.connString)
+	poolCfg, _, err := pgxutil.ParsePoolConfig(s.connString)
+	if err != nil {
+		return fmt.Errorf("failed to parse pgvector connection string: %w", err)
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return err
 	}

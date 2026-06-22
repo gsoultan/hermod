@@ -369,3 +369,25 @@ func (r *Registry) RecordStep(ctx context.Context, workflowID, messageID string,
 		_ = ls.RecordTraceStep(ctx, workflowID, messageID, step)
 	}
 }
+
+// recordSourceIngestTrace records an ingestion trace step and broadcasts a live
+// message the moment a message first enters the workflow at its source node.
+// This guarantees the message trace and the live log always show "message
+// received" activity even before any transformation runs, so a working source
+// is never mistaken for a silent/broken one.
+func (r *Registry) recordSourceIngestTrace(ctx context.Context, workflowID, sourceNodeID string, msg hermod.Message) {
+	if msg == nil || workflowID == "" {
+		return
+	}
+	nodeID := sourceNodeID
+	if nodeID == "" {
+		nodeID = "source"
+	}
+	r.RecordStep(ctx, workflowID, msg.ID(), hermod.TraceStep{
+		NodeID:    nodeID,
+		Timestamp: time.Now(),
+		After:     r.getConsistentData(msg),
+		Lineage:   "source_ingest",
+	})
+	r.broadcastLiveMessageFromHermod(workflowID, nodeID, msg, false, "")
+}

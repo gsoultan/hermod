@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/infra/pgxutil"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -37,6 +38,7 @@ type PostgresSource struct {
 	publicationName string
 	tables          []string
 	useCDC          bool
+	pooled          bool      // Whether connString targets a transaction/statement pooler (PgBouncer)
 	persistentSlot  bool      // Whether to keep the slot on Close
 	conn            *pgx.Conn // Standard connection for metadata
 	replConn        *pgx.Conn // Replication connection for streaming
@@ -76,6 +78,7 @@ func NewPostgresSource(connString, slotName, publicationName string, tables []st
 		publicationName: publicationName,
 		tables:          tables,
 		useCDC:          useCDC,
+		pooled:          pgxutil.IsPooledConnString(connString),
 		persistentSlot:  true, // Default to persistent for reliability
 		relations:       make(map[uint32]*pglogrepl.RelationMessage),
 		msgChan:         make(chan hermod.Message, 1000),
@@ -130,87 +133,99 @@ func (p *PostgresSource) ensurePublication(ctx context.Context) error {
 		return fmt.Errorf("invalid publication name %q: %w", p.publicationName, err)
 	}
 
-	var exists bool
-	err = p.conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = $1)", p.publicationName).Scan(&exists)
+	exists, err := p.publicationExists(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to check if publication exists: %w", err)
+		return err
 	}
-
 	if !exists {
-		tablesClause := "ALL TABLES"
-		if len(p.tables) > 0 {
-			quotedTables := make([]string, len(p.tables))
-			for i, t := range p.tables {
-				qt, err := sqlutil.QuoteIdent("postgres", t)
-				if err != nil {
-					return fmt.Errorf("invalid table name %q: %w", t, err)
-				}
-				quotedTables[i] = qt
-			}
-			tablesClause = "TABLE " + strings.Join(quotedTables, ", ")
-		}
-		query := fmt.Sprintf("CREATE PUBLICATION %s FOR %s", quotedPub, tablesClause)
-		_, err = p.conn.Exec(ctx, query)
-		if err != nil {
-			// Fallback for non-superuser if ALL TABLES failed
-			if len(p.tables) == 0 && (strings.Contains(err.Error(), "superuser") || strings.Contains(err.Error(), "permission")) {
-				p.log("WARN", "Failed to create publication FOR ALL TABLES (need superuser), falling back to listing all tables", "error", err)
-				return p.createPublicationWithAllTables(ctx, quotedPub)
-			}
-			return fmt.Errorf("failed to create publication: %w", err)
-		}
-		p.log("INFO", "Created publication", "publication", p.publicationName)
-		return nil
+		return p.createPublication(ctx, quotedPub)
 	}
+	return p.reconcileExistingPublication(ctx, quotedPub)
+}
 
-	// Publication exists, ensure it has the correct tables
+// publicationExists reports whether the configured publication is already
+// present in the database.
+func (p *PostgresSource) publicationExists(ctx context.Context) (bool, error) {
+	var exists bool
+	err := p.conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = $1)", p.publicationName).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if publication exists: %w", err)
+	}
+	return exists, nil
+}
+
+// createPublication creates the publication, covering either the configured
+// table list or ALL TABLES, with a non-superuser fallback for the latter.
+func (p *PostgresSource) createPublication(ctx context.Context, quotedPub string) error {
+	tablesClause := "ALL TABLES"
+	if len(p.tables) > 0 {
+		quotedTables := make([]string, len(p.tables))
+		for i, t := range p.tables {
+			qt, err := sqlutil.QuoteIdent("postgres", t)
+			if err != nil {
+				return fmt.Errorf("invalid table name %q: %w", t, err)
+			}
+			quotedTables[i] = qt
+		}
+		tablesClause = "TABLE " + strings.Join(quotedTables, ", ")
+	}
+	query := fmt.Sprintf("CREATE PUBLICATION %s FOR %s", quotedPub, tablesClause)
+	if _, err := p.conn.Exec(ctx, query); err != nil {
+		// Fallback for non-superuser if ALL TABLES failed.
+		if len(p.tables) == 0 && (strings.Contains(err.Error(), "superuser") || strings.Contains(err.Error(), "permission")) {
+			p.log("WARN", "Failed to create publication FOR ALL TABLES (need superuser), falling back to listing all tables", "error", err)
+			return p.createPublicationWithAllTables(ctx, quotedPub)
+		}
+		return fmt.Errorf("failed to create publication: %w", err)
+	}
+	p.log("INFO", "Created publication", "publication", p.publicationName)
+	return nil
+}
+
+// reconcileExistingPublication aligns an already-existing publication with the
+// configured table list, without ever dropping an externally-managed one.
+func (p *PostgresSource) reconcileExistingPublication(ctx context.Context, quotedPub string) error {
 	var pubAllTables bool
-	err = p.conn.QueryRow(ctx, "SELECT puballtables FROM pg_publication WHERE pubname = $1", p.publicationName).Scan(&pubAllTables)
+	err := p.conn.QueryRow(ctx, "SELECT puballtables FROM pg_publication WHERE pubname = $1", p.publicationName).Scan(&pubAllTables)
 	if err != nil {
 		return fmt.Errorf("failed to check publication details: %w", err)
 	}
 
-	// Handle case where all tables were removed
-	if len(p.tables) == 0 && !pubAllTables {
-		p.log("INFO", "All tables removed from publication, cleaning up", "publication", p.publicationName)
-		_ = p.dropPublicationAndSlot(ctx)
-		return errors.New("all tables removed from CDC source; publication and replication slot have been cleaned up")
-	}
-
+	// An empty tables config means "Hermod is not managing a specific table
+	// list". When the publication already exists we must NOT destroy it: it may
+	// be externally managed (e.g. created as CREATE PUBLICATION ... FOR TABLE
+	// ...). Dropping it here would silently stop all CDC and is the most common
+	// cause of a source that "receives no data". Instead we adopt the existing
+	// publication exactly as it is and stream whatever it already covers.
 	if len(p.tables) == 0 {
 		if !pubAllTables {
-			_, err = p.conn.Exec(ctx, fmt.Sprintf("ALTER PUBLICATION %s SET FOR ALL TABLES", quotedPub))
-			if err != nil {
-				if strings.Contains(err.Error(), "superuser") || strings.Contains(err.Error(), "permission") {
-					p.log("WARN", "Failed to set publication to ALL TABLES (need superuser), falling back to listing all tables", "error", err)
-					return p.setPublicationWithAllTables(ctx, quotedPub)
-				}
-				return fmt.Errorf("failed to set publication to ALL TABLES: %w", err)
-			}
-			p.log("INFO", "Updated publication to ALL TABLES", "publication", p.publicationName)
+			p.log("INFO",
+				"Adopting existing publication as-is; no table list configured so Hermod will not modify it",
+				"publication", p.publicationName)
 		}
 		return nil
 	}
 
 	if pubAllTables {
-		// Switch from ALL TABLES to specific tables
-		quotedTables := make([]string, len(p.tables))
-		for i, t := range p.tables {
-			quotedTables[i], _ = sqlutil.QuoteIdent("postgres", t)
-		}
-		query := fmt.Sprintf("ALTER PUBLICATION %s SET TABLE %s", quotedPub, strings.Join(quotedTables, ", "))
-		_, err = p.conn.Exec(ctx, query)
-		if err != nil {
-			return fmt.Errorf("failed to update publication from ALL TABLES to specific tables: %w", err)
-		}
-		p.log("INFO", "Updated publication from ALL TABLES to specific tables", "publication", p.publicationName)
-		return nil
+		return p.setPublicationTables(ctx, quotedPub, "Updated publication from ALL TABLES to specific tables")
 	}
 
-	// Check if any tables are missing OR if there are extra tables in the publication
+	needsUpdate, err := p.publicationNeedsTableUpdate(ctx)
+	if err != nil {
+		return err
+	}
+	if needsUpdate {
+		return p.setPublicationTables(ctx, quotedPub, "Updated publication tables")
+	}
+	return nil
+}
+
+// publicationNeedsTableUpdate reports whether the publication's current table
+// set differs from the configured table list.
+func (p *PostgresSource) publicationNeedsTableUpdate(ctx context.Context) (bool, error) {
 	rows, err := p.conn.Query(ctx, "SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname = $1", p.publicationName)
 	if err != nil {
-		return fmt.Errorf("failed to get publication tables: %w", err)
+		return false, fmt.Errorf("failed to get publication tables: %w", err)
 	}
 	defer rows.Close()
 
@@ -219,49 +234,39 @@ func (p *PostgresSource) ensurePublication(ctx context.Context) error {
 	for rows.Next() {
 		var schema, table string
 		if err := rows.Scan(&schema, &table); err != nil {
-			return fmt.Errorf("failed to scan publication table: %w", err)
+			return false, fmt.Errorf("failed to scan publication table: %w", err)
 		}
 		existingTables[table] = true
 		existingTables[schema+"."+table] = true
 		numInPub++
 	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("failed to read publication tables: %w", err)
+	}
 
-	needsUpdate := false
 	if numInPub != len(p.tables) {
-		needsUpdate = true
-	} else {
-		for _, t := range p.tables {
-			if !existingTables[t] {
-				needsUpdate = true
-				break
-			}
+		return true, nil
+	}
+	for _, t := range p.tables {
+		if !existingTables[t] {
+			return true, nil
 		}
 	}
-
-	if needsUpdate {
-		quotedTables := make([]string, len(p.tables))
-		for i, t := range p.tables {
-			quotedTables[i], _ = sqlutil.QuoteIdent("postgres", t)
-		}
-		query := fmt.Sprintf("ALTER PUBLICATION %s SET TABLE %s", quotedPub, strings.Join(quotedTables, ", "))
-		_, err = p.conn.Exec(ctx, query)
-		if err != nil {
-			return fmt.Errorf("failed to update publication tables: %w", err)
-		}
-		p.log("INFO", "Updated publication tables", "publication", p.publicationName, "tables", strings.Join(p.tables, ", "))
-	}
-
-	return nil
+	return false, nil
 }
 
-func (p *PostgresSource) dropPublicationAndSlot(ctx context.Context) error {
-	quotedPub, err := sqlutil.QuoteIdent("postgres", p.publicationName)
-	if err == nil {
-		// Try to drop publication, ignore if it doesn't exist
-		_, _ = p.conn.Exec(ctx, "DROP PUBLICATION IF EXISTS "+quotedPub)
+// setPublicationTables sets the publication to cover exactly the configured
+// table list, logging the provided message on success.
+func (p *PostgresSource) setPublicationTables(ctx context.Context, quotedPub, logMsg string) error {
+	quotedTables := make([]string, len(p.tables))
+	for i, t := range p.tables {
+		quotedTables[i], _ = sqlutil.QuoteIdent("postgres", t)
 	}
-	// Try to drop replication slot, ignore if it doesn't exist
-	_, _ = p.conn.Exec(ctx, "SELECT pg_drop_replication_slot($1)", p.slotName)
+	query := fmt.Sprintf("ALTER PUBLICATION %s SET TABLE %s", quotedPub, strings.Join(quotedTables, ", "))
+	if _, err := p.conn.Exec(ctx, query); err != nil {
+		return fmt.Errorf("failed to update publication tables: %w", err)
+	}
+	p.log("INFO", logMsg, "publication", p.publicationName, "tables", strings.Join(p.tables, ", "))
 	return nil
 }
 
@@ -283,27 +288,6 @@ func (p *PostgresSource) createPublicationWithAllTables(ctx context.Context, quo
 		return fmt.Errorf("failed to create publication with discovered tables: %w", err)
 	}
 	p.log("INFO", "Created publication with all discovered tables", "publication", p.publicationName)
-	return nil
-}
-
-func (p *PostgresSource) setPublicationWithAllTables(ctx context.Context, quotedPub string) error {
-	allTables, err := p.DiscoverTables(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to discover tables for publication fallback: %w", err)
-	}
-	if len(allTables) == 0 {
-		return errors.New("no tables found in database")
-	}
-	quotedTables := make([]string, len(allTables))
-	for i, t := range allTables {
-		quotedTables[i], _ = sqlutil.QuoteIdent("postgres", t)
-	}
-	query := fmt.Sprintf("ALTER PUBLICATION %s SET TABLE %s", quotedPub, strings.Join(quotedTables, ", "))
-	_, err = p.conn.Exec(ctx, query)
-	if err != nil {
-		return fmt.Errorf("failed to update publication with discovered tables: %w", err)
-	}
-	p.log("INFO", "Updated publication with all discovered tables", "publication", p.publicationName)
 	return nil
 }
 
@@ -368,6 +352,12 @@ func (p *PostgresSource) Read(ctx context.Context) (hermod.Message, error) {
 // after some idle time and CDC stops delivering changes. Sending well within
 // that window keeps the connection alive across quiet periods.
 const standbyMessageTimeout = 10 * time.Second
+
+// idleHeartbeatLogInterval controls how often an INFO "awaiting changes" line
+// is emitted to the live log while the replication stream is connected but no
+// changes are arriving. This keeps the workflow live log informative during
+// quiet periods without flooding it.
+const idleHeartbeatLogInterval = 30 * time.Second
 
 // maxStreamReconnectBackoff caps the exponential backoff used when the
 // replication stream needs to be re-established (e.g. after a Postgres or
@@ -508,6 +498,7 @@ func (p *PostgresSource) reconnectStream(ctx context.Context) error {
 // keeping the connection alive within Postgres' wal_sender_timeout window.
 func (p *PostgresSource) consumeStream(ctx context.Context, conn *pgx.Conn) error {
 	nextStandby := time.Now().Add(standbyMessageTimeout)
+	nextHeartbeatLog := time.Now().Add(idleHeartbeatLogInterval)
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -526,12 +517,30 @@ func (p *PostgresSource) consumeStream(ctx context.Context, conn *pgx.Conn) erro
 		if msg == nil {
 			// Deadline reached without a message: time to send the next
 			// heartbeat. The connection is still usable, so keep streaming.
+			// Periodically surface an INFO heartbeat to the live log so an
+			// idle-but-healthy source is clearly distinguishable from a dead
+			// one (otherwise the live log stays empty and looks broken).
+			if time.Now().After(nextHeartbeatLog) {
+				p.log("INFO", "CDC connected, awaiting changes",
+					"slot", p.slotName,
+					"publication", p.publicationName,
+					"last_received_lsn", p.snapshotLastReceivedLSN().String())
+				nextHeartbeatLog = time.Now().Add(idleHeartbeatLogInterval)
+			}
 			continue
 		}
 		if err := p.handleReplicationMessage(ctx, conn, msg); err != nil {
 			return err
 		}
 	}
+}
+
+// snapshotLastReceivedLSN returns the last received LSN under lock, for safe
+// inclusion in diagnostic log lines from the streaming goroutine.
+func (p *PostgresSource) snapshotLastReceivedLSN() pglogrepl.LSN {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lastReceivedLSN
 }
 
 // maybeSendStandby sends a heartbeat Standby Status Update when the deadline
@@ -763,26 +772,32 @@ func (p *PostgresSource) handleDelete(lsn pglogrepl.LSN, lm *pglogrepl.DeleteMes
 	return res
 }
 
+// openMetadataConn dials a fresh, non-replication metadata connection using the
+// pooler-safe pgx configuration. Callers own the returned connection and must
+// close it.
+func (p *PostgresSource) openMetadataConn(ctx context.Context) (*pgx.Conn, error) {
+	config, _, err := pgxutil.ParseConfig(p.connString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	}
+	if config.RuntimeParams == nil {
+		config.RuntimeParams = make(map[string]string)
+	}
+	// Explicitly disable replication for the metadata connection.
+	delete(config.RuntimeParams, "replication")
+	return pgx.ConnectConfig(ctx, config)
+}
+
 func (p *PostgresSource) ensureConnNoLock(ctx context.Context) error {
 	if p.conn != nil && !p.conn.IsClosed() {
 		return nil
 	}
 
-	config, err := pgx.ParseConfig(p.connString)
-	if err != nil {
-		return fmt.Errorf("failed to parse connection string: %w", err)
-	}
-
-	if config.RuntimeParams == nil {
-		config.RuntimeParams = make(map[string]string)
-	}
-	// Explicitly disable replication for the metadata connection
-	delete(config.RuntimeParams, "replication")
-
-	p.conn, err = pgx.ConnectConfig(ctx, config)
+	conn, err := p.openMetadataConn(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to postgres: %w", err)
 	}
+	p.conn = conn
 	return nil
 }
 
@@ -797,7 +812,18 @@ func (p *PostgresSource) ensureReplConnNoLock(ctx context.Context) error {
 		return nil
 	}
 
-	connConfig, err := pgx.ParseConfig(p.connString)
+	// Logical replication establishes a long-lived session-scoped connection and
+	// uses the replication protocol, neither of which is supported by a
+	// transaction/statement pooling proxy such as PgBouncer. Fail fast with an
+	// actionable message instead of hanging until the request deadline.
+	if p.pooled {
+		return errors.New("CDC requires a direct Postgres connection; PgBouncer transaction/statement mode does not support logical replication. Provide a direct (session-mode) connection string for CDC sources")
+	}
+
+	// Strip the custom pooler markers (pgbouncer/pool_mode) before handing the
+	// string to pgx; otherwise pgx forwards them as Postgres startup parameters
+	// and the connection handshake fails.
+	connConfig, _, err := pgxutil.ParseConfig(p.connString)
 	if err != nil {
 		return fmt.Errorf("failed to parse connection string for replication: %w", err)
 	}
@@ -817,6 +843,23 @@ func (p *PostgresSource) init(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if err := p.initLocked(ctx); err != nil {
+		// Surface startup/permission failures (wrong connection mode, missing
+		// wal_level, publication/slot problems, privilege errors) to the live
+		// log so they are visible in the workflow editor instead of only in the
+		// process output. These errors happen before any message flows, so the
+		// live log would otherwise stay empty and the source would look idle.
+		if ctx.Err() == nil {
+			p.log("ERROR", "PostgresSource initialization failed",
+				"slot", p.slotName, "publication", p.publicationName, "error", err)
+		}
+		return err
+	}
+	return nil
+}
+
+// initLocked performs the actual initialization. Callers must hold p.mu.
+func (p *PostgresSource) initLocked(ctx context.Context) error {
 	if p.initialized {
 		return nil
 	}
@@ -1112,33 +1155,51 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 		return nil
 	}
 
-	// 1) Check wal_level using a regular (non-replication) connection
-	normalCfg, err := pgx.ParseConfig(p.connString)
-	if err != nil {
-		return fmt.Errorf("failed to parse connection string: %w", err)
+	// Logical replication cannot run through a transaction/statement pooler.
+	// Detect it up front so the test fails fast with a clear, actionable message
+	// instead of stalling on a replication handshake PgBouncer never completes.
+	if p.pooled {
+		return errors.New("CDC requires a direct Postgres connection; PgBouncer transaction/statement mode does not support logical replication. Provide a direct (session-mode) connection string for CDC sources")
 	}
-	if normalCfg.RuntimeParams != nil {
-		delete(normalCfg.RuntimeParams, "replication")
-	}
-	normalConn, err := pgx.ConnectConfig(ctx, normalCfg)
-	if err != nil {
-		return fmt.Errorf("postgres connect (wal_level check) failed: %w", err)
+
+	// Run the wal_level check (reusing the already-open metadata connection) and
+	// the replication-privilege probe concurrently so a slow round-trip on one
+	// does not serialize behind the other and blow the request budget.
+	walErrCh := make(chan error, 1)
+	go func() { walErrCh <- p.checkWALLevel(ctx) }()
+
+	replErr := p.probeReplication(ctx)
+	walErr := <-walErrCh
+
+	return errors.Join(walErr, replErr)
+}
+
+// checkWALLevel verifies the server is configured for logical decoding, reusing
+// the existing metadata connection instead of dialing a fresh one.
+func (p *PostgresSource) checkWALLevel(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.conn == nil {
+		return errors.New("connection not initialized")
 	}
 	var walLevel string
-	if err := normalConn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
-		_ = normalConn.Close(ctx)
+	if err := p.conn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
 		return fmt.Errorf("failed to check wal_level: %w", err)
-	}
-	// Close normal connection as early as possible
-	if err := normalConn.Close(ctx); err != nil {
-		return fmt.Errorf("failed closing wal_level check connection: %w", err)
 	}
 	if walLevel != "logical" {
 		return fmt.Errorf("postgres 'wal_level' must be 'logical' for CDC (currently '%s'). Please update postgresql.conf and restart postgres", walLevel)
 	}
+	return nil
+}
 
-	// 2) Attempt to open a replication connection just to validate privileges
-	replCfg, err := pgx.ParseConfig(p.connString)
+// probeReplication opens (and immediately closes) a replication connection to
+// validate privileges. It uses a short sub-deadline so it fails fast rather
+// than consuming the caller's entire timeout budget.
+func (p *PostgresSource) probeReplication(ctx context.Context) error {
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	replCfg, _, err := pgxutil.ParseConfig(p.connString)
 	if err != nil {
 		return fmt.Errorf("failed to parse connection string: %w", err)
 	}
@@ -1147,24 +1208,29 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 	}
 	replCfg.RuntimeParams["replication"] = "database"
 
-	replConn, err := pgx.ConnectConfig(ctx, replCfg)
+	replConn, err := pgx.ConnectConfig(probeCtx, replCfg)
 	if err != nil {
-		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
-			if pgErr.Code == "28P01" {
-				return errors.New("replication connection failed: invalid password. Ensure user has replication privileges and correct credentials")
-			}
-			if pgErr.Code == "28000" {
-				return fmt.Errorf("replication connection failed: user does not have replication privileges. Run 'ALTER USER %s REPLICATION'", replCfg.User)
-			}
-		}
-		return fmt.Errorf("replication connection failed: %w. Ensure 'wal_level' is set to 'logical' in postgresql.conf", err)
+		return classifyReplicationError(err, replCfg.User)
 	}
-	// Do not run SQL on a replication connection; simply close it if successful
-	if err := replConn.Close(ctx); err != nil {
+	// Do not run SQL on a replication connection; simply close it if successful.
+	if err := replConn.Close(probeCtx); err != nil {
 		return fmt.Errorf("failed closing replication test connection: %w", err)
 	}
-
 	return nil
+}
+
+// classifyReplicationError maps low-level connection failures to actionable
+// operator-facing messages.
+func classifyReplicationError(err error, user string) error {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
+		if pgErr.Code == "28P01" {
+			return errors.New("replication connection failed: invalid password. Ensure user has replication privileges and correct credentials")
+		}
+		if pgErr.Code == "28000" {
+			return fmt.Errorf("replication connection failed: user does not have replication privileges. Run 'ALTER USER %s REPLICATION'", user)
+		}
+	}
+	return fmt.Errorf("replication connection failed: %w. Ensure 'wal_level' is set to 'logical' in postgresql.conf", err)
 }
 
 func (p *PostgresSource) Close() error {
@@ -1203,8 +1269,9 @@ func (p *PostgresSource) Close() error {
 	// initialized; otherwise no replication slot was created by this source.
 	if wasInitialized && !persistent {
 		p.log("INFO", "Cleaning up non-persistent replication slot and publication", "slot", slotName, "publication", publicationName)
-		// Need a new connection for cleanup
-		conn, err := pgx.Connect(context.Background(), p.connString)
+		// Need a new connection for cleanup. Use the pooler-safe parser so the
+		// custom pgbouncer/pool_mode markers are stripped from the DSN.
+		conn, err := p.openMetadataConn(context.Background())
 		if err == nil {
 			defer func() { _ = conn.Close(context.Background()) }()
 			_, _ = conn.Exec(context.Background(), "SELECT pg_drop_replication_slot($1)", slotName)
@@ -1226,8 +1293,10 @@ func (p *PostgresSource) Close() error {
 }
 
 func (p *PostgresSource) DiscoverDatabases(ctx context.Context) ([]string, error) {
-	// Build a dedicated connection for discovery, independent of p.conn
-	cfg, err := pgx.ParseConfig(p.connString)
+	// Build a dedicated connection for discovery, independent of p.conn. The
+	// pooler-safe parser strips the custom pgbouncer/pool_mode markers that pgx
+	// would otherwise reject as unknown startup parameters.
+	cfg, _, err := pgxutil.ParseConfig(p.connString)
 	if err != nil {
 		return nil, fmt.Errorf("parse connection string: %w", err)
 	}
@@ -1508,55 +1577,112 @@ func (p *PostgresSource) Snapshot(ctx context.Context, tables ...string) error {
 	return nil
 }
 
+// snapshotBatchSize bounds how many rows are fetched from the server-side
+// cursor per round-trip during a table snapshot, keeping memory usage flat for
+// arbitrarily large tables.
+const snapshotBatchSize = 1000
+
 func (p *PostgresSource) snapshotTable(ctx context.Context, table string) error {
 	quoted, err := sqlutil.QuoteIdent("pgx", table)
 	if err != nil {
 		return fmt.Errorf("invalid table name %q: %w", table, err)
 	}
 
-	p.mu.Lock()
-	rows, err := p.conn.Query(ctx, "SELECT * FROM "+quoted)
-	p.mu.Unlock()
+	// Use a dedicated connection so a large table scan neither blocks lightweight
+	// metadata operations (Ping/Discover) on the shared connection nor races on
+	// it (a pgx.Conn is not safe for concurrent use).
+	conn, err := p.openMetadataConn(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to query table %q: %w", table, err)
+		return fmt.Errorf("failed to open snapshot connection for %q: %w", table, err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+
+	return p.streamSnapshotCursor(ctx, conn, table, quoted)
+}
+
+// streamSnapshotCursor declares a server-side cursor over the table and streams
+// it to the message channel in bounded batches.
+func (p *PostgresSource) streamSnapshotCursor(ctx context.Context, conn *pgx.Conn, table, quoted string) error {
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin snapshot tx for %q: %w", table, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Cursor name is derived from a UUID (hex only), so it is a safe identifier.
+	cursorName := "hermod_snap_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	if _, err := tx.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR FOR SELECT * FROM %s", cursorName, quoted)); err != nil {
+		return fmt.Errorf("failed to declare snapshot cursor for %q: %w", table, err)
+	}
+
+	fetchSQL := fmt.Sprintf("FETCH FORWARD %d FROM %s", snapshotBatchSize, cursorName)
+	for {
+		n, err := p.fetchSnapshotBatch(ctx, tx, table, fetchSQL)
+		if err != nil {
+			return err
+		}
+		if n < snapshotBatchSize {
+			return nil
+		}
+	}
+}
+
+// fetchSnapshotBatch fetches and emits a single cursor batch, returning the
+// number of rows processed.
+func (p *PostgresSource) fetchSnapshotBatch(ctx context.Context, tx pgx.Tx, table, fetchSQL string) (int, error) {
+	rows, err := tx.Query(ctx, fetchSQL)
+	if err != nil {
+		return 0, fmt.Errorf("failed to fetch snapshot batch for %q: %w", table, err)
 	}
 	defer rows.Close()
 
 	fields := rows.FieldDescriptions()
+	count := 0
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
-			return fmt.Errorf("failed to get values: %w", err)
+			return count, fmt.Errorf("failed to get values: %w", err)
 		}
 
-		record := make(map[string]any)
+		record := make(map[string]any, len(fields))
 		for i, field := range fields {
-			val := values[i]
-			if b, ok := val.([]byte); ok {
+			if b, ok := values[i].([]byte); ok {
 				record[field.Name] = string(b)
 			} else {
-				record[field.Name] = val
+				record[field.Name] = values[i]
 			}
 		}
 
-		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
-
-		msg := message.AcquireMessage()
-		msg.SetID(fmt.Sprintf("snapshot-%s-%d-%s", table, time.Now().UnixNano(), uuid.New().String()))
-		msg.SetOperation(hermod.OpSnapshot)
-		msg.SetTable(table)
-		msg.SetAfter(afterJSON)
-		msg.SetMetadata("source", "postgres")
-		msg.SetMetadata("snapshot", "true")
-
-		select {
-		case p.msgChan <- msg:
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := p.emitSnapshotRecord(ctx, table, record); err != nil {
+			return count, err
 		}
+		count++
 	}
+	if err := rows.Err(); err != nil {
+		return count, err
+	}
+	return count, nil
+}
 
-	return rows.Err()
+// emitSnapshotRecord wraps a snapshot row in a message and delivers it to the
+// channel, honoring context cancellation.
+func (p *PostgresSource) emitSnapshotRecord(ctx context.Context, table string, record map[string]any) error {
+	afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+	msg := message.AcquireMessage()
+	msg.SetID(fmt.Sprintf("snapshot-%s-%d-%s", table, time.Now().UnixNano(), uuid.New().String()))
+	msg.SetOperation(hermod.OpSnapshot)
+	msg.SetTable(table)
+	msg.SetAfter(afterJSON)
+	msg.SetMetadata("source", "postgres")
+	msg.SetMetadata("snapshot", "true")
+
+	select {
+	case p.msgChan <- msg:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (p *PostgresSource) ExecuteSQL(ctx context.Context, query string) ([]map[string]any, error) {

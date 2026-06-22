@@ -511,7 +511,7 @@ var commonQueries = map[string]string{
 
 	QueryRecordTraceStep:   "INSERT INTO message_trace_steps (id, message_id, workflow_id, node_id, timestamp, duration_ms, before_data, after_data, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryGetMessageTrace:   "SELECT node_id, timestamp, duration_ms, before_data, after_data, error FROM message_trace_steps WHERE workflow_id = ? AND message_id = ? ORDER BY timestamp ASC",
-	QueryListMessageTraces: "SELECT DISTINCT message_id, MIN(timestamp) as start_time FROM message_trace_steps WHERE workflow_id = ? GROUP BY message_id ORDER BY start_time DESC LIMIT ?",
+	QueryListMessageTraces: "SELECT DISTINCT message_id, MIN(timestamp) as start_time FROM message_trace_steps WHERE workflow_id = ? GROUP BY message_id ORDER BY start_time DESC LIMIT ? OFFSET ?",
 
 	QueryCreateWorkflowVersion: "INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, config, created_at, created_by, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryListWorkflowVersions:  "SELECT id, workflow_id, version, nodes, edges, config, created_at, created_by, message FROM workflow_versions WHERE workflow_id = ? ORDER BY version DESC",

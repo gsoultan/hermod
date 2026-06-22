@@ -86,68 +86,78 @@ func runWithContext[T any](ctx context.Context, fn func() (T, error)) (T, error)
 // --- Source Discovery ---
 
 func (r *Registry) DiscoverDatabases(ctx context.Context, cfg factory.SourceConfig) ([]string, error) {
-	src, err := r.createSource(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer src.Close()
+	return runWithContext(ctx, func() ([]string, error) {
+		src, err := r.createSource(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		defer src.Close()
 
-	if d, ok := src.(hermod.Discoverer); ok {
-		return d.DiscoverDatabases(ctx)
-	}
-	return nil, fmt.Errorf("source type %s does not support database discovery", cfg.Type)
+		if d, ok := src.(hermod.Discoverer); ok {
+			return d.DiscoverDatabases(ctx)
+		}
+		return nil, fmt.Errorf("source type %s does not support database discovery", cfg.Type)
+	})
 }
 
 func (r *Registry) DiscoverTables(ctx context.Context, cfg factory.SourceConfig) ([]string, error) {
-	src, err := r.createSource(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer src.Close()
+	return runWithContext(ctx, func() ([]string, error) {
+		src, err := r.createSource(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		defer src.Close()
 
-	if d, ok := src.(hermod.Discoverer); ok {
-		return d.DiscoverTables(ctx)
-	}
-	return nil, fmt.Errorf("source type %s does not support table discovery", cfg.Type)
+		if d, ok := src.(hermod.Discoverer); ok {
+			return d.DiscoverTables(ctx)
+		}
+		return nil, fmt.Errorf("source type %s does not support table discovery", cfg.Type)
+	})
 }
 
 func (r *Registry) DiscoverSourceColumns(ctx context.Context, cfg factory.SourceConfig, table string) ([]hermod.ColumnInfo, error) {
-	src, err := r.createSource(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer src.Close()
+	return runWithContext(ctx, func() ([]hermod.ColumnInfo, error) {
+		src, err := r.createSource(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		defer src.Close()
 
-	if d, ok := src.(hermod.ColumnDiscoverer); ok {
-		return d.DiscoverColumns(ctx, table)
-	}
-	return nil, fmt.Errorf("source type %s does not support column discovery", cfg.Type)
+		if d, ok := src.(hermod.ColumnDiscoverer); ok {
+			return d.DiscoverColumns(ctx, table)
+		}
+		return nil, fmt.Errorf("source type %s does not support column discovery", cfg.Type)
+	})
 }
 
 func (r *Registry) DiscoverReplicationSlots(ctx context.Context, cfg factory.SourceConfig) ([]hermod.ReplicationSlotInfo, error) {
-	src, err := r.createSource(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer src.Close()
+	return runWithContext(ctx, func() ([]hermod.ReplicationSlotInfo, error) {
+		src, err := r.createSource(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		defer src.Close()
 
-	if d, ok := src.(hermod.ReplicationDiscoverer); ok {
-		return d.DiscoverReplicationSlots(ctx)
-	}
-	return nil, fmt.Errorf("source type %s does not support replication slot discovery", cfg.Type)
+		if d, ok := src.(hermod.ReplicationDiscoverer); ok {
+			return d.DiscoverReplicationSlots(ctx)
+		}
+		return nil, fmt.Errorf("source type %s does not support replication slot discovery", cfg.Type)
+	})
 }
 
 func (r *Registry) DiscoverPublications(ctx context.Context, cfg factory.SourceConfig) ([]hermod.PublicationInfo, error) {
-	src, err := r.createSource(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer src.Close()
+	return runWithContext(ctx, func() ([]hermod.PublicationInfo, error) {
+		src, err := r.createSource(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		defer src.Close()
 
-	if d, ok := src.(hermod.ReplicationDiscoverer); ok {
-		return d.DiscoverPublications(ctx)
-	}
-	return nil, fmt.Errorf("source type %s does not support publication discovery", cfg.Type)
+		if d, ok := src.(hermod.ReplicationDiscoverer); ok {
+			return d.DiscoverPublications(ctx)
+		}
+		return nil, fmt.Errorf("source type %s does not support publication discovery", cfg.Type)
+	})
 }
 
 // --- Sink Discovery ---
@@ -200,6 +210,12 @@ func (r *Registry) DiscoverSinkColumns(ctx context.Context, cfg factory.SinkConf
 // --- Sampling & Browsing ---
 
 func (r *Registry) SampleTable(ctx context.Context, cfg factory.SourceConfig, table string) (hermod.Message, error) {
+	return runWithContext(ctx, func() (hermod.Message, error) {
+		return r.sampleTable(ctx, cfg, table)
+	})
+}
+
+func (r *Registry) sampleTable(ctx context.Context, cfg factory.SourceConfig, table string) (hermod.Message, error) {
 	src, err := r.createSource(ctx, cfg)
 	if err != nil {
 		// The source cannot even be created right now (e.g. it is exclusively

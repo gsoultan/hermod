@@ -2299,9 +2299,12 @@ func (s *sqlStorage) GetMessageTrace(ctx context.Context, workflowID, messageID 
 	return tr, nil
 }
 
-func (s *sqlStorage) ListMessageTraces(ctx context.Context, workflowID string, limit int) ([]storage.MessageTrace, error) {
+func (s *sqlStorage) ListMessageTraces(ctx context.Context, workflowID string, limit, offset int) ([]storage.MessageTrace, error) {
+	if offset < 0 {
+		offset = 0
+	}
 	// This is a bit tricky with individual steps. We want unique message_ids.
-	rows, err := s.query(ctx, s.queries.get(QueryListMessageTraces), workflowID, limit)
+	rows, err := s.query(ctx, s.queries.get(QueryListMessageTraces), workflowID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -2311,12 +2314,49 @@ func (s *sqlStorage) ListMessageTraces(ctx context.Context, workflowID string, l
 	for rows.Next() {
 		var tr storage.MessageTrace
 		tr.WorkflowID = workflowID
-		if err := rows.Scan(&tr.MessageID, &tr.CreatedAt); err != nil {
+		// start_time comes from MIN(timestamp); aggregate columns can lose their
+		// type affinity (e.g. SQLite returns a string), so coerce it safely.
+		var startTime any
+		if err := rows.Scan(&tr.MessageID, &startTime); err != nil {
 			return nil, err
 		}
+		tr.CreatedAt = coerceTime(startTime)
 		traces = append(traces, tr)
 	}
 	return traces, nil
+}
+
+// coerceTime converts a scanned database value into a time.Time, tolerating the
+// time.Time, string and []byte representations returned by different drivers.
+func coerceTime(v any) time.Time {
+	switch t := v.(type) {
+	case time.Time:
+		return t
+	case []byte:
+		return parseTimeString(string(t))
+	case string:
+		return parseTimeString(t)
+	default:
+		return time.Time{}
+	}
+}
+
+// parseTimeString parses the timestamp layouts emitted by the supported SQL drivers.
+func parseTimeString(s string) time.Time {
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999Z07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, s); err == nil {
+			return parsed
+		}
+	}
+	return time.Time{}
 }
 
 func (s *sqlStorage) CreateWorkflowVersion(ctx context.Context, v storage.WorkflowVersion) error {

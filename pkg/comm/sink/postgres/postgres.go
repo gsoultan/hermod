@@ -18,6 +18,7 @@ import (
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
 	"github.com/user/hermod/pkg/infra/evaluator"
+	"github.com/user/hermod/pkg/infra/pgxutil"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -37,6 +38,7 @@ const pgDriver = "pgx"
 type PostgresSink struct {
 	connString       string
 	pool             *pgxpool.Pool
+	pooled           bool // connString targets a transaction/statement pooler (PgBouncer)
 	logger           hermod.Logger
 	mu               sync.Mutex
 	connMu           sync.Mutex
@@ -278,7 +280,11 @@ func (s *PostgresSink) init(ctx context.Context) error {
 	if s.pool != nil {
 		return nil
 	}
-	pool, err := pgxpool.New(ctx, s.connString)
+	poolCfg, pooled, err := pgxutil.ParsePoolConfig(s.connString)
+	if err != nil {
+		return fmt.Errorf("failed to parse postgres connection string: %w", err)
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return fmt.Errorf("failed to create postgres pool: %w", err)
 	}
@@ -287,6 +293,7 @@ func (s *PostgresSink) init(ctx context.Context) error {
 		return fmt.Errorf("failed to ping postgres: %w", err)
 	}
 	s.pool = pool
+	s.pooled = pooled
 	return nil
 }
 
@@ -334,11 +341,32 @@ func (s *PostgresSink) Rollback(ctx context.Context) error {
 	return err
 }
 
+// localCommitTxID is the sentinel returned by Prepare when the sink is behind a
+// transaction/statement pooler (PgBouncer). In that mode PREPARE TRANSACTION is
+// unsupported, so Prepare commits the local transaction immediately and the
+// later CommitPrepared/RollbackPrepared calls become no-ops for this sentinel.
+const localCommitTxID = "local-commit"
+
 func (s *PostgresSink) Prepare(ctx context.Context) (string, error) {
 	tx := s.currentTx()
 	if tx == nil {
 		return "", errors.New("no active transaction")
 	}
+
+	// PREPARE TRANSACTION cannot run through a transaction/statement pooler
+	// because the prepared (in-doubt) transaction must be committed on the same
+	// backend that created it, which a pooler cannot guarantee. Degrade to a
+	// single-connection local commit so writes still succeed atomically per
+	// transaction (without cross-sink 2PC guarantees).
+	if s.pooled {
+		if err := tx.Commit(ctx); err != nil {
+			s.setTx(nil)
+			return "", fmt.Errorf("local commit (pooled, 2PC unsupported) failed: %w", err)
+		}
+		s.setTx(nil)
+		return localCommitTxID, nil
+	}
+
 	txID := uuid.New().String()
 	// PREPARE TRANSACTION only accepts a string literal, not a bind parameter.
 	// txID is a server-generated UUID, so it is safe to interpolate.
@@ -354,6 +382,10 @@ func (s *PostgresSink) Prepare(ctx context.Context) (string, error) {
 }
 
 func (s *PostgresSink) CommitPrepared(ctx context.Context, txID string) error {
+	// In pooled mode Prepare already committed locally; nothing to finalize.
+	if txID == localCommitTxID {
+		return nil
+	}
 	if err := validateTxID(txID); err != nil {
 		return err
 	}
@@ -365,6 +397,11 @@ func (s *PostgresSink) CommitPrepared(ctx context.Context, txID string) error {
 }
 
 func (s *PostgresSink) RollbackPrepared(ctx context.Context, txID string) error {
+	// In pooled mode the transaction was already committed by Prepare; there is
+	// no in-doubt prepared transaction to roll back.
+	if txID == localCommitTxID {
+		return nil
+	}
 	if err := validateTxID(txID); err != nil {
 		return err
 	}

@@ -447,7 +447,7 @@ type Storage interface {
 	// Message Tracing
 	RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error
 	GetMessageTrace(ctx context.Context, workflowID, messageID string) (MessageTrace, error)
-	ListMessageTraces(ctx context.Context, workflowID string, limit int) ([]MessageTrace, error)
+	ListMessageTraces(ctx context.Context, workflowID string, limit, offset int) ([]MessageTrace, error)
 
 	// Workflow Versioning
 	CreateWorkflowVersion(ctx context.Context, version WorkflowVersion) error

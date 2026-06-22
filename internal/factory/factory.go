@@ -1186,6 +1186,16 @@ func BuildConnectionString(cfg map[string]string, sourceType string) string {
 			}
 			q := u.Query()
 			q.Set("sslmode", sslmode)
+			// Propagate the optional pooler markers so the pgx layer can switch to
+			// a PgBouncer-safe query mode (transaction/statement pooling cannot use
+			// server-side prepared statements). These keys are stripped before the
+			// string reaches pgx (see pkg/infra/pgxutil).
+			if v := strings.TrimSpace(cfg["pgbouncer"]); v != "" {
+				q.Set("pgbouncer", v)
+			}
+			if v := strings.TrimSpace(cfg["pool_mode"]); v != "" {
+				q.Set("pool_mode", v)
+			}
 			u.RawQuery = q.Encode()
 		}
 

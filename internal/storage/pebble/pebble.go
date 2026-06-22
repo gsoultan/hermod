@@ -381,7 +381,7 @@ func (s *pebbleStorage) GetMessageTrace(ctx context.Context, workflowID, message
 	return trace, nil
 }
 
-func (s *pebbleStorage) ListMessageTraces(ctx context.Context, workflowID string, limit int) ([]storage.MessageTrace, error) {
+func (s *pebbleStorage) ListMessageTraces(ctx context.Context, workflowID string, limit, offset int) ([]storage.MessageTrace, error) {
 	var traces []storage.MessageTrace
 	prefix := []byte(fmt.Sprintf("t:%s:", workflowID))
 	iter, err := s.db.NewIter(&pebble.IterOptions{
@@ -399,14 +399,22 @@ func (s *pebbleStorage) ListMessageTraces(ctx context.Context, workflowID string
 			continue
 		}
 		traces = append(traces, trace)
-		if limit > 0 && len(traces) >= limit {
-			break
-		}
 	}
-	// Sort by CreatedAt desc
+	// Sort by CreatedAt desc before applying paging so the order is stable.
 	sort.Slice(traces, func(i, j int) bool {
 		return traces[i].CreatedAt.After(traces[j].CreatedAt)
 	})
+
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(traces) {
+		return []storage.MessageTrace{}, nil
+	}
+	traces = traces[offset:]
+	if limit > 0 && len(traces) > limit {
+		traces = traces[:limit]
+	}
 	return traces, nil
 }
 

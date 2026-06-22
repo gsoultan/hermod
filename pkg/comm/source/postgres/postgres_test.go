@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -247,5 +248,33 @@ func TestLogDoesNotDeadlockWhileHoldingMu(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("log() deadlocked while mu was held; logging must not acquire mu")
+	}
+}
+
+func TestPostgresSource_PooledDetection(t *testing.T) {
+	direct := NewPostgresSource("postgres://u:p@localhost:5432/db?sslmode=disable", "slot", "pub", nil, true)
+	if direct.pooled {
+		t.Errorf("direct connection should not be detected as pooled")
+	}
+
+	pooled := NewPostgresSource("postgres://u:p@localhost:6432/db?pgbouncer=true", "slot", "pub", nil, true)
+	if !pooled.pooled {
+		t.Errorf("pgbouncer connection should be detected as pooled")
+	}
+}
+
+func TestPostgresSource_ReplConnRefusedWhenPooled(t *testing.T) {
+	p := NewPostgresSource("postgres://u:p@localhost:6432/db?pool_mode=transaction", "slot", "pub", nil, true)
+
+	// Must fail fast (no network dial) with an actionable message instead of
+	// hanging on a replication handshake PgBouncer will never complete.
+	p.mu.Lock()
+	err := p.ensureReplConnNoLock(context.Background())
+	p.mu.Unlock()
+	if err == nil {
+		t.Fatalf("expected error for replication over a pooled connection")
+	}
+	if !strings.Contains(err.Error(), "PgBouncer") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }

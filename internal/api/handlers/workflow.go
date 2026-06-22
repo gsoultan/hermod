@@ -907,12 +907,24 @@ func (h *Handler) ListMessageTraces(w http.ResponseWriter, r *http.Request) {
 
 	limit := 100
 	if l := r.URL.Query().Get("limit"); l != "" {
-		if val, err := strconv.Atoi(l); err == nil {
+		if val, err := strconv.Atoi(l); err == nil && val > 0 {
 			limit = val
 		}
 	}
 
-	traces, err := h.LogStorage.ListMessageTraces(r.Context(), id, limit)
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if val, err := strconv.Atoi(o); err == nil && val > 0 {
+			offset = val
+		}
+	} else if p := r.URL.Query().Get("page"); p != "" {
+		// Support page-based paging as an alternative to a raw offset.
+		if page, err := strconv.Atoi(p); err == nil && page > 1 {
+			offset = (page - 1) * limit
+		}
+	}
+
+	traces, err := h.LogStorage.ListMessageTraces(r.Context(), id, limit, offset)
 	if err != nil {
 		h.JsonError(w, "Failed to list message traces: "+err.Error(), http.StatusInternalServerError)
 		return
