@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
@@ -165,9 +166,15 @@ func (s *RabbitMQQueueSource) run(ctx context.Context, msgs <-chan amqp.Delivery
 				hmsg.SetAfter(d.Body) // Fallback for non-JSON
 			}
 
-			// Optionally set other fields if available in headers
+			// Every message needs a unique, stable ID for tracing and
+			// idempotency. Prefer the AMQP message-id when the publisher set
+			// one; otherwise generate a UUID (mirroring the other sources).
+			// Without this, trace steps are keyed by an empty message ID and
+			// never surface in the message-trace API/UI.
 			if d.MessageId != "" {
 				hmsg.SetID(d.MessageId)
+			} else {
+				hmsg.SetID(uuid.NewString())
 			}
 			// Store delivery tag in metadata for Ack
 			hmsg.SetMetadata("delivery_tag", strconv.FormatUint(d.DeliveryTag, 10))

@@ -1,6 +1,9 @@
 package sqlutil
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // ColumnMapping defines how a source field maps to a sink column.
 type ColumnMapping struct {
@@ -13,11 +16,25 @@ type ColumnMapping struct {
 }
 
 // ParseColumnMappings parses a JSON string into a slice of ColumnMapping.
+//
+// A blank source_field is treated as "use the column's own name": it falls back
+// to target_column. Without this normalization an empty source_field resolves to
+// a nil value at write time (evaluator.GetMsgValByPath returns nil for an empty
+// path), so every such column is bound as NULL and rows fail on NOT NULL / PRIMARY
+// KEY constraints. UIs commonly leave source_field blank to mean "same name as
+// the target column", so this default makes that intent work safely.
 func ParseColumnMappings(s string) ([]ColumnMapping, error) {
 	var mappings []ColumnMapping
 	if s == "" {
 		return mappings, nil
 	}
-	err := json.Unmarshal([]byte(s), &mappings)
-	return mappings, err
+	if err := json.Unmarshal([]byte(s), &mappings); err != nil {
+		return nil, err
+	}
+	for i := range mappings {
+		if strings.TrimSpace(mappings[i].SourceField) == "" {
+			mappings[i].SourceField = mappings[i].TargetColumn
+		}
+	}
+	return mappings, nil
 }

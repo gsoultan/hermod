@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/amqp"
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/stream"
 	"github.com/user/hermod"
@@ -25,6 +27,19 @@ type RabbitMQStreamSource struct {
 	errs         chan error
 	mu           sync.Mutex
 	lastOffset   int64
+}
+
+// messageID extracts a stable message identifier from an AMQP message. It uses
+// the AMQP message-id property when the publisher provided one (normalizing the
+// uint64/UUID/[]byte/string variants to a string) and falls back to a generated
+// UUID so every message is uniquely traceable.
+func messageID(amqpMsg *amqp.Message) string {
+	if amqpMsg != nil && amqpMsg.Properties != nil && amqpMsg.Properties.MessageID != nil {
+		if id := strings.TrimSpace(fmt.Sprintf("%v", amqpMsg.Properties.MessageID)); id != "" {
+			return id
+		}
+	}
+	return uuid.NewString()
 }
 
 func NewRabbitMQStreamSource(url string, streamName string, consumerName string) (*RabbitMQStreamSource, error) {
@@ -62,6 +77,12 @@ func (s *RabbitMQStreamSource) ensureConnected() error {
 		hmsg := message.AcquireMessage()
 		data := amqpMsg.GetData()
 		hmsg.SetPayload(data)
+
+		// Assign a unique, stable ID for tracing and idempotency. Prefer the
+		// AMQP message-id when present; otherwise generate a UUID. Without an
+		// ID, trace steps are keyed by an empty message ID and never surface
+		// in the message-trace API/UI.
+		hmsg.SetID(messageID(amqpMsg))
 
 		if consumerContext.Consumer != nil {
 			hmsg.SetMetadata("rabbitmq_stream_offset", strconv.FormatInt(consumerContext.Consumer.GetOffset(), 10))
@@ -177,6 +198,7 @@ func (s *RabbitMQStreamSource) Sample(ctx context.Context, table string) (hermod
 		hmsg := message.AcquireMessage()
 		data := amqpMsg.GetData()
 		hmsg.SetPayload(data)
+		hmsg.SetID(messageID(amqpMsg))
 
 		var jsonData map[string]any
 		if err := json.Unmarshal(data, &jsonData); err == nil {
