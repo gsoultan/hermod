@@ -640,7 +640,13 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 		val := cond["value"]
 		match := false
 
-		fieldValRaw := GetMsgValByPath(msg, field)
+		var fieldValRaw any
+		if (strings.Contains(field, "(") && strings.HasSuffix(field, ")")) || strings.HasPrefix(field, "source.") {
+			ev := NewEvaluator()
+			fieldValRaw = ev.ParseAndEvaluate(msg, field)
+		} else {
+			fieldValRaw = GetMsgValByPath(msg, field)
+		}
 		// Treat missing values consistently as empty string (UI simulator behavior)
 		fieldVal := ""
 		if fieldValRaw != nil {

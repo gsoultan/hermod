@@ -3,12 +3,10 @@ package control
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/infra/evaluator"
 )
 
 func init() {
@@ -25,7 +23,6 @@ func (n *SwitchNode) Execute(ctx context.Context, nctx registry.NodeContext, wor
 	_ = json.Unmarshal([]byte(casesStr), &cases)
 
 	field, _ := node.Config["field"].(string)
-	fieldValStr := fmt.Sprintf("%v", evaluator.GetMsgValByPath(msg, field))
 
 	for _, c := range cases {
 		label, _ := c["label"].(string)
@@ -35,8 +32,23 @@ func (n *SwitchNode) Execute(ctx context.Context, nctx registry.NodeContext, wor
 			if nctx.EvaluateConditions(msg, conditions) {
 				return []hermod.Message{msg}, label, nil
 			}
-		} else if val, _ := c["value"].(string); val == fieldValStr {
-			return []hermod.Message{msg}, label, nil
+		} else {
+			operator, ok := c["operator"].(string)
+			if !ok || operator == "" {
+				operator = "="
+			}
+			value := c["value"]
+
+			// Use nctx.EvaluateConditions to handle the comparison.
+			// This automatically supports regex, contains, templates in value, and expressions in field.
+			caseCond := map[string]any{
+				"field":    field,
+				"operator": operator,
+				"value":    value,
+			}
+			if nctx.EvaluateConditions(msg, []map[string]any{caseCond}) {
+				return []hermod.Message{msg}, label, nil
+			}
 		}
 	}
 	return []hermod.Message{msg}, "default", nil
