@@ -37,7 +37,7 @@ func (t *FuzzyLookupTransformer) Transform(ctx context.Context, msg hermod.Messa
 		return msg, nil
 	}
 
-	valRaw := evaluator.GetMsgValByPath(msg, field)
+	valRaw := evaluator.EvaluateField(msg, field)
 	if valRaw == nil {
 		return msg, nil
 	}

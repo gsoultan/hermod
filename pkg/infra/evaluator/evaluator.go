@@ -348,13 +348,54 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		}
 	case "toint":
 		if len(args) > 0 {
-			v, _ := ToFloat64(args[0])
-			return int64(v)
+			v, ok := ToInt64(args[0])
+			if ok {
+				return v
+			}
+			vf, _ := ToFloat64(args[0])
+			return int64(vf)
 		}
 	case "tofloat":
 		if len(args) > 0 {
 			v, _ := ToFloat64(args[0])
 			return v
+		}
+	case "tostring":
+		if len(args) > 0 {
+			if args[0] == nil {
+				return ""
+			}
+			return fmt.Sprintf("%v", args[0])
+		}
+	case "tobool":
+		if len(args) > 0 {
+			return ToBool(args[0])
+		}
+	case "todate":
+		if len(args) > 0 {
+			val := args[0]
+			if val == nil {
+				return nil
+			}
+			dateStr := fmt.Sprintf("%v", val)
+			var t time.Time
+			var err error
+			if len(args) >= 2 {
+				format := fmt.Sprintf("%v", args[1])
+				t, err = time.Parse(format, dateStr)
+			} else {
+				formats := []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02", time.RFC1123, time.RFC1123Z}
+				for _, f := range formats {
+					t, err = time.Parse(f, dateStr)
+					if err == nil {
+						break
+					}
+				}
+			}
+			if err == nil {
+				return t.Format(time.RFC3339)
+			}
+			return nil
 		}
 	}
 	return nil
@@ -576,6 +617,37 @@ func ToBool(val any) bool {
 	return false
 }
 
+func isNumeric(val any) bool {
+	switch val.(type) {
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return true
+	}
+	return false
+}
+
+func ToTime(val any) (time.Time, bool) {
+	switch v := val.(type) {
+	case time.Time:
+		return v, true
+	case string:
+		s := strings.TrimSpace(v)
+		formats := []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02", time.RFC1123, time.RFC1123Z}
+		for _, f := range formats {
+			t, err := time.Parse(f, s)
+			if err == nil {
+				return t, true
+			}
+		}
+	case int64:
+		return time.Unix(v, 0), true
+	case int:
+		return time.Unix(int64(v), 0), true
+	case float64:
+		return time.Unix(int64(v), 0), true
+	}
+	return time.Time{}, false
+}
+
 // Template resolver
 
 func ResolveTemplate(temp string, data map[string]any) string {
@@ -627,6 +699,14 @@ func ResolveTemplate(temp string, data map[string]any) string {
 	return result
 }
 
+func EvaluateField(msg hermod.Message, field string) any {
+	if (strings.Contains(field, "(") && strings.HasSuffix(field, ")")) || strings.HasPrefix(field, "source.") {
+		e := NewEvaluator()
+		return e.ParseAndEvaluate(msg, field)
+	}
+	return GetMsgValByPath(msg, field)
+}
+
 // Condition evaluator
 
 func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
@@ -641,12 +721,7 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 		match := false
 
 		var fieldValRaw any
-		if (strings.Contains(field, "(") && strings.HasSuffix(field, ")")) || strings.HasPrefix(field, "source.") {
-			ev := NewEvaluator()
-			fieldValRaw = ev.ParseAndEvaluate(msg, field)
-		} else {
-			fieldValRaw = GetMsgValByPath(msg, field)
-		}
+		fieldValRaw = EvaluateField(msg, field)
 		// Treat missing values consistently as empty string (UI simulator behavior)
 		fieldVal := ""
 		if fieldValRaw != nil {
@@ -673,30 +748,47 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 		case "!=":
 			match = fieldVal != valStr
 		case ">", ">=", "<", "<=":
-			v1, ok1 := ToFloat64(fieldValRaw)
-			v2, ok2 := ToFloat64(valResolved)
-			if ok1 && ok2 {
+			t1, isT1 := ToTime(fieldValRaw)
+			t2, isT2 := ToTime(valResolved)
+			if isT1 && isT2 && !isNumeric(fieldValRaw) && !isNumeric(valResolved) {
+				// Only use time comparison if they look like dates and are NOT simple numbers
+				// (to avoid treating small integers as unix timestamps when not intended)
 				switch op {
 				case ">":
-					match = v1 > v2
+					match = t1.After(t2)
 				case ">=":
-					match = v1 >= v2
+					match = !t1.Before(t2)
 				case "<":
-					match = v1 < v2
+					match = t1.Before(t2)
 				case "<=":
-					match = v1 <= v2
+					match = !t1.After(t2)
 				}
 			} else {
-				// Fallback to string comparison if not numbers
-				switch op {
-				case ">":
-					match = fieldVal > valStr
-				case ">=":
-					match = fieldVal >= valStr
-				case "<":
-					match = fieldVal < valStr
-				case "<=":
-					match = fieldVal <= valStr
+				v1, ok1 := ToFloat64(fieldValRaw)
+				v2, ok2 := ToFloat64(valResolved)
+				if ok1 && ok2 {
+					switch op {
+					case ">":
+						match = v1 > v2
+					case ">=":
+						match = v1 >= v2
+					case "<":
+						match = v1 < v2
+					case "<=":
+						match = v1 <= v2
+					}
+				} else {
+					// Fallback to string comparison if not numbers
+					switch op {
+					case ">":
+						match = fieldVal > valStr
+					case ">=":
+						match = fieldVal >= valStr
+					case "<":
+						match = fieldVal < valStr
+					case "<=":
+						match = fieldVal <= valStr
+					}
 				}
 			}
 		case "contains":

@@ -32,7 +32,7 @@ func (t *MappingTransformer) Transform(ctx context.Context, msg hermod.Message, 
 
 	mappingType, _ := config["mappingType"].(string) // "exact", "range", "regex"
 
-	fieldValRaw := evaluator.GetMsgValByPath(msg, field)
+	fieldValRaw := evaluator.EvaluateField(msg, field)
 	fieldVal := fmt.Sprintf("%v", fieldValRaw)
 
 	switch mappingType {

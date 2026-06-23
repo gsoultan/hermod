@@ -227,3 +227,56 @@ func TestEvaluateConditions_CDCMetaFields(t *testing.T) {
 		})
 	}
 }
+
+func TestEvaluateConditions_DateAndFunctions(t *testing.T) {
+	m := &mockMessage{
+		data: map[string]any{
+			"created_at": "2023-06-23T10:00:00Z",
+			"status":     "ACTIVE",
+			"amount":     "100.50",
+		},
+	}
+
+	tests := []struct {
+		name       string
+		conditions []map[string]any
+		expected   bool
+	}{
+		{
+			"Date comparison",
+			[]map[string]any{
+				{"field": "todate(source.created_at)", "operator": ">", "value": "2023-01-01"},
+			},
+			true,
+		},
+		{
+			"Date comparison false",
+			[]map[string]any{
+				{"field": "todate(source.created_at)", "operator": "<", "value": "2023-01-01"},
+			},
+			false,
+		},
+		{
+			"Function lower and regex",
+			[]map[string]any{
+				{"field": "lower(source.status)", "operator": "regex", "value": "active"},
+			},
+			true,
+		},
+		{
+			"Function toint and numeric comparison",
+			[]map[string]any{
+				{"field": "toint(source.amount)", "operator": ">=", "value": 100},
+			},
+			true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := EvaluateConditions(m, tc.conditions); got != tc.expected {
+				t.Errorf("%s: EvaluateConditions() = %v; want %v", tc.name, got, tc.expected)
+			}
+		})
+	}
+}

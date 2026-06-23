@@ -52,11 +52,11 @@ export function MaskConfig({
 
           <Autocomplete
             label="Field Path"
-            placeholder="e.g. user.email (use * for all)"
+            placeholder="e.g. user.email, lower(source.email) (use * for all)"
             data={availableFields || []}
             value={config.field || ''}
             onChange={(val) => updateNodeConfig(nodeId, { field: val })}
-            description="Specific field to mask, or * to scan all top-level fields."
+            description="Field or expression to mask. Use * to scan all top-level fields for PII."
             size="sm"
             leftSection={<IconTag size={rem(16)} />}
           />

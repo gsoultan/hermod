@@ -50,12 +50,12 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 		window, _ = time.ParseDuration(windowStr)
 	}
 
-	valRaw := evaluator.GetMsgValByPath(msg, field)
+	valRaw := evaluator.EvaluateField(msg, field)
 	val, _ := evaluator.ToFloat64(valRaw)
 
 	groupVal := ""
 	if groupBy != "" {
-		groupVal = fmt.Sprintf("%v", evaluator.GetMsgValByPath(msg, groupBy))
+		groupVal = fmt.Sprintf("%v", evaluator.EvaluateField(msg, groupBy))
 	}
 
 	workflowID, _ := ctx.Value(hermod.WorkflowIDKey).(string)

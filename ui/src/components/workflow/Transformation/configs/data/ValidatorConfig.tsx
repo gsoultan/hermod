@@ -42,7 +42,7 @@ export function ValidatorConfig({ config, updateNodeConfig, nodeId }: ValidatorC
               </Text>
             </Group>
             <JsonInput
-              placeholder='{"field.path": "string", "age": "number"}'
+              placeholder='{"field.path": "string", "age": "number", "todate(source.created_at)": "string"}'
               value={config.schema || ''}
               onChange={(val) => updateNodeConfig(nodeId, { schema: val })}
               formatOnBlur
@@ -51,7 +51,7 @@ export function ValidatorConfig({ config, updateNodeConfig, nodeId }: ValidatorC
               styles={{ input: { fontFamily: 'monospace' } }}
             />
             <Text size="10px" c="dimmed">
-              Define expected types, patterns, or values for fields in your payload.
+              Define expected types, patterns, or values for fields in your payload. Keys can be field paths or expressions like `lower(source.name)`.
             </Text>
           </Stack>
         </Stack>

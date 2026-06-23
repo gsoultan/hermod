@@ -1,4 +1,4 @@
-import { IconPlus, IconTrash, IconFilter } from '@tabler/icons-react';
+import { IconPlus, IconTrash, IconFilter, IconInfoCircle } from '@tabler/icons-react';
 import {
   Autocomplete,
   Button,
@@ -75,11 +75,16 @@ export function FilterEditor({ conditions = [], availableFields = [], onChange }
             <Paper key={index} withBorder p="xs" radius="md" className="hover:border-indigo-200 transition-colors">
               <Group grow gap="xs" align="flex-end">
                 <Box style={{ flex: 2 }}>
-                  <Text size="10px" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
-                    Field
-                  </Text>
+                  <Group gap={4} mb={2}>
+                    <Text size="10px" fw={700} c="dimmed" tt="uppercase" ml={2}>
+                      Field
+                    </Text>
+                    <Tooltip label="Field or expression to evaluate. Supports functions like lower(), todate(), etc. Use source. prefix for nested fields.">
+                      <IconInfoCircle size={rem(10)} style={{ cursor: 'help' }} />
+                    </Tooltip>
+                  </Group>
                   <Autocomplete
-                    placeholder="e.g. status"
+                    placeholder="e.g. status, lower(source.name)"
                     data={availableFields}
                     size="xs"
                     value={cond.field || ''}

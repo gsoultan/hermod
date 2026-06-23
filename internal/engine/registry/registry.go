@@ -999,7 +999,7 @@ func (r *Registry) recordPIIDiscoveries(msg hermod.Message, config map[string]an
 	if field == "*" || field == "" {
 		r.scanForPII(data, foundTypes)
 	} else {
-		val := evaluator.GetMsgValByPath(msg, field)
+		val := evaluator.EvaluateField(msg, field)
 		if s, ok := val.(string); ok {
 			types := transformer.PIIEngine().Discover(s)
 			for _, t := range types {

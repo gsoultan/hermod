@@ -1,13 +1,14 @@
-import { Stack, Alert, Text, TextInput, Button, Group, ActionIcon, ScrollArea, Box, Divider, Select } from '@mantine/core';
+import { Stack, Alert, Text, TextInput, Button, Group, ActionIcon, ScrollArea, Box, Divider, Select, Autocomplete } from '@mantine/core';
 import { IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react';
 
 interface SwitchConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any) => void;
   nodeId: string;
+  availableFields: string[];
 }
 
-export function SwitchConfig({ config, updateNodeConfig, nodeId }: SwitchConfigProps) {
+export function SwitchConfig({ config, updateNodeConfig, nodeId, availableFields = [] }: SwitchConfigProps) {
   const cases = Array.isArray(config.cases) ? config.cases : [];
   
   const updateCase = (index: number, val: any) => {
@@ -29,12 +30,14 @@ export function SwitchConfig({ config, updateNodeConfig, nodeId }: SwitchConfigP
       <Alert icon={<IconInfoCircle size="1rem" />} color="orange">
         <Text size="sm">Branch by comparing a field value using various operators. If no match is found, 'default' is followed.</Text>
       </Alert>
-      <TextInput
+      <Autocomplete
         label="Switch Field"
         placeholder="e.g. status, type"
+        data={availableFields}
         value={config.field || ''}
-        onChange={(e) => updateNodeConfig(nodeId, { field: e.currentTarget.value })}
+        onChange={(val) => updateNodeConfig(nodeId, { field: val })}
         required
+        description="Field or expression to evaluate for branching."
       />
       <Divider label="Cases" labelPosition="center" />
       <ScrollArea.Autosize mah={400}>

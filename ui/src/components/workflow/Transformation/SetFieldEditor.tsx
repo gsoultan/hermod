@@ -157,20 +157,16 @@ export function SetFieldEditor({
                     Value / Expression
                   </Text>
                   <TemplateField
-                    placeholder={
-                      isAdvanced ? 'Expression (e.g. upper(source.field))' : 'Value or source path'
-                    }
+                    placeholder="Value or expression (e.g. source.name, lower(source.name))"
                     value={String(field.value || '')}
                     onChange={(val) => updateFieldValue(field.fullKey, val)}
                     availableFields={availableFields}
                     buildToken={(p) => `source.${p}`}
                     multiline={isAdvanced}
                   />
-                  {isAdvanced && (
-                     <Text size="10px" c="dimmed" mt={2}>
-                        Use functions and source paths. Click {"{x}"} to insert fields.
-                     </Text>
-                  )}
+                  <Text size="10px" c="dimmed" mt={2}>
+                    Use functions and source paths. Click {"{x}"} to insert fields.
+                  </Text>
                 </Box>
                 <Box style={{ flex: 'none', alignSelf: 'center' }}>
                   <Tooltip label="Remove field">

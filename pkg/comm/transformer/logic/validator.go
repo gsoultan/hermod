@@ -9,6 +9,7 @@ import (
 	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/infra/evaluator"
 )
 
 func init() {
@@ -30,7 +31,7 @@ func (t *ValidatorTransformer) Transform(ctx context.Context, msg hermod.Message
 	}
 
 	for path, expectedType := range rules {
-		val := getMsgValByPath(msg, path)
+		val := evaluator.EvaluateField(msg, path)
 		if val == nil {
 			return nil, fmt.Errorf("validation failed: field %s is missing", path)
 		}
@@ -41,21 +42,4 @@ func (t *ValidatorTransformer) Transform(ctx context.Context, msg hermod.Message
 	}
 
 	return msg, nil
-}
-
-func getMsgValByPath(msg hermod.Message, path string) any {
-	if path == "" {
-		return nil
-	}
-	parts := strings.Split(path, ".")
-	var current any = msg.Data()
-
-	for _, part := range parts {
-		if m, ok := current.(map[string]any); ok {
-			current = m[part]
-		} else {
-			return nil
-		}
-	}
-	return current
 }

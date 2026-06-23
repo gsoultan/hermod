@@ -395,6 +395,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
         value={selectedNode.data.field || ''}
         onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })}
         required
+        description="Field or expression to convert (e.g. amount, lower(source.status))."
       />
       <Select
         label="Target Type"
@@ -475,6 +476,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
         value={selectedNode.data.field || ''}
         onChange={(val: string) => updateNodeConfig(selectedNode.id, { field: val })}
         required
+        description="Field or expression to use for matching (e.g. name, lower(source.name))."
       />
       <NumberInput
         label="Similarity Threshold (0-1)"
@@ -504,6 +506,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
         value={selectedNode.data.field || ''}
         onChange={(val: string) => updateNodeConfig(selectedNode.id, { field: val })}
         required
+        description="Field or expression to extract terms from (e.g. description, tostring(source.id))."
       />
       <TextInput
         label="Target Field"

@@ -36,7 +36,7 @@ func (t *TermExtractionTransformer) Transform(ctx context.Context, msg hermod.Me
 		return msg, nil
 	}
 
-	valRaw := evaluator.GetMsgValByPath(msg, field)
+	valRaw := evaluator.EvaluateField(msg, field)
 	if valRaw == nil {
 		return msg, nil
 	}

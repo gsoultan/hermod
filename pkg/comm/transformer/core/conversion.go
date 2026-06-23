@@ -33,7 +33,7 @@ func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Me
 	format, _ := config["format"].(string)               // used for date
 	errorBehavior, _ := config["errorBehavior"].(string) // "fail", "null", "keep"
 
-	valRaw := evaluator.GetMsgValByPath(msg, field)
+	valRaw := evaluator.EvaluateField(msg, field)
 	if valRaw == nil {
 		return msg, nil
 	}

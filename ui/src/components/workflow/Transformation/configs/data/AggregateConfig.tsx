@@ -3,12 +3,12 @@ import {
   Alert,
   Text,
   Select,
-  TextInput,
   NumberInput,
   Card,
   Group,
   rem,
   Divider,
+  Autocomplete,
 } from '@mantine/core';
 import {
   IconInfoCircle,
@@ -22,9 +22,10 @@ interface AggregateConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any) => void;
   nodeId: string;
+  availableFields: string[];
 }
 
-export function AggregateConfig({ config, updateNodeConfig, nodeId }: AggregateConfigProps) {
+export function AggregateConfig({ config, updateNodeConfig, nodeId, availableFields = [] }: AggregateConfigProps) {
   return (
     <Stack gap="md">
       <Alert
@@ -49,12 +50,13 @@ export function AggregateConfig({ config, updateNodeConfig, nodeId }: AggregateC
             </Text>
           </Group>
 
-          <TextInput
+          <Autocomplete
             label="Group By Key"
             placeholder="e.g. user_id, region"
+            data={availableFields}
             value={config.groupBy || ''}
-            onChange={(e) => updateNodeConfig(nodeId, { groupBy: e.currentTarget.value })}
-            description="Field path to use as the grouping key."
+            onChange={(val) => updateNodeConfig(nodeId, { groupBy: val })}
+            description="Field or expression to use as the grouping key (e.g. lower(source.region))."
             size="sm"
             leftSection={<IconTag size={rem(16)} />}
           />
@@ -89,14 +91,15 @@ export function AggregateConfig({ config, updateNodeConfig, nodeId }: AggregateC
           </Group>
 
           {config.aggType !== 'count' && (
-            <TextInput
+            <Autocomplete
               label="Field to Aggregate"
               placeholder="e.g. amount"
+              data={availableFields}
               value={config.field || ''}
-              onChange={(e) => updateNodeConfig(nodeId, { field: e.currentTarget.value })}
+              onChange={(val) => updateNodeConfig(nodeId, { field: val })}
               required
               size="sm"
-              description="The numeric field to perform aggregation on."
+              description="Numeric field or expression to aggregate (e.g. toint(source.amount))."
             />
           )}
         </Stack>

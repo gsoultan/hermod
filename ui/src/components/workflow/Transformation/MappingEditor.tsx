@@ -232,7 +232,7 @@ export function MappingEditor({
             data={availableFields}
             value={selectedNode.data.field || ''}
             onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })}
-            description="Field to transform. Supports nested paths (e.g. user.profile.id)."
+            description="Field or expression to transform. Supports nested paths (e.g. user.profile.id) and functions (e.g. lower(source.name))."
             size="sm"
           />
 
