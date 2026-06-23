@@ -69,6 +69,25 @@ func TestBuildConnectionString_RabbitMQ_SSL(t *testing.T) {
 			sourceType: "rabbitmq_queue",
 			expected:   "amqps://user:pass@localhost:5671/vhost",
 		},
+		{
+			name: "Postgres PgBouncer Auto-detection",
+			cfg: map[string]string{
+				"host": "localhost",
+				"port": "6432",
+			},
+			sourceType: "postgres",
+			expected:   "postgres://localhost:6432/?pgbouncer=true&sslmode=disable",
+		},
+		{
+			name: "Postgres Explicit PgBouncer override",
+			cfg: map[string]string{
+				"host":      "localhost",
+				"port":      "6432",
+				"pgbouncer": "false",
+			},
+			sourceType: "postgres",
+			expected:   "postgres://localhost:6432/?pgbouncer=false&sslmode=disable",
+		},
 	}
 
 	for _, tt := range tests {

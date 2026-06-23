@@ -162,6 +162,9 @@ func (s *MSSQLSink) upsertMapped(ctx context.Context, tx *sql.Tx, table string, 
 	var pkSource string
 
 	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
 		val := evaluator.GetMsgValByPath(msg, m.SourceField)
 
 		if m.IsIdentity && (val == nil || val == "" || val == 0) {
@@ -211,6 +214,9 @@ func (s *MSSQLSink) insertMapped(ctx context.Context, tx *sql.Tx, table string, 
 	var args []any
 
 	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
 		val := evaluator.GetMsgValByPath(msg, m.SourceField)
 		if m.IsIdentity && (val == nil || val == "" || val == 0) {
 			continue
@@ -238,6 +244,9 @@ func (s *MSSQLSink) updateMapped(ctx context.Context, tx *sql.Tx, table string, 
 	var pkArgs []any
 
 	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
 		val := evaluator.GetMsgValByPath(msg, m.SourceField)
 		quoted, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
 		if m.IsPrimaryKey {

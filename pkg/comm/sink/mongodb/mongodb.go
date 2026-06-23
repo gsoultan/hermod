@@ -93,6 +93,9 @@ func (s *MongoDBSink) WriteBatch(ctx context.Context, msgs []hermod.Message) err
 			if len(s.mappings) > 0 {
 				data = bson.M{}
 				for _, m := range s.mappings {
+					if m.SourceField == "" {
+						continue
+					}
 					val := evaluator.GetMsgValByPath(msg, m.SourceField)
 					targetKey := m.TargetColumn
 					if m.IsPrimaryKey {

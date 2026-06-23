@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
 )
@@ -32,11 +33,18 @@ func DetermineIdempotencyKey(msg hermod.Message) string {
 
 // EnsureIdempotencyID ensures the message has a stable ID set for sinks that
 // use the message ID as the natural idempotency key (e.g., SQL primary key, etc.).
+// If no ID or idempotency key is present, it generates a UUID as a defensive
+// backstop to ensure the message is traceable and uniquely identifiable.
 // Returns the key and whether it was set on the message.
 func EnsureIdempotencyID(msg hermod.Message) (string, bool) {
 	key := DetermineIdempotencyKey(msg)
 	if key == "" {
-		return "", false
+		key = uuid.NewString()
+		if dm, ok := msg.(*message.DefaultMessage); ok {
+			dm.SetID(key)
+			return key, true
+		}
+		return key, false
 	}
 	if dm, ok := msg.(*message.DefaultMessage); ok {
 		if strings.TrimSpace(dm.ID()) == "" {

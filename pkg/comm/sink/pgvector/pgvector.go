@@ -177,6 +177,9 @@ func (s *Sink) upsertMapped(ctx context.Context, msg hermod.Message) error {
 	var pkCol string
 
 	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
 		val := evaluator.GetMsgValByPath(msg, m.SourceField)
 
 		if m.IsIdentity && (val == nil || val == "" || val == 0) {

@@ -311,6 +311,9 @@ func (s *SQLiteSink) upsertMapped(ctx context.Context, tx *sql.Tx, table string,
 	var args []any
 
 	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
 		val := evaluator.GetMsgValByPath(msg, m.SourceField)
 
 		if m.IsIdentity && (val == nil || val == "" || val == 0) {
@@ -335,6 +338,9 @@ func (s *SQLiteSink) insertMapped(ctx context.Context, tx *sql.Tx, table string,
 	var args []any
 
 	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
 		val := evaluator.GetMsgValByPath(msg, m.SourceField)
 		if m.IsIdentity && (val == nil || val == "" || val == 0) {
 			continue
@@ -361,6 +367,9 @@ func (s *SQLiteSink) updateMapped(ctx context.Context, tx *sql.Tx, table string,
 	var pkArgs []any
 
 	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
 		val := evaluator.GetMsgValByPath(msg, m.SourceField)
 		if m.IsPrimaryKey {
 			pks = append(pks, fmt.Sprintf("\"%s\" = ?", m.TargetColumn))

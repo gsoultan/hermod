@@ -15,17 +15,17 @@ func TestParseColumnMappings(t *testing.T) {
 			want:  nil,
 		},
 		{
-			name:  "Blank source_field defaults to target_column",
+			name:  "Blank source_field is preserved (trimmed)",
 			input: `[{"source_field":"","target_column":"id","data_type":"uuid","is_primary_key":true}]`,
 			want: []ColumnMapping{
-				{SourceField: "id", TargetColumn: "id", DataType: "uuid", IsPrimaryKey: true},
+				{SourceField: "", TargetColumn: "id", DataType: "uuid", IsPrimaryKey: true},
 			},
 		},
 		{
-			name:  "Whitespace-only source_field defaults to target_column",
+			name:  "Whitespace-only source_field is trimmed to empty",
 			input: `[{"source_field":"   ","target_column":"code"}]`,
 			want: []ColumnMapping{
-				{SourceField: "code", TargetColumn: "code"},
+				{SourceField: "", TargetColumn: "code"},
 			},
 		},
 		{

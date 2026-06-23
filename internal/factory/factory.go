@@ -1186,10 +1186,18 @@ func BuildConnectionString(cfg map[string]string, sourceType string) string {
 			}
 			q := u.Query()
 			q.Set("sslmode", sslmode)
+
 			// Propagate the optional pooler markers so the pgx layer can switch to
 			// a PgBouncer-safe query mode (transaction/statement pooling cannot use
 			// server-side prepared statements). These keys are stripped before the
 			// string reaches pgx (see pkg/infra/pgxutil).
+			//
+			// Auto-detect the well-known PgBouncer port 6432 and enable pgbouncer
+			// mode by default if no explicit preference was provided.
+			if port == "6432" && cfg["pgbouncer"] == "" && cfg["pool_mode"] == "" {
+				q.Set("pgbouncer", "true")
+			}
+
 			if v := strings.TrimSpace(cfg["pgbouncer"]); v != "" {
 				q.Set("pgbouncer", v)
 			}

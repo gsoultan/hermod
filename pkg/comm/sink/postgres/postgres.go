@@ -1009,6 +1009,9 @@ func (s *PostgresSink) upsertMapped(ctx context.Context, executor pgExecutor, ta
 	var args []any
 	argIdx := 1
 	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
 		val := s.convertValue(evaluator.GetMsgValByPath(msg, m.SourceField), m.DataType)
 		if m.IsIdentity && isEmptyIdentity(val) {
 			continue
@@ -1062,6 +1065,9 @@ func (s *PostgresSink) insertMapped(ctx context.Context, executor pgExecutor, ta
 	var args []any
 	argIdx := 1
 	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
 		val := s.convertValue(evaluator.GetMsgValByPath(msg, m.SourceField), m.DataType)
 		if m.IsIdentity && isEmptyIdentity(val) {
 			continue
@@ -1097,6 +1103,9 @@ func (s *PostgresSink) updateMapped(ctx context.Context, executor pgExecutor, ta
 	argIdx := 1
 	for _, m := range s.mappings {
 		if m.IsPrimaryKey {
+			continue
+		}
+		if m.SourceField == "" {
 			continue
 		}
 		col, err := quoteColumn(m.TargetColumn)

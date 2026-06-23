@@ -162,6 +162,9 @@ func (s *OracleSink) upsertMapped(ctx context.Context, tx *sql.Tx, table string,
 	var pkSource string
 
 	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
 		val := evaluator.GetMsgValByPath(msg, m.SourceField)
 
 		if m.IsIdentity && (val == nil || val == "" || val == 0) {
@@ -212,6 +215,9 @@ func (s *OracleSink) insertMapped(ctx context.Context, tx *sql.Tx, table string,
 	var args []any
 
 	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
 		val := evaluator.GetMsgValByPath(msg, m.SourceField)
 		if m.IsIdentity && (val == nil || val == "" || val == 0) {
 			continue

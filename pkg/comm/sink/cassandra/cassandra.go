@@ -122,6 +122,9 @@ func (s *CassandraSink) WriteBatch(ctx context.Context, msgs []hermod.Message) e
 				var placeholders []string
 				var args []any
 				for _, m := range s.mappings {
+					if m.SourceField == "" {
+						continue
+					}
 					val := evaluator.GetMsgValByPath(msg, m.SourceField)
 
 					if m.IsIdentity && (val == nil || val == "" || val == 0) {

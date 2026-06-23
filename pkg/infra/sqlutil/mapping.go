@@ -32,9 +32,7 @@ func ParseColumnMappings(s string) ([]ColumnMapping, error) {
 		return nil, err
 	}
 	for i := range mappings {
-		if strings.TrimSpace(mappings[i].SourceField) == "" {
-			mappings[i].SourceField = mappings[i].TargetColumn
-		}
+		mappings[i].SourceField = strings.TrimSpace(mappings[i].SourceField)
 	}
 	return mappings, nil
 }

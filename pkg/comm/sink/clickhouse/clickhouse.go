@@ -127,7 +127,7 @@ func (s *ClickHouseSink) WriteBatch(ctx context.Context, msgs []hermod.Message) 
 	if len(s.mappings) > 0 {
 		var insertCols []string
 		for _, m := range s.mappings {
-			if m.IsIdentity {
+			if m.IsIdentity || m.SourceField == "" {
 				continue
 			}
 			insertCols = append(insertCols, m.TargetColumn)
@@ -146,6 +146,9 @@ func (s *ClickHouseSink) WriteBatch(ctx context.Context, msgs []hermod.Message) 
 		if len(s.mappings) > 0 {
 			var args []any
 			for _, m := range s.mappings {
+				if m.SourceField == "" {
+					continue
+				}
 				val := evaluator.GetMsgValByPath(msg, m.SourceField)
 				if m.IsIdentity && (val == nil || val == "" || val == 0) {
 					continue
