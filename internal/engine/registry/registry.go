@@ -24,6 +24,7 @@ import (
 	"github.com/user/hermod/internal/notification"
 	"github.com/user/hermod/internal/optimizer"
 	"github.com/user/hermod/internal/storage"
+	"github.com/user/hermod/pkg/comm/message"
 	"github.com/user/hermod/pkg/comm/sink/failover"
 	"github.com/user/hermod/pkg/comm/source/batchsql"
 	sourceform "github.com/user/hermod/pkg/comm/source/form"
@@ -526,7 +527,9 @@ func (r *Registry) getOrOpenDB(src storage.Source) (*sql.DB, error) {
 		delete(r.dbPool, src.ID)
 	}
 
-	connStr := factory.BuildConnectionString(src.Config, src.Type)
+	// Resolve secrets in config
+	resolvedConfig := r.resolveSecrets(context.Background(), src.Config)
+	connStr := factory.BuildConnectionString(resolvedConfig, src.Type)
 	var db *sql.DB
 	var err error
 
@@ -872,21 +875,34 @@ func (r *Registry) mergeData(dst, src map[string]any, strategy string) {
 func (r *Registry) TestTransformationPipeline(ctx context.Context, transformations []storage.Transformation, msg hermod.Message) ([]hermod.Message, error) {
 	results := make([]hermod.Message, len(transformations))
 	currentMsg := msg.Clone()
+
+	// Ensure the working message is released on exit
+	defer func() {
+		if currentMsg != nil {
+			if dm, ok := currentMsg.(*message.DefaultMessage); ok {
+				message.ReleaseMessage(dm)
+			}
+		}
+	}()
+
 	for i, t := range transformations {
 		if currentMsg == nil {
 			results[i] = nil
 			continue
 		}
 
-		config := make(map[string]any)
-		for k, v := range t.Config {
-			config[k] = v
-		}
-		res, err := r.applyTransformation(context.Background(), currentMsg.Clone(), t.Type, config)
+		config := t.Config
+		res, err := r.applyTransformation(ctx, currentMsg.Clone(), t.Type, config)
 		if err != nil {
 			return nil, err
 		}
+
 		results[i] = res
+
+		// Release the previous working message before updating to the new result
+		if dm, ok := currentMsg.(*message.DefaultMessage); ok {
+			message.ReleaseMessage(dm)
+		}
 		currentMsg = res
 	}
 	return results, nil

@@ -840,6 +840,15 @@ func (h *Handler) TestTransformation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ensure all messages in the results slice are released after encoding
+	defer func() {
+		for _, m := range res {
+			if dm, ok := m.(*message.DefaultMessage); ok {
+				message.ReleaseMessage(dm)
+			}
+		}
+	}()
+
 	if len(res) == 0 || res[0] == nil {
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": "Filtered", "filtered": true})
 		return

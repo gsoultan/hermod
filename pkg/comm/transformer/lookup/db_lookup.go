@@ -308,10 +308,7 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 		return nil, errors.New("either whereClause or keyColumn must be provided for db_lookup")
 	}
 
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s", selectList, quotedTable, strings.Join(whereParts, " AND "))
-	if !batchMode {
-		query += " LIMIT 1"
-	}
+	query := buildLookupQuery(driver, selectList, quotedTable, whereParts, batchMode)
 
 	var resultVal any
 	if valueColumn == "*" || strings.Contains(valueColumn, ",") {
@@ -533,4 +530,19 @@ func asSlice(v any) ([]any, bool) {
 	default:
 		return nil, false
 	}
+}
+
+func buildLookupQuery(driver, selectList, quotedTable string, whereParts []string, batchMode bool) string {
+	whereJoined := strings.Join(whereParts, " AND ")
+	if !batchMode {
+		switch driver {
+		case "mssql", "sqlserver":
+			return fmt.Sprintf("SELECT TOP 1 %s FROM %s WHERE %s", selectList, quotedTable, whereJoined)
+		case "oracle":
+			return fmt.Sprintf("SELECT %s FROM %s WHERE %s FETCH FIRST 1 ROWS ONLY", selectList, quotedTable, whereJoined)
+		default:
+			return fmt.Sprintf("SELECT %s FROM %s WHERE %s LIMIT 1", selectList, quotedTable, whereJoined)
+		}
+	}
+	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", selectList, quotedTable, whereJoined)
 }

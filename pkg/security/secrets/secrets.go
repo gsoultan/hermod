@@ -40,11 +40,16 @@ func (m *CombinedManager) Get(ctx context.Context, key string) (string, error) {
 	return "", nil
 }
 
-// ResolveSecret takes a value and if it starts with "secret:",
+// ResolveSecret takes a value and if it is marked as a secret (e.g. "secret:KEY" or "{{secret:KEY}}"),
 // it attempts to resolve it using the provided manager.
 func ResolveSecret(ctx context.Context, mgr Manager, value string) string {
-	if strings.HasPrefix(value, "secret:") {
-		key := strings.TrimPrefix(value, "secret:")
+	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(trimmed, "{{") && strings.HasSuffix(trimmed, "}}") {
+		trimmed = strings.TrimSpace(trimmed[2 : len(trimmed)-2])
+	}
+
+	if strings.HasPrefix(trimmed, "secret:") {
+		key := strings.TrimPrefix(trimmed, "secret:")
 		if mgr != nil {
 			val, err := mgr.Get(ctx, key)
 			if err == nil && val != "" {
