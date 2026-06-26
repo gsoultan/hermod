@@ -34,6 +34,7 @@ import (
 	"github.com/user/hermod/pkg/engine/telemetry"
 	"github.com/user/hermod/pkg/infra/evaluator"
 	"github.com/user/hermod/pkg/infra/schema"
+	"github.com/user/hermod/pkg/infra/sqlutil"
 	"github.com/user/hermod/pkg/security/secrets"
 	"go.opentelemetry.io/otel"
 	_ "modernc.org/sqlite"
@@ -542,28 +543,17 @@ func (r *Registry) getOrOpenDB(src storage.Source) (*sql.DB, error) {
 	// Resolve secrets in config
 	resolvedConfig := r.resolveSecrets(context.Background(), config)
 	connStr := factory.BuildConnectionString(resolvedConfig, sourceType)
-	var db *sql.DB
-	var err error
 
-	switch sourceType {
-	case "postgres", "yugabyte":
-		db, err = sql.Open("pgx", connStr)
-	case "mysql", "mariadb":
-		db, err = sql.Open("mysql", connStr)
-	case "sqlite":
-		db, err = sql.Open("sqlite", connStr)
-	case "mssql":
-		db, err = sql.Open("sqlserver", connStr)
-	case "oracle":
-		db, err = sql.Open("oracle", connStr)
-	case "clickhouse":
-		db, err = sql.Open("clickhouse", connStr)
-	case "snowflake":
-		db, err = sql.Open("snowflake", connStr)
-	default:
+	// Resolve the actual database/sql driver name from the user-facing type using
+	// the single source of truth shared with placeholder generation. This guarantees
+	// the placeholder style produced by sqlutil.Placeholder always matches the driver
+	// that executes the query (e.g. mssql -> sqlserver -> @pN placeholders).
+	driverName, ok := sqlutil.CanonicalDriver(sourceType)
+	if !ok {
 		return nil, fmt.Errorf("unsupported source type for generic sql: %s", sourceType)
 	}
 
+	db, err := sql.Open(driverName, connStr)
 	if err != nil {
 		return nil, err
 	}

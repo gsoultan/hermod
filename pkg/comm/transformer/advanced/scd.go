@@ -175,7 +175,10 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 	whereParts := make([]string, 0, len(businessKeys))
 	args := make([]any, 0, len(businessKeys))
 	for i, key := range businessKeys {
-		quotedKey, _ := sqlutil.QuoteIdent(driver, key)
+		quotedKey, err := sqlutil.QuoteIdent(driver, key)
+		if err != nil {
+			return msg, fmt.Errorf("invalid business key %q: %w", key, err)
+		}
 		val := evaluator.GetMsgValByPath(msg, key)
 		whereParts = append(whereParts, fmt.Sprintf("%s = %s", quotedKey, sqlutil.Placeholder(driver, i+1)))
 		args = append(args, val)
@@ -183,7 +186,10 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 
 	selectCols := make([]string, 0)
 	for curr := range mappings {
-		q, _ := sqlutil.QuoteIdent(driver, curr)
+		q, err := sqlutil.QuoteIdent(driver, curr)
+		if err != nil {
+			return msg, fmt.Errorf("invalid mapping column %q: %w", curr, err)
+		}
 		selectCols = append(selectCols, q)
 	}
 	if len(selectCols) == 0 {
@@ -239,13 +245,19 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 		if !reflect.DeepEqual(newVal, oldVal) {
 			changed = true
 			// Move current to previous
-			qPrev, _ := sqlutil.QuoteIdent(driver, prev)
+			qPrev, err := sqlutil.QuoteIdent(driver, prev)
+			if err != nil {
+				return msg, fmt.Errorf("invalid previous column %q: %w", prev, err)
+			}
 			updateParts = append(updateParts, fmt.Sprintf("%s = %s", qPrev, sqlutil.Placeholder(driver, idx)))
 			updateArgs = append(updateArgs, oldVal)
 			idx++
 
 			// Update current
-			qCurr, _ := sqlutil.QuoteIdent(driver, curr)
+			qCurr, err := sqlutil.QuoteIdent(driver, curr)
+			if err != nil {
+				return msg, fmt.Errorf("invalid mapping column %q: %w", curr, err)
+			}
 			updateParts = append(updateParts, fmt.Sprintf("%s = %s", qCurr, sqlutil.Placeholder(driver, idx)))
 			updateArgs = append(updateArgs, newVal)
 			idx++
@@ -291,7 +303,10 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 
 		updateWhere := make([]string, 0)
 		for _, bk := range businessKeys {
-			q, _ := sqlutil.QuoteIdent(driver, bk)
+			q, err := sqlutil.QuoteIdent(driver, bk)
+			if err != nil {
+				return msg, fmt.Errorf("invalid business key %q: %w", bk, err)
+			}
 			updateWhere = append(updateWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, idx)))
 			updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, bk))
 			idx++
@@ -329,7 +344,10 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 	whereParts := make([]string, 0, len(businessKeys))
 	args := make([]any, 0, len(businessKeys))
 	for i, key := range businessKeys {
-		quotedKey, _ := sqlutil.QuoteIdent(driver, key)
+		quotedKey, err := sqlutil.QuoteIdent(driver, key)
+		if err != nil {
+			return msg, fmt.Errorf("invalid business key %q: %w", key, err)
+		}
 		val := evaluator.GetMsgValByPath(msg, key)
 		whereParts = append(whereParts, fmt.Sprintf("%s = %s", quotedKey, sqlutil.Placeholder(driver, i+1)))
 		args = append(args, val)
@@ -404,7 +422,10 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 	hPhs := make([]string, 0, len(cols))
 	hArgs := make([]any, 0, len(cols))
 	for i, col := range cols {
-		q, _ := sqlutil.QuoteIdent(driver, col)
+		q, err := sqlutil.QuoteIdent(driver, col)
+		if err != nil {
+			return msg, fmt.Errorf("invalid history column %q: %w", col, err)
+		}
 		hCols = append(hCols, q)
 		hPhs = append(hPhs, sqlutil.Placeholder(driver, i+1))
 		hArgs = append(hArgs, values[i])
@@ -431,7 +452,10 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 		if isBK {
 			continue
 		}
-		q, _ := sqlutil.QuoteIdent(driver, field)
+		q, err := sqlutil.QuoteIdent(driver, field)
+		if err != nil {
+			continue
+		}
 		updateParts = append(updateParts, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
 		updateArgs = append(updateArgs, val)
 		uIdx++
@@ -440,7 +464,10 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 	if len(updateParts) > 0 {
 		uWhere := make([]string, 0)
 		for _, bk := range businessKeys {
-			q, _ := sqlutil.QuoteIdent(driver, bk)
+			q, err := sqlutil.QuoteIdent(driver, bk)
+			if err != nil {
+				return msg, fmt.Errorf("invalid business key %q: %w", bk, err)
+			}
 			uWhere = append(uWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
 			updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, bk))
 			uIdx++
@@ -487,20 +514,29 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 	}
 	currentFlagCol := core.GetConfigString(config, "currentFlagColumn")
 
-	qEndDate, _ := sqlutil.QuoteIdent(driver, endDateCol)
+	qEndDate, err := sqlutil.QuoteIdent(driver, endDateCol)
+	if err != nil {
+		return msg, fmt.Errorf("invalid end-date column %q: %w", endDateCol, err)
+	}
 
 	whereParts := make([]string, 0)
 	args := make([]any, 0)
 	idx := 1
 	for _, key := range businessKeys {
-		q, _ := sqlutil.QuoteIdent(driver, key)
+		q, err := sqlutil.QuoteIdent(driver, key)
+		if err != nil {
+			return msg, fmt.Errorf("invalid business key %q: %w", key, err)
+		}
 		whereParts = append(whereParts, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, idx)))
 		args = append(args, evaluator.GetMsgValByPath(msg, key))
 		idx++
 	}
 
 	if currentFlagCol != "" {
-		qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+		qFlag, err := sqlutil.QuoteIdent(driver, currentFlagCol)
+		if err != nil {
+			return msg, fmt.Errorf("invalid current-flag column %q: %w", currentFlagCol, err)
+		}
 		whereParts = append(whereParts, fmt.Sprintf("%s = %s", qFlag, sqlutil.Placeholder(driver, idx)))
 		args = append(args, true)
 	} else {
@@ -575,7 +611,10 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 		updateArgs := make([]any, 0)
 		uIdx := 1
 		for _, col := range type1Cols {
-			q, _ := sqlutil.QuoteIdent(driver, col)
+			q, err := sqlutil.QuoteIdent(driver, col)
+			if err != nil {
+				return msg, fmt.Errorf("invalid column %q: %w", col, err)
+			}
 			updateParts = append(updateParts, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
 			updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, col))
 			uIdx++
@@ -583,7 +622,10 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 
 		uWhere := make([]string, 0)
 		for _, bk := range businessKeys {
-			q, _ := sqlutil.QuoteIdent(driver, bk)
+			q, err := sqlutil.QuoteIdent(driver, bk)
+			if err != nil {
+				return msg, fmt.Errorf("invalid business key %q: %w", bk, err)
+			}
 			uWhere = append(uWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
 			updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, bk))
 			uIdx++
@@ -599,7 +641,10 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 	if type2Changed {
 		// Standard Type 2 logic
 		now := time.Now()
-		qStartDate, _ := sqlutil.QuoteIdent(driver, startDateCol)
+		qStartDate, err := sqlutil.QuoteIdent(driver, startDateCol)
+		if err != nil {
+			return msg, fmt.Errorf("invalid start-date column %q: %w", startDateCol, err)
+		}
 
 		// Expire current
 		expWhere := make([]string, 0)
@@ -609,20 +654,29 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 		setClause := fmt.Sprintf("%s = %s", qEndDate, sqlutil.Placeholder(driver, eIdx))
 		eIdx++
 		if currentFlagCol != "" {
-			qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+			qFlag, err := sqlutil.QuoteIdent(driver, currentFlagCol)
+			if err != nil {
+				return msg, fmt.Errorf("invalid current-flag column %q: %w", currentFlagCol, err)
+			}
 			expArgs = append(expArgs, false)
 			setClause += fmt.Sprintf(", %s = %s", qFlag, sqlutil.Placeholder(driver, eIdx))
 			eIdx++
 		}
 
 		for _, bk := range businessKeys {
-			q, _ := sqlutil.QuoteIdent(driver, bk)
+			q, err := sqlutil.QuoteIdent(driver, bk)
+			if err != nil {
+				return msg, fmt.Errorf("invalid business key %q: %w", bk, err)
+			}
 			expWhere = append(expWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, eIdx)))
 			expArgs = append(expArgs, evaluator.GetMsgValByPath(msg, bk))
 			eIdx++
 		}
 		if currentFlagCol != "" {
-			qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+			qFlag, err := sqlutil.QuoteIdent(driver, currentFlagCol)
+			if err != nil {
+				return msg, fmt.Errorf("invalid current-flag column %q: %w", currentFlagCol, err)
+			}
 			expWhere = append(expWhere, fmt.Sprintf("%s = %s", qFlag, sqlutil.Placeholder(driver, eIdx)))
 			expArgs = append(expArgs, true)
 		} else {
@@ -641,7 +695,10 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 		iArgs := make([]any, 0)
 		iIdx := 1
 		for field, val := range msg.Data() {
-			q, _ := sqlutil.QuoteIdent(driver, field)
+			q, err := sqlutil.QuoteIdent(driver, field)
+			if err != nil {
+				continue
+			}
 			iCols = append(iCols, q)
 			iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
 			iArgs = append(iArgs, val)
@@ -653,7 +710,10 @@ func (t *SCDTransformer) handleType6(ctx context.Context, db *sql.DB, driver, ta
 		iIdx++
 
 		if currentFlagCol != "" {
-			qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+			qFlag, err := sqlutil.QuoteIdent(driver, currentFlagCol)
+			if err != nil {
+				return msg, fmt.Errorf("invalid current-flag column %q: %w", currentFlagCol, err)
+			}
 			iCols = append(iCols, qFlag)
 			iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
 			iArgs = append(iArgs, true)
@@ -683,7 +743,10 @@ func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, ta
 	whereParts := make([]string, 0, len(businessKeys))
 	args := make([]any, 0, len(businessKeys))
 	for i, key := range businessKeys {
-		quotedKey, _ := sqlutil.QuoteIdent(driver, key)
+		quotedKey, err := sqlutil.QuoteIdent(driver, key)
+		if err != nil {
+			return msg, fmt.Errorf("invalid business key %q: %w", key, err)
+		}
 		val := evaluator.GetMsgValByPath(msg, key)
 		whereParts = append(whereParts, fmt.Sprintf("%s = %s", quotedKey, sqlutil.Placeholder(driver, i+1)))
 		args = append(args, val)
@@ -695,7 +758,10 @@ func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, ta
 		allCols = append(allCols, compareFields...)
 		quotedCols := make([]string, 0, len(allCols))
 		for _, col := range allCols {
-			q, _ := sqlutil.QuoteIdent(driver, col)
+			q, err := sqlutil.QuoteIdent(driver, col)
+			if err != nil {
+				return msg, fmt.Errorf("invalid column %q: %w", col, err)
+			}
 			quotedCols = append(quotedCols, q)
 		}
 		selectCols = strings.Join(quotedCols, ", ")
@@ -786,7 +852,10 @@ func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, ta
 	if len(updateParts) > 0 {
 		updateWhere := make([]string, 0)
 		for _, bk := range businessKeys {
-			q, _ := sqlutil.QuoteIdent(driver, bk)
+			q, err := sqlutil.QuoteIdent(driver, bk)
+			if err != nil {
+				return msg, fmt.Errorf("invalid business key %q: %w", bk, err)
+			}
 			updateWhere = append(updateWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, idx)))
 			updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, bk))
 			idx++
@@ -804,7 +873,10 @@ func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, ta
 }
 
 func (t *SCDTransformer) performInsert(ctx context.Context, db *sql.DB, driver, table string, msg hermod.Message) (hermod.Message, error) {
-	quotedTable, _ := sqlutil.QuoteIdent(driver, table)
+	quotedTable, err := sqlutil.QuoteIdent(driver, table)
+	if err != nil {
+		return msg, fmt.Errorf("invalid target table %q: %w", table, err)
+	}
 	cols := make([]string, 0)
 	phs := make([]string, 0)
 	insertArgs := make([]any, 0)
@@ -821,7 +893,7 @@ func (t *SCDTransformer) performInsert(ctx context.Context, db *sql.DB, driver, 
 	}
 
 	insertQuery := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", quotedTable, strings.Join(cols, ", "), strings.Join(phs, ", "))
-	_, err := db.ExecContext(ctx, insertQuery, insertArgs...)
+	_, err = db.ExecContext(ctx, insertQuery, insertArgs...)
 	if err != nil {
 		return msg, fmt.Errorf("insert failed: %w", err)
 	}
@@ -846,22 +918,34 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 		endDateCol = "end_date"
 	}
 
-	qStartDate, _ := sqlutil.QuoteIdent(driver, startDateCol)
-	qEndDate, _ := sqlutil.QuoteIdent(driver, endDateCol)
+	qStartDate, err := sqlutil.QuoteIdent(driver, startDateCol)
+	if err != nil {
+		return msg, fmt.Errorf("invalid start-date column %q: %w", startDateCol, err)
+	}
+	qEndDate, err := sqlutil.QuoteIdent(driver, endDateCol)
+	if err != nil {
+		return msg, fmt.Errorf("invalid end-date column %q: %w", endDateCol, err)
+	}
 
 	// 1. Find current active record
 	whereParts := make([]string, 0)
 	args := make([]any, 0)
 	idx := 1
 	for _, key := range businessKeys {
-		q, _ := sqlutil.QuoteIdent(driver, key)
+		q, err := sqlutil.QuoteIdent(driver, key)
+		if err != nil {
+			return msg, fmt.Errorf("invalid business key %q: %w", key, err)
+		}
 		whereParts = append(whereParts, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, idx)))
 		args = append(args, evaluator.GetMsgValByPath(msg, key))
 		idx++
 	}
 
 	if currentFlagCol != "" {
-		qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+		qFlag, err := sqlutil.QuoteIdent(driver, currentFlagCol)
+		if err != nil {
+			return msg, fmt.Errorf("invalid current-flag column %q: %w", currentFlagCol, err)
+		}
 		whereParts = append(whereParts, fmt.Sprintf("%s = %s", qFlag, sqlutil.Placeholder(driver, idx)))
 		args = append(args, true)
 	} else {
@@ -927,7 +1011,10 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 		iIdx++
 
 		if currentFlagCol != "" {
-			qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+			qFlag, err := sqlutil.QuoteIdent(driver, currentFlagCol)
+			if err != nil {
+				return msg, fmt.Errorf("invalid current-flag column %q: %w", currentFlagCol, err)
+			}
 			iCols = append(iCols, qFlag)
 			iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
 			iArgs = append(iArgs, true)
@@ -973,20 +1060,29 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 	setClause := fmt.Sprintf("%s = %s", qEndDate, sqlutil.Placeholder(driver, uIdx))
 	uIdx++
 	if currentFlagCol != "" {
-		qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+		qFlag, err := sqlutil.QuoteIdent(driver, currentFlagCol)
+		if err != nil {
+			return msg, fmt.Errorf("invalid current-flag column %q: %w", currentFlagCol, err)
+		}
 		updateArgs = append(updateArgs, false)
 		setClause += fmt.Sprintf(", %s = %s", qFlag, sqlutil.Placeholder(driver, uIdx))
 		uIdx++
 	}
 
 	for _, key := range businessKeys {
-		q, _ := sqlutil.QuoteIdent(driver, key)
+		q, err := sqlutil.QuoteIdent(driver, key)
+		if err != nil {
+			return msg, fmt.Errorf("invalid business key %q: %w", key, err)
+		}
 		updateWhere = append(updateWhere, fmt.Sprintf("%s = %s", q, sqlutil.Placeholder(driver, uIdx)))
 		updateArgs = append(updateArgs, evaluator.GetMsgValByPath(msg, key))
 		uIdx++
 	}
 	if currentFlagCol != "" {
-		qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+		qFlag, err := sqlutil.QuoteIdent(driver, currentFlagCol)
+		if err != nil {
+			return msg, fmt.Errorf("invalid current-flag column %q: %w", currentFlagCol, err)
+		}
 		updateWhere = append(updateWhere, fmt.Sprintf("%s = %s", qFlag, sqlutil.Placeholder(driver, uIdx)))
 		updateArgs = append(updateArgs, true)
 	} else {
@@ -1021,7 +1117,10 @@ func (t *SCDTransformer) handleType2(ctx context.Context, db *sql.DB, driver, ta
 	iIdx++
 
 	if currentFlagCol != "" {
-		qFlag, _ := sqlutil.QuoteIdent(driver, currentFlagCol)
+		qFlag, err := sqlutil.QuoteIdent(driver, currentFlagCol)
+		if err != nil {
+			return msg, fmt.Errorf("invalid current-flag column %q: %w", currentFlagCol, err)
+		}
 		iCols = append(iCols, qFlag)
 		iPhs = append(iPhs, sqlutil.Placeholder(driver, iIdx))
 		iArgs = append(iArgs, true)
