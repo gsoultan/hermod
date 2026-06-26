@@ -10,6 +10,7 @@ import (
 	"github.com/user/hermod/internal/factory"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/comm/transformer/core"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -307,26 +308,64 @@ func (r *Registry) BrowseSinkTable(ctx context.Context, cfg factory.SinkConfig, 
 // --- SQL Execution ---
 
 func (r *Registry) ExecuteSQL(ctx context.Context, cfg factory.SourceConfig, query string) ([]map[string]any, error) {
-	// 1. Try if the source already implements SQLExecutor
-	src, err := r.createSource(ctx, cfg)
-	if err == nil {
-		defer src.Close()
-		if e, ok := src.(hermod.SQLExecutor); ok {
-			results, err := e.ExecuteSQL(ctx, query)
-			if err == nil {
-				return results, nil
+	// Prepare dummy data for template resolution in builder
+	sampleData := map[string]any{
+		"after": map[string]any{"id": "sample-id"}, // Default fallback
+	}
+
+	// Try to get actual sample data if available to make the preview realistic
+	if msg, err := r.SampleTable(ctx, cfg, ""); err == nil && msg != nil {
+		data := msg.Data()
+		if len(data) > 0 {
+			for k, v := range data {
+				sampleData[k] = v
 			}
-			// If it's not supported, fallback to generic execution.
-			// Otherwise, return the error (e.g. SQL syntax error).
-			if !errors.Is(err, hermod.ErrNotSupported) {
-				return nil, err
+		}
+		// If data is empty but we have After payload, try to unmarshal it
+		if len(data) == 0 {
+			if after := msg.After(); len(after) > 0 {
+				var afterData map[string]any
+				if err := json.Unmarshal(after, &afterData); err == nil {
+					sampleData["after"] = afterData
+				}
+			}
+		}
+	}
+
+	// Determine driver for correct placeholder style (?, $1, etc.)
+	driver := cfg.Type
+	if driver == "batch_sql" {
+		if underlyingID := cfg.Config["source_id"]; underlyingID != "" {
+			if underlying, err := r.storage.GetSource(ctx, underlyingID); err == nil {
+				driver = underlying.Type
+			}
+		}
+	}
+
+	// Resolve templates safely
+	parameterizedQuery, args := core.ParameterizeTemplate(driver, query, sampleData)
+
+	// 1. Try if the source already implements SQLExecutor
+	// Only if there are no arguments, as SQLExecutor.ExecuteSQL doesn't support them.
+	if len(args) == 0 {
+		src, err := r.createSource(ctx, cfg)
+		if err == nil {
+			defer src.Close()
+			if e, ok := src.(hermod.SQLExecutor); ok {
+				results, err := e.ExecuteSQL(ctx, parameterizedQuery)
+				if err == nil {
+					return results, nil
+				}
+				if !errors.Is(err, hermod.ErrNotSupported) {
+					return nil, err
+				}
 			}
 		}
 	}
 
 	// 2. Fallback to generic SQL execution if it's a supported DB type
 	db, err := r.getOrOpenDB(storage.Source{
-		ID:     "temp-query-" + cfg.Type,
+		ID:     "temp-query-" + cfg.Type + "-" + cfg.ID,
 		Type:   cfg.Type,
 		Config: cfg.Config,
 	})
@@ -334,7 +373,7 @@ func (r *Registry) ExecuteSQL(ctx context.Context, cfg factory.SourceConfig, que
 		return nil, err
 	}
 
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, parameterizedQuery, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -344,24 +383,44 @@ func (r *Registry) ExecuteSQL(ctx context.Context, cfg factory.SourceConfig, que
 }
 
 func (r *Registry) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkConfig, query string) ([]map[string]any, error) {
-	// 1. Try if the sink already implements SQLExecutor
-	snk, err := r.createSink(ctx, cfg)
-	if err == nil {
-		defer snk.Close()
-		if e, ok := snk.(hermod.SQLExecutor); ok {
-			results, err := e.ExecuteSQL(ctx, query)
-			if err == nil {
-				return results, nil
+	// Prepare dummy data
+	sampleData := map[string]any{
+		"after": map[string]any{"id": "sample-id"},
+	}
+
+	// Try to get actual sample data from sink if supported
+	if msg, err := r.SampleSinkTable(ctx, cfg, ""); err == nil && msg != nil {
+		data := msg.Data()
+		if len(data) > 0 {
+			for k, v := range data {
+				sampleData[k] = v
 			}
-			if !errors.Is(err, hermod.ErrNotSupported) {
-				return nil, err
+		}
+	}
+
+	// Resolve templates safely
+	parameterizedQuery, args := core.ParameterizeTemplate(cfg.Type, query, sampleData)
+
+	// 1. Try if the sink already implements SQLExecutor
+	if len(args) == 0 {
+		snk, err := r.createSink(ctx, cfg)
+		if err == nil {
+			defer snk.Close()
+			if e, ok := snk.(hermod.SQLExecutor); ok {
+				results, err := e.ExecuteSQL(ctx, parameterizedQuery)
+				if err == nil {
+					return results, nil
+				}
+				if !errors.Is(err, hermod.ErrNotSupported) {
+					return nil, err
+				}
 			}
 		}
 	}
 
 	// 2. Fallback to generic SQL execution if it's a supported DB type
 	db, err := r.getOrOpenDB(storage.Source{
-		ID:     "temp-sink-query-" + cfg.Type,
+		ID:     "temp-sink-query-" + cfg.Type + "-" + cfg.ID,
 		Type:   cfg.Type,
 		Config: cfg.Config,
 	})
@@ -369,7 +428,7 @@ func (r *Registry) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkConfig, q
 		return nil, err
 	}
 
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, parameterizedQuery, args...)
 	if err != nil {
 		return nil, err
 	}

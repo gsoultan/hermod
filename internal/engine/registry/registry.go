@@ -527,13 +527,25 @@ func (r *Registry) getOrOpenDB(src storage.Source) (*sql.DB, error) {
 		delete(r.dbPool, src.ID)
 	}
 
+	sourceType := src.Type
+	config := src.Config
+
+	if sourceType == "batch_sql" {
+		// Resolve the underlying database source
+		underlyingID := config["source_id"]
+		if underlying, err := r.storage.GetSource(context.Background(), underlyingID); err == nil {
+			sourceType = underlying.Type
+			config = underlying.Config
+		}
+	}
+
 	// Resolve secrets in config
-	resolvedConfig := r.resolveSecrets(context.Background(), src.Config)
-	connStr := factory.BuildConnectionString(resolvedConfig, src.Type)
+	resolvedConfig := r.resolveSecrets(context.Background(), config)
+	connStr := factory.BuildConnectionString(resolvedConfig, sourceType)
 	var db *sql.DB
 	var err error
 
-	switch src.Type {
+	switch sourceType {
 	case "postgres", "yugabyte":
 		db, err = sql.Open("pgx", connStr)
 	case "mysql", "mariadb":
@@ -549,7 +561,7 @@ func (r *Registry) getOrOpenDB(src storage.Source) (*sql.DB, error) {
 	case "snowflake":
 		db, err = sql.Open("snowflake", connStr)
 	default:
-		return nil, fmt.Errorf("unsupported source type for db_lookup: %s", src.Type)
+		return nil, fmt.Errorf("unsupported source type for generic sql: %s", sourceType)
 	}
 
 	if err != nil {

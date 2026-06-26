@@ -99,7 +99,11 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
 
       if (!response.ok) {
         const err = await response.json();
-        throw new Error(err.error || 'Failed to execute query');
+        let msg = err.error || 'Failed to execute query';
+        if (msg.toLowerCase().includes('offline') || msg.toLowerCase().includes('worker')) {
+          msg += '. Please ensure at least one worker is online or check if the source/sink is reachable from the API.';
+        }
+        throw new Error(msg);
       }
 
       const data = await response.json();
@@ -118,6 +122,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
 
   const fetchTables = async () => {
     setFetchingTables(true);
+    setError(null);
     try {
       const response = await fetch(`/api/${type}s/discover/tables`, {
         method: 'POST',
@@ -130,9 +135,17 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
       if (response.ok) {
         const data = await response.json();
         setTables(data || []);
+      } else {
+        const err = await response.json();
+        let msg = err.error || 'Failed to fetch tables';
+        if (msg.toLowerCase().includes('offline') || msg.toLowerCase().includes('worker')) {
+          msg += '. Start a worker to enable table discovery.';
+        }
+        setError(msg);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to fetch tables', e);
+      setError(e.message);
     } finally {
       setFetchingTables(false);
     }
