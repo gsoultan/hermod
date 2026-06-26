@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -40,6 +41,26 @@ type workflowTraversal struct {
 
 func (t *workflowTraversal) processNode(ctx context.Context, currID string) {
 	defer t.wg.Done()
+
+	// Each node runs in its own goroutine (see resolveEdge). A panic here would
+	// otherwise propagate to the goroutine's top and crash the entire process,
+	// taking the embedded API server down with it and surfacing to in-flight
+	// requests (e.g. the workflow editor) as a 502. Contain the panic so a
+	// single malformed node/message can never bring the worker down; the rest
+	// of the traversal and other workflows keep running.
+	defer func() {
+		if rec := recover(); rec != nil {
+			if t.registry != nil && t.registry.logger != nil {
+				t.registry.logger.Error("Workflow node panicked during traversal",
+					"workflow_id", t.workflowID, "node_id", currID,
+					"panic", rec, "stack", string(debug.Stack()))
+			}
+			if t.registry != nil {
+				t.registry.BroadcastLog(t.workflowID, "ERROR",
+					fmt.Sprintf("Node %s panicked: %v", currID, rec), "")
+			}
+		}
+	}()
 
 	if err := t.eng.AcquireNode(ctx, currID); err != nil {
 		t.registry.logger.Error("Failed to acquire node semaphore", "workflow_id", t.workflowID, "node_id", currID, "error", err)
