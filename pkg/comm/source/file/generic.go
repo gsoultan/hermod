@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -161,7 +162,7 @@ func (s *GenericFileSource) Ping(ctx context.Context) error {
 		}
 		return nil
 	case BackendFTP:
-		c, err := goftp.Dial(s.cfg.FTPAddr, goftp.DialWithTimeout(5*time.Second))
+		c, err := goftp.Dial(s.cfg.FTPAddr, goftp.DialWithContext(ctx), goftp.DialWithTimeout(5*time.Second))
 		if err != nil {
 			return err
 		}
@@ -173,6 +174,8 @@ func (s *GenericFileSource) Ping(ctx context.Context) error {
 		}
 		_, err = c.List(s.cfg.FTPRootDir)
 		return err
+	case BackendS3:
+		return s.pingS3(ctx)
 	case BackendSFTP:
 		addr := s.cfg.FTPAddr
 		if addr == "" {
@@ -198,7 +201,7 @@ func (s *GenericFileSource) Ping(ctx context.Context) error {
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 			Timeout:         5 * time.Second,
 		}
-		conn, err := ssh.Dial("tcp", addr, cfg)
+		conn, err := sshDialContext(ctx, addr, cfg)
 		if err != nil {
 			return err
 		}
@@ -269,7 +272,7 @@ func (s *GenericFileSource) Read(ctx context.Context) (hermod.Message, error) {
 		switch s.cfg.Format {
 		case FormatCSV:
 			// Build a CSVSource bound to this file
-			csvSrc := s.csvReaderFor(ref)
+			csvSrc := s.csvReaderFor(ctx, ref)
 			s.csvReader = csvSrc
 			s.activeFile = ref
 			return s.csvReader.Read(ctx)
@@ -314,7 +317,7 @@ func (s *GenericFileSource) Sample(ctx context.Context, table string) (hermod.Me
 	ref := &files[0]
 
 	if s.cfg.Format == FormatCSV {
-		csvSrc := s.csvReaderFor(ref)
+		csvSrc := s.csvReaderFor(ctx, ref)
 		if csvSrc == nil {
 			return nil, fmt.Errorf("failed to open csv reader for %s", ref.Name)
 		}
@@ -346,7 +349,7 @@ func (s *GenericFileSource) Sample(ctx context.Context, table string) (hermod.Me
 	return msg, nil
 }
 
-func (s *GenericFileSource) csvReaderFor(ref *fileRef) *CSVSource {
+func (s *GenericFileSource) csvReaderFor(ctx context.Context, ref *fileRef) *CSVSource {
 	// Determine how to open CSV depending on backend
 	delim := ','
 	hasHeader := true
@@ -356,7 +359,7 @@ func (s *GenericFileSource) csvReaderFor(ref *fileRef) *CSVSource {
 	case BackendHTTP:
 		return NewHTTPCSVSource(ref.FullPath, delim, hasHeader, s.cfg.Headers)
 	case BackendSFTP:
-		if rc, err := s.fetchSFTPFileReader(ref); err == nil && rc != nil {
+		if rc, err := s.fetchSFTPFileReader(ctx, ref); err == nil && rc != nil {
 			return NewCSVSourceFromReadCloser(rc, delim, hasHeader)
 		}
 		return NewCSVSource(ref.FullPath, delim, hasHeader)
@@ -489,7 +492,13 @@ func (s *GenericFileSource) listLocal() ([]fileRef, error) {
 	return refs, nil
 }
 
-func (s *GenericFileSource) listS3(ctx context.Context) ([]fileRef, error) {
+// newS3Client builds an S3 client from the configured region, credentials and
+// optional custom endpoint. It is shared by listS3 and pingS3 so connectivity
+// tests exercise the exact same client construction as real reads.
+func (s *GenericFileSource) newS3Client(ctx context.Context) (*awss3.Client, error) {
+	if s.cfg.S3Bucket == "" {
+		return nil, errors.New("s3_bucket is required")
+	}
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(s.cfg.S3Region),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(s.cfg.S3AccessKey, s.cfg.S3SecretKey, "")),
@@ -498,12 +507,39 @@ func (s *GenericFileSource) listS3(ctx context.Context) ([]fileRef, error) {
 		return nil, fmt.Errorf("failed to load aws config: %w", err)
 	}
 
-	svc := awss3.NewFromConfig(cfg, func(o *awss3.Options) {
+	return awss3.NewFromConfig(cfg, func(o *awss3.Options) {
 		if s.cfg.S3Endpoint != "" {
 			o.BaseEndpoint = aws.String(s.cfg.S3Endpoint)
 			o.UsePathStyle = true
 		}
+	}), nil
+}
+
+// pingS3 verifies connectivity and credentials by issuing a minimal
+// ListObjectsV2 request (MaxKeys=1) against the configured bucket. Previously
+// the S3 backend silently fell through to the default branch and always
+// reported success, masking invalid credentials or unreachable buckets.
+func (s *GenericFileSource) pingS3(ctx context.Context) error {
+	svc, err := s.newS3Client(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = svc.ListObjectsV2(ctx, &awss3.ListObjectsV2Input{
+		Bucket:  aws.String(s.cfg.S3Bucket),
+		Prefix:  aws.String(s.cfg.S3Prefix),
+		MaxKeys: aws.Int32(1),
 	})
+	if err != nil {
+		return fmt.Errorf("s3 connectivity test failed: %w", err)
+	}
+	return nil
+}
+
+func (s *GenericFileSource) listS3(ctx context.Context) ([]fileRef, error) {
+	svc, err := s.newS3Client(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	paginator := awss3.NewListObjectsV2Paginator(svc, &awss3.ListObjectsV2Input{
 		Bucket: aws.String(s.cfg.S3Bucket),
@@ -546,7 +582,7 @@ func (s *GenericFileSource) listFTP(ctx context.Context) ([]fileRef, error) {
 	if addr == "" {
 		return nil, errors.New("ftp_addr is required")
 	}
-	c, err := goftp.Dial(addr, goftp.DialWithTimeout(10*time.Second))
+	c, err := goftp.Dial(addr, goftp.DialWithContext(ctx), goftp.DialWithTimeout(10*time.Second))
 	if err != nil {
 		return nil, err
 	}
@@ -607,9 +643,9 @@ func (s *GenericFileSource) readFileBytes(ctx context.Context, ref *fileRef) ([]
 		}
 		r = resp.Body
 	case BackendFTP:
-		r, err = s.fetchFTPFileReader(ref)
+		r, err = s.fetchFTPFileReader(ctx, ref)
 	case BackendSFTP:
-		r, err = s.fetchSFTPFileReader(ref)
+		r, err = s.fetchSFTPFileReader(ctx, ref)
 	case BackendS3:
 		cfg, err := config.LoadDefaultConfig(ctx,
 			config.WithRegion(s.cfg.S3Region),
@@ -650,8 +686,8 @@ func (s *GenericFileSource) readFileBytes(ctx context.Context, ref *fileRef) ([]
 	return b, meta, nil
 }
 
-func (s *GenericFileSource) fetchFTPFileReader(ref *fileRef) (io.ReadCloser, error) {
-	c, err := goftp.Dial(s.cfg.FTPAddr, goftp.DialWithTimeout(15*time.Second))
+func (s *GenericFileSource) fetchFTPFileReader(ctx context.Context, ref *fileRef) (io.ReadCloser, error) {
+	c, err := goftp.Dial(s.cfg.FTPAddr, goftp.DialWithContext(ctx), goftp.DialWithTimeout(15*time.Second))
 	if err != nil {
 		return nil, err
 	}
@@ -672,6 +708,35 @@ func (s *GenericFileSource) fetchFTPFileReader(ref *fileRef) (io.ReadCloser, err
 type ftpReadCloser struct {
 	io.ReadCloser
 	c *goftp.ServerConn
+}
+
+// sshDialContext dials an SSH connection while honoring the provided context
+// for both the TCP connect and the SSH handshake. The stdlib ssh.Dial only
+// respects the ClientConfig timeout and ignores context cancellation, so a
+// hung handshake could outlive the request deadline and leak the goroutine
+// spawned by the registry's runWithContext helper. Threading the context here
+// ensures the dial returns promptly once the caller's deadline fires.
+func sshDialContext(ctx context.Context, addr string, cfg *ssh.ClientConfig) (*ssh.Client, error) {
+	d := net.Dialer{Timeout: cfg.Timeout}
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	// Bound the SSH handshake by the context deadline (falling back to the
+	// configured timeout) so an unresponsive peer cannot block indefinitely.
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	} else if cfg.Timeout > 0 {
+		_ = conn.SetDeadline(time.Now().Add(cfg.Timeout))
+	}
+	clientConn, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	// Clear the handshake deadline so subsequent transfers are not affected.
+	_ = conn.SetDeadline(time.Time{})
+	return ssh.NewClient(clientConn, chans, reqs), nil
 }
 
 func (f *ftpReadCloser) Close() error { _ = f.ReadCloser.Close(); return f.c.Quit() }
@@ -701,7 +766,7 @@ func (s *GenericFileSource) listSFTP(ctx context.Context) ([]fileRef, error) {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         10 * time.Second,
 	}
-	conn, err := ssh.Dial("tcp", addr, cfg)
+	conn, err := sshDialContext(ctx, addr, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -737,7 +802,7 @@ func (s *GenericFileSource) listSFTP(ctx context.Context) ([]fileRef, error) {
 	return refs, nil
 }
 
-func (s *GenericFileSource) fetchSFTPFileReader(ref *fileRef) (io.ReadCloser, error) {
+func (s *GenericFileSource) fetchSFTPFileReader(ctx context.Context, ref *fileRef) (io.ReadCloser, error) {
 	addr := s.cfg.FTPAddr
 	if addr == "" {
 		host := os.Getenv("SFTP_HOST")
@@ -761,7 +826,7 @@ func (s *GenericFileSource) fetchSFTPFileReader(ref *fileRef) (io.ReadCloser, er
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         15 * time.Second,
 	}
-	conn, err := ssh.Dial("tcp", addr, cfg)
+	conn, err := sshDialContext(ctx, addr, cfg)
 	if err != nil {
 		return nil, err
 	}

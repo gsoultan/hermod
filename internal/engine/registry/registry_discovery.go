@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime/debug"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/factory"
@@ -14,6 +15,11 @@ import (
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
+// errOperationPanicked is returned when a source/sink connectivity or discovery
+// operation panics. It allows callers to recognise (via errors.Is) that the
+// failure originated from a recovered panic rather than a regular error.
+var errOperationPanicked = errors.New("operation panicked")
+
 // --- Test Connectivity ---
 
 func (r *Registry) TestSource(ctx context.Context, cfg factory.SourceConfig) error {
@@ -21,6 +27,9 @@ func (r *Registry) TestSource(ctx context.Context, cfg factory.SourceConfig) err
 		src, err := r.createSource(ctx, cfg)
 		if err != nil {
 			return struct{}{}, err
+		}
+		if src == nil {
+			return struct{}{}, fmt.Errorf("source type %q produced a nil source", cfg.Type)
 		}
 		defer src.Close()
 
@@ -71,6 +80,22 @@ func runWithContext[T any](ctx context.Context, fn func() (T, error)) (T, error)
 	}
 	ch := make(chan result, 1)
 	go func() {
+		// Recover from any panic inside fn (e.g. a database driver dereferencing
+		// a nil pointer on a malformed DSN, or a source constructor panicking on
+		// invalid config). Without this guard the panic would propagate to the
+		// top of this goroutine and crash the entire process — which also hosts
+		// the API server — surfacing to clients as an upstream 520. Converting
+		// the panic into an error keeps the server alive and lets the caller
+		// report a clean failure to the user.
+		defer func() {
+			if rec := recover(); rec != nil {
+				var zero T
+				ch <- result{
+					val: zero,
+					err: fmt.Errorf("%w: %v\n%s", errOperationPanicked, rec, debug.Stack()),
+				}
+			}
+		}()
 		val, err := fn()
 		ch <- result{val: val, err: err}
 	}()
