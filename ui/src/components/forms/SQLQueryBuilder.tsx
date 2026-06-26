@@ -53,8 +53,26 @@ function formatSQL(sql: string): string {
   return result.trim();
 }
 
+// Default query shown when no initialQuery is provided.
+const DEFAULT_QUERY = 'SELECT * FROM tables LIMIT 10';
+
+// renderCellValue converts an arbitrary result cell into a display-safe string,
+// guarding against null/undefined (which would otherwise render the literal
+// "null"/"undefined") and serialising nested objects/arrays.
+function renderCellValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+// normalizeRows coerces an API response into an array. The Go backend returns
+// `null` for a zero-row result, which would otherwise hide the results preview.
+function normalizeRows<T>(data: unknown): T[] {
+  return Array.isArray(data) ? (data as T[]) : [];
+}
+
 export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, initialQuery, onQueryChange }: SQLQueryBuilderProps) {
-  const [query, setQuery] = useState(initialQuery || 'SELECT * FROM tables LIMIT 10');
+  const [query, setQuery] = useState(initialQuery || DEFAULT_QUERY);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<any[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,21 +84,62 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
   const [tableFilter, setTableFilter] = useState('');
   const [expanded, { open: openExpanded, close: closeExpanded }] = useDisclosure(false);
 
-  const editorRef = useRef<HTMLTextAreaElement>(null);
+  // activeEditorRef points at whichever textarea (inline or fullscreen) currently
+  // has focus. Tracking focus instead of sharing one ref keeps insertText working
+  // regardless of which editor mounts/unmounts first.
+  const activeEditorRef = useRef<HTMLTextAreaElement | null>(null);
+  // abortRef cancels any in-flight query when a new one starts or the component
+  // unmounts, preventing races and setState-after-unmount warnings.
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (initialQuery && initialQuery !== query) {
+    if (initialQuery !== undefined && initialQuery !== query) {
       setQuery(initialQuery);
     }
+    // `query` is intentionally omitted: we only sync when the parent pushes a new
+    // initialQuery, not on every local keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuery]);
+
+  // Abort any pending request on unmount.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const handleQueryChange = (val: string) => {
     setQuery(val);
     onQueryChange?.(val);
   };
 
+  // buildConfigPayload assembles the { type, config } object every discovery and
+  // query endpoint expects, keeping source/sink type resolution in one place.
+  const buildConfigPayload = () => ({
+    type: sourceType || config?.type || '',
+    config: config ?? {},
+  });
+
+  // extractError derives a human-readable message from a failed Response,
+  // degrading gracefully to the HTTP status when the body is not JSON.
+  const extractError = async (response: Response, fallback: string): Promise<string> => {
+    let msg = fallback;
+    try {
+      const err = await response.json();
+      if (err?.error) msg = err.error;
+    } catch {
+      msg = `Request failed (${response.status} ${response.statusText || 'error'})`;
+    }
+    const lower = msg.toLowerCase();
+    if (lower.includes('offline') || lower.includes('worker')) {
+      msg += '. Please ensure at least one worker is online or that the source/sink is reachable from the API.';
+    }
+    return msg;
+  };
+
   const executeQuery = async () => {
     if (!query.trim()) return;
+
+    // Cancel any previous run so only the latest result wins.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setLoading(true);
     setError(null);
@@ -88,27 +147,18 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
       const response = await fetch(`/api/${type}s/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          config: {
-            type: sourceType || config.type || '',
-            config: config
-          },
-          query
-        }),
+        body: JSON.stringify({ config: buildConfigPayload(), query }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
-        const err = await response.json();
-        let msg = err.error || 'Failed to execute query';
-        if (msg.toLowerCase().includes('offline') || msg.toLowerCase().includes('worker')) {
-          msg += '. Please ensure at least one worker is online or check if the source/sink is reachable from the API.';
-        }
-        throw new Error(msg);
+        throw new Error(await extractError(response, 'Failed to execute query'));
       }
 
       const data = await response.json();
-      setResults(data);
+      setResults(normalizeRows(data));
     } catch (err: any) {
+      if (err?.name === 'AbortError') return; // superseded by a newer run / unmounted
       setError(err.message);
       notifications.show({
         title: 'Query Error',
@@ -116,7 +166,10 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
         color: 'red',
       });
     } finally {
-      setLoading(false);
+      if (abortRef.current === controller) {
+        setLoading(false);
+        abortRef.current = null;
+      }
     }
   };
 
@@ -127,21 +180,13 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
       const response = await fetch(`/api/${type}s/discover/tables`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: sourceType || config.type || '',
-          config: config
-        }),
+        body: JSON.stringify(buildConfigPayload()),
       });
       if (response.ok) {
         const data = await response.json();
-        setTables(data || []);
+        setTables(normalizeRows<string>(data));
       } else {
-        const err = await response.json();
-        let msg = err.error || 'Failed to fetch tables';
-        if (msg.toLowerCase().includes('offline') || msg.toLowerCase().includes('worker')) {
-          msg += '. Start a worker to enable table discovery.';
-        }
-        setError(msg);
+        setError(await extractError(response, 'Failed to fetch tables'));
       }
     } catch (e: any) {
       console.error('Failed to fetch tables', e);
@@ -158,17 +203,11 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
       const response = await fetch(`/api/${type}s/discover/columns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          [type]: {
-            type: sourceType || config.type || '',
-            config: config
-          },
-          table: tableName
-        }),
+        body: JSON.stringify({ [type]: buildConfigPayload(), table: tableName }),
       });
       if (response.ok) {
         const data = await response.json();
-        setColumns(data || []);
+        setColumns(normalizeRows(data));
       }
     } catch (e) {
       console.error('Failed to fetch columns', e);
@@ -181,7 +220,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
   // active selection) instead of always appending at the end. This is far more
   // ergonomic when editing long, multi-line queries.
   const insertText = (text: string) => {
-    const el = editorRef.current;
+    const el = activeEditorRef.current;
     if (!el) {
       const newQuery = query + (query.endsWith(' ') || query === '' ? '' : ' ') + text;
       handleQueryChange(newQuery);
@@ -304,11 +343,11 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
 
   const editorField = (fullscreen: boolean) => (
     <Textarea
-      ref={editorRef}
       placeholder="SELECT * FROM my_table LIMIT 10"
       value={query}
       onChange={(e) => handleQueryChange(e.currentTarget.value)}
       onKeyDown={handleEditorKeyDown}
+      onFocus={(e) => { activeEditorRef.current = e.currentTarget; }}
       minRows={fullscreen ? 20 : 6}
       maxRows={fullscreen ? 30 : 12}
       autosize
@@ -504,7 +543,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
                   >
                     {resultColumns.map((col) => (
                       <Table.Td key={col} style={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {typeof row[col] === 'object' ? JSON.stringify(row[col]) : String(row[col])}
+                        {renderCellValue(row[col])}
                       </Table.Td>
                     ))}
                   </Table.Tr>
