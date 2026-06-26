@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/user/hermod/internal/engine/registry"
@@ -40,6 +41,21 @@ func setupWorker(ctx context.Context, cancel context.CancelFunc, o *Options, reg
 	// Back the registry with the platform API client so it can resolve sources,
 	// sinks and workflows remotely.
 	if apiClient, ok := workerStore.(*worker.WorkerAPIClient); ok {
+		// Probe the platform API once before entering the sync loop. A scheme/URL
+		// misconfiguration (e.g. https platform-url against a plaintext-HTTP origin)
+		// is deterministic, so fail fast with an actionable message instead of
+		// logging "failed to list workflows" every sync cycle. Transient
+		// unreachability is non-fatal: the sync loop will retry.
+		pingCtx, cancelPing := context.WithTimeout(ctx, 10*time.Second)
+		if err := apiClient.Ping(pingCtx); err != nil {
+			if errors.Is(err, worker.ErrPlatformConfig) {
+				cancelPing()
+				log.Fatalf("Worker cannot start: %v", err)
+			}
+			log.Printf("Warning: platform API not reachable at startup (will retry): %v", err)
+		}
+		cancelPing()
+
 		reg.SetStorage(worker.NewAPIStorage(apiClient))
 	}
 

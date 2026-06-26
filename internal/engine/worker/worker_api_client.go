@@ -4,13 +4,23 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/user/hermod/internal/storage"
 )
+
+// ErrPlatformConfig marks errors that stem from a misconfigured platform-url
+// (empty, unparsable, unsupported scheme, or a scheme that disagrees with what
+// the origin serves). These are deterministic — retrying will not help — so
+// callers should fail fast rather than loop. Transient reachability failures
+// are NOT wrapped with this sentinel.
+var ErrPlatformConfig = errors.New("platform-url configuration error")
 
 // WorkerAPIClient handles communication with the Hermod platform API.
 type WorkerAPIClient struct {
@@ -21,11 +31,58 @@ type WorkerAPIClient struct {
 
 func NewWorkerAPIClient(baseURL string, token string) *WorkerAPIClient {
 	return &WorkerAPIClient{
-		BaseURL: baseURL,
+		BaseURL: strings.TrimRight(baseURL, "/"),
 		Token:   token,
 		HTTPClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+	}
+}
+
+// Ping performs a one-shot connectivity check against the platform API's
+// /healthz endpoint. It returns an actionable error for the common
+// misconfigurations — most notably a platform-url whose scheme does not match
+// what the origin actually serves — so the worker can fail fast at startup
+// instead of silently failing every sync cycle (see sync.go).
+func (c *WorkerAPIClient) Ping(ctx context.Context) error {
+	if c.BaseURL == "" {
+		return fmt.Errorf("%w: platform-url is empty", ErrPlatformConfig)
+	}
+	u, err := url.Parse(c.BaseURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return fmt.Errorf("%w: %q is not a valid absolute URL (expected e.g. http://host:8080)", ErrPlatformConfig, c.BaseURL)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("%w: %q has unsupported scheme %q (use http or https)", ErrPlatformConfig, c.BaseURL, u.Scheme)
+	}
+
+	resp, err := c.doRequest(ctx, http.MethodGet, "/healthz", nil)
+	if err != nil {
+		return c.describeConnError(u, err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return nil
+}
+
+// describeConnError turns a transport-level error into a message that points at
+// the likely cause. The Go HTTP client reports a distinctive error when the
+// configured scheme disagrees with what the origin serves; we translate that
+// into a concrete remediation hint.
+func (c *WorkerAPIClient) describeConnError(u *url.URL, err error) error {
+	msg := err.Error()
+	switch {
+	// https client → plaintext-HTTP origin
+	case strings.Contains(msg, "server gave HTTP response to HTTPS client"):
+		return fmt.Errorf("%w: %q uses https but the origin responded with plaintext HTTP; "+
+			"point the worker at the origin over http (e.g. http://%s) or terminate TLS at the origin: %w",
+			ErrPlatformConfig, c.BaseURL, u.Host, err)
+	// http client → TLS origin (TLS handshake bytes parsed as a malformed HTTP reply)
+	case strings.Contains(msg, "malformed HTTP response"):
+		return fmt.Errorf("%w: %q uses http but the origin appears to require TLS; "+
+			"use https (e.g. https://%s): %w", ErrPlatformConfig, c.BaseURL, u.Host, err)
+	default:
+		return fmt.Errorf("cannot reach platform-url %q: %w", c.BaseURL, err)
 	}
 }
 
