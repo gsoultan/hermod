@@ -33,6 +33,7 @@ import (
 	"github.com/user/hermod/pkg/engine/config"
 	"github.com/user/hermod/pkg/engine/telemetry"
 	"github.com/user/hermod/pkg/infra/evaluator"
+	"github.com/user/hermod/pkg/infra/pgxutil"
 	"github.com/user/hermod/pkg/infra/schema"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 	"github.com/user/hermod/pkg/security/secrets"
@@ -516,6 +517,23 @@ func getConfigString(config map[string]any, key string) string {
 	return ""
 }
 
+// openSQLDB builds a *sql.DB for the given canonical driver. For Postgres
+// (the pgx stdlib driver) it parses the DSN through pgxutil so that the custom
+// pgbouncer/pool_mode markers are stripped and, when a pooler is detected, the
+// connection is switched to the simple/exec protocol with the prepared-statement
+// and description caches disabled (mandatory for PgBouncer transaction/statement
+// pooling). All other drivers fall back to the standard sql.Open behaviour.
+func openSQLDB(driverName, connStr string) (*sql.DB, error) {
+	if driverName == "pgx" {
+		cfg, _, err := pgxutil.ParseConfig(connStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse postgres connection config: %w", err)
+		}
+		return stdlib.OpenDB(*cfg), nil
+	}
+	return sql.Open(driverName, connStr)
+}
+
 func (r *Registry) getOrOpenDB(src storage.Source) (*sql.DB, error) {
 	r.dbPoolMu.Lock()
 	defer r.dbPoolMu.Unlock()
@@ -553,7 +571,7 @@ func (r *Registry) getOrOpenDB(src storage.Source) (*sql.DB, error) {
 		return nil, fmt.Errorf("unsupported source type for generic sql: %s", sourceType)
 	}
 
-	db, err := sql.Open(driverName, connStr)
+	db, err := openSQLDB(driverName, connStr)
 	if err != nil {
 		return nil, err
 	}

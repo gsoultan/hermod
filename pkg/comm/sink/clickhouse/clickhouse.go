@@ -290,8 +290,8 @@ func (s *ClickHouseSink) DiscoverColumns(ctx context.Context, table string) ([]h
 		}
 	}
 
-	query := fmt.Sprintf("SELECT name, type, is_nullable = 'YES', is_in_primary_key, default_expression FROM system.columns WHERE table = '%s' AND database = '%s'", table, s.database)
-	rows, err := s.conn.Query(ctx, query)
+	const query = "SELECT name, type, is_nullable = 'YES', is_in_primary_key, default_expression FROM system.columns WHERE table = ? AND database = ?"
+	rows, err := s.conn.Query(ctx, query, table, s.database)
 	if err != nil {
 		return nil, err
 	}

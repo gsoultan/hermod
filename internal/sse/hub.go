@@ -16,7 +16,7 @@ type Event struct {
 // Hub is a simple in-memory pub/sub for SSE topics.
 type Hub struct {
 	mu       sync.RWMutex
-	subs     map[string]map[chan Event]struct{}
+	subs     map[string]map[chan Event]*sync.Once
 	configs  map[string]StreamConfig
 	shutdown chan struct{}
 }
@@ -38,7 +38,7 @@ var (
 func GetInternalHub() *Hub {
 	internalOnce.Do(func() {
 		internalHub = &Hub{
-			subs:     make(map[string]map[chan Event]struct{}),
+			subs:     make(map[string]map[chan Event]*sync.Once),
 			configs:  make(map[string]StreamConfig),
 			shutdown: make(chan struct{}),
 		}
@@ -50,7 +50,7 @@ func GetInternalHub() *Hub {
 func GetDataHub() *Hub {
 	dataOnce.Do(func() {
 		dataHub = &Hub{
-			subs:     make(map[string]map[chan Event]struct{}),
+			subs:     make(map[string]map[chan Event]*sync.Once),
 			configs:  make(map[string]StreamConfig),
 			shutdown: make(chan struct{}),
 		}
@@ -80,14 +80,19 @@ func (h *Hub) Subscribe(topic string, buf int) (chan Event, func()) {
 		buf = 16
 	}
 	ch := make(chan Event, buf)
+	once := &sync.Once{}
 
 	h.mu.Lock()
 	if _, ok := h.subs[topic]; !ok {
-		h.subs[topic] = make(map[chan Event]struct{})
+		h.subs[topic] = make(map[chan Event]*sync.Once)
 	}
-	h.subs[topic][ch] = struct{}{}
+	h.subs[topic][ch] = once
 	h.mu.Unlock()
 
+	// unsub removes the subscriber and closes its channel exactly once. The
+	// close happens under the write lock and is guarded by a per-subscriber
+	// sync.Once so that a concurrent Shutdown (or a double unsub) can never
+	// close the same channel twice (which would panic).
 	unsub := func() {
 		h.mu.Lock()
 		if subs, ok := h.subs[topic]; ok {
@@ -96,8 +101,8 @@ func (h *Hub) Subscribe(topic string, buf int) (chan Event, func()) {
 				delete(h.subs, topic)
 			}
 		}
+		once.Do(func() { close(ch) })
 		h.mu.Unlock()
-		close(ch)
 	}
 	return ch, unsub
 }
@@ -134,8 +139,8 @@ func (h *Hub) Shutdown(ctx context.Context) {
 		close(h.shutdown)
 	}
 	for topic, subs := range h.subs {
-		for ch := range subs {
-			close(ch)
+		for ch, once := range subs {
+			once.Do(func() { close(ch) })
 		}
 		delete(h.subs, topic)
 	}

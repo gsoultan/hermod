@@ -1769,13 +1769,19 @@ func (p *PostgresSource) emitSnapshotRecord(ctx context.Context, table string, r
 }
 
 func (p *PostgresSource) ExecuteSQL(ctx context.Context, query string) ([]map[string]any, error) {
-	if err := p.ensureConn(ctx); err != nil {
-		return nil, err
+	// A pgx.Conn is single-owner and a live pgx.Rows pins the connection for the
+	// whole iteration. Using the shared metadata conn (p.conn) and releasing the
+	// lock after Query() returns would let a concurrent Ping/DiscoverColumns/Sample/
+	// Ack interleave on the same wire, corrupting the protocol and racing on p.conn.
+	// Use a dedicated, pooler-safe connection instead so a preview can never race
+	// with other metadata calls and is safe behind PgBouncer.
+	conn, err := p.openMetadataConn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open query connection: %w", err)
 	}
+	defer func() { _ = conn.Close(context.Background()) }()
 
-	p.mu.Lock()
-	rows, err := p.conn.Query(ctx, query)
-	p.mu.Unlock()
+	rows, err := conn.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -1789,7 +1795,7 @@ func (p *PostgresSource) ExecuteSQL(ctx context.Context, query string) ([]map[st
 			return nil, err
 		}
 
-		record := make(map[string]any)
+		record := make(map[string]any, len(fields))
 		for i, field := range fields {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -1799,6 +1805,11 @@ func (p *PostgresSource) ExecuteSQL(ctx context.Context, query string) ([]map[st
 			}
 		}
 		results = append(results, record)
+	}
+	// A mid-stream failure must surface as an error rather than returning a
+	// silently truncated result set.
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return results, nil
 }
