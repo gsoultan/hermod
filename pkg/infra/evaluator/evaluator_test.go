@@ -3,6 +3,7 @@ package evaluator
 import (
 	"fmt"
 	"testing"
+	"time"
 )
 
 func TestGetMsgValByPath(t *testing.T) {
@@ -278,5 +279,81 @@ func TestEvaluateConditions_DateAndFunctions(t *testing.T) {
 				t.Errorf("%s: EvaluateConditions() = %v; want %v", tc.name, got, tc.expected)
 			}
 		})
+	}
+}
+
+func TestResolveTemplate_Basic(t *testing.T) {
+	data := map[string]any{
+		"after": map[string]any{"id": 42, "name": "Bob"},
+		"name":  "Alice",
+	}
+	tests := []struct {
+		name string
+		tpl  string
+		want string
+	}{
+		{"plain", "hello world", "hello world"},
+		{"leading dot", "id={{.name}}", "id=Alice"},
+		{"nested path", "u={{after.name}}", "u=Bob"},
+		{"numeric", "n={{after.id}}", "n=42"},
+		{"missing field", "x={{after.missing}}!", "x=!"},
+		{"multiple tokens", "{{.name}}/{{after.name}}", "Alice/Bob"},
+		{"unterminated", "a {{ not closed", "a {{ not closed"},
+		{"empty token", "v={{}}", "v="},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ResolveTemplate(tc.tpl, data); got != tc.want {
+				t.Errorf("ResolveTemplate(%q) = %q; want %q", tc.tpl, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResolveTemplate_SelfReferentialTerminates is the regression test for the
+// production 520: a data value that itself contains a {{...}} token referencing
+// itself previously caused ResolveTemplate to loop forever (request hang).
+// The substituted value must NOT be re-scanned, so resolution always terminates.
+func TestResolveTemplate_SelfReferentialTerminates(t *testing.T) {
+	data := map[string]any{
+		"a": "{{a}}",            // self-referential
+		"b": "{{.a}} and {{a}}", // expands to tokens that reference a
+	}
+
+	cases := []struct {
+		name string
+		tpl  string
+		want string
+	}{
+		{"direct self reference", "{{.a}}", "{{a}}"},
+		{"indirect", "{{.b}}", "{{.a}} and {{a}}"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			done := make(chan string, 1)
+			go func() { done <- ResolveTemplate(tc.tpl, data) }()
+			select {
+			case got := <-done:
+				if got != tc.want {
+					t.Errorf("ResolveTemplate(%q) = %q; want %q", tc.tpl, got, tc.want)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("ResolveTemplate(%q) did not terminate (infinite loop)", tc.tpl)
+			}
+		})
+	}
+}
+
+// TestEvaluateConditions_NilMessage ensures a nil message combined with a
+// templated condition value does not panic (msg.Data() guard).
+func TestEvaluateConditions_NilMessage(t *testing.T) {
+	conds := []map[string]any{
+		{"field": "name", "operator": "=", "value": "{{.name}}"},
+	}
+	// Must not panic; with no message data the template resolves to "" and the
+	// missing field also resolves to "", so the equality holds.
+	if !EvaluateConditions(nil, conds) {
+		t.Errorf("expected nil-message condition to evaluate true without panicking")
 	}
 }

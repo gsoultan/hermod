@@ -650,53 +650,68 @@ func ToTime(val any) (time.Time, bool) {
 
 // Template resolver
 
+// ResolveTemplate replaces every {{ ... }} token in temp with the value
+// resolved from data (or env/expressions). It performs a single forward pass:
+// resolved values are written to the output and never re-scanned. This keeps
+// resolution bounded and prevents both template injection and the infinite
+// loop that occurs when a resolved value itself contains a self-referential
+// {{ ... }} token (e.g. data field "a" whose value is literally "{{a}}").
 func ResolveTemplate(temp string, data map[string]any) string {
-	result := temp
-	for {
-		start := strings.Index(result, "{{")
-		if start == -1 {
+	var out strings.Builder
+	i := 0
+	for i < len(temp) {
+		rel := strings.Index(temp[i:], "{{")
+		if rel == -1 {
+			out.WriteString(temp[i:])
 			break
 		}
+		start := i + rel
+		out.WriteString(temp[i:start])
 
-		end := strings.Index(result[start:], "}}")
-		if end == -1 {
+		closeRel := strings.Index(temp[start+2:], "}}")
+		if closeRel == -1 {
+			// Unterminated tag: emit the remainder verbatim and stop.
+			out.WriteString(temp[start:])
 			break
 		}
+		end := start + 2 + closeRel
+		path := strings.TrimSpace(temp[start+2 : end])
+		out.WriteString(resolveTemplatePath(path, data))
 
-		fullTag := result[start : start+end+2]
-		path := strings.TrimSpace(result[start+2 : start+end])
-
-		var val any
-		if strings.HasPrefix(path, "env.") {
-			envVar := strings.TrimPrefix(path, "env.")
-			val = os.Getenv(envVar)
-		} else if strings.Contains(path, "(") && strings.HasSuffix(path, ")") {
-			e := NewEvaluator()
-			// Create a mock message if data is provided, to allow accessing it via source.path
-			var msg hermod.Message
-			if data != nil {
-				msg = &mockMessage{data: data}
-			}
-			val = e.ParseAndEvaluate(msg, path)
-		} else {
-			// Support ".field" style (UI templates commonly use a leading dot)
-			p := strings.TrimPrefix(path, ".")
-			val = GetValByPath(data, p)
-		}
-
-		valStr := ""
-		if val != nil {
-			switch v := val.(type) {
-			case string:
-				valStr = v
-			default:
-				valStr = fmt.Sprintf("%v", v)
-			}
-		}
-
-		result = strings.Replace(result, fullTag, valStr, 1)
+		// Advance past the closing "}}" so the substituted value is not
+		// processed again, guaranteeing termination.
+		i = end + 2
 	}
-	return result
+	return out.String()
+}
+
+// resolveTemplatePath resolves a single template token (the text between
+// {{ and }}) to its string value.
+func resolveTemplatePath(path string, data map[string]any) string {
+	var val any
+	switch {
+	case strings.HasPrefix(path, "env."):
+		val = os.Getenv(strings.TrimPrefix(path, "env."))
+	case strings.Contains(path, "(") && strings.HasSuffix(path, ")"):
+		e := NewEvaluator()
+		// Create a mock message if data is provided, to allow accessing it via source.path
+		var msg hermod.Message
+		if data != nil {
+			msg = &mockMessage{data: data}
+		}
+		val = e.ParseAndEvaluate(msg, path)
+	default:
+		// Support ".field" style (UI templates commonly use a leading dot)
+		val = GetValByPath(data, strings.TrimPrefix(path, "."))
+	}
+
+	if val == nil {
+		return ""
+	}
+	if s, ok := val.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", val)
 }
 
 func EvaluateField(msg hermod.Message, field string) any {
@@ -732,7 +747,11 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 		valResolved := val
 		if vs, ok := val.(string); ok {
 			if strings.Contains(vs, "{{") && strings.Contains(vs, "}}") {
-				valResolved = ResolveTemplate(vs, msg.Data())
+				var data map[string]any
+				if msg != nil {
+					data = msg.Data()
+				}
+				valResolved = ResolveTemplate(vs, data)
 			} else {
 				valResolved = vs
 			}

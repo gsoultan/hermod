@@ -1236,9 +1236,17 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 
 		// Run current node if it's not the source (already handled)
 		currNode := findNodeByID(wf.Nodes, currID)
+		if currNode == nil {
+			// Defensive: a queued node id may reference a node that no longer
+			// exists (e.g. a dangling edge left over after a node was deleted
+			// in the editor). Skip it instead of dereferencing a nil node,
+			// which would panic and abort the request. Mirrors the guard used
+			// by the live engine in discoverWorkflowSinks/resumeFromNode.
+			continue
+		}
 		var currBranch string
 		var msgs []hermod.Message
-		if currNode != nil && currNode.Type != "source" && currMsg == nil {
+		if currNode.Type != "source" && currMsg == nil {
 			// Node reached only through branches that were not taken: it has no
 			// input message, so it is skipped. Its outgoing edges are still
 			// traversed below to keep downstream join counters consistent.
