@@ -65,6 +65,7 @@ func TestWorkflowTraversal_ConditionalJoinReached(t *testing.T) {
 		"J":  2,
 	}
 	sinkNodeToIndex := map[string]int{"J": 0}
+	nodeIndex := map[string]int{"S": 0, "SW": 1, "A": 2, "B": 3, "J": 4}
 
 	srcMsg := message.AcquireMessage()
 	srcMsg.SetID("m1")
@@ -75,15 +76,17 @@ func TestWorkflowTraversal_ConditionalJoinReached(t *testing.T) {
 		workflowID:      "wf-join",
 		nodeMap:         nodeMap,
 		adj:             adj,
+		nodeIndex:       nodeIndex,
 		edgeLabels:      edgeLabels,
 		edgeBreakpoints: map[string]bool{},
 		inDegree:        inDegree,
 		sinkNodeToIndex: sinkNodeToIndex,
-		currentMessages: map[string]hermod.Message{"S": srcMsg},
-		receivedCount:   map[string]int{},
-		resolvedCount:   map[string]int{},
-		fired:           map[string]bool{},
+		currentMessages: make([]hermod.Message, 5),
+		receivedCount:   make([]int32, 5),
+		resolvedCount:   make([]int32, 5),
+		fired:           make([]int32, 5),
 	}
+	tr.currentMessages[nodeIndex["S"]] = srcMsg
 
 	tr.wg.Add(1)
 	tr.processNode(t.Context(), "S")
@@ -135,6 +138,7 @@ func TestWorkflowTraversal_NodePanicContained(t *testing.T) {
 		"J": 1,
 	}
 	sinkNodeToIndex := map[string]int{"J": 0}
+	nodeIndex := map[string]int{"S": 0, "P": 1, "J": 2}
 
 	srcMsg := message.AcquireMessage()
 	srcMsg.SetID("m1")
@@ -145,15 +149,17 @@ func TestWorkflowTraversal_NodePanicContained(t *testing.T) {
 		workflowID:      "wf-panic",
 		nodeMap:         nodeMap,
 		adj:             adj,
+		nodeIndex:       nodeIndex,
 		edgeLabels:      map[string]string{},
 		edgeBreakpoints: map[string]bool{},
 		inDegree:        inDegree,
 		sinkNodeToIndex: sinkNodeToIndex,
-		currentMessages: map[string]hermod.Message{"S": srcMsg},
-		receivedCount:   map[string]int{},
-		resolvedCount:   map[string]int{},
-		fired:           map[string]bool{},
+		currentMessages: make([]hermod.Message, 3),
+		receivedCount:   make([]int32, 3),
+		resolvedCount:   make([]int32, 3),
+		fired:           make([]int32, 3),
 	}
+	tr.currentMessages[nodeIndex["S"]] = srcMsg
 
 	// Without the recover() in processNode, the panic in node "P" runs on its
 	// own goroutine and aborts the entire test binary here. With the fix this
@@ -212,6 +218,7 @@ func TestWorkflowTraversal_SkippedNodePropagates(t *testing.T) {
 		"J":  2,
 	}
 	sinkNodeToIndex := map[string]int{"J": 0}
+	nodeIndex := map[string]int{"S": 0, "SW": 1, "A": 2, "B": 3, "C": 4, "J": 5}
 
 	srcMsg := message.AcquireMessage()
 	srcMsg.SetID("m1")
@@ -222,15 +229,17 @@ func TestWorkflowTraversal_SkippedNodePropagates(t *testing.T) {
 		workflowID:      "wf-skip",
 		nodeMap:         nodeMap,
 		adj:             adj,
+		nodeIndex:       nodeIndex,
 		edgeLabels:      edgeLabels,
 		edgeBreakpoints: map[string]bool{},
 		inDegree:        inDegree,
 		sinkNodeToIndex: sinkNodeToIndex,
-		currentMessages: map[string]hermod.Message{"S": srcMsg},
-		receivedCount:   map[string]int{},
-		resolvedCount:   map[string]int{},
-		fired:           map[string]bool{},
+		currentMessages: make([]hermod.Message, 6),
+		receivedCount:   make([]int32, 6),
+		resolvedCount:   make([]int32, 6),
+		fired:           make([]int32, 6),
 	}
+	tr.currentMessages[nodeIndex["S"]] = srcMsg
 
 	tr.wg.Add(1)
 	tr.processNode(t.Context(), "S")
@@ -242,7 +251,7 @@ func TestWorkflowTraversal_SkippedNodePropagates(t *testing.T) {
 
 	// Node C is only reachable via the untaken "no" branch and must be skipped
 	// (never delivered a message).
-	if _, ok := tr.currentMessages["C"]; ok {
+	if tr.currentMessages[nodeIndex["C"]] != nil {
 		t.Fatalf("node C should have been skipped but received a message")
 	}
 }

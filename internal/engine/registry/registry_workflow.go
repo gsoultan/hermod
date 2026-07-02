@@ -10,6 +10,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/user/hermod"
@@ -668,9 +669,10 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 				update.WorkflowID = id
 			}
 
-			// Synchronously update source/sink status in storage as they change
-			// rarely and are critical for visibility.
+			// Synchronously update status in storage as they change rarely and are
+			// critical for visibility.
 			dbCtx := context.Background()
+			_ = r.storage.UpdateWorkflowStatus(dbCtx, id, update.EngineStatus)
 			if update.SourceID != "" {
 				_ = r.storage.UpdateSourceStatus(dbCtx, update.SourceID, update.SourceStatus)
 			}

@@ -55,6 +55,16 @@ func (s *failoverStorage) ListWorkflows(ctx context.Context, filter storage.Comm
 			now := time.Now().Add(1 * time.Minute)
 			wf.LeaseUntil = &now
 		}
+
+		if filter.Active != nil && wf.Active != *filter.Active {
+			continue
+		}
+		if filter.WorkerID != "" && wf.WorkerID != filter.WorkerID {
+			continue
+		}
+		if filter.OwnerID != "" && wf.OwnerID != filter.OwnerID {
+			continue
+		}
 		res = append(res, wf)
 	}
 	return res, len(res), nil

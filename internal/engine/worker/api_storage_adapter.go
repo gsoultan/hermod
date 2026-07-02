@@ -94,7 +94,14 @@ func (a *apiStorage) GetWorkspace(ctx context.Context, id string) (storage.Works
 }
 func (a *apiStorage) DeleteWorkspace(ctx context.Context, id string) error          { return nil }
 func (a *apiStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
-func (a *apiStorage) DeleteWorkflow(ctx context.Context, id string) error           { return nil }
+func (a *apiStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
+func (a *apiStorage) UpdateWorkflowStatus(ctx context.Context, id, status string) error {
+	return nil
+}
+func (a *apiStorage) UpdateWorkflowStats(ctx context.Context, id string, processed, errors, lag uint64) error {
+	return nil
+}
+func (a *apiStorage) DeleteWorkflow(ctx context.Context, id string) error { return nil }
 
 // --- Workers (unsupported mutation) ---
 
@@ -260,3 +267,6 @@ func (a *apiStorage) ListSuspendedMessages(ctx context.Context, workflowID strin
 	return nil, nil
 }
 func (a *apiStorage) DeleteSuspendedMessage(ctx context.Context, id string) error { return nil }
+func (a *apiStorage) GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error) {
+	return storage.DashboardStats{}, nil
+}

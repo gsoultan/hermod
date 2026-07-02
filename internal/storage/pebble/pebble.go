@@ -589,7 +589,7 @@ func (s *pebbleStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow)
 func (s *pebbleStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
 	return errors.New("not implemented")
 }
-func (s *pebbleStorage) UpdateWorkflowStats(ctx context.Context, id string, processed, errors, lag uint64) error {
+func (s *pebbleStorage) UpdateWorkflowStats(ctx context.Context, id string, processed, numErrors, lag uint64) error {
 	return errors.New("not implemented")
 }
 func (s *pebbleStorage) DeleteWorkflow(ctx context.Context, id string) error {

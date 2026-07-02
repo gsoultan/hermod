@@ -49,6 +49,20 @@ func (m *mockReconStorage) UpdateWorkflow(ctx context.Context, wf storage.Workfl
 	return nil
 }
 
+func (m *mockReconStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if wf, ok := m.workflows[id]; ok {
+		wf.Status = status
+		m.workflows[id] = wf
+	}
+	return nil
+}
+
+func (m *mockReconStorage) UpdateWorkflowStats(ctx context.Context, id string, processed, errors, lag uint64) error {
+	return nil
+}
+
 func (m *mockReconStorage) GetSource(ctx context.Context, id string) (storage.Source, error) {
 	return storage.Source{ID: id, Type: "test-source"}, nil
 }

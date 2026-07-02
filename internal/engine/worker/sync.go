@@ -25,7 +25,6 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 	// 4. Workflows that were active but are now inactive (to stop them) - handled by fetching all our assigned ones.
 
 	active := true
-	inactive := false
 
 	// Fetch assigned workflows (including inactive ones so we can stop them if needed)
 	assigned, _, err := w.storage.ListWorkflows(ctx, storage.CommonFilter{WorkerID: w.workerGUID})

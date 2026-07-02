@@ -2010,24 +2010,29 @@ func (s *mongoStorage) GetDashboardStats(ctx context.Context, vhost string) (sto
 	}
 
 	// Sources Stats
-	stats.TotalSources, _ = srcColl.CountDocuments(ctx, filter)
+	count, _ := srcColl.CountDocuments(ctx, filter)
+	stats.TotalSources = int(count)
 	activeSrcFilter := bson.M{"status": "running"}
 	for k, v := range filter {
 		activeSrcFilter[k] = v
 	}
-	stats.ActiveSources, _ = srcColl.CountDocuments(ctx, activeSrcFilter)
+	count, _ = srcColl.CountDocuments(ctx, activeSrcFilter)
+	stats.ActiveSources = int(count)
 
 	// Sinks Stats
-	stats.TotalSinks, _ = snkColl.CountDocuments(ctx, filter)
+	count, _ = snkColl.CountDocuments(ctx, filter)
+	stats.TotalSinks = int(count)
 	activeSnkFilter := bson.M{"status": "running"}
 	for k, v := range filter {
 		activeSnkFilter[k] = v
 	}
-	stats.ActiveSinks, _ = snkColl.CountDocuments(ctx, activeSnkFilter)
+	count, _ = snkColl.CountDocuments(ctx, activeSnkFilter)
+	stats.ActiveSinks = int(count)
 
 	// Workers Stats
 	activeThreshold := time.Now().Add(-2 * time.Minute)
-	stats.ActiveWorkers, _ = workerColl.CountDocuments(ctx, bson.M{"last_seen": bson.M{"$gt": activeThreshold}})
+	count, _ = workerColl.CountDocuments(ctx, bson.M{"last_seen": bson.M{"$gt": activeThreshold}})
+	stats.ActiveWorkers = int(count)
 
 	return stats, nil
 }

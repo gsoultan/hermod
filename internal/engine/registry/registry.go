@@ -228,7 +228,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		config:              config.DefaultConfig(),
 		evaluator:           evaluator.NewEvaluator(),
 		statusSubs:          make(map[chan telemetry.StatusUpdate]bool),
-		dashboardSubs:       make(map[chan DashboardStats]bool),
+		dashboardSubs:       make(map[chan storage.DashboardStats]bool),
 		logSubs:             make(map[chan storage.Log]bool),
 		liveMsgSubs:         make(map[chan LiveMessage]bool),
 		debuggerSubs:        make(map[string]map[chan DebuggerEvent]bool),

@@ -148,6 +148,9 @@ func TestNestedPathAccess(t *testing.T) {
 	})
 
 	t.Run("Filter nested path", func(t *testing.T) {
+		m := msg.Clone()
+		defer message.ReleaseMessage(m.(*message.DefaultMessage))
+
 		node := &storage.WorkflowNode{
 			Type: "transformation",
 			Config: map[string]any{
@@ -158,7 +161,7 @@ func TestNestedPathAccess(t *testing.T) {
 			},
 		}
 
-		res, _, err := registry.runWorkflowNode("test", node, msg)
+		res, _, err := registry.runWorkflowNode("test", node, m)
 		if err != nil {
 			t.Fatalf("Failed to run node: %v", err)
 		}
@@ -167,13 +170,16 @@ func TestNestedPathAccess(t *testing.T) {
 		}
 
 		node.Config["value"] = "Jane Doe"
-		res, _, _ = registry.runWorkflowNode("test", node, msg)
+		res, _, _ = registry.runWorkflowNode("test", node, m)
 		if res != nil {
 			t.Errorf("Expected message to be filtered, but it was not nil")
 		}
 	})
 
 	t.Run("Advanced transformation nested path", func(t *testing.T) {
+		m := msg.Clone()
+		defer message.ReleaseMessage(m.(*message.DefaultMessage))
+
 		node := &storage.WorkflowNode{
 			Type: "transformation",
 			Config: map[string]any{
@@ -182,7 +188,7 @@ func TestNestedPathAccess(t *testing.T) {
 			},
 		}
 
-		msgs, _, err := registry.runWorkflowNode("test", node, msg)
+		msgs, _, err := registry.runWorkflowNode("test", node, m)
 		if err != nil {
 			t.Fatalf("Failed to run node: %v", err)
 		}
@@ -200,6 +206,9 @@ func TestNestedPathAccess(t *testing.T) {
 	})
 
 	t.Run("Condition nested path", func(t *testing.T) {
+		m := msg.Clone()
+		defer message.ReleaseMessage(m.(*message.DefaultMessage))
+
 		node := &storage.WorkflowNode{
 			Type: "condition",
 			Config: map[string]any{
@@ -209,7 +218,7 @@ func TestNestedPathAccess(t *testing.T) {
 			},
 		}
 
-		res, branch, err := registry.runWorkflowNode("test", node, msg)
+		res, branch, err := registry.runWorkflowNode("test", node, m)
 		if err != nil {
 			t.Fatalf("Failed to run node: %v", err)
 		}
@@ -221,13 +230,16 @@ func TestNestedPathAccess(t *testing.T) {
 		}
 
 		node.Config["value"] = "35"
-		_, branch, _ = registry.runWorkflowNode("test", node, msg)
+		_, branch, _ = registry.runWorkflowNode("test", node, m)
 		if branch != "false" {
 			t.Errorf("Expected branch 'false', got '%s'", branch)
 		}
 	})
 
 	t.Run("Mapping nested path", func(t *testing.T) {
+		m := msg.Clone()
+		defer message.ReleaseMessage(m.(*message.DefaultMessage))
+
 		node := &storage.WorkflowNode{
 			Type: "transformation",
 			Config: map[string]any{
@@ -237,7 +249,7 @@ func TestNestedPathAccess(t *testing.T) {
 			},
 		}
 
-		msgs, _, err := registry.runWorkflowNode("test", node, msg)
+		msgs, _, err := registry.runWorkflowNode("test", node, m)
 		if err != nil {
 			t.Fatalf("Failed to run node: %v", err)
 		}

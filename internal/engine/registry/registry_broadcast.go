@@ -2,13 +2,11 @@ package registry
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/comm/message"
 	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
@@ -38,15 +36,15 @@ func (r *Registry) StatusSubscriberCount() int {
 	return len(r.statusSubs)
 }
 
-func (r *Registry) SubscribeDashboardStats() chan DashboardStats {
+func (r *Registry) SubscribeDashboardStats() chan storage.DashboardStats {
 	r.statusSubsMu.Lock()
 	defer r.statusSubsMu.Unlock()
-	ch := make(chan DashboardStats, 10)
+	ch := make(chan storage.DashboardStats, 10)
 	r.dashboardSubs[ch] = true
 	return ch
 }
 
-func (r *Registry) UnsubscribeDashboardStats(ch chan DashboardStats) {
+func (r *Registry) UnsubscribeDashboardStats(ch chan storage.DashboardStats) {
 	r.statusSubsMu.Lock()
 	defer r.statusSubsMu.Unlock()
 	delete(r.dashboardSubs, ch)

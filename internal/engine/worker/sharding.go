@@ -119,7 +119,7 @@ func (w *Worker) selfWorkerEntry(now time.Time) storage.Worker {
 
 func (w *Worker) calculateBestWorker(online []storage.Worker, resourceID string, currentOwnerID string) string {
 	var bestID string
-	var maxScore = -1.0
+	var maxScore = -math.MaxFloat64
 
 	for _, wrk := range online {
 		score := w.calculateScore(wrk, resourceID, currentOwnerID)
@@ -133,11 +133,11 @@ func (w *Worker) calculateBestWorker(online []storage.Worker, resourceID string,
 
 func (w *Worker) calculateScore(wrk storage.Worker, resourceID string, currentOwnerID string) float64 {
 	h := fnv.New32a()
-	h.Write([]byte(wrk.ID + ":" + resourceID))
-	u := float64(h.Sum32()) / float64(0xFFFFFFFF)
-	if u == 0 {
-		u = 1e-9 // Avoid log(0)
-	}
+	// Put resourceID first to ensure better distribution for incrementing resource IDs
+	// when used with FNV-32a and similar node names.
+	h.Write([]byte(resourceID + ":" + wrk.ID))
+	// u in (0, 1] to avoid log(0)
+	u := float64(h.Sum32()+1) / 4294967296.0
 
 	weight := w.calculateWeight(wrk)
 	if currentOwnerID != "" && wrk.ID == currentOwnerID {
@@ -153,8 +153,11 @@ func (w *Worker) calculateScore(wrk storage.Worker, resourceID string, currentOw
 
 func (w *Worker) calculateWeight(wrk storage.Worker) float64 {
 	// Base weight is 1.0. Decrease as load increases.
-	cpuFactor := math.Max(0.1, 1.0-wrk.CPUUsage)
-	memFactor := math.Max(0.1, 1.0-wrk.MemoryUsage)
+	// Use a very moderate scaling range (0.9 to 1.0) to ensure high stability
+	// and consistent distribution, allowing Rendezvous Hashing's random
+	// distribution to dominate over minor load fluctuations.
+	cpuFactor := 1.0 - (math.Min(1.0, wrk.CPUUsage) * 0.1)
+	memFactor := 1.0 - (math.Min(1.0, wrk.MemoryUsage) * 0.1)
 	weight := cpuFactor * memFactor
 
 	if wrk.LastSeen != nil {
