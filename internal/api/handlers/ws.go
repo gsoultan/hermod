@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/engine/telemetry"
 )
@@ -229,6 +230,14 @@ func (h *Handler) HandleLogsWS(w http.ResponseWriter, r *http.Request) {
 	// Actively read so we can observe pong/close frames and client disconnects.
 	done := startWSReadPump(conn)
 
+	var ch chan storage.Log
+	if workflowID != "" {
+		ch = h.Registry.SubscribeWorkflowLogs(workflowID)
+	} else {
+		ch = h.Registry.SubscribeLogs()
+	}
+	defer h.Registry.UnsubscribeLogs(ch)
+
 	// Send initial logs
 	filter := storage.LogFilter{
 		WorkflowID: workflowID,
@@ -241,18 +250,15 @@ func (h *Handler) HandleLogsWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	ch := h.Registry.SubscribeLogs()
-	defer h.Registry.UnsubscribeLogs(ch)
-
 	// Heartbeat
 	ticker := time.NewTicker(wsHeartbeat)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case log := <-ch:
-			if workflowID != "" && !strings.EqualFold(log.WorkflowID, workflowID) {
-				continue
+		case log, ok := <-ch:
+			if !ok {
+				return
 			}
 			if err := wsWriteJSON(conn, log); err != nil {
 				return
@@ -282,7 +288,12 @@ func (h *Handler) HandleLiveMessagesWS(w http.ResponseWriter, r *http.Request) {
 	// Actively read so we can observe pong/close frames and client disconnects.
 	done := startWSReadPump(conn)
 
-	ch := h.Registry.SubscribeLiveMessages()
+	var ch chan registry.LiveMessage
+	if workflowID != "" {
+		ch = h.Registry.SubscribeWorkflowLiveMessages(workflowID)
+	} else {
+		ch = h.Registry.SubscribeLiveMessages()
+	}
 	defer h.Registry.UnsubscribeLiveMessages(ch)
 
 	// Heartbeat
@@ -295,8 +306,8 @@ func (h *Handler) HandleLiveMessagesWS(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			// Match workflow ID (case-insensitive) or allow "test" messages if we are in test mode
-			// If workflowID is provided, we also allow "test" messages because they belong to the current editor's simulation
+			// When using per-workflow subscription, we already filtered by workflowID.
+			// However, we still want to allow "test" messages if we are in test mode or if it's a global subscription.
 			if workflowID != "" && !strings.EqualFold(msg.WorkflowID, workflowID) && !strings.EqualFold(msg.WorkflowID, "test") {
 				continue
 			}

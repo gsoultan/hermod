@@ -82,10 +82,29 @@ func (r *Registry) SubscribeLogs() chan storage.Log {
 	return ch
 }
 
+func (r *Registry) SubscribeWorkflowLogs(workflowID string) chan storage.Log {
+	r.statusSubsMu.Lock()
+	defer r.statusSubsMu.Unlock()
+	if r.workflowLogSubs[workflowID] == nil {
+		r.workflowLogSubs[workflowID] = make(map[chan storage.Log]bool)
+	}
+	ch := make(chan storage.Log, 100)
+	r.workflowLogSubs[workflowID][ch] = true
+	return ch
+}
+
 func (r *Registry) UnsubscribeLogs(ch chan storage.Log) {
 	r.statusSubsMu.Lock()
 	defer r.statusSubsMu.Unlock()
 	delete(r.logSubs, ch)
+	for wfID, subs := range r.workflowLogSubs {
+		if subs[ch] {
+			delete(subs, ch)
+			if len(subs) == 0 {
+				delete(r.workflowLogSubs, wfID)
+			}
+		}
+	}
 	close(ch)
 }
 
@@ -97,10 +116,29 @@ func (r *Registry) SubscribeLiveMessages() chan LiveMessage {
 	return ch
 }
 
+func (r *Registry) SubscribeWorkflowLiveMessages(workflowID string) chan LiveMessage {
+	r.statusSubsMu.Lock()
+	defer r.statusSubsMu.Unlock()
+	if r.workflowLiveMsgSubs[workflowID] == nil {
+		r.workflowLiveMsgSubs[workflowID] = make(map[chan LiveMessage]bool)
+	}
+	ch := make(chan LiveMessage, 100)
+	r.workflowLiveMsgSubs[workflowID][ch] = true
+	return ch
+}
+
 func (r *Registry) UnsubscribeLiveMessages(ch chan LiveMessage) {
 	r.statusSubsMu.Lock()
 	defer r.statusSubsMu.Unlock()
 	delete(r.liveMsgSubs, ch)
+	for wfID, subs := range r.workflowLiveMsgSubs {
+		if subs[ch] {
+			delete(subs, ch)
+			if len(subs) == 0 {
+				delete(r.workflowLiveMsgSubs, wfID)
+			}
+		}
+	}
 	close(ch)
 }
 
@@ -199,18 +237,24 @@ func (r *Registry) BroadcastStatus(update telemetry.StatusUpdate) {
 	r.statusSubsMu.Unlock()
 
 	if shouldBroadcast {
-		ctx := context.Background()
-		stats, err := r.GetDashboardStats(ctx, "")
-		if err == nil {
-			r.statusSubsMu.Lock()
-			for ch := range r.dashboardSubs {
-				select {
-				case ch <- stats:
-				default:
+		// Run in goroutine to avoid blocking the status change path,
+		// which might be called by many engines concurrently.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			stats, err := r.GetDashboardStats(ctx, "")
+			if err == nil {
+				r.statusSubsMu.RLock()
+				defer r.statusSubsMu.RUnlock()
+				for ch := range r.dashboardSubs {
+					select {
+					case ch <- stats:
+					default:
+					}
 				}
 			}
-			r.statusSubsMu.Unlock()
-		}
+		}()
 	}
 }
 
@@ -244,14 +288,26 @@ func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {
 	if ls != nil {
 		err := ls.CreateLog(ctx, l)
 
-		r.statusSubsMu.Lock()
+		r.statusSubsMu.RLock()
+		// Global log subscribers
 		for ch := range r.logSubs {
 			select {
 			case ch <- l:
 			default:
 			}
 		}
-		r.statusSubsMu.Unlock()
+		// Per-workflow log subscribers
+		if l.WorkflowID != "" {
+			if subs, ok := r.workflowLogSubs[l.WorkflowID]; ok {
+				for ch := range subs {
+					select {
+					case ch <- l:
+					default:
+					}
+				}
+			}
+		}
+		r.statusSubsMu.RUnlock()
 
 		return err
 	}
@@ -266,16 +322,28 @@ func (r *Registry) CreateLogs(ctx context.Context, logs []storage.Log) error {
 	if ls != nil {
 		err := ls.CreateLogs(ctx, logs)
 
-		r.statusSubsMu.Lock()
+		r.statusSubsMu.RLock()
 		for _, l := range logs {
+			// Global log subscribers
 			for ch := range r.logSubs {
 				select {
 				case ch <- l:
 				default:
 				}
 			}
+			// Per-workflow log subscribers
+			if l.WorkflowID != "" {
+				if subs, ok := r.workflowLogSubs[l.WorkflowID]; ok {
+					for ch := range subs {
+						select {
+						case ch <- l:
+						default:
+						}
+					}
+				}
+			}
 		}
-		r.statusSubsMu.Unlock()
+		r.statusSubsMu.RUnlock()
 
 		return err
 	}
@@ -305,13 +373,25 @@ func (r *Registry) DeleteLogs(ctx context.Context, filter storage.LogFilter) err
 }
 
 func (r *Registry) broadcastLiveMessage(msg LiveMessage) {
-	r.statusSubsMu.Lock()
-	defer r.statusSubsMu.Unlock()
+	r.statusSubsMu.RLock()
+	defer r.statusSubsMu.RUnlock()
 
+	// Global live message subscribers
 	for ch := range r.liveMsgSubs {
 		select {
 		case ch <- msg:
 		default:
+		}
+	}
+	// Per-workflow live message subscribers
+	if msg.WorkflowID != "" {
+		if subs, ok := r.workflowLiveMsgSubs[msg.WorkflowID]; ok {
+			for ch := range subs {
+				select {
+				case ch <- msg:
+				default:
+				}
+			}
 		}
 	}
 }
@@ -323,7 +403,15 @@ func (r *Registry) broadcastLiveMessage(msg LiveMessage) {
 func (r *Registry) hasLiveMessageSubscribers() bool {
 	r.statusSubsMu.RLock()
 	defer r.statusSubsMu.RUnlock()
-	return len(r.liveMsgSubs) > 0
+	if len(r.liveMsgSubs) > 0 {
+		return true
+	}
+	for _, subs := range r.workflowLiveMsgSubs {
+		if len(subs) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // hasStatusObservers reports whether any client is watching status, dashboard
@@ -333,7 +421,20 @@ func (r *Registry) hasLiveMessageSubscribers() bool {
 func (r *Registry) hasStatusObservers() bool {
 	r.statusSubsMu.RLock()
 	defer r.statusSubsMu.RUnlock()
-	return len(r.statusSubs) > 0 || len(r.dashboardSubs) > 0 || len(r.liveMsgSubs) > 0
+	if len(r.statusSubs) > 0 || len(r.dashboardSubs) > 0 || len(r.liveMsgSubs) > 0 {
+		return true
+	}
+	for _, subs := range r.workflowStatusSubs {
+		if len(subs) > 0 {
+			return true
+		}
+	}
+	for _, subs := range r.workflowLiveMsgSubs {
+		if len(subs) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Registry) getConsistentData(msg hermod.Message) map[string]any {
