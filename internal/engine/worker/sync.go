@@ -17,11 +17,54 @@ func (w *Worker) sync(ctx context.Context, initial bool) {
 	workerID := w.getWorkerMetricID()
 	defer w.trackSyncMetrics(time.Now(), workerID)
 
-	workflows, _, err := w.storage.ListWorkflows(ctx, storage.CommonFilter{})
+	// Optimization: fetch only relevant workflows to reduce storage load and improve scalability.
+	// We need:
+	// 1. Workflows assigned to us (WorkerID == GUID)
+	// 2. Workflows we currently own (OwnerID == GUID)
+	// 3. Unassigned active workflows (WorkerID == "" AND Active == true)
+	// 4. Workflows that were active but are now inactive (to stop them) - handled by fetching all our assigned ones.
+
+	active := true
+	inactive := false
+
+	// Fetch assigned workflows (including inactive ones so we can stop them if needed)
+	assigned, _, err := w.storage.ListWorkflows(ctx, storage.CommonFilter{WorkerID: w.workerGUID})
 	if err != nil {
-		w.logger.Error("Worker: failed to list workflows", "error", err)
-		telemetry.WorkerSyncErrors.WithLabelValues(workerID).Inc()
-		return
+		w.logger.Error("Worker: failed to list assigned workflows", "error", err)
+	}
+
+	// Fetch owned workflows
+	owned, _, err := w.storage.ListWorkflows(ctx, storage.CommonFilter{OwnerID: w.workerGUID})
+	if err != nil {
+		w.logger.Error("Worker: failed to list owned workflows", "error", err)
+	}
+
+	// Fetch unassigned active workflows
+	unassigned, _, err := w.storage.ListWorkflows(ctx, storage.CommonFilter{WorkerID: "", Active: &active})
+	if err != nil {
+		w.logger.Error("Worker: failed to list unassigned workflows", "error", err)
+	}
+
+	// Combine and deduplicate
+	wfMap := make(map[string]storage.Workflow)
+	for _, wf := range assigned {
+		wfMap[wf.ID] = wf
+	}
+	for _, wf := range owned {
+		wfMap[wf.ID] = wf
+	}
+	for _, wf := range unassigned {
+		wfMap[wf.ID] = wf
+	}
+
+	// Also fetch active ones that might have changed their workerID to empty or something else
+	// (though unassigned already covers WorkerID=="")
+	// For robustness, if total workflows is small, we could just fetch all active.
+	// But for large scale, we rely on the above.
+
+	workflows := make([]storage.Workflow, 0, len(wfMap))
+	for _, wf := range wfMap {
+		workflows = append(workflows, wf)
 	}
 
 	srcMap, snkMap := w.loadResourceMaps(ctx)
@@ -226,6 +269,11 @@ func (w *Worker) startWorkflow(ctx context.Context, wf storage.Workflow, workerI
 
 func (w *Worker) stopWorkflow(ctx context.Context, id string) {
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				w.logger.Error("Worker: stopWorkflow panicked", "workflow_id", id, "panic", r)
+			}
+		}()
 		_ = w.registry.StopEngineWithoutUpdate(id)
 		w.stopLeaseRenewal(id)
 		if w.workerGUID != "" {

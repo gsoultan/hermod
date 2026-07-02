@@ -429,8 +429,10 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 
 	// Pre-map nodes and edges for performance
 	nodeMap := make(map[string]*storage.WorkflowNode)
+	nodeIndex := make(map[string]int)
 	for i := range wf.Nodes {
 		nodeMap[wf.Nodes[i].ID] = &wf.Nodes[i]
+		nodeIndex[wf.Nodes[i].ID] = i
 	}
 
 	edgeLabels := make(map[string]string)
@@ -467,7 +469,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	}
 
 	// Set Workflow Router
-	r.setupWorkflowRouter(eng, id, sourceNodes, nodeMap, adj, edgeLabels, edgeBreakpoints, inDegree, sinkNodeToIndex)
+	r.setupWorkflowRouter(eng, id, sourceNodes, nodeMap, adj, nodeIndex, edgeLabels, edgeBreakpoints, inDegree, sinkNodeToIndex)
 
 	// Per-source configuration
 	sourceEngineCfg := config.SourceConfig{}
@@ -515,9 +517,11 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 		workflow:        wf,
 		baseProcessed:   wf.TotalProcessed,
 		baseErrors:      wf.TotalErrors,
+		baseLag:         wf.TotalLag,
 		sinks:           sinks,
 		nodeMap:         nodeMap,
 		adj:             adj,
+		nodeIndex:       nodeIndex,
 		edgeLabels:      edgeLabels,
 		edgeBreakpoints: edgeBreakpoints,
 		inDegree:        inDegree,
@@ -539,6 +543,7 @@ func (r *Registry) setupWorkflowRouter(
 	sourceNodes []*storage.WorkflowNode,
 	nodeMap map[string]*storage.WorkflowNode,
 	adj map[string][]string,
+	nodeIndex map[string]int,
 	edgeLabels map[string]string,
 	edgeBreakpoints map[string]bool,
 	inDegree map[string]int,
@@ -561,29 +566,74 @@ func (r *Registry) setupWorkflowRouter(
 		// trace always shows "message received" even before any transform runs.
 		r.recordSourceIngestTrace(ctx, id, sourceNodeID, msg)
 
-		t := &workflowTraversal{
-			registry:        r,
-			eng:             eng,
-			workflowID:      id,
-			nodeMap:         nodeMap,
-			adj:             adj,
-			edgeLabels:      edgeLabels,
-			edgeBreakpoints: edgeBreakpoints,
-			inDegree:        inDegree,
-			sinkNodeToIndex: sinkNodeToIndex,
-			currentMessages: make(map[string]hermod.Message),
-			receivedCount:   make(map[string]int),
-			resolvedCount:   make(map[string]int),
-			fired:           make(map[string]bool),
-		}
-		t.currentMessages[sourceNodeID] = msg
+		t := acquireWorkflowTraversal(r, eng, id, nodeMap, adj, nodeIndex, edgeLabels, edgeBreakpoints, inDegree, sinkNodeToIndex)
+		t.currentMessages[nodeIndex[sourceNodeID]] = msg
 
 		t.wg.Add(1)
 		t.processNode(ctx, sourceNodeID)
 		t.wg.Wait()
 
-		return t.routed, nil
+		routed := t.routed
+		releaseWorkflowTraversal(t)
+
+		return routed, nil
 	})
+}
+
+var traversalPool = sync.Pool{
+	New: func() any {
+		return &workflowTraversal{}
+	},
+}
+
+func acquireWorkflowTraversal(
+	registry *Registry,
+	eng *pkgengine.Engine,
+	workflowID string,
+	nodeMap map[string]*storage.WorkflowNode,
+	adj map[string][]string,
+	nodeIndex map[string]int,
+	edgeLabels map[string]string,
+	edgeBreakpoints map[string]bool,
+	inDegree map[string]int,
+	sinkNodeToIndex map[string]int,
+) *workflowTraversal {
+	t := traversalPool.Get().(*workflowTraversal)
+	t.registry = registry
+	t.eng = eng
+	t.workflowID = workflowID
+	t.nodeMap = nodeMap
+	t.adj = adj
+	t.nodeIndex = nodeIndex
+	t.edgeLabels = edgeLabels
+	t.edgeBreakpoints = edgeBreakpoints
+	t.inDegree = inDegree
+	t.sinkNodeToIndex = sinkNodeToIndex
+
+	numNodes := len(nodeIndex)
+	if cap(t.currentMessages) < numNodes {
+		t.currentMessages = make([]hermod.Message, numNodes)
+		t.receivedCount = make([]int32, numNodes)
+		t.resolvedCount = make([]int32, numNodes)
+		t.fired = make([]int32, numNodes)
+	} else {
+		t.currentMessages = t.currentMessages[:numNodes]
+		clear(t.currentMessages)
+		t.receivedCount = t.receivedCount[:numNodes]
+		clear(t.receivedCount)
+		t.resolvedCount = t.resolvedCount[:numNodes]
+		clear(t.resolvedCount)
+		t.fired = t.fired[:numNodes]
+		clear(t.fired)
+	}
+	t.routed = t.routed[:0]
+	return t
+}
+
+func releaseWorkflowTraversal(t *workflowTraversal) {
+	// Clear message references to avoid memory leaks while in pool
+	clear(t.currentMessages)
+	traversalPool.Put(t)
 }
 
 func (r *Registry) setupSchemaValidation(eng *pkgengine.Engine, ctx context.Context, id string, wf storage.Workflow) {
@@ -617,63 +667,45 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 			if update.WorkflowID == "" {
 				update.WorkflowID = id
 			}
+
+			// Synchronously update source/sink status in storage as they change
+			// rarely and are critical for visibility.
 			dbCtx := context.Background()
-			if workflow, err := r.storage.GetWorkflow(dbCtx, id); err == nil {
-				prevStatus := workflow.Status
-				workflow.Status = update.EngineStatus
-
-				r.mu.Lock()
-				ae, ok := r.engines[id]
-				if ok {
-					workflow.TotalProcessed = ae.baseProcessed + update.ProcessedCount
-					workflow.TotalErrors = ae.baseErrors + update.DeadLetterCount
-				}
-				r.mu.Unlock()
-
-				_ = r.storage.UpdateWorkflow(dbCtx, workflow)
-
-				// Update Source status if it changed
-				if update.SourceID != "" {
-					_ = r.storage.UpdateSourceStatus(dbCtx, update.SourceID, update.SourceStatus)
-				}
-
-				// Update Sink statuses if they changed
-				for sinkID, status := range update.SinkStatuses {
-					_ = r.storage.UpdateSinkStatus(dbCtx, sinkID, status)
-				}
-
-				// Notify on error status
-				if strings.Contains(strings.ToLower(update.EngineStatus), "error") &&
-					!strings.Contains(strings.ToLower(prevStatus), "error") &&
-					r.notificationService != nil {
-					r.notificationService.Notify(dbCtx, "Workflow Error",
-						fmt.Sprintf("Workflow '%s' (ID: %s) entered error state: %s",
-							workflow.Name, workflow.ID, update.EngineStatus), workflow)
-				}
+			if update.SourceID != "" {
+				_ = r.storage.UpdateSourceStatus(dbCtx, update.SourceID, update.SourceStatus)
 			}
-			r.BroadcastStatus(update)
+			for sinkID, status := range update.SinkStatuses {
+				_ = r.storage.UpdateSinkStatus(dbCtx, sinkID, status)
+			}
 
-			// Special handling for Circuit Breaker alerts
-			if strings.Contains(strings.ToLower(update.EngineStatus), "circuit_breaker_open") && r.notificationService != nil {
-				dbCtx := context.Background()
+			// Immediate state changes (Errors, Circuit Breaker) trigger notifications
+			isError := strings.Contains(strings.ToLower(update.EngineStatus), "error") ||
+				strings.Contains(strings.ToLower(update.EngineStatus), "circuit_breaker_open") ||
+				update.DeadLetterCount >= uint64(wf.DLQThreshold) && wf.DLQThreshold > 0
+
+			if isError && r.notificationService != nil {
+				// We still fetch the workflow for the latest metadata (name) to
+				// ensure notifications are accurate.
 				if workflow, err := r.storage.GetWorkflow(dbCtx, id); err == nil {
-					r.notificationService.Notify(dbCtx, "Circuit Breaker Alert",
-						fmt.Sprintf("Circuit breaker opened for a sink in workflow '%s' (ID: %s)",
-							workflow.Name, workflow.ID), workflow)
-				}
-			}
-
-			// DLQ Threshold Alert
-			if r.notificationService != nil && update.DeadLetterCount > 0 {
-				dbCtx := context.Background()
-				if workflow, err := r.storage.GetWorkflow(dbCtx, id); err == nil && workflow.DLQThreshold > 0 {
-					if update.DeadLetterCount >= uint64(workflow.DLQThreshold) {
+					if strings.Contains(strings.ToLower(update.EngineStatus), "error") {
+						r.notificationService.Notify(dbCtx, "Workflow Error",
+							fmt.Sprintf("Workflow '%s' (ID: %s) entered error state: %s",
+								workflow.Name, workflow.ID, update.EngineStatus), workflow)
+					}
+					if strings.Contains(strings.ToLower(update.EngineStatus), "circuit_breaker_open") {
+						r.notificationService.Notify(dbCtx, "Circuit Breaker Alert",
+							fmt.Sprintf("Circuit breaker opened for a sink in workflow '%s' (ID: %s)",
+								workflow.Name, workflow.ID), workflow)
+					}
+					if workflow.DLQThreshold > 0 && update.DeadLetterCount >= uint64(workflow.DLQThreshold) {
 						r.notificationService.Notify(dbCtx, "DLQ Threshold Exceeded",
 							fmt.Sprintf("Workflow '%s' (ID: %s) has %d messages in DLQ, exceeding threshold of %d",
 								workflow.Name, workflow.ID, update.DeadLetterCount, workflow.DLQThreshold), workflow)
 					}
 				}
 			}
+
+			r.BroadcastStatus(update)
 		})
 
 		// Set Checkpoint Handler to persist stateful transformation states

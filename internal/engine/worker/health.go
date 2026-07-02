@@ -61,9 +61,10 @@ func (w *Worker) checkResourcesHealth(ctx context.Context) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxConcurrentHealthChecks)
 
-	sources, _, _ := w.storage.ListSources(ctx, storage.CommonFilter{})
+	// Optimization: fetch only sources and sinks assigned to this worker.
+	sources, _, _ := w.storage.ListSources(ctx, storage.CommonFilter{WorkerID: w.workerGUID})
 	for _, src := range sources {
-		if w.isResourceAssigned(src.ID, src.WorkerID) && !w.registry.IsResourceInUse(ctx, src.ID, "", true) {
+		if !w.registry.IsResourceInUse(ctx, src.ID, "", true) {
 			s := src
 			sem <- struct{}{}
 			wg.Go(func() {
@@ -77,9 +78,10 @@ func (w *Worker) checkResourcesHealth(ctx context.Context) {
 			})
 		}
 	}
-	sinks, _, _ := w.storage.ListSinks(ctx, storage.CommonFilter{})
+
+	sinks, _, _ := w.storage.ListSinks(ctx, storage.CommonFilter{WorkerID: w.workerGUID})
 	for _, snk := range sinks {
-		if w.isResourceAssigned(snk.ID, snk.WorkerID) && !w.registry.IsResourceInUse(ctx, snk.ID, "", false) {
+		if !w.registry.IsResourceInUse(ctx, snk.ID, "", false) {
 			s := snk
 			sem <- struct{}{}
 			wg.Go(func() {

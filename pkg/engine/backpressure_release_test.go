@@ -30,6 +30,7 @@ func (m *countingMessage) Data() map[string]any          { return nil }
 func (m *countingMessage) SetData(key string, value any) {}
 func (m *countingMessage) SetMetadata(key, value string) {}
 func (m *countingMessage) Clone() hermod.Message         { return m }
+func (m *countingMessage) ToMap() map[string]any         { return nil }
 func (m *countingMessage) ClearPayloads()                {}
 func (m *countingMessage) Retain()                       {}
 func (m *countingMessage) Release()                      { m.releaseCount.Add(1) }

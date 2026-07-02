@@ -22,6 +22,7 @@ interface DashboardStats {
   total_workflows: number;
   total_sources: number;
   total_sinks: number;
+  throughput: number;
 }
 
 function ThroughputChart({ data }: { data: number[] }) {
@@ -112,7 +113,8 @@ export function DashboardPage() {
     active_workers: 0,
     total_workflows: 0,
     total_sources: 0,
-    total_sinks: 0
+    total_sinks: 0,
+    throughput: 0
   })
 
   const [recentLogs, setRecentLogs] = useState<any[]>([])
@@ -153,7 +155,15 @@ export function DashboardPage() {
         const data = JSON.parse(event.data);
         setStats(data);
 
-        // Calculate MPS
+        // Use backend throughput if available and non-zero
+        if (data.throughput > 0) {
+            setMps(data.throughput);
+            setMpsHistory(prev => [...prev.slice(1), data.throughput]);
+            lastStatsRef.current = { time: Date.now(), count: data.total_processed };
+            return;
+        }
+
+        // Fallback: Calculate MPS manually
         const now = Date.now();
         const timeDiff = (now - lastStatsRef.current.time) / 1000;
         const countDiff = data.total_processed - lastStatsRef.current.count;
@@ -231,11 +241,11 @@ export function DashboardPage() {
             <Grid.Col span={{ base: 12, sm: 6, md: 3 }}>
               <StatCard 
                 title="Throughput" 
-                value={formatNumber(stats.total_processed)}
+                value={`${mps} msg/s`}
                 icon={IconArrowsExchange}
                 color="green"
-                description="Total messages processed"
-                trend={mps > 0 ? 5 : 0} // Fake trend for visual
+                description={`Total: ${formatNumber(stats.total_processed)}`}
+                trend={mps > 0 ? 5 : 0} 
               />
             </Grid.Col>
             <Grid.Col span={{ base: 12, sm: 6, md: 3 }}>

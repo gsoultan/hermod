@@ -70,6 +70,8 @@ type RegistryStorage interface {
 	ListFormSubmissions(ctx context.Context, filter storage.FormSubmissionFilter) ([]storage.FormSubmission, int, error)
 	UpdateFormSubmissionStatus(ctx context.Context, id string, status string) error
 	UpdateWorkflow(ctx context.Context, wf storage.Workflow) error
+	UpdateWorkflowStatus(ctx context.Context, id string, status string) error
+	UpdateWorkflowStats(ctx context.Context, id string, processed, errors, lag uint64) error
 	UpdateSourceStatus(ctx context.Context, id string, status string) error
 	UpdateSinkStatus(ctx context.Context, id string, status string) error
 	CreateLog(ctx context.Context, log storage.Log) error
@@ -92,6 +94,9 @@ type RegistryStorage interface {
 	CreateSuspendedMessage(ctx context.Context, m storage.SuspendedMessage) error
 	ListSuspendedMessages(ctx context.Context, workflowID string, before time.Time) ([]storage.SuspendedMessage, error)
 	DeleteSuspendedMessage(ctx context.Context, id string) error
+
+	// Aggregated Dashboard Stats
+	GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error)
 }
 
 type SourceFactory func(factory.SourceConfig) (hermod.Source, error)
@@ -132,7 +137,7 @@ type Registry struct {
 	evaluator *evaluator.Evaluator
 
 	statusSubs          map[chan telemetry.StatusUpdate]bool
-	dashboardSubs       map[chan DashboardStats]bool
+	dashboardSubs       map[chan storage.DashboardStats]bool
 	logSubs             map[chan storage.Log]bool
 	liveMsgSubs         map[chan LiveMessage]bool
 	debuggerSubs        map[string]map[chan DebuggerEvent]bool
@@ -181,6 +186,7 @@ type activeEngine struct {
 	workflow      storage.Workflow
 	baseProcessed uint64
 	baseErrors    uint64
+	baseLag       uint64
 
 	// Live components
 	sinks []hermod.Sink
@@ -188,6 +194,7 @@ type activeEngine struct {
 	// Workflow maps for resuming
 	nodeMap         map[string]*storage.WorkflowNode
 	adj             map[string][]string
+	nodeIndex       map[string]int
 	edgeLabels      map[string]string
 	edgeBreakpoints map[string]bool
 	inDegree        map[string]int
@@ -268,6 +275,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 	go reg.runRetentionPurge()
 	go reg.startReconciliationLoop(ctx)
 	go reg.optimizer.Start(reg.ctx)
+	go reg.runStatusFlusher()
 	return reg
 }
 
@@ -281,6 +289,59 @@ func (r *Registry) Close() {
 		_ = db.Close()
 	}
 	r.dbPool = make(map[string]*sql.DB)
+}
+
+func (r *Registry) runStatusFlusher() {
+	defer func() {
+		if p := recover(); p != nil {
+			r.logger.Error("Registry: status flusher panicked", "panic", p)
+		}
+	}()
+	// Flush every 5 seconds
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+		case <-ticker.C:
+			r.flushStatsToStorage()
+		}
+	}
+}
+
+func (r *Registry) flushStatsToStorage() {
+	if r.storage == nil {
+		return
+	}
+
+	r.mu.Lock()
+	engines := make([]*activeEngine, 0, len(r.engines))
+	for _, ae := range r.engines {
+		engines = append(engines, ae)
+	}
+	r.mu.Unlock()
+
+	for _, ae := range engines {
+		status := ae.engine.GetStatus()
+		processed := ae.baseProcessed + status.ProcessedCount
+		errors := ae.baseErrors + status.DeadLetterCount
+		var lag uint64
+		if l, ok := status.NodeMetrics["source_lag"]; ok {
+			lag = l
+		} else if l, ok := status.NodeMetrics["lag"]; ok {
+			lag = l
+		}
+
+		// Update stats in DB (fast path)
+		_ = r.storage.UpdateWorkflowStats(r.ctx, ae.workflow.ID, processed, errors, lag)
+
+		// Also update status if it changed significantly (e.g. to/from error)
+		// We'll let the synchronous callback handle immediate status changes for notifications,
+		// but we ensure the DB is synced here too.
+		_ = r.storage.UpdateWorkflowStatus(r.ctx, ae.workflow.ID, status.EngineStatus)
+	}
 }
 
 func (r *Registry) runRetentionPurge() {
@@ -973,11 +1034,16 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 
 	// Try to use the new Transformer Registry
 	if t, ok := transformer.Get(transType); ok {
-		// Capture data before transformation for diffing
-		beforeData := make(map[string]any)
-		for k, v := range modifiedMsg.Data() {
-			beforeData[k] = v
+		workflowID := modifiedMsg.Metadata()["_hermod_workflow_id"]
+		var beforeData map[string]any
+		tracingEnabled := workflowID != "" && r.storage != nil
+
+		if tracingEnabled {
+			// Only capture if tracing is likely to happen.
+			// Ideally we should also check a sample rate here if available.
+			beforeData = modifiedMsg.ToMap()
 		}
+
 		start := time.Now()
 
 		// Pass Registry to transformer if it needs it (like for storage or lookup)
@@ -988,25 +1054,26 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 		res, err := t.Transform(tctx, modifiedMsg, config)
 
 		// Record trace step with before/after snapshots
-		workflowID := modifiedMsg.Metadata()["_hermod_workflow_id"]
-		if workflowID != "" && r.storage != nil {
-			afterData := make(map[string]any)
-			if res != nil {
-				for k, v := range res.Data() {
-					afterData[k] = v
+		if tracingEnabled {
+			// Record asynchronously to avoid blocking the pipeline
+			go func(wID, mID string, bData map[string]any, rMsg hermod.Message, tStart time.Time, tErr error) {
+				var afterData map[string]any
+				if rMsg != nil {
+					afterData = rMsg.ToMap()
 				}
-			}
-			step := hermod.TraceStep{
-				NodeID:    transType,
-				Timestamp: start,
-				Duration:  time.Since(start),
-				Before:    beforeData,
-				After:     afterData,
-			}
-			if err != nil {
-				step.Error = err.Error()
-			}
-			_ = r.storage.RecordTraceStep(ctx, workflowID, modifiedMsg.ID(), step)
+				step := hermod.TraceStep{
+					NodeID:    transType,
+					Timestamp: tStart,
+					Duration:  time.Since(tStart),
+					Before:    bData,
+					After:     afterData,
+				}
+				if tErr != nil {
+					step.Error = tErr.Error()
+				}
+				// Use a new context for background recording to avoid cancellation if the request ends
+				_ = r.storage.RecordTraceStep(context.Background(), wID, mID, step)
+			}(workflowID, modifiedMsg.ID(), beforeData, res, start, err)
 		}
 
 		// Record PII discoveries for compliance dashboard
@@ -1107,91 +1174,40 @@ func (r *Registry) GetAllStatuses() []telemetry.StatusUpdate {
 	return statuses
 }
 
-type DashboardStats struct {
-	ActiveSources   int    `json:"active_sources"`
-	ActiveSinks     int    `json:"active_sinks"`
-	ActiveWorkflows int    `json:"active_workflows"`
-	TotalProcessed  uint64 `json:"total_processed"`
-	TotalErrors     uint64 `json:"total_errors"`
-	TotalLag        uint64 `json:"total_lag"`
-	FailedWorkflows int    `json:"failed_workflows"`
-	Uptime          int64  `json:"uptime"`
-	ActiveWorkers   int    `json:"active_workers"`
-	TotalWorkflows  int    `json:"total_workflows"`
-	TotalSources    int    `json:"total_sources"`
-	TotalSinks      int    `json:"total_sinks"`
-}
-
-func (r *Registry) GetDashboardStats(ctx context.Context, vhost string) (DashboardStats, error) {
-	stats := DashboardStats{
-		Uptime: int64(time.Since(r.startTime).Seconds()),
+func (r *Registry) GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error) {
+	if r.storage == nil {
+		return storage.DashboardStats{
+			Uptime: int64(time.Since(r.startTime).Seconds()),
+		}, nil
 	}
 
-	if r.storage != nil {
-		_, totalWf, _ := r.storage.ListWorkflows(ctx, storage.CommonFilter{Limit: 1, VHost: vhost})
-		stats.TotalWorkflows = totalWf
-		_, totalSrc, _ := r.storage.ListSources(ctx, storage.CommonFilter{Limit: 1, VHost: vhost})
-		stats.TotalSources = totalSrc
-		_, totalSnk, _ := r.storage.ListSinks(ctx, storage.CommonFilter{Limit: 1, VHost: vhost})
-		stats.TotalSinks = totalSnk
-
-		wfs, _, _ := r.storage.ListWorkflows(ctx, storage.CommonFilter{Limit: 1000, VHost: vhost})
-		for _, wf := range wfs {
-			stats.TotalProcessed += wf.TotalProcessed
-			stats.TotalErrors += wf.TotalErrors
-		}
-
-		workers, _, err := r.storage.ListWorkers(ctx, storage.CommonFilter{Limit: 100})
-		if err == nil {
-			for _, w := range workers {
-				if w.LastSeen != nil && time.Since(*w.LastSeen) < 2*time.Minute {
-					stats.ActiveWorkers++
-				}
-			}
-		}
+	stats, err := r.storage.GetDashboardStats(ctx, vhost)
+	if err != nil {
+		return stats, err
 	}
 
-	activeSources := make(map[string]bool)
-	activeSinks := make(map[string]bool)
+	// Enrich with local uptime and real-time throughput
+	stats.Uptime = int64(time.Since(r.startTime).Seconds())
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	for _, ae := range r.engines {
-		if vhost != "" && vhost != "all" {
-			if ae.workflow.VHost != vhost {
-				continue
-			}
+		if vhost != "" && vhost != "all" && ae.workflow.VHost != vhost {
+			continue
 		}
-
-		stats.ActiveWorkflows++
 		status := ae.engine.GetStatus()
+		stats.Throughput += status.Throughput
 
-		if status.EngineStatus == "failed" || status.EngineStatus == "error" {
-			stats.FailedWorkflows++
-		}
-
-		// In a real scenario, we would sum up specific lag metrics if available
-		// For now, we'll try to extract lag from NodeMetrics if it exists
-		if lag, ok := status.NodeMetrics["source_lag"]; ok {
-			stats.TotalLag += lag
-		} else if lag, ok := status.NodeMetrics["lag"]; ok {
-			stats.TotalLag += lag
-		}
-
-		if status.SourceStatus == "running" {
-			activeSources[status.SourceID] = true
-		}
-
-		for sinkID, sinkStatus := range status.SinkStatuses {
-			if sinkStatus == "running" {
-				activeSinks[sinkID] = true
+		// For TotalLag, if it's 0 in DB (not supported yet by all workers),
+		// we fall back to local engines to at least show something.
+		if stats.TotalLag == 0 {
+			if lag, ok := status.NodeMetrics["source_lag"]; ok {
+				stats.TotalLag += lag
+			} else if lag, ok := status.NodeMetrics["lag"]; ok {
+				stats.TotalLag += lag
 			}
 		}
 	}
-
-	stats.ActiveSources = len(activeSources)
-	stats.ActiveSinks = len(activeSinks)
+	r.mu.Unlock()
 
 	return stats, nil
 }
@@ -1501,7 +1517,8 @@ func (r *Registry) IsResourceInUse(ctx context.Context, resourceID string, exclu
 	if r.storage == nil {
 		return false
 	}
-	wfs, _, err := r.storage.ListWorkflows(ctx, storage.CommonFilter{})
+	active := true
+	wfs, _, err := r.storage.ListWorkflows(ctx, storage.CommonFilter{Active: &active})
 	if err != nil {
 		// FAIL-SAFE: If we can't reach storage, assume it is in use.
 		// This prevents the health checker from disrupting potentially active workflows.

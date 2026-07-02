@@ -129,4 +129,9 @@ var (
 		Name: "hermod_engine_backpressure_spill_total",
 		Help: "Total messages spilled to disk due to backpressure",
 	}, []string{"workflow_id", "sink_id"})
+
+	DeadLetterErrors = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_engine_dead_letter_errors_total",
+		Help: "The total number of errors when writing to Dead Letter Sink",
+	}, []string{"workflow_id", "sink_id"})
 )

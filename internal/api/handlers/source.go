@@ -14,6 +14,7 @@ import (
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/comm/message"
 	"github.com/user/hermod/pkg/comm/source/webhook"
+	"github.com/user/hermod/pkg/infra/httpclient"
 )
 
 func (h *Handler) RegisterSourceRoutes(mux *http.ServeMux) {
@@ -518,7 +519,7 @@ func (h *Handler) ProxyFetch(w http.ResponseWriter, r *http.Request) {
 		hreq.Header.Set(k, v)
 	}
 
-	resp, err := http.DefaultClient.Do(hreq)
+	resp, err := httpclient.DefaultClient.Do(hreq)
 	if err != nil {
 		h.JsonError(w, err.Error(), http.StatusInternalServerError)
 		return

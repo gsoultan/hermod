@@ -341,6 +341,7 @@ func (e *Engine) GetStatus() telemetry.StatusUpdate {
 		ProcessedCount:  processed,
 		DeadLetterCount: dlq,
 		AvgLatency:      latency,
+		Throughput:      e.statusTracker.GetMPS(),
 	}
 
 	update.SinkCBStatuses = make(map[string]string)

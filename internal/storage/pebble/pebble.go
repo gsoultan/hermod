@@ -589,6 +589,9 @@ func (s *pebbleStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow)
 func (s *pebbleStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
 	return errors.New("not implemented")
 }
+func (s *pebbleStorage) UpdateWorkflowStats(ctx context.Context, id string, processed, errors, lag uint64) error {
+	return errors.New("not implemented")
+}
 func (s *pebbleStorage) DeleteWorkflow(ctx context.Context, id string) error {
 	return errors.New("not implemented")
 }
@@ -711,6 +714,10 @@ func (s *pebbleStorage) InstallPlugin(ctx context.Context, id string) error {
 }
 func (s *pebbleStorage) UninstallPlugin(ctx context.Context, id string) error {
 	return errors.New("not implemented")
+}
+
+func (s *pebbleStorage) GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error) {
+	return storage.DashboardStats{}, errors.New("not implemented")
 }
 func (s *pebbleStorage) ListApprovals(ctx context.Context, filter storage.ApprovalFilter) ([]storage.Approval, int, error) {
 	return nil, 0, errors.New("not implemented")

@@ -304,21 +304,12 @@ func (r *Registry) hasStatusObservers() bool {
 }
 
 func (r *Registry) getConsistentData(msg hermod.Message) map[string]any {
-	data := make(map[string]any)
-	if msg != nil {
-		if dm, ok := msg.(*message.DefaultMessage); ok {
-			// Use the consistent MarshalJSON representation
-			msgJSON, _ := dm.MarshalJSON()
-			_ = json.Unmarshal(msgJSON, &data)
-		} else {
-			// Fallback for other message types
-			baseData := msg.Data()
-			for k, v := range baseData {
-				data[k] = v
-			}
-		}
+	if msg == nil {
+		return nil
 	}
-	return data
+
+	// Optimization: Use ToMap() instead of JSON marshal/unmarshal cycle.
+	return msg.ToMap()
 }
 
 func (r *Registry) broadcastLiveMessageFromHermod(workflowID, nodeID string, msg hermod.Message, isError bool, errStr string) {

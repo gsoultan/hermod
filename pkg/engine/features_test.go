@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -151,7 +152,23 @@ func TestRecordTraceStep_DeterministicSampling(t *testing.T) {
 		e.RecordTraceStep(t.Context(), msg, "node-1", time.Now(), nil, nil)
 	}
 
-	steps := recorder.GetSteps(msgID)
+	// Wait for async processing
+	var steps []hermod.TraceStep
+	for i := 0; i < 100; i++ {
+		steps = recorder.GetSteps(msgID)
+		if len(steps) > 0 {
+			if len(steps) == 100 {
+				break
+			}
+		} else {
+			// If not sampled in after some time, it might be sampled out
+			if i > 20 {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	// With deterministic sampling, it should be either 100 or 0 steps.
 	if len(steps) > 0 && len(steps) < 100 {
 		t.Errorf("Inconsistent sampling for same message: got %d steps, expected 0 or 100", len(steps))
@@ -161,9 +178,16 @@ func TestRecordTraceStep_DeterministicSampling(t *testing.T) {
 	sampledIn := 0
 	sampledOut := 0
 	for i := 0; i < 1000; i++ {
-		mID := string(rune(i)) // Different ID each time
+		mID := fmt.Sprintf("msg-%d", i)
 		m := &mockMessage{id: mID}
 		e.RecordTraceStep(t.Context(), m, "node-1", time.Now(), nil, nil)
+	}
+
+	// Wait for async processing
+	time.Sleep(500 * time.Millisecond)
+
+	for i := 0; i < 1000; i++ {
+		mID := fmt.Sprintf("msg-%d", i)
 		if len(recorder.GetSteps(mID)) > 0 {
 			sampledIn++
 		} else {
@@ -189,7 +213,16 @@ func TestRecordTraceStep_Default(t *testing.T) {
 
 	e.RecordTraceStep(t.Context(), msg, "node-1", time.Now(), nil, nil)
 
-	steps := recorder.GetSteps(msgID)
+	// Wait for async processing
+	var steps []hermod.TraceStep
+	for i := 0; i < 50; i++ {
+		steps = recorder.GetSteps(msgID)
+		if len(steps) == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	if len(steps) != 1 {
 		t.Errorf("Expected 1 trace step, got %d", len(steps))
 	}
@@ -225,6 +258,9 @@ func (m *mockMessage) SetMetadata(key, value string) {
 
 func (m *mockMessage) Retain()  {}
 func (m *mockMessage) Release() {}
+func (m *mockMessage) ToMap() map[string]any {
+	return nil
+}
 
 type safeModeMockSink struct {
 	writeCount int

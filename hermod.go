@@ -46,6 +46,7 @@ type Message interface {
 	SetMetadata(key, value string)
 	SetData(key string, value any)
 	Clone() Message
+	ToMap() map[string]any
 	ClearPayloads()
 	Retain()
 	Release()

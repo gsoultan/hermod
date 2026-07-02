@@ -301,6 +301,7 @@ func (m *parallelMockMessage) Data() map[string]any          { return nil }
 func (m *parallelMockMessage) SetData(key string, value any) {}
 func (m *parallelMockMessage) SetMetadata(key, value string) {}
 func (m *parallelMockMessage) Clone() hermod.Message         { return m }
+func (m *parallelMockMessage) ToMap() map[string]any         { return nil }
 func (m *parallelMockMessage) ClearPayloads()                {}
 func (m *parallelMockMessage) Retain()                       {}
 func (m *parallelMockMessage) Release()                      {}

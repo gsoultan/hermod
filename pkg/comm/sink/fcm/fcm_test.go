@@ -26,6 +26,7 @@ func (m *mockMessage) After() []byte               { return []byte(`{"foo":"bar"
 func (m *mockMessage) Metadata() map[string]string { return m.metadata }
 func (m *mockMessage) Data() map[string]any        { return nil }
 func (m *mockMessage) Clone() hermod.Message       { return m }
+func (m *mockMessage) ToMap() map[string]any       { return nil }
 func (m *mockMessage) ClearPayloads()              {}
 
 func TestFCMSink_Write_Error(t *testing.T) {

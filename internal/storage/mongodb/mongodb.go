@@ -210,10 +210,15 @@ func (s *mongoStorage) Init(ctx context.Context) error {
 				Options: options.Index().SetUnique(true),
 			})
 		case "sources", "sinks":
-			indexModels = append(indexModels, mongo.IndexModel{
-				Keys:    bson.D{{Key: "name", Value: 1}},
-				Options: options.Index().SetUnique(true),
-			})
+			indexModels = append(indexModels,
+				mongo.IndexModel{
+					Keys:    bson.D{{Key: "name", Value: 1}},
+					Options: options.Index().SetUnique(true),
+				},
+				mongo.IndexModel{Keys: bson.D{{Key: "worker_id", Value: 1}, {Key: "active", Value: 1}}},
+				mongo.IndexModel{Keys: bson.D{{Key: "workspace_id", Value: 1}}},
+				mongo.IndexModel{Keys: bson.D{{Key: "vhost", Value: 1}}},
+			)
 		case "users":
 			indexModels = append(indexModels, mongo.IndexModel{
 				Keys:    bson.D{{Key: "username", Value: 1}},
@@ -235,6 +240,13 @@ func (s *mongoStorage) Init(ctx context.Context) error {
 			indexModels = append(indexModels,
 				mongo.IndexModel{Keys: bson.D{{Key: "owner_id", Value: 1}}},
 				mongo.IndexModel{Keys: bson.D{{Key: "lease_until", Value: 1}}},
+				mongo.IndexModel{Keys: bson.D{{Key: "worker_id", Value: 1}, {Key: "active", Value: 1}}},
+				mongo.IndexModel{Keys: bson.D{{Key: "workspace_id", Value: 1}}},
+				mongo.IndexModel{Keys: bson.D{{Key: "vhost", Value: 1}}},
+			)
+		case "workers":
+			indexModels = append(indexModels,
+				mongo.IndexModel{Keys: bson.D{{Key: "last_seen", Value: -1}}},
 			)
 		case "audit_logs":
 			indexModels = append(indexModels,
@@ -981,6 +993,16 @@ func (s *mongoStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) 
 func (s *mongoStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
 	coll := s.db.Collection("workflows")
 	_, err := coll.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"status": status}})
+	return err
+}
+
+func (s *mongoStorage) UpdateWorkflowStats(ctx context.Context, id string, processed, errors, lag uint64) error {
+	coll := s.db.Collection("workflows")
+	_, err := coll.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{
+		"total_processed": processed,
+		"total_errors":    errors,
+		"total_lag":       lag,
+	}})
 	return err
 }
 
@@ -1938,4 +1960,74 @@ func (s *mongoStorage) InstallPlugin(ctx context.Context, id string) error {
 
 func (s *mongoStorage) UninstallPlugin(ctx context.Context, id string) error {
 	return nil
+}
+
+func (s *mongoStorage) GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error) {
+	var stats storage.DashboardStats
+
+	wfColl := s.db.Collection("workflows")
+	srcColl := s.db.Collection("sources")
+	snkColl := s.db.Collection("sinks")
+	workerColl := s.db.Collection("workers")
+
+	filter := bson.M{}
+	if vhost != "" && vhost != "all" {
+		filter["vhost"] = vhost
+	}
+
+	// Workflows Stats
+	wfPipeline := []bson.M{
+		{"$match": filter},
+		{"$group": bson.M{
+			"_id":             nil,
+			"totalWorkflows":  bson.M{"$sum": 1},
+			"totalProcessed":  bson.M{"$sum": "$total_processed"},
+			"totalErrors":     bson.M{"$sum": "$total_errors"},
+			"totalLag":        bson.M{"$sum": "$total_lag"},
+			"activeWorkflows": bson.M{"$sum": bson.M{"$cond": []any{bson.M{"$eq": []string{"$status", "running"}}, 1, 0}}},
+			"failedWorkflows": bson.M{"$sum": bson.M{"$cond": []any{bson.M{"$in": []any{"$status", []string{"failed", "error"}}}, 1, 0}}},
+		}},
+	}
+	wfCursor, err := wfColl.Aggregate(ctx, wfPipeline)
+	if err == nil && wfCursor.Next(ctx) {
+		var result struct {
+			TotalWorkflows  int    `bson:"totalWorkflows"`
+			TotalProcessed  uint64 `bson:"totalProcessed"`
+			TotalErrors     uint64 `bson:"totalErrors"`
+			TotalLag        uint64 `bson:"totalLag"`
+			ActiveWorkflows int    `bson:"activeWorkflows"`
+			FailedWorkflows int    `bson:"failedWorkflows"`
+		}
+		if err := wfCursor.Decode(&result); err == nil {
+			stats.TotalWorkflows = result.TotalWorkflows
+			stats.TotalProcessed = result.TotalProcessed
+			stats.TotalErrors = result.TotalErrors
+			stats.TotalLag = result.TotalLag
+			stats.ActiveWorkflows = result.ActiveWorkflows
+			stats.FailedWorkflows = result.FailedWorkflows
+		}
+		wfCursor.Close(ctx)
+	}
+
+	// Sources Stats
+	stats.TotalSources, _ = srcColl.CountDocuments(ctx, filter)
+	activeSrcFilter := bson.M{"status": "running"}
+	for k, v := range filter {
+		activeSrcFilter[k] = v
+	}
+	stats.ActiveSources, _ = srcColl.CountDocuments(ctx, activeSrcFilter)
+
+	// Sinks Stats
+	stats.TotalSinks, _ = snkColl.CountDocuments(ctx, filter)
+	activeSnkFilter := bson.M{"status": "running"}
+	for k, v := range filter {
+		activeSnkFilter[k] = v
+	}
+	stats.ActiveSinks, _ = snkColl.CountDocuments(ctx, activeSnkFilter)
+
+	// Workers Stats
+	activeThreshold := time.Now().Add(-2 * time.Minute)
+	stats.ActiveWorkers, _ = workerColl.CountDocuments(ctx, bson.M{"last_seen": bson.M{"$gt": activeThreshold}})
+
+	return stats, nil
 }

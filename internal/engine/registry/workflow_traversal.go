@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
 	pkgengine "github.com/user/hermod/pkg/engine"
-	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
 type workflowTraversal struct {
@@ -19,21 +19,19 @@ type workflowTraversal struct {
 	workflowID      string
 	nodeMap         map[string]*storage.WorkflowNode
 	adj             map[string][]string
+	nodeIndex       map[string]int
 	edgeLabels      map[string]string
 	edgeBreakpoints map[string]bool
 	inDegree        map[string]int
 	sinkNodeToIndex map[string]int
-	currentMessages map[string]hermod.Message
+
+	// Array-based state for ultra-fast traversal
+	currentMessages []hermod.Message
 	msgMu           sync.Mutex
-	// receivedCount counts incoming edges that actually delivered a message.
-	receivedCount map[string]int
-	// resolvedCount counts incoming edges that have been resolved, whether they
-	// delivered a message or were pruned (e.g. the edge belongs to a branch that
-	// was not taken). A node becomes ready once every incoming edge is resolved.
-	resolvedCount map[string]int
-	// fired guards against a node being scheduled (or skipped) more than once.
-	fired    map[string]bool
-	countMu  sync.Mutex
+	receivedCount   []int32
+	resolvedCount   []int32
+	fired           []int32 // 0=not fired, 1=fired
+
 	routed   []pkgengine.RoutedMessage
 	routedMu sync.Mutex
 	wg       sync.WaitGroup
@@ -69,7 +67,7 @@ func (t *workflowTraversal) processNode(ctx context.Context, currID string) {
 	defer t.eng.ReleaseNode(currID)
 
 	t.msgMu.Lock()
-	currMsg := t.currentMessages[currID]
+	currMsg := t.currentMessages[t.nodeIndex[currID]]
 	t.msgMu.Unlock()
 
 	currNode := t.nodeMap[currID]
@@ -122,11 +120,24 @@ func (t *workflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 	// branches that were taken deliver the produced messages; all other edges
 	// are pruned so that downstream join nodes can still reach their expected
 	// in-degree instead of stalling forever.
+	validTargets := make([]string, 0, len(t.adj[node.ID]))
 	for _, targetID := range t.adj[node.ID] {
-		if t.shouldFollowEdge(node, targetID, branch) && len(msgs) > 0 {
+		if t.shouldFollowEdge(node, targetID, branch) {
+			validTargets = append(validTargets, targetID)
+		} else {
+			t.resolveEdge(ctx, targetID, false)
+		}
+	}
+
+	for i, targetID := range validTargets {
+		if len(msgs) > 0 {
 			t.eng.UpdateEdgeMetric(node.ID, targetID, uint64(len(msgs)))
+			// If this is not the last target, we must clone the messages because
+			// subsequent targets will also need them. If it is the last target,
+			// we can pass ownership of the messages to that target.
+			shouldClone := i < len(validTargets)-1
 			for _, m := range msgs {
-				t.deliverToTarget(targetID, m)
+				t.deliverToTarget(targetID, m, shouldClone)
 			}
 			t.resolveEdge(ctx, targetID, true)
 		} else {
@@ -156,7 +167,6 @@ func (t *workflowTraversal) routeToSink(node *storage.WorkflowNode, msgs []hermo
 }
 
 func (t *workflowTraversal) recordError(node *storage.WorkflowNode, msgs []hermod.Message, err error) {
-	telemetry.WorkflowNodeErrors.WithLabelValues(t.workflowID, node.ID, node.Type).Inc()
 	t.eng.UpdateNodeErrorMetric(node.ID, 1)
 
 	msgID := ""
@@ -167,7 +177,6 @@ func (t *workflowTraversal) recordError(node *storage.WorkflowNode, msgs []hermo
 }
 
 func (t *workflowTraversal) recordSuccess(node *storage.WorkflowNode, msgs []hermod.Message) {
-	telemetry.WorkflowNodeProcessed.WithLabelValues(t.workflowID, node.ID, node.Type).Inc()
 	t.eng.UpdateNodeMetric(node.ID, uint64(len(msgs)))
 	// Capturing a node payload sample copies the whole message; only do it when
 	// a client is actually watching the status/dashboard/live streams.
@@ -192,18 +201,24 @@ func (t *workflowTraversal) shouldFollowEdge(node *storage.WorkflowNode, targetI
 
 // deliverToTarget stores (or merges) a message destined for targetID so that it
 // becomes the input message for that node once it is scheduled.
-func (t *workflowTraversal) deliverToTarget(targetID string, msg hermod.Message) {
+func (t *workflowTraversal) deliverToTarget(targetID string, msg hermod.Message, shouldClone bool) {
+	idx := t.nodeIndex[targetID]
 	t.msgMu.Lock()
-	if t.currentMessages[targetID] == nil {
-		t.currentMessages[targetID] = msg.Clone()
+	defer t.msgMu.Unlock()
+
+	if t.currentMessages[idx] == nil {
+		if shouldClone {
+			t.currentMessages[idx] = msg.Clone()
+		} else {
+			t.currentMessages[idx] = msg
+		}
 	} else {
 		strategy := ""
 		if targetNode := t.nodeMap[targetID]; targetNode != nil {
 			strategy, _ = targetNode.Config["strategy"].(string)
 		}
-		t.registry.mergeData(t.currentMessages[targetID].Data(), msg.Data(), strategy)
+		t.registry.mergeData(t.currentMessages[idx].Data(), msg.Data(), strategy)
 	}
-	t.msgMu.Unlock()
 }
 
 // resolveEdge marks one incoming edge of targetID as resolved. delivered is true
@@ -211,22 +226,22 @@ func (t *workflowTraversal) deliverToTarget(targetID string, msg hermod.Message)
 // edges are resolved the node is scheduled (if it received at least one message)
 // or skipped (propagating the prune to its own descendants).
 func (t *workflowTraversal) resolveEdge(ctx context.Context, targetID string, delivered bool) {
-	t.countMu.Lock()
+	idx := t.nodeIndex[targetID]
 	if delivered {
-		t.receivedCount[targetID]++
+		atomic.AddInt32(&t.receivedCount[idx], 1)
 	}
-	t.resolvedCount[targetID]++
+	resolved := atomic.AddInt32(&t.resolvedCount[idx], 1)
 
 	fire, skip := false, false
-	if t.resolvedCount[targetID] >= t.inDegree[targetID] && !t.fired[targetID] {
-		t.fired[targetID] = true
-		if t.receivedCount[targetID] > 0 {
-			fire = true
-		} else {
-			skip = true
+	if resolved >= int32(t.inDegree[targetID]) {
+		if atomic.CompareAndSwapInt32(&t.fired[idx], 0, 1) {
+			if atomic.LoadInt32(&t.receivedCount[idx]) > 0 {
+				fire = true
+			} else {
+				skip = true
+			}
 		}
 	}
-	t.countMu.Unlock()
 
 	switch {
 	case fire:

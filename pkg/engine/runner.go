@@ -504,8 +504,35 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 
 func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 	if consumer, ok := r.engine.buffer.(hermod.Consumer); ok {
+		numWorkers := cap(r.engine.inFlightSem)
+		if numWorkers <= 0 {
+			numWorkers = 128
+		}
+
+		msgChan := make(chan hermod.Message, numWorkers)
+
+		// Start persistent worker pool for message processing
+		for range numWorkers {
+			r.wg.Go(func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case m, ok := <-msgChan:
+						if !ok {
+							return
+						}
+						r.processMessage(ctx, m)
+						// Slot released inside processMessage or by Done()
+						r.engine.inFlightWg.Done()
+						<-r.engine.inFlightSem
+					}
+				}
+			})
+		}
+
 		err := consumer.Consume(ctx, func(drainCtx context.Context, m hermod.Message) error {
-			// Acquire inflight slot
+			// Acquire inflight slot to maintain backpressure from buffer to workers
 			select {
 			case r.engine.inFlightSem <- struct{}{}:
 			case <-drainCtx.Done():
@@ -513,158 +540,160 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 			}
 
 			r.engine.inFlightWg.Add(1)
-			go func() {
-				defer func() {
-					if p := recover(); p != nil {
-						r.engine.logger.Error("Panic in message processing loop", "workflow_id", r.engine.workflowID, "panic", p, "stack", string(debug.Stack()))
-					}
-					<-r.engine.inFlightSem
-					r.engine.inFlightWg.Done()
-				}()
-
-				start := time.Now()
-				defer func() {
-					duration := time.Since(start)
-					telemetry.ProcessingLatency.WithLabelValues(r.engine.workflowID).Observe(duration.Seconds())
-					r.engine.adaptiveThrottle(drainCtx, duration)
-					if r.engine.DetectAnomaly(duration) {
-						r.engine.logger.Warn("Anomaly detected in message processing", "workflow_id", r.engine.workflowID, "message_id", m.ID(), "duration", duration.String())
-						m.SetMetadata("anomaly", "true")
-						m.SetMetadata("anomaly_reason", "latency_spike")
-					}
-				}()
-
-				// Ensure message has an idempotency key/ID set before routing to sinks
-				if key, _ := idempotency.EnsureIdempotencyID(m); key == "" {
-					telemetry.IdempotencyMissingTotal.WithLabelValues(r.engine.workflowID).Inc()
-				}
-
-				// Global workflow tracing
-				if r.engine.traceRecorder != nil {
-					r.engine.RecordTraceStep(drainCtx, m, "workflow_start", start, nil, nil)
-				}
-
-				// Data validation
-				if r.engine.validator != nil {
-					vstart := time.Now()
-					if err := r.engine.validator.Validate(drainCtx, m.Data()); err != nil {
-						r.engine.logger.Error("Message validation failed", "workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", err)
-						r.engine.UpdateNodeErrorMetric("validator", 1)
-						r.engine.RecordTraceStep(drainCtx, m, "validator", vstart, nil, err)
-
-						if r.engine.deadLetterSink != nil {
-							m.SetMetadata("_hermod_validation_failed", "true")
-							m.SetMetadata("_hermod_last_error", err.Error())
-							_ = r.engine.deadLetterSink.Write(drainCtx, m)
-							r.engine.statusTracker.IncDeadLetter()
-						}
-						return
-					}
-					r.engine.UpdateNodeMetric("validator", 1)
-					r.engine.RecordTraceStep(drainCtx, m, "validator", vstart, nil, nil)
-				}
-
-				// Routing
-				var targets []RoutedMessage
-				if r.engine.router != nil {
-					rstart := time.Now()
-					t, err := r.engine.router(drainCtx, m)
-					if err != nil {
-						r.engine.logger.Error("Routing failed", "workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", err)
-						r.engine.RecordTraceStep(drainCtx, m, "router", rstart, nil, err)
-						return
-					}
-					targets = t
-					r.engine.RecordTraceStep(drainCtx, m, "router", rstart, nil, nil)
-				} else {
-					// Default: route to all sinks
-					targets = make([]RoutedMessage, len(r.engine.sinks))
-					for i := range r.engine.sinks {
-						targets[i] = RoutedMessage{SinkIndex: i, Message: m}
-					}
-				}
-
-				if len(targets) == 0 {
-					// Even if filtered, we must acknowledge to prevent re-reading
-					if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
-						_ = r.engine.outboxStore.DeleteOutboxItem(drainCtx, outboxID)
-					} else {
-						_ = r.engine.source.Ack(drainCtx, m)
-					}
-					r.engine.statusTracker.IncProcessed()
-					return
-				}
-
-				// Concurrent writes to multiple sinks
-				var swg sync.WaitGroup
-				serrCh := make(chan error, len(targets))
-
-				for _, target := range targets {
-					if target.SinkIndex < 0 || target.SinkIndex >= len(r.engine.sinkWriters) {
-						continue
-					}
-
-					sw := r.engine.sinkWriters[target.SinkIndex]
-					swg.Add(1)
-					target.Message.Retain()
-					pm := acquirePendingMessage(target.Message)
-					go func(sw *sinkWriter, pm *pendingMessage) {
-						defer func() {
-							if p := recover(); p != nil {
-								r.engine.logger.Error("Panic in concurrent sink write", "workflow_id", r.engine.workflowID, "sink_id", sw.sinkID, "panic", p)
-							}
-							swg.Done()
-						}()
-						sw.enqueueWithStrategy(drainCtx, pm, sw.config.BackpressureStrategy)
-						select {
-						case err := <-pm.done:
-							if err != nil {
-								serrCh <- err
-							}
-							releasePendingMessage(pm)
-						case <-drainCtx.Done():
-							// NOTE: do not release pm here. On cancellation the
-							// sink writer may still own this pending message (it
-							// can be sitting in the sink channel or an in-flight
-							// batch), so releasing it would return the pooled
-							// object while still in use. The owning sink writer
-							// drains and signals pm.done during shutdown.
-							serrCh <- drainCtx.Err()
-						}
-					}(sw, pm)
-				}
-				swg.Wait()
-				close(serrCh)
-				// NOTE: do not release m yet. It is still needed below for the
-				// source acknowledgement (Ack reads m.ID()) and the outbox lookup
-				// (m.Metadata()). Releasing it here recycles the message and would
-				// clear its identity before Ack runs (use-after-release).
-				defer m.Release()
-				for err := range serrCh {
-					if err != nil {
-						r.engine.logger.Error("Sink write error", "workflow_id", r.engine.workflowID, "error", err)
-						return
-					}
-				}
-
-				// Acknowledge the message to the source after all successful sink writes
-				if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
-					if err := r.engine.outboxStore.DeleteOutboxItem(drainCtx, outboxID); err != nil {
-						r.engine.logger.Error("Failed to delete outbox item", "workflow_id", r.engine.workflowID, "id", outboxID, "error", err)
-					}
-				} else if err := r.engine.source.Ack(drainCtx, m); err != nil {
-					r.engine.logger.Error("Source acknowledgement failed", "workflow_id", r.engine.workflowID, "error", err)
-					return
-				}
-
-				telemetry.MessagesProcessed.WithLabelValues(r.engine.workflowID, r.engine.sourceID).Inc()
-				r.engine.statusTracker.IncProcessed()
-			}()
-			return nil
+			select {
+			case msgChan <- m:
+				return nil
+			case <-drainCtx.Done():
+				r.engine.inFlightWg.Done()
+				<-r.engine.inFlightSem
+				return drainCtx.Err()
+			}
 		})
+		close(msgChan)
+
 		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			r.engine.logger.Error("Buffer-to-Sink worker error", "workflow_id", r.engine.workflowID, "error", err)
+			r.engine.logger.Error("Buffer-to-Sink consumer error", "workflow_id", r.engine.workflowID, "error", err)
 			r.errCh <- err
 		}
 	}
+}
+
+func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
+	defer func() {
+		if p := recover(); p != nil {
+			r.engine.logger.Error("Panic in message processing", "workflow_id", r.engine.workflowID, "panic", p, "stack", string(debug.Stack()))
+		}
+	}()
+
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		telemetry.ProcessingLatency.WithLabelValues(r.engine.workflowID).Observe(duration.Seconds())
+		r.engine.adaptiveThrottle(ctx, duration)
+		if r.engine.DetectAnomaly(duration) {
+			r.engine.logger.Warn("Anomaly detected in message processing", "workflow_id", r.engine.workflowID, "message_id", m.ID(), "duration", duration.String())
+			m.SetMetadata("anomaly", "true")
+			m.SetMetadata("anomaly_reason", "latency_spike")
+		}
+	}()
+
+	// Ensure message has an idempotency key/ID set before routing to sinks
+	if key, _ := idempotency.EnsureIdempotencyID(m); key == "" {
+		telemetry.IdempotencyMissingTotal.WithLabelValues(r.engine.workflowID).Inc()
+	}
+
+	// Global workflow tracing
+	if r.engine.traceRecorder != nil {
+		r.engine.RecordTraceStep(ctx, m, "workflow_start", start, nil, nil)
+	}
+
+	// Data validation
+	if r.engine.validator != nil {
+		vstart := time.Now()
+		if err := r.engine.validator.Validate(ctx, m.Data()); err != nil {
+			r.engine.logger.Error("Message validation failed", "workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", err)
+			r.engine.UpdateNodeErrorMetric("validator", 1)
+			r.engine.RecordTraceStep(ctx, m, "validator", vstart, nil, err)
+
+			if r.engine.deadLetterSink != nil {
+				m.SetMetadata("_hermod_validation_failed", "true")
+				m.SetMetadata("_hermod_last_error", err.Error())
+				_ = r.engine.deadLetterSink.Write(ctx, m)
+				r.engine.statusTracker.IncDeadLetter()
+			}
+			return
+		}
+		r.engine.UpdateNodeMetric("validator", 1)
+		r.engine.RecordTraceStep(ctx, m, "validator", vstart, nil, nil)
+	}
+
+	// Routing
+	var targets []RoutedMessage
+	if r.engine.router != nil {
+		rstart := time.Now()
+		t, err := r.engine.router(ctx, m)
+		if err != nil {
+			r.engine.logger.Error("Routing failed", "workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", err)
+			r.engine.RecordTraceStep(ctx, m, "router", rstart, nil, err)
+			return
+		}
+		targets = t
+		r.engine.RecordTraceStep(ctx, m, "router", rstart, nil, nil)
+	} else {
+		// Default: route to all sinks
+		targets = make([]RoutedMessage, len(r.engine.sinks))
+		for i := range r.engine.sinks {
+			targets[i] = RoutedMessage{SinkIndex: i, Message: m}
+		}
+	}
+
+	if len(targets) == 0 {
+		// Even if filtered, we must acknowledge to prevent re-reading
+		if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
+			_ = r.engine.outboxStore.DeleteOutboxItem(ctx, outboxID)
+		} else {
+			_ = r.engine.source.Ack(ctx, m)
+		}
+		r.engine.statusTracker.IncProcessed()
+		return
+	}
+
+	// Concurrent writes to multiple sinks
+	var swg sync.WaitGroup
+	serrCh := make(chan error, len(targets))
+
+	for _, target := range targets {
+		if target.SinkIndex < 0 || target.SinkIndex >= len(r.engine.sinkWriters) {
+			continue
+		}
+
+		sw := r.engine.sinkWriters[target.SinkIndex]
+		swg.Add(1)
+		target.Message.Retain()
+		pm := acquirePendingMessage(target.Message)
+		go func(sw *sinkWriter, pm *pendingMessage) {
+			defer func() {
+				if p := recover(); p != nil {
+					r.engine.logger.Error("Panic in concurrent sink write", "workflow_id", r.engine.workflowID, "sink_id", sw.sinkID, "panic", p)
+				}
+				swg.Done()
+			}()
+			sw.enqueueWithStrategy(ctx, pm, sw.config.BackpressureStrategy)
+			select {
+			case err := <-pm.done:
+				if err != nil {
+					serrCh <- err
+				}
+				releasePendingMessage(pm)
+			case <-ctx.Done():
+				serrCh <- ctx.Err()
+			}
+		}(sw, pm)
+	}
+	swg.Wait()
+	close(serrCh)
+	// NOTE: do not release m yet. It is still needed below for the
+	// source acknowledgement (Ack reads m.ID()) and the outbox lookup
+	// (m.Metadata()). Releasing it here recycles the message and would
+	// clear its identity before Ack runs (use-after-release).
+	defer m.Release()
+	for err := range serrCh {
+		if err != nil {
+			r.engine.logger.Error("Sink write error", "workflow_id", r.engine.workflowID, "error", err)
+			return
+		}
+	}
+
+	// Acknowledge the message to the source after all successful sink writes
+	if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
+		if err := r.engine.outboxStore.DeleteOutboxItem(ctx, outboxID); err != nil {
+			r.engine.logger.Error("Failed to delete outbox item", "workflow_id", r.engine.workflowID, "id", outboxID, "error", err)
+		}
+	} else if err := r.engine.source.Ack(ctx, m); err != nil {
+		r.engine.logger.Error("Source acknowledgement failed", "workflow_id", r.engine.workflowID, "error", err)
+		return
+	}
+
+	telemetry.MessagesProcessed.WithLabelValues(r.engine.workflowID, r.engine.sourceID).Inc()
+	r.engine.statusTracker.IncProcessed()
 }

@@ -222,6 +222,61 @@ func (m *DefaultMessage) Clone() hermod.Message {
 	return clone
 }
 
+func (m *DefaultMessage) ToMap() map[string]any {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	res := make(map[string]any)
+
+	// 1. If not a CDC event, merge data fields into root
+	if m.operation == "" {
+		for k, v := range m.data {
+			res[k] = v
+		}
+
+		// 2. If data is empty but payload is not, unmarshal payload into root
+		if len(m.data) == 0 && len(m.payload) > 0 {
+			json.Unmarshal(m.payload, &res)
+		}
+	}
+
+	// 3. Add system fields
+	if m.id != "" {
+		res["id"] = m.id
+	}
+	if m.table != "" {
+		res["table"] = m.table
+	}
+	if m.schema != "" {
+		res["schema"] = m.schema
+	}
+
+	// CDC specific fields
+	if m.operation != "" {
+		res["operation"] = m.operation
+		if len(m.before) > 0 {
+			res["before"] = json.RawMessage(m.before)
+		}
+		after := m.payload
+		if len(after) == 0 && len(m.data) > 0 {
+			after, _ = json.Marshal(m.data)
+		}
+		if len(after) > 0 {
+			res["after"] = json.RawMessage(after)
+		}
+	}
+
+	if len(m.metadata) > 0 {
+		md := make(map[string]string, len(m.metadata))
+		for k, v := range m.metadata {
+			md[k] = v
+		}
+		res["metadata"] = md
+	}
+
+	return res
+}
+
 func (m *DefaultMessage) MarshalJSON() ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

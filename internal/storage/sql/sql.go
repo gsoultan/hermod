@@ -227,12 +227,20 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_workflows_owner ON workflows(owner_id)",
 		"CREATE INDEX IF NOT EXISTS idx_workflows_lease_until ON workflows(lease_until)",
 		"CREATE INDEX IF NOT EXISTS idx_workflows_vhost ON workflows(vhost)",
-		// Sources/Sinks
+		"CREATE INDEX IF NOT EXISTS idx_workflows_worker_active ON workflows(worker_id, active)",
+		"CREATE INDEX IF NOT EXISTS idx_workflows_workspace ON workflows(workspace_id)",
+		// Sources
 		"CREATE INDEX IF NOT EXISTS idx_sources_vhost ON sources(vhost)",
-		"CREATE INDEX IF NOT EXISTS idx_sinks_vhost ON sinks(vhost)",
-		// Helpful for equality lookups by name (search uses LIKE and may not benefit)
+		"CREATE INDEX IF NOT EXISTS idx_sources_worker_active ON sources(worker_id, active)",
+		"CREATE INDEX IF NOT EXISTS idx_sources_workspace ON sources(workspace_id)",
 		"CREATE INDEX IF NOT EXISTS idx_sources_name ON sources(name)",
+		// Sinks
+		"CREATE INDEX IF NOT EXISTS idx_sinks_vhost ON sinks(vhost)",
+		"CREATE INDEX IF NOT EXISTS idx_sinks_worker_active ON sinks(worker_id, active)",
+		"CREATE INDEX IF NOT EXISTS idx_sinks_workspace ON sinks(workspace_id)",
 		"CREATE INDEX IF NOT EXISTS idx_sinks_name ON sinks(name)",
+		// Workers
+		"CREATE INDEX IF NOT EXISTS idx_workers_last_seen ON workers(last_seen)",
 	}
 
 	for _, q := range indexQueries {
@@ -435,6 +443,16 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 		args = append(args, filter.WorkspaceID)
 	}
 
+	if filter.WorkerID != "" {
+		where = append(where, "worker_id = ?")
+		args = append(args, filter.WorkerID)
+	}
+
+	if filter.Active != nil {
+		where = append(where, "active = ?")
+		args = append(args, *filter.Active)
+	}
+
 	if len(where) > 0 {
 		baseQuery += " WHERE " + strings.Join(where, " AND ")
 		countQuery += " WHERE " + strings.Join(where, " AND ")
@@ -611,6 +629,16 @@ func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter)
 	if filter.WorkspaceID != "" {
 		where = append(where, "workspace_id = ?")
 		args = append(args, filter.WorkspaceID)
+	}
+
+	if filter.WorkerID != "" {
+		where = append(where, "worker_id = ?")
+		args = append(args, filter.WorkerID)
+	}
+
+	if filter.Active != nil {
+		where = append(where, "active = ?")
+		args = append(args, *filter.Active)
 	}
 
 	if len(where) > 0 {
@@ -1113,6 +1141,18 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		query += " AND workspace_id = ?"
 		args = append(args, filter.WorkspaceID)
 	}
+	if filter.WorkerID != "" {
+		query += " AND worker_id = ?"
+		args = append(args, filter.WorkerID)
+	}
+	if filter.OwnerID != "" {
+		query += " AND owner_id = ?"
+		args = append(args, filter.OwnerID)
+	}
+	if filter.Active != nil {
+		query += " AND active = ?"
+		args = append(args, *filter.Active)
+	}
 
 	var total int
 	countQuery := s.queries.get(QueryCountWorkflows)
@@ -1127,6 +1167,18 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 	if filter.WorkspaceID != "" {
 		countQuery += " AND workspace_id = ?"
 		countArgs = append(countArgs, filter.WorkspaceID)
+	}
+	if filter.WorkerID != "" {
+		countQuery += " AND worker_id = ?"
+		countArgs = append(countArgs, filter.WorkerID)
+	}
+	if filter.OwnerID != "" {
+		countQuery += " AND owner_id = ?"
+		countArgs = append(countArgs, filter.OwnerID)
+	}
+	if filter.Active != nil {
+		countQuery += " AND active = ?"
+		countArgs = append(countArgs, *filter.Active)
 	}
 	if filter.Search != "" {
 		countQuery += " AND name LIKE ?"
@@ -1164,8 +1216,8 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		var schemaType, schema, cron, idleTimeout, tier, workspaceID, traceRetention, auditRetention sql.NullString
 		var traceSampleRate sql.NullFloat64
 		var cpuReq, memReq sql.NullFloat64
-		var throughputReq, totalProcessed, totalErrors sql.NullInt64
-		if err := rows.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors); err != nil {
+		var throughputReq, totalProcessed, totalErrors, totalLag sql.NullInt64
+		if err := rows.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag); err != nil {
 			return nil, 0, err
 		}
 		if cpuReq.Valid {
@@ -1182,6 +1234,9 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		}
 		if totalErrors.Valid {
 			wf.TotalErrors = uint64(totalErrors.Int64)
+		}
+		if totalLag.Valid {
+			wf.TotalLag = uint64(totalLag.Int64)
 		}
 		if traceRetention.Valid {
 			wf.TraceRetention = traceRetention.String
@@ -1266,7 +1321,7 @@ func (s *sqlStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) er
 	exec := func() error {
 		_, e := s.exec(ctx,
 			s.queries.get(QueryCreateWorkflow),
-			wf.ID, wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors,
+			wf.ID, wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.TotalLag,
 		)
 		return e
 	}
@@ -1281,7 +1336,7 @@ func (s *sqlStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) er
 	exec := func() error {
 		_, e := s.exec(ctx,
 			s.queries.get(QueryUpdateWorkflow),
-			wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.ID,
+			wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.TotalLag, wf.ID,
 		)
 		return e
 	}
@@ -1291,6 +1346,14 @@ func (s *sqlStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) er
 func (s *sqlStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
 	exec := func() error {
 		_, e := s.exec(ctx, s.queries.get(QueryUpdateWorkflowStatus), status, id)
+		return e
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) UpdateWorkflowStats(ctx context.Context, id string, processed, errors, lag uint64) error {
+	exec := func() error {
+		_, e := s.exec(ctx, s.queries.get(QueryUpdateWorkflowStats), processed, errors, lag, id)
 		return e
 	}
 	return s.execWithRetry(ctx, exec)
@@ -1316,8 +1379,8 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	var schemaType, schema, cron, idleTimeout, tier, workspaceID, traceRetention, auditRetention sql.NullString
 	var traceSampleRate sql.NullFloat64
 	var cpuReq, memReq sql.NullFloat64
-	var throughputReq, totalProcessed, totalErrors sql.NullInt64
-	if err := row.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors); err != nil {
+	var throughputReq, totalProcessed, totalErrors, totalLag sql.NullInt64
+	if err := row.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag); err != nil {
 		if err == sql.ErrNoRows {
 			return storage.Workflow{}, storage.ErrNotFound
 		}
@@ -1337,6 +1400,9 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	}
 	if totalErrors.Valid {
 		wf.TotalErrors = uint64(totalErrors.Int64)
+	}
+	if totalLag.Valid {
+		wf.TotalLag = uint64(totalLag.Int64)
 	}
 	if traceRetention.Valid {
 		wf.TraceRetention = traceRetention.String
@@ -2797,4 +2863,68 @@ func (s *sqlStorage) DeleteApproval(ctx context.Context, id string) error {
 		return nil
 	}
 	return s.execWithRetry(ctx, exec)
+}
+
+func (s *sqlStorage) GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error) {
+	var stats storage.DashboardStats
+
+	// Workflows Stats
+	wfQuery := "SELECT COUNT(*), SUM(COALESCE(total_processed, 0)), SUM(COALESCE(total_errors, 0)), SUM(COALESCE(total_lag, 0)), " +
+		"SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), " +
+		"SUM(CASE WHEN status IN ('failed', 'error') OR status LIKE 'error:%' THEN 1 ELSE 0 END) " +
+		"FROM workflows"
+	wfArgs := []any{}
+	if vhost != "" && vhost != "all" {
+		wfQuery += " WHERE vhost = ?"
+		wfArgs = append(wfArgs, vhost)
+	}
+
+	var totalProcessed, totalErrors, totalLag sql.NullInt64
+	var activeWf, failedWf sql.NullInt64
+	err := s.queryRow(ctx, wfQuery, wfArgs...).Scan(&stats.TotalWorkflows, &totalProcessed, &totalErrors, &totalLag, &activeWf, &failedWf)
+	if err != nil {
+		return stats, err
+	}
+	stats.TotalProcessed = uint64(totalProcessed.Int64)
+	stats.TotalErrors = uint64(totalErrors.Int64)
+	stats.TotalLag = uint64(totalLag.Int64)
+	stats.ActiveWorkflows = int(activeWf.Int64)
+	stats.FailedWorkflows = int(failedWf.Int64)
+
+	// Sources Stats
+	srcQuery := "SELECT COUNT(*), SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) FROM sources"
+	srcArgs := []any{}
+	if vhost != "" && vhost != "all" {
+		srcQuery += " WHERE vhost = ?"
+		srcArgs = append(srcArgs, vhost)
+	}
+	var activeSrc sql.NullInt64
+	err = s.queryRow(ctx, srcQuery, srcArgs...).Scan(&stats.TotalSources, &activeSrc)
+	if err != nil {
+		return stats, err
+	}
+	stats.ActiveSources = int(activeSrc.Int64)
+
+	// Sinks Stats
+	snkQuery := "SELECT COUNT(*), SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) FROM sinks"
+	snkArgs := []any{}
+	if vhost != "" && vhost != "all" {
+		snkQuery += " WHERE vhost = ?"
+		snkArgs = append(snkArgs, vhost)
+	}
+	var activeSnk sql.NullInt64
+	err = s.queryRow(ctx, snkQuery, snkArgs...).Scan(&stats.TotalSinks, &activeSnk)
+	if err != nil {
+		return stats, err
+	}
+	stats.ActiveSinks = int(activeSnk.Int64)
+
+	// Active Workers (TTL 2m)
+	activeThreshold := time.Now().Add(-2 * time.Minute)
+	err = s.queryRow(ctx, "SELECT COUNT(*) FROM workers WHERE last_seen > ?", activeThreshold).Scan(&stats.ActiveWorkers)
+	if err != nil {
+		return stats, err
+	}
+
+	return stats, nil
 }

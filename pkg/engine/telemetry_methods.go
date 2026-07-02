@@ -2,13 +2,11 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"hash/fnv"
 	"runtime"
 	"time"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
 )
 
 func (e *Engine) RecordTraceStep(ctx context.Context, msg hermod.Message, nodeID string, start time.Time, before map[string]any, err error) {
@@ -24,32 +22,16 @@ func (e *Engine) RecordTraceStep(ctx context.Context, msg hermod.Message, nodeID
 	if e.config.TraceSampleRate < 1.0 {
 		h := fnv.New32a()
 		_, _ = h.Write([]byte(msg.ID()))
-		// Normalize to 0.0 - 1.0
 		sampleValue := float64(h.Sum32()) / float64(0xFFFFFFFF)
 		if sampleValue > e.config.TraceSampleRate {
 			return
 		}
 	}
 
-	// Prepare trace data. Use consistent representation from MarshalJSON for CDC and non-CDC.
-	var after map[string]any
-	if dm, ok := msg.(*message.DefaultMessage); ok {
-		msgJSON, _ := dm.MarshalJSON()
-		_ = json.Unmarshal(msgJSON, &after)
-	} else {
-		// Fallback for other message types
-		baseData := msg.Data()
-		if baseData != nil {
-			after = make(map[string]any, len(baseData))
-			for k, v := range baseData {
-				after[k] = v
-			}
-		} else {
-			after = make(map[string]any)
-		}
-	}
+	// Optimization: use ToMap() instead of JSON round-trip.
+	after := msg.ToMap()
 
-	// Lineage Tracking: Append nodeID to message metadata lineage
+	// Lineage Tracking
 	lineage := msg.Metadata()["_hermod_lineage"]
 	if lineage == "" {
 		lineage = nodeID
@@ -70,7 +52,13 @@ func (e *Engine) RecordTraceStep(ctx context.Context, msg hermod.Message, nodeID
 		step.Error = err.Error()
 	}
 
-	e.traceRecorder.RecordStep(ctx, e.workflowID, msg.ID(), step)
+	// Use a background context for recording to ensure it completes even if the
+	// request context is cancelled (e.g. message finished processing).
+	recordCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	go func() {
+		defer cancel()
+		e.traceRecorder.RecordStep(recordCtx, e.workflowID, msg.ID(), step)
+	}()
 }
 
 func (e *Engine) UpdateNodeMetric(nodeID string, count uint64) {

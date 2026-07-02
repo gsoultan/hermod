@@ -186,12 +186,26 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						w.logger.Error("Worker: sync/health loop panicked", "panic", r, "stack", string(debug.Stack()))
+					}
+				}()
+				if w.pollShutdownRequest(ctx) {
+					w.logger.Info("Worker: graceful shutdown requested by platform; draining and handing off workflows")
+					// We return from the outer loop by returning from Start, but we need a way to tell the outer loop to exit.
+					// Actually, we can just use a flag.
+				} else {
+					w.sync(ctx, false)
+					w.checkHealth(ctx)
+				}
+			}()
+
+			// Check if we should exit after the anonymous function
 			if w.pollShutdownRequest(ctx) {
-				w.logger.Info("Worker: graceful shutdown requested by platform; draining and handing off workflows")
 				return nil
 			}
-			w.sync(ctx, false)
-			w.checkHealth(ctx)
 		}
 	}
 }

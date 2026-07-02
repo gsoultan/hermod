@@ -19,6 +19,7 @@ func (m *mockMessage) Table() string               { return "test_table" }
 func (m *mockMessage) Schema() string              { return "test_schema" }
 func (m *mockMessage) Data() map[string]any        { return nil }
 func (m *mockMessage) Clone() hermod.Message       { return m }
+func (m *mockMessage) ToMap() map[string]any       { return nil }
 func (m *mockMessage) ClearPayloads()              {}
 
 type mockFormatter struct{}

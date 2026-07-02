@@ -1072,54 +1072,65 @@ func (h *Handler) RollbackWorkflow(w http.ResponseWriter, r *http.Request) {
 }
 
 func populateMessageFromMap(msg hermod.Message, data map[string]any) {
+	dm, isDefault := msg.(*message.DefaultMessage)
 	for k, v := range data {
-		lower := strings.ToLower(k)
-		switch lower {
-		case "id":
+		if v == nil {
+			continue
+		}
+
+		// Handle system fields first for efficiency
+		switch k {
+		case "id", "ID":
 			if id, ok := v.(string); ok && id != "" {
-				if dm, ok := msg.(*message.DefaultMessage); ok {
+				if isDefault {
 					dm.SetID(id)
 				}
 			}
-		case "operation", "op":
+			continue
+		case "operation", "op", "Operation", "Op":
 			if op, ok := v.(string); ok && op != "" {
-				if dm, ok := msg.(*message.DefaultMessage); ok {
+				if isDefault {
 					dm.SetOperation(hermod.Operation(op))
 				}
 			}
-		case "table":
+			continue
+		case "table", "Table":
 			if t, ok := v.(string); ok && t != "" {
-				if dm, ok := msg.(*message.DefaultMessage); ok {
+				if isDefault {
 					dm.SetTable(t)
 				}
 			}
-		case "schema":
+			continue
+		case "schema", "Schema":
 			if s, ok := v.(string); ok && s != "" {
-				if dm, ok := msg.(*message.DefaultMessage); ok {
+				if isDefault {
 					dm.SetSchema(s)
 				}
 			}
-		case "metadata":
+			continue
+		case "metadata", "Metadata":
 			if md, ok := v.(map[string]any); ok {
 				for mk, mv := range md {
-					msg.SetMetadata(mk, fmt.Sprint(mv))
+					if mv != nil {
+						msg.SetMetadata(mk, fmt.Sprint(mv))
+					}
 				}
 			}
-		case "before":
+			continue
+		case "before", "Before":
 			if b, ok := v.(map[string]any); ok {
 				jb, _ := json.Marshal(b)
-				if dm, ok := msg.(*message.DefaultMessage); ok {
+				if isDefault {
 					dm.SetBefore(jb)
 				}
 			} else if s, ok := v.(string); ok {
-				if dm, ok := msg.(*message.DefaultMessage); ok {
+				if isDefault {
 					dm.SetBefore([]byte(s))
 				}
 			}
-		case "after":
+			continue
+		case "after", "After":
 			if a, ok := v.(map[string]any); ok {
-				// For simulation purposes, we populate the root data with 'after' contents
-				// so transformations work correctly on the record fields.
 				for ak, av := range a {
 					msg.SetData(ak, av)
 				}
@@ -1130,14 +1141,16 @@ func populateMessageFromMap(msg hermod.Message, data map[string]any) {
 						msg.SetData(ak, av)
 					}
 				} else {
-					if dm, ok := msg.(*message.DefaultMessage); ok {
+					if isDefault {
 						dm.SetAfter([]byte(s))
 					}
 				}
 			}
-		default:
-			msg.SetData(k, v)
+			continue
 		}
+
+		// Non-system fields go into Data
+		msg.SetData(k, v)
 	}
 }
 

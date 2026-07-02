@@ -53,6 +53,7 @@ func (m *priorityMockMessage) Payload() []byte             { return nil }
 func (m *priorityMockMessage) Data() map[string]any        { return nil }
 func (m *priorityMockMessage) SetData(k string, v any)     {}
 func (m *priorityMockMessage) Clone() hermod.Message       { return m }
+func (m *priorityMockMessage) ToMap() map[string]any       { return nil }
 func (m *priorityMockMessage) ClearPayloads()              {}
 func (m *priorityMockMessage) Retain()                     {}
 func (m *priorityMockMessage) Release()                    {}

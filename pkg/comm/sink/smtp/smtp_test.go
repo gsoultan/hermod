@@ -84,6 +84,7 @@ func (m *mockMessage) Data() map[string]any {
 func (m *mockMessage) SetMetadata(key, value string) {}
 func (m *mockMessage) SetData(key string, value any) {}
 func (m *mockMessage) Clone() hermod.Message         { return m }
+func (m *mockMessage) ToMap() map[string]any         { return nil }
 func (m *mockMessage) ClearPayloads()                {}
 func (m *mockMessage) Retain()                       {}
 func (m *mockMessage) Release()                      {}

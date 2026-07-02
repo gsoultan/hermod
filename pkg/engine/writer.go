@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash"
 	"hash/fnv"
 	"math/rand"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -102,28 +104,71 @@ func releasePendingMessage(pm *pendingMessage) {
 	pendingMessagePool.Put(pm)
 }
 
+var fnvPool = sync.Pool{
+	New: func() any {
+		return fnv.New32a()
+	},
+}
+
+func (e *Engine) prepareDLQMessage(m hermod.Message, sinkID string, errStr string) {
+	if m == nil {
+		return
+	}
+	if sinkID != "" {
+		m.SetMetadata("_hermod_failed_sink", sinkID)
+	}
+	if errStr != "" {
+		m.SetMetadata("_hermod_last_error", errStr)
+	}
+	m.SetMetadata("_hermod_failed_at", time.Now().Format(time.RFC3339))
+	e.statusTracker.IncDeadLetter()
+	telemetry.DeadLetterCount.WithLabelValues(e.workflowID, sinkID).Inc()
+}
+
+func (e *Engine) writeToDLQ(ctx context.Context, sinkID string, msgs ...hermod.Message) {
+	if e.deadLetterSink == nil || len(msgs) == 0 {
+		return
+	}
+
+	// If the DLQ sink supports batching, use it
+	if bsnk, ok := e.deadLetterSink.(hermod.BatchSink); ok && len(msgs) > 1 {
+		for _, m := range msgs {
+			e.prepareDLQMessage(m, sinkID, "")
+		}
+		if err := bsnk.WriteBatch(ctx, msgs); err != nil {
+			e.logger.Error("Failed to write batch to Dead Letter Sink", "workflow_id", e.workflowID, "error", err)
+			telemetry.DeadLetterErrors.WithLabelValues(e.workflowID, sinkID).Inc()
+		}
+		return
+	}
+
+	// Fallback to single writes
+	for _, m := range msgs {
+		e.prepareDLQMessage(m, sinkID, "")
+		if err := e.deadLetterSink.Write(ctx, m); err != nil {
+			e.logger.Error("Failed to write to Dead Letter Sink", "workflow_id", e.workflowID, "error", err)
+			telemetry.DeadLetterErrors.WithLabelValues(e.workflowID, sinkID).Inc()
+		}
+	}
+}
+
 // writeToSink writes a single message to the sink with retry/reconnect.
 // Optional onAttemptError observers are invoked on every individual sink write
 // failure (including transient failures that a later retry recovers from). This
 // lets callers (e.g. the circuit breaker) account for the underlying sink
 // health even when retries ultimately succeed.
 func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Message, sinkID string, i int, onAttemptError ...func()) error {
+	if msg == nil {
+		return nil
+	}
 	// Trace single write
 	var span trace.Span
 	ctx, span = tracer.Start(ctx, "sink.write", trace.WithAttributes(
 		attribute.String("workflow_id", e.workflowID),
 		attribute.String("sink_id", sinkID),
-		attribute.String("message_id", func() string {
-			if msg != nil {
-				return msg.ID()
-			}
-			return ""
-		}()),
+		attribute.String("message_id", msg.ID()),
 	))
 	defer span.End()
-	if msg == nil {
-		return nil
-	}
 
 	if e.isFailing() {
 		return errors.New("simulated engine failure")
@@ -133,12 +178,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		e.logger.Warn("Safe Mode Active: diverting message to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID())
 		msg.SetMetadata("_hermod_safe_mode", "true")
 		msg.SetMetadata("_hermod_original_sink", sinkID)
-		e.statusTracker.IncDeadLetter()
-		telemetry.DeadLetterCount.WithLabelValues(e.workflowID, sinkID).Inc()
-		if err := e.deadLetterSink.Write(ctx, msg); err != nil {
-			e.logger.Error("Failed to write to Dead Letter Sink in Safe Mode", "workflow_id", e.workflowID, "error", err)
-			return fmt.Errorf("safe mode diversion failed: %w", err)
-		}
+		e.writeToDLQ(ctx, sinkID, msg)
 		return nil
 	}
 
@@ -149,11 +189,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 			if e.deadLetterSink != nil {
 				e.logger.Info("Sending invalid message to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID())
 				msg.SetMetadata("_hermod_validation_failed", "true")
-				msg.SetMetadata("_hermod_last_error", err.Error())
-				if dlerr := e.deadLetterSink.Write(ctx, msg); dlerr != nil {
-					e.logger.Error("Failed to write invalid message to Dead Letter Sink", "workflow_id", e.workflowID, "error", dlerr)
-					return fmt.Errorf("validation error (and DLQ failed): %w", err)
-				}
+				e.writeToDLQ(ctx, sinkID, msg)
 				return nil
 			}
 			return fmt.Errorf("validation error: %w", err)
@@ -188,7 +224,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		}
 	}
 
-	for j := 0; j < maxRetries; j++ {
+	for j := range maxRetries {
 		idempStart := time.Now()
 		if err := snk.Write(ctx, msg); err != nil {
 			lastErr = err
@@ -258,19 +294,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		span.SetStatus(codes.Error, lastErr.Error())
 		if e.deadLetterSink != nil {
 			e.logger.Info("Sending message to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID())
-
-			// Add failure context to metadata
-			msg.SetMetadata("_hermod_failed_sink", sinkID)
-			msg.SetMetadata("_hermod_last_error", lastErr.Error())
-			msg.SetMetadata("_hermod_failed_at", time.Now().Format(time.RFC3339))
-
-			e.statusTracker.IncDeadLetter()
-
-			telemetry.DeadLetterCount.WithLabelValues(e.workflowID, sinkID).Inc()
-			if err := e.deadLetterSink.Write(ctx, msg); err != nil {
-				e.logger.Error("Failed to write to Dead Letter Sink", "workflow_id", e.workflowID, "error", err)
-				return fmt.Errorf("sink write error (and DLQ failed): %w", lastErr)
-			}
+			e.writeToDLQ(ctx, sinkID, msg)
 			return nil // Message preserved in DLQ
 		}
 		return fmt.Errorf("sink write error: %w", lastErr)
@@ -279,6 +303,13 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 }
 
 func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msgs []hermod.Message, sinkID string, i int) error {
+	// Filter nil messages using modern slice tools
+	msgs = slices.DeleteFunc(msgs, func(m hermod.Message) bool { return m == nil })
+
+	if len(msgs) == 0 {
+		return nil
+	}
+
 	// Trace batch write
 	var span trace.Span
 	ctx, span = tracer.Start(ctx, "sink.write_batch", trace.WithAttributes(
@@ -287,34 +318,25 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 		attribute.Int("batch_size", len(msgs)),
 	))
 	defer span.End()
-	// Filter nil messages
-	filtered := make([]hermod.Message, 0, len(msgs))
-	for _, m := range msgs {
-		if m != nil {
-			filtered = append(filtered, m)
-		}
-	}
-	msgs = filtered
-
-	if len(msgs) == 0 {
-		return nil
-	}
 
 	// Pre-write validation
 	if vs, ok := snk.(hermod.ValidatingSink); ok {
 		validMsgs := make([]hermod.Message, 0, len(msgs))
+		invalidMsgs := make([]hermod.Message, 0)
 		for _, m := range msgs {
 			if err := vs.Validate(ctx, m); err != nil {
 				e.logger.Error("Sink pre-write validation failed for message in batch", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", m.ID(), "error", err)
 				if e.deadLetterSink != nil {
-					e.logger.Info("Sending invalid message from batch to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", m.ID())
 					m.SetMetadata("_hermod_validation_failed", "true")
 					m.SetMetadata("_hermod_last_error", err.Error())
-					_ = e.deadLetterSink.Write(ctx, m)
+					invalidMsgs = append(invalidMsgs, m)
 				}
 				continue
 			}
 			validMsgs = append(validMsgs, m)
+		}
+		if len(invalidMsgs) > 0 {
+			e.writeToDLQ(ctx, sinkID, invalidMsgs...)
 		}
 		msgs = validMsgs
 	}
@@ -326,17 +348,12 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 	if e.IsSafeMode() && e.deadLetterSink != nil {
 		e.logger.Warn("Safe Mode Active: diverting batch to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "batch_size", len(msgs))
 		for _, m := range msgs {
-			if m == nil {
-				continue
-			}
-			m.SetMetadata("_hermod_safe_mode", "true")
-			m.SetMetadata("_hermod_original_sink", sinkID)
-			e.statusTracker.IncDeadLetter()
-			telemetry.DeadLetterCount.WithLabelValues(e.workflowID, sinkID).Inc()
-			if err := e.deadLetterSink.Write(ctx, m); err != nil {
-				e.logger.Error("Failed to write message from batch to Dead Letter Sink in Safe Mode", "workflow_id", e.workflowID, "error", err)
+			if m != nil {
+				m.SetMetadata("_hermod_safe_mode", "true")
+				m.SetMetadata("_hermod_original_sink", sinkID)
 			}
 		}
+		e.writeToDLQ(ctx, sinkID, msgs...)
 		return nil
 	}
 
@@ -372,7 +389,7 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 		}
 	}
 
-	for j := 0; j < maxRetries; j++ {
+	for j := range maxRetries {
 		if err := snk.WriteBatch(ctx, msgs); err != nil {
 			lastErr = err
 			telemetry.SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Add(float64(len(msgs)))
@@ -629,7 +646,7 @@ func (w *sinkWriter) run(ctx context.Context) {
 
 	if w.useShards && w.shardCount > 1 && len(w.shards) == w.shardCount {
 		// Spawn a run loop per shard channel
-		for i := 0; i < w.shardCount; i++ {
+		for i := range w.shardCount {
 			ch := w.shards[i]
 			w.shardWg.Go(func() {
 				w.runOn(ctx, ch)
@@ -643,15 +660,7 @@ func (w *sinkWriter) run(ctx context.Context) {
 }
 
 func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
-	defer func() {
-		if r := recover(); r != nil {
-			w.engine.logger.Error("Panic in sinkWriter.runOn", "sink_id", w.sinkID, "error", r, "stack", string(debug.Stack()))
-		}
-	}()
-	// Batch sizing state is kept goroutine-local. A sharded sink runs one runOn
-	// per shard channel; sharing these on the sinkWriter would let multiple
-	// shard goroutines mutate the same fields concurrently (data race) and let
-	// one shard's adaptive sizing clobber another's.
+	// Batch sizing state is kept goroutine-local.
 	batchSize := w.config.BatchSize
 	if batchSize < 1 {
 		batchSize = 1
@@ -662,7 +671,9 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 		batchTimeout = 100 * time.Millisecond
 	}
 
+	// Reuse slices to minimize allocations in the hot loop.
 	batch := make([]*pendingMessage, 0, batchSize)
+	msgsReuse := make([]hermod.Message, 0, batchSize)
 	var batchBytes int
 	ticker := time.NewTicker(batchTimeout)
 	defer ticker.Stop()
@@ -678,36 +689,27 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 				pm.done <- err
 			}
 			batch = batch[:0]
+			batchBytes = 0
 			return
 		}
 
-		msgs := make([]hermod.Message, len(batch))
-		for i, pm := range batch {
-			msgs[i] = pm.msg
+		// Reuse the messages slice
+		msgsReuse = msgsReuse[:0]
+		for _, pm := range batch {
+			msgsReuse = append(msgsReuse, pm.msg)
 		}
 
 		var err error
-		// transientFailure tracks whether the underlying sink reported any write
-		// failure during this flush, even one that a retry later recovered from.
-		// A sink that fails on (almost) every attempt is unhealthy, so the circuit
-		// breaker must observe these transient failures rather than only the final
-		// post-retry outcome (otherwise retries would mask a failing sink forever).
 		transientFailure := false
 		observeAttemptErr := func() { transientFailure = true }
-		// perMsgErr holds the result for each message so we can settle the
-		// circuit-breaker state BEFORE signaling pm.done. If we signaled
-		// completion first, a waiter could observe the breaker state before this
-		// flush has finished updating it (a race the circuit-breaker test
-		// exercises): the breaker accounting must be visible the moment a caller
-		// learns the write finished.
 		var perMsgErr []error
 		isBatch := false
-		if bs, ok := w.sink.(hermod.BatchSink); ok && len(msgs) > 1 {
+		if bs, ok := w.sink.(hermod.BatchSink); ok && len(msgsReuse) > 1 {
 			isBatch = true
-			err = w.engine.writeBatchToSink(ctx, bs, msgs, w.sinkID, w.index)
+			err = w.engine.writeBatchToSink(ctx, bs, msgsReuse, w.sinkID, w.index)
 		} else {
-			perMsgErr = make([]error, len(msgs))
-			for i, m := range msgs {
+			perMsgErr = make([]error, len(msgsReuse))
+			for i, m := range msgsReuse {
 				e := w.engine.writeToSink(ctx, w.sink, m, w.sinkID, w.index, observeAttemptErr)
 				perMsgErr[i] = e
 				if e != nil {
@@ -722,7 +724,6 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			w.recordSuccess()
 		}
 
-		// Signal completion only after the breaker state has been updated.
 		if isBatch {
 			for _, pm := range batch {
 				pm.done <- err
@@ -733,20 +734,26 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			}
 		}
 
-		// Adaptive Batching logic (operates on the goroutine-local batchSize).
 		if w.config.AdaptiveBatching {
 			duration := time.Since(start)
 			if err == nil {
-				// If we are fast and have more messages waiting, increase batch size
-				if duration < batchTimeout/2 && len(input) > batchSize/2 {
-					batchSize = int(float64(batchSize) * 1.1)
+				if duration < batchTimeout/2 && len(input) > 0 {
+					increment := int(float64(batchSize) * 0.05)
+					if increment < 1 {
+						increment = 1
+					}
+					batchSize += increment
 					if batchSize > 5000 {
 						batchSize = 5000
 					}
+				} else if duration > time.Duration(float64(batchTimeout)*0.8) {
+					batchSize = int(float64(batchSize) * 0.9)
+					if batchSize < 1 {
+						batchSize = 1
+					}
 				}
 			} else {
-				// If we had error or were slow, decrease batch size
-				batchSize = int(float64(batchSize) * 0.7)
+				batchSize = int(float64(batchSize) * 0.5)
 				if batchSize < 1 {
 					batchSize = 1
 				}
@@ -759,23 +766,39 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 	}
 
 	for {
-		select {
-		case pm, ok := <-input:
-			if !ok {
-				flush()
-				return
+		// Resilience: Recover from panics in the processing loop and restart.
+		exit := func() bool {
+			defer func() {
+				if r := recover(); r != nil {
+					w.engine.logger.Error("Panic in sinkWriter.runOn, restarting shard loop", "sink_id", w.sinkID, "error", r, "stack", string(debug.Stack()))
+					time.Sleep(1 * time.Second)
+				}
+			}()
+
+			for {
+				select {
+				case pm, ok := <-input:
+					if !ok {
+						flush()
+						return true // input closed
+					}
+					batch = append(batch, pm)
+					if pm != nil && pm.msg != nil && pm.msg.Payload() != nil {
+						batchBytes += len(pm.msg.Payload())
+					}
+					if len(batch) >= batchSize || (w.config.BatchBytes > 0 && batchBytes >= w.config.BatchBytes) {
+						flush()
+					}
+				case <-ticker.C:
+					flush()
+				case <-ctx.Done():
+					flush()
+					return true
+				}
 			}
-			batch = append(batch, pm)
-			// accumulate payload size for byte-based flushing
-			if pm != nil && pm.msg != nil && pm.msg.Payload() != nil {
-				batchBytes += len(pm.msg.Payload())
-			}
-			// flush when reaching count or byte thresholds
-			if len(batch) >= batchSize || (w.config.BatchBytes > 0 && batchBytes >= w.config.BatchBytes) {
-				flush()
-			}
-		case <-ticker.C:
-			flush()
+		}()
+		if exit {
+			return
 		}
 	}
 }
@@ -892,9 +915,11 @@ func (w *sinkWriter) pickShard(msg hermod.Message) chan *pendingMessage {
 		// fallback to random shard
 		return w.shards[rand.Intn(w.shardCount)]
 	}
-	// FNV-1a hash
-	h := fnv.New32a()
+	// FNV-1a hash (using pool to avoid allocations)
+	h := fnvPool.Get().(hash.Hash32)
+	h.Reset()
 	_, _ = h.Write([]byte(key))
 	idx := int(h.Sum32() % uint32(w.shardCount))
+	fnvPool.Put(h)
 	return w.shards[idx]
 }

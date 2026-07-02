@@ -876,6 +876,7 @@ func (m *mockMessage) Payload() []byte {
 func (m *mockMessage) SetMetadata(k, v string) {}
 func (m *mockMessage) SetData(k string, v any) {}
 func (m *mockMessage) Clone() hermod.Message   { return nil }
+func (m *mockMessage) ToMap() map[string]any   { return nil }
 func (m *mockMessage) ClearPayloads()          {}
 func (m *mockMessage) Retain()                 {}
 func (m *mockMessage) Release()                {}

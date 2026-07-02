@@ -33,6 +33,11 @@ type CommonFilter struct {
 	// Since and Until bound time-based queries (e.g., logs). Zero value means not set.
 	Since time.Time `json:"since" omitzero:"true"`
 	Until time.Time `json:"until" omitzero:"true"`
+
+	// Workflow filters
+	WorkerID string `json:"worker_id,omitempty"`
+	OwnerID  string `json:"owner_id,omitempty"`
+	Active   *bool  `json:"active,omitempty"`
 }
 
 type LogFilter struct {
@@ -146,6 +151,7 @@ type Workflow struct {
 	ThroughputRequest int      `json:"throughput_request,omitempty"`
 	TotalProcessed    uint64   `json:"total_processed,omitempty"`
 	TotalErrors       uint64   `json:"total_errors,omitempty"`
+	TotalLag          uint64   `json:"total_lag,omitempty"`
 }
 
 type Workspace struct {
@@ -345,6 +351,22 @@ type SuspendedMessage struct {
 	CreatedAt  time.Time         `json:"created_at"`
 }
 
+type DashboardStats struct {
+	ActiveSources   int     `json:"active_sources"`
+	ActiveSinks     int     `json:"active_sinks"`
+	ActiveWorkflows int     `json:"active_workflows"`
+	TotalProcessed  uint64  `json:"total_processed"`
+	TotalErrors     uint64  `json:"total_errors"`
+	TotalLag        uint64  `json:"total_lag"`
+	FailedWorkflows int     `json:"failed_workflows"`
+	Uptime          int64   `json:"uptime"`
+	ActiveWorkers   int     `json:"active_workers"`
+	TotalWorkflows  int     `json:"total_workflows"`
+	TotalSources    int     `json:"total_sources"`
+	TotalSinks      int     `json:"total_sinks"`
+	Throughput      float64 `json:"throughput"` // Messages per second
+}
+
 type Storage interface {
 	// Init performs storage initialization/migrations and is safe to call multiple times.
 	Init(ctx context.Context) error
@@ -389,6 +411,7 @@ type Storage interface {
 	CreateWorkflow(ctx context.Context, wf Workflow) error
 	UpdateWorkflow(ctx context.Context, wf Workflow) error
 	UpdateWorkflowStatus(ctx context.Context, id string, status string) error
+	UpdateWorkflowStats(ctx context.Context, id string, processed, errors, lag uint64) error
 	DeleteWorkflow(ctx context.Context, id string) error
 	GetWorkflow(ctx context.Context, id string) (Workflow, error)
 
@@ -480,4 +503,7 @@ type Storage interface {
 	CreateSuspendedMessage(ctx context.Context, m SuspendedMessage) error
 	ListSuspendedMessages(ctx context.Context, workflowID string, before time.Time) ([]SuspendedMessage, error)
 	DeleteSuspendedMessage(ctx context.Context, id string) error
+
+	// Aggregated Dashboard Stats
+	GetDashboardStats(ctx context.Context, vhost string) (DashboardStats, error)
 }

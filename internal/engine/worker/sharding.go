@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"hash/fnv"
+	"math"
 	"sort"
 	"time"
 
@@ -133,26 +134,34 @@ func (w *Worker) calculateBestWorker(online []storage.Worker, resourceID string,
 func (w *Worker) calculateScore(wrk storage.Worker, resourceID string, currentOwnerID string) float64 {
 	h := fnv.New32a()
 	h.Write([]byte(wrk.ID + ":" + resourceID))
+	u := float64(h.Sum32()) / float64(0xFFFFFFFF)
+	if u == 0 {
+		u = 1e-9 // Avoid log(0)
+	}
 
 	weight := w.calculateWeight(wrk)
 	if currentOwnerID != "" && wrk.ID == currentOwnerID {
-		weight *= 10.0 // Hysteresis bonus for current owner
+		// Hysteresis bonus: substantially increase weight to prevent flapping
+		weight *= 2.0
 	}
 
-	return float64(h.Sum32()) * weight
+	// Highest Random Weight (Rendezvous Hashing) with weights
+	// score = log(u) / weight. Since log(u) <= 0, the node with the largest weight
+	// (least loaded) will have a score closest to 0 (the maximum score).
+	return math.Log(u) / weight
 }
 
 func (w *Worker) calculateWeight(wrk storage.Worker) float64 {
-	cpuWeight := max(0.05, 1.1-wrk.CPUUsage)
-	memWeight := max(0.05, 1.1-wrk.MemoryUsage)
-	weight := cpuWeight * memWeight
+	// Base weight is 1.0. Decrease as load increases.
+	cpuFactor := math.Max(0.1, 1.0-wrk.CPUUsage)
+	memFactor := math.Max(0.1, 1.0-wrk.MemoryUsage)
+	weight := cpuFactor * memFactor
 
 	if wrk.LastSeen != nil {
 		lastSeen := time.Since(*wrk.LastSeen)
-		if lastSeen < 30*time.Second {
-			weight *= 2.0
-		} else if lastSeen < 60*time.Second {
-			weight *= 1.2
+		if lastSeen > 60*time.Second {
+			// Deprioritize workers that haven't heartbeated recently
+			weight *= 0.1
 		}
 	}
 	return weight

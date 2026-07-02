@@ -23,7 +23,10 @@ func (n *TransformationNode) Execute(ctx context.Context, nctx registry.NodeCont
 		return n.runPipeline(ctx, nctx, node, msg)
 	}
 
-	res, err := nctx.ApplyTransformation(ctx, msg.Clone(), transType, node.Config)
+	// Optimization: Avoid cloning here as the message is already either a clone
+	// or owned by this traversal path. ApplyTransformation will handle its own
+	// internal logic.
+	res, err := nctx.ApplyTransformation(ctx, msg, transType, node.Config)
 	if err != nil {
 		nctx.BroadcastLiveMessage(workflowID, node.ID, msg, true, err.Error())
 		return nil, "", err
@@ -39,7 +42,7 @@ func (n *TransformationNode) runPipeline(ctx context.Context, nctx registry.Node
 	var steps []map[string]any
 	_ = json.Unmarshal([]byte(stepsStr), &steps)
 
-	current := msg.Clone()
+	current := msg
 	for _, step := range steps {
 		st, _ := step["transType"].(string)
 		var err error
