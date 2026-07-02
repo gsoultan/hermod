@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/user/hermod/internal/storage"
+	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
 var upgrader = websocket.Upgrader{
@@ -129,7 +130,12 @@ func (h *Handler) HandleStatusWS(w http.ResponseWriter, r *http.Request) {
 	// Actively read so we can observe pong/close frames and client disconnects.
 	done := startWSReadPump(conn)
 
-	ch := h.Registry.SubscribeStatus()
+	var ch chan telemetry.StatusUpdate
+	if workflowID != "" {
+		ch = h.Registry.SubscribeWorkflowStatus(workflowID)
+	} else {
+		ch = h.Registry.SubscribeStatus()
+	}
 	defer h.Registry.UnsubscribeStatus(ch)
 
 	// Send an initial snapshot of the current engine statuses so the UI reflects

@@ -137,6 +137,7 @@ type Registry struct {
 	evaluator *evaluator.Evaluator
 
 	statusSubs          map[chan telemetry.StatusUpdate]bool
+	workflowStatusSubs  map[string]map[chan telemetry.StatusUpdate]bool
 	dashboardSubs       map[chan storage.DashboardStats]bool
 	logSubs             map[chan storage.Log]bool
 	liveMsgSubs         map[chan LiveMessage]bool
@@ -228,6 +229,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		config:              config.DefaultConfig(),
 		evaluator:           evaluator.NewEvaluator(),
 		statusSubs:          make(map[chan telemetry.StatusUpdate]bool),
+		workflowStatusSubs:  make(map[string]map[chan telemetry.StatusUpdate]bool),
 		dashboardSubs:       make(map[chan storage.DashboardStats]bool),
 		logSubs:             make(map[chan storage.Log]bool),
 		liveMsgSubs:         make(map[chan LiveMessage]bool),

@@ -20,10 +20,29 @@ func (r *Registry) SubscribeStatus() chan telemetry.StatusUpdate {
 	return ch
 }
 
+func (r *Registry) SubscribeWorkflowStatus(workflowID string) chan telemetry.StatusUpdate {
+	r.statusSubsMu.Lock()
+	defer r.statusSubsMu.Unlock()
+	if r.workflowStatusSubs[workflowID] == nil {
+		r.workflowStatusSubs[workflowID] = make(map[chan telemetry.StatusUpdate]bool)
+	}
+	ch := make(chan telemetry.StatusUpdate, 100)
+	r.workflowStatusSubs[workflowID][ch] = true
+	return ch
+}
+
 func (r *Registry) UnsubscribeStatus(ch chan telemetry.StatusUpdate) {
 	r.statusSubsMu.Lock()
 	defer r.statusSubsMu.Unlock()
 	delete(r.statusSubs, ch)
+	for wfID, subs := range r.workflowStatusSubs {
+		if subs[ch] {
+			delete(subs, ch)
+			if len(subs) == 0 {
+				delete(r.workflowStatusSubs, wfID)
+			}
+		}
+	}
 	close(ch)
 }
 
@@ -31,9 +50,13 @@ func (r *Registry) UnsubscribeStatus(ch chan telemetry.StatusUpdate) {
 // It is primarily useful for observability and tests that assert subscribers
 // are released when a client disconnects.
 func (r *Registry) StatusSubscriberCount() int {
-	r.statusSubsMu.Lock()
-	defer r.statusSubsMu.Unlock()
-	return len(r.statusSubs)
+	r.statusSubsMu.RLock()
+	defer r.statusSubsMu.RUnlock()
+	count := len(r.statusSubs)
+	for _, subs := range r.workflowStatusSubs {
+		count += len(subs)
+	}
+	return count
 }
 
 func (r *Registry) SubscribeDashboardStats() chan storage.DashboardStats {
@@ -146,14 +169,26 @@ func (r *Registry) broadcastDebuggerEvent(ev DebuggerEvent) {
 // --- Broadcast ---
 
 func (r *Registry) BroadcastStatus(update telemetry.StatusUpdate) {
-	r.statusSubsMu.Lock()
+	r.statusSubsMu.RLock()
+	// Global subscribers
 	for ch := range r.statusSubs {
 		select {
 		case ch <- update:
 		default:
 		}
 	}
-	r.statusSubsMu.Unlock()
+	// Per-workflow subscribers
+	if update.WorkflowID != "" {
+		if subs, ok := r.workflowStatusSubs[update.WorkflowID]; ok {
+			for ch := range subs {
+				select {
+				case ch <- update:
+				default:
+				}
+			}
+		}
+	}
+	r.statusSubsMu.RUnlock()
 
 	// Throttle dashboard stats broadcasts
 	r.statusSubsMu.Lock()
