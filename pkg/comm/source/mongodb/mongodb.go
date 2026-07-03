@@ -78,24 +78,30 @@ func NewMongoDBSource(uri, database, collection string, useCDC bool) *MongoDBSou
 
 func (m *MongoDBSource) init(ctx context.Context) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if m.client != nil {
-		if !m.useCDC {
-			return nil
-		}
-		// Already initialized, check if stream is still valid
-		if m.stream != nil && m.stream.ID() != 0 {
+		if !m.useCDC || (m.stream != nil && m.stream.ID() != 0) {
+			m.mu.Unlock()
 			return nil
 		}
 	}
+	client := m.client
+	m.mu.Unlock()
 
-	if m.client == nil {
-		client, err := GetClient(m.uri)
+	if client == nil {
+		var err error
+		client, err = GetClient(m.uri)
 		if err != nil {
 			return fmt.Errorf("failed to connect to mongodb: %w", err)
 		}
-		m.client = client
+		m.mu.Lock()
+		if m.client == nil {
+			m.client = client
+		} else {
+			// Someone else initialized it
+			_ = client.Disconnect(ctx)
+			client = m.client
+		}
+		m.mu.Unlock()
 	}
 
 	if !m.useCDC {
@@ -110,17 +116,19 @@ func (m *MongoDBSource) init(ctx context.Context) error {
 	var stream *mongo.ChangeStream
 	var err error
 	if m.collection != "" {
-		stream, err = m.client.Database(m.database).Collection(m.collection).Watch(ctx, mongo.Pipeline{}, opts)
+		stream, err = client.Database(m.database).Collection(m.collection).Watch(ctx, mongo.Pipeline{}, opts)
 	} else if m.database != "" {
-		stream, err = m.client.Database(m.database).Watch(ctx, mongo.Pipeline{}, opts)
+		stream, err = client.Database(m.database).Watch(ctx, mongo.Pipeline{}, opts)
 	} else {
-		stream, err = m.client.Watch(ctx, mongo.Pipeline{}, opts)
+		stream, err = client.Watch(ctx, mongo.Pipeline{}, opts)
 	}
 
 	if err != nil {
 		return fmt.Errorf("failed to start change stream: %w", err)
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.stream != nil {
 		m.stream.Close(ctx)
 	}
@@ -420,30 +428,56 @@ func (m *MongoDBSource) SetState(state map[string]string) {
 }
 
 func (m *MongoDBSource) DiscoverDatabases(ctx context.Context) ([]string, error) {
-	client, err := GetClient(m.uri)
-	if err != nil {
-		return nil, err
+	m.mu.Lock()
+	client := m.client
+	m.mu.Unlock()
+
+	if client == nil {
+		var err error
+		client, err = GetClient(m.uri)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = client.Disconnect(ctx) }()
 	}
+
 	return client.ListDatabaseNames(ctx, bson.M{})
 }
 
 func (m *MongoDBSource) DiscoverTables(ctx context.Context) ([]string, error) {
-	client, err := GetClient(m.uri)
-	if err != nil {
-		return nil, err
+	m.mu.Lock()
+	client := m.client
+	m.mu.Unlock()
+
+	if client == nil {
+		var err error
+		client, err = GetClient(m.uri)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = client.Disconnect(ctx) }()
 	}
+
 	db := client.Database(m.database)
 	return db.ListCollectionNames(ctx, bson.M{})
 }
 
 func (m *MongoDBSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
-	client, err := GetClient(m.uri)
-	if err != nil {
-		return nil, err
+	m.mu.Lock()
+	client := m.client
+	m.mu.Unlock()
+
+	if client == nil {
+		var err error
+		client, err = GetClient(m.uri)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = client.Disconnect(ctx) }()
 	}
 
 	var doc bson.M
-	err = client.Database(m.database).Collection(table).FindOne(ctx, bson.M{}).Decode(&doc)
+	err := client.Database(m.database).Collection(table).FindOne(ctx, bson.M{}).Decode(&doc)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return []hermod.ColumnInfo{}, nil
@@ -465,9 +499,17 @@ func (m *MongoDBSource) DiscoverColumns(ctx context.Context, table string) ([]he
 }
 
 func (m *MongoDBSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
-	client, err := GetClient(m.uri)
-	if err != nil {
-		return nil, err
+	m.mu.Lock()
+	client := m.client
+	m.mu.Unlock()
+
+	if client == nil {
+		var err error
+		client, err = GetClient(m.uri)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = client.Disconnect(ctx) }()
 	}
 
 	targetColl := table
@@ -480,8 +522,7 @@ func (m *MongoDBSource) Sample(ctx context.Context, table string) (hermod.Messag
 
 	coll := client.Database(m.database).Collection(targetColl)
 	var result bson.M
-	err = coll.FindOne(ctx, bson.M{}).Decode(&result)
-	if err != nil {
+	if err := coll.FindOne(ctx, bson.M{}).Decode(&result); err != nil {
 		return nil, err
 	}
 

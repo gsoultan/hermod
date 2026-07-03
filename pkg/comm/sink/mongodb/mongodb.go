@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"
@@ -17,6 +18,7 @@ type MongoDBSink struct {
 	uri              string
 	database         string
 	client           *mongo.Client
+	mu               sync.Mutex
 	tableName        string
 	mappings         []sqlutil.ColumnMapping
 	deleteStrategy   string
@@ -174,58 +176,105 @@ func (s *MongoDBSink) WriteBatch(ctx context.Context, msgs []hermod.Message) err
 }
 
 func (s *MongoDBSink) init(ctx context.Context) error {
+	s.mu.Lock()
+	if s.client != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	client, err := mongo.Connect(options.Client().ApplyURI(s.uri))
 	if err != nil {
 		return fmt.Errorf("failed to connect to mongodb: %w", err)
 	}
+
+	if err := client.Ping(ctx, nil); err != nil {
+		_ = client.Disconnect(ctx)
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil {
+		_ = client.Disconnect(ctx)
+		return nil
+	}
 	s.client = client
-	return s.client.Ping(ctx, nil)
+	return nil
 }
 
 func (s *MongoDBSink) Ping(ctx context.Context) error {
-	if s.client == nil {
+	s.mu.Lock()
+	client := s.client
+	s.mu.Unlock()
+	if client == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		client = s.client
+		s.mu.Unlock()
 	}
-	return s.client.Ping(ctx, nil)
+	return client.Ping(ctx, nil)
 }
 
 func (s *MongoDBSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.client != nil {
-		return s.client.Disconnect(context.Background())
+		err := s.client.Disconnect(context.Background())
+		s.client = nil
+		return err
 	}
 	return nil
 }
 
 func (s *MongoDBSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
-	if s.client == nil {
+	s.mu.Lock()
+	cl := s.client
+	s.mu.Unlock()
+	if cl == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		cl = s.client
+		s.mu.Unlock()
 	}
-	return s.client.ListDatabaseNames(ctx, bson.M{})
+	return cl.ListDatabaseNames(ctx, bson.M{})
 }
 
 func (s *MongoDBSink) DiscoverTables(ctx context.Context) ([]string, error) {
-	if s.client == nil {
+	s.mu.Lock()
+	cl := s.client
+	s.mu.Unlock()
+	if cl == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		cl = s.client
+		s.mu.Unlock()
 	}
-	db := s.client.Database(s.database)
+	db := cl.Database(s.database)
 	return db.ListCollectionNames(ctx, bson.M{})
 }
 
 func (s *MongoDBSink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
-	if s.client == nil {
+	s.mu.Lock()
+	cl := s.client
+	s.mu.Unlock()
+	if cl == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		cl = s.client
+		s.mu.Unlock()
 	}
 
 	var doc bson.M
-	err := s.client.Database(s.database).Collection(table).FindOne(ctx, bson.M{}).Decode(&doc)
+	err := cl.Database(s.database).Collection(table).FindOne(ctx, bson.M{}).Decode(&doc)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return []hermod.ColumnInfo{}, nil

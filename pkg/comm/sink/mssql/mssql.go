@@ -474,37 +474,72 @@ func (s *MSSQLSink) syncColumns(ctx context.Context, tx *sql.Tx, table string) e
 }
 
 func (s *MSSQLSink) init(ctx context.Context) error {
+	s.mu.Lock()
+	if s.db != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	db, err := sql.Open("sqlserver", s.connString)
 	if err != nil {
 		return err
 	}
+
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db != nil {
+		db.Close()
+		return nil
+	}
 	s.db = db
-	return s.db.PingContext(ctx)
+	return nil
 }
 
 func (s *MSSQLSink) Ping(ctx context.Context) error {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
-	return s.db.PingContext(ctx)
+	return db.PingContext(ctx)
 }
 
 func (s *MSSQLSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.db != nil {
-		return s.db.Close()
+		err := s.db.Close()
+		s.db = nil
+		return err
 	}
 	return nil
 }
 
 func (s *MSSQLSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT name FROM sys.databases WHERE database_id > 4")
+	rows, err := db.QueryContext(ctx, "SELECT name FROM sys.databases WHERE database_id > 4")
 	if err != nil {
 		return nil, err
 	}
@@ -521,12 +556,18 @@ func (s *MSSQLSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
 }
 
 func (s *MSSQLSink) DiscoverTables(ctx context.Context) ([]string, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT TABLE_SCHEMA + '.' + TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'")
+	rows, err := db.QueryContext(ctx, "SELECT TABLE_SCHEMA + '.' + TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'")
 	if err != nil {
 		return nil, err
 	}
@@ -543,10 +584,16 @@ func (s *MSSQLSink) DiscoverTables(ctx context.Context) ([]string, error) {
 }
 
 func (s *MSSQLSink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 	// Simplified column discovery
 	query := `
@@ -560,7 +607,7 @@ func (s *MSSQLSink) DiscoverColumns(ctx context.Context, table string) ([]hermod
 		FROM INFORMATION_SCHEMA.COLUMNS c
 		WHERE TABLE_NAME = ? OR TABLE_SCHEMA + '.' + TABLE_NAME = ?
 	`
-	rows, err := s.db.QueryContext(ctx, query, table, table)
+	rows, err := db.QueryContext(ctx, query, table, table)
 	if err != nil {
 		return nil, err
 	}

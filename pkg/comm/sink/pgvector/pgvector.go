@@ -32,6 +32,7 @@ type Sink struct {
 	softDeleteColumn string
 	softDeleteValue  string
 	verifiedTables   sync.Map
+	mu               sync.Mutex
 }
 
 func NewSink(connString, table, vectorCol, idCol, metadataCol string, mappings []sqlutil.ColumnMapping, useExistingTable bool, deleteStrategy string, softDeleteColumn string, softDeleteValue string) *Sink {
@@ -57,10 +58,16 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 	if len(msgs) == 0 {
 		return nil
 	}
-	if s.pool == nil {
+	s.mu.Lock()
+	pool := s.pool
+	s.mu.Unlock()
+	if pool == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		pool = s.pool
+		s.mu.Unlock()
 	}
 
 	// Ensure table exists
@@ -152,6 +159,13 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 }
 
 func (s *Sink) init(ctx context.Context) error {
+	s.mu.Lock()
+	if s.pool != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	poolCfg, _, err := pgxutil.ParsePoolConfig(s.connString)
 	if err != nil {
 		return fmt.Errorf("failed to parse pgvector connection string: %w", err)
@@ -160,8 +174,20 @@ func (s *Sink) init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pool != nil {
+		pool.Close()
+		return nil
+	}
 	s.pool = pool
-	return s.pool.Ping(ctx)
+	return nil
 }
 
 func (s *Sink) upsertMapped(ctx context.Context, msg hermod.Message) error {
@@ -372,17 +398,26 @@ func (s *Sink) DiscoverColumns(ctx context.Context, table string) ([]hermod.Colu
 }
 
 func (s *Sink) Ping(ctx context.Context) error {
-	if s.pool == nil {
+	s.mu.Lock()
+	pool := s.pool
+	s.mu.Unlock()
+	if pool == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		pool = s.pool
+		s.mu.Unlock()
 	}
-	return s.pool.Ping(ctx)
+	return pool.Ping(ctx)
 }
 
 func (s *Sink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.pool != nil {
 		s.pool.Close()
+		s.pool = nil
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +23,7 @@ type KafkaSource struct {
 	topic     string
 	username  string
 	password  string
+	mu        sync.Mutex
 }
 
 func NewKafkaSource(brokers []string, topic, groupID string, username, password string) *KafkaSource {
@@ -63,7 +65,11 @@ func NewKafkaSource(brokers []string, topic, groupID string, username, password 
 }
 
 func (s *KafkaSource) Read(ctx context.Context) (hermod.Message, error) {
-	m, err := s.reader.FetchMessage(ctx)
+	s.mu.Lock()
+	reader := s.reader
+	s.mu.Unlock()
+
+	m, err := reader.FetchMessage(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch message from kafka: %w", err)
 	}
@@ -103,7 +109,11 @@ func (s *KafkaSource) Ack(ctx context.Context, msg hermod.Message) error {
 	fmt.Sscanf(partitionStr, "%d", &partition)
 	fmt.Sscanf(offsetStr, "%d", &offset)
 
-	err := s.reader.CommitMessages(ctx, kafka.Message{
+	s.mu.Lock()
+	reader := s.reader
+	s.mu.Unlock()
+
+	err := reader.CommitMessages(ctx, kafka.Message{
 		Topic:     topic,
 		Partition: partition,
 		Offset:    offset,
@@ -119,30 +129,41 @@ func (s *KafkaSource) IsReady(ctx context.Context) error {
 		return fmt.Errorf("kafka connection failed: %w", err)
 	}
 
+	s.mu.Lock()
+	reader := s.reader
+	brokers := s.brokers
+	topic := s.topic
+	s.mu.Unlock()
+
 	// Check if brokers are reachable and topic exists
-	conn, err := s.reader.Config().Dialer.DialContext(ctx, "tcp", s.brokers[0])
+	conn, err := reader.Config().Dialer.DialContext(ctx, "tcp", brokers[0])
 	if err != nil {
-		return fmt.Errorf("failed to dial kafka broker %s: %w", s.brokers[0], err)
+		return fmt.Errorf("failed to dial kafka broker %s: %w", brokers[0], err)
 	}
 	defer conn.Close()
 
-	partitions, err := conn.ReadPartitions(s.topic)
+	partitions, err := conn.ReadPartitions(topic)
 	if err != nil {
-		return fmt.Errorf("failed to read partitions for topic '%s': %w. Ensure topic exists and user has permissions", s.topic, err)
+		return fmt.Errorf("failed to read partitions for topic '%s': %w. Ensure topic exists and user has permissions", topic, err)
 	}
 
 	if len(partitions) == 0 {
-		return fmt.Errorf("kafka topic '%s' has no partitions", s.topic)
+		return fmt.Errorf("kafka topic '%s' has no partitions", topic)
 	}
 
 	return nil
 }
 
 func (s *KafkaSource) Ping(ctx context.Context) error {
+	s.mu.Lock()
+	reader := s.reader
+	brokers := s.brokers
+	s.mu.Unlock()
+
 	// Try to dial first broker
-	conn, err := s.reader.Config().Dialer.DialContext(ctx, "tcp", s.brokers[0])
+	conn, err := reader.Config().Dialer.DialContext(ctx, "tcp", brokers[0])
 	if err != nil {
-		return fmt.Errorf("kafka ping failed for broker %s: %w", s.brokers[0], err)
+		return fmt.Errorf("kafka ping failed for broker %s: %w", brokers[0], err)
 	}
 	conn.Close()
 	return nil
@@ -161,5 +182,12 @@ func (s *KafkaSource) Sample(ctx context.Context, table string) (hermod.Message,
 }
 
 func (s *KafkaSource) Close() error {
-	return s.reader.Close()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.reader != nil {
+		err := s.reader.Close()
+		s.reader = nil
+		return err
+	}
+	return nil
 }

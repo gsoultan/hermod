@@ -76,23 +76,35 @@ func (m *MySQLSource) log(level, msg string, keysAndValues ...any) {
 
 func (m *MySQLSource) init(ctx context.Context) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if m.db != nil && (!m.useCDC || m.canal != nil) {
+		m.mu.Unlock()
 		return nil
 	}
+	db := m.db
+	m.mu.Unlock()
 
-	if m.db == nil {
-		db, err := sql.Open("mysql", m.connString)
+	if db == nil {
+		newDb, err := sql.Open("mysql", m.connString)
 		if err != nil {
 			return fmt.Errorf("failed to connect to mysql: %w", err)
 		}
-		m.db = db
-		if err := m.db.PingContext(ctx); err != nil {
+		if err := newDb.PingContext(ctx); err != nil {
+			newDb.Close()
 			return err
 		}
+		m.mu.Lock()
+		if m.db == nil {
+			m.db = newDb
+			db = newDb
+		} else {
+			newDb.Close()
+			db = m.db
+		}
+		m.mu.Unlock()
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.useCDC && m.canal == nil {
 		cfg, err := mysql_driver.ParseDSN(m.connString)
 		if err != nil {
@@ -298,13 +310,19 @@ func (m *MySQLSource) Close() error {
 }
 
 func (m *MySQLSource) DiscoverDatabases(ctx context.Context) ([]string, error) {
-	if m.db == nil {
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
 		if err := m.init(ctx); err != nil {
 			return nil, err
 		}
+		m.mu.Lock()
+		db = m.db
+		m.mu.Unlock()
 	}
 
-	rows, err := m.db.QueryContext(ctx, "SHOW DATABASES")
+	rows, err := db.QueryContext(ctx, "SHOW DATABASES")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query databases: %w", err)
 	}
@@ -325,13 +343,19 @@ func (m *MySQLSource) DiscoverDatabases(ctx context.Context) ([]string, error) {
 }
 
 func (m *MySQLSource) DiscoverTables(ctx context.Context) ([]string, error) {
-	if m.db == nil {
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
 		if err := m.init(ctx); err != nil {
 			return nil, err
 		}
+		m.mu.Lock()
+		db = m.db
+		m.mu.Unlock()
 	}
 
-	rows, err := m.db.QueryContext(ctx, "SHOW TABLES")
+	rows, err := db.QueryContext(ctx, "SHOW TABLES")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
@@ -352,10 +376,16 @@ func (m *MySQLSource) DiscoverTables(ctx context.Context) ([]string, error) {
 }
 
 func (m *MySQLSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
-	if m.db == nil {
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
 		if err := m.init(ctx); err != nil {
 			return nil, err
 		}
+		m.mu.Lock()
+		db = m.db
+		m.mu.Unlock()
 	}
 
 	query := `
@@ -365,7 +395,7 @@ func (m *MySQLSource) DiscoverColumns(ctx context.Context, table string) ([]herm
 		WHERE TABLE_NAME = ? AND TABLE_SCHEMA = DATABASE() 
 		ORDER BY ORDINAL_POSITION`
 
-	rows, err := m.db.QueryContext(ctx, query, table)
+	rows, err := db.QueryContext(ctx, query, table)
 	if err != nil {
 		return nil, err
 	}
@@ -390,17 +420,23 @@ func (m *MySQLSource) DiscoverColumns(ctx context.Context, table string) ([]herm
 }
 
 func (m *MySQLSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
-	if m.db == nil {
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
 		if err := m.init(ctx); err != nil {
 			return nil, err
 		}
+		m.mu.Lock()
+		db = m.db
+		m.mu.Unlock()
 	}
 
 	quoted, err := sqlutil.QuoteIdent("mysql", table)
 	if err != nil {
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
-	rows, err := m.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted))
+	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sample record: %w", err)
 	}

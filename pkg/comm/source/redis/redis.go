@@ -36,30 +36,36 @@ func NewRedisSource(addr string, password string, stream string, group string) *
 
 func (s *RedisSource) init(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.client != nil {
+		s.mu.Unlock()
 		return nil
 	}
+	s.mu.Unlock()
 
-	client := redis.NewClient(&redis.Options{
+	cl := redis.NewClient(&redis.Options{
 		Addr:     s.addr,
 		Password: s.password,
 	})
 
 	// Create consumer group if it doesn't exist
-	err := client.XGroupCreateMkStream(ctx, s.stream, s.group, "0").Err()
+	err := cl.XGroupCreateMkStream(ctx, s.stream, s.group, "0").Err()
 	if err != nil && err.Error() != "BUSYGROUP Consumer Group name already exists" {
-		client.Close()
+		cl.Close()
 		return fmt.Errorf("failed to create redis consumer group: %w", err)
 	}
 
-	if err := client.Ping(ctx).Err(); err != nil {
-		client.Close()
+	if err := cl.Ping(ctx).Err(); err != nil {
+		cl.Close()
 		return err
 	}
 
-	s.client = client
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil {
+		cl.Close()
+		return nil
+	}
+	s.client = cl
 	return nil
 }
 

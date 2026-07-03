@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"sync"
+
 	"github.com/nats-io/nats.go"
 	"github.com/user/hermod"
 )
@@ -16,6 +18,7 @@ type NatsJetStreamSink struct {
 	opts      []nats.Option
 	subject   string
 	formatter hermod.Formatter
+	mu        sync.Mutex
 }
 
 // NewNatsJetStreamSink creates a new NATS JetStream sink.
@@ -36,9 +39,12 @@ func NewNatsJetStreamSink(url string, subject string, username, password, token 
 }
 
 func (s *NatsJetStreamSink) ensureConnected(ctx context.Context) error {
+	s.mu.Lock()
 	if s.nc != nil && s.nc.IsConnected() {
+		s.mu.Unlock()
 		return nil
 	}
+	s.mu.Unlock()
 
 	nc, err := nats.Connect(s.url, s.opts...)
 	if err != nil {
@@ -51,6 +57,12 @@ func (s *NatsJetStreamSink) ensureConnected(ctx context.Context) error {
 		return fmt.Errorf("failed to create JetStream context: %w", err)
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.nc != nil && s.nc.IsConnected() {
+		nc.Close()
+		return nil
+	}
 	s.nc = nc
 	s.js = js
 	return nil
@@ -64,6 +76,11 @@ func (s *NatsJetStreamSink) Write(ctx context.Context, msg hermod.Message) error
 	if err := s.ensureConnected(ctx); err != nil {
 		return err
 	}
+
+	s.mu.Lock()
+	js := s.js
+	s.mu.Unlock()
+
 	var data []byte
 	var err error
 
@@ -78,7 +95,7 @@ func (s *NatsJetStreamSink) Write(ctx context.Context, msg hermod.Message) error
 		return fmt.Errorf("failed to format message: %w", err)
 	}
 
-	_, err = s.js.Publish(s.subject, data, nats.Context(ctx))
+	_, err = js.Publish(s.subject, data, nats.Context(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to publish message to JetStream: %w", err)
 	}
@@ -93,8 +110,11 @@ func (s *NatsJetStreamSink) Ping(ctx context.Context) error {
 
 // Close closes the NATS connection.
 func (s *NatsJetStreamSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.nc != nil {
 		s.nc.Close()
+		s.nc = nil
 	}
 	return nil
 }

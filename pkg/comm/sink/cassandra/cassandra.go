@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gocql/gocql"
 	"github.com/user/hermod"
@@ -59,7 +60,7 @@ func (s *CassandraSink) WriteBatch(ctx context.Context, msgs []hermod.Message) e
 		return nil
 	}
 	if s.session == nil {
-		if err := s.init(); err != nil {
+		if err := s.init(ctx); err != nil {
 			return err
 		}
 	}
@@ -280,37 +281,62 @@ func (s *CassandraSink) syncColumns(ctx context.Context, table string) error {
 	return nil
 }
 
-func (s *CassandraSink) init() error {
+func (s *CassandraSink) init(ctx context.Context) error {
+	s.mu.Lock()
+	if s.session != nil && !s.session.Closed() {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	cluster := gocql.NewCluster(s.hosts...)
 	cluster.Keyspace = s.keyspace
+	cluster.Timeout = 5 * time.Second
+
 	session, err := cluster.CreateSession()
 	if err != nil {
 		return fmt.Errorf("failed to create cassandra session: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session != nil && !s.session.Closed() {
+		session.Close()
+		return nil
 	}
 	s.session = session
 	return nil
 }
 
 func (s *CassandraSink) Ping(ctx context.Context) error {
-	if s.session == nil {
-		if err := s.init(); err != nil {
+	s.mu.Lock()
+	sess := s.session
+	s.mu.Unlock()
+	if sess == nil || sess.Closed() {
+		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		sess = s.session
+		s.mu.Unlock()
 	}
 	// Try a simple query to check if session is alive
-	return s.session.Query("SELECT now() FROM system.local").WithContext(ctx).Exec()
+	return sess.Query("SELECT now() FROM system.local").WithContext(ctx).Exec()
 }
 
 func (s *CassandraSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.session != nil {
 		s.session.Close()
+		s.session = nil
 	}
 	return nil
 }
 
 func (s *CassandraSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
 	if s.session == nil {
-		if err := s.init(); err != nil {
+		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -329,7 +355,7 @@ func (s *CassandraSink) DiscoverDatabases(ctx context.Context) ([]string, error)
 
 func (s *CassandraSink) DiscoverTables(ctx context.Context) ([]string, error) {
 	if s.session == nil {
-		if err := s.init(); err != nil {
+		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -348,7 +374,7 @@ func (s *CassandraSink) DiscoverTables(ctx context.Context) ([]string, error) {
 
 func (s *CassandraSink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
 	if s.session == nil {
-		if err := s.init(); err != nil {
+		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
 	}

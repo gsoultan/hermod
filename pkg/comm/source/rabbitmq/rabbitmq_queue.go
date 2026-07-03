@@ -70,11 +70,11 @@ func (s *RabbitMQQueueSource) ensureConnected() error {
 		return errors.New("rabbitmq source url must start with 'amqp://' or 'amqps://'")
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.conn != nil && !s.conn.IsClosed() {
+		s.mu.Unlock()
 		return nil
 	}
+	s.mu.Unlock()
 
 	conn, err := amqp.Dial(s.url)
 	if err != nil {
@@ -114,6 +114,15 @@ func (s *RabbitMQQueueSource) ensureConnected() error {
 		ch.Close()
 		conn.Close()
 		return fmt.Errorf("failed to register a consumer: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.conn != nil && !s.conn.IsClosed() {
+		ch.Close()
+		conn.Close()
+		return nil
 	}
 
 	if s.cancel != nil {

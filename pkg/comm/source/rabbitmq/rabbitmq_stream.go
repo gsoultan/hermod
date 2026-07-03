@@ -58,11 +58,11 @@ func (s *RabbitMQStreamSource) ensureConnected() error {
 		return errors.New("rabbitmq stream url is not configured")
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.env != nil && !s.env.IsClosed() && s.consumer != nil {
+		s.mu.Unlock()
 		return nil
 	}
+	s.mu.Unlock()
 
 	env, err := stream.NewEnvironment(stream.NewEnvironmentOptions().SetUri(s.url))
 	if err != nil {
@@ -109,9 +109,13 @@ func (s *RabbitMQStreamSource) ensureConnected() error {
 		s.messages <- hmsg
 	}
 
+	s.mu.Lock()
+	lastOffset := s.lastOffset
+	s.mu.Unlock()
+
 	opts := stream.NewConsumerOptions().SetConsumerName(s.consumerName)
-	if s.lastOffset >= 0 {
-		opts.SetOffset(stream.OffsetSpecification{}.Offset(s.lastOffset + 1))
+	if lastOffset >= 0 {
+		opts.SetOffset(stream.OffsetSpecification{}.Offset(lastOffset + 1))
 	} else {
 		// If we have a consumer name, RabbitMQ will try to use the stored offset.
 		// If not, we start from the last message.
@@ -122,6 +126,15 @@ func (s *RabbitMQStreamSource) ensureConnected() error {
 	if err != nil {
 		env.Close()
 		return fmt.Errorf("failed to create RabbitMQ stream consumer: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.env != nil && !s.env.IsClosed() && s.consumer != nil {
+		consumer.Close()
+		env.Close()
+		return nil
 	}
 
 	if s.consumer != nil {

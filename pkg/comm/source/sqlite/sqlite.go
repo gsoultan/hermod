@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/user/hermod"
@@ -23,6 +24,7 @@ type SQLiteSource struct {
 	tables  []string
 	useCDC  bool
 	db      *sql.DB
+	mu      sync.Mutex
 	lastIDs map[string]int64
 	msgChan chan hermod.Message
 }
@@ -38,10 +40,16 @@ func NewSQLiteSource(dbPath string, tables []string, useCDC bool) *SQLiteSource 
 }
 
 func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
 	if !s.useCDC {
@@ -63,10 +71,13 @@ func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
 		}
 
 		for _, table := range s.tables {
+			s.mu.Lock()
 			lastID := s.lastIDs[table]
+			s.mu.Unlock()
+
 			query := fmt.Sprintf("SELECT rowid AS _hermod_rowid, * FROM %s WHERE rowid > %d ORDER BY rowid ASC LIMIT 1", table, lastID)
 
-			rows, err := s.db.QueryContext(ctx, query)
+			rows, err := db.QueryContext(ctx, query)
 			if err != nil {
 				return nil, err
 			}
@@ -99,7 +110,9 @@ func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
 					}
 				}
 
+				s.mu.Lock()
 				s.lastIDs[table] = currentRowID
+				s.mu.Unlock()
 
 				msg := message.AcquireMessage()
 				msg.SetID(fmt.Sprintf("sqlite-%s-%d", table, currentRowID))
@@ -126,6 +139,13 @@ func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
 }
 
 func (s *SQLiteSource) init(ctx context.Context) error {
+	s.mu.Lock()
+	if s.db != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	dsn := s.dbPath
 	if !strings.Contains(dsn, "?") {
 		dsn += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
@@ -138,6 +158,13 @@ func (s *SQLiteSource) init(ctx context.Context) error {
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
 		return fmt.Errorf("failed to ping sqlite database: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db != nil {
+		db.Close()
+		return nil
 	}
 	s.db = db
 	return nil
@@ -173,22 +200,35 @@ func (s *SQLiteSource) IsReady(ctx context.Context) error {
 }
 
 func (s *SQLiteSource) Ping(ctx context.Context) error {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
-	return s.db.PingContext(ctx)
+	return db.PingContext(ctx)
 }
 
 func (s *SQLiteSource) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.db != nil {
-		return s.db.Close()
+		err := s.db.Close()
+		s.db = nil
+		return err
 	}
 	return nil
 }
 
 func (s *SQLiteSource) GetState() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	state := make(map[string]string)
 	for table, id := range s.lastIDs {
 		state[table] = strconv.FormatInt(id, 10)
@@ -197,6 +237,9 @@ func (s *SQLiteSource) GetState() map[string]string {
 }
 
 func (s *SQLiteSource) SetState(state map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.lastIDs == nil {
 		s.lastIDs = make(map[string]int64)
 	}
@@ -212,13 +255,19 @@ func (s *SQLiteSource) DiscoverDatabases(ctx context.Context) ([]string, error) 
 }
 
 func (s *SQLiteSource) DiscoverTables(ctx context.Context) ([]string, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
-	rows, err := s.db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+	rows, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
@@ -236,14 +285,20 @@ func (s *SQLiteSource) DiscoverTables(ctx context.Context) ([]string, error) {
 }
 
 func (s *SQLiteSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
 	query := fmt.Sprintf("PRAGMA table_info(%s)", table)
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -271,17 +326,23 @@ func (s *SQLiteSource) DiscoverColumns(ctx context.Context, table string) ([]her
 }
 
 func (s *SQLiteSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
 	quoted, err := sqlutil.QuoteIdent("sqlite", table)
 	if err != nil {
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted))
+	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sample record: %w", err)
 	}

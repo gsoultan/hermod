@@ -60,13 +60,19 @@ func (s *MySQLSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 	if len(msgs) == 0 {
 		return nil
 	}
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin mysql transaction: %w", err)
 	}
@@ -172,6 +178,13 @@ func (s *MySQLSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 }
 
 func (s *MySQLSink) init(ctx context.Context) error {
+	s.mu.Lock()
+	if s.db != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	db, err := sql.Open("mysql", s.connString)
 	if err != nil {
 		return fmt.Errorf("failed to connect to mysql: %w", err)
@@ -180,34 +193,62 @@ func (s *MySQLSink) init(ctx context.Context) error {
 	db.SetMaxOpenConns(20)
 	db.SetMaxIdleConns(10)
 	db.SetConnMaxIdleTime(60 * time.Second)
+
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db != nil {
+		db.Close()
+		return nil
+	}
 	s.db = db
-	return s.db.PingContext(ctx)
+	return nil
 }
 
 func (s *MySQLSink) Ping(ctx context.Context) error {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
-	return s.db.PingContext(ctx)
+	return db.PingContext(ctx)
 }
 
 func (s *MySQLSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.db != nil {
-		return s.db.Close()
+		err := s.db.Close()
+		s.db = nil
+		return err
 	}
 	return nil
 }
 
 func (s *MySQLSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
-	rows, err := s.db.QueryContext(ctx, commonQueries[QueryShowDatabases])
+	rows, err := db.QueryContext(ctx, commonQueries[QueryShowDatabases])
 	if err != nil {
 		return nil, err
 	}
@@ -225,13 +266,19 @@ func (s *MySQLSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
 }
 
 func (s *MySQLSink) DiscoverTables(ctx context.Context) ([]string, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
-	rows, err := s.db.QueryContext(ctx, commonQueries[QueryShowTables])
+	rows, err := db.QueryContext(ctx, commonQueries[QueryShowTables])
 	if err != nil {
 		return nil, err
 	}
@@ -249,13 +296,19 @@ func (s *MySQLSink) DiscoverTables(ctx context.Context) ([]string, error) {
 }
 
 func (s *MySQLSink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
-	rows, err := s.db.QueryContext(ctx, commonQueries[QueryListColumns], table)
+	rows, err := db.QueryContext(ctx, commonQueries[QueryListColumns], table)
 	if err != nil {
 		return nil, err
 	}

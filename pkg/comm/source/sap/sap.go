@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/user/hermod"
@@ -30,6 +31,7 @@ type Source struct {
 	logger hermod.Logger
 	client *http.Client
 	lastID string
+	mu     sync.Mutex
 }
 
 func NewSource(config SourceConfig, logger hermod.Logger) *Source {
@@ -41,21 +43,29 @@ func NewSource(config SourceConfig, logger hermod.Logger) *Source {
 }
 
 func (s *Source) GetState() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return map[string]string{"last_id": s.lastID}
 }
 
 func (s *Source) SetState(state map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.lastID = state["last_id"]
 }
 
 func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
+	s.mu.Lock()
+	lastID := s.lastID
+	s.mu.Unlock()
+
 	// Simple polling implementation for OData
 	url := fmt.Sprintf("%s/sap/opu/odata/sap/%s/%s", s.config.Host, s.config.Service, s.config.Entity)
 	params := []string{"$top=1"} // For now, just poll one at a time or use delta
 
 	// Delta tracking
-	if s.config.IDField != "" && s.lastID != "" {
-		deltaFilter := fmt.Sprintf("%s gt '%s'", s.config.IDField, s.lastID)
+	if s.config.IDField != "" && lastID != "" {
+		deltaFilter := fmt.Sprintf("%s gt '%s'", s.config.IDField, lastID)
 		if s.config.Filter != "" {
 			params = append(params, fmt.Sprintf("$filter=(%s) and (%s)", s.config.Filter, deltaFilter))
 		} else {
@@ -125,7 +135,9 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 	// Update lastID for delta tracking
 	if s.config.IDField != "" {
 		if val, ok := result[s.config.IDField]; ok {
+			s.mu.Lock()
 			s.lastID = fmt.Sprintf("%v", val)
+			s.mu.Unlock()
 		}
 	}
 

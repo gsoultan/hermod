@@ -38,11 +38,11 @@ func (s *RabbitMQQueueSink) ensureConnected(ctx context.Context) error {
 		return errors.New("rabbitmq sink url must start with 'amqp://' or 'amqps://'")
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.conn != nil && !s.conn.IsClosed() && s.channel != nil {
+		s.mu.Unlock()
 		return nil
 	}
+	s.mu.Unlock()
 
 	conn, err := amqp.Dial(s.url)
 	if err != nil {
@@ -69,6 +69,13 @@ func (s *RabbitMQQueueSink) ensureConnected(ctx context.Context) error {
 		return fmt.Errorf("failed to declare a queue: %w", err)
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn != nil && !s.conn.IsClosed() && s.channel != nil {
+		ch.Close()
+		conn.Close()
+		return nil
+	}
 	s.conn = conn
 	s.channel = ch
 	return nil

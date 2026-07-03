@@ -212,10 +212,12 @@ func (s *Source) ensureClient() error {
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.client != nil && s.client.IsConnectionOpen() {
+		s.mu.Unlock()
 		return nil
 	}
+	s.mu.Unlock()
+
 	c := paho.NewClient(s.opts)
 	token := c.Connect()
 	if ok := token.WaitTimeout(15 * time.Second); !ok {
@@ -223,6 +225,13 @@ func (s *Source) ensureClient() error {
 	}
 	if err := token.Error(); err != nil {
 		return fmt.Errorf("mqtt: connect failed: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil && s.client.IsConnectionOpen() {
+		c.Disconnect(250)
+		return nil
 	}
 	s.client = c
 	return nil
@@ -262,7 +271,12 @@ func (s *Source) Ping(ctx context.Context) error {
 	if err := s.ensureClient(); err != nil {
 		return err
 	}
-	if !s.client.IsConnectionOpen() {
+
+	s.mu.RLock()
+	client := s.client
+	s.mu.RUnlock()
+
+	if client == nil || !client.IsConnectionOpen() {
 		return errors.New("mqtt: not connected")
 	}
 	return nil

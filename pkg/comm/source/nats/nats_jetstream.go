@@ -48,11 +48,11 @@ func NewNatsJetStreamSource(url, subject, queue, durable, username, password, to
 
 func (s *NatsJetStreamSource) ensureConnected() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.nc != nil && s.nc.IsConnected() {
+		s.mu.Unlock()
 		return nil
 	}
+	s.mu.Unlock()
 
 	nc, err := nats.Connect(s.url, s.opts...)
 	if err != nil {
@@ -65,6 +65,12 @@ func (s *NatsJetStreamSource) ensureConnected() error {
 		return fmt.Errorf("failed to create JetStream context: %w", err)
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.nc != nil && s.nc.IsConnected() {
+		nc.Close()
+		return nil
+	}
 	s.nc = nc
 	s.js = js
 	s.sub = nil
@@ -168,11 +174,11 @@ func (s *NatsJetStreamSource) Ping(ctx context.Context) error {
 	}
 
 	// Just try to connect and close immediately, don't trigger JS context or subscriptions
-	nc, err := nats.Connect(s.url, s.opts...)
+	newNC, err := nats.Connect(s.url, s.opts...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to NATS for ping: %w", err)
 	}
-	nc.Close()
+	newNC.Close()
 	return nil
 }
 
@@ -181,12 +187,19 @@ func (s *NatsJetStreamSource) Sample(ctx context.Context, table string) (hermod.
 		return nil, err
 	}
 
+	s.mu.Lock()
+	js := s.js
+	s.mu.Unlock()
+	if js == nil {
+		return nil, fmt.Errorf("NATS JetStream context not initialized")
+	}
+
 	// We set a timeout to avoid blocking forever if the subject is empty
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	// For sampling, we create an ephemeral subscription to avoid affecting existing consumer groups
-	sub, err := s.js.SubscribeSync(s.subject, nats.ManualAck(), nats.Context(ctx))
+	sub, err := js.SubscribeSync(s.subject, nats.ManualAck(), nats.Context(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("failed to subscribe for sampling: %w", err)
 	}
@@ -229,11 +242,17 @@ func (s *NatsJetStreamSource) Sample(ctx context.Context, table string) (hermod.
 }
 
 func (s *NatsJetStreamSource) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.sub != nil {
-		s.sub.Unsubscribe()
+		_ = s.sub.Unsubscribe()
+		s.sub = nil
 	}
 	if s.nc != nil {
 		s.nc.Close()
+		s.nc = nil
 	}
+	s.js = nil
 	return nil
 }

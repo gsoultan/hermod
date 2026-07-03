@@ -79,11 +79,11 @@ func (c *ClickHouseSource) log(level, msg string, keysAndValues ...any) {
 
 func (c *ClickHouseSource) init(ctx context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if c.conn != nil {
+		c.mu.Unlock()
 		return nil
 	}
+	c.mu.Unlock()
 
 	options, err := clickhouse.ParseDSN(c.connString)
 	if err != nil {
@@ -94,8 +94,20 @@ func (c *ClickHouseSource) init(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to clickhouse: %w", err)
 	}
+
+	if err := conn.Ping(ctx); err != nil {
+		conn.Close()
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conn != nil {
+		conn.Close()
+		return nil
+	}
 	c.conn = conn
-	return c.conn.Ping(ctx)
+	return nil
 }
 
 func (c *ClickHouseSource) Read(ctx context.Context) (hermod.Message, error) {

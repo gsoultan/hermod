@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/user/hermod"
@@ -22,7 +23,8 @@ type DiscordSource struct {
 	items         []map[string]any
 	currentIndex  int
 	lastPoll      time.Time
-	baseURL       string // Added for testing
+	baseURL       string
+	mu            sync.Mutex
 }
 
 // NewDiscordSource creates a new DiscordSource.
@@ -43,15 +45,18 @@ func NewDiscordSource(token, channelID string, interval time.Duration) *DiscordS
 
 // Read reads the next message from Discord.
 func (s *DiscordSource) Read(ctx context.Context) (hermod.Message, error) {
+	s.mu.Lock()
 	if s.currentIndex < len(s.items) {
 		item := s.items[s.currentIndex]
 		s.currentIndex++
+		s.mu.Unlock()
 		return s.messageFromData(item), nil
 	}
 
 	// Wait for interval
 	if !s.lastPoll.IsZero() {
 		nextRun := s.lastPoll.Add(s.interval)
+		s.mu.Unlock()
 		if time.Now().Before(nextRun) {
 			select {
 			case <-ctx.Done():
@@ -59,15 +64,18 @@ func (s *DiscordSource) Read(ctx context.Context) (hermod.Message, error) {
 			case <-time.After(time.Until(nextRun)):
 			}
 		}
+		s.mu.Lock()
 	}
 
 	s.lastPoll = time.Now()
 	s.items = nil
 	s.currentIndex = 0
+	lastMessageID := s.lastMessageID
+	s.mu.Unlock()
 
 	apiURL := fmt.Sprintf("%s/channels/%s/messages?limit=50", s.baseURL, s.channelID)
-	if s.lastMessageID != "" {
-		apiURL = fmt.Sprintf("%s&after=%s", apiURL, s.lastMessageID)
+	if lastMessageID != "" {
+		apiURL = fmt.Sprintf("%s&after=%s", apiURL, lastMessageID)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
@@ -97,6 +105,7 @@ func (s *DiscordSource) Read(ctx context.Context) (hermod.Message, error) {
 		return s.Read(ctx)
 	}
 
+	s.mu.Lock()
 	// Discord returns messages in reverse chronological order normally,
 	// but when using 'after', it returns them in chronological order (oldest first).
 	s.items = newMessages
@@ -104,6 +113,8 @@ func (s *DiscordSource) Read(ctx context.Context) (hermod.Message, error) {
 
 	item := s.items[0]
 	s.currentIndex = 1
+	s.mu.Unlock()
+
 	return s.messageFromData(item), nil
 }
 
@@ -155,6 +166,8 @@ func (s *DiscordSource) Ping(ctx context.Context) error {
 
 // GetState returns the current state of the source.
 func (s *DiscordSource) GetState() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return map[string]string{
 		"last_message_id": s.lastMessageID,
 	}
@@ -162,6 +175,8 @@ func (s *DiscordSource) GetState() map[string]string {
 
 // SetState sets the current state of the source.
 func (s *DiscordSource) SetState(state map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if id, ok := state["last_message_id"]; ok {
 		s.lastMessageID = id
 	}

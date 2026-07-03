@@ -30,11 +30,11 @@ func NewPulsarSink(url string, topic string, token string, formatter hermod.Form
 
 func (s *PulsarSink) ensureConnected(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.client != nil && s.producer != nil {
+		s.mu.Unlock()
 		return nil
 	}
+	s.mu.Unlock()
 
 	opts := pulsar.ClientOptions{
 		URL: s.url,
@@ -54,6 +54,14 @@ func (s *PulsarSink) ensureConnected(ctx context.Context) error {
 	if err != nil {
 		client.Close()
 		return fmt.Errorf("failed to create pulsar producer: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil && s.producer != nil {
+		producer.Close()
+		client.Close()
+		return nil
 	}
 
 	s.client = client

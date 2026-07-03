@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/user/hermod"
@@ -25,6 +26,7 @@ type TwitterSource struct {
 	lastPoll     time.Time
 	baseURL      string
 	mode         string // "search", "mentions", "metrics"
+	mu           sync.Mutex
 }
 
 // NewTwitterSource creates a new TwitterSource.
@@ -49,15 +51,18 @@ func NewTwitterSource(token, query string, interval time.Duration, mode string) 
 
 // Read reads the next tweet from Twitter.
 func (s *TwitterSource) Read(ctx context.Context) (hermod.Message, error) {
+	s.mu.Lock()
 	if s.currentIndex < len(s.items) {
 		item := s.items[s.currentIndex]
 		s.currentIndex++
+		s.mu.Unlock()
 		return s.messageFromData(item), nil
 	}
 
 	// Wait for interval
 	if !s.lastPoll.IsZero() {
 		nextRun := s.lastPoll.Add(s.interval)
+		s.mu.Unlock()
 		if time.Now().Before(nextRun) {
 			select {
 			case <-ctx.Done():
@@ -65,11 +70,14 @@ func (s *TwitterSource) Read(ctx context.Context) (hermod.Message, error) {
 			case <-time.After(time.Until(nextRun)):
 			}
 		}
+		s.mu.Lock()
 	}
 
 	s.lastPoll = time.Now()
 	s.items = nil
 	s.currentIndex = 0
+	sinceID := s.sinceID
+	s.mu.Unlock()
 
 	var apiURL string
 	switch s.mode {
@@ -100,8 +108,8 @@ func (s *TwitterSource) Read(ctx context.Context) (hermod.Message, error) {
 		apiURL = fmt.Sprintf("%s/tweets/search/recent?query=%s&max_results=10", s.baseURL, url.QueryEscape(s.query))
 	}
 
-	if s.sinceID != "" && s.mode != "metrics" {
-		apiURL = fmt.Sprintf("%s&since_id=%s", apiURL, s.sinceID)
+	if sinceID != "" && s.mode != "metrics" {
+		apiURL = fmt.Sprintf("%s&since_id=%s", apiURL, sinceID)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
@@ -136,6 +144,7 @@ func (s *TwitterSource) Read(ctx context.Context) (hermod.Message, error) {
 		return s.Read(ctx)
 	}
 
+	s.mu.Lock()
 	s.items = result.Data
 	if result.Meta.NewestID != "" {
 		s.sinceID = result.Meta.NewestID
@@ -143,6 +152,8 @@ func (s *TwitterSource) Read(ctx context.Context) (hermod.Message, error) {
 
 	item := s.items[0]
 	s.currentIndex = 1
+	s.mu.Unlock()
+
 	return s.messageFromData(item), nil
 }
 
@@ -190,6 +201,8 @@ func (s *TwitterSource) Ping(ctx context.Context) error {
 
 // GetState returns the current state of the source.
 func (s *TwitterSource) GetState() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return map[string]string{
 		"since_id": s.sinceID,
 	}
@@ -197,6 +210,8 @@ func (s *TwitterSource) GetState() map[string]string {
 
 // SetState sets the current state of the source.
 func (s *TwitterSource) SetState(state map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if id, ok := state["since_id"]; ok {
 		s.sinceID = id
 	}

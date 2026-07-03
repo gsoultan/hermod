@@ -22,21 +22,29 @@ var errOperationPanicked = errors.New("operation panicked")
 
 // --- Test Connectivity ---
 
-func (r *Registry) TestSource(ctx context.Context, cfg factory.SourceConfig) error {
-	_, err := runWithContext(ctx, func() (struct{}, error) {
-		src, err := r.createSource(ctx, cfg)
-		if err != nil {
-			return struct{}{}, err
-		}
-		if src == nil {
-			return struct{}{}, fmt.Errorf("source type %q produced a nil source", cfg.Type)
-		}
-		defer src.Close()
+func (r *Registry) discoveryKey(prefix string, cfg any) string {
+	b, _ := json.Marshal(cfg)
+	return prefix + ":" + string(b)
+}
 
-		if readyChecker, ok := src.(hermod.ReadyChecker); ok {
-			return struct{}{}, readyChecker.IsReady(ctx)
-		}
-		return struct{}{}, src.Ping(ctx)
+func (r *Registry) TestSource(ctx context.Context, cfg factory.SourceConfig) error {
+	key := r.discoveryKey("test-source", cfg)
+	_, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() (struct{}, error) {
+			src, err := r.createSource(ctx, cfg)
+			if err != nil {
+				return struct{}{}, err
+			}
+			if src == nil {
+				return struct{}{}, fmt.Errorf("source type %q produced a nil source", cfg.Type)
+			}
+			defer src.Close()
+
+			if readyChecker, ok := src.(hermod.ReadyChecker); ok {
+				return struct{}{}, readyChecker.IsReady(ctx)
+			}
+			return struct{}{}, src.Ping(ctx)
+		})
 	})
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return fmt.Errorf("source connection test timed out: %w", err)
@@ -49,13 +57,16 @@ func (r *Registry) TestSink(ctx context.Context, cfg factory.SinkConfig) error {
 		return nil
 	}
 
-	_, err := runWithContext(ctx, func() (struct{}, error) {
-		snk, err := r.createSink(ctx, cfg)
-		if err != nil {
-			return struct{}{}, err
-		}
-		defer snk.Close()
-		return struct{}{}, snk.Ping(ctx)
+	key := r.discoveryKey("test-sink", cfg)
+	_, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() (struct{}, error) {
+			snk, err := r.createSink(ctx, cfg)
+			if err != nil {
+				return struct{}{}, err
+			}
+			defer snk.Close()
+			return struct{}{}, snk.Ping(ctx)
+		})
 	})
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return fmt.Errorf("sink connection test timed out: %w", err)
@@ -112,133 +123,208 @@ func runWithContext[T any](ctx context.Context, fn func() (T, error)) (T, error)
 // --- Source Discovery ---
 
 func (r *Registry) DiscoverDatabases(ctx context.Context, cfg factory.SourceConfig) ([]string, error) {
-	return runWithContext(ctx, func() ([]string, error) {
-		src, err := r.createSource(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-		defer src.Close()
+	key := r.discoveryKey("discover-dbs", cfg)
+	val, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() ([]string, error) {
+			src, err := r.createSource(ctx, cfg)
+			if err != nil {
+				return nil, err
+			}
+			defer src.Close()
 
-		if d, ok := src.(hermod.Discoverer); ok {
-			return d.DiscoverDatabases(ctx)
-		}
-		return nil, fmt.Errorf("source type %s does not support database discovery", cfg.Type)
+			if d, ok := src.(hermod.Discoverer); ok {
+				return d.DiscoverDatabases(ctx)
+			}
+			return nil, fmt.Errorf("source type %s does not support database discovery", cfg.Type)
+		})
 	})
+	if err != nil {
+		return nil, err
+	}
+	return val.([]string), nil
 }
 
 func (r *Registry) DiscoverTables(ctx context.Context, cfg factory.SourceConfig) ([]string, error) {
-	return runWithContext(ctx, func() ([]string, error) {
-		src, err := r.createSource(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-		defer src.Close()
+	key := r.discoveryKey("discover-tables", cfg)
+	val, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() ([]string, error) {
+			src, err := r.createSource(ctx, cfg)
+			if err != nil {
+				return nil, err
+			}
+			defer src.Close()
 
-		if d, ok := src.(hermod.Discoverer); ok {
-			return d.DiscoverTables(ctx)
-		}
-		return nil, fmt.Errorf("source type %s does not support table discovery", cfg.Type)
+			if d, ok := src.(hermod.Discoverer); ok {
+				return d.DiscoverTables(ctx)
+			}
+			return nil, fmt.Errorf("source type %s does not support table discovery", cfg.Type)
+		})
 	})
+	if err != nil {
+		return nil, err
+	}
+	return val.([]string), nil
 }
 
 func (r *Registry) DiscoverSourceColumns(ctx context.Context, cfg factory.SourceConfig, table string) ([]hermod.ColumnInfo, error) {
-	return runWithContext(ctx, func() ([]hermod.ColumnInfo, error) {
-		src, err := r.createSource(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-		defer src.Close()
+	key := r.discoveryKey("discover-columns", struct {
+		Cfg   factory.SourceConfig
+		Table string
+	}{cfg, table})
+	val, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() ([]hermod.ColumnInfo, error) {
+			src, err := r.createSource(ctx, cfg)
+			if err != nil {
+				return nil, err
+			}
+			defer src.Close()
 
-		if d, ok := src.(hermod.ColumnDiscoverer); ok {
-			return d.DiscoverColumns(ctx, table)
-		}
-		return nil, fmt.Errorf("source type %s does not support column discovery", cfg.Type)
+			if d, ok := src.(hermod.ColumnDiscoverer); ok {
+				return d.DiscoverColumns(ctx, table)
+			}
+			return nil, fmt.Errorf("source type %s does not support column discovery", cfg.Type)
+		})
 	})
+	if err != nil {
+		return nil, err
+	}
+	return val.([]hermod.ColumnInfo), nil
 }
 
 func (r *Registry) DiscoverReplicationSlots(ctx context.Context, cfg factory.SourceConfig) ([]hermod.ReplicationSlotInfo, error) {
-	return runWithContext(ctx, func() ([]hermod.ReplicationSlotInfo, error) {
-		src, err := r.createSource(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-		defer src.Close()
+	key := r.discoveryKey("discover-slots", cfg)
+	val, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() ([]hermod.ReplicationSlotInfo, error) {
+			src, err := r.createSource(ctx, cfg)
+			if err != nil {
+				return nil, err
+			}
+			defer src.Close()
 
-		if d, ok := src.(hermod.ReplicationDiscoverer); ok {
-			return d.DiscoverReplicationSlots(ctx)
-		}
-		return nil, fmt.Errorf("source type %s does not support replication slot discovery", cfg.Type)
+			if d, ok := src.(hermod.ReplicationDiscoverer); ok {
+				return d.DiscoverReplicationSlots(ctx)
+			}
+			return nil, fmt.Errorf("source type %s does not support replication slot discovery", cfg.Type)
+		})
 	})
+	if err != nil {
+		return nil, err
+	}
+	return val.([]hermod.ReplicationSlotInfo), nil
 }
 
 func (r *Registry) DiscoverPublications(ctx context.Context, cfg factory.SourceConfig) ([]hermod.PublicationInfo, error) {
-	return runWithContext(ctx, func() ([]hermod.PublicationInfo, error) {
-		src, err := r.createSource(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-		defer src.Close()
+	key := r.discoveryKey("discover-pubs", cfg)
+	val, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() ([]hermod.PublicationInfo, error) {
+			src, err := r.createSource(ctx, cfg)
+			if err != nil {
+				return nil, err
+			}
+			defer src.Close()
 
-		if d, ok := src.(hermod.ReplicationDiscoverer); ok {
-			return d.DiscoverPublications(ctx)
-		}
-		return nil, fmt.Errorf("source type %s does not support publication discovery", cfg.Type)
+			if d, ok := src.(hermod.ReplicationDiscoverer); ok {
+				return d.DiscoverPublications(ctx)
+			}
+			return nil, fmt.Errorf("source type %s does not support publication discovery", cfg.Type)
+		})
 	})
+	if err != nil {
+		return nil, err
+	}
+	return val.([]hermod.PublicationInfo), nil
 }
 
 // --- Sink Discovery ---
 
 func (r *Registry) DiscoverSinkDatabases(ctx context.Context, cfg factory.SinkConfig) ([]string, error) {
-	return runWithContext(ctx, func() ([]string, error) {
-		snk, err := r.createSink(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-		defer snk.Close()
+	key := r.discoveryKey("discover-sink-dbs", cfg)
+	val, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() ([]string, error) {
+			snk, err := r.createSink(ctx, cfg)
+			if err != nil {
+				return nil, err
+			}
+			defer snk.Close()
 
-		if d, ok := snk.(hermod.Discoverer); ok {
-			return d.DiscoverDatabases(ctx)
-		}
-		return nil, fmt.Errorf("sink type %s does not support database discovery", cfg.Type)
+			if d, ok := snk.(hermod.Discoverer); ok {
+				return d.DiscoverDatabases(ctx)
+			}
+			return nil, fmt.Errorf("sink type %s does not support database discovery", cfg.Type)
+		})
 	})
+	if err != nil {
+		return nil, err
+	}
+	return val.([]string), nil
 }
 
 func (r *Registry) DiscoverSinkTables(ctx context.Context, cfg factory.SinkConfig) ([]string, error) {
-	return runWithContext(ctx, func() ([]string, error) {
-		snk, err := r.createSink(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-		defer snk.Close()
+	key := r.discoveryKey("discover-sink-tables", cfg)
+	val, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() ([]string, error) {
+			snk, err := r.createSink(ctx, cfg)
+			if err != nil {
+				return nil, err
+			}
+			defer snk.Close()
 
-		if d, ok := snk.(hermod.Discoverer); ok {
-			return d.DiscoverTables(ctx)
-		}
-		return nil, fmt.Errorf("sink type %s does not support table discovery", cfg.Type)
+			if d, ok := snk.(hermod.Discoverer); ok {
+				return d.DiscoverTables(ctx)
+			}
+			return nil, fmt.Errorf("sink type %s does not support table discovery", cfg.Type)
+		})
 	})
+	if err != nil {
+		return nil, err
+	}
+	return val.([]string), nil
 }
 
 func (r *Registry) DiscoverSinkColumns(ctx context.Context, cfg factory.SinkConfig, table string) ([]hermod.ColumnInfo, error) {
-	return runWithContext(ctx, func() ([]hermod.ColumnInfo, error) {
-		snk, err := r.createSink(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-		defer snk.Close()
+	key := r.discoveryKey("discover-sink-columns", struct {
+		Cfg   factory.SinkConfig
+		Table string
+	}{cfg, table})
+	val, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() ([]hermod.ColumnInfo, error) {
+			snk, err := r.createSink(ctx, cfg)
+			if err != nil {
+				return nil, err
+			}
+			defer snk.Close()
 
-		if d, ok := snk.(hermod.ColumnDiscoverer); ok {
-			return d.DiscoverColumns(ctx, table)
-		}
-		return nil, fmt.Errorf("sink type %s does not support column discovery", cfg.Type)
+			if d, ok := snk.(hermod.ColumnDiscoverer); ok {
+				return d.DiscoverColumns(ctx, table)
+			}
+			return nil, fmt.Errorf("sink type %s does not support column discovery", cfg.Type)
+		})
 	})
+	if err != nil {
+		return nil, err
+	}
+	return val.([]hermod.ColumnInfo), nil
 }
 
 // --- Sampling & Browsing ---
 
 func (r *Registry) SampleTable(ctx context.Context, cfg factory.SourceConfig, table string) (hermod.Message, error) {
-	return runWithContext(ctx, func() (hermod.Message, error) {
-		return r.sampleTable(ctx, cfg, table)
+	key := r.discoveryKey("sample-source", struct {
+		Cfg   factory.SourceConfig
+		Table string
+	}{cfg, table})
+	val, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() (hermod.Message, error) {
+			return r.sampleTable(ctx, cfg, table)
+		})
 	})
+	if err != nil {
+		return nil, err
+	}
+	if val == nil {
+		return nil, nil
+	}
+	return val.(hermod.Message), nil
 }
 
 func (r *Registry) sampleTable(ctx context.Context, cfg factory.SourceConfig, table string) (hermod.Message, error) {
@@ -306,160 +392,197 @@ func (r *Registry) SampleSinkTable(ctx context.Context, cfg factory.SinkConfig, 
 }
 
 func (r *Registry) BrowseSinkTable(ctx context.Context, cfg factory.SinkConfig, table string, limit int) ([]hermod.Message, error) {
-	snk, err := r.createSink(ctx, cfg)
+	key := r.discoveryKey("browse-sink", struct {
+		Cfg   factory.SinkConfig
+		Table string
+		Limit int
+	}{cfg, table, limit})
+	val, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() ([]hermod.Message, error) {
+			snk, err := r.createSink(ctx, cfg)
+			if err != nil {
+				return nil, err
+			}
+			defer snk.Close()
+
+			if b, ok := snk.(hermod.Browser); ok {
+				msgs, err := b.Browse(ctx, table, limit)
+				if err == nil {
+					return msgs, nil
+				}
+			}
+
+			if s, ok := snk.(hermod.Sampler); ok && limit == 1 {
+				msg, err := s.Sample(ctx, table)
+				if err != nil {
+					return nil, err
+				}
+				return []hermod.Message{msg}, nil
+			}
+
+			return nil, fmt.Errorf("sink type %s does not support browsing", cfg.Type)
+		})
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer snk.Close()
-
-	if b, ok := snk.(hermod.Browser); ok {
-		msgs, err := b.Browse(ctx, table, limit)
-		if err == nil {
-			return msgs, nil
-		}
-	}
-
-	if s, ok := snk.(hermod.Sampler); ok && limit == 1 {
-		msg, err := s.Sample(ctx, table)
-		if err != nil {
-			return nil, err
-		}
-		return []hermod.Message{msg}, nil
-	}
-
-	return nil, fmt.Errorf("sink type %s does not support browsing", cfg.Type)
+	return val.([]hermod.Message), nil
 }
 
 // --- SQL Execution ---
 
 func (r *Registry) ExecuteSQL(ctx context.Context, cfg factory.SourceConfig, query string) ([]map[string]any, error) {
-	// Prepare dummy data for template resolution in builder
-	sampleData := map[string]any{
-		"after": map[string]any{"id": "sample-id"}, // Default fallback
-	}
-
-	// Try to get actual sample data if available to make the preview realistic
-	if msg, err := r.SampleTable(ctx, cfg, ""); err == nil && msg != nil {
-		data := msg.Data()
-		if len(data) > 0 {
-			for k, v := range data {
-				sampleData[k] = v
+	key := r.discoveryKey("exec-sql", struct {
+		Cfg   factory.SourceConfig
+		Query string
+	}{cfg, query})
+	val, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() ([]map[string]any, error) {
+			// Prepare dummy data for template resolution in builder
+			sampleData := map[string]any{
+				"after": map[string]any{"id": "sample-id"}, // Default fallback
 			}
-		}
-		// If data is empty but we have After payload, try to unmarshal it
-		if len(data) == 0 {
-			if after := msg.After(); len(after) > 0 {
-				var afterData map[string]any
-				if err := json.Unmarshal(after, &afterData); err == nil {
-					sampleData["after"] = afterData
+
+			// Try to get actual sample data if available to make the preview realistic
+			if msg, err := r.sampleTable(ctx, cfg, ""); err == nil && msg != nil {
+				data := msg.Data()
+				if len(data) > 0 {
+					for k, v := range data {
+						sampleData[k] = v
+					}
+				}
+				// If data is empty but we have After payload, try to unmarshal it
+				if len(data) == 0 {
+					if after := msg.After(); len(after) > 0 {
+						var afterData map[string]any
+						if err := json.Unmarshal(after, &afterData); err == nil {
+							sampleData["after"] = afterData
+						}
+					}
 				}
 			}
-		}
-	}
 
-	// Determine driver for correct placeholder style (?, $1, etc.)
-	driver := cfg.Type
-	if driver == "batch_sql" {
-		if underlyingID := cfg.Config["source_id"]; underlyingID != "" {
-			if underlying, err := r.storage.GetSource(ctx, underlyingID); err == nil {
-				driver = underlying.Type
+			// Determine driver for correct placeholder style (?, $1, etc.)
+			driver := cfg.Type
+			if driver == "batch_sql" {
+				if underlyingID := cfg.Config["source_id"]; underlyingID != "" {
+					if underlying, err := r.storage.GetSource(ctx, underlyingID); err == nil {
+						driver = underlying.Type
+					}
+				}
 			}
-		}
-	}
 
-	// Resolve templates safely
-	parameterizedQuery, args := core.ParameterizeTemplate(driver, query, sampleData)
+			// Resolve templates safely
+			parameterizedQuery, args := core.ParameterizeTemplate(driver, query, sampleData)
 
-	// 1. Try if the source already implements SQLExecutor
-	// Only if there are no arguments, as SQLExecutor.ExecuteSQL doesn't support them.
-	if len(args) == 0 {
-		src, err := r.createSource(ctx, cfg)
-		if err == nil {
-			defer src.Close()
-			if e, ok := src.(hermod.SQLExecutor); ok {
-				results, err := e.ExecuteSQL(ctx, parameterizedQuery)
+			// 1. Try if the source already implements SQLExecutor
+			// Only if there are no arguments, as SQLExecutor.ExecuteSQL doesn't support them.
+			if len(args) == 0 {
+				src, err := r.createSource(ctx, cfg)
 				if err == nil {
-					return results, nil
-				}
-				if !errors.Is(err, hermod.ErrNotSupported) {
-					return nil, err
+					defer src.Close()
+					if e, ok := src.(hermod.SQLExecutor); ok {
+						results, err := e.ExecuteSQL(ctx, parameterizedQuery)
+						if err == nil {
+							return results, nil
+						}
+						if !errors.Is(err, hermod.ErrNotSupported) {
+							return nil, err
+						}
+					}
 				}
 			}
-		}
-	}
 
-	// 2. Fallback to generic SQL execution if it's a supported DB type
-	db, err := r.getOrOpenDB(storage.Source{
-		ID:     "temp-query-" + cfg.Type + "-" + cfg.ID,
-		Type:   cfg.Type,
-		Config: cfg.Config,
+			// 2. Fallback to generic SQL execution if it's a supported DB type
+			db, err := r.getOrOpenDB(storage.Source{
+				ID:     "temp-query-" + cfg.Type + "-" + cfg.ID,
+				Type:   cfg.Type,
+				Config: cfg.Config,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			rows, err := db.QueryContext(ctx, parameterizedQuery, args...)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+
+			return sqlutil.ScanRows(rows)
+		})
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	rows, err := db.QueryContext(ctx, parameterizedQuery, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	return sqlutil.ScanRows(rows)
+	return val.([]map[string]any), nil
 }
 
 func (r *Registry) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkConfig, query string) ([]map[string]any, error) {
-	// Prepare dummy data
-	sampleData := map[string]any{
-		"after": map[string]any{"id": "sample-id"},
-	}
-
-	// Try to get actual sample data from sink if supported
-	if msg, err := r.SampleSinkTable(ctx, cfg, ""); err == nil && msg != nil {
-		data := msg.Data()
-		if len(data) > 0 {
-			for k, v := range data {
-				sampleData[k] = v
+	key := r.discoveryKey("exec-sink-sql", struct {
+		Cfg   factory.SinkConfig
+		Query string
+	}{cfg, query})
+	val, err, _ := r.sf.Do(key, func() (any, error) {
+		return runWithContext(ctx, func() ([]map[string]any, error) {
+			// Prepare dummy data
+			sampleData := map[string]any{
+				"after": map[string]any{"id": "sample-id"},
 			}
-		}
-	}
 
-	// Resolve templates safely
-	parameterizedQuery, args := core.ParameterizeTemplate(cfg.Type, query, sampleData)
+			// Try to get actual sample data from sink if supported
+			if msg, err := r.SampleSinkTable(ctx, cfg, ""); err == nil && msg != nil {
+				data := msg.Data()
+				if len(data) > 0 {
+					for k, v := range data {
+						sampleData[k] = v
+					}
+				}
+			}
 
-	// 1. Try if the sink already implements SQLExecutor
-	if len(args) == 0 {
-		snk, err := r.createSink(ctx, cfg)
-		if err == nil {
-			defer snk.Close()
-			if e, ok := snk.(hermod.SQLExecutor); ok {
-				results, err := e.ExecuteSQL(ctx, parameterizedQuery)
+			// Resolve templates safely
+			parameterizedQuery, args := core.ParameterizeTemplate(cfg.Type, query, sampleData)
+
+			// 1. Try if the sink already implements SQLExecutor
+			if len(args) == 0 {
+				snk, err := r.createSink(ctx, cfg)
 				if err == nil {
-					return results, nil
-				}
-				if !errors.Is(err, hermod.ErrNotSupported) {
-					return nil, err
+					defer snk.Close()
+					if e, ok := snk.(hermod.SQLExecutor); ok {
+						results, err := e.ExecuteSQL(ctx, parameterizedQuery)
+						if err == nil {
+							return results, nil
+						}
+						if !errors.Is(err, hermod.ErrNotSupported) {
+							return nil, err
+						}
+					}
 				}
 			}
-		}
-	}
 
-	// 2. Fallback to generic SQL execution if it's a supported DB type
-	db, err := r.getOrOpenDB(storage.Source{
-		ID:     "temp-sink-query-" + cfg.Type + "-" + cfg.ID,
-		Type:   cfg.Type,
-		Config: cfg.Config,
+			// 2. Fallback to generic SQL execution if it's a supported DB type
+			db, err := r.getOrOpenDB(storage.Source{
+				ID:     "temp-sink-query-" + cfg.Type + "-" + cfg.ID,
+				Type:   cfg.Type,
+				Config: cfg.Config,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			rows, err := db.QueryContext(ctx, parameterizedQuery, args...)
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+
+			return sqlutil.ScanRows(rows)
+		})
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	rows, err := db.QueryContext(ctx, parameterizedQuery, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	return sqlutil.ScanRows(rows)
+	return val.([]map[string]any), nil
 }
 
 // ExecSinkStatement executes a non-query SQL statement (DDL/DML) against the sink.

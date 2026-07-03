@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/user/hermod"
@@ -23,6 +24,7 @@ type TikTokSource struct {
 	lastPoll     time.Time
 	baseURL      string
 	mode         string // "videos", "comments", "statistics"
+	mu           sync.Mutex
 }
 
 // NewTikTokSource creates a new TikTokSource.
@@ -46,14 +48,17 @@ func NewTikTokSource(accessToken string, interval time.Duration, mode string) *T
 
 // Read reads the next item from TikTok.
 func (s *TikTokSource) Read(ctx context.Context) (hermod.Message, error) {
+	s.mu.Lock()
 	if s.currentIndex < len(s.items) {
 		item := s.items[s.currentIndex]
 		s.currentIndex++
+		s.mu.Unlock()
 		return s.messageFromData(item), nil
 	}
 
 	if !s.lastPoll.IsZero() {
 		nextRun := s.lastPoll.Add(s.interval)
+		s.mu.Unlock()
 		if time.Now().Before(nextRun) {
 			select {
 			case <-ctx.Done():
@@ -61,11 +66,13 @@ func (s *TikTokSource) Read(ctx context.Context) (hermod.Message, error) {
 			case <-time.After(time.Until(nextRun)):
 			}
 		}
+		s.mu.Lock()
 	}
 
 	s.lastPoll = time.Now()
 	s.items = nil
 	s.currentIndex = 0
+	s.mu.Unlock()
 
 	var apiURL string
 	switch s.mode {
@@ -112,11 +119,14 @@ func (s *TikTokSource) Read(ctx context.Context) (hermod.Message, error) {
 		return s.Read(ctx)
 	}
 
+	s.mu.Lock()
 	s.items = result.Data.Videos
 	s.cursor = result.Data.Cursor
 
 	item := s.items[0]
 	s.currentIndex = 1
+	s.mu.Unlock()
+
 	return s.messageFromData(item), nil
 }
 
@@ -166,6 +176,8 @@ func (s *TikTokSource) Ping(ctx context.Context) error {
 
 // GetState returns the current state of the source.
 func (s *TikTokSource) GetState() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return map[string]string{
 		"cursor": strconv.FormatInt(s.cursor, 10),
 	}
@@ -173,6 +185,8 @@ func (s *TikTokSource) GetState() map[string]string {
 
 // SetState sets the current state of the source.
 func (s *TikTokSource) SetState(state map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if cursor, ok := state["cursor"]; ok {
 		fmt.Sscanf(cursor, "%d", &s.cursor)
 	}

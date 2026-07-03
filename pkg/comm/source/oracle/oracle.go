@@ -80,18 +80,29 @@ func (o *OracleSource) log(level, msg string, keysAndValues ...any) {
 
 func (o *OracleSource) init(ctx context.Context) error {
 	o.mu.Lock()
-	defer o.mu.Unlock()
-
 	if o.db != nil {
+		o.mu.Unlock()
 		return nil
 	}
+	o.mu.Unlock()
 
 	db, err := sql.Open("oracle", o.connString)
 	if err != nil {
 		return fmt.Errorf("failed to connect to oracle: %w", err)
 	}
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return err
+	}
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.db != nil {
+		db.Close()
+		return nil
+	}
 	o.db = db
-	return o.db.PingContext(ctx)
+	return nil
 }
 
 func (o *OracleSource) Read(ctx context.Context) (hermod.Message, error) {
@@ -336,8 +347,15 @@ func (o *OracleSource) DiscoverDatabases(ctx context.Context) ([]string, error) 
 		return nil, err
 	}
 
+	o.mu.Lock()
+	db := o.db
+	o.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("oracle connection not initialized")
+	}
+
 	// In Oracle, we usually list users/schemas.
-	rows, err := o.db.QueryContext(ctx, "SELECT username FROM all_users ORDER BY username")
+	rows, err := db.QueryContext(ctx, "SELECT username FROM all_users ORDER BY username")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query users/databases: %w", err)
 	}
@@ -359,7 +377,14 @@ func (o *OracleSource) DiscoverTables(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	rows, err := o.db.QueryContext(ctx, "SELECT owner || '.' || table_name FROM all_tables WHERE owner NOT IN ('SYS', 'SYSTEM') ORDER BY owner, table_name")
+	o.mu.Lock()
+	db := o.db
+	o.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("oracle connection not initialized")
+	}
+
+	rows, err := db.QueryContext(ctx, "SELECT owner || '.' || table_name FROM all_tables WHERE owner NOT IN ('SYS', 'SYSTEM') ORDER BY owner, table_name")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
@@ -380,6 +405,14 @@ func (o *OracleSource) DiscoverColumns(ctx context.Context, table string) ([]her
 	if err := o.init(ctx); err != nil {
 		return nil, err
 	}
+
+	o.mu.Lock()
+	db := o.db
+	o.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("oracle connection not initialized")
+	}
+
 	tableNameOnly := strings.ToUpper(table)
 	owner := ""
 	if strings.Contains(table, ".") {
@@ -404,7 +437,7 @@ func (o *OracleSource) DiscoverColumns(ctx context.Context, table string) ([]her
 	}
 	query += " ORDER BY column_id"
 
-	rows, err := o.db.QueryContext(ctx, query, args...)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -430,12 +463,19 @@ func (o *OracleSource) Sample(ctx context.Context, table string) (hermod.Message
 		return nil, err
 	}
 
+	o.mu.Lock()
+	db := o.db
+	o.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("oracle connection not initialized")
+	}
+
 	// Oracle doesn't have LIMIT, but has ROWNUM or FETCH FIRST 1 ROWS ONLY
 	quoted, err := sqlutil.QuoteIdent("oracle", table)
 	if err != nil {
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
-	rows, err := o.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s WHERE ROWNUM <= 1", quoted))
+	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s WHERE ROWNUM <= 1", quoted))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sample record: %w", err)
 	}

@@ -276,21 +276,32 @@ func (s *PostgresSink) applyDelete(ctx context.Context, executor pgExecutor, tab
 // idempotent: only the first successful call establishes the pool.
 func (s *PostgresSink) init(ctx context.Context) error {
 	s.connMu.Lock()
-	defer s.connMu.Unlock()
 	if s.pool != nil {
+		s.connMu.Unlock()
 		return nil
 	}
+	s.connMu.Unlock()
+
 	poolCfg, pooled, err := pgxutil.ParsePoolConfig(s.connString)
 	if err != nil {
 		return fmt.Errorf("failed to parse postgres connection string: %w", err)
 	}
+
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return fmt.Errorf("failed to create postgres pool: %w", err)
 	}
+
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
 		return fmt.Errorf("failed to ping postgres: %w", err)
+	}
+
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	if s.pool != nil {
+		pool.Close()
+		return nil
 	}
 	s.pool = pool
 	s.pooled = pooled
@@ -448,7 +459,14 @@ func (s *PostgresSink) DiscoverDatabases(ctx context.Context) ([]string, error) 
 		return nil, err
 	}
 
-	rows, err := s.pool.Query(ctx, commonQueries[QueryListDatabases])
+	s.connMu.Lock()
+	pool := s.pool
+	s.connMu.Unlock()
+	if pool == nil {
+		return nil, errors.New("sink pool not initialized")
+	}
+
+	rows, err := pool.Query(ctx, commonQueries[QueryListDatabases])
 	if err != nil {
 		return nil, fmt.Errorf("failed to query databases: %w", err)
 	}
@@ -470,7 +488,14 @@ func (s *PostgresSink) DiscoverTables(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	rows, err := s.pool.Query(ctx, commonQueries[QueryListTables])
+	s.connMu.Lock()
+	pool := s.pool
+	s.connMu.Unlock()
+	if pool == nil {
+		return nil, errors.New("sink pool not initialized")
+	}
+
+	rows, err := pool.Query(ctx, commonQueries[QueryListTables])
 	if err != nil {
 		return nil, err
 	}
@@ -492,7 +517,14 @@ func (s *PostgresSink) DiscoverColumns(ctx context.Context, table string) ([]her
 		return nil, err
 	}
 
-	rows, err := s.pool.Query(ctx, commonQueries[QueryListColumns], table)
+	s.connMu.Lock()
+	pool := s.pool
+	s.connMu.Unlock()
+	if pool == nil {
+		return nil, errors.New("sink pool not initialized")
+	}
+
+	rows, err := pool.Query(ctx, commonQueries[QueryListColumns], table)
 	if err != nil {
 		return nil, err
 	}
@@ -532,12 +564,19 @@ func (s *PostgresSink) Browse(ctx context.Context, table string, limit int) ([]h
 		limit = 1
 	}
 
+	s.connMu.Lock()
+	pool := s.pool
+	s.connMu.Unlock()
+	if pool == nil {
+		return nil, errors.New("sink pool not initialized")
+	}
+
 	quoted, err := quoteTable(table)
 	if err != nil {
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
 	query := fmt.Sprintf(commonQueries[QueryBrowse], quoted, limit)
-	rows, err := s.pool.Query(ctx, query)
+	rows, err := pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}

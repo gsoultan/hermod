@@ -34,11 +34,11 @@ func NewKinesisSink(region string, streamName string, accessKey, secretKey strin
 
 func (s *KinesisSink) ensureConnected(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.client != nil {
+		s.mu.Unlock()
 		return nil
 	}
+	s.mu.Unlock()
 
 	opts := []func(*config.LoadOptions) error{
 		config.WithRegion(s.region),
@@ -53,7 +53,15 @@ func (s *KinesisSink) ensureConnected(ctx context.Context) error {
 		return fmt.Errorf("unable to load SDK config: %w", err)
 	}
 
-	s.client = kinesis.NewFromConfig(cfg)
+	client := kinesis.NewFromConfig(cfg)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil {
+		return nil
+	}
+
+	s.client = client
 	return nil
 }
 

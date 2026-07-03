@@ -3,6 +3,7 @@ package milvus
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/milvus-io/milvus-sdk-go/v2/client"
 	"github.com/milvus-io/milvus-sdk-go/v2/entity"
@@ -24,6 +25,7 @@ type Config struct {
 type Sink struct {
 	config Config
 	client client.Client
+	mu     sync.Mutex
 }
 
 // NewSink creates a new Milvus sink.
@@ -34,6 +36,13 @@ func NewSink(cfg Config) *Sink {
 }
 
 func (s *Sink) init(ctx context.Context) error {
+	s.mu.Lock()
+	if s.client != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	c, err := client.NewClient(ctx, client.Config{
 		Address:  s.config.Address,
 		Username: s.config.Username,
@@ -41,6 +50,13 @@ func (s *Sink) init(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to milvus: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil {
+		c.Close()
+		return nil
 	}
 	s.client = c
 	return nil
@@ -54,10 +70,17 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 	if len(msgs) == 0 {
 		return nil
 	}
-	if s.client == nil {
+
+	s.mu.Lock()
+	cl := s.client
+	s.mu.Unlock()
+	if cl == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		cl = s.client
+		s.mu.Unlock()
 	}
 
 	// Prepare data for columnar insert
@@ -112,24 +135,34 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 
 	columns = append(columns, entity.NewColumnFloatVector(s.config.VectorColumn, len(vectors[0]), vectors))
 
-	_, err := s.client.Insert(ctx, s.config.CollectionName, s.config.PartitionName, columns...)
+	_, err := cl.Insert(ctx, s.config.CollectionName, s.config.PartitionName, columns...)
 	return err
 }
 
 func (s *Sink) Ping(ctx context.Context) error {
-	if s.client == nil {
+	s.mu.Lock()
+	cl := s.client
+	s.mu.Unlock()
+	if cl == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		cl = s.client
+		s.mu.Unlock()
 	}
 	// Check if collection exists as a ping
-	_, err := s.client.HasCollection(ctx, s.config.CollectionName)
+	_, err := cl.HasCollection(ctx, s.config.CollectionName)
 	return err
 }
 
 func (s *Sink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.client != nil {
-		return s.client.Close()
+		err := s.client.Close()
+		s.client = nil
+		return err
 	}
 	return nil
 }

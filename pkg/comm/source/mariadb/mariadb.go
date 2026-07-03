@@ -81,18 +81,30 @@ func (m *MariaDBSource) log(level, msg string, keysAndValues ...any) {
 
 func (m *MariaDBSource) init(ctx context.Context) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if m.db != nil {
+		m.mu.Unlock()
 		return nil
 	}
+	m.mu.Unlock()
 
 	db, err := sql.Open("mysql", m.connString)
 	if err != nil {
 		return fmt.Errorf("failed to connect to mariadb: %w", err)
 	}
+
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.db != nil {
+		db.Close()
+		return nil
+	}
 	m.db = db
-	return m.db.PingContext(ctx)
+	return nil
 }
 
 func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
@@ -319,7 +331,15 @@ func (m *MariaDBSource) Ping(ctx context.Context) error {
 	if err := m.init(ctx); err != nil {
 		return err
 	}
-	return m.db.PingContext(ctx)
+
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return fmt.Errorf("mariadb connection not initialized")
+	}
+
+	return db.PingContext(ctx)
 }
 
 func (m *MariaDBSource) Close() error {
@@ -340,7 +360,14 @@ func (m *MariaDBSource) DiscoverDatabases(ctx context.Context) ([]string, error)
 		return nil, err
 	}
 
-	rows, err := m.db.QueryContext(ctx, "SHOW DATABASES")
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("mariadb connection not initialized")
+	}
+
+	rows, err := db.QueryContext(ctx, "SHOW DATABASES")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query databases: %w", err)
 	}
@@ -365,7 +392,14 @@ func (m *MariaDBSource) DiscoverTables(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	rows, err := m.db.QueryContext(ctx, "SHOW TABLES")
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("mariadb connection not initialized")
+	}
+
+	rows, err := db.QueryContext(ctx, "SHOW TABLES")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
@@ -390,11 +424,18 @@ func (m *MariaDBSource) Sample(ctx context.Context, table string) (hermod.Messag
 		return nil, err
 	}
 
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("mariadb connection not initialized")
+	}
+
 	quoted, err := sqlutil.QuoteIdent("mysql", table)
 	if err != nil {
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
-	rows, err := m.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted))
+	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sample record: %w", err)
 	}

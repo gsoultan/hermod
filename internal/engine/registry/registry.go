@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -175,6 +177,8 @@ type Registry struct {
 	reconciling   map[string]struct{}
 	reconcilingMu sync.Mutex
 
+	sf singleflight.Group
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -252,6 +256,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		meshManager:         mesh.NewManager(telemetry.NewDefaultLogger()),
 		piiStats:            make(map[string]*PIIStats),
 		reconciling:         make(map[string]struct{}),
+		sf:                  singleflight.Group{},
 		ctx:                 ctx,
 		cancel:              cancel,
 	}

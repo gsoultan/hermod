@@ -31,11 +31,11 @@ func NewPubSubSink(projectID string, topicID string, credentialsJSON string, for
 
 func (s *PubSubSink) ensureConnected(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.client != nil {
+		s.mu.Unlock()
 		return nil
 	}
+	s.mu.Unlock()
 
 	var opts []option.ClientOption
 	if s.credentialsJSON != "" {
@@ -44,6 +44,13 @@ func (s *PubSubSink) ensureConnected(ctx context.Context) error {
 	client, err := pubsub.NewClient(ctx, s.projectID, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create pubsub client: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil {
+		client.Close()
+		return nil
 	}
 
 	s.client = client

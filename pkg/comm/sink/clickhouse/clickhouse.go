@@ -206,6 +206,13 @@ func (s *ClickHouseSink) deleteMapped(ctx context.Context, table string, msg her
 }
 
 func (s *ClickHouseSink) init(ctx context.Context) error {
+	s.mu.Lock()
+	if s.conn != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{s.addr},
 		Auth: clickhouse.Auth{
@@ -215,22 +222,44 @@ func (s *ClickHouseSink) init(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to clickhouse: %w", err)
 	}
+
+	if err := conn.Ping(ctx); err != nil {
+		conn.Close()
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn != nil {
+		conn.Close()
+		return nil
+	}
 	s.conn = conn
 	return nil
 }
 
 func (s *ClickHouseSink) Ping(ctx context.Context) error {
-	if s.conn == nil {
+	s.mu.Lock()
+	conn := s.conn
+	s.mu.Unlock()
+	if conn == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		conn = s.conn
+		s.mu.Unlock()
 	}
-	return s.conn.Ping(ctx)
+	return conn.Ping(ctx)
 }
 
 func (s *ClickHouseSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.conn != nil {
-		return s.conn.Close()
+		err := s.conn.Close()
+		s.conn = nil
+		return err
 	}
 	return nil
 }

@@ -57,13 +57,19 @@ func (s *OracleSink) WriteBatch(ctx context.Context, msgs []hermod.Message) erro
 	if len(msgs) == 0 {
 		return nil
 	}
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin oracle transaction: %w", err)
 	}
@@ -384,26 +390,55 @@ func (s *OracleSink) ensureTable(ctx context.Context, tx *sql.Tx, table string) 
 }
 
 func (s *OracleSink) init(ctx context.Context) error {
+	s.mu.Lock()
+	if s.db != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	db, err := sql.Open("oracle", s.connString)
 	if err != nil {
 		return err
 	}
+
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db != nil {
+		db.Close()
+		return nil
+	}
 	s.db = db
-	return s.db.PingContext(ctx)
+	return nil
 }
 
 func (s *OracleSink) Ping(ctx context.Context) error {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
-	return s.db.PingContext(ctx)
+	return db.PingContext(ctx)
 }
 
 func (s *OracleSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.db != nil {
-		return s.db.Close()
+		err := s.db.Close()
+		s.db = nil
+		return err
 	}
 	return nil
 }
@@ -411,12 +446,18 @@ func (s *OracleSink) Close() error {
 func (s *OracleSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
 	// In Oracle, databases are more like instances or services.
 	// Usually users are more interested in schemas (users).
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT username FROM all_users ORDER BY username")
+	rows, err := db.QueryContext(ctx, "SELECT username FROM all_users ORDER BY username")
 	if err != nil {
 		return nil, err
 	}
@@ -433,12 +474,18 @@ func (s *OracleSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
 }
 
 func (s *OracleSink) DiscoverTables(ctx context.Context) ([]string, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT table_name FROM user_tables ORDER BY table_name")
+	rows, err := db.QueryContext(ctx, "SELECT table_name FROM user_tables ORDER BY table_name")
 	if err != nil {
 		return nil, err
 	}
@@ -455,10 +502,16 @@ func (s *OracleSink) DiscoverTables(ctx context.Context) ([]string, error) {
 }
 
 func (s *OracleSink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 	tableNameOnly := strings.ToUpper(table)
 	if strings.Contains(table, ".") {
@@ -476,7 +529,7 @@ func (s *OracleSink) DiscoverColumns(ctx context.Context, table string) ([]hermo
 		WHERE table_name = :1
 		ORDER BY column_id
 	`
-	rows, err := s.db.QueryContext(ctx, query, tableNameOnly)
+	rows, err := db.QueryContext(ctx, query, tableNameOnly)
 	if err != nil {
 		return nil, err
 	}

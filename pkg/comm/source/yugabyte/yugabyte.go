@@ -80,15 +80,22 @@ func (y *YugabyteSource) log(level, msg string, keysAndValues ...any) {
 
 func (y *YugabyteSource) init(ctx context.Context) error {
 	y.mu.Lock()
-	defer y.mu.Unlock()
-
 	if y.conn != nil && !y.conn.IsClosed() {
+		y.mu.Unlock()
 		return nil
 	}
+	y.mu.Unlock()
 
 	conn, err := pgx.Connect(ctx, y.connString)
 	if err != nil {
 		return fmt.Errorf("failed to connect to yugabyte: %w", err)
+	}
+
+	y.mu.Lock()
+	defer y.mu.Unlock()
+	if y.conn != nil && !y.conn.IsClosed() {
+		_ = conn.Close(ctx)
+		return nil
 	}
 	y.conn = conn
 	return nil
@@ -298,7 +305,15 @@ func (y *YugabyteSource) Ping(ctx context.Context) error {
 	if err := y.init(ctx); err != nil {
 		return err
 	}
-	return y.conn.Ping(ctx)
+
+	y.mu.Lock()
+	conn := y.conn
+	y.mu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("yugabyte connection not initialized")
+	}
+
+	return conn.Ping(ctx)
 }
 
 func (y *YugabyteSource) Close() error {
@@ -319,7 +334,14 @@ func (y *YugabyteSource) DiscoverDatabases(ctx context.Context) ([]string, error
 		return nil, err
 	}
 
-	rows, err := y.conn.Query(ctx, "SELECT datname FROM pg_database WHERE datistemplate = false")
+	y.mu.Lock()
+	conn := y.conn
+	y.mu.Unlock()
+	if conn == nil {
+		return nil, fmt.Errorf("yugabyte connection not initialized")
+	}
+
+	rows, err := conn.Query(ctx, "SELECT datname FROM pg_database WHERE datistemplate = false")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query databases: %w", err)
 	}
@@ -341,7 +363,14 @@ func (y *YugabyteSource) DiscoverTables(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	rows, err := y.conn.Query(ctx, "SELECT schemaname || '.' || tablename FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')")
+	y.mu.Lock()
+	conn := y.conn
+	y.mu.Unlock()
+	if conn == nil {
+		return nil, fmt.Errorf("yugabyte connection not initialized")
+	}
+
+	rows, err := conn.Query(ctx, "SELECT schemaname || '.' || tablename FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
@@ -363,11 +392,18 @@ func (y *YugabyteSource) Sample(ctx context.Context, table string) (hermod.Messa
 		return nil, err
 	}
 
+	y.mu.Lock()
+	conn := y.conn
+	y.mu.Unlock()
+	if conn == nil {
+		return nil, fmt.Errorf("yugabyte connection not initialized")
+	}
+
 	quoted, err := sqlutil.QuoteIdent("pgx", table)
 	if err != nil {
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
-	rows, err := y.conn.Query(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted))
+	rows, err := conn.Query(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sample record: %w", err)
 	}

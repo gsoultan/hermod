@@ -80,20 +80,28 @@ func (s *ScyllaDBSource) log(level, msg string, keysAndValues ...any) {
 
 func (s *ScyllaDBSource) init(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.session != nil && !s.session.Closed() {
+		s.mu.Unlock()
 		return nil
 	}
+	s.mu.Unlock()
 
-	s.cluster = gocql.NewCluster(s.hosts...)
-	s.cluster.Consistency = gocql.One
-	s.cluster.Timeout = 5 * time.Second
+	cluster := gocql.NewCluster(s.hosts...)
+	cluster.Consistency = gocql.One
+	cluster.Timeout = 5 * time.Second
 
-	session, err := s.cluster.CreateSession()
+	session, err := cluster.CreateSession()
 	if err != nil {
 		return fmt.Errorf("failed to connect to scylladb: %w", err)
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session != nil && !s.session.Closed() {
+		session.Close()
+		return nil
+	}
+	s.cluster = cluster
 	s.session = session
 	return nil
 }
@@ -301,7 +309,15 @@ func (s *ScyllaDBSource) Ping(ctx context.Context) error {
 	if err := s.init(ctx); err != nil {
 		return err
 	}
-	return s.session.Query("SELECT now() FROM system.local").WithContext(ctx).Exec()
+
+	s.mu.Lock()
+	sess := s.session
+	s.mu.Unlock()
+	if sess == nil || sess.Closed() {
+		return fmt.Errorf("scylladb session not initialized")
+	}
+
+	return sess.Query("SELECT now() FROM system.local").WithContext(ctx).Exec()
 }
 
 func (s *ScyllaDBSource) Close() error {
@@ -322,7 +338,14 @@ func (s *ScyllaDBSource) DiscoverDatabases(ctx context.Context) ([]string, error
 		return nil, err
 	}
 
-	iter := s.session.Query("SELECT keyspace_name FROM system_schema.keyspaces").WithContext(ctx).Iter()
+	s.mu.Lock()
+	sess := s.session
+	s.mu.Unlock()
+	if sess == nil || sess.Closed() {
+		return nil, fmt.Errorf("scylladb session not initialized")
+	}
+
+	iter := sess.Query("SELECT keyspace_name FROM system_schema.keyspaces").WithContext(ctx).Iter()
 	var keyspaces []string
 	var name string
 	for iter.Scan(&name) {
@@ -339,7 +362,14 @@ func (s *ScyllaDBSource) DiscoverTables(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	iter := s.session.Query("SELECT keyspace_name, table_name FROM system_schema.tables").WithContext(ctx).Iter()
+	s.mu.Lock()
+	sess := s.session
+	s.mu.Unlock()
+	if sess == nil || sess.Closed() {
+		return nil, fmt.Errorf("scylladb session not initialized")
+	}
+
+	iter := sess.Query("SELECT keyspace_name, table_name FROM system_schema.tables").WithContext(ctx).Iter()
 	var tables []string
 	var ks, tbl string
 	for iter.Scan(&ks, &tbl) {
@@ -356,11 +386,18 @@ func (s *ScyllaDBSource) Sample(ctx context.Context, table string) (hermod.Messa
 		return nil, err
 	}
 
+	s.mu.Lock()
+	sess := s.session
+	s.mu.Unlock()
+	if sess == nil || sess.Closed() {
+		return nil, fmt.Errorf("scylladb session not initialized")
+	}
+
 	if err := sqlutil.ValidateIdent(table); err != nil {
 		return nil, err
 	}
 	query := fmt.Sprintf("SELECT * FROM %s LIMIT 1", table)
-	iter := s.session.Query(query).WithContext(ctx).Iter()
+	iter := sess.Query(query).WithContext(ctx).Iter()
 
 	columns := iter.Columns()
 	values := make([]any, len(columns))

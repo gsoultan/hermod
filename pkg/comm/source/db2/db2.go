@@ -80,19 +80,31 @@ func (d *DB2Source) log(level, msg string, keysAndValues ...any) {
 
 func (d *DB2Source) init(ctx context.Context) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-
 	if d.db != nil {
+		d.mu.Unlock()
 		return nil
 	}
+	d.mu.Unlock()
 
 	// Using the standard driver name for IBM DB2
 	db, err := sql.Open("go_ibm_db", d.connString)
 	if err != nil {
 		return fmt.Errorf("failed to open db2 connection (ensure go_ibm_db driver is installed): %w", err)
 	}
+
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return err
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.db != nil {
+		db.Close()
+		return nil
+	}
 	d.db = db
-	return d.db.PingContext(ctx)
+	return nil
 }
 
 func (d *DB2Source) Read(ctx context.Context) (hermod.Message, error) {
@@ -313,7 +325,15 @@ func (d *DB2Source) Ping(ctx context.Context) error {
 	if err := d.init(ctx); err != nil {
 		return err
 	}
-	return d.db.PingContext(ctx)
+
+	d.mu.Lock()
+	db := d.db
+	d.mu.Unlock()
+	if db == nil {
+		return fmt.Errorf("db2 connection not initialized")
+	}
+
+	return db.PingContext(ctx)
 }
 
 func (d *DB2Source) Close() error {
@@ -334,8 +354,15 @@ func (d *DB2Source) DiscoverDatabases(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
+	d.mu.Lock()
+	db := d.db
+	d.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("db2 connection not initialized")
+	}
+
 	// In DB2, databases are often fixed by connection, but we can list schemas.
-	rows, err := d.db.QueryContext(ctx, "SELECT SCHEMANAME FROM SYSCAT.SCHEMATA")
+	rows, err := db.QueryContext(ctx, "SELECT SCHEMANAME FROM SYSCAT.SCHEMATA")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query schemas: %w", err)
 	}
@@ -357,7 +384,14 @@ func (d *DB2Source) DiscoverTables(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	rows, err := d.db.QueryContext(ctx, "SELECT TABSCHEMA || '.' || TABNAME FROM SYSCAT.TABLES WHERE TABSCHEMA NOT LIKE 'SYS%'")
+	d.mu.Lock()
+	db := d.db
+	d.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("db2 connection not initialized")
+	}
+
+	rows, err := db.QueryContext(ctx, "SELECT TABSCHEMA || '.' || TABNAME FROM SYSCAT.TABLES WHERE TABSCHEMA NOT LIKE 'SYS%'")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
@@ -379,11 +413,18 @@ func (d *DB2Source) Sample(ctx context.Context, table string) (hermod.Message, e
 		return nil, err
 	}
 
+	d.mu.Lock()
+	db := d.db
+	d.mu.Unlock()
+	if db == nil {
+		return nil, fmt.Errorf("db2 connection not initialized")
+	}
+
 	quoted, err := sqlutil.QuoteIdent("db2", table)
 	if err != nil {
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
-	rows, err := d.db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s FETCH FIRST 1 ROWS ONLY", quoted))
+	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s FETCH FIRST 1 ROWS ONLY", quoted))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sample record: %w", err)
 	}

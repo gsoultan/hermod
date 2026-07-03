@@ -35,11 +35,11 @@ func (s *RabbitMQStreamSink) ensureConnected(ctx context.Context) error {
 		return errors.New("rabbitmq stream sink url is not configured")
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.env != nil && !s.env.IsClosed() && s.producer != nil {
+		s.mu.Unlock()
 		return nil
 	}
+	s.mu.Unlock()
 
 	env, err := stream.NewEnvironment(stream.NewEnvironmentOptions().SetUri(s.url))
 	if err != nil {
@@ -52,6 +52,13 @@ func (s *RabbitMQStreamSink) ensureConnected(ctx context.Context) error {
 		return fmt.Errorf("failed to create RabbitMQ stream producer: %w", err)
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.env != nil && !s.env.IsClosed() && s.producer != nil {
+		producer.Close()
+		env.Close()
+		return nil
+	}
 	s.env = env
 	s.producer = producer
 	return nil

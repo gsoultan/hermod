@@ -506,10 +506,7 @@ func (p *PostgresSource) acquireStreamConn(ctx context.Context) (*pgx.Conn, erro
 // connection itself, and finally the replication stream. It is safe to call
 // repeatedly and resumes from the slot's confirmed flush LSN.
 func (p *PostgresSource) reconnectStream(ctx context.Context) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.ensureConnNoLock(ctx); err != nil {
+	if err := p.ensureConn(ctx); err != nil {
 		return err
 	}
 	if err := p.ensurePublication(ctx); err != nil {
@@ -519,16 +516,21 @@ func (p *PostgresSource) reconnectStream(ctx context.Context) error {
 		return err
 	}
 
-	p.closeReplConnLocked()
-	if err := p.ensureReplConnNoLock(ctx); err != nil {
+	if err := p.ensureReplConn(ctx); err != nil {
 		return err
 	}
 
+	p.mu.Lock()
 	p.seedLSNFromSlotLocked(ctx)
 	if err := p.startReplicationWithReclaimLocked(ctx); err != nil {
+		p.mu.Unlock()
 		return fmt.Errorf("failed to start replication: %w", err)
 	}
-	p.log("INFO", "Replication stream (re)established", "slot", p.slotName, "publication", p.publicationName)
+	slotName := p.slotName
+	pubName := p.publicationName
+	p.mu.Unlock()
+
+	p.log("INFO", "Replication stream (re)established", "slot", slotName, "publication", pubName)
 	return nil
 }
 
@@ -816,10 +818,16 @@ func (p *PostgresSource) handleDelete(lsn pglogrepl.LSN, lm *pglogrepl.DeleteMes
 // pooler-safe pgx configuration. Callers own the returned connection and must
 // close it.
 func (p *PostgresSource) openMetadataConn(ctx context.Context) (*pgx.Conn, error) {
-	config, _, err := pgxutil.ParseConfig(p.connString)
+	config, pooled, err := pgxutil.ParseConfig(p.connString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
+
+	// Update pooled status safely
+	p.mu.Lock()
+	p.pooled = pooled
+	p.mu.Unlock()
+
 	if config.RuntimeParams == nil {
 		config.RuntimeParams = make(map[string]string)
 	}
@@ -828,35 +836,47 @@ func (p *PostgresSource) openMetadataConn(ctx context.Context) (*pgx.Conn, error
 	return pgx.ConnectConfig(ctx, config)
 }
 
-func (p *PostgresSource) ensureConnNoLock(ctx context.Context) error {
+func (p *PostgresSource) ensureConn(ctx context.Context) error {
+	p.mu.Lock()
 	if p.conn != nil && !p.conn.IsClosed() {
+		p.mu.Unlock()
 		return nil
 	}
+	p.mu.Unlock()
 
+	// Perform I/O without holding the lock to prevent deadlocking Close() during timeouts
 	conn, err := p.openMetadataConn(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to postgres: %w", err)
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.conn != nil && !p.conn.IsClosed() {
+		_ = conn.Close(ctx)
+		return nil
 	}
 	p.conn = conn
 	return nil
 }
 
-func (p *PostgresSource) ensureConn(ctx context.Context) error {
+func (p *PostgresSource) ensureReplConn(ctx context.Context) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.ensureConnNoLock(ctx)
-}
-
-func (p *PostgresSource) ensureReplConnNoLock(ctx context.Context) error {
 	if p.replConn != nil && !p.replConn.IsClosed() {
+		p.mu.Unlock()
 		return nil
 	}
+	p.mu.Unlock()
 
 	// Logical replication establishes a long-lived session-scoped connection and
 	// uses the replication protocol, neither of which is supported by a
 	// transaction/statement pooling proxy such as PgBouncer. Fail fast with an
 	// actionable message instead of hanging until the request deadline.
-	if p.pooled {
+	p.mu.Lock()
+	isPooled := p.pooled
+	p.mu.Unlock()
+
+	if isPooled {
 		return errors.New("CDC requires a direct Postgres connection; PgBouncer transaction/statement mode does not support logical replication. Provide a direct (session-mode) connection string for CDC sources")
 	}
 
@@ -871,23 +891,56 @@ func (p *PostgresSource) ensureReplConnNoLock(ctx context.Context) error {
 		connConfig.RuntimeParams = make(map[string]string)
 	}
 	connConfig.RuntimeParams["replication"] = "database"
-	// Tag the replication connection with a stable, instance-unique
-	// application_name. This lets reclaimSlotIfStaleLocked recognise a walsender
-	// left behind by a previous (ungracefully terminated) run of this same
-	// worker as our own orphan and reclaim it, without ever terminating a
-	// foreign live consumer of the slot.
-	if strings.TrimSpace(p.appName) != "" {
-		connConfig.RuntimeParams["application_name"] = p.appName
+
+	p.mu.Lock()
+	appName := p.appName
+	p.mu.Unlock()
+
+	if strings.TrimSpace(appName) != "" {
+		connConfig.RuntimeParams["application_name"] = appName
 	}
 
-	p.replConn, err = pgx.ConnectConfig(ctx, connConfig)
+	replConn, err := pgx.ConnectConfig(ctx, connConfig)
 	if err != nil {
 		return fmt.Errorf("failed to connect to postgres for replication: %w", err)
 	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.closeReplConnLocked()
+	p.replConn = replConn
 	return nil
 }
 
+func (p *PostgresSource) ensureConnNoLock(ctx context.Context) error {
+	if p.conn != nil && !p.conn.IsClosed() {
+		return nil
+	}
+	return errors.New("connection not established (call ensureConn first)")
+}
+
+func (p *PostgresSource) ensureReplConnNoLock(ctx context.Context) error {
+	if p.replConn != nil && !p.replConn.IsClosed() {
+		return nil
+	}
+	return errors.New("replication connection not established (call ensureReplConn first)")
+}
+
 func (p *PostgresSource) init(ctx context.Context) error {
+	if err := p.ensureConn(ctx); err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	useCDC := p.useCDC
+	p.mu.Unlock()
+
+	if useCDC {
+		if err := p.ensureReplConn(ctx); err != nil {
+			return err
+		}
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -1433,9 +1486,10 @@ func (p *PostgresSource) DiscoverTables(ctx context.Context) ([]string, error) {
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	conn := p.conn
+	p.mu.Unlock()
 
-	rows, err := p.conn.Query(ctx, "SELECT schemaname || '.' || tablename FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')")
+	rows, err := conn.Query(ctx, "SELECT schemaname || '.' || tablename FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
@@ -1461,9 +1515,10 @@ func (p *PostgresSource) DiscoverReplicationSlots(ctx context.Context) ([]hermod
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	conn := p.conn
+	p.mu.Unlock()
 
-	rows, err := p.conn.Query(ctx, "SELECT slot_name, COALESCE(plugin, ''), COALESCE(slot_type, ''), COALESCE(database, ''), active FROM pg_replication_slots ORDER BY slot_name")
+	rows, err := conn.Query(ctx, "SELECT slot_name, COALESCE(plugin, ''), COALESCE(slot_type, ''), COALESCE(database, ''), active FROM pg_replication_slots ORDER BY slot_name")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query replication slots: %w", err)
 	}
@@ -1489,9 +1544,10 @@ func (p *PostgresSource) DiscoverPublications(ctx context.Context) ([]hermod.Pub
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	conn := p.conn
+	p.mu.Unlock()
 
-	rows, err := p.conn.Query(ctx, "SELECT pubname, puballtables FROM pg_publication ORDER BY pubname")
+	rows, err := conn.Query(ctx, "SELECT pubname, puballtables FROM pg_publication ORDER BY pubname")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query publications: %w", err)
 	}
@@ -1515,7 +1571,7 @@ func (p *PostgresSource) DiscoverPublications(ctx context.Context) ([]hermod.Pub
 		if pubs[i].AllTables {
 			continue
 		}
-		tableRows, err := p.conn.Query(ctx, "SELECT schemaname || '.' || tablename FROM pg_publication_tables WHERE pubname = $1 ORDER BY 1", pubs[i].Name)
+		tableRows, err := conn.Query(ctx, "SELECT schemaname || '.' || tablename FROM pg_publication_tables WHERE pubname = $1 ORDER BY 1", pubs[i].Name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query publication tables: %w", err)
 		}
@@ -1542,7 +1598,8 @@ func (p *PostgresSource) DiscoverColumns(ctx context.Context, table string) ([]h
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	conn := p.conn
+	p.mu.Unlock()
 
 	query := `
 		SELECT column_name, data_type, COALESCE(is_nullable = 'YES', false), 
@@ -1558,7 +1615,7 @@ func (p *PostgresSource) DiscoverColumns(ctx context.Context, table string) ([]h
 		WHERE table_name = $1 OR table_schema || '.' || table_name = $1
 		ORDER BY ordinal_position`
 
-	rows, err := p.conn.Query(ctx, query, table)
+	rows, err := conn.Query(ctx, query, table)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query columns: %w", err)
 	}
@@ -1585,13 +1642,14 @@ func (p *PostgresSource) Sample(ctx context.Context, table string) (hermod.Messa
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	conn := p.conn
+	p.mu.Unlock()
 
 	quoted, err := sqlutil.QuoteIdent("pgx", table)
 	if err != nil {
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
-	rows, err := p.conn.Query(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted))
+	rows, err := conn.Query(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sample record: %w", err)
 	}

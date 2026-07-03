@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/user/hermod"
@@ -22,7 +23,8 @@ type SlackSource struct {
 	items         []map[string]any
 	currentIndex  int
 	lastPoll      time.Time
-	baseURL       string // Added for testing
+	baseURL       string
+	mu            sync.Mutex
 }
 
 // NewSlackSource creates a new SlackSource.
@@ -43,15 +45,18 @@ func NewSlackSource(token, channelID string, interval time.Duration) *SlackSourc
 
 // Read reads the next message from Slack.
 func (s *SlackSource) Read(ctx context.Context) (hermod.Message, error) {
+	s.mu.Lock()
 	if s.currentIndex < len(s.items) {
 		item := s.items[s.currentIndex]
 		s.currentIndex++
+		s.mu.Unlock()
 		return s.messageFromData(item), nil
 	}
 
 	// Wait for interval
 	if !s.lastPoll.IsZero() {
 		nextRun := s.lastPoll.Add(s.interval)
+		s.mu.Unlock()
 		if time.Now().Before(nextRun) {
 			select {
 			case <-ctx.Done():
@@ -59,15 +64,18 @@ func (s *SlackSource) Read(ctx context.Context) (hermod.Message, error) {
 			case <-time.After(time.Until(nextRun)):
 			}
 		}
+		s.mu.Lock()
 	}
 
 	s.lastPoll = time.Now()
 	s.items = nil
 	s.currentIndex = 0
+	lastTimestamp := s.lastTimestamp
+	s.mu.Unlock()
 
 	apiURL := fmt.Sprintf("%s/conversations.history?channel=%s&limit=50", s.baseURL, s.channelID)
-	if s.lastTimestamp != "" {
-		apiURL = fmt.Sprintf("%s&oldest=%s", apiURL, s.lastTimestamp)
+	if lastTimestamp != "" {
+		apiURL = fmt.Sprintf("%s&oldest=%s", apiURL, lastTimestamp)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
@@ -106,11 +114,14 @@ func (s *SlackSource) Read(ctx context.Context) (hermod.Message, error) {
 		result.Messages[i], result.Messages[j] = result.Messages[j], result.Messages[i]
 	}
 
+	s.mu.Lock()
 	s.items = result.Messages
 	s.lastTimestamp = s.items[len(s.items)-1]["ts"].(string)
 
 	item := s.items[0]
 	s.currentIndex = 1
+	s.mu.Unlock()
+
 	return s.messageFromData(item), nil
 }
 
@@ -166,6 +177,8 @@ func (s *SlackSource) Ping(ctx context.Context) error {
 
 // GetState returns the current state of the source.
 func (s *SlackSource) GetState() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return map[string]string{
 		"last_timestamp": s.lastTimestamp,
 	}
@@ -173,6 +186,8 @@ func (s *SlackSource) GetState() map[string]string {
 
 // SetState sets the current state of the source.
 func (s *SlackSource) SetState(state map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if ts, ok := state["last_timestamp"]; ok {
 		s.lastTimestamp = ts
 	}

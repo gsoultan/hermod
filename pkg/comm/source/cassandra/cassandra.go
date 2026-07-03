@@ -77,20 +77,28 @@ func (c *CassandraSource) log(level, msg string, keysAndValues ...any) {
 
 func (c *CassandraSource) init(ctx context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if c.session != nil && !c.session.Closed() {
+		c.mu.Unlock()
 		return nil
 	}
+	c.mu.Unlock()
 
-	c.cluster = gocql.NewCluster(c.hosts...)
-	c.cluster.Consistency = gocql.One
-	c.cluster.Timeout = 5 * time.Second
+	cluster := gocql.NewCluster(c.hosts...)
+	cluster.Consistency = gocql.One
+	cluster.Timeout = 5 * time.Second
 
-	session, err := c.cluster.CreateSession()
+	session, err := cluster.CreateSession()
 	if err != nil {
 		return fmt.Errorf("failed to connect to cassandra: %w", err)
 	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.session != nil && !c.session.Closed() {
+		session.Close()
+		return nil
+	}
+	c.cluster = cluster
 	c.session = session
 	return nil
 }
@@ -211,7 +219,15 @@ func (c *CassandraSource) Ping(ctx context.Context) error {
 	if err := c.init(ctx); err != nil {
 		return err
 	}
-	return c.session.Query("SELECT now() FROM system.local").WithContext(ctx).Exec()
+
+	c.mu.Lock()
+	sess := c.session
+	c.mu.Unlock()
+	if sess == nil || sess.Closed() {
+		return fmt.Errorf("cassandra session not initialized")
+	}
+
+	return sess.Query("SELECT now() FROM system.local").WithContext(ctx).Exec()
 }
 
 func (c *CassandraSource) Close() error {
@@ -232,7 +248,14 @@ func (c *CassandraSource) DiscoverDatabases(ctx context.Context) ([]string, erro
 		return nil, err
 	}
 
-	iter := c.session.Query("SELECT keyspace_name FROM system_schema.keyspaces").WithContext(ctx).Iter()
+	c.mu.Lock()
+	sess := c.session
+	c.mu.Unlock()
+	if sess == nil || sess.Closed() {
+		return nil, fmt.Errorf("cassandra session not initialized")
+	}
+
+	iter := sess.Query("SELECT keyspace_name FROM system_schema.keyspaces").WithContext(ctx).Iter()
 	var keyspaces []string
 	var name string
 	for iter.Scan(&name) {
@@ -249,9 +272,16 @@ func (c *CassandraSource) DiscoverTables(ctx context.Context) ([]string, error) 
 		return nil, err
 	}
 
+	c.mu.Lock()
+	sess := c.session
+	c.mu.Unlock()
+	if sess == nil || sess.Closed() {
+		return nil, fmt.Errorf("cassandra session not initialized")
+	}
+
 	// This queries all tables across all keyspaces.
 	// In a real scenario, we might want to filter by keyspace.
-	iter := c.session.Query("SELECT keyspace_name, table_name FROM system_schema.tables").WithContext(ctx).Iter()
+	iter := sess.Query("SELECT keyspace_name, table_name FROM system_schema.tables").WithContext(ctx).Iter()
 	var tables []string
 	var ks, tbl string
 	for iter.Scan(&ks, &tbl) {
@@ -266,6 +296,13 @@ func (c *CassandraSource) DiscoverTables(ctx context.Context) ([]string, error) 
 func (c *CassandraSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
 	if err := c.init(ctx); err != nil {
 		return nil, err
+	}
+
+	c.mu.Lock()
+	sess := c.session
+	c.mu.Unlock()
+	if sess == nil || sess.Closed() {
+		return nil, fmt.Errorf("cassandra session not initialized")
 	}
 
 	targetKS := ""
@@ -283,7 +320,7 @@ func (c *CassandraSource) DiscoverColumns(ctx context.Context, table string) ([]
 		args = append(args, targetKS)
 	}
 
-	iter := c.session.Query(query, args...).WithContext(ctx).Iter()
+	iter := sess.Query(query, args...).WithContext(ctx).Iter()
 	var columns []hermod.ColumnInfo
 	var name, ctype, kind string
 	for iter.Scan(&name, &ctype, &kind) {
@@ -306,12 +343,19 @@ func (c *CassandraSource) Sample(ctx context.Context, table string) (hermod.Mess
 		return nil, err
 	}
 
+	c.mu.Lock()
+	sess := c.session
+	c.mu.Unlock()
+	if sess == nil || sess.Closed() {
+		return nil, fmt.Errorf("cassandra session not initialized")
+	}
+
 	// table here might be "keyspace.table" or just "table"
 	if err := sqlutil.ValidateIdent(table); err != nil {
 		return nil, err
 	}
 	query := fmt.Sprintf("SELECT * FROM %s LIMIT 1", table)
-	iter := c.session.Query(query).WithContext(ctx).Iter()
+	iter := sess.Query(query).WithContext(ctx).Iter()
 
 	columns := iter.Columns()
 	values := make([]any, len(columns))

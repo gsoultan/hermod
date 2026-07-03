@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/snowflakedb/gosnowflake"
@@ -17,6 +18,7 @@ import (
 // Sink implements the hermod.Sink interface for Snowflake.
 type Sink struct {
 	db               *sql.DB
+	mu               sync.Mutex
 	connString       string
 	formatter        hermod.Formatter
 	tableName        string
@@ -54,13 +56,19 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 		return nil
 	}
 
-	if s.db == nil {
-		if err := s.init(); err != nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
+		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -201,7 +209,14 @@ func (s *Sink) deleteMapped(ctx context.Context, tx *sql.Tx, table string, msg h
 	return err
 }
 
-func (s *Sink) init() error {
+func (s *Sink) init(ctx context.Context) error {
+	s.mu.Lock()
+	if s.db != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	db, err := sql.Open("snowflake", s.connString)
 	if err != nil {
 		return err
@@ -210,39 +225,64 @@ func (s *Sink) init() error {
 	db.SetMaxOpenConns(20)
 	db.SetMaxIdleConns(10)
 	db.SetConnMaxIdleTime(60 * time.Second)
+
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db != nil {
+		db.Close()
+		return nil
+	}
 	s.db = db
-	// Note: do not eagerly Ping here. sql.Open does not establish a
-	// connection, and a context-less Ping can block indefinitely. Callers
-	// verify connectivity via PingContext using a context with a deadline.
 	return nil
 }
 
 func (s *Sink) Ping(ctx context.Context) error {
-	if s.db == nil {
-		if err := s.init(); err != nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
+		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
-	return s.db.PingContext(ctx)
+	return db.PingContext(ctx)
 }
 
 func (s *Sink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.db != nil {
-		return s.db.Close()
+		err := s.db.Close()
+		s.db = nil
+		return err
 	}
 	return nil
 }
 
 func (s *Sink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
-	if s.db == nil {
-		if err := s.init(); err != nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
+		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
 	// In Snowflake, we use DESCRIBE TABLE
 	query := "DESCRIBE TABLE " + table
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}

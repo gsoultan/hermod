@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -17,6 +18,7 @@ type RedisSink struct {
 	stream    string
 	formatter hermod.Formatter
 	client    *redis.Client
+	mu        sync.Mutex
 	// idempotency reporting (last write outcome)
 	lastDedup    bool
 	lastConflict bool
@@ -32,25 +34,55 @@ func NewRedisSink(addr string, password string, stream string, formatter hermod.
 }
 
 func (s *RedisSink) init(ctx context.Context) error {
-	s.client = redis.NewClient(&redis.Options{
+	s.mu.Lock()
+	if s.client != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
+	cl := redis.NewClient(&redis.Options{
 		Addr:     s.addr,
 		Password: s.password,
 	})
-	return s.client.Ping(ctx).Err()
+
+	if err := cl.Ping(ctx).Err(); err != nil {
+		cl.Close()
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil {
+		cl.Close()
+		return nil
+	}
+	s.client = cl
+	return nil
 }
 
 func (s *RedisSink) Write(ctx context.Context, msg hermod.Message) error {
 	if msg == nil {
 		return nil
 	}
-	if s.client == nil {
+
+	s.mu.Lock()
+	cl := s.client
+	s.mu.Unlock()
+	if cl == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		cl = s.client
+		s.mu.Unlock()
 	}
+
 	// reset last outcome
+	s.mu.Lock()
 	s.lastDedup = false
 	s.lastConflict = false
+	s.mu.Unlock()
 
 	// Idempotency via SETNX with TTL: if message has an ID, use it to dedupe
 	if id := msg.ID(); id != "" {
@@ -65,13 +97,15 @@ func (s *RedisSink) Write(ctx context.Context, msg hermod.Message) error {
 			ns = "hermod:idemp"
 		}
 		key := fmt.Sprintf("%s:%s:%s", ns, s.stream, id)
-		ok, err := s.client.SetNX(ctx, key, "1", ttl).Result()
+		ok, err := cl.SetNX(ctx, key, "1", ttl).Result()
 		if err != nil {
 			return fmt.Errorf("redis idempotency setnx error: %w", err)
 		}
 		if !ok {
 			// Duplicate message; treat as handled without re-publishing
+			s.mu.Lock()
 			s.lastDedup = true
+			s.mu.Unlock()
 			return nil
 		}
 	}
@@ -89,7 +123,7 @@ func (s *RedisSink) Write(ctx context.Context, msg hermod.Message) error {
 		return fmt.Errorf("failed to format message: %w", err)
 	}
 
-	err = s.client.XAdd(ctx, &redis.XAddArgs{
+	err = cl.XAdd(ctx, &redis.XAddArgs{
 		Stream: s.stream,
 		Values: map[string]any{"data": data},
 	}).Err()
@@ -104,19 +138,33 @@ func (s *RedisSink) Write(ctx context.Context, msg hermod.Message) error {
 // LastWriteIdempotent reports whether the last Write call resulted in a dedup skip
 // or a conflict. Redis sink only reports dedup (conflicts are not applicable).
 func (s *RedisSink) LastWriteIdempotent() (bool, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.lastDedup, s.lastConflict
 }
 
 func (s *RedisSink) Ping(ctx context.Context) error {
-	if s.client == nil {
-		return s.init(ctx)
+	s.mu.Lock()
+	cl := s.client
+	s.mu.Unlock()
+	if cl == nil {
+		if err := s.init(ctx); err != nil {
+			return err
+		}
+		s.mu.Lock()
+		cl = s.client
+		s.mu.Unlock()
 	}
-	return s.client.Ping(ctx).Err()
+	return cl.Ping(ctx).Err()
 }
 
 func (s *RedisSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.client != nil {
-		return s.client.Close()
+		err := s.client.Close()
+		s.client = nil
+		return err
 	}
 	return nil
 }

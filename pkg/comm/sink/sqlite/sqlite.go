@@ -395,6 +395,13 @@ func (s *SQLiteSink) updateMapped(ctx context.Context, tx *sql.Tx, table string,
 }
 
 func (s *SQLiteSink) init(ctx context.Context) error {
+	s.mu.Lock()
+	if s.db != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	dsn := s.dbPath
 	if !strings.Contains(dsn, "?") {
 		dsn += "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
@@ -404,22 +411,43 @@ func (s *SQLiteSink) init(ctx context.Context) error {
 		return fmt.Errorf("failed to open sqlite db: %w", err)
 	}
 	db.SetMaxOpenConns(1)
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to ping sqlite db: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db != nil {
+		db.Close()
+		return nil
+	}
 	s.db = db
-	return s.db.PingContext(ctx)
+	return nil
 }
 
 func (s *SQLiteSink) Ping(ctx context.Context) error {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
-	return s.db.PingContext(ctx)
+	return db.PingContext(ctx)
 }
 
 func (s *SQLiteSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.db != nil {
-		return s.db.Close()
+		err := s.db.Close()
+		s.db = nil
+		return err
 	}
 	return nil
 }
@@ -429,13 +457,19 @@ func (s *SQLiteSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
 }
 
 func (s *SQLiteSink) DiscoverTables(ctx context.Context) ([]string, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
-	rows, err := s.db.QueryContext(ctx, commonQueries[QueryListTables])
+	rows, err := db.QueryContext(ctx, commonQueries[QueryListTables])
 	if err != nil {
 		return nil, err
 	}
@@ -453,10 +487,16 @@ func (s *SQLiteSink) DiscoverTables(ctx context.Context) ([]string, error) {
 }
 
 func (s *SQLiteSink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
 	quoted, err := sqlutil.QuoteIdent("sqlite", table)
@@ -464,7 +504,7 @@ func (s *SQLiteSink) DiscoverColumns(ctx context.Context, table string) ([]hermo
 		return nil, err
 	}
 	query := fmt.Sprintf(commonQueries[QueryListColumns], quoted)
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -503,10 +543,16 @@ func (s *SQLiteSink) Sample(ctx context.Context, table string) (hermod.Message, 
 }
 
 func (s *SQLiteSink) Browse(ctx context.Context, table string, limit int) ([]hermod.Message, error) {
-	if s.db == nil {
+	s.mu.Lock()
+	db := s.db
+	s.mu.Unlock()
+	if db == nil {
 		if err := s.init(ctx); err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
+		db = s.db
+		s.mu.Unlock()
 	}
 
 	quoted, err := sqlutil.QuoteIdent("sqlite", table)
@@ -514,7 +560,7 @@ func (s *SQLiteSink) Browse(ctx context.Context, table string, limit int) ([]her
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
 	query := fmt.Sprintf(commonQueries[QueryBrowse], quoted, limit)
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
