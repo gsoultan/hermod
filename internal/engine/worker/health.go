@@ -106,9 +106,12 @@ func (w *Worker) isResourceAssigned(id, workerID string) bool {
 }
 
 func (w *Worker) checkSourceHealth(ctx context.Context, src storage.Source) {
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	status := "running"
 	s, err := factory.CreateSource(factory.SourceConfig{Type: src.Type, Config: src.Config})
-	if err != nil || s.Ping(ctx) != nil {
+	if err != nil || s.Ping(checkCtx) != nil {
 		status = "error"
 	}
 	if s != nil {
@@ -121,9 +124,12 @@ func (w *Worker) checkSourceHealth(ctx context.Context, src storage.Source) {
 }
 
 func (w *Worker) checkSinkHealth(ctx context.Context, snk storage.Sink) {
+	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	status := "running"
 	s, err := factory.CreateSink(factory.SinkConfig{Type: snk.Type, Config: snk.Config})
-	if err != nil || s.Ping(ctx) != nil {
+	if err != nil || s.Ping(checkCtx) != nil {
 		status = "error"
 	}
 	if s != nil {

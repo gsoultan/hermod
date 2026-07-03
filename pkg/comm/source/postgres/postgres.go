@@ -1275,11 +1275,13 @@ func (p *PostgresSource) Ping(ctx context.Context) error {
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.conn == nil {
+	conn := p.conn
+	p.mu.Unlock()
+
+	if conn == nil {
 		return errors.New("connection not initialized")
 	}
-	return p.conn.Ping(ctx)
+	return conn.Ping(ctx)
 }
 
 func (p *PostgresSource) IsReady(ctx context.Context) error {
@@ -1314,12 +1316,14 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 // the existing metadata connection instead of dialing a fresh one.
 func (p *PostgresSource) checkWALLevel(ctx context.Context) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.conn == nil {
+	conn := p.conn
+	p.mu.Unlock()
+
+	if conn == nil {
 		return errors.New("connection not initialized")
 	}
 	var walLevel string
-	if err := p.conn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
+	if err := conn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
 		return fmt.Errorf("failed to check wal_level: %w", err)
 	}
 	if walLevel != "logical" {

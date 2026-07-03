@@ -226,7 +226,7 @@ func (h *Handler) StartWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pid, err := spawnWorkerProcess(exePath, worker, platformURLFromRequest(r))
+	pid, err := spawnWorkerProcess(exePath, worker, h.platformURLFromRequest(r))
 	if err != nil {
 		h.JsonError(w, "failed to start worker process", http.StatusInternalServerError)
 		return
@@ -276,7 +276,17 @@ var spawnWorkerProcess = func(exePath string, worker storage.Worker, platformURL
 
 // platformURLFromRequest reconstructs the platform API base URL from the
 // incoming request so the spawned worker can connect back to this server.
-func platformURLFromRequest(r *http.Request) string {
+// It prioritizes the "base_url" configured in notification settings.
+func (h *Handler) platformURLFromRequest(r *http.Request) string {
+	if val, err := h.Storage.GetSetting(r.Context(), "notification_settings"); err == nil && val != "" {
+		var s struct {
+			BaseURL string `json:"base_url"`
+		}
+		if err := json.Unmarshal([]byte(val), &s); err == nil && s.BaseURL != "" {
+			return s.BaseURL
+		}
+	}
+
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
