@@ -664,10 +664,10 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 				if err != nil {
 					serrCh <- err
 				}
-				releasePendingMessage(pm)
 			case <-ctx.Done():
 				serrCh <- ctx.Err()
 			}
+			releasePendingMessage(pm)
 		}(sw, pm)
 	}
 	swg.Wait()

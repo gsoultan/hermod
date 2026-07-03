@@ -188,24 +188,29 @@ func (h *Handler) HandleDashboardWS(w http.ResponseWriter, r *http.Request) {
 	// Actively read so we can observe pong/close frames and client disconnects.
 	done := startWSReadPump(conn)
 
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
+	ch := h.Registry.SubscribeDashboardStats(vhost)
+	defer h.Registry.UnsubscribeDashboardStats(ch)
+
+	// Send initial stats immediately
+	stats, err := h.Registry.GetDashboardStats(r.Context(), vhost)
+	if err == nil {
+		_ = wsWriteJSON(conn, stats)
+	}
 
 	// Heartbeat
-	pingTicker := time.NewTicker(wsHeartbeat)
-	defer pingTicker.Stop()
+	ticker := time.NewTicker(wsHeartbeat)
+	defer ticker.Stop()
 
 	for {
 		select {
-		case <-ticker.C:
-			stats, err := h.Registry.GetDashboardStats(r.Context(), vhost)
-			if err != nil {
-				continue
-			}
-			if err := wsWriteJSON(conn, stats); err != nil {
+		case update, ok := <-ch:
+			if !ok {
 				return
 			}
-		case <-pingTicker.C:
+			if err := wsWriteJSON(conn, update); err != nil {
+				return
+			}
+		case <-ticker.C:
 			if err := wsWritePing(conn); err != nil {
 				return
 			}

@@ -59,18 +59,28 @@ func (r *Registry) StatusSubscriberCount() int {
 	return count
 }
 
-func (r *Registry) SubscribeDashboardStats() chan storage.DashboardStats {
+func (r *Registry) SubscribeDashboardStats(vhost string) chan storage.DashboardStats {
 	r.statusSubsMu.Lock()
 	defer r.statusSubsMu.Unlock()
+	if r.dashboardSubs[vhost] == nil {
+		r.dashboardSubs[vhost] = make(map[chan storage.DashboardStats]bool)
+	}
 	ch := make(chan storage.DashboardStats, 10)
-	r.dashboardSubs[ch] = true
+	r.dashboardSubs[vhost][ch] = true
 	return ch
 }
 
 func (r *Registry) UnsubscribeDashboardStats(ch chan storage.DashboardStats) {
 	r.statusSubsMu.Lock()
 	defer r.statusSubsMu.Unlock()
-	delete(r.dashboardSubs, ch)
+	for vhost, subs := range r.dashboardSubs {
+		if subs[ch] {
+			delete(subs, ch)
+			if len(subs) == 0 {
+				delete(r.dashboardSubs, vhost)
+			}
+		}
+	}
 	close(ch)
 }
 
@@ -243,15 +253,26 @@ func (r *Registry) BroadcastStatus(update telemetry.StatusUpdate) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			stats, err := r.GetDashboardStats(ctx, "")
-			if err == nil {
-				r.statusSubsMu.RLock()
-				defer r.statusSubsMu.RUnlock()
-				for ch := range r.dashboardSubs {
-					select {
-					case ch <- stats:
-					default:
+			r.statusSubsMu.RLock()
+			vhosts := make([]string, 0, len(r.dashboardSubs))
+			for vhost := range r.dashboardSubs {
+				vhosts = append(vhosts, vhost)
+			}
+			r.statusSubsMu.RUnlock()
+
+			for _, vhost := range vhosts {
+				stats, err := r.GetDashboardStats(ctx, vhost)
+				if err == nil {
+					r.statusSubsMu.RLock()
+					if subs, ok := r.dashboardSubs[vhost]; ok {
+						for ch := range subs {
+							select {
+							case ch <- stats:
+							default:
+							}
+						}
 					}
+					r.statusSubsMu.RUnlock()
 				}
 			}
 		}()
@@ -425,6 +446,11 @@ func (r *Registry) hasStatusObservers() bool {
 		return true
 	}
 	for _, subs := range r.workflowStatusSubs {
+		if len(subs) > 0 {
+			return true
+		}
+	}
+	for _, subs := range r.dashboardSubs {
 		if len(subs) > 0 {
 			return true
 		}

@@ -65,13 +65,14 @@ type sinkWriter struct {
 type pendingMessage struct {
 	msg      hermod.Message
 	done     chan error
-	released atomic.Bool
+	refCount atomic.Int32
 }
 
 var pendingMessagePool = sync.Pool{
 	New: func() any {
 		return &pendingMessage{
-			done: make(chan error, 1),
+			done:     make(chan error, 1),
+			refCount: atomic.Int32{},
 		}
 	},
 }
@@ -79,23 +80,23 @@ var pendingMessagePool = sync.Pool{
 func acquirePendingMessage(msg hermod.Message) *pendingMessage {
 	pm := pendingMessagePool.Get().(*pendingMessage)
 	pm.msg = msg
-	pm.released.Store(false)
+	pm.refCount.Store(2) // One for the producer/runner, one for the writer/backpressure
 	return pm
 }
 
 func releasePendingMessage(pm *pendingMessage) {
-	// Guard against double-release: a pendingMessage has a single owner (the
-	// goroutine that selects on pm.done). Backpressure eviction must never
-	// release a message owned by another goroutine, but we keep this guard so a
-	// stray double-release can never corrupt the pool or drive the message
-	// refcount below zero.
-	if !pm.released.CompareAndSwap(false, true) {
+	// A pendingMessage is shared between a producer (the runner) and a consumer
+	// (the sinkWriter or backpressure strategy). It must only be returned to the
+	// pool when BOTH have finished their work.
+	if pm.refCount.Add(-1) > 0 {
 		return
 	}
+
 	if pm.msg != nil {
 		pm.msg.Release()
+		pm.msg = nil
 	}
-	pm.msg = nil
+
 	// Reset the done channel by reading if it has anything (should be empty though)
 	select {
 	case <-pm.done:
@@ -727,10 +728,12 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 		if isBatch {
 			for _, pm := range batch {
 				pm.done <- err
+				releasePendingMessage(pm)
 			}
 		} else {
 			for i := range batch {
 				batch[i].done <- perMsgErr[i]
+				releasePendingMessage(batch[i])
 			}
 		}
 
@@ -782,12 +785,21 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 						flush()
 						return true // input closed
 					}
-					batch = append(batch, pm)
-					if pm != nil && pm.msg != nil && pm.msg.Payload() != nil {
-						batchBytes += len(pm.msg.Payload())
-					}
-					if len(batch) >= batchSize || (w.config.BatchBytes > 0 && batchBytes >= w.config.BatchBytes) {
-						flush()
+					// Take a local reference to the message to avoid data races if
+					// the owner releases the pendingMessage concurrently.
+					msg := pm.msg
+					if msg != nil {
+						batch = append(batch, pm)
+						if payload := msg.Payload(); payload != nil {
+							batchBytes += len(payload)
+						}
+						if len(batch) >= batchSize || (w.config.BatchBytes > 0 && batchBytes >= w.config.BatchBytes) {
+							flush()
+						}
+					} else {
+						// Message already released by owner (e.g. timeout)
+						pm.done <- errors.New("message released before processing")
+						releasePendingMessage(pm)
 					}
 				case <-ticker.C:
 					flush()
@@ -820,10 +832,13 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 			select {
 			case old := <-target:
 				if old != nil {
-					// Signal the eviction to the owning goroutine; that owner is
-					// responsible for releasing the pending message. Releasing it
-					// here would double-release the pooled object (use-after-free).
+					// Signal the eviction to the owning goroutine. We also call
+					// releasePendingMessage here to ensure the pooled object is
+					// returned even if the owner has already timed out. The
+					// atomic released flag in releasePendingMessage safely
+					// prevents double-release.
 					old.done <- errors.New("dropped due to backpressure (drop_oldest)")
+					releasePendingMessage(old)
 				}
 				telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPDropOldest)).Inc()
 			default:
@@ -832,6 +847,7 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 			case target <- pm:
 			default:
 				pm.done <- errors.New("dropped due to backpressure (drop_oldest - overflow)")
+				releasePendingMessage(pm)
 				telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPDropOldest)).Inc()
 			}
 		}
@@ -840,6 +856,7 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 		case target <- pm:
 		default:
 			pm.done <- errors.New("dropped due to backpressure (drop_newest)")
+			releasePendingMessage(pm)
 			telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPDropNewest)).Inc()
 		}
 	case config.BPSampling:
@@ -849,12 +866,14 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 		}
 		if rand.Float64() > rate {
 			pm.done <- errors.New("dropped due to sampling")
+			releasePendingMessage(pm)
 			telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPSampling)).Inc()
 		} else {
 			select {
 			case target <- pm:
 			case <-ctx.Done():
 				pm.done <- ctx.Err()
+				releasePendingMessage(pm)
 			}
 		}
 	case config.BPSpillToDisk:
@@ -875,14 +894,16 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 					pm.done <- fmt.Errorf("spill to disk failed: %w", err)
 				} else {
 					pm.done <- nil
-					telemetry.BackpressureSpillTotal.WithLabelValues(w.engine.workflowID, w.sinkID).Inc()
 				}
+				releasePendingMessage(pm)
+				telemetry.BackpressureSpillTotal.WithLabelValues(w.engine.workflowID, w.sinkID).Inc()
 			} else {
 				// Fallback: block like BPBlock
 				select {
 				case target <- pm:
 				case <-ctx.Done():
 					pm.done <- ctx.Err()
+					releasePendingMessage(pm)
 				}
 			}
 		}
@@ -891,6 +912,7 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 		case target <- pm:
 		case <-ctx.Done():
 			pm.done <- ctx.Err()
+			releasePendingMessage(pm)
 		}
 	}
 }
