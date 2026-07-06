@@ -497,6 +497,7 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 
 			if err := r.engine.buffer.Produce(ctx, m); err != nil {
 				r.engine.logger.Error("Failed to write message to buffer", "workflow_id", r.engine.workflowID, "error", err)
+				m.Release()
 			}
 		}
 	}
@@ -559,6 +560,11 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 }
 
 func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
+	if m == nil {
+		return
+	}
+	defer m.Release()
+
 	defer func() {
 		if p := recover(); p != nil {
 			r.engine.logger.Error("Panic in message processing", "workflow_id", r.engine.workflowID, "panic", p, "stack", string(debug.Stack()))
@@ -672,11 +678,6 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 	}
 	swg.Wait()
 	close(serrCh)
-	// NOTE: do not release m yet. It is still needed below for the
-	// source acknowledgement (Ack reads m.ID()) and the outbox lookup
-	// (m.Metadata()). Releasing it here recycles the message and would
-	// clear its identity before Ack runs (use-after-release).
-	defer m.Release()
 	for err := range serrCh {
 		if err != nil {
 			r.engine.logger.Error("Sink write error", "workflow_id", r.engine.workflowID, "error", err)

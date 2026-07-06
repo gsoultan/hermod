@@ -67,13 +67,20 @@ func (t *workflowTraversal) processNode(ctx context.Context, currID string) {
 	defer t.eng.ReleaseNode(currID)
 
 	t.msgMu.Lock()
-	currMsg := t.currentMessages[t.nodeIndex[currID]]
+	idx := t.nodeIndex[currID]
+	currMsg := t.currentMessages[idx]
+	// Take ownership of the message from the traversal state
+	t.currentMessages[idx] = nil
 	t.msgMu.Unlock()
 
 	currNode := t.nodeMap[currID]
 	if currNode == nil || currMsg == nil {
+		if currMsg != nil {
+			currMsg.Release()
+		}
 		return
 	}
+	defer currMsg.Release()
 
 	msgs, branch, err := t.runNode(ctx, currNode, currMsg)
 	t.handleResults(ctx, currNode, msgs, branch, err)
@@ -144,6 +151,14 @@ func (t *workflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 			t.resolveEdge(ctx, targetID, false)
 		}
 	}
+
+	// If there were no targets, we must release the messages now as no one took
+	// ownership of the references returned by runNode.
+	if len(validTargets) == 0 {
+		for _, m := range msgs {
+			m.Release()
+		}
+	}
 }
 
 // routeToSink appends produced messages to the routed output when the node is a
@@ -161,6 +176,7 @@ func (t *workflowTraversal) routeToSink(node *storage.WorkflowNode, msgs []hermo
 	}
 	t.routedMu.Lock()
 	for _, m := range msgs {
+		m.Retain()
 		t.routed = append(t.routed, pkgengine.RoutedMessage{SinkIndex: idx, Message: m})
 	}
 	t.routedMu.Unlock()
@@ -218,6 +234,13 @@ func (t *workflowTraversal) deliverToTarget(targetID string, msg hermod.Message,
 			strategy, _ = targetNode.Config["strategy"].(string)
 		}
 		t.registry.mergeData(t.currentMessages[idx].Data(), msg.Data(), strategy)
+
+		// If we were passed ownership of this reference but decided to merge
+		// its data instead of storing the message itself, we must release the
+		// reference now to avoid a leak.
+		if !shouldClone {
+			msg.Release()
+		}
 	}
 }
 

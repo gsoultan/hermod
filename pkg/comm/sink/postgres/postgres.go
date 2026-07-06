@@ -434,10 +434,20 @@ func validateTxID(txID string) error {
 }
 
 func (s *PostgresSink) Ping(ctx context.Context) error {
-	if err := s.init(ctx); err != nil {
-		return err
+	// Create a new connection for testing and close it immediately.
+	// This ensures no persistent pool resources are held after the test.
+	cfg, _, err := pgxutil.ParseConfig(s.connString)
+	if err != nil {
+		return fmt.Errorf("failed to parse connection string: %w", err)
 	}
-	return s.pool.Ping(ctx)
+
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to connect to postgres: %w", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+
+	return conn.Ping(ctx)
 }
 
 func (s *PostgresSink) Close() error {
@@ -455,18 +465,39 @@ func (s *PostgresSink) Close() error {
 }
 
 func (s *PostgresSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
-	if err := s.init(ctx); err != nil {
-		return nil, err
+	// Create a new connection for discovery and close it immediately.
+	cfg, _, err := pgxutil.ParseConfig(s.connString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	s.connMu.Lock()
-	pool := s.pool
-	s.connMu.Unlock()
-	if pool == nil {
-		return nil, errors.New("sink pool not initialized")
+	// If dbname is missing or wrong, force a safe default for discovery
+	if strings.TrimSpace(cfg.Database) == "" {
+		cfg.Database = "postgres"
 	}
 
-	rows, err := pool.Query(ctx, commonQueries[QueryListDatabases])
+	// Helper to connect with fallback on invalid_catalog_name (3D000)
+	connect := func(cfg *pgx.ConnConfig) (*pgx.Conn, error) {
+		conn, err := pgx.ConnectConfig(ctx, cfg)
+		if err != nil {
+			if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "3D000" {
+				// Try template1 if the specified DB doesn’t exist
+				clone := *cfg
+				clone.Database = "template1"
+				return pgx.ConnectConfig(ctx, &clone)
+			}
+			return nil, err
+		}
+		return conn, nil
+	}
+
+	conn, err := connect(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect for discovery: %w", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+
+	rows, err := conn.Query(ctx, commonQueries[QueryListDatabases])
 	if err != nil {
 		return nil, fmt.Errorf("failed to query databases: %w", err)
 	}
@@ -484,20 +515,21 @@ func (s *PostgresSink) DiscoverDatabases(ctx context.Context) ([]string, error) 
 }
 
 func (s *PostgresSink) DiscoverTables(ctx context.Context) ([]string, error) {
-	if err := s.init(ctx); err != nil {
-		return nil, err
-	}
-
-	s.connMu.Lock()
-	pool := s.pool
-	s.connMu.Unlock()
-	if pool == nil {
-		return nil, errors.New("sink pool not initialized")
-	}
-
-	rows, err := pool.Query(ctx, commonQueries[QueryListTables])
+	// Create a new connection for discovery and close it immediately.
+	cfg, _, err := pgxutil.ParseConfig(s.connString)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	}
+
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect for discovery: %w", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+
+	rows, err := conn.Query(ctx, commonQueries[QueryListTables])
+	if err != nil {
+		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
 	defer rows.Close()
 
@@ -513,18 +545,19 @@ func (s *PostgresSink) DiscoverTables(ctx context.Context) ([]string, error) {
 }
 
 func (s *PostgresSink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
-	if err := s.init(ctx); err != nil {
-		return nil, err
+	// Create a new connection for discovery and close it immediately.
+	cfg, _, err := pgxutil.ParseConfig(s.connString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	s.connMu.Lock()
-	pool := s.pool
-	s.connMu.Unlock()
-	if pool == nil {
-		return nil, errors.New("sink pool not initialized")
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect for discovery: %w", err)
 	}
+	defer func() { _ = conn.Close(ctx) }()
 
-	rows, err := pool.Query(ctx, commonQueries[QueryListColumns], table)
+	rows, err := conn.Query(ctx, commonQueries[QueryListColumns], table)
 	if err != nil {
 		return nil, err
 	}
@@ -557,18 +590,20 @@ func (s *PostgresSink) Sample(ctx context.Context, table string) (hermod.Message
 }
 
 func (s *PostgresSink) Browse(ctx context.Context, table string, limit int) ([]hermod.Message, error) {
-	if err := s.init(ctx); err != nil {
-		return nil, err
-	}
-	if limit <= 0 {
-		limit = 1
+	// Create a new connection for browsing and close it immediately.
+	cfg, _, err := pgxutil.ParseConfig(s.connString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	s.connMu.Lock()
-	pool := s.pool
-	s.connMu.Unlock()
-	if pool == nil {
-		return nil, errors.New("sink pool not initialized")
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect for browsing: %w", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+
+	if limit <= 0 {
+		limit = 1
 	}
 
 	quoted, err := quoteTable(table)
@@ -576,7 +611,7 @@ func (s *PostgresSink) Browse(ctx context.Context, table string, limit int) ([]h
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
 	query := fmt.Sprintf(commonQueries[QueryBrowse], quoted, limit)
-	rows, err := pool.Query(ctx, query)
+	rows, err := conn.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}

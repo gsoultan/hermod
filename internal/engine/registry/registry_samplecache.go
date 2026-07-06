@@ -28,7 +28,12 @@ func recordDeliveredSample(sourceID string, msg hermod.Message) {
 	if sourceID == "" || msg == nil {
 		return
 	}
-	lastDeliveredSamples.Store(sourceID, msg.Clone())
+	old, swapped := lastDeliveredSamples.Swap(sourceID, msg.Clone())
+	if swapped {
+		if oldMsg, ok := old.(hermod.Message); ok && oldMsg != nil {
+			oldMsg.Release()
+		}
+	}
 }
 
 // loadDeliveredSample returns a clone of the latest delivered message for the

@@ -273,12 +273,26 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 	// Broadcast live message for observability
 	r.broadcastLiveMessageFromHermod(workflowID, node.ID, msg, false, "")
 
-	if executor, ok := GetNodeExecutor(node.Type); ok {
-		return executor.Execute(ctx, r, workflowID, node, msg)
+	msgs, branch, err := func() ([]hermod.Message, string, error) {
+		if executor, ok := GetNodeExecutor(node.Type); ok {
+			return executor.Execute(ctx, r, workflowID, node, msg)
+		}
+		// Default/Fallback behavior (merging, sink, source, etc.)
+		return []hermod.Message{msg}, "", nil
+	}()
+
+	// Ensure all messages returned are owned by the caller (they should each have
+	// exactly one reference for the caller to manage). If we are returning the
+	// input message (which is owned by our caller), we must increment its
+	// reference count so that our caller can safely release the result later
+	// without impacting the input's original reference count.
+	for _, m := range msgs {
+		if m == msg {
+			m.Retain()
+		}
 	}
 
-	// Default/Fallback behavior (merging, sink, source, etc.)
-	return []hermod.Message{msg}, "", nil
+	return msgs, branch, err
 }
 
 // --- Helper Functions ---

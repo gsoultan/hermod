@@ -1066,30 +1066,32 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 
 		// Record trace step with before/after snapshots
 		if tracingEnabled {
+			var afterData map[string]any
+			if res != nil {
+				afterData = res.ToMap()
+			}
+			mID := modifiedMsg.ID()
+
 			// Record asynchronously to avoid blocking the pipeline
-			go func(wID, mID string, bData map[string]any, rMsg hermod.Message, tStart time.Time, tErr error) {
-				var afterData map[string]any
-				if rMsg != nil {
-					afterData = rMsg.ToMap()
-				}
+			go func(wID, id string, bData, aData map[string]any, tStart time.Time, tErr error) {
 				step := hermod.TraceStep{
 					NodeID:    transType,
 					Timestamp: tStart,
 					Duration:  time.Since(tStart),
 					Before:    bData,
-					After:     afterData,
+					After:     aData,
 				}
 				if tErr != nil {
 					step.Error = tErr.Error()
 				}
 				// Use a new context for background recording to avoid cancellation if the request ends
-				_ = r.storage.RecordTraceStep(context.Background(), wID, mID, step)
-			}(workflowID, modifiedMsg.ID(), beforeData, res, start, err)
+				_ = r.storage.RecordTraceStep(context.Background(), wID, id, step)
+			}(workflowID, mID, beforeData, afterData, start, err)
 		}
 
 		// Record PII discoveries for compliance dashboard
 		if transType == "mask" && res != nil {
-			go r.recordPIIDiscoveries(res, config)
+			go r.recordPIIDiscoveries(res.Clone(), config)
 		}
 
 		return res, err
@@ -1102,6 +1104,8 @@ func (r *Registry) recordPIIDiscoveries(msg hermod.Message, config map[string]an
 	if msg == nil {
 		return
 	}
+	defer msg.Release()
+
 	data := msg.Data()
 	if data == nil {
 		return

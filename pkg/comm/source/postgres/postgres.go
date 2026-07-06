@@ -90,6 +90,7 @@ type PostgresSource struct {
 	msgChan         chan hermod.Message
 	errChan         chan error
 	cancel          context.CancelFunc
+	initMu          sync.Mutex
 	wg              sync.WaitGroup
 	// logMu guards logger only. It is intentionally separate from mu: log() is
 	// called from many code paths that already hold mu (init, Close and every
@@ -522,10 +523,13 @@ func (p *PostgresSource) reconnectStream(ctx context.Context) error {
 
 	p.mu.Lock()
 	p.seedLSNFromSlotLocked(ctx)
-	if err := p.startReplicationWithReclaimLocked(ctx); err != nil {
-		p.mu.Unlock()
+	p.mu.Unlock()
+
+	if err := p.startReplicationWithReclaim(ctx); err != nil {
 		return fmt.Errorf("failed to start replication: %w", err)
 	}
+
+	p.mu.Lock()
 	slotName := p.slotName
 	pubName := p.publicationName
 	p.mu.Unlock()
@@ -608,7 +612,7 @@ func (p *PostgresSource) receiveMessage(ctx context.Context, conn *pgx.Conn, dea
 	if err == nil {
 		return msg, nil
 	}
-	if pgconn.Timeout(err) {
+	if errors.Is(err, context.DeadlineExceeded) || pgconn.Timeout(err) {
 		return nil, nil
 	}
 	if errors.Is(err, context.Canceled) || ctx.Err() != nil {
@@ -685,17 +689,19 @@ func (p *PostgresSource) handleXLogData(ctx context.Context, data []byte) error 
 		return nil
 	}
 
-	p.mu.Lock()
-	if xld.WALStart > p.lastReceivedLSN {
-		p.lastReceivedLSN = xld.WALStart
-	}
-	p.mu.Unlock()
-
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		p.log("ERROR", "Failed to parse logical replication message", "error", err)
 		return nil
 	}
+
+	currentLSN := xld.WALStart + pglogrepl.LSN(len(xld.WALData))
+
+	p.mu.Lock()
+	if currentLSN > p.lastReceivedLSN {
+		p.lastReceivedLSN = currentLSN
+	}
+	p.mu.Unlock()
 
 	switch lm := logicalMsg.(type) {
 	case *pglogrepl.RelationMessage:
@@ -704,11 +710,11 @@ func (p *PostgresSource) handleXLogData(ctx context.Context, data []byte) error 
 		p.mu.Unlock()
 		return nil
 	case *pglogrepl.InsertMessage:
-		return p.dispatch(ctx, p.handleInsert(xld.WALStart, lm))
+		return p.dispatch(ctx, p.handleInsert(currentLSN, lm))
 	case *pglogrepl.UpdateMessage:
-		return p.dispatch(ctx, p.handleUpdate(xld.WALStart, lm))
+		return p.dispatch(ctx, p.handleUpdate(currentLSN, lm))
 	case *pglogrepl.DeleteMessage:
-		return p.dispatch(ctx, p.handleDelete(xld.WALStart, lm))
+		return p.dispatch(ctx, p.handleDelete(currentLSN, lm))
 	default:
 		return nil
 	}
@@ -735,17 +741,29 @@ func (p *PostgresSource) handleInsert(lsn pglogrepl.LSN, lm *pglogrepl.InsertMes
 	rel, ok := p.relations[lm.RelationID]
 	p.mu.Unlock()
 
-	if ok {
+	if ok && lm.Tuple != nil {
 		res.SetTable(rel.RelationName)
 		res.SetSchema(rel.Namespace)
 		data := make(map[string]any)
 		for i, col := range lm.Tuple.Columns {
 			if i < len(rel.Columns) {
-				data[rel.Columns[i].Name] = string(col.Data)
+				name := rel.Columns[i].Name
+				switch col.DataType {
+				case 'n': // Null
+					data[name] = nil
+				case 't': // Text
+					data[name] = string(col.Data)
+				case 'b': // Binary
+					data[name] = col.Data
+				}
 			}
 		}
-		jsonBytes, _ := json.Marshal(data)
-		res.SetAfter(jsonBytes)
+		jsonBytes, err := json.Marshal(data)
+		if err == nil {
+			res.SetAfter(jsonBytes)
+		}
+	} else if !ok {
+		p.log("WARN", "Received Insert for unknown relation", "relation_id", lm.RelationID)
 	}
 	return res
 }
@@ -768,20 +786,44 @@ func (p *PostgresSource) handleUpdate(lsn pglogrepl.LSN, lm *pglogrepl.UpdateMes
 			beforeData := make(map[string]any)
 			for i, col := range lm.OldTuple.Columns {
 				if i < len(rel.Columns) {
-					beforeData[rel.Columns[i].Name] = string(col.Data)
+					name := rel.Columns[i].Name
+					switch col.DataType {
+					case 'n': // Null
+						beforeData[name] = nil
+					case 't': // Text
+						beforeData[name] = string(col.Data)
+					case 'b': // Binary
+						beforeData[name] = col.Data
+					}
 				}
 			}
-			beforeBytes, _ := json.Marshal(beforeData)
-			res.SetBefore(beforeBytes)
-		}
-		data := make(map[string]any)
-		for i, col := range lm.NewTuple.Columns {
-			if i < len(rel.Columns) {
-				data[rel.Columns[i].Name] = string(col.Data)
+			beforeBytes, err := json.Marshal(beforeData)
+			if err == nil {
+				res.SetBefore(beforeBytes)
 			}
 		}
-		jsonBytes, _ := json.Marshal(data)
-		res.SetAfter(jsonBytes)
+		if lm.NewTuple != nil {
+			data := make(map[string]any)
+			for i, col := range lm.NewTuple.Columns {
+				if i < len(rel.Columns) {
+					name := rel.Columns[i].Name
+					switch col.DataType {
+					case 'n': // Null
+						data[name] = nil
+					case 't': // Text
+						data[name] = string(col.Data)
+					case 'b': // Binary
+						data[name] = col.Data
+					}
+				}
+			}
+			jsonBytes, err := json.Marshal(data)
+			if err == nil {
+				res.SetAfter(jsonBytes)
+			}
+		}
+	} else {
+		p.log("WARN", "Received Update for unknown relation", "relation_id", lm.RelationID)
 	}
 	return res
 }
@@ -804,12 +846,24 @@ func (p *PostgresSource) handleDelete(lsn pglogrepl.LSN, lm *pglogrepl.DeleteMes
 			beforeData := make(map[string]any)
 			for i, col := range lm.OldTuple.Columns {
 				if i < len(rel.Columns) {
-					beforeData[rel.Columns[i].Name] = string(col.Data)
+					name := rel.Columns[i].Name
+					switch col.DataType {
+					case 'n': // Null
+						beforeData[name] = nil
+					case 't': // Text
+						beforeData[name] = string(col.Data)
+					case 'b': // Binary
+						beforeData[name] = col.Data
+					}
 				}
 			}
-			beforeBytes, _ := json.Marshal(beforeData)
-			res.SetBefore(beforeBytes)
+			beforeBytes, err := json.Marshal(beforeData)
+			if err == nil {
+				res.SetBefore(beforeBytes)
+			}
 		}
+	} else {
+		p.log("WARN", "Received Delete for unknown relation", "relation_id", lm.RelationID)
 	}
 	return res
 }
@@ -923,28 +977,39 @@ func (p *PostgresSource) ensureReplConnNoLock(ctx context.Context) error {
 	if p.replConn != nil && !p.replConn.IsClosed() {
 		return nil
 	}
+	if p.pooled {
+		return errors.New("CDC requires a direct Postgres connection; PgBouncer transaction/statement mode does not support logical replication. Provide a direct (session-mode) connection string for CDC sources")
+	}
 	return errors.New("replication connection not established (call ensureReplConn first)")
 }
 
 func (p *PostgresSource) init(ctx context.Context) error {
+	p.mu.Lock()
+	if p.initialized {
+		p.mu.Unlock()
+		return nil
+	}
+	p.mu.Unlock()
+
+	p.initMu.Lock()
+	defer p.initMu.Unlock()
+
+	// Re-check initialized under lock to prevent concurrent initialization
+	p.mu.Lock()
+	if p.initialized {
+		p.mu.Unlock()
+		return nil
+	}
+	p.mu.Unlock()
+
+	// Perform connection establishment without holding p.mu to avoid blocking
+	// Ping/IsReady/Close calls during potentially slow network/DB I/O.
 	if err := p.ensureConn(ctx); err != nil {
 		return err
 	}
 
-	p.mu.Lock()
-	useCDC := p.useCDC
-	p.mu.Unlock()
-
-	if useCDC {
-		if err := p.ensureReplConn(ctx); err != nil {
-			return err
-		}
-	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if err := p.initLocked(ctx); err != nil {
+	// Perform the actual initialization logic.
+	if err := p.initialize(ctx); err != nil {
 		// Surface startup/permission failures (wrong connection mode, missing
 		// wal_level, publication/slot problems, privilege errors) to the live
 		// log so they are visible in the workflow editor instead of only in the
@@ -959,28 +1024,40 @@ func (p *PostgresSource) init(ctx context.Context) error {
 	return nil
 }
 
-// initLocked performs the actual initialization. Callers must hold p.mu.
-func (p *PostgresSource) initLocked(ctx context.Context) error {
+// initialize performs the actual initialization. It manages its own locking
+// of p.mu to avoid holding it during long I/O or retries.
+func (p *PostgresSource) initialize(ctx context.Context) error {
+	p.mu.Lock()
 	if p.initialized {
+		p.mu.Unlock()
 		return nil
 	}
 
 	if err := p.ensureConnNoLock(ctx); err != nil {
+		p.mu.Unlock()
 		return err
 	}
 
 	if !p.useCDC {
 		p.initialized = true
+		p.mu.Unlock()
 		return nil
 	}
 
-	if err := p.ensureReplConnNoLock(ctx); err != nil {
-		return err
-	}
+	p.mu.Unlock()
 
 	p.log("INFO", "Initializing PostgresSource", "slot", p.slotName, "publication", p.publicationName)
 
-	if err := p.ensurePublicationAndSlotLocked(ctx); err != nil {
+	// ensurePublicationAndSlot handles its own retry loop and releases/re-acquires the lock
+	if err := p.ensurePublicationAndSlot(ctx); err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Double check context hasn't been cancelled during I/O
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 
@@ -990,14 +1067,6 @@ func (p *PostgresSource) initLocked(ctx context.Context) error {
 	// skew replication-lag accounting).
 	p.seedLSNFromSlotLocked(ctx)
 
-	// Start replication from LSN 0 so Postgres resumes from the slot's
-	// confirmed_flush_lsn (i.e. exactly where streaming left off before any
-	// Postgres/worker restart) instead of losing buffered changes.
-	if err := p.startReplicationWithReclaimLocked(ctx); err != nil {
-		return fmt.Errorf("failed to start replication: %w", err)
-	}
-
-	p.log("INFO", "Replication started successfully", "slot", p.slotName)
 	p.initialized = true
 	if p.cancel != nil {
 		p.cancel()
@@ -1008,20 +1077,24 @@ func (p *PostgresSource) initLocked(ctx context.Context) error {
 		p.streamLoop(streamCtx)
 	})
 
+	p.log("INFO", "PostgresSource initialized", "slot", p.slotName)
 	return nil
 }
 
-// ensurePublicationAndSlotLocked makes sure the publication and replication
+// ensurePublicationAndSlot makes sure the publication and replication
 // slot exist, retrying a few times since these operations can fail transiently
-// right after a Postgres restart. Callers must hold p.mu.
-func (p *PostgresSource) ensurePublicationAndSlotLocked(ctx context.Context) error {
+// right after a Postgres restart. It does not hold p.mu during I/O or sleep.
+func (p *PostgresSource) ensurePublicationAndSlot(ctx context.Context) error {
 	var err error
 	for attempt := 1; attempt <= 3; attempt++ {
+		// Use p.conn for metadata operations. ensurePublication/ReplicationSlot
+		// don't hold the lock but use p.conn. We assume it's stable because of initMu.
 		if err = p.ensurePublication(ctx); err == nil {
 			if err = p.ensureReplicationSlot(ctx); err == nil {
 				return nil
 			}
 		}
+
 		if attempt < 3 {
 			p.log("WARN", "Postgres initialization failed, retrying...", "attempt", attempt, "error", err)
 			select {
@@ -1061,15 +1134,19 @@ func (p *PostgresSource) startReplicationLocked(ctx context.Context) error {
 // resumes even though the worker appears online. Detecting the active-slot
 // error, terminating the stale backend and retrying lets streaming resume
 // immediately. Callers must hold p.mu.
-func (p *PostgresSource) startReplicationWithReclaimLocked(ctx context.Context) error {
-	p.reclaimSlotIfStaleLocked(ctx)
+func (p *PostgresSource) startReplicationWithReclaim(ctx context.Context) error {
+	p.reclaimSlotIfStale(ctx)
+	p.mu.Lock()
 	err := p.startReplicationLocked(ctx)
+	p.mu.Unlock()
 	if err == nil || !isSlotActiveError(err) {
 		return err
 	}
 	p.log("WARN", "StartReplication failed because slot is still active; reclaiming and retrying",
 		"slot", p.slotName, "error", err)
-	p.reclaimSlotIfStaleLocked(ctx)
+	p.reclaimSlotIfStale(ctx)
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	return p.startReplicationLocked(ctx)
 }
 
@@ -1112,47 +1189,63 @@ func isSlotActiveError(err error) bool {
 // used because the replication connection cannot run regular SQL. Failures are
 // non-fatal: the caller retries and falls back to normal backoff. Callers must
 // hold p.mu.
-func (p *PostgresSource) reclaimSlotIfStaleLocked(ctx context.Context) {
-	if p.conn == nil {
+// reclaimSlotIfStale terminates the backend that currently holds the
+// replication slot when that backend is safe to reclaim. It does not hold
+// p.mu during I/O or sleep.
+func (p *PostgresSource) reclaimSlotIfStale(ctx context.Context) {
+	p.mu.Lock()
+	conn := p.conn
+	slotName := p.slotName
+	if conn == nil {
+		p.mu.Unlock()
 		return
 	}
+	p.mu.Unlock()
+
 	var activePID *int32
 	var holderAlive bool
 	var holderAppName string
-	err := p.conn.QueryRow(ctx,
+	err := conn.QueryRow(ctx,
 		`SELECT s.active_pid,
 		        EXISTS (SELECT 1 FROM pg_stat_activity a WHERE a.pid = s.active_pid),
 		        COALESCE((SELECT a.application_name FROM pg_stat_activity a
 		                    WHERE a.pid = s.active_pid), '')
 		   FROM pg_replication_slots s
 		  WHERE s.slot_name = $1 AND s.active`,
-		p.slotName,
+		slotName,
 	).Scan(&activePID, &holderAlive, &holderAppName)
 	if err != nil || activePID == nil {
 		return
 	}
-	if holderAlive && !p.isOwnOrphanLocked(*activePID, holderAppName) {
+
+	p.mu.Lock()
+	isOwn := p.isOwnOrphanLocked(*activePID, holderAppName)
+	p.mu.Unlock()
+
+	if holderAlive && !isOwn {
 		// A foreign live backend is streaming from this slot (a different host,
 		// slot consumer or our own current connection). Terminating it would
 		// start a mutual-kill loop, so leave it alone and let the caller back
 		// off (single-consumer-per-slot is the Hermod convention).
 		p.log("INFO", "Replication slot held by a live backend; backing off instead of terminating",
-			"slot", p.slotName, "active_pid", *activePID, "holder_application_name", holderAppName)
+			"slot", slotName, "active_pid", *activePID, "holder_application_name", holderAppName)
 		return
 	}
+
 	if holderAlive {
 		p.log("WARN", "Replication slot held by our own orphaned walsender; terminating it to take over",
-			"slot", p.slotName, "active_pid", *activePID, "application_name", holderAppName)
+			"slot", slotName, "active_pid", *activePID, "application_name", holderAppName)
 	} else {
 		p.log("WARN", "Replication slot held by a dead backend; terminating it to take over",
-			"slot", p.slotName, "active_pid", *activePID)
+			"slot", slotName, "active_pid", *activePID)
 	}
-	if _, err := p.conn.Exec(ctx, "SELECT pg_terminate_backend($1)", *activePID); err != nil {
+
+	if _, err := conn.Exec(ctx, "SELECT pg_terminate_backend($1)", *activePID); err != nil {
 		p.log("WARN", "Failed to terminate stale slot holder",
-			"slot", p.slotName, "active_pid", *activePID, "error", err)
+			"slot", slotName, "active_pid", *activePID, "error", err)
 		return
 	}
-	p.waitSlotReleasedLocked(ctx)
+	p.waitSlotReleased(ctx)
 }
 
 // isOwnOrphanLocked reports whether a live slot holder is this source's own
@@ -1173,16 +1266,24 @@ func (p *PostgresSource) isOwnOrphanLocked(activePID int32, holderAppName string
 	return true
 }
 
-// waitSlotReleasedLocked polls until the slot is no longer active or the
-// slotReleaseTimeout elapses, since Postgres releases the slot a moment after
-// the holding backend is terminated. Callers must hold p.mu.
-func (p *PostgresSource) waitSlotReleasedLocked(ctx context.Context) {
+// waitSlotReleased polls until the slot is no longer active or the
+// slotReleaseTimeout elapses. It does not hold p.mu during I/O or sleep.
+func (p *PostgresSource) waitSlotReleased(ctx context.Context) {
+	p.mu.Lock()
+	conn := p.conn
+	slotName := p.slotName
+	p.mu.Unlock()
+
+	if conn == nil {
+		return
+	}
+
 	deadline := time.Now().Add(slotReleaseTimeout)
 	for time.Now().Before(deadline) {
 		var active bool
-		err := p.conn.QueryRow(ctx,
+		err := conn.QueryRow(ctx,
 			"SELECT COALESCE((SELECT active FROM pg_replication_slots WHERE slot_name = $1), false)",
-			p.slotName,
+			slotName,
 		).Scan(&active)
 		if err != nil || !active {
 			return
@@ -1243,18 +1344,6 @@ func (p *PostgresSource) Ack(ctx context.Context, msg hermod.Message) error {
 	if lsn > p.lastAckedLSN {
 		p.lastAckedLSN = lsn
 
-		// Periodically update standby status
-		if p.replConn != nil {
-			err = pglogrepl.SendStandbyStatusUpdate(ctx, p.replConn.PgConn(), pglogrepl.StandbyStatusUpdate{
-				WALWritePosition: p.lastReceivedLSN,
-				WALFlushPosition: p.lastAckedLSN,
-				WALApplyPosition: p.lastAckedLSN,
-			})
-			if err != nil {
-				p.log("ERROR", "Failed to send standby status update during Ack", "error", err)
-			}
-		}
-
 		// Optional: Update lag metrics here if we had access to the registry's metrics
 		// For now, let's at least log if lag is high
 		if p.lastReceivedLSN > p.lastAckedLSN {
@@ -1269,23 +1358,26 @@ func (p *PostgresSource) Ack(ctx context.Context, msg hermod.Message) error {
 }
 
 func (p *PostgresSource) Ping(ctx context.Context) error {
-	// Just ensure the metadata connection is alive, don't trigger full CDC init
-	if err := p.ensureConn(ctx); err != nil {
+	// Create a new connection for testing and close it immediately.
+	conn, err := p.openMetadataConn(ctx)
+	if err != nil {
 		return err
 	}
+	defer func() { _ = conn.Close(ctx) }()
 
-	p.mu.Lock()
-	conn := p.conn
-	p.mu.Unlock()
-
-	if conn == nil {
-		return errors.New("connection not initialized")
-	}
 	return conn.Ping(ctx)
 }
 
 func (p *PostgresSource) IsReady(ctx context.Context) error {
-	if err := p.Ping(ctx); err != nil {
+	// 1. Basic connection check
+	// Create a fresh connection for validation queries and reuse it for all checks
+	conn, err := p.openMetadataConn(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres connection failed: %w", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+
+	if err := conn.Ping(ctx); err != nil {
 		return fmt.Errorf("postgres connection failed: %w", err)
 	}
 
@@ -1293,35 +1385,41 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 		return nil
 	}
 
-	// Logical replication cannot run through a transaction/statement pooler.
-	// Detect it up front so the test fails fast with a clear, actionable message
-	// instead of stalling on a replication handshake PgBouncer never completes.
-	if p.pooled {
+	// 2. CDC-specific checks
+	p.mu.Lock()
+	isPooled := p.pooled
+	p.mu.Unlock()
+
+	if isPooled {
 		return errors.New("CDC requires a direct Postgres connection; PgBouncer transaction/statement mode does not support logical replication. Provide a direct (session-mode) connection string for CDC sources")
 	}
 
-	// Run the wal_level check (reusing the already-open metadata connection) and
-	// the replication-privilege probe concurrently so a slow round-trip on one
-	// does not serialize behind the other and blow the request budget.
-	walErrCh := make(chan error, 1)
-	go func() { walErrCh <- p.checkWALLevel(ctx) }()
+	if err := p.checkWALLevel(ctx, conn); err != nil {
+		return err
+	}
 
-	replErr := p.probeReplication(ctx)
-	walErr := <-walErrCh
+	heldByUs, err := p.checkReplicationStatus(ctx, conn)
+	if err != nil {
+		return err
+	}
 
-	return errors.Join(walErr, replErr)
+	if err := p.checkTrackingTables(ctx, conn); err != nil {
+		return err
+	}
+
+	// If the replication slot is already active and held by our own application name,
+	// we have verified that replication privileges and configuration are working.
+	// Skipping probeReplication avoids hits on max_wal_senders and potential hangs
+	// during workflow restarts or concurrent test-connection requests.
+	if heldByUs {
+		return nil
+	}
+
+	// Probe replication privileges (uses a short-lived replication connection)
+	return p.probeReplication(ctx)
 }
 
-// checkWALLevel verifies the server is configured for logical decoding, reusing
-// the existing metadata connection instead of dialing a fresh one.
-func (p *PostgresSource) checkWALLevel(ctx context.Context) error {
-	p.mu.Lock()
-	conn := p.conn
-	p.mu.Unlock()
-
-	if conn == nil {
-		return errors.New("connection not initialized")
-	}
+func (p *PostgresSource) checkWALLevel(ctx context.Context, conn *pgx.Conn) error {
 	var walLevel string
 	if err := conn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
 		return fmt.Errorf("failed to check wal_level: %w", err)
@@ -1332,11 +1430,86 @@ func (p *PostgresSource) checkWALLevel(ctx context.Context) error {
 	return nil
 }
 
+func (p *PostgresSource) checkReplicationStatus(ctx context.Context, conn *pgx.Conn) (bool, error) {
+	// Check existing replication slot and active_pid. We also fetch the
+	// application_name to distinguish between a foreign consumer and our own
+	// instances (which use a stable, host-prefixed application_name).
+	var active bool
+	var activePID *int32
+	var holderAppName string
+	var heldByUs bool
+
+	err := conn.QueryRow(ctx, `
+		SELECT s.active, s.active_pid, COALESCE(a.application_name, '')
+		FROM pg_replication_slots s
+		LEFT JOIN pg_stat_activity a ON a.pid = s.active_pid
+		WHERE s.slot_name = $1`, p.slotName).Scan(&active, &activePID, &holderAppName)
+
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return false, fmt.Errorf("failed to check replication slot %q: %w", p.slotName, err)
+		}
+		// Slot doesn't exist yet, which is acceptable
+	} else if active {
+		// If the slot is active, we only fail the test connection if it's held by
+		// a foreign consumer. If the application_name matches our own, it's either
+		// our already-running worker or a reclaimable orphan from a previous run,
+		// both of which are acceptable states for a successful test connection.
+		if holderAppName != p.appName {
+			pid := "unknown"
+			if activePID != nil {
+				pid = fmt.Sprintf("%d", *activePID)
+			}
+			return false, fmt.Errorf("replication slot %q is already active (PID %s, application_name %q). Logical replication slots can only have one active consumer", p.slotName, pid, holderAppName)
+		}
+		heldByUs = true
+	}
+
+	// Check existing publication
+	var pubExists bool
+	err = conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = $1)", p.publicationName).Scan(&pubExists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check publication %q: %w", p.publicationName, err)
+	}
+	if !pubExists {
+		return false, fmt.Errorf("publication %q does not exist", p.publicationName)
+	}
+
+	return heldByUs, nil
+}
+
+func (p *PostgresSource) checkTrackingTables(ctx context.Context, conn *pgx.Conn) error {
+	for _, table := range p.tables {
+		// table may be schema.tablename or just tablename
+		parts := strings.Split(table, ".")
+		var schema, name string
+		if len(parts) == 2 {
+			schema = parts[0]
+			name = parts[1]
+		} else {
+			schema = "public"
+			name = parts[0]
+		}
+
+		var exists bool
+		query := "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2)"
+		if err := conn.QueryRow(ctx, query, schema, name).Scan(&exists); err != nil {
+			return fmt.Errorf("failed to check table %q: %w", table, err)
+		}
+		if !exists {
+			return fmt.Errorf("tracking table %q does not exist", table)
+		}
+	}
+	return nil
+}
+
 // probeReplication opens (and immediately closes) a replication connection to
 // validate privileges. It uses a short sub-deadline so it fails fast rather
 // than consuming the caller's entire timeout budget.
 func (p *PostgresSource) probeReplication(ctx context.Context) error {
-	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// Use a very short timeout for probing; if the server is so loaded it can't
+	// accept a new replication connection in 3s, the test should fail fast.
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	replCfg, _, err := pgxutil.ParseConfig(p.connString)
@@ -1347,15 +1520,15 @@ func (p *PostgresSource) probeReplication(ctx context.Context) error {
 		replCfg.RuntimeParams = make(map[string]string)
 	}
 	replCfg.RuntimeParams["replication"] = "database"
+	// Set application_name to indicate this is a probe
+	replCfg.RuntimeParams["application_name"] = p.appName + "-probe"
 
 	replConn, err := pgx.ConnectConfig(probeCtx, replCfg)
 	if err != nil {
 		return classifyReplicationError(err, replCfg.User)
 	}
 	// Do not run SQL on a replication connection; simply close it if successful.
-	if err := replConn.Close(probeCtx); err != nil {
-		return fmt.Errorf("failed closing replication test connection: %w", err)
-	}
+	_ = replConn.Close(probeCtx)
 	return nil
 }
 
@@ -1485,13 +1658,12 @@ func (p *PostgresSource) DiscoverDatabases(ctx context.Context) ([]string, error
 }
 
 func (p *PostgresSource) DiscoverTables(ctx context.Context) ([]string, error) {
-	if err := p.ensureConn(ctx); err != nil {
+	// Create a new connection for discovery and close it immediately.
+	conn, err := p.openMetadataConn(ctx)
+	if err != nil {
 		return nil, err
 	}
-
-	p.mu.Lock()
-	conn := p.conn
-	p.mu.Unlock()
+	defer func() { _ = conn.Close(ctx) }()
 
 	rows, err := conn.Query(ctx, "SELECT schemaname || '.' || tablename FROM pg_catalog.pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')")
 	if err != nil {
@@ -1514,13 +1686,12 @@ func (p *PostgresSource) DiscoverTables(ctx context.Context) ([]string, error) {
 // connected PostgreSQL instance. The UI uses this so users can reuse an existing
 // slot instead of always creating a new one.
 func (p *PostgresSource) DiscoverReplicationSlots(ctx context.Context) ([]hermod.ReplicationSlotInfo, error) {
-	if err := p.ensureConn(ctx); err != nil {
+	// Create a new connection for discovery and close it immediately.
+	conn, err := p.openMetadataConn(ctx)
+	if err != nil {
 		return nil, err
 	}
-
-	p.mu.Lock()
-	conn := p.conn
-	p.mu.Unlock()
+	defer func() { _ = conn.Close(ctx) }()
 
 	rows, err := conn.Query(ctx, "SELECT slot_name, COALESCE(plugin, ''), COALESCE(slot_type, ''), COALESCE(database, ''), active FROM pg_replication_slots ORDER BY slot_name")
 	if err != nil {
@@ -1543,13 +1714,12 @@ func (p *PostgresSource) DiscoverReplicationSlots(ctx context.Context) ([]hermod
 // so the user can pick an existing publication that already includes their table
 // or decide to create a new one.
 func (p *PostgresSource) DiscoverPublications(ctx context.Context) ([]hermod.PublicationInfo, error) {
-	if err := p.ensureConn(ctx); err != nil {
+	// Create a new connection for discovery and close it immediately.
+	conn, err := p.openMetadataConn(ctx)
+	if err != nil {
 		return nil, err
 	}
-
-	p.mu.Lock()
-	conn := p.conn
-	p.mu.Unlock()
+	defer func() { _ = conn.Close(ctx) }()
 
 	rows, err := conn.Query(ctx, "SELECT pubname, puballtables FROM pg_publication ORDER BY pubname")
 	if err != nil {
@@ -1597,13 +1767,12 @@ func (p *PostgresSource) DiscoverPublications(ctx context.Context) ([]hermod.Pub
 }
 
 func (p *PostgresSource) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
-	if err := p.ensureConn(ctx); err != nil {
+	// Create a new connection for discovery and close it immediately.
+	conn, err := p.openMetadataConn(ctx)
+	if err != nil {
 		return nil, err
 	}
-
-	p.mu.Lock()
-	conn := p.conn
-	p.mu.Unlock()
+	defer func() { _ = conn.Close(ctx) }()
 
 	query := `
 		SELECT column_name, data_type, COALESCE(is_nullable = 'YES', false), 
@@ -1641,13 +1810,12 @@ func (p *PostgresSource) DiscoverColumns(ctx context.Context, table string) ([]h
 }
 
 func (p *PostgresSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
-	if err := p.ensureConn(ctx); err != nil {
+	// Create a new connection for sampling and close it immediately.
+	conn, err := p.openMetadataConn(ctx)
+	if err != nil {
 		return nil, err
 	}
-
-	p.mu.Lock()
-	conn := p.conn
-	p.mu.Unlock()
+	defer func() { _ = conn.Close(ctx) }()
 
 	quoted, err := sqlutil.QuoteIdent("pgx", table)
 	if err != nil {

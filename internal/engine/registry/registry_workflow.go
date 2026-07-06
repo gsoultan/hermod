@@ -568,6 +568,7 @@ func (r *Registry) setupWorkflowRouter(
 		r.recordSourceIngestTrace(ctx, id, sourceNodeID, msg)
 
 		t := acquireWorkflowTraversal(r, eng, id, nodeMap, adj, nodeIndex, edgeLabels, edgeBreakpoints, inDegree, sinkNodeToIndex)
+		msg.Retain()
 		t.currentMessages[nodeIndex[sourceNodeID]] = msg
 
 		t.wg.Add(1)
@@ -632,8 +633,14 @@ func acquireWorkflowTraversal(
 }
 
 func releaseWorkflowTraversal(t *workflowTraversal) {
-	// Clear message references to avoid memory leaks while in pool
-	clear(t.currentMessages)
+	// Clear message references and ensure they are released to avoid memory leaks
+	// while the traversal object is sitting in the pool.
+	for i := range t.currentMessages {
+		if m := t.currentMessages[i]; m != nil {
+			m.Release()
+			t.currentMessages[i] = nil
+		}
+	}
 	traversalPool.Put(t)
 }
 
@@ -1030,6 +1037,7 @@ func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromO
 				}
 			}
 		}
+		msg.Release()
 	}
 	return nil
 }
@@ -1041,8 +1049,17 @@ func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.Wo
 
 	// Clone message to avoid side effects between branches
 	m := msg.Clone()
+	defer m.Release()
 
 	processedMsgs, branch, err := r.runWorkflowNode(workflowID, node, m)
+	defer func() {
+		for _, pm := range processedMsgs {
+			if pm != m {
+				pm.Release()
+			}
+		}
+	}()
+
 	if err != nil {
 		r.broadcastLog(workflowID, "error", fmt.Sprintf("Node %s error: %v", r.getNodeName(*node), err))
 		return
@@ -1234,9 +1251,22 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 		return nil, errors.New("no source node found")
 	}
 
+	toRelease := make([]hermod.Message, 0, len(wf.Nodes)*2)
+	released := make(map[hermod.Message]bool)
+	defer func() {
+		for _, m := range toRelease {
+			if m != nil && !released[m] {
+				m.Release()
+				released[m] = true
+			}
+		}
+	}()
+
 	currentMessages := make(map[string]hermod.Message)
 	for _, sn := range sourceNodes {
-		currentMessages[sn.ID] = msg.Clone()
+		c := msg.Clone()
+		currentMessages[sn.ID] = c
+		toRelease = append(toRelease, c)
 	}
 
 	receivedCount := make(map[string]int)
@@ -1292,6 +1322,11 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 		} else if currNode.Type != "source" {
 			var err error
 			msgs, currBranch, err = r.runWorkflowNode(wf.ID, currNode, currMsg)
+			for _, m := range msgs {
+				if m != currMsg {
+					toRelease = append(toRelease, m)
+				}
+			}
 			if err != nil {
 				steps = append(steps, WorkflowStepResult{
 					NodeID:   currID,
@@ -1350,7 +1385,9 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 					strategy, _ = targetNode.Config["strategy"].(string)
 				}
 				if currentMessages[targetID] == nil {
-					currentMessages[targetID] = currMsg.Clone()
+					c := currMsg.Clone()
+					currentMessages[targetID] = c
+					toRelease = append(toRelease, c)
 				} else {
 					// Merge
 					r.mergeData(currentMessages[targetID].Data(), currMsg.Data(), strategy)
