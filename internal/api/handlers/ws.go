@@ -142,12 +142,17 @@ func (h *Handler) HandleStatusWS(w http.ResponseWriter, r *http.Request) {
 	// Send an initial snapshot of the current engine statuses so the UI reflects
 	// the real-time backend state immediately on connect, even for idle workflows
 	// that are not actively broadcasting status updates.
-	for _, snapshot := range h.Registry.GetAllStatuses() {
-		if workflowID != "" && !strings.EqualFold(snapshot.WorkflowID, workflowID) {
-			continue
+	if workflowID != "" {
+		if snapshot, ok := h.Registry.GetWorkflowStatus(workflowID); ok {
+			if err := wsWriteJSON(conn, snapshot); err != nil {
+				return
+			}
 		}
-		if err := wsWriteJSON(conn, snapshot); err != nil {
-			return
+	} else {
+		for _, snapshot := range h.Registry.GetAllStatuses() {
+			if err := wsWriteJSON(conn, snapshot); err != nil {
+				return
+			}
 		}
 	}
 

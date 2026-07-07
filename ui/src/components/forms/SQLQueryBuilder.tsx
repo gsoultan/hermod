@@ -357,10 +357,8 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
           fontFamily: 'JetBrains Mono, Menlo, Monaco, Courier New, monospace',
           fontSize: '13px',
           lineHeight: 1.6,
-          backgroundColor: 'var(--mantine-color-dark-8)',
-          '[data-mantine-color-scheme="light"] &': {
-            backgroundColor: 'var(--mantine-color-gray-0)',
-          },
+          backgroundColor: 'light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8))',
+          color: 'light-dark(var(--mantine-color-black), var(--mantine-color-white))',
         }
       }}
     />

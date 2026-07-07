@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,15 +46,19 @@ const replicationAppNamePrefix = "hermod-cdc-"
 // otherwise break the own-orphan equality check).
 const maxAppNameLen = 63
 
-// buildReplicationAppName derives a stable, instance-unique application_name
-// from the host and slot. It is stable across restarts of the same worker (so
-// an orphaned walsender from a previous run is recognised as our own) yet
-// distinct from other hosts/slots (so we never reclaim a foreign consumer).
-func buildReplicationAppName(host, slotName string) string {
+// buildReplicationAppName derives an instance-unique application_name from the
+// host, slot, process PID and a random session ID. Including the PID and session
+// ID ensures that concurrent instances (e.g. overlapping restarts or test
+// connections) have distinct names and don't accidentally terminate each other,
+// while the stable prefix still allows a restarted worker to recognize its
+// predecessors.
+func buildReplicationAppName(host, slotName string, pid int, sessionID string) string {
 	if strings.TrimSpace(host) == "" {
 		host = "unknown"
 	}
-	name := replicationAppNamePrefix + host + "-" + slotName
+	// Format: hermod-cdc-<host>-<slot>-<pid>-<session>
+	// sessionID is typically a short UUID fragment to keep it under 63 chars.
+	name := fmt.Sprintf("%s%s-%s-%d-%s", replicationAppNamePrefix, host, slotName, pid, sessionID)
 	if len(name) > maxAppNameLen {
 		name = name[:maxAppNameLen]
 	}
@@ -112,6 +118,12 @@ func NewPostgresSource(connString, slotName, publicationName string, tables []st
 	if strings.TrimSpace(publicationName) == "" {
 		publicationName = defaultPublicationName
 	}
+
+	sessionID := uuid.New().String()
+	if len(sessionID) > 8 {
+		sessionID = sessionID[:8]
+	}
+
 	return &PostgresSource{
 		connString:      connString,
 		slotName:        slotName,
@@ -120,7 +132,7 @@ func NewPostgresSource(connString, slotName, publicationName string, tables []st
 		useCDC:          useCDC,
 		pooled:          pgxutil.IsPooledConnString(connString),
 		persistentSlot:  true, // Default to persistent for reliability
-		appName:         buildReplicationAppName(hostnameOrUnknown(), slotName),
+		appName:         buildReplicationAppName(hostnameOrUnknown(), slotName, os.Getpid(), sessionID),
 		relations:       make(map[uint32]*pglogrepl.RelationMessage),
 		msgChan:         make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 		errChan:         make(chan error, 10),
@@ -1258,20 +1270,84 @@ func (p *PostgresSource) reclaimSlotIfStale(ctx context.Context) {
 
 // isOwnOrphanLocked reports whether a live slot holder is this source's own
 // previous walsender, left behind by an ungraceful restart, rather than a
-// foreign live consumer. It is treated as our orphan only when the holder
-// advertises our instance-unique application_name AND its PID differs from our
-// current replication connection's backend PID, so we never terminate our own
-// active stream nor a different host/consumer. Callers must hold p.mu.
+// foreign live consumer.
+//
+// It implements a multi-stage check to avoid "mutual kill" loops between live
+// instances:
+//  1. If the holder's application_name doesn't match our prefix, it's foreign.
+//  2. If it matches our prefix and host, it's a predecessor or neighbor.
+//  3. If it's a DIFFERENT Hermod process PID, we only kill it if that process
+//     is actually dead (checked via Signal(0)).
+//  4. If it's the SAME Hermod process PID, it's a leaked connection from an
+//     earlier instance in the same process; we only kill it if its instance UUID
+//     differs from ours.
+//
+// Callers must hold p.mu.
 func (p *PostgresSource) isOwnOrphanLocked(activePID int32, holderAppName string) bool {
-	if strings.TrimSpace(p.appName) == "" || holderAppName != p.appName {
+	if !strings.HasPrefix(holderAppName, replicationAppNamePrefix) {
 		return false
 	}
-	if p.replConn != nil && !p.replConn.IsClosed() {
-		if pgConn := p.replConn.PgConn(); pgConn != nil && int64(pgConn.PID()) == int64(activePID) {
-			return false
+
+	// 1. Check if it matches our host (the first part after prefix)
+	myHost := hostnameOrUnknown()
+	prefixWithHost := replicationAppNamePrefix + myHost + "-"
+	if !strings.HasPrefix(holderAppName, prefixWithHost) {
+		// Matches prefix but not our host. Could be another worker on a
+		// different machine; don't touch it.
+		return false
+	}
+
+	// 2. Exact match check (including PID and Session)
+	if holderAppName == p.appName {
+		// It's US (same host, PID, and Session).
+		// If we already have an active replication connection, and it's NOT
+		// the one we are looking at, then we somehow leaked a connection.
+		if p.replConn != nil && !p.replConn.IsClosed() {
+			if pgConn := p.replConn.PgConn(); pgConn != nil && int32(pgConn.PID()) == activePID {
+				return false // It's our own CURRENT connection. Don't kill!
+			}
+		}
+		// It has our name but it's not our current connection. Orphan!
+		return true
+	}
+
+	// 3. Different instance on the same host (different PID or Session).
+	// Format: hermod-cdc-<host>-<slot>-<pid>-<session>
+	// We check if the process that owns it is still alive.
+	suffix := strings.TrimPrefix(holderAppName, prefixWithHost)
+	parts := strings.Split(suffix, "-")
+	// Slot might contain dashes, so we should look from the end or parse carefully.
+	// Actually, our buildReplicationAppName uses host-slot-pid-session.
+	// Since host part is already stripped, we have slot-pid-session.
+	if len(parts) >= 2 {
+		pidStr := parts[len(parts)-2]
+		pid, err := strconv.Atoi(pidStr)
+		if err == nil {
+			if isPIDAlive(pid) {
+				// The owner process is still running. It might be an
+				// overlapping restart or a concurrent worker. Back off!
+				return false
+			}
+			// Predecessor process is dead. Safe to reclaim.
+			return true
 		}
 	}
-	return true
+
+	// Fallback: if we can't be sure, don't kill a live backend.
+	return false
+}
+
+func isPIDAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	// On Unix, Signal(0) checks existence without actually sending a signal.
+	err = process.Signal(syscall.Signal(0))
+	return err == nil
 }
 
 // waitSlotReleased polls until the slot is no longer active or the

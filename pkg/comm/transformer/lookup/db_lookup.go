@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -256,7 +257,12 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 				return nil, fmt.Errorf("invalid column in whereClause: %w", qerr)
 			}
 			var val any
-			if strings.Contains(rhs, "{{") {
+			if strings.HasPrefix(rhs, "{{") && strings.HasSuffix(rhs, "}}") && strings.Count(rhs, "{{") == 1 {
+				// Single token template: preserve original type and handle nil correctly for SQL
+				token := strings.TrimSpace(rhs[2 : len(rhs)-2])
+				token = strings.TrimPrefix(token, ".")
+				val = evaluator.GetValByPath(data, token)
+			} else if strings.Contains(rhs, "{{") {
 				// Evaluate template into a value string and trim any surrounding quotes
 				s := evaluator.ResolveTemplate(rhs, data)
 				if strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'") && len(s) >= 2 {
@@ -270,8 +276,18 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 			} else if strings.HasPrefix(rhs, "\"") && strings.HasSuffix(rhs, "\"") {
 				val = strings.Trim(rhs, "\"")
 			} else {
-				// Treat as raw token (number/bool)
-				val = rhs
+				// Treat as raw token (number/bool/null)
+				if strings.EqualFold(rhs, "NULL") {
+					val = nil
+				} else if i, err := strconv.ParseInt(rhs, 10, 64); err == nil {
+					val = i
+				} else if f, err := strconv.ParseFloat(rhs, 64); err == nil {
+					val = f
+				} else if b, err := strconv.ParseBool(rhs); err == nil {
+					val = b
+				} else {
+					val = rhs
+				}
 			}
 			ph := sqlutil.Placeholder(driver, nextIdx)
 			nextIdx++

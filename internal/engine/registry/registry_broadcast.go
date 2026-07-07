@@ -17,6 +17,7 @@ func (r *Registry) SubscribeStatus() chan telemetry.StatusUpdate {
 	defer r.statusSubsMu.Unlock()
 	ch := make(chan telemetry.StatusUpdate, 100)
 	r.statusSubs[ch] = true
+	r.hasStatusSubs.Add(1)
 	return ch
 }
 
@@ -28,16 +29,21 @@ func (r *Registry) SubscribeWorkflowStatus(workflowID string) chan telemetry.Sta
 	}
 	ch := make(chan telemetry.StatusUpdate, 100)
 	r.workflowStatusSubs[workflowID][ch] = true
+	r.hasStatusSubs.Add(1)
 	return ch
 }
 
 func (r *Registry) UnsubscribeStatus(ch chan telemetry.StatusUpdate) {
 	r.statusSubsMu.Lock()
 	defer r.statusSubsMu.Unlock()
-	delete(r.statusSubs, ch)
+	if r.statusSubs[ch] {
+		delete(r.statusSubs, ch)
+		r.hasStatusSubs.Add(-1)
+	}
 	for wfID, subs := range r.workflowStatusSubs {
 		if subs[ch] {
 			delete(subs, ch)
+			r.hasStatusSubs.Add(-1)
 			if len(subs) == 0 {
 				delete(r.workflowStatusSubs, wfID)
 			}
@@ -67,6 +73,7 @@ func (r *Registry) SubscribeDashboardStats(vhost string) chan storage.DashboardS
 	}
 	ch := make(chan storage.DashboardStats, 10)
 	r.dashboardSubs[vhost][ch] = true
+	r.hasStatusSubs.Add(1)
 	return ch
 }
 
@@ -76,6 +83,7 @@ func (r *Registry) UnsubscribeDashboardStats(ch chan storage.DashboardStats) {
 	for vhost, subs := range r.dashboardSubs {
 		if subs[ch] {
 			delete(subs, ch)
+			r.hasStatusSubs.Add(-1)
 			if len(subs) == 0 {
 				delete(r.dashboardSubs, vhost)
 			}
@@ -123,6 +131,7 @@ func (r *Registry) SubscribeLiveMessages() chan LiveMessage {
 	defer r.statusSubsMu.Unlock()
 	ch := make(chan LiveMessage, 100)
 	r.liveMsgSubs[ch] = true
+	r.hasLiveSubs.Add(1)
 	return ch
 }
 
@@ -134,16 +143,21 @@ func (r *Registry) SubscribeWorkflowLiveMessages(workflowID string) chan LiveMes
 	}
 	ch := make(chan LiveMessage, 100)
 	r.workflowLiveMsgSubs[workflowID][ch] = true
+	r.hasLiveSubs.Add(1)
 	return ch
 }
 
 func (r *Registry) UnsubscribeLiveMessages(ch chan LiveMessage) {
 	r.statusSubsMu.Lock()
 	defer r.statusSubsMu.Unlock()
-	delete(r.liveMsgSubs, ch)
+	if r.liveMsgSubs[ch] {
+		delete(r.liveMsgSubs, ch)
+		r.hasLiveSubs.Add(-1)
+	}
 	for wfID, subs := range r.workflowLiveMsgSubs {
 		if subs[ch] {
 			delete(subs, ch)
+			r.hasLiveSubs.Add(-1)
 			if len(subs) == 0 {
 				delete(r.workflowLiveMsgSubs, wfID)
 			}
@@ -292,19 +306,19 @@ func (r *Registry) broadcastLogWithData(engineID, level, msg, data string) {
 		Data:      data,
 	}
 
-	r.mu.Lock()
+	r.mu.RLock()
 	if eng, ok := r.engines[engineID]; ok && eng.isWorkflow {
 		l.WorkflowID = engineID
 	}
-	r.mu.Unlock()
+	r.mu.RUnlock()
 
 	_ = r.CreateLog(context.Background(), l)
 }
 
 func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {
-	r.mu.Lock()
+	r.mu.RLock()
 	ls := r.logStorage
-	r.mu.Unlock()
+	r.mu.RUnlock()
 
 	if ls != nil {
 		err := ls.CreateLog(ctx, l)
@@ -336,9 +350,9 @@ func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {
 }
 
 func (r *Registry) CreateLogs(ctx context.Context, logs []storage.Log) error {
-	r.mu.Lock()
+	r.mu.RLock()
 	ls := r.logStorage
-	r.mu.Unlock()
+	r.mu.RUnlock()
 
 	if ls != nil {
 		err := ls.CreateLogs(ctx, logs)
@@ -372,9 +386,9 @@ func (r *Registry) CreateLogs(ctx context.Context, logs []storage.Log) error {
 }
 
 func (r *Registry) PurgeLogs(ctx context.Context, before time.Time) error {
-	r.mu.Lock()
+	r.mu.RLock()
 	ls := r.logStorage
-	r.mu.Unlock()
+	r.mu.RUnlock()
 
 	if ls != nil {
 		return ls.PurgeLogs(ctx, before)
@@ -383,9 +397,9 @@ func (r *Registry) PurgeLogs(ctx context.Context, before time.Time) error {
 }
 
 func (r *Registry) DeleteLogs(ctx context.Context, filter storage.LogFilter) error {
-	r.mu.Lock()
+	r.mu.RLock()
 	ls := r.logStorage
-	r.mu.Unlock()
+	r.mu.RUnlock()
 
 	if ls != nil {
 		return ls.DeleteLogs(ctx, filter)
@@ -422,17 +436,7 @@ func (r *Registry) broadcastLiveMessage(msg LiveMessage) {
 // serialization performed by broadcastLiveMessageFromHermod when nobody is
 // observing, which is the common case and a major source of allocation churn.
 func (r *Registry) hasLiveMessageSubscribers() bool {
-	r.statusSubsMu.RLock()
-	defer r.statusSubsMu.RUnlock()
-	if len(r.liveMsgSubs) > 0 {
-		return true
-	}
-	for _, subs := range r.workflowLiveMsgSubs {
-		if len(subs) > 0 {
-			return true
-		}
-	}
-	return false
+	return r.hasLiveSubs.Load() > 0
 }
 
 // hasStatusObservers reports whether any client is watching status, dashboard
@@ -440,27 +444,7 @@ func (r *Registry) hasLiveMessageSubscribers() bool {
 // observers, so capturing them (which copies the message payload) is skipped
 // entirely when nobody is connected.
 func (r *Registry) hasStatusObservers() bool {
-	r.statusSubsMu.RLock()
-	defer r.statusSubsMu.RUnlock()
-	if len(r.statusSubs) > 0 || len(r.dashboardSubs) > 0 || len(r.liveMsgSubs) > 0 {
-		return true
-	}
-	for _, subs := range r.workflowStatusSubs {
-		if len(subs) > 0 {
-			return true
-		}
-	}
-	for _, subs := range r.dashboardSubs {
-		if len(subs) > 0 {
-			return true
-		}
-	}
-	for _, subs := range r.workflowLiveMsgSubs {
-		if len(subs) > 0 {
-			return true
-		}
-	}
-	return false
+	return r.hasStatusSubs.Load() > 0 || r.hasLiveSubs.Load() > 0
 }
 
 func (r *Registry) getConsistentData(msg hermod.Message) map[string]any {
@@ -538,9 +522,9 @@ func (r *Registry) pauseForDebugger(workflowID, nodeID string, msg hermod.Messag
 }
 
 func (r *Registry) RecordStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) {
-	r.mu.Lock()
+	r.mu.RLock()
 	ls := r.logStorage
-	r.mu.Unlock()
+	r.mu.RUnlock()
 
 	if ls != nil {
 		_ = ls.RecordTraceStep(ctx, workflowID, messageID, step)
@@ -561,8 +545,9 @@ func (r *Registry) recordSourceIngestTrace(ctx context.Context, workflowID, sour
 		nodeID = "source"
 	}
 	// Only build and persist the trace step (which serializes the whole
-	// payload) when a log store is actually configured to receive it.
-	if r.hasLogStorage() {
+	// payload) when a log store is actually configured to receive it and
+	// the workflow is configured to sample this message.
+	if r.hasLogStorage() && r.shouldTrace(workflowID, msg) {
 		r.RecordStep(ctx, workflowID, msg.ID(), hermod.TraceStep{
 			NodeID:    nodeID,
 			Timestamp: time.Now(),
@@ -577,7 +562,7 @@ func (r *Registry) recordSourceIngestTrace(ctx context.Context, workflowID, sour
 // steps are only meaningful (and only serialized) when there is somewhere to
 // persist them.
 func (r *Registry) hasLogStorage() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.logStorage != nil
 }

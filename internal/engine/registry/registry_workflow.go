@@ -881,9 +881,9 @@ func (r *Registry) StopEngine(id string) error {
 }
 
 func (r *Registry) DrainWorkflowDLQ(id string) error {
-	r.mu.Lock()
+	r.mu.RLock()
 	ae, ok := r.engines[id]
-	r.mu.Unlock()
+	r.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("workflow engine %s not running on this worker", id)
 	}
@@ -1229,6 +1229,12 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 		return res
 	}
 
+	// Build node map for O(1) lookups
+	nodeMap := make(map[string]*storage.WorkflowNode)
+	for i := range wf.Nodes {
+		nodeMap[wf.Nodes[i].ID] = &wf.Nodes[i]
+	}
+
 	var steps []WorkflowStepResult
 	adj := make(map[string][]string)
 	inDegree := make(map[string]int)
@@ -1309,7 +1315,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 		currMsg := currentMessages[currID]
 
 		// Run current node if it's not the source (already handled)
-		currNode := findNodeByID(wf.Nodes, currID)
+		currNode := nodeMap[currID]
 		if currNode == nil {
 			// Defensive: a queued node id may reference a node that no longer
 			// exists (e.g. a dangling edge left over after a node was deleted
@@ -1390,7 +1396,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 
 			if match && currMsg != nil {
 				strategy := ""
-				targetNode := findNodeByID(wf.Nodes, targetID)
+				targetNode := nodeMap[targetID]
 				if targetNode != nil {
 					strategy, _ = targetNode.Config["strategy"].(string)
 				}

@@ -226,8 +226,15 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 	}
 
 	for j := range maxRetries {
+		start := time.Now()
+		var before map[string]any
+		if e.traceRecorder != nil && e.config.TraceSampleRate > 0 {
+			before = msg.ToMap()
+		}
+
 		idempStart := time.Now()
-		if err := snk.Write(ctx, msg); err != nil {
+		err := snk.Write(ctx, msg)
+		if err != nil {
 			lastErr = err
 			for _, observe := range onAttemptError {
 				if observe != nil {
@@ -262,6 +269,10 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 				return ctx.Err()
 			}
 		}
+
+		// Record trace step for successful delivery (or failed final attempt recorded later)
+		e.RecordTraceStep(ctx, msg, sinkID, start, before, nil)
+
 		if j > 0 {
 			e.logger.Info("Sink reconnected successfully", "workflow_id", e.workflowID, "sink_id", sinkID, "action", "reconnect")
 		}
@@ -391,6 +402,7 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 	}
 
 	for j := range maxRetries {
+		start := time.Now()
 		if err := snk.WriteBatch(ctx, msgs); err != nil {
 			lastErr = err
 			telemetry.SinkWriteErrors.WithLabelValues(e.workflowID, sinkID).Add(float64(len(msgs)))
@@ -418,6 +430,15 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 				return ctx.Err()
 			}
 		}
+
+		// Record trace step for each message in the batch.
+		// Sampling is handled internally by RecordTraceStep.
+		for _, m := range msgs {
+			if m != nil {
+				e.RecordTraceStep(ctx, m, sinkID, start, nil, nil)
+			}
+		}
+
 		if j > 0 {
 			e.logger.Info("Sink reconnected successfully", "workflow_id", e.workflowID, "sink_id", sinkID, "action", "reconnect")
 		}
@@ -688,6 +709,7 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 		if err := w.checkCircuitBreaker(); err != nil {
 			for _, pm := range batch {
 				pm.done <- err
+				releasePendingMessage(pm)
 			}
 			batch = batch[:0]
 			batchBytes = 0

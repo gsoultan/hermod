@@ -61,9 +61,9 @@ func (r *Registry) releaseSuspendedMessage(id string) {
 }
 
 func (r *Registry) resumeSuspendedMessage(ctx context.Context, sm storage.SuspendedMessage) {
-	r.mu.Lock()
+	r.mu.RLock()
 	ae, ok := r.engines[sm.WorkflowID]
-	r.mu.Unlock()
+	r.mu.RUnlock()
 
 	if !ok {
 		// Workflow engine not running on this worker, skip or handle re-assignment

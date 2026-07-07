@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -26,7 +28,6 @@ import (
 	"github.com/user/hermod/internal/notification"
 	"github.com/user/hermod/internal/optimizer"
 	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/comm/message"
 	"github.com/user/hermod/pkg/comm/sink/failover"
 	"github.com/user/hermod/pkg/comm/source/batchsql"
 	sourceform "github.com/user/hermod/pkg/comm/source/form"
@@ -128,7 +129,7 @@ type PIIStats struct {
 
 type Registry struct {
 	engines    map[string]*activeEngine
-	mu         sync.Mutex
+	mu         sync.RWMutex
 	storage    RegistryStorage
 	logStorage RegistryStorage
 	config     config.Config
@@ -179,6 +180,13 @@ type Registry struct {
 
 	sf singleflight.Group
 
+	// backgroundTasks bounds concurrent background work (tracing, PII discovery)
+	backgroundTasks chan struct{}
+
+	// Atomic flags for fast-path check of active observers/subscribers
+	hasLiveSubs   atomic.Int32
+	hasStatusSubs atomic.Int32
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -206,6 +214,18 @@ type activeEngine struct {
 	edgeBreakpoints map[string]bool
 	inDegree        map[string]int
 	sinkNodeToIndex map[string]int
+}
+
+func (r *Registry) SetSourceFactory(f SourceFactory) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sourceFactory = f
+}
+
+func (r *Registry) SetSinkFactory(f SinkFactory) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sinkFactory = f
 }
 
 func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
@@ -257,6 +277,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		piiStats:            make(map[string]*PIIStats),
 		reconciling:         make(map[string]struct{}),
 		sf:                  singleflight.Group{},
+		backgroundTasks:     make(chan struct{}, 1000), // Max 1000 concurrent background tasks
 		ctx:                 ctx,
 		cancel:              cancel,
 	}
@@ -966,45 +987,47 @@ func (r *Registry) mergeData(dst, src map[string]any, strategy string) {
 
 func (r *Registry) TestTransformationPipeline(ctx context.Context, transformations []storage.Transformation, msg hermod.Message) ([]hermod.Message, error) {
 	results := make([]hermod.Message, len(transformations))
-	currentMsg := msg.Clone()
+	// currentInput tracks the message state to be passed to the next transformation.
+	// We start with a clone to avoid any side effects on the original input message.
+	currentInput := msg.Clone()
 
 	for i, t := range transformations {
-		if currentMsg == nil {
+		if currentInput == nil {
 			results[i] = nil
 			continue
 		}
 
-		config := t.Config
-		res, err := r.applyTransformation(ctx, currentMsg.Clone(), t.Type, config)
+		res, err := r.applyTransformation(ctx, currentInput, t.Type, t.Config)
 		if err != nil {
-			// Clean up partially created results slice on error
-			for j := 0; j < i; j++ {
-				if results[j] != nil {
-					if dm, ok := results[j].(*message.DefaultMessage); ok {
-						message.ReleaseMessage(dm)
-					}
+			// On error, we release all successfully created results so far,
+			// and also the currentInput which is not in results yet.
+			for _, m := range results {
+				if m != nil {
+					m.Release()
 				}
 			}
-			if dm, ok := currentMsg.(*message.DefaultMessage); ok {
-				message.ReleaseMessage(dm)
+			if currentInput != nil {
+				currentInput.Release()
 			}
 			return nil, err
 		}
 
 		results[i] = res
-		// We keep currentMsg for the next iteration. It will be released
-		// at the very end or if overwritten.
-		if i > 0 || currentMsg != msg { // Don't release the input if it's the first step (but here it's a clone)
-			if dm, ok := currentMsg.(*message.DefaultMessage); ok {
-				message.ReleaseMessage(dm)
-			}
+		if res != nil {
+			// For the next step, we need a fresh clone because the next transformation
+			// might modify it, and we want to preserve results[i] as a snapshot.
+			currentInput = res.Clone()
+		} else {
+			currentInput = nil
 		}
-		currentMsg = res
 	}
 
-	// Note: We do NOT release currentMsg here because it is the same object
-	// as the last element in results slice. The caller is responsible for
-	// releasing all messages in the results slice.
+	// currentInput was a clone of the last result (or nil), so we must release it
+	// as it is not part of the returned results slice.
+	if currentInput != nil {
+		currentInput.Release()
+	}
+
 	return results, nil
 }
 
@@ -1054,12 +1077,11 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 	// Try to use the new Transformer Registry
 	if t, ok := transformer.Get(transType); ok {
 		workflowID := modifiedMsg.Metadata()["_hermod_workflow_id"]
-		var beforeData map[string]any
-		tracingEnabled := workflowID != "" && r.storage != nil
+		tracingEnabled := workflowID != "" && r.shouldTrace(workflowID, modifiedMsg)
 
+		var beforeData map[string]any
 		if tracingEnabled {
-			// Only capture if tracing is likely to happen.
-			// Ideally we should also check a sample rate here if available.
+			// Capture snapshot only when tracing is enabled for this specific message.
 			beforeData = modifiedMsg.ToMap()
 		}
 
@@ -1080,32 +1102,69 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 			}
 			mID := modifiedMsg.ID()
 
-			// Record asynchronously to avoid blocking the pipeline
-			go func(wID, id string, bData, aData map[string]any, tStart time.Time, tErr error) {
-				step := hermod.TraceStep{
-					NodeID:    transType,
-					Timestamp: tStart,
-					Duration:  time.Since(tStart),
-					Before:    bData,
-					After:     aData,
-				}
-				if tErr != nil {
-					step.Error = tErr.Error()
-				}
-				// Use a new context for background recording to avoid cancellation if the request ends
-				_ = r.storage.RecordTraceStep(context.Background(), wID, id, step)
-			}(workflowID, mID, beforeData, afterData, start, err)
+			// Record asynchronously to avoid blocking the pipeline.
+			// Bounding trace goroutines ensures system stability under heavy load.
+			select {
+			case r.backgroundTasks <- struct{}{}:
+				go func(wID, id string, bData, aData map[string]any, tStart time.Time, tErr error) {
+					defer func() { <-r.backgroundTasks }()
+					step := hermod.TraceStep{
+						NodeID:    transType,
+						Timestamp: tStart,
+						Duration:  time.Since(tStart),
+						Before:    bData,
+						After:     aData,
+					}
+					if tErr != nil {
+						step.Error = tErr.Error()
+					}
+					// Use a background context to ensure recording finishes even if the
+					// main workflow node finishes first.
+					r.RecordStep(context.Background(), wID, id, step)
+				}(workflowID, mID, beforeData, afterData, start, err)
+			default:
+				// Dropping trace step due to background task pressure
+			}
 		}
 
 		// Record PII discoveries for compliance dashboard
 		if transType == "mask" && res != nil {
-			go r.recordPIIDiscoveries(res.Clone(), config)
+			cloned := res.Clone()
+			select {
+			case r.backgroundTasks <- struct{}{}:
+				go func() {
+					defer func() { <-r.backgroundTasks }()
+					r.recordPIIDiscoveries(cloned, config)
+				}()
+			default:
+				cloned.Release()
+			}
 		}
 
 		return res, err
 	}
 
 	return modifiedMsg, nil
+}
+
+func (r *Registry) shouldTrace(workflowID string, msg hermod.Message) bool {
+	if msg == nil {
+		return false
+	}
+	r.mu.RLock()
+	ae, ok := r.engines[workflowID]
+	r.mu.RUnlock()
+	if !ok || ae.workflow.TraceSampleRate <= 0 {
+		return false
+	}
+	if ae.workflow.TraceSampleRate >= 1.0 {
+		return true
+	}
+	// Use deterministic sampling based on Message ID (same as Engine.RecordTraceStep)
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(msg.ID()))
+	sampleValue := float64(h.Sum32()) / float64(0xFFFFFFFF)
+	return sampleValue <= ae.workflow.TraceSampleRate
 }
 
 func (r *Registry) recordPIIDiscoveries(msg hermod.Message, config map[string]any) {
@@ -1179,22 +1238,42 @@ func (r *Registry) scanForPII(data map[string]any, found map[string]int) {
 	}
 }
 
+func (r *Registry) GetEngine(id string) (*pkgengine.Engine, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ae, ok := r.engines[id]
+	if !ok {
+		return nil, false
+	}
+	return ae.engine, true
+}
+
 func (r *Registry) IsEngineRunning(id string) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	_, ok := r.engines[id]
 	return ok
 }
 
 func (r *Registry) GetAllStatuses() []telemetry.StatusUpdate {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
 	statuses := make([]telemetry.StatusUpdate, 0, len(r.engines))
 	for _, ae := range r.engines {
 		statuses = append(statuses, ae.engine.GetStatus())
 	}
 	return statuses
+}
+
+func (r *Registry) GetWorkflowStatus(id string) (telemetry.StatusUpdate, bool) {
+	r.mu.RLock()
+	ae, ok := r.engines[id]
+	r.mu.RUnlock()
+	if !ok {
+		return telemetry.StatusUpdate{}, false
+	}
+	return ae.engine.GetStatus(), true
 }
 
 func (r *Registry) GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error) {
@@ -1212,7 +1291,7 @@ func (r *Registry) GetDashboardStats(ctx context.Context, vhost string) (storage
 	// Enrich with local uptime and real-time throughput
 	stats.Uptime = int64(time.Since(r.startTime).Seconds())
 
-	r.mu.Lock()
+	r.mu.RLock()
 	for _, ae := range r.engines {
 		if vhost != "" && vhost != "all" && ae.workflow.VHost != vhost {
 			continue
@@ -1230,7 +1309,7 @@ func (r *Registry) GetDashboardStats(ctx context.Context, vhost string) (storage
 			}
 		}
 	}
-	r.mu.Unlock()
+	r.mu.RUnlock()
 
 	return stats, nil
 }
@@ -1298,6 +1377,11 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 	}
 
 	// 2. At least one source
+	nodeMap := make(map[string]*storage.WorkflowNode)
+	for i := range wf.Nodes {
+		nodeMap[wf.Nodes[i].ID] = &wf.Nodes[i]
+	}
+
 	var sourceNodes []*storage.WorkflowNode
 	for i, node := range wf.Nodes {
 		if node.Type == "source" {
@@ -1322,7 +1406,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 		visited[id] = 1
 		for _, nextID := range adj[id] {
 			if visited[nextID] == 1 {
-				node := findNodeByID(wf.Nodes, nextID)
+				node := nodeMap[nextID]
 				if node != nil {
 					return fmt.Errorf("cycle detected at node %s", r.getNodeName(*node))
 				}
@@ -1336,7 +1420,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 		}
 		visited[id] = 2
 
-		node := findNodeByID(wf.Nodes, id)
+		node := nodeMap[id]
 		if node != nil && node.Type == "sink" {
 			hasSink = true
 		}
@@ -1363,10 +1447,10 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 
 	// 5. Edge integrity
 	for _, edge := range wf.Edges {
-		if findNodeByID(wf.Nodes, edge.SourceID) == nil {
+		if nodeMap[edge.SourceID] == nil {
 			return fmt.Errorf("edge %s refers to missing source node %s", edge.ID, edge.SourceID)
 		}
-		if findNodeByID(wf.Nodes, edge.TargetID) == nil {
+		if nodeMap[edge.TargetID] == nil {
 			return fmt.Errorf("edge %s refers to missing target node %s", edge.ID, edge.TargetID)
 		}
 	}

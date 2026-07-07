@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"time"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/factory"
@@ -220,7 +221,7 @@ func (r *Registry) DiscoverReplicationSlots(ctx context.Context, cfg factory.Sou
 		}
 		defer src.Close()
 
-		if d, ok := src.(hermod.ReplicationSlotDiscoverer); ok {
+		if d, ok := src.(hermod.ReplicationDiscoverer); ok {
 			return d.DiscoverReplicationSlots(ctx)
 		}
 		return nil, fmt.Errorf("source type %s does not support replication slot discovery", cfg.Type)

@@ -63,6 +63,7 @@ func (m *BaseMockStorage) ListVHosts(ctx context.Context, filter storage.CommonF
 	return nil, 0, nil
 }
 func (m *BaseMockStorage) CreateVHost(ctx context.Context, vhost storage.VHost) error { return nil }
+func (m *BaseMockStorage) UpdateVHost(ctx context.Context, vhost storage.VHost) error { return nil }
 func (m *BaseMockStorage) DeleteVHost(ctx context.Context, id string) error           { return nil }
 func (m *BaseMockStorage) GetVHost(ctx context.Context, id string) (storage.VHost, error) {
 	return storage.VHost{}, storage.ErrNotFound
@@ -84,6 +85,9 @@ func (m *BaseMockStorage) DeleteWorkspace(ctx context.Context, id string) error 
 func (m *BaseMockStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
 func (m *BaseMockStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
 func (m *BaseMockStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
+	return nil
+}
+func (m *BaseMockStorage) UpdateWorkflowStats(ctx context.Context, id string, processed, errors, lag uint64) error {
 	return nil
 }
 func (m *BaseMockStorage) DeleteWorkflow(ctx context.Context, id string) error { return nil }
@@ -187,6 +191,19 @@ func (m *BaseMockStorage) GetLatestSchema(ctx context.Context, name string) (sto
 	return storage.Schema{}, storage.ErrNotFound
 }
 func (m *BaseMockStorage) CreateSchema(ctx context.Context, schema storage.Schema) error { return nil }
+
+func (m *BaseMockStorage) ListApprovals(ctx context.Context, filter storage.ApprovalFilter) ([]storage.Approval, int, error) {
+	return nil, 0, nil
+}
+func (m *BaseMockStorage) DeleteApproval(ctx context.Context, id string) error { return nil }
+func (m *BaseMockStorage) GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error) {
+	return storage.DashboardStats{}, nil
+}
+
+func (m *BaseMockStorage) ListSuspendedMessages(ctx context.Context, workflowID string, before time.Time) ([]storage.SuspendedMessage, error) {
+	return nil, nil
+}
+func (m *BaseMockStorage) DeleteSuspendedMessage(ctx context.Context, id string) error { return nil }
 
 func (m *BaseMockStorage) RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error {
 	return nil

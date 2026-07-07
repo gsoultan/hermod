@@ -670,6 +670,8 @@ func (h *Handler) rateLimitCleanupLoop(quit <-chan struct{}) {
 // purgeExpiredRateLimits removes rate-limit counters whose hourly window is more
 // than two hours old.
 func (h *Handler) purgeExpiredRateLimits() {
+	now := time.Now()
+
 	h.FormRateLimit.Range(func(key, _ any) bool {
 		k, ok := key.(string)
 		if !ok {
@@ -681,8 +683,24 @@ func (h *Handler) purgeExpiredRateLimits() {
 			return true
 		}
 		t, err := time.Parse("2006-01-02:15", parts[len(parts)-1])
-		if err == nil && time.Since(t) > 2*time.Hour {
+		if err == nil && now.Sub(t) > 2*time.Hour {
 			h.FormRateLimit.Delete(key)
+		}
+		return true
+	})
+
+	// Also purge stale login attempts to avoid memory leak
+	h.LoginAttempts.Range(func(key, value any) bool {
+		a, ok := value.(*loginAttempt)
+		if !ok {
+			return true
+		}
+		a.mu.Lock()
+		lastFailure := a.lastFailure
+		a.mu.Unlock()
+
+		if !lastFailure.IsZero() && now.Sub(lastFailure) > LoginAttemptWindow*2 {
+			h.LoginAttempts.Delete(key)
 		}
 		return true
 	})

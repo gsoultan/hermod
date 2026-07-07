@@ -73,7 +73,7 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
       }
 
       notifications.show({
-        title: <Text fw={700}>System Interruption</Text>,
+        title: <Text fw={700}>Request Failed</Text>,
         message: (
           <Stack gap={4}>
             <Text size="sm">{errorMessage}</Text>
@@ -94,7 +94,7 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
         ),
         color: 'red',
         icon: <IconAlertCircle size="1.1rem" />,
-        autoClose: workflowID ? 10000 : 5000,
+        autoClose: 5000,
       });
     }
     

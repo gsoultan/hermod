@@ -475,6 +475,13 @@ func (h *Handler) RunNodeUnitTests(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Ensure all messages returned by the pipeline are released
+		for _, m := range res {
+			if m != nil {
+				m.Release()
+			}
+		}
+
 		results = append(results, UnitTestResult{
 			Name:    ut.Name,
 			Passed:  passed,
