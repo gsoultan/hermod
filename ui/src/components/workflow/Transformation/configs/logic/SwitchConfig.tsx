@@ -1,14 +1,20 @@
 import { Stack, Alert, Text, TextInput, Button, Group, ActionIcon, ScrollArea, Box, Divider, Select, Autocomplete } from '@mantine/core';
+import { useMemo } from 'react';
 import { IconInfoCircle, IconPlus, IconTrash } from '@tabler/icons-react';
 
 interface SwitchConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any) => void;
   nodeId: string;
-  availableFields: string[];
+  availableFields: any[];
 }
 
 export function SwitchConfig({ config, updateNodeConfig, nodeId, availableFields = [] }: SwitchConfigProps) {
+  const fieldPaths = useMemo(() => 
+    (availableFields || []).map(f => typeof f === 'string' ? f : f.path),
+    [availableFields]
+  );
+
   const cases = Array.isArray(config.cases) ? config.cases : [];
   
   const updateCase = (index: number, val: any) => {
@@ -33,7 +39,7 @@ export function SwitchConfig({ config, updateNodeConfig, nodeId, availableFields
       <Autocomplete
         label="Switch Field"
         placeholder="e.g. status, type"
-        data={availableFields}
+        data={fieldPaths}
         value={config.field || ''}
         onChange={(val) => updateNodeConfig(nodeId, { field: val })}
         required

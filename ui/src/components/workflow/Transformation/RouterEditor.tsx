@@ -27,7 +27,7 @@ import {
 interface RouterEditorProps {
   selectedNode: any;
   updateNodeConfig: (nodeId: string, config: any, replace?: boolean) => void;
-  availableFields: string[];
+  availableFields: any[];
 }
 
 export function RouterEditor({

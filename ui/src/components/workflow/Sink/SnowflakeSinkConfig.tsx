@@ -8,7 +8,7 @@ import { notifications } from '@mantine/notifications';
 interface SnowflakeSinkConfigProps {
   config: any;
   updateConfig: (key: string, value: any) => void;
-  availableFields?: string[];
+  availableFields?: any[];
   tables: string[];
   upstreamSource?: any;
 }
@@ -45,9 +45,15 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
       if (res.ok) {
         const columns = await res.json();
         const newMappings: ColumnMapping[] = columns.map((col: any) => {
-          const field = availableFields.find(f => f.toLowerCase() === col.name.toLowerCase());
+          const field = availableFields.find(f => {
+            const path = typeof f === 'string' ? f : f.path;
+            if (!path) return false;
+            const normalized = path.toLowerCase();
+            const colLower = col.name.toLowerCase();
+            return normalized === colLower || normalized === `after.${colLower}`;
+          });
           return {
-            source_field: field || '',
+            source_field: (typeof field === 'object' ? field.path : field) || '',
             target_column: col.name,
             data_type: col.type,
             is_primary_key: col.is_pk,
@@ -70,12 +76,15 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
     try {
       const sourceTable = upstreamSource.config?.table || upstreamSource.config?.collection || '';
       if (!sourceTable) {
-        const newMappings: ColumnMapping[] = availableFields.map(field => ({
-          source_field: field,
-          target_column: field,
-          is_nullable: true,
-          is_identity: false
-        }));
+        const newMappings: ColumnMapping[] = availableFields.map(f => {
+          const path = typeof f === 'string' ? f : f.path;
+          return {
+            source_field: path,
+            target_column: path.includes('.') ? path.split('.').pop() || path : path,
+            is_nullable: true,
+            is_identity: false
+          };
+        });
         setMappings(newMappings);
         return;
       }

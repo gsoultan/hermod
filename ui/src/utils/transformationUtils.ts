@@ -10,6 +10,29 @@ export const getAllKeys = (obj: any, prefix = ''): string[] => {
   }, []);
 };
 
+export interface FieldInfo {
+  path: string;
+  type: string;
+}
+
+export const getAllFieldsWithTypes = (obj: any, prefix = ''): FieldInfo[] => {
+  if (!obj || typeof obj !== 'object' || obj === null) return [];
+  return Object.keys(obj).reduce((acc: FieldInfo[], key: string) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    const value = obj[key];
+    let type: string = typeof value;
+    if (value === null) type = 'null';
+    else if (Array.isArray(value)) type = 'array';
+    
+    acc.push({ path, type });
+    
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      acc.push(...getAllFieldsWithTypes(value, path));
+    }
+    return acc;
+  }, []);
+};
+
 export const getValByPath = (obj: any, path: string) => {
   if (!path) return undefined;
   

@@ -24,7 +24,7 @@ interface LookupConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any) => void;
   nodeId: string;
-  availableFields: string[];
+  availableFields: any[];
   onTest: () => void;
   testing: boolean;
 }

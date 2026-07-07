@@ -2,7 +2,6 @@ package registry
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -1223,10 +1222,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 		if m == nil {
 			return nil
 		}
-		jb, _ := json.Marshal(m)
-		var res map[string]any
-		_ = json.Unmarshal(jb, &res)
-		return res
+		return m.ToMap()
 	}
 
 	// Build node map for O(1) lookups

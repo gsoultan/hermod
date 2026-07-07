@@ -17,7 +17,7 @@ describe('Transformation preview', () => {
     const queryClient = new QueryClient()
     const selectedNode = { id: 'n1', type: opts?.nodeType || 'map', data: {} }
     const updateNodeConfig = () => {}
-    const availableFields: string[] = []
+    const availableFields: any[] = []
     const incomingPayload = opts?.incoming ?? { sample: true }
     render(
       <MantineProvider>

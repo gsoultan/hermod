@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense, useMemo } from 'react';
 import { 
   TextInput, Select, Stack, Alert, Divider, Text, Group, ActionIcon, 
   Button, Code, List, Autocomplete, JsonInput, Badge, Grid, SimpleGrid,
@@ -31,6 +31,7 @@ const QuickActions = lazy(() =>
   import('../workflow/Transformation/QuickActions').then((m) => ({ default: m.QuickActions }))
 );
 import { IconArrowRight, IconCloud, IconCode, IconDatabase, IconFunction, IconHelpCircle, IconInfoCircle, IconList, IconPlayerPlay, IconPlus, IconPuzzle, IconRefresh, IconSearch, IconSettings, IconVariable } from '@tabler/icons-react';
+import { preparePayload, getValByPath } from '@/utils/transformationUtils';
 
 // Modular configuration components (Junie compliance)
 import { WaitConfig } from '../workflow/Transformation/configs/logic/WaitConfig';
@@ -65,7 +66,7 @@ interface TransformationFormProps {
   selectedNode: any;
   updateNodeConfig: (nodeId: string, config: any, replace?: boolean) => void;
   onRunSimulation?: (payload?: any) => void;
-  availableFields: string[];
+  availableFields: any[];
   incomingPayload?: any;
   sources?: any[];
   sinkSchema?: any;
@@ -76,6 +77,11 @@ interface TransformationFormProps {
 export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimulation: _onRunSimulation, availableFields = [], incomingPayload, sources = [], sinkSchema, onRefreshFields, isRefreshing }: TransformationFormProps) {
   const [testing, setTesting] = useState(false);
   const { fields: targetSchema, loading: loadingTarget, refetch: refetchTarget } = useTargetSchema({ sinkSchema });
+
+  const fieldPaths = useMemo(() => 
+    (availableFields || []).map(f => typeof f === 'string' ? f : f.path),
+    [availableFields]
+  );
 
   const [previewResult, setPreviewResult] = useState<any>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -225,9 +231,13 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       if (data.error) {
         notifications.show({ title: 'Test Failed', message: data.error, color: 'orange' });
       } else {
+        const result = preparePayload(data);
+        const targetField = selectedNode.data.targetField || selectedNode.data.target_field;
+        const val = getValByPath(result, targetField);
+        
         notifications.show({ 
           title: 'Test Success', 
-          message: `Result for "${selectedNode.data.targetField}": ${JSON.stringify(data[selectedNode.data.targetField])}`, 
+          message: `Result for "${targetField}": ${val === undefined ? 'Not Found' : JSON.stringify(val)}`, 
           color: 'green' 
         });
       }
@@ -251,7 +261,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
               label="Field to Validate"
               description="Numeric field to monitor for anomalies"
               placeholder="e.g. price, amount, latency"
-              data={availableFields || []}
+              data={fieldPaths || []}
               value={selectedNode.data.field || ''}
               onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })}
             />
@@ -366,7 +376,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       <Autocomplete
         label="Source Field"
         placeholder="user.name"
-        data={availableFields || []}
+        data={fieldPaths || []}
         value={selectedNode.data.field || ''}
         onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })}
         required
@@ -391,7 +401,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       <Autocomplete
         label="Field"
         placeholder="amount"
-        data={availableFields || []}
+        data={fieldPaths || []}
         value={selectedNode.data.field || ''}
         onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })}
         required
@@ -472,7 +482,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       <Autocomplete
         label="Source Field"
         placeholder="input_name"
-        data={availableFields || []}
+        data={fieldPaths || []}
         value={selectedNode.data.field || ''}
         onChange={(val: string) => updateNodeConfig(selectedNode.id, { field: val })}
         required
@@ -502,7 +512,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       <Autocomplete
         label="Source Field"
         placeholder="description"
-        data={availableFields || []}
+        data={fieldPaths || []}
         value={selectedNode.data.field || ''}
         onChange={(val: string) => updateNodeConfig(selectedNode.id, { field: val })}
         required
@@ -1341,7 +1351,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
               <Autocomplete
                 label="Array Path"
                 placeholder="e.g. items"
-                data={availableFields || []}
+                data={fieldPaths || []}
                 value={selectedNode.data.arrayPath || ''}
                 onChange={(val) => updateNodeConfig(selectedNode.id, { arrayPath: val })}
                 description="Path to the array you want to fan out."
@@ -1456,7 +1466,7 @@ end`}
               <Autocomplete 
                 label="Field to Aggregate" 
                 placeholder="e.g. amount" 
-                data={availableFields || []}
+                data={fieldPaths || []}
                 value={selectedNode.data.field || ''} 
                 onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })} 
                 description="Supports nested objects and arrays."

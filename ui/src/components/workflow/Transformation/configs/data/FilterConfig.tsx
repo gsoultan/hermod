@@ -10,7 +10,7 @@ interface FilterConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any) => void;
   nodeId: string;
-  availableFields: string[];
+  availableFields: any[];
 }
 
 export function FilterConfig({ config, updateNodeConfig, nodeId, availableFields }: FilterConfigProps) {

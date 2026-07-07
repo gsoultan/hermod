@@ -9,7 +9,7 @@ import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle, IconCopy, IconDatabase, IconPlayerPlay, IconTable,
   IconColumns, IconRefresh, IconPlus, IconArrowsMaximize, IconArrowsMinimize,
-  IconWand, IconTrash, IconSearch
+  IconWand, IconTrash, IconSearch, IconBraces
 } from '@tabler/icons-react';
 
 interface SQLQueryBuilderProps {
@@ -19,6 +19,7 @@ interface SQLQueryBuilderProps {
   onSelectResult?: (row: any) => void;
   initialQuery?: string;
   onQueryChange?: (query: string) => void;
+  availableFields?: { path: string; type: string }[];
 }
 
 // Common SQL keywords used by the "Quick Insert" toolbar. Kept outside the
@@ -71,7 +72,36 @@ function normalizeRows<T>(data: unknown): T[] {
   return Array.isArray(data) ? (data as T[]) : [];
 }
 
-export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, initialQuery, onQueryChange }: SQLQueryBuilderProps) {
+/**
+ * Maps JS types to standard SQL types based on the database engine.
+ */
+function jsToSqlType(jsType: string, engine?: string): string {
+  const e = (engine || '').toLowerCase();
+  const isPostgres = e === 'postgres' || e === 'pgvector' || e === 'yugabyte';
+  const isMySQL = e === 'mysql' || e === 'mariadb';
+  const isSQLite = e === 'sqlite';
+  const isOracle = e === 'oracle';
+  const isMSSQL = e === 'mssql';
+
+  switch (jsType) {
+    case 'number':
+      return 'DECIMAL';
+    case 'boolean':
+      return isOracle ? 'NUMBER(1)' : 'BOOLEAN';
+    case 'object':
+    case 'array':
+      if (isPostgres) return 'JSONB';
+      if (isMySQL) return 'JSON';
+      return 'TEXT';
+    case 'string':
+    default:
+      if (isPostgres || isSQLite) return 'TEXT';
+      if (isMSSQL) return 'NVARCHAR(MAX)';
+      return 'VARCHAR(255)';
+  }
+}
+
+export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, initialQuery, onQueryChange, availableFields = [] }: SQLQueryBuilderProps) {
   const [query, setQuery] = useState(initialQuery || DEFAULT_QUERY);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<any[] | null>(null);
@@ -82,6 +112,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
   const [columns, setColumns] = useState<any[]>([]);
   const [fetchingColumns, setFetchingColumns] = useState(false);
   const [tableFilter, setTableFilter] = useState('');
+  const [fieldFilter, setFieldFilter] = useState('');
   const [expanded, { open: openExpanded, close: closeExpanded }] = useDisclosure(false);
 
   // activeEditorRef points at whichever textarea (inline or fullscreen) currently
@@ -268,6 +299,12 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
     return tables.filter((t) => t.toLowerCase().includes(f));
   }, [tables, tableFilter]);
 
+  const filteredAvailableFields = useMemo(() => {
+    const f = fieldFilter.trim().toLowerCase();
+    if (!f) return availableFields;
+    return availableFields.filter((field) => field.path.toLowerCase().includes(f));
+  }, [availableFields, fieldFilter]);
+
   const lineCount = query ? query.split('\n').length : 0;
 
   const editorToolbar = (
@@ -398,6 +435,61 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
         <Grid.Col span={{ base: 12, md: 4 }}>
           <Paper withBorder p="md" shadow="sm" radius="md" h="100%">
             <Stack gap="xs" h="100%">
+              {availableFields.length > 0 && (
+                <>
+                  <Group justify="space-between">
+                    <Group gap="xs">
+                      <IconBraces size={18} color="var(--mantine-color-orange-filled)" />
+                      <Text size="xs" fw={700} c="dimmed">MESSAGE CONTEXT</Text>
+                    </Group>
+                  </Group>
+                  <Divider />
+                  <TextInput
+                    size="xs"
+                    placeholder="Filter fields..."
+                    value={fieldFilter}
+                    onChange={(e) => setFieldFilter(e.currentTarget.value)}
+                    leftSection={<IconSearch size={12} />}
+                  />
+                  <Box style={{ maxHeight: 250 }}>
+                    <ScrollArea h={availableFields.length > 5 ? 200 : 'auto'} type="auto">
+                      <List size="xs" spacing={4} icon={<IconBraces size={12} />}>
+                        {filteredAvailableFields.map(f => (
+                          <List.Item key={f.path} styles={{ itemWrapper: { width: '100%' } }}>
+                            <Group gap={4} wrap="nowrap" justify="space-between">
+                              <Stack gap={0} style={{ flex: 1, overflow: 'hidden' }}>
+                                <Text
+                                  span
+                                  size="xs"
+                                  style={{ cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                  onClick={() => insertText(`{{.${f.path}}}`)}
+                                >
+                                  {f.path}
+                                </Text>
+                                <Text size="10px" c="dimmed">
+                                  {f.type} → {jsToSqlType(f.type, sourceType)}
+                                </Text>
+                              </Stack>
+                              <Tooltip label={`Insert as CAST(.. AS ${jsToSqlType(f.type, sourceType)})`}>
+                                <ActionIcon 
+                                  size="xs" 
+                                  variant="subtle" 
+                                  color="orange"
+                                  onClick={() => insertText(`CAST({{.${f.path}}} AS ${jsToSqlType(f.type, sourceType)})`)}
+                                >
+                                  <IconPlus size={10} />
+                                </ActionIcon>
+                              </Tooltip>
+                            </Group>
+                          </List.Item>
+                        ))}
+                      </List>
+                    </ScrollArea>
+                  </Box>
+                  <Divider my="xs" />
+                </>
+              )}
+
               <Group justify="space-between">
                 <Group gap="xs">
                   <IconTable size={18} color="var(--mantine-color-blue-filled)" />

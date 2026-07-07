@@ -13,6 +13,7 @@ import {
   Tooltip,
   Box,
 } from '@mantine/core';
+import { useMemo } from 'react';
 import { TemplateField } from '../../shared/TemplateField';
 
 export interface Condition {
@@ -23,11 +24,16 @@ export interface Condition {
 
 interface FilterEditorProps {
   conditions: Condition[];
-  availableFields: string[];
+  availableFields: any[];
   onChange: (next: Condition[]) => void;
 }
 
 export function FilterEditor({ conditions = [], availableFields = [], onChange }: FilterEditorProps) {
+  const fieldPaths = useMemo(() => 
+    (availableFields || []).map(f => typeof f === 'string' ? f : f.path),
+    [availableFields]
+  );
+
   const updateCondition = (index: number, field: keyof Condition, value: string) => {
     const next = [...conditions];
     next[index] = { ...next[index], [field]: value };
@@ -85,7 +91,7 @@ export function FilterEditor({ conditions = [], availableFields = [], onChange }
                   </Group>
                   <Autocomplete
                     placeholder="e.g. status, lower(source.name)"
-                    data={availableFields}
+                    data={fieldPaths}
                     size="xs"
                     value={cond.field || ''}
                     onChange={(val) => updateCondition(index, 'field', val)}

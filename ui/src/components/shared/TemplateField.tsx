@@ -14,7 +14,7 @@ type CommonProps = {
 export interface TemplateFieldProps extends CommonProps {
   value: string
   onChange: (value: string) => void
-  availableFields?: string[]
+  availableFields?: any[] | { path: string; type?: string }[]
   /**
    * Called to build the insertion text from a selected field.
    * Default uses Go template style: {{.field.path}}
@@ -51,8 +51,10 @@ export function TemplateField({
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase()
-    if (!query) return availableFields
-    return availableFields.filter((f) => f.toLowerCase().includes(query))
+    return (availableFields || []).filter((f) => {
+      const path = typeof f === 'string' ? f : f.path
+      return !query || path.toLowerCase().includes(query)
+    })
   }, [q, availableFields])
 
   const insertAtCursor = (text: string) => {
@@ -88,28 +90,40 @@ export function TemplateField({
       />
       <ScrollArea h={220} type="auto">
         <Stack gap={4} pr={4}>
-          {filtered.map((f) => (
-            <Group
-              key={f}
-              justify="space-between"
-              wrap="nowrap"
-              p={6}
-              style={{
-                borderRadius: 6,
-                border: '1px solid var(--mantine-color-gray-3)',
-                cursor: 'pointer',
-              }}
-              onClick={() => {
-                insertAtCursor(buildToken(f))
-                setOpened(false)
-              }}
-            >
-              <Text size="xs" fw={500} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {f}
-              </Text>
-              <Badge variant="light" size="xs">Insert</Badge>
-            </Group>
-          ))}
+          {filtered.map((f) => {
+            const path = typeof f === 'string' ? f : f.path;
+            const type = typeof f === 'string' ? undefined : f.type;
+            
+            return (
+              <Group
+                key={path}
+                justify="space-between"
+                wrap="nowrap"
+                p={6}
+                style={{
+                  borderRadius: 6,
+                  border: '1px solid var(--mantine-color-gray-3)',
+                  cursor: 'pointer',
+                }}
+                onClick={() => {
+                  insertAtCursor(buildToken(path))
+                  setOpened(false)
+                }}
+              >
+                <Stack gap={0} style={{ overflow: 'hidden' }}>
+                  <Text size="xs" fw={500} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {path}
+                  </Text>
+                  {type && (
+                    <Text size="10px" c="dimmed">
+                      {type}
+                    </Text>
+                  )}
+                </Stack>
+                <Badge variant="light" size="xs">Insert</Badge>
+              </Group>
+            );
+          })}
           {filtered.length === 0 && (
             <Text size="xs" c="dimmed" px={4}>
               No fields match "{q}"

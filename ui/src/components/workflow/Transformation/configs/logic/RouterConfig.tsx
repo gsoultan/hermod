@@ -10,7 +10,7 @@ interface RouterConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any) => void;
   nodeId: string;
-  availableFields: string[];
+  availableFields: any[];
 }
 
 export function RouterConfig({ config, updateNodeConfig, nodeId, availableFields }: RouterConfigProps) {

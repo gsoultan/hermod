@@ -160,7 +160,7 @@ type Registry struct {
 	lookupCache         map[string]lookupCacheEntry
 	lookupCacheMu       sync.RWMutex
 	dbPool              map[string]*sql.DB
-	dbPoolMu            sync.Mutex
+	dbPoolMu            sync.RWMutex
 	logger              hermod.Logger
 	idleMonitorStop     chan struct{}
 	stateStore          hermod.StateStore
@@ -628,54 +628,78 @@ func openSQLDB(driverName, connStr string) (*sql.DB, error) {
 }
 
 func (r *Registry) getOrOpenDB(src storage.Source) (*sql.DB, error) {
-	r.dbPoolMu.Lock()
-	defer r.dbPoolMu.Unlock()
+	// 1. Fast path: check existing pool with RLock (no bottleneck for active pools)
+	r.dbPoolMu.RLock()
+	db, ok := r.dbPool[src.ID]
+	r.dbPoolMu.RUnlock()
 
-	if db, ok := r.dbPool[src.ID]; ok {
+	if ok {
+		// Ping outside the lock to avoid blocking other sources during network I/O
 		if err := db.Ping(); err == nil {
 			return db, nil
 		}
-		db.Close()
-		delete(r.dbPool, src.ID)
 	}
 
-	sourceType := src.Type
-	config := src.Config
+	// 2. Slow path: open or reopen the pool using singleflight to prevent
+	// redundant connection attempts (thundering herd) during heavy startup.
+	val, err, _ := r.sf.Do("db:"+src.ID, func() (any, error) {
+		// Re-check existing pool under RLock after acquiring singleflight
+		r.dbPoolMu.RLock()
+		db, ok := r.dbPool[src.ID]
+		r.dbPoolMu.RUnlock()
 
-	if sourceType == "batch_sql" {
-		// Resolve the underlying database source
-		underlyingID := config["source_id"]
-		if underlying, err := r.storage.GetSource(context.Background(), underlyingID); err == nil {
-			sourceType = underlying.Type
-			config = underlying.Config
+		if ok {
+			if err := db.Ping(); err == nil {
+				return db, nil
+			}
+			// Ping failed: close the stale pool and prepare to reopen
+			db.Close()
 		}
-	}
 
-	// Resolve secrets in config
-	resolvedConfig := r.resolveSecrets(context.Background(), config)
-	connStr := factory.BuildConnectionString(resolvedConfig, sourceType)
+		sourceType := src.Type
+		config := src.Config
 
-	// Resolve the actual database/sql driver name from the user-facing type using
-	// the single source of truth shared with placeholder generation. This guarantees
-	// the placeholder style produced by sqlutil.Placeholder always matches the driver
-	// that executes the query (e.g. mssql -> sqlserver -> @pN placeholders).
-	driverName, ok := sqlutil.CanonicalDriver(sourceType)
-	if !ok {
-		return nil, fmt.Errorf("unsupported source type for generic sql: %s", sourceType)
-	}
+		if sourceType == "batch_sql" {
+			// Resolve the underlying database source
+			underlyingID := config["source_id"]
+			if underlying, err := r.storage.GetSource(context.Background(), underlyingID); err == nil {
+				sourceType = underlying.Type
+				config = underlying.Config
+			}
+		}
 
-	db, err := openSQLDB(driverName, connStr)
+		// Resolve secrets in config
+		resolvedConfig := r.resolveSecrets(context.Background(), config)
+		connStr := factory.BuildConnectionString(resolvedConfig, sourceType)
+
+		// Resolve the actual database/sql driver name from the user-facing type using
+		// the single source of truth shared with placeholder generation.
+		driverName, ok := sqlutil.CanonicalDriver(sourceType)
+		if !ok {
+			return nil, fmt.Errorf("unsupported source type for generic sql: %s", sourceType)
+		}
+
+		newDB, err := openSQLDB(driverName, connStr)
+		if err != nil {
+			return nil, err
+		}
+
+		// Configure pool with conservative, performant defaults
+		newDB.SetMaxOpenConns(20)
+		newDB.SetMaxIdleConns(10)
+		newDB.SetConnMaxIdleTime(60 * time.Second)
+
+		r.dbPoolMu.Lock()
+		r.dbPool[src.ID] = newDB
+		r.dbPoolMu.Unlock()
+
+		return newDB, nil
+	})
+
 	if err != nil {
 		return nil, err
 	}
-
-	// Configure pool with conservative, performant defaults
-	db.SetMaxOpenConns(20)
-	db.SetMaxIdleConns(10)
-	db.SetConnMaxIdleTime(60 * time.Second)
-
-	r.dbPool[src.ID] = db
-	return db, nil
+	return val.(*sql.DB), nil
 }
 
 func (r *Registry) SetFactories(sourceFactory SourceFactory, sinkFactory SinkFactory) {

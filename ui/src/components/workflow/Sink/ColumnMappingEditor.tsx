@@ -1,6 +1,6 @@
 import { Group, TextInput, ActionIcon, Stack, Select, Checkbox, Text, Button, Table, Autocomplete } from '@mantine/core';
 import { IconPlus, IconTrash, IconWand } from '@tabler/icons-react';
-import type { FC } from 'react';
+import { type FC, useMemo } from 'react';
 
 export interface ColumnMapping {
   source_field: string;
@@ -13,7 +13,7 @@ export interface ColumnMapping {
 
 interface ColumnMappingEditorProps {
   mappings: ColumnMapping[];
-  availableFields: string[];
+  availableFields: any[];
   onChange: (mappings: ColumnMapping[]) => void;
   onSmartMap?: () => void;
   onSmartMapFromSource?: () => void;
@@ -47,6 +47,11 @@ export const ColumnMappingEditor: FC<ColumnMappingEditorProps> = ({
   loadingSource,
   sinkType,
 }) => {
+  const fieldPaths = useMemo(() => 
+    (availableFields || []).map(f => typeof f === 'string' ? f : f.path),
+    [availableFields]
+  );
+
   const addMapping = () => {
     onChange([...mappings, { source_field: '', target_column: '', is_primary_key: false, is_nullable: true, is_identity: false }]);
   };
@@ -116,7 +121,7 @@ export const ColumnMappingEditor: FC<ColumnMappingEditorProps> = ({
                 <Table.Td>
                   <Select
                     placeholder="Source field"
-                    data={availableFields || []}
+                    data={fieldPaths || []}
                     value={mapping.source_field}
                     onChange={(val) => updateMapping(index, 'source_field', val)}
                     searchable

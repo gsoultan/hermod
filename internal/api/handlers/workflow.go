@@ -862,7 +862,7 @@ func (h *Handler) TestTransformation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(res[0])
+	_ = json.NewEncoder(w).Encode(res[0].ToMap())
 }
 
 func (h *Handler) GetMessageTrace(w http.ResponseWriter, r *http.Request) {

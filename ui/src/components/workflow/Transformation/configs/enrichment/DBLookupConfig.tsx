@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useState, useMemo } from 'react';
 import {
   Stack,
   Tabs,
@@ -29,7 +29,7 @@ interface DBLookupConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any) => void;
   nodeId: string;
-  availableFields: string[];
+  availableFields: any[];
   sources: any[];
   onTest: () => void;
   testing: boolean;
@@ -63,6 +63,11 @@ export function DBLookupConfig({
 
   const selectedSource = (Array.isArray(sources) ? sources : []).find(
     (s) => s.id === config.sourceId
+  );
+
+  const fieldPaths = useMemo(() => 
+    (availableFields || []).map(f => typeof f === 'string' ? f : f.path),
+    [availableFields]
   );
 
   return (
@@ -115,7 +120,7 @@ export function DBLookupConfig({
               <Autocomplete
                 label="Key Field (Message)"
                 placeholder="e.g. user_id"
-                data={availableFields || []}
+                data={fieldPaths || []}
                 value={config.keyField || ''}
                 onChange={(val) => updateNodeConfig(nodeId, { keyField: val })}
                 size="sm"
@@ -244,6 +249,7 @@ export function DBLookupConfig({
               config={selectedSource?.config || {}}
               initialQuery={config.queryTemplate || ''}
               onQueryChange={(val: string) => updateNodeConfig(nodeId, { queryTemplate: val })}
+              availableFields={availableFields as any}
             />
           )}
         </Suspense>

@@ -118,6 +118,7 @@ export function BatchSQLSourceConfig({ config, updateConfig, allSources }: Batch
                 config={selectedSource?.config || {}} 
                 initialQuery={currentQuery}
                 onQueryChange={setCurrentQuery}
+                availableFields={[{ path: 'last_value', type: 'any' }]}
               />
               <Group justify="flex-end">
                 <Button variant="subtle" onClick={close}>Cancel</Button>

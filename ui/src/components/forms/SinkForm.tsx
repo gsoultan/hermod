@@ -90,7 +90,7 @@ interface SinkFormProps {
   onSave?: (data: any) => void;
   vhost?: string;
   workerID?: string;
-  availableFields?: string[];
+  availableFields?: any[];
   incomingPayload?: any;
   sinks?: Sink[];
   upstreamSource?: any;

@@ -16,7 +16,7 @@ export type PostgresSinkConfigProps = {
   updateConfig: (key: string, value: any) => void
   fetchDatabases: () => void
   discoverTables: (force?: boolean) => void
-  availableFields?: string[]
+  availableFields?: any[]
   upstreamSource?: any
 }
 
@@ -64,9 +64,17 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
         const columns = await res.json();
         const newMappings: ColumnMapping[] = columns.map((col: any) => {
           // Try to find a matching field in availableFields (case-insensitive)
-          const field = availableFields.find(f => f.toLowerCase() === col.name.toLowerCase());
+          // Handles both FieldInfo objects and potential CDC 'after.' prefixes.
+          const field = availableFields.find(f => {
+            const path = typeof f === 'string' ? f : f.path;
+            if (!path) return false;
+            const normalized = path.toLowerCase();
+            const colLower = col.name.toLowerCase();
+            return normalized === colLower || normalized === `after.${colLower}`;
+          });
+
           return {
-            source_field: field || '',
+            source_field: (typeof field === 'object' ? field.path : field) || '',
             target_column: col.name,
             data_type: col.type,
             is_primary_key: col.is_pk,
@@ -89,12 +97,15 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
     try {
       const sourceTable = upstreamSource.config?.table || upstreamSource.config?.collection || '';
       if (!sourceTable) {
-        const newMappings: ColumnMapping[] = availableFields.map(field => ({
-          source_field: field,
-          target_column: field,
-          is_nullable: true,
-          is_identity: false
-        }));
+        const newMappings: ColumnMapping[] = availableFields.map(f => {
+          const path = typeof f === 'string' ? f : f.path;
+          return {
+            source_field: path,
+            target_column: path.includes('.') ? path.split('.').pop() || path : path,
+            is_nullable: true,
+            is_identity: false
+          };
+        });
         setMappings(newMappings);
         return;
       }

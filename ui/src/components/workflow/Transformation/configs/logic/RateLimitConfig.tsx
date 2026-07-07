@@ -1,14 +1,20 @@
 import { Stack, Group, NumberInput, Select, Autocomplete, Alert, Text } from '@mantine/core';
+import { useMemo } from 'react';
 import { IconInfoCircle } from '@tabler/icons-react';
 
 interface RateLimitConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any) => void;
   nodeId: string;
-  availableFields: string[];
+  availableFields: any[];
 }
 
 export function RateLimitConfig({ config, updateNodeConfig, nodeId, availableFields }: RateLimitConfigProps) {
+  const fieldPaths = useMemo(() => 
+    (availableFields || []).map(f => typeof f === 'string' ? f : f.path),
+    [availableFields]
+  );
+
   return (
     <Stack gap="md">
       <Alert icon={<IconInfoCircle size="1rem" />} color="indigo">
@@ -41,7 +47,7 @@ export function RateLimitConfig({ config, updateNodeConfig, nodeId, availableFie
       <Autocomplete 
         label="Key Field (Optional)" 
         placeholder="e.g. user_id" 
-        data={availableFields || []}
+        data={fieldPaths || []}
         value={config.keyField || ''} 
         onChange={(val) => updateNodeConfig(nodeId, { keyField: val })} 
         description="Apply limits per unique value of this field."

@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { type Node, type Edge } from '@xyflow/react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { useShallow } from 'zustand/react/shallow';
-import { getAllKeys, deepMergeSim, preparePayload } from '@/utils/transformationUtils';
+import { getAllFieldsWithTypes, deepMergeSim, preparePayload, type FieldInfo } from '@/utils/transformationUtils';
 
 export function useNodeContext(selectedNode: Node | null, testResults: any[] | null, sources: any[], sinks: any[]) {
   const { nodes, edges, nodeSamples } = useWorkflowStore(useShallow(state => ({
@@ -13,7 +13,7 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
 
   const contextDataRaw = useMemo(() => {
     let incomingPayload = null;
-    let availableFields: string[] = [];
+    let availableFields: FieldInfo[] = [];
     let sinkSchema = null;
     let upstreamSource = null;
 
@@ -32,7 +32,7 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
         });
         if (Object.keys(mergedPayload).length > 0) {
           incomingPayload = preparePayload(mergedPayload);
-          availableFields = getAllKeys(incomingPayload);
+          availableFields = getAllFieldsWithTypes(incomingPayload);
         }
       }
     }
@@ -46,14 +46,14 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
         const localTestPayload = (selectedNode.data?.testResult as any)?.payload;
         if (localTestPayload) {
           incomingPayload = preparePayload(localTestPayload);
-          availableFields = getAllKeys(incomingPayload);
+          availableFields = getAllFieldsWithTypes(incomingPayload);
         } else if (selectedNode.data?.lastSample) {
           incomingPayload = preparePayload(selectedNode.data.lastSample);
-          availableFields = getAllKeys(incomingPayload);
+          availableFields = getAllFieldsWithTypes(incomingPayload);
         } else if (nodeSamples?.[selectedNode.id]) {
           // Live sample captured from a running workflow (e.g. RabbitMQ source).
           incomingPayload = preparePayload(nodeSamples[selectedNode.id]);
-          availableFields = getAllKeys(incomingPayload);
+          availableFields = getAllFieldsWithTypes(incomingPayload);
         } else if (selectedNode.type === 'source') {
           const sourceData = sources?.find((s: any) => s.id === selectedNode.data?.ref_id);
           const rawSample = sourceData?.sample;
@@ -61,7 +61,7 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
             try {
               const sample = typeof rawSample === 'string' ? JSON.parse(rawSample) : rawSample;
               incomingPayload = preparePayload(sample);
-              availableFields = getAllKeys(incomingPayload);
+              availableFields = getAllFieldsWithTypes(incomingPayload);
             } catch (e) {}
           }
         }
@@ -110,7 +110,7 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
 
         if (Object.keys(mergedNearest).length > 0) {
           incomingPayload = preparePayload(mergedNearest);
-          availableFields = getAllKeys(incomingPayload);
+          availableFields = getAllFieldsWithTypes(incomingPayload);
         }
       }
     }
@@ -149,6 +149,55 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
         upstreamSource = src;
         break;
       }
+    }
+
+    // 5. Supplement availableFields with inferred fields from upstream transformations (Schema Propagation)
+    // This ensures fields that WILL be added by upstream nodes are visible even without a sample/test.
+    if (selectedNode.type !== 'source') {
+      const isCDC = upstreamSource?.config?.use_cdc === 'true' || upstreamSource?.config?.use_cdc === true;
+      const visitedTransformations = new Set<string>();
+
+      const collectInferredFields = (nodeId: string) => {
+        if (visitedTransformations.has(nodeId)) return;
+        visitedTransformations.add(nodeId);
+
+        const node = nodes.find(n => n.id === nodeId);
+        if (!node) return;
+
+        if (node.type === 'transformation') {
+          const config = (node.data?.config || {}) as any;
+          const targetField = config.targetField || config.target_field;
+          if (targetField) {
+            const path = isCDC ? `after.${targetField}` : targetField;
+            if (!availableFields.find(f => f.path === path)) {
+              availableFields.push({ path, type: 'any (inferred)' });
+            }
+          }
+          // Also handle pipeline steps
+          if (config.transType === 'pipeline' && config.steps) {
+            let steps = [];
+            try {
+              steps = typeof config.steps === 'string' ? JSON.parse(config.steps) : config.steps;
+            } catch (e) {}
+            if (Array.isArray(steps)) {
+              steps.forEach((s: any) => {
+                if (s.targetField) {
+                  const path = isCDC ? `after.${s.targetField}` : s.targetField;
+                  if (!availableFields.find(f => f.path === path)) {
+                    availableFields.push({ path, type: 'any (inferred)' });
+                  }
+                }
+              });
+            }
+          }
+        }
+
+        const inc = edges.filter((e: Edge) => e.target === nodeId);
+        inc.forEach(e => collectInferredFields(e.source));
+      };
+
+      const immediateIncoming = edges.filter((e: Edge) => e.target === selectedNode.id);
+      immediateIncoming.forEach(e => collectInferredFields(e.source));
     }
 
     return JSON.stringify({ incomingPayload, availableFields, sinkSchema, upstreamSource });

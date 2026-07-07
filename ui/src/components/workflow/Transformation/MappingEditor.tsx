@@ -15,6 +15,7 @@ import {
   Paper,
   rem,
 } from '@mantine/core';
+import { useMemo } from 'react';
 import { notifications } from '@mantine/notifications';
 import { getValByPath } from '../../../utils/transformationUtils';
 import {
@@ -30,7 +31,7 @@ import {
 interface MappingEditorProps {
   selectedNode: any;
   updateNodeConfig: (nodeId: string, config: any, replace?: boolean) => void;
-  availableFields: string[];
+  availableFields: any[];
   incomingPayload?: any;
 }
 
@@ -40,6 +41,11 @@ export function MappingEditor({
   availableFields = [],
   incomingPayload,
 }: MappingEditorProps) {
+  const fieldPaths = useMemo(() => 
+    (availableFields || []).map(f => typeof f === 'string' ? f : f.path),
+    [availableFields]
+  );
+
   const renderMappingRules = () => {
     let mapping: Record<string, string> = {};
     try {
@@ -229,7 +235,7 @@ export function MappingEditor({
           <Autocomplete
             label="Source Field"
             placeholder="e.g. status"
-            data={availableFields}
+            data={fieldPaths}
             value={selectedNode.data.field || ''}
             onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })}
             description="Field or expression to transform. Supports nested paths (e.g. user.profile.id) and functions (e.g. lower(source.name))."

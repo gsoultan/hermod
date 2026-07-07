@@ -10,7 +10,7 @@ interface SetFieldsConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any, replace?: boolean) => void;
   nodeId: string;
-  availableFields: string[];
+  availableFields: any[];
   incomingPayload?: any;
   onAddFromSource: (path: string) => void;
   addField: (path?: string, value?: string) => void;

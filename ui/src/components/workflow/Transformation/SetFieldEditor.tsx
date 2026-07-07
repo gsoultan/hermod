@@ -11,6 +11,7 @@ import {
   Box,
   Tooltip,
 } from '@mantine/core';
+import { useMemo } from 'react';
 import {
   IconBracketsContain,
   IconPlus,
@@ -23,7 +24,7 @@ import { TemplateField } from '../../shared/TemplateField';
 interface SetFieldEditorProps {
   selectedNode: any;
   updateNodeConfig: (nodeId: string, config: any, replace?: boolean) => void;
-  availableFields: string[];
+  availableFields: any[];
   incomingPayload?: any;
   transType: string;
   onAddFromSource: (path: string) => void;
@@ -39,6 +40,11 @@ export function SetFieldEditor({
   onAddFromSource,
   addField,
 }: SetFieldEditorProps) {
+  const fieldPaths = useMemo(() => 
+    (availableFields || []).map(f => typeof f === 'string' ? f : f.path),
+    [availableFields]
+  );
+
   const fields = Object.entries(selectedNode.data)
     .filter(([k]) => k.startsWith('column.'))
     .map(([k, v]) => ({ fullKey: k, path: k.replace('column.', ''), value: v }));
@@ -98,7 +104,7 @@ export function SetFieldEditor({
               Quick add from source
             </Text>
             <Group gap={4} justify="flex-end">
-              {availableFields.slice(0, 5).map((f) => (
+              {fieldPaths.slice(0, 5).map((f) => (
                 <Badge
                   key={f}
                   size="xs"
@@ -144,7 +150,7 @@ export function SetFieldEditor({
                   </Text>
                   <Autocomplete
                     placeholder="e.g. user.id"
-                    data={availableFields}
+                    data={fieldPaths}
                     size="xs"
                     leftSection={<IconBracketsContain size={rem(14)} />}
                     value={field.path}

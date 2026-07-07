@@ -10,7 +10,7 @@ interface MappingConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any) => void;
   nodeId: string;
-  availableFields: string[];
+  availableFields: any[];
   incomingPayload?: any;
 }
 

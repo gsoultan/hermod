@@ -10,6 +10,7 @@ import {
   Divider,
   Autocomplete,
 } from '@mantine/core';
+import { useMemo } from 'react';
 import {
   IconInfoCircle,
   IconMathFunction,
@@ -22,10 +23,15 @@ interface AggregateConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any) => void;
   nodeId: string;
-  availableFields: string[];
+  availableFields: any[];
 }
 
 export function AggregateConfig({ config, updateNodeConfig, nodeId, availableFields = [] }: AggregateConfigProps) {
+  const fieldPaths = useMemo(() => 
+    (availableFields || []).map(f => typeof f === 'string' ? f : f.path),
+    [availableFields]
+  );
+
   return (
     <Stack gap="md">
       <Alert
@@ -53,7 +59,7 @@ export function AggregateConfig({ config, updateNodeConfig, nodeId, availableFie
           <Autocomplete
             label="Group By Key"
             placeholder="e.g. user_id, region"
-            data={availableFields}
+            data={fieldPaths}
             value={config.groupBy || ''}
             onChange={(val) => updateNodeConfig(nodeId, { groupBy: val })}
             description="Field or expression to use as the grouping key (e.g. lower(source.region))."
@@ -94,7 +100,7 @@ export function AggregateConfig({ config, updateNodeConfig, nodeId, availableFie
             <Autocomplete
               label="Field to Aggregate"
               placeholder="e.g. amount"
-              data={availableFields}
+              data={fieldPaths}
               value={config.field || ''}
               onChange={(val) => updateNodeConfig(nodeId, { field: val })}
               required

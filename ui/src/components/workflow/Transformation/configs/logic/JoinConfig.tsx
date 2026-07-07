@@ -5,7 +5,7 @@ interface JoinConfigProps {
   config: any;
   nodeId: string;
   updateNodeConfig: (nodeId: string, config: any) => void;
-  availableFields: string[];
+  availableFields: any[];
 }
 
 export function JoinConfig({ config, nodeId, updateNodeConfig }: JoinConfigProps) {

@@ -9,13 +9,14 @@ import {
   rem,
   ThemeIcon,
 } from '@mantine/core';
+import { useMemo } from 'react';
 import { IconInfoCircle, IconEyeOff, IconTag, IconAdjustmentsHorizontal } from '@tabler/icons-react';
 
 interface MaskConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any) => void;
   nodeId: string;
-  availableFields: string[];
+  availableFields: any[];
 }
 
 export function MaskConfig({
@@ -24,6 +25,11 @@ export function MaskConfig({
   nodeId,
   availableFields,
 }: MaskConfigProps) {
+  const fieldPaths = useMemo(() => 
+    (availableFields || []).map(f => typeof f === 'string' ? f : f.path),
+    [availableFields]
+  );
+
   return (
     <Stack gap="md">
       <Alert
@@ -53,7 +59,7 @@ export function MaskConfig({
           <Autocomplete
             label="Field Path"
             placeholder="e.g. user.email, lower(source.email) (use * for all)"
-            data={availableFields || []}
+            data={fieldPaths || []}
             value={config.field || ''}
             onChange={(val) => updateNodeConfig(nodeId, { field: val })}
             description="Field or expression to mask. Use * to scan all top-level fields for PII."

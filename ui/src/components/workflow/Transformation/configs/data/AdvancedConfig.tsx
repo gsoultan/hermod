@@ -10,7 +10,7 @@ interface AdvancedConfigProps {
   config: any;
   updateNodeConfig: (id: string, config: any, replace?: boolean) => void;
   nodeId: string;
-  availableFields: string[];
+  availableFields: any[];
   incomingPayload?: any;
   transType: string;
   onAddFromSource: (path: string) => void;

@@ -11,9 +11,10 @@ interface SQLConfigProps {
   updateNodeConfig: (id: string, config: any) => void;
   nodeId: string;
   sources: any[];
+  availableFields?: any[];
 }
 
-export function SQLConfig({ config, updateNodeConfig, nodeId, sources }: SQLConfigProps) {
+export function SQLConfig({ config, updateNodeConfig, nodeId, sources, availableFields = [] }: SQLConfigProps) {
   const dbSources = (Array.isArray(sources) ? sources : [])
     .filter((s: any) =>
       [
@@ -109,6 +110,7 @@ export function SQLConfig({ config, updateNodeConfig, nodeId, sources }: SQLConf
                 }}
                 config={selectedSource?.config || {}}
                 sourceType={selectedSource?.type}
+                availableFields={availableFields}
               />
             ) : (
               <Box p="xl" style={{ textAlign: 'center' }}>
