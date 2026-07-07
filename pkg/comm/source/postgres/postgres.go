@@ -248,7 +248,15 @@ func (p *PostgresSource) reconcileExistingPublication(ctx context.Context, quote
 	}
 
 	if pubAllTables {
-		return p.setPublicationTables(ctx, quotedPub, "Updated publication from ALL TABLES to specific tables")
+		// Postgres does not allow 'ALTER PUBLICATION ... SET TABLE' for publications
+		// created as 'FOR ALL TABLES'. To align with a specific table list we
+		// must drop and recreate it. We only do this because the user has
+		// explicitly provided a table list.
+		p.log("WARN", "Existing publication is FOR ALL TABLES; dropping and recreating to support specific table list", "publication", p.publicationName)
+		if _, err := p.conn.Exec(ctx, "DROP PUBLICATION "+quotedPub); err != nil {
+			return fmt.Errorf("failed to drop FOR ALL TABLES publication: %w", err)
+		}
+		return p.createPublication(ctx, quotedPub)
 	}
 
 	needsUpdate, err := p.publicationNeedsTableUpdate(ctx)

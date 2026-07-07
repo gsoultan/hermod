@@ -231,11 +231,18 @@ func (w *Worker) ReleaseAllLeases(ctx context.Context) {
 		return
 	}
 	workflows, _, _ := w.storage.ListWorkflows(ctx, storage.CommonFilter{})
+
+	var wg sync.WaitGroup
 	for _, wf := range workflows {
 		if wf.OwnerID == w.workerGUID {
-			_ = w.storage.ReleaseWorkflowLease(ctx, wf.ID, w.workerGUID)
+			wg.Add(1)
+			go func(wfID string) {
+				defer wg.Done()
+				_ = w.storage.ReleaseWorkflowLease(ctx, wfID, w.workerGUID)
+			}(wf.ID)
 		}
 	}
+	wg.Wait()
 	w.stopAllLeaseRenewals()
 }
 

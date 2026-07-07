@@ -968,15 +968,6 @@ func (r *Registry) TestTransformationPipeline(ctx context.Context, transformatio
 	results := make([]hermod.Message, len(transformations))
 	currentMsg := msg.Clone()
 
-	// Ensure the working message is released on exit
-	defer func() {
-		if currentMsg != nil {
-			if dm, ok := currentMsg.(*message.DefaultMessage); ok {
-				message.ReleaseMessage(dm)
-			}
-		}
-	}()
-
 	for i, t := range transformations {
 		if currentMsg == nil {
 			results[i] = nil
@@ -986,17 +977,34 @@ func (r *Registry) TestTransformationPipeline(ctx context.Context, transformatio
 		config := t.Config
 		res, err := r.applyTransformation(ctx, currentMsg.Clone(), t.Type, config)
 		if err != nil {
+			// Clean up partially created results slice on error
+			for j := 0; j < i; j++ {
+				if results[j] != nil {
+					if dm, ok := results[j].(*message.DefaultMessage); ok {
+						message.ReleaseMessage(dm)
+					}
+				}
+			}
+			if dm, ok := currentMsg.(*message.DefaultMessage); ok {
+				message.ReleaseMessage(dm)
+			}
 			return nil, err
 		}
 
 		results[i] = res
-
-		// Release the previous working message before updating to the new result
-		if dm, ok := currentMsg.(*message.DefaultMessage); ok {
-			message.ReleaseMessage(dm)
+		// We keep currentMsg for the next iteration. It will be released
+		// at the very end or if overwritten.
+		if i > 0 || currentMsg != msg { // Don't release the input if it's the first step (but here it's a clone)
+			if dm, ok := currentMsg.(*message.DefaultMessage); ok {
+				message.ReleaseMessage(dm)
+			}
 		}
 		currentMsg = res
 	}
+
+	// Note: We do NOT release currentMsg here because it is the same object
+	// as the last element in results slice. The caller is responsible for
+	// releasing all messages in the results slice.
 	return results, nil
 }
 

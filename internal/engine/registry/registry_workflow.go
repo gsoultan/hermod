@@ -331,6 +331,10 @@ func parseSinkEngineConfig(cfg factory.SinkConfig) config.SinkConfig {
 
 // StartWorkflow creates and starts a workflow engine for the given workflow configuration.
 func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
+	if r.ctx.Err() != nil {
+		return errors.New("registry is closing, cannot start new workflow")
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -861,9 +865,15 @@ func (r *Registry) StopAll() {
 	}
 	r.mu.Unlock()
 
+	var wg sync.WaitGroup
 	for _, id := range ids {
-		_ = r.stopEngine(id, false)
+		wg.Add(1)
+		go func(wfID string) {
+			defer wg.Done()
+			_ = r.stopEngine(wfID, false)
+		}(id)
 	}
+	wg.Wait()
 }
 
 func (r *Registry) StopEngine(id string) error {

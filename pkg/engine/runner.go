@@ -629,9 +629,18 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		// Default: route to all sinks
 		targets = make([]RoutedMessage, len(r.engine.sinks))
 		for i := range r.engine.sinks {
+			m.Retain()
 			targets[i] = RoutedMessage{SinkIndex: i, Message: m}
 		}
 	}
+
+	defer func() {
+		for _, target := range targets {
+			if target.Message != nil {
+				target.Message.Release()
+			}
+		}
+	}()
 
 	if len(targets) == 0 {
 		// Even if filtered, we must acknowledge to prevent re-reading
