@@ -438,31 +438,39 @@ func (r *Registry) BrowseSinkTable(ctx context.Context, cfg factory.SinkConfig, 
 
 // --- SQL Execution ---
 
-func (r *Registry) ExecuteSQL(ctx context.Context, cfg factory.SourceConfig, query string) ([]map[string]any, error) {
+func (r *Registry) ExecuteSQL(ctx context.Context, cfg factory.SourceConfig, query string, userSample map[string]any) ([]map[string]any, error) {
 	key := r.discoveryKey("exec-sql", struct {
-		Cfg   factory.SourceConfig
-		Query string
-	}{cfg, query})
+		Cfg    factory.SourceConfig
+		Query  string
+		Sample map[string]any
+	}{cfg, query, userSample})
 	val, err := r.discoveryDo(ctx, key, func(ctx context.Context) (any, error) {
-		// Prepare dummy data for template resolution in builder
+		// Start with default fallback
 		sampleData := map[string]any{
-			"after": map[string]any{"id": "sample-id"}, // Default fallback
+			"after": map[string]any{"id": "sample-id"},
 		}
 
-		// Try to get actual sample data if available to make the preview realistic
-		if msg, err := r.sampleTable(ctx, cfg, ""); err == nil && msg != nil {
-			data := msg.Data()
-			if len(data) > 0 {
-				for k, v := range data {
-					sampleData[k] = v
-				}
+		// Use user-provided sample data if available (highest priority)
+		if len(userSample) > 0 {
+			for k, v := range userSample {
+				sampleData[k] = v
 			}
-			// If data is empty but we have After payload, try to unmarshal it
-			if len(data) == 0 {
-				if after := msg.After(); len(after) > 0 {
-					var afterData map[string]any
-					if err := json.Unmarshal(after, &afterData); err == nil {
-						sampleData["after"] = afterData
+		} else {
+			// Fallback to table sampling if no user sample provided
+			if msg, err := r.sampleTable(ctx, cfg, ""); err == nil && msg != nil {
+				data := msg.Data()
+				if len(data) > 0 {
+					for k, v := range data {
+						sampleData[k] = v
+					}
+				}
+				// If data is empty but we have After payload, try to unmarshal it
+				if len(data) == 0 {
+					if after := msg.After(); len(after) > 0 {
+						var afterData map[string]any
+						if err := json.Unmarshal(after, &afterData); err == nil {
+							sampleData["after"] = afterData
+						}
 					}
 				}
 			}
@@ -523,23 +531,31 @@ func (r *Registry) ExecuteSQL(ctx context.Context, cfg factory.SourceConfig, que
 	return val.([]map[string]any), nil
 }
 
-func (r *Registry) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkConfig, query string) ([]map[string]any, error) {
+func (r *Registry) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkConfig, query string, userSample map[string]any) ([]map[string]any, error) {
 	key := r.discoveryKey("exec-sink-sql", struct {
-		Cfg   factory.SinkConfig
-		Query string
-	}{cfg, query})
+		Cfg    factory.SinkConfig
+		Query  string
+		Sample map[string]any
+	}{cfg, query, userSample})
 	val, err := r.discoveryDo(ctx, key, func(ctx context.Context) (any, error) {
 		// Prepare dummy data
 		sampleData := map[string]any{
 			"after": map[string]any{"id": "sample-id"},
 		}
 
-		// Try to get actual sample data from sink if supported
-		if msg, err := r.SampleSinkTable(ctx, cfg, ""); err == nil && msg != nil {
-			data := msg.Data()
-			if len(data) > 0 {
-				for k, v := range data {
-					sampleData[k] = v
+		// Use user-provided sample data if available
+		if len(userSample) > 0 {
+			for k, v := range userSample {
+				sampleData[k] = v
+			}
+		} else {
+			// Try to get actual sample data from sink if supported
+			if msg, err := r.SampleSinkTable(ctx, cfg, ""); err == nil && msg != nil {
+				data := msg.Data()
+				if len(data) > 0 {
+					for k, v := range data {
+						sampleData[k] = v
+					}
 				}
 			}
 		}

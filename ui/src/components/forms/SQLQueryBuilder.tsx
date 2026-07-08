@@ -2,10 +2,11 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Stack, Button, Table, Text,
   Paper, Group, ScrollArea, Alert, ActionIcon, Tooltip,
-  List, Divider, Loader, Textarea, Grid, Box, Modal, TextInput, Badge
+  List, Divider, Loader, Textarea, Grid, Box, Modal, TextInput, Badge, rem
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+import { getValByPath } from '@/utils/transformationUtils';
 import {
   IconAlertCircle, IconCopy, IconDatabase, IconPlayerPlay, IconTable,
   IconColumns, IconRefresh, IconPlus, IconArrowsMaximize, IconArrowsMinimize,
@@ -20,6 +21,7 @@ interface SQLQueryBuilderProps {
   initialQuery?: string;
   onQueryChange?: (query: string) => void;
   availableFields?: { path: string; type: string }[];
+  sampleMessage?: any;
 }
 
 // Common SQL keywords used by the "Quick Insert" toolbar. Kept outside the
@@ -101,7 +103,7 @@ function jsToSqlType(jsType: string, engine?: string): string {
   }
 }
 
-export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, initialQuery, onQueryChange, availableFields = [] }: SQLQueryBuilderProps) {
+export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, initialQuery, onQueryChange, availableFields = [], sampleMessage }: SQLQueryBuilderProps) {
   const [query, setQuery] = useState(initialQuery || DEFAULT_QUERY);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<any[] | null>(null);
@@ -178,7 +180,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
       const response = await fetch(`/api/${type}s/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: buildConfigPayload(), query }),
+        body: JSON.stringify({ config: buildConfigPayload(), query, sampleData: sampleMessage }),
         signal: controller.signal,
       });
 
@@ -192,6 +194,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
       if (err?.name === 'AbortError') return; // superseded by a newer run / unmounted
       setError(err.message);
       notifications.show({
+        id: `sql-query-error-${err.message}`,
         title: 'Query Error',
         message: err.message,
         color: 'red',
@@ -281,7 +284,11 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
 
   const handleCopyQuery = () => {
     navigator.clipboard.writeText(query);
-    notifications.show({ message: 'Query copied to clipboard', color: 'teal' });
+    notifications.show({ 
+      id: 'sql-query-copied',
+      message: 'Query copied to clipboard', 
+      color: 'teal' 
+    });
   };
 
   const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -306,6 +313,17 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
   }, [availableFields, fieldFilter]);
 
   const lineCount = query ? query.split('\n').length : 0;
+
+  const queryVariables = useMemo(() => {
+    const matches = query.matchAll(/\{\{\s*(\.?[\w.]+)\s*\}\}/g);
+    const vars = new Set<string>();
+    for (const match of matches) {
+      let v = match[1];
+      if (v.startsWith('.')) v = v.slice(1);
+      vars.add(v);
+    }
+    return Array.from(vars);
+  }, [query]);
 
   const editorToolbar = (
     <Group justify="space-between">
@@ -490,6 +508,48 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
                 </>
               )}
 
+              {queryVariables.length > 0 && (
+                <>
+                  <Group justify="space-between">
+                    <Group gap="xs">
+                      <IconBraces size={18} color="var(--mantine-color-blue-filled)" />
+                      <Text size="xs" fw={700} c="dimmed">DETECTED VARIABLES</Text>
+                    </Group>
+                  </Group>
+                  <Divider />
+                  <Box p="xs" style={{ background: 'light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8))', borderRadius: rem(4) }}>
+                    <Stack gap={4}>
+                      {queryVariables.map(v => {
+                        const exists = availableFields.some(f => f.path === v);
+                        const val = sampleMessage ? getValByPath(sampleMessage, v) : undefined;
+                        const displayVal = val !== undefined ? (typeof val === 'object' ? JSON.stringify(val) : String(val)) : 'N/A';
+                        
+                        return (
+                          <Stack key={v} gap={2}>
+                            <Group justify="space-between" wrap="nowrap">
+                              <Text size="xs" style={{ fontFamily: 'monospace' }} fw={600} truncate>
+                                {`{{.${v}}}`}
+                              </Text>
+                              {exists ? (
+                                <Badge size="xs" color="green" variant="light">Matched</Badge>
+                              ) : (
+                                <Tooltip label="This variable is not in the current message context. It will be empty during preview.">
+                                  <Badge size="xs" color="orange" variant="light" style={{ cursor: 'help' }}>Missing</Badge>
+                                </Tooltip>
+                              )}
+                            </Group>
+                            <Text size="xs" c="dimmed" truncate style={{ fontSize: '10px' }}>
+                              Value: <span style={{ color: 'var(--mantine-color-blue-6)' }}>{displayVal}</span>
+                            </Text>
+                          </Stack>
+                        );
+                      })}
+                    </Stack>
+                  </Box>
+                  <Divider my="xs" />
+                </>
+              )}
+
               <Group justify="space-between">
                 <Group gap="xs">
                   <IconTable size={18} color="var(--mantine-color-blue-filled)" />
@@ -600,7 +660,11 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
                  <Tooltip label="Copy results as JSON">
                    <ActionIcon variant="light" size="sm" onClick={() => {
                      navigator.clipboard.writeText(JSON.stringify(results, null, 2));
-                     notifications.show({ message: 'All results copied to clipboard', color: 'teal' });
+                     notifications.show({ 
+                       id: 'sql-results-copied',
+                       message: 'All results copied to clipboard', 
+                       color: 'teal' 
+                     });
                    }}>
                      <IconCopy size={14} />
                    </ActionIcon>

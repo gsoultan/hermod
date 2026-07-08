@@ -230,17 +230,17 @@ export function Layout({ children }: LayoutProps) {
         }
         if (!window.confirm(`Start all workflows in VHost ${selectedVHost}?`)) return;
         try {
-          const res = await apiFetch(`/api/workflows?vhost=${encodeURIComponent(selectedVHost)}`);
+          const res = await apiFetch(`/api/workflows?vhost=${encodeURIComponent(selectedVHost)}`, { silent: true });
           const data = await res.json();
           const ids = (data.data || []).map((w: any) => w.id);
           if (ids.length === 0) {
-            notifications.show({ title: 'No Workflows', message: `No workflows found in VHost ${selectedVHost}.`, color: 'gray' });
+            notifications.show({ id: 'start-all-no-workflows', title: 'No Workflows', message: `No workflows found in VHost ${selectedVHost}.`, color: 'gray' });
             return;
           }
-          await apiFetch('/api/workflows/batch/toggle', { method: 'POST', body: JSON.stringify({ ids, active: true }) });
-          notifications.show({ title: 'Started', message: `Requested start for ${ids.length} workflows in ${selectedVHost}.`, color: 'green' });
+          await apiFetch('/api/workflows/batch/toggle', { method: 'POST', body: JSON.stringify({ ids, active: true }), silent: true });
+          notifications.show({ id: 'start-all-success', title: 'Started', message: `Requested start for ${ids.length} workflows in ${selectedVHost}.`, color: 'green' });
         } catch (e: any) {
-          notifications.show({ title: 'Error', message: e.message || 'Failed to start workflows', color: 'red' });
+          notifications.show({ id: 'start-all-error', title: 'Error', message: e.message || 'Failed to start workflows', color: 'red' });
         }
       },
       leftSection: <IconRocket size="1.2rem" />,
@@ -256,17 +256,17 @@ export function Layout({ children }: LayoutProps) {
         }
         if (!window.confirm(`Stop all workflows in VHost ${selectedVHost}?`)) return;
         try {
-          const res = await apiFetch(`/api/workflows?vhost=${encodeURIComponent(selectedVHost)}`);
+          const res = await apiFetch(`/api/workflows?vhost=${encodeURIComponent(selectedVHost)}`, { silent: true });
           const data = await res.json();
           const ids = (data.data || []).map((w: any) => w.id);
           if (ids.length === 0) {
-            notifications.show({ title: 'No Workflows', message: `No workflows found in VHost ${selectedVHost}.`, color: 'gray' });
+            notifications.show({ id: 'stop-all-no-workflows', title: 'No Workflows', message: `No workflows found in VHost ${selectedVHost}.`, color: 'gray' });
             return;
           }
-          await apiFetch('/api/workflows/batch/toggle', { method: 'POST', body: JSON.stringify({ ids, active: false }) });
-          notifications.show({ title: 'Stopped', message: `Requested stop for ${ids.length} workflows in ${selectedVHost}.`, color: 'green' });
+          await apiFetch('/api/workflows/batch/toggle', { method: 'POST', body: JSON.stringify({ ids, active: false }), silent: true });
+          notifications.show({ id: 'stop-all-success', title: 'Stopped', message: `Requested stop for ${ids.length} workflows in ${selectedVHost}.`, color: 'green' });
         } catch (e: any) {
-          notifications.show({ title: 'Error', message: e.message || 'Failed to stop workflows', color: 'red' });
+          notifications.show({ id: 'stop-all-error', title: 'Error', message: e.message || 'Failed to stop workflows', color: 'red' });
         }
       },
       leftSection: <IconActivity size="1.2rem" />,
@@ -279,10 +279,10 @@ export function Layout({ children }: LayoutProps) {
         description: `VHost: ${wf.vhost}`,
         onClick: async () => {
           try {
-            await apiFetch(`/api/workflows/${wf.id}/toggle`, { method: 'POST' });
-            notifications.show({ title: 'Workflow', message: `Toggled start for "${wf.name}"`, color: 'green' });
+            await apiFetch(`/api/workflows/${wf.id}/toggle`, { method: 'POST', silent: true });
+            notifications.show({ id: `wf-start-${wf.id}`, title: 'Workflow', message: `Toggled start for "${wf.name}"`, color: 'green' });
           } catch (e: any) {
-            notifications.show({ title: 'Error', message: e.message || 'Failed to start workflow', color: 'red' });
+            notifications.show({ id: `wf-start-error-${wf.id}`, title: 'Error', message: e.message || 'Failed to start workflow', color: 'red' });
           }
         },
         leftSection: <IconRocket size="1.2rem" />,
@@ -294,10 +294,10 @@ export function Layout({ children }: LayoutProps) {
         onClick: async () => {
           if (!window.confirm(`Stop workflow ${wf.name}?`)) return;
           try {
-            await apiFetch(`/api/workflows/${wf.id}/toggle`, { method: 'POST' });
-            notifications.show({ title: 'Workflow', message: `Toggled stop for "${wf.name}"`, color: 'green' });
+            await apiFetch(`/api/workflows/${wf.id}/toggle`, { method: 'POST', silent: true });
+            notifications.show({ id: `wf-stop-${wf.id}`, title: 'Workflow', message: `Toggled stop for "${wf.name}"`, color: 'green' });
           } catch (e: any) {
-            notifications.show({ title: 'Error', message: e.message || 'Failed to stop workflow', color: 'red' });
+            notifications.show({ id: `wf-stop-error-${wf.id}`, title: 'Error', message: e.message || 'Failed to stop workflow', color: 'red' });
           }
         },
         leftSection: <IconActivity size="1.2rem" />,
@@ -309,10 +309,10 @@ export function Layout({ children }: LayoutProps) {
         onClick: async () => {
           if (!window.confirm(`Drain DLQ for workflow ${wf.name}?`)) return;
           try {
-            await apiFetch(`/api/workflows/${wf.id}/drain`, { method: 'POST' });
-            notifications.show({ title: 'DLQ', message: `Requested DLQ drain for "${wf.name}"`, color: 'blue' });
+            await apiFetch(`/api/workflows/${wf.id}/drain`, { method: 'POST', silent: true });
+            notifications.show({ id: `wf-drain-${wf.id}`, title: 'DLQ', message: `Requested DLQ drain for "${wf.name}"`, color: 'blue' });
           } catch (e: any) {
-            notifications.show({ title: 'Error', message: e.message || 'Failed to drain DLQ', color: 'red' });
+            notifications.show({ id: `wf-drain-error-${wf.id}`, title: 'Error', message: e.message || 'Failed to drain DLQ', color: 'red' });
           }
         },
         leftSection: <IconHistory size="1.2rem" />,

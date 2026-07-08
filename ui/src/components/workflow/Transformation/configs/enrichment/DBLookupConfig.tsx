@@ -12,12 +12,20 @@ import {
   rem,
   Alert,
   Autocomplete,
+  SegmentedControl,
+  Tooltip,
+  Switch,
+  Box,
 } from '@mantine/core';
 import {
   IconDatabase,
   IconSettings,
   IconPlayerPlay,
   IconInfoCircle,
+  IconTable,
+  IconCode,
+  IconArrowRight,
+  IconHelp,
 } from '@tabler/icons-react';
 import { TemplateField } from '../../../../shared/TemplateField';
 
@@ -33,6 +41,7 @@ interface DBLookupConfigProps {
   sources: any[];
   onTest: () => void;
   testing: boolean;
+  incomingPayload?: any;
 }
 
 export function DBLookupConfig({
@@ -43,6 +52,7 @@ export function DBLookupConfig({
   sources,
   onTest,
   testing,
+  incomingPayload,
 }: DBLookupConfigProps) {
   const [sqlExplorerOpened, setSqlExplorerOpened] = useState(false);
 
@@ -70,6 +80,8 @@ export function DBLookupConfig({
     [availableFields]
   );
 
+  const lookupMode = config.mode || (config.queryTemplate ? 'query' : 'table');
+
   return (
     <Stack gap="md">
       <Alert
@@ -81,125 +93,245 @@ export function DBLookupConfig({
       >
         <Text size="sm">
           Enrich your message by looking up data in an external database. 
-          You can use a simple table lookup or a full SQL query template.
+          Choose <b>Table Lookup</b> for simple key-value retrieval or <b>SQL Query</b> for advanced logic.
         </Text>
       </Alert>
 
-      <Tabs defaultValue="query" variant="pills" radius="md">
-        <Tabs.List grow mb="md">
-          <Tabs.Tab value="query" leftSection={<IconDatabase size={rem(16)} />}>
-            Query Configuration
+      <Select
+        label="Database Source"
+        placeholder="Select a configured database source"
+        data={dbSources}
+        value={config.sourceId || ''}
+        onChange={(val) => updateNodeConfig(nodeId, { sourceId: val })}
+        leftSection={<IconDatabase size={rem(16)} />}
+        required
+        size="sm"
+      />
+
+      <Tabs defaultValue="config" variant="outline" radius="md">
+        <Tabs.List mb="md">
+          <Tabs.Tab value="config" leftSection={<IconSettings size={rem(16)} />}>
+            Lookup Config
           </Tabs.Tab>
-          <Tabs.Tab value="settings" leftSection={<IconSettings size={rem(16)} />}>
-            Settings & Test
+          <Tabs.Tab value="output" leftSection={<IconArrowRight size={rem(16)} />}>
+            Output Mapping
+          </Tabs.Tab>
+          <Tabs.Tab value="advanced" leftSection={<IconSettings size={rem(16)} />}>
+            Advanced & Test
           </Tabs.Tab>
         </Tabs.List>
 
-        <Tabs.Panel value="query">
-          <Stack gap="sm">
-            <Select
-              label="Database Source"
-              placeholder="Select a configured database source"
-              data={dbSources}
-              value={config.sourceId || ''}
-              onChange={(val) => updateNodeConfig(nodeId, { sourceId: val })}
-              leftSection={<IconDatabase size={rem(16)} />}
-              required
-              size="sm"
-            />
-
-            <TextInput
-              label="Target Table"
-              placeholder="e.g. users"
-              value={config.table || ''}
-              onChange={(e) => updateNodeConfig(nodeId, { table: e.currentTarget.value })}
-              size="sm"
-            />
-
-            <Group grow>
-              <Autocomplete
-                label="Key Field (Message)"
-                placeholder="e.g. user_id"
-                data={fieldPaths || []}
-                value={config.keyField || ''}
-                onChange={(val) => updateNodeConfig(nodeId, { keyField: val })}
-                size="sm"
+        <Tabs.Panel value="config">
+          <Stack gap="md">
+            <Box>
+              <Text size="xs" fw={500} mb={4} c="dimmed">LOOKUP METHOD</Text>
+              <SegmentedControl
+                fullWidth
+                value={lookupMode}
+                onChange={(val) => updateNodeConfig(nodeId, { mode: val })}
+                data={[
+                  {
+                    label: (
+                      <Group gap="xs" justify="center">
+                        <IconTable size={16} />
+                        <Text size="sm">Table Lookup</Text>
+                      </Group>
+                    ),
+                    value: 'table',
+                  },
+                  {
+                    label: (
+                      <Group gap="xs" justify="center">
+                        <IconCode size={16} />
+                        <Text size="sm">SQL Query</Text>
+                      </Group>
+                    ),
+                    value: 'query',
+                  },
+                ]}
               />
-              <TextInput
-                label="Key Column (DB)"
-                placeholder="e.g. id"
-                value={config.keyColumn || ''}
-                onChange={(e) => updateNodeConfig(nodeId, { keyColumn: e.currentTarget.value })}
-                size="sm"
-              />
-            </Group>
+            </Box>
 
-            <Group grow>
-              <TextInput
-                label="Value Column (DB)"
-                placeholder="e.g. full_name"
-                value={config.valueColumn || ''}
-                onChange={(e) => updateNodeConfig(nodeId, { valueColumn: e.currentTarget.value })}
-                size="sm"
-              />
-              <TextInput
-                label="Target Field (Message)"
-                placeholder="e.g. user_name"
-                value={config.targetField || ''}
-                onChange={(e) => updateNodeConfig(nodeId, { targetField: e.currentTarget.value })}
-                size="sm"
-              />
-            </Group>
+            {lookupMode === 'table' ? (
+              <Stack gap="sm">
+                <TextInput
+                  label="Target Table"
+                  placeholder="e.g. users"
+                  value={config.table || ''}
+                  onChange={(e) => updateNodeConfig(nodeId, { table: e.currentTarget.value })}
+                  size="sm"
+                  required
+                />
 
-            <Divider label="Or use a full Query Template" labelPosition="center" my="sm" />
+                <Group grow align="flex-start">
+                  <TextInput
+                    label="Key Column (DB)"
+                    placeholder="e.g. id"
+                    value={config.keyColumn || ''}
+                    onChange={(e) => updateNodeConfig(nodeId, { keyColumn: e.currentTarget.value })}
+                    size="sm"
+                    required
+                    description="Column in DB to match against"
+                  />
+                  <Autocomplete
+                    label="Key Field (Message)"
+                    placeholder="e.g. user_id"
+                    data={fieldPaths || []}
+                    value={config.keyField || ''}
+                    onChange={(val) => updateNodeConfig(nodeId, { keyField: val })}
+                    size="sm"
+                    required
+                    description="Field in message containing the key"
+                  />
+                </Group>
 
-            <Stack gap={4}>
-              <Group justify="space-between" align="center">
-                <Text size="sm" fw={500}>
-                  Query Template (SQL)
-                </Text>
-                {config.sourceId && (
-                  <Button
-                    size="compact-xs"
-                    variant="light"
-                    color="blue"
-                    leftSection={<IconDatabase size={14} />}
-                    onClick={() => setSqlExplorerOpened(true)}
-                  >
-                    SQL Query Builder
-                  </Button>
-                )}
-              </Group>
-              <TemplateField
-                placeholder="SELECT * FROM users WHERE tenant_id = {{.tenant_id}} AND status = 'active'"
-                value={config.queryTemplate || ''}
-                onChange={(val: string) => updateNodeConfig(nodeId, { queryTemplate: val })}
-                availableFields={availableFields}
-                multiline
-              />
-            </Stack>
+                <TemplateField
+                  label="Additional Filter (Where Clause)"
+                  placeholder="status = 'active' AND type = 'customer'"
+                  value={config.whereClause || ''}
+                  onChange={(val: string) => updateNodeConfig(nodeId, { whereClause: val })}
+                  availableFields={availableFields}
+                  multiline
+                  description="Optional SQL conditions appended to the lookup."
+                />
+              </Stack>
+            ) : (
+              <Stack gap="sm">
+                <Stack gap={4}>
+                  <Group justify="space-between" align="center">
+                    <Text size="sm" fw={500}>
+                      SQL Query Template
+                    </Text>
+                    {config.sourceId && (
+                      <Button
+                        size="compact-xs"
+                        variant="light"
+                        color="blue"
+                        leftSection={<IconDatabase size={14} />}
+                        onClick={() => setSqlExplorerOpened(true)}
+                      >
+                        SQL Query Builder
+                      </Button>
+                    )}
+                  </Group>
+                  <TemplateField
+                    placeholder="SELECT * FROM users WHERE tenant_id = {{.tenant_id}} AND status = 'active'"
+                    value={config.queryTemplate || ''}
+                    onChange={(val: string) => updateNodeConfig(nodeId, { queryTemplate: val })}
+                    availableFields={availableFields}
+                    multiline
+                  />
+                  <Text size="xs" c="dimmed">
+                    Use <code>{`{{.field}}`}</code> to inject values from the message.
+                  </Text>
+                </Stack>
+              </Stack>
+            )}
           </Stack>
         </Tabs.Panel>
 
-        <Tabs.Panel value="settings">
+        <Tabs.Panel value="output">
           <Stack gap="sm">
-            <TemplateField
-              label="Where Clause"
-              placeholder="status = 'active' AND id = {{.user_id}}"
-              value={config.whereClause || ''}
-              onChange={(val: string) => updateNodeConfig(nodeId, { whereClause: val })}
-              availableFields={availableFields}
-              multiline
-              description="Additional filter for simple table lookup."
-            />
+            <Group grow align="flex-start">
+              <TextInput
+                label={
+                  <Group gap={4}>
+                    <Text size="sm" fw={500}>Value Column(s)</Text>
+                    <Tooltip label="Comma-separated list of columns to fetch. Use * for all columns. If using SQL Query mode, this acts as a filter on the returned columns.">
+                      <IconHelp size={14} style={{ cursor: 'help' }} />
+                    </Tooltip>
+                  </Group>
+                }
+                placeholder={lookupMode === 'table' ? "e.g. email, name" : "Leave blank to get all columns"}
+                value={config.valueColumn || ''}
+                onChange={(e) => updateNodeConfig(nodeId, { valueColumn: e.currentTarget.value })}
+                size="sm"
+                description={lookupMode === 'table' 
+                  ? "Columns to retrieve from the database." 
+                  : "Optional: name of the column to extract from the query result."}
+              />
+              <Autocomplete
+                label="Target Field (Message)"
+                placeholder="e.g. user_details"
+                data={fieldPaths}
+                value={config.targetField || ''}
+                onChange={(val) => updateNodeConfig(nodeId, { targetField: val })}
+                size="sm"
+                required
+                description="Path in message to store the result."
+              />
+            </Group>
+
+            <Divider mt="xs" />
+
+            <Box p="sm" style={{ background: 'light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8))', borderRadius: rem(8), border: '1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))' }}>
+              <Group justify="space-between" align="flex-start" wrap="nowrap">
+                <Stack gap={2}>
+                  <Text size="sm" fw={600}>Flatten Result</Text>
+                  <Text size="xs" c="dimmed">Automatically merge lookup columns into the message.</Text>
+                </Stack>
+                <Switch 
+                  size="md"
+                  checked={!!config.flattenInto}
+                  onChange={(e) => updateNodeConfig(nodeId, { flattenInto: e.currentTarget.checked ? '.' : '' })}
+                />
+              </Group>
+
+              {(config.flattenInto !== undefined && config.flattenInto !== '') && (
+                <Stack gap="xs" mt="sm">
+                  <TextInput
+                    label="Prefix / Target Path"
+                    placeholder="e.g. user_info (leave as . for top level)"
+                    value={config.flattenInto}
+                    onChange={(e) => updateNodeConfig(nodeId, { flattenInto: e.currentTarget.value })}
+                    size="sm"
+                    description="The path where flattened fields will be placed."
+                    leftSection={<Text size="xs" c="dimmed">Map to:</Text>}
+                    leftSectionWidth={60}
+                  />
+                  <Group gap={4}>
+                    <Button 
+                      variant="subtle" 
+                      size="compact-xs" 
+                      color="gray"
+                      onClick={() => updateNodeConfig(nodeId, { flattenInto: '.' })}
+                    >
+                      Top Level (.)
+                    </Button>
+                    {config.targetField && config.targetField !== '.' && (
+                      <Button 
+                        variant="subtle" 
+                        size="compact-xs" 
+                        color="gray"
+                        onClick={() => updateNodeConfig(nodeId, { flattenInto: config.targetField })}
+                      >
+                        Match Target Field
+                      </Button>
+                    )}
+                  </Group>
+                </Stack>
+              )}
+            </Box>
             
-            <Group grow align="flex-end">
+            <Alert color="indigo" variant="light">
+              <Text size="xs">
+                <b>Pro Tip:</b> If you select multiple columns or use <code>*</code>, 
+                the result will be an object. Use <b>Flatten Result</b> to easily access these fields in subsequent steps.
+              </Text>
+            </Alert>
+          </Stack>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="advanced">
+          <Stack gap="sm">
+            <Group grow>
               <TextInput
                 label="Default Value"
                 placeholder="Value if not found"
                 value={config.defaultValue || ''}
                 onChange={(e) => updateNodeConfig(nodeId, { defaultValue: e.currentTarget.value })}
                 size="sm"
+                description="JSON or string to use as fallback."
               />
               <TextInput
                 label="Cache TTL"
@@ -207,17 +339,9 @@ export function DBLookupConfig({
                 value={config.ttl || ''}
                 onChange={(e) => updateNodeConfig(nodeId, { ttl: e.currentTarget.value })}
                 size="sm"
+                description="How long to cache results in memory."
               />
             </Group>
-
-            <TextInput
-              label="Flatten Into"
-              placeholder="e.g. customer_flat or '.' for top level"
-              value={config.flattenInto || ''}
-              onChange={(e) => updateNodeConfig(nodeId, { flattenInto: e.currentTarget.value })}
-              description="If the result is an object, copy its fields into this path."
-              size="sm"
-            />
 
             <Button
               variant="filled"
@@ -250,6 +374,7 @@ export function DBLookupConfig({
               initialQuery={config.queryTemplate || ''}
               onQueryChange={(val: string) => updateNodeConfig(nodeId, { queryTemplate: val })}
               availableFields={availableFields as any}
+              sampleMessage={incomingPayload}
             />
           )}
         </Suspense>

@@ -479,8 +479,9 @@ func (h *Handler) SampleSourceTable(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) QuerySource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Config factory.SourceConfig `json:"config"`
-		Query  string               `json:"query"`
+		Config     factory.SourceConfig `json:"config"`
+		Query      string               `json:"query"`
+		SampleData map[string]any       `json:"sampleData"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.JsonError(w, "Invalid request", http.StatusBadRequest)
@@ -490,7 +491,7 @@ func (h *Handler) QuerySource(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	results, err := h.Registry.ExecuteSQL(ctx, req.Config, req.Query)
+	results, err := h.Registry.ExecuteSQL(ctx, req.Config, req.Query, req.SampleData)
 	if err != nil {
 		h.JsonError(w, "Query failed: "+err.Error(), http.StatusBadRequest)
 		return

@@ -22,7 +22,7 @@ export function getRoleFromToken(): string | null {
   return getClaimsFromToken()?.role || null;
 }
 
-export async function apiFetch(url: string, options: RequestInit = {}) {
+export async function apiFetch(url: string, options: RequestInit & { silent?: boolean } = {}) {
   const token = getToken();
   
   const headers = new Headers(options.headers);
@@ -59,8 +59,8 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
     const data = await response.json().catch(() => ({}));
     const errorMessage = data.error || response.statusText || 'An unexpected error occurred';
     
-    // Only show notification if it's not a background check
-    if (!url.includes('/api/config/status') && !url.includes('/api/vhosts')) {
+    // Only show notification if it's not a background check and not silent
+    if (!options.silent && !url.includes('/api/config/status') && !url.includes('/api/vhosts')) {
       const isToggle = url.includes('/toggle');
       let workflowID = '';
       if (isToggle) {
@@ -72,7 +72,9 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
         }
       }
 
+      const notificationId = `error-${errorMessage}-${workflowID || ''}`;
       notifications.show({
+        id: notificationId,
         title: <Text fw={700}>Request Failed</Text>,
         message: (
           <Stack gap={4}>

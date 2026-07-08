@@ -67,6 +67,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	defaultValue := core.GetConfigString(config, "defaultValue")
 	queryTemplate := core.GetConfigString(config, "queryTemplate")
 	flattenInto := core.GetConfigString(config, "flattenInto")
+	mode := core.GetConfigString(config, "mode")
 
 	if sourceID == "" || targetField == "" {
 		return msg, nil
@@ -77,7 +78,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 		return msg, nil
 	}
 
-	cacheKey := fmt.Sprintf("db:%s:%s:%s:%s:%v:%s:%s", sourceID, table, keyColumn, valueColumn, keyVal, whereClause, queryTemplate)
+	cacheKey := fmt.Sprintf("db:%s:%s:%s:%s:%v:%s:%s:%s", sourceID, table, keyColumn, valueColumn, keyVal, whereClause, queryTemplate, mode)
 	if cached, found := registry.GetLookupCache(cacheKey); found {
 		msg.SetData(targetField, cached)
 		return msg, nil
@@ -100,7 +101,17 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 		// queryTemplate not supported for Mongo; use whereClause
 		resultVal, err = t.lookupMongoDB(ctx, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, msg.Data())
 	} else {
-		if queryTemplate != "" {
+		// If mode is explicit, follow it. Otherwise fallback to queryTemplate presence.
+		useTemplate := false
+		if mode == "query" {
+			useTemplate = true
+		} else if mode == "table" {
+			useTemplate = false
+		} else if queryTemplate != "" {
+			useTemplate = true
+		}
+
+		if useTemplate {
 			resultVal, err = t.lookupSQLWithTemplate(ctx, registry, src, queryTemplate, valueColumn, msg.Data())
 		} else {
 			resultVal, err = t.lookupSQL(ctx, registry, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, msg.Data())
@@ -326,108 +337,74 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 
 	query := buildLookupQuery(driver, selectList, quotedTable, whereParts, batchMode)
 
-	var resultVal any
-	if valueColumn == "*" || strings.Contains(valueColumn, ",") {
-		rows, err := db.QueryContext(ctx, query, args...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to execute lookup query: %w", err)
-		}
-		defer rows.Close()
-
-		// If batch (IN) was used, return all rows as []map
-		isBatch := strings.Contains(strings.ToUpper(query), " IN (")
-		if isBatch {
-			var rowsOut []map[string]any
-			for rows.Next() {
-				cols, _ := rows.Columns()
-				values := make([]any, len(cols))
-				valuePtrs := make([]any, len(cols))
-				for i := range values {
-					valuePtrs[i] = &values[i]
-				}
-				if err := rows.Scan(valuePtrs...); err != nil {
-					return nil, fmt.Errorf("failed to scan lookup results: %w", err)
-				}
-				rowMap := make(map[string]any)
-				for i, col := range cols {
-					val := values[i]
-					if b, ok := val.([]byte); ok {
-						rowMap[col] = string(b)
-					} else {
-						rowMap[col] = val
-					}
-				}
-				rowsOut = append(rowsOut, rowMap)
-			}
-			if len(rowsOut) == 0 {
-				return nil, nil
-			}
-			resultVal = rowsOut
-		} else {
-			if rows.Next() {
-				cols, _ := rows.Columns()
-				values := make([]any, len(cols))
-				valuePtrs := make([]any, len(cols))
-				for i := range values {
-					valuePtrs[i] = &values[i]
-				}
-
-				if err := rows.Scan(valuePtrs...); err != nil {
-					return nil, fmt.Errorf("failed to scan lookup results: %w", err)
-				}
-
-				rowMap := make(map[string]any)
-				for i, col := range cols {
-					val := values[i]
-					if b, ok := val.([]byte); ok {
-						rowMap[col] = string(b)
-					} else {
-						rowMap[col] = val
-					}
-				}
-				resultVal = rowMap
-			} else {
-				return nil, nil
-			}
-		}
-	} else {
-		// If batch (IN) used with single column selection, return []any
-		isBatch := strings.Contains(strings.ToUpper(query), " IN (")
-		if isBatch {
-			rows, err := db.QueryContext(ctx, query, args...)
-			if err != nil {
-				return nil, fmt.Errorf("failed to execute lookup query: %w", err)
-			}
-			defer rows.Close()
-			var list []any
-			for rows.Next() {
-				var v any
-				if err := rows.Scan(&v); err != nil {
-					return nil, fmt.Errorf("failed to scan lookup results: %w", err)
-				}
-				if b, ok := v.([]byte); ok {
-					v = string(b)
-				}
-				list = append(list, v)
-			}
-			if len(list) == 0 {
-				return nil, nil
-			}
-			resultVal = list
-		} else {
-			err = db.QueryRowContext(ctx, query, args...).Scan(&resultVal)
-			if err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					return nil, nil
-				}
-				return nil, fmt.Errorf("failed to execute lookup query: %w", err)
-			}
-			if b, ok := resultVal.([]byte); ok {
-				resultVal = string(b)
-			}
-		}
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute lookup query: %w", err)
 	}
-	return resultVal, nil
+	defer rows.Close()
+
+	cols, _ := rows.Columns()
+	var rowsOut []map[string]any
+	for rows.Next() {
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return nil, fmt.Errorf("failed to scan lookup results: %w", err)
+		}
+		rowMap := make(map[string]any)
+		for i, col := range cols {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				rowMap[col] = string(b)
+			} else {
+				rowMap[col] = val
+			}
+		}
+		rowsOut = append(rowsOut, rowMap)
+	}
+
+	if len(rowsOut) == 0 {
+		return nil, nil
+	}
+
+	isBatch := strings.Contains(strings.ToUpper(query), " IN (")
+
+	// Single column requested.
+	if valueColumn != "" && valueColumn != "*" && !strings.Contains(valueColumn, ",") {
+		findValue := func(row map[string]any) any {
+			if val, ok := row[valueColumn]; ok {
+				return val
+			}
+			for k, v := range row {
+				if strings.EqualFold(k, valueColumn) {
+					return v
+				}
+			}
+			return nil
+		}
+
+		if !isBatch && len(rowsOut) == 1 {
+			return findValue(rowsOut[0]), nil
+		}
+		var results []any
+		for _, row := range rowsOut {
+			if val := findValue(row); val != nil {
+				results = append(results, val)
+			}
+		}
+		if len(results) == 0 {
+			return nil, nil
+		}
+		return results, nil
+	}
+
+	if !isBatch && len(rowsOut) == 1 {
+		return rowsOut[0], nil
+	}
+	return rowsOut, nil
 }
 
 // lookupSQLWithTemplate executes a full custom SELECT template while safely parameterizing any {{ ... }} tokens.
@@ -457,61 +434,107 @@ func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registr
 		return nil, errors.New("empty queryTemplate after processing")
 	}
 
-	// Decide scanning mode by valueColumn
-	var resultVal any
-	if valueColumn == "*" || valueColumn == "" || strings.Contains(valueColumn, ",") {
-		rows, err := db.QueryContext(ctx, sqlText, args...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to execute lookup query: %w", err)
+	// Execute query and fetch results.
+	// We always use rows.Scan with dynamic columns because queryTemplate is user-provided.
+	rows, err := db.QueryContext(ctx, sqlText, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute lookup query: %w", err)
+	}
+	defer rows.Close()
+
+	cols, _ := rows.Columns()
+	var rowsOut []map[string]any
+	for rows.Next() {
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
+		for i := range values {
+			valuePtrs[i] = &values[i]
 		}
-		defer rows.Close()
-		var rowsOut []map[string]any
-		for rows.Next() {
-			cols, _ := rows.Columns()
-			values := make([]any, len(cols))
-			valuePtrs := make([]any, len(cols))
-			for i := range values {
-				valuePtrs[i] = &values[i]
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return nil, fmt.Errorf("failed to scan lookup results: %w", err)
+		}
+		rowMap := make(map[string]any)
+		for i, col := range cols {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				rowMap[col] = string(b)
+			} else {
+				rowMap[col] = val
 			}
-			if err := rows.Scan(valuePtrs...); err != nil {
-				return nil, fmt.Errorf("failed to scan lookup results: %w", err)
-			}
-			rowMap := make(map[string]any)
-			for i, col := range cols {
-				val := values[i]
-				if b, ok := val.([]byte); ok {
-					rowMap[col] = string(b)
+		}
+		rowsOut = append(rowsOut, rowMap)
+	}
+
+	if len(rowsOut) == 0 {
+		return nil, nil
+	}
+
+	// Determine result based on valueColumn setting
+	if valueColumn == "*" || valueColumn == "" {
+		if len(rowsOut) == 1 {
+			return rowsOut[0], nil
+		}
+		return rowsOut, nil
+	}
+
+	// Multiple columns requested via comma-separated list
+	if strings.Contains(valueColumn, ",") {
+		requestedCols := strings.Split(valueColumn, ",")
+		for i := range requestedCols {
+			requestedCols[i] = strings.TrimSpace(requestedCols[i])
+		}
+
+		filterRow := func(row map[string]any) map[string]any {
+			filtered := make(map[string]any)
+			for _, rc := range requestedCols {
+				if val, ok := row[rc]; ok {
+					filtered[rc] = val
 				} else {
-					rowMap[col] = val
+					// try case-insensitive
+					for k, v := range row {
+						if strings.EqualFold(k, rc) {
+							filtered[rc] = v
+							break
+						}
+					}
 				}
 			}
-			rowsOut = append(rowsOut, rowMap)
+			return filtered
 		}
-		if len(rowsOut) == 0 {
-			return nil, nil
-		}
-		// If only one row, return object; else return array of objects
+
 		if len(rowsOut) == 1 {
-			resultVal = rowsOut[0]
-		} else {
-			resultVal = rowsOut
+			return filterRow(rowsOut[0]), nil
 		}
-	} else {
-		// Single value expected
-		var v any
-		err = db.QueryRowContext(ctx, sqlText, args...).Scan(&v)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil, nil
-			}
-			return nil, fmt.Errorf("failed to execute lookup query: %w", err)
+		var filteredRows []map[string]any
+		for _, row := range rowsOut {
+			filteredRows = append(filteredRows, filterRow(row))
 		}
-		if b, ok := v.([]byte); ok {
-			v = string(b)
-		}
-		resultVal = v
+		return filteredRows, nil
 	}
-	return resultVal, nil
+
+	// Single column requested.
+	// We look for it in the scanned row(s). Case-insensitive match for convenience.
+	findValue := func(row map[string]any) any {
+		if val, ok := row[valueColumn]; ok {
+			return val
+		}
+		for k, v := range row {
+			if strings.EqualFold(k, valueColumn) {
+				return v
+			}
+		}
+		return nil
+	}
+
+	if len(rowsOut) == 1 {
+		return findValue(rowsOut[0]), nil
+	}
+
+	var results []any
+	for _, row := range rowsOut {
+		results = append(results, findValue(row))
+	}
+	return results, nil
 }
 
 // asSlice tries to coerce v into a slice of any for batch IN processing.

@@ -101,14 +101,15 @@ export function SettingsPage() {
           max_cpu: maxCPU,
           max_memory: maxMemory,
           max_throughput: maxThroughput
-        })
+        }),
+        silent: true,
       })
       if (!res.ok) throw new Error('Failed to create workspace')
       return res.json()
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspaces'] })
-      notifications.show({ title: 'Success', message: 'Workspace created', color: 'green' })
+      notifications.show({ id: 'ws-created', title: 'Success', message: 'Workspace created', color: 'green' })
       closeWSModal()
       setNewWSName('')
       setNewWSDesc('')
@@ -118,18 +119,21 @@ export function SettingsPage() {
       setMaxThroughput(0)
     },
     onError: (err: any) => {
-      notifications.show({ title: 'Error', message: err.message, color: 'red' })
+      notifications.show({ id: 'ws-create-error', title: 'Error', message: err.message, color: 'red' })
     }
   })
 
   const deleteWSMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await apiFetch(`/api/workspaces/${id}`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/workspaces/${id}`, { method: 'DELETE', silent: true })
       if (!res.ok) throw new Error('Failed to delete workspace')
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspaces'] })
-      notifications.show({ title: 'Success', message: 'Workspace deleted', color: 'green' })
+      notifications.show({ id: 'ws-deleted', title: 'Success', message: 'Workspace deleted', color: 'green' })
+    },
+    onError: (err: any) => {
+      notifications.show({ id: 'ws-delete-error', title: 'Error', message: err.message, color: 'red' })
     }
   })
 
@@ -171,16 +175,17 @@ export function SettingsPage() {
             secret_access_key: s3SecretKey,
             use_ssl: s3UseSSL
           }
-        })
+        }),
+        silent: true,
       })
       if (!res.ok) throw new Error('Failed to update file storage config')
     },
     onSuccess: () => {
-      notifications.show({ title: 'Success', message: 'File storage configuration updated', color: 'green' })
+      notifications.show({ id: 'storage-saved', title: 'Success', message: 'File storage configuration updated', color: 'green' })
       queryClient.invalidateQueries({ queryKey: ['file-storage-config'] })
     },
     onError: (err: any) => {
-      notifications.show({ title: 'Error', message: err.message, color: 'red' })
+      notifications.show({ id: 'storage-save-error', title: 'Error', message: err.message, color: 'red' })
     }
   })
 
@@ -192,6 +197,7 @@ export function SettingsPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(config),
+        silent: true,
       })
 
       if (!response.ok) {
@@ -213,14 +219,15 @@ export function SettingsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
+        silent: true,
       })
       if (!response.ok) throw new Error('Failed to save secret manager configuration')
     },
     onSuccess: () => {
-      notifications.show({ title: 'Success', message: 'Secret Manager configuration updated', color: 'green' })
+      notifications.show({ id: 'secrets-saved', title: 'Success', message: 'Secret Manager configuration updated', color: 'green' })
     },
     onError: (err) => {
-      notifications.show({ title: 'Error', message: err.message, color: 'red' })
+      notifications.show({ id: 'secrets-save-error', title: 'Error', message: err.message, color: 'red' })
     }
   })
 
@@ -230,6 +237,7 @@ export function SettingsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ crypto_master_key: key }),
+        silent: true,
       })
       if (!response.ok) {
         const text = await response.text();
@@ -237,11 +245,11 @@ export function SettingsPage() {
       }
     },
     onSuccess: () => {
-      notifications.show({ title: 'Success', message: 'Encryption key updated and rotated in-memory', color: 'green' })
+      notifications.show({ id: 'crypto-saved', title: 'Success', message: 'Encryption key updated and rotated in-memory', color: 'green' })
       setCryptoKey('')
     },
     onError: (err: any) => {
-      notifications.show({ title: 'Error', message: err.message, color: 'red' })
+      notifications.show({ id: 'crypto-save-error', title: 'Error', message: err.message, color: 'red' })
     }
   })
 
@@ -251,14 +259,15 @@ export function SettingsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
+        silent: true,
       })
       if (!response.ok) throw new Error('Failed to save state store configuration')
     },
     onSuccess: () => {
-      notifications.show({ title: 'Success', message: 'Global State Store configuration updated', color: 'green' })
+      notifications.show({ id: 'state-store-saved', title: 'Success', message: 'Global State Store configuration updated', color: 'green' })
     },
     onError: (err) => {
-      notifications.show({ title: 'Error', message: err.message, color: 'red' })
+      notifications.show({ id: 'state-store-save-error', title: 'Error', message: err.message, color: 'red' })
     }
   })
 
@@ -268,14 +277,15 @@ export function SettingsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
+        silent: true,
       })
       if (!response.ok) throw new Error('Failed to save OTLP configuration')
     },
     onSuccess: () => {
-      notifications.show({ title: 'Success', message: 'OTLP configuration updated. Please restart Hermod for changes to take effect.', color: 'green' })
+      notifications.show({ id: 'otlp-saved', title: 'Success', message: 'OTLP configuration updated. Please restart Hermod for changes to take effect.', color: 'green' })
     },
     onError: (err) => {
-      notifications.show({ title: 'Error', message: err.message, color: 'red' })
+      notifications.show({ id: 'otlp-save-error', title: 'Error', message: err.message, color: 'red' })
     }
   })
 
@@ -284,21 +294,22 @@ export function SettingsPage() {
       const res = await apiFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newSettings)
+        body: JSON.stringify(newSettings),
+        silent: true,
       })
       if (!res.ok) throw new Error('Failed to save notification settings')
     },
     onSuccess: () => {
-      notifications.show({ title: 'Success', message: 'Notification settings updated', color: 'green' })
+      notifications.show({ id: 'notif-settings-saved', title: 'Success', message: 'Notification settings updated', color: 'green' })
     },
     onError: (err) => {
-      notifications.show({ title: 'Error', message: err instanceof Error ? err.message : 'Failed to save settings', color: 'red' })
+      notifications.show({ id: 'notif-settings-save-error', title: 'Error', message: err instanceof Error ? err.message : 'Failed to save settings', color: 'red' })
     }
   })
 
   const testNotifMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiFetch('/api/settings/test', { method: 'POST' })
+      const res = await apiFetch('/api/settings/test', { method: 'POST', silent: true })
       if (!res.ok) throw new Error('Failed to send test notification')
       return res.json() as Promise<{ results: { channel: string, status: string, error?: string }[] }>
     },

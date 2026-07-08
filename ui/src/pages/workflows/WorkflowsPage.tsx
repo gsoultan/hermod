@@ -107,7 +107,8 @@ export default function WorkflowsPage() {
       }
       await apiFetch(`${API_BASE}/workflows`, {
         method: 'POST',
-        body: JSON.stringify(data)
+        body: JSON.stringify(data),
+        silent: true,
       });
     },
     onSuccess: () => {
@@ -117,7 +118,12 @@ export default function WorkflowsPage() {
       setImportJson('');
     },
     onError: (err: any) => {
-      notifications.show({ title: 'Import Failed', message: err.message, color: 'red' });
+      notifications.show({ 
+        id: 'workflow-import-error',
+        title: 'Import Failed', 
+        message: err.message, 
+        color: 'red' 
+      });
     }
   });
 

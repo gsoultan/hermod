@@ -337,8 +337,9 @@ func (h *Handler) BrowseSinkTable(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) QuerySink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Config factory.SinkConfig `json:"config"`
-		Query  string             `json:"query"`
+		Config     factory.SinkConfig `json:"config"`
+		Query      string             `json:"query"`
+		SampleData map[string]any     `json:"sampleData"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.JsonError(w, "Invalid request", http.StatusBadRequest)
@@ -348,7 +349,7 @@ func (h *Handler) QuerySink(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	results, err := h.Registry.ExecuteSinkSQL(ctx, req.Config, req.Query)
+	results, err := h.Registry.ExecuteSinkSQL(ctx, req.Config, req.Query, req.SampleData)
 	if err != nil {
 		h.JsonError(w, "Query failed: "+err.Error(), http.StatusBadRequest)
 		return

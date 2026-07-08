@@ -1,10 +1,14 @@
 package lookup
 
 import (
+	"context"
 	"database/sql"
 	"testing"
+	"time"
 
+	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
+	"github.com/user/hermod/pkg/comm/message"
 	"github.com/user/hermod/pkg/comm/transformer/core"
 	_ "modernc.org/sqlite"
 )
@@ -138,5 +142,115 @@ func TestDBLookup_SQL_BatchIN(t *testing.T) {
 	}
 	if len(arr) != 2 {
 		t.Fatalf("expected 2 results, got %d (%#v)", len(arr), arr)
+	}
+}
+
+type fullFakeRegistry struct {
+	db     *sql.DB
+	source storage.Source
+}
+
+func (f *fullFakeRegistry) GetSource(ctx context.Context, id string) (storage.Source, error) {
+	return f.source, nil
+}
+
+func (f *fullFakeRegistry) GetOrOpenDB(src storage.Source) (*sql.DB, error) {
+	return f.db, nil
+}
+
+func (f *fullFakeRegistry) GetLookupCache(key string) (any, bool) {
+	return nil, false
+}
+
+func (f *fullFakeRegistry) SetLookupCache(key string, value any, ttl time.Duration) {}
+
+func TestDBLookup_ModePrioritization(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`CREATE TABLE test (id TEXT PRIMARY KEY, value TEXT)`)
+	if err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO test(id, value) VALUES ('1','table-value'), ('2','query-value')`)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	tr := &DBLookupTransformer{}
+	reg := &fullFakeRegistry{
+		db: db,
+		source: storage.Source{
+			ID:   "src1",
+			Type: "sqlite",
+		},
+	}
+
+	ctx := context.WithValue(t.Context(), hermod.RegistryKey, reg)
+
+	tests := []struct {
+		name     string
+		config   map[string]any
+		expected string
+	}{
+		{
+			name: "mode=table with queryTemplate present",
+			config: map[string]any{
+				"mode":          "table",
+				"sourceId":      "src1",
+				"table":         "test",
+				"keyColumn":     "id",
+				"keyField":      "id",
+				"valueColumn":   "value",
+				"targetField":   "result",
+				"queryTemplate": "SELECT 'query-value' as value",
+			},
+			expected: "table-value",
+		},
+		{
+			name: "mode=query with table present",
+			config: map[string]any{
+				"mode":          "query",
+				"sourceId":      "src1",
+				"table":         "test",
+				"keyColumn":     "id",
+				"keyField":      "id",
+				"valueColumn":   "value",
+				"targetField":   "result",
+				"queryTemplate": "SELECT 'query-value' as value",
+			},
+			expected: "query-value",
+		},
+		{
+			name: "no mode with queryTemplate present",
+			config: map[string]any{
+				"sourceId":      "src1",
+				"table":         "test",
+				"keyColumn":     "id",
+				"keyField":      "id",
+				"valueColumn":   "value",
+				"targetField":   "result",
+				"queryTemplate": "SELECT 'query-value' as value",
+			},
+			expected: "query-value",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := message.AcquireMessage()
+			msg.SetData("id", "1")
+			res, err := tr.Transform(ctx, msg, tc.config)
+			if err != nil {
+				t.Fatalf("Transform failed: %v", err)
+			}
+			got := res.Data()["result"]
+			if got != tc.expected {
+				t.Errorf("expected %q, got %v", tc.expected, got)
+			}
+		})
 	}
 }

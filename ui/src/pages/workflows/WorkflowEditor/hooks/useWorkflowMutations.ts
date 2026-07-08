@@ -155,7 +155,7 @@ export function useWorkflowMutations(
 
   const toggleMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiFetch(`${API_BASE}/workflows/${id}/toggle`, { method: 'POST' });
+      const res = await apiFetch(`${API_BASE}/workflows/${id}/toggle`, { method: 'POST', silent: true });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -174,6 +174,13 @@ export function useWorkflowMutations(
         setActive(true);
         setWorkflowStatus('Running');
         queryClient.invalidateQueries({ queryKey: ['workflow', id] });
+      } else {
+        notifications.show({
+          id: `workflow-toggle-error-${id}`,
+          title: 'Action Failed',
+          message: err.message,
+          color: 'red'
+        });
       }
     }
   });
@@ -184,6 +191,7 @@ export function useWorkflowMutations(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ from_offset: fromOffset }),
+        silent: true,
       });
       if (!res.ok) {
         const err = await res.json();
@@ -200,6 +208,7 @@ export function useWorkflowMutations(
     },
     onError: (err: any) => {
       notifications.show({
+        id: `workflow-rebuild-error-${id}`,
         title: 'Rebuild Failed',
         message: err.message,
         color: 'red',

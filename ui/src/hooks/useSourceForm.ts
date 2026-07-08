@@ -103,6 +103,7 @@ export function useSourceForm({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tables }),
+        silent: true,
       });
       if (!res.ok) {
         const err = await res.json();
@@ -118,8 +119,9 @@ export function useSourceForm({
       });
       setSnapshotModalOpened(false);
     },
-    onError: (error: Error) => {
+    onError: (error: Error, variables) => {
       notifications.show({
+        id: `source-snapshot-error-${variables.sourceId}`,
         title: 'Snapshot Failed',
         message: error.message,
         color: 'red',

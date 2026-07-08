@@ -33,6 +33,7 @@ export function LoginPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(creds),
+        silent: true,
       })
 
       if (!response.ok) {
@@ -70,6 +71,7 @@ export function LoginPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(data),
+        silent: true,
       })
 
       if (!response.ok) {
