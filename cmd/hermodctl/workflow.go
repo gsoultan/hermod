@@ -67,11 +67,11 @@ var lintCmd = &cobra.Command{
 
 var exportCmd = &cobra.Command{
 	Use:   "export [workflow-id]",
-	Short: "Export a workflow configuration to YAML",
+	Short: "Export a workflow configuration bundle to YAML",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		client := &http.Client{Timeout: 10 * time.Second}
-		url := fmt.Sprintf("%s/api/workflows/%s", viper.GetString("url"), args[0])
+		url := fmt.Sprintf("%s/api/workflows/%s/export", viper.GetString("url"), args[0])
 		req, _ := http.NewRequest(http.MethodGet, url, nil)
 		if key := viper.GetString("key"); key != "" {
 			req.Header.Set("Authorization", "Bearer "+key)
@@ -115,7 +115,7 @@ var importCmd = &cobra.Command{
 
 		jsonData, _ := json.Marshal(workflow)
 		client := &http.Client{Timeout: 10 * time.Second}
-		url := viper.GetString("url") + "/api/workflows"
+		url := viper.GetString("url") + "/api/workflows/import"
 		req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(jsonData))
 		req.Header.Set("Content-Type", "application/json")
 		if key := viper.GetString("key"); key != "" {

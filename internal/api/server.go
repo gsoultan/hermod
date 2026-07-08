@@ -109,9 +109,9 @@ func (s *Server) Routes() http.Handler {
 		mux.HandleFunc("/debug/pprof/trace", httppprof.Trace)
 	}
 
+	s.Handler.RegisterWorkflowRoutes(mux)
 	s.Handler.RegisterSourceRoutes(mux)
 	s.Handler.RegisterSinkRoutes(mux)
-	s.Handler.RegisterWorkflowRoutes(mux)
 	s.Handler.RegisterApprovalRoutes(mux)
 	s.Handler.RegisterAuthRoutes(mux)
 	s.Handler.RegisterInfrastructureRoutes(mux)
@@ -242,7 +242,9 @@ func (s *Server) Routes() http.Handler {
 			}
 		}
 
-		http.NotFound(w, r)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintf(w, "404 Not Found: %s %s", r.Method, r.URL.Path)
 	})
 
 	// Order: security headers -> CORS -> recover -> store-guard -> auth -> handlers

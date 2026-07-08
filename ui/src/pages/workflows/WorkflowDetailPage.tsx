@@ -14,6 +14,7 @@ import {
 } from '@mantine/core';
 import { Link, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
 import { getToken } from '@/auth/storage';
 import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
@@ -21,7 +22,8 @@ import { formatDateTime } from '@/utils/dateUtils';
 import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
 import { 
   IconArrowLeft, IconArrowsExchange, IconChartBar, IconChevronRight, IconCircleCheck, IconCircleX, IconClock, IconEye, IconHistory, IconInfoCircle, IconRefresh, IconRotateDot, IconSearch, IconTerminal2, IconTimeline,
-  IconBug, IconBrain, IconActivity
+  IconBug, IconBrain, IconActivity,
+  IconDownload
 } from '@tabler/icons-react';
 import { WorkflowDebugger } from './WorkflowDebugger';
 import { DetailFlowCanvas } from './WorkflowEditor/components/DetailFlowCanvas';
@@ -71,6 +73,25 @@ export function WorkflowDetailPage() {
       setActiveTab('graph');
     }
   });
+
+  const handleExport = async () => {
+    if (!workflow) return;
+    try {
+      const res = await apiFetch(`${API_BASE}/workflows/${id}/export`);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `workflow-${workflow.name}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      notifications.show({ title: 'Success', message: 'Workflow exported successfully', color: 'green' });
+    } catch (err: any) {
+      notifications.show({ title: 'Export Failed', message: err.message, color: 'red' });
+    }
+  };
 
   const { data: selectedTrace, isLoading: isTraceDetailLoading } = useQuery({
     queryKey: ['trace', id, selectedTraceID],
@@ -331,6 +352,14 @@ export function WorkflowDetailPage() {
                 params={{ id: id } as any}
               >
                 Edit Workflow
+              </Button>
+              <Button 
+                variant="light" 
+                color="gray"
+                leftSection={<IconDownload size="1rem" />}
+                onClick={handleExport}
+              >
+                Export JSON
               </Button>
             </Group>
           </Group>

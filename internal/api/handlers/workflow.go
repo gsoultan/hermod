@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -41,40 +42,44 @@ func validateWorkflow(wf storage.Workflow) error {
 }
 
 func (h *Handler) RegisterWorkflowRoutes(mux *http.ServeMux) {
+	// Register more specific routes first to avoid potential shadowing.
+	mux.Handle("GET /api/workflows/{id}/export", h.EditorOnly(http.HandlerFunc(h.ExportWorkflow)))
+	mux.Handle("POST /api/workflows/import", h.EditorOnly(http.HandlerFunc(h.ImportWorkflow)))
+
 	mux.HandleFunc("GET /api/workflows", h.ListWorkflows)
 	mux.HandleFunc("GET /api/workflows/{id}", h.GetWorkflow)
 	mux.HandleFunc("PATCH /api/workflows/{id}/status", h.UpdateWorkflowStatus)
 	mux.HandleFunc("GET /api/workflows/{id}/report", h.GetWorkflowComplianceReport)
-	mux.Handle("POST /api/workflows", h.EditorOnly(h.CreateWorkflow))
-	mux.Handle("PUT /api/workflows/{id}", h.EditorOnly(h.UpdateWorkflow))
-	mux.Handle("DELETE /api/workflows/{id}", h.EditorOnly(h.DeleteWorkflow))
-	mux.Handle("POST /api/workflows/{id}/toggle", h.EditorOnly(h.ToggleWorkflow))
-	mux.Handle("POST /api/workflows/{id}/drain", h.EditorOnly(h.DrainWorkflowDLQ))
-	mux.Handle("POST /api/workflows/{id}/rebuild", h.EditorOnly(h.RebuildWorkflow))
-	mux.Handle("POST /api/workflows/test", h.EditorOnly(h.TestWorkflow))
-	mux.Handle("POST /api/transformations/test", h.EditorOnly(h.TestTransformation))
+	mux.Handle("POST /api/workflows", h.EditorOnly(http.HandlerFunc(h.CreateWorkflow)))
+	mux.Handle("PUT /api/workflows/{id}", h.EditorOnly(http.HandlerFunc(h.UpdateWorkflow)))
+	mux.Handle("DELETE /api/workflows/{id}", h.EditorOnly(http.HandlerFunc(h.DeleteWorkflow)))
+	mux.Handle("POST /api/workflows/{id}/toggle", h.EditorOnly(http.HandlerFunc(h.ToggleWorkflow)))
+	mux.Handle("POST /api/workflows/{id}/drain", h.EditorOnly(http.HandlerFunc(h.DrainWorkflowDLQ)))
+	mux.Handle("POST /api/workflows/{id}/rebuild", h.EditorOnly(http.HandlerFunc(h.RebuildWorkflow)))
+	mux.Handle("POST /api/workflows/test", h.EditorOnly(http.HandlerFunc(h.TestWorkflow)))
+	mux.Handle("POST /api/transformations/test", h.EditorOnly(http.HandlerFunc(h.TestTransformation)))
 	mux.HandleFunc("GET /api/workflows/{id}/traces/", h.GetMessageTrace)
 	mux.HandleFunc("GET /api/workflows/{id}/traces", h.ListMessageTraces)
 	mux.HandleFunc("GET /api/workflows/{id}/versions", h.ListWorkflowVersions)
 	mux.HandleFunc("GET /api/workflows/{id}/versions/{version}", h.GetWorkflowVersion)
-	mux.Handle("POST /api/workflows/{id}/rollback/{version}", h.EditorOnly(h.RollbackWorkflow))
+	mux.Handle("POST /api/workflows/{id}/rollback/{version}", h.EditorOnly(http.HandlerFunc(h.RollbackWorkflow)))
 	mux.HandleFunc("GET /api/workflows/pii-stats", h.GetPIIStats)
-	mux.Handle("POST /api/ai/analyze-error", h.EditorOnly(h.HandleAIAnalyzeError))
-	mux.Handle("POST /api/ai/analyze-schema", h.EditorOnly(h.HandleAIAnalyzeSchema))
-	mux.Handle("POST /api/ai/generate-workflow", h.EditorOnly(h.HandleAIGenerateWorkflow))
-	mux.Handle("POST /api/ai/copilot", h.EditorOnly(h.HandleAICopilot))
-	mux.Handle("POST /api/ai/suggest-mapping", h.EditorOnly(h.HandleAISuggestMapping))
+	mux.Handle("POST /api/ai/analyze-error", h.EditorOnly(http.HandlerFunc(h.HandleAIAnalyzeError)))
+	mux.Handle("POST /api/ai/analyze-schema", h.EditorOnly(http.HandlerFunc(h.HandleAIAnalyzeSchema)))
+	mux.Handle("POST /api/ai/generate-workflow", h.EditorOnly(http.HandlerFunc(h.HandleAIGenerateWorkflow)))
+	mux.Handle("POST /api/ai/copilot", h.EditorOnly(http.HandlerFunc(h.HandleAICopilot)))
+	mux.Handle("POST /api/ai/suggest-mapping", h.EditorOnly(http.HandlerFunc(h.HandleAISuggestMapping)))
 	mux.HandleFunc("POST /api/workflows/{id}/nodes/{node_id}/test", h.RunNodeUnitTests)
 	mux.HandleFunc("GET /api/ws/live", h.HandleLiveMessagesWS)
 
 	// Workspaces
 	mux.HandleFunc("GET /api/workspaces", h.ListWorkspaces)
-	mux.Handle("POST /api/workspaces", h.EditorOnly(h.CreateWorkspace))
-	mux.Handle("DELETE /api/workspaces/{id}", h.EditorOnly(h.DeleteWorkspace))
+	mux.Handle("POST /api/workspaces", h.EditorOnly(http.HandlerFunc(h.CreateWorkspace)))
+	mux.Handle("DELETE /api/workspaces/{id}", h.EditorOnly(http.HandlerFunc(h.DeleteWorkspace)))
 
 	// Batch Operations
-	mux.Handle("POST /api/workflows/batch/toggle", h.EditorOnly(h.BatchToggleWorkflows))
-	mux.Handle("POST /api/workflows/batch/delete", h.EditorOnly(h.BatchDeleteWorkflows))
+	mux.Handle("POST /api/workflows/batch/toggle", h.EditorOnly(http.HandlerFunc(h.BatchToggleWorkflows)))
+	mux.Handle("POST /api/workflows/batch/delete", h.EditorOnly(http.HandlerFunc(h.BatchDeleteWorkflows)))
 }
 
 func (h *Handler) BatchToggleWorkflows(w http.ResponseWriter, r *http.Request) {
@@ -1216,4 +1221,104 @@ func (h *Handler) WakeUpWorkflow(ctx context.Context, resourceType string, path 
 	}
 
 	return wokeUp
+}
+
+func (h *Handler) ExportWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	wf, err := h.Storage.GetWorkflow(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			h.JsonError(w, "Workflow not found", http.StatusNotFound)
+		} else {
+			h.JsonError(w, "Failed to get workflow: "+err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	bundle := storage.WorkflowExportBundle{
+		Workflow: wf,
+	}
+
+	// Find all referenced sources and sinks
+	for _, node := range wf.Nodes {
+		if node.Type == "source" && node.RefID != "" {
+			src, err := h.Storage.GetSource(r.Context(), node.RefID)
+			if err == nil {
+				bundle.Sources = append(bundle.Sources, src)
+			}
+		} else if node.Type == "sink" && node.RefID != "" {
+			snk, err := h.Storage.GetSink(r.Context(), node.RefID)
+			if err == nil {
+				bundle.Sinks = append(bundle.Sinks, snk)
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"workflow-%s.json\"", wf.Name))
+	_ = json.NewEncoder(w).Encode(bundle)
+}
+
+func (h *Handler) ImportWorkflow(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		h.JsonError(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	var bundle storage.WorkflowExportBundle
+	if err := json.Unmarshal(body, &bundle); err != nil || bundle.Workflow.ID == "" {
+		// Try fallback to single workflow
+		var wf storage.Workflow
+		if err := json.Unmarshal(body, &wf); err != nil || wf.ID == "" {
+			h.JsonError(w, "Invalid workflow or bundle format", http.StatusBadRequest)
+			return
+		}
+		bundle.Workflow = wf
+	}
+
+	ctx := r.Context()
+
+	// 1. Upsert Sources
+	for _, src := range bundle.Sources {
+		if _, err := h.Storage.GetSource(ctx, src.ID); err == nil {
+			_ = h.Storage.UpdateSource(ctx, src)
+		} else {
+			_ = h.Storage.CreateSource(ctx, src)
+		}
+	}
+
+	// 2. Upsert Sinks
+	for _, snk := range bundle.Sinks {
+		if _, err := h.Storage.GetSink(ctx, snk.ID); err == nil {
+			_ = h.Storage.UpdateSink(ctx, snk)
+		} else {
+			_ = h.Storage.CreateSink(ctx, snk)
+		}
+	}
+
+	// 3. Upsert Workflow
+	var isUpdate bool
+	if _, err := h.Storage.GetWorkflow(ctx, bundle.Workflow.ID); err == nil {
+		err = h.Storage.UpdateWorkflow(ctx, bundle.Workflow)
+		isUpdate = true
+	} else {
+		err = h.Storage.CreateWorkflow(ctx, bundle.Workflow)
+	}
+
+	if err != nil {
+		h.JsonError(w, "Failed to save workflow: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	status := http.StatusCreated
+	if isUpdate {
+		status = http.StatusOK
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(bundle.Workflow)
+
+	h.RecordAuditLog(r, "INFO", "Imported workflow "+bundle.Workflow.Name, "IMPORT", bundle.Workflow.ID, "", "", nil)
 }

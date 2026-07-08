@@ -11,7 +11,7 @@ import { apiFetch } from '@/api';
 import { notifications } from '@mantine/notifications';
 import { useDisclosure } from '@mantine/hooks';
 import { useVHost } from '@/context/VHostContext';
-import { IconActivity, IconChevronDown, IconCopy, IconDownload, IconEdit, IconFolder, IconGitBranch, IconHierarchy, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
+import { IconActivity, IconChevronDown, IconCopy, IconDownload, IconEdit, IconFolder, IconGitBranch, IconHierarchy, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconTrash, IconUpload } from '@tabler/icons-react';
 const API_BASE = '/api';
 
 const TemplatesModal = lazy(() => import('./WorkflowsPage_TemplatesModal'))
@@ -99,17 +99,57 @@ export default function WorkflowsPage() {
     }
   });
 
+  const handleExport = async (wf: Workflow) => {
+    try {
+      const res = await apiFetch(`${API_BASE}/workflows/${wf.id}/export`);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `workflow-${wf.name}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      notifications.show({ title: 'Success', message: 'Workflow exported successfully', color: 'green' });
+    } catch (err: any) {
+      notifications.show({ title: 'Export Failed', message: err.message, color: 'red' });
+    }
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const content = e.target?.result as string;
+        setImportJson(content);
+      };
+      reader.readAsText(file);
+    }
+  };
+
   const importMutation = useMutation({
     mutationFn: async (json: string) => {
-      const data = JSON.parse(json);
-      if (!data.vhost && selectedVHost) {
-        data.vhost = selectedVHost === 'all' ? (availableVHosts[0] || 'default') : selectedVHost;
+      let data;
+      try {
+        data = JSON.parse(json);
+      } catch (e) {
+        throw new Error("Invalid JSON");
       }
-      await apiFetch(`${API_BASE}/workflows`, {
+
+      // Support patching vhost if missing from the workflow in the bundle or the single workflow
+      const workflow = data.workflow || data;
+      if (!workflow.vhost && selectedVHost) {
+        workflow.vhost = selectedVHost === 'all' ? (availableVHosts[0] || 'default') : selectedVHost;
+      }
+
+      const res = await apiFetch(`${API_BASE}/workflows/import`, {
         method: 'POST',
         body: JSON.stringify(data),
         silent: true,
       });
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
@@ -241,7 +281,13 @@ export default function WorkflowsPage() {
 
         <Modal opened={importOpened} onClose={closeImport} title="Import Workflow from JSON" size="lg">
           <Stack>
-            <Text size="sm">Paste the Workflow JSON configuration below.</Text>
+            <Group justify="space-between">
+              <Text size="sm">Paste the Workflow JSON configuration below or upload a file.</Text>
+              <Button variant="subtle" component="label" size="xs" leftSection={<IconUpload size="1rem" />}>
+                Upload File
+                <input type="file" hidden accept=".json" onChange={handleFileUpload} />
+              </Button>
+            </Group>
             <JsonInput 
               placeholder='{ "name": "Imported Workflow", ... }' 
               validationError="Invalid JSON" 
@@ -395,6 +441,16 @@ export default function WorkflowsPage() {
                             loading={cloneMutation.isPending}
                           >
                             <IconCopy size="1rem" />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Export JSON">
+                          <ActionIcon 
+                            aria-label="Export workflow to JSON"
+                            variant="subtle" 
+                            color="gray" 
+                            onClick={() => handleExport(wf)}
+                          >
+                            <IconDownload size="1rem" />
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Delete">
