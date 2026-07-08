@@ -38,9 +38,13 @@ func (n *TransformationNode) Execute(ctx context.Context, nctx registry.NodeCont
 }
 
 func (n *TransformationNode) runPipeline(ctx context.Context, nctx registry.NodeContext, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
-	stepsStr, _ := node.Config["steps"].(string)
 	var steps []map[string]any
-	_ = json.Unmarshal([]byte(stepsStr), &steps)
+	if cached, ok := node.Config["_parsed_steps"].([]map[string]any); ok {
+		steps = cached
+	} else {
+		stepsStr, _ := node.Config["steps"].(string)
+		_ = json.Unmarshal([]byte(stepsStr), &steps)
+	}
 
 	current := msg
 	for _, step := range steps {

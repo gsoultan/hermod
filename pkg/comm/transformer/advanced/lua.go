@@ -31,6 +31,20 @@ type LuaTransformer struct {
 	cache map[string]*lua.FunctionProto
 }
 
+func (t *LuaTransformer) Prepare(config map[string]any) (map[string]any, error) {
+	script, _ := config["script"].(string)
+	if script == "" {
+		return config, nil
+	}
+
+	proto, err := t.getProto(script)
+	if err != nil {
+		return nil, err
+	}
+	config["_parsed_proto"] = proto
+	return config, nil
+}
+
 func (t *LuaTransformer) getProto(script string) (*lua.FunctionProto, error) {
 	t.mu.RLock()
 	proto, ok := t.cache[script]
@@ -86,9 +100,15 @@ func (t *LuaTransformer) Transform(ctx context.Context, msg hermod.Message, conf
 	L.SetGlobal("metadata", metaTable)
 
 	// Execute script (using cached proto for performance)
-	proto, err := t.getProto(script)
-	if err != nil {
-		return nil, fmt.Errorf("lua compilation error: %w", err)
+	var proto *lua.FunctionProto
+	if p, ok := config["_parsed_proto"].(*lua.FunctionProto); ok {
+		proto = p
+	} else {
+		p, err := t.getProto(script)
+		if err != nil {
+			return nil, fmt.Errorf("lua compilation error: %w", err)
+		}
+		proto = p
 	}
 	lfunc := L.NewFunctionFromProto(proto)
 	L.Push(lfunc)

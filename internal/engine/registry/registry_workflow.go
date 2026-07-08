@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -17,6 +18,7 @@ import (
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/comm/buffer"
 	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/comm/transformer"
 	pkgengine "github.com/user/hermod/pkg/engine"
 	"github.com/user/hermod/pkg/engine/config"
 	"github.com/user/hermod/pkg/engine/telemetry"
@@ -432,6 +434,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	}
 
 	// Pre-map nodes and edges for performance
+	r.prepareWorkflowNodes(wf.Nodes)
 	nodeMap := make(map[string]*storage.WorkflowNode)
 	nodeIndex := make(map[string]int)
 	for i := range wf.Nodes {
@@ -1226,6 +1229,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 	}
 
 	// Build node map for O(1) lookups
+	r.prepareWorkflowNodes(wf.Nodes)
 	nodeMap := make(map[string]*storage.WorkflowNode)
 	for i := range wf.Nodes {
 		nodeMap[wf.Nodes[i].ID] = &wf.Nodes[i]
@@ -1346,6 +1350,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 					Error:    err.Error(),
 				})
 			}
+
 			if len(msgs) == 0 {
 				steps = append(steps, WorkflowStepResult{
 					NodeID:   currID,
@@ -1353,10 +1358,11 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 					Filtered: true,
 					Branch:   currBranch,
 				})
+				currMsg = nil // Ensure we don't pass filtered message downstream
 			} else {
 				// Update step with output
-				found := false
 				currMsg = msgs[0] // Use first message for test result visualization
+				found := false
 				for i := range steps {
 					if steps[i].NodeID == currID {
 						steps[i].Payload = msgToMap(currMsg)
@@ -1416,4 +1422,39 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 	}
 
 	return steps, nil
+}
+
+func (r *Registry) prepareWorkflowNodes(nodes []storage.WorkflowNode) {
+	for i := range nodes {
+		node := &nodes[i]
+		if node.Type == "transformation" {
+			transType, _ := node.Config["transType"].(string)
+			if transType == "pipeline" {
+				stepsStr, _ := node.Config["steps"].(string)
+				var steps []map[string]any
+				if err := json.Unmarshal([]byte(stepsStr), &steps); err == nil {
+					for j := range steps {
+						step := steps[j]
+						st, _ := step["transType"].(string)
+						if t, ok := transformer.Get(st); ok {
+							if pt, ok := t.(transformer.PreparedTransformer); ok {
+								if prepared, err := pt.Prepare(step); err == nil {
+									steps[j] = prepared
+								}
+							}
+						}
+					}
+					node.Config["_parsed_steps"] = steps
+				}
+			} else {
+				if t, ok := transformer.Get(transType); ok {
+					if pt, ok := t.(transformer.PreparedTransformer); ok {
+						if prepared, err := pt.Prepare(node.Config); err == nil {
+							node.Config = prepared
+						}
+					}
+				}
+			}
+		}
+	}
 }

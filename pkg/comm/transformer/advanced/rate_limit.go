@@ -2,21 +2,38 @@ package advanced
 
 import (
 	"context"
+	"fmt"
+	"sync"
 
 	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/infra/evaluator"
 	"golang.org/x/time/rate"
 )
 
 func init() {
-	transformer.Register("rate_limit", &RateLimitTransformer{
-		limiters: make(map[string]*rate.Limiter),
-	})
+	transformer.Register("rate_limit", &RateLimitTransformer{})
 }
 
 type RateLimitTransformer struct {
-	limiters map[string]*rate.Limiter
+	limiters sync.Map // map[string]*rate.Limiter
+}
+
+func (t *RateLimitTransformer) Prepare(config map[string]any) (map[string]any, error) {
+	mps, _ := evaluator.ToFloat64(config["mps"])
+	if mps <= 0 {
+		mps = 100
+	}
+	config["_parsed_mps"] = mps
+
+	burst, _ := evaluator.ToFloat64(config["burst"])
+	if burst <= 0 {
+		burst = mps
+	}
+	config["_parsed_burst"] = burst
+
+	return config, nil
 }
 
 func (t *RateLimitTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
@@ -24,37 +41,44 @@ func (t *RateLimitTransformer) Transform(ctx context.Context, msg hermod.Message
 		return nil, nil
 	}
 
-	mps, _ := config["mps"].(float64)
-	if mps <= 0 {
-		mps = 100 // Default 100 msg/sec
+	var mps float64
+	if v, ok := config["_parsed_mps"].(float64); ok {
+		mps = v
+	} else {
+		mps, _ = evaluator.ToFloat64(config["mps"])
+		if mps <= 0 {
+			mps = 100
+		}
 	}
 
-	burst, _ := config["burst"].(float64)
-	if burst <= 0 {
-		burst = mps // Default burst = mps
+	var burst float64
+	if v, ok := config["_parsed_burst"].(float64); ok {
+		burst = v
+	} else {
+		burst, _ = evaluator.ToFloat64(config["burst"])
+		if burst <= 0 {
+			burst = mps
+		}
 	}
 
 	key := "default"
 	// Optional: rate limit per specific field value (e.g. per user_id)
 	field, _ := config["keyField"].(string)
 	if field != "" {
-		if val := msg.Data()[field]; val != nil {
-			key = interfaceToString(val)
+		if val := evaluator.EvaluateField(msg, field); val != nil {
+			key = fmt.Sprintf("%v", val)
 		}
 	}
 
-	limiter, ok := t.limiters[key]
-	if !ok {
-		limiter = rate.NewLimiter(rate.Limit(mps), int(burst))
-		t.limiters[key] = limiter
-	} else {
-		// Update limit if it changed in config
-		if limiter.Limit() != rate.Limit(mps) {
-			limiter.SetLimit(rate.Limit(mps))
-		}
-		if limiter.Burst() != int(burst) {
-			limiter.SetBurst(int(burst))
-		}
+	actual, _ := t.limiters.LoadOrStore(key, rate.NewLimiter(rate.Limit(mps), int(burst)))
+	limiter := actual.(*rate.Limiter)
+
+	// Update limit if it changed in config (limiters are shared between messages)
+	if limiter.Limit() != rate.Limit(mps) {
+		limiter.SetLimit(rate.Limit(mps))
+	}
+	if limiter.Burst() != int(burst) {
+		limiter.SetBurst(int(burst))
 	}
 
 	strategy, _ := config["strategy"].(string) // "wait" or "drop"
@@ -70,13 +94,4 @@ func (t *RateLimitTransformer) Transform(ctx context.Context, msg hermod.Message
 	}
 
 	return msg, nil
-}
-
-func interfaceToString(v any) string {
-	switch val := v.(type) {
-	case string:
-		return val
-	default:
-		return ""
-	}
 }

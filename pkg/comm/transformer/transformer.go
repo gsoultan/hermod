@@ -18,6 +18,12 @@ type Transformer interface {
 	Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error)
 }
 
+// PreparedTransformer allows pre-parsing configuration for better performance.
+type PreparedTransformer interface {
+	Transformer
+	Prepare(config map[string]any) (map[string]any, error)
+}
+
 // Registry manages the available transformers.
 type Registry struct {
 	transformers map[string]Transformer

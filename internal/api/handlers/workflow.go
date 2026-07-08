@@ -1086,36 +1086,44 @@ func populateMessageFromMap(msg hermod.Message, data map[string]any) {
 		}
 
 		// Handle system fields first for efficiency
-		switch k {
-		case "id", "ID":
-			if id, ok := v.(string); ok && id != "" {
+		switch strings.ToLower(k) {
+		case "id":
+			idStr := fmt.Sprintf("%v", v)
+			if idStr != "" {
 				if isDefault {
-					dm.SetID(id)
+					dm.SetID(idStr)
 				}
+				msg.SetData("id", v) // Keep in data for convenience in transformations
 			}
 			continue
-		case "operation", "op", "Operation", "Op":
-			if op, ok := v.(string); ok && op != "" {
+		case "operation", "op":
+			opStr := fmt.Sprintf("%v", v)
+			if opStr != "" {
 				if isDefault {
-					dm.SetOperation(hermod.Operation(op))
+					dm.SetOperation(hermod.Operation(opStr))
 				}
+				msg.SetData(k, v)
 			}
 			continue
-		case "table", "Table":
-			if t, ok := v.(string); ok && t != "" {
+		case "table":
+			tStr := fmt.Sprintf("%v", v)
+			if tStr != "" {
 				if isDefault {
-					dm.SetTable(t)
+					dm.SetTable(tStr)
 				}
+				msg.SetData(k, v)
 			}
 			continue
-		case "schema", "Schema":
-			if s, ok := v.(string); ok && s != "" {
+		case "schema":
+			sStr := fmt.Sprintf("%v", v)
+			if sStr != "" {
 				if isDefault {
-					dm.SetSchema(s)
+					dm.SetSchema(sStr)
 				}
+				msg.SetData(k, v)
 			}
 			continue
-		case "metadata", "Metadata":
+		case "metadata":
 			if md, ok := v.(map[string]any); ok {
 				for mk, mv := range md {
 					if mv != nil {

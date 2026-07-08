@@ -17,6 +17,15 @@ func init() {
 
 type MaskTransformer struct{}
 
+func (t *MaskTransformer) Prepare(config map[string]any) (map[string]any, error) {
+	field, _ := config["field"].(string)
+	maskType, _ := config["maskType"].(string)
+
+	config["_parsed_field"] = field
+	config["_parsed_maskType"] = maskType
+	return config, nil
+}
+
 func (t *MaskTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
@@ -28,8 +37,19 @@ func (t *MaskTransformer) Transform(ctx context.Context, msg hermod.Message, con
 		return msg, nil
 	}
 
-	field, _ := config["field"].(string)
-	maskType, _ := config["maskType"].(string) // "all", "partial", "email", "pii"
+	var field string
+	if v, ok := config["_parsed_field"].(string); ok {
+		field = v
+	} else {
+		field, _ = config["field"].(string)
+	}
+
+	var maskType string
+	if v, ok := config["_parsed_maskType"].(string); ok {
+		maskType = v
+	} else {
+		maskType, _ = config["maskType"].(string) // "all", "partial", "email", "pii"
+	}
 
 	if field == "*" || field == "" {
 		// Scan all fields

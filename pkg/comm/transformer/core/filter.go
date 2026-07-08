@@ -18,13 +18,7 @@ func init() {
 
 type FilterTransformer struct{}
 
-func (t *FilterTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
-	if msg == nil {
-		return nil, nil
-	}
-
-	transType, _ := config["transType"].(string)
-
+func (t *FilterTransformer) Prepare(config map[string]any) (map[string]any, error) {
 	conditionsStr, _ := config["conditions"].(string)
 	var conditions []map[string]any
 	if conditionsStr != "" {
@@ -42,6 +36,43 @@ func (t *FilterTransformer) Transform(ctx context.Context, msg hermod.Message, c
 				"operator": op,
 				"value":    val,
 			})
+		}
+	}
+
+	if len(conditions) > 0 {
+		config["_parsed_conditions"] = conditions
+	}
+	return config, nil
+}
+
+func (t *FilterTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
+	if msg == nil {
+		return nil, nil
+	}
+
+	transType, _ := config["transType"].(string)
+
+	var conditions []map[string]any
+	if cached, ok := config["_parsed_conditions"].([]map[string]any); ok {
+		conditions = cached
+	} else {
+		conditionsStr, _ := config["conditions"].(string)
+		if conditionsStr != "" {
+			_ = json.Unmarshal([]byte(conditionsStr), &conditions)
+		}
+
+		// Fallback to old format if no conditions array
+		if len(conditions) == 0 {
+			field, _ := config["field"].(string)
+			op, _ := config["operator"].(string)
+			val, _ := config["value"].(string)
+			if field != "" {
+				conditions = append(conditions, map[string]any{
+					"field":    field,
+					"operator": op,
+					"value":    val,
+				})
+			}
 		}
 	}
 

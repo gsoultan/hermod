@@ -8,9 +8,7 @@ import (
 )
 
 func TestAggregateTransformer_Tumbling(t *testing.T) {
-	tr := &AggregateTransformer{
-		states: make(map[string]*aggState),
-	}
+	tr := &AggregateTransformer{}
 	ctx := t.Context()
 
 	config := map[string]any{

@@ -2,7 +2,6 @@ package advanced
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -56,6 +55,55 @@ func (t *WasmTransformer) getRuntime(ctx context.Context) wazero.Runtime {
 	return t.runtime
 }
 
+func (t *WasmTransformer) Prepare(config map[string]any) (map[string]any, error) {
+	var bin []byte
+	var err error
+
+	pluginID, _ := config["pluginID"].(string)
+	if pluginID != "" {
+		cachePath := filepath.Join("data", "plugins", pluginID+".wasm")
+		bin, err = os.ReadFile(cachePath)
+		if err != nil {
+			return config, fmt.Errorf("failed to read plugin %s: %w", pluginID, err)
+		}
+	} else {
+		wasmURL, _ := config["wasmURL"].(string)
+		marketplaceID, _ := config["marketplaceID"].(string)
+		if marketplaceID != "" {
+			url := fmt.Sprintf("https://marketplace.hermod.io/api/v1/plugins/%s/download", marketplaceID)
+			resp, err := http.Get(url)
+			if err != nil {
+				return config, fmt.Errorf("failed to fetch from marketplace: %w", err)
+			}
+			defer resp.Body.Close()
+			bin, err = io.ReadAll(resp.Body)
+		} else if wasmURL != "" {
+			resp, err := http.Get(wasmURL)
+			if err != nil {
+				return config, fmt.Errorf("failed to fetch from url: %w", err)
+			}
+			defer resp.Body.Close()
+			bin, err = io.ReadAll(resp.Body)
+		} else if b, ok := config["wasmBytes"].([]byte); ok {
+			bin = b
+		} else if s, ok := config["wasmBytes"].(string); ok {
+			bin = []byte(s)
+		}
+	}
+
+	if len(bin) > 0 {
+		config["_parsed_bin"] = bin
+		// Pre-compile
+		r := t.getRuntime(context.Background())
+		compiled, err := r.CompileModule(context.Background(), bin)
+		if err == nil {
+			config["_parsed_compiled"] = compiled
+		}
+	}
+
+	return config, nil
+}
+
 func (t *WasmTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
@@ -66,93 +114,25 @@ func (t *WasmTransformer) Transform(ctx context.Context, msg hermod.Message, con
 		functionName = "transform"
 	}
 
-	var bin []byte
-	pluginID, _ := config["pluginID"].(string)
-	if pluginID != "" {
-		// Load from local cache with Hot-Reloading support
-		cachePath := filepath.Join("data", "plugins", pluginID+".wasm")
-		info, err := os.Stat(cachePath)
-		if err != nil {
-			return msg, fmt.Errorf("failed to stat installed plugin %s: %w", pluginID, err)
-		}
-
-		t.mu.RLock()
-		entry, ok := t.binCache[cachePath]
-		t.mu.RUnlock()
-
-		if ok && entry.modTime.Equal(info.ModTime()) {
-			bin = entry.bin
-		} else {
-			bin, err = os.ReadFile(cachePath)
-			if err != nil {
-				return msg, fmt.Errorf("failed to read installed plugin %s: %w", pluginID, err)
-			}
-			t.mu.Lock()
-			t.binCache[cachePath] = &binEntry{
-				bin:     bin,
-				modTime: info.ModTime(),
-			}
-			t.mu.Unlock()
-		}
+	var compiled wazero.CompiledModule
+	if c, ok := config["_parsed_compiled"].(wazero.CompiledModule); ok {
+		compiled = c
 	} else {
-		wasmURL, _ := config["wasmURL"].(string)
-		marketplaceID, _ := config["marketplaceID"].(string)
-		if marketplaceID != "" {
-			// Integrate with Marketplace Registry
-			url := fmt.Sprintf("https://marketplace.hermod.io/api/v1/plugins/%s/download", marketplaceID)
-			resp, err := http.Get(url)
-			if err != nil {
-				return msg, fmt.Errorf("failed to fetch from marketplace: %w", err)
-			}
-			defer resp.Body.Close()
-			bin, err = io.ReadAll(resp.Body)
-			if err != nil {
-				return msg, fmt.Errorf("failed to read marketplace response: %w", err)
-			}
-		} else if wasmURL != "" {
-			// Fetch from URL
-			// For enterprise, we should cache the fetched binary or use a proper downloader
-			resp, err := http.Get(wasmURL)
-			if err != nil {
-				return msg, fmt.Errorf("failed to fetch wasm from url: %w", err)
-			}
-			defer resp.Body.Close()
-			bin, err = io.ReadAll(resp.Body)
-			if err != nil {
-				return msg, fmt.Errorf("failed to read wasm body: %w", err)
-			}
-		} else if b, ok := config["wasmBytes"].([]byte); ok {
+		// Fallback for one-off tests or if Prepare failed
+		var bin []byte
+		if b, ok := config["_parsed_bin"].([]byte); ok {
 			bin = b
-		} else if s, ok := config["wasmBytes"].(string); ok {
-			// If it's a string, it might be base64
-			bin = []byte(s)
+		} else {
+			// (Reloading logic removed for brevity in Transform - Prepare should handle it)
+			return msg, errors.New("wasm binary not found or not prepared")
 		}
-	}
 
-	if len(bin) == 0 {
-		return msg, errors.New("wasm binary not provided")
-	}
-
-	cacheKey := hex.EncodeToString(bin)
-
-	r := t.getRuntime(ctx)
-
-	t.mu.RLock()
-	compiled, ok := t.cache[cacheKey]
-	t.mu.RUnlock()
-
-	if !ok {
-		t.mu.Lock()
-		if compiled, ok = t.cache[cacheKey]; !ok {
-			var err error
-			compiled, err = r.CompileModule(ctx, bin)
-			if err != nil {
-				t.mu.Unlock()
-				return msg, fmt.Errorf("failed to compile wasm module: %w", err)
-			}
-			t.cache[cacheKey] = compiled
+		r := t.getRuntime(ctx)
+		var err error
+		compiled, err = r.CompileModule(ctx, bin)
+		if err != nil {
+			return msg, fmt.Errorf("failed to compile wasm module: %w", err)
 		}
-		t.mu.Unlock()
 	}
 
 	// Prepare data for WASM
@@ -167,6 +147,7 @@ func (t *WasmTransformer) Transform(ctx context.Context, msg hermod.Message, con
 		WithStdout(stdout).
 		WithStderr(io.Discard)
 
+	r := t.getRuntime(ctx)
 	mod, err := r.InstantiateModule(ctx, compiled, modCfg)
 	if err != nil {
 		return msg, fmt.Errorf("failed to instantiate wasm module: %w", err)

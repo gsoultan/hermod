@@ -24,6 +24,34 @@ func init() {
 
 type SCDTransformer struct{}
 
+func (t *SCDTransformer) Prepare(config map[string]any) (map[string]any, error) {
+	scdType := 1
+	if v, ok := config["scdType"]; ok {
+		if i, ok := evaluator.ToInt64(v); ok {
+			scdType = int(i)
+		}
+	} else if v, ok := config["type"]; ok {
+		if i, ok := evaluator.ToInt64(v); ok {
+			scdType = int(i)
+		}
+	}
+	config["_parsed_scdType"] = scdType
+
+	businessKeys := core.GetConfigStringSlice(config, "businessKeys")
+	if len(businessKeys) == 0 {
+		businessKeys = core.SplitComma(core.GetConfigString(config, "keys"))
+	}
+	config["_parsed_businessKeys"] = businessKeys
+
+	compareFields := core.GetConfigStringSlice(config, "compareFields")
+	if len(compareFields) == 0 {
+		compareFields = core.SplitComma(core.GetConfigString(config, "columns"))
+	}
+	config["_parsed_compareFields"] = compareFields
+
+	return config, nil
+}
+
 type SCDRegistry interface {
 	GetSource(ctx context.Context, id string) (storage.Source, error)
 	GetOrOpenDB(src storage.Source) (*sql.DB, error)
@@ -34,14 +62,19 @@ func (t *SCDTransformer) Transform(ctx context.Context, msg hermod.Message, conf
 		return nil, nil
 	}
 
-	scdType := 1 // Default to Type 1
-	if v, ok := config["scdType"]; ok {
-		if i, ok := evaluator.ToInt64(v); ok {
-			scdType = int(i)
-		}
-	} else if v, ok := config["type"]; ok { // Support "type" key from UI
-		if i, ok := evaluator.ToInt64(v); ok {
-			scdType = int(i)
+	var scdType int
+	if v, ok := config["_parsed_scdType"].(int); ok {
+		scdType = v
+	} else {
+		scdType = 1 // Default to Type 1
+		if v, ok := config["scdType"]; ok {
+			if i, ok := evaluator.ToInt64(v); ok {
+				scdType = int(i)
+			}
+		} else if v, ok := config["type"]; ok { // Support "type" key from UI
+			if i, ok := evaluator.ToInt64(v); ok {
+				scdType = int(i)
+			}
 		}
 	}
 
@@ -53,15 +86,25 @@ func (t *SCDTransformer) Transform(ctx context.Context, msg hermod.Message, conf
 	targetSourceID := core.GetConfigString(config, "targetSourceId")
 	targetTable := core.GetConfigString(config, "targetTable")
 
-	// Support both comma-separated string and []any for keys/columns
-	businessKeys := core.GetConfigStringSlice(config, "businessKeys")
-	if len(businessKeys) == 0 {
-		businessKeys = core.SplitComma(core.GetConfigString(config, "keys"))
+	var businessKeys []string
+	if v, ok := config["_parsed_businessKeys"].([]string); ok {
+		businessKeys = v
+	} else {
+		// Support both comma-separated string and []any for keys/columns
+		businessKeys = core.GetConfigStringSlice(config, "businessKeys")
+		if len(businessKeys) == 0 {
+			businessKeys = core.SplitComma(core.GetConfigString(config, "keys"))
+		}
 	}
 
-	compareFields := core.GetConfigStringSlice(config, "compareFields")
-	if len(compareFields) == 0 {
-		compareFields = core.SplitComma(core.GetConfigString(config, "columns"))
+	var compareFields []string
+	if v, ok := config["_parsed_compareFields"].([]string); ok {
+		compareFields = v
+	} else {
+		compareFields = core.GetConfigStringSlice(config, "compareFields")
+		if len(compareFields) == 0 {
+			compareFields = core.SplitComma(core.GetConfigString(config, "columns"))
+		}
 	}
 
 	if targetSourceID == "" || targetTable == "" || len(businessKeys) == 0 {

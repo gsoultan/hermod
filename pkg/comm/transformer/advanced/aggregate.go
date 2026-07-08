@@ -14,23 +14,37 @@ import (
 )
 
 func init() {
-	transformer.Register("aggregate", &AggregateTransformer{
-		states: make(map[string]*aggState),
-	})
+	transformer.Register("aggregate", &AggregateTransformer{})
 }
 
 // aggState represents the current state of an aggregation window.
 type aggState struct {
-	Count     float64   `json:"count"`
-	Sum       float64   `json:"sum"`
-	Last      time.Time `json:"last"`
-	Start     time.Time `json:"start"`
-	IsSession bool      `json:"is_session"`
+	mu        sync.Mutex `json:"-"`
+	Count     float64    `json:"count"`
+	Sum       float64    `json:"sum"`
+	Last      time.Time  `json:"last"`
+	Start     time.Time  `json:"start"`
+	IsSession bool       `json:"is_session"`
 }
 
 type AggregateTransformer struct {
-	mu     sync.Mutex
-	states map[string]*aggState
+	states sync.Map // map[string]*aggState
+}
+
+func (t *AggregateTransformer) Prepare(config map[string]any) (map[string]any, error) {
+	windowStr, _ := config["window"].(string)
+	if windowStr != "" {
+		if d, err := time.ParseDuration(windowStr); err == nil {
+			config["_parsed_window"] = d
+		}
+	}
+	slideStr, _ := config["slide"].(string)
+	if slideStr != "" {
+		if d, err := time.ParseDuration(slideStr); err == nil {
+			config["_parsed_slide"] = d
+		}
+	}
+	return config, nil
 }
 
 func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
@@ -40,14 +54,18 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 
 	field, _ := config["field"].(string)
 	groupBy, _ := config["groupBy"].(string)
-	aggType, _ := config["type"].(string) // "sum", "count", "avg"
-	windowStr, _ := config["window"].(string)
+	aggType, _ := config["type"].(string)          // "sum", "count", "avg"
 	windowType, _ := config["windowType"].(string) // "tumbling", "sliding", "session" (default)
 	persistent := evaluator.ToBool(config["persistent"])
 
-	window := 0 * time.Second
-	if windowStr != "" {
-		window, _ = time.ParseDuration(windowStr)
+	var window time.Duration
+	if d, ok := config["_parsed_window"].(time.Duration); ok {
+		window = d
+	} else {
+		windowStr, _ := config["window"].(string)
+		if windowStr != "" {
+			window, _ = time.ParseDuration(windowStr)
+		}
 	}
 
 	valRaw := evaluator.EvaluateField(msg, field)
@@ -70,18 +88,20 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 		stateKey = fmt.Sprintf("%s:%s:%s:%s:t:%d", workflowID, nodeID, field, groupVal, windowStart)
 		stateKeys = append(stateKeys, stateKey)
 	} else if windowType == "sliding" && window > 0 {
-		slideStr, _ := config["slide"].(string)
-		slide := window / 2
-		if slideStr != "" {
-			if s, err := time.ParseDuration(slideStr); err == nil && s > 0 {
-				slide = s
+		var slide time.Duration
+		if d, ok := config["_parsed_slide"].(time.Duration); ok {
+			slide = d
+		} else {
+			slideStr, _ := config["slide"].(string)
+			slide = window / 2
+			if slideStr != "" {
+				if s, err := time.ParseDuration(slideStr); err == nil && s > 0 {
+					slide = s
+				}
 			}
 		}
 		// A message belongs to multiple sliding windows.
 		// We update all windows that cover 'now'.
-		// Window i starts at i*slide and ends at i*slide + window.
-		// So i*slide <= now < i*slide + window
-		// i <= now/slide and i > (now-window)/slide
 		firstIndex := now.Add(-window).UnixNano()/slide.Nanoseconds() + 1
 		lastIndex := now.UnixNano() / slide.Nanoseconds()
 
@@ -101,35 +121,26 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 		store = s
 	}
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	var currentState *aggState
 	for _, sKey := range stateKeys {
-		state, ok := t.states[sKey]
+		actual, _ := t.states.LoadOrStore(sKey, &aggState{Start: now})
+		state := actual.(*aggState)
 
-		if !ok && persistent && store != nil {
+		state.mu.Lock()
+
+		// If persistent and newly created (Count == 0), try to load from store
+		if state.Count == 0 && persistent && store != nil {
 			data, err := store.Get(ctx, "agg:"+sKey)
 			if err == nil && data != nil {
-				var s aggState
-				if err := json.Unmarshal(data, &s); err == nil {
-					state = &s
-					t.states[sKey] = state
-					ok = true
-				}
+				_ = json.Unmarshal(data, state)
 			}
 		}
 
 		// Reset if session window expired
-		if (windowType == "" || windowType == "session") && window > 0 && ok && time.Since(state.Last) > window {
-			ok = false
-		}
-
-		if !ok {
-			state = &aggState{
-				Start: now,
-			}
-			t.states[sKey] = state
+		if (windowType == "" || windowType == "session") && window > 0 && state.Count > 0 && time.Since(state.Last) > window {
+			state.Count = 0
+			state.Sum = 0
+			state.Start = now
 		}
 
 		state.Count++
@@ -137,21 +148,20 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 		state.Last = now
 
 		if sKey == stateKey {
-			currentState = state
+			currentState = &aggState{
+				Count: state.Count,
+				Sum:   state.Sum,
+			}
 		}
 
 		if persistent && store != nil {
 			data, _ := json.Marshal(state)
+			// Unlock BEFORE I/O if possible, but we need to keep state consistent.
+			// Actually, we can copy the data and unlock.
+			state.mu.Unlock()
 			_ = store.Set(ctx, "agg:"+sKey, data)
-		}
-	}
-
-	// Cleanup old states periodically
-	if len(t.states) > 1000 {
-		for k, s := range t.states {
-			if time.Since(s.Last) > window*3 && window > 0 {
-				delete(t.states, k)
-			}
+		} else {
+			state.mu.Unlock()
 		}
 	}
 

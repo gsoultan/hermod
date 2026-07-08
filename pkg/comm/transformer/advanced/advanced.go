@@ -16,8 +16,29 @@ func init() {
 	transformer.Register("set", adv)
 }
 
+type columnConfig struct {
+	path string
+	expr any
+}
+
 type AdvancedTransformer struct {
 	evaluator *evaluator.Evaluator
+}
+
+func (t *AdvancedTransformer) Prepare(config map[string]any) (map[string]any, error) {
+	var columns []columnConfig
+	for k, v := range config {
+		if strings.HasPrefix(k, "column.") {
+			columns = append(columns, columnConfig{
+				path: strings.TrimPrefix(k, "column."),
+				expr: v,
+			})
+		}
+	}
+	if len(columns) > 0 {
+		config["_parsed_columns"] = columns
+	}
+	return config, nil
 }
 
 func (t *AdvancedTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
@@ -27,16 +48,27 @@ func (t *AdvancedTransformer) Transform(ctx context.Context, msg hermod.Message,
 
 	transType, _ := config["transType"].(string)
 
+	var columns []columnConfig
+	if cached, ok := config["_parsed_columns"].([]columnConfig); ok {
+		columns = cached
+	} else {
+		// Fallback for non-prepared config
+		for k, v := range config {
+			if strings.HasPrefix(k, "column.") {
+				columns = append(columns, columnConfig{
+					path: strings.TrimPrefix(k, "column."),
+					expr: v,
+				})
+			}
+		}
+	}
+
 	if transType == "advanced" {
 		results := make(map[string]any)
-		for k, v := range config {
-			if !strings.HasPrefix(k, "column.") {
-				continue
-			}
-			colPath := strings.TrimPrefix(k, "column.")
-			result := t.evaluator.EvaluateAdvancedExpression(msg, v)
+		for _, col := range columns {
+			result := t.evaluator.EvaluateAdvancedExpression(msg, col.expr)
 			if result != nil {
-				results[colPath] = result
+				results[col.path] = result
 			}
 		}
 
@@ -45,12 +77,9 @@ func (t *AdvancedTransformer) Transform(ctx context.Context, msg hermod.Message,
 			msg.SetData(colPath, result)
 		}
 	} else { // "set"
-		for k, v := range config {
-			if strings.HasPrefix(k, "column.") {
-				colPath := strings.TrimPrefix(k, "column.")
-				result := t.evaluator.EvaluateAdvancedExpression(msg, v)
-				msg.SetData(colPath, result)
-			}
+		for _, col := range columns {
+			result := t.evaluator.EvaluateAdvancedExpression(msg, col.expr)
+			msg.SetData(col.path, result)
 		}
 	}
 

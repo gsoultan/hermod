@@ -20,9 +20,7 @@ func TestAggregateTransformer_Persistence(t *testing.T) {
 		t.Fatalf("failed to create state store: %v", err)
 	}
 
-	tr := &AggregateTransformer{
-		states: make(map[string]*aggState),
-	}
+	tr := &AggregateTransformer{}
 
 	// Create context with state store and IDs
 	ctx := context.WithValue(t.Context(), hermod.StateStoreKey, ss)
@@ -52,9 +50,7 @@ func TestAggregateTransformer_Persistence(t *testing.T) {
 	}
 
 	// Create a NEW transformer instance (simulating restart)
-	tr2 := &AggregateTransformer{
-		states: make(map[string]*aggState),
-	}
+	tr2 := &AggregateTransformer{}
 
 	// Third message - should load state from store
 	msg3 := message.AcquireMessage()
