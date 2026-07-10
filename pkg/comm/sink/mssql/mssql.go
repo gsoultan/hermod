@@ -3,11 +3,10 @@ package mssql
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/user/hermod"
@@ -69,249 +68,154 @@ func (s *MSSQLSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 	}
 	defer tx.Rollback()
 
+	// group consecutive messages by table and effective operation
+	type batch struct {
+		table string
+		op    hermod.Operation
+		msgs  []hermod.Message
+	}
+	var batches []batch
+
 	for _, msg := range msgs {
 		if msg == nil {
 			continue
 		}
 
-		table := s.tableName
-		if table == "" {
-			table = msg.Table()
-			if msg.Schema() != "" {
-				table = fmt.Sprintf("%s.%s", msg.Schema(), table)
-			}
+		table := s.resolveTableName(msg)
+		op := s.resolveOperation(msg)
+
+		if len(batches) > 0 && batches[len(batches)-1].table == table && batches[len(batches)-1].op == op {
+			batches[len(batches)-1].msgs = append(batches[len(batches)-1].msgs, msg)
+		} else {
+			batches = append(batches, batch{table: table, op: op, msgs: []hermod.Message{msg}})
+		}
+	}
+
+	for _, b := range batches {
+		if err := s.ensureTable(ctx, tx, b.table); err != nil {
+			return fmt.Errorf("ensure table %s: %w", b.table, err)
 		}
 
-		if err := s.ensureTable(ctx, tx, table); err != nil {
-			return fmt.Errorf("ensure table %s: %w", table, err)
-		}
-
-		op := msg.Operation()
-		if s.operationMode != "auto" && s.operationMode != "" {
-			switch s.operationMode {
-			case "insert":
-				op = hermod.OpCreate
-			case "upsert":
-				op = hermod.OpUpdate
-			case "update":
-				op = hermod.OpUpdate
-			case "delete":
-				op = hermod.OpDelete
-			}
-		}
-
-		if op == "" {
-			op = hermod.OpCreate
-		}
-
-		switch op {
-		case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
-			if len(s.mappings) > 0 {
-				switch s.operationMode {
-				case "insert":
-					err = s.insertMapped(ctx, tx, table, msg)
-				case "update":
-					err = s.updateMapped(ctx, tx, table, msg)
-				default:
-					err = s.upsertMapped(ctx, tx, table, msg)
-				}
-			} else {
-				// Basic upsert with MERGE
-				query := fmt.Sprintf(`
-					MERGE INTO %s AS target
-					USING (SELECT ? AS id, ? AS data) AS source
-					ON target.id = source.id
-					WHEN MATCHED THEN UPDATE SET target.data = source.data
-					WHEN NOT MATCHED THEN INSERT (id, data) VALUES (source.id, source.data);
-				`, table)
-				_, err = tx.ExecContext(ctx, query, msg.ID(), msg.Payload())
-			}
-		case hermod.OpDelete:
-			if s.deleteStrategy == "ignore" {
-				continue
-			}
-			if len(s.mappings) > 0 {
-				err = s.deleteMapped(ctx, tx, table, msg)
-			} else {
-				query := fmt.Sprintf("DELETE FROM %s WHERE id = ?", table)
-				_, err = tx.ExecContext(ctx, query, msg.ID())
-			}
-		default:
-			err = fmt.Errorf("unsupported operation: %s", op)
-		}
-
-		if err != nil {
-			return fmt.Errorf("mssql write error on message %s: %w", msg.ID(), err)
+		if err := s.executeBatch(ctx, tx, b.table, b.op, b.msgs); err != nil {
+			return err
 		}
 	}
 
 	return tx.Commit()
 }
 
+func (s *MSSQLSink) resolveTableName(msg hermod.Message) string {
+	table := s.tableName
+	if table == "" {
+		table = msg.Table()
+		if msg.Schema() != "" {
+			table = fmt.Sprintf("%s.%s", msg.Schema(), table)
+		}
+	}
+	return table
+}
+
+func (s *MSSQLSink) resolveOperation(msg hermod.Message) hermod.Operation {
+	op := msg.Operation()
+	if s.operationMode != "auto" && s.operationMode != "" {
+		switch s.operationMode {
+		case "insert":
+			return hermod.OpCreate
+		case "upsert":
+			return hermod.OpUpdate
+		case "update":
+			return hermod.OpUpdate
+		case "delete":
+			return hermod.OpDelete
+		}
+	}
+	if op == "" {
+		return hermod.OpCreate
+	}
+	return op
+}
+
+func (s *MSSQLSink) executeBatch(ctx context.Context, tx *sql.Tx, table string, op hermod.Operation, msgs []hermod.Message) error {
+	// Chunk the batch to avoid parameter count limits (MSSQL limit is 2100)
+	paramsPerRow := len(s.mappings)
+	if paramsPerRow == 0 {
+		paramsPerRow = 2 // id and data
+	}
+	if op == hermod.OpDelete && len(s.mappings) > 0 {
+		// count PKs
+		paramsPerRow = 0
+		for _, m := range s.mappings {
+			if m.IsPrimaryKey {
+				paramsPerRow++
+			}
+		}
+	} else if op == hermod.OpDelete {
+		paramsPerRow = 1 // id
+	}
+
+	chunkSize := 100
+	if paramsPerRow > 0 {
+		chunkSize = 2000 / paramsPerRow
+	}
+	if chunkSize < 1 {
+		chunkSize = 1
+	}
+
+	for i := 0; i < len(msgs); i += chunkSize {
+		end := i + chunkSize
+		if end > len(msgs) {
+			end = len(msgs)
+		}
+		chunk := msgs[i:end]
+
+		var err error
+		switch op {
+		case hermod.OpCreate, hermod.OpSnapshot, hermod.OpUpdate:
+			if len(s.mappings) > 0 {
+				if op == hermod.OpCreate && s.operationMode == "insert" {
+					err = s.insertMappedBatch(ctx, tx, table, chunk)
+				} else if op == hermod.OpUpdate && s.operationMode == "update" {
+					err = s.updateMappedBatch(ctx, tx, table, chunk)
+				} else {
+					err = s.upsertMappedBatch(ctx, tx, table, chunk)
+				}
+			} else {
+				err = s.upsertBasicBatch(ctx, tx, table, chunk)
+			}
+		case hermod.OpDelete:
+			if s.deleteStrategy == "ignore" {
+				continue
+			}
+			if len(s.mappings) > 0 {
+				err = s.deleteMappedBatch(ctx, tx, table, chunk)
+			} else {
+				err = s.deleteBasicBatch(ctx, tx, table, chunk)
+			}
+		default:
+			err = fmt.Errorf("unsupported operation: %s", op)
+		}
+
+		if err != nil {
+			return fmt.Errorf("mssql batch write error on table %s: %w", table, err)
+		}
+	}
+	return nil
+}
+
 func (s *MSSQLSink) upsertMapped(ctx context.Context, tx *sql.Tx, table string, msg hermod.Message) error {
-	data := msg.Data()
-	if data == nil {
-		_ = json.Unmarshal(msg.Payload(), &data)
-	}
-
-	var cols []string
-	var selectCols []string
-	var updateParts []string
-	var args []any
-	var pkCol string
-	var pkSource string
-
-	for _, m := range s.mappings {
-		if m.SourceField == "" {
-			continue
-		}
-		val := evaluator.GetMsgValByPath(msg, m.SourceField)
-
-		if m.IsIdentity && (val == nil || val == "" || val == 0) {
-			continue
-		}
-
-		quoted, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
-		cols = append(cols, quoted)
-		selectCols = append(selectCols, "? AS "+quoted)
-		args = append(args, val)
-
-		if m.IsPrimaryKey {
-			pkCol = quoted
-			pkSource = "source." + quoted
-		} else {
-			updateParts = append(updateParts, fmt.Sprintf("target.%s = source.%s", quoted, quoted))
-		}
-	}
-
-	if pkCol == "" {
-		pkCol = cols[0]
-		pkSource = "source." + cols[0]
-	}
-
-	targetCols := strings.Join(cols, ", ")
-	sourceCols := make([]string, len(cols))
-	for i, c := range cols {
-		sourceCols[i] = "source." + c
-	}
-
-	query := fmt.Sprintf(`
-		MERGE INTO %s AS target
-		USING (SELECT %s) AS source
-		ON target.%s = %s
-		WHEN MATCHED THEN UPDATE SET %s
-		WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s);
-	`, table, strings.Join(selectCols, ", "), pkCol, pkSource, strings.Join(updateParts, ", "),
-		targetCols, strings.Join(sourceCols, ", "))
-
-	_, err := tx.ExecContext(ctx, query, args...)
-	return err
+	return s.upsertMappedBatch(ctx, tx, table, []hermod.Message{msg})
 }
 
 func (s *MSSQLSink) insertMapped(ctx context.Context, tx *sql.Tx, table string, msg hermod.Message) error {
-	var cols []string
-	var placeholders []string
-	var args []any
-
-	for _, m := range s.mappings {
-		if m.SourceField == "" {
-			continue
-		}
-		val := evaluator.GetMsgValByPath(msg, m.SourceField)
-		if m.IsIdentity && (val == nil || val == "" || val == 0) {
-			continue
-		}
-		quoted, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
-		cols = append(cols, quoted)
-		placeholders = append(placeholders, "?")
-		args = append(args, val)
-	}
-
-	if len(cols) == 0 {
-		return nil
-	}
-
-	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
-		table, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
-	_, err := tx.ExecContext(ctx, query, args...)
-	return err
+	return s.insertMappedBatch(ctx, tx, table, []hermod.Message{msg})
 }
 
 func (s *MSSQLSink) updateMapped(ctx context.Context, tx *sql.Tx, table string, msg hermod.Message) error {
-	var updates []string
-	var pks []string
-	var args []any
-	var pkArgs []any
-
-	for _, m := range s.mappings {
-		if m.SourceField == "" {
-			continue
-		}
-		val := evaluator.GetMsgValByPath(msg, m.SourceField)
-		quoted, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
-		if m.IsPrimaryKey {
-			pks = append(pks, quoted+" = ?")
-			pkArgs = append(pkArgs, val)
-		} else {
-			updates = append(updates, quoted+" = ?")
-			args = append(args, val)
-		}
-	}
-
-	if len(pks) == 0 {
-		return errors.New("cannot update without primary key mappings")
-	}
-	if len(updates) == 0 {
-		return nil
-	}
-
-	query := fmt.Sprintf("UPDATE %s SET %s WHERE %s",
-		table, strings.Join(updates, ", "), strings.Join(pks, " AND "))
-	args = append(args, pkArgs...)
-	_, err := tx.ExecContext(ctx, query, args...)
-	return err
+	return s.updateMappedBatch(ctx, tx, table, []hermod.Message{msg})
 }
 
 func (s *MSSQLSink) deleteMapped(ctx context.Context, tx *sql.Tx, table string, msg hermod.Message) error {
-	data := msg.Data()
-	if data == nil {
-		if len(msg.Before()) > 0 {
-			_ = json.Unmarshal(msg.Before(), &data)
-		} else if len(msg.Payload()) > 0 {
-			_ = json.Unmarshal(msg.Payload(), &data)
-		}
-	}
-
-	var pks []string
-	var args []any
-
-	for _, m := range s.mappings {
-		if m.IsPrimaryKey {
-			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			qCol, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
-			pks = append(pks, qCol+" = ?")
-			args = append(args, val)
-		}
-	}
-
-	if len(pks) == 0 {
-		query := fmt.Sprintf("DELETE FROM %s WHERE id = ?", table)
-		_, err := tx.ExecContext(ctx, query, msg.ID())
-		return err
-	}
-
-	if s.deleteStrategy == "soft_delete" && s.softDeleteColumn != "" {
-		qCol, _ := sqlutil.QuoteIdent("mssql", s.softDeleteColumn)
-		query := fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s",
-			table, qCol, strings.Join(pks, " AND "))
-		updateArgs := append([]any{s.softDeleteValue}, args...)
-		_, err := tx.ExecContext(ctx, query, updateArgs...)
-		return err
-	}
-
-	query := fmt.Sprintf("DELETE FROM %s WHERE %s", table, strings.Join(pks, " AND "))
-	_, err := tx.ExecContext(ctx, query, args...)
-	return err
+	return s.deleteMappedBatch(ctx, tx, table, []hermod.Message{msg})
 }
 
 func (s *MSSQLSink) ensureTable(ctx context.Context, tx *sql.Tx, table string) error {
@@ -329,7 +233,7 @@ func (s *MSSQLSink) ensureTable(ctx context.Context, tx *sql.Tx, table string) e
 	quoted, _ := sqlutil.QuoteIdent("mssql", table)
 
 	// Check if table exists
-	existsQuery := "SELECT COUNT(*) FROM sys.objects WHERE object_id = OBJECT_ID(?) AND type in (N'U')"
+	existsQuery := "SELECT COUNT(*) FROM sys.objects WHERE object_id = OBJECT_ID(@p1) AND type in (N'U')"
 	var existsCount int
 	_ = tx.QueryRowContext(ctx, existsQuery, table).Scan(&existsCount)
 	exists := existsCount > 0
@@ -394,7 +298,7 @@ func (s *MSSQLSink) syncColumns(ctx context.Context, tx *sql.Tx, table string) e
 		) THEN 1 ELSE 0 END as IS_PK,
 		ISNULL(COLUMNPROPERTY(OBJECT_ID(TABLE_SCHEMA + '.' + TABLE_NAME), COLUMN_NAME, 'IsIdentity'), 0) as IS_IDENTITY
 		FROM INFORMATION_SCHEMA.COLUMNS c
-		WHERE TABLE_NAME = ? OR TABLE_SCHEMA + '.' + TABLE_NAME = ?
+		WHERE TABLE_NAME = @p1 OR TABLE_SCHEMA + '.' + TABLE_NAME = @p2
 	`
 	rows, err := tx.QueryContext(ctx, query, table, table)
 	if err != nil {
@@ -473,6 +377,311 @@ func (s *MSSQLSink) syncColumns(ctx context.Context, tx *sql.Tx, table string) e
 	return nil
 }
 
+func (s *MSSQLSink) upsertBasicBatch(ctx context.Context, tx *sql.Tx, table string, msgs []hermod.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	var values []string
+	var args []any
+	for i, msg := range msgs {
+		p1 := i*2 + 1
+		p2 := i*2 + 2
+		values = append(values, fmt.Sprintf("(@p%d, @p%d)", p1, p2))
+		args = append(args, msg.ID(), msg.Payload())
+	}
+
+	query := fmt.Sprintf(`
+		MERGE INTO %s AS target
+		USING (VALUES %s) AS source (id, data)
+		ON target.id = source.id
+		WHEN MATCHED THEN UPDATE SET target.data = source.data
+		WHEN NOT MATCHED THEN INSERT (id, data) VALUES (source.id, source.data);
+	`, table, strings.Join(values, ", "))
+
+	_, err := tx.ExecContext(ctx, query, args...)
+	return err
+}
+
+func (s *MSSQLSink) deleteBasicBatch(ctx context.Context, tx *sql.Tx, table string, msgs []hermod.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	var placeholders []string
+	var args []any
+	for i, msg := range msgs {
+		placeholders = append(placeholders, fmt.Sprintf("@p%d", i+1))
+		args = append(args, msg.ID())
+	}
+
+	query := fmt.Sprintf("DELETE FROM %s WHERE id IN (%s)", table, strings.Join(placeholders, ", "))
+	_, err := tx.ExecContext(ctx, query, args...)
+	return err
+}
+
+func (s *MSSQLSink) insertMappedBatch(ctx context.Context, tx *sql.Tx, table string, msgs []hermod.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	var cols []string
+	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
+		// In a batch, we assume columns are consistent. Identity columns without values are skipped.
+		// We'll just check the first message to determine the column list.
+		val := evaluator.GetMsgValByPath(msgs[0], m.SourceField)
+		if m.IsIdentity && (val == nil || val == "" || val == 0) {
+			continue
+		}
+		quoted, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
+		cols = append(cols, quoted)
+	}
+
+	if len(cols) == 0 {
+		return nil
+	}
+
+	var values []string
+	var args []any
+	pIdx := 1
+	for _, msg := range msgs {
+		var rowPlaceholders []string
+		for _, m := range s.mappings {
+			if m.SourceField == "" {
+				continue
+			}
+			val := evaluator.GetMsgValByPath(msg, m.SourceField)
+			if m.IsIdentity && (val == nil || val == "" || val == 0) {
+				continue
+			}
+			rowPlaceholders = append(rowPlaceholders, fmt.Sprintf("@p%d", pIdx))
+			args = append(args, val)
+			pIdx++
+		}
+		values = append(values, "("+strings.Join(rowPlaceholders, ", ")+")")
+	}
+
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s",
+		table, strings.Join(cols, ", "), strings.Join(values, ", "))
+	_, err := tx.ExecContext(ctx, query, args...)
+	return err
+}
+
+func (s *MSSQLSink) updateMappedBatch(ctx context.Context, tx *sql.Tx, table string, msgs []hermod.Message) error {
+	// Update is harder to batch as a single statement unless using MERGE.
+	// We'll use MERGE for updateMappedBatch as well to allow multi-row updates.
+	return s.upsertMappedBatch(ctx, tx, table, msgs)
+}
+
+func (s *MSSQLSink) upsertMappedBatch(ctx context.Context, tx *sql.Tx, table string, msgs []hermod.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	var cols []string
+	var pkCols []string
+	var updateParts []string
+	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
+		val := evaluator.GetMsgValByPath(msgs[0], m.SourceField)
+		if m.IsIdentity && (val == nil || val == "" || val == 0) {
+			continue
+		}
+		quoted, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
+		cols = append(cols, quoted)
+		if m.IsPrimaryKey {
+			pkCols = append(pkCols, quoted)
+		} else {
+			updateParts = append(updateParts, fmt.Sprintf("target.%s = source.%s", quoted, quoted))
+		}
+	}
+
+	if len(cols) == 0 {
+		return nil
+	}
+
+	var values []string
+	var args []any
+	pIdx := 1
+	for _, msg := range msgs {
+		var rowPlaceholders []string
+		for _, m := range s.mappings {
+			if m.SourceField == "" {
+				continue
+			}
+			val := evaluator.GetMsgValByPath(msg, m.SourceField)
+			if m.IsIdentity && (val == nil || val == "" || val == 0) {
+				continue
+			}
+			rowPlaceholders = append(rowPlaceholders, fmt.Sprintf("@p%d", pIdx))
+			args = append(args, val)
+			pIdx++
+		}
+		values = append(values, "("+strings.Join(rowPlaceholders, ", ")+")")
+	}
+
+	onPart := ""
+	if len(pkCols) > 0 {
+		var parts []string
+		for _, pk := range pkCols {
+			parts = append(parts, fmt.Sprintf("target.%s = source.%s", pk, pk))
+		}
+		onPart = strings.Join(parts, " AND ")
+	} else {
+		onPart = fmt.Sprintf("target.%s = source.%s", cols[0], cols[0])
+	}
+
+	sourceCols := make([]string, len(cols))
+	for i, c := range cols {
+		sourceCols[i] = "source." + c
+	}
+
+	query := fmt.Sprintf(`
+		MERGE INTO %s AS target
+		USING (VALUES %s) AS source (%s)
+		ON %s
+		WHEN MATCHED THEN UPDATE SET %s
+		WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s);
+	`, table, strings.Join(values, ", "), strings.Join(cols, ", "),
+		onPart, strings.Join(updateParts, ", "),
+		strings.Join(cols, ", "), strings.Join(sourceCols, ", "))
+
+	_, err := tx.ExecContext(ctx, query, args...)
+	return err
+}
+
+func (s *MSSQLSink) deleteMappedBatch(ctx context.Context, tx *sql.Tx, table string, msgs []hermod.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	var pkCols []string
+	for _, m := range s.mappings {
+		if m.IsPrimaryKey {
+			quoted, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
+			pkCols = append(pkCols, quoted)
+		}
+	}
+
+	if len(pkCols) == 0 {
+		// Fallback to basic delete by ID if no mappings or no PKs defined
+		return s.deleteBasicBatch(ctx, tx, table, msgs)
+	}
+
+	if s.deleteStrategy == "soft_delete" && s.softDeleteColumn != "" {
+		qSoftCol, _ := sqlutil.QuoteIdent("mssql", s.softDeleteColumn)
+		if len(pkCols) == 1 {
+			pk := pkCols[0]
+			var placeholders []string
+			var args []any
+			args = append(args, s.softDeleteValue)
+			for i, msg := range msgs {
+				var val any
+				for _, m := range s.mappings {
+					if m.IsPrimaryKey {
+						val = evaluator.GetMsgValByPath(msg, m.SourceField)
+						break
+					}
+				}
+				placeholders = append(placeholders, fmt.Sprintf("@p%d", i+2))
+				args = append(args, val)
+			}
+			query := fmt.Sprintf("UPDATE %s SET %s = @p1 WHERE %s IN (%s)", table, qSoftCol, pk, strings.Join(placeholders, ", "))
+			_, err := tx.ExecContext(ctx, query, args...)
+			return err
+		}
+
+		// Multi-column PK: use MERGE with UPDATE for soft delete
+		var values []string
+		var args []any
+		args = append(args, s.softDeleteValue)
+		pIdx := 2
+		for _, msg := range msgs {
+			var rowPlaceholders []string
+			for _, m := range s.mappings {
+				if m.IsPrimaryKey {
+					val := evaluator.GetMsgValByPath(msg, m.SourceField)
+					rowPlaceholders = append(rowPlaceholders, fmt.Sprintf("@p%d", pIdx))
+					args = append(args, val)
+					pIdx++
+				}
+			}
+			values = append(values, "("+strings.Join(rowPlaceholders, ", ")+")")
+		}
+
+		var onParts []string
+		for _, pk := range pkCols {
+			onParts = append(onParts, fmt.Sprintf("target.%s = source.%s", pk, pk))
+		}
+
+		query := fmt.Sprintf(`
+			MERGE INTO %s AS target
+			USING (VALUES %s) AS source (%s)
+			ON %s
+			WHEN MATCHED THEN UPDATE SET target.%s = @p1;
+		`, table, strings.Join(values, ", "), strings.Join(pkCols, ", "), strings.Join(onParts, " AND "), qSoftCol)
+
+		_, err := tx.ExecContext(ctx, query, args...)
+		return err
+	}
+
+	if len(pkCols) == 1 {
+		// IN clause optimization
+		pk := pkCols[0]
+		var placeholders []string
+		var args []any
+		for i, msg := range msgs {
+			var val any
+			for _, m := range s.mappings {
+				if m.IsPrimaryKey {
+					val = evaluator.GetMsgValByPath(msg, m.SourceField)
+					break
+				}
+			}
+			placeholders = append(placeholders, fmt.Sprintf("@p%d", i+1))
+			args = append(args, val)
+		}
+		query := fmt.Sprintf("DELETE FROM %s WHERE %s IN (%s)", table, pk, strings.Join(placeholders, ", "))
+		_, err := tx.ExecContext(ctx, query, args...)
+		return err
+	}
+
+	// Multi-column PK: use MERGE with DELETE
+	var values []string
+	var args []any
+	pIdx := 1
+	for _, msg := range msgs {
+		var rowPlaceholders []string
+		for _, m := range s.mappings {
+			if m.IsPrimaryKey {
+				val := evaluator.GetMsgValByPath(msg, m.SourceField)
+				rowPlaceholders = append(rowPlaceholders, fmt.Sprintf("@p%d", pIdx))
+				args = append(args, val)
+				pIdx++
+			}
+		}
+		values = append(values, "("+strings.Join(rowPlaceholders, ", ")+")")
+	}
+
+	var onParts []string
+	for _, pk := range pkCols {
+		onParts = append(onParts, fmt.Sprintf("target.%s = source.%s", pk, pk))
+	}
+
+	query := fmt.Sprintf(`
+		MERGE INTO %s AS target
+		USING (VALUES %s) AS source (%s)
+		ON %s
+		WHEN MATCHED THEN DELETE;
+	`, table, strings.Join(values, ", "), strings.Join(pkCols, ", "), strings.Join(onParts, " AND "))
+
+	_, err := tx.ExecContext(ctx, query, args...)
+	return err
+}
+
 func (s *MSSQLSink) init(ctx context.Context) error {
 	s.mu.Lock()
 	if s.db != nil {
@@ -485,6 +694,12 @@ func (s *MSSQLSink) init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// Set sensible connection pool defaults
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(15 * time.Minute)
+	db.SetConnMaxIdleTime(5 * time.Minute)
 
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()

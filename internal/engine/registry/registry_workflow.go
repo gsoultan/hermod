@@ -43,7 +43,7 @@ func (r *Registry) buildWorkflowSources(ctx context.Context, wf storage.Workflow
 	var srcConfigs []factory.SourceConfig
 	var subSources []*subSource
 	for _, sn := range sourceNodes {
-		dbSrc, err := r.storage.GetSource(ctx, sn.RefID)
+		dbSrc, err := r.GetSourceConfig(ctx, sn.RefID)
 		if err != nil {
 			for _, ss := range subSources {
 				ss.source.Close()
@@ -125,7 +125,7 @@ func (r *Registry) discoverWorkflowSinks(ctx context.Context, wf storage.Workflo
 		}
 
 		if node.Type == "sink" {
-			dbSnk, err := r.storage.GetSink(context.Background(), node.RefID)
+			dbSnk, err := r.GetSinkConfig(ctx, node.RefID)
 			if err != nil {
 				for _, s := range sinks {
 					s.Close()
@@ -408,7 +408,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 
 	// Set Dead Letter Sink if configured
 	if wf.DeadLetterSinkID != "" {
-		dbDls, err := r.storage.GetSink(ctx, wf.DeadLetterSinkID)
+		dbDls, err := r.GetSinkConfig(ctx, wf.DeadLetterSinkID)
 		if err == nil {
 			dlsCfg := factory.SinkConfig{
 				ID:     dbDls.ID,
@@ -481,7 +481,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	// Per-source configuration
 	sourceEngineCfg := config.SourceConfig{}
 	for _, sn := range sourceNodes {
-		dbSrc, _ := r.storage.GetSource(ctx, sn.RefID)
+		dbSrc, _ := r.GetSourceConfig(ctx, sn.RefID)
 
 		val := dbSrc.Config["reconnect_intervals"]
 		if val == "" {
@@ -525,6 +525,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 		baseProcessed:   wf.TotalProcessed,
 		baseErrors:      wf.TotalErrors,
 		baseLag:         wf.TotalLag,
+		startTime:       time.Now(),
 		sinks:           sinks,
 		nodeMap:         nodeMap,
 		adj:             adj,
@@ -577,11 +578,16 @@ func (r *Registry) setupWorkflowRouter(
 		msg.Retain()
 		t.currentMessages[nodeIndex[sourceNodeID]] = msg
 
-		t.wg.Add(1)
-		t.processNode(ctx, sourceNodeID)
+		t.wg.Go(func() {
+			t.processNode(ctx, sourceNodeID)
+		})
 		t.wg.Wait()
 
-		routed := t.routed
+		// Clone the routed messages slice before releasing the traversal back to
+		// the pool. This avoids a data race where a subsequent message reuse
+		// clears the slice while a writer is still iterating over it.
+		routed := make([]pkgengine.RoutedMessage, len(t.routed))
+		copy(routed, t.routed)
 		releaseWorkflowTraversal(t)
 
 		return routed, nil
@@ -868,21 +874,23 @@ func (r *Registry) StopAll() {
 	r.mu.Unlock()
 
 	var wg sync.WaitGroup
+	// Use a timed context to bound the overall shutdown of all engines.
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
 	for _, id := range ids {
-		wg.Add(1)
-		go func(wfID string) {
-			defer wg.Done()
-			_ = r.stopEngine(wfID, false)
-		}(id)
+		wg.Go(func() {
+			_ = r.stopEngine(ctx, id, false)
+		})
 	}
 	wg.Wait()
 }
 
-func (r *Registry) StopEngine(id string) error {
-	return r.stopEngine(id, true)
+func (r *Registry) StopEngine(ctx context.Context, id string) error {
+	return r.stopEngine(ctx, id, true)
 }
 
-func (r *Registry) DrainWorkflowDLQ(id string) error {
+func (r *Registry) DrainWorkflowDLQ(ctx context.Context, id string) error {
 	r.mu.RLock()
 	ae, ok := r.engines[id]
 	r.mu.RUnlock()
@@ -890,14 +898,14 @@ func (r *Registry) DrainWorkflowDLQ(id string) error {
 		return fmt.Errorf("workflow engine %s not running on this worker", id)
 	}
 
-	return ae.engine.DrainDLQ(context.Background())
+	return ae.engine.DrainDLQ(ctx)
 }
 
-func (r *Registry) StopEngineWithoutUpdate(id string) error {
-	return r.stopEngine(id, false)
+func (r *Registry) StopEngineWithoutUpdate(ctx context.Context, id string) error {
+	return r.stopEngine(ctx, id, false)
 }
 
-func (r *Registry) stopEngine(id string, updateStorage bool) error {
+func (r *Registry) stopEngine(ctx context.Context, id string, updateStorage bool) error {
 	r.mu.Lock()
 	ae, ok := r.engines[id]
 	if !ok {
@@ -912,6 +920,9 @@ func (r *Registry) stopEngine(id string, updateStorage bool) error {
 	// Wait for engine to gracefully shutdown
 	select {
 	case <-ae.done:
+	case <-ctx.Done():
+		r.logger.Warn("Engine stop canceled by context", "workflow_id", id)
+		return ctx.Err()
 	case <-time.After(30 * time.Second):
 		r.logger.Warn("Engine stop timeout", "workflow_id", id)
 		// Attempt a hard stop to ensure the workflow actually halts
@@ -921,12 +932,13 @@ func (r *Registry) stopEngine(id string, updateStorage bool) error {
 		// Give a short grace period after hard stop
 		select {
 		case <-ae.done:
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-time.After(2 * time.Second):
 		}
 	}
 
 	if updateStorage && r.storage != nil {
-		ctx := context.Background()
 		if workflow, err := r.storage.GetWorkflow(ctx, id); err == nil {
 			workflow.Active = false
 			workflow.Status = ""
@@ -967,7 +979,7 @@ func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromO
 	var eventStoreSink *storage.Sink
 	for i, node := range wf.Nodes {
 		if node.Type == "sink" {
-			snk, err := r.storage.GetSink(ctx, node.RefID)
+			snk, err := r.GetSinkConfig(ctx, node.RefID)
 			if err == nil && snk.Type == "eventstore" {
 				eventStoreNode = &wf.Nodes[i]
 				eventStoreSink = &snk
@@ -995,7 +1007,7 @@ func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromO
 
 	for _, node := range wf.Nodes {
 		if node.Type == "sink" && node.ID != eventStoreNode.ID {
-			dbSnk, err := r.storage.GetSink(ctx, node.RefID)
+			dbSnk, err := r.GetSinkConfig(ctx, node.RefID)
 			if err == nil {
 				snk, err := r.createSinkInternal(ctx, factory.SinkConfig{ID: dbSnk.ID, Type: dbSnk.Type, Config: dbSnk.Config})
 				if err == nil {
@@ -1165,7 +1177,7 @@ func (r *Registry) ResumeApproval(ctx context.Context, app storage.Approval, bra
 	for i := range wf.Nodes {
 		n := wf.Nodes[i]
 		if n.Type == "sink" {
-			dbSnk, e := r.storage.GetSink(ctx, n.RefID)
+			dbSnk, e := r.GetSinkConfig(ctx, n.RefID)
 			if e != nil {
 				for _, s := range sinks {
 					_ = s.Close()

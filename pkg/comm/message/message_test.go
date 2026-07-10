@@ -2,6 +2,8 @@ package message
 
 import (
 	"encoding/json"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -311,4 +313,59 @@ func BenchmarkNoPool(b *testing.B) {
 		}
 		_ = m.Metadata()
 	}
+}
+
+func TestMessageConcurrency(t *testing.T) {
+	msg := AcquireMessage()
+	defer msg.Release()
+
+	msg.SetID("test-msg")
+
+	const numGoroutines = 50
+	const iterations = 500
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines * 3)
+
+	// Concurrent writers
+	for i := range numGoroutines {
+		go func(id int) {
+			defer wg.Done()
+			for j := range iterations {
+				msg.SetMetadata(fmt.Sprintf("key-%d", id), fmt.Sprintf("val-%d", j))
+				msg.SetData(fmt.Sprintf("data-%d", id), j)
+			}
+		}(i)
+	}
+
+	// Concurrent readers using Metadata() and Data()
+	for range numGoroutines {
+		go func() {
+			defer wg.Done()
+			for range iterations {
+				md := msg.Metadata()
+				if md != nil {
+					_ = md["some-key"]
+				}
+				d := msg.Data()
+				if d != nil {
+					_ = d["some-key"]
+				}
+			}
+		}()
+	}
+
+	// Concurrent cloners
+	for range numGoroutines {
+		go func() {
+			defer wg.Done()
+			for range iterations {
+				clone := msg.Clone()
+				_ = clone.ID()
+				clone.Release()
+			}
+		}()
+	}
+
+	wg.Wait()
 }

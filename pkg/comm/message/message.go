@@ -1,7 +1,10 @@
 package message
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"reflect"
 	"regexp"
 	"strings"
@@ -137,7 +140,7 @@ func (m *DefaultMessage) Schema() string {
 func (m *DefaultMessage) Before() []byte {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.before
+	return bytes.Clone(m.before)
 }
 
 func (m *DefaultMessage) After() []byte {
@@ -148,7 +151,7 @@ func (m *DefaultMessage) Payload() []byte {
 	m.mu.RLock()
 	if len(m.payload) > 0 {
 		defer m.mu.RUnlock()
-		return m.payload
+		return bytes.Clone(m.payload)
 	}
 	m.mu.RUnlock()
 
@@ -157,24 +160,46 @@ func (m *DefaultMessage) Payload() []byte {
 
 	// Re-check after acquiring write lock
 	if len(m.payload) > 0 {
-		return m.payload
+		return bytes.Clone(m.payload)
 	}
 
 	// If payload is not set, try to marshal data
 	if len(m.data) > 0 {
 		m.payload, _ = json.Marshal(m.data)
-		return m.payload
+		return bytes.Clone(m.payload)
 	}
-	return m.payload
+	return bytes.Clone(m.payload)
 }
 
 func (m *DefaultMessage) Metadata() map[string]string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return maps.Clone(m.metadata)
+}
+
+func (m *DefaultMessage) MetadataRef() map[string]string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.metadata
 }
 
 func (m *DefaultMessage) Data() map[string]any {
+	m.mu.RLock()
+	if len(m.data) > 0 || len(m.payload) == 0 {
+		defer m.mu.RUnlock()
+		return maps.Clone(m.data)
+	}
+	m.mu.RUnlock()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.data) == 0 && len(m.payload) > 0 {
+		m.unmarshalPayloadLocked()
+	}
+	return maps.Clone(m.data)
+}
+
+func (m *DefaultMessage) DataRef() map[string]any {
 	m.mu.RLock()
 	if len(m.data) > 0 || len(m.payload) == 0 {
 		defer m.mu.RUnlock()
@@ -185,21 +210,25 @@ func (m *DefaultMessage) Data() map[string]any {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.data) == 0 && len(m.payload) > 0 {
-		if err := json.Unmarshal(m.payload, &m.data); err != nil {
-			// Try lenient approach
-			if fixed := TryFixJSON(m.payload); fixed != nil {
-				if err := json.Unmarshal(fixed, &m.data); err == nil {
-					return m.data
-				}
-			}
-			// If still not a map, try as a slice
-			var slice []any
-			if err := json.Unmarshal(m.payload, &slice); err == nil {
-				m.data["payload"] = slice
-			}
-		}
+		m.unmarshalPayloadLocked()
 	}
 	return m.data
+}
+
+func (m *DefaultMessage) unmarshalPayloadLocked() {
+	if err := json.Unmarshal(m.payload, &m.data); err != nil {
+		// Try lenient approach
+		if fixed := TryFixJSON(m.payload); fixed != nil {
+			if err := json.Unmarshal(fixed, &m.data); err == nil {
+				return
+			}
+		}
+		// If still not a map, try as a slice
+		var slice []any
+		if err := json.Unmarshal(m.payload, &slice); err == nil {
+			m.data["payload"] = slice
+		}
+	}
 }
 
 func (m *DefaultMessage) Clone() hermod.Message {
@@ -207,12 +236,20 @@ func (m *DefaultMessage) Clone() hermod.Message {
 	defer m.mu.RUnlock()
 
 	clone := AcquireMessage()
+	clone.mu.Lock()
+	defer clone.mu.Unlock()
+
 	clone.id = m.id
 	clone.operation = m.operation
 	clone.table = m.table
 	clone.schema = m.schema
-	clone.SetBefore(m.before)
-	clone.SetPayload(m.payload)
+	clone.before = append(clone.before[:0], m.before...)
+	clone.payload = append(clone.payload[:0], m.payload...)
+
+	// Clear maps before copying
+	clear(clone.metadata)
+	clear(clone.data)
+
 	for k, v := range m.metadata {
 		clone.metadata[k] = v
 	}
@@ -391,9 +428,11 @@ func AcquireMessage() *DefaultMessage {
 }
 
 // ReleaseMessage returns a message to the pool.
-func ReleaseMessage(m *DefaultMessage) {
-	m.Reset()
-	messagePool.Put(m)
+func ReleaseMessage(m hermod.Message) {
+	if dm, ok := m.(*DefaultMessage); ok {
+		dm.Reset()
+		messagePool.Put(dm)
+	}
 }
 
 // Setters for DefaultMessage
@@ -479,6 +518,30 @@ func (m *DefaultMessage) SetData(key string, value any) {
 		current[parts[len(parts)-1]] = SanitizeValue(value)
 	} else {
 		m.data[key] = SanitizeValue(value)
+
+		// Synchronize top-level system fields for consistency
+		switch strings.ToLower(key) {
+		case "id":
+			if val, ok := value.(string); ok {
+				m.id = val
+			} else {
+				m.id = fmt.Sprintf("%v", value)
+			}
+		case "operation", "op":
+			if val, ok := value.(string); ok {
+				m.operation = hermod.Operation(val)
+			} else if val, ok := value.(hermod.Operation); ok {
+				m.operation = val
+			}
+		case "table":
+			if val, ok := value.(string); ok {
+				m.table = val
+			}
+		case "schema":
+			if val, ok := value.(string); ok {
+				m.schema = val
+			}
+		}
 	}
 	// Clear payload bytes as they are now stale
 	m.payload = m.payload[:0]

@@ -187,6 +187,24 @@ func (c *WorkerAPIClient) UpdateWorkflowStatus(ctx context.Context, id string, s
 	return nil
 }
 
+func (c *WorkerAPIClient) UpdateWorkflowStats(ctx context.Context, id string, processed, errors, lag uint64) error {
+	payload := map[string]any{
+		"processed": processed,
+		"errors":    errors,
+		"lag":       lag,
+	}
+	resp, err := c.doRequest(ctx, "PATCH", fmt.Sprintf("/api/workflows/%s/stats", id), payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("API error: %s", resp.Status)
+	}
+	return nil
+}
+
 func (c *WorkerAPIClient) GetSource(ctx context.Context, id string) (storage.Source, error) {
 	resp, err := c.doRequest(ctx, "GET", "/api/sources/"+id, nil)
 	if err != nil {

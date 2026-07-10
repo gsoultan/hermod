@@ -88,8 +88,9 @@ func TestWorkflowTraversal_ConditionalJoinReached(t *testing.T) {
 	}
 	tr.currentMessages[nodeIndex["S"]] = srcMsg
 
-	tr.wg.Add(1)
-	tr.processNode(t.Context(), "S")
+	tr.wg.Go(func() {
+		tr.processNode(t.Context(), "S")
+	})
 	tr.wg.Wait()
 
 	if len(tr.routed) != 1 {
@@ -164,8 +165,9 @@ func TestWorkflowTraversal_NodePanicContained(t *testing.T) {
 	// Without the recover() in processNode, the panic in node "P" runs on its
 	// own goroutine and aborts the entire test binary here. With the fix this
 	// returns normally.
-	tr.wg.Add(1)
-	tr.processNode(t.Context(), "S")
+	tr.wg.Go(func() {
+		tr.processNode(t.Context(), "S")
+	})
 	tr.wg.Wait()
 
 	if len(tr.routed) != 0 {
@@ -241,8 +243,9 @@ func TestWorkflowTraversal_SkippedNodePropagates(t *testing.T) {
 	}
 	tr.currentMessages[nodeIndex["S"]] = srcMsg
 
-	tr.wg.Add(1)
-	tr.processNode(t.Context(), "S")
+	tr.wg.Go(func() {
+		tr.processNode(t.Context(), "S")
+	})
 	tr.wg.Wait()
 
 	if len(tr.routed) != 1 {

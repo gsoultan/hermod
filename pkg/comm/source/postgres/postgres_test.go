@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -294,7 +295,7 @@ func TestBuildReplicationAppName(t *testing.T) {
 			host: "host1",
 			slot: "event_slot",
 			assert: func(t *testing.T, got string) {
-				if got != "hermod-cdc-host1-event_slot" {
+				if !strings.Contains(got, "hermod-cdc-host1-event_slot-") {
 					t.Errorf("got %q", got)
 				}
 			},
@@ -304,7 +305,7 @@ func TestBuildReplicationAppName(t *testing.T) {
 			host: "  ",
 			slot: "s",
 			assert: func(t *testing.T, got string) {
-				if got != "hermod-cdc-unknown-s" {
+				if !strings.Contains(got, "hermod-cdc-unknown-s-") {
 					t.Errorf("got %q", got)
 				}
 			},
@@ -326,7 +327,7 @@ func TestBuildReplicationAppName(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.assert(t, buildReplicationAppName(tc.host, tc.slot))
+			tc.assert(t, buildReplicationAppName(tc.host, tc.slot, 1234, "sess"))
 		})
 	}
 }
@@ -335,7 +336,8 @@ func TestBuildReplicationAppName(t *testing.T) {
 // instance-unique application_name (and not our current connection) is treated
 // as reclaimable; a foreign consumer or an empty/mismatched name is never.
 func TestIsOwnOrphanLocked(t *testing.T) {
-	const ourAppName = "hermod-cdc-host1-slot"
+	myHost := hostnameOrUnknown()
+	ourAppName := buildReplicationAppName(myHost, "slot", os.Getpid(), "sess")
 
 	tests := []struct {
 		name      string

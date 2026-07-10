@@ -468,7 +468,7 @@ func GetMsgValByPath(msg hermod.Message, path string) any {
 	}
 	if strings.HasPrefix(lower, "meta.") || strings.HasPrefix(lower, "metadata.") {
 		key := path[strings.Index(path, ".")+1:]
-		if md := msg.Metadata(); md != nil {
+		if md := msg.MetadataRef(); md != nil {
 			if v, ok := md[key]; ok {
 				return v
 			}
@@ -476,7 +476,7 @@ func GetMsgValByPath(msg hermod.Message, path string) any {
 	}
 
 	// 1) Try the path as-is
-	if v := GetValByPath(msg.Data(), path); v != nil {
+	if v := GetValByPath(msg.DataRef(), path); v != nil {
 		return v
 	}
 
@@ -487,8 +487,8 @@ func GetMsgValByPath(msg hermod.Message, path string) any {
 		if v := getValueFromRaw(msg.Before(), base); v != nil {
 			return v
 		}
-		// Fallback to Data() if field not found in raw (could happen if manually structured)
-		if v := GetValByPath(msg.Data(), base); v != nil {
+		// Fallback to DataRef() if field not found in raw (could happen if manually structured)
+		if v := GetValByPath(msg.DataRef(), base); v != nil {
 			return v
 		}
 	}
@@ -497,8 +497,8 @@ func GetMsgValByPath(msg hermod.Message, path string) any {
 		if v := getValueFromRaw(msg.Payload(), base); v != nil {
 			return v
 		}
-		// Fallback to Data() if payload is empty or field not found in raw
-		if v := GetValByPath(msg.Data(), base); v != nil {
+		// Fallback to DataRef() if payload is empty or field not found in raw
+		if v := GetValByPath(msg.DataRef(), base); v != nil {
 			return v
 		}
 	}
@@ -844,12 +844,14 @@ type mockMessage struct {
 	metadata map[string]string
 }
 
-func (m *mockMessage) ID() string                  { return m.id }
-func (m *mockMessage) Operation() hermod.Operation { return m.op }
-func (m *mockMessage) Table() string               { return m.table }
-func (m *mockMessage) Schema() string              { return m.schema }
-func (m *mockMessage) Data() map[string]any        { return m.data }
-func (m *mockMessage) Metadata() map[string]string { return m.metadata }
+func (m *mockMessage) ID() string                     { return m.id }
+func (m *mockMessage) Operation() hermod.Operation    { return m.op }
+func (m *mockMessage) Table() string                  { return m.table }
+func (m *mockMessage) Schema() string                 { return m.schema }
+func (m *mockMessage) Data() map[string]any           { return m.data }
+func (m *mockMessage) Metadata() map[string]string    { return m.metadata }
+func (m *mockMessage) DataRef() map[string]any        { return m.data }
+func (m *mockMessage) MetadataRef() map[string]string { return m.metadata }
 func (m *mockMessage) Before() []byte {
 	if b, ok := m.data["before"]; ok {
 		by, _ := json.Marshal(b)

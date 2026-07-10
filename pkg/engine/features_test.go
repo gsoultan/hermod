@@ -242,7 +242,18 @@ func (m *mockMessage) Data() map[string]any {
 	return nil
 }
 
+func (m *mockMessage) DataRef() map[string]any {
+	return nil
+}
+
 func (m *mockMessage) Metadata() map[string]string {
+	if m.meta == nil {
+		m.meta = make(map[string]string)
+	}
+	return m.meta
+}
+
+func (m *mockMessage) MetadataRef() map[string]string {
 	if m.meta == nil {
 		m.meta = make(map[string]string)
 	}

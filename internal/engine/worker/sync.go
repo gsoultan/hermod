@@ -152,8 +152,9 @@ func (w *Worker) SyncWorkflow(ctx context.Context, wf storage.Workflow, sctx Syn
 	}
 
 	if wf.Active && !w.registry.IsEngineRunning(wf.ID) {
-		if w.currentCPU > 0.85 || w.currentMem > 0.85 {
-			w.logger.Warn("Worker: admission control rejected new workflow", "workflow_id", wf.ID)
+		cpu, mem := w.GetMetrics()
+		if cpu > 0.85 || mem > 0.85 {
+			w.logger.Warn("Worker: admission control rejected new workflow", "workflow_id", wf.ID, "cpu", cpu, "mem", mem)
 			return
 		}
 	}
@@ -189,6 +190,7 @@ func (w *Worker) processWorkflowSync(ctx context.Context, wf storage.Workflow, s
 
 	if isRunning {
 		w.handleRunningWorkflow(ctx, wf, sctx)
+		w.reportWorkflowHealth(ctx, wf.ID)
 	} else if wf.Active && wf.Status != "Parked" {
 		w.startWorkflow(ctx, wf, sctx.WorkerID)
 	}
@@ -223,7 +225,7 @@ func (w *Worker) trackLeaseAcquisition(wf storage.Workflow, workerID string) {
 func (w *Worker) handleRunningWorkflow(ctx context.Context, wf storage.Workflow, sctx SyncContext) {
 	if !wf.Active {
 		w.logger.Info("Worker: stopping workflow (inactive)", "workflow_id", wf.ID)
-		_ = w.registry.StopEngine(wf.ID)
+		_ = w.registry.StopEngine(ctx, wf.ID)
 		w.stopLeaseRenewal(wf.ID)
 		if w.workerGUID != "" {
 			_ = w.storage.ReleaseWorkflowLease(ctx, wf.ID, w.workerGUID)
@@ -234,7 +236,7 @@ func (w *Worker) handleRunningWorkflow(ctx context.Context, wf storage.Workflow,
 	if w.hasConfigChanged(wf, sctx) {
 		w.logger.Info("Worker: config changed, restarting", "workflow_id", wf.ID)
 		_ = w.storage.UpdateWorkflowStatus(ctx, wf.ID, "Restarting")
-		_ = w.registry.StopEngineWithoutUpdate(wf.ID)
+		_ = w.registry.StopEngineWithoutUpdate(ctx, wf.ID)
 		w.stopLeaseRenewal(wf.ID)
 		w.startWorkflow(ctx, wf, sctx.WorkerID)
 	}
@@ -266,6 +268,21 @@ func (w *Worker) startWorkflow(ctx context.Context, wf storage.Workflow, workerI
 	}
 }
 
+func (w *Worker) reportWorkflowHealth(ctx context.Context, id string) {
+	health, ok := w.registry.GetWorkflowHealth(id)
+	if !ok {
+		return
+	}
+
+	// Update storage with real-time stats from the engine
+	_ = w.storage.UpdateWorkflowStats(ctx, id, health.Processed, health.Errors, health.Lag)
+
+	// If the workflow is degraded or in error, log the issues for observability
+	if health.Status != "healthy" && len(health.Issues) > 0 {
+		w.logger.Warn("Worker: workflow health issue detected", "workflow_id", id, "status", health.Status, "issues", health.Issues)
+	}
+}
+
 func (w *Worker) stopWorkflow(ctx context.Context, id string) {
 	go func() {
 		defer func() {
@@ -273,10 +290,14 @@ func (w *Worker) stopWorkflow(ctx context.Context, id string) {
 				w.logger.Error("Worker: stopWorkflow panicked", "workflow_id", id, "panic", r)
 			}
 		}()
-		_ = w.registry.StopEngineWithoutUpdate(id)
+		// Use context.Background for the actual stop to ensure it completes even if
+		// the triggering sync context is canceled, but with a reasonable timeout.
+		stopCtx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+		defer cancel()
+		_ = w.registry.StopEngineWithoutUpdate(stopCtx, id)
 		w.stopLeaseRenewal(id)
 		if w.workerGUID != "" {
-			_ = w.storage.ReleaseWorkflowLease(ctx, id, w.workerGUID)
+			_ = w.storage.ReleaseWorkflowLease(context.Background(), id, w.workerGUID)
 		}
 	}()
 }

@@ -312,7 +312,11 @@ func (r *Registry) broadcastLogWithData(engineID, level, msg, data string) {
 	}
 	r.mu.RUnlock()
 
-	_ = r.CreateLog(context.Background(), l)
+	// Run in goroutine to avoid blocking the pipeline during heavy logging,
+	// especially when log storage is slow.
+	go func() {
+		_ = r.CreateLog(context.Background(), l)
+	}()
 }
 
 func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {

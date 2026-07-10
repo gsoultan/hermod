@@ -43,6 +43,8 @@ type Message interface {
 	Payload() []byte // Primary data payload
 	Metadata() map[string]string
 	Data() map[string]any
+	MetadataRef() map[string]string
+	DataRef() map[string]any
 	SetMetadata(key, value string)
 	SetData(key string, value any)
 	Clone() Message
@@ -81,6 +83,11 @@ type ReadyChecker interface {
 type Discoverer interface {
 	DiscoverDatabases(ctx context.Context) ([]string, error)
 	DiscoverTables(ctx context.Context) ([]string, error)
+}
+
+// LagReporter defines an optional interface for reporting source lag.
+type LagReporter interface {
+	GetLag(ctx context.Context) (uint64, error)
 }
 
 // ColumnDiscoverer defines an optional interface for discovering columns of a table.
@@ -255,10 +262,11 @@ type OutboxStorage interface {
 type contextKey string
 
 const (
-	StateStoreKey contextKey = "stateStore"
-	RegistryKey   contextKey = "registry"
-	WorkflowIDKey contextKey = "workflow_id"
-	NodeIDKey     contextKey = "node_id"
+	StateStoreKey        contextKey = "stateStore"
+	RegistryKey          contextKey = "registry"
+	WorkflowIDKey        contextKey = "workflow_id"
+	NodeIDKey            contextKey = "node_id"
+	LastTraceSnapshotKey contextKey = "lastTraceSnapshot"
 )
 
 // Handler is a function type for processing received messages.

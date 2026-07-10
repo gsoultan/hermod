@@ -746,6 +746,7 @@ func (p *PostgresSource) dispatch(ctx context.Context, msg hermod.Message) error
 	case p.msgChan <- msg:
 		return nil
 	case <-ctx.Done():
+		message.ReleaseMessage(msg)
 		return ctx.Err()
 	}
 }
@@ -1478,13 +1479,52 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 		return errors.New("CDC requires a direct Postgres connection; PgBouncer transaction/statement mode does not support logical replication. Provide a direct (session-mode) connection string for CDC sources")
 	}
 
-	if err := p.checkWALLevel(ctx, conn); err != nil {
-		return err
+	// Consolidate metadata checks (WAL level, slot, publication) into a single query
+	var walLevel string
+	var slotExists bool
+	var slotActive bool
+	var slotPID *int32
+	var slotAppName *string
+	var pubExists bool
+
+	query := `
+		SELECT 
+			(SELECT setting FROM pg_settings WHERE name = 'wal_level'),
+			(SELECT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)),
+			(SELECT active FROM pg_replication_slots WHERE slot_name = $1),
+			(SELECT active_pid FROM pg_replication_slots WHERE slot_name = $1),
+			(SELECT application_name FROM pg_stat_activity a WHERE a.pid = (SELECT active_pid FROM pg_replication_slots WHERE slot_name = $1)),
+			(SELECT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = $2))`
+
+	err = conn.QueryRow(ctx, query, p.slotName, p.publicationName).Scan(
+		&walLevel, &slotExists, &slotActive, &slotPID, &slotAppName, &pubExists)
+
+	if err != nil {
+		return fmt.Errorf("failed to check postgres metadata: %w", err)
 	}
 
-	heldByUs, err := p.checkReplicationStatus(ctx, conn)
-	if err != nil {
-		return err
+	if walLevel != "logical" {
+		return fmt.Errorf("postgres 'wal_level' must be 'logical' for CDC (currently %q). Please update postgresql.conf and restart postgres", walLevel)
+	}
+
+	heldByUs := false
+	if slotActive {
+		appName := ""
+		if slotAppName != nil {
+			appName = *slotAppName
+		}
+		if appName != p.appName {
+			pid := "unknown"
+			if slotPID != nil {
+				pid = fmt.Sprintf("%d", *slotPID)
+			}
+			return fmt.Errorf("replication slot %q is already active (PID %s, application_name %q). Logical replication slots can only have one active consumer", p.slotName, pid, appName)
+		}
+		heldByUs = true
+	}
+
+	if !pubExists {
+		return fmt.Errorf("publication %q does not exist", p.publicationName)
 	}
 
 	if err := p.checkTrackingTables(ctx, conn); err != nil {
@@ -1493,8 +1533,6 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 
 	// If the replication slot is already active and held by our own application name,
 	// we have verified that replication privileges and configuration are working.
-	// Skipping probeReplication avoids hits on max_wal_senders and potential hangs
-	// during workflow restarts or concurrent test-connection requests.
 	if heldByUs {
 		return nil
 	}
@@ -1503,87 +1541,55 @@ func (p *PostgresSource) IsReady(ctx context.Context) error {
 	return p.probeReplication(ctx)
 }
 
-func (p *PostgresSource) checkWALLevel(ctx context.Context, conn *pgx.Conn) error {
-	var walLevel string
-	if err := conn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
-		return fmt.Errorf("failed to check wal_level: %w", err)
-	}
-	if walLevel != "logical" {
-		return fmt.Errorf("postgres 'wal_level' must be 'logical' for CDC (currently '%s'). Please update postgresql.conf and restart postgres", walLevel)
-	}
-	return nil
-}
-
-func (p *PostgresSource) checkReplicationStatus(ctx context.Context, conn *pgx.Conn) (bool, error) {
-	// Check existing replication slot and active_pid. We also fetch the
-	// application_name to distinguish between a foreign consumer and our own
-	// instances (which use a stable, host-prefixed application_name).
-	var active bool
-	var activePID *int32
-	var holderAppName string
-	var heldByUs bool
-
-	err := conn.QueryRow(ctx, `
-		SELECT s.active, s.active_pid, COALESCE(a.application_name, '')
-		FROM pg_replication_slots s
-		LEFT JOIN pg_stat_activity a ON a.pid = s.active_pid
-		WHERE s.slot_name = $1`, p.slotName).Scan(&active, &activePID, &holderAppName)
-
-	if err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return false, fmt.Errorf("failed to check replication slot %q: %w", p.slotName, err)
-		}
-		// Slot doesn't exist yet, which is acceptable
-	} else if active {
-		// If the slot is active, we only fail the test connection if it's held by
-		// a foreign consumer. If the application_name matches our own, it's either
-		// our already-running worker or a reclaimable orphan from a previous run,
-		// both of which are acceptable states for a successful test connection.
-		if holderAppName != p.appName {
-			pid := "unknown"
-			if activePID != nil {
-				pid = fmt.Sprintf("%d", *activePID)
-			}
-			return false, fmt.Errorf("replication slot %q is already active (PID %s, application_name %q). Logical replication slots can only have one active consumer", p.slotName, pid, holderAppName)
-		}
-		heldByUs = true
-	}
-
-	// Check existing publication
-	var pubExists bool
-	err = conn.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = $1)", p.publicationName).Scan(&pubExists)
-	if err != nil {
-		return false, fmt.Errorf("failed to check publication %q: %w", p.publicationName, err)
-	}
-	if !pubExists {
-		return false, fmt.Errorf("publication %q does not exist", p.publicationName)
-	}
-
-	return heldByUs, nil
-}
-
 func (p *PostgresSource) checkTrackingTables(ctx context.Context, conn *pgx.Conn) error {
-	for _, table := range p.tables {
-		// table may be schema.tablename or just tablename
-		parts := strings.Split(table, ".")
-		var schema, name string
-		if len(parts) == 2 {
-			schema = parts[0]
-			name = parts[1]
-		} else {
-			schema = "public"
-			name = parts[0]
-		}
+	if len(p.tables) == 0 {
+		return nil
+	}
 
-		var exists bool
-		query := "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2)"
-		if err := conn.QueryRow(ctx, query, schema, name).Scan(&exists); err != nil {
-			return fmt.Errorf("failed to check table %q: %w", table, err)
+	// Split tables into schema and name parts for the query
+	schemas := make([]string, len(p.tables))
+	names := make([]string, len(p.tables))
+	for i, table := range p.tables {
+		parts := strings.Split(table, ".")
+		if len(parts) == 2 {
+			schemas[i] = parts[0]
+			names[i] = parts[1]
+		} else {
+			schemas[i] = "public"
+			names[i] = parts[0]
 		}
-		if !exists {
+	}
+
+	// Use a single query with ANY to check all tables at once
+	query := `
+		SELECT schemaname, tablename 
+		FROM pg_catalog.pg_tables 
+		WHERE (schemaname, tablename) IN (
+			SELECT unnest($1::text[]), unnest($2::text[])
+		)`
+
+	rows, err := conn.Query(ctx, query, schemas, names)
+	if err != nil {
+		return fmt.Errorf("failed to check tracking tables: %w", err)
+	}
+	defer rows.Close()
+
+	found := make(map[string]bool)
+	for rows.Next() {
+		var s, t string
+		if err := rows.Scan(&s, &t); err != nil {
+			return err
+		}
+		found[s+"."+t] = true
+	}
+
+	for i, table := range p.tables {
+		key := schemas[i] + "." + names[i]
+		if !found[key] {
 			return fmt.Errorf("tracking table %q does not exist", table)
 		}
 	}
+
 	return nil
 }
 
@@ -1858,6 +1864,34 @@ func (p *PostgresSource) DiscoverColumns(ctx context.Context, table string) ([]h
 	}
 	defer func() { _ = conn.Close(ctx) }()
 
+	return p.discoverColumnsInternal(ctx, conn, table)
+}
+
+func (p *PostgresSource) GetLag(ctx context.Context) (uint64, error) {
+	if !p.useCDC {
+		return 0, nil
+	}
+
+	conn, err := p.openMetadataConn(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = conn.Close(ctx) }()
+
+	var lag *int64
+	query := `SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), confirmed_flush_lsn) 
+			  FROM pg_replication_slots WHERE slot_name = $1`
+	err = conn.QueryRow(ctx, query, p.slotName).Scan(&lag)
+	if err != nil {
+		return 0, err
+	}
+	if lag == nil || *lag < 0 {
+		return 0, nil
+	}
+	return uint64(*lag), nil
+}
+
+func (p *PostgresSource) discoverColumnsInternal(ctx context.Context, conn *pgx.Conn, table string) ([]hermod.ColumnInfo, error) {
 	query := `
 		SELECT column_name, data_type, COALESCE(is_nullable = 'YES', false), 
 		       EXISTS (
@@ -2000,6 +2034,26 @@ func (p *PostgresSource) snapshotTable(ctx context.Context, table string) error 
 // streamSnapshotCursor declares a server-side cursor over the table and streams
 // it to the message channel in bounded batches.
 func (p *PostgresSource) streamSnapshotCursor(ctx context.Context, conn *pgx.Conn, table, quoted string) error {
+	cols, err := p.discoverColumnsInternal(ctx, conn, table)
+	if err != nil {
+		return fmt.Errorf("failed to discover columns for snapshot of %q: %w", table, err)
+	}
+
+	var colNames []string
+	var pkCols []string
+	for _, c := range cols {
+		quoted, _ := sqlutil.QuoteIdent("postgres", c.Name)
+		colNames = append(colNames, quoted)
+		if c.IsPK {
+			pkCols = append(pkCols, c.Name)
+		}
+	}
+
+	colList := "*"
+	if len(colNames) > 0 {
+		colList = strings.Join(colNames, ", ")
+	}
+
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin snapshot tx for %q: %w", table, err)
@@ -2008,13 +2062,13 @@ func (p *PostgresSource) streamSnapshotCursor(ctx context.Context, conn *pgx.Con
 
 	// Cursor name is derived from a UUID (hex only), so it is a safe identifier.
 	cursorName := "hermod_snap_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	if _, err := tx.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR FOR SELECT * FROM %s", cursorName, quoted)); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf("DECLARE %s CURSOR FOR SELECT %s FROM %s", cursorName, colList, quoted)); err != nil {
 		return fmt.Errorf("failed to declare snapshot cursor for %q: %w", table, err)
 	}
 
 	fetchSQL := fmt.Sprintf("FETCH FORWARD %d FROM %s", snapshotBatchSize, cursorName)
 	for {
-		n, err := p.fetchSnapshotBatch(ctx, tx, table, fetchSQL)
+		n, err := p.fetchSnapshotBatch(ctx, tx, table, fetchSQL, pkCols)
 		if err != nil {
 			return err
 		}
@@ -2026,7 +2080,7 @@ func (p *PostgresSource) streamSnapshotCursor(ctx context.Context, conn *pgx.Con
 
 // fetchSnapshotBatch fetches and emits a single cursor batch, returning the
 // number of rows processed.
-func (p *PostgresSource) fetchSnapshotBatch(ctx context.Context, tx pgx.Tx, table, fetchSQL string) (int, error) {
+func (p *PostgresSource) fetchSnapshotBatch(ctx context.Context, tx pgx.Tx, table, fetchSQL string, pkCols []string) (int, error) {
 	rows, err := tx.Query(ctx, fetchSQL)
 	if err != nil {
 		return 0, fmt.Errorf("failed to fetch snapshot batch for %q: %w", table, err)
@@ -2050,7 +2104,7 @@ func (p *PostgresSource) fetchSnapshotBatch(ctx context.Context, tx pgx.Tx, tabl
 			}
 		}
 
-		if err := p.emitSnapshotRecord(ctx, table, record); err != nil {
+		if err := p.emitSnapshotRecord(ctx, table, record, pkCols); err != nil {
 			return count, err
 		}
 		count++
@@ -2063,11 +2117,23 @@ func (p *PostgresSource) fetchSnapshotBatch(ctx context.Context, tx pgx.Tx, tabl
 
 // emitSnapshotRecord wraps a snapshot row in a message and delivers it to the
 // channel, honoring context cancellation.
-func (p *PostgresSource) emitSnapshotRecord(ctx context.Context, table string, record map[string]any) error {
+func (p *PostgresSource) emitSnapshotRecord(ctx context.Context, table string, record map[string]any, pkCols []string) error {
 	afterJSON, _ := json.Marshal(message.SanitizeMap(record))
 
 	msg := message.AcquireMessage()
-	msg.SetID(fmt.Sprintf("snapshot-%s-%d-%s", table, time.Now().UnixNano(), uuid.New().String()))
+
+	// Use deterministic ID if primary keys are available
+	if len(pkCols) > 0 {
+		var pkVals []string
+		for _, pk := range pkCols {
+			pkVals = append(pkVals, fmt.Sprintf("%v", record[pk]))
+		}
+		msg.SetID(fmt.Sprintf("snapshot-%s-%s", table, strings.Join(pkVals, "-")))
+	} else {
+		// Fallback to non-deterministic but unique ID
+		msg.SetID(fmt.Sprintf("snapshot-%s-%d-%s", table, time.Now().UnixNano(), uuid.New().String()))
+	}
+
 	msg.SetOperation(hermod.OpSnapshot)
 	msg.SetTable(table)
 	msg.SetAfter(afterJSON)
@@ -2078,6 +2144,7 @@ func (p *PostgresSource) emitSnapshotRecord(ctx context.Context, table string, r
 	case p.msgChan <- msg:
 		return nil
 	case <-ctx.Done():
+		message.ReleaseMessage(msg)
 		return ctx.Err()
 	}
 }

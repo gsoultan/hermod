@@ -173,6 +173,10 @@ type Registry struct {
 	piiStats   map[string]*PIIStats
 	piiStatsMu sync.RWMutex
 
+	sourceCache   map[string]storage.Source
+	sinkCache     map[string]storage.Sink
+	sourceCacheMu sync.RWMutex
+
 	// reconciling tracks suspended messages currently being resumed so overlapping
 	// reconciliation ticks on the same worker cannot process the same message twice.
 	reconciling   map[string]struct{}
@@ -202,6 +206,7 @@ type activeEngine struct {
 	baseProcessed uint64
 	baseErrors    uint64
 	baseLag       uint64
+	startTime     time.Time
 
 	// Live components
 	sinks []hermod.Sink
@@ -275,6 +280,8 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		dqScorer:            governance.NewScorer(),
 		meshManager:         mesh.NewManager(telemetry.NewDefaultLogger()),
 		piiStats:            make(map[string]*PIIStats),
+		sourceCache:         make(map[string]storage.Source),
+		sinkCache:           make(map[string]storage.Sink),
 		reconciling:         make(map[string]struct{}),
 		sf:                  singleflight.Group{},
 		backgroundTasks:     make(chan struct{}, 1000), // Max 1000 concurrent background tasks
@@ -511,13 +518,13 @@ func (r *Registry) checkIdleWorkflows() {
 
 			// Park the workflow
 			go func(wfID string) {
+				ctx := context.Background() // Background since it's an async parking task
 				// 1. Stop the engine locally
-				_ = r.stopEngine(wfID, false)
+				_ = r.stopEngine(ctx, wfID, false)
 
 				// 2. Update status to "Parked" in storage
 				s := r.GetStorage()
 				if s != nil {
-					ctx := context.Background()
 					if workflow, err := s.GetWorkflow(ctx, wfID); err == nil {
 						// Keep Active=true so it stays assigned, but Status=Parked to prevent auto-restart
 						workflow.Status = "Parked"
@@ -662,7 +669,7 @@ func (r *Registry) getOrOpenDB(src storage.Source) (*sql.DB, error) {
 		if sourceType == "batch_sql" {
 			// Resolve the underlying database source
 			underlyingID := config["source_id"]
-			if underlying, err := r.storage.GetSource(context.Background(), underlyingID); err == nil {
+			if underlying, err := r.GetSourceConfig(context.Background(), underlyingID); err == nil {
 				sourceType = underlying.Type
 				config = underlying.Config
 			}
@@ -858,7 +865,7 @@ func (r *Registry) resolveAndCreateSink(ctx context.Context, id string) (hermod.
 	if r.storage == nil {
 		return nil, errors.New("registry storage is not available")
 	}
-	dbSnk, err := r.storage.GetSink(ctx, id)
+	dbSnk, err := r.GetSinkConfig(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sink %s from storage: %w", id, err)
 	}
@@ -960,7 +967,7 @@ func (r *Registry) GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, str
 	if r.storage == nil {
 		return nil, "", errors.New("registry storage is not initialized")
 	}
-	src, err := r.storage.GetSource(ctx, id)
+	src, err := r.GetSourceConfig(ctx, id)
 	if err != nil {
 		return nil, "", err
 	}
@@ -968,11 +975,103 @@ func (r *Registry) GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, str
 	return db, src.Type, err
 }
 
-func (r *Registry) GetSource(ctx context.Context, id string) (storage.Source, error) {
+func (r *Registry) GetSourceConfig(ctx context.Context, id string) (storage.Source, error) {
 	if r.storage == nil {
 		return storage.Source{}, errors.New("registry storage is not initialized")
 	}
-	return r.storage.GetSource(ctx, id)
+
+	r.sourceCacheMu.RLock()
+	if src, ok := r.sourceCache[id]; ok {
+		r.sourceCacheMu.RUnlock()
+		return src, nil
+	}
+	r.sourceCacheMu.RUnlock()
+
+	// Use singleflight to avoid redundant DB hits
+	v, err, _ := r.sf.Do("source:"+id, func() (any, error) {
+		src, err := r.storage.GetSource(ctx, id)
+		if err != nil {
+			return storage.Source{}, err
+		}
+		r.sourceCacheMu.Lock()
+		r.sourceCache[id] = src
+		r.sourceCacheMu.Unlock()
+		return src, nil
+	})
+
+	if err != nil {
+		return storage.Source{}, err
+	}
+	return v.(storage.Source), nil
+}
+
+func (r *Registry) GetSinkConfig(ctx context.Context, id string) (storage.Sink, error) {
+	if r.storage == nil {
+		return storage.Sink{}, errors.New("registry storage is not initialized")
+	}
+
+	r.sourceCacheMu.RLock()
+	if snk, ok := r.sinkCache[id]; ok {
+		r.sourceCacheMu.RUnlock()
+		return snk, nil
+	}
+	r.sourceCacheMu.RUnlock()
+
+	v, err, _ := r.sf.Do("sink:"+id, func() (any, error) {
+		snk, err := r.storage.GetSink(ctx, id)
+		if err != nil {
+			return storage.Sink{}, err
+		}
+		r.sourceCacheMu.Lock()
+		r.sinkCache[id] = snk
+		r.sourceCacheMu.Unlock()
+		return snk, nil
+	})
+
+	if err != nil {
+		return storage.Sink{}, err
+	}
+	return v.(storage.Sink), nil
+}
+
+func (r *Registry) UpdateSource(ctx context.Context, src storage.Source) error {
+	if err := r.storage.UpdateSource(ctx, src); err != nil {
+		return err
+	}
+	r.sourceCacheMu.Lock()
+	delete(r.sourceCache, src.ID)
+	r.sourceCacheMu.Unlock()
+	return nil
+}
+
+func (r *Registry) UpdateSink(ctx context.Context, snk storage.Sink) error {
+	if err := r.storage.UpdateSink(ctx, snk); err != nil {
+		return err
+	}
+	r.sourceCacheMu.Lock()
+	delete(r.sinkCache, snk.ID)
+	r.sourceCacheMu.Unlock()
+	return nil
+}
+
+func (r *Registry) UpdateSourceStatus(ctx context.Context, id string, status string) error {
+	if err := r.storage.UpdateSourceStatus(ctx, id, status); err != nil {
+		return err
+	}
+	r.sourceCacheMu.Lock()
+	delete(r.sourceCache, id)
+	r.sourceCacheMu.Unlock()
+	return nil
+}
+
+func (r *Registry) UpdateSinkStatus(ctx context.Context, id string, status string) error {
+	if err := r.storage.UpdateSinkStatus(ctx, id, status); err != nil {
+		return err
+	}
+	r.sourceCacheMu.Lock()
+	delete(r.sinkCache, id)
+	r.sourceCacheMu.Unlock()
+	return nil
 }
 
 func (r *Registry) mergeData(dst, src map[string]any, strategy string) {
@@ -1015,13 +1114,18 @@ func (r *Registry) TestTransformationPipeline(ctx context.Context, transformatio
 	// We start with a clone to avoid any side effects on the original input message.
 	currentInput := msg.Clone()
 
+	// Optimization: Pass a shared snapshot pointer in context to avoid redundant ToMap() calls
+	// during the pipeline traversal. doApplyTransformation will update this pointer.
+	var lastSnapshot map[string]any
+	pipelineCtx := context.WithValue(ctx, hermod.LastTraceSnapshotKey, &lastSnapshot)
+
 	for i, t := range transformations {
 		if currentInput == nil {
 			results[i] = nil
 			continue
 		}
 
-		res, err := r.applyTransformation(ctx, currentInput, t.Type, t.Config)
+		res, err := r.applyTransformation(pipelineCtx, currentInput, t.Type, t.Config)
 		if err != nil {
 			// On error, we release all successfully created results so far,
 			// and also the currentInput which is not in results yet.
@@ -1105,8 +1209,12 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 
 		var beforeData map[string]any
 		if tracingEnabled {
-			// Capture snapshot only when tracing is enabled for this specific message.
-			beforeData = modifiedMsg.ToMap()
+			// Optimization: Reuse the snapshot from the previous transformation in the same pipeline
+			if last, ok := ctx.Value(hermod.LastTraceSnapshotKey).(*map[string]any); ok && *last != nil {
+				beforeData = *last
+			} else {
+				beforeData = modifiedMsg.ToMap()
+			}
 		}
 
 		start := time.Now()
@@ -1125,6 +1233,11 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 				afterData = res.ToMap()
 			}
 			mID := modifiedMsg.ID()
+
+			// Optimization: Update the snapshot in context for the next step in the pipeline
+			if last, ok := ctx.Value(hermod.LastTraceSnapshotKey).(*map[string]any); ok {
+				*last = afterData
+			}
 
 			// Record asynchronously to avoid blocking the pipeline.
 			// Bounding trace goroutines ensures system stability under heavy load.
@@ -1153,15 +1266,15 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 
 		// Record PII discoveries for compliance dashboard
 		if transType == "mask" && res != nil {
-			cloned := res.Clone()
+			res.Retain()
 			select {
 			case r.backgroundTasks <- struct{}{}:
 				go func() {
 					defer func() { <-r.backgroundTasks }()
-					r.recordPIIDiscoveries(cloned, config)
+					r.recordPIIDiscoveries(res, config)
 				}()
 			default:
-				cloned.Release()
+				res.Release()
 			}
 		}
 
@@ -1197,7 +1310,7 @@ func (r *Registry) recordPIIDiscoveries(msg hermod.Message, config map[string]an
 	}
 	defer msg.Release()
 
-	data := msg.Data()
+	data := msg.DataRef()
 	if data == nil {
 		return
 	}
@@ -1218,7 +1331,7 @@ func (r *Registry) recordPIIDiscoveries(msg hermod.Message, config map[string]an
 	}
 
 	if len(foundTypes) > 0 {
-		workflowID := msg.Metadata()["_hermod_workflow_id"]
+		workflowID := msg.MetadataRef()["_hermod_workflow_id"]
 		if workflowID == "" {
 			return
 		}
@@ -1277,6 +1390,47 @@ func (r *Registry) IsEngineRunning(id string) bool {
 	defer r.mu.RUnlock()
 	_, ok := r.engines[id]
 	return ok
+}
+
+// GetWorkflowHealth returns a real-time health summary for a running workflow.
+func (r *Registry) GetWorkflowHealth(id string) (storage.WorkflowHealth, bool) {
+	r.mu.RLock()
+	ae, ok := r.engines[id]
+	r.mu.RUnlock()
+
+	if !ok {
+		return storage.WorkflowHealth{}, false
+	}
+
+	status := ae.engine.GetStatus()
+
+	health := storage.WorkflowHealth{
+		WorkflowID: id,
+		Status:     "healthy",
+		Uptime:     time.Since(ae.startTime),
+		Processed:  status.ProcessedCount,
+		Errors:     status.DeadLetterCount,
+		MPS:        status.Throughput,
+		Lag:        status.Lag,
+		Latency:    status.AvgLatency,
+	}
+
+	if status.EngineStatus == "error" || status.SourceStatus == "error" {
+		health.Status = "error"
+		health.Issues = append(health.Issues, fmt.Sprintf("Engine or source reported error state (source: %s, engine: %s)", status.SourceStatus, status.EngineStatus))
+	}
+
+	if status.ProcessedCount > 0 && status.DeadLetterCount > 0 {
+		errorRate := float64(status.DeadLetterCount) / float64(status.ProcessedCount+status.DeadLetterCount)
+		if errorRate > 0.1 {
+			if health.Status != "error" {
+				health.Status = "degraded"
+			}
+			health.Issues = append(health.Issues, fmt.Sprintf("High DLQ rate detected: %.1f%%", errorRate*100))
+		}
+	}
+
+	return health, true
 }
 
 func (r *Registry) GetAllStatuses() []telemetry.StatusUpdate {
@@ -1384,7 +1538,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 				return fmt.Errorf("source node %s is not configured", r.getNodeName(node))
 			}
 			if r.storage != nil {
-				if _, err := r.storage.GetSource(ctx, node.RefID); err != nil {
+				if _, err := r.GetSourceConfig(ctx, node.RefID); err != nil {
 					return fmt.Errorf("source node %s refers to missing source %s: %w", r.getNodeName(node), node.RefID, err)
 				}
 			}
@@ -1393,7 +1547,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 				return fmt.Errorf("sink node %s is not configured", r.getNodeName(node))
 			}
 			if r.storage != nil {
-				if _, err := r.storage.GetSink(ctx, node.RefID); err != nil {
+				if _, err := r.GetSinkConfig(ctx, node.RefID); err != nil {
 					return fmt.Errorf("sink node %s refers to missing sink %s: %w", r.getNodeName(node), node.RefID, err)
 				}
 			}
@@ -1485,7 +1639,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 			return errors.New("PrioritizeDLQ is enabled but no Dead Letter Sink is configured")
 		}
 		if r.storage != nil {
-			dlqSink, err := r.storage.GetSink(ctx, wf.DeadLetterSinkID)
+			dlqSink, err := r.GetSinkConfig(ctx, wf.DeadLetterSinkID)
 			if err != nil {
 				return fmt.Errorf("dead letter sink %s not found: %w", wf.DeadLetterSinkID, err)
 			}
@@ -1508,7 +1662,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 		if r.storage != nil {
 			for _, node := range wf.Nodes {
 				if node.Type == "sink" {
-					snk, err := r.storage.GetSink(ctx, node.RefID)
+					snk, err := r.GetSinkConfig(ctx, node.RefID)
 					if err == nil {
 						if snk.Config["enable_idempotency"] != "true" {
 							r.logger.Warn("Workflow has PrioritizeDLQ enabled but sink does not have idempotency enabled; enable idempotency to avoid side effects during re-processing", "workflow_id", wf.ID, "sink_id", snk.ID)

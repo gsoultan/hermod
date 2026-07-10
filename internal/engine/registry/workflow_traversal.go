@@ -38,8 +38,6 @@ type workflowTraversal struct {
 }
 
 func (t *workflowTraversal) processNode(ctx context.Context, currID string) {
-	defer t.wg.Done()
-
 	// Each node runs in its own goroutine (see resolveEdge). A panic here would
 	// otherwise propagate to the goroutine's top and crash the entire process,
 	// taking the embedded API server down with it and surfacing to in-flight
@@ -54,8 +52,14 @@ func (t *workflowTraversal) processNode(ctx context.Context, currID string) {
 					"panic", rec, "stack", string(debug.Stack()))
 			}
 			if t.registry != nil {
+				nodeDisplayName := currID
+				if node, ok := t.nodeMap[currID]; ok {
+					if label, ok := node.Config["label"].(string); ok && label != "" {
+						nodeDisplayName = label
+					}
+				}
 				t.registry.BroadcastLog(t.workflowID, "ERROR",
-					fmt.Sprintf("Node %s panicked: %v", currID, rec), "")
+					fmt.Sprintf("Node %s panicked: %v", nodeDisplayName, rec), "")
 			}
 		}
 	}()
@@ -189,7 +193,13 @@ func (t *workflowTraversal) recordError(node *storage.WorkflowNode, msgs []hermo
 	if len(msgs) > 0 {
 		msgID = msgs[0].ID()
 	}
-	t.registry.BroadcastLog(t.workflowID, "ERROR", fmt.Sprintf("Node %s error: %v", node.ID, err), msgID)
+
+	nodeDisplayName := node.ID
+	if label, ok := node.Config["label"].(string); ok && label != "" {
+		nodeDisplayName = label
+	}
+
+	t.registry.BroadcastLog(t.workflowID, "ERROR", fmt.Sprintf("Node %s error: %v", nodeDisplayName, err), msgID)
 }
 
 func (t *workflowTraversal) recordSuccess(node *storage.WorkflowNode, msgs []hermod.Message) {
@@ -268,8 +278,9 @@ func (t *workflowTraversal) resolveEdge(ctx context.Context, targetID string, de
 
 	switch {
 	case fire:
-		t.wg.Add(1)
-		go t.processNode(ctx, targetID)
+		t.wg.Go(func() {
+			t.processNode(ctx, targetID)
+		})
 	case skip:
 		// The node will never run; propagate the prune to its descendants so
 		// that deeper join nodes can still reach their expected in-degree.

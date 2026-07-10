@@ -18,6 +18,13 @@ func (r *Registry) ApplyTransformation(ctx context.Context, msg hermod.Message, 
 	return r.applyTransformation(ctx, msg, transType, config)
 }
 
+// ContextWithPipelineSnapshot returns a new context with a shared snapshot pointer
+// for optimizing transformation pipelines by reducing redundant ToMap() calls.
+func (r *Registry) ContextWithPipelineSnapshot(ctx context.Context) context.Context {
+	var lastSnapshot map[string]any
+	return context.WithValue(ctx, hermod.LastTraceSnapshotKey, &lastSnapshot)
+}
+
 func (r *Registry) EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 	return r.evaluateConditions(msg, conditions)
 }

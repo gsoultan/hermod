@@ -18,22 +18,24 @@ type countingMessage struct {
 	releaseCount atomic.Int32
 }
 
-func (m *countingMessage) ID() string                    { return m.id }
-func (m *countingMessage) Operation() hermod.Operation   { return hermod.OpCreate }
-func (m *countingMessage) Table() string                 { return "test" }
-func (m *countingMessage) Schema() string                { return "public" }
-func (m *countingMessage) Before() []byte                { return nil }
-func (m *countingMessage) After() []byte                 { return nil }
-func (m *countingMessage) Payload() []byte               { return nil }
-func (m *countingMessage) Metadata() map[string]string   { return nil }
-func (m *countingMessage) Data() map[string]any          { return nil }
-func (m *countingMessage) SetData(key string, value any) {}
-func (m *countingMessage) SetMetadata(key, value string) {}
-func (m *countingMessage) Clone() hermod.Message         { return m }
-func (m *countingMessage) ToMap() map[string]any         { return nil }
-func (m *countingMessage) ClearPayloads()                {}
-func (m *countingMessage) Retain()                       {}
-func (m *countingMessage) Release()                      { m.releaseCount.Add(1) }
+func (m *countingMessage) ID() string                     { return m.id }
+func (m *countingMessage) Operation() hermod.Operation    { return hermod.OpCreate }
+func (m *countingMessage) Table() string                  { return "test" }
+func (m *countingMessage) Schema() string                 { return "public" }
+func (m *countingMessage) Before() []byte                 { return nil }
+func (m *countingMessage) After() []byte                  { return nil }
+func (m *countingMessage) Payload() []byte                { return nil }
+func (m *countingMessage) Metadata() map[string]string    { return nil }
+func (m *countingMessage) MetadataRef() map[string]string { return nil }
+func (m *countingMessage) Data() map[string]any           { return nil }
+func (m *countingMessage) DataRef() map[string]any        { return nil }
+func (m *countingMessage) SetData(key string, value any)  {}
+func (m *countingMessage) SetMetadata(key, value string)  {}
+func (m *countingMessage) Clone() hermod.Message          { return m }
+func (m *countingMessage) ToMap() map[string]any          { return nil }
+func (m *countingMessage) ClearPayloads()                 {}
+func (m *countingMessage) Retain()                        {}
+func (m *countingMessage) Release()                       { m.releaseCount.Add(1) }
 
 // TestBackpressureDropOldest_ReleasesEvictedMessageOnce verifies that when the
 // drop_oldest strategy evicts an in-flight pending message, the eviction only

@@ -22,6 +22,7 @@ type StatusUpdate struct {
 	AverageDQScore   float64            `json:"average_dq_score,omitempty"`
 	AvgLatency       time.Duration      `json:"avg_latency,omitempty"`
 	Throughput       float64            `json:"throughput,omitempty"`
+	Lag              uint64             `json:"lag,omitempty"`
 	ErrorRate        float64            `json:"error_rate,omitempty"`
 	Backpressure     float64            `json:"backpressure,omitempty"`
 	PendingApprovals map[string]uint64  `json:"pending_approvals,omitempty"`

@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"math"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -36,8 +37,8 @@ type Worker struct {
 	workerCache       []storage.Worker
 	workerCacheTime   time.Time
 	workerCacheTTL    time.Duration
-	currentCPU        float64
-	currentMem        float64
+	currentCPU        atomic.Uint64
+	currentMem        atomic.Uint64
 	draining          atomic.Bool
 	shutdownFunc      context.CancelFunc
 }
@@ -158,6 +159,19 @@ func (w *Worker) pollShutdownRequest(ctx context.Context) bool {
 	return false
 }
 
+// SetMetrics updates the worker's current resource usage metrics.
+func (w *Worker) SetMetrics(cpu, mem float64) {
+	w.currentCPU.Store(math.Float64bits(cpu))
+	w.currentMem.Store(math.Float64bits(mem))
+}
+
+// GetMetrics returns the worker's current resource usage metrics.
+func (w *Worker) GetMetrics() (cpu, mem float64) {
+	cpu = math.Float64frombits(w.currentCPU.Load())
+	mem = math.Float64frombits(w.currentMem.Load())
+	return
+}
+
 // Start starts the worker loop. It is hardened so that an unexpected panic in
 // any synchronous step (registration, polling, sync, health checks or cleanup)
 // is recovered and surfaced as an error instead of crashing the host process.
@@ -186,6 +200,7 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			shouldExit := false
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
@@ -194,16 +209,14 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 				}()
 				if w.pollShutdownRequest(ctx) {
 					w.logger.Info("Worker: graceful shutdown requested by platform; draining and handing off workflows")
-					// We return from the outer loop by returning from Start, but we need a way to tell the outer loop to exit.
-					// Actually, we can just use a flag.
+					shouldExit = true
 				} else {
 					w.sync(ctx, false)
 					w.checkHealth(ctx)
 				}
 			}()
 
-			// Check if we should exit after the anonymous function
-			if w.pollShutdownRequest(ctx) {
+			if shouldExit {
 				return nil
 			}
 		}
@@ -216,12 +229,12 @@ func (w *Worker) cleanup(ctx context.Context) {
 			w.logger.Error("Worker: cleanup panicked", "panic", r, "stack", string(debug.Stack()))
 		}
 	}()
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	w.ReleaseAllLeases(cleanupCtx)
 	if w.registry != nil {
 		w.registry.StopAll()
 	}
+	w.ReleaseAllLeases(cleanupCtx)
 	w.Deregister(cleanupCtx)
 }
 
@@ -235,11 +248,9 @@ func (w *Worker) ReleaseAllLeases(ctx context.Context) {
 	var wg sync.WaitGroup
 	for _, wf := range workflows {
 		if wf.OwnerID == w.workerGUID {
-			wg.Add(1)
-			go func(wfID string) {
-				defer wg.Done()
-				_ = w.storage.ReleaseWorkflowLease(ctx, wfID, w.workerGUID)
-			}(wf.ID)
+			wg.Go(func() {
+				_ = w.storage.ReleaseWorkflowLease(ctx, wf.ID, w.workerGUID)
+			})
 		}
 	}
 	wg.Wait()
@@ -380,11 +391,11 @@ func (w *Worker) leaseRenewalLoop(ctx context.Context, workflowID string, interv
 					continue
 				}
 				w.logger.Warn("Worker: lease renewal failing persistently, stopping workflow", "workflow_id", workflowID, "failures", transientFailures)
-				w.stopEngineForLostLease(workflowID)
+				w.stopEngineForLostLease(ctx, workflowID)
 				return
 			case leaseLost:
 				w.logger.Warn("Worker: lease lost to another owner, stopping workflow", "workflow_id", workflowID)
-				w.stopEngineForLostLease(workflowID)
+				w.stopEngineForLostLease(ctx, workflowID)
 				return
 			}
 		}
@@ -419,9 +430,9 @@ func (w *Worker) renewLeaseOnce(ctx context.Context, workflowID string) leaseRen
 
 // stopEngineForLostLease stops the engine and tears down the renewal loop when
 // the lease can no longer be held.
-func (w *Worker) stopEngineForLostLease(workflowID string) {
+func (w *Worker) stopEngineForLostLease(ctx context.Context, workflowID string) {
 	if w.registry != nil {
-		_ = w.registry.StopEngineWithoutUpdate(workflowID)
+		_ = w.registry.StopEngineWithoutUpdate(ctx, workflowID)
 	}
 	w.stopLeaseRenewal(workflowID)
 }

@@ -47,10 +47,11 @@ func (n *TransformationNode) runPipeline(ctx context.Context, nctx registry.Node
 	}
 
 	current := msg
+	pctx := nctx.ContextWithPipelineSnapshot(ctx)
 	for _, step := range steps {
 		st, _ := step["transType"].(string)
 		var err error
-		current, err = nctx.ApplyTransformation(ctx, current, st, step)
+		current, err = nctx.ApplyTransformation(pctx, current, st, step)
 		if err != nil {
 			return nil, "", err
 		}

@@ -24,7 +24,7 @@ func (w *Worker) checkHealth(ctx context.Context) {
 	w.lastHealthCheck = time.Now()
 	if w.workerGUID != "" {
 		cpuUsage, memUsage := w.getMetrics()
-		w.currentCPU, w.currentMem = cpuUsage, memUsage
+		w.SetMetrics(cpuUsage, memUsage)
 		_ = w.storage.UpdateWorkerHeartbeat(ctx, w.workerGUID, cpuUsage, memUsage)
 	}
 	w.checkResourcesHealth(ctx)

@@ -14,6 +14,7 @@ type WorkerStorage interface {
 	GetWorkflow(ctx context.Context, id string) (storage.Workflow, error)
 	UpdateWorkflow(ctx context.Context, wf storage.Workflow) error
 	UpdateWorkflowStatus(ctx context.Context, id string, status string) error
+	UpdateWorkflowStats(ctx context.Context, id string, processed, errors, lag uint64) error
 	GetSource(ctx context.Context, id string) (storage.Source, error)
 	GetSink(ctx context.Context, id string) (storage.Sink, error)
 	ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error)

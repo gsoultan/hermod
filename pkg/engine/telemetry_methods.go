@@ -28,8 +28,13 @@ func (e *Engine) RecordTraceStep(ctx context.Context, msg hermod.Message, nodeID
 		}
 	}
 
-	// Optimization: use ToMap() instead of JSON round-trip.
-	after := msg.ToMap()
+	// Optimization: use cached snapshot from context if available, otherwise ToMap()
+	var after map[string]any
+	if last, ok := ctx.Value(hermod.LastTraceSnapshotKey).(*map[string]any); ok && *last != nil {
+		after = *last
+	} else {
+		after = msg.ToMap()
+	}
 
 	// Lineage Tracking
 	lineage := msg.Metadata()["_hermod_lineage"]
@@ -55,8 +60,10 @@ func (e *Engine) RecordTraceStep(ctx context.Context, msg hermod.Message, nodeID
 	// Use a background context for recording to ensure it completes even if the
 	// request context is cancelled (e.g. message finished processing).
 	recordCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	msg.Retain()
 	go func() {
 		defer cancel()
+		defer msg.Release()
 		e.traceRecorder.RecordStep(recordCtx, e.workflowID, msg.ID(), step)
 	}()
 }
@@ -99,7 +106,7 @@ func (e *Engine) adaptiveThrottle(ctx context.Context, duration time.Duration) {
 	runtime.ReadMemStats(&mem)
 	memoryPressure := e.config.MaxMemoryMB > 0 && mem.Alloc > e.config.MaxMemoryMB*1024*1024
 
-	_, _, _, _, _, _, latencyAvg := e.statusTracker.GetStatus()
+	_, _, _, _, _, _, latencyAvg, _ := e.statusTracker.GetStatus()
 
 	// If latency is high (>500ms) or memory is high, slow down polling
 	if latencyAvg > 500*time.Millisecond || memoryPressure {

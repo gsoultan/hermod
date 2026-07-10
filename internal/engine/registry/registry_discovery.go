@@ -480,7 +480,7 @@ func (r *Registry) ExecuteSQL(ctx context.Context, cfg factory.SourceConfig, que
 		driver := cfg.Type
 		if driver == "batch_sql" {
 			if underlyingID := cfg.Config["source_id"]; underlyingID != "" {
-				if underlying, err := r.storage.GetSource(ctx, underlyingID); err == nil {
+				if underlying, err := r.GetSourceConfig(ctx, underlyingID); err == nil {
 					driver = underlying.Type
 				}
 			}

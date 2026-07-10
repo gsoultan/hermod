@@ -156,7 +156,7 @@ func TestHeavyLoad(t *testing.T) {
 	duration := time.Since(start)
 	t.Logf("Processed %d messages in %v (%.2f msg/s)", numMessages, duration, float64(numMessages)/duration.Seconds())
 
-	reg.StopEngine(wf.ID)
+	reg.StopEngine(t.Context(), wf.ID)
 
 	// Check memory
 	runtime.GC()

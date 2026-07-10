@@ -190,7 +190,7 @@ func (h *Handler) DeleteSource(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 					if wf.Active {
-						_ = h.Registry.StopEngine(wf.ID)
+						_ = h.Registry.StopEngine(ctx, wf.ID)
 						wf.Active = false
 						wf.Status = "Stopped"
 						_ = h.Storage.UpdateWorkflow(ctx, wf)

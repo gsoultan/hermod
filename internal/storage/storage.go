@@ -154,6 +154,18 @@ type Workflow struct {
 	TotalLag          uint64   `json:"total_lag,omitempty"`
 }
 
+type WorkflowHealth struct {
+	WorkflowID string        `json:"workflow_id"`
+	Status     string        `json:"status"` // "healthy", "degraded", "error"
+	Issues     []string      `json:"issues" omitzero:"true"`
+	Uptime     time.Duration `json:"uptime"`
+	Processed  uint64        `json:"processed"`
+	Errors     uint64        `json:"errors"`
+	Lag        uint64        `json:"lag"`
+	MPS        float64       `json:"mps"`
+	Latency    time.Duration `json:"latency"`
+}
+
 type Workspace struct {
 	ID            string    `json:"id"`
 	Name          string    `json:"name"`

@@ -19,23 +19,12 @@ import (
 )
 
 // validateWorkflow performs lightweight server-side validation for workflow configuration.
-// Keeps UX-first by failing fast with clear messages. Extend as needed for more node types.
-func validateWorkflow(wf storage.Workflow) error {
-	for _, n := range wf.Nodes {
-		// Support both explicit node type and legacy transType config
-		nodeType := n.Type
-		if nodeType == "" {
-			if tt, ok := n.Config["transType"].(string); ok {
-				nodeType = tt
-			}
-		}
-
-		switch nodeType {
-		case "foreach", "fanout":
-			ap, _ := n.Config["arrayPath"].(string)
-			if strings.TrimSpace(ap) == "" {
-				return fmt.Errorf("node %s (foreach) requires non-empty config.arrayPath", n.ID)
-			}
+// Keeps UX-first by failing fast with clear messages.
+func (h *Handler) validateWorkflow(wf storage.Workflow) error {
+	issues := h.ValidateWorkflow(wf)
+	for _, issue := range issues {
+		if issue.Severity == "error" {
+			return fmt.Errorf("%s (Recommendation: %s)", issue.Message, issue.Recommendation)
 		}
 	}
 	return nil
@@ -43,13 +32,15 @@ func validateWorkflow(wf storage.Workflow) error {
 
 func (h *Handler) RegisterWorkflowRoutes(mux *http.ServeMux) {
 	// Register more specific routes first to avoid potential shadowing.
-	mux.Handle("GET /api/workflows/{id}/export", h.EditorOnly(http.HandlerFunc(h.ExportWorkflow)))
+	mux.Handle("GET /api/workflows/{export_id}/export", h.EditorOnly(http.HandlerFunc(h.ExportWorkflow)))
 	mux.Handle("POST /api/workflows/import", h.EditorOnly(http.HandlerFunc(h.ImportWorkflow)))
 
 	mux.HandleFunc("GET /api/workflows", h.ListWorkflows)
 	mux.HandleFunc("GET /api/workflows/{id}", h.GetWorkflow)
 	mux.HandleFunc("PATCH /api/workflows/{id}/status", h.UpdateWorkflowStatus)
+	mux.HandleFunc("PATCH /api/workflows/{id}/stats", h.UpdateWorkflowStats)
 	mux.HandleFunc("GET /api/workflows/{id}/report", h.GetWorkflowComplianceReport)
+	mux.HandleFunc("GET /api/workflows/{id}/health", h.GetWorkflowHealth)
 	mux.Handle("POST /api/workflows", h.EditorOnly(http.HandlerFunc(h.CreateWorkflow)))
 	mux.Handle("PUT /api/workflows/{id}", h.EditorOnly(http.HandlerFunc(h.UpdateWorkflow)))
 	mux.Handle("DELETE /api/workflows/{id}", h.EditorOnly(http.HandlerFunc(h.DeleteWorkflow)))
@@ -62,9 +53,11 @@ func (h *Handler) RegisterWorkflowRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/workflows/{id}/traces", h.ListMessageTraces)
 	mux.HandleFunc("GET /api/workflows/{id}/versions", h.ListWorkflowVersions)
 	mux.HandleFunc("GET /api/workflows/{id}/versions/{version}", h.GetWorkflowVersion)
+	mux.HandleFunc("GET /api/workflows/{id}/validate", h.HandleValidateWorkflow)
 	mux.Handle("POST /api/workflows/{id}/rollback/{version}", h.EditorOnly(http.HandlerFunc(h.RollbackWorkflow)))
 	mux.HandleFunc("GET /api/workflows/pii-stats", h.GetPIIStats)
 	mux.Handle("POST /api/ai/analyze-error", h.EditorOnly(http.HandlerFunc(h.HandleAIAnalyzeError)))
+	mux.Handle("POST /api/ai/analyze-workflow/{id}", h.EditorOnly(http.HandlerFunc(h.HandleAIAnalyzeWorkflow)))
 	mux.Handle("POST /api/ai/analyze-schema", h.EditorOnly(http.HandlerFunc(h.HandleAIAnalyzeSchema)))
 	mux.Handle("POST /api/ai/generate-workflow", h.EditorOnly(http.HandlerFunc(h.HandleAIGenerateWorkflow)))
 	mux.Handle("POST /api/ai/copilot", h.EditorOnly(http.HandlerFunc(h.HandleAICopilot)))
@@ -129,7 +122,7 @@ func (h *Handler) BatchToggleWorkflows(w http.ResponseWriter, r *http.Request) {
 				results[id] = "Failed to update storage: " + err.Error()
 				continue
 			}
-			_ = h.Registry.StopEngine(id)
+			_ = h.Registry.StopEngine(r.Context(), id)
 		}
 
 		results[id] = "OK"
@@ -158,7 +151,7 @@ func (h *Handler) BatchDeleteWorkflows(w http.ResponseWriter, r *http.Request) {
 		if err := h.Storage.DeleteWorkflow(r.Context(), id); err != nil {
 			results[id] = "Error: " + err.Error()
 		} else {
-			_ = h.Registry.StopEngine(id)
+			_ = h.Registry.StopEngine(r.Context(), id)
 			results[id] = "OK"
 			h.RecordAuditLog(r, "INFO", "Batch deleted workflow "+id, "DELETE", id, "", "", nil)
 		}
@@ -254,6 +247,40 @@ func (h *Handler) HandleAIAnalyzeError(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(suggestion)
+}
+
+func (h *Handler) HandleAIAnalyzeWorkflow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ctx := r.Context()
+
+	wf, err := h.Storage.GetWorkflow(ctx, id)
+	if err != nil {
+		h.JsonError(w, "Workflow not found", http.StatusNotFound)
+		return
+	}
+
+	// RBAC check
+	role, vhosts := h.GetRoleAndVHosts(r)
+	if role != storage.RoleAdministrator {
+		if !h.HasVHostAccess(wf.VHost, vhosts) {
+			h.JsonError(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+	}
+
+	aiCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+
+	recommendation, err := h.AI.AnalyzeWorkflow(aiCtx, wf)
+	if err != nil {
+		h.JsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.RecordAuditLog(r, "INFO", "AI analyzed workflow "+wf.Name, "AI_ANALYZE_WORKFLOW", wf.ID, "", "", nil)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(recommendation)
 }
 
 func (h *Handler) HandleAIAnalyzeSchema(w http.ResponseWriter, r *http.Request) {
@@ -523,6 +550,62 @@ func (h *Handler) UpdateWorkflowStatus(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (h *Handler) GetWorkflowHealth(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		h.JsonError(w, "missing workflow id", http.StatusBadRequest)
+		return
+	}
+
+	health, ok := h.Registry.GetWorkflowHealth(id)
+	if !ok {
+		// If not in registry, try to return basic health from storage
+		wf, err := h.Storage.GetWorkflow(r.Context(), id)
+		if err != nil {
+			h.JsonError(w, "workflow not found", http.StatusNotFound)
+			return
+		}
+		health = storage.WorkflowHealth{
+			WorkflowID: id,
+			Status:     "stopped",
+			Processed:  wf.TotalProcessed,
+			Errors:     wf.TotalErrors,
+			Lag:        wf.TotalLag,
+		}
+		if wf.Active {
+			health.Status = "starting"
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(health)
+}
+
+func (h *Handler) UpdateWorkflowStats(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		h.JsonError(w, "missing workflow id", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Processed uint64 `json:"processed"`
+		Errors    uint64 `json:"errors"`
+		Lag       uint64 `json:"lag"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := h.Storage.UpdateWorkflowStats(r.Context(), id, req.Processed, req.Errors, req.Lag); err != nil {
+		h.JsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	filter := h.ParseCommonFilter(r)
 	filter.WorkspaceID = r.URL.Query().Get("workspace_id")
@@ -608,7 +691,7 @@ func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := validateWorkflow(wf); err != nil {
+	if err := h.validateWorkflow(wf); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -640,7 +723,7 @@ func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		nextVersion = versions[0].Version + 1
 	}
 
-	if err := validateWorkflow(wf); err != nil {
+	if err := h.validateWorkflow(wf); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -708,8 +791,14 @@ func (h *Handler) ToggleWorkflow(w http.ResponseWriter, r *http.Request) {
 	if wf.Active {
 		wf.Active = false
 		wf.Status = "Stopped"
-		_ = h.Registry.StopEngine(id)
+		_ = h.Registry.StopEngine(r.Context(), id)
 	} else {
+		// Validation check before starting
+		if err := h.validateWorkflow(wf); err != nil {
+			h.JsonError(w, "Cannot start invalid workflow: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		// Quota Enforcement: Check resource limits before starting
 		if wf.WorkspaceID != "" {
 			ws, err := h.Storage.GetWorkspace(r.Context(), wf.WorkspaceID)
@@ -774,7 +863,7 @@ func (h *Handler) ToggleWorkflow(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DrainWorkflowDLQ(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := h.Registry.DrainWorkflowDLQ(id); err != nil {
+	if err := h.Registry.DrainWorkflowDLQ(r.Context(), id); err != nil {
 		h.JsonError(w, "Failed to drain DLQ: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -861,13 +950,23 @@ func (h *Handler) TestTransformation(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	if len(res) == 0 || res[0] == nil {
+	if len(res) == 0 {
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": "Filtered", "filtered": true})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(res[0].ToMap())
+	if len(res) == 1 {
+		_ = json.NewEncoder(w).Encode(res[0].ToMap())
+	} else {
+		results := make([]map[string]any, len(res))
+		for i, m := range res {
+			if m != nil {
+				results[i] = m.ToMap()
+			}
+		}
+		_ = json.NewEncoder(w).Encode(results)
+	}
 }
 
 func (h *Handler) GetMessageTrace(w http.ResponseWriter, r *http.Request) {
@@ -1224,15 +1323,29 @@ func (h *Handler) WakeUpWorkflow(ctx context.Context, resourceType string, path 
 }
 
 func (h *Handler) ExportWorkflow(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := r.PathValue("export_id")
+	if id == "" {
+		h.JsonError(w, "Workflow ID is required", http.StatusBadRequest)
+		return
+	}
+
 	wf, err := h.Storage.GetWorkflow(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
-			h.JsonError(w, "Workflow not found", http.StatusNotFound)
+			h.JsonError(w, "Workflow not found in database: "+id, http.StatusNotFound)
 		} else {
-			h.JsonError(w, "Failed to get workflow: "+err.Error(), http.StatusInternalServerError)
+			h.JsonError(w, "Failed to retrieve workflow: "+err.Error(), http.StatusInternalServerError)
 		}
 		return
+	}
+
+	// Permission check (Role + VHost)
+	role, vhosts := h.GetRoleAndVHosts(r)
+	if role != "" && role != storage.RoleAdministrator {
+		if !h.HasVHostAccess(wf.VHost, vhosts) {
+			h.JsonError(w, "Forbidden", http.StatusForbidden)
+			return
+		}
 	}
 
 	bundle := storage.WorkflowExportBundle{
@@ -1240,17 +1353,32 @@ func (h *Handler) ExportWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Find all referenced sources and sinks
+	sourceIDs := make(map[string]bool)
+	sinkIDs := make(map[string]bool)
+
 	for _, node := range wf.Nodes {
 		if node.Type == "source" && node.RefID != "" {
-			src, err := h.Storage.GetSource(r.Context(), node.RefID)
-			if err == nil {
-				bundle.Sources = append(bundle.Sources, src)
-			}
+			sourceIDs[node.RefID] = true
 		} else if node.Type == "sink" && node.RefID != "" {
-			snk, err := h.Storage.GetSink(r.Context(), node.RefID)
-			if err == nil {
-				bundle.Sinks = append(bundle.Sinks, snk)
-			}
+			sinkIDs[node.RefID] = true
+		}
+	}
+
+	if wf.DeadLetterSinkID != "" {
+		sinkIDs[wf.DeadLetterSinkID] = true
+	}
+
+	for sid := range sourceIDs {
+		src, err := h.Storage.GetSource(r.Context(), sid)
+		if err == nil {
+			bundle.Sources = append(bundle.Sources, src)
+		}
+	}
+
+	for sid := range sinkIDs {
+		snk, err := h.Storage.GetSink(r.Context(), sid)
+		if err == nil {
+			bundle.Sinks = append(bundle.Sinks, snk)
 		}
 	}
 
@@ -1278,6 +1406,19 @@ func (h *Handler) ImportWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	role, vhosts := h.GetRoleAndVHosts(r)
+
+	// Permission check for the workflow's VHost
+	if role != "" && role != storage.RoleAdministrator {
+		vhost := bundle.Workflow.VHost
+		if vhost == "" {
+			vhost = "default"
+		}
+		if !h.HasVHostAccess(vhost, vhosts) {
+			h.JsonError(w, "Forbidden: you do not have access to vhost "+vhost, http.StatusForbidden)
+			return
+		}
+	}
 
 	// 1. Upsert Sources
 	for _, src := range bundle.Sources {

@@ -682,6 +682,13 @@ func (w *sinkWriter) run(ctx context.Context) {
 }
 
 func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
+	defer func() {
+		if r := recover(); r != nil {
+			if w.engine != nil && w.engine.logger != nil {
+				w.engine.logger.Error("Panic in sink writer runOn", "sink_id", w.sinkID, "panic", r, "stack", string(debug.Stack()))
+			}
+		}
+	}()
 	// Batch sizing state is kept goroutine-local.
 	batchSize := w.config.BatchSize
 	if batchSize < 1 {

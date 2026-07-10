@@ -32,5 +32,7 @@ type mockMessage struct {
 	id string
 }
 
-func (m *mockMessage) ID() string            { return m.id }
-func (m *mockMessage) ToMap() map[string]any { return nil }
+func (m *mockMessage) ID() string                     { return m.id }
+func (m *mockMessage) ToMap() map[string]any          { return nil }
+func (m *mockMessage) MetadataRef() map[string]string { return nil }
+func (m *mockMessage) DataRef() map[string]any        { return nil }

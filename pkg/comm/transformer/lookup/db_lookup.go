@@ -31,7 +31,7 @@ func init() {
 type DBLookupTransformer struct{}
 
 type RegistryProvider interface {
-	GetSource(ctx context.Context, id string) (storage.Source, error)
+	GetSourceConfig(ctx context.Context, id string) (storage.Source, error)
 	GetOrOpenDB(src storage.Source) (*sql.DB, error)
 	GetLookupCache() (map[string]any, *sync.RWMutex) // This might need a better way
 }
@@ -46,7 +46,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	}
 
 	registry, ok := ctx.Value(hermod.RegistryKey).(interface {
-		GetSource(ctx context.Context, id string) (storage.Source, error)
+		GetSourceConfig(ctx context.Context, id string) (storage.Source, error)
 		GetOrOpenDB(src storage.Source) (*sql.DB, error)
 		GetLookupCache(key string) (any, bool)
 		SetLookupCache(key string, value any, ttl time.Duration)
@@ -84,9 +84,9 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 		return msg, nil
 	}
 
-	src, err := registry.GetSource(ctx, sourceID)
+	src, err := registry.GetSourceConfig(ctx, sourceID)
 	if err != nil {
-		return msg, fmt.Errorf("failed to get source for lookup: %w", err)
+		return msg, fmt.Errorf("failed to get source for lookup (sourceId: '%s'): %w", sourceID, err)
 	}
 
 	// Enforce: db_lookup should use non-CDC sources, except for SQL Server (mssql)

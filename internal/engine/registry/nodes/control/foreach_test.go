@@ -19,6 +19,9 @@ func (s *stubCtx) BroadcastLog(workflowID, level, msg, msgID string) {}
 func (s *stubCtx) ApplyTransformation(ctx context.Context, msg hermod.Message, transType string, config map[string]any) (hermod.Message, error) {
 	return msg, nil
 }
+func (s *stubCtx) ContextWithPipelineSnapshot(ctx context.Context) context.Context {
+	return ctx
+}
 func (s *stubCtx) EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 	return true
 }

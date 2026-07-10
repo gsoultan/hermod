@@ -71,12 +71,13 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 		return err
 	}
 
-	// Initialize Sink Writers. The slice is built locally and published under
-	// stopMu so concurrent readers (GetStatus via the status checker, dynamic
-	// config updates) never observe a partially-initialized slice.
+	// Initialize Sink Writers.
 	var writersWg sync.WaitGroup
-	sinkWriters := make([]*sinkWriter, len(r.engine.sinks))
-	for i, snk := range r.engine.sinks {
+	r.engine.mu.RLock()
+	numSinks := len(r.engine.sinks)
+	sinkWriters := make([]*sinkWriter, numSinks)
+	for i := 0; i < numSinks; i++ {
+		snk := r.engine.sinks[i]
 		sinkID := ""
 		if i < len(r.engine.sinkIDs) {
 			sinkID = r.engine.sinkIDs[i]
@@ -86,6 +87,7 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 		if i < len(r.engine.sinkConfigs) {
 			cfg = r.engine.sinkConfigs[i]
 		}
+		r.engine.mu.RUnlock()
 
 		bufferCap := cfg.BackpressureBuffer
 		if bufferCap <= 0 {
@@ -116,7 +118,9 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 		// sw.spillBuffer without a data race.
 		sw.setupSpillBuffer()
 		sinkWriters[i] = sw
+		r.engine.mu.RLock()
 	}
+	r.engine.mu.RUnlock()
 	r.engine.stopMu.Lock()
 	r.engine.sinkWriters = sinkWriters
 	r.engine.stopMu.Unlock()
@@ -312,6 +316,12 @@ func (r *Runner) checkHealth(interval time.Duration) {
 		}
 	} else {
 		r.engine.setSourceStatus("running")
+		// Update lag if supported
+		if lagReporter, ok := r.engine.source.(hermod.LagReporter); ok {
+			if lag, err := lagReporter.GetLag(r.ctx); err == nil {
+				r.engine.statusTracker.SetLag(lag)
+			}
+		}
 	}
 
 	allSinksOk := true
@@ -332,7 +342,7 @@ func (r *Runner) checkHealth(interval time.Duration) {
 		}
 	}
 
-	srcStatus, _, engStatus, _, _, _, _ := r.engine.statusTracker.GetStatus()
+	srcStatus, _, engStatus, _, _, _, _, _ := r.engine.statusTracker.GetStatus()
 	if allSinksOk && srcStatus == "running" {
 		if engStatus != "running" && strings.HasPrefix(engStatus, "reconnecting") {
 			r.engine.logger.Info("System reconnected successfully", "workflow_id", r.engine.workflowID, "action", "reconnect")
@@ -448,7 +458,7 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 
 		reconnectAttempts = 0
 		r.engine.setSourceStatus("running")
-		_, _, engStatus, _, _, _, _ := r.engine.statusTracker.GetStatus()
+		_, _, engStatus, _, _, _, _, _ := r.engine.statusTracker.GetStatus()
 		if engStatus == "reconnecting:source" || engStatus == "connecting" {
 			if engStatus == "reconnecting:source" {
 				r.engine.logger.Info("Source reconnected successfully", "workflow_id", r.engine.workflowID, "source_id", r.engine.sourceID, "action", "reconnect")
@@ -504,6 +514,11 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 }
 
 func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			r.engine.logger.Error("Panic in runBufferToSink", "workflow_id", r.engine.workflowID, "panic", rec, "stack", string(debug.Stack()))
+		}
+	}()
 	if consumer, ok := r.engine.buffer.(hermod.Consumer); ok {
 		numWorkers := cap(r.engine.inFlightSem)
 		if numWorkers <= 0 {
@@ -663,16 +678,9 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		}
 
 		sw := r.engine.sinkWriters[target.SinkIndex]
-		swg.Add(1)
 		target.Message.Retain()
 		pm := acquirePendingMessage(target.Message)
-		go func(sw *sinkWriter, pm *pendingMessage) {
-			defer func() {
-				if p := recover(); p != nil {
-					r.engine.logger.Error("Panic in concurrent sink write", "workflow_id", r.engine.workflowID, "sink_id", sw.sinkID, "panic", p)
-				}
-				swg.Done()
-			}()
+		swg.Go(func() {
 			sw.enqueueWithStrategy(ctx, pm, sw.config.BackpressureStrategy)
 			select {
 			case err := <-pm.done:
@@ -683,7 +691,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 				serrCh <- ctx.Err()
 			}
 			releasePendingMessage(pm)
-		}(sw, pm)
+		})
 	}
 	swg.Wait()
 	close(serrCh)

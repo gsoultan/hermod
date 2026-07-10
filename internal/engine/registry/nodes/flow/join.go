@@ -61,7 +61,7 @@ func (e *JoinExecutor) mergeMessages(msgs []hermod.Message) hermod.Message {
 	// Basic merge of data maps
 	for i := 1; i < len(msgs); i++ {
 		for k, v := range msgs[i].Data() {
-			result.Data()[k] = v
+			result.SetData(k, v)
 		}
 	}
 	return result

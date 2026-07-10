@@ -67,15 +67,22 @@ type mockMessage struct {
 	id string
 }
 
-func (m *mockMessage) ID() string                  { return m.id }
-func (m *mockMessage) Operation() hermod.Operation { return hermod.OpCreate }
-func (m *mockMessage) Table() string               { return "test_table" }
-func (m *mockMessage) Schema() string              { return "test_schema" }
-func (m *mockMessage) Before() []byte              { return nil }
-func (m *mockMessage) After() []byte               { return []byte(`{"id":1}`) }
-func (m *mockMessage) Payload() []byte             { return nil }
-func (m *mockMessage) Metadata() map[string]string { return nil }
+func (m *mockMessage) ID() string                     { return m.id }
+func (m *mockMessage) Operation() hermod.Operation    { return hermod.OpCreate }
+func (m *mockMessage) Table() string                  { return "test_table" }
+func (m *mockMessage) Schema() string                 { return "test_schema" }
+func (m *mockMessage) Before() []byte                 { return nil }
+func (m *mockMessage) After() []byte                  { return []byte(`{"id":1}`) }
+func (m *mockMessage) Payload() []byte                { return nil }
+func (m *mockMessage) Metadata() map[string]string    { return nil }
+func (m *mockMessage) MetadataRef() map[string]string { return nil }
 func (m *mockMessage) Data() map[string]any {
+	return map[string]any{
+		"id":   "123",
+		"name": "Test User",
+	}
+}
+func (m *mockMessage) DataRef() map[string]any {
 	return map[string]any{
 		"id":   "123",
 		"name": "Test User",

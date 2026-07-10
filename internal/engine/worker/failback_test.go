@@ -14,8 +14,7 @@ import (
 // resource usage (used when it scores itself) and the value persisted in
 // storage (used when peers score it), keeping the cluster's view consistent.
 func setWorkerLoad(store *failoverStorage, w *Worker, cpu, mem float64) {
-	w.currentCPU = cpu
-	w.currentMem = mem
+	w.SetMetrics(cpu, mem)
 	store.mu.Lock()
 	if entry, ok := store.workers[w.workerGUID]; ok {
 		entry.CPUUsage = cpu

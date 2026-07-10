@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
@@ -235,6 +236,8 @@ func (m *MSSQLSource) Snapshot(ctx context.Context, tables ...string) error {
 	return nil
 }
 
+const snapshotBatchSize = 1000
+
 func (m *MSSQLSource) snapshotTable(ctx context.Context, table string) error {
 	m.mu.Lock()
 	db := m.db
@@ -243,25 +246,72 @@ func (m *MSSQLSource) snapshotTable(ctx context.Context, table string) error {
 		return errors.New("database connection not initialized")
 	}
 
-	// MSSQL uses [] for quoting
-	parts := strings.Split(table, ".")
-	quotedParts := make([]string, len(parts))
-	for i, p := range parts {
-		quotedParts[i] = "[" + strings.Trim(p, "[] ") + "]"
-	}
-	quoted := strings.Join(quotedParts, ".")
-
-	rows, err := db.QueryContext(ctx, "SELECT * FROM "+quoted)
+	cols, err := m.discoverColumnsInternal(ctx, db, table)
 	if err != nil {
-		return fmt.Errorf("failed to query table %q: %w", table, err)
+		return fmt.Errorf("failed to discover columns for snapshot of %q: %w", table, err)
 	}
-	defer rows.Close()
 
+	var colNames []string
+	var pkCols []string
+	for _, c := range cols {
+		quoted, _ := sqlutil.QuoteIdent("mssql", c.Name)
+		colNames = append(colNames, quoted)
+		if c.IsPK {
+			pkCols = append(pkCols, quoted)
+		}
+	}
+
+	if len(colNames) == 0 {
+		return fmt.Errorf("no columns found for table %q", table)
+	}
+	colList := strings.Join(colNames, ", ")
+
+	quotedTable, err := sqlutil.QuoteIdent("mssql", table)
+	if err != nil {
+		return fmt.Errorf("invalid table name %q: %w", table, err)
+	}
+
+	// Determine sorting for batching. Prefer PKs, otherwise fallback to first column.
+	orderBy := "(SELECT NULL)"
+	if len(pkCols) > 0 {
+		orderBy = strings.Join(pkCols, ", ")
+	} else {
+		orderBy = colNames[0]
+	}
+
+	offset := 0
+	for {
+		// Use OFFSET-based pagination for batching
+		query := fmt.Sprintf("SELECT %s FROM %s ORDER BY %s OFFSET %d ROWS FETCH NEXT %d ROWS ONLY",
+			colList, quotedTable, orderBy, offset, snapshotBatchSize)
+
+		rows, err := db.QueryContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("failed to query snapshot batch for %q at offset %d: %w", table, offset, err)
+		}
+
+		count, err := m.processSnapshotRows(ctx, rows, table, pkCols)
+		rows.Close()
+		if err != nil {
+			return err
+		}
+
+		if count < snapshotBatchSize {
+			break
+		}
+		offset += snapshotBatchSize
+	}
+
+	return nil
+}
+
+func (m *MSSQLSource) processSnapshotRows(ctx context.Context, rows *sql.Rows, table string, pkCols []string) (int, error) {
 	columns, err := rows.Columns()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
+	count := 0
 	for rows.Next() {
 		values := make([]any, len(columns))
 		valuePtrs := make([]any, len(columns))
@@ -270,10 +320,10 @@ func (m *MSSQLSource) snapshotTable(ctx context.Context, table string) error {
 		}
 
 		if err := rows.Scan(valuePtrs...); err != nil {
-			return err
+			return count, err
 		}
 
-		record := make(map[string]any)
+		record := make(map[string]any, len(columns))
 		for i, colName := range columns {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -283,28 +333,51 @@ func (m *MSSQLSource) snapshotTable(ctx context.Context, table string) error {
 			}
 		}
 
-		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
-
-		msg := message.AcquireMessage()
-		msg.SetID(fmt.Sprintf("snapshot-%s-%d", table, time.Now().UnixNano()))
-		msg.SetOperation(hermod.OpSnapshot)
-		msg.SetTable(table)
-		msg.SetAfter(afterJSON)
-		msg.SetMetadata("source", "mssql")
-		msg.SetMetadata("snapshot", "true")
-
-		select {
-		case m.msgChan <- msg:
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := m.emitSnapshotRecord(ctx, table, record, pkCols); err != nil {
+			return count, err
 		}
+		count++
+	}
+	return count, rows.Err()
+}
+
+func (m *MSSQLSource) emitSnapshotRecord(ctx context.Context, table string, record map[string]any, pkCols []string) error {
+	afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+	msg := message.AcquireMessage()
+
+	// Use deterministic ID if primary keys are available
+	if len(pkCols) > 0 {
+		var pkVals []string
+		for _, pk := range pkCols {
+			// pk in pkCols is quoted, e.g. "[id]". record keys are unquoted.
+			cleanPK := strings.Trim(pk, "[]")
+			pkVals = append(pkVals, fmt.Sprintf("%v", record[cleanPK]))
+		}
+		msg.SetID(fmt.Sprintf("snapshot-%s-%s", table, strings.Join(pkVals, "-")))
+	} else {
+		// Fallback to non-deterministic but unique ID
+		msg.SetID(fmt.Sprintf("snapshot-%s-%d-%s", table, time.Now().UnixNano(), uuid.New().String()))
 	}
 
-	return rows.Err()
+	msg.SetOperation(hermod.OpSnapshot)
+	msg.SetTable(table)
+	msg.SetAfter(afterJSON)
+	msg.SetMetadata("source", "mssql")
+	msg.SetMetadata("snapshot", "true")
+
+	select {
+	case m.msgChan <- msg:
+		return nil
+	case <-ctx.Done():
+		message.ReleaseMessage(msg)
+		return ctx.Err()
+	}
 }
 
 func (m *MSSQLSource) poll(ctx context.Context) error {
-	if err := m.Ping(ctx); err != nil {
+	// Use lightweight ping to ensure connection exists without forced roundtrip
+	if err := m.ping(ctx, false); err != nil {
 		return err
 	}
 
@@ -891,29 +964,59 @@ func (m *MSSQLSource) ping(ctx context.Context, checkCDC bool) error {
 		}
 	}
 
-	// If we have specific tables, check if CDC is enabled for them
+	// If we have specific tables, check if CDC is enabled for them using a single query
 	if len(m.tables) > 0 {
-		for _, table := range m.tables {
-			var isTableCDCEnabled int
-			info, err := m.resolveTable(ctx, table)
-			if err != nil {
-				return fmt.Errorf("failed to resolve table '%s': %w", table, err)
+		foundTables := make(map[string]bool)
+
+		// Build the query to check multiple tables at once
+		// OBJECT_ID() is fast and handles various naming formats
+		var queryBuilder strings.Builder
+		queryBuilder.WriteString("SELECT s.name + '.' + t.name, t.is_tracked_by_cdc ")
+		queryBuilder.WriteString("FROM sys.tables t ")
+		queryBuilder.WriteString("JOIN sys.schemas s ON t.schema_id = s.schema_id ")
+		queryBuilder.WriteString("WHERE t.object_id IN (")
+
+		args := make([]any, len(m.tables))
+		for i, table := range m.tables {
+			if i > 0 {
+				queryBuilder.WriteString(", ")
+			}
+			queryBuilder.WriteString(fmt.Sprintf("OBJECT_ID(@p%d)", i+1))
+			args[i] = table
+		}
+		queryBuilder.WriteString(")")
+
+		rows, err := db.QueryContext(ctx, queryBuilder.String(), args...)
+		if err != nil {
+			return fmt.Errorf("failed to check tables CDC status: %w", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var fullTableName string
+			var isTracked int
+			if err := rows.Scan(&fullTableName, &isTracked); err != nil {
+				return err
 			}
 
-			err = db.QueryRowContext(ctx, queryCheckTableCDC, info.objectID).Scan(&isTableCDCEnabled)
-			if err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					return fmt.Errorf("CDC is not enabled for table '%s'. Please enable it or set auto_enable_cdc to true", table)
-				}
-				return fmt.Errorf("failed to check CDC status for table '%s': %w", table, err)
+			// Try to match with our requested tables (fuzzy match since names might differ slightly in casing/quoting)
+			normalizedFound := normalizeTableName(fullTableName)
+			foundTables[normalizedFound] = isTracked == 1
+		}
+
+		for _, table := range m.tables {
+			normTable := normalizeTableName(table)
+			tracked, found := foundTables[normTable]
+			if !found {
+				return fmt.Errorf("table '%s' not found or is not a user table", table)
 			}
-			if isTableCDCEnabled != 1 {
+			if !tracked {
 				if m.autoEnableCDC {
 					if _, err := m.ensureTableCDC(ctx, table); err != nil {
-						return fmt.Errorf("failed to auto-enable CDC for table '%s': %w (ensure user has db_owner role)", table, err)
+						return fmt.Errorf("failed to auto-enable CDC for table '%s': %w", table, err)
 					}
 				} else {
-					return fmt.Errorf("CDC is not enabled for table '%s' (is_tracked_by_cdc = 0)", table)
+					return fmt.Errorf("CDC is not enabled for table '%s'", table)
 				}
 			}
 		}
@@ -1004,6 +1107,10 @@ func (m *MSSQLSource) DiscoverColumns(ctx context.Context, table string) ([]herm
 		return nil, errors.New("database connection not initialized")
 	}
 
+	return m.discoverColumnsInternal(ctx, db, table)
+}
+
+func (m *MSSQLSource) discoverColumnsInternal(ctx context.Context, db *sql.DB, table string) ([]hermod.ColumnInfo, error) {
 	parts := strings.Split(table, ".")
 	tableName := parts[len(parts)-1]
 	schema := "dbo"
@@ -1022,7 +1129,7 @@ func (m *MSSQLSource) DiscoverColumns(ctx context.Context, table string) ([]herm
 		ISNULL(COLUMNPROPERTY(OBJECT_ID(TABLE_SCHEMA + '.' + TABLE_NAME), COLUMN_NAME, 'IsIdentity'), 0) as IS_IDENTITY,
 		COLUMN_DEFAULT
 		FROM INFORMATION_SCHEMA.COLUMNS c 
-		WHERE TABLE_NAME = ? AND TABLE_SCHEMA = ? 
+		WHERE TABLE_NAME = @p1 AND TABLE_SCHEMA = @p2 
 		ORDER BY ORDINAL_POSITION`
 
 	rows, err := db.QueryContext(ctx, query, tableName, schema)

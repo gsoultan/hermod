@@ -2315,8 +2315,26 @@ func (s *sqlStorage) CreateSchema(ctx context.Context, sc storage.Schema) error 
 
 func (s *sqlStorage) RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error {
 	id := uuid.New().String()
-	beforeBytes, _ := json.Marshal(step.Before)
-	afterBytes, _ := json.Marshal(step.After)
+
+	// Safety check: ensure we don't panic on invalid data during marshaling
+	safeMarshal := func(v any) []byte {
+		if v == nil {
+			return []byte("null")
+		}
+		defer func() {
+			if r := recover(); r != nil {
+				// Fallback if marshaling panics (e.g. corrupted string headers)
+			}
+		}()
+		b, err := json.Marshal(v)
+		if err != nil {
+			return []byte("{}")
+		}
+		return b
+	}
+
+	beforeBytes := safeMarshal(step.Before)
+	afterBytes := safeMarshal(step.After)
 
 	exec := func() error {
 		_, err := s.exec(ctx, s.queries.get(QueryRecordTraceStep),

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -506,23 +507,73 @@ func (m *MySQLSource) Snapshot(ctx context.Context, tables ...string) error {
 	return nil
 }
 
+const snapshotBatchSize = 1000
+
 func (m *MySQLSource) snapshotTable(ctx context.Context, table string) error {
-	quoted, err := sqlutil.QuoteIdent("mysql", table)
+	cols, err := m.DiscoverColumns(ctx, table)
+	if err != nil {
+		return fmt.Errorf("failed to discover columns for snapshot of %q: %w", table, err)
+	}
+
+	var colNames []string
+	var pkCols []string
+	for _, c := range cols {
+		quoted, _ := sqlutil.QuoteIdent("mysql", c.Name)
+		colNames = append(colNames, quoted)
+		if c.IsPK {
+			pkCols = append(pkCols, quoted)
+		}
+	}
+
+	if len(colNames) == 0 {
+		return fmt.Errorf("no columns found for table %q", table)
+	}
+	colList := strings.Join(colNames, ", ")
+
+	quotedTable, err := sqlutil.QuoteIdent("mysql", table)
 	if err != nil {
 		return fmt.Errorf("invalid table name %q: %w", table, err)
 	}
 
-	rows, err := m.db.QueryContext(ctx, "SELECT * FROM "+quoted)
-	if err != nil {
-		return fmt.Errorf("failed to query table %q: %w", table, err)
+	orderBy := "1"
+	if len(pkCols) > 0 {
+		orderBy = strings.Join(pkCols, ", ")
+	} else {
+		orderBy = colNames[0]
 	}
-	defer rows.Close()
 
+	offset := 0
+	for {
+		query := fmt.Sprintf("SELECT %s FROM %s ORDER BY %s LIMIT %d OFFSET %d",
+			colList, quotedTable, orderBy, snapshotBatchSize, offset)
+
+		rows, err := m.db.QueryContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("failed to query snapshot batch for %q at offset %d: %w", table, offset, err)
+		}
+
+		count, err := m.processSnapshotRows(ctx, rows, table, pkCols)
+		rows.Close()
+		if err != nil {
+			return err
+		}
+
+		if count < snapshotBatchSize {
+			break
+		}
+		offset += snapshotBatchSize
+	}
+
+	return nil
+}
+
+func (m *MySQLSource) processSnapshotRows(ctx context.Context, rows *sql.Rows, table string, pkCols []string) (int, error) {
 	columns, err := rows.Columns()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
+	count := 0
 	for rows.Next() {
 		values := make([]any, len(columns))
 		valuePtrs := make([]any, len(columns))
@@ -531,10 +582,10 @@ func (m *MySQLSource) snapshotTable(ctx context.Context, table string) error {
 		}
 
 		if err := rows.Scan(valuePtrs...); err != nil {
-			return err
+			return count, err
 		}
 
-		record := make(map[string]any)
+		record := make(map[string]any, len(columns))
 		for i, colName := range columns {
 			val := values[i]
 			if b, ok := val.([]byte); ok {
@@ -544,24 +595,42 @@ func (m *MySQLSource) snapshotTable(ctx context.Context, table string) error {
 			}
 		}
 
-		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
-
-		msg := message.AcquireMessage()
-		msg.SetID(fmt.Sprintf("snapshot-%s-%d-%s", table, time.Now().UnixNano(), uuid.New().String()))
-		msg.SetOperation(hermod.OpSnapshot)
-		msg.SetTable(table)
-		msg.SetAfter(afterJSON)
-		msg.SetMetadata("source", "mysql")
-		msg.SetMetadata("snapshot", "true")
-
-		select {
-		case m.msgChan <- msg:
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := m.emitSnapshotRecord(ctx, table, record, pkCols); err != nil {
+			return count, err
 		}
+		count++
+	}
+	return count, rows.Err()
+}
+
+func (m *MySQLSource) emitSnapshotRecord(ctx context.Context, table string, record map[string]any, pkCols []string) error {
+	afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+
+	msg := message.AcquireMessage()
+	if len(pkCols) > 0 {
+		var pkVals []string
+		for _, pk := range pkCols {
+			cleanPK := strings.Trim(pk, "` ")
+			pkVals = append(pkVals, fmt.Sprintf("%v", record[cleanPK]))
+		}
+		msg.SetID(fmt.Sprintf("snapshot-%s-%s", table, strings.Join(pkVals, "-")))
+	} else {
+		msg.SetID(fmt.Sprintf("snapshot-%s-%d-%s", table, time.Now().UnixNano(), uuid.New().String()))
 	}
 
-	return rows.Err()
+	msg.SetOperation(hermod.OpSnapshot)
+	msg.SetTable(table)
+	msg.SetAfter(afterJSON)
+	msg.SetMetadata("source", "mysql")
+	msg.SetMetadata("snapshot", "true")
+
+	select {
+	case m.msgChan <- msg:
+		return nil
+	case <-ctx.Done():
+		message.ReleaseMessage(msg)
+		return ctx.Err()
+	}
 }
 
 func (m *MySQLSource) ExecuteSQL(ctx context.Context, query string) ([]map[string]any, error) {

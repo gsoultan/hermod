@@ -15,6 +15,7 @@ type StatusTracker struct {
 	lastMsgTime       atomic.Int64 // UnixNano
 	processedMessages atomic.Uint64
 	deadLetterCount   atomic.Uint64
+	lag               atomic.Uint64
 
 	nodeMetrics      sync.Map // string -> *atomic.Uint64
 	nodeErrorMetrics sync.Map // string -> *atomic.Uint64
@@ -59,6 +60,14 @@ func (s *StatusTracker) IncProcessed() {
 
 func (s *StatusTracker) IncDeadLetter() {
 	s.deadLetterCount.Add(1)
+}
+
+func (s *StatusTracker) SetLag(count uint64) {
+	s.lag.Store(count)
+}
+
+func (s *StatusTracker) GetLag() uint64 {
+	return s.lag.Load()
 }
 
 func (s *StatusTracker) getOrCreateAtomic(m *sync.Map, key string) *atomic.Uint64 {
@@ -114,7 +123,7 @@ func (s *StatusTracker) GetLastMsgTime() time.Time {
 	return time.Unix(0, nanos)
 }
 
-func (s *StatusTracker) GetStatus() (sourceStatus string, sinkStatuses map[string]string, engineStatus string, lastMsgTime time.Time, processed uint64, dlq uint64, latency time.Duration) {
+func (s *StatusTracker) GetStatus() (sourceStatus string, sinkStatuses map[string]string, engineStatus string, lastMsgTime time.Time, processed uint64, dlq uint64, latency time.Duration, lag uint64) {
 	s.mu.RLock()
 	sourceStatus = s.sourceStatus
 	engineStatus = s.engineStatus
@@ -129,6 +138,7 @@ func (s *StatusTracker) GetStatus() (sourceStatus string, sinkStatuses map[strin
 	processed = s.processedMessages.Load()
 	dlq = s.deadLetterCount.Load()
 	latency = s.GetAvgLatency()
+	lag = s.lag.Load()
 
 	return
 }

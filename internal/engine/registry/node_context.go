@@ -11,6 +11,7 @@ type NodeContext interface {
 	BroadcastLiveMessage(workflowID, nodeID string, msg hermod.Message, isError bool, errMsg string)
 	BroadcastLog(workflowID, level, msg, msgID string)
 	ApplyTransformation(ctx context.Context, msg hermod.Message, transType string, config map[string]any) (hermod.Message, error)
+	ContextWithPipelineSnapshot(ctx context.Context) context.Context
 	EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool
 	Storage() RegistryStorage
 	StateStore() hermod.StateStore

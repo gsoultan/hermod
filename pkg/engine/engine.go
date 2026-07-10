@@ -324,13 +324,13 @@ func (e *Engine) recordSourceActivity() {
 
 // LastMsgTime returns the time of the last message received from the source.
 func (e *Engine) LastMsgTime() time.Time {
-	_, _, _, lastMsgTime, _, _, _ := e.statusTracker.GetStatus()
+	_, _, _, lastMsgTime, _, _, _, _ := e.statusTracker.GetStatus()
 	return lastMsgTime
 }
 
 // GetStatus returns the current status of the engine.
 func (e *Engine) GetStatus() telemetry.StatusUpdate {
-	sourceStatus, sinkStatuses, engineStatus, _, processed, dlq, latency := e.statusTracker.GetStatus()
+	sourceStatus, sinkStatuses, engineStatus, _, processed, dlq, latency, lag := e.statusTracker.GetStatus()
 
 	update := telemetry.StatusUpdate{
 		WorkflowID:      e.workflowID,
@@ -341,6 +341,7 @@ func (e *Engine) GetStatus() telemetry.StatusUpdate {
 		ProcessedCount:  processed,
 		DeadLetterCount: dlq,
 		AvgLatency:      latency,
+		Lag:             lag,
 		Throughput:      e.statusTracker.GetMPS(),
 	}
 

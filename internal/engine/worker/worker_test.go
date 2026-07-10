@@ -437,9 +437,12 @@ func TestWorkerIsAssigned_StabilityAndDistribution(t *testing.T) {
 type mockWorkerStorage struct {
 	testutil.BaseMockStorage
 	leases map[string]string
+	mu     sync.Mutex
 }
 
 func (m *mockWorkerStorage) ListWorkflows(ctx context.Context, filter storage.CommonFilter) ([]storage.Workflow, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var res []storage.Workflow
 	for id, owner := range m.leases {
 		res = append(res, storage.Workflow{ID: id, OwnerID: owner})
@@ -448,6 +451,8 @@ func (m *mockWorkerStorage) ListWorkflows(ctx context.Context, filter storage.Co
 }
 
 func (m *mockWorkerStorage) ReleaseWorkflowLease(ctx context.Context, workflowID, ownerID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.leases, workflowID)
 	return nil
 }

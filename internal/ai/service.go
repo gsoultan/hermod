@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/internal/storage"
 )
 
 type FixSuggestion struct {
@@ -132,25 +133,66 @@ func (s *SelfHealingService) AnalyzeError(ctx context.Context, workflowID string
 func (s *SelfHealingService) analyzeErrorHeuristics(workflowID, nodeID, errStr string) (*FixSuggestion, error) {
 	s.logger.Info("AI using heuristics for error analysis", "workflow_id", workflowID, "node_id", nodeID)
 
-	if strings.Contains(strings.ToLower(errStr), "missing field") || strings.Contains(strings.ToLower(errStr), "key not found") {
+	errLower := strings.ToLower(errStr)
+
+	if strings.Contains(errLower, "failed to get source for lookup") {
 		return &FixSuggestion{
-			Explanation: "Heuristic: The downstream system expects a field that is missing in the source payload. I suggest adding a 'Set Fields' node or checking the mapping.",
+			Explanation: "Architectural Mismatch: The DB Lookup node cannot resolve its linked data source. This usually indicates a broken reference in the workflow definition or that the target source has been deleted.",
+			Description: "1. Navigate to the Source Registry and confirm the source exists.\n2. In the DB Lookup node, verify 'sourceId' matches the actual Source ID.\n3. Note: DB Lookups on high-throughput replication like Autocount must use non-CDC sources for the lookup itself to avoid logical replication overhead.",
+			FixAction:   "change_config",
+			Confidence:  0.99,
+		}, nil
+	}
+
+	if strings.Contains(errLower, "db_lookup requires a non-cdc source") {
+		return &FixSuggestion{
+			Explanation: "Performance Constraint: Logical replication (CDC) sources cannot be used for direct point-lookups due to consistency and throughput limitations.",
+			Description: "Create a separate 'Snapshot' or 'Standard' source pointing to the same database but with CDC disabled. Use this new source ID for your DB Lookup node. This ensures optimal lookup speed without interrupting the main replication stream.",
+			FixAction:   "change_config",
+			Confidence:  0.95,
+		}, nil
+	}
+
+	if strings.Contains(errLower, "missing field") || strings.Contains(errLower, "key not found") {
+		return &FixSuggestion{
+			Explanation: "Data integrity issue: The downstream node expects a specific field that is missing from the incoming message payload.",
+			Description: "Review your mapping or transformation logic. You might need to add a 'Set Fields' node or update a 'Mapping' node to ensure the required field is present. If the field is optional, consider using a default value.",
 			FixAction:   "update_mapping",
 			Confidence:  0.85,
 		}, nil
 	}
 
-	if strings.Contains(strings.ToLower(errStr), "timeout") || strings.Contains(strings.ToLower(errStr), "deadline exceeded") {
+	if strings.Contains(errLower, "timeout") || strings.Contains(errLower, "deadline exceeded") || strings.Contains(errLower, "connection refused") {
 		return &FixSuggestion{
-			Explanation: "Heuristic: The destination is responding slowly. Increasing the retry interval or adding a circuit breaker is recommended.",
+			Explanation: "Network or Resource bottleneck: The destination system is unreachable or responding too slowly to process the request within the allotted time.",
+			Description: "Try increasing the 'timeout' or 'retry_interval' in the node configuration. For high-volume workflows, consider adding a 'Buffer' node before the sink to handle traffic spikes.",
 			FixAction:   "change_config",
 			ConfigPatch: map[string]any{"retry_interval": "5s", "cb_threshold": 3},
 			Confidence:  0.92,
 		}, nil
 	}
 
+	if strings.Contains(errLower, "auth") || strings.Contains(errLower, "permission denied") || strings.Contains(errLower, "401") || strings.Contains(errLower, "403") {
+		return &FixSuggestion{
+			Explanation: "Access denied: The credentials provided for this source or sink are either invalid or do not have sufficient permissions.",
+			Description: "Verify the username, password, or API token in the source/sink configuration. Ensure the account has the necessary read/write permissions for the target resources.",
+			FixAction:   "change_config",
+			Confidence:  0.95,
+		}, nil
+	}
+
+	if strings.Contains(errLower, "batch_size") || strings.Contains(errLower, "too many requests") {
+		return &FixSuggestion{
+			Explanation: "Throughput limitation: The target system cannot handle the current volume of requests or the batch size is too large for a single transaction.",
+			Description: "Adjust the 'batch_size' in the sink configuration. For high-throughput ETL like Autocount, a batch size of 500-1000 is usually optimal. If you see 'too many requests', consider adding a 'Delay' or 'Buffer' node.",
+			FixAction:   "change_config",
+			Confidence:  0.90,
+		}, nil
+	}
+
 	return &FixSuggestion{
-		Explanation: "Heuristic: Structural mismatch detected. Please review the transformation logic.",
+		Explanation: "Heuristic: Structural mismatch detected. The input data format might have changed or is incompatible with the current transformation logic.",
+		Description: "Review the 'Sample Data' and compare it with your transformation script (Lua/Go) or mapping rules. Ensure that you are correctly accessing fields based on the input structure.",
 		FixAction:   "manual_review",
 		Confidence:  0.40,
 	}, nil
@@ -160,6 +202,13 @@ type CopilotResult struct {
 	Language    string `json:"language"`
 	Code        string `json:"code"`
 	Explanation string `json:"explanation"`
+}
+
+type PerformanceRecommendation struct {
+	WorkflowID  string   `json:"workflow_id"`
+	Bottlenecks []string `json:"bottlenecks"`
+	Suggestions []string `json:"suggestions"`
+	Score       float64  `json:"score"` // 0-100
 }
 
 type SchemaImpact struct {
@@ -286,4 +335,128 @@ func (s *SelfHealingService) SuggestMapping(ctx context.Context, sourceData map[
 		return "Suggested Mappings (Heuristic):\n" + strings.Join(suggestions, "\n"), nil
 	}
 	return "No clear mappings found (Heuristic). Please review manually.", nil
+}
+
+// AnalyzeWorkflow provides holistic performance and configuration recommendations for a workflow.
+func (s *SelfHealingService) AnalyzeWorkflow(ctx context.Context, wf storage.Workflow) (*PerformanceRecommendation, error) {
+	if s.apiKey != "" || strings.HasPrefix(s.model, "ollama") {
+		s.logger.Info("AI analyzing workflow performance", "workflow_id", wf.ID)
+
+		systemPrompt := "You are a performance tuning expert for data pipelines. Analyze the workflow configuration and metrics. Identify bottlenecks and suggest improvements. Return JSON with fields: workflow_id, bottlenecks ([]string), suggestions ([]string), score (float64, 0-100)."
+		userPrompt := fmt.Sprintf("Workflow: %+v", wf)
+
+		content, err := s.callLLM(ctx, systemPrompt, userPrompt)
+		if err == nil {
+			var rec PerformanceRecommendation
+			if err := json.Unmarshal([]byte(content), &rec); err == nil {
+				return &rec, nil
+			}
+		}
+	}
+
+	// Heuristic Fallback
+	rec := &PerformanceRecommendation{
+		WorkflowID:  wf.ID,
+		Bottlenecks: []string{},
+		Suggestions: []string{},
+		Score:       100.0,
+	}
+
+	// Simple heuristic rules
+	if wf.TotalErrors > 0 && wf.TotalProcessed > 0 {
+		errorRate := float64(wf.TotalErrors) / float64(wf.TotalProcessed)
+		if errorRate > 0.1 {
+			rec.Bottlenecks = append(rec.Bottlenecks, "High error rate detected")
+			rec.Suggestions = append(rec.Suggestions, "Check transformation logic and source data quality")
+			rec.Score -= 20
+		}
+	}
+
+	if wf.TotalLag > 1000 {
+		rec.Bottlenecks = append(rec.Bottlenecks, "Significant message lag")
+		rec.Suggestions = append(rec.Suggestions, "Consider increasing worker count or optimizing sink performance")
+		rec.Score -= 15
+	}
+
+	hasBuffer := false
+	for _, n := range wf.Nodes {
+		if n.Type == "buffer" || n.Type == "queue" {
+			hasBuffer = true
+			break
+		}
+	}
+
+	if !hasBuffer && wf.ThroughputRequest > 500 {
+		rec.Bottlenecks = append(rec.Bottlenecks, "Missing buffer for high-throughput workflow")
+		rec.Suggestions = append(rec.Suggestions, "Add a buffer or queue node to handle bursts and prevent source pressure.")
+		rec.Score -= 10
+	}
+
+	// Advanced Heuristics
+	remoteSinksCount := 0
+	sinksWithoutCB := 0
+	transformNodesCount := 0
+	hasSequentialSink := false
+
+	for _, n := range wf.Nodes {
+		if n.Type == "sink" {
+			remoteSinksCount++
+			if n.Config["cb_threshold"] == nil || n.Config["cb_threshold"] == 0 {
+				sinksWithoutCB++
+			}
+			if seq, ok := n.Config["sequential"].(bool); ok && seq {
+				hasSequentialSink = true
+			}
+		}
+		if n.Type == "transformation" || n.Type == "mapping" || n.Type == "script" {
+			transformNodesCount++
+		}
+	}
+
+	if sinksWithoutCB > 0 {
+		rec.Bottlenecks = append(rec.Bottlenecks, fmt.Sprintf("%d sink(s) missing circuit breaker", sinksWithoutCB))
+		rec.Suggestions = append(rec.Suggestions, "Enable circuit breakers on all external sinks to prevent cascading failures.")
+		rec.Score -= float64(sinksWithoutCB * 5)
+	}
+
+	if transformNodesCount >= 5 {
+		rec.Bottlenecks = append(rec.Bottlenecks, "Large number of transformation nodes")
+		rec.Suggestions = append(rec.Suggestions, "Consider consolidating multiple transformation nodes into a single Lua script node for better performance.")
+		rec.Score -= 10
+	}
+
+	// Caching check for DB Lookups
+	lookupNodesWithoutCache := 0
+	for _, n := range wf.Nodes {
+		if n.Type == "db_lookup" || (n.Type == "transformation" && n.Config["type"] == "db_lookup") {
+			if ttl, ok := n.Config["ttl"].(string); !ok || ttl == "" || ttl == "0s" {
+				lookupNodesWithoutCache++
+			}
+		}
+	}
+
+	if lookupNodesWithoutCache > 0 {
+		rec.Bottlenecks = append(rec.Bottlenecks, fmt.Sprintf("%d DB Lookup node(s) without caching", lookupNodesWithoutCache))
+		rec.Suggestions = append(rec.Suggestions, "Enable caching (TTL) on DB Lookup nodes to reduce database load and improve transformation speed.")
+		rec.Score -= float64(lookupNodesWithoutCache * 8)
+	}
+
+	if hasSequentialSink && wf.ThroughputRequest > 100 {
+		rec.Bottlenecks = append(rec.Bottlenecks, "Sequential sink in high-throughput workflow")
+		rec.Suggestions = append(rec.Suggestions, "Disable 'sequential' mode on sinks if message order per table is not strictly required, to allow parallel processing.")
+		rec.Score -= 15
+	}
+
+	if strings.Contains(strings.ToLower(wf.Name), "autocount") {
+		// Specific recommendations for Autocount ETL (typical large-scale replication)
+		rec.Suggestions = append(rec.Suggestions, "For Autocount ETL, ensure source connection uses PgBouncer (non-CDC) or direct session-mode (CDC) for optimal reliability.")
+		rec.Suggestions = append(rec.Suggestions, "Use 'db_lookup' with at least 1m TTL for master data tables (Item, Account, Debtor) to maximize throughput.")
+		rec.Suggestions = append(rec.Suggestions, "Enable 'batch_size' >= 500 on MS SQL/Postgres sinks to optimize IOPS during large replication batches.")
+	}
+
+	if len(rec.Bottlenecks) == 0 {
+		rec.Suggestions = append(rec.Suggestions, "Workflow looks healthy and well-configured.")
+	}
+
+	return rec, nil
 }
