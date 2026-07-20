@@ -6,20 +6,20 @@ import (
 	"fmt"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/infra/evaluator"
 )
 
 func init() {
-	registry.RegisterNodeExecutor("log", &LogNode{})
+	interfaces.RegisterNodeExecutor("log", &LogNode{})
 }
 
 // LogNode explicitly broadcasts a log message with data for UI visibility.
 type LogNode struct{}
 
 // Execute logs the message or specific fields and continues.
-func (n *LogNode) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (n *LogNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	level, _ := node.Config["level"].(string)
 	if level == "" {
 		level = "INFO"

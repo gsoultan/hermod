@@ -33,7 +33,7 @@ func TestVerifyWebhookSignature(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := verifyWebhookSignature(tc.secret, body, tc.signature); got != tc.want {
+			if got := VerifyWebhookSignature(tc.secret, body, tc.signature); got != tc.want {
 				t.Errorf("verifyWebhookSignature(%q) = %v; want %v", tc.signature, got, tc.want)
 			}
 		})
@@ -57,7 +57,7 @@ func TestValidatePluginID(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := validatePluginID(tc.id); got != tc.want {
+			if got := ValidatePluginID(tc.id); got != tc.want {
 				t.Errorf("validatePluginID(%q) = %v; want %v", tc.id, got, tc.want)
 			}
 		})
@@ -83,7 +83,7 @@ func TestIsSafeWasmURL(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := isSafeWasmURL(tc.url); got != tc.want {
+			if got := IsSafeWasmURL(tc.url); got != tc.want {
 				t.Errorf("isSafeWasmURL(%q) = %v; want %v", tc.url, got, tc.want)
 			}
 		})
@@ -106,7 +106,7 @@ func TestIsValidFormPath(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := isValidFormPath(tc.path); got != tc.want {
+			if got := IsValidFormPath(tc.path); got != tc.want {
 				t.Errorf("isValidFormPath(%q) = %v; want %v", tc.path, got, tc.want)
 			}
 		})

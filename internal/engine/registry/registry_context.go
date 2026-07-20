@@ -4,14 +4,11 @@ import (
 	"context"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 )
 
 func (r *Registry) BroadcastLiveMessage(workflowID, nodeID string, msg hermod.Message, isError bool, errMsg string) {
 	r.broadcastLiveMessageFromHermod(workflowID, nodeID, msg, isError, errMsg)
-}
-
-func (r *Registry) BroadcastLog(workflowID, level, msg, msgID string) {
-	r.broadcastLogWithData(workflowID, level, msg, msgID)
 }
 
 func (r *Registry) ApplyTransformation(ctx context.Context, msg hermod.Message, transType string, config map[string]any) (hermod.Message, error) {
@@ -29,7 +26,7 @@ func (r *Registry) EvaluateConditions(msg hermod.Message, conditions []map[strin
 	return r.evaluateConditions(msg, conditions)
 }
 
-func (r *Registry) Storage() RegistryStorage {
+func (r *Registry) Storage() interfaces.RegistryStorage {
 	return r.storage
 }
 

@@ -5,17 +5,17 @@ import (
 	"fmt"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 )
 
 type SinkExecutor struct{}
 
 func init() {
-	registry.RegisterNodeExecutor("sink", &SinkExecutor{})
+	interfaces.RegisterNodeExecutor("sink", &SinkExecutor{})
 }
 
-func (e *SinkExecutor) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (e *SinkExecutor) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	isSeq, _ := node.Config["sequential"].(bool)
 	if !isSeq {
 		return []hermod.Message{msg}, "", nil

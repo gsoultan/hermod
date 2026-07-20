@@ -5,19 +5,19 @@ import (
 	"encoding/json"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 )
 
 func init() {
-	registry.RegisterNodeExecutor("condition", &ConditionNode{})
+	interfaces.RegisterNodeExecutor("condition", &ConditionNode{})
 }
 
 // ConditionNode handles boolean branching.
 type ConditionNode struct{}
 
 // Execute evaluates conditions and returns the branch name ("true" or "false").
-func (n *ConditionNode) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (n *ConditionNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	conditions := n.parseConditions(node)
 	if nctx.EvaluateConditions(msg, conditions) {
 		return []hermod.Message{msg}, "true", nil

@@ -1,0 +1,568 @@
+=== RUN   TestBackpressureDropOldest_ReleasesEvictedMessageOnce
+--- PASS: TestBackpressureDropOldest_ReleasesEvictedMessageOnce (0.00s)
+=== RUN   TestEngine
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:57+07:00","message":"Starting Hermod Engine"}
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:57+07:00","message":"Sink write error"}
+--- PASS: TestEngine (0.01s)
+=== RUN   TestEngineRetry
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-1","payload_len":5,"time":"2026-07-02T13:33:57+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:57+07:00","message":"Hermod Engine stopped gracefully"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:57+07:00","message":"Starting Hermod Engine"}
+{"level":"warn","workflow_id":"","attempt":1,"sink_id":"","error":"mock sink error","time":"2026-07-02T13:33:57+07:00","message":"Sink write error, retrying"}
+{"level":"warn","workflow_id":"","attempt":2,"sink_id":"","error":"mock sink error","time":"2026-07-02T13:33:57+07:00","message":"Sink write error, retrying"}
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+--- PASS: TestEngineRetry (0.05s)
+{"level":"info","workflow_id":"","sink_id":"","action":"reconnect","time":"2026-07-02T13:33:58+07:00","message":"Sink reconnected successfully"}
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-retry","payload_len":11,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+=== RUN   TestEngineSinkPreflightFail
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-retry","payload_len":11,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Hermod Engine stopped gracefully"}
+{"level":"error","workflow_id":"","sink_id":"","attempts":3,"error":"sink ping failed","time":"2026-07-02T13:33:58+07:00","message":"Sink pre-flight check failed"}
+--- PASS: TestEngineSinkPreflightFail (0.10s)
+=== RUN   TestEnginePerSinkRetry
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Starting Hermod Engine"}
+{"level":"warn","workflow_id":"","attempt":1,"sink_id":"","error":"mock sink error","time":"2026-07-02T13:33:58+07:00","message":"Sink write error, retrying"}
+{"level":"warn","workflow_id":"","attempt":1,"sink_id":"","error":"mock sink error","time":"2026-07-02T13:33:58+07:00","message":"Sink write error, retrying"}
+{"level":"warn","workflow_id":"","attempt":2,"sink_id":"","error":"mock sink error","time":"2026-07-02T13:33:58+07:00","message":"Sink write error, retrying"}
+{"level":"warn","workflow_id":"","attempt":2,"sink_id":"","error":"mock sink error","time":"2026-07-02T13:33:58+07:00","message":"Sink write error, retrying"}
+{"level":"warn","workflow_id":"","attempt":3,"sink_id":"","error":"mock sink error","time":"2026-07-02T13:33:58+07:00","message":"Sink write error, retrying"}
+{"level":"info","workflow_id":"","sink_id":"","action":"reconnect","time":"2026-07-02T13:33:58+07:00","message":"Sink reconnected successfully"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-retry","payload_len":11,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"warn","workflow_id":"","attempt":4,"sink_id":"","error":"mock sink error","time":"2026-07-02T13:33:58+07:00","message":"Sink write error, retrying"}
+{"level":"info","workflow_id":"","sink_id":"","action":"reconnect","time":"2026-07-02T13:33:58+07:00","message":"Sink reconnected successfully"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-retry","payload_len":11,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+--- PASS: TestEnginePerSinkRetry (0.02s)
+=== RUN   TestEngineAck
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Hermod Engine stopped gracefully"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Starting Hermod Engine"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-ack","payload_len":9,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+--- PASS: TestEngineAck (0.01s)
+=== RUN   TestEngineGracefulShutdown
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Hermod Engine stopped gracefully"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Starting Hermod Engine"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"9","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"2","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"0","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"1","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"6","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"8","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"5","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"7","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"3","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"4","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Hermod Engine stopped gracefully"}
+--- PASS: TestEngineGracefulShutdown (0.11s)
+=== RUN   TestEngineMultiSink
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Starting Hermod Engine"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-multi-1","payload_len":16,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+--- PASS: TestEngineMultiSink (0.01s)
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-multi-1","payload_len":16,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Hermod Engine stopped gracefully"}
+=== RUN   TestEngineSourceReconnect
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Starting Hermod Engine"}
+{"level":"warn","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Source disconnected, entering reconnect loop"}
+--- PASS: TestEngineSourceReconnect (0.03s)
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-reconnect","payload_len":15,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+=== RUN   TestEngineSourceMultiReconnect
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Hermod Engine stopped gracefully"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Starting Hermod Engine"}
+{"level":"warn","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Source disconnected, entering reconnect loop"}
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+--- PASS: TestEngineSourceMultiReconnect (0.09s)
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-multi-reconnect","payload_len":21,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Hermod Engine stopped gracefully"}
+=== RUN   TestEngineSinkMultiRetry
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Starting Hermod Engine"}
+{"level":"warn","workflow_id":"","attempt":1,"sink_id":"","error":"mock sink error","time":"2026-07-02T13:33:58+07:00","message":"Sink write error, retrying"}
+{"level":"warn","workflow_id":"","attempt":2,"sink_id":"","error":"mock sink error","time":"2026-07-02T13:33:58+07:00","message":"Sink write error, retrying"}
+{"level":"warn","workflow_id":"","attempt":3,"sink_id":"","error":"mock sink error","time":"2026-07-02T13:33:58+07:00","message":"Sink write error, retrying"}
+{"level":"info","workflow_id":"","sink_id":"","action":"reconnect","time":"2026-07-02T13:33:58+07:00","message":"Sink reconnected successfully"}
+--- PASS: TestEngineSinkMultiRetry (0.07s)
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-multi-retry","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+=== RUN   TestEngineDryRun
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"context canceled","time":"2026-07-02T13:33:58+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Hermod Engine stopped gracefully"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Starting Hermod Engine"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"test-dryrun","payload_len":6,"time":"2026-07-02T13:33:58+07:00","message":"[DRY-RUN] Message would be written to sink"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Hermod Engine stopped gracefully"}
+--- PASS: TestEngineDryRun (0.40s)
+=== RUN   TestEngineValidation
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Starting Hermod Engine"}
+{"level":"error","workflow_id":"","sink_id":"","message_id":"invalid-msg","error":"invalid payload","time":"2026-07-02T13:33:58+07:00","message":"Sink pre-write validation failed"}
+{"level":"info","workflow_id":"","sink_id":"","message_id":"invalid-msg","time":"2026-07-02T13:33:58+07:00","message":"Sending invalid message to Dead Letter Sink"}
+--- PASS: TestEngineValidation (0.01s)
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Hermod Engine stopped gracefully"}
+=== RUN   TestEngineAdaptiveBatching
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:58+07:00","message":"Starting Hermod Engine"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-6","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-4","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-5","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-3","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-2","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-13","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-7","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-17","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-14","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-8","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-15","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-16","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-1","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-10","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-9","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-20","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-22","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-21","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-12","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-19","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-23","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-24","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-18","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-25","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-27","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-26","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-31","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-28","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-29","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-30","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-35","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-32","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-33","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-11","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-40","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-34","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-36","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-37","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-43","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-41","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-38","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-42","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-39","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-50","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-44","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-45","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-46","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-47","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-48","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-72","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-51","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-52","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-53","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-100","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-73","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-74","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-58","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-75","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-54","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-64","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-65","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-66","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-55","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-67","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-56","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-57","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-68","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-60","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-49","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-59","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-69","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-70","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-61","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-71","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-62","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-88","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-77","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-78","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-83","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-80","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-81","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-79","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-63","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-82","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-97","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-94","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-91","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-89","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-90","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-84","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-86","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-92","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-85","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-93","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-96","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-87","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-98","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-99","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-76","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-95","payload_len":0,"time":"2026-07-02T13:33:58+07:00","message":"Message written to sink"}
+--- PASS: TestEngineAdaptiveBatching (0.50s)
+{"level":"info","workflow_id":"","time":"2026-07-02T13:33:59+07:00","message":"Hermod Engine stopped gracefully"}
+=== RUN   TestSinkWriter_BatchBytesFlush
+--- PASS: TestSinkWriter_BatchBytesFlush (0.00s)
+{"level":"info","workflow_id":"","sink_id":"sink-test","action":"write_batch","batch_size":3,"time":"2026-07-02T13:33:59+07:00","message":"Batch written to sink"}
+=== RUN   TestSinkWriter_PerKeyShardingOrder
+{"level":"info","workflow_id":"","sink_id":"sink-sharded","action":"write","message_id":"B-00","payload_len":1,"time":"2026-07-02T13:33:59+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"sink-sharded","action":"write","message_id":"B-01","payload_len":1,"time":"2026-07-02T13:33:59+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"sink-sharded","action":"write","message_id":"B-02","payload_len":1,"time":"2026-07-02T13:33:59+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"sink-sharded","action":"write","message_id":"B-03","payload_len":1,"time":"2026-07-02T13:33:59+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"sink-sharded","action":"write","message_id":"B-04","payload_len":1,"time":"2026-07-02T13:33:59+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"sink-sharded","action":"write","message_id":"A-00","payload_len":1,"time":"2026-07-02T13:33:59+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"sink-sharded","action":"write","message_id":"A-01","payload_len":1,"time":"2026-07-02T13:33:59+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"sink-sharded","action":"write","message_id":"A-02","payload_len":1,"time":"2026-07-02T13:33:59+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"sink-sharded","action":"write","message_id":"A-03","payload_len":1,"time":"2026-07-02T13:33:59+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"sink-sharded","action":"write","message_id":"A-04","payload_len":1,"time":"2026-07-02T13:33:59+07:00","message":"Message written to sink"}
+--- PASS: TestSinkWriter_PerKeyShardingOrder (0.00s)
+=== RUN   TestBackpressure_DropNewest_Metric
+--- PASS: TestBackpressure_DropNewest_Metric (0.00s)
+=== RUN   TestBackpressure_DropOldest_Metric
+--- PASS: TestBackpressure_DropOldest_Metric (0.00s)
+=== RUN   TestBackpressure_SpillToDisk_Metric
+--- PASS: TestBackpressure_SpillToDisk_Metric (0.01s)
+=== RUN   TestEngine_DrainTimeoutBehavior
+--- PASS: TestEngine_DrainTimeoutBehavior (0.10s)
+=== RUN   TestSinkStatusWhenSourceIsDown
+{"level":"info","workflow_id":"conn-1","time":"2026-07-02T13:33:59+07:00","message":"Starting Hermod Engine"}
+{"level":"warn","workflow_id":"conn-1","time":"2026-07-02T13:33:59+07:00","message":"Source disconnected, entering reconnect loop"}
+{"level":"error","workflow_id":"conn-1","error":"source down","time":"2026-07-02T13:33:59+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"conn-1","error":"source down","time":"2026-07-02T13:33:59+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"conn-1","error":"source down","time":"2026-07-02T13:33:59+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"conn-1","error":"source down","time":"2026-07-02T13:33:59+07:00","message":"Background source health check failed"}
+--- PASS: TestSinkStatusWhenSourceIsDown (0.20s)
+{"level":"info","workflow_id":"conn-1","time":"2026-07-02T13:33:59+07:00","message":"Hermod Engine stopped gracefully"}
+=== RUN   TestNilMessageHandling
+{"level":"info","workflow_id":"workflow-1","time":"2026-07-02T13:33:59+07:00","message":"Starting Hermod Engine"}
+{"level":"info","workflow_id":"workflow-1","time":"2026-07-02T13:34:00+07:00","message":"Hermod Engine stopped gracefully"}
+--- PASS: TestNilMessageHandling (0.50s)
+=== RUN   TestEngineSchemaValidation
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:00+07:00","message":"Starting Hermod Engine"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"1","payload_len":23,"time":"2026-07-02T13:34:00+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","message_id":"2","error":"JSON schema validation failed: id: Invalid type. Expected: integer, given: string; ","time":"2026-07-02T13:34:00+07:00","message":"Message validation failed"}
+--- PASS: TestEngineSchemaValidation (0.00s)
+=== RUN   TestRecordTraceStep_DeterministicSampling
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:00+07:00","message":"Hermod Engine stopped gracefully"}
+    features_test.go:157: Inconsistent sampling for same message: got 12 steps, expected 0 or 100
+    features_test.go:174: Sampled in: 20, Sampled out: 980
+--- FAIL: TestRecordTraceStep_DeterministicSampling (0.00s)
+=== RUN   TestRecordTraceStep_Default
+    features_test.go:194: Expected 1 trace step, got 0
+--- FAIL: TestRecordTraceStep_Default (0.00s)
+=== RUN   TestSafeModeDivertsToDLQ
+{"level":"info","workflow_id":"","sink_id":"sink1","action":"write","message_id":"","payload_len":17,"time":"2026-07-02T13:34:00+07:00","message":"Message written to sink"}
+{"level":"warn","workflow_id":"","time":"2026-07-02T13:34:00+07:00","message":"Engine ENTERED SAFE MODE: all traffic diverted to DLQ"}
+{"level":"warn","workflow_id":"","sink_id":"sink1","message_id":"","time":"2026-07-02T13:34:00+07:00","message":"Safe Mode Active: diverting message to Dead Letter Sink"}
+--- PASS: TestSafeModeDivertsToDLQ (0.00s)
+=== RUN   TestGracefulStopClosesSource
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:00+07:00","message":"Starting Hermod Engine"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:00+07:00","message":"Hermod Engine stopped gracefully"}
+--- PASS: TestGracefulStopClosesSource (0.05s)
+=== RUN   TestEngineGranularStatus
+{"level":"info","workflow_id":"conn-1","time":"2026-07-02T13:34:00+07:00","message":"Starting Hermod Engine"}
+{"level":"error","workflow_id":"conn-1","error":"source down","time":"2026-07-02T13:34:00+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"conn-1","error":"source down","time":"2026-07-02T13:34:00+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"conn-1","error":"source down","time":"2026-07-02T13:34:00+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"conn-1","sink_id":"snk-1","error":"sink down","time":"2026-07-02T13:34:00+07:00","message":"Background sink health check failed"}
+{"level":"error","workflow_id":"conn-1","sink_id":"snk-1","error":"sink down","time":"2026-07-02T13:34:00+07:00","message":"Background sink health check failed"}
+--- PASS: TestEngineGranularStatus (0.40s)
+{"level":"error","workflow_id":"conn-1","sink_id":"snk-1","error":"sink down","time":"2026-07-02T13:34:00+07:00","message":"Background sink health check failed"}
+=== RUN   TestWriteToSink_EmitsIdempotencyMetrics
+--- PASS: TestWriteToSink_EmitsIdempotencyMetrics (0.00s)
+=== RUN   TestEngine_OutboxRelay
+{"level":"error","workflow_id":"conn-1","panic":"runtime error: invalid memory address or nil pointer dereference","stack":"goroutine 1161 [running]:\nruntime/debug.Stack()\n\t/opt/homebrew/Cellar/go/1.26.4/libexec/src/runtime/debug/stack.go:26 +0x64\ngithub.com/user/hermod/pkg/engine.(*Runner).Start.func1()\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/runner.go:46 +0x3c\npanic({0x102fee520?, 0x1031897b0?})\n\t/opt/homebrew/Cellar/go/1.26.4/libexec/src/runtime/panic.go:860 +0x12c\ngithub.com/user/hermod/pkg/engine.(*statusMockSource).Close(0x1022344b0?)\n\t<autogenerated>:1 +0x1c\ngithub.com/user/hermod/pkg/engine.(*Runner).closeSourceOnShutdown(0x16ba8cba4640)\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/runner.go:291 +0x34\ngithub.com/user/hermod/pkg/engine.(*Runner).Start(0x16ba8cba4640, {0x103112d30?, 0x16ba8c836460?})\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/runner.go:203 +0x844\ngithub.com/user/hermod/pkg/engine.(*Engine).Start(...)\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/engine.go:387\ncreated by github.com/user/hermod/pkg/engine.TestEngineGranularStatus in goroutine 1160\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/granular_status_test.go:83 +0x31c\n","time":"2026-07-02T13:34:00+07:00","message":"Panic in engine runner"}
+--- PASS: TestEngine_OutboxRelay (0.10s)
+=== RUN   TestEngineUsesReadyChecker
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:00+07:00","message":"Starting Hermod Engine"}
+{"level":"warn","workflow_id":"","time":"2026-07-02T13:34:00+07:00","message":"Source disconnected, entering reconnect loop"}
+{"level":"error","workflow_id":"","error":"not ready yet","time":"2026-07-02T13:34:00+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"","error":"not ready yet","time":"2026-07-02T13:34:00+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"","error":"not ready yet","time":"2026-07-02T13:34:00+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"","error":"not ready yet","time":"2026-07-02T13:34:00+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"","error":"not ready yet","time":"2026-07-02T13:34:00+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"","error":"not ready yet","time":"2026-07-02T13:34:00+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"","error":"not ready yet","time":"2026-07-02T13:34:00+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"","error":"not ready yet","time":"2026-07-02T13:34:00+07:00","message":"Background source health check failed"}
+{"level":"error","workflow_id":"","error":"not ready yet","time":"2026-07-02T13:34:00+07:00","message":"Background source health check failed"}
+{"level":"info","workflow_id":"","action":"reconnect","time":"2026-07-02T13:34:00+07:00","message":"System reconnected successfully"}
+--- PASS: TestEngineUsesReadyChecker (0.15s)
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:00+07:00","message":"Hermod Engine stopped gracefully"}
+=== RUN   TestBackpressureDropOldest
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:00+07:00","message":"Starting Hermod Engine"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest - overflow)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest - overflow)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest - overflow)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest - overflow)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_oldest)","time":"2026-07-02T13:34:00+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-2","payload_len":0,"time":"2026-07-02T13:34:00+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-13","payload_len":0,"time":"2026-07-02T13:34:01+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-15","payload_len":0,"time":"2026-07-02T13:34:01+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-9","payload_len":0,"time":"2026-07-02T13:34:01+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-10","payload_len":0,"time":"2026-07-02T13:34:01+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-11","payload_len":0,"time":"2026-07-02T13:34:01+07:00","message":"Message written to sink"}
+    resilience_test.go:73: Backpressure DropOldest: processed 6/20 messages
+--- PASS: TestBackpressureDropOldest (1.00s)
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:01+07:00","message":"Hermod Engine stopped gracefully"}
+=== RUN   TestBackpressureDropNewest
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:01+07:00","message":"Starting Hermod Engine"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to backpressure (drop_newest)","time":"2026-07-02T13:34:01+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-1","payload_len":0,"time":"2026-07-02T13:34:01+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-2","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-7","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-6","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-5","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-9","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+    resilience_test.go:103: Backpressure DropNewest: processed 6/20 messages
+--- PASS: TestBackpressureDropNewest (1.00s)
+=== RUN   TestBackpressureSampling
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:02+07:00","message":"Hermod Engine stopped gracefully"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:02+07:00","message":"Starting Hermod Engine"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-1","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-20","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-3","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-8","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-56","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-14","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-19","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-22","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-58","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-24","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-62","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-30","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-44","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-49","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-55","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-72","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-69","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-70","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-79","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-84","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-95","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-97","payload_len":0,"time":"2026-07-02T13:34:02+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","error":"dropped due to sampling","time":"2026-07-02T13:34:02+07:00","message":"Sink write error"}
+    resilience_test.go:136: Backpressure Sampling: processed 22/100 messages
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:03+07:00","message":"Hermod Engine stopped gracefully"}
+--- PASS: TestBackpressureSampling (0.50s)
+=== RUN   TestBackpressureSpillToDisk
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:03+07:00","message":"Starting Hermod Engine"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-2","payload_len":0,"time":"2026-07-02T13:34:03+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-8","payload_len":0,"time":"2026-07-02T13:34:03+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-3","payload_len":0,"time":"2026-07-02T13:34:03+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-6","payload_len":0,"time":"2026-07-02T13:34:03+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-7","payload_len":0,"time":"2026-07-02T13:34:03+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-16","payload_len":0,"time":"2026-07-02T13:34:04+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-5","payload_len":0,"time":"2026-07-02T13:34:04+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-1","payload_len":0,"time":"2026-07-02T13:34:04+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-9","payload_len":0,"time":"2026-07-02T13:34:04+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-4","payload_len":0,"time":"2026-07-02T13:34:04+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-10","payload_len":0,"time":"2026-07-02T13:34:04+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-13","payload_len":0,"time":"2026-07-02T13:34:04+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-14","payload_len":0,"time":"2026-07-02T13:34:04+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-11","payload_len":0,"time":"2026-07-02T13:34:04+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-50","payload_len":0,"time":"2026-07-02T13:34:04+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-12","payload_len":0,"time":"2026-07-02T13:34:05+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-17","payload_len":0,"time":"2026-07-02T13:34:05+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-33","payload_len":0,"time":"2026-07-02T13:34:05+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-15","payload_len":0,"time":"2026-07-02T13:34:05+07:00","message":"Message written to sink"}
+    resilience_test.go:173: Backpressure SpillToDisk: processed 19 messages so far
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-18","payload_len":0,"time":"2026-07-02T13:34:05+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-34","payload_len":0,"time":"2026-07-02T13:34:05+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-26","payload_len":0,"time":"2026-07-02T13:34:05+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-25","payload_len":0,"time":"2026-07-02T13:34:05+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-35","payload_len":0,"time":"2026-07-02T13:34:05+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-27","payload_len":0,"time":"2026-07-02T13:34:05+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-28","payload_len":0,"time":"2026-07-02T13:34:06+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-19","payload_len":0,"time":"2026-07-02T13:34:06+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-20","payload_len":0,"time":"2026-07-02T13:34:06+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-21","payload_len":0,"time":"2026-07-02T13:34:06+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-22","payload_len":0,"time":"2026-07-02T13:34:06+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-29","payload_len":0,"time":"2026-07-02T13:34:06+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-31","payload_len":0,"time":"2026-07-02T13:34:06+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-30","payload_len":0,"time":"2026-07-02T13:34:06+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-24","payload_len":0,"time":"2026-07-02T13:34:06+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-23","payload_len":0,"time":"2026-07-02T13:34:06+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-43","payload_len":0,"time":"2026-07-02T13:34:07+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-36","payload_len":0,"time":"2026-07-02T13:34:07+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-39","payload_len":0,"time":"2026-07-02T13:34:07+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-37","payload_len":0,"time":"2026-07-02T13:34:07+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-44","payload_len":0,"time":"2026-07-02T13:34:07+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-38","payload_len":0,"time":"2026-07-02T13:34:07+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-45","payload_len":0,"time":"2026-07-02T13:34:07+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-40","payload_len":0,"time":"2026-07-02T13:34:07+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-47","payload_len":0,"time":"2026-07-02T13:34:07+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-41","payload_len":0,"time":"2026-07-02T13:34:07+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-48","payload_len":0,"time":"2026-07-02T13:34:08+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-46","payload_len":0,"time":"2026-07-02T13:34:08+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-42","payload_len":0,"time":"2026-07-02T13:34:08+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-49","payload_len":0,"time":"2026-07-02T13:34:08+07:00","message":"Message written to sink"}
+    resilience_test.go:182: Backpressure SpillToDisk: final processed 49/50 messages
+--- PASS: TestBackpressureSpillToDisk (5.00s)
+=== RUN   TestSinkWriter_CircuitBreaker
+{"level":"warn","workflow_id":"","attempt":1,"sink_id":"sink1","error":"mock sink error","time":"2026-07-02T13:34:08+07:00","message":"Sink write error, retrying"}
+{"level":"info","workflow_id":"","sink_id":"","action":"write","message_id":"msg-32","payload_len":0,"time":"2026-07-02T13:34:08+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","time":"2026-07-02T13:34:08+07:00","message":"Hermod Engine stopped gracefully"}
+{"level":"info","workflow_id":"","sink_id":"sink1","action":"reconnect","time":"2026-07-02T13:34:08+07:00","message":"Sink reconnected successfully"}
+{"level":"info","workflow_id":"","sink_id":"sink1","action":"write","message_id":"","payload_len":0,"time":"2026-07-02T13:34:08+07:00","message":"Message written to sink"}
+{"level":"warn","workflow_id":"","attempt":1,"sink_id":"sink1","error":"mock sink error","time":"2026-07-02T13:34:08+07:00","message":"Sink write error, retrying"}
+{"level":"info","workflow_id":"","sink_id":"sink1","action":"reconnect","time":"2026-07-02T13:34:08+07:00","message":"Sink reconnected successfully"}
+{"level":"info","workflow_id":"","sink_id":"sink1","action":"write","message_id":"","payload_len":0,"time":"2026-07-02T13:34:08+07:00","message":"Message written to sink"}
+{"level":"error","workflow_id":"","sink_id":"sink1","fail_count":2,"open_until":"2026-07-02T13:34:08.703852+07:00","time":"2026-07-02T13:34:08+07:00","message":"Circuit breaker opened"}
+{"level":"info","workflow_id":"","sink_id":"sink1","time":"2026-07-02T13:34:08+07:00","message":"Circuit breaker half-open"}
+{"level":"info","workflow_id":"","sink_id":"sink1","action":"write","message_id":"","payload_len":0,"time":"2026-07-02T13:34:08+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"","sink_id":"sink1","time":"2026-07-02T13:34:08+07:00","message":"Circuit breaker closed after success"}
+--- PASS: TestSinkWriter_CircuitBreaker (0.34s)
+=== RUN   TestParallelSinks
+{"level":"info","workflow_id":"conn1","time":"2026-07-02T13:34:08+07:00","message":"Starting Hermod Engine"}
+{"level":"info","workflow_id":"conn1","sink_id":"sink1","action":"write","message_id":"1","payload_len":0,"time":"2026-07-02T13:34:08+07:00","message":"Message written to sink"}
+{"level":"info","workflow_id":"conn1","sink_id":"sink2","action":"write","message_id":"1","payload_len":0,"time":"2026-07-02T13:34:08+07:00","message":"Message written to sink"}
+--- PASS: TestParallelSinks (0.21s)
+=== RUN   TestDeadLetterQueue
+{"level":"info","workflow_id":"conn-dlq","time":"2026-07-02T13:34:08+07:00","message":"Starting Hermod Engine"}
+{"level":"warn","workflow_id":"conn-dlq","attempt":1,"sink_id":"sink1","error":"permanent failure","time":"2026-07-02T13:34:08+07:00","message":"Sink write error, retrying"}
+{"level":"error","workflow_id":"conn-dlq","sink_id":"sink1","error":"permanent failure","time":"2026-07-02T13:34:08+07:00","message":"Sink write failed after retries"}
+{"level":"info","workflow_id":"conn-dlq","sink_id":"sink1","message_id":"dlq-test","time":"2026-07-02T13:34:08+07:00","message":"Sending message to Dead Letter Sink"}
+--- PASS: TestDeadLetterQueue (0.01s)
+=== RUN   TestCircuitBreakerTransitions
+{"level":"error","workflow_id":"","sink_id":"s1","fail_count":2,"open_until":"2026-07-02T13:34:09.071912+07:00","time":"2026-07-02T13:34:08+07:00","message":"Circuit breaker opened"}
+{"level":"info","workflow_id":"","sink_id":"s1","time":"2026-07-02T13:34:08+07:00","message":"Circuit breaker half-open"}
+{"level":"info","workflow_id":"","sink_id":"s1","time":"2026-07-02T13:34:08+07:00","message":"Circuit breaker closed after success"}
+--- PASS: TestCircuitBreakerTransitions (0.00s)
+=== RUN   TestEnginePanicIsolation
+{"level":"info","workflow_id":"wf-panic","time":"2026-07-02T13:34:08+07:00","message":"Starting Hermod Engine"}
+{"level":"error","workflow_id":"wf-panic","panic":"simulated source crash","stack":"goroutine 1589 [running]:\nruntime/debug.Stack()\n\t/opt/homebrew/Cellar/go/1.26.4/libexec/src/runtime/debug/stack.go:26 +0x64\ngithub.com/user/hermod/pkg/engine.(*Runner).Start.func1()\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/runner.go:46 +0x3c\npanic({0x102f9fb80?, 0x103103f80?})\n\t/opt/homebrew/Cellar/go/1.26.4/libexec/src/runtime/panic.go:860 +0x12c\ngithub.com/user/hermod/pkg/engine.(*panicSource).Read(0x16ba8cb503c0?, {0x1028a9d1a?, 0x16ba8cc37bc8?})\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/stability_test.go:25 +0x2c\ngithub.com/user/hermod/pkg/engine.(*Runner).runSourceToBuffer(0x16ba8cc1a8c0, {0x103112d30, 0x16ba8cb503c0})\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/runner.go:471 +0x520\ngithub.com/user/hermod/pkg/engine.(*Runner).Start(0x16ba8cc1a8c0, {0x103112d30?, 0x16ba8cb50370?})\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/runner.go:199 +0x83c\ngithub.com/user/hermod/pkg/engine.(*Engine).Start(...)\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/engine.go:387\ngithub.com/user/hermod/pkg/engine.TestEnginePanicIsolation.func1()\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/stability_test.go:50 +0x3c\ncreated by github.com/user/hermod/pkg/engine.TestEnginePanicIsolation in goroutine 1588\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/stability_test.go:49 +0x1e8\n","time":"2026-07-02T13:34:08+07:00","message":"Panic in engine runner"}
+--- PASS: TestEnginePanicIsolation (0.00s)
+=== RUN   TestEnginePanicDoesNotAffectSiblingWorkflow
+{"level":"info","workflow_id":"wf-healthy","time":"2026-07-02T13:34:08+07:00","message":"Starting Hermod Engine"}
+{"level":"info","workflow_id":"wf-crash","time":"2026-07-02T13:34:08+07:00","message":"Starting Hermod Engine"}
+{"level":"error","workflow_id":"wf-crash","panic":"simulated source crash","stack":"goroutine 1576 [running]:\nruntime/debug.Stack()\n\t/opt/homebrew/Cellar/go/1.26.4/libexec/src/runtime/debug/stack.go:26 +0x64\ngithub.com/user/hermod/pkg/engine.(*Runner).Start.func1()\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/runner.go:46 +0x3c\npanic({0x102f9fb80?, 0x103103f80?})\n\t/opt/homebrew/Cellar/go/1.26.4/libexec/src/runtime/panic.go:860 +0x12c\ngithub.com/user/hermod/pkg/engine.(*panicSource).Read(0x16ba8ce90000?, {0x1028a9d1a?, 0x16ba8ce06c08?})\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/stability_test.go:25 +0x2c\ngithub.com/user/hermod/pkg/engine.(*Runner).runSourceToBuffer(0x16ba8cf1a680, {0x103112d30, 0x16ba8ce90000})\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/runner.go:471 +0x520\ngithub.com/user/hermod/pkg/engine.(*Runner).Start(0x16ba8cf1a680, {0x103112da0?, 0x16ba8cd0b5e0?})\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/runner.go:199 +0x83c\ngithub.com/user/hermod/pkg/engine.(*Engine).Start(...)\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/engine.go:387\ngithub.com/user/hermod/pkg/engine.TestEnginePanicDoesNotAffectSiblingWorkflow.func1()\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/stability_test.go:90 +0x28\ncreated by github.com/user/hermod/pkg/engine.TestEnginePanicDoesNotAffectSiblingWorkflow in goroutine 1575\n\t/Users/gsoultan/GolandProjects/Hermod/pkg/engine/stability_test.go:90 +0x3b4\n","time":"2026-07-02T13:34:08+07:00","message":"Panic in engine runner"}
+{"level":"info","workflow_id":"wf-healthy","sink_id":"","action":"write","message_id":"healthy-1","payload_len":2,"time":"2026-07-02T13:34:08+07:00","message":"Message written to sink"}
+--- PASS: TestEnginePanicDoesNotAffectSiblingWorkflow (0.01s)
+{"level":"error","workflow_id":"wf-healthy","error":"context canceled","time":"2026-07-02T13:34:08+07:00","message":"Sink write error"}
+FAIL
+{"level":"info","workflow_id":"wf-healthy","time":"2026-07-02T13:34:08+07:00","message":"Hermod Engine stopped gracefully"}
+FAIL	github.com/user/hermod/pkg/engine	11.339s
+FAIL

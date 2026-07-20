@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/infra/evaluator"
 )
@@ -17,10 +17,10 @@ type JoinExecutor struct {
 }
 
 func init() {
-	registry.RegisterNodeExecutor("join", &JoinExecutor{})
+	interfaces.RegisterNodeExecutor("join", &JoinExecutor{})
 }
 
-func (e *JoinExecutor) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (e *JoinExecutor) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	keyPath, _ := node.Config["key_path"].(string)
 	if keyPath == "" {
 		return nil, "error", errors.New("join node requires key_path")
@@ -35,7 +35,7 @@ func (e *JoinExecutor) Execute(ctx context.Context, nctx registry.NodeContext, w
 	return e.handleJoin(nctx, node.ID, key, msg, int(expected))
 }
 
-func (e *JoinExecutor) handleJoin(nctx registry.NodeContext, nodeID, key string, msg hermod.Message, expected int) ([]hermod.Message, string, error) {
+func (e *JoinExecutor) handleJoin(nctx interfaces.NodeContext, nodeID, key string, msg hermod.Message, expected int) ([]hermod.Message, string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 

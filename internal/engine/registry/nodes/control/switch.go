@@ -5,19 +5,19 @@ import (
 	"encoding/json"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 )
 
 func init() {
-	registry.RegisterNodeExecutor("switch", &SwitchNode{})
+	interfaces.RegisterNodeExecutor("switch", &SwitchNode{})
 }
 
 // SwitchNode handles value-based branching.
 type SwitchNode struct{}
 
 // Execute evaluates cases and returns the matching branch label.
-func (n *SwitchNode) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (n *SwitchNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	casesStr, _ := node.Config["cases"].(string)
 	var cases []map[string]any
 	_ = json.Unmarshal([]byte(casesStr), &cases)

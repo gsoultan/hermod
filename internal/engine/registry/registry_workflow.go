@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/internal/engine/registry/traversal"
 	"github.com/user/hermod/internal/factory"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/comm/buffer"
@@ -574,86 +575,21 @@ func (r *Registry) setupWorkflowRouter(
 		// trace always shows "message received" even before any transform runs.
 		r.recordSourceIngestTrace(ctx, id, sourceNodeID, msg)
 
-		t := acquireWorkflowTraversal(r, eng, id, nodeMap, adj, nodeIndex, edgeLabels, edgeBreakpoints, inDegree, sinkNodeToIndex)
+		t := traversal.Acquire(r, eng, id, nodeMap, adj, nodeIndex, edgeLabels, edgeBreakpoints, inDegree, sinkNodeToIndex)
 		msg.Retain()
-		t.currentMessages[nodeIndex[sourceNodeID]] = msg
+		t.CurrentMessages[nodeIndex[sourceNodeID]] = msg
 
-		t.wg.Go(func() {
-			t.processNode(ctx, sourceNodeID)
-		})
-		t.wg.Wait()
+		t.Traverse(ctx, sourceNodeID)
 
 		// Clone the routed messages slice before releasing the traversal back to
 		// the pool. This avoids a data race where a subsequent message reuse
 		// clears the slice while a writer is still iterating over it.
-		routed := make([]pkgengine.RoutedMessage, len(t.routed))
-		copy(routed, t.routed)
-		releaseWorkflowTraversal(t)
+		routed := make([]pkgengine.RoutedMessage, len(t.Routed))
+		copy(routed, t.Routed)
+		traversal.Release(t)
 
 		return routed, nil
 	})
-}
-
-var traversalPool = sync.Pool{
-	New: func() any {
-		return &workflowTraversal{}
-	},
-}
-
-func acquireWorkflowTraversal(
-	registry *Registry,
-	eng *pkgengine.Engine,
-	workflowID string,
-	nodeMap map[string]*storage.WorkflowNode,
-	adj map[string][]string,
-	nodeIndex map[string]int,
-	edgeLabels map[string]string,
-	edgeBreakpoints map[string]bool,
-	inDegree map[string]int,
-	sinkNodeToIndex map[string]int,
-) *workflowTraversal {
-	t := traversalPool.Get().(*workflowTraversal)
-	t.registry = registry
-	t.eng = eng
-	t.workflowID = workflowID
-	t.nodeMap = nodeMap
-	t.adj = adj
-	t.nodeIndex = nodeIndex
-	t.edgeLabels = edgeLabels
-	t.edgeBreakpoints = edgeBreakpoints
-	t.inDegree = inDegree
-	t.sinkNodeToIndex = sinkNodeToIndex
-
-	numNodes := len(nodeIndex)
-	if cap(t.currentMessages) < numNodes {
-		t.currentMessages = make([]hermod.Message, numNodes)
-		t.receivedCount = make([]int32, numNodes)
-		t.resolvedCount = make([]int32, numNodes)
-		t.fired = make([]int32, numNodes)
-	} else {
-		t.currentMessages = t.currentMessages[:numNodes]
-		clear(t.currentMessages)
-		t.receivedCount = t.receivedCount[:numNodes]
-		clear(t.receivedCount)
-		t.resolvedCount = t.resolvedCount[:numNodes]
-		clear(t.resolvedCount)
-		t.fired = t.fired[:numNodes]
-		clear(t.fired)
-	}
-	t.routed = t.routed[:0]
-	return t
-}
-
-func releaseWorkflowTraversal(t *workflowTraversal) {
-	// Clear message references and ensure they are released to avoid memory leaks
-	// while the traversal object is sitting in the pool.
-	for i := range t.currentMessages {
-		if m := t.currentMessages[i]; m != nil {
-			m.Release()
-			t.currentMessages[i] = nil
-		}
-	}
-	traversalPool.Put(t)
 }
 
 func (r *Registry) setupSchemaValidation(eng *pkgengine.Engine, ctx context.Context, id string, wf storage.Workflow) {
@@ -1075,7 +1011,7 @@ func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.Wo
 	m := msg.Clone()
 	defer m.Release()
 
-	processedMsgs, branch, err := r.runWorkflowNode(workflowID, node, m)
+	processedMsgs, branch, err := r.RunWorkflowNode(workflowID, node, m)
 	defer func() {
 		for _, pm := range processedMsgs {
 			if pm != m {
@@ -1349,7 +1285,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 			})
 		} else if currNode.Type != "source" {
 			var err error
-			msgs, currBranch, err = r.runWorkflowNode(wf.ID, currNode, currMsg)
+			msgs, currBranch, err = r.RunWorkflowNode(wf.ID, currNode, currMsg)
 			for _, m := range msgs {
 				if m != currMsg {
 					toRelease = append(toRelease, m)

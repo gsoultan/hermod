@@ -6,20 +6,20 @@ import (
 	"strconv"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/infra/evaluator"
 )
 
 func init() {
-	registry.RegisterNodeExecutor("stateful", &StatefulNode{})
+	interfaces.RegisterNodeExecutor("stateful", &StatefulNode{})
 }
 
 // StatefulNode handles stateful operations like counting or summing.
 type StatefulNode struct{}
 
 // Execute performs the stateful operation and updates message data.
-func (n *StatefulNode) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (n *StatefulNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	op, _ := node.Config["operation"].(string)
 	field, _ := node.Config["field"].(string)
 	outputField, _ := node.Config["outputField"].(string)
@@ -46,7 +46,7 @@ func (n *StatefulNode) Execute(ctx context.Context, nctx registry.NodeContext, w
 	return []hermod.Message{modifiedMsg}, "", nil
 }
 
-func (n *StatefulNode) getCurrentValue(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode) float64 {
+func (n *StatefulNode) getCurrentValue(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode) float64 {
 	key := workflowID + ":" + node.ID
 	if store := nctx.StateStore(); store != nil {
 		if valBytes, err := store.Get(ctx, "node:"+key); err == nil && valBytes != nil {
@@ -63,7 +63,7 @@ func (n *StatefulNode) getCurrentValue(ctx context.Context, nctx registry.NodeCo
 	return 0
 }
 
-func (n *StatefulNode) saveValue(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, val float64) {
+func (n *StatefulNode) saveValue(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, val float64) {
 	key := workflowID + ":" + node.ID
 	if store := nctx.StateStore(); store != nil {
 		_ = store.Set(ctx, "node:"+key, []byte(fmt.Sprintf("%f", val)))

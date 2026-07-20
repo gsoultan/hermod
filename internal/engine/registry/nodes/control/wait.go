@@ -6,19 +6,19 @@ import (
 	"time"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 )
 
 func init() {
-	registry.RegisterNodeExecutor("wait", &WaitNode{})
+	interfaces.RegisterNodeExecutor("wait", &WaitNode{})
 }
 
 // WaitNode handles time-based pauses in workflows.
 type WaitNode struct{}
 
 // Execute waits for a configured duration before continuing.
-func (n *WaitNode) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (n *WaitNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	durationStr, _ := node.Config["duration"].(string)
 	if durationStr == "" {
 		return []hermod.Message{msg}, "", nil
@@ -36,7 +36,7 @@ func (n *WaitNode) Execute(ctx context.Context, nctx registry.NodeContext, workf
 	return n.waitForDuration(ctx, nctx, workflowID, duration, msg)
 }
 
-func (n *WaitNode) suspendMessage(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message, d time.Duration) ([]hermod.Message, string, error) {
+func (n *WaitNode) suspendMessage(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message, d time.Duration) ([]hermod.Message, string, error) {
 	sm := storage.SuspendedMessage{
 		ID:         msg.ID(),
 		WorkflowID: workflowID,
@@ -54,7 +54,7 @@ func (n *WaitNode) suspendMessage(ctx context.Context, nctx registry.NodeContext
 	return nil, "suspended", nil
 }
 
-func (n *WaitNode) waitForDuration(ctx context.Context, nctx registry.NodeContext, workflowID string, d time.Duration, msg hermod.Message) ([]hermod.Message, string, error) {
+func (n *WaitNode) waitForDuration(ctx context.Context, nctx interfaces.NodeContext, workflowID string, d time.Duration, msg hermod.Message) ([]hermod.Message, string, error) {
 	nctx.BroadcastLog(workflowID, "INFO", fmt.Sprintf("Waiting for %v", d), msg.ID())
 	select {
 	case <-time.After(d):

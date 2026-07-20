@@ -294,10 +294,10 @@ func (r *Registry) BroadcastStatus(update telemetry.StatusUpdate) {
 }
 
 func (r *Registry) broadcastLog(engineID, level, msg string) {
-	r.broadcastLogWithData(engineID, level, msg, "")
+	r.BroadcastLog(engineID, level, msg, "")
 }
 
-func (r *Registry) broadcastLogWithData(engineID, level, msg, data string) {
+func (r *Registry) BroadcastLog(engineID, level, msg, data string) {
 	l := storage.Log{
 		ID:        uuid.New().String(),
 		Timestamp: time.Now(),
@@ -479,13 +479,13 @@ func (r *Registry) broadcastLiveMessageFromHermod(workflowID, nodeID string, msg
 	})
 }
 
-func (r *Registry) isDebuggerAttached(workflowID string) bool {
+func (r *Registry) IsDebuggerAttached(workflowID string) bool {
 	r.debuggerSubsMu.RLock()
 	defer r.debuggerSubsMu.RUnlock()
 	return len(r.debuggerSubs[workflowID]) > 0
 }
 
-func (r *Registry) pauseForDebugger(workflowID, nodeID string, msg hermod.Message) {
+func (r *Registry) PauseForDebugger(workflowID, nodeID string, msg hermod.Message) {
 	if msg == nil {
 		return
 	}

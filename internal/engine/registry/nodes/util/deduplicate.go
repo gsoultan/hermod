@@ -6,14 +6,14 @@ import (
 	"sync"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/infra/evaluator"
 	"github.com/user/hermod/pkg/infra/filter"
 )
 
 func init() {
-	registry.RegisterNodeExecutor("deduplicate", &DeduplicateNode{
+	interfaces.RegisterNodeExecutor("deduplicate", &DeduplicateNode{
 		filters: make(map[string]filter.Filter),
 	})
 }
@@ -25,7 +25,7 @@ type DeduplicateNode struct {
 }
 
 // Execute checks if the message is a duplicate based on a configured key.
-func (n *DeduplicateNode) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (n *DeduplicateNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	key := n.extractKey(node, msg)
 	if key == "" {
 		return []hermod.Message{msg}, "", nil

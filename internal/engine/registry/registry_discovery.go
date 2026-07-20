@@ -29,46 +29,11 @@ func (r *Registry) discoveryKey(prefix string, cfg any) string {
 }
 
 func (r *Registry) TestSource(ctx context.Context, cfg factory.SourceConfig) error {
-	key := r.discoveryKey("test-source", cfg)
-	_, err := r.discoveryDo(ctx, key, func(ctx context.Context) (any, error) {
-		src, err := r.createSource(ctx, cfg)
-		if err != nil {
-			return struct{}{}, err
-		}
-		if src == nil {
-			return struct{}{}, fmt.Errorf("source type %q produced a nil source", cfg.Type)
-		}
-		defer src.Close()
-
-		if readyChecker, ok := src.(hermod.ReadyChecker); ok {
-			return struct{}{}, readyChecker.IsReady(ctx)
-		}
-		return struct{}{}, src.Ping(ctx)
-	})
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return fmt.Errorf("source connection test timed out: %w", err)
-	}
-	return err
+	return r.discoveryService.TestSource(ctx, cfg)
 }
 
 func (r *Registry) TestSink(ctx context.Context, cfg factory.SinkConfig) error {
-	if cfg.Type == "stdout" {
-		return nil
-	}
-
-	key := r.discoveryKey("test-sink", cfg)
-	_, err := r.discoveryDo(ctx, key, func(ctx context.Context) (any, error) {
-		snk, err := r.createSink(ctx, cfg)
-		if err != nil {
-			return struct{}{}, err
-		}
-		defer snk.Close()
-		return struct{}{}, snk.Ping(ctx)
-	})
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return fmt.Errorf("sink connection test timed out: %w", err)
-	}
-	return err
+	return r.discoveryService.TestSink(ctx, cfg)
 }
 
 // runWithContext executes fn in a separate goroutine and races its completion

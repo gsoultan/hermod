@@ -6,19 +6,19 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 )
 
 func init() {
-	registry.RegisterNodeExecutor("approval", &ApprovalNode{})
+	interfaces.RegisterNodeExecutor("approval", &ApprovalNode{})
 }
 
 // ApprovalNode handles human-in-the-loop approvals.
 type ApprovalNode struct{}
 
 // Execute halts the workflow and creates an approval request.
-func (n *ApprovalNode) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (n *ApprovalNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	app := n.createApprovalModel(workflowID, node, msg)
 
 	// Support custom forms

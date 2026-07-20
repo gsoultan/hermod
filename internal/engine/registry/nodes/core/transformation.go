@@ -5,19 +5,19 @@ import (
 	"encoding/json"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 )
 
 func init() {
-	registry.RegisterNodeExecutor("transformation", &TransformationNode{})
+	interfaces.RegisterNodeExecutor("transformation", &TransformationNode{})
 }
 
 // TransformationNode handles data transformations.
 type TransformationNode struct{}
 
 // Execute runs the configured transformation or pipeline.
-func (n *TransformationNode) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (n *TransformationNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	transType, _ := node.Config["transType"].(string)
 	if transType == "pipeline" {
 		return n.runPipeline(ctx, nctx, node, msg)
@@ -37,7 +37,7 @@ func (n *TransformationNode) Execute(ctx context.Context, nctx registry.NodeCont
 	return []hermod.Message{res}, "", nil
 }
 
-func (n *TransformationNode) runPipeline(ctx context.Context, nctx registry.NodeContext, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (n *TransformationNode) runPipeline(ctx context.Context, nctx interfaces.NodeContext, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	var steps []map[string]any
 	if cached, ok := node.Config["_parsed_steps"].([]map[string]any); ok {
 		steps = cached

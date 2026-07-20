@@ -5,19 +5,19 @@ import (
 	"encoding/json"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 )
 
 func init() {
-	registry.RegisterNodeExecutor("router", &RouterNode{})
+	interfaces.RegisterNodeExecutor("router", &RouterNode{})
 }
 
 // RouterNode handles multi-branch routing based on rules.
 type RouterNode struct{}
 
 // Execute evaluates rules and returns the label of the first matching rule.
-func (n *RouterNode) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (n *RouterNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	rulesStr, _ := node.Config["rules"].(string)
 	var rules []map[string]any
 	_ = json.Unmarshal([]byte(rulesStr), &rules)

@@ -17,9 +17,25 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/user/hermod/internal/ai"
 	"github.com/user/hermod/internal/api/handlers"
+	approvalhttp "github.com/user/hermod/internal/approval/transport/http"
+	authhttp "github.com/user/hermod/internal/auth/transport/http"
 	"github.com/user/hermod/internal/config"
+	dashboardhttp "github.com/user/hermod/internal/dashboard/transport/http"
 	"github.com/user/hermod/internal/engine/registry"
+	fileshttp "github.com/user/hermod/internal/files/transport/http"
+	formshttp "github.com/user/hermod/internal/forms/transport/http"
+	infrahttp "github.com/user/hermod/internal/infra/transport/http"
+	logshttp "github.com/user/hermod/internal/logs/transport/http"
+	marketplacehttp "github.com/user/hermod/internal/marketplace/transport/http"
+	schemahttp "github.com/user/hermod/internal/schema/transport/http"
+	sinkhttp "github.com/user/hermod/internal/sink/transport/http"
+	sourcehttp "github.com/user/hermod/internal/source/transport/http"
+	ssehttp "github.com/user/hermod/internal/sse/transport/http"
 	"github.com/user/hermod/internal/storage"
+	webhookshttp "github.com/user/hermod/internal/webhooks/transport/http"
+	workerhttp "github.com/user/hermod/internal/worker/transport/http"
+	workflowhttp "github.com/user/hermod/internal/workflow/transport/http"
+	wshttp "github.com/user/hermod/internal/ws/transport/http"
 	grpcsource "github.com/user/hermod/pkg/comm/source/grpc"
 	"github.com/user/hermod/pkg/comm/source/grpc/proto"
 	"github.com/user/hermod/pkg/infra/filestorage"
@@ -94,11 +110,28 @@ func (s *Server) SetWorker(w handlers.WorkerUpdater) {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
+	infraH := infrahttp.NewInfraHandler(s.Handler)
+	workflowH := workflowhttp.NewWorkflowHandler(s.Handler)
+	sourceH := sourcehttp.NewSourceHandler(s.Handler)
+	sinkH := sinkhttp.NewSinkHandler(s.Handler)
+	approvalH := approvalhttp.NewApprovalHandler(s.Handler)
+	authH := authhttp.NewAuthHandler(s.Handler)
+	schemaH := schemahttp.NewSchemaHandler(s.Handler)
+	marketplaceH := marketplacehttp.NewMarketplaceHandler(s.Handler)
+	logsH := logshttp.NewLogHandler(s.Handler)
+	dashboardH := dashboardhttp.NewDashboardHandler(s.Handler)
+	sseH := ssehttp.NewSSEHandler(s.Handler)
+	wsH := wshttp.NewWSHandler(s.Handler)
+	formsH := formshttp.NewFormHandler(s.Handler)
+	filesH := fileshttp.NewFileHandler(s.Handler)
+	webhooksH := webhookshttp.NewWebhookHandler(s.Handler)
+	workerH := workerhttp.NewWorkerHandler(s.Handler)
+
 	// Health endpoints (unauthenticated; used by Kubernetes and load balancers)
-	mux.HandleFunc("GET /healthz", s.Handler.HandleLiveness)
-	mux.HandleFunc("GET /livez", s.Handler.HandleLiveness)
-	mux.HandleFunc("GET /readyz", s.Handler.HandleReadiness)
-	mux.HandleFunc("GET /api/version", s.Handler.HandleVersion)
+	mux.HandleFunc("GET /healthz", infraH.HandleLiveness)
+	mux.HandleFunc("GET /livez", infraH.HandleLiveness)
+	mux.HandleFunc("GET /readyz", infraH.HandleReadiness)
+	mux.HandleFunc("GET /api/version", infraH.HandleVersion)
 
 	// Optional pprof endpoints guarded by env var
 	if os.Getenv("HERMOD_PPROF") == "true" {
@@ -109,32 +142,24 @@ func (s *Server) Routes() http.Handler {
 		mux.HandleFunc("/debug/pprof/trace", httppprof.Trace)
 	}
 
-	s.Handler.RegisterWorkflowRoutes(mux)
-	s.Handler.RegisterSourceRoutes(mux)
-	s.Handler.RegisterSinkRoutes(mux)
-	s.Handler.RegisterApprovalRoutes(mux)
-	s.Handler.RegisterAuthRoutes(mux)
-	s.Handler.RegisterInfrastructureRoutes(mux)
-	s.Handler.RegisterSchemaRoutes(mux)
-	s.Handler.RegisterMarketplaceRoutes(mux)
+	workflowH.RegisterWorkflowRoutes(mux)
+	sourceH.RegisterSourceRoutes(mux)
+	sinkH.RegisterSinkRoutes(mux)
+	approvalH.RegisterApprovalRoutes(mux)
+	authH.RegisterAuthRoutes(mux)
+	infraH.RegisterInfrastructureRoutes(mux)
+	schemaH.RegisterSchemaRoutes(mux)
+	marketplaceH.RegisterMarketplaceRoutes(mux)
+	logsH.RegisterLogRoutes(mux)
+	dashboardH.RegisterDashboardRoutes(mux)
+	sseH.RegisterSSERoutes(mux)
+	wsH.RegisterWSRoutes(mux)
+	formsH.RegisterFormRoutes(mux)
+	filesH.RegisterFileRoutes(mux)
+	webhooksH.RegisterWebhookRoutes(mux)
+	workerH.RegisterWorkerRoutes(mux)
 
-	mux.HandleFunc("POST /api/webhooks/{path...}", s.Handler.HandleWebhook)
-	mux.HandleFunc("GET /api/webhooks/{path...}", s.Handler.HandleWebhook)
-	mux.HandleFunc("POST /api/graphql/{path...}", s.Handler.HandleGraphQL)
-	// Data orchestration streams (SSE)
-	mux.HandleFunc("GET /streams/sse", s.Handler.HandleSSEStream)
-	// Internal API notifications (SSE)
-	mux.HandleFunc("GET /api/notifications/sse", s.Handler.HandleInternalSSE)
-
-	// WebSocket server-mode endpoints
-	mux.HandleFunc("GET /api/ws/in/{path...}", s.Handler.HandleWSIn)
-	mux.HandleFunc("GET /api/ws/out/{workflowID}", s.Handler.HandleWSOut)
-
-	// Form submissions endpoint
-	mux.HandleFunc("POST /api/forms/{path...}", s.Handler.HandleForm)
-	mux.HandleFunc("GET /api/forms/{path...}", s.Handler.HandleForm)
-	// Public generated form page
-	mux.HandleFunc("GET /forms/{path...}", s.Handler.ServeFormPage)
+	mux.HandleFunc("POST /api/graphql/{path...}", webhooksH.HandleGraphQL)
 	mux.Handle("/metrics", promhttp.Handler())
 
 	// Static files

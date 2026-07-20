@@ -7,20 +7,20 @@ import (
 	"strconv"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/infra/evaluator"
 )
 
 func init() {
-	registry.RegisterNodeExecutor("foreach", &ForeachNode{})
+	interfaces.RegisterNodeExecutor("foreach", &ForeachNode{})
 }
 
 // ForeachNode implements execution-level fan-out.
 type ForeachNode struct{}
 
 // Execute splits a single message into multiple messages based on an array field.
-func (n *ForeachNode) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (n *ForeachNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	arrayPath, _ := node.Config["arrayPath"].(string)
 	if arrayPath == "" {
 		return nil, "", errors.New("foreach: arrayPath is required")

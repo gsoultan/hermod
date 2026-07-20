@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/infra/evaluator"
 	"go.opentelemetry.io/otel/attribute"
@@ -257,7 +258,7 @@ func (s *statefulSource) IsReady(ctx context.Context) error {
 
 // --- Workflow Node Execution ---
 
-func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (r *Registry) RunWorkflowNode(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	if msg == nil {
 		return nil, "", nil
 	}
@@ -274,7 +275,7 @@ func (r *Registry) runWorkflowNode(workflowID string, node *storage.WorkflowNode
 	r.broadcastLiveMessageFromHermod(workflowID, node.ID, msg, false, "")
 
 	msgs, branch, err := func() ([]hermod.Message, string, error) {
-		if executor, ok := GetNodeExecutor(node.Type); ok {
+		if executor, ok := interfaces.GetNodeExecutor(node.Type); ok {
 			return executor.Execute(ctx, r, workflowID, node, msg)
 		}
 		// Default/Fallback behavior (merging, sink, source, etc.)

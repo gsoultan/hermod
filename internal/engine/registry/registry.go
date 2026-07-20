@@ -22,6 +22,8 @@ import (
 	_ "github.com/snowflakedb/gosnowflake"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/ai"
+	"github.com/user/hermod/internal/discovery/service"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/factory"
 	"github.com/user/hermod/internal/governance"
 	"github.com/user/hermod/internal/mesh"
@@ -60,48 +62,6 @@ func init() {
 	}
 }
 
-type RegistryStorage interface {
-	GetSource(ctx context.Context, id string) (storage.Source, error)
-	GetSink(ctx context.Context, id string) (storage.Sink, error)
-	GetWorkflow(ctx context.Context, id string) (storage.Workflow, error)
-	ListWorkflows(ctx context.Context, filter storage.CommonFilter) ([]storage.Workflow, int, error)
-	ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error)
-	ListSinks(ctx context.Context, filter storage.CommonFilter) ([]storage.Sink, int, error)
-	ListWorkers(ctx context.Context, filter storage.CommonFilter) ([]storage.Worker, int, error)
-
-	CreateFormSubmission(ctx context.Context, sub storage.FormSubmission) error
-	ListFormSubmissions(ctx context.Context, filter storage.FormSubmissionFilter) ([]storage.FormSubmission, int, error)
-	UpdateFormSubmissionStatus(ctx context.Context, id string, status string) error
-	UpdateWorkflow(ctx context.Context, wf storage.Workflow) error
-	UpdateWorkflowStatus(ctx context.Context, id string, status string) error
-	UpdateWorkflowStats(ctx context.Context, id string, processed, errors, lag uint64) error
-	UpdateSourceStatus(ctx context.Context, id string, status string) error
-	UpdateSinkStatus(ctx context.Context, id string, status string) error
-	CreateLog(ctx context.Context, log storage.Log) error
-	CreateLogs(ctx context.Context, logs []storage.Log) error
-	DeleteLogs(ctx context.Context, filter storage.LogFilter) error
-	UpdateSource(ctx context.Context, src storage.Source) error
-	UpdateSourceState(ctx context.Context, id string, state map[string]string) error
-	UpdateSink(ctx context.Context, snk storage.Sink) error
-	UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error
-	GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error)
-	RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error
-	PurgeLogs(ctx context.Context, before time.Time) error
-	PurgeAuditLogs(ctx context.Context, before time.Time) error
-	PurgeMessageTraces(ctx context.Context, before time.Time) error
-
-	CreateApproval(ctx context.Context, app storage.Approval) error
-	GetApproval(ctx context.Context, id string) (storage.Approval, error)
-	UpdateApprovalStatus(ctx context.Context, id string, status string, processedBy string, notes string, formData map[string]any) error
-
-	CreateSuspendedMessage(ctx context.Context, m storage.SuspendedMessage) error
-	ListSuspendedMessages(ctx context.Context, workflowID string, before time.Time) ([]storage.SuspendedMessage, error)
-	DeleteSuspendedMessage(ctx context.Context, id string) error
-
-	// Aggregated Dashboard Stats
-	GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error)
-}
-
 type SourceFactory func(factory.SourceConfig) (hermod.Source, error)
 type SinkFactory func(factory.SinkConfig) (hermod.Sink, error)
 
@@ -130,8 +90,8 @@ type PIIStats struct {
 type Registry struct {
 	engines    map[string]*activeEngine
 	mu         sync.RWMutex
-	storage    RegistryStorage
-	logStorage RegistryStorage
+	storage    interfaces.RegistryStorage
+	logStorage interfaces.RegistryStorage
 	config     config.Config
 
 	sourceFactory SourceFactory
@@ -169,6 +129,8 @@ type Registry struct {
 	optimizer           *optimizer.Optimizer
 	dqScorer            *governance.Scorer
 	meshManager         *mesh.Manager
+
+	discoveryService *service.DiscoveryService
 
 	piiStats   map[string]*PIIStats
 	piiStatsMu sync.RWMutex
@@ -221,6 +183,18 @@ type activeEngine struct {
 	sinkNodeToIndex map[string]int
 }
 
+func (r *Registry) CreateSource(ctx context.Context, cfg factory.SourceConfig) (hermod.Source, error) {
+	return r.createSource(ctx, cfg)
+}
+
+func (r *Registry) Logger() hermod.Logger {
+	return r.logger
+}
+
+func (r *Registry) CreateSink(ctx context.Context, cfg factory.SinkConfig) (hermod.Sink, error) {
+	return r.createSink(ctx, cfg)
+}
+
 func (r *Registry) SetSourceFactory(f SourceFactory) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -231,6 +205,18 @@ func (r *Registry) SetSinkFactory(f SinkFactory) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sinkFactory = f
+}
+
+func (r *Registry) GetSourceFactoryConfig(ctx context.Context, id string) (factory.SourceConfig, error) {
+	src, err := r.GetSourceConfig(ctx, id)
+	if err != nil {
+		return factory.SourceConfig{}, err
+	}
+	return factory.SourceConfig{
+		ID:     src.ID,
+		Type:   src.Type,
+		Config: src.Config,
+	}, nil
 }
 
 func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
@@ -288,6 +274,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		ctx:                 ctx,
 		cancel:              cancel,
 	}
+	reg.discoveryService = service.NewDiscoveryService(reg)
 
 	reg.dqScorer.SetNotifier(func(wfID, title, msg string) {
 		ctx := context.Background()
@@ -885,13 +872,19 @@ func (r *Registry) SetConfig(cfg config.Config) {
 
 // maxLookupCacheSize bounds the number of entries kept in the in-memory lookup
 // cache so it cannot grow without limit and leak memory.
-const maxLookupCacheSize = 10000
+const MaxLookupCacheSize = 10000
 
 // lookupCacheEntry is a cached value with an optional expiry time. A zero
 // expiry means the entry never expires.
 type lookupCacheEntry struct {
 	value  any
 	expiry time.Time
+}
+
+func (r *Registry) GetLookupCacheSize() (int, int) {
+	r.lookupCacheMu.RLock()
+	defer r.lookupCacheMu.RUnlock()
+	return len(r.lookupCache), MaxLookupCacheSize
 }
 
 func (r *Registry) GetLookupCache(key string) (any, bool) {
@@ -926,7 +919,7 @@ func (r *Registry) SetLookupCache(key string, value any, ttl time.Duration) {
 	r.lookupCacheMu.Lock()
 	defer r.lookupCacheMu.Unlock()
 
-	if _, exists := r.lookupCache[key]; !exists && len(r.lookupCache) >= maxLookupCacheSize {
+	if _, exists := r.lookupCache[key]; !exists && len(r.lookupCache) >= MaxLookupCacheSize {
 		r.evictLookupCacheLocked()
 	}
 	r.lookupCache[key] = lookupCacheEntry{value: value, expiry: expiry}
@@ -943,7 +936,7 @@ func (r *Registry) evictLookupCacheLocked() {
 			delete(r.lookupCache, k)
 		}
 	}
-	if len(r.lookupCache) < maxLookupCacheSize {
+	if len(r.lookupCache) < MaxLookupCacheSize {
 		return
 	}
 	var victim string
@@ -1826,7 +1819,7 @@ func (r *Registry) IsResourceInUse(ctx context.Context, resourceID string, exclu
 }
 
 type formStorageAdapter struct {
-	storage RegistryStorage
+	storage interfaces.RegistryStorage
 }
 
 func (a *formStorageAdapter) CreateFormSubmission(ctx context.Context, sub sourceform.FormSubmission) error {

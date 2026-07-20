@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 	msgpkg "github.com/user/hermod/pkg/comm/message"
 )
@@ -25,8 +25,8 @@ func (s *stubCtx) ContextWithPipelineSnapshot(ctx context.Context) context.Conte
 func (s *stubCtx) EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 	return true
 }
-func (s *stubCtx) Storage() registry.RegistryStorage { return nil }
-func (s *stubCtx) StateStore() hermod.StateStore     { return nil }
+func (s *stubCtx) Storage() interfaces.RegistryStorage { return nil }
+func (s *stubCtx) StateStore() hermod.StateStore       { return nil }
 func (s *stubCtx) GetNodeState(key string) (any, bool) {
 	if s.state == nil {
 		return nil, false

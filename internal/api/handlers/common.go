@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,6 +83,28 @@ func (h *Handler) IsWorkerDraining(id string) bool {
 // ClearWorkerDraining removes any pending shutdown request for the given worker.
 func (h *Handler) ClearWorkerDraining(id string) {
 	h.DrainingWorkers.Delete(id)
+}
+
+const (
+	// MaxLoginAttempts is the number of consecutive failed login attempts
+	// allowed before an account/IP combination is temporarily locked out.
+	MaxLoginAttempts = 5
+
+	// LoginLockoutDuration is how long a locked account/IP must wait before
+	// it is allowed to attempt logging in again.
+	LoginLockoutDuration = 15 * time.Minute
+
+	// LoginAttemptWindow is the period of inactivity after which the failed
+	// attempt counter is reset automatically.
+	LoginAttemptWindow = 15 * time.Minute
+)
+
+// LoginAttempt holds the failed-login bookkeeping for a single key.
+type LoginAttempt struct {
+	Mu          sync.Mutex
+	Failures    int
+	LockedUntil time.Time
+	LastFailure time.Time
 }
 
 type contextKey string
@@ -691,13 +715,13 @@ func (h *Handler) purgeExpiredRateLimits() {
 
 	// Also purge stale login attempts to avoid memory leak
 	h.LoginAttempts.Range(func(key, value any) bool {
-		a, ok := value.(*loginAttempt)
+		a, ok := value.(*LoginAttempt)
 		if !ok {
 			return true
 		}
-		a.mu.Lock()
-		lastFailure := a.lastFailure
-		a.mu.Unlock()
+		a.Mu.Lock()
+		lastFailure := a.LastFailure
+		a.Mu.Unlock()
 
 		if !lastFailure.IsZero() && now.Sub(lastFailure) > LoginAttemptWindow*2 {
 			h.LoginAttempts.Delete(key)
@@ -774,6 +798,165 @@ func (h *Handler) BotProtectionCheck(r *http.Request, payload map[string]any, en
 	return nil
 }
 
+func (h *Handler) WakeUpWorkflow(ctx context.Context, resourceType string, path string) bool {
+	// 1. Find the source with this path
+	sources, _, err := h.Storage.ListSources(ctx, storage.CommonFilter{})
+	if err != nil {
+		return false
+	}
+
+	var sourceID string
+	for _, src := range sources {
+		if src.Type == resourceType && src.Config["path"] == path {
+			sourceID = src.ID
+			break
+		}
+	}
+
+	if sourceID == "" {
+		return false
+	}
+
+	// 2. Find workflows using this source
+	workflows, _, err := h.Storage.ListWorkflows(ctx, storage.CommonFilter{})
+	if err != nil {
+		return false
+	}
+
+	wokeUp := false
+	for _, wf := range workflows {
+		if wf.Status != "Parked" {
+			continue
+		}
+
+		for _, node := range wf.Nodes {
+			if node.Type == "source" && node.RefID == sourceID {
+				// Wake it up!
+				wf.Status = ""
+				_ = h.Storage.UpdateWorkflow(ctx, wf)
+				wokeUp = true
+
+				// Start it immediately in the local registry to minimize latency
+				if h.Registry != nil {
+					_ = h.Registry.StartWorkflow(wf.ID, wf)
+				}
+			}
+		}
+	}
+	return wokeUp
+}
+
+const (
+	// maxUploadBytes caps the size of an uploaded file (10 MB).
+	maxUploadBytes = 10 << 20
+)
+
+// allowedUploadExtensions is an allow-list of file extensions accepted by the
+// upload endpoint. Anything not listed here is rejected to avoid storing
+// executables, scripts, or other dangerous content.
+var allowedUploadExtensions = map[string]struct{}{
+	".csv":     {},
+	".tsv":     {},
+	".json":    {},
+	".jsonl":   {},
+	".ndjson":  {},
+	".xml":     {},
+	".yaml":    {},
+	".yml":     {},
+	".txt":     {},
+	".parquet": {},
+	".avro":    {},
+	".xlsx":    {},
+	".png":     {},
+	".jpg":     {},
+	".jpeg":    {},
+	".svg":     {},
+	".gif":     {},
+	".pem":     {},
+	".crt":     {},
+	".key":     {},
+	".sql":     {},
+	".gz":      {},
+	".zip":     {},
+}
+
+// uploadFile handles multipart file uploads, sanitizes the filename, and
+// stores the file using the configured file storage, returning the path or URI.
+func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
+	if h.FileStorage == nil {
+		http.Error(w, "File storage not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	// Enforce the size limit at the body level so oversized uploads are rejected
+	// before being buffered to memory/disk.
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+		http.Error(w, "Failed to parse form (file too large or malformed)", http.StatusBadRequest)
+		return
+	}
+
+	file, handler, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Failed to get file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Sanitize filename and prevent path traversal/overwrites.
+	name := filepath.Base(handler.Filename)
+	name = strings.ReplaceAll(name, "..", "_")
+
+	// Enforce the extension allow-list.
+	ext := strings.ToLower(filepath.Ext(name))
+	if _, ok := allowedUploadExtensions[ext]; !ok {
+		http.Error(w, "Unsupported file type", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	if name == "" || name == ext {
+		name = fmt.Sprintf("upload-%d%s", time.Now().UnixNano(), ext)
+	} else {
+		// Add timestamp to ensure uniqueness.
+		base := strings.TrimSuffix(name, filepath.Ext(name))
+		name = fmt.Sprintf("%s-%d%s", base, time.Now().UnixNano(), ext)
+	}
+
+	path, err := h.FileStorage.Save(r.Context(), name, file)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save file: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"path": path,
+	})
+}
+
+var (
+	// ipv4Re matches IPv4 addresses (optionally followed by :port).
+	ipv4Re = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b`)
+	// ipv6Re matches bracketed IPv6 host:port forms like [::1]:5432.
+	ipv6Re = regexp.MustCompile(`\[[0-9A-Fa-f:]+\](?::\d{1,5})?`)
+	// hostPortRe matches hostname:port pairs (e.g. db.internal:5432).
+	hostPortRe = regexp.MustCompile(`\b[A-Za-z0-9][A-Za-z0-9.\-]*:\d{2,5}\b`)
+)
+
+// SanitizeDBError strips network identifiers (IP addresses, hostnames and
+// ports) from a database connection error so they are never exposed to clients.
+func SanitizeDBError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	msg = ipv6Re.ReplaceAllString(msg, "[redacted]")
+	msg = ipv4Re.ReplaceAllString(msg, "[redacted]")
+	msg = hostPortRe.ReplaceAllString(msg, "[redacted]")
+	return msg
+}
+
+// MarkWorkerDraining records that a graceful shutdown has been requested for the
 // verifyFormTiming validates the anti-bot form token and the minimum submit
 // time window for browser (non-JSON) form submissions.
 func verifyFormTiming(r *http.Request, payload map[string]any, minMs int) error {

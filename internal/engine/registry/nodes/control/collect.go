@@ -8,12 +8,12 @@ import (
 	"sync"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
 )
 
 func init() {
-	registry.RegisterNodeExecutor("collect", &CollectNode{})
+	interfaces.RegisterNodeExecutor("collect", &CollectNode{})
 }
 
 // CollectNode (Fan-in) waits for all messages from a fan-out group before continuing.
@@ -22,7 +22,7 @@ type CollectNode struct {
 }
 
 // Execute accumulates messages until all items of a fan-out group are received.
-func (n *CollectNode) Execute(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+func (n *CollectNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	groupID := msg.Metadata()["_fanout_group"]
 	totalStr := msg.Metadata()["_fanout_total"]
 
@@ -39,7 +39,7 @@ func (n *CollectNode) Execute(ctx context.Context, nctx registry.NodeContext, wo
 	return n.handleCollection(ctx, nctx, workflowID, node, msg, groupID, total)
 }
 
-func (n *CollectNode) handleCollection(ctx context.Context, nctx registry.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message, groupID string, total int) ([]hermod.Message, string, error) {
+func (n *CollectNode) handleCollection(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message, groupID string, total int) ([]hermod.Message, string, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -75,7 +75,7 @@ func (n *CollectNode) getMessageItem(msg hermod.Message) any {
 	return msg.Data()
 }
 
-func (n *CollectNode) finish(ctx context.Context, nctx registry.NodeContext, store hermod.StateStore, workflowID string, node *storage.WorkflowNode, msg hermod.Message, key string, items []any, groupID string) ([]hermod.Message, string, error) {
+func (n *CollectNode) finish(ctx context.Context, nctx interfaces.NodeContext, store hermod.StateStore, workflowID string, node *storage.WorkflowNode, msg hermod.Message, key string, items []any, groupID string) ([]hermod.Message, string, error) {
 	targetField, _ := node.Config["targetField"].(string)
 	if targetField == "" {
 		targetField = "_items"
@@ -90,7 +90,7 @@ func (n *CollectNode) finish(ctx context.Context, nctx registry.NodeContext, sto
 	return []hermod.Message{resMsg}, "", nil
 }
 
-func (n *CollectNode) persist(ctx context.Context, nctx registry.NodeContext, store hermod.StateStore, workflowID string, key string, items []any, groupID string, total int, msgID string) ([]hermod.Message, string, error) {
+func (n *CollectNode) persist(ctx context.Context, nctx interfaces.NodeContext, store hermod.StateStore, workflowID string, key string, items []any, groupID string, total int, msgID string) ([]hermod.Message, string, error) {
 	newData, _ := json.Marshal(items)
 	_ = store.Set(ctx, key, newData)
 
