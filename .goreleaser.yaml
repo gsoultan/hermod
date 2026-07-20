@@ -59,7 +59,6 @@ archives:
     files:
       - LICENSE
       - README.md
-      - config.yaml
 
 nfpms:
   - file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
