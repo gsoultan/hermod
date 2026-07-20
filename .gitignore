@@ -50,3 +50,4 @@ main
 hermod_state.db
 ui/bun.lock
 go.sum
+/graphify-out
