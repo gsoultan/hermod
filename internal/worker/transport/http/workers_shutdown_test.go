@@ -30,7 +30,7 @@ func TestShutdownWorker(t *testing.T) {
 				worker: storage.Worker{ID: "w-1", Name: "worker-1", Token: "secret"},
 				getErr: tc.getErr,
 			}
-			h := &Handler{Storage: store, LogStorage: store}
+			h := &WorkerHandler{Handler: &handlers.Handler{Storage: store, LogStorage: store}}
 
 			req := httptest.NewRequest(http.MethodPost, "/api/workers/w-1/shutdown", nil)
 			req.SetPathValue("id", "w-1")
@@ -54,7 +54,7 @@ func TestShutdownWorker(t *testing.T) {
 // back to a polling worker via GetWorker so it can begin its graceful shutdown.
 func TestShutdownWorkerSurfacedToGetWorker(t *testing.T) {
 	store := &workerStartMockStorage{worker: storage.Worker{ID: "w-1", Name: "worker-1", Token: "secret"}}
-	h := &Handler{Storage: store, LogStorage: store}
+	h := &WorkerHandler{Handler: &handlers.Handler{Storage: store, LogStorage: store}}
 
 	h.MarkWorkerDraining("w-1")
 

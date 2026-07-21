@@ -7,11 +7,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/user/hermod/internal/api/handlers"
 	"github.com/user/hermod/internal/storage"
 )
 
 func TestValidateWorkflow(t *testing.T) {
-	h := &Handler{} // Minimal handler for testing validation logic
+	h := &WorkflowHandler{Handler: &handlers.Handler{}} // Minimal handler for testing validation logic
 
 	tests := []struct {
 		name           string
@@ -116,7 +117,7 @@ func TestHandleValidateWorkflow(t *testing.T) {
 			},
 		},
 	}
-	h := &Handler{Storage: mock}
+	h := &WorkflowHandler{Handler: &handlers.Handler{Storage: mock}}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/workflows/{id}/validate", h.HandleValidateWorkflow)

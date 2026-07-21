@@ -31,6 +31,10 @@ func (m *workerStartMockStorage) CreateAuditLog(_ context.Context, _ storage.Aud
 	return nil
 }
 
+func (m *workerStartMockStorage) GetSetting(_ context.Context, _ string) (string, error) {
+	return "", storage.ErrNotFound
+}
+
 func TestStartWorker(t *testing.T) {
 	// Stub the process spawner so tests never launch a real binary.
 	originalSpawn := spawnWorkerProcess
@@ -56,7 +60,7 @@ func TestStartWorker(t *testing.T) {
 				worker: storage.Worker{ID: "w-1", Name: "worker-1", Token: "secret", Host: "localhost", Port: 3000},
 				getErr: tc.getErr,
 			}
-			h := &Handler{Storage: store, LogStorage: store}
+			h := &WorkerHandler{Handler: &handlers.Handler{Storage: store, LogStorage: store}}
 
 			req := httptest.NewRequest(http.MethodPost, "/api/workers/w-1/start", nil)
 			req.SetPathValue("id", "w-1")

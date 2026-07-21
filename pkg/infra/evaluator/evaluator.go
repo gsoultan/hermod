@@ -691,7 +691,8 @@ func resolveTemplatePath(path string, data map[string]any) string {
 	var val any
 	switch {
 	case strings.HasPrefix(path, "env."):
-		val = os.Getenv(strings.TrimPrefix(path, "env."))
+		// Environment variable access is disabled for security reasons
+		return ""
 	case strings.Contains(path, "(") && strings.HasSuffix(path, ")"):
 		e := NewEvaluator()
 		// Create a mock message if data is provided, to allow accessing it via source.path

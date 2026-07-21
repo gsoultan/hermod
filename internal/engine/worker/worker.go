@@ -292,6 +292,7 @@ func (w *Worker) SelfRegister(ctx context.Context) error {
 	if name == "" {
 		name = w.workerGUID
 	}
+	now := time.Now()
 	return w.storage.CreateWorker(ctx, storage.Worker{
 		ID:          w.workerGUID,
 		Name:        name,
@@ -299,7 +300,7 @@ func (w *Worker) SelfRegister(ctx context.Context) error {
 		Port:        w.workerPort,
 		Description: w.workerDescription,
 		Token:       w.workerToken,
-		LastSeen:    new(time.Now()),
+		LastSeen:    &now,
 	})
 }
 

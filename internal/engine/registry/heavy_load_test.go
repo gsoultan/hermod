@@ -1,4 +1,4 @@
-package registry_test
+package registry
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/factory"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/internal/testutil"
@@ -17,11 +16,11 @@ import (
 	"github.com/user/hermod/pkg/engine/config"
 )
 
-type mockSource struct {
+type heavyMockSource struct {
 	msgChan chan hermod.Message
 }
 
-func (m *mockSource) Read(ctx context.Context) (hermod.Message, error) {
+func (m *heavyMockSource) Read(ctx context.Context) (hermod.Message, error) {
 	select {
 	case msg := <-m.msgChan:
 		return msg, nil
@@ -29,41 +28,41 @@ func (m *mockSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, ctx.Err()
 	}
 }
-func (m *mockSource) Ack(ctx context.Context, msg hermod.Message) error { return nil }
-func (m *mockSource) Close() error                                      { return nil }
-func (m *mockSource) Ping(ctx context.Context) error                    { return nil }
+func (m *heavyMockSource) Ack(ctx context.Context, msg hermod.Message) error { return nil }
+func (m *heavyMockSource) Close() error                                      { return nil }
+func (m *heavyMockSource) Ping(ctx context.Context) error                    { return nil }
 
-type mockSink struct {
+type heavyMockSink struct {
 	count atomic.Int64
 }
 
-func (m *mockSink) Write(ctx context.Context, msg hermod.Message) error {
+func (m *heavyMockSink) Write(ctx context.Context, msg hermod.Message) error {
 	m.count.Add(1)
 	return nil
 }
-func (m *mockSink) Close() error                   { return nil }
-func (m *mockSink) Ping(ctx context.Context) error { return nil }
+func (m *heavyMockSink) Close() error                   { return nil }
+func (m *heavyMockSink) Ping(ctx context.Context) error { return nil }
 
-type mockStorage struct {
+type heavyMockStorage struct {
 	testutil.BaseMockStorage
 }
 
-func (m *mockStorage) GetSource(ctx context.Context, id string) (storage.Source, error) {
+func (m *heavyMockStorage) GetSource(ctx context.Context, id string) (storage.Source, error) {
 	return storage.Source{ID: id, Name: "mock"}, nil
 }
-func (m *mockStorage) GetSink(ctx context.Context, id string) (storage.Sink, error) {
+func (m *heavyMockStorage) GetSink(ctx context.Context, id string) (storage.Sink, error) {
 	return storage.Sink{ID: id, Name: "mock"}, nil
 }
-func (m *mockStorage) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
+func (m *heavyMockStorage) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {
 	return storage.Workflow{ID: id}, nil
 }
-func (m *mockStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
+func (m *heavyMockStorage) UpdateWorkflowStatus(ctx context.Context, id string, status string) error {
 	return nil
 }
-func (m *mockStorage) UpdateSourceStatus(ctx context.Context, id string, status string) error {
+func (m *heavyMockStorage) UpdateSourceStatus(ctx context.Context, id string, status string) error {
 	return nil
 }
-func (m *mockStorage) UpdateSinkStatus(ctx context.Context, id string, status string) error {
+func (m *heavyMockStorage) UpdateSinkStatus(ctx context.Context, id string, status string) error {
 	return nil
 }
 
@@ -72,8 +71,8 @@ func TestHeavyLoad(t *testing.T) {
 		t.Skip("skipping heavy load test in short mode")
 	}
 
-	ms := &mockStorage{}
-	reg := registry.NewRegistry(ms)
+	ms := &heavyMockStorage{}
+	reg := NewRegistry(ms)
 
 	// Create a complex workflow
 	wf := storage.Workflow{
@@ -98,8 +97,8 @@ func TestHeavyLoad(t *testing.T) {
 	os.Setenv("HERMOD_RINGBUFFER_CAP", "10000")
 	defer os.Unsetenv("HERMOD_RINGBUFFER_CAP")
 
-	src := &mockSource{msgChan: make(chan hermod.Message, 1000)}
-	snk := &mockSink{}
+	src := &heavyMockSource{msgChan: make(chan hermod.Message, 1000)}
+	snk := &heavyMockSink{}
 
 	// We need to inject these into registry factories
 	reg.SetSourceFactory(func(cfg factory.SourceConfig) (hermod.Source, error) {

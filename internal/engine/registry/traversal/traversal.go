@@ -118,13 +118,11 @@ func Release(t *WorkflowTraversal) {
 }
 
 func (t *WorkflowTraversal) Traverse(ctx context.Context, startNodeID string) {
-	t.Wg.Add(1)
-	go t.processNode(ctx, startNodeID)
+	t.Wg.Go(func() { t.processNode(ctx, startNodeID) })
 	t.Wg.Wait()
 }
 
 func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
-	defer t.Wg.Done()
 	defer func() {
 		if rec := recover(); rec != nil {
 			if t.Registry != nil && t.Registry.Logger() != nil {
@@ -169,7 +167,29 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	defer currMsg.Release()
 
 	msgs, branch, err := t.runNode(ctx, currNode, currMsg)
+
+	// If the current node is a sink, route the results to the writer.
+	if currNode.Type == "sink" {
+		t.RoutedMu.Lock()
+		if sinkIdx, ok := t.SinkNodeToIndex[currID]; ok {
+			for _, m := range msgs {
+				m.Retain()
+				t.Routed = append(t.Routed, pkgengine.RoutedMessage{
+					SinkIndex: sinkIdx,
+					Message:   m,
+				})
+			}
+		}
+		t.RoutedMu.Unlock()
+	}
+
 	t.handleResults(ctx, currNode, msgs, branch, err)
+
+	// Release messages returned from runNode as we've either routed them
+	// or they were passed to resolveEdge (which retains them).
+	for _, m := range msgs {
+		m.Release()
+	}
 }
 
 func (t *WorkflowTraversal) runNode(ctx context.Context, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
@@ -212,7 +232,20 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 
 		if taken {
 			for _, msg := range msgs {
-				t.resolveEdge(ctx, targetID, msg)
+				// Clone the message if it's going to multiple targets to avoid data races
+				// when nodes modify the message concurrently.
+				passMsg := msg
+				if len(targets) > 1 {
+					passMsg = msg.Clone()
+				}
+
+				t.resolveEdge(ctx, targetID, passMsg)
+
+				// If we cloned, release the clone's initial reference count
+				// as resolveEdge has already called Retain() if it stored it.
+				if passMsg != msg {
+					passMsg.Release()
+				}
 			}
 		} else {
 			t.pruneBranch(ctx, targetID)
@@ -241,16 +274,14 @@ func (t *WorkflowTraversal) pruneBranch(ctx context.Context, targetID string) {
 
 func (t *WorkflowTraversal) resolveEdge(ctx context.Context, targetID string, msg hermod.Message) {
 	idx := t.NodeIndex[targetID]
+	targetNode := t.NodeMap[targetID]
 
 	t.MsgMu.Lock()
 	if t.CurrentMessages[idx] == nil {
 		msg.Retain()
 		t.CurrentMessages[idx] = msg
-	} else {
-		// For join nodes or multiple branches reaching the same node,
-		// we must merge the data into the already-waiting message.
-		// Note: The Join node executor will later handle synchronization
-		// if it expects to wait for multiple physical branches.
+	} else if targetNode != nil && targetNode.Type == "join" {
+		// For join nodes, we must merge the data into the already-waiting message.
 		dest := t.CurrentMessages[idx]
 		for k, v := range msg.Data() {
 			dest.SetData(k, v)
@@ -264,8 +295,7 @@ func (t *WorkflowTraversal) resolveEdge(ctx context.Context, targetID string, ms
 	newCount := atomic.AddInt32(&t.ResolvedCount[idx], 1)
 	if newCount >= t.ReceivedCount[idx] {
 		if atomic.CompareAndSwapInt32(&t.Fired[idx], 0, 1) {
-			t.Wg.Add(1)
-			go t.processNode(ctx, targetID)
+			t.Wg.Go(func() { t.processNode(ctx, targetID) })
 		}
 	}
 }

@@ -519,27 +519,35 @@ func (m *DefaultMessage) SetData(key string, value any) {
 	} else {
 		m.data[key] = SanitizeValue(value)
 
-		// Synchronize top-level system fields for consistency
+		// Synchronize top-level system fields for consistency if they are not already set
 		switch strings.ToLower(key) {
 		case "id":
-			if val, ok := value.(string); ok {
-				m.id = val
-			} else {
-				m.id = fmt.Sprintf("%v", value)
+			if m.id == "" {
+				if val, ok := value.(string); ok {
+					m.id = val
+				} else {
+					m.id = fmt.Sprintf("%v", value)
+				}
 			}
 		case "operation", "op":
-			if val, ok := value.(string); ok {
-				m.operation = hermod.Operation(val)
-			} else if val, ok := value.(hermod.Operation); ok {
-				m.operation = val
+			if m.operation == "" {
+				if val, ok := value.(string); ok {
+					m.operation = hermod.Operation(val)
+				} else if val, ok := value.(hermod.Operation); ok {
+					m.operation = val
+				}
 			}
 		case "table":
-			if val, ok := value.(string); ok {
-				m.table = val
+			if m.table == "" {
+				if val, ok := value.(string); ok {
+					m.table = val
+				}
 			}
 		case "schema":
-			if val, ok := value.(string); ok {
-				m.schema = val
+			if m.schema == "" {
+				if val, ok := value.(string); ok {
+					m.schema = val
+				}
 			}
 		}
 	}

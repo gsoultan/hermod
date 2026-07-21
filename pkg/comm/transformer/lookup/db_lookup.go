@@ -245,13 +245,8 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 	batchMode := false
 
 	if whereClause != "" {
-		// Safe subset parser: support AND-separated expressions of the form: column = {{template}} or column = 'literal'
-		raw := whereClause
-		// Normalize AND
-		parts := strings.Split(raw, "AND")
-		if len(parts) == 1 {
-			parts = strings.Split(raw, "and")
-		}
+		// Safe subset parser: support AND-separated expressions
+		parts := core.SplitSQLConditions(whereClause)
 		for _, part := range parts {
 			p := strings.TrimSpace(part)
 			if p == "" {
@@ -343,27 +338,9 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 	}
 	defer rows.Close()
 
-	cols, _ := rows.Columns()
-	var rowsOut []map[string]any
-	for rows.Next() {
-		values := make([]any, len(cols))
-		valuePtrs := make([]any, len(cols))
-		for i := range values {
-			valuePtrs[i] = &values[i]
-		}
-		if err := rows.Scan(valuePtrs...); err != nil {
-			return nil, fmt.Errorf("failed to scan lookup results: %w", err)
-		}
-		rowMap := make(map[string]any)
-		for i, col := range cols {
-			val := values[i]
-			if b, ok := val.([]byte); ok {
-				rowMap[col] = string(b)
-			} else {
-				rowMap[col] = val
-			}
-		}
-		rowsOut = append(rowsOut, rowMap)
+	rowsOut, err := sqlutil.ScanRows(rows)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan lookup results: %w", err)
 	}
 
 	if len(rowsOut) == 0 {
@@ -442,27 +419,9 @@ func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registr
 	}
 	defer rows.Close()
 
-	cols, _ := rows.Columns()
-	var rowsOut []map[string]any
-	for rows.Next() {
-		values := make([]any, len(cols))
-		valuePtrs := make([]any, len(cols))
-		for i := range values {
-			valuePtrs[i] = &values[i]
-		}
-		if err := rows.Scan(valuePtrs...); err != nil {
-			return nil, fmt.Errorf("failed to scan lookup results: %w", err)
-		}
-		rowMap := make(map[string]any)
-		for i, col := range cols {
-			val := values[i]
-			if b, ok := val.([]byte); ok {
-				rowMap[col] = string(b)
-			} else {
-				rowMap[col] = val
-			}
-		}
-		rowsOut = append(rowsOut, rowMap)
+	rowsOut, err := sqlutil.ScanRows(rows)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan lookup results: %w", err)
 	}
 
 	if len(rowsOut) == 0 {

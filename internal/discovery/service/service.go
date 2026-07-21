@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"sync"
+	"time"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/factory"
@@ -38,12 +40,22 @@ func (s *DiscoveryService) discoveryKey(prefix string, cfg any) string {
 }
 
 func (s *DiscoveryService) discoveryDo(ctx context.Context, key string, fn func(ctx context.Context) (any, error)) (any, error) {
-	val, err, _ := s.sf.Do(key, func() (any, error) {
-		return runWithContext(ctx, func() (any, error) {
-			return fn(ctx)
+	ch := s.sf.DoChan(key, func() (any, error) {
+		// Use a background timeout context for the actual work to prevent
+		// goroutine leaks when the first caller cancels.
+		workCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return RunWithContext(workCtx, func() (any, error) {
+			return fn(workCtx)
 		})
 	})
-	return val, err
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-ch:
+		return res.Val, res.Err
+	}
 }
 
 func (s *DiscoveryService) TestSource(ctx context.Context, cfg factory.SourceConfig) error {
@@ -89,13 +101,16 @@ func (s *DiscoveryService) TestSink(ctx context.Context, cfg factory.SinkConfig)
 	return err
 }
 
-func runWithContext[T any](ctx context.Context, fn func() (T, error)) (T, error) {
+func RunWithContext[T any](ctx context.Context, fn func() (T, error)) (T, error) {
 	type result struct {
 		val T
 		err error
 	}
 	ch := make(chan result, 1)
-	go func() {
+
+	// Use Go 1.26 WaitGroup.Go for standardized goroutine management.
+	var wg sync.WaitGroup
+	wg.Go(func() {
 		defer func() {
 			if rec := recover(); rec != nil {
 				var zero T
@@ -113,7 +128,7 @@ func runWithContext[T any](ctx context.Context, fn func() (T, error)) (T, error)
 		case ch <- result{val: val, err: err}:
 		default:
 		}
-	}()
+	})
 
 	select {
 	case <-ctx.Done():

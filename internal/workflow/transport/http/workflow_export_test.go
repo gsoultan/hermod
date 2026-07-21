@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/user/hermod/internal/api/handlers"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/internal/testutil"
 )
@@ -65,9 +66,11 @@ func TestWorkflowExportImport(t *testing.T) {
 		sinks:     make(map[string]storage.Sink),
 	}
 
-	h := &Handler{
-		Storage:    mockStorage,
-		LogStorage: mockStorage,
+	h := &WorkflowHandler{
+		Handler: &handlers.Handler{
+			Storage:    mockStorage,
+			LogStorage: mockStorage,
+		},
 	}
 
 	mux := http.NewServeMux()

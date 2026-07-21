@@ -1259,15 +1259,17 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 
 		// Record PII discoveries for compliance dashboard
 		if transType == "mask" && res != nil {
-			res.Retain()
+			// Clone the message before background processing to avoid data races
+			// with subsequent nodes that might modify the original message.
+			resClone := res.Clone()
 			select {
 			case r.backgroundTasks <- struct{}{}:
 				go func() {
 					defer func() { <-r.backgroundTasks }()
-					r.recordPIIDiscoveries(res, config)
+					r.recordPIIDiscoveries(resClone, config)
 				}()
 			default:
-				res.Release()
+				resClone.Release()
 			}
 		}
 

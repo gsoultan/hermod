@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/storage"
 )
 
@@ -19,7 +18,7 @@ func (m *mockSecretManager) Get(ctx context.Context, key string) (string, error)
 
 func TestSecretResolutionInGetOrOpenDB(t *testing.T) {
 	sm := &mockSecretManager{}
-	reg := registry.NewRegistry(&mockStorage{})
+	reg := NewRegistry(&mockStorage{})
 	reg.SetSecretManager(sm)
 
 	src := storage.Source{
@@ -32,12 +31,12 @@ func TestSecretResolutionInGetOrOpenDB(t *testing.T) {
 	}
 
 	// We don't want to actually open a DB connection if possible,
-	// but getOrOpenDB will try to.
+	// but GetOrOpenDB will try to.
 	// Since we use sqlite :memory:, it should be fine.
 
-	_, err := registry.getOrOpenDB(src)
+	_, err := reg.GetOrOpenDB(src)
 	if err != nil {
-		t.Logf("getOrOpenDB returned error (expected if driver not registered): %v", err)
+		t.Logf("GetOrOpenDB returned error (expected if driver not registered): %v", err)
 	}
 
 	if !sm.resolved {

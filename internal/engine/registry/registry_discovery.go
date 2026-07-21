@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"runtime/debug"
 	"time"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/internal/discovery/service"
 	"github.com/user/hermod/internal/factory"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/comm/message"
@@ -19,7 +19,7 @@ import (
 // errOperationPanicked is returned when a source/sink connectivity or discovery
 // operation panics. It allows callers to recognise (via errors.Is) that the
 // failure originated from a recovered panic rather than a regular error.
-var errOperationPanicked = errors.New("operation panicked")
+var errOperationPanicked = service.ErrOperationPanicked
 
 // --- Test Connectivity ---
 
@@ -36,59 +36,6 @@ func (r *Registry) TestSink(ctx context.Context, cfg factory.SinkConfig) error {
 	return r.discoveryService.TestSink(ctx, cfg)
 }
 
-// runWithContext executes fn in a separate goroutine and races its completion
-// against the context deadline. Some sink/driver implementations may perform
-// blocking network operations (e.g. a context-less driver dial) that do not
-// honor the provided context. Without this guard such a call could hang far
-// beyond the request deadline and surface as an upstream gateway timeout (524).
-//
-// When the context is cancelled before fn returns, the caller is unblocked
-// immediately with the context error. The goroutine is left to finish on its
-// own (it cannot be force-stopped); fn is expected to release its own resources
-// (e.g. via a deferred Close) once the underlying operation eventually returns.
-func runWithContext[T any](ctx context.Context, fn func() (T, error)) (T, error) {
-	type result struct {
-		val T
-		err error
-	}
-	ch := make(chan result, 1)
-	go func() {
-		// Recover from any panic inside fn (e.g. a database driver dereferencing
-		// a nil pointer on a malformed DSN, or a source constructor panicking on
-		// invalid config). Without this guard the panic would propagate to the
-		// top of this goroutine and crash the entire process — which also hosts
-		// the API server — surfacing to clients as an upstream 520. Converting
-		// the panic into an error keeps the server alive and lets the caller
-		// report a clean failure to the user.
-		defer func() {
-			if rec := recover(); rec != nil {
-				var zero T
-				// Ensure we don't send to a closed channel or block forever
-				select {
-				case ch <- result{
-					val: zero,
-					err: fmt.Errorf("%w: %v\n%s", errOperationPanicked, rec, debug.Stack()),
-				}:
-				default:
-				}
-			}
-		}()
-		val, err := fn()
-		select {
-		case ch <- result{val: val, err: err}:
-		default:
-		}
-	}()
-
-	select {
-	case res := <-ch:
-		return res.val, res.err
-	case <-ctx.Done():
-		var zero T
-		return zero, ctx.Err()
-	}
-}
-
 // discoveryDo executes fn through singleflight, ensuring that multiple concurrent
 // requests for the same key share the same result. It wraps the execution in
 // runWithContext using a background timeout so that the shared task is not
@@ -99,7 +46,7 @@ func (r *Registry) discoveryDo(ctx context.Context, key string, fn func(ctx cont
 	ch := r.sf.DoChan(key, func() (any, error) {
 		workCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		return runWithContext(workCtx, func() (any, error) {
+		return service.RunWithContext(workCtx, func() (any, error) {
 			return fn(workCtx)
 		})
 	})

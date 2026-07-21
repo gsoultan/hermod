@@ -150,7 +150,7 @@ type fullFakeRegistry struct {
 	source storage.Source
 }
 
-func (f *fullFakeRegistry) GetSource(ctx context.Context, id string) (storage.Source, error) {
+func (f *fullFakeRegistry) GetSourceConfig(ctx context.Context, id string) (storage.Source, error) {
 	return f.source, nil
 }
 

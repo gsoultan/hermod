@@ -67,7 +67,7 @@ func TestGetOrOpenDBByID_NilStorage(t *testing.T) {
 
 func TestGetSource_NilStorage(t *testing.T) {
 	r := registry.NewRegistry(nil)
-	_, err := r.GetSource(t.Context(), "src1")
+	_, err := r.GetSourceConfig(t.Context(), "src1")
 	if err == nil {
 		t.Error("Expected error when storage is nil, but got nil")
 	} else {

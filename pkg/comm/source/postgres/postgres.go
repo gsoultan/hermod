@@ -2171,6 +2171,9 @@ func (p *PostgresSource) ExecuteSQL(ctx context.Context, query string) ([]map[st
 	fields := rows.FieldDescriptions()
 	var results []map[string]any
 	for rows.Next() {
+		if len(results) >= sqlutil.DefaultMaxRows {
+			break
+		}
 		values, err := rows.Values()
 		if err != nil {
 			return nil, err

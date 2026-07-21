@@ -42,7 +42,7 @@ func TestRouterNode_Regex(t *testing.T) {
 	msg1 := message.AcquireMessage()
 	msg1.SetData("severity", "critical")
 
-	_, branch1, err := reg.runWorkflowNode("wf1", node, msg1)
+	_, branch1, err := reg.RunWorkflowNode("wf1", node, msg1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestRouterNode_Regex(t *testing.T) {
 	msg2 := message.AcquireMessage()
 	msg2.SetData("severity", "medium")
 
-	_, branch2, err := reg.runWorkflowNode("wf1", node, msg2)
+	_, branch2, err := reg.RunWorkflowNode("wf1", node, msg2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestRouterNode_Regex(t *testing.T) {
 	msg3 := message.AcquireMessage()
 	msg3.SetData("severity", "unknown")
 
-	_, branch3, err := reg.runWorkflowNode("wf1", node, msg3)
+	_, branch3, err := reg.RunWorkflowNode("wf1", node, msg3)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -105,9 +105,9 @@ func TestRouterNode(t *testing.T) {
 	}
 
 	// Test matching first rule
-	_, branch, err := r.runWorkflowNode("wf-1", node, msg)
+	_, branch, err := r.RunWorkflowNode("wf-1", node, msg)
 	if err != nil {
-		t.Fatalf("runWorkflowNode failed: %v", err)
+		t.Fatalf("RunWorkflowNode failed: %v", err)
 	}
 	if branch != "critical" {
 		t.Errorf("expected branch critical, got %s", branch)
@@ -118,7 +118,7 @@ func TestRouterNode(t *testing.T) {
 	msg2.SetData("status", "error_500")
 	msg2.SetData("payload", "something else")
 
-	_, branch2, _ := r.runWorkflowNode("wf-1", node, msg2)
+	_, branch2, _ := r.RunWorkflowNode("wf-1", node, msg2)
 	if branch2 != "not_found" {
 		t.Errorf("expected branch not_found, got %s", branch2)
 	}
@@ -127,7 +127,7 @@ func TestRouterNode(t *testing.T) {
 	msg3 := message.AcquireMessage()
 	msg3.SetData("status", "ok")
 
-	_, branch3, _ := r.runWorkflowNode("wf-1", node, msg3)
+	_, branch3, _ := r.RunWorkflowNode("wf-1", node, msg3)
 	if branch3 != "default" {
 		t.Errorf("expected branch default, got %s", branch3)
 	}
@@ -161,7 +161,7 @@ func TestNestedPathAccess(t *testing.T) {
 			},
 		}
 
-		res, _, err := registry.runWorkflowNode("test", node, m)
+		res, _, err := registry.RunWorkflowNode("test", node, m)
 		if err != nil {
 			t.Fatalf("Failed to run node: %v", err)
 		}
@@ -170,7 +170,7 @@ func TestNestedPathAccess(t *testing.T) {
 		}
 
 		node.Config["value"] = "Jane Doe"
-		res, _, _ = registry.runWorkflowNode("test", node, m)
+		res, _, _ = registry.RunWorkflowNode("test", node, m)
 		if res != nil {
 			t.Errorf("Expected message to be filtered, but it was not nil")
 		}
@@ -188,7 +188,7 @@ func TestNestedPathAccess(t *testing.T) {
 			},
 		}
 
-		msgs, _, err := registry.runWorkflowNode("test", node, m)
+		msgs, _, err := registry.RunWorkflowNode("test", node, m)
 		if err != nil {
 			t.Fatalf("Failed to run node: %v", err)
 		}
@@ -218,7 +218,7 @@ func TestNestedPathAccess(t *testing.T) {
 			},
 		}
 
-		res, branch, err := registry.runWorkflowNode("test", node, m)
+		res, branch, err := registry.RunWorkflowNode("test", node, m)
 		if err != nil {
 			t.Fatalf("Failed to run node: %v", err)
 		}
@@ -230,7 +230,7 @@ func TestNestedPathAccess(t *testing.T) {
 		}
 
 		node.Config["value"] = "35"
-		_, branch, _ = registry.runWorkflowNode("test", node, m)
+		_, branch, _ = registry.RunWorkflowNode("test", node, m)
 		if branch != "false" {
 			t.Errorf("Expected branch 'false', got '%s'", branch)
 		}
@@ -249,7 +249,7 @@ func TestNestedPathAccess(t *testing.T) {
 			},
 		}
 
-		msgs, _, err := registry.runWorkflowNode("test", node, m)
+		msgs, _, err := registry.RunWorkflowNode("test", node, m)
 		if err != nil {
 			t.Fatalf("Failed to run node: %v", err)
 		}

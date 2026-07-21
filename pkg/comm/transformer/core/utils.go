@@ -111,3 +111,42 @@ func SplitComma(s string) []string {
 	}
 	return res
 }
+
+// SplitSQLConditions splits a WHERE clause by "AND" while respecting single/double quotes.
+func SplitSQLConditions(s string) []string {
+	var parts []string
+	var current strings.Builder
+	inQuote := false
+	var quoteChar byte
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c == '\'' || c == '"') && (i == 0 || s[i-1] != '\\') {
+			if inQuote && c == quoteChar {
+				inQuote = false
+			} else if !inQuote {
+				inQuote = true
+				quoteChar = c
+			}
+		}
+
+		// Look for " AND " (case insensitive) when not inside a quoted string
+		if !inQuote && i+5 <= len(s) && strings.EqualFold(s[i:i+5], " AND ") {
+			if current.Len() > 0 {
+				parts = append(parts, strings.TrimSpace(current.String()))
+				current.Reset()
+			}
+			i += 4 // Skip " AND"
+			continue
+		}
+
+		current.WriteByte(c)
+	}
+	if current.Len() > 0 {
+		p := strings.TrimSpace(current.String())
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return parts
+}

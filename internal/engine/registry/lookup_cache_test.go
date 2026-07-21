@@ -1,14 +1,13 @@
 package registry
 
 import (
-	"github.com/user/hermod/internal/engine/registry"
 	"strconv"
 	"testing"
 	"time"
 )
 
 func TestLookupCache_SetGet(t *testing.T) {
-	r := registry.NewRegistry(nil)
+	r := NewRegistry(nil)
 
 	r.SetLookupCache("a", 123, 0)
 	got, ok := r.GetLookupCache("a")
@@ -25,7 +24,7 @@ func TestLookupCache_SetGet(t *testing.T) {
 }
 
 func TestLookupCache_TTLExpiry(t *testing.T) {
-	r := registry.NewRegistry(nil)
+	r := NewRegistry(nil)
 
 	r.SetLookupCache("temp", "v", 20*time.Millisecond)
 	if _, ok := r.GetLookupCache("temp"); !ok {
@@ -48,15 +47,15 @@ func TestLookupCache_TTLExpiry(t *testing.T) {
 }
 
 func TestLookupCache_SizeBound(t *testing.T) {
-	r := registry.NewRegistry(nil)
+	r := NewRegistry(nil)
 
-	for i := range registry.MaxLookupCacheSize + 100 {
+	for i := range MaxLookupCacheSize + 100 {
 		r.SetLookupCache("k"+strconv.Itoa(i), i, 0)
 	}
 
 	size, _ := r.GetLookupCacheSize()
 
-	if size > registry.MaxLookupCacheSize {
-		t.Fatalf("lookup cache size = %d; want <= %d", size, registry.MaxLookupCacheSize)
+	if size > MaxLookupCacheSize {
+		t.Fatalf("lookup cache size = %d; want <= %d", size, MaxLookupCacheSize)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/user/hermod/internal/api/handlers"
 	"github.com/user/hermod/internal/engine/registry"
 )
 
@@ -34,7 +35,7 @@ func TestHandleStatusWS_ReleasesSubscriberOnClientDisconnect(t *testing.T) {
 	reg := registry.NewRegistry(nil)
 	defer reg.Close()
 
-	h := &Handler{Registry: reg}
+	h := &WSHandler{Handler: &handlers.Handler{Registry: reg}}
 
 	srv := httptest.NewServer(http.HandlerFunc(h.HandleStatusWS))
 	defer srv.Close()

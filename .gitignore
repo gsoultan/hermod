@@ -50,4 +50,8 @@ main
 hermod_state.db
 ui/bun.lock
 go.sum
-/graphify-out
+/graphify-out/
+/.agents
+/.claude
+/.junie
+skills-lock.json
