@@ -621,7 +621,7 @@ func openSQLDB(driverName, connStr string) (*sql.DB, error) {
 	return sql.Open(driverName, connStr)
 }
 
-func (r *Registry) getOrOpenDB(src storage.Source) (*sql.DB, error) {
+func (r *Registry) GetOrOpenDB(src storage.Source) (*sql.DB, error) {
 	// 1. Fast path: check existing pool with RLock (no bottleneck for active pools)
 	r.dbPoolMu.RLock()
 	db, ok := r.dbPool[src.ID]
@@ -952,8 +952,11 @@ func (r *Registry) evictLookupCacheLocked() {
 	}
 }
 
-func (r *Registry) GetOrOpenDB(src storage.Source) (*sql.DB, error) {
-	return r.getOrOpenDB(src)
+func (r *Registry) GetDB(ctx context.Context, typeName string, config map[string]string) (*sql.DB, error) {
+	return r.GetOrOpenDB(storage.Source{
+		Type:   typeName,
+		Config: config,
+	})
 }
 
 func (r *Registry) GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, string, error) {
@@ -964,7 +967,7 @@ func (r *Registry) GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, str
 	if err != nil {
 		return nil, "", err
 	}
-	db, err := r.getOrOpenDB(src)
+	db, err := r.GetOrOpenDB(src)
 	return db, src.Type, err
 }
 
@@ -1870,4 +1873,8 @@ func (a *formStorageAdapter) UpdateFormSubmissionStatus(ctx context.Context, id 
 		return nil
 	}
 	return a.storage.UpdateFormSubmissionStatus(ctx, id, status)
+}
+
+func (r *Registry) GetSource(ctx context.Context, id string) (storage.Source, error) {
+	return r.GetSourceConfig(ctx, id)
 }

@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"reflect"
@@ -247,7 +246,10 @@ func (w *Worker) hasConfigChanged(wf storage.Workflow, sctx SyncContext) bool {
 	if !ok {
 		return true
 	}
-	if !jsonEqual(curWf.Nodes, wf.Nodes) || !jsonEqual(curWf.Edges, wf.Edges) {
+	if !jsonEqual(curWf.Nodes, wf.Nodes) {
+		return true
+	}
+	if !jsonEqual(curWf.Edges, wf.Edges) {
 		return true
 	}
 	// Simplified check for other fields
@@ -350,10 +352,47 @@ func sinkConfigsChanged(running []factory.SinkConfig, stored map[string]storage.
 // restart loop. It falls back to reflect.DeepEqual if either value cannot be
 // marshaled.
 func jsonEqual(a, b any) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
 	ab, err1 := json.Marshal(a)
 	bb, err2 := json.Marshal(b)
 	if err1 != nil || err2 != nil {
 		return reflect.DeepEqual(a, b)
 	}
-	return bytes.Equal(ab, bb)
+
+	var av, bv any
+	if err := json.Unmarshal(ab, &av); err != nil {
+		return reflect.DeepEqual(a, b)
+	}
+	if err := json.Unmarshal(bb, &bv); err != nil {
+		return reflect.DeepEqual(a, b)
+	}
+
+	// Remove internal fields starting with underscore before comparison
+	stripInternalFields(av)
+	stripInternalFields(bv)
+
+	equal := reflect.DeepEqual(av, bv)
+	return equal
+}
+
+func stripInternalFields(v any) {
+	switch m := v.(type) {
+	case map[string]any:
+		for k, val := range m {
+			if len(k) > 0 && k[0] == '_' {
+				delete(m, k)
+				continue
+			}
+			stripInternalFields(val)
+		}
+	case []any:
+		for _, item := range m {
+			stripInternalFields(item)
+		}
+	}
 }

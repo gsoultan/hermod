@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,9 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/factory"
 	"github.com/user/hermod/pkg/comm/transformer/core"
+	"github.com/user/hermod/pkg/infra/sqlutil"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -21,6 +24,7 @@ type ComponentCreator interface {
 	CreateSource(ctx context.Context, cfg factory.SourceConfig) (hermod.Source, error)
 	CreateSink(ctx context.Context, cfg factory.SinkConfig) (hermod.Sink, error)
 	GetSourceFactoryConfig(ctx context.Context, id string) (factory.SourceConfig, error)
+	GetDB(ctx context.Context, typeName string, config map[string]string) (*sql.DB, error)
 }
 
 type DiscoveryService struct {
@@ -398,7 +402,7 @@ func (s *DiscoveryService) ExecuteSQL(ctx context.Context, cfg factory.SourceCon
 	val, err := s.discoveryDo(ctx, key, func(ctx context.Context) (any, error) {
 		// Start with default fallback
 		sampleData := map[string]any{
-			"after": map[string]any{"id": "sample-id"},
+			"after": map[string]any{"id": uuid.NewString()},
 		}
 
 		// Use user-provided sample data if available
@@ -453,11 +457,94 @@ func (s *DiscoveryService) ExecuteSQL(ctx context.Context, cfg factory.SourceCon
 			}
 		}
 
-		// Simplified fallback logic for now
-		return nil, fmt.Errorf("SQL execution not supported for this source type or requires parameters")
+		// Fallback to generic SQL execution
+		db, err := s.creator.GetDB(ctx, cfg.Type, cfg.Config)
+		if err != nil {
+			return nil, err
+		}
+
+		rows, err := db.QueryContext(ctx, parameterizedQuery, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		return sqlutil.ScanRows(rows)
 	})
 	if err != nil {
 		return nil, err
 	}
 	return val.([]map[string]any), nil
+}
+
+func (s *DiscoveryService) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkConfig, query string, userSample map[string]any) ([]map[string]any, error) {
+	key := s.discoveryKey("exec-sink-sql", struct {
+		Cfg    factory.SinkConfig
+		Query  string
+		Sample map[string]any
+	}{cfg, query, userSample})
+	val, err := s.discoveryDo(ctx, key, func(ctx context.Context) (any, error) {
+		sampleData := map[string]any{
+			"after": map[string]any{"id": uuid.NewString()},
+		}
+
+		if len(userSample) > 0 {
+			for k, v := range userSample {
+				sampleData[k] = v
+			}
+		} else {
+			if msg, err := s.SampleSinkTable(ctx, cfg, ""); err == nil && msg != nil {
+				data := msg.Data()
+				if len(data) > 0 {
+					for k, v := range data {
+						sampleData[k] = v
+					}
+				}
+			}
+		}
+
+		parameterizedQuery, args := core.ParameterizeTemplate(cfg.Type, query, sampleData)
+
+		if len(args) == 0 {
+			snk, err := s.creator.CreateSink(ctx, cfg)
+			if err == nil {
+				defer snk.Close()
+				if e, ok := snk.(hermod.SQLExecutor); ok {
+					results, err := e.ExecuteSQL(ctx, parameterizedQuery)
+					if err == nil {
+						return results, nil
+					}
+					if !errors.Is(err, hermod.ErrNotSupported) {
+						return nil, err
+					}
+				}
+			}
+		}
+
+		db, err := s.creator.GetDB(ctx, cfg.Type, cfg.Config)
+		if err != nil {
+			return nil, err
+		}
+
+		rows, err := db.QueryContext(ctx, parameterizedQuery, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		return sqlutil.ScanRows(rows)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return val.([]map[string]any), nil
+}
+
+func (s *DiscoveryService) ExecSinkStatement(ctx context.Context, cfg factory.SinkConfig, stmt string) error {
+	db, err := s.creator.GetDB(ctx, cfg.Type, cfg.Config)
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, stmt)
+	return err
 }

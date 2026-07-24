@@ -10,7 +10,6 @@ import (
 	"github.com/user/hermod/pkg/comm/transformer"
 
 	"github.com/user/hermod"
-	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/comm/transformer/core"
 )
 
@@ -26,12 +25,11 @@ func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Messag
 	}
 
 	registry, ok := ctx.Value(hermod.RegistryKey).(interface {
-		GetSource(ctx context.Context, id string) (storage.Source, error)
-		GetOrOpenDB(src storage.Source) (*sql.DB, error)
+		GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, string, error)
 	})
 
 	if !ok {
-		return msg, errors.New("registry not found in context")
+		return msg, errors.New("registry not found in context or does not implement GetOrOpenDBByID")
 	}
 
 	sourceID, _ := config["sourceId"].(string)
@@ -41,26 +39,9 @@ func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Messag
 		return msg, nil
 	}
 
-	src, err := registry.GetSource(ctx, sourceID)
-	if err != nil {
-		return msg, fmt.Errorf("failed to get source for execute_sql: %w", err)
-	}
-
-	db, err := registry.GetOrOpenDB(src)
+	db, driver, err := registry.GetOrOpenDBByID(ctx, sourceID)
 	if err != nil {
 		return msg, fmt.Errorf("failed to get database for execute_sql: %w", err)
-	}
-
-	driver := src.Type
-	switch src.Type {
-	case "postgres":
-		driver = "pgx"
-	case "mysql", "mariadb":
-		driver = "mysql"
-	case "sqlite":
-		driver = "sqlite"
-	case "mssql":
-		driver = "mssql"
 	}
 
 	sqlText, args := core.ParameterizeTemplate(driver, queryTemplate, msg.Data())

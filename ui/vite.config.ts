@@ -99,4 +99,20 @@ export default defineConfig({
     css: true,
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
   },
+  server: {
+    proxy: {
+      '/api/ws': {
+        target: 'ws://localhost:4001',
+        ws: true,
+      },
+      '/api': {
+        target: 'http://localhost:4001',
+        changeOrigin: true,
+      },
+      '/ws': {
+        target: 'ws://localhost:4001',
+        ws: true,
+      },
+    },
+  },
 })

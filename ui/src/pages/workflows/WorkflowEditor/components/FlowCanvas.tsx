@@ -35,30 +35,6 @@ import {
 import { ConditionNode } from '../nodes/ConditionNode';
 import { ApprovalNode } from '../nodes/ApprovalNode';
 
-const nodeTypes = {
-  source: SourceNode,
-  sink: SinkNode,
-  transformation: TransformationNode,
-  validator: ValidatorNode,
-  condition: ConditionNode,
-  approval: ApprovalNode,
-  switch: SwitchNode,
-  router: RouterNode,
-  merge: MergeNode,
-  stateful: StatefulNode,
-  wait: WaitNode,
-  foreach: ForeachNode,
-  log: LogNode,
-  collect: CollectNode,
-  deduplicate: DeduplicateNode,
-  note: NoteNode,
-};
-
-const edgeTypes = {
-  default: LiveEdge,
-  live: LiveEdge,
-};
-
 interface FlowCanvasProps {
   onNodeClick: (event: React.MouseEvent, node: Node) => void;
   onEdgeClick: (event: React.MouseEvent, edge: Edge) => void;
@@ -69,6 +45,30 @@ interface FlowCanvasProps {
 export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: FlowCanvasProps) {
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
+
+  const nodeTypes = useMemo(() => ({
+    source: SourceNode,
+    sink: SinkNode,
+    transformation: TransformationNode,
+    validator: ValidatorNode,
+    condition: ConditionNode,
+    approval: ApprovalNode,
+    switch: SwitchNode,
+    router: RouterNode,
+    merge: MergeNode,
+    stateful: StatefulNode,
+    wait: WaitNode,
+    foreach: ForeachNode,
+    log: LogNode,
+    collect: CollectNode,
+    deduplicate: DeduplicateNode,
+    note: NoteNode,
+  }), []);
+
+  const edgeTypes = useMemo(() => ({
+    default: LiveEdge,
+    live: LiveEdge,
+  }), []);
   
   const { nodes, edges, onNodesChange, onEdgesChange, setEdges, active } = useWorkflowStore(useShallow(state => ({
     nodes: state.nodes,

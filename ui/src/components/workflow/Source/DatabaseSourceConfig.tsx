@@ -148,7 +148,16 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
           )}
           
           {type === 'postgres' && (
-            <TextInput label="SSL Mode" placeholder="disable" value={config.sslmode || 'disable'} onChange={(e) => updateConfig('sslmode', e.target.value)} />
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+              <TextInput label="SSL Mode" placeholder="disable" value={config.sslmode || 'disable'} onChange={(e) => updateConfig('sslmode', e.target.value)} />
+              <Checkbox
+                mt="xl"
+                label="Using PgBouncer"
+                description="Transaction/Statement mode safety"
+                checked={config.pgbouncer === 'true'}
+                onChange={(e) => updateConfig('pgbouncer', e.target.checked ? 'true' : 'false')}
+              />
+            </SimpleGrid>
           )}
         </Stack>
       </Fieldset>

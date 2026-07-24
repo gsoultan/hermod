@@ -156,6 +156,7 @@ const nodeTypes = {
   transformation: TransformationNode,
   condition: TransformationNode,
   switch: TransformationNode,
+  router: TransformationNode,
   merge: TransformationNode,
   stateful: TransformationNode,
   wait: TransformationNode,

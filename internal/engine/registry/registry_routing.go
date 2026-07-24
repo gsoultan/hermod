@@ -263,7 +263,8 @@ func (r *Registry) RunWorkflowNode(workflowID string, node *storage.WorkflowNode
 		return nil, "", nil
 	}
 
-	ctx, span := tracer.Start(context.Background(), "RunWorkflowNode", trace.WithAttributes(
+	ctx := context.WithValue(context.Background(), hermod.RegistryKey, r)
+	ctx, span := tracer.Start(ctx, "RunWorkflowNode", trace.WithAttributes(
 		attribute.String("workflow_id", workflowID),
 		attribute.String("node_id", node.ID),
 		attribute.String("node_type", node.Type),

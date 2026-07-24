@@ -282,29 +282,16 @@ func (s *PostgresSink) init(ctx context.Context) error {
 	}
 	s.connMu.Unlock()
 
-	poolCfg, pooled, err := pgxutil.ParsePoolConfig(s.connString)
+	// Use shared pooler for sinks to reduce connection load.
+	pool, err := pgxutil.DefaultPooler.Get(ctx, s.connString)
 	if err != nil {
-		return fmt.Errorf("failed to parse postgres connection string: %w", err)
-	}
-
-	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
-	if err != nil {
-		return fmt.Errorf("failed to create postgres pool: %w", err)
-	}
-
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return fmt.Errorf("failed to ping postgres: %w", err)
+		return fmt.Errorf("failed to get shared postgres pool: %w", err)
 	}
 
 	s.connMu.Lock()
 	defer s.connMu.Unlock()
-	if s.pool != nil {
-		pool.Close()
-		return nil
-	}
 	s.pool = pool
-	s.pooled = pooled
+	s.pooled = pgxutil.IsPooledConnString(s.connString)
 	return nil
 }
 
@@ -434,72 +421,69 @@ func validateTxID(txID string) error {
 }
 
 func (s *PostgresSink) Ping(ctx context.Context) error {
-	// Create a new connection for testing and close it immediately.
-	// This ensures no persistent pool resources are held after the test.
-	cfg, _, err := pgxutil.ParseConfig(s.connString)
-	if err != nil {
-		return fmt.Errorf("failed to parse connection string: %w", err)
+	if err := s.init(ctx); err != nil {
+		return err
+	}
+	return s.pool.Ping(ctx)
+}
+
+func (s *PostgresSink) wrapError(err error, duration time.Duration, pooled bool) error {
+	if err == nil {
+		return nil
 	}
 
-	conn, err := pgx.ConnectConfig(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to connect to postgres: %w", err)
+	// If the connection took a long time, add a human-friendly recommendation.
+	if duration > 3*time.Second || errors.Is(err, context.DeadlineExceeded) {
+		rec := ""
+		if !pooled {
+			rec = "\n\nRecommendation: The connection is taking a long time (%v). If your database is behind a proxy like PgBouncer, try adding 'pgbouncer=true' or 'pool_mode=transaction' to your connection string. This enables the simple query protocol which is much faster with connection poolers."
+		} else {
+			rec = "\n\nRecommendation: The connection to your PgBouncer pooler is slow (%v). Check if the pool is exhausted or if the backend database is under heavy load. You may need to increase the 'max_client_conn' or 'default_pool_size' in pgbouncer.ini."
+		}
+		return fmt.Errorf("%w"+rec, err, duration.Round(time.Millisecond))
 	}
-	defer func() { _ = conn.Close(ctx) }()
 
-	return conn.Ping(ctx)
+	return err
 }
 
 func (s *PostgresSink) Close() error {
-	// Guard with connMu (the same lock init uses) so closing the pool is safe
-	// for concurrent use and never races with a concurrent lazy init. Resetting
-	// the pool to nil lets a subsequent operation re-establish it instead of
-	// using a closed pool, and makes Close idempotent.
 	s.connMu.Lock()
 	defer s.connMu.Unlock()
-	if s.pool != nil {
-		s.pool.Close()
-		s.pool = nil
-	}
+	// Do not close the shared pool; it is managed by the DefaultPooler.
+	s.pool = nil
 	return nil
 }
 
 func (s *PostgresSink) DiscoverDatabases(ctx context.Context) ([]string, error) {
-	// Create a new connection for discovery and close it immediately.
-	cfg, _, err := pgxutil.ParseConfig(s.connString)
+	start := time.Now()
+	// Use the shared pooler. If the current connection string points to a
+	// non-existent database, we try to connect to 'postgres' or 'template1'
+	// to list available databases.
+	pool, err := pgxutil.DefaultPooler.Get(ctx, s.connString)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse connection string: %w", err)
-	}
-
-	// If dbname is missing or wrong, force a safe default for discovery
-	if strings.TrimSpace(cfg.Database) == "" {
-		cfg.Database = "postgres"
-	}
-
-	// Helper to connect with fallback on invalid_catalog_name (3D000)
-	connect := func(cfg *pgx.ConnConfig) (*pgx.Conn, error) {
-		conn, err := pgx.ConnectConfig(ctx, cfg)
-		if err != nil {
-			if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "3D000" {
-				// Try template1 if the specified DB doesn’t exist
-				clone := *cfg
-				clone.Database = "template1"
-				return pgx.ConnectConfig(ctx, &clone)
+		// Fallback for discovery if the specific DB doesn't exist yet
+		cfg, _, parseErr := pgxutil.ParsePoolConfig(s.connString)
+		if parseErr == nil {
+			// Try connecting to a default maintenance database
+			for _, dbName := range []string{"postgres", "template1"} {
+				cfg.ConnConfig.Database = dbName
+				tempPool, err := pgxpool.NewWithConfig(ctx, cfg)
+				if err == nil {
+					defer tempPool.Close()
+					return s.fetchDatabases(ctx, tempPool, start)
+				}
 			}
-			return nil, err
 		}
-		return conn, nil
+		return nil, s.wrapError(fmt.Errorf("failed to connect for discovery: %w", err), time.Since(start), false)
 	}
 
-	conn, err := connect(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect for discovery: %w", err)
-	}
-	defer func() { _ = conn.Close(ctx) }()
+	return s.fetchDatabases(ctx, pool, start)
+}
 
-	rows, err := conn.Query(ctx, commonQueries[QueryListDatabases])
+func (s *PostgresSink) fetchDatabases(ctx context.Context, pool *pgxpool.Pool, start time.Time) ([]string, error) {
+	rows, err := pool.Query(ctx, commonQueries[QueryListDatabases])
 	if err != nil {
-		return nil, fmt.Errorf("failed to query databases: %w", err)
+		return nil, s.wrapError(fmt.Errorf("failed to query databases: %w", err), time.Since(start), true)
 	}
 	defer rows.Close()
 
@@ -515,21 +499,14 @@ func (s *PostgresSink) DiscoverDatabases(ctx context.Context) ([]string, error) 
 }
 
 func (s *PostgresSink) DiscoverTables(ctx context.Context) ([]string, error) {
-	// Create a new connection for discovery and close it immediately.
-	cfg, _, err := pgxutil.ParseConfig(s.connString)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	start := time.Now()
+	if err := s.init(ctx); err != nil {
+		return nil, s.wrapError(err, time.Since(start), s.pooled)
 	}
 
-	conn, err := pgx.ConnectConfig(ctx, cfg)
+	rows, err := s.pool.Query(ctx, commonQueries[QueryListTables])
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect for discovery: %w", err)
-	}
-	defer func() { _ = conn.Close(ctx) }()
-
-	rows, err := conn.Query(ctx, commonQueries[QueryListTables])
-	if err != nil {
-		return nil, fmt.Errorf("failed to query tables: %w", err)
+		return nil, s.wrapError(fmt.Errorf("failed to query tables: %w", err), time.Since(start), s.pooled)
 	}
 	defer rows.Close()
 
@@ -545,19 +522,11 @@ func (s *PostgresSink) DiscoverTables(ctx context.Context) ([]string, error) {
 }
 
 func (s *PostgresSink) DiscoverColumns(ctx context.Context, table string) ([]hermod.ColumnInfo, error) {
-	// Create a new connection for discovery and close it immediately.
-	cfg, _, err := pgxutil.ParseConfig(s.connString)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	if err := s.init(ctx); err != nil {
+		return nil, err
 	}
 
-	conn, err := pgx.ConnectConfig(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect for discovery: %w", err)
-	}
-	defer func() { _ = conn.Close(ctx) }()
-
-	rows, err := conn.Query(ctx, commonQueries[QueryListColumns], table)
+	rows, err := s.pool.Query(ctx, commonQueries[QueryListColumns], table)
 	if err != nil {
 		return nil, err
 	}
@@ -590,17 +559,9 @@ func (s *PostgresSink) Sample(ctx context.Context, table string) (hermod.Message
 }
 
 func (s *PostgresSink) Browse(ctx context.Context, table string, limit int) ([]hermod.Message, error) {
-	// Create a new connection for browsing and close it immediately.
-	cfg, _, err := pgxutil.ParseConfig(s.connString)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	if err := s.init(ctx); err != nil {
+		return nil, err
 	}
-
-	conn, err := pgx.ConnectConfig(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect for browsing: %w", err)
-	}
-	defer func() { _ = conn.Close(ctx) }()
 
 	if limit <= 0 {
 		limit = 1
@@ -611,7 +572,7 @@ func (s *PostgresSink) Browse(ctx context.Context, table string, limit int) ([]h
 		return nil, fmt.Errorf("invalid table name: %w", err)
 	}
 	query := fmt.Sprintf(commonQueries[QueryBrowse], quoted, limit)
-	rows, err := conn.Query(ctx, query)
+	rows, err := s.pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}

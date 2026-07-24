@@ -19,13 +19,18 @@ import (
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/transformer/core"
 	"github.com/user/hermod/pkg/infra/evaluator"
+	"golang.org/x/sync/singleflight"
 )
 
 func init() {
-	transformer.Register("api_lookup", &APILookupTransformer{})
+	transformer.Register("api_lookup", &APILookupTransformer{
+		sf: &singleflight.Group{},
+	})
 }
 
-type APILookupTransformer struct{}
+type APILookupTransformer struct {
+	sf *singleflight.Group
+}
 
 func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
@@ -107,120 +112,130 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 		return msg, nil
 	}
 
-	// Execute API call with retries
-	timeout := 10 * time.Second
-	if timeoutStr != "" {
-		if t, err := time.ParseDuration(timeoutStr); err == nil {
-			timeout = t
-		}
-	}
-
-	maxRetries := 0
-	if maxRetriesStr != "" {
-		maxRetries, _ = strconv.Atoi(maxRetriesStr)
-	}
-
-	retryDelay := 1 * time.Second
-	if retryDelayStr != "" {
-		if d, err := time.ParseDuration(retryDelayStr); err == nil {
-			retryDelay = d
-		}
-	}
-
-	var respData any
-	var lastErr error
-
-	for i := 0; i <= maxRetries; i++ {
-		if i > 0 {
-			time.Sleep(retryDelay)
+	// Execute API call with singleflight to avoid redundant concurrent requests
+	res, err, _ := t.sf.Do(cacheKey, func() (any, error) {
+		// Execute API call with retries
+		timeout := 10 * time.Second
+		if timeoutStr != "" {
+			if t, err := time.ParseDuration(timeoutStr); err == nil {
+				timeout = t
+			}
 		}
 
-		var reqBody io.Reader
-		if resolvedBody != "" {
-			reqBody = strings.NewReader(resolvedBody)
+		maxRetries := 0
+		if maxRetriesStr != "" {
+			maxRetries, _ = strconv.Atoi(maxRetriesStr)
 		}
 
-		apiCtx, cancel := context.WithTimeout(ctx, timeout)
-		req, err := http.NewRequestWithContext(apiCtx, method, resolvedURL, reqBody)
-		if err != nil {
-			cancel()
-			lastErr = err
-			continue
+		retryDelay := 1 * time.Second
+		if retryDelayStr != "" {
+			if d, err := time.ParseDuration(retryDelayStr); err == nil {
+				retryDelay = d
+			}
 		}
 
-		if headersStr != "" {
-			var headers map[string]any
-			if err := json.Unmarshal([]byte(headersStr), &headers); err == nil {
-				for k, v := range headers {
-					vStr := fmt.Sprintf("%v", v)
-					if vs, ok := v.(string); ok {
-						vStr = evaluator.ResolveTemplate(vs, data)
+		var respData any
+		var lastErr error
+
+		for i := 0; i <= maxRetries; i++ {
+			if i > 0 {
+				time.Sleep(retryDelay)
+			}
+
+			var reqBody io.Reader
+			if resolvedBody != "" {
+				reqBody = strings.NewReader(resolvedBody)
+			}
+
+			apiCtx, cancel := context.WithTimeout(ctx, timeout)
+			req, err := http.NewRequestWithContext(apiCtx, method, resolvedURL, reqBody)
+			if err != nil {
+				cancel()
+				lastErr = err
+				continue
+			}
+
+			if headersStr != "" {
+				var headers map[string]any
+				if err := json.Unmarshal([]byte(headersStr), &headers); err == nil {
+					for k, v := range headers {
+						vStr := fmt.Sprintf("%v", v)
+						if vs, ok := v.(string); ok {
+							vStr = evaluator.ResolveTemplate(vs, data)
+						}
+						req.Header.Set(k, vStr)
 					}
-					req.Header.Set(k, vStr)
 				}
 			}
-		}
 
-		// Auth
-		switch authType {
-		case "basic":
-			req.SetBasicAuth(evaluator.ResolveTemplate(username, data), evaluator.ResolveTemplate(password, data))
-		case "bearer":
-			req.Header.Set("Authorization", "Bearer "+evaluator.ResolveTemplate(token, data))
-		}
+			// Auth
+			switch authType {
+			case "basic":
+				req.SetBasicAuth(evaluator.ResolveTemplate(username, data), evaluator.ResolveTemplate(password, data))
+			case "bearer":
+				req.Header.Set("Authorization", "Bearer "+evaluator.ResolveTemplate(token, data))
+			}
 
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			cancel()
-			lastErr = err
-			continue
-		}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				cancel()
+				lastErr = err
+				continue
+			}
 
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				resp.Body.Close()
+				cancel()
+				lastErr = fmt.Errorf("api lookup returned status %d", resp.StatusCode)
+				if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+					continue // Retryable
+				}
+				break // Non-retryable
+			}
+
+			respBytes, err := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			cancel()
-			lastErr = fmt.Errorf("api lookup returned status %d", resp.StatusCode)
-			if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
-				continue // Retryable
+			if err != nil {
+				lastErr = err
+				continue
 			}
-			break // Non-retryable
+
+			if err := json.Unmarshal(respBytes, &respData); err != nil {
+				respData = string(respBytes)
+			}
+
+			lastErr = nil
+			break
 		}
 
-		respBytes, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		cancel()
-		if err != nil {
-			lastErr = err
-			continue
+		if lastErr != nil {
+			return nil, lastErr
 		}
 
-		if err := json.Unmarshal(respBytes, &respData); err != nil {
-			respData = string(respBytes)
+		var resultVal any
+		if responsePath != "" && responsePath != "." {
+			if m, ok := respData.(map[string]any); ok {
+				resultVal = evaluator.GetValByPath(m, responsePath)
+			} else {
+				resultVal = respData
+			}
+		} else {
+			resultVal = respData
 		}
 
-		lastErr = nil
-		break
-	}
+		return resultVal, nil
+	})
 
-	if lastErr != nil {
+	if err != nil {
 		if defaultValue != "" {
 			msg.SetData(targetField, defaultValue)
 			return msg, nil
 		}
-		return msg, fmt.Errorf("failed to execute api lookup after %d retries: %w", maxRetries, lastErr)
+		return msg, fmt.Errorf("api lookup failed: %w", err)
 	}
 
-	var resultVal any
-	if responsePath != "" && responsePath != "." {
-		if m, ok := respData.(map[string]any); ok {
-			resultVal = evaluator.GetValByPath(m, responsePath)
-		} else {
-			resultVal = respData
-		}
-	} else {
-		resultVal = respData
-	}
-
+	resultVal := res
 	if resultVal == nil && defaultValue != "" {
 		resultVal = defaultValue
 	}

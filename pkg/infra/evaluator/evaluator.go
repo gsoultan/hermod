@@ -426,7 +426,13 @@ func GetMsgValByPath(msg hermod.Message, path string) any {
 		return nil
 	}
 
-	// Expose CDC/meta virtual fields for filtering/templates
+	// 1) Try the path as-is in the data map first.
+	// This ensures that real data columns (like "id", "table") are not shadowed by virtual fields.
+	if v := GetValByPath(msg.DataRef(), path); v != nil {
+		return v
+	}
+
+	// 2) Expose CDC/meta virtual fields for filtering/templates
 	// Supported aliases:
 	//  - operation/op  → msg.Operation()
 	//  - table         → msg.Table()
@@ -475,12 +481,7 @@ func GetMsgValByPath(msg hermod.Message, path string) any {
 		}
 	}
 
-	// 1) Try the path as-is
-	if v := GetValByPath(msg.DataRef(), path); v != nil {
-		return v
-	}
-
-	// 2) Try raw payloads if data doesn't have it
+	// 3) Try raw payloads if data doesn't have it
 	// This handles cases where Data() only contains "after" or is empty (like in deletes)
 	if strings.HasPrefix(lower, "before.") {
 		base := path[7:]
@@ -763,24 +764,24 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 		}
 
 		switch op {
-		case "=":
+		case "=", "eq":
 			match = fieldVal == valStr
-		case "!=":
+		case "!=", "neq":
 			match = fieldVal != valStr
-		case ">", ">=", "<", "<=":
+		case ">", "gt", ">=", "gte", "<", "lt", "<=", "lte":
 			t1, isT1 := ToTime(fieldValRaw)
 			t2, isT2 := ToTime(valResolved)
 			if isT1 && isT2 && !isNumeric(fieldValRaw) && !isNumeric(valResolved) {
 				// Only use time comparison if they look like dates and are NOT simple numbers
 				// (to avoid treating small integers as unix timestamps when not intended)
 				switch op {
-				case ">":
+				case ">", "gt":
 					match = t1.After(t2)
-				case ">=":
+				case ">=", "gte":
 					match = !t1.Before(t2)
-				case "<":
+				case "<", "lt":
 					match = t1.Before(t2)
-				case "<=":
+				case "<=", "lte":
 					match = !t1.After(t2)
 				}
 			} else {
@@ -788,25 +789,25 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 				v2, ok2 := ToFloat64(valResolved)
 				if ok1 && ok2 {
 					switch op {
-					case ">":
+					case ">", "gt":
 						match = v1 > v2
-					case ">=":
+					case ">=", "gte":
 						match = v1 >= v2
-					case "<":
+					case "<", "lt":
 						match = v1 < v2
-					case "<=":
+					case "<=", "lte":
 						match = v1 <= v2
 					}
 				} else {
 					// Fallback to string comparison if not numbers
 					switch op {
-					case ">":
+					case ">", "gt":
 						match = fieldVal > valStr
-					case ">=":
+					case ">=", "gte":
 						match = fieldVal >= valStr
-					case "<":
+					case "<", "lt":
 						match = fieldVal < valStr
-					case "<=":
+					case "<=", "lte":
 						match = fieldVal <= valStr
 					}
 				}

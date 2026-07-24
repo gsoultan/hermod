@@ -22,6 +22,8 @@ type aggState struct {
 	mu        sync.Mutex `json:"-"`
 	Count     float64    `json:"count"`
 	Sum       float64    `json:"sum"`
+	Min       float64    `json:"min"`
+	Max       float64    `json:"max"`
 	Last      time.Time  `json:"last"`
 	Start     time.Time  `json:"start"`
 	IsSession bool       `json:"is_session"`
@@ -136,11 +138,24 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 			}
 		}
 
-		// Reset if session window expired
 		if (windowType == "" || windowType == "session") && window > 0 && state.Count > 0 && time.Since(state.Last) > window {
 			state.Count = 0
 			state.Sum = 0
+			state.Min = 0
+			state.Max = 0
 			state.Start = now
+		}
+
+		if state.Count == 0 {
+			state.Min = val
+			state.Max = val
+		} else {
+			if val < state.Min {
+				state.Min = val
+			}
+			if val > state.Max {
+				state.Max = val
+			}
 		}
 
 		state.Count++
@@ -151,6 +166,8 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 			currentState = &aggState{
 				Count: state.Count,
 				Sum:   state.Sum,
+				Min:   state.Min,
+				Max:   state.Max,
 			}
 		}
 
@@ -167,6 +184,8 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 
 	currentSum := currentState.Sum
 	currentCount := currentState.Count
+	currentMin := currentState.Min
+	currentMax := currentState.Max
 
 	targetField, _ := config["targetField"].(string)
 	if targetField == "" {
@@ -184,6 +203,10 @@ func (t *AggregateTransformer) Transform(ctx context.Context, msg hermod.Message
 		} else {
 			msg.SetData(targetField, 0)
 		}
+	case "min":
+		msg.SetData(targetField, currentMin)
+	case "max":
+		msg.SetData(targetField, currentMax)
 	}
 
 	return msg, nil

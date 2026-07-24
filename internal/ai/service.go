@@ -190,6 +190,24 @@ func (s *SelfHealingService) analyzeErrorHeuristics(workflowID, nodeID, errStr s
 		}, nil
 	}
 
+	if strings.Contains(errLower, "pgbouncer") || strings.Contains(errLower, "pool_mode") || (strings.Contains(errLower, "postgres") && (strings.Contains(errLower, "timeout") || strings.Contains(errLower, "deadline"))) {
+		return &FixSuggestion{
+			Explanation: "Postgres Connection Issue: The connection is slow or failing, likely due to a proxy like PgBouncer or resource exhaustion.",
+			Description: "1. If using PgBouncer, ensure 'pgbouncer=true' or 'pool_mode=transaction' is in the connection string to use simple protocol.\n2. Check PgBouncer 'max_client_conn' and backend availability.\n3. Verify network latency between Hermod and the database.",
+			FixAction:   "change_config",
+			Confidence:  0.95,
+		}, nil
+	}
+
+	if strings.Contains(errLower, "replication slot") || strings.Contains(errLower, "publication") {
+		return &FixSuggestion{
+			Explanation: "Postgres CDC Constraint: Issue with logical replication infrastructure (slot or publication).",
+			Description: "1. Ensure 'wal_level' is set to 'logical' in postgresql.conf.\n2. Verify the replication slot is not already active by another Hermod instance or process.\n3. Publications must exist and include the tables you want to track. Use 'Discover Replication' in the source settings to verify.",
+			FixAction:   "change_config",
+			Confidence:  0.98,
+		}, nil
+	}
+
 	return &FixSuggestion{
 		Explanation: "Heuristic: Structural mismatch detected. The input data format might have changed or is incompatible with the current transformation logic.",
 		Description: "Review the 'Sample Data' and compare it with your transformation script (Lua/Go) or mapping rules. Ensure that you are correctly accessing fields based on the input structure.",

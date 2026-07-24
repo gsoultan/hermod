@@ -55,3 +55,10 @@ go.sum
 /.claude
 /.junie
 skills-lock.json
+ui/test-results/
+/hermod_bin
+/ui/hermod_e2e.db
+/hermod_e2e.db
+/hermod_e2e.db-shm
+/hermod_e2e.db-wal
+/registry.test

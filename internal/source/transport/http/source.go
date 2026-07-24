@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -131,6 +132,23 @@ func (h *SourceHandler) CreateSource(w http.ResponseWriter, r *http.Request) {
 
 func (h *SourceHandler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+
+	if err := h.checkActiveWorkflows(r.Context(), id); err != nil {
+		h.JsonError(w, "Cannot update source: "+err.Error()+". Please stop the workflow first.", http.StatusConflict)
+		return
+	}
+
+	// Fetch current source to compare CDC settings
+	oldSrc, err := h.Storage.GetSource(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			h.JsonError(w, "Source not found", http.StatusNotFound)
+		} else {
+			h.JsonError(w, "Failed to get source: "+err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
 	var src storage.Source
 	if err := json.NewDecoder(r.Body).Decode(&src); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
@@ -143,6 +161,27 @@ func (h *SourceHandler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 		if !h.HasVHostAccess(src.VHost, vhosts) {
 			h.JsonError(w, "Forbidden: you don't have access to this vhost", http.StatusForbidden)
 			return
+		}
+	}
+
+	// Postgres CDC Protection Logic: prevent changing slot/publication but allow tracking tables.
+	if oldSrc.Type == "postgres" && src.Type == "postgres" {
+		oldUseCDC := oldSrc.Config["use_cdc"] == "true"
+		newUseCDC := src.Config["use_cdc"] == "true"
+
+		if oldUseCDC && newUseCDC {
+			oldSlot := oldSrc.Config["slot_name"]
+			newSlot := src.Config["slot_name"]
+			oldPub := oldSrc.Config["publication_name"]
+			newPub := src.Config["publication_name"]
+
+			// If user tried to change slot or publication, revert them but allow the update
+			// (so tracking tables change, but CDC infra remains fixed as requested).
+			// This matches pgAdmin behavior where some fields are immutable during edit.
+			if (newSlot != "" && newSlot != oldSlot) || (newPub != "" && newPub != oldPub) {
+				src.Config["slot_name"] = oldSlot
+				src.Config["publication_name"] = oldPub
+			}
 		}
 	}
 
@@ -160,6 +199,11 @@ func (h *SourceHandler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 func (h *SourceHandler) DeleteSource(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ctx := r.Context()
+
+	if err := h.checkActiveWorkflows(ctx, id); err != nil {
+		h.JsonError(w, "Cannot delete source: "+err.Error()+". Please stop the workflow first.", http.StatusConflict)
+		return
+	}
 
 	src, err := h.Storage.GetSource(ctx, id)
 	if err != nil {
@@ -588,4 +632,22 @@ dispatched:
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msg.ID()})
+}
+
+func (h *SourceHandler) checkActiveWorkflows(ctx context.Context, sourceID string) error {
+	wfs, _, err := h.Storage.ListWorkflows(ctx, storage.CommonFilter{})
+	if err != nil {
+		return err
+	}
+	for _, wf := range wfs {
+		if !wf.Active {
+			continue
+		}
+		for _, node := range wf.Nodes {
+			if node.Type == "source" && node.RefID == sourceID {
+				return fmt.Errorf("source is used by active workflow %q", wf.Name)
+			}
+		}
+	}
+	return nil
 }

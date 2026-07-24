@@ -236,6 +236,21 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			// Fallback: allow worker token authentication for non-setup API calls
 			// Workers authenticate using the X-Worker-Token header.
 			if workerToken := r.Header.Get("X-Worker-Token"); workerToken != "" && h.Storage != nil {
+				// Master Key Bypass
+				masterKey := os.Getenv("HERMOD_MASTER_KEY")
+				if masterKey != "" && workerToken == masterKey {
+					// Build a minimal user context with Administrator role for testing/emergency
+					user := storage.User{
+						ID:       "worker:master",
+						Username: "worker:master",
+						Role:     storage.RoleAdministrator,
+						VHosts:   []string{"*"},
+					}
+					ctx := context.WithValue(r.Context(), UserContextKey, &user)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+
 				// Find a worker with the provided token. This is a simple linear scan; acceptable for typical small worker counts.
 				if workers, _, err := h.Storage.ListWorkers(r.Context(), storage.CommonFilter{Limit: -1}); err == nil {
 					for _, wkr := range workers {

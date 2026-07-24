@@ -17,8 +17,11 @@
 package pgxutil
 
 import (
+	"context"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -80,6 +83,14 @@ func ParsePoolConfig(connString string) (*pgxpool.Config, bool, error) {
 	if pooled {
 		ApplyPoolerSafety(cfg.ConnConfig)
 	}
+
+	// Increase default pool size for shared connection pooling to prevent
+	// Test Connection timeouts during busy periods.
+	if cfg.MaxConns <= 10 {
+		cfg.MaxConns = 50
+	}
+	cfg.HealthCheckPeriod = 1 * time.Minute
+
 	return cfg, pooled, nil
 }
 
@@ -151,4 +162,70 @@ func poolingMode(v string) bool {
 	default:
 		return false
 	}
+}
+
+// DefaultPooler is the global connection pooler used by sources and sinks to
+// share backend connections.
+var DefaultPooler = NewPooler()
+
+// Pooler caches and reuses pgxpool.Pool instances based on connection strings.
+// It ensures that multiple workflow nodes targeting the same database share the
+// same underlying connection pool, reducing the load on the database or proxy.
+type Pooler struct {
+	pools sync.Map // map[string]*pgxpool.Pool
+}
+
+// NewPooler creates a new connection pooler.
+func NewPooler() *Pooler {
+	return &Pooler{}
+}
+
+// Get returns a shared pool for the given connection string. If no pool exists
+// for the string, a new one is created and cached.
+func (p *Pooler) Get(ctx context.Context, connString string) (*pgxpool.Pool, error) {
+	cleaned, _, err := ParsePoolConfig(connString)
+	if err != nil {
+		return nil, err
+	}
+
+	// Use the cleaned DSN (without our custom pgbouncer=true markers) as the cache key.
+	key, _ := stripPoolerParams(connString)
+
+	if val, ok := p.pools.Load(key); ok {
+		pool := val.(*pgxpool.Pool)
+		return pool, nil
+	}
+
+	// Create a new pool. We use LoadOrStore to ensure only one pool is ever
+	// cached for a given key, even under concurrent access.
+	pool, err := pgxpool.NewWithConfig(ctx, cleaned)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify the connection before caching it.
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+
+	actual, loaded := p.pools.LoadOrStore(key, pool)
+	if loaded {
+		// Someone else created a pool while we were busy.
+		pool.Close()
+		return actual.(*pgxpool.Pool), nil
+	}
+
+	return pool, nil
+}
+
+// Close closes all cached pools and clears the cache.
+func (p *Pooler) Close() {
+	p.pools.Range(func(key, value any) bool {
+		if pool, ok := value.(*pgxpool.Pool); ok {
+			pool.Close()
+		}
+		p.pools.Delete(key)
+		return true
+	})
 }

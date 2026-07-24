@@ -696,6 +696,10 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if wf.ID == "" {
+		wf.ID = uuid.New().String()
+	}
+
 	if err := h.Storage.CreateWorkflow(r.Context(), wf); err != nil {
 		h.JsonError(w, "Failed to create workflow: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -703,6 +707,7 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 
 	h.RecordAuditLog(r, "INFO", "Created workflow "+wf.Name, "CREATE", wf.ID, "", "", wf)
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(wf)
 }
@@ -935,7 +940,17 @@ func (h *WorkflowHandler) TestTransformation(w http.ResponseWriter, r *http.Requ
 	defer message.ReleaseMessage(msg)
 	populateMessageFromMap(msg, req.Message)
 
-	res, err := h.Registry.TestTransformationPipeline(r.Context(), []storage.Transformation{req.Transformation}, msg)
+	transType := req.Transformation.Type
+	if transType == "transformation" {
+		if tt, ok := req.Transformation.Config["transType"].(string); ok && tt != "" {
+			transType = tt
+		}
+	}
+
+	res, err := h.Registry.TestTransformationPipeline(r.Context(), []storage.Transformation{{
+		Type:   transType,
+		Config: req.Transformation.Config,
+	}}, msg)
 	if err != nil {
 		h.JsonError(w, "Failed to test transformation: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -957,6 +972,10 @@ func (h *WorkflowHandler) TestTransformation(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	if len(res) == 1 {
+		if res[0] == nil {
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "Filtered", "filtered": true})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(res[0].ToMap())
 	} else {
 		results := make([]map[string]any, len(res))

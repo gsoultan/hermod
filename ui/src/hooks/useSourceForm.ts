@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
 import { notifications } from '@mantine/notifications';
 import { useNavigate } from '@tanstack/react-router';
+import { humanizeError } from '@/api/errors';
 import type { Source, Workflow } from '@/types';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import { humanizeSampleError } from '@/components/workflow/Source/sourceSampling';
@@ -399,11 +400,17 @@ export function useSourceForm({
       fetchSample(variables);
     },
     onError: (e: any) => {
+      const hErr = humanizeError(e);
       const data = e?.data;
       if (e?.status === 409 && data?.code === 'CDC_REUSE_PROMPT') {
         setCdcReusePrompt({ slot: data.slot, publication: data.publication });
         return;
       }
+      notifications.show({
+        title: hErr.title,
+        message: hErr.message,
+        color: hErr.color as any,
+      });
       setTestResult(null);
     }
   });
@@ -441,7 +448,13 @@ export function useSourceForm({
         navigate({ to: '/sources' });
       }
     },
-    onError: () => {
+    onError: (error) => {
+        const hErr = humanizeError(error);
+        notifications.show({
+          title: hErr.title,
+          message: hErr.message,
+          color: hErr.color as any,
+        });
         setTestResult(null);
     }
   });

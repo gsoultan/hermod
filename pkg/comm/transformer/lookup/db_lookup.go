@@ -18,6 +18,7 @@ import (
 	"github.com/user/hermod/internal/storage"
 	sourcemongodb "github.com/user/hermod/pkg/comm/source/mongodb"
 	"github.com/user/hermod/pkg/comm/transformer/core"
+	"github.com/user/hermod/pkg/infra/batcher"
 	"github.com/user/hermod/pkg/infra/evaluator"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -25,10 +26,15 @@ import (
 )
 
 func init() {
-	transformer.Register("db_lookup", &DBLookupTransformer{})
+	transformer.Register("db_lookup", &DBLookupTransformer{
+		batchers: make(map[string]*batcher.Batcher[any, any]),
+	})
 }
 
-type DBLookupTransformer struct{}
+type DBLookupTransformer struct {
+	batchers   map[string]*batcher.Batcher[any, any]
+	batchersMu sync.RWMutex
+}
 
 type RegistryProvider interface {
 	GetSourceConfig(ctx context.Context, id string) (storage.Source, error)
@@ -89,32 +95,64 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 		return msg, fmt.Errorf("failed to get source for lookup (sourceId: '%s'): %w", sourceID, err)
 	}
 
-	// Enforce: db_lookup should use non-CDC sources, except for SQL Server (mssql)
-	if v, ok := src.Config["use_cdc"]; ok {
-		if v != "false" && src.Type != "mssql" {
-			return msg, fmt.Errorf("db_lookup requires a non-CDC source; disable CDC on source '%s' or use a non-CDC source (allowed exception: SQL Server)", src.Name)
+	var resultVal any
+	// Use batching if enabled and applicable (only for SQL-based table mode)
+	useBatching, _ := config["use_batching"].(bool)
+	if !useBatching {
+		if s, ok := config["use_batching"].(string); ok {
+			useBatching = s == "true"
 		}
 	}
+	nodeID, _ := ctx.Value(hermod.NodeIDKey).(string)
 
-	var resultVal any
-	if src.Type == "mongodb" {
-		// queryTemplate not supported for Mongo; use whereClause
-		resultVal, err = t.lookupMongoDB(ctx, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, msg.Data())
-	} else {
-		// If mode is explicit, follow it. Otherwise fallback to queryTemplate presence.
-		useTemplate := false
-		if mode == "query" {
-			useTemplate = true
-		} else if mode == "table" {
-			useTemplate = false
-		} else if queryTemplate != "" {
-			useTemplate = true
+	if useBatching && nodeID != "" && mode != "query" && queryTemplate == "" && src.Type != "mongodb" {
+		batchSize, _ := config["batchSize"].(int)
+		if batchSize <= 0 {
+			if s, ok := config["batchSize"].(string); ok {
+				batchSize, _ = strconv.Atoi(s)
+			}
+		}
+		if batchSize <= 0 {
+			batchSize = 100
+		}
+		batchWaitStr, _ := config["batchWait"].(string)
+		batchWait := 10 * time.Millisecond
+		if d, err := time.ParseDuration(batchWaitStr); err == nil {
+			batchWait = d
 		}
 
-		if useTemplate {
-			resultVal, err = t.lookupSQLWithTemplate(ctx, registry, src, queryTemplate, valueColumn, msg.Data())
+		b := t.getOrCreateBatcher(nodeID, registry, src, table, keyColumn, valueColumn, whereClause, defaultValue, msg.Data(), batchSize, batchWait)
+		resultVal, err = b.Execute(ctx, keyVal)
+		if err != nil {
+			return msg, err
+		}
+	} else {
+		// Enforce: db_lookup should use non-CDC sources, except for SQL Server (mssql)
+		if v, ok := src.Config["use_cdc"]; ok {
+			if v != "false" && src.Type != "mssql" {
+				return msg, fmt.Errorf("db_lookup requires a non-CDC source; disable CDC on source '%s' or use a non-CDC source (allowed exception: SQL Server)", src.Name)
+			}
+		}
+
+		if src.Type == "mongodb" {
+			// queryTemplate not supported for Mongo; use whereClause
+			resultVal, err = t.lookupMongoDB(ctx, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, msg.Data())
 		} else {
-			resultVal, err = t.lookupSQL(ctx, registry, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, msg.Data())
+			// If mode is explicit, follow it. Otherwise fallback to queryTemplate presence.
+			useTemplate := false
+			if mode == "query" {
+				useTemplate = true
+			} else if mode == "table" {
+				useTemplate = false
+			} else if queryTemplate != "" {
+				useTemplate = true
+			}
+
+			if useTemplate {
+				resultVal, err = t.lookupSQLWithTemplate(ctx, registry, src, queryTemplate, valueColumn, msg.Data())
+			} else {
+				resultVal, err = t.lookupSQL(ctx, registry, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, msg.Data())
+			}
 		}
 	}
 
@@ -382,6 +420,85 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 		return rowsOut[0], nil
 	}
 	return rowsOut, nil
+}
+
+func (t *DBLookupTransformer) getOrCreateBatcher(nodeID string, registry any, src storage.Source, table, keyColumn, valueColumn, whereClause, defaultValue string, data map[string]any, batchSize int, batchWait time.Duration) *batcher.Batcher[any, any] {
+	t.batchersMu.Lock()
+	defer t.batchersMu.Unlock()
+	if b, ok := t.batchers[nodeID]; ok {
+		return b
+	}
+	b := batcher.NewBatcher(batchSize, batchWait, func(ctx context.Context, keys []any) (map[any]any, error) {
+		return t.lookupSQLBatch(ctx, registry.(interface {
+			GetOrOpenDB(src storage.Source) (*sql.DB, error)
+		}), src, table, keyColumn, keys, whereClause, valueColumn, defaultValue, data)
+	})
+	t.batchers[nodeID] = b
+	return b
+}
+
+func (t *DBLookupTransformer) lookupSQLBatch(ctx context.Context, registry interface {
+	GetOrOpenDB(src storage.Source) (*sql.DB, error)
+}, src storage.Source, table, keyColumn string, keys []any, whereClause, valueColumn, defaultValue string, data map[string]any) (map[any]any, error) {
+	requestedCols := valueColumn
+	if requestedCols == "" {
+		requestedCols = "*"
+	}
+
+	// Force keyColumn into selection to allow correlation
+	batchValueColumn := requestedCols
+	if batchValueColumn != "*" && !strings.Contains(batchValueColumn, keyColumn) {
+		batchValueColumn += "," + keyColumn
+	}
+
+	res, err := t.lookupSQL(ctx, registry, src, table, keyColumn, keys, whereClause, batchValueColumn, defaultValue, data)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make(map[any]any)
+	if res == nil {
+		return results, nil
+	}
+
+	var rows []map[string]any
+	if r, ok := res.(map[string]any); ok {
+		rows = []map[string]any{r}
+	} else if rs, ok := res.([]map[string]any); ok {
+		rows = rs
+	}
+
+	for _, row := range rows {
+		k := row[keyColumn]
+		if k == nil {
+			for rk, rv := range row {
+				if strings.EqualFold(rk, keyColumn) {
+					k = rv
+					break
+				}
+			}
+		}
+
+		var finalVal any
+		if requestedCols != "*" && !strings.Contains(requestedCols, ",") {
+			finalVal = row[requestedCols]
+			if finalVal == nil {
+				for rk, rv := range row {
+					if strings.EqualFold(rk, requestedCols) {
+						finalVal = rv
+						break
+					}
+				}
+			}
+		} else {
+			finalVal = row
+		}
+		if k != nil {
+			results[k] = finalVal
+		}
+	}
+
+	return results, nil
 }
 
 // lookupSQLWithTemplate executes a full custom SELECT template while safely parameterizing any {{ ... }} tokens.

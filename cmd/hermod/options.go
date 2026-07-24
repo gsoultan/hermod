@@ -154,6 +154,9 @@ func (o *Options) applyOtherEnvOverrides() {
 	if v := os.Getenv("HERMOD_CONFIG"); v != "" && o.configPath == config.GetConfigPath("config.yaml") {
 		o.configPath = v
 	}
+	if v := os.Getenv("HERMOD_MASTER_KEY"); v != "" && o.masterKey == "" {
+		o.masterKey = v
+	}
 	if v := os.Getenv("HERMOD_DISABLE_AUTOSCALER"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			o.disableAutoscaler = b

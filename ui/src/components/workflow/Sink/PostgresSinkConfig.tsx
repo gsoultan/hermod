@@ -1,5 +1,5 @@
 import { IconRefresh } from '@tabler/icons-react';
-import { ActionIcon, Autocomplete, Group, TextInput, Switch, Stack, Divider, Select, Button, Loader } from '@mantine/core'
+import { ActionIcon, Autocomplete, Group, TextInput, Switch, Stack, Divider, Select, Button, Loader, Checkbox } from '@mantine/core'
 import { useState, type FC, useEffect } from 'react'
 import { ColumnMappingEditor, type ColumnMapping } from './ColumnMappingEditor'
 import { apiFetch } from '@/api'
@@ -297,7 +297,16 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
       />
 
       {(type === 'postgres' || type === 'yugabyte') && (
-        <TextInput label="SSL Mode" placeholder="disable" value={config.sslmode || ''} onChange={(e) => updateConfig('sslmode', e.target.value)} />
+        <Group grow>
+          <TextInput label="SSL Mode" placeholder="disable" value={config.sslmode || ''} onChange={(e) => updateConfig('sslmode', e.target.value)} />
+          <Checkbox
+            mt="xl"
+            label="Using PgBouncer"
+            description="Transaction/Statement mode safety"
+            checked={config.pgbouncer === 'true'}
+            onChange={(e) => updateConfig('pgbouncer', e.target.checked ? 'true' : 'false')}
+          />
+        </Group>
       )}
       <TextInput
         label="OR Connection String"
@@ -309,6 +318,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
         }
         value={config.connection_string || ''}
         onChange={(e) => updateConfig('connection_string', e.target.value)}
+        description={type === 'postgres' ? "Add ?pgbouncer=true for transaction/statement mode." : undefined}
       />
 
       {(config.operation_mode === 'auto' || config.operation_mode === 'delete' || !config.operation_mode) && (

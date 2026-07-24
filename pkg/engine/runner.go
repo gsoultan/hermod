@@ -65,10 +65,14 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 	// silently buffering messages that can never be delivered. Sources keep
 	// their own runtime reconnect loop (see runSourceToBuffer), so they are not
 	// part of this hard pre-flight.
+	preflightStart := time.Now()
 	if err := r.preflightSinks(r.ctx); err != nil {
 		r.engine.setStatus("Error: " + err.Error())
 		r.cancel()
 		return err
+	}
+	if time.Since(preflightStart) > 5*time.Second {
+		r.engine.logger.Warn("Sink pre-flight checks took longer than expected", "workflow_id", r.engine.workflowID, "duration", time.Since(preflightStart).Round(time.Millisecond))
 	}
 
 	// Initialize Sink Writers.
@@ -200,7 +204,12 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 		r.runBufferToSink(r.ctx, &sinkWg)
 	})
 
-	r.runSourceToBuffer(r.ctx)
+	r.wg.Go(func() {
+		r.runSourceToBuffer(r.ctx)
+	})
+
+	// Wait for context to be done instead of blocking synchronously
+	<-r.ctx.Done()
 
 	// The source ingestion loop has exited because the engine is stopping, so
 	// release the source's resources now (see closeSourceOnShutdown).
@@ -248,6 +257,7 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 	} else {
 		writersWg.Wait()
 	}
+	r.closeSinksOnShutdown()
 	close(r.errCh)
 
 	// Final checkpoint
@@ -294,6 +304,22 @@ func (r *Runner) closeSourceOnShutdown() {
 	}
 	if err := r.engine.source.Close(); err != nil {
 		r.engine.logger.Warn("Error closing source during shutdown", "workflow_id", r.engine.workflowID, "error", err)
+	}
+}
+
+func (r *Runner) closeSinksOnShutdown() {
+	r.engine.mu.RLock()
+	defer r.engine.mu.RUnlock()
+	for _, snk := range r.engine.sinks {
+		if snk == nil {
+			continue
+		}
+		if err := snk.Close(); err != nil {
+			r.engine.logger.Warn("Error closing sink during shutdown", "workflow_id", r.engine.workflowID, "error", err)
+		}
+	}
+	if r.engine.deadLetterSink != nil {
+		_ = r.engine.deadLetterSink.Close()
 	}
 }
 
@@ -360,6 +386,7 @@ const preflightAttempts = 3
 // as any sink remains unreachable, so a misconfigured sink fails the engine fast
 // instead of silently accumulating undeliverable messages.
 func (r *Runner) preflightSinks(ctx context.Context) error {
+	r.engine.logger.Info("Runner: preflighting sinks", "count", len(r.engine.sinks))
 	for i, snk := range r.engine.sinks {
 		if snk == nil {
 			continue
@@ -374,7 +401,7 @@ func (r *Runner) preflightSinks(ctx context.Context) error {
 				"sink_id", sinkID,
 				"attempts", preflightAttempts,
 				"error", err)
-			return fmt.Errorf("sink pre-flight checks failed after %d attempts", preflightAttempts)
+			return fmt.Errorf("sink pre-flight checks failed after %d attempts: %w", preflightAttempts, err)
 		}
 	}
 	return nil
@@ -441,9 +468,12 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 			}
 
 			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return
+				}
 				r.engine.setSourceStatus("reconnecting")
 				if reconnectAttempts == 0 {
-					r.engine.logger.Warn("Source disconnected, entering reconnect loop", "workflow_id", r.engine.workflowID)
+					r.engine.logger.Warn("Source disconnected, entering reconnect loop", "workflow_id", r.engine.workflowID, "error", err)
 				}
 
 				select {
@@ -480,7 +510,10 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 
 			m, err := r.engine.source.Read(ctx)
 			if err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				if errors.Is(err, context.Canceled) {
+					return
+				}
+				if errors.Is(err, context.DeadlineExceeded) {
 					continue
 				}
 				r.engine.logger.Error("Source read error", "workflow_id", r.engine.workflowID, "error", err)

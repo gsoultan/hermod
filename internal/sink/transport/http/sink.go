@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -125,6 +126,12 @@ func (h *SinkHandler) CreateSink(w http.ResponseWriter, r *http.Request) {
 
 func (h *SinkHandler) UpdateSink(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+
+	if err := h.checkActiveWorkflows(r.Context(), id); err != nil {
+		h.JsonError(w, "Cannot update sink: "+err.Error()+". Please stop the workflow first.", http.StatusConflict)
+		return
+	}
+
 	var snk storage.Sink
 	if err := json.NewDecoder(r.Body).Decode(&snk); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -154,6 +161,11 @@ func (h *SinkHandler) UpdateSink(w http.ResponseWriter, r *http.Request) {
 func (h *SinkHandler) DeleteSink(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ctx := r.Context()
+
+	if err := h.checkActiveWorkflows(ctx, id); err != nil {
+		h.JsonError(w, "Cannot delete sink: "+err.Error()+". Please stop the workflow first.", http.StatusConflict)
+		return
+	}
 
 	snk, err := h.Storage.GetSink(ctx, id)
 	if err != nil {
@@ -489,4 +501,22 @@ func (h *SinkHandler) PreviewSmtpTemplate(w http.ResponseWriter, r *http.Request
 
 func (h *SinkHandler) ValidateEmail(w http.ResponseWriter, r *http.Request) {
 	// Full implementation would go here, moved from server.go
+}
+
+func (h *SinkHandler) checkActiveWorkflows(ctx context.Context, sinkID string) error {
+	wfs, _, err := h.Storage.ListWorkflows(ctx, storage.CommonFilter{})
+	if err != nil {
+		return err
+	}
+	for _, wf := range wfs {
+		if !wf.Active {
+			continue
+		}
+		for _, node := range wf.Nodes {
+			if node.Type == "sink" && node.RefID == sinkID {
+				return fmt.Errorf("sink is used by active workflow %q", wf.Name)
+			}
+		}
+	}
+	return nil
 }
