@@ -30,11 +30,15 @@ Every time a task begins, you MUST execute the following workflow to choose the 
 2. **Project Guidelines**: Refer to `.junie/GUIDELINES.md` for detailed coding standards.
 3. **Layered Pattern**: `Transports` → `Middlewares` → `Endpoints` → `Services` → `Usecases` → `Repositories`.
 4. **Externalization**: All SQL MUST be in `.sql` files and embedded using `//go:embed`.
-5. **Token Efficiency**: Always prefix terminal commands with `rtk`. Integrate **Caveman Code Ultra** for all communication to minimize token usage (~75% savings).
+5. **Postgres MCP**: Use the integrated Postgres MCP server for schema discovery and data validation (see `.junie/POSTGRES_MCP.md`).
+6. **RabbitMQ MCP**: Use the integrated RabbitMQ MCP server for message queue inspection and data flow validation (see `.junie/RABBITMQ_MCP.md`).
+7. **Token Efficiency**: Always prefix terminal commands with `rtk`. Integrate **Caveman Code Ultra** for all communication to minimize token usage (~75% savings).
 
 ## 🛠️ Startup Checklist
 - [ ] Run `rtk npx skills list`
 - [ ] Identify and load relevant domain skills via `skills.sh`
 - [ ] Check `CLAUDE.md` for build/test commands
 - [ ] Review Serena memories: `rtk list_memories`
+- [ ] Verify Postgres MCP connection: `postgres_list_tables`
+- [ ] Verify RabbitMQ MCP connection: `rabbitmq_list_queues`
 - [ ] Activate Caveman Ultra: `/caveman ultra`
