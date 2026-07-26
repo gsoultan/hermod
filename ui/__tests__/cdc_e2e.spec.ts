@@ -12,12 +12,14 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
   };
 
   test.beforeEach(async ({ page }) => {
+    page.on('request', request => console.log('>>', request.method(), request.url()));
+    page.on('response', response => console.log('<<', response.status(), response.url()));
     // 1. Login
     console.log('Navigating to login...');
     await page.goto('http://localhost:5173/login');
     await page.getByLabel('Username').first().fill('admin');
     await page.locator('input[type="password"]').fill('admin123');
-    await page.getByRole('button', { name: 'Login' }).click();
+    await page.getByRole('button', { name: 'Sign In' }).click();
     await expect(page).toHaveURL('http://localhost:5173/', { timeout: 20000 });
     console.log('Login successful');
   });
@@ -42,9 +44,9 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
     await page.goto('http://localhost:5173/sources');
     await page.getByRole('button', { name: 'Add Source' }).click();
     await page.getByLabel('Name').fill(`Postgres Source E2E ${timestamp}`);
-    await page.getByLabel('VHost').click();
+    await page.getByRole('combobox', { name: 'VHost', exact: true }).click();
     await page.getByRole('option', { name: vhostName }).click();
-    await page.getByLabel('Type').click();
+    await page.getByRole('combobox', { name: 'Type', exact: true }).click();
     await page.getByRole('option', { name: 'Postgres' }).click();
     await page.getByRole('button', { name: 'Next Step' }).click();
 
@@ -79,9 +81,9 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
     await page.goto('http://localhost:5173/sinks');
     await page.getByRole('button', { name: 'Add Sink' }).click();
     await page.getByLabel('Sink Name').fill(`Postgres Sink E2E ${timestamp}`);
-    await page.getByLabel('VHost').click();
+    await page.getByRole('combobox', { name: 'VHost', exact: true }).click();
     await page.getByRole('option', { name: vhostName }).click();
-    await page.getByLabel('Type').click();
+    await page.getByRole('combobox', { name: 'Type', exact: true }).click();
     await page.getByRole('option', { name: 'Postgres' }).click();
     await page.getByRole('button', { name: 'Next Step' }).click();
 

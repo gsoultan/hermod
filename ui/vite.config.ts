@@ -102,15 +102,15 @@ export default defineConfig({
   server: {
     proxy: {
       '/api/ws': {
-        target: 'ws://localhost:4001',
+        target: 'ws://localhost:4005',
         ws: true,
       },
       '/api': {
-        target: 'http://localhost:4001',
+        target: 'http://localhost:4005',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:4001',
+        target: 'ws://localhost:4005',
         ws: true,
       },
     },

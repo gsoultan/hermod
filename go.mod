@@ -38,6 +38,7 @@ require (
 	github.com/joho/godotenv v1.3.0
 	github.com/kardianos/service v1.2.4
 	github.com/klauspost/compress v1.18.2
+	github.com/lib/pq v1.10.4
 	github.com/microsoft/go-mssqldb v1.7.2
 	github.com/milvus-io/milvus-sdk-go/v2 v2.4.2
 	github.com/nats-io/nats.go v1.37.0

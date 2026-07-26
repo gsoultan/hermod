@@ -73,6 +73,7 @@ func (h *InfraHandler) RegisterInfrastructureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/infra/mesh-health", h.GetMeshHealth)
 	mux.HandleFunc("GET /api/infra/lineage", h.GetLineage)
 	mux.HandleFunc("POST /api/mesh/clusters", h.RegisterMeshCluster)
+	mux.HandleFunc("/api/audit-logs", h.ListAuditLogs)
 }
 
 func (h *InfraHandler) RegisterSchemaRoutes(mux *http.ServeMux) {

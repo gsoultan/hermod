@@ -2,6 +2,7 @@ import { IconActivity, IconAlertCircle, IconArrowsExchange, IconGitBranch, IconP
 import { Title, Text, Paper, Group, ThemeIcon, Box, Stack, Badge, Table, ScrollArea, ActionIcon, Tooltip, Button, Grid } from '@mantine/core'
 import { useState, useEffect, useRef } from 'react'
 import { apiFetch } from '@/api'
+import { getToken } from '@/auth/storage'
 import { useNavigate } from '@tanstack/react-router'
 import { formatDateTime } from '@/utils/dateUtils'
 import { DataLineageModal } from '@/components/modals/DataLineageModal'
@@ -147,7 +148,8 @@ export function DashboardPage() {
       .catch(err => console.error('Failed to fetch workflows', err));
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/dashboard?vhost=${selectedVHost}`;
+    const token = getToken();
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/dashboard?vhost=${selectedVHost}${token ? `&token=${token}` : ''}`;
     const ws = new WebSocket(wsUrl);
     
     ws.onmessage = (event) => {
