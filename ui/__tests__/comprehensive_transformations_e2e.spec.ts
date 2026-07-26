@@ -14,11 +14,11 @@ test.describe('Comprehensive Transformations E2E', () => {
   test.beforeEach(async ({ page }) => {
     page.on('console', msg => console.log('BROWSER:', msg.text()));
     // Login
-    await page.goto('http://localhost:5173/login');
+    await page.goto('http://localhost:5175/login');
     await page.getByLabel('Username').first().fill('admin');
     await page.locator('input[type="password"]').fill('admin123');
     await page.getByRole('button', { name: 'Sign In' }).click();
-    await expect(page).toHaveURL('http://localhost:5173/', { timeout: 30000 });
+    await expect(page).toHaveURL('http://localhost:5175/', { timeout: 30000 });
   });
 
   test('Transformation Coverage: Core, Advanced, and UI Preview', async ({ page }) => {
@@ -201,7 +201,7 @@ test.describe('Comprehensive Transformations E2E', () => {
 
     // 4. Verify Workflow in UI
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto(`http://localhost:5173/workflows/${workflowID}`);
+    await page.goto(`http://localhost:5175/workflows/${workflowID}`);
     await page.waitForSelector('text=Comp Workflow');
     
     // Optional UI interaction check

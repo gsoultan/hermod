@@ -16,11 +16,11 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
     page.on('response', response => console.log('<<', response.status(), response.url()));
     // 1. Login
     console.log('Navigating to login...');
-    await page.goto('http://localhost:5173/login');
+    await page.goto('http://localhost:5175/login');
     await page.getByLabel('Username').first().fill('admin');
     await page.locator('input[type="password"]').fill('admin123');
     await page.getByRole('button', { name: 'Sign In' }).click();
-    await expect(page).toHaveURL('http://localhost:5173/', { timeout: 20000 });
+    await expect(page).toHaveURL('http://localhost:5175/', { timeout: 20000 });
     console.log('Login successful');
   });
 
@@ -41,7 +41,7 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
 
     // 2. Create Source via UI (Testing Test Connection, Simulation)
     console.log('Creating source via UI...');
-    await page.goto('http://localhost:5173/sources');
+    await page.goto('http://localhost:5175/sources');
     await page.getByRole('button', { name: 'Add Source' }).click();
     await page.getByLabel('Name').fill(`Postgres Source E2E ${timestamp}`);
     await page.getByRole('combobox', { name: 'VHost', exact: true }).click();
@@ -54,9 +54,10 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
     await page.getByLabel('Port').fill('5432');
     await page.getByLabel('User').fill('postgres');
     await page.getByLabel('Password').fill('postgres');
-    await page.getByLabel('Database').fill(sourceDB);
-    await page.getByLabel('Tables (comma separated)').fill('users');
-    await page.getByLabel('Use CDC').click();
+    await page.getByLabel('Database Name').fill(sourceDB);
+    await page.getByLabel('Tables').pressSequentially('users');
+    await page.keyboard.press('Enter');
+    await page.getByLabel('Capture Data Changes (CDC)').click();
     await page.getByLabel('Slot Name').fill(`slot_${timestamp}`);
     await page.getByLabel('Publication Name').fill(`pub_${timestamp}`);
 
@@ -78,7 +79,7 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
 
     // 3. Create Sink via UI (Testing PgBouncer, Smart Map, Truncate)
     console.log('Creating sink via UI...');
-    await page.goto('http://localhost:5173/sinks');
+    await page.goto('http://localhost:5175/sinks');
     await page.getByRole('button', { name: 'Add Sink' }).click();
     await page.getByLabel('Sink Name').fill(`Postgres Sink E2E ${timestamp}`);
     await page.getByRole('combobox', { name: 'VHost', exact: true }).click();
@@ -128,7 +129,7 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
       });
     }, workflow);
 
-    await page.goto('http://localhost:5173/workflows');
+    await page.goto('http://localhost:5175/workflows');
     const wfRow = page.locator('tr', { hasText: workflow.name });
     await wfRow.locator('button[aria-label="Stop workflow"]').click();
     await expect(wfRow.locator('text=Inactive')).toBeVisible();
@@ -210,7 +211,7 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
       nodes: [
         { id: 'src', type: 'source', ref_id: setupData.cdcSrcId, x: 50, y: 150 },
         { id: 'db_lookup', type: 'transformation', config: { transType: 'db_lookup', sourceId: setupData.lookupSrcId, table: 'lookup_table', keyColumn: 'user_name', keyField: '$.name', valueColumn: 'city', targetField: '$.city' }, x: 250, y: 150 },
-        { id: 'api_lookup', type: 'transformation', config: { transType: 'api_lookup', method: 'GET', url: 'http://localhost:5173/api/vhosts', headers: JSON.stringify({ 'Authorization': `Bearer ${setupData.token}` }), responsePath: '$.[0].name', targetField: '$.vhost_info' }, x: 450, y: 150 },
+        { id: 'api_lookup', type: 'transformation', config: { transType: 'api_lookup', method: 'GET', url: 'http://localhost:5175/api/vhosts', headers: JSON.stringify({ 'Authorization': `Bearer ${setupData.token}` }), responsePath: '$.[0].name', targetField: '$.vhost_info' }, x: 450, y: 150 },
         { id: 'snk1', type: 'sink', ref_id: setupData.sink1Id, x: 700, y: 50 },
         { id: 'snk2', type: 'sink', ref_id: setupData.sink2Id, x: 700, y: 250 }
       ],
@@ -229,7 +230,7 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
 
     // Testing Log Live Preview and Message Trace UI
     console.log('Testing Live Preview UI...');
-    await page.goto('http://localhost:5173/workflows');
+    await page.goto('http://localhost:5175/workflows');
     await page.locator('tr', { hasText: workflow.name }).locator('button[aria-label="Edit workflow"]').click();
     await expect(page.locator('.react-flow__renderer')).toBeVisible();
 
@@ -266,5 +267,43 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
     expect(found1).toBe(true);
     expect(found2).toBe(true);
     await sinkClient.end();
+  });
+
+  test('Scenario 8: Negative Scenarios - Connection Failures', async ({ page }) => {
+    test.setTimeout(120000);
+    const timestamp = Date.now();
+    
+    // 1. Source connection failure (wrong password)
+    console.log('Testing source connection failure...');
+    await page.goto('http://localhost:5175/sources');
+    await page.getByRole('button', { name: 'Add Source' }).click();
+    await page.getByLabel('Name').fill(`Failed Source ${timestamp}`);
+    await page.getByRole('combobox', { name: 'Type', exact: true }).click();
+    await page.getByRole('option', { name: 'Postgres' }).click();
+    await page.getByRole('button', { name: 'Next Step' }).click();
+
+    await page.getByLabel('Host').fill('127.0.0.1');
+    await page.getByLabel('Port').fill('5432');
+    await page.getByLabel('User').fill('postgres');
+    await page.getByLabel('Password').fill('wrong_password_here');
+    await page.getByLabel('Database Name').fill(sourceDB);
+    
+    await page.getByRole('button', { name: 'Test Connection' }).click();
+    // The error message should appear in an Alert
+    await expect(page.locator('.mantine-Alert-title')).toContainText('Connection Failed', { timeout: 15000 });
+    await expect(page.locator('.mantine-Alert-description')).toContainText('password authentication failed', { timeout: 15000 });
+
+    // 2. Sink connection failure (invalid host)
+    console.log('Testing sink connection failure...');
+    await page.goto('http://localhost:5175/sinks');
+    await page.getByRole('button', { name: 'Add Sink' }).click();
+    await page.getByLabel('Sink Name').fill(`Failed Sink ${timestamp}`);
+    await page.getByRole('combobox', { name: 'Type', exact: true }).click();
+    await page.getByRole('option', { name: 'Postgres' }).click();
+    await page.getByRole('button', { name: 'Next Step' }).click();
+
+    await page.getByLabel('OR Connection String').fill(`postgres://postgres:postgres@127.0.0.254:5432/${sinkDB}`);
+    await page.getByRole('button', { name: 'Test Connection' }).click();
+    await expect(page.locator('.mantine-Alert-title')).toContainText('Connection Failed', { timeout: 15000 });
   });
 });

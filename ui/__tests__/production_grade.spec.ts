@@ -14,11 +14,11 @@ test.describe('Hermod Production Grade E2E', () => {
   test.beforeEach(async ({ page }) => {
     page.on('console', msg => console.log('BROWSER:', msg.text()));
     // Login
-    await page.goto('http://localhost:5173/login');
+    await page.goto('http://localhost:5175/login');
     await page.getByPlaceholder('Your username').fill('admin');
     await page.getByPlaceholder('Your password').fill('admin123');
     await page.getByRole('button', { name: 'Sign In' }).click();
-    await expect(page).toHaveURL('http://localhost:5173/', { timeout: 30000 });
+    await expect(page).toHaveURL('http://localhost:5175/', { timeout: 30000 });
   });
 
   test('End-to-End Pipeline: Multi-Source, Multi-Sink (Sequential/Parallel), Advanced Transforms, and Observability', async ({ page }) => {
@@ -69,7 +69,7 @@ test.describe('Hermod Production Grade E2E', () => {
     }, { vhostName, timestamp, sourceDB, sinkDB });
 
     // 2. Build Complex Workflow
-    await page.goto('http://localhost:5173/workflows/new');
+    await page.goto('http://localhost:5175/workflows/new');
     await page.getByLabel('Workflow Name').fill(`Prod Workflow ${timestamp}`);
     await page.getByLabel('Virtual Host').selectOption(vhostName);
     await page.getByRole('button', { name: 'Create Workflow' }).click();

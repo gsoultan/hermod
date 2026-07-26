@@ -17,11 +17,11 @@ test.describe('Performance and Stress E2E', () => {
     const vhostName = `vhost_perf_${timestamp}`;
 
     // 1. Login
-    await page.goto('http://localhost:5173/login');
+    await page.goto('http://localhost:5175/login');
     await page.getByLabel('Username').first().fill('admin');
     await page.locator('input[type="password"]').fill('admin123');
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL('http://localhost:5173/', { timeout: 10000 });
+    await expect(page).toHaveURL('http://localhost:5175/', { timeout: 10000 });
 
     // 2. Setup via API
     const setupData = await page.evaluate(async ({ vhostName, timestamp, sourceDB, sinkDB }) => {
@@ -67,7 +67,7 @@ test.describe('Performance and Stress E2E', () => {
         { id: 't1_char', type: 'transformation', config: { transType: 'char_map', field: 'name', operations: ['uppercase', 'trim'], targetField: 'name_upper' }, x: 200, y: 150 },
         { id: 't2_conv', type: 'transformation', config: { transType: 'data_conversion', field: 'id', targetType: 'string', targetField: 'id_str' }, x: 350, y: 150 },
         { id: 't3_lookup', type: 'transformation', config: { transType: 'db_lookup', sourceId: setupData.lookupSrcId, table: 'lookup_table', keyColumn: 'user_name', keyField: '$.name', valueColumn: 'city', targetField: '$.city' }, x: 500, y: 150 },
-        { id: 't4_api', type: 'transformation', config: { transType: 'api_lookup', method: 'GET', url: `http://localhost:5173/api/vhosts`, headers: JSON.stringify({ 'Authorization': `Bearer ${setupData.token}` }), responsePath: '$.[0].name', targetField: '$.vhost_info' }, x: 650, y: 150 },
+        { id: 't4_api', type: 'transformation', config: { transType: 'api_lookup', method: 'GET', url: `http://localhost:5175/api/vhosts`, headers: JSON.stringify({ 'Authorization': `Bearer ${setupData.token}` }), responsePath: '$.[0].name', targetField: '$.vhost_info' }, x: 650, y: 150 },
         { id: 't5_filter', type: 'transformation', config: { transType: 'filter_data', field: 'name', operator: 'contains', value: 'Doe' }, x: 800, y: 150 },
         { id: 't6_map', type: 'transformation', config: { transType: 'mapping', mapping: JSON.stringify({ id: '$.id', name: '$.name_upper', email: '$.email', city: '$.city', vhost_info: '$.vhost_info' }) }, x: 950, y: 150 },
         { id: 'snk', type: 'sink', ref_id: setupData.sinkId, x: 1100, y: 150 }
