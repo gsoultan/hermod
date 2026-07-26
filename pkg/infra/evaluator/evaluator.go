@@ -426,6 +426,14 @@ func GetMsgValByPath(msg hermod.Message, path string) any {
 		return nil
 	}
 
+	if strings.HasPrefix(path, "$.") {
+		base := path[2:]
+		if v := getValueFromRaw(msg.Payload(), base); v != nil {
+			return v
+		}
+		return GetValByPath(msg.DataRef(), base)
+	}
+
 	// 1) Try the path as-is in the data map first.
 	// This ensures that real data columns (like "id", "table") are not shadowed by virtual fields.
 	if v := GetValByPath(msg.DataRef(), path); v != nil {

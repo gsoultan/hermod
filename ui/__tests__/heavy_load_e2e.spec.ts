@@ -41,7 +41,7 @@ test.describe('Heavy Load Multi-Worker E2E', () => {
         .map(arg => {
             if (arg.startsWith('--platform-url=')) {
                 // Use 127.0.0.1 for platform URL to avoid Unix socket issues on some systems
-                return '--platform-url=http://127.0.0.1:4001';
+                return '--platform-url=http://127.0.0.1:4005';
             }
             if (arg.startsWith('--worker-token=')) {
                 // Use the master key to avoid authentication flakiness in tests
@@ -163,7 +163,7 @@ test.describe('Heavy Load Multi-Worker E2E', () => {
             active: true,
             nodes: [
                 { id: 'src', type: 'source', ref_id: setupData.srcOrdersId, x: 50, y: 100 },
-                { id: 't_api', type: 'transformation', config: { transType: 'api_lookup', method: 'GET', url: `http://127.0.0.1:4001/api/vhosts`, headers: { 'Authorization': `Bearer ${setupData.token}` }, responsePath: '$.[0].name', targetField: '$.vhost_info' }, x: 250, y: 100 },
+                { id: 't_api', type: 'transformation', config: { transType: 'api_lookup', method: 'GET', url: `http://127.0.0.1:4005/api/vhosts`, headers: { 'Authorization': `Bearer ${setupData.token}` }, responsePath: '$.[0].name', targetField: '$.vhost_info' }, x: 250, y: 100 },
                 { id: 'snk', type: 'sink', ref_id: setupData.sink2Id, x: 500, y: 100 }
             ],
             edges: [{ id: 'e1', source_id: 'src', target_id: 't_api' }, { id: 'e2', source_id: 't_api', target_id: 'snk' }]

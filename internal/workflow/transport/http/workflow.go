@@ -48,6 +48,7 @@ func (h *WorkflowHandler) RegisterWorkflowRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/workflows/{id}/toggle", h.EditorOnly(http.HandlerFunc(h.ToggleWorkflow)))
 	mux.Handle("POST /api/workflows/{id}/drain", h.EditorOnly(http.HandlerFunc(h.DrainWorkflowDLQ)))
 	mux.Handle("POST /api/workflows/{id}/rebuild", h.EditorOnly(http.HandlerFunc(h.RebuildWorkflow)))
+	mux.Handle("POST /api/workflows/{id}/test", h.EditorOnly(http.HandlerFunc(h.TestWorkflowByID)))
 	mux.Handle("POST /api/workflows/test", h.EditorOnly(http.HandlerFunc(h.TestWorkflow)))
 	mux.Handle("POST /api/transformations/test", h.EditorOnly(http.HandlerFunc(h.TestTransformation)))
 	mux.HandleFunc("GET /api/workflows/{id}/traces/", h.GetMessageTrace)
@@ -917,6 +918,36 @@ func (h *WorkflowHandler) TestWorkflow(w http.ResponseWriter, r *http.Request) {
 	populateMessageFromMap(msg, req.Message)
 
 	steps, err := h.Registry.TestWorkflow(r.Context(), req.Workflow, msg)
+	if err != nil {
+		h.JsonError(w, "Failed to test workflow: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(steps)
+}
+
+func (h *WorkflowHandler) TestWorkflowByID(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	wf, err := h.Storage.GetWorkflow(r.Context(), id)
+	if err != nil {
+		h.JsonError(w, "Failed to load workflow: "+err.Error(), http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		Message map[string]any `json:"message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.JsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	msg := message.AcquireMessage()
+	defer message.ReleaseMessage(msg)
+	populateMessageFromMap(msg, req.Message)
+
+	steps, err := h.Registry.TestWorkflow(r.Context(), wf, msg)
 	if err != nil {
 		h.JsonError(w, "Failed to test workflow: "+err.Error(), http.StatusInternalServerError)
 		return

@@ -5,7 +5,7 @@ test.describe('RabbitMQ to Postgres E2E and UI Logic', () => {
   const sourceDB = 'hermod_test_source';
   const sinkDB = 'hermod_test_sink';
   const dbConfig = {
-    host: 'localhost',
+    host: '127.0.0.1',
     port: 5432,
     user: 'postgres',
     password: 'postgres',
@@ -38,7 +38,7 @@ test.describe('RabbitMQ to Postgres E2E and UI Logic', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `RMQ ${timestamp}`, vhost: vhostName, type: 'rabbitmq_queue',
-          config: { host: 'localhost', port: '5672', user: 'guest', password: 'guest', dbname: '/', table: 'test_queue' }
+          config: { host: '127.0.0.1', port: '5672', user: 'guest', password: 'guest', dbname: '/', table: 'test_queue' }
         })
       })).json();
 
@@ -47,7 +47,7 @@ test.describe('RabbitMQ to Postgres E2E and UI Logic', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `Lookup ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { host: 'localhost', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'lookup_table', use_cdc: 'false' }
+          config: { host: '127.0.0.1', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'lookup_table', use_cdc: 'false' }
         })
       })).json();
 
@@ -56,7 +56,7 @@ test.describe('RabbitMQ to Postgres E2E and UI Logic', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `Sink ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { host: 'localhost', port: '5432', user: 'postgres', password: 'postgres', dbname: sinkDB, table: 'rmq_sink' }
+          config: { host: '127.0.0.1', port: '5432', user: 'postgres', password: 'postgres', dbname: sinkDB, table: 'rmq_sink' }
         })
       })).json();
 
@@ -214,7 +214,7 @@ test.describe('RabbitMQ to Postgres E2E and UI Logic', () => {
         const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
         const wf = await (await fetch(`/api/workflows/${workflowID}`)).json();
         const dbNode = wf.nodes.find((n: any) => n.id === 'db1');
-        dbNode.data.config.valueColumn = 'city, country, age';
+        dbNode.config.valueColumn = 'city, country, age';
         await fetch(`/api/workflows/${workflowID}`, { method: 'PUT', headers, body: JSON.stringify(wf) });
     }, { workflowID });
 

@@ -5,7 +5,7 @@ test.describe('SQL Transformation and Query Builder E2E', () => {
   const sourceDB = 'hermod_test_source';
   const sinkDB = 'hermod_test_sink';
   const dbConfig = {
-    host: 'localhost',
+    host: '127.0.0.1',
     port: 5432,
     user: 'postgres',
     password: 'postgres',
@@ -64,7 +64,7 @@ test.describe('SQL Transformation and Query Builder E2E', () => {
             vhost: vhost,
             type: 'postgres',
             config: {
-                host: 'localhost',
+                host: '127.0.0.1',
                 port: '5432',
                 user: 'postgres',
                 password: 'postgres',
@@ -91,7 +91,7 @@ test.describe('SQL Transformation and Query Builder E2E', () => {
             vhost: vhost,
             type: 'postgres',
             config: {
-                host: 'localhost',
+                host: '127.0.0.1',
                 port: '5432',
                 user: 'postgres',
                 password: 'postgres',
@@ -203,7 +203,7 @@ test.describe('SQL Transformation and Query Builder E2E', () => {
             name: `QB Source ${timestamp}`,
             vhost: vhost,
             type: 'postgres',
-            config: { host: 'localhost', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB }
+            config: { host: '127.0.0.1', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB }
           })
         });
         const source = await sRes.json();

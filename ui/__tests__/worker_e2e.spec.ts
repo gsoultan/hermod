@@ -33,7 +33,7 @@ test.describe('Worker Agent Installation and Setup', () => {
 
     // 3. Register a new worker
     console.log('Filling worker form...');
-    await page.getByLabel('Host').fill('localhost');
+    await page.getByLabel('Host').fill('127.0.0.1');
     await page.getByLabel('Description').fill('E2E Test Worker');
     await page.getByRole('button', { name: /Register Worker/i }).last().click();
 
@@ -118,8 +118,8 @@ test.describe('Worker Agent Installation and Setup', () => {
     // 7. Verify with hermodctl (Worker Setup Verification)
     console.log('Verifying with hermodctl...');
     try {
-        // We use port 4001 directly for API calls from CLI
-        const ctlOutput = execSync(`./hermodctl status --url http://localhost:4001`).toString();
+        // We use port 4005 directly for API calls from CLI
+        const ctlOutput = execSync(`./hermodctl status --url http://127.0.0.1:4005`).toString();
         console.log('hermodctl output:', ctlOutput);
         // The status output should contain the worker's GUID if it's correctly registered and online
         if (ctlOutput.includes(workerGUID)) {

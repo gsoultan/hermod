@@ -50,6 +50,11 @@ func (t *MappingTransformer) Transform(ctx context.Context, msg hermod.Message, 
 	fieldValRaw := evaluator.EvaluateField(msg, field)
 	fieldVal := fmt.Sprintf("%v", fieldValRaw)
 
+	targetField, _ := config["targetField"].(string)
+	if targetField == "" {
+		targetField = field
+	}
+
 	switch mappingType {
 	case "range":
 		val, ok := evaluator.ToFloat64(fieldValRaw)
@@ -61,14 +66,14 @@ func (t *MappingTransformer) Transform(ctx context.Context, msg hermod.Message, 
 						low, _ := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
 						high, _ := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
 						if val >= low && val <= high {
-							msg.SetData(field, v)
+							msg.SetData(targetField, v)
 							return msg, nil
 						}
 					}
 				} else if strings.HasSuffix(k, "+") {
 					low, _ := strconv.ParseFloat(strings.TrimSuffix(k, "+"), 64)
 					if val >= low {
-						msg.SetData(field, v)
+						msg.SetData(targetField, v)
 						return msg, nil
 					}
 				}
@@ -78,14 +83,14 @@ func (t *MappingTransformer) Transform(ctx context.Context, msg hermod.Message, 
 		for k, v := range mapping {
 			matched, _ := regexp.MatchString(k, fieldVal)
 			if matched {
-				msg.SetData(field, v)
+				msg.SetData(targetField, v)
 				return msg, nil
 			}
 		}
 	default:
 		// exact (default)
 		if newVal, ok := mapping[fieldVal]; ok {
-			msg.SetData(field, newVal)
+			msg.SetData(targetField, newVal)
 		}
 	}
 	return msg, nil

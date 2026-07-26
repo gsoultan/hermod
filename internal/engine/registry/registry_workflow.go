@@ -1356,7 +1356,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 					toRelease = append(toRelease, c)
 				} else {
 					// Merge
-					r.mergeData(currentMessages[targetID].Data(), currMsg.Data(), strategy)
+					r.mergeData(currentMessages[targetID].DataRef(), currMsg.Data(), strategy)
 					if dm, ok := currentMessages[targetID].(interface{ ClearCachedPayload() }); ok {
 						dm.ClearCachedPayload()
 					}

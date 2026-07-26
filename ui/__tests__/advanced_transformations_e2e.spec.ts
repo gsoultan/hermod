@@ -196,7 +196,7 @@ test.describe('Advanced Transformations Logic and E2E', () => {
         '--mode=worker',
         `--worker-guid=${workerReg.id}`,
         `--worker-token=secret`,
-        `--platform-url=http://127.0.0.1:4001`
+        `--platform-url=http://127.0.0.1:4005`
     ], { env: { ...process.env, HERMOD_MASTER_KEY: 'secret' } });
     
     workerProcess.stdout.on('data', (d) => console.log('WORKER:', d.toString().trim()));

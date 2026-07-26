@@ -93,6 +93,17 @@ export function WorkflowDetailPage() {
     }
   };
 
+  const toggleMutation = useMutation({
+    mutationFn: async () => {
+       await apiFetch(`${API_BASE}/workflows/${id}/toggle`, {
+         method: 'POST'
+       });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow', id] });
+    }
+  });
+
   const { data: selectedTrace, isLoading: isTraceDetailLoading } = useQuery({
     queryKey: ['trace', id, selectedTraceID],
     queryFn: async () => {
@@ -344,6 +355,15 @@ export function WorkflowDetailPage() {
               </Box>
             </Group>
             <Group>
+              <Button 
+                variant="light" 
+                color={workflow.active ? 'orange' : 'green'}
+                leftSection={workflow.active ? <IconRotateDot size="1rem" /> : <IconCircleCheck size="1rem" />}
+                onClick={() => toggleMutation.mutate()}
+                loading={toggleMutation.isPending}
+              >
+                {workflow.active ? 'Stop' : 'Start'}
+              </Button>
               <Button 
                 variant="light" 
                 leftSection={<IconArrowsExchange size="1rem" />}

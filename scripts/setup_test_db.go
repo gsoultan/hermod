@@ -62,6 +62,7 @@ func main() {
 			country TEXT
 		);
 		INSERT INTO lookup_table (user_name, city, country) VALUES ('John Doe', 'New York', 'USA') ON CONFLICT (user_name) DO NOTHING;
+		INSERT INTO lookup_table (user_name, city, country) VALUES ('Jane Smith', 'Los Angeles', 'USA') ON CONFLICT (user_name) DO NOTHING;
 
 		CREATE TABLE IF NOT EXISTS orders (
 			id SERIAL PRIMARY KEY,

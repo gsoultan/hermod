@@ -185,7 +185,7 @@ func (h *SourceHandler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.Storage.UpdateSource(r.Context(), src); err != nil {
+	if err := h.Registry.UpdateSource(r.Context(), src); err != nil {
 		h.JsonError(w, "Failed to update source: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

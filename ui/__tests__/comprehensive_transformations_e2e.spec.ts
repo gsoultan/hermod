@@ -5,7 +5,7 @@ test.describe('Comprehensive Transformations E2E', () => {
   const sourceDB = 'hermod_test_source';
   const sinkDB = 'hermod_test_sink';
   const dbConfig = {
-    host: 'localhost',
+    host: '127.0.0.1',
     port: 5432,
     user: 'postgres',
     password: 'postgres',
@@ -38,7 +38,7 @@ test.describe('Comprehensive Transformations E2E', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `Lookup ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { host: 'localhost', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'lookup_table', use_cdc: 'false' }
+          config: { host: '127.0.0.1', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'lookup_table', use_cdc: 'false' }
         })
       })).json();
 
@@ -46,7 +46,7 @@ test.describe('Comprehensive Transformations E2E', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `CDC1 ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { host: 'localhost', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'users', use_cdc: 'true', slot_name: `comp_sl1_${timestamp}`, publication_name: `comp_pb1_${timestamp}`, slot_reclaim: 'true' }
+          config: { host: '127.0.0.1', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'users', use_cdc: 'true', slot_name: `comp_sl1_${timestamp}`, publication_name: `comp_pb1_${timestamp}`, slot_reclaim: 'true' }
         })
       })).json();
 
@@ -54,7 +54,7 @@ test.describe('Comprehensive Transformations E2E', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `CDC2 ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { host: 'localhost', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'audit_log', use_cdc: 'true', slot_name: `comp_sl2_${timestamp}`, publication_name: `comp_pb2_${timestamp}`, slot_reclaim: 'true' }
+          config: { host: '127.0.0.1', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'audit_log', use_cdc: 'true', slot_name: `comp_sl2_${timestamp}`, publication_name: `comp_pb2_${timestamp}`, slot_reclaim: 'true' }
         })
       })).json();
 
@@ -62,7 +62,7 @@ test.describe('Comprehensive Transformations E2E', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `Sink1 ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { host: 'localhost', port: '5432', user: 'postgres', password: 'postgres', dbname: sinkDB, table: 'comp_users_sink1' }
+          config: { host: '127.0.0.1', port: '5432', user: 'postgres', password: 'postgres', dbname: sinkDB, table: 'comp_users_sink1' }
         })
       })).json();
 
@@ -70,7 +70,7 @@ test.describe('Comprehensive Transformations E2E', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `Sink2 ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { host: 'localhost', port: '5432', user: 'postgres', password: 'postgres', dbname: sinkDB, table: 'comp_users_sink2' }
+          config: { host: '127.0.0.1', port: '5432', user: 'postgres', password: 'postgres', dbname: sinkDB, table: 'comp_users_sink2' }
         })
       })).json();
 
@@ -78,7 +78,7 @@ test.describe('Comprehensive Transformations E2E', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `Sink3 ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { host: 'localhost', port: '5432', user: 'postgres', password: 'postgres', dbname: sinkDB, table: 'comp_audit_sink' }
+          config: { host: '127.0.0.1', port: '5432', user: 'postgres', password: 'postgres', dbname: sinkDB, table: 'comp_audit_sink' }
         })
       })).json();
 
@@ -109,8 +109,8 @@ test.describe('Comprehensive Transformations E2E', () => {
           x: 250, y: 50 
         },
         { id: 't2_char', type: 'transformation', config: { transType: 'char_map', field: 'name', operations: ['uppercase'], targetField: 'name_upper' }, x: 450, y: 50 },
-        { id: 't3_filter', type: 'transformation', config: { transType: 'filter_data', field: 'name', operator: 'contains', value: 'John' }, x: 650, y: 50 },
-        { id: 't4_fuzzy', type: 'transformation', config: { transType: 'fuzzy_lookup', field: 'name', options: ['Jon Doe', 'Jane Smith'], threshold: 0.5, targetField: 'name_fuzzy' }, x: 850, y: 50 },
+        { id: 't3_filter', type: 'transformation', config: { transType: 'filter_data', field: 'name_upper', operator: 'contains', value: 'JOHN' }, x: 650, y: 50 },
+        { id: 't4_fuzzy', type: 'transformation', config: { transType: 'fuzzy_lookup', field: 'name_upper', options: ['JON DOE', 'JANE SMITH'], threshold: 0.5, targetField: 'name_fuzzy' }, x: 850, y: 50 },
         { 
           id: 't5_db', 
           type: 'transformation', 
@@ -119,7 +119,7 @@ test.describe('Comprehensive Transformations E2E', () => {
             sourceId: setupData.lookupSrcId, 
             table: 'lookup_table', 
             keyColumn: 'user_name', 
-            keyField: '$.name', 
+            keyField: '$.name_upper', 
             valueColumn: 'city', 
             targetField: '$.city',
             use_batching: true,
@@ -128,7 +128,7 @@ test.describe('Comprehensive Transformations E2E', () => {
           }, 
           x: 1050, y: 50 
         },
-        { id: 't6_api', type: 'transformation', config: { transType: 'api_lookup', method: 'GET', url: `http://localhost:4001/api/vhosts`, headers: { 'Authorization': `Bearer ${setupData.token}` }, responsePath: '$.[0].name', targetField: '$.vhost_info' }, x: 1250, y: 50 },
+        { id: 't6_api', type: 'transformation', config: { transType: 'api_lookup', method: 'GET', url: `http://127.0.0.1:4005/api/vhosts`, headers: { 'Authorization': `Bearer ${setupData.token}` }, responsePath: '$.[0].name', targetField: '$.vhost_info' }, x: 1250, y: 50 },
         { id: 't7_map', type: 'transformation', config: { transType: 'mapping', mapping: { id: '$.id', name: '$.name_upper', email: '$.email', city: '$.city', fuzzy: '$.name_fuzzy', vhost: '$.vhost_info', id_str: '$.id_str' } }, x: 1450, y: 50 },
         
         { 
@@ -218,6 +218,10 @@ test.describe('Comprehensive Transformations E2E', () => {
     // 5. Start Workflow and Verify Data Flow
     await page.getByRole('button', { name: 'Start' }).click();
     await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible({ timeout: 20000 });
+
+    // Wait for CDC to be ready (establishing replication slots takes time)
+    console.log('Waiting for CDC to initialize...');
+    await new Promise(r => setTimeout(r, 10000));
 
     // Inject data
     const sourceClient = new Client({ ...dbConfig, database: sourceDB });

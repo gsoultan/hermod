@@ -147,7 +147,7 @@ func (h *SinkHandler) UpdateSink(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.Storage.UpdateSink(r.Context(), snk); err != nil {
+	if err := h.Registry.UpdateSink(r.Context(), snk); err != nil {
 		h.JsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

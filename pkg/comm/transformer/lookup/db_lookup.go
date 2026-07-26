@@ -80,6 +80,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	}
 
 	keyVal := evaluator.GetMsgValByPath(msg, keyField)
+
 	if keyVal == nil && queryTemplate == "" && whereClause == "" {
 		return msg, nil
 	}

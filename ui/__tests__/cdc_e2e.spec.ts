@@ -5,7 +5,7 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
   const sourceDB = 'hermod_test_source';
   const sinkDB = 'hermod_test_sink';
   const dbConfig = {
-    host: 'localhost',
+    host: '127.0.0.1',
     port: 5432,
     user: 'postgres',
     password: 'postgres',
@@ -50,7 +50,7 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
     await page.getByRole('option', { name: 'Postgres' }).click();
     await page.getByRole('button', { name: 'Next Step' }).click();
 
-    await page.getByLabel('Host').fill('localhost');
+    await page.getByLabel('Host').fill('127.0.0.1');
     await page.getByLabel('Port').fill('5432');
     await page.getByLabel('User').fill('postgres');
     await page.getByLabel('Password').fill('postgres');
@@ -88,7 +88,7 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
     await page.getByRole('button', { name: 'Next Step' }).click();
 
     // Use PgBouncer marker
-    await page.getByLabel('OR Connection String').fill(`postgres://postgres:postgres@localhost:5432/${sinkDB}?pgbouncer=true`);
+    await page.getByLabel('OR Connection String').fill(`postgres://postgres:postgres@127.0.0.1:5432/${sinkDB}?pgbouncer=true`);
     await page.getByRole('button', { name: 'Test Connection' }).click();
     await expect(page.locator('.mantine-Alert-title')).toContainText('Connected', { timeout: 10000 });
 
@@ -171,7 +171,7 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `Lookup ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { host: 'localhost', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'lookup_table', use_cdc: false }
+          config: { host: '127.0.0.1', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'lookup_table', use_cdc: false }
         })
       })).json();
 
@@ -179,7 +179,7 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `CDC ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { host: 'localhost', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'users', use_cdc: true, slot_name: `sl_adv_${timestamp}`, publication_name: `pb_adv_${timestamp}` }
+          config: { host: '127.0.0.1', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'users', use_cdc: true, slot_name: `sl_adv_${timestamp}`, publication_name: `pb_adv_${timestamp}` }
         })
       })).json();
 
@@ -187,7 +187,7 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `Sink 1 ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { connection_string: `postgres://postgres:postgres@localhost:5432/${sinkDB}`, table: 'users_sink_adv', use_existing_table: false }
+          config: { connection_string: `postgres://postgres:postgres@127.0.0.1:5432/${sinkDB}`, table: 'users_sink_adv', use_existing_table: false }
         })
       })).json();
 
@@ -195,7 +195,7 @@ test.describe('Postgres CDC E2E workflow Comprehensive', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `Sink 2 ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { connection_string: `postgres://postgres:postgres@localhost:5432/${sinkDB}`, table: 'users_sink_adv_2', use_existing_table: false }
+          config: { connection_string: `postgres://postgres:postgres@127.0.0.1:5432/${sinkDB}`, table: 'users_sink_adv_2', use_existing_table: false }
         })
       })).json();
 

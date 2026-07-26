@@ -5,7 +5,7 @@ test.describe('Performance and Stress E2E', () => {
   const sourceDB = 'hermod_test_source';
   const sinkDB = 'hermod_test_sink';
   const dbConfig = {
-    host: 'localhost',
+    host: '127.0.0.1',
     port: 5432,
     user: 'postgres',
     password: 'postgres',
@@ -34,7 +34,7 @@ test.describe('Performance and Stress E2E', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `Lookup ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { host: 'localhost', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'lookup_table', use_cdc: false }
+          config: { host: '127.0.0.1', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'lookup_table', use_cdc: false }
         })
       })).json();
 
@@ -42,7 +42,7 @@ test.describe('Performance and Stress E2E', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `CDC ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { host: 'localhost', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'users', use_cdc: true, slot_name: `sl_perf_${timestamp}`, publication_name: `pb_perf_${timestamp}` }
+          config: { host: '127.0.0.1', port: '5432', user: 'postgres', password: 'postgres', dbname: sourceDB, tables: 'users', use_cdc: true, slot_name: `sl_perf_${timestamp}`, publication_name: `pb_perf_${timestamp}` }
         })
       })).json();
 
@@ -50,7 +50,7 @@ test.describe('Performance and Stress E2E', () => {
         method: 'POST', headers,
         body: JSON.stringify({
           name: `Sink ${timestamp}`, vhost: vhostName, type: 'postgres',
-          config: { connection_string: `postgres://postgres:postgres@localhost:5432/${sinkDB}`, table: 'users_sink_perf', use_existing_table: false }
+          config: { connection_string: `postgres://postgres:postgres@127.0.0.1:5432/${sinkDB}`, table: 'users_sink_perf', use_existing_table: false }
         })
       })).json();
 

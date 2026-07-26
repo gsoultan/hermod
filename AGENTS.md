@@ -38,6 +38,7 @@ Every time a task begins, you MUST execute the following workflow to choose the 
 - [ ] Run `rtk npx skills list`
 - [ ] Identify and load relevant domain skills via `skills.sh`
 - [ ] Check `CLAUDE.md` for build/test commands
+- [ ] Start Graphify and detect codebase changes
 - [ ] Review Serena memories: `rtk list_memories`
 - [ ] Verify Postgres MCP connection: `postgres_list_tables`
 - [ ] Verify RabbitMQ MCP connection: `rabbitmq_list_queues`
