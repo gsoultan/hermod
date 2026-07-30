@@ -58,44 +58,53 @@ func (w *Worker) getMetrics() (float64, float64) {
 const maxConcurrentHealthChecks = 8
 
 func (w *Worker) checkResourcesHealth(ctx context.Context) {
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, maxConcurrentHealthChecks)
-
-	// Optimization: fetch only sources and sinks assigned to this worker.
-	sources, _, _ := w.storage.ListSources(ctx, storage.CommonFilter{WorkerID: w.workerGUID})
-	for _, src := range sources {
-		if !w.registry.IsResourceInUse(ctx, src.ID, "", true) {
-			s := src
-			sem <- struct{}{}
-			wg.Go(func() {
-				defer func() {
-					<-sem
-					if r := recover(); r != nil {
-						w.logger.Error("Worker: checkSourceHealth panicked", "source_id", s.ID, "panic", r)
-					}
-				}()
-				w.checkSourceHealth(ctx, s)
-			})
-		}
+	if !w.healthChecking.CompareAndSwap(false, true) {
+		return
 	}
 
-	sinks, _, _ := w.storage.ListSinks(ctx, storage.CommonFilter{WorkerID: w.workerGUID})
-	for _, snk := range sinks {
-		if !w.registry.IsResourceInUse(ctx, snk.ID, "", false) {
-			s := snk
-			sem <- struct{}{}
-			wg.Go(func() {
-				defer func() {
-					<-sem
-					if r := recover(); r != nil {
-						w.logger.Error("Worker: checkSinkHealth panicked", "sink_id", s.ID, "panic", r)
-					}
-				}()
-				w.checkSinkHealth(ctx, s)
-			})
+	go func() {
+		defer w.healthChecking.Store(false)
+
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, maxConcurrentHealthChecks)
+
+		// Optimization: fetch only sources and sinks assigned to this worker.
+		// Use a background context since this goroutine might outlive the poll cycle.
+		sources, _, _ := w.storage.ListSources(context.Background(), storage.CommonFilter{WorkerID: w.workerGUID})
+		for _, src := range sources {
+			if !w.registry.IsResourceInUse(context.Background(), src.ID, "", true) {
+				s := src
+				sem <- struct{}{}
+				wg.Go(func() {
+					defer func() {
+						<-sem
+						if r := recover(); r != nil {
+							w.logger.Error("Worker: checkSourceHealth panicked", "source_id", s.ID, "panic", r)
+						}
+					}()
+					w.checkSourceHealth(context.Background(), s)
+				})
+			}
 		}
-	}
-	wg.Wait()
+
+		sinks, _, _ := w.storage.ListSinks(context.Background(), storage.CommonFilter{WorkerID: w.workerGUID})
+		for _, snk := range sinks {
+			if !w.registry.IsResourceInUse(context.Background(), snk.ID, "", false) {
+				s := snk
+				sem <- struct{}{}
+				wg.Go(func() {
+					defer func() {
+						<-sem
+						if r := recover(); r != nil {
+							w.logger.Error("Worker: checkSinkHealth panicked", "sink_id", s.ID, "panic", r)
+						}
+					}()
+					w.checkSinkHealth(context.Background(), s)
+				})
+			}
+		}
+		wg.Wait()
+	}()
 }
 
 func (w *Worker) isResourceAssigned(id, workerID string) bool {

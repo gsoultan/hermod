@@ -117,3 +117,16 @@ func TestHasSampleData(t *testing.T) {
 		})
 	}
 }
+
+func hasSampleData(msg hermod.Message) bool {
+	if msg == nil {
+		return false
+	}
+	if len(msg.Data()) > 0 {
+		return true
+	}
+	if len(msg.Payload()) > 0 {
+		return true
+	}
+	return false
+}

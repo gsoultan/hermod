@@ -1,9 +1,9 @@
 import { 
-  ActionIcon, Button, Divider, Flex, Group, Paper, Select, Text, TextInput, Menu, Badge
+  ActionIcon, Button, Divider, Flex, Group, Paper, Select, Text, TextInput, Menu, Badge, Tooltip
 } from '@mantine/core';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
-import { IconActivity, IconChevronDown, IconDatabase, IconDeviceFloppy, IconEraser, IconFocus2, IconHistory, IconLayoutSidebarRight, IconPlayerPause, IconPlayerPlay, IconRefresh, IconSettings, IconShieldLock, IconSparkles, IconTerminal2, IconTimeline, IconZoomIn, IconZoomOut } from '@tabler/icons-react';
+import { IconActivity, IconChevronDown, IconDatabase, IconDeviceFloppy, IconEraser, IconFocus2, IconHistory, IconLayoutSidebarRight, IconPlayerPause, IconPlayerPlay, IconRefresh, IconSettings, IconShieldLock, IconSparkles, IconTerminal2, IconTimeline, IconZoomIn, IconZoomOut, IconSearch } from '@tabler/icons-react';
 interface EditorToolbarProps {
   id: string;
   isNew: boolean;
@@ -14,6 +14,7 @@ interface EditorToolbarProps {
   onRebuild: () => void;
   onClearTest: () => void;
   onAutoLayout?: () => void;
+  onSearch?: () => void;
   isSaving: boolean;
   isTesting: boolean;
   isToggling: boolean;
@@ -30,7 +31,7 @@ export function EditorToolbar({
   onAutoLayout,
   isSaving, isTesting, isToggling,
   zoom, zoomIn, zoomOut, fitView,
-  vhosts, workers
+    vhosts, workers, onSearch
 }: EditorToolbarProps) {
   const { 
     name, dryRun, vhost, workerID, testResults, active,
@@ -92,6 +93,12 @@ export function EditorToolbar({
         </Group>
 
         <Group gap="xs">
+          <Tooltip label="Search components (Cmd+Shift+K)" position="bottom" withArrow>
+            <ActionIcon variant="light" color="blue" size="lg" onClick={onSearch}>
+              <IconSearch size="1.2rem" />
+            </ActionIcon>
+          </Tooltip>
+
           <Group gap={4} mr="xs">
              <ActionIcon aria-label="Zoom out" variant="subtle" size="sm" onClick={zoomOut}><IconZoomOut size="1rem" /></ActionIcon>
              <Text size="xs" fw={700} w={35} ta="center">{Math.round(zoom * 100)}%</Text>

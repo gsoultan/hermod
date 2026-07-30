@@ -25,6 +25,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/singleflight"
 )
 
 // poolerParams are custom, non-libpq query parameters callers may add to a
@@ -173,6 +174,7 @@ var DefaultPooler = NewPooler()
 // same underlying connection pool, reducing the load on the database or proxy.
 type Pooler struct {
 	pools sync.Map // map[string]*pgxpool.Pool
+	sf    singleflight.Group
 }
 
 // NewPooler creates a new connection pooler.
@@ -196,27 +198,33 @@ func (p *Pooler) Get(ctx context.Context, connString string) (*pgxpool.Pool, err
 		return pool, nil
 	}
 
-	// Create a new pool. We use LoadOrStore to ensure only one pool is ever
-	// cached for a given key, even under concurrent access.
-	pool, err := pgxpool.NewWithConfig(ctx, cleaned)
+	// Use singleflight to ensure only one goroutine creates the pool for this key.
+	val, err, _ := p.sf.Do(key, func() (any, error) {
+		// Double check if pool was created while waiting for singleflight.
+		if v, ok := p.pools.Load(key); ok {
+			return v, nil
+		}
+
+		// Create a new pool.
+		pool, err := pgxpool.NewWithConfig(ctx, cleaned)
+		if err != nil {
+			return nil, err
+		}
+
+		// Verify the connection before caching it.
+		if err := pool.Ping(ctx); err != nil {
+			pool.Close()
+			return nil, err
+		}
+
+		p.pools.Store(key, pool)
+		return pool, nil
+	})
+
 	if err != nil {
 		return nil, err
 	}
-
-	// Verify the connection before caching it.
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, err
-	}
-
-	actual, loaded := p.pools.LoadOrStore(key, pool)
-	if loaded {
-		// Someone else created a pool while we were busy.
-		pool.Close()
-		return actual.(*pgxpool.Pool), nil
-	}
-
-	return pool, nil
+	return val.(*pgxpool.Pool), nil
 }
 
 // Close closes all cached pools and clears the cache.

@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode, useState } from 'react';
 import { Handle, Position, type Node as FlowNode, type Edge as FlowEdge } from '@xyflow/react';
-import { Box, Text, useMantineColorScheme, ActionIcon, Tooltip } from '@mantine/core';
+import { Box, Text, useMantineColorScheme, ActionIcon, Tooltip, Paper, Group, Stack, ThemeIcon, rem, Badge } from '@mantine/core';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import { IconEye, IconPlus, IconTrash } from '@tabler/icons-react';
 export const WorkflowContext = createContext<{
@@ -108,21 +108,57 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
   };
 
   return (
-    <Box
+    <Paper
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      withBorder
+      radius="md"
+      shadow={selected ? 'md' : 'sm'}
       style={{
-        background: isDark ? 'var(--mantine-color-dark-5)' : 'white',
+        background: isDark ? 'rgba(37, 38, 43, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+        backdropFilter: 'blur(8px)',
         border: `${borderWidth} ${borderStyle} var(--mantine-color-${cbOpen ? 'red' : (selected ? 'blue' : healthColor)}-6)`,
-        borderRadius: '8px',
-        padding: '12px',
-        minWidth: '180px',
-        boxShadow: selected ? '0 0 0 2px var(--mantine-color-blue-6), 0 4px 12px rgba(0,0,0,0.2)' : (cbOpen ? '0 0 15px var(--mantine-color-red-6)' : (errorCount > 0 ? `0 0 10px var(--mantine-color-${healthColor}-3)` : '0 4px 6px rgba(0,0,0,0.1)')),
-        position: 'relative',
-        opacity: data.testResult && data.testResult.status === 'FILTERED' ? 0.5 : 1,
+        minWidth: '200px',
+        overflow: 'hidden',
         transition: 'all 0.2s ease',
+        transform: hovered ? 'translateY(-2px)' : 'none',
       }}
     >
+      <Box 
+        style={{ 
+          background: `var(--mantine-color-${color}-6)`, 
+          height: '4px', 
+          width: '100%' 
+        }} 
+      />
+      
+      <Stack gap={0} p="xs">
+        <Group justify="space-between" mb="xs">
+          <Group gap="xs">
+            <ThemeIcon color={color} variant="light" size="sm">
+              <Icon size="0.9rem" />
+            </ThemeIcon>
+            <Text size="xs" fw={700} c={isDark ? 'gray.3' : 'gray.7'} style={{ textTransform: 'uppercase', letterSpacing: rem(1) }}>
+              {type}
+            </Text>
+          </Group>
+          {nodeStatus && nodeStatus !== 'running' && (
+            <Badge 
+              size="xs" 
+              color={nodeStatus.startsWith('error') ? 'red' : 'blue'} 
+              variant="filled"
+            >
+              {nodeStatus}
+            </Badge>
+          )}
+        </Group>
+
+        <Text fw={600} size="sm" mb={4}>{data.label || 'Unnamed Node'}</Text>
+        <Text size="xs" c="dimmed" mb="xs" lineClamp={1}>{data.description || 'No description'}</Text>
+
+        {children}
+      </Stack>
+
       {(hovered || selected) && (
         <Tooltip label="Remove node" position="top" withArrow>
           <ActionIcon 
@@ -132,8 +168,8 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
             radius="xl"
             style={{ 
               position: 'absolute', 
-              top: -12, 
-              right: data.testResult ? 15 : -12, 
+              top: 8, 
+              right: 8, 
               zIndex: 110,
               boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
             }}
@@ -143,41 +179,21 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
           </ActionIcon>
         </Tooltip>
       )}
-      {nodeStatus && nodeStatus !== 'running' && (
-        <Box 
-          style={{ 
-            position: 'absolute', 
-            top: -20, 
-            right: 0,
-            background: nodeStatus.startsWith('error') ? 'var(--mantine-color-red-6)' : 'var(--mantine-color-blue-6)',
-            borderRadius: '4px',
-            padding: '2px 8px',
-            color: 'white',
-            fontSize: '9px',
-            fontWeight: 800,
-            zIndex: 10,
-            whiteSpace: 'nowrap',
-            textTransform: 'uppercase'
-          }}
-        >
-          {nodeStatus}
-        </Box>
-      )}
+
       {cbOpen && (
         <Box 
           style={{ 
             position: 'absolute', 
-            top: -20, 
+            top: 4, 
             left: '50%',
             transform: 'translateX(-50%)',
             background: 'var(--mantine-color-red-6)',
             borderRadius: '4px',
             padding: '2px 8px',
             color: 'white',
-            fontSize: '9px',
+            fontSize: '8px',
             fontWeight: 800,
             zIndex: 10,
-            whiteSpace: 'nowrap'
           }}
         >
           CIRCUIT BREAKER: OPEN
@@ -327,7 +343,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
           {data.testResult.status === 'COMPLETED' ? '✓' : '!'}
         </Box>
       )}
-    </Box>
+    </Paper>
   );
 };
 

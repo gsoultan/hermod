@@ -40,6 +40,7 @@ type Worker struct {
 	currentCPU        atomic.Uint64
 	currentMem        atomic.Uint64
 	draining          atomic.Bool
+	healthChecking    atomic.Bool
 	shutdownFunc      context.CancelFunc
 }
 

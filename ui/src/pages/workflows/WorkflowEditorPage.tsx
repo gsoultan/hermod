@@ -11,6 +11,10 @@ import {
   Paper,
   Box, Flex, Text
 } from '@mantine/core';
+import { Spotlight, spotlight } from '@mantine/spotlight';
+import '@mantine/spotlight/styles.css';
+import { NODE_CATEGORIES } from './WorkflowEditor/constants/nodeCategories';
+import { IconSearch } from '@tabler/icons-react';
 import { useParams } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { Source, Sink } from '@/types';
@@ -24,7 +28,7 @@ import { EditorToolbar } from './WorkflowEditor/components/EditorToolbar';
 import { FlowCanvas } from './WorkflowEditor/components/FlowCanvas';
 import { LiveLogPanel } from './WorkflowEditor/components/LiveLogPanel';
 import { SidebarDrawer } from './WorkflowEditor/components/SidebarDrawer';
-import { NodeConfigModal } from './WorkflowEditor/components/NodeConfigModal';
+import { NodeConfigDrawer } from './WorkflowEditor/components/NodeConfigDrawer';
 import { WorkflowContext } from './WorkflowEditor/nodes/BaseNode';
 import { useWorkflowLayout } from './WorkflowEditor/hooks/useWorkflowLayout';
 import { useNodeContext } from './WorkflowEditor/hooks/useNodeContext';
@@ -153,10 +157,50 @@ function EditorInner() {
     sinks?.data || []
   );
 
+  const spotlightActions = useMemo(() => {
+    const actions: any[] = [];
+    NODE_CATEGORIES.forEach(cat => {
+      cat.items.forEach(item => {
+        actions.push({
+          id: `${item.type}-${item.subType}-${item.label}`,
+          label: item.label,
+          description: item.description,
+          leftSection: <item.icon size="1.2rem" color={`var(--mantine-color-${item.color}-6)`} />,
+          onClick: () => {
+            const bounds = reactFlowWrapper.current?.getBoundingClientRect();
+            const pos = screenToFlowPosition({ 
+              x: (bounds?.width || 400) / 2, 
+              y: (bounds?.height || 400) / 2 
+            });
+            const node = addNodeAtPosition(item.type, item.refId, item.label, item.subType, pos);
+            setSelectedNode(node);
+            if (item.type === 'source' || item.type === 'sink' || item.type === 'transformation' || item.type === 'validator') {
+              setConfigModalOpen(true);
+            } else {
+              setDrawerOpened(false);
+              setSettingsOpened(true);
+            }
+          }
+        });
+      });
+    });
+    return actions;
+  }, [addNodeAtPosition, screenToFlowPosition, setConfigModalOpen, setDrawerOpened, setSelectedNode, setSettingsOpened]);
+
   if (isLoading && !isNew) return <Box p="xl" ta="center"><Text>Loading...</Text></Box>;
 
   return (
     <WorkflowContext.Provider value={{ onPlusClick: handlePlusClick }}>
+      <Spotlight
+        actions={spotlightActions}
+        shortcut="mod + shift + K"
+        nothingFound="No components found..."
+        highlightQuery
+        searchProps={{
+          leftSection: <IconSearch size="1.2rem" />,
+          placeholder: 'Search components to add...',
+        }}
+      />
       <Box style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }}>
         <WorkflowHeader 
           id={id}
@@ -194,6 +238,7 @@ function EditorInner() {
               notifications.show({ message: e?.message || 'Failed to layout', color: 'red' });
             }
           }}
+          onSearch={() => spotlight.open()}
           isSaving={saveMutation.isPending}
           isTesting={testMutation.isPending}
           isToggling={toggleMutation.isPending}
@@ -216,8 +261,8 @@ function EditorInner() {
               />
             </Paper>
 
-            {/* Node Config Modal (restores popup UX for source/sink/transformation/validator) */}
-            <NodeConfigModal 
+            {/* Node Config Drawer (enhanced right-side configuration) */}
+            <NodeConfigDrawer 
               opened={configModalOpen} 
               onClose={() => setConfigModalOpen(false)} 
               selectedNode={selectedNode}

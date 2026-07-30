@@ -99,6 +99,9 @@ type PostgresSource struct {
 	cancel          context.CancelFunc
 	initMu          sync.Mutex
 	wg              sync.WaitGroup
+	query           string
+	pollInterval    time.Duration
+	lastWatermark   any
 	// logMu guards logger only. It is intentionally separate from mu: log() is
 	// called from many code paths that already hold mu (init, Close and every
 	// *Locked helper). Since mu is a non-reentrant sync.Mutex, having log()
@@ -109,7 +112,7 @@ type PostgresSource struct {
 	logger hermod.Logger
 }
 
-func NewPostgresSource(connString, slotName, publicationName string, tables []string, useCDC bool) *PostgresSource {
+func NewPostgresSource(connString, slotName, publicationName string, tables []string, useCDC bool, query string, pollInterval time.Duration) *PostgresSource {
 	// Fall back to safe, valid identifiers when the form leaves these empty.
 	// Without a valid slot/publication name Postgres cannot create the logical
 	// replication slot, so no changes would ever be streamed.
@@ -118,6 +121,10 @@ func NewPostgresSource(connString, slotName, publicationName string, tables []st
 	}
 	if strings.TrimSpace(publicationName) == "" {
 		publicationName = defaultPublicationName
+	}
+
+	if pollInterval <= 0 {
+		pollInterval = 5 * time.Second
 	}
 
 	sessionID := uuid.New().String()
@@ -131,6 +138,8 @@ func NewPostgresSource(connString, slotName, publicationName string, tables []st
 		publicationName: publicationName,
 		tables:          tables,
 		useCDC:          useCDC,
+		query:           query,
+		pollInterval:    pollInterval,
 		pooled:          pgxutil.IsPooledConnString(connString),
 		persistentSlot:  true, // Default to persistent for reliability
 		appName:         buildReplicationAppName(hostnameOrUnknown(), slotName, os.Getpid(), sessionID),
@@ -378,7 +387,18 @@ func (p *PostgresSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, err
 	}
 
-	if !p.useCDC {
+	if !p.useCDC && p.query != "" {
+		for {
+			select {
+			case msg := <-p.msgChan:
+				return msg, nil
+			case err := <-p.errChan:
+				return nil, err
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	} else if !p.useCDC {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
@@ -896,6 +916,123 @@ func (p *PostgresSource) handleDelete(lsn pglogrepl.LSN, lm *pglogrepl.DeleteMes
 	return res
 }
 
+func (p *PostgresSource) pollLoop(ctx context.Context) {
+	p.log("INFO", "Starting pollLoop", "query", p.query, "interval", p.pollInterval)
+	ticker := time.NewTicker(p.pollInterval)
+	defer ticker.Stop()
+
+	// Initial poll
+	if err := p.poll(ctx); err != nil {
+		p.log("ERROR", "Initial poll failure", "error", err)
+		select {
+		case p.errChan <- err:
+		case <-ctx.Done():
+			return
+		default:
+		}
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := p.poll(ctx); err != nil {
+				p.log("ERROR", "Poll failure", "error", err)
+				select {
+				case p.errChan <- err:
+				case <-ctx.Done():
+					return
+				default:
+				}
+			}
+		}
+	}
+}
+
+func (p *PostgresSource) poll(ctx context.Context) error {
+	if err := p.ensureConn(ctx); err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	watermark := p.lastWatermark
+	p.mu.Unlock()
+
+	var rows pgx.Rows
+	var err error
+	if watermark != nil {
+		rows, err = p.pool.Query(ctx, p.query, watermark)
+	} else {
+		// If query has a placeholder but we have no watermark, try with 0
+		// or just execute without args if it doesn't have placeholders.
+		// For simplicity, we try to pass 0 if we suspect a placeholder.
+		if strings.Contains(p.query, "$1") {
+			rows, err = p.pool.Query(ctx, p.query, 0)
+		} else {
+			rows, err = p.pool.Query(ctx, p.query)
+		}
+	}
+
+	if err != nil {
+		return fmt.Errorf("poll query failed: %w", err)
+	}
+	defer rows.Close()
+
+	fields := rows.FieldDescriptions()
+	count := 0
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return fmt.Errorf("failed to get values: %w", err)
+		}
+
+		record := make(map[string]any, len(fields))
+		for i, field := range fields {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				record[field.Name] = string(b)
+			} else {
+				record[field.Name] = val
+			}
+
+			// Track watermark: if column name is 'id' or matches a configured id_field
+			if strings.ToLower(field.Name) == "id" {
+				p.mu.Lock()
+				p.lastWatermark = val
+				p.mu.Unlock()
+			}
+		}
+
+		msg := message.AcquireMessage()
+		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
+		msg.SetOperation(hermod.OpCreate)
+		msg.SetAfter(afterJSON)
+		msg.SetMetadata("source", "postgres-polling")
+
+		if id, ok := record["id"]; ok {
+			msg.SetID(fmt.Sprintf("%v", id))
+		} else {
+			msg.SetID(uuid.New().String())
+		}
+
+		select {
+		case p.msgChan <- msg:
+			count++
+		case <-ctx.Done():
+			message.ReleaseMessage(msg)
+			return ctx.Err()
+		}
+	}
+
+	if count > 0 {
+		p.log("DEBUG", "Polled records", "count", count, "last_watermark", p.lastWatermark)
+	} else {
+		p.log("DEBUG", "Polled 0 records", "query", p.query, "watermark", watermark)
+	}
+	return rows.Err()
+}
+
 // openMetadataConn dials a fresh, non-replication metadata connection using the
 // pooler-safe pgx configuration. Callers own the returned connection and must
 // close it.
@@ -1065,6 +1202,16 @@ func (p *PostgresSource) initialize(ctx context.Context) error {
 
 	if !p.useCDC {
 		p.initialized = true
+		if p.query != "" {
+			if p.cancel != nil {
+				p.cancel()
+			}
+			pollCtx, cancel := context.WithCancel(context.Background())
+			p.cancel = cancel
+			p.wg.Go(func() {
+				p.pollLoop(pollCtx)
+			})
+		}
 		p.mu.Unlock()
 		return nil
 	}

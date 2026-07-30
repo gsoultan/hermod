@@ -22,7 +22,8 @@ export function WorkersPage() {
       const res = await apiFetch(`/api/workers?page=${activePage}&limit=${itemsPerPage}&search=${search}`)
       if (!res.ok) throw new Error('Failed to fetch workers')
       return res.json()
-    }
+    },
+    refetchInterval: 5000, // Refresh every 5 seconds for realtime status
   })
 
   const workers = (workersResponse as any)?.data as Worker[] || []

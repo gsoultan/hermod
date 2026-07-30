@@ -180,6 +180,8 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 			cfg.Config["publication_name"],
 			tables,
 			useCDC,
+			cfg.Config["query"],
+			pollInterval,
 		)
 	case "mssql":
 		autoEnable := cfg.Config["auto_enable_cdc"] != "false"
