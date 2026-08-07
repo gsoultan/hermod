@@ -71,7 +71,7 @@ export function FieldExplorer({ availableFields = [], incomingPayload, onAdd }: 
                       </Badge>
                     )}
                   </Group>
-                  <Text size="10px" c="dimmed" truncate>
+                  <Text size="xs" c="dimmed" truncate>
                     {JSON.stringify(getValByPath(incomingPayload, path))}
                   </Text>
                 </Box>

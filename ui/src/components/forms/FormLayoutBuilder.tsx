@@ -191,7 +191,7 @@ function SortableFieldItem({
                     {field.required && <Badge size="xs" color="red" variant="filled">Required</Badge>}
                   </Group>
                   <Group gap={6}>
-                    <Code style={{ fontSize: '10px' }}>{field.name}</Code>
+                    <Code style={{ fontSize: 'var(--mantine-font-size-xs)' }}>{field.name}</Code>
                     <Badge size="xs" variant="outline" color="gray">{field.type}</Badge>
                   </Group>
                 </Stack>
@@ -202,7 +202,7 @@ function SortableFieldItem({
           {!isOverlay && (
             <Group gap={4}>
               <Tooltip label="Remove Field">
-                <ActionIcon 
+                <ActionIcon aria-label="Delete" 
                   variant="subtle" 
                   size="sm" 
                   onClick={(e) => { e.stopPropagation(); onRemove?.(); }} 
@@ -631,7 +631,7 @@ export function FormLayoutBuilder({
                                     }}
                                   />
                                 )}
-                                <ActionIcon color="red" variant="light" onClick={() => {
+                                <ActionIcon aria-label="Delete" color="red" variant="light" onClick={() => {
                                   const cols = (selectedField.table?.columns || []).filter((_, i) => i !== idx);
                                   updateField(selectedField.id, { table: { bordered: selectedField.table?.bordered, columns: cols } });
                                 }}>
@@ -1054,7 +1054,7 @@ export function FormPreview({ opened, onClose, fields, title, description }: { o
                         </Table.Td>
                       ))}
                       <Table.Td>
-                        <ActionIcon color="red" variant="subtle" onClick={() => removeRow(rIdx)}>
+                        <ActionIcon aria-label="Delete" color="red" variant="subtle" onClick={() => removeRow(rIdx)}>
                           <IconTrash size="1rem" />
                         </ActionIcon>
                       </Table.Td>
@@ -1135,14 +1135,22 @@ export function FormPreview({ opened, onClose, fields, title, description }: { o
                 }
                 return v;
               }));
-              // Show a small toast and log the payload
+              // Show the payload in the UI rather than telling the user to open
+              // devtools — the preview exists so a form author can check their
+              // own form, and most form authors are not looking at a console.
+              const entries = Object.entries(safePayload as Record<string, unknown>);
+              const summary = entries.length
+                ? entries
+                    .slice(0, 8)
+                    .map(([k, v]) => `${k}: ${typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)}`)
+                    .join('\n') + (entries.length > 8 ? `\n…and ${entries.length - 8} more` : '')
+                : 'No fields captured.';
               notifications.show({
-                title: 'Preview Submission',
-                message: 'Open console to inspect the simulated payload.',
-                color: 'blue'
+                title: `Preview submission — ${entries.length} field${entries.length === 1 ? '' : 's'}`,
+                message: <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>{summary}</pre>,
+                color: 'blue',
+                autoClose: 8000,
               });
-              // eslint-disable-next-line no-console
-              console.log('Form Preview Payload:', safePayload);
             }}>Submit</Button>
           </Group>
         </Paper>

@@ -1,8 +1,11 @@
 import { 
   Modal, Stack, Group, Text, Button, Table, Badge, ScrollArea, ThemeIcon, Alert, Loader
-} from '@mantine/core';import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+} from '@mantine/core';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
-import { formatDateTime } from '@/utils/dateUtils';import { IconAlertCircle, IconHistory, IconInfoCircle, IconRotateDot } from '@tabler/icons-react';
+import { formatDateTime } from '@/utils/dateUtils';
+import { IconAlertCircle, IconHistory, IconInfoCircle, IconRotateDot } from '@tabler/icons-react';
+import { useConfirm } from '@/components/common/ConfirmProvider';
 interface WorkflowHistoryModalProps {
   workflowId: string;
   opened: boolean;
@@ -11,6 +14,7 @@ interface WorkflowHistoryModalProps {
 }
 
 export function WorkflowHistoryModal({ workflowId, opened, onClose, onRollbackSuccess }: WorkflowHistoryModalProps) {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
 
   const { data: versions, isLoading, error } = useQuery({
@@ -25,7 +29,7 @@ export function WorkflowHistoryModal({ workflowId, opened, onClose, onRollbackSu
 
   const rollbackMutation = useMutation({
     mutationFn: async (version: number) => {
-      if (!confirm(`Rollback workflow to version ${version}?`)) return;
+      if (!await confirm({ title: 'Roll back workflow', message: `Replace the current definition with version ${version}?`, consequence: 'The running definition is overwritten. Current unsaved edits are lost.', confirmLabel: 'Roll back', danger: true })) return;
       const res = await apiFetch(`/api/workflows/${workflowId}/rollback/${version}`, {
         method: 'POST'
       });

@@ -158,12 +158,14 @@ export function WorkerForm({ initialData, isEditing = false }: WorkerFormProps) 
       <Group grow>
         <TextInput
           label="Host"
+          description="Hostname or IP where the worker process runs"
           placeholder="e.g. localhost, 192.168.1.10"
           value={worker.host}
           onChange={(e) => setWorker({ ...worker, host: e.currentTarget.value })}
         />
         <NumberInput
           label="Port"
+          description="Port the worker listens on"
           placeholder="8080"
           value={worker.port}
           onChange={(val) => setWorker({ ...worker, port: Number(val) })}
@@ -171,6 +173,7 @@ export function WorkerForm({ initialData, isEditing = false }: WorkerFormProps) 
       </Group>
       <Textarea
         label="Description"
+        description="Optional note to help identify this worker later"
         placeholder="Optional description of this worker"
         value={worker.description}
         onChange={(e) => setWorker({ ...worker, description: e.currentTarget.value })}

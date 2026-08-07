@@ -82,7 +82,7 @@ export function FilterEditor({ conditions = [], availableFields = [], onChange }
               <Group grow gap="xs" align="flex-end">
                 <Box style={{ flex: 2 }}>
                   <Group gap={4} mb={2}>
-                    <Text size="10px" fw={700} c="dimmed" tt="uppercase" ml={2}>
+                    <Text size="xs" fw={700} c="dimmed" tt="uppercase" ml={2}>
                       Field
                     </Text>
                     <Tooltip label="Field or expression to evaluate. Supports functions like lower(), todate(), etc. Use source. prefix for nested fields.">
@@ -99,7 +99,7 @@ export function FilterEditor({ conditions = [], availableFields = [], onChange }
                   />
                 </Box>
                 <Box style={{ flex: 1.5 }}>
-                  <Text size="10px" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
+                  <Text size="xs" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
                     Operator
                   </Text>
                   <Select
@@ -121,7 +121,7 @@ export function FilterEditor({ conditions = [], availableFields = [], onChange }
                   />
                 </Box>
                 <Box style={{ flex: 2 }}>
-                  <Text size="10px" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
+                  <Text size="xs" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
                     Value
                   </Text>
                   <TemplateField

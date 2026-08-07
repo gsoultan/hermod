@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { server } from '../test/setupTests'
 import { http, HttpResponse } from 'msw'
 import { WorkflowHistoryModal } from '@/components/modals/WorkflowHistoryModal'
-import { vi } from 'vitest'
+import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 
 describe('WorkflowHistoryModal', () => {
   it('lists workflow versions and allows rollback', async () => {
@@ -37,12 +37,13 @@ describe('WorkflowHistoryModal', () => {
       })
     )
 
-    // Mock confirm dialog
-    window.confirm = vi.fn().mockReturnValue(true);
+    // Rollback now goes through the in-app ConfirmProvider rather than
+    // window.confirm, so the test must click the real dialog.
 
     const queryClient = new QueryClient()
     render(
       <MantineProvider>
+        <ConfirmProvider>
         <QueryClientProvider client={queryClient}>
           <WorkflowHistoryModal 
             workflowId="wf1" 
@@ -50,6 +51,7 @@ describe('WorkflowHistoryModal', () => {
             onClose={() => {}} 
           />
         </QueryClientProvider>
+      </ConfirmProvider>
       </MantineProvider>
     )
 
@@ -62,6 +64,9 @@ describe('WorkflowHistoryModal', () => {
     // Click restore on version 1
     const restoreBtns = await screen.findAllByText(/Restore/i)
     fireEvent.click(restoreBtns[1]) // Second button in list (older version)
+
+    // Confirm in the dialog; without this the rollback must NOT fire.
+    fireEvent.click(await screen.findByRole('button', { name: 'Roll back' }))
 
     await waitFor(() => {
       expect(rollbackCalled).toBe(true)

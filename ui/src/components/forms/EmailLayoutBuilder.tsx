@@ -24,6 +24,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { IconArrowBackUp, IconArrowForwardUp, IconCheck, IconCode, IconCopy, IconDeviceDesktop, IconDeviceFloppy, IconDeviceMobile, IconEye, IconGripVertical, IconLetterT, IconPalette, IconPhoto, IconPlus, IconRectangle, IconSeparator, IconSpace, IconTrash } from '@tabler/icons-react';
+import { useConfirm } from '@/components/common/ConfirmProvider';
 // --- Types ---
 
 type BlockType = 'text' | 'image' | 'button' | 'spacer' | 'divider' | 'header' | 'footer';
@@ -237,10 +238,10 @@ function SortableBlock({
           </Box>
           {isSelected && (
              <Stack gap={2} p={4} bg="blue.0" style={{ borderLeft: '1px solid var(--mantine-color-blue-2)' }}>
-                <ActionIcon size="sm" variant="subtle" color="blue" onClick={(e) => { e.stopPropagation(); onDuplicate(block.id); }}>
+                <ActionIcon aria-label="Copy" size="sm" variant="subtle" color="blue" onClick={(e) => { e.stopPropagation(); onDuplicate(block.id); }}>
                     <IconCopy size="0.8rem" />
                 </ActionIcon>
-                <ActionIcon size="sm" variant="subtle" color="red" onClick={(e) => { e.stopPropagation(); onDelete(block.id); }}>
+                <ActionIcon aria-label="Delete" size="sm" variant="subtle" color="red" onClick={(e) => { e.stopPropagation(); onDelete(block.id); }}>
                     <IconTrash size="0.8rem" />
                 </ActionIcon>
              </Stack>
@@ -254,6 +255,7 @@ function SortableBlock({
 // --- Main Builder Component ---
 
 export function EmailLayoutBuilder({ opened, onClose, onApply, outlookCompatible: initialOutlook }: EmailLayoutBuilderProps) {
+  const confirm = useConfirm();
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [settings, setSettings] = useState<EmailSettings>({
@@ -542,7 +544,7 @@ export function EmailLayoutBuilder({ opened, onClose, onApply, outlookCompatible
       <Stack p="md">
         <Group justify="space-between">
           <Text fw={700} size="sm" style={{ textTransform: 'capitalize' }}>{selectedBlock.type} Properties</Text>
-          <ActionIcon color="red" variant="subtle" onClick={() => deleteBlock(selectedBlock.id)}>
+          <ActionIcon aria-label="Delete" color="red" variant="subtle" onClick={() => deleteBlock(selectedBlock.id)}>
             <IconTrash size="1.2rem" />
           </ActionIcon>
         </Group>
@@ -723,13 +725,13 @@ export function EmailLayoutBuilder({ opened, onClose, onApply, outlookCompatible
                 <Divider orientation="vertical" />
                 <Group gap={5}>
                     <Tooltip label="Undo">
-                        <ActionIcon variant="subtle" disabled={historyIndex <= 0} onClick={undo}><IconArrowBackUp size="1.2rem" /></ActionIcon>
+                        <ActionIcon aria-label="Undo" variant="subtle" disabled={historyIndex <= 0} onClick={undo}><IconArrowBackUp size="1.2rem" /></ActionIcon>
                     </Tooltip>
                     <Tooltip label="Redo">
-                        <ActionIcon variant="subtle" disabled={historyIndex >= history.length - 1} onClick={redo}><IconArrowForwardUp size="1.2rem" /></ActionIcon>
+                        <ActionIcon aria-label="Redo" variant="subtle" disabled={historyIndex >= history.length - 1} onClick={redo}><IconArrowForwardUp size="1.2rem" /></ActionIcon>
                     </Tooltip>
                     <Divider orientation="vertical" />
-                    <Button variant="subtle" color="red" size="compact-xs" leftSection={<IconTrash size="0.8rem" />} onClick={() => { if(confirm('Clear all blocks?')) { setBlocks([]); addToHistory([]); } }}>
+                    <Button variant="subtle" color="red" size="compact-xs" leftSection={<IconTrash size="0.8rem" />} onClick={async () => { if(await confirm({ title: 'Clear all blocks', message: 'Remove every block from this layout?', confirmLabel: 'Clear all', danger: true })) { setBlocks([]); addToHistory([]); } }}>
                         Clear Canvas
                     </Button>
                 </Group>
@@ -739,16 +741,16 @@ export function EmailLayoutBuilder({ opened, onClose, onApply, outlookCompatible
                 <Box visibleFrom="sm">
                     <Group gap="xs">
                         <Tooltip label="Desktop View">
-                            <ActionIcon variant={viewMode === 'desktop' ? 'filled' : 'subtle'} onClick={() => setViewMode('desktop')}><IconDeviceDesktop size="1.2rem" /></ActionIcon>
+                            <ActionIcon aria-label="Desktop preview" variant={viewMode === 'desktop' ? 'filled' : 'subtle'} onClick={() => setViewMode('desktop')}><IconDeviceDesktop size="1.2rem" /></ActionIcon>
                         </Tooltip>
                         <Tooltip label="Mobile View">
-                            <ActionIcon variant={viewMode === 'mobile' ? 'filled' : 'subtle'} onClick={() => setViewMode('mobile')}><IconDeviceMobile size="1.2rem" /></ActionIcon>
+                            <ActionIcon aria-label="Mobile preview" variant={viewMode === 'mobile' ? 'filled' : 'subtle'} onClick={() => setViewMode('mobile')}><IconDeviceMobile size="1.2rem" /></ActionIcon>
                         </Tooltip>
                         <Tooltip label="Live Preview">
-                            <ActionIcon variant={viewMode === 'preview' ? 'filled' : 'subtle'} onClick={() => setViewMode('preview')}><IconEye size="1.2rem" /></ActionIcon>
+                            <ActionIcon aria-label="View" variant={viewMode === 'preview' ? 'filled' : 'subtle'} onClick={() => setViewMode('preview')}><IconEye size="1.2rem" /></ActionIcon>
                         </Tooltip>
                         <Tooltip label="View Code">
-                            <ActionIcon variant={viewMode === 'code' ? 'filled' : 'subtle'} onClick={() => setViewMode('code')}><IconCode size="1.2rem" /></ActionIcon>
+                            <ActionIcon aria-label="View code" variant={viewMode === 'code' ? 'filled' : 'subtle'} onClick={() => setViewMode('code')}><IconCode size="1.2rem" /></ActionIcon>
                         </Tooltip>
                     </Group>
                 </Box>

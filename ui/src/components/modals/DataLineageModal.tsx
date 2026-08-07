@@ -43,7 +43,7 @@ export function DataLineageModal({ opened, onClose }: { opened: boolean; onClose
               <IconDatabase size="1rem" color="var(--mantine-color-blue-6)" />
               <Box>
                 <Text size="xs" fw={700}>{item.source_name}</Text>
-                <Text size="10px" c="dimmed">{item.source_type}</Text>
+                <Text size="xs" c="dimmed">{item.source_type}</Text>
               </Box>
             </Group>
           ) },
@@ -62,7 +62,7 @@ export function DataLineageModal({ opened, onClose }: { opened: boolean; onClose
               <IconPlug size="1rem" color="var(--mantine-color-violet-6)" />
               <Box>
                 <Text size="xs" fw={700}>{item.workflow_name}</Text>
-                <Text size="10px" c="dimmed">Workflow</Text>
+                <Text size="xs" c="dimmed">Workflow</Text>
               </Box>
             </Group>
           ) },
@@ -81,7 +81,7 @@ export function DataLineageModal({ opened, onClose }: { opened: boolean; onClose
               <IconBroadcast size="1rem" color="var(--mantine-color-green-6)" />
               <Box>
                 <Text size="xs" fw={700}>{item.sink_name}</Text>
-                <Text size="10px" c="dimmed">{item.sink_type}</Text>
+                <Text size="xs" c="dimmed">{item.sink_type}</Text>
               </Box>
             </Group>
           ) },

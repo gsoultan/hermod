@@ -69,7 +69,7 @@ export function AIGeneratorModal({ opened, onClose, onGenerated }: {
           value={prompt}
           onChange={(e) => setPrompt(e.currentTarget.value)}
           rightSection={
-            <ActionIcon variant="light" color="indigo" onClick={handleGenerate} loading={loading}>
+            <ActionIcon aria-label="Start" variant="light" color="indigo" onClick={handleGenerate} loading={loading}>
               <IconPlayerPlay size="1rem" />
             </ActionIcon>
           }
@@ -91,7 +91,7 @@ export function AIGeneratorModal({ opened, onClose, onGenerated }: {
                 <Badge color="green" variant="light">Ready</Badge>
               </Group>
               <ScrollArea h={200}>
-                <Code block style={{ fontSize: '10px' }}>
+                <Code block style={{ fontSize: 'var(--mantine-font-size-xs)' }}>
                   {JSON.stringify(suggestion, null, 2)}
                 </Code>
               </ScrollArea>

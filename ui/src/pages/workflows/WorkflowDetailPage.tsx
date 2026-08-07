@@ -27,9 +27,11 @@ import {
 } from '@tabler/icons-react';
 import { WorkflowDebugger } from './WorkflowDebugger';
 import { DetailFlowCanvas } from './WorkflowEditor/components/DetailFlowCanvas';
+import { useConfirm } from '@/components/common/ConfirmProvider';
 const API_BASE = '/api';
 
 export function WorkflowDetailPage() {
+  const confirm = useConfirm();
   const { id } = useParams({ from: '/workflows/$id' }) as any;
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string | null>('graph');
@@ -60,7 +62,7 @@ export function WorkflowDetailPage() {
 
   const rollbackMutation = useMutation({
     mutationFn: async (version: number) => {
-      if (!confirm(`Rollback workflow to version ${version}?`)) return;
+      if (!await confirm({ title: 'Roll back workflow', message: `Replace the current definition with version ${version}?`, consequence: 'The running definition is overwritten and unsaved edits are lost.', confirmLabel: 'Roll back', danger: true })) return;
       const res = await apiFetch(`/api/workflows/${id}/rollback/${version}`, {
         method: 'POST'
       });
@@ -580,7 +582,8 @@ export function WorkflowDetailPage() {
                       No history found for this workflow. Versions are created automatically when you save changes.
                     </Alert>
                   ) : (
-                    <Table verticalSpacing="sm" highlightOnHover>
+                    <Table.ScrollContainer minWidth={700}>
+                      <Table verticalSpacing="sm" highlightOnHover>
                       <Table.Thead>
                         <Table.Tr>
                           <Table.Th style={{ width: 80 }}>Version</Table.Th>
@@ -613,6 +616,7 @@ export function WorkflowDetailPage() {
                         ))}
                       </Table.Tbody>
                     </Table>
+                    </Table.ScrollContainer>
                   )}
                 </Stack>
               </ScrollArea>
@@ -710,7 +714,8 @@ export function WorkflowDetailPage() {
                   </Group>
 
                   <ScrollArea style={{ flex: 1 }}>
-                    <Table verticalSpacing="xs" layout="fixed">
+                    <Table.ScrollContainer minWidth={700}>
+                      <Table verticalSpacing="xs" layout="fixed">
                       <Table.Thead>
                         <Table.Tr>
                           <Table.Th w={180}>Timestamp</Table.Th>
@@ -753,6 +758,7 @@ export function WorkflowDetailPage() {
                         )}
                       </Table.Tbody>
                     </Table>
+                    </Table.ScrollContainer>
                   </ScrollArea>
 
                   {totalPages > 1 && (

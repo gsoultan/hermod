@@ -7,7 +7,9 @@ import { useNavigate } from '@tanstack/react-router'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import type { Worker } from '@/types'
+import { useConfirm } from '@/components/common/ConfirmProvider';
 export function WorkersPage() {
+  const confirm = useConfirm();
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -190,8 +192,8 @@ export function WorkersPage() {
           <Group justify="flex-end">
             {online && (
               <Tooltip label="Gracefully shut down this worker (its workflows move to other workers)">
-                <ActionIcon variant="light" color="orange" onClick={() => {
-                  if (confirm('Gracefully shut down this worker? Its running workflows will be handed off to other available workers.')) {
+                <ActionIcon variant="light" color="orange" onClick={async () => {
+                  if (await confirm({ title: 'Shut down worker', message: `Gracefully shut down ${worker.name || worker.id}?`, consequence: 'Its running workflows are handed off to other available workers.', confirmLabel: 'Shut down' })) {
                     shutdownMutation.mutate(worker.id);
                   }
                 }} loading={shutdownMutation.isPending && shutdownMutation.variables === worker.id} radius="md" aria-label="Shut down worker">
@@ -216,8 +218,8 @@ export function WorkersPage() {
             <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/workers/${worker.id}/edit` })} radius="md" aria-label="Edit worker">
               <IconEdit size="1.2rem" stroke={1.5} />
             </ActionIcon>
-            <ActionIcon color="red" variant="light" onClick={() => {
-              if (confirm('Are you sure you want to unregister this worker?')) {
+            <ActionIcon color="red" variant="light" onClick={async () => {
+              if (await confirm({ title: 'Unregister worker', message: `Unregister ${worker.name || worker.id}?`, consequence: 'Workflows pinned to this worker will stop until it is re-registered.', confirmLabel: 'Unregister', danger: true })) {
                 deleteMutation.mutate(worker.id);
               }
             }} radius="md" aria-label="Unregister worker">
@@ -273,7 +275,8 @@ export function WorkersPage() {
         </Paper>
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
-          <Table verticalSpacing="md" horizontalSpacing="xl">
+          <Table.ScrollContainer minWidth={1000}>
+            <Table verticalSpacing="md" horizontalSpacing="xl">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Name / ID</Table.Th>
@@ -296,6 +299,7 @@ export function WorkersPage() {
               )}
             </Table.Tbody>
           </Table>
+          </Table.ScrollContainer>
           {totalPages > 1 && (
             <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
               <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />

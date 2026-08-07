@@ -502,17 +502,17 @@ export function SetupPage({ onConfigured }: SetupPageProps) {
                     rightSection={
                       <Group gap={0} mr={5}>
                         <Tooltip label="Generate Key">
-                          <ActionIcon variant="subtle" color="gray" onClick={() => setCryptoMasterKey(generateStrongPassword(32))}>
+                          <ActionIcon aria-label="Refresh" variant="subtle" color="gray" onClick={() => setCryptoMasterKey(generateStrongPassword(32))}>
                             <IconRefresh size={16} />
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Copy Key">
-                          <ActionIcon variant="subtle" color="gray" onClick={() => { if (cryptoMasterKey) copyToClipboard(cryptoMasterKey) }} disabled={!cryptoMasterKey}>
+                          <ActionIcon aria-label="Copy" variant="subtle" color="gray" onClick={() => { if (cryptoMasterKey) copyToClipboard(cryptoMasterKey) }} disabled={!cryptoMasterKey}>
                             <IconCopy size={16} />
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label={keyVisible ? "Hide Key" : "Show Key"}>
-                          <ActionIcon variant="subtle" color="gray" onClick={() => setKeyVisible(!keyVisible)}>
+                          <ActionIcon aria-label="Hide" variant="subtle" color="gray" onClick={() => setKeyVisible(!keyVisible)}>
                             {keyVisible ? <IconEyeOff size={16} /> : <IconEye size={16} />}
                           </ActionIcon>
                         </Tooltip>
@@ -660,17 +660,17 @@ export function SetupPage({ onConfigured }: SetupPageProps) {
                     rightSection={
                       <Group gap={0} mr={5}>
                         <Tooltip label="Generate Password">
-                          <ActionIcon variant="subtle" color="gray" onClick={() => setPassword(generateStrongPassword())}>
+                          <ActionIcon aria-label="Refresh" variant="subtle" color="gray" onClick={() => setPassword(generateStrongPassword())}>
                             <IconRefresh size={16} />
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Copy Password">
-                          <ActionIcon variant="subtle" color="gray" onClick={() => { if (password) copyToClipboard(password) }} disabled={!password}>
+                          <ActionIcon aria-label="Copy" variant="subtle" color="gray" onClick={() => { if (password) copyToClipboard(password) }} disabled={!password}>
                             <IconCopy size={16} />
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label={passwordVisible ? "Hide Password" : "Show Password"}>
-                          <ActionIcon variant="subtle" color="gray" onClick={() => setPasswordVisible(!passwordVisible)}>
+                          <ActionIcon aria-label="Hide" variant="subtle" color="gray" onClick={() => setPasswordVisible(!passwordVisible)}>
                             {passwordVisible ? <IconEyeOff size={16} /> : <IconEye size={16} />}
                           </ActionIcon>
                         </Tooltip>

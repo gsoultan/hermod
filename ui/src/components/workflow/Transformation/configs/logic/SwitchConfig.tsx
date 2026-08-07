@@ -90,7 +90,7 @@ export function SwitchConfig({ config, updateNodeConfig, nodeId, availableFields
                     size="sm"
                   />
                   <Group justify="flex-end">
-                    <ActionIcon color="red" variant="subtle" onClick={() => removeCase(i)}>
+                    <ActionIcon aria-label="Delete" color="red" variant="subtle" onClick={() => removeCase(i)}>
                       <IconTrash size="1rem" />
                     </ActionIcon>
                   </Group>

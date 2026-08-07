@@ -4,6 +4,7 @@ import { IconCheck, IconDatabase, IconActivity, IconInfoCircle } from '@tabler/i
 import { SinkBasics } from '../workflow/Sink/SinkBasics';
 import { RetryPolicyFields } from '../workflow/Sink/RetryPolicyFields';
 import { Suspense } from 'react';
+import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
 
 interface SinkWizardProps {
   sink: any;
@@ -43,7 +44,25 @@ export function SinkWizard({
   upstreamSource
 }: SinkWizardProps) {
   const [active, setActive] = useState(0);
-  const nextStep = () => setActive((current) => (current < 3 ? current + 1 : current));
+
+  // See SourceWizard: the wizard used to advance with every required field
+  // blank and only fail at submit.
+  const missingForStep = (step: number): string[] => {
+    if (step !== 0) return [];
+    // Same validators the fields use, so the Next button and the inline errors
+    // always agree about what is wrong.
+    return [
+      validateName(sink.name),
+      validateType(sink.type),
+      validateVHost(sink.vhost, !embedded),
+    ].filter(Boolean) as string[];
+  };
+  const missing = missingForStep(active);
+
+  const nextStep = () => {
+    if (missingForStep(active).length > 0) return;
+    setActive((current) => (current < 3 ? current + 1 : current));
+  };
   const prevStep = () => setActive((current) => (current > 0 ? current - 1 : current));
 
   const SelectedConfig = configComponents[sink.type] || configComponents['database'];
@@ -195,7 +214,7 @@ export function SinkWizard({
           {active < 3 && (
             <Button 
               onClick={nextStep} 
-              disabled={active === 0 && !sink.name}
+              disabled={missing.length > 0}
             >
               Next Step
             </Button>

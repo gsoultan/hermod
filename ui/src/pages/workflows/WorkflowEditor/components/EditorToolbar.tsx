@@ -4,6 +4,7 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import { IconActivity, IconChevronDown, IconDatabase, IconDeviceFloppy, IconEraser, IconFocus2, IconHistory, IconLayoutSidebarRight, IconPlayerPause, IconPlayerPlay, IconRefresh, IconSettings, IconShieldLock, IconSparkles, IconTerminal2, IconTimeline, IconZoomIn, IconZoomOut, IconSearch } from '@tabler/icons-react';
+import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
 interface EditorToolbarProps {
   id: string;
   isNew: boolean;
@@ -24,6 +25,8 @@ interface EditorToolbarProps {
   fitView: () => void;
   vhosts: any[];
   workers: any[];
+  /** Live workflow status, shown inline so the editor needs only one header bar. */
+  workflowStatus?: string;
 }
 
 export function EditorToolbar({
@@ -31,7 +34,8 @@ export function EditorToolbar({
   onAutoLayout,
   isSaving, isTesting, isToggling,
   zoom, zoomIn, zoomOut, fitView,
-    vhosts, workers, onSearch
+  vhosts, workers, onSearch,
+  workflowStatus,
 }: EditorToolbarProps) {
   const { 
     name, dryRun, vhost, workerID, testResults, active,
@@ -71,6 +75,11 @@ export function EditorToolbar({
             style={{ flex: 1 }}
             size="sm"
           />
+          {!isNew && workflowStatus && (
+            <Badge color={normalizeWorkflowStatus(workflowStatus).color} variant="filled" size="lg" radius="sm">
+              {normalizeWorkflowStatus(workflowStatus).label}
+            </Badge>
+          )}
           {dryRun && (
             <Badge color="orange" variant="light" size="lg" radius="sm">Dry-Run Mode</Badge>
           )}
@@ -94,7 +103,7 @@ export function EditorToolbar({
 
         <Group gap="xs">
           <Tooltip label="Search components (Cmd+Shift+K)" position="bottom" withArrow>
-            <ActionIcon variant="light" color="blue" size="lg" onClick={onSearch}>
+            <ActionIcon aria-label="Search" variant="light" color="blue" size="lg" onClick={onSearch}>
               <IconSearch size="1.2rem" />
             </ActionIcon>
           </Tooltip>

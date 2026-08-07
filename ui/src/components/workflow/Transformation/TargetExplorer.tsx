@@ -44,7 +44,7 @@ export function TargetExplorer({
         <Text size="xs" fw={700} c="dimmed">
           {(tableName || 'TARGET TABLE').toUpperCase()}
         </Text>
-        {loading ? <ActionIcon loading variant="transparent" /> : null}
+        {loading ? <ActionIcon aria-label="Search" loading variant="transparent" /> : null}
       </Group>
       <TextInput
         placeholder="Filter target columns..."
@@ -79,7 +79,7 @@ export function TargetExplorer({
                   <Text size="xs" fw={700} c="var(--mantine-color-green-light-color)" truncate>
                     {column}
                   </Text>
-                  <Text size="10px" c="dimmed" truncate>
+                  <Text size="xs" c="dimmed" truncate>
                     {currentMappings[`column.${column}`] || 'Not mapped'}
                   </Text>
                 </Box>

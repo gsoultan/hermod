@@ -60,12 +60,24 @@ export function useWorkflowEvents(
     if (!testResults) return;
     const sourceResult = testResults.find(r => r.node_id === edge.source);
     if (sourceResult) {
+      // Show the payload itself. Clicking an edge to inspect data and being
+      // told to open devtools defeats the point of an in-canvas debugger.
+      const payload = (sourceResult as any).payload;
+      let preview: string;
+      try {
+        preview = JSON.stringify(payload, null, 2) ?? String(payload);
+      } catch {
+        preview = String(payload);
+      }
+      if (preview.length > 800) preview = preview.slice(0, 800) + '\n…truncated';
+
       notifications.show({
-        title: `Edge Data: ${edge.id}`,
-        message: 'Data passing through this path (see console for full payload)',
+        title: `Edge data: ${edge.id}`,
+        message: preview,
         color: 'blue',
+        autoClose: 10000,
+        styles: { description: { whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 11 } },
       });
-      console.log(`Data for edge ${edge.id}:`, (sourceResult as any).payload);
     }
   }, [testResults]);
 

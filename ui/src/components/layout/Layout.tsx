@@ -1,6 +1,6 @@
-import { AppShell, Burger, Group, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea, Badge, ActionIcon, useMantineColorScheme, Kbd, Menu, Avatar } from '@mantine/core';
+import { AppShell, Burger, Group, NavLink, Text, LoadingOverlay, Box, Button, Select, Tooltip, Stack, ScrollArea, Badge, ActionIcon, useMantineColorScheme, Kbd, Menu, Avatar, rem } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import React, { useEffect, type ReactNode } from 'react';
+import React, { useEffect, useRef, type ReactNode } from 'react';
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVHost } from '@/context/VHostContext';
@@ -11,6 +11,7 @@ import { notifications } from '@mantine/notifications';
 import { IconActivity, IconBraces, IconChevronLeft, IconChevronRight, IconCloudUpload, IconDashboard, IconDatabase, IconGitBranch, IconGitMerge, IconHierarchy, IconHistory, IconList, IconLogout, IconMoon, IconPlus, IconPuzzle, IconRocket, IconSearch, IconServer, IconSettings, IconShieldLock, IconSun, IconUser, IconUsers, IconWorld, IconChecklist } from '@tabler/icons-react';
 import type { Workflow } from '@/types';
 import { ErrorBoundary } from './ErrorBoundary';
+import { useConfirm } from '@/components/common/ConfirmProvider';
 
 interface LayoutProps {
   children: ReactNode;
@@ -46,9 +47,24 @@ const SideLink = ({ to, label, icon: Icon, badge, children, desktopOpened }: Sid
           borderRadius: 'var(--mantine-radius-md)',
           marginBottom: '4px',
           transition: 'all 0.2s ease',
+          // Collapsed, the row fills its (narrowed) container and centres the
+          // icon, so the active highlight reads as a symmetric tile. Fixing a
+          // width here instead would overflow the container and push the tile
+          // off-centre the other way.
+          // gap is still applied between the icon and the two empty siblings
+          // (hidden body, absent right section), adding phantom space that
+          // shifts the icon ~6px left of the tile it is meant to sit in.
+          ...(desktopOpened ? null : { width: '100%', height: rem(44), gap: 0 }),
         },
+        // With no label to hold, the body still claims the row's free space and
+        // pushes the icon left of centre — 9px off, and visible as a lopsided
+        // highlight. Remove it from the layout entirely when collapsed.
+        body: desktopOpened ? undefined : { display: 'none' },
         section: {
           marginRight: desktopOpened ? 'var(--mantine-spacing-xs)' : 0,
+          // The trailing (empty) section keeps its own inline margin, which is
+          // the last 11px of phantom space holding the icon off-centre.
+          ...(desktopOpened ? null : { marginInline: 0 }),
         },
         label: {
           fontWeight: 500,
@@ -72,12 +88,40 @@ const SideLink = ({ to, label, icon: Icon, badge, children, desktopOpened }: Sid
 };
 
 export function Layout({ children }: LayoutProps) {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [mobileOpened, { toggle: toggleMobile }] = useDisclosure();
-  const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true);
+  const [desktopOpened, { toggle: toggleDesktop, open: openDesktop, close: closeDesktop }] =
+    useDisclosure(true);
   const routerState = useRouterState();
   const navigate = useNavigate();
   const activePage = routerState.location.pathname;
+  // Routes whose main content is an infinite canvas rather than a document.
+  // These get a full-bleed shell: the surrounding card, padding and border are
+  // dropped so the canvas gets the viewport instead of ~34px of chrome per axis.
+  const isCanvasRoute = /^\/workflows\/(new|[^/]+\/edit)$/.test(activePage);
+
+  // Collapsing the navbar on the editor hands another 180px to the canvas.
+  // The pre-editor state is remembered and restored on the way out, and the
+  // toggle still works while inside, so this is a smarter default rather than
+  // something the user has to fight.
+  const navbarStateBeforeCanvas = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (isCanvasRoute) {
+      if (navbarStateBeforeCanvas.current === null) {
+        navbarStateBeforeCanvas.current = desktopOpened;
+        if (desktopOpened) closeDesktop();
+      }
+      return;
+    }
+    if (navbarStateBeforeCanvas.current !== null) {
+      if (navbarStateBeforeCanvas.current) openDesktop();
+      navbarStateBeforeCanvas.current = null;
+    }
+    // desktopOpened is intentionally omitted: this must react to route changes
+    // only, or the user's own toggle inside the editor would be undone.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCanvasRoute, closeDesktop, openDesktop]);
   const role = getRoleFromToken();
   const isAdmin = role === 'Administrator';
   const canEdit = role === 'Administrator' || role === 'Editor';
@@ -114,6 +158,11 @@ export function Layout({ children }: LayoutProps) {
 
   const isLoading = routerState.isLoading;
   const workflows = workflowsResponse?.data || [];
+
+  // "v1.2.5-0.20260730072614-816c03f6a612+dirty (Enterprise Edition)" → "v1.2.5".
+  // Match the semver head rather than stripping the tail: Go's pseudo-version
+  // suffix starts "-0.<timestamp>", so a "hyphen followed by digits" rule misses it.
+  const releaseTag = (versionData?.version || '').match(/^v?\d+\.\d+\.\d+/)?.[0] || '';
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -228,7 +277,7 @@ export function Layout({ children }: LayoutProps) {
           notifications.show({ title: 'Select VHost', message: 'Please select a specific VHost to start all workflows.', color: 'orange' });
           return;
         }
-        if (!window.confirm(`Start all workflows in VHost ${selectedVHost}?`)) return;
+        if (!await confirm({ title: 'Start all workflows', message: `Start every workflow in VHost "${selectedVHost}"?`, confirmLabel: 'Start all' })) return;
         try {
           const res = await apiFetch(`/api/workflows?vhost=${encodeURIComponent(selectedVHost)}`, { silent: true });
           const data = await res.json();
@@ -254,7 +303,7 @@ export function Layout({ children }: LayoutProps) {
           notifications.show({ title: 'Select VHost', message: 'Please select a specific VHost to stop all workflows.', color: 'orange' });
           return;
         }
-        if (!window.confirm(`Stop all workflows in VHost ${selectedVHost}?`)) return;
+        if (!await confirm({ title: 'Stop all workflows', message: `Stop every workflow in VHost "${selectedVHost}"?`, consequence: 'In-flight messages are drained, but ingestion stops immediately.', confirmLabel: 'Stop all', danger: true })) return;
         try {
           const res = await apiFetch(`/api/workflows?vhost=${encodeURIComponent(selectedVHost)}`, { silent: true });
           const data = await res.json();
@@ -292,7 +341,7 @@ export function Layout({ children }: LayoutProps) {
         label: `Stop: ${wf.name}`,
         description: `VHost: ${wf.vhost}`,
         onClick: async () => {
-          if (!window.confirm(`Stop workflow ${wf.name}?`)) return;
+          if (!await confirm({ title: 'Stop workflow', message: `Stop "${wf.name}"?`, confirmLabel: 'Stop', danger: true })) return;
           try {
             await apiFetch(`/api/workflows/${wf.id}/toggle`, { method: 'POST', silent: true });
             notifications.show({ id: `wf-stop-${wf.id}`, title: 'Workflow', message: `Toggled stop for "${wf.name}"`, color: 'green' });
@@ -307,7 +356,7 @@ export function Layout({ children }: LayoutProps) {
         label: `Drain DLQ: ${wf.name}`,
         description: `Prioritize dead letters before live`,
         onClick: async () => {
-          if (!window.confirm(`Drain DLQ for workflow ${wf.name}?`)) return;
+          if (!await confirm({ title: 'Drain dead-letter queue', message: `Drain the DLQ for "${wf.name}"?`, consequence: 'Failed messages are re-processed through the pipeline.', confirmLabel: 'Drain DLQ' })) return;
           try {
             await apiFetch(`/api/workflows/${wf.id}/drain`, { method: 'POST', silent: true });
             notifications.show({ id: `wf-drain-${wf.id}`, title: 'DLQ', message: `Requested DLQ drain for "${wf.name}"`, color: 'blue' });
@@ -410,7 +459,7 @@ export function Layout({ children }: LayoutProps) {
         breakpoint: 'sm',
         collapsed: { mobile: !mobileOpened },
       }}
-      padding="md"
+      padding={isCanvasRoute ? 0 : 'md'}
     >
       <AppShell.Header withBorder bg={dark ? 'var(--mantine-color-dark-7)' : 'white'}>
         <Group h="100%" px="lg" justify="space-between">
@@ -427,7 +476,7 @@ export function Layout({ children }: LayoutProps) {
               variant="default"
               size="xs"
               leftSection={<IconSearch size="1rem" stroke={1.5} />}
-              rightSection={<Kbd size="xs" ml={10}>Ctrl+K</Kbd>}
+              rightSection={<Kbd size="sm" ml={10}>Ctrl+K</Kbd>}
               onClick={spotlight.open}
               color="gray"
               visibleFrom="md"
@@ -457,7 +506,7 @@ export function Layout({ children }: LayoutProps) {
             </ActionIcon>
             <Menu shadow="md" width={200} position="bottom-end" withArrow transitionProps={{ transition: 'pop-top-right' }}>
               <Menu.Target>
-                <ActionIcon variant="subtle" color="gray" size="lg" radius="xl" title="Account">
+                <ActionIcon aria-label="Account menu" variant="subtle" color="gray" size="lg" radius="xl" title="Account">
                   <Avatar size="sm" radius="xl" color="blue">
                     {getClaimsFromToken()?.username?.charAt(0).toUpperCase()}
                   </Avatar>
@@ -499,7 +548,9 @@ export function Layout({ children }: LayoutProps) {
 
       <AppShell.Navbar p="xs" withBorder bg={dark ? 'var(--mantine-color-dark-7)' : 'white'}>
         <AppShell.Section grow component={ScrollArea} mx="-xs" px="xs">
-          <Stack gap={4} px="sm" pt="md">
+          {/* Collapsed, sm padding either side leaves only 36px of an 80px rail
+              for the highlight tile — a thin sliver with wide dead gutters. */}
+          <Stack gap={4} px={desktopOpened ? 'sm' : 4} pt="md">
             {desktopOpened && (
               <Box mb={4} px="xs">
                 <Text size="xs" fw={700} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '1px' }}>
@@ -563,11 +614,16 @@ export function Layout({ children }: LayoutProps) {
             fullWidth
             leftSection={desktopOpened ? <IconChevronLeft size="1.2rem" /> : <IconChevronRight size="1.2rem" />}
             justify={desktopOpened ? 'flex-start' : 'center'}
+            aria-label={desktopOpened ? 'Collapse sidebar' : 'Expand sidebar'}
             styles={{
               root: {
                 height: '42px',
                 borderRadius: '8px',
+                // Matches the nav rows: centred chevron, no off-side drift.
+                ...(desktopOpened ? null : { paddingInline: 0 }),
               },
+              // Same empty-body problem as the nav rows.
+              label: desktopOpened ? undefined : { display: 'none' },
               section: {
                 marginRight: desktopOpened ? undefined : 0
               }
@@ -578,24 +634,44 @@ export function Layout({ children }: LayoutProps) {
         </AppShell.Section>
 
         <AppShell.Section p="xs">
-          <Tooltip label={`Hermod ${versionData?.version}`} position="right" disabled={desktopOpened}>
-            <Text size="xs" c="dimmed" ta="center">
-              {desktopOpened ? `Hermod ${versionData?.version}` : versionData?.version?.split(' ')[0]}
+          {/* A Go pseudo-version — v1.2.5-0.20260730072614-816c03f6a612+dirty —
+              wrapped to three lines here and spilled out of the 80px rail onto
+              the canvas. Only the release tag is worth standing space; the build
+              stamp belongs in the tooltip, where it is still one hover away. */}
+          <Tooltip
+            label={versionData?.version ? `Hermod ${versionData.version}` : 'Hermod'}
+            position="right"
+            withArrow
+            multiline
+            w={280}
+          >
+            <Text size="xs" c="dimmed" ta="center" truncate="end" style={{ cursor: 'default' }}>
+              {desktopOpened ? `Hermod ${releaseTag}` : releaseTag}
             </Text>
           </Tooltip>
         </AppShell.Section>
       </AppShell.Navbar>
 
       <AppShell.Main bg={dark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-gray-0)'}>
-        <Box 
-          p="md" 
-          h="100%" 
-          style={{ 
+        <Box
+          p={isCanvasRoute ? 0 : 'md'}
+          h="100%"
+          style={{
             backgroundColor: dark ? 'var(--mantine-color-dark-6)' : 'var(--mantine-color-white)',
-            borderRadius: '16px',
-            border: `1px solid ${dark ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-gray-2)'}`,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-            minHeight: 'calc(100vh - 100px)'
+            // The workflow editor is a canvas, not a document. Wrapping an
+            // infinite canvas in a rounded, bordered card costs ~34px of width
+            // and height and frames the workspace as a content block sitting on
+            // a page. Full-bleed on that route only.
+            borderRadius: isCanvasRoute ? 0 : '16px',
+            border: isCanvasRoute
+              ? 'none'
+              : `1px solid ${dark ? 'var(--mantine-color-dark-5)' : 'var(--mantine-color-gray-2)'}`,
+            boxShadow: isCanvasRoute ? 'none' : '0 1px 3px rgba(0,0,0,0.05)',
+            // The canvas route sizes itself from the viewport (see
+            // WorkflowEditorPage), so this wrapper must not impose or clip a
+            // height of its own.
+            minHeight: isCanvasRoute ? 0 : 'calc(100vh - 100px)',
+            overflow: isCanvasRoute ? 'hidden' : undefined,
           }}
         >
           <LoadingOverlay 

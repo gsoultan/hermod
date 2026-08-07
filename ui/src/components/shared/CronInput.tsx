@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';import { IconCalendarStats, IconInfoCircle } from '@tabler/icons-react';
+import { useState, useEffect } from 'react';
+import { IconCalendarStats, IconInfoCircle } from '@tabler/icons-react';
 import { 
   TextInput, Button, Popover, Stack, Group, Select, Text, 
   SegmentedControl, 
   Divider, Box, ActionIcon, Tooltip
-} from '@mantine/core';interface CronInputProps {
+} from '@mantine/core';
+interface CronInputProps {
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -69,7 +71,7 @@ export function CronInput({ label, value, onChange, description, required, place
           <Popover opened={opened} onChange={setOpened} position="bottom-end" withArrow shadow="md" width={320}>
             <Popover.Target>
               <Tooltip label="Schedule Builder">
-                <ActionIcon variant="subtle" color="blue" onClick={() => setOpened((o) => !o)}>
+                <ActionIcon aria-label="Schedule presets" variant="subtle" color="blue" onClick={() => setOpened((o) => !o)}>
                   <IconCalendarStats size="1.2rem" />
                 </ActionIcon>
               </Tooltip>

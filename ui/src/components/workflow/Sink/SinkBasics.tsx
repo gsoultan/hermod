@@ -1,3 +1,6 @@
+import { toGroupedSelectData } from '@/utils/selectData';
+import { useState } from 'react';
+import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
 import { Select, Stack, TextInput, Switch } from '@mantine/core';
 
 interface SinkBasicsProps {
@@ -33,13 +36,22 @@ export function SinkBasics({
   workerOptions,
   sinkTypes,
 }: SinkBasicsProps) {
+  // See SourceBasics: validate while typing, reveal only after blur.
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const nameError = touched.name ? validateName(name) : undefined;
+  const typeError = touched.type ? validateType(type) : undefined;
+  const vhostError = touched.vhost ? validateVHost(vhost, !embedded) : undefined;
+
   return (
     <Stack gap="sm">
       <TextInput
         label="Name"
+        description="How this destination appears in workflows"
         placeholder="NATS Sink"
         value={name}
         onChange={(e) => onChangeName(e.currentTarget.value)}
+        onBlur={() => setTouched((t) => ({ ...t, name: true }))}
+        error={nameError}
         required
       />
 
@@ -55,10 +67,13 @@ export function SinkBasics({
       {!embedded && (
         <Select
           label="VHost"
+          description="Project or environment namespace"
           placeholder="Select a virtual host"
           data={Array.isArray(vhostOptions) ? vhostOptions : []}
           value={vhost}
           onChange={(val) => onChangeVHost(val || '')}
+          onBlur={() => setTouched((t) => ({ ...t, vhost: true }))}
+          error={vhostError}
           required
         />
       )}
@@ -66,6 +81,7 @@ export function SinkBasics({
       {!embedded && (
         <Select
           label="Worker (Optional)"
+          description="Pin to a specific processing instance"
           placeholder="Assign to a specific worker"
           data={Array.isArray(workerOptions) ? workerOptions : []}
           value={workerId}
@@ -77,10 +93,13 @@ export function SinkBasics({
       {!embedded ? (
         <Select
           label="Type"
+          description="Destination system this sink writes to"
           placeholder="Select sink type"
-          data={Array.isArray(sinkTypes) ? sinkTypes : []}
+          data={toGroupedSelectData(sinkTypes)}
           value={type}
           onChange={(val) => onChangeType(val || '')}
+          onBlur={() => setTouched((t) => ({ ...t, type: true }))}
+          error={typeError}
           required
           searchable
         />

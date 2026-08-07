@@ -154,7 +154,7 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
             ]}
           />
           <MantineTooltip label={copied ? 'Copied!' : 'Copy to clipboard'}>
-            <ActionIcon variant="subtle" color={copied ? 'green' : 'gray'} onClick={copyToClipboard} size="sm">
+            <ActionIcon aria-label="Confirm" variant="subtle" color={copied ? 'green' : 'gray'} onClick={copyToClipboard} size="sm">
               {copied ? <IconCheck size="1rem" /> : <IconCopy size="1rem" />}
             </ActionIcon>
           </MantineTooltip>
@@ -183,7 +183,7 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
         )}
         
         {isArray && !error && (
-          <Text size="10px" c="dimmed" ta="right">
+          <Text size="xs" c="dimmed" ta="right">
             {(result as any[]).length} items in result
           </Text>
         )}

@@ -4,6 +4,7 @@ import { router } from '../router'
 import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { VHostProvider } from '@/context/VHostContext'
+import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 
 describe('Auth redirect', () => {
   it('redirects unauthenticated users to /login', async () => {
@@ -13,11 +14,13 @@ describe('Auth redirect', () => {
     const queryClient = new QueryClient()
     render(
       <MantineProvider>
+        <ConfirmProvider>
         <QueryClientProvider client={queryClient}>
           <VHostProvider>
             <RouterProvider router={router} />
           </VHostProvider>
         </QueryClientProvider>
+      </ConfirmProvider>
       </MantineProvider>
     )
 

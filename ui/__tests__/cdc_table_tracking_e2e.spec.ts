@@ -26,7 +26,7 @@ test.describe('PostgreSQL CDC Table Tracking E2E', () => {
   test.beforeEach(async ({ page }) => {
     // Clean up slots/pubs to ensure a fresh environment
     try {
-      execSync('rtk go run drop_all_slots.go');
+      execSync('rtk go run ./scripts/drop_all_slots', { cwd: process.cwd() });
     } catch (e) {
       console.log('Pre-test cleanup (slots):', e.message);
     }

@@ -62,12 +62,31 @@ export function NodeConfigDrawer({
     onClose();
   };
 
+  // size="xl" is a flat 780px on every screen, which left a transformation —
+  // script editor, field mapper and live preview stacked in one column — with
+  // less room than the source form that only asks for a name. Scale with the
+  // viewport instead, and give the denser node types more of it. The min()
+  // keeps a laptop honest; the ch/px floor keeps a large monitor from stretching
+  // form rows to an unreadable width.
+  const width = (() => {
+    switch (type) {
+      case 'transformation':
+      case 'validator':
+        return 'min(1180px, 78vw)';
+      case 'source':
+      case 'sink':
+        return 'min(880px, 62vw)';
+      default:
+        return 'min(880px, 62vw)';
+    }
+  })();
+
   return (
-    <Drawer 
-      opened={opened} 
-      onClose={onClose} 
-      position="right" 
-      size="xl"
+    <Drawer
+      opened={opened}
+      onClose={onClose}
+      position="right"
+      size={width}
       withCloseButton={false}
       styles={{
         header: { display: 'none' },
@@ -80,7 +99,7 @@ export function NodeConfigDrawer({
             <Title order={4}>{title}</Title>
             <Text size="sm" c="dimmed">{selectedNode.data?.label}</Text>
           </Group>
-          <ActionIcon variant="subtle" color="gray" onClick={onClose}>
+          <ActionIcon aria-label="Close" variant="subtle" color="gray" onClick={onClose}>
             <IconX style={{ width: rem(18), height: rem(18) }} />
           </ActionIcon>
         </Group>

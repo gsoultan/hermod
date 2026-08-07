@@ -101,7 +101,7 @@ export function WebhookHistory({
                         </Tooltip>
                       </Group>
                     </Group>
-                    <Code block style={{ fontSize: '9px', maxHeight: '100px', overflow: 'hidden' }}>
+                    <Code block style={{ fontSize: 'var(--mantine-font-size-xs)', maxHeight: '100px', overflow: 'hidden' }}>
                       {typeof req.body === 'string' ? req.body : JSON.stringify(req.body, null, 2)}
                     </Code>
                   </Stack>

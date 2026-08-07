@@ -5,8 +5,10 @@ import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-q
 import { apiFetch } from '@/api'
 import { useNavigate } from '@tanstack/react-router'
 import type { VHost } from '@/types'
+import { useConfirm } from '@/components/common/ConfirmProvider';
 
 export function VHostsPage() {
+  const confirm = useConfirm();
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -46,8 +48,8 @@ export function VHostsPage() {
           <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/vhosts/${vhost.id || vhost.name}/edit` })} radius="md" aria-label="Edit vhost">
             <IconEdit size="1.2rem" stroke={1.5} />
           </ActionIcon>
-          <ActionIcon color="red" variant="light" onClick={() => {
-            if (confirm('Are you sure you want to delete this vhost?')) {
+          <ActionIcon color="red" variant="light" onClick={async () => {
+            if (await confirm({ title: 'Delete VHost', message: 'Permanently delete this virtual host?', consequence: 'Sources, sinks and workflows scoped to it may stop working.', confirmLabel: 'Delete VHost', danger: true })) {
               deleteMutation.mutate(vhost.id || vhost.name);
             }
           }} radius="md" aria-label="Delete vhost">
@@ -98,7 +100,8 @@ export function VHostsPage() {
         </Paper>
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
-          <Table verticalSpacing="md" horizontalSpacing="xl">
+          <Table.ScrollContainer minWidth={700}>
+            <Table verticalSpacing="md" horizontalSpacing="xl">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Name</Table.Th>
@@ -117,6 +120,7 @@ export function VHostsPage() {
               )}
             </Table.Tbody>
           </Table>
+          </Table.ScrollContainer>
           {totalPages > 1 && (
             <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
               <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />

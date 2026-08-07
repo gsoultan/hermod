@@ -120,8 +120,10 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
       fitViewOptions={{ padding: 0.2 }}
     >
       <Background color={isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'} gap={20} />
-      <Controls />
-      <MiniMap 
+      {/* Lifted clear of the collapsed Live Logs bar (40px), which now floats
+          over the canvas instead of sitting below it. */}
+      <Controls style={{ bottom: 52 }} />
+      <MiniMap
         nodeColor={(n) => {
           if (n.type === 'source') return 'var(--mantine-color-blue-6)';
           if (n.type === 'sink') return 'var(--mantine-color-green-6)';
@@ -129,6 +131,7 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
         }}
         style={{
           backgroundColor: isDark ? 'var(--mantine-color-dark-7)' : 'var(--mantine-color-body)',
+          bottom: 52,
         }}
       />
     </ReactFlow>

@@ -1,6 +1,7 @@
 import { IconAlertCircle, IconCheck, IconChevronDown, IconChevronUp, IconPlayerPlay, IconPlus, IconTrash, IconX } from '@tabler/icons-react';
 import { useState } from 'react'
-import { Stack, Group, Text, Button, ActionIcon, Paper, TextInput, JsonInput, Badge, Alert, Loader, Collapse, Code } from '@mantine/core'import { apiFetch } from '@/api'
+import { Stack, Group, Text, Button, ActionIcon, Paper, TextInput, JsonInput, Badge, Alert, Loader, Collapse, Code } from '@mantine/core'
+import { apiFetch } from '@/api'
 
 interface UnitTest {
   name: string
@@ -110,7 +111,7 @@ export function UnitTestForm({ workflowId, nodeId, tests = [], onChange }: UnitT
               <Stack gap="xs">
                 <Group justify="space-between">
                   <Group gap="xs">
-                    <ActionIcon 
+                    <ActionIcon aria-label="Collapse" 
                       variant="subtle" 
                       size="sm" 
                       onClick={() => setExpanded(isExpanded ? null : index)}
@@ -135,7 +136,7 @@ export function UnitTestForm({ workflowId, nodeId, tests = [], onChange }: UnitT
                         {result.passed ? 'Passed' : 'Failed'}
                       </Badge>
                     )}
-                    <ActionIcon color="red" variant="subtle" size="sm" onClick={() => removeTest(index)}>
+                    <ActionIcon aria-label="Delete" color="red" variant="subtle" size="sm" onClick={() => removeTest(index)}>
                       <IconTrash size={14} />
                     </ActionIcon>
                   </Group>
@@ -168,7 +169,7 @@ export function UnitTestForm({ workflowId, nodeId, tests = [], onChange }: UnitT
                     {result && !result.passed && (
                       <Alert color="red" title="Mismatch detected" p="xs">
                         <Text size="xs" fw={700}>Actual Output:</Text>
-                        <Code block style={{ fontSize: '10px' }}>{JSON.stringify(result.actual, null, 2)}</Code>
+                        <Code block style={{ fontSize: 'var(--mantine-font-size-xs)' }}>{JSON.stringify(result.actual, null, 2)}</Code>
                         {result.error && <Text size="xs" c="red" mt={4}>Error: {result.error}</Text>}
                       </Alert>
                     )}

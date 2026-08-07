@@ -241,7 +241,7 @@ export const NoteNode = ({ id, data, selected }: any) => {
       style={{ position: 'relative' }}
     >
       {(hovered || selected) && (
-        <ActionIcon 
+        <ActionIcon aria-label="Delete" 
           variant="filled" 
           color="red" 
           size="xs" 

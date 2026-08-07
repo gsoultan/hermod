@@ -15,9 +15,10 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
-    "baseUrl": ".",
+    /* TypeScript 7 removed `baseUrl`, and path targets must now be relative.
+       Mapping is resolved against this file's directory instead. */
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     },
 
     /* Linting */

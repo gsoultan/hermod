@@ -8,7 +8,10 @@ export default defineConfig({
   workers: 1,
   reporter: 'list',
   use: {
-    baseURL: 'http://0.0.0.0:5173',
+    // Must match vite.config.ts's pinned `server.port` (5175). Pointing at 5173
+    // meant every spec using a relative goto() hit a closed port, so the layout
+    // and form audits CI runs on each push were failing against nothing.
+    baseURL: process.env.AUDIT_BASE_URL || 'http://localhost:5175',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },

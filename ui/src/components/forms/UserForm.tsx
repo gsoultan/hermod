@@ -84,6 +84,7 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
     <Stack gap="md">
       <TextInput
         label="Username"
+        description="Used to sign in. Cannot be changed later."
         required
         value={user.username}
         onChange={(e) => setUser({ ...user, username: e.currentTarget.value })}
@@ -119,22 +120,26 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
       )}
       <TextInput
         label="Full Name"
+        description="Shown in audit logs and approvals"
         value={user.full_name}
         onChange={(e) => setUser({ ...user, full_name: e.currentTarget.value })}
       />
       <TextInput
         label="Email"
+        description="Where account notifications are sent"
         value={user.email}
         onChange={(e) => setUser({ ...user, email: e.currentTarget.value })}
       />
       <Select
         label="Role"
+        description="Administrator: full access · Editor: manage workflows · Viewer: dashboards only"
         data={['Administrator', 'Editor', 'Viewer']}
         value={user.role}
         onChange={(value) => setUser({ ...user, role: value as Role })}
       />
       <MultiSelect
         label="Assigned VHosts"
+        description="Limits this user to the selected environments. Empty means all."
         placeholder="Pick vhosts"
         data={vhosts?.map((v: { name: string }) => v.name) || []}
         value={user.vhosts}

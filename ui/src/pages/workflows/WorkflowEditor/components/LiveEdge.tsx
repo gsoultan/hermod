@@ -122,7 +122,7 @@ export const LiveEdge = memo((props: EdgeProps) => {
                   <Text size="xs" c="dimmed">No samples yet</Text>
                 ) : (
                   samples.slice(0, 5).map((s: any, i: number) => (
-                    <Code key={i} block style={{ fontSize: 10 }}>
+                    <Code key={i} block style={{ fontSize: 11 }}>
                       {formatPreview(s)}
                     </Code>
                   ))
@@ -137,7 +137,7 @@ export const LiveEdge = memo((props: EdgeProps) => {
           {(selected || hovered) && deletable !== false && (
             <div style={{ display: 'flex', gap: 6 }}>
               <Tooltip label={hasBreakpoint ? 'Remove breakpoint' : 'Add breakpoint'} position="right" withArrow>
-                <ActionIcon 
+                <ActionIcon aria-label="Start" 
                   color={hasBreakpoint ? 'orange' : 'gray'} 
                   variant={hasBreakpoint ? 'filled' : 'light'} 
                   size="sm" 
@@ -155,7 +155,7 @@ export const LiveEdge = memo((props: EdgeProps) => {
                 </ActionIcon>
               </Tooltip>
               <Tooltip label="Remove connection" position="right" withArrow>
-                <ActionIcon 
+                <ActionIcon aria-label="Delete" 
                   color="red" 
                   variant="filled" 
                   size="sm" 

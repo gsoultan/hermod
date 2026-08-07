@@ -110,7 +110,7 @@ export function LiveStreamInspector({ opened, onClose, workflowId }: {
           </Group>
           <Group gap="xs">
             <Tooltip label="Clear stream">
-              <ActionIcon variant="subtle" color="gray" onClick={() => setMessages([])}>
+              <ActionIcon aria-label="Delete" variant="subtle" color="gray" onClick={() => setMessages([])}>
                 <IconTrash size="1rem" />
               </ActionIcon>
             </Tooltip>
@@ -164,7 +164,7 @@ export function LiveStreamInspector({ opened, onClose, workflowId }: {
                       </Group>
                       {msg.is_error && <Badge size="xs" color="red">ERROR</Badge>}
                     </Group>
-                    <Code block color={msg.is_error ? 'red' : 'gray'} style={{ fontSize: '10px' }}>
+                    <Code block color={msg.is_error ? 'red' : 'gray'} style={{ fontSize: 'var(--mantine-font-size-xs)' }}>
                       {JSON.stringify(msg.data, null, 2)}
                     </Code>
                     {msg.error && (

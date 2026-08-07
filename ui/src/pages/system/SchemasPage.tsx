@@ -3,9 +3,11 @@ import {
   Container, Title, Text, Paper, Group, Button, Table, ActionIcon,
   TextInput, JsonInput, Select, Modal, Stack, Badge, Tooltip,
   Loader, Alert, Menu, rem
-} from '@mantine/core';import { apiFetch } from '@/api';
+} from '@mantine/core';
+import { apiFetch } from '@/api';
 import { formatDateTime } from '@/utils/dateUtils';
-import { notifications } from '@mantine/notifications';import { IconAlertCircle, IconBraces, IconCode, IconDotsVertical, IconDownload, IconHistory, IconPlus, IconTrash } from '@tabler/icons-react';
+import { notifications } from '@mantine/notifications';
+import { IconAlertCircle, IconBraces, IconCode, IconDotsVertical, IconDownload, IconHistory, IconPlus, IconTrash } from '@tabler/icons-react';
 export function SchemasPage() {
   const [schemas, setSchemas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,13 +94,13 @@ export function SchemasPage() {
       <Table.Td>
         <Group gap={0} justify="flex-end">
           <Tooltip label="View Content">
-            <ActionIcon variant="subtle" color="gray">
+            <ActionIcon aria-label="View code" variant="subtle" color="gray">
               <IconCode size="1rem" />
             </ActionIcon>
           </Tooltip>
           <Menu transitionProps={{ transition: 'pop' }} withArrow position="bottom-end" withinPortal>
             <Menu.Target>
-              <ActionIcon variant="subtle" color="gray">
+              <ActionIcon aria-label="More actions" variant="subtle" color="gray">
                 <IconDotsVertical size="1rem" />
               </ActionIcon>
             </Menu.Target>
@@ -137,7 +139,8 @@ export function SchemasPage() {
         </Paper>
       ) : (
         <Paper withBorder radius="md">
-          <Table verticalSpacing="sm">
+          <Table.ScrollContainer minWidth={700}>
+            <Table verticalSpacing="sm">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Name</Table.Th>
@@ -149,6 +152,7 @@ export function SchemasPage() {
             </Table.Thead>
             <Table.Tbody>{rows}</Table.Tbody>
           </Table>
+          </Table.ScrollContainer>
         </Paper>
       )}
 

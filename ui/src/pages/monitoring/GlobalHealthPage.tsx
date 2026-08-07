@@ -3,6 +3,7 @@ import { Title, Text, Stack, Paper, Group, Badge, SimpleGrid, RingProgress, Them
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
 import { formatTime } from '@/utils/dateUtils'
+import { EmptyState } from '@/components/common/EmptyState';
 
 export default function GlobalHealthPage() {
   const { data: health, isLoading, error } = useQuery<any[]>({
@@ -84,7 +85,8 @@ export default function GlobalHealthPage() {
 
       <Paper withBorder radius="md">
         <ScrollArea h={500}>
-          <Table verticalSpacing="md" horizontalSpacing="lg">
+          <Table.ScrollContainer minWidth={700}>
+            <Table verticalSpacing="md" horizontalSpacing="lg">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Node / Cluster</Table.Th>
@@ -96,6 +98,18 @@ export default function GlobalHealthPage() {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
+              {!isLoading && (health?.length ?? 0) === 0 && (
+                <Table.Tr>
+                  <Table.Td colSpan={6}>
+                    <EmptyState
+                      compact
+                      icon={<IconServer size={22} />}
+                      title="No clusters reporting"
+                      description="Mesh health appears once at least one cluster or worker node is registered and reporting in."
+                    />
+                  </Table.Td>
+                </Table.Tr>
+              )}
               {health?.map(node => (
                 <Table.Tr key={node.id}>
                   <Table.Td>
@@ -154,6 +168,7 @@ export default function GlobalHealthPage() {
               ))}
             </Table.Tbody>
           </Table>
+          </Table.ScrollContainer>
         </ScrollArea>
       </Paper>
     </Stack>

@@ -29,6 +29,11 @@ const resetStore = (nodes: Node[], edges: Edge[], nodeSamples: Record<string, an
   useWorkflowStore.setState({ nodes, edges, nodeSamples })
 }
 
+// availableFields is FieldInfo[] ({ path, type }), not a bare string list — that
+// shape is what the ~129 call sites across the editor consume. Assert on the
+// path rather than on the element itself.
+const paths = (fields: { path: string }[]) => fields.map(f => f.path)
+
 describe('useNodeContext live sample fallback', () => {
   beforeEach(() => {
     useWorkflowStore.setState({ nodes: [], edges: [], nodeSamples: {} })
@@ -40,11 +45,11 @@ describe('useNodeContext live sample fallback', () => {
 
     const { result } = renderHook(() => useNodeContext(sourceNode, null, [], []))
 
-    expect(result.current.availableFields).toContain('after')
+    expect(paths(result.current.availableFields)).toContain('after')
     // CDC "after" fields must be hoisted to the root so forms can reference them.
-    expect(result.current.availableFields).toContain('feature')
-    expect(result.current.availableFields).toContain('id')
-    expect(result.current.availableFields).toContain('table')
+    expect(paths(result.current.availableFields)).toContain('feature')
+    expect(paths(result.current.availableFields)).toContain('id')
+    expect(paths(result.current.availableFields)).toContain('table')
   })
 
   it('derives upstream available fields from live nodeSamples for a downstream node', () => {
@@ -55,8 +60,8 @@ describe('useNodeContext live sample fallback', () => {
 
     const { result } = renderHook(() => useNodeContext(sinkNode, null, [], []))
 
-    expect(result.current.availableFields).toContain('feature')
-    expect(result.current.availableFields).toContain('table')
+    expect(paths(result.current.availableFields)).toContain('feature')
+    expect(paths(result.current.availableFields)).toContain('table')
   })
 
   it('returns empty fields when no sample data is available', () => {

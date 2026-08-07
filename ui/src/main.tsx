@@ -5,6 +5,7 @@ import { Notifications } from '@mantine/notifications'
 import '@mantine/notifications/styles.css'
 import './index.css'
 import App from './App.tsx'
+import { ConfirmProvider } from './components/common/ConfirmProvider'
 
 const theme = createTheme({
   primaryColor: 'indigo',
@@ -56,6 +57,22 @@ const theme = createTheme({
         radius: 'md',
       },
     },
+    Badge: {
+      styles: {
+        // Mantine truncates a Badge's label to its container, so a badge in a
+        // narrow table cell rendered as "ACT…" or "3 NO…" — the shortest,
+        // most-scanned labels in the app, unreadable. A badge is a small fixed
+        // token: size it to its text and let the column give way instead.
+        root: { flexShrink: 0, maxWidth: 'none' },
+        // Mantine's xs badge label lands at 9-10px, below a comfortable
+        // reading floor. Nudge the label up without changing badge geometry.
+        label: {
+          fontSize: 'calc(var(--mantine-font-size-xs) * 0.95)',
+          overflow: 'visible',
+          textOverflow: 'clip',
+        },
+      },
+    },
     Table: {
       styles: {
         thead: {
@@ -79,7 +96,9 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <MantineProvider theme={theme} defaultColorScheme="dark">
       <Notifications position="bottom-right" zIndex={2000} />
-      <App />
+      <ConfirmProvider>
+        <App />
+      </ConfirmProvider>
     </MantineProvider>
   </StrictMode>,
 )

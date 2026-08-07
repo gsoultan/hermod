@@ -96,7 +96,8 @@ export function AuditLogsPage() {
         </Paper>
 
         <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
-          <Table verticalSpacing="sm" highlightOnHover>
+          <Table.ScrollContainer minWidth={700}>
+            <Table verticalSpacing="sm" highlightOnHover>
             <Table.Thead>
               <Table.Tr>
                 <Table.Th style={{ width: 180 }}>Timestamp</Table.Th>
@@ -151,6 +152,7 @@ export function AuditLogsPage() {
               )}
             </Table.Tbody>
           </Table>
+          </Table.ScrollContainer>
           {totalPages > 1 && (
             <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
               <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />

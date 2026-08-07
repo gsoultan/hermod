@@ -157,18 +157,28 @@ export function SidebarDrawer({
   })();
 
   return (
-    <Paper 
-      withBorder 
-      shadow="sm" 
-      style={{ 
-        width: 400, 
-        height: '100%', 
-        display: 'flex', 
+    <Paper
+      withBorder
+      shadow="md"
+      style={{
+        // Floats over the canvas rather than sitting beside it. As an inline
+        // flex sibling this panel permanently cost the canvas 400px of width —
+        // on a 1440px screen that is nearly a third of the workspace, even
+        // while the user is just looking at the graph. n8n overlays its palette
+        // for the same reason.
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 5,
+        width: 400,
+        maxWidth: '90%',
+        display: 'flex',
         flexDirection: 'column',
         borderRadius: 0,
         borderTop: 'none',
         borderBottom: 'none',
-        borderRight: 'none'
+        borderRight: 'none',
       }}
     >
       <Stack p="md" gap="sm" style={{ flex: 1, overflow: 'hidden' }}>
@@ -179,13 +189,16 @@ export function SidebarDrawer({
             </ThemeIcon>
             <Title order={4}>Workflow Panel</Title>
           </Group>
-          <ActionIcon variant="subtle" color="gray" onClick={() => setDrawerOpened(false)}>
+          <ActionIcon aria-label="Close" variant="subtle" color="gray" onClick={() => setDrawerOpened(false)}>
             <IconX size="1.2rem" />
           </ActionIcon>
         </Group>
 
         <Tabs value={coercedTab} onChange={(val) => setDrawerTab(val || "sources")} variant="pills" radius="md" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <Tabs.List mb="sm" grow={false} style={{ flexWrap: 'nowrap', overflowX: 'auto', paddingBottom: 4 }}>
+          {/* Five tabs do not fit the panel's width. Scrolling them sideways
+              hid "AI" and "Settings" past the edge with nothing to suggest they
+              existed; wrapping costs one row and keeps every tab discoverable. */}
+          <Tabs.List mb="sm" grow={false} style={{ flexWrap: 'wrap', rowGap: 4, paddingBottom: 4 }}>
             <Tabs.Tab value="sources" leftSection={<IconDatabase size="1rem" />} px="xs">Sources</Tabs.Tab>
             <Tabs.Tab value="transformations" leftSection={<IconPlus size="1rem" />} px="xs" disabled={!hasSource}>Transformations</Tabs.Tab>
             <Tabs.Tab value="sinks" leftSection={<IconCloudUpload size="1rem" />} px="xs" disabled={!hasSource}>Sinks</Tabs.Tab>

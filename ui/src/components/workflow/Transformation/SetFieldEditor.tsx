@@ -100,7 +100,7 @@ export function SetFieldEditor({
 
         {incomingPayload && (
           <Box>
-            <Text size="10px" fw={700} c="dimmed" mb={4} tt="uppercase" ta="right">
+            <Text size="xs" fw={700} c="dimmed" mb={4} tt="uppercase" ta="right">
               Quick add from source
             </Text>
             <Group gap={4} justify="flex-end">
@@ -145,7 +145,7 @@ export function SetFieldEditor({
             <Paper key={index} withBorder p="xs" radius="md" className="hover:border-indigo-200 transition-colors">
               <Group grow gap="xs" align="flex-start">
                 <Box style={{ flex: 1.5 }}>
-                  <Text size="10px" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
+                  <Text size="xs" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
                     Target Path
                   </Text>
                   <Autocomplete
@@ -159,7 +159,7 @@ export function SetFieldEditor({
                   />
                 </Box>
                 <Box style={{ flex: 3 }}>
-                  <Text size="10px" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
+                  <Text size="xs" fw={700} c="dimmed" mb={2} tt="uppercase" ml={2}>
                     Value / Expression
                   </Text>
                   <TemplateField
@@ -170,7 +170,7 @@ export function SetFieldEditor({
                     buildToken={(p) => `source.${p}`}
                     multiline={isAdvanced}
                   />
-                  <Text size="10px" c="dimmed" mt={2}>
+                  <Text size="xs" c="dimmed" mt={2}>
                     Use functions and source paths. Click {"{x}"} to insert fields.
                   </Text>
                 </Box>

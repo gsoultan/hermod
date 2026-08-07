@@ -3,6 +3,7 @@ import { Stepper, Button, Group, Stack, Card, Text, Divider, Alert, Fieldset, Te
 import { IconCheck, IconDatabase, IconActivity, IconInfoCircle, IconRefresh, IconPlayerPlay } from '@tabler/icons-react';
 import { SourceBasics } from '../workflow/Source/SourceBasics';
 import { SourceConfigFields } from '../workflow/Source/SourceConfigFields';
+import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
 
 interface SourceWizardProps {
   source: any;
@@ -62,7 +63,26 @@ export function SourceWizard({
   onRunSimulation
 }: SourceWizardProps) {
   const [active, setActive] = useState(0);
-  const nextStep = () => setActive((current) => (current < 3 ? current + 1 : current));
+
+  // Fields the user must supply before a step can be left. Without this the
+  // wizard advanced through every step with everything blank and only failed at
+  // submit, by which point the step that was wrong is no longer on screen.
+  const missingForStep = (step: number): string[] => {
+    if (step !== 0) return [];
+    // Same validators the fields use, so the Next button and the inline errors
+    // always agree about what is wrong.
+    return [
+      validateName(source.name),
+      validateType(source.type),
+      validateVHost(source.vhost, !embedded),
+    ].filter(Boolean) as string[];
+  };
+  const missing = missingForStep(active);
+
+  const nextStep = () => {
+    if (missingForStep(active).length > 0) return;
+    setActive((current) => (current < 3 ? current + 1 : current));
+  };
   const prevStep = () => setActive((current) => (current > 0 ? current - 1 : current));
 
   return (
@@ -129,7 +149,7 @@ export function SourceWizard({
               <Group justify="flex-end">
                 {onRefreshFields && (
                   <Tooltip label="Refresh Fields">
-                    <ActionIcon 
+                    <ActionIcon aria-label="Refresh" 
                       variant="light" 
                       onClick={onRefreshFields} 
                       loading={isRefreshing}
@@ -221,12 +241,18 @@ export function SourceWizard({
             </Button>
           )}
           {active < 3 && (
-            <Button 
-              onClick={nextStep} 
-              disabled={active === 0 && !source.name}
+            <Tooltip
+              label={missing.length ? `Required: ${missing.join(', ')}` : ''}
+              disabled={missing.length === 0}
+              withArrow
             >
-              Next Step
-            </Button>
+              {/* span keeps the tooltip reachable while the button is disabled */}
+              <span>
+                <Button onClick={nextStep} disabled={missing.length > 0}>
+                  Next Step
+                </Button>
+              </span>
+            </Tooltip>
           )}
         </Group>
       </Group>

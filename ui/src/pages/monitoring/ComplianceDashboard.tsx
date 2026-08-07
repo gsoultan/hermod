@@ -5,7 +5,8 @@ import {
 } from '@mantine/core';
 
 import { apiFetch } from '@/api';
-import { formatTime } from '@/utils/dateUtils';import { IconCheck, IconEyeOff, IconFingerprint, IconLock, IconShieldLock } from '@tabler/icons-react';
+import { formatTime } from '@/utils/dateUtils';
+import { IconCheck, IconEyeOff, IconFingerprint, IconLock, IconShieldLock } from '@tabler/icons-react';
 interface PIIStat {
   discoveries: Record<string, number>;
   last_updated: string;
@@ -128,7 +129,8 @@ export function ComplianceDashboard() {
           <Paper p="md" withBorder radius="md">
             <Title order={4} mb="md">Discoveries by Type</Title>
             <ScrollArea h={300}>
-              <Table verticalSpacing="sm">
+              <Table.ScrollContainer minWidth={700}>
+                <Table verticalSpacing="sm">
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th>Data Type</Table.Th>
@@ -156,13 +158,15 @@ export function ComplianceDashboard() {
                   )}
                 </Table.Tbody>
               </Table>
+              </Table.ScrollContainer>
             </ScrollArea>
           </Paper>
 
           <Paper p="md" withBorder radius="md">
             <Title order={4} mb="md">Top Exposed Workflows</Title>
             <ScrollArea h={300}>
-              <Table verticalSpacing="sm">
+              <Table.ScrollContainer minWidth={700}>
+                <Table verticalSpacing="sm">
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th>Workflow</Table.Th>
@@ -200,6 +204,7 @@ export function ComplianceDashboard() {
                   )}
                 </Table.Tbody>
               </Table>
+              </Table.ScrollContainer>
             </ScrollArea>
           </Paper>
         </SimpleGrid>

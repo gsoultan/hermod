@@ -5,6 +5,7 @@ import { apiFetch, apiJson } from '@/api';
 import { notifications } from '@mantine/notifications';
 import { IconAlertCircle, IconCheck, IconDeviceFloppy, IconFingerprint, IconLock, IconMail, IconRefresh, IconShieldLock, IconTrash, IconUser, IconWorld, IconCopy } from '@tabler/icons-react';
 import { copyToClipboard } from '@/utils/cryptoUtils';
+import { useConfirm } from '@/components/common/ConfirmProvider';
 interface User {
   id: string;
   username: string;
@@ -16,6 +17,7 @@ interface User {
 }
 
 export function ProfilePage() {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string | null>('info');
   const [twoFactorSecret, setTwoFactorSecret] = useState<{ secret: string; url: string } | null>(null);
@@ -358,8 +360,8 @@ export function ProfilePage() {
                       color="red" 
                       variant="light" 
                       leftSection={<IconTrash size="1.1rem" />}
-                      onClick={() => {
-                        if (window.confirm('Are you sure you want to disable 2FA?')) {
+                      onClick={async () => {
+                        if (await confirm({ title: 'Disable two-factor authentication', message: 'Turn off 2FA for your account?', consequence: 'Your account will be protected by password alone.', confirmLabel: 'Disable 2FA', danger: true })) {
                           disable2FAMutation.mutate();
                         }
                       }}

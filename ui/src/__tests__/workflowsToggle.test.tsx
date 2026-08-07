@@ -6,6 +6,7 @@ import { server } from '../test/setupTests'
 import { http, HttpResponse } from 'msw'
 import WorkflowsPage from '../pages/workflows/WorkflowsPage'
 import { vi } from 'vitest'
+import { ConfirmProvider } from '@/components/common/ConfirmProvider'
 
 // Avoid importing the full app router (heavy). Mock Link to a simple anchor.
 vi.mock('@tanstack/react-router', () => {
@@ -54,11 +55,13 @@ describe('Workflows: toggle happy path', () => {
     const queryClient = new QueryClient()
     render(
       <MantineProvider>
+        <ConfirmProvider>
         <QueryClientProvider client={queryClient}>
           <VHostProvider>
             <WorkflowsPage />
           </VHostProvider>
         </QueryClientProvider>
+      </ConfirmProvider>
       </MantineProvider>
     )
 

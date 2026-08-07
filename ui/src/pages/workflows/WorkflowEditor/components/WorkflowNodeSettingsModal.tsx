@@ -120,7 +120,7 @@ export function WorkflowNodeSettingsModal({
             <Paper withBorder p="md" bg="var(--mantine-color-body)">
               <Stack gap="xs">
                 <Text fw={700} size="sm">Data Output</Text>
-                <Code block style={{ fontSize: '10px' }}>
+                <Code block style={{ fontSize: 'var(--mantine-font-size-xs)' }}>
                   {JSON.stringify((selectedNode.data.testResult as any)?.payload || selectedNode.data.lastSample, null, 2)}
                 </Code>
               </Stack>

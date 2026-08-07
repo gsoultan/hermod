@@ -119,7 +119,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
         backdropFilter: 'blur(8px)',
         border: `${borderWidth} ${borderStyle} var(--mantine-color-${cbOpen ? 'red' : (selected ? 'blue' : healthColor)}-6)`,
         minWidth: '200px',
-        overflow: 'hidden',
+        overflow: 'visible',
         transition: 'all 0.2s ease',
         transform: hovered ? 'translateY(-2px)' : 'none',
       }}
@@ -161,7 +161,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
 
       {(hovered || selected) && (
         <Tooltip label="Remove node" position="top" withArrow>
-          <ActionIcon 
+          <ActionIcon aria-label="Delete" 
             variant="filled" 
             color="red" 
             size="sm" 
@@ -210,7 +210,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
             borderRadius: '4px',
             padding: '2px 8px',
             color: 'white',
-            fontSize: '9px',
+            fontSize: 'var(--mantine-font-size-xs)',
             fontWeight: 800,
             zIndex: 10,
             whiteSpace: 'nowrap'
@@ -253,7 +253,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
             borderRadius: '4px',
             padding: '2px 6px',
             color: 'white',
-            fontSize: '9px',
+            fontSize: 'var(--mantine-font-size-xs)',
             fontWeight: 800,
             zIndex: 10
           }}
@@ -275,7 +275,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
           <Icon size="1.2rem" color={data.isDLQ ? 'var(--mantine-color-orange-6)' : `var(--mantine-color-${color}-6)`} />
         </Box>
         <Box style={{ flex: 1, overflow: 'hidden' }}>
-          <Text size="xs" fw={700} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: '9px' }}>
+          <Text size="xs" fw={700} c="dimmed" style={{ textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: 'var(--mantine-font-size-xs)' }}>
             {type}
           </Text>
           <Text size="sm" fw={600} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -284,7 +284,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
         </Box>
         {sample && (
           <Tooltip label="Latest processed sample">
-            <ActionIcon 
+            <ActionIcon aria-label="View" 
               size="xs" 
               variant="subtle" 
               color="blue" 
@@ -301,19 +301,19 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
       </Box>
 
       {metric !== undefined && metric > 0 && (
-        <Box style={{ position: 'absolute', bottom: -8, right: 10, background: 'var(--mantine-color-blue-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: '9px', fontWeight: 700, zIndex: 10 }}>
+        <Box style={{ position: 'absolute', bottom: -8, right: 10, background: 'var(--mantine-color-blue-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: 'var(--mantine-font-size-xs)', fontWeight: 700, zIndex: 10 }}>
           {metric.toLocaleString()}
         </Box>
       )}
 
       {errorCount !== undefined && errorCount > 0 && (
-        <Box style={{ position: 'absolute', bottom: -8, right: metric > 0 ? 50 : 10, background: 'var(--mantine-color-red-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: '9px', fontWeight: 700, zIndex: 10 }}>
+        <Box style={{ position: 'absolute', bottom: -8, right: metric > 0 ? 50 : 10, background: 'var(--mantine-color-red-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: 'var(--mantine-font-size-xs)', fontWeight: 700, zIndex: 10 }}>
           {errorCount.toLocaleString()} ERR
         </Box>
       )}
 
       {(data.dlqCount !== undefined || (data.isDLQ && workflowDeadLetterCount > 0)) && (
-        <Box style={{ position: 'absolute', bottom: -8, left: 10, background: 'var(--mantine-color-orange-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: '9px', fontWeight: 700 }}>
+        <Box style={{ position: 'absolute', bottom: -8, left: 10, background: 'var(--mantine-color-orange-6)', color: 'white', borderRadius: '10px', padding: '0 6px', fontSize: 'var(--mantine-font-size-xs)', fontWeight: 700 }}>
           ⚠️ {(data.dlqCount || (data.isDLQ ? workflowDeadLetterCount : 0)).toLocaleString()} FAILED
         </Box>
       )}
@@ -335,7 +335,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
             alignItems: 'center',
             justifyContent: 'center',
             color: 'white',
-            fontSize: '10px',
+            fontSize: 'var(--mantine-font-size-xs)',
             fontWeight: 'bold',
             boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
           }}

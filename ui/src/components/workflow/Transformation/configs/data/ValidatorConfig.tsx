@@ -50,7 +50,7 @@ export function ValidatorConfig({ config, updateNodeConfig, nodeId }: ValidatorC
               size="sm"
               styles={{ input: { fontFamily: 'monospace' } }}
             />
-            <Text size="10px" c="dimmed">
+            <Text size="xs" c="dimmed">
               Define expected types, patterns, or values for fields in your payload. Keys can be field paths or expressions like `lower(source.name)`.
             </Text>
           </Stack>

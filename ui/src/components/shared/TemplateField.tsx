@@ -115,7 +115,7 @@ export function TemplateField({
                     {path}
                   </Text>
                   {type && (
-                    <Text size="10px" c="dimmed">
+                    <Text size="xs" c="dimmed">
                       {type}
                     </Text>
                   )}
@@ -131,7 +131,7 @@ export function TemplateField({
           )}
         </Stack>
       </ScrollArea>
-      <Text size="10px" c="dimmed">
+      <Text size="xs" c="dimmed">
         Tip: Click a field to insert a template token.
       </Text>
     </Stack>

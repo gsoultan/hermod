@@ -1,5 +1,5 @@
-import { test, expect, Page } from '@playwright/test';
-import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
+import { test, expect, type Page } from '@playwright/test';
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { Client } from 'pg';
 
 test.describe('Heavy Load Multi-Worker E2E', () => {

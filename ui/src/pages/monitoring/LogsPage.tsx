@@ -7,9 +7,11 @@ import { useSearch } from '@tanstack/react-router';
 
 import { formatDateTime } from '@/utils/dateUtils';
 import { IconActivity, IconEye, IconRefresh, IconSearch, IconTrash } from '@tabler/icons-react';
+import { useConfirm } from '@/components/common/ConfirmProvider';
 const API_BASE = '/api';
 
 export function LogsPage() {
+  const confirm = useConfirm();
   const searchParams = useSearch({ from: '/logs' }) as any;
   const queryClient = useQueryClient();
   const [workflowId, setWorkflowId] = useState<string>(searchParams.workflow_id || '');
@@ -88,7 +90,7 @@ export function LogsPage() {
                 </ActionIcon>
               </Tooltip>
               <Tooltip label="Clear All Logs">
-                <ActionIcon aria-label="Clear all logs" variant="light" color="red" onClick={() => { if(confirm('Clear all logs?')) deleteMutation.mutate(); }}>
+                <ActionIcon aria-label="Clear all logs" variant="light" color="red" onClick={async () => { if (await confirm({ title: 'Clear all logs', message: 'Delete every stored log entry?', consequence: 'Historical diagnostics are lost and cannot be recovered.', confirmLabel: 'Clear logs', danger: true })) deleteMutation.mutate(); }}>
                   <IconTrash size="1.2rem" />
                 </ActionIcon>
               </Tooltip>
@@ -148,7 +150,8 @@ export function LogsPage() {
         </Paper>
 
         <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
-          <Table verticalSpacing="sm" highlightOnHover layout="fixed">
+          <Table.ScrollContainer minWidth={1000}>
+            <Table verticalSpacing="sm" highlightOnHover layout="fixed">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th style={{ width: 180 }}>Timestamp</Table.Th>
@@ -227,6 +230,7 @@ export function LogsPage() {
               )}
             </Table.Tbody>
           </Table>
+          </Table.ScrollContainer>
           {totalPages > 1 && (
             <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
               <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />

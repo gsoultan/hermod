@@ -37,7 +37,6 @@ import { useWorkflowWebSockets } from './WorkflowEditor/hooks/useWorkflowWebSock
 import { useWorkflowMutations } from './WorkflowEditor/hooks/useWorkflowMutations';
 import { useWorkflowEvents } from './WorkflowEditor/hooks/useWorkflowEvents';
 import { useWorkflowHotkeys } from './WorkflowEditor/hooks/useWorkflowHotkeys';
-import { WorkflowHeader } from './WorkflowEditor/components/WorkflowHeader';
 import { WorkflowModals } from './WorkflowEditor/components/WorkflowModals';
 import { WorkflowNodeSettingsModal } from './WorkflowEditor/components/WorkflowNodeSettingsModal';
 
@@ -52,7 +51,7 @@ function EditorInner() {
 
   const { 
     vhost, selectedNode, active, logsPaused, quickAddSource,
-    testResults, name, workerID,
+    testResults, workerID,
     workflowStatus, settingsOpened,
     updateNodeConfig, setTestModalOpened,
     setTraceInspectorOpened, setTraceMessageID,
@@ -65,7 +64,6 @@ function EditorInner() {
     logsPaused: state.logsPaused,
     quickAddSource: state.quickAddSource,
     testResults: state.testResults,
-    name: state.name,
     workerID: state.workerID,
     workflowStatus: state.workflowStatus,
     settingsOpened: state.settingsOpened,
@@ -201,18 +199,24 @@ function EditorInner() {
           placeholder: 'Search components to add...',
         }}
       />
-      <Box style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }}>
-        <WorkflowHeader 
-          id={id}
-          isNew={isNew}
-          name={name}
-          active={active}
-          workflowStatus={workflowStatus}
-        />
-
+      {/* Derived from Mantine's own header-height variable rather than the old
+          hand-tuned `calc(100vh - 120px)`, so changing the header cannot
+          silently mis-size the canvas. Viewport-relative on purpose: a
+          percentage height would need every ancestor to have a definite height,
+          and ErrorBoundary sits in that chain without one, which collapses the
+          canvas to zero. */}
+      <Box
+        style={{
+          height: 'calc(100vh - var(--app-shell-header-height, 60px))',
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
         <EditorToolbar 
           id={id}
           isNew={isNew}
+          workflowStatus={workflowStatus}
           onSave={handleSave}
           onTest={(dry) => handleTest(null, dry)}
           onConfigureTest={() => setTestModalOpened(true)}
@@ -250,7 +254,10 @@ function EditorInner() {
           workers={workers?.data || []}
         />
 
-        <Flex style={{ flex: 1, overflow: 'hidden' }} gap="md">
+        {/* position: relative makes this the containing block for the
+            SidebarDrawer, which floats over the canvas instead of consuming
+            400px of it as an inline sibling. */}
+        <Flex style={{ flex: 1, overflow: 'hidden', position: 'relative' }} gap="md">
           <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', gap: 'var(--mantine-spacing-md)' }}>
             <Paper withBorder radius="md" style={{ flex: 1, position: 'relative' }} ref={reactFlowWrapper}>
               <FlowCanvas 

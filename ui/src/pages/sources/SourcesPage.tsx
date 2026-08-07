@@ -163,7 +163,8 @@ export function SourcesPage() {
         </Paper>
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
-          <Table verticalSpacing="md" horizontalSpacing="xl">
+          <Table.ScrollContainer minWidth={700}>
+            <Table verticalSpacing="md" horizontalSpacing="xl">
           <Table.Thead>
             <Table.Tr>
               <Table.Th>Name</Table.Th>
@@ -179,7 +180,7 @@ export function SourcesPage() {
               <Table.Tr key={src.id}>
                 <Table.Td fw={500}>{src.name}</Table.Td>
                 <Table.Td>
-                  <Text size="sm" component="span" px={8} py={2} bg="blue.9" c="white" fw={600} style={{ borderRadius: '4px', textTransform: 'uppercase', fontSize: '10px' }}>
+                  <Text size="sm" component="span" px={8} py={2} bg="blue.9" c="white" fw={600} style={{ borderRadius: '4px', textTransform: 'uppercase', fontSize: 'var(--mantine-font-size-xs)' }}>
                     {src.type}
                   </Text>
                 </Table.Td>
@@ -266,6 +267,7 @@ export function SourcesPage() {
             )}
           </Table.Tbody>
         </Table>
+          </Table.ScrollContainer>
         {totalPages > 1 && (
           <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
             <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />

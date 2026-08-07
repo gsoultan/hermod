@@ -144,7 +144,8 @@ export function ApprovalsPage() {
         </Paper>
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
-          <Table verticalSpacing="md" horizontalSpacing="xl">
+          <Table.ScrollContainer minWidth={700}>
+            <Table verticalSpacing="md" horizontalSpacing="xl">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>ID</Table.Th>
@@ -166,6 +167,7 @@ export function ApprovalsPage() {
               )}
             </Table.Tbody>
           </Table>
+          </Table.ScrollContainer>
           {pages > 1 && (
             <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
               <Pagination total={pages} value={page} onChange={setPage} radius="md" />

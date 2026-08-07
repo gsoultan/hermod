@@ -1,4 +1,5 @@
-import { Button, Group, Menu, Text, ActionIcon, Tooltip } from '@mantine/core';import { IconBolt, IconLayoutList, IconPlus, IconShieldLock, IconSparkles, IconTrash } from '@tabler/icons-react';
+import { Button, Group, Menu, Text, ActionIcon, Tooltip } from '@mantine/core';
+import { IconBolt, IconLayoutList, IconPlus, IconShieldLock, IconSparkles, IconTrash } from '@tabler/icons-react';
 interface QuickActionsProps {
   onApplyTemplate: (template: string) => void;
 }
@@ -65,7 +66,7 @@ export function QuickActions({ onApplyTemplate }: QuickActionsProps) {
         </Menu>
 
         <Tooltip label="Auto-generate logic using AI (Coming Soon)">
-           <ActionIcon variant="light" color="blue" size="sm" disabled>
+           <ActionIcon aria-label="Quick actions" variant="light" color="blue" size="sm" disabled>
              <IconBolt size="0.8rem" />
            </ActionIcon>
         </Tooltip>

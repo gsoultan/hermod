@@ -9,6 +9,7 @@ import { DataLineageModal } from '@/components/modals/DataLineageModal'
 import { notifications } from '@mantine/notifications'
 import { useVHost } from '@/context/VHostContext'
 import type { Workflow } from '@/types'
+import { EmptyState } from '@/components/common/EmptyState'
 
 interface DashboardStats {
   active_sources: number;
@@ -295,8 +296,21 @@ export function DashboardPage() {
               </div>
               <Button variant="subtle" size="xs" onClick={() => navigate({ to: '/workflows' })}>View All</Button>
             </Group>
+            {/* With no workflows the table rendered as a lone "Name" header
+                above 300px of nothing, which reads as a broken panel rather
+                than an empty one. Say which it is, and offer the way out. */}
+            {workflows.length === 0 ? (
+              <EmptyState
+                compact
+                icon={<IconGitBranch size={20} />}
+                title="No pipelines yet"
+                description="Build a workflow to start moving data between a source and a sink."
+                action={{ label: 'Create workflow', onClick: () => navigate({ to: '/workflows/new' }) }}
+              />
+            ) : (
             <ScrollArea h={300} offsetScrollbars>
-                <Table verticalSpacing="xs" highlightOnHover>
+                <Table.ScrollContainer minWidth={700}>
+                  <Table verticalSpacing="xs" highlightOnHover>
                     <Table.Thead>
                         <Table.Tr>
                             <Table.Th>Name</Table.Th>
@@ -323,7 +337,9 @@ export function DashboardPage() {
                         ))}
                     </Table.Tbody>
                 </Table>
+                </Table.ScrollContainer>
             </ScrollArea>
+            )}
           </Paper>
         );
       case 'logs':
@@ -347,8 +363,8 @@ export function DashboardPage() {
                               <Box style={{ flex: 1 }}>
                                   <Text size="xs" fw={500} lineClamp={2}>{log.message}</Text>
                                   <Group justify="space-between" mt={4}>
-                                    <Badge size="10px" variant="outline" color={log.level === 'ERROR' ? 'red' : 'gray'}>{log.level}</Badge>
-                                    <Text size="10px" c="dimmed">{formatDateTime(log.timestamp)}</Text>
+                                    <Badge size="xs" variant="outline" color={log.level === 'ERROR' ? 'red' : 'gray'}>{log.level}</Badge>
+                                    <Text size="xs" c="dimmed">{formatDateTime(log.timestamp)}</Text>
                                   </Group>
                               </Box>
                           </Group>
@@ -381,7 +397,7 @@ export function DashboardPage() {
                 Bootstrap Enterprise Scenario
             </Button>
             <Tooltip label="Global Data Lineage">
-                <ActionIcon variant="light" size="lg" onClick={() => setLineageOpened(true)}>
+                <ActionIcon aria-label="View lineage" variant="light" size="lg" onClick={() => setLineageOpened(true)}>
                     <IconSitemap size="1.2rem" />
                 </ActionIcon>
             </Tooltip>

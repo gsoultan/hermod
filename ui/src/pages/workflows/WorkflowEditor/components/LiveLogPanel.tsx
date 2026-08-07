@@ -39,7 +39,24 @@ export const LiveLogPanel = ({ active, onTraceClick, onErrorClick }: LiveLogPane
   }, [logs, logsOpened, logsPaused]);
 
   return (
-    <Paper withBorder radius="md" h={logsOpened ? 250 : 40} style={{ display: 'flex', flexDirection: 'column', transition: 'height 0.2s ease' }}>
+    <Paper
+      withBorder
+      radius="md"
+      h={logsOpened ? 250 : 40}
+      style={{
+        // Floats along the bottom of the canvas instead of sitting below it as
+        // an inline sibling, where it permanently cost 250px of canvas height
+        // when open and 40px even when collapsed.
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 4,
+        display: 'flex',
+        flexDirection: 'column',
+        transition: 'height 0.2s ease',
+      }}
+    >
        <Group justify="space-between" px="sm" h={40} style={{ borderBottom: logsOpened ? '1px solid var(--mantine-color-gray-2)' : 'none', cursor: 'pointer' }} onClick={() => setLogsOpened(!logsOpened)}>
           <Group gap="xs">
              {logsOpened ? <IconChevronDown size="1rem" /> : <IconChevronUp size="1rem" />}

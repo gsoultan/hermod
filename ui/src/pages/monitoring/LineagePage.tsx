@@ -21,8 +21,11 @@ import {
   Loader,
   Center,
   Badge
-} from '@mantine/core'import { useMemo } from 'react'
+} from '@mantine/core'
+import { useMemo } from 'react'
 import dagre from 'dagre'
+import { EmptyState } from '@/components/common/EmptyState';
+import { IconGitMerge } from '@tabler/icons-react';
 
 interface LineageEdge {
   source_id: string
@@ -171,6 +174,13 @@ export function LineagePage() {
       </Text>
       
       <Paper withBorder style={{ flex: 1, overflow: 'hidden' }}>
+        {!isLoading && nodes.length === 0 ? (
+          <EmptyState
+            icon={<IconGitMerge size={28} />}
+            title="No lineage to show yet"
+            description="Lineage is derived from saved workflows. Create a workflow connecting a source to a sink and it will appear here."
+          />
+        ) : (
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -180,6 +190,7 @@ export function LineagePage() {
           <Background color="#aaa" gap={20} />
           <Controls />
         </ReactFlow>
+        )}
       </Paper>
     </Stack>
   )

@@ -5,8 +5,10 @@ import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-q
 import { apiFetch } from '@/api'
 import { useNavigate } from '@tanstack/react-router'
 import type { User } from '@/types'
+import { useConfirm } from '@/components/common/ConfirmProvider';
 
 export function UsersPage() {
+  const confirm = useConfirm();
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -56,8 +58,8 @@ export function UsersPage() {
           <ActionIcon variant="light" color="blue" onClick={() => navigate({ to: `/users/${user.id}/edit` })} radius="md" aria-label="Edit user">
             <IconEdit size="1.2rem" stroke={1.5} />
           </ActionIcon>
-          <ActionIcon color="red" variant="light" onClick={() => {
-            if (confirm('Are you sure you want to delete this user?')) {
+          <ActionIcon color="red" variant="light" onClick={async () => {
+            if (await confirm({ title: 'Delete user', message: `Permanently delete ${user.username || 'this user'}?`, consequence: 'They will lose access immediately. This cannot be undone.', confirmLabel: 'Delete user', danger: true })) {
               deleteMutation.mutate(user.id);
             }
           }} radius="md" aria-label="Delete user">
@@ -108,7 +110,8 @@ export function UsersPage() {
         </Paper>
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
-          <Table verticalSpacing="md" horizontalSpacing="xl">
+          <Table.ScrollContainer minWidth={900}>
+            <Table verticalSpacing="md" horizontalSpacing="xl">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Username</Table.Th>
@@ -131,6 +134,7 @@ export function UsersPage() {
               )}
             </Table.Tbody>
           </Table>
+          </Table.ScrollContainer>
           {totalPages > 1 && (
             <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
               <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />

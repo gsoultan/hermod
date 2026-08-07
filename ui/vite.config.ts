@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { brotliCompressSync } from 'node:zlib'
 import fs from 'node:fs'
@@ -17,6 +18,45 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    VitePWA({
+      // autoUpdate + skipWaiting + clientsClaim: a new build takes over on the
+      // next load with no "waiting worker" state. The classic service-worker
+      // failure mode is a user stranded on a stale shell whose chunks have been
+      // deleted; this configuration makes that unreachable.
+      registerType: 'autoUpdate',
+      injectRegister: 'auto',
+      workbox: {
+        clientsClaim: true,
+        skipWaiting: true,
+        cleanupOutdatedCaches: true,
+        // Precache only the application shell. Hermod monitors live pipelines,
+        // so a cached API response would show stale throughput or a stopped
+        // workflow as running — actively misleading in an operations tool.
+        // Nothing under /api is ever cached, and navigations there are excluded
+        // from the SPA fallback.
+        globPatterns: ['**/*.{js,css,html,svg,woff2}'],
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api/, /^\/streams/, /^\/metrics/, /^\/livez/, /^\/readyz/],
+        runtimeCaching: [],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+      },
+      manifest: {
+        name: 'Hermod',
+        short_name: 'Hermod',
+        description: 'Enterprise data integration and streaming platform',
+        theme_color: '#4c6ef5',
+        background_color: '#1a1b1e',
+        display: 'standalone',
+        start_url: '/',
+        icons: [
+          { src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+        ],
+      },
+      devOptions: {
+        // Off in dev: a service worker intercepting HMR is a debugging trap.
+        enabled: false,
+      },
+    }),
     visualizer({
       filename: 'stats.html',
       gzipSize: true,
@@ -100,6 +140,11 @@ export default defineConfig({
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
   },
   server: {
+    // Pinned so `bun run dev`, scripts/dev.sh and playwright.config.ts all agree
+    // on one origin. Left unset it defaulted to 5173 while Playwright expected
+    // 5175, so E2E runs silently hit nothing.
+    port: 5175,
+    strictPort: true,
     proxy: {
       '/api/ws': {
         target: 'ws://localhost:4005',

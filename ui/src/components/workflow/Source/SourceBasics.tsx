@@ -1,5 +1,7 @@
+import { toGroupedSelectData } from '@/utils/selectData';
+import { useState } from 'react';
+import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
 import { TextInput, Group, Select, Button, Stack, Fieldset, SimpleGrid } from '@mantine/core';
-import { useEffect } from 'react';
 import type { Worker, Source } from '@/types';
 import type { FC } from 'react';
 import { IconInfoCircle } from '@tabler/icons-react';
@@ -22,29 +24,25 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
   sourceTypes,
   setShowSetup
 }) => {
-  useEffect(() => {
-    // Debug log to catch undefined data passed to Selects on first mount
-    try {
-      // eslint-disable-next-line no-console
-      console.log('SourceBasics mount:', {
-        vhostsType: typeof availableVHostsList,
-        vhostsIsArray: Array.isArray(availableVHostsList),
-        vhostsLen: Array.isArray(availableVHostsList) ? availableVHostsList.length : 'n/a',
-        workersIsArray: Array.isArray(workers),
-        workersLen: Array.isArray(workers) ? workers.length : 'n/a',
-        sourceTypesIsArray: Array.isArray(sourceTypes),
-        sourceTypesLen: Array.isArray(sourceTypes) ? sourceTypes.length : 'n/a',
-      });
-    } catch {}
-  }, []);
+  // Validation runs as the user types rather than surfacing server-side after
+  // submit. Errors only appear once a field has been touched, so a fresh form
+  // is not covered in red before anything has been entered.
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const nameError = touched.name ? validateName(source.name) : undefined;
+  const typeError = touched.type ? validateType(source.type) : undefined;
+  const vhostError = touched.vhost ? validateVHost(source.vhost, !embedded) : undefined;
+
   return (
     <Fieldset legend="General Settings" radius="md">
       <Stack gap="sm">
-        <TextInput 
-          label="Name" 
-          placeholder="Production DB" 
+        <TextInput
+          label="Name"
+          description="How this connection appears in workflows"
+          placeholder="Production DB"
           value={source.name}
           onChange={(e) => handleSourceChange({ name: e.target.value })}
+          onBlur={() => setTouched((t) => ({ ...t, name: true }))}
+          error={nameError}
           required
         />
         {!embedded && (
@@ -55,6 +53,8 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
               data={Array.isArray(availableVHostsList) ? availableVHostsList : []}
               value={source.vhost}
               onChange={(val) => handleSourceChange({ vhost: val || '' })}
+              onBlur={() => setTouched((t) => ({ ...t, vhost: true }))}
+              error={vhostError}
               required
               description="Project or environment namespace"
               mih={80}
@@ -76,9 +76,12 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
             <Select
               label="Type"
               placeholder="Select source type"
-              data={Array.isArray(sourceTypes) ? sourceTypes : []}
+              description="System this source reads from"
+              data={toGroupedSelectData(sourceTypes)}
               value={source.type}
               onChange={(val) => handleSourceChange({ type: val || '' })}
+              onBlur={() => setTouched((t) => ({ ...t, type: true }))}
+              error={typeError}
               required
               searchable
             />

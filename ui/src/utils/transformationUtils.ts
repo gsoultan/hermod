@@ -536,10 +536,12 @@ export const preparePayload = (payload: any) => {
 
       // Hoist nested CDC payload fields (e.g. from "after") to the root so the
       // workflow editor can surface them as available fields. Existing root
-      // keys always win so we never clobber metadata like "table" or "op".
+      // keys always win (like "table" or "op") BUT "id" is a special case:
+      // we prefer the data ID (from the payload) over the message ID (LSN/offset)
+      // because that's what users care about in mappings.
       if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
         Object.keys(nested).forEach(nestedKey => {
-          if (!(nestedKey in result)) {
+          if (!(nestedKey in result) || nestedKey === 'id') {
             result[nestedKey] = nested[nestedKey];
           }
         });

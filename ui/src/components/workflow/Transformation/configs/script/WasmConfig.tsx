@@ -93,7 +93,7 @@ export function WasmConfig({ config, updateNodeConfig, nodeId }: WasmConfigProps
                 autosize
                 styles={{ input: { fontFamily: 'monospace', fontSize: rem(12) } }}
               />
-              <Text size="10px" c="dimmed">
+              <Text size="xs" c="dimmed">
                 For large binaries, providing a secure URL is recommended.
               </Text>
             </Stack>

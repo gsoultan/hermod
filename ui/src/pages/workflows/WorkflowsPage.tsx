@@ -12,11 +12,13 @@ import { notifications } from '@mantine/notifications';
 import { useDisclosure } from '@mantine/hooks';
 import { useVHost } from '@/context/VHostContext';
 import { IconActivity, IconChevronDown, IconCopy, IconDownload, IconEdit, IconFolder, IconGitBranch, IconHierarchy, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconTrash, IconUpload } from '@tabler/icons-react';
+import { useConfirm } from '@/components/common/ConfirmProvider';
 const API_BASE = '/api';
 
 const TemplatesModal = lazy(() => import('./WorkflowsPage_TemplatesModal'))
 
 export default function WorkflowsPage() {
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const { selectedVHost, availableVHosts } = useVHost();
   const [search, setSearch] = useState('');
@@ -245,8 +247,8 @@ export default function WorkflowsPage() {
                   <Menu.Item 
                     color="red" 
                     leftSection={<IconTrash size="1rem" />}
-                    onClick={() => {
-                      if (confirm(`Delete ${selectedIDs.length} workflows?`)) {
+                    onClick={async () => {
+                      if (await confirm({ title: `Delete ${selectedIDs.length} workflows`, message: `Permanently delete ${selectedIDs.length} selected workflow(s)?`, consequence: 'Running workflows are stopped. This cannot be undone.', confirmLabel: 'Delete all', danger: true })) {
                         batchDeleteMutation.mutate(selectedIDs);
                       }
                     }}
@@ -331,11 +333,13 @@ export default function WorkflowsPage() {
             />
           </Group>
 
-            <Table verticalSpacing="sm">
+            <Table.ScrollContainer minWidth={700}>
+              <Table verticalSpacing="sm">
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th style={{ width: 40 }}>
                     <Checkbox 
+                      aria-label="Select all workflows"
                       checked={allSelected}
                       indeterminate={selectedIDs.length > 0 && !allSelected}
                       onChange={(e) => {
@@ -352,9 +356,9 @@ export default function WorkflowsPage() {
                   <Table.Th>Virtual Host</Table.Th>
                   <Table.Th>Worker</Table.Th>
                   <Table.Th>Status</Table.Th>
-                  <Table.Th>Nodes</Table.Th>
-                  <Table.Th>Edges</Table.Th>
-                  <Table.Th style={{ width: 150 }}>Actions</Table.Th>
+                  <Table.Th>Graph</Table.Th>
+                  {/* Six icon buttons wrapped onto two rows at 150px. */}
+                  <Table.Th style={{ width: 210 }}>Actions</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -366,6 +370,7 @@ export default function WorkflowsPage() {
                   <Table.Tr key={wf.id} bg={selectedIDs.includes(wf.id) ? 'var(--mantine-color-blue-light)' : undefined}>
                     <Table.Td>
                       <Checkbox 
+                        aria-label={`Select workflow ${wf.name}`}
                         checked={selectedIDs.includes(wf.id)}
                         onChange={(e) => {
                           if (e.currentTarget.checked) {
@@ -396,19 +401,27 @@ export default function WorkflowsPage() {
                     <Table.Td>
                       <Text size="sm">{wf.worker_id ? getWorkerName(wf.worker_id) : <Text span c="dimmed" fs="italic">Auto Sharded</Text>}</Text>
                     </Table.Td>
-                    <Table.Td>
-                      <Badge variant="light" color={wf.active ? 'green' : 'gray'}>
-                        {wf.active ? 'Active' : 'Inactive'}
-                      </Badge>
-                      {wf.status && (
-                        <Text size="xs" c="dimmed" mt={4}>{wf.status}</Text>
-                      )}
+                    {/* Nine columns left these cells too narrow for their own
+                        contents at 1440px: the status read "ACT…", the counts
+                        "3 NO…" and "2 ED…". The two count columns say one thing
+                        between them, so they are one column, and the badges are
+                        told not to shrink below their text. */}
+                    <Table.Td style={{ whiteSpace: 'nowrap' }}>
+                      <Tooltip label={wf.status || (wf.active ? 'Active' : 'Inactive')} disabled={!wf.status}>
+                        <Badge variant="light" color={wf.active ? 'green' : 'gray'} style={{ flexShrink: 0 }}>
+                          {wf.active ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </Tooltip>
+                      {/* The engine's own status string goes in the badge's
+                          tooltip rather than under it: stacking "running"
+                          beneath a green "Active" badge repeated what the badge
+                          already said while squeezing the column so the badge
+                          itself rendered as "ACT…". */}
                     </Table.Td>
-                    <Table.Td>
-                      <Badge variant="outline">{wf.nodes?.length || 0} nodes</Badge>
-                    </Table.Td>
-                    <Table.Td>
-                      <Badge variant="outline">{wf.edges?.length || 0} edges</Badge>
+                    <Table.Td style={{ whiteSpace: 'nowrap' }}>
+                      <Text size="sm" c="dimmed">
+                        {wf.nodes?.length || 0} nodes · {wf.edges?.length || 0} edges
+                      </Text>
                     </Table.Td>
                     <Table.Td>
                       <Group gap={4} justify="flex-end">
@@ -458,8 +471,8 @@ export default function WorkflowsPage() {
                             aria-label="Delete workflow"
                             variant="subtle" 
                             color="red" 
-                            onClick={() => {
-                              if (confirm('Are you sure you want to delete this workflow?')) {
+                            onClick={async () => {
+                              if (await confirm({ title: 'Delete workflow', message: 'Permanently delete this workflow?', consequence: 'If it is running it will be stopped. This cannot be undone.', confirmLabel: 'Delete', danger: true })) {
                                 deleteMutation.mutate(wf.id);
                               }
                             }}
@@ -473,6 +486,7 @@ export default function WorkflowsPage() {
                 ))}
               </Table.Tbody>
             </Table>
+            </Table.ScrollContainer>
             {totalPages > 1 && (
               <Group justify="center" p="md" bg="var(--mantine-color-body)" style={{ borderTop: '1px solid var(--mantine-color-gray-1)' }}>
                 <Pagination total={totalPages} value={activePage} onChange={setPage} radius="md" />

@@ -4,6 +4,7 @@ import { useState, type FC, useEffect } from 'react'
 import { ColumnMappingEditor, type ColumnMapping } from './ColumnMappingEditor'
 import { apiFetch } from '@/api'
 import { notifications } from '@mantine/notifications'
+import { useConfirm } from '@/components/common/ConfirmProvider';
 
 export type PostgresSinkConfigProps = {
   type: 'postgres' | 'yugabyte'
@@ -34,6 +35,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
   availableFields = [],
   upstreamSource
 }) => {
+  const confirm = useConfirm();
   const [discoveringColumns, setDiscoveringColumns] = useState(false);
   const [discoveringSource, setDiscoveringSource] = useState(false);
 
@@ -251,7 +253,16 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
           disabled={!config.table}
           onClick={async () => {
             if (!config.table) return;
-            const ok = window.confirm(`This will immediately truncate table "${config.table}". Are you sure?`);
+            // Typed confirmation: this deletes every row immediately and
+            // cannot be undone, so it must not be one reflexive click away.
+            const ok = await confirm({
+              title: 'Truncate table',
+              message: `This immediately deletes every row in "${config.table}".`,
+              consequence: 'This runs straight away, outside any workflow, and cannot be undone.',
+              confirmText: config.table,
+              confirmLabel: 'Truncate table',
+              danger: true,
+            });
             if (!ok) return;
             try {
               const body = JSON.stringify({ sink: { type, config }, table: config.table });

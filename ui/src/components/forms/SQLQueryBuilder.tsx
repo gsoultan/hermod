@@ -484,12 +484,12 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
                                 >
                                   {f.path}
                                 </Text>
-                                <Text size="10px" c="dimmed">
+                                <Text size="xs" c="dimmed">
                                   {f.type} → {jsToSqlType(f.type, sourceType)}
                                 </Text>
                               </Stack>
                               <Tooltip label={`Insert as CAST(.. AS ${jsToSqlType(f.type, sourceType)})`}>
-                                <ActionIcon 
+                                <ActionIcon aria-label="Add" 
                                   size="xs" 
                                   variant="subtle" 
                                   color="orange"
@@ -538,7 +538,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
                                 </Tooltip>
                               )}
                             </Group>
-                            <Text size="xs" c="dimmed" truncate style={{ fontSize: '10px' }}>
+                            <Text size="xs" c="dimmed" truncate style={{ fontSize: 'var(--mantine-font-size-xs)' }}>
                               Value: <span style={{ color: 'var(--mantine-color-blue-6)' }}>{displayVal}</span>
                             </Text>
                           </Stack>
@@ -555,7 +555,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
                   <IconTable size={18} color="var(--mantine-color-blue-filled)" />
                   <Text size="xs" fw={700} c="dimmed">DATABASE EXPLORER</Text>
                 </Group>
-                <ActionIcon variant="subtle" size="sm" onClick={fetchTables} loading={fetchingTables}>
+                <ActionIcon aria-label="Refresh" variant="subtle" size="sm" onClick={fetchTables} loading={fetchingTables}>
                   <IconRefresh size={14} />
                 </ActionIcon>
               </Group>
@@ -598,7 +598,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
                             {t}
                           </Text>
                           <Tooltip label="Insert table name">
-                            <ActionIcon size="xs" variant="subtle" onClick={() => insertText(t)}>
+                            <ActionIcon aria-label="Add" size="xs" variant="subtle" onClick={() => insertText(t)}>
                               <IconPlus size={10} />
                             </ActionIcon>
                           </Tooltip>
@@ -621,7 +621,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
                                           {colName}
                                         </Text>
                                         {typeof c === 'object' && c.type && (
-                                          <Text size="10px" c="dimmed">({c.type})</Text>
+                                          <Text size="xs" c="dimmed">({c.type})</Text>
                                         )}
                                       </Group>
                                     </List.Item>
@@ -658,7 +658,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
             {results.length > 0 && (
               <Group gap="xs">
                  <Tooltip label="Copy results as JSON">
-                   <ActionIcon variant="light" size="sm" onClick={() => {
+                   <ActionIcon aria-label="Copy" variant="light" size="sm" onClick={() => {
                      navigator.clipboard.writeText(JSON.stringify(results, null, 2));
                      notifications.show({ 
                        id: 'sql-results-copied',
