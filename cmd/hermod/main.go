@@ -54,8 +54,14 @@ func main() {
 		Arguments:   filterServiceArgs(os.Args),
 	}
 
-	if err := service.Manage(svcCfg, o.serviceAction, func(ctx context.Context) { runApp(ctx, o) }); err != nil {
+	var exitCode int
+	if err := service.Manage(svcCfg, o.serviceAction, func(ctx context.Context) { exitCode = runApp(ctx, o) }); err != nil {
 		log.Fatal(err)
+	}
+	// A listener that never came up must be reported to whatever supervises this
+	// process, or a misconfigured deployment looks healthy forever.
+	if exitCode != 0 {
+		os.Exit(exitCode)
 	}
 }
 
@@ -84,7 +90,7 @@ func filterServiceArgs(args []string) []string {
 	return filtered
 }
 
-func runApp(svcCtx context.Context, o *Options) {
+func runApp(svcCtx context.Context, o *Options) int {
 	logger := telemetry.NewDefaultLogger()
 	initMasterKey(o)
 
@@ -115,9 +121,13 @@ func runApp(svcCtx context.Context, o *Options) {
 	logSetupStatus(logger, configured, userSetup, o.port)
 
 	wrk := setupWorker(ctx, cancel, o, reg, store, configured, userSetup)
-	runServer(ctx, o, reg, store, logStore, cfg, wrk, logger, configured, userSetup)
+	err := runServer(ctx, o, reg, store, logStore, cfg, wrk, logger, configured, userSetup)
 
 	logger.Info("Hermod shutdown complete")
+	if err != nil {
+		return 1
+	}
+	return 0
 }
 
 func initMasterKey(o *Options) {

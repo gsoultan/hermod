@@ -90,6 +90,49 @@ type LagReporter interface {
 	GetLag(ctx context.Context) (uint64, error)
 }
 
+// PendingWorkReporter is an optional interface for sources that can say
+// precisely whether they are still owed acknowledgements.
+//
+// It exists because replication lag does not answer that question. Lag measures
+// the distance between the server's current WAL position and the position this
+// pipeline has confirmed, and the server's position advances on every write
+// anywhere on that instance — including databases and tables this workflow does
+// not follow. An idle workflow attached to a busy server therefore reports lag
+// that grows without limit and never returns to zero, which is indistinguishable
+// from a wedge if lag is all you look at. What distinguishes them is whether the
+// source actually handed over messages that were never acknowledged.
+type PendingWorkReporter interface {
+	// PendingWork reports whether the source has delivered messages that have
+	// not been acknowledged yet. known is false when the source cannot tell,
+	// so callers fall back to their own signals rather than concluding that
+	// nothing is outstanding — a distinction wrappers need, since a decorator
+	// implements this interface on behalf of sources that may not.
+	PendingWork() (pending bool, known bool)
+}
+
+// StreamLivenessReporter is an optional interface for sources that hold a
+// long-lived, server-pushed stream open — a logical replication connection
+// above all.
+//
+// Such a stream is expected to deliver something at a known cadence even when
+// there are no changes to send: PostgreSQL emits a keepalive on an idle
+// replication connection every wal_sender_timeout/2. That makes silence
+// measurable evidence rather than an absence of evidence, and it is the only
+// signal that distinguishes a source which has stopped delivering from one
+// which simply has nothing to deliver. Every other indicator the engine has —
+// buffer depth, sink queues, processed counts — sees only work the source has
+// already handed over, so a stream wedged upstream of them is invisible.
+type StreamLivenessReporter interface {
+	// LastStreamActivity reports when anything was last received on the
+	// stream, keepalives included. A zero time means the stream has not
+	// started, which is not a fault.
+	LastStreamActivity() time.Time
+	// StreamSilenceThreshold is how long silence must last before it is a
+	// fault. Zero disables the check — appropriate when the server is
+	// configured not to send keepalives at all (wal_sender_timeout = 0).
+	StreamSilenceThreshold() time.Duration
+}
+
 // ColumnDiscoverer defines an optional interface for discovering columns of a table.
 type ColumnDiscoverer interface {
 	DiscoverColumns(ctx context.Context, table string) ([]ColumnInfo, error)

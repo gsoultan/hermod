@@ -435,7 +435,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	}
 
 	// Pre-map nodes and edges for performance
-	r.prepareWorkflowNodes(wf.Nodes)
+	r.prepareWorkflowNodes(context.Background(), wf.Nodes)
 	nodeMap := make(map[string]*storage.WorkflowNode)
 	nodeIndex := make(map[string]int)
 	for i := range wf.Nodes {
@@ -513,10 +513,11 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	}
 
 	// Setup callbacks and checkpoint handler
-	r.setupWorkflowCallbacks(eng, id, wf)
+	dbLogger := r.setupWorkflowCallbacks(eng, id, wf)
 
 	r.engines[id] = &activeEngine{
 		engine:          eng,
+		dbLogger:        dbLogger,
 		cancel:          cancel,
 		done:            done,
 		srcConfigs:      srcConfigs,
@@ -614,9 +615,16 @@ func (r *Registry) setupSchemaValidation(eng *pkgengine.Engine, ctx context.Cont
 	}
 }
 
-func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf storage.Workflow) {
+// setupWorkflowCallbacks wires the supervisor, the log fan-out and the status
+// listener onto a workflow engine. It returns the log fan-out so the caller can
+// close it when the engine stops.
+func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf storage.Workflow) *DatabaseLogger {
+	eng.SetOnStall(func(reason string) { r.superviseStall(id, wf, reason) })
+
+	var dbLogger *DatabaseLogger
 	if r.storage != nil {
-		eng.SetLogger(NewDatabaseLogger(context.Background(), r, id))
+		dbLogger = NewDatabaseLogger(context.Background(), r, id, r.logger)
+		eng.SetLogger(dbLogger)
 		eng.SetOnStatusChange(func(update telemetry.StatusUpdate) {
 			// Ensure every broadcast carries the workflow ID so real-time UI
 			// consumers can reliably associate the update with this workflow.
@@ -713,6 +721,7 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 			r.BroadcastStatus(update)
 		})
 	}
+	return dbLogger
 }
 
 // runWorkflowEngine runs the engine in a goroutine and handles cleanup on completion.
@@ -734,8 +743,15 @@ func (r *Registry) runWorkflowEngine(eng *pkgengine.Engine, ctx context.Context,
 			}
 		}
 		r.mu.Lock()
+		ae := r.engines[id]
 		delete(r.engines, id)
 		r.mu.Unlock()
+		// Flush and stop this run's log fan-out. Without it every restart —
+		// including every automatic one the supervisor performs — leaves a
+		// flusher goroutine behind for the life of the worker.
+		if ae != nil && ae.dbLogger != nil {
+			ae.dbLogger.Close()
+		}
 		if r.optimizer != nil {
 			r.optimizer.Unregister(id)
 		}
@@ -822,7 +838,12 @@ func (r *Registry) StopAll() {
 	wg.Wait()
 }
 
+// StopEngine stops a workflow on an operator's instruction. Unlike
+// StopEngineWithoutUpdate — which the supervisor and the worker's own
+// reconciliation use — this marks the end of a stall episode, so the workflow's
+// automatic-restart budget starts fresh the next time it runs.
 func (r *Registry) StopEngine(ctx context.Context, id string) error {
+	r.onManualStop(id)
 	return r.stopEngine(ctx, id, true)
 }
 
@@ -1177,7 +1198,7 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 	}
 
 	// Build node map for O(1) lookups
-	r.prepareWorkflowNodes(wf.Nodes)
+	r.prepareWorkflowNodes(ctx, wf.Nodes)
 	nodeMap := make(map[string]*storage.WorkflowNode)
 	for i := range wf.Nodes {
 		nodeMap[wf.Nodes[i].ID] = &wf.Nodes[i]
@@ -1372,9 +1393,23 @@ func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg he
 	return steps, nil
 }
 
-func (r *Registry) prepareWorkflowNodes(nodes []storage.WorkflowNode) {
+func (r *Registry) prepareWorkflowNodes(ctx context.Context, nodes []storage.WorkflowNode) {
 	for i := range nodes {
 		node := &nodes[i]
+		if node.Type == "sink" && node.RefID != "" {
+			// The sequential flag is only settable on the sink entity in the
+			// current UI, but the executor reads it from the node. Carry it
+			// across so the feature is reachable; see resolveSinkNodeSequential.
+			//
+			// Bounded: this runs on the workflow-start path, and an unresponsive
+			// metadata store must not hang startup indefinitely.
+			lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			snk, err := r.storage.GetSink(lookupCtx, node.RefID)
+			cancel()
+			if err == nil {
+				resolveSinkNodeSequential(node, snk.Config)
+			}
+		}
 		if node.Type == "transformation" {
 			transType, _ := node.Config["transType"].(string)
 			if transType == "pipeline" {

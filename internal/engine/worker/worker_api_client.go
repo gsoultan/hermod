@@ -378,6 +378,43 @@ func (c *WorkerAPIClient) CreateLog(ctx context.Context, log storage.Log) error 
 	return nil
 }
 
+// CreateLogs ships a batch of workflow logs to the platform.
+//
+// A remote worker has no database, so its engines' logs exist only in its own
+// process output unless they travel here — which is exactly the deployment
+// where reading a worker's console is hardest. This used to be a no-op, and
+// every workflow log a remote worker produced was accepted and discarded.
+//
+// A platform that predates the batch route answers 404. Workers and platforms
+// are upgraded separately, so fall back to the per-log endpoint rather than
+// going silent for the duration of a rollout.
+func (c *WorkerAPIClient) CreateLogs(ctx context.Context, logs []storage.Log) error {
+	if len(logs) == 0 {
+		return nil
+	}
+
+	resp, err := c.doRequest(ctx, "POST", "/api/logs/batch", logs)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusCreated, http.StatusOK:
+		return nil
+	case http.StatusNotFound:
+		// Older platform: send them one at a time.
+		for _, l := range logs {
+			if err := c.CreateLog(ctx, l); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("API error shipping %d logs: %s", len(logs), resp.Status)
+	}
+}
+
 // Lease APIs for the platform-backed client. The platform does not yet expose
 // dedicated lease endpoints; for an API-backed remote worker, assignment is
 // already enforced by matching wf.WorkerID against the worker's GUID (see

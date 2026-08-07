@@ -38,6 +38,7 @@ Hermod is built for mission-critical enterprise data workloads, providing robust
 - **AI-Native Transformations**: Integrated "Cognitive ETL" nodes for **AI Enrichment** and **AI Mapping**, supporting OpenAI and local Ollama models. Includes **AI Mapping Suggestions** that automatically propose fixes for schema mismatches.
 - **Auto-Parallelization & Node-Level Backpressure**: The engine automatically detects independent branches in your DAG and executes them in parallel. Built-in node-level backpressure ensures that slow sinks or transformations don't block healthy execution paths.
 - **Self-Healing "Safe Mode" & Anomaly Detection**: Automatically detects processing anomalies (e.g., latency spikes) and can enter a "Safe Mode" during critical failures, diverting traffic to a Dead Letter Sink to preserve data and maintain system stability.
+- **Stall Detection & Automatic Recovery**: A wedged pipeline is detected and rebuilt without an operator. Two independent watchdogs cover the two ways a pipeline can wedge — work outstanding that never completes, and a CDC stream that stops being served (detected against the source's own `wal_sender_timeout` keepalive cadence). Recovery is a supervised restart with an exponential backoff, jitter, and a bounded restart budget, so a genuinely broken sink escalates to a human instead of looping. Nothing is lost: un-acknowledged changes replay from the replication slot's confirmed position.
 - **Generic Protobuf Source**: A universal source that can dynamically load `.proto` files at runtime, providing type-safe ingestion for any Protobuf-based service without recompilation.
 - **Stateful Windowing**: Support for **Tumbling**, **Sliding**, and **Session** windows in aggregation nodes, enabling complex real-time analytics and time-series processing directly in the pipeline.
 - **Hot-Reloading for Scripts**: Transformation logic in **WASM** or **Lua** can be updated on-the-fly. The engine detects changes and reloads the logic without requiring a workflow restart.
@@ -105,6 +106,58 @@ func main() {
     eng.Start(context.Background())
 }
 ```
+
+### Development Quick Start
+
+One command brings up the whole stack — Postgres, the API + worker, and the UI dev server — and
+completes Hermod's first-run wizard for you, so all that is left is logging in:
+
+```bash
+./scripts/dev.sh
+```
+
+Then open **http://localhost:5175** and sign in with **`admin` / `admin`**.
+
+| Option | Effect |
+| :--- | :--- |
+| `./scripts/dev.sh` | Start everything (PostgreSQL via Apple `container`) |
+| `./scripts/dev.sh --sqlite` | Use SQLite instead — no container needed |
+| `./scripts/dev.sh --reset` | Wipe the dev database and re-seed from scratch |
+| `./scripts/dev.sh --build-ui` | Refresh the UI bundle the API serves, then start |
+| `./scripts/dev.sh --stop` | Stop a running stack |
+
+**Work against port 5175.** It runs Vite, so edits under `ui/src` appear in the browser immediately
+via hot reload — no restart needed. Port 4005 also serves a UI, but that is the pre-built bundle in
+`internal/api/static`; it will **not** show your edits until you run `--build-ui`. It exists for
+checking what production actually ships.
+
+Notes:
+
+- **PostgreSQL is created for you.** On first run the script builds a `postgres-dev` container with
+  Apple's `container` CLI (macOS 26+), configured with `wal_level=logical` for CDC, and creates the
+  `hermod_metadata`, `hermod_test_source` and `hermod_test_sink` databases. Nothing to set up by hand.
+- Re-running is safe: an existing container is started rather than rebuilt, its data survives
+  `container stop`, and an existing admin user is kept rather than recreated.
+- **Your real configuration is never touched.** The dev stack writes to `.dev/` inside the repo via
+  `HERMOD_CONFIG_DIR`, not `~/.hermod`, so it cannot overwrite another Hermod instance's setup.
+- Logs stream to the terminal and are kept in `.dev/logs/{backend,ui}.log`.
+- Overridable: `HERMOD_DEV_ADMIN_USER`, `HERMOD_DEV_ADMIN_PASS`, `HERMOD_DEV_API_PORT`,
+  `HERMOD_DEV_UI_PORT`, `HERMOD_DEV_PG_CONTAINER`, `HERMOD_DEV_PG_PORT`.
+
+#### Managing the database container
+
+```bash
+./scripts/create-postgres.sh              # create it (no-op if it already exists)
+./scripts/create-postgres.sh --recreate   # destroy and rebuild from scratch
+container exec -it postgres-dev psql -U postgres
+container stop postgres-dev               # data is preserved
+```
+
+Overrides: `HERMOD_DEV_PG_IMAGE` (default `postgres:18-alpine`), `HERMOD_DEV_PG_PASSWORD`.
+
+Data lives in the container's own filesystem — it survives `stop`/`start` but not
+`container delete`. PGDATA is deliberately not bind-mounted, because PostgreSQL's strict ownership
+requirements do not survive the macOS→Linux filesystem boundary reliably.
 
 ### As an Application
 
@@ -224,6 +277,34 @@ You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from 
    - `HERMOD_WORKER_DESCRIPTION` → `--worker-description`
    - `HERMOD_WORKER_ID` → `--worker-id`
    - `HERMOD_TOTAL_WORKERS` → `--total-workers`
+
+   #### Stall Detection & Recovery Tuning
+
+   These control when a workflow is declared wedged and rebuilt. The defaults suit most
+   pipelines; a malformed or non-positive value is ignored in favour of the default, so a typo
+   in a deployment variable can never switch a safety mechanism off.
+
+   | Variable | Default | What it does |
+   | :--- | :--- | :--- |
+   | `HERMOD_STALL_THRESHOLD` | `60s` | How long a pipeline may hold outstanding work without completing any of it before it is treated as wedged. Raise it for a workflow whose sink is legitimately slow; lower it to detect faster during an incident. |
+   | `HERMOD_STREAM_SILENCE_INTERVAL` | `10s` | How often a CDC source's stream is sampled for silence. The deadline itself is not configurable — it is derived from the source server's own `wal_sender_timeout`, because that is what sets the keepalive cadence a healthy stream is held to. |
+   | `HERMOD_LAG_WARN_BYTES` | `256MB` | How much un-acknowledged WAL a source may retain before it is reported. This guards the **source** database's disk. |
+
+   **Runbook — what the recovery log lines mean:**
+
+   - `Pipeline stalled: work is outstanding but nothing has completed` — the pipeline is holding
+     work it has stopped finishing. Usually a sink. The workflow is being rebuilt; no data is
+     lost, because un-acknowledged changes replay from the replication slot.
+   - `Source stream has gone silent: not even a keepalive has arrived` — the replication
+     connection is open and the slot still reports it attached, but the server has stopped
+     serving it. Look at the source database, not the sinks.
+   - `Workflow stalled again while the last automatic restart was still settling` — informational.
+     The previous rebuild is being given its chance; backoff widens with each attempt.
+   - `Workflow stalled but automatic recovery is exhausted; manual intervention required` — the
+     restart budget for the window is spent. Fix the underlying fault, then **stop and start** the
+     workflow: an operator stop is what restores its supervision budget.
+   - `Workflow logs could not be written to storage and were dropped` — the log *store* is
+     failing, not the pipeline. The lines themselves are still in the process log.
 
    Example using env vars:
    ```bash
@@ -545,6 +626,12 @@ Engine flags and settings:
 - `engine.max_inflight` (default: 128)
   - Caps the number of in‑flight messages across the pipeline to bound memory.
   - Increase for faster sinks, decrease for small instances with tight RSS limits.
+  - **Must be ≥ your largest sink `batch_size`.** A batch fills from in‑flight messages, so a
+    `batch_size` above `max_inflight` can never complete on count and every flush waits out
+    `batch_timeout` instead — measured at 2,557 msgs/s versus 110,829 msgs/s for the same workload.
+    Hermod now clamps the effective batch size to `max_inflight` and logs a warning naming both
+    values; raise `max_inflight` if you want the larger batch to take effect. See
+    [BENCHMARKS.md](BENCHMARKS.md).
 - `engine.drain_timeout` (default: 10s)
   - Logs a warning if sink writers take longer than this to drain on shutdown. Set `0` to wait indefinitely.
 - `prioritize_dlq` (per‑workflow)
@@ -554,7 +641,10 @@ Sink batching and backpressure (per sink):
 
 - `batch_size`, `batch_timeout`, `batch_bytes`
   - Batch flush triggers on count OR bytes OR timeout — tune to balance latency and throughput.
-  - Typical starters: `batch_size: 200–500`, `batch_bytes: 1_048_576 (1MB)`, `batch_timeout: 100–250ms`.
+  - Typical starters: `batch_size: 100–128`, `batch_bytes: 1_048_576 (1MB)`, `batch_timeout: 100–250ms`.
+  - Keep `batch_size` ≤ `engine.max_inflight` (default 128). If you want 200–500, raise
+    `max_inflight` to match — otherwise the batch is clamped. Measured best throughput is at
+    `batch_size: 100` (124,877 msgs/s); see [BENCHMARKS.md](BENCHMARKS.md).
 - Backpressure buffer and strategy
   - `backpressure_buffer`: bounded channel size (e.g., 1000–5000)
   - `backpressure_strategy`: `block` | `drop_oldest` | `drop_newest` | `sampling` | `spill_to_disk`
@@ -598,15 +688,41 @@ OpenTelemetry (OTEL):
 
 Suggested starting targets:
 
-- Idle worker: < 80 MB RSS, ~0% CPU.
-- Fast sink (e.g., Kafka/NATS): 5–20k msgs/s with `max_inflight=128`, `batch_size=200–500`, p95 < 50ms.
-- SQL sink: 1–5k rows/s with 200–500 row batches, p95 < 200ms.
+- Idle worker: < 80 MB RSS, ~0% CPU. *(target — not yet benchmarked)*
+- Fast sink (e.g., Kafka/NATS): 5–20k msgs/s with `max_inflight=128`, `batch_size=100–128`, p95 < 50ms.
+- Postgres sink: **measured 58k–100k rows/s** for insert-only batches of 1k–5k rows via the COPY
+  fast path, versus 3–6k rows/s on the ordered per-message path. See [BENCHMARKS.md](BENCHMARKS.md).
+
+### Bulk-load fast path (Postgres)
+
+Insert-only batches are streamed into a TEMP staging table with `COPY` and merged in a single
+`INSERT … SELECT … ON CONFLICT`, giving **10–16× the throughput** of the per-message path.
+
+This is automatic and requires no configuration, but it is deliberately conservative: a batch takes
+the fast path only when it is insert-only, targets a single table, has column mappings, uses no
+soft-delete strategy, and contains at least 50 rows. **Any CDC batch that mixes inserts, updates or
+deletes stays on the ordered path**, because the order of a delete followed by an insert on the same
+key is observable and must be preserved.
 
 ## Benchmarks
 
-```
-BenchmarkAcquireRelease-12      56807960                22.36 ns/op            0 B/op          0 allocs/op
-```
+Measured baselines live in **[BENCHMARKS.md](BENCHMARKS.md)**, which also documents the host they
+were taken on and how to reproduce them. Headline numbers (Apple M5 Pro, in-memory source and sink,
+so this is engine overhead only — network and disk cost are excluded):
+
+| Benchmark | Result |
+|---|---|
+| Engine throughput, 1 KB payload | **118,285 msgs/s** |
+| Engine throughput, 64 B payload | 101,249 msgs/s |
+| Engine throughput, 16 KB payload | 45,456 msgs/s |
+| Message pool `AcquireRelease` | 76.67 ns/op, 0 allocs/op |
+| Unpooled equivalent | 184.6 ns/op, 7 allocs/op |
+
+The engine core sustains ~100k msgs/s, so it is not the bottleneck in a Hermod pipeline — sinks
+are. Direct tuning effort at the sink.
+
+Numbers not yet backed by a benchmark are marked *(target)* above and listed under "Not yet
+measured" in BENCHMARKS.md.
 
 ## Health and Readiness Probes
 

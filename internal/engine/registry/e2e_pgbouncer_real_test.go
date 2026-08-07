@@ -16,6 +16,7 @@ import (
 )
 
 func TestE2E_PgBouncer_Real(t *testing.T) {
+	requireIntegrationInfra(t)
 	ctx := context.Background()
 	// 1. Setup Postgres Storage for Metadata
 	metadataDSN := "postgres://postgres:postgres@localhost:5432/hermod_metadata?sslmode=disable"
@@ -150,6 +151,7 @@ func TestE2E_PgBouncer_Real(t *testing.T) {
 }
 
 func TestE2E_CDC_PgBouncer_Failure(t *testing.T) {
+	requireIntegrationInfra(t)
 	// Verify that CDC fails fast when pgbouncer=true is used
 	sourceDSN := "postgres://postgres:postgres@localhost:5432/hermod_test_source?sslmode=disable&pgbouncer=true"
 

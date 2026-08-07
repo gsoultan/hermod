@@ -122,13 +122,18 @@ type Registry struct {
 	dbPool              map[string]*sql.DB
 	dbPoolMu            sync.RWMutex
 	logger              hermod.Logger
-	idleMonitorStop     chan struct{}
-	stateStore          hermod.StateStore
-	secretManager       secrets.Manager
-	schemaRegistry      schema.Registry
-	optimizer           *optimizer.Optimizer
-	dqScorer            *governance.Scorer
-	meshManager         *mesh.Manager
+	// supervisor tracks automatic restart attempts for stalled workflows.
+	supervisor *supervisorState
+	// rebuildWorkflow overrides how a stalled workflow is rebuilt. Nil in
+	// production, where restartWorkflowEngine is used.
+	rebuildWorkflow func(ctx context.Context, id string, wf storage.Workflow) error
+	idleMonitorStop chan struct{}
+	stateStore      hermod.StateStore
+	secretManager   secrets.Manager
+	schemaRegistry  schema.Registry
+	optimizer       *optimizer.Optimizer
+	dqScorer        *governance.Scorer
+	meshManager     *mesh.Manager
 
 	discoveryService *service.DiscoveryService
 
@@ -158,7 +163,12 @@ type Registry struct {
 }
 
 type activeEngine struct {
-	engine        *pkgengine.Engine
+	engine *pkgengine.Engine
+	// dbLogger is this workflow's log fan-out, closed when the engine stops so
+	// its background flusher does not outlive the run. The supervisor restarts
+	// workflows automatically, so a per-start goroutine that is never released
+	// accumulates for as long as the worker is up.
+	dbLogger      *DatabaseLogger
 	cancel        context.CancelFunc
 	done          <-chan struct{}
 	srcConfigs    []factory.SourceConfig
@@ -257,6 +267,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		notificationService: ns,
 		nodeStates:          make(map[string]any),
 		lookupCache:         make(map[string]lookupCacheEntry),
+		supervisor:          newSupervisorState(),
 		dbPool:              make(map[string]*sql.DB),
 		logger:              telemetry.NewDefaultLogger(),
 		idleMonitorStop:     make(chan struct{}),

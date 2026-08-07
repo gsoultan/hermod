@@ -212,6 +212,10 @@ func (s *Server) Routes() http.Handler {
 			stat, err := f.Stat()
 			f.Close()
 			if err == nil && !stat.IsDir() {
+				// Content-hashed bundles can be cached forever; everything else
+				// must revalidate so a deploy is picked up immediately.
+				w.Header().Set("Cache-Control", cacheControlForPath(path))
+
 				// Check for Brotli compression support
 				if strings.Contains(r.Header.Get("Accept-Encoding"), "br") {
 					brPath := path + ".br"
@@ -243,6 +247,11 @@ func (s *Server) Routes() http.Handler {
 			if err == nil {
 				stat, err := f.Stat()
 				if err == nil && !stat.IsDir() {
+					// index.html names the hashed bundles, so it must never be
+					// cached: a stale copy would pin the user to an old app
+					// whose chunks may no longer exist after a deploy.
+					w.Header().Set("Cache-Control", cacheControlForPath("index.html"))
+
 					// Check for Brotli compression support for SPA root
 					if strings.Contains(r.Header.Get("Accept-Encoding"), "br") {
 						brPath := "index.html.br"

@@ -84,12 +84,67 @@ func acquirePendingMessage(msg hermod.Message) *pendingMessage {
 	return pm
 }
 
+// pendingOverReleases counts releases that arrived after a pendingMessage was
+// already fully released. It is always a caller bug — the count should stay at
+// zero — but it is survivable, so it is recorded rather than fatal. Exposed for
+// tests and diagnostics.
+var pendingOverReleases atomic.Int64
+
+// PendingOverReleaseCount reports how many times a pendingMessage was released
+// more often than it was referenced. Any non-zero value indicates unbalanced
+// release bookkeeping somewhere in the writer paths.
+func PendingOverReleaseCount() int64 { return pendingOverReleases.Load() }
+
+// signalDone reports a message's outcome without ever blocking.
+//
+// done has capacity 1 and only the first outcome is meaningful, but several
+// sites can conclude the same message — the sink writer finishing it and the
+// drop_oldest evictor discarding it, for instance. A raw send from the second
+// one blocks forever on a channel nobody will read again, and a blocked writer
+// goroutine stops draining its channel, backs up the ingestion buffer, blocks
+// the source's dispatch and stops replication acknowledgement. Dropping the
+// redundant outcome is correct and cannot wedge anything.
+func signalDone(pm *pendingMessage, err error) {
+	if pm == nil {
+		return
+	}
+	select {
+	case pm.done <- err:
+	default:
+	}
+}
+
 func releasePendingMessage(pm *pendingMessage) {
 	// A pendingMessage is shared between a producer (the runner) and a consumer
 	// (the sinkWriter or backpressure strategy). It must only be returned to the
-	// pool when BOTH have finished their work.
-	if pm.refCount.Add(-1) > 0 {
-		return
+	// pool when BOTH have finished their work — and exactly once.
+	//
+	// This guarded the Put with `refCount.Add(-1) > 0`, which returns early only
+	// for a POSITIVE remainder. With 14 release sites against 2 acquire sites, a
+	// third release drove the count to -1 — not > 0 — and fell through to Put the
+	// object into the pool a second time. Two subsequent Gets then handed one
+	// *pendingMessage to two goroutines, which raced on pm.msg (acquire writes
+	// it, enqueueWithStrategy reads it) and shared a single done channel of
+	// capacity 1, so one owner consumed the other's completion signal and that
+	// message was never confirmed.
+	//
+	// Only the release that observes the exact 1 -> 0 transition may tear down,
+	// and the count is never allowed below zero.
+	for {
+		n := pm.refCount.Load()
+		if n <= 0 {
+			// Already fully released. An extra release is a no-op, never a
+			// second Put.
+			pendingOverReleases.Add(1)
+			return
+		}
+		if !pm.refCount.CompareAndSwap(n, n-1) {
+			continue // lost the race, re-read and retry
+		}
+		if n-1 > 0 {
+			return // other references outstanding
+		}
+		break // this call owns the teardown
 	}
 
 	if pm.msg != nil {
@@ -526,27 +581,37 @@ func (sw *sinkWriter) circuitState() string {
 	return sw.cbStatus
 }
 
+// recordSuccess clears the failure count and, on recovery, closes the breaker.
+//
+// The status notification happens AFTER cbMu is released. setSinkStatus calls
+// the status listener, which calls Engine.GetStatus, which locks every sink
+// writer's cbMu to read its breaker state — so notifying while holding the lock
+// deadlocked the writer against itself. That froze flush(), which stopped
+// draining sw.ch, which wedged the entire pipeline back to the source.
 func (sw *sinkWriter) recordSuccess() {
 	sw.cbMu.Lock()
-	defer sw.cbMu.Unlock()
-
+	closed := false
 	if sw.cbStatus == "half-open" {
 		sw.cbStatus = "closed"
-		sw.cbFailCount = 0
-		if sw.engine != nil {
-			sw.engine.setSinkStatus(sw.sinkID, "active")
-			if sw.engine.logger != nil {
-				sw.engine.logger.Info("Circuit breaker closed after success", "workflow_id", sw.engine.workflowID, "sink_id", sw.sinkID)
-			}
+		closed = true
+	}
+	sw.cbFailCount = 0
+	sw.cbMu.Unlock()
+
+	if closed && sw.engine != nil {
+		sw.engine.setSinkStatus(sw.sinkID, "active")
+		if sw.engine.logger != nil {
+			sw.engine.logger.Info("Circuit breaker closed after success", "workflow_id", sw.engine.workflowID, "sink_id", sw.sinkID)
 		}
-	} else {
-		sw.cbFailCount = 0
 	}
 }
 
+// recordFailure counts a failure and opens the breaker once it passes the
+// threshold. As in recordSuccess, the status notification must happen after
+// cbMu is released: the listener reads Engine.GetStatus, which locks this same
+// mutex.
 func (sw *sinkWriter) recordFailure() {
 	sw.cbMu.Lock()
-	defer sw.cbMu.Unlock()
 
 	threshold := sw.config.CircuitBreakerThreshold
 	if threshold <= 0 {
@@ -572,14 +637,20 @@ func (sw *sinkWriter) recordFailure() {
 
 	sw.cbLastFailure = now
 
+	opened := false
+	var failCount int
+	var openUntil time.Time
 	if sw.cbFailCount >= threshold || sw.cbStatus == "half-open" {
 		sw.cbStatus = "open"
 		sw.cbOpenUntil = now.Add(coolDown)
-		if sw.engine != nil {
-			sw.engine.setSinkStatus(sw.sinkID, "error:circuit_breaker_open")
-			if sw.engine.logger != nil {
-				sw.engine.logger.Error("Circuit breaker opened", "workflow_id", sw.engine.workflowID, "sink_id", sw.sinkID, "fail_count", sw.cbFailCount, "open_until", sw.cbOpenUntil)
-			}
+		opened, failCount, openUntil = true, sw.cbFailCount, sw.cbOpenUntil
+	}
+	sw.cbMu.Unlock()
+
+	if opened && sw.engine != nil {
+		sw.engine.setSinkStatus(sw.sinkID, "error:circuit_breaker_open")
+		if sw.engine.logger != nil {
+			sw.engine.logger.Error("Circuit breaker opened", "workflow_id", sw.engine.workflowID, "sink_id", sw.sinkID, "fail_count", failCount, "open_until", openUntil)
 		}
 	}
 }
@@ -715,7 +786,7 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 		start := time.Now()
 		if err := w.checkCircuitBreaker(); err != nil {
 			for _, pm := range batch {
-				pm.done <- err
+				signalDone(pm, err)
 				releasePendingMessage(pm)
 			}
 			batch = batch[:0]
@@ -756,12 +827,12 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 
 		if isBatch {
 			for _, pm := range batch {
-				pm.done <- err
+				signalDone(pm, err)
 				releasePendingMessage(pm)
 			}
 		} else {
 			for i := range batch {
-				batch[i].done <- perMsgErr[i]
+				signalDone(batch[i], perMsgErr[i])
 				releasePendingMessage(batch[i])
 			}
 		}
@@ -827,7 +898,7 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 						}
 					} else {
 						// Message already released by owner (e.g. timeout)
-						pm.done <- errors.New("message released before processing")
+						signalDone(pm, errors.New("message released before processing"))
 						releasePendingMessage(pm)
 					}
 				case <-ticker.C:
@@ -866,7 +937,7 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 					// returned even if the owner has already timed out. The
 					// atomic released flag in releasePendingMessage safely
 					// prevents double-release.
-					old.done <- errors.New("dropped due to backpressure (drop_oldest)")
+					signalDone(old, errors.New("dropped due to backpressure (drop_oldest)"))
 					releasePendingMessage(old)
 				}
 				telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPDropOldest)).Inc()
@@ -875,7 +946,7 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 			select {
 			case target <- pm:
 			default:
-				pm.done <- errors.New("dropped due to backpressure (drop_oldest - overflow)")
+				signalDone(pm, errors.New("dropped due to backpressure (drop_oldest - overflow)"))
 				releasePendingMessage(pm)
 				telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPDropOldest)).Inc()
 			}
@@ -884,7 +955,7 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 		select {
 		case target <- pm:
 		default:
-			pm.done <- errors.New("dropped due to backpressure (drop_newest)")
+			signalDone(pm, errors.New("dropped due to backpressure (drop_newest)"))
 			releasePendingMessage(pm)
 			telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPDropNewest)).Inc()
 		}
@@ -894,14 +965,14 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 			rate = 0.5
 		}
 		if rand.Float64() > rate {
-			pm.done <- errors.New("dropped due to sampling")
+			signalDone(pm, errors.New("dropped due to sampling"))
 			releasePendingMessage(pm)
 			telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPSampling)).Inc()
 		} else {
 			select {
 			case target <- pm:
 			case <-ctx.Done():
-				pm.done <- ctx.Err()
+				signalDone(pm, ctx.Err())
 				releasePendingMessage(pm)
 			}
 		}
@@ -920,9 +991,9 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 				err := w.spillBuffer.Produce(ctx, pm.msg)
 				pm.msg = nil
 				if err != nil {
-					pm.done <- fmt.Errorf("spill to disk failed: %w", err)
+					signalDone(pm, fmt.Errorf("spill to disk failed: %w", err))
 				} else {
-					pm.done <- nil
+					signalDone(pm, nil)
 				}
 				releasePendingMessage(pm)
 				telemetry.BackpressureSpillTotal.WithLabelValues(w.engine.workflowID, w.sinkID).Inc()
@@ -931,7 +1002,7 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 				select {
 				case target <- pm:
 				case <-ctx.Done():
-					pm.done <- ctx.Err()
+					signalDone(pm, ctx.Err())
 					releasePendingMessage(pm)
 				}
 			}
@@ -940,7 +1011,7 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 		select {
 		case target <- pm:
 		case <-ctx.Done():
-			pm.done <- ctx.Err()
+			signalDone(pm, ctx.Err())
 			releasePendingMessage(pm)
 		}
 	}

@@ -116,3 +116,48 @@ func (s *MetricsSource) SetLogger(logger hermod.Logger) {
 		l.SetLogger(logger)
 	}
 }
+
+// GetLag forwards lag reporting to the wrapped source.
+//
+// MetricsSource embeds the hermod.Source interface, and embedding an interface
+// does not promote methods the interface does not declare — so wrapping a
+// PostgresSource silently hid its GetLag. Every lag-based check downstream
+// (workflow status, WAL-retention alerting, the stall watchdog) therefore read
+// zero and concluded there was no outstanding work, which is exactly wrong when
+// a replication slot is retaining WAL because the pipeline has stopped.
+func (s *MetricsSource) GetLag(ctx context.Context) (uint64, error) {
+	if lr, ok := s.Source.(hermod.LagReporter); ok {
+		return lr.GetLag(ctx)
+	}
+	return 0, nil
+}
+
+// PendingWork forwards the wrapped source's outstanding-work signal. A source
+// that cannot answer reports false, which leaves the stall watchdog on its lag
+// fallback rather than asserting there is nothing outstanding.
+func (s *MetricsSource) PendingWork() (pending bool, known bool) {
+	if pw, ok := s.Source.(hermod.PendingWorkReporter); ok {
+		return pw.PendingWork()
+	}
+	return false, false
+}
+
+// LastStreamActivity forwards stream liveness from the wrapped source, for the
+// same reason GetLag has to be forwarded: an embedded interface does not promote
+// methods it does not declare, and a hidden liveness signal reads as "this
+// source has no stream to watch" rather than as "this source's stream is fine".
+func (s *MetricsSource) LastStreamActivity() time.Time {
+	if lr, ok := s.Source.(hermod.StreamLivenessReporter); ok {
+		return lr.LastStreamActivity()
+	}
+	return time.Time{}
+}
+
+// StreamSilenceThreshold forwards the wrapped source's silence deadline. Zero
+// for a source that does not hold a push stream, which disables the check.
+func (s *MetricsSource) StreamSilenceThreshold() time.Duration {
+	if lr, ok := s.Source.(hermod.StreamLivenessReporter); ok {
+		return lr.StreamSilenceThreshold()
+	}
+	return 0
+}

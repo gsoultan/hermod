@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/ai"
@@ -16,15 +18,15 @@ import (
 	"github.com/user/hermod/internal/storage"
 )
 
-func runServer(ctx context.Context, o *Options, reg *registry.Registry, store, logStore storage.Storage, cfg *config.Config, wrk *worker.Worker, logger hermod.Logger, configured, userSetup bool) {
+func runServer(ctx context.Context, o *Options, reg *registry.Registry, store, logStore storage.Storage, cfg *config.Config, wrk *worker.Worker, logger hermod.Logger, configured, userSetup bool) error {
 	if o.mode == "api" || o.mode == "standalone" {
-		startAPI(ctx, o, reg, store, logStore, cfg, wrk, logger, configured, userSetup)
-	} else {
-		runWorkerOnly(ctx, logger, configured, userSetup)
+		return startAPI(ctx, o, reg, store, logStore, cfg, wrk, logger, configured, userSetup)
 	}
+	runWorkerOnly(ctx, logger, configured, userSetup)
+	return nil
 }
 
-func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, logStore storage.Storage, cfg *config.Config, wrk *worker.Worker, logger hermod.Logger, configured, userSetup bool) {
+func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, logStore storage.Storage, cfg *config.Config, wrk *worker.Worker, logger hermod.Logger, configured, userSetup bool) error {
 	aiSvc := ai.NewSelfHealingService(logger)
 	server := api.NewServer(reg, store, cfg, o.configPath, aiSvc, logStore)
 	if wrk != nil {
@@ -35,27 +37,55 @@ func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, lo
 	defer stopAutoscaler()
 
 	httpServer := &http.Server{Addr: fmt.Sprintf(":%d", o.port), Handler: server.Routes()}
-	startServersAsync(server, httpServer, o.grpcPort)
+	fatal := startServersAsync(
+		httpServer.ListenAndServe,
+		func() error { return server.StartGRPC(fmt.Sprintf(":%d", o.grpcPort)) },
+	)
 
 	fmt.Printf("Starting Hermod API server on :%d...\n", o.port)
-	<-ctx.Done()
-	logger.Info("Shutting down API server...")
+
+	var startErr error
+	select {
+	case <-ctx.Done():
+		logger.Info("Shutting down API server...")
+	case startErr = <-fatal:
+		// Without this the process kept running with no listener at all: alive,
+		// serving nothing, and undetectable by anything that looks at ports.
+		logger.Error("Listener failed, shutting down", "error", startErr)
+	}
+
 	server.Stop()
-	_ = httpServer.Shutdown(context.Background())
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+	defer cancel()
+	// Shutdown waits for every connection to go idle, and a Server-Sent Events
+	// response never does. Bound the wait, then drop what is left.
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		logger.Warn("Graceful shutdown timed out, closing connections", "error", err)
+		_ = httpServer.Close()
+	}
+	return startErr
 }
 
-func startServersAsync(server *api.Server, httpServer *http.Server, grpcPort int) {
-	go func() {
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("API server failed: %v", err)
-		}
-	}()
+// shutdownGrace bounds how long in-flight requests get to finish. Long-lived
+// streams (SSE, log tails) never finish on their own, so an unbounded wait here
+// is an unbounded hang.
+const shutdownGrace = 10 * time.Second
 
-	go func() {
-		if err := server.StartGRPC(fmt.Sprintf(":%d", grpcPort)); err != nil {
-			log.Printf("gRPC server failed: %v", err)
+// startServersAsync runs both listeners and reports the first fatal error. A
+// listener that cannot bind is a misconfiguration the operator has to fix, so
+// it must bring the process down rather than be logged and forgotten.
+func startServersAsync(serveHTTP, serveGRPC func() error) <-chan error {
+	fatal := make(chan error, 2)
+	serve := func(name string, fn func() error) {
+		// A deliberate shutdown surfaces as ErrServerClosed from net/http and as
+		// a nil error from gRPC's GracefulStop. Neither is a failure.
+		if err := fn(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fatal <- fmt.Errorf("%s server failed: %w", name, err)
 		}
-	}()
+	}
+	go serve("API", serveHTTP)
+	go serve("gRPC", serveGRPC)
+	return fatal
 }
 
 func startAutoscaler(o *Options, store storage.Storage, configured, userSetup bool) func() {

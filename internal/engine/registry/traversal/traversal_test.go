@@ -86,6 +86,11 @@ func TestWorkflowTraversal_ConditionalJoinReached(t *testing.T) {
 	srcMsg.SetID("m1")
 
 	tr := traversal.Acquire(reg, eng, "wf-join", nodeMap, adj, nodeIndex, edgeLabels, nil, inDegree, sinkNodeToIndex)
+	// CurrentMessages owns a reference: resolveEdge retains before storing, and
+	// processNode releases after consuming. Seeding the slot directly has to
+	// honour the same invariant, or the source message is freed back to the
+	// pool mid-traversal while downstream nodes still hold it.
+	srcMsg.Retain()
 	tr.CurrentMessages[nodeIndex["S"]] = srcMsg
 
 	tr.Traverse(t.Context(), "S")

@@ -75,14 +75,21 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	flattenInto := core.GetConfigString(config, "flattenInto")
 	mode := core.GetConfigString(config, "mode")
 
+	// Every path below that cannot enrich used to return success, so a message
+	// that missed its lookup reached the sink indistinguishable from one that
+	// hit. onMiss makes that outcome an explicit, auditable choice.
+	onMiss := resolveMissPolicy(config, defaultValue != "")
+
 	if sourceID == "" || targetField == "" {
-		return msg, nil
+		return msg, applyMissPolicy(msg, onMiss, targetField, defaultValue,
+			fmt.Errorf("db_lookup: incomplete config (sourceId=%q, targetField=%q)", sourceID, targetField))
 	}
 
 	keyVal := evaluator.GetMsgValByPath(msg, keyField)
 
 	if keyVal == nil && queryTemplate == "" && whereClause == "" {
-		return msg, nil
+		return msg, applyMissPolicy(msg, onMiss, targetField, defaultValue,
+			missError(table, keyField, nil))
 	}
 
 	cacheKey := fmt.Sprintf("db:%s:%s:%s:%s:%v:%s:%s:%s", sourceID, table, keyColumn, valueColumn, keyVal, whereClause, queryTemplate, mode)
@@ -180,8 +187,10 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 				}
 			}
 		}
-	} else if defaultValue != "" {
-		msg.SetData(targetField, defaultValue)
+	} else {
+		// The query ran and produced nothing. Same decision as the paths above.
+		return msg, applyMissPolicy(msg, onMiss, targetField, defaultValue,
+			missError(table, keyField, keyVal))
 	}
 
 	return msg, nil

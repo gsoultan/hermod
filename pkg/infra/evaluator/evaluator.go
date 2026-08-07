@@ -426,13 +426,15 @@ func GetMsgValByPath(msg hermod.Message, path string) any {
 		return nil
 	}
 
-	if strings.HasPrefix(path, "$.") {
-		base := path[2:]
-		if v := getValueFromRaw(msg.Payload(), base); v != nil {
-			return v
-		}
-		return GetValByPath(msg.DataRef(), base)
-	}
+	// "$" is the JSONPath document root: a syntax marker, not a different kind
+	// of lookup. Strip it and resolve exactly as the bare form does. This branch
+	// used to have its own two-step resolution (payload first, data second, then
+	// give up), which made "$.x" strictly weaker than "x" — it never reached the
+	// virtual fields, the before-image, or the raw-payload fallbacks below, and
+	// it returned the pre-transform payload value where the bare form returned
+	// the current one. A db_lookup keyField of "$.x" therefore resolved to nil
+	// and silently skipped enrichment on messages where "x" worked.
+	path = strings.TrimPrefix(path, "$.")
 
 	// 1) Try the path as-is in the data map first.
 	// This ensures that real data columns (like "id", "table") are not shadowed by virtual fields.
@@ -493,21 +495,23 @@ func GetMsgValByPath(msg hermod.Message, path string) any {
 	// This handles cases where Data() only contains "after" or is empty (like in deletes)
 	if strings.HasPrefix(lower, "before.") {
 		base := path[7:]
+		// 1. Try msg.Before() as the 'before' object
 		if v := getValueFromRaw(msg.Before(), base); v != nil {
 			return v
 		}
-		// Fallback to DataRef() if field not found in raw (could happen if manually structured)
-		if v := GetValByPath(msg.DataRef(), base); v != nil {
+		// 2. Try full path in DataRef (if 'before' is an explicit key in data)
+		if v := GetValByPath(msg.DataRef(), path); v != nil {
 			return v
 		}
 	}
 	if strings.HasPrefix(lower, "after.") {
 		base := path[6:]
+		// 1. Try payload as the 'after' object (CDC style)
 		if v := getValueFromRaw(msg.Payload(), base); v != nil {
 			return v
 		}
-		// Fallback to DataRef() if payload is empty or field not found in raw
-		if v := GetValByPath(msg.DataRef(), base); v != nil {
+		// 2. Try full path in DataRef (if 'after' is an explicit key in data)
+		if v := GetValByPath(msg.DataRef(), path); v != nil {
 			return v
 		}
 	}

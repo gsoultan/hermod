@@ -47,7 +47,7 @@ func TestPostgresSource_DefaultSlotAndPublication(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := NewPostgresSource("postgres://user:pass@localhost:5432/db", tt.slot, tt.publication, nil, true)
+			s := NewPostgresSource("postgres://user:pass@localhost:5432/db", tt.slot, tt.publication, nil, true, "", 0)
 			if s.slotName != tt.wantSlot {
 				t.Errorf("slotName = %q, want %q", s.slotName, tt.wantSlot)
 			}
@@ -64,7 +64,7 @@ func TestPostgresSource_CloseUninitializedIsSafeAndIdempotent(t *testing.T) {
 	// Close must still release that connection (and reset state) so repeated
 	// requests do not leak connections and take the worker offline. It must
 	// also be safe to call multiple times.
-	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "", "", nil, false)
+	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "", "", nil, false, "", 0)
 
 	if err := s.Close(); err != nil {
 		t.Fatalf("first Close on uninitialized source: %v", err)
@@ -75,8 +75,8 @@ func TestPostgresSource_CloseUninitializedIsSafeAndIdempotent(t *testing.T) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.conn != nil {
-		t.Errorf("metadata connection not released after Close: got %v", s.conn)
+	if s.pool != nil {
+		t.Errorf("metadata pool not released after Close: got %v", s.pool)
 	}
 	if s.replConn != nil {
 		t.Errorf("replication connection not released after Close: got %v", s.replConn)
@@ -113,7 +113,7 @@ func TestPostgresSource_HandleCopyData_KeepaliveAdvancesLSN(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true)
+			s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true, "", 0)
 			s.lastReceivedLSN = tc.start
 
 			// ReplyRequested=false so no replication connection is needed.
@@ -132,14 +132,14 @@ func TestPostgresSource_HandleCopyData_KeepaliveAdvancesLSN(t *testing.T) {
 }
 
 func TestPostgresSource_HandleCopyData_EmptyIsSafe(t *testing.T) {
-	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true)
+	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true, "", 0)
 	if err := s.handleCopyData(t.Context(), nil, nil); err != nil {
 		t.Fatalf("handleCopyData(nil) returned error: %v", err)
 	}
 }
 
 func TestPostgresSource_HandleReplicationMessage_ErrorResponse(t *testing.T) {
-	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true)
+	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true, "", 0)
 	err := s.handleReplicationMessage(t.Context(), nil, &pgproto3.ErrorResponse{Message: "boom"})
 	if err == nil {
 		t.Fatal("expected error for ErrorResponse, got nil")
@@ -147,10 +147,10 @@ func TestPostgresSource_HandleReplicationMessage_ErrorResponse(t *testing.T) {
 }
 
 func TestPostgresSource_Dispatch_DeliversMessage(t *testing.T) {
-	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true)
+	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true, "", 0)
 	msg := s.handleInsert(42, &pglogrepl.InsertMessage{})
 
-	if err := s.dispatch(t.Context(), msg); err != nil {
+	if err := s.dispatch(t.Context(), 42, msg); err != nil {
 		t.Fatalf("dispatch returned error: %v", err)
 	}
 	select {
@@ -164,7 +164,7 @@ func TestPostgresSource_Dispatch_DeliversMessage(t *testing.T) {
 }
 
 func TestPostgresSource_Dispatch_RespectsCancellation(t *testing.T) {
-	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true)
+	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "slot", "pub", nil, true, "", 0)
 	// Fill the buffered channel so dispatch must block, then cancel.
 	for i := range cap(s.msgChan) {
 		s.msgChan <- s.handleInsert(pglogrepl.LSN(i), &pglogrepl.InsertMessage{})
@@ -173,7 +173,7 @@ func TestPostgresSource_Dispatch_RespectsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	err := s.dispatch(ctx, s.handleInsert(1, &pglogrepl.InsertMessage{}))
+	err := s.dispatch(ctx, 1, s.handleInsert(1, &pglogrepl.InsertMessage{}))
 	if err == nil {
 		t.Fatal("expected context error when channel is full and ctx cancelled")
 	}
@@ -205,7 +205,7 @@ func TestIsSlotActiveError(t *testing.T) {
 func TestPostgresSource_Read(t *testing.T) {
 	// Skip test if no postgres is running
 	t.Skip("Skipping test that requires a running Postgres instance")
-	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "test_slot", "test_pub", nil, true)
+	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "test_slot", "test_pub", nil, true, "", 0)
 	defer s.Close()
 
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
@@ -232,7 +232,7 @@ func (noopLogger) Error(string, ...any) {}
 // CDC changes. log() must use its own lock (logMu) and therefore be safe to
 // call while mu is held.
 func TestLogDoesNotDeadlockWhileHoldingMu(t *testing.T) {
-	s := NewPostgresSource("postgres://localhost/db", "slot", "pub", nil, true)
+	s := NewPostgresSource("postgres://localhost/db", "slot", "pub", nil, true, "", 0)
 	s.SetLogger(noopLogger{})
 
 	done := make(chan struct{})
@@ -253,19 +253,19 @@ func TestLogDoesNotDeadlockWhileHoldingMu(t *testing.T) {
 }
 
 func TestPostgresSource_PooledDetection(t *testing.T) {
-	direct := NewPostgresSource("postgres://u:p@localhost:5432/db?sslmode=disable", "slot", "pub", nil, true)
+	direct := NewPostgresSource("postgres://u:p@localhost:5432/db?sslmode=disable", "slot", "pub", nil, true, "", 0)
 	if direct.pooled {
 		t.Errorf("direct connection should not be detected as pooled")
 	}
 
-	pooled := NewPostgresSource("postgres://u:p@localhost:6432/db?pgbouncer=true", "slot", "pub", nil, true)
+	pooled := NewPostgresSource("postgres://u:p@localhost:6432/db?pgbouncer=true", "slot", "pub", nil, true, "", 0)
 	if !pooled.pooled {
 		t.Errorf("pgbouncer connection should be detected as pooled")
 	}
 }
 
 func TestPostgresSource_ReplConnRefusedWhenPooled(t *testing.T) {
-	p := NewPostgresSource("postgres://u:p@localhost:6432/db?pool_mode=transaction", "slot", "pub", nil, true)
+	p := NewPostgresSource("postgres://u:p@localhost:6432/db?pool_mode=transaction", "slot", "pub", nil, true, "", 0)
 
 	// Must fail fast (no network dial) with an actionable message instead of
 	// hanging on a replication handshake PgBouncer will never complete.
@@ -366,7 +366,7 @@ func TestIsOwnOrphanLocked(t *testing.T) {
 // TestNewPostgresSource_SetsAppName ensures the constructor tags every source
 // with a non-empty, prefixed replication application_name.
 func TestNewPostgresSource_SetsAppName(t *testing.T) {
-	p := NewPostgresSource("postgres://localhost/db", "event_slot", "pub", nil, true)
+	p := NewPostgresSource("postgres://localhost/db", "event_slot", "pub", nil, true, "", 0)
 	if !strings.HasPrefix(p.appName, replicationAppNamePrefix) {
 		t.Errorf("appName %q must start with %q", p.appName, replicationAppNamePrefix)
 	}

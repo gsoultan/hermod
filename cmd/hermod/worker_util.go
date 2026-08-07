@@ -56,7 +56,14 @@ func setupWorker(ctx context.Context, cancel context.CancelFunc, o *Options, reg
 		}
 		cancelPing()
 
-		reg.SetStorage(worker.NewAPIStorage(apiClient))
+		apiStore := worker.NewAPIStorage(apiClient)
+		reg.SetStorage(apiStore)
+		// Log storage is a separate field, and leaving it unset meant the
+		// registry installed a DatabaseLogger over every engine's stderr logger
+		// and then wrote the lines nowhere: r.logStorage was nil, CreateLogs
+		// returned success without storing anything, and a remote worker's
+		// entire workflow log — stall reports included — disappeared.
+		reg.SetLogStorage(apiStore)
 	}
 
 	handleWorkerIdentity(ctx, o, store)
@@ -97,12 +104,42 @@ func startWorkerAsync(ctx context.Context, wrk *worker.Worker) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("CRITICAL: Worker process panicked: %v\n%s", r, string(debug.Stack()))
+				log.Printf("CRITICAL: Worker supervisor panicked: %v\n%s", r, string(debug.Stack()))
 			}
 		}()
-		if err := wrk.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("Worker failed: %v", err)
+
+		retryCount := 0
+		for {
+			if err := wrk.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Printf("Worker failed: %v", err)
+
+				if wrk.IsDraining() {
+					break
+				}
+
+				retryCount++
+				// Exponential backoff: 2s, 4s, 8s, 16s, max 32s
+				delay := time.Duration(1<<uint(min(retryCount, 5))) * time.Second
+				log.Printf("Worker will restart in %v (attempt %d)", delay, retryCount)
+
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(delay):
+					continue
+				}
+			}
+
+			// If Start returned nil or context was canceled, check if we should exit
+			if errors.Is(ctx.Err(), context.Canceled) || wrk.IsDraining() {
+				break
+			}
+
+			// Unexpected termination without error, retry after a short delay
+			log.Printf("Worker terminated unexpectedly, restarting...")
+			time.Sleep(1 * time.Second)
 		}
+
 		// If the loop exited because of a platform-requested graceful shutdown,
 		// stop the host process (no-op when no shutdown func is set).
 		if wrk.IsDraining() {

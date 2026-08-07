@@ -150,6 +150,21 @@ func (s *PostgresSink) WriteBatch(ctx context.Context, msgs []hermod.Message) er
 		defer func() { _ = localTx.Rollback(ctx) }()
 	}
 
+	// An insert-only batch has no observable ordering, so it can take the COPY
+	// fast path. Everything else — and anything the classifier is unsure about —
+	// stays on the ordered path below, which preserves change-data-capture
+	// semantics (e.g. a delete followed by an insert for the same key).
+	if localTx != nil && s.classifyBatch(msgs) == bulkModeCopy {
+		table := s.resolveTable(msgs[0])
+		if err := s.ensureTable(ctx, executor, table); err != nil {
+			return fmt.Errorf("ensure table %s: %w", table, err)
+		}
+		if err := s.writeBatchCopy(ctx, localTx, table, msgs); err != nil {
+			return err
+		}
+		return localTx.Commit(ctx)
+	}
+
 	// Messages are applied in their original order to preserve change-data-capture
 	// semantics (e.g. a delete followed by an insert for the same key).
 	for _, msg := range msgs {

@@ -24,6 +24,14 @@ func NewRingBuffer(size int) *RingBuffer {
 	}
 }
 
+// Depth reports how many messages are waiting to be consumed and the buffer's
+// capacity. A buffer holding messages that never drain is what a wedged
+// pipeline looks like from the inside, and is the signal the stall watchdog
+// uses to tell "stuck" apart from "idle".
+func (b *RingBuffer) Depth() (queued, capacity int) {
+	return len(b.ch), cap(b.ch)
+}
+
 func (b *RingBuffer) Produce(ctx context.Context, msg hermod.Message) error {
 	b.mu.RLock()
 	closed := b.closed

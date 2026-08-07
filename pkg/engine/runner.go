@@ -22,6 +22,9 @@ type Runner struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	errCh  chan error
+	// lagState is only touched from the health-check path, which runs on a
+	// single goroutine, so it needs no lock of its own.
+	lagState lagState
 }
 
 func NewRunner(e *Engine) *Runner {
@@ -96,6 +99,20 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 		bufferCap := cfg.BackpressureBuffer
 		if bufferCap <= 0 {
 			bufferCap = 1000
+		}
+
+		// A batch can only fill from messages that are in flight, so a batch
+		// size above MaxInflight never completes on count and every flush waits
+		// out BatchTimeout instead. Clamp to what is reachable and say so.
+		if clamped := effectiveBatchSize(cfg.BatchSize, r.engine.config.MaxInflight); clamped != cfg.BatchSize {
+			r.engine.logger.Warn("Sink batch_size exceeds engine max_inflight and was clamped; "+
+				"raise max_inflight to use the configured batch size",
+				"workflow_id", r.engine.workflowID,
+				"sink_id", sinkID,
+				"configured_batch_size", cfg.BatchSize,
+				"max_inflight", r.engine.config.MaxInflight,
+				"effective_batch_size", clamped)
+			cfg.BatchSize = clamped
 		}
 
 		sw := &sinkWriter{
@@ -198,6 +215,20 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 		})
 	}
 
+	// A wedged pipeline used to be indistinguishable from an idle one: the
+	// workflow stayed active=true and "running", nothing was logged at any
+	// level, and replication lag grew until someone restarted it by hand.
+	r.wg.Go(func() {
+		r.watchForStalls(r.ctx)
+	})
+
+	// The watchdog above only sees work the engine has already accepted. A
+	// source that stops delivering entirely is invisible to it, so sources that
+	// can vouch for their own stream are watched separately.
+	r.wg.Go(func() {
+		r.watchForStreamSilence(r.ctx)
+	})
+
 	// Main Loops: Ingestion and Processing
 	var sinkWg sync.WaitGroup
 	sinkWg.Go(func() {
@@ -205,6 +236,27 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 	})
 
 	r.wg.Go(func() {
+		// The source ingestion loop runs on its own goroutine, so the recover in
+		// Start does not cover it. Without this, a panic anywhere in a source
+		// connector — a nil dereference in a CDC parser, say — takes down the
+		// whole worker process and every sibling workflow running on it.
+		defer func() {
+			if rec := recover(); rec != nil {
+				r.engine.logger.Error("Panic in source ingestion loop",
+					"workflow_id", r.engine.workflowID,
+					"panic", rec,
+					"stack", string(debug.Stack()))
+				r.engine.setStatus(fmt.Sprintf("Error: panic: %v", rec))
+				// Non-blocking: errCh is buffered and Start drains it after
+				// shutdown. Sending before cancel keeps this ordered ahead of
+				// the close(r.errCh) that follows ctx.Done().
+				select {
+				case r.errCh <- fmt.Errorf("source ingestion panic: %v", rec):
+				default:
+				}
+				r.cancel()
+			}
+		}()
 		r.runSourceToBuffer(r.ctx)
 	})
 
@@ -346,6 +398,27 @@ func (r *Runner) checkHealth(interval time.Duration) {
 		if lagReporter, ok := r.engine.source.(hermod.LagReporter); ok {
 			if lag, err := lagReporter.GetLag(r.ctx); err == nil {
 				r.engine.statusTracker.SetLag(lag)
+
+				// Retained WAL accumulates on the SOURCE database, so an
+				// unnoticed stall fills someone else's primary rather than
+				// degrading Hermod. Report the crossings.
+				threshold := r.engine.config.LagWarnBytes
+				if threshold == 0 {
+					threshold = DefaultLagWarnBytes
+				}
+				breached, cleared := r.lagState.observe(lag, threshold)
+				switch {
+				case breached:
+					r.engine.logger.Error("Source retention above threshold: the source database is holding WAL for this workflow",
+						"workflow_id", r.engine.workflowID,
+						"retained_bytes", lag,
+						"threshold_bytes", threshold,
+						"hint", "the pipeline is not acknowledging; check sink health and workflow status")
+				case cleared:
+					r.engine.logger.Info("Source retention back to normal",
+						"workflow_id", r.engine.workflowID,
+						"retained_bytes", lag)
+				}
 			}
 		}
 	}
@@ -691,13 +764,50 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 	}()
 
 	if len(targets) == 0 {
-		// Even if filtered, we must acknowledge to prevent re-reading
-		if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
-			_ = r.engine.outboxStore.DeleteOutboxItem(ctx, outboxID)
-		} else {
-			_ = r.engine.source.Ack(ctx, m)
+		ack := func() {
+			// Even if filtered, we must acknowledge to prevent re-reading
+			if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
+				_ = r.engine.outboxStore.DeleteOutboxItem(ctx, outboxID)
+			} else {
+				_ = r.engine.source.Ack(ctx, m)
+			}
+			r.engine.statusTracker.IncProcessed()
 		}
-		r.engine.statusTracker.IncProcessed()
+
+		// A workflow with no sinks at all can never deliver anything, so there is
+		// nothing to preserve: acknowledge and move on.
+		if !r.engine.hasSinks() {
+			ack()
+			return
+		}
+
+		// The workflow HAS sinks and resolved none of them. This used to be
+		// acknowledged and discarded exactly like a filtered message — the two
+		// were indistinguishable — which during a sink outage acknowledged 1996
+		// messages to the replication slot, advanced it past them, delivered
+		// none, wrote none to a dead-letter queue and logged nothing. The data
+		// was gone, and the "no data is lost, just restart it" behaviour seen
+		// earlier only held while the slot happened not to have advanced yet.
+		//
+		// Undeliverable is not the same as unwanted, so it is no longer treated
+		// as a successful delivery.
+		telemetry.MessagesDroppedNoTarget.WithLabelValues(r.engine.workflowID).Inc()
+		r.engine.reportUnroutable(m)
+
+		// Preferred: park it in the dead-letter sink, which preserves the message
+		// and lets the source advance.
+		if r.engine.deadLetterSink != nil {
+			r.engine.writeToDLQ(ctx, "", m)
+			ack()
+			return
+		}
+
+		// No dead-letter sink: do NOT acknowledge. Leaving the message
+		// un-acknowledged keeps it on the source — for a replication slot that
+		// means the WAL is retained and replays on the next run — which is the
+		// same choice the routing-error path above already makes. Retention is
+		// visible (the lag threshold reports it) and recoverable; a silent drop
+		// is neither.
 		return
 	}
 

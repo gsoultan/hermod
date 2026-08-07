@@ -1794,7 +1794,13 @@ func (s *sqlStorage) CreateLogs(ctx context.Context, logs []storage.Log) error {
 		}
 		defer tx.Rollback()
 
-		stmt, err := tx.PrepareContext(ctx, s.queries.get(QueryCreateLog))
+		// Rebind placeholders for the driver, exactly as s.exec does on the
+		// single-log path. Preparing the raw query here sent Postgres a
+		// statement full of '?' and every batch failed with a syntax error —
+		// discarded by the caller, so a workflow's whole log history vanished
+		// with nothing anywhere to say so. This is the only path the engine's
+		// logger uses.
+		stmt, err := tx.PrepareContext(ctx, s.prepareQuery(s.queries.get(QueryCreateLog)))
 		if err != nil {
 			return err
 		}

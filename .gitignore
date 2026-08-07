@@ -62,3 +62,24 @@ ui/test-results/
 /hermod_e2e.db-shm
 /hermod_e2e.db-wal
 /registry.test
+.dev/
+layout-audit.json
+form-audit.json
+# Screenshots and geometry dumps from the sidebar/visual audit — regenerated on
+# every run, useful locally and as CI artifacts, never worth committing.
+ui/audit-shots/
+
+# Ad-hoc artifacts that accumulate in the working tree during local runs and
+# debugging. None of them are inputs to a build or a test.
+/server.log
+/ui.log
+/test_results.txt
+/test-results/
+/dummy.txt
+/after_alert.png
+/before_alert.png
+/hermod_log_e2e.db
+/hermod_log_e2e.db-shm
+/hermod_log_e2e.db-wal
+# SQLite files created when a DSN query string is mistakenly used as a filename.
+/?_pragma=*

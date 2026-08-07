@@ -165,6 +165,12 @@ func (m *DefaultMessage) Payload() []byte {
 
 	// If payload is not set, try to marshal data
 	if len(m.data) > 0 {
+		if m.operation != "" {
+			if a, ok := m.data["after"]; ok {
+				m.payload, _ = json.Marshal(a)
+				return bytes.Clone(m.payload)
+			}
+		}
 		m.payload, _ = json.Marshal(m.data)
 		return bytes.Clone(m.payload)
 	}
@@ -236,6 +242,23 @@ func (m *DefaultMessage) Clone() hermod.Message {
 	defer m.mu.RUnlock()
 
 	clone := AcquireMessage()
+	if clone == m {
+		// Use-after-release: the pool handed back the very message being
+		// cloned, which means its refcount reached zero while this reference
+		// was still live. Locking it would block forever against the
+		// m.mu.RLock() held above — an unkillable hang rather than a visible
+		// error. Fall back to an off-pool message so the clone still succeeds.
+		// See TestCloneAfterPoolReuseDoesNotDeadlock.
+		clone = &DefaultMessage{
+			metadata: make(map[string]string),
+			data:     make(map[string]any),
+		}
+		atomic.StoreInt32(&clone.refCount, 1)
+	}
+
+	// The clone must be locked: a message can still be concurrently Reset by
+	// another goroutine that is releasing it, so writing its fields unguarded
+	// is a data race.
 	clone.mu.Lock()
 	defer clone.mu.Unlock()
 
@@ -296,7 +319,11 @@ func (m *DefaultMessage) ToMap() map[string]any {
 		}
 		after := m.payload
 		if len(after) == 0 && len(m.data) > 0 {
-			after, _ = json.Marshal(m.data)
+			if a, ok := m.data["after"]; ok {
+				after, _ = json.Marshal(a)
+			} else {
+				after, _ = json.Marshal(m.data)
+			}
 		}
 		if len(after) > 0 {
 			res["after"] = json.RawMessage(after)
@@ -491,17 +518,33 @@ func (m *DefaultMessage) SetData(key string, value any) {
 	// If data is empty but payload is not, try to unmarshal payload first
 	if len(m.data) == 0 && len(m.payload) > 0 {
 		var d map[string]any
-		if err := json.Unmarshal(m.payload, &d); err == nil {
-			m.data = d
+		payloadToUnmarshal := m.payload
+		if err := json.Unmarshal(payloadToUnmarshal, &d); err == nil {
+			if m.operation != "" {
+				m.data["after"] = d
+			} else {
+				m.data = d
+			}
 		} else {
 			// Try lenient approach
-			if fixed := TryFixJSON(m.payload); fixed != nil {
+			if fixed := TryFixJSON(payloadToUnmarshal); fixed != nil {
 				if err := json.Unmarshal(fixed, &d); err == nil {
-					m.data = d
+					if m.operation != "" {
+						m.data["after"] = d
+					} else {
+						m.data = d
+					}
 				}
 			}
 		}
 	}
+
+	// "$" is the JSONPath document root, not a field. The read side
+	// (evaluator.GetMsgValByPath) strips this prefix, and the UI teaches users
+	// to write paths this way, so without the same treatment here a
+	// targetField of "$.customer_name" silently buried the value under a
+	// literal "$" key — present in the payload, absent everywhere anyone looked.
+	key = strings.TrimPrefix(key, "$.")
 
 	if strings.Contains(key, ".") {
 		parts := strings.Split(key, ".")

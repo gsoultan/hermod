@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   quick-verify:
-    name: Quick Verify (Go)
+    name: Verify (Go)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -23,8 +23,14 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum
+      - name: Build
+        run: go build ./...
       - name: Verify (vet)
         run: go vet ./...
+      # The suite was previously absent from CI entirely, so a red test could
+      # merge unnoticed. Race detection is on because the engine is concurrent.
+      - name: Test (race)
+        run: go test -race ./...
       - name: Lint (golangci-lint)
         uses: golangci/golangci-lint-action@v8
         with:
@@ -38,8 +44,15 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
-  ui-build:
-    name: UI Build
+      # dev.sh teardown has to reap processes that no longer hold a port; one
+      # that survived a run for hours poisoned the next run's log with errors
+      # from a database it was no longer using. --stop touches no container
+      # runtime, so this is safe on a bare runner.
+      - name: Dev script cleanup
+        run: ./scripts/dev_cleanup_test.sh
+
+  ui-verify:
+    name: Verify (UI)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -52,6 +65,64 @@ jobs:
         with:
           bun-version: latest
       - name: Install dependencies
-        run: bun install
-      - name: Build UI
+        run: bun install --frozen-lockfile
+      # `tsc -b`, not `tsc --noEmit`: the root tsconfig is a solution file with
+      # `files: []`, so --noEmit checks nothing and always passes.
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Lint
+        run: bun run lint
+      - name: Unit tests
+        run: bun run test
+      - name: Build
         run: bun run build
+
+  e2e:
+    name: E2E + layout audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: |
+          bun install --frozen-lockfile
+          cd ui && bun install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+      # SQLite keeps CI free of a database service. The script builds the
+      # binary, starts API + UI, completes first-run setup and returns.
+      - name: Start Hermod
+        run: ./scripts/dev.sh --sqlite --reset --detach
+      - name: Layout audit
+        run: bunx playwright test ui/__tests__/layout_audit.spec.ts
+      # Geometry, not markup: catches text spilling out of the collapsed rail
+      # and icons drifting off-centre inside their highlight.
+      - name: Sidebar audit
+        run: bunx playwright test ui/__tests__/visual_audit.spec.ts
+      - name: Canvas area regression
+        run: bunx playwright test ui/__tests__/canvas_area_e2e.spec.ts
+      - name: Form structure audit
+        run: bunx playwright test ui/__tests__/form_audit.spec.ts
+      - name: Stop Hermod
+        if: always()
+        run: ./scripts/dev.sh --stop
+      - name: Upload audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-audits
+          path: |
+            layout-audit.json
+            form-audit.json
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore

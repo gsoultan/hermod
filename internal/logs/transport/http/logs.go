@@ -10,7 +10,43 @@ import (
 func (h *LogHandler) RegisterLogRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/logs", h.ListLogs)
 	mux.HandleFunc("POST /api/logs", h.CreateLog)
+	mux.HandleFunc("POST /api/logs/batch", h.CreateLogs)
 	mux.HandleFunc("DELETE /api/logs", h.DeleteLogs)
+}
+
+// maxLogBatchBytes bounds a single log-shipping request.
+//
+// This endpoint takes writes from every remote worker, and the engine's logger
+// batches fifty entries at a time, so the realistic ceiling is far below this.
+// The bound exists because decoding an unbounded body would let one worker — or
+// one malformed client — exhaust the platform's memory.
+const maxLogBatchBytes = 4 << 20 // 4 MiB
+
+// CreateLogs accepts a batch of workflow logs.
+//
+// A remote worker has no database of its own: its engines' logs exist only in
+// its process log unless they are shipped here. Sending them one request per
+// entry does not scale to a pipeline's log volume, which is why the batch form
+// exists.
+func (h *LogHandler) CreateLogs(w http.ResponseWriter, r *http.Request) {
+	var logs []storage.Log
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxLogBatchBytes))
+	if err := dec.Decode(&logs); err != nil {
+		h.JsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(logs) == 0 {
+		w.WriteHeader(http.StatusCreated)
+		return
+	}
+
+	if err := h.LogStorage.CreateLogs(r.Context(), logs); err != nil {
+		h.JsonError(w, "Failed to create logs: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
 }
 
 func (h *LogHandler) ListLogs(w http.ResponseWriter, r *http.Request) {

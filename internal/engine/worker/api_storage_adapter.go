@@ -112,7 +112,12 @@ func (a *apiStorage) UpdateWorker(ctx context.Context, worker storage.Worker) er
 func (a *apiStorage) ListLogs(ctx context.Context, filter storage.LogFilter) ([]storage.Log, int, error) {
 	return nil, 0, nil
 }
-func (a *apiStorage) CreateLogs(ctx context.Context, logs []storage.Log) error { return nil }
+
+// CreateLogs is intentionally absent: it is served by the embedded
+// WorkerAPIClient, which ships the batch to the platform. The override that
+// used to sit here was a `return nil` stub, so every workflow log a remote
+// worker produced was accepted and discarded.
+
 func (a *apiStorage) DeleteLogs(ctx context.Context, filter storage.LogFilter) error {
 	return nil
 }

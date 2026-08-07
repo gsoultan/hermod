@@ -30,7 +30,11 @@ func TestPostgresSink_ColumnMapping(t *testing.T) {
 	mappings := []sqlutil.ColumnMapping{
 		{SourceField: "id", TargetColumn: "user_id", DataType: "TEXT", IsPrimaryKey: true},
 		{SourceField: "name", TargetColumn: "full_name", DataType: "TEXT"},
-		{SourceField: "age", TargetColumn: "user_age", DataType: "INTEGER"},
+		// Nullable on purpose: the "after." mapping case below writes with a
+		// mapping set that does not cover this column. A mapping with
+		// IsNullable false creates the column NOT NULL (see buildColumnDef),
+		// which would make that later, deliberately-partial write impossible.
+		{SourceField: "age", TargetColumn: "user_age", DataType: "INTEGER", IsNullable: true},
 	}
 
 	snk := NewPostgresSink(dsn, table, mappings, false, "hard_delete", "", "", "", false, false)

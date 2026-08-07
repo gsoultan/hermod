@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/engine/registry/interfaces"
@@ -256,6 +257,51 @@ func (s *statefulSource) IsReady(ctx context.Context) error {
 	return s.Ping(ctx)
 }
 
+// The forwards below exist because statefulSource embeds the hermod.Source
+// interface, and embedding an interface promotes only the methods that
+// interface declares. Every optional capability of the wrapped source —
+// lag, outstanding work, stream liveness — is therefore invisible through this
+// wrapper unless it is forwarded by hand.
+//
+// This is not hypothetical: GetLag was dropped here, so multiSource.GetLag
+// found no LagReporter, and the engine read zero lag for every CDC workflow.
+// Workflow status, WAL-retention alerting and the stall watchdog's lag fallback
+// were all reading a constant zero. TestSourceWrappersForwardOptionalInterfaces
+// exists to fail the moment a wrapper or an interface is added without a
+// matching forward.
+
+// GetLag forwards replication lag from the wrapped source.
+func (s *statefulSource) GetLag(ctx context.Context) (uint64, error) {
+	if lr, ok := s.Source.(hermod.LagReporter); ok {
+		return lr.GetLag(ctx)
+	}
+	return 0, nil
+}
+
+// PendingWork forwards the wrapped source's outstanding-work signal.
+func (s *statefulSource) PendingWork() (pending bool, known bool) {
+	if pw, ok := s.Source.(hermod.PendingWorkReporter); ok {
+		return pw.PendingWork()
+	}
+	return false, false
+}
+
+// LastStreamActivity forwards the wrapped source's stream liveness clock.
+func (s *statefulSource) LastStreamActivity() time.Time {
+	if lr, ok := s.Source.(hermod.StreamLivenessReporter); ok {
+		return lr.LastStreamActivity()
+	}
+	return time.Time{}
+}
+
+// StreamSilenceThreshold forwards the wrapped source's silence deadline.
+func (s *statefulSource) StreamSilenceThreshold() time.Duration {
+	if lr, ok := s.Source.(hermod.StreamLivenessReporter); ok {
+		return lr.StreamSilenceThreshold()
+	}
+	return 0
+}
+
 // --- Workflow Node Execution ---
 
 func (r *Registry) RunWorkflowNode(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
@@ -322,4 +368,103 @@ func findNodeByID(nodes []storage.WorkflowNode, id string) *storage.WorkflowNode
 		}
 	}
 	return nil
+}
+
+// GetLag reports the largest lag among the sources feeding this workflow.
+//
+// A workflow can read from several sources; it is behind by as much as its
+// worst one. Without this the multiplexer hid every source's lag from the
+// engine, so status, retention alerting and stall detection all saw zero.
+func (m *multiSource) GetLag(ctx context.Context) (uint64, error) {
+	var worst uint64
+	for _, s := range m.sources {
+		if s == nil || s.source == nil {
+			continue
+		}
+		lr, ok := s.source.(hermod.LagReporter)
+		if !ok {
+			continue
+		}
+		if lag, err := lr.GetLag(ctx); err == nil && lag > worst {
+			worst = lag
+		}
+	}
+	return worst, nil
+}
+
+// PendingWork reports whether any source feeding this workflow is still owed
+// acknowledgements. known is false only when no source can answer at all, so a
+// multiplexer over sources that cannot tell leaves the engine on its own
+// fallback rather than asserting that nothing is outstanding.
+func (m *multiSource) PendingWork() (pending bool, known bool) {
+	for _, s := range m.sources {
+		if s == nil || s.source == nil {
+			continue
+		}
+		pw, ok := s.source.(hermod.PendingWorkReporter)
+		if !ok {
+			continue
+		}
+		srcPending, srcKnown := pw.PendingWork()
+		if !srcKnown {
+			continue
+		}
+		known = true
+		if srcPending {
+			return true, true
+		}
+	}
+	return false, known
+}
+
+// LastStreamActivity reports the least recent activity across the sources that
+// hold a server-pushed stream, so the quietest stream is the one judged.
+//
+// Sources without a stream (a polling SQL source, say) report the zero time and
+// are skipped: they have no cadence to be measured against, and including them
+// would make every mixed workflow look permanently wedged.
+func (m *multiSource) LastStreamActivity() time.Time {
+	var oldest time.Time
+	for _, s := range m.sources {
+		if s == nil || s.source == nil {
+			continue
+		}
+		lr, ok := s.source.(hermod.StreamLivenessReporter)
+		if !ok || lr.StreamSilenceThreshold() <= 0 {
+			continue
+		}
+		last := lr.LastStreamActivity()
+		if last.IsZero() {
+			continue
+		}
+		if oldest.IsZero() || last.Before(oldest) {
+			oldest = last
+		}
+	}
+	return oldest
+}
+
+// StreamSilenceThreshold reports the most generous deadline among the sources
+// that hold a stream.
+//
+// Pairing the least recent activity with the largest threshold is deliberately
+// conservative: with sources on servers configured differently, this can be slow
+// to notice one of them going quiet, but it can never declare a healthy stream
+// dead. Under-reporting is recoverable — the progress watchdog is still
+// watching — while a spurious restart of a working pipeline is not.
+func (m *multiSource) StreamSilenceThreshold() time.Duration {
+	var widest time.Duration
+	for _, s := range m.sources {
+		if s == nil || s.source == nil {
+			continue
+		}
+		lr, ok := s.source.(hermod.StreamLivenessReporter)
+		if !ok {
+			continue
+		}
+		if th := lr.StreamSilenceThreshold(); th > widest {
+			widest = th
+		}
+	}
+	return widest
 }

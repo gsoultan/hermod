@@ -14,18 +14,23 @@ func TestParseColumnMappings(t *testing.T) {
 			input: "",
 			want:  nil,
 		},
+		// A blank source_field falls back to target_column rather than staying
+		// empty. An empty path resolves to nil at write time, which binds the
+		// column as NULL and breaks NOT NULL / PRIMARY KEY constraints; UIs also
+		// commonly leave the field blank to mean "same name as the target".
+		// See the rationale on ParseColumnMappings.
 		{
-			name:  "Blank source_field is preserved (trimmed)",
+			name:  "Blank source_field falls back to target_column",
 			input: `[{"source_field":"","target_column":"id","data_type":"uuid","is_primary_key":true}]`,
 			want: []ColumnMapping{
-				{SourceField: "", TargetColumn: "id", DataType: "uuid", IsPrimaryKey: true},
+				{SourceField: "id", TargetColumn: "id", DataType: "uuid", IsPrimaryKey: true},
 			},
 		},
 		{
-			name:  "Whitespace-only source_field is trimmed to empty",
+			name:  "Whitespace-only source_field is trimmed then falls back",
 			input: `[{"source_field":"   ","target_column":"code"}]`,
 			want: []ColumnMapping{
-				{SourceField: "", TargetColumn: "code"},
+				{SourceField: "code", TargetColumn: "code"},
 			},
 		},
 		{

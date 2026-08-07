@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "uvx",
+      "args": [
+        "--with",
+        "mcp<2",
+        "postgres-mcp",
+        "--access-mode=restricted",
+        "postgresql://postgres:postgres@localhost:5432/hermod_metadata"
+      ]
+    }
+  }
+}

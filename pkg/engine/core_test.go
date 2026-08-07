@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -174,9 +175,12 @@ func TestEngineSinkPreflightFail(t *testing.T) {
 
 	eng := NewEngine(source, []hermod.Sink{sink}, rb)
 	err := eng.Start(t.Context())
+	// Match on the prefix rather than the whole string: the engine wraps the
+	// underlying ping failure onto the end of this message, and losing that
+	// cause would make a real pre-flight failure much harder to diagnose.
 	expectedErr := "sink pre-flight checks failed after 3 attempts"
-	if err == nil || err.Error() != expectedErr {
-		t.Errorf("expected %q, got %v", expectedErr, err)
+	if err == nil || !strings.Contains(err.Error(), expectedErr) {
+		t.Errorf("expected error containing %q, got %v", expectedErr, err)
 	}
 }
 
@@ -1193,6 +1197,11 @@ func (s *nilMsgSink) Write(ctx context.Context, msg hermod.Message) error {
 	return nil
 }
 func (s *nilMsgSink) Ping(ctx context.Context) error { return nil }
+
+// Close must be implemented explicitly. The struct embeds a nil hermod.Sink,
+// so without this the promoted Close reaches a nil interface during
+// closeSinksOnShutdown and the engine never finishes shutting down.
+func (s *nilMsgSink) Close() error { return nil }
 
 func TestNilMessageHandling(t *testing.T) {
 	src := &nilMsgSource{}

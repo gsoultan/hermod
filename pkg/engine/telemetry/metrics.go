@@ -26,6 +26,15 @@ var (
 		Help: "The total number of sink write errors",
 	}, []string{"workflow_id", "sink_id"})
 
+	// MessagesDroppedNoTarget counts messages acknowledged to the source and
+	// then discarded because a workflow that HAS sinks resolved none of them.
+	// Every one of these is data that will not be delivered and is not in a
+	// dead-letter queue, so any non-zero value is an incident.
+	MessagesDroppedNoTarget = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_engine_messages_dropped_no_target_total",
+		Help: "Messages acknowledged but delivered nowhere because no sink target resolved",
+	}, []string{"workflow_id"})
+
 	ActiveEngines = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "hermod_engine_active_total",
 		Help: "The total number of active engines",

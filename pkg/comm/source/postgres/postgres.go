@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -94,14 +95,28 @@ type PostgresSource struct {
 	initialized     bool
 	lastReceivedLSN pglogrepl.LSN
 	lastAckedLSN    pglogrepl.LSN
-	msgChan         chan hermod.Message
-	errChan         chan error
-	cancel          context.CancelFunc
-	initMu          sync.Mutex
-	wg              sync.WaitGroup
-	query           string
-	pollInterval    time.Duration
-	lastWatermark   any
+	// lastStreamActivity (unix nanos) is when anything last arrived on the
+	// replication stream, keepalives included. Read without the mutex by the
+	// engine's liveness watcher, so it is atomic.
+	lastStreamActivity atomic.Int64
+	// lastEmittedLSN is the highest WAL position of a change actually handed to
+	// consumers. Compared against lastAckedLSN it says whether this source is
+	// still owed acknowledgements, which replication lag cannot: see
+	// PendingWork.
+	lastEmittedLSN atomic.Uint64
+	// walSenderTimeout (nanos) is the server's wal_sender_timeout, read once per
+	// stream establishment. It sets the cadence keepalives are promised at, and
+	// therefore how long silence must last to mean something. Zero means the
+	// server sends no keepalives, so silence proves nothing.
+	walSenderTimeout atomic.Int64
+	msgChan          chan hermod.Message
+	errChan          chan error
+	cancel           context.CancelFunc
+	initMu           sync.Mutex
+	wg               sync.WaitGroup
+	query            string
+	pollInterval     time.Duration
+	lastWatermark    any
 	// logMu guards logger only. It is intentionally separate from mu: log() is
 	// called from many code paths that already hold mu (init, Close and every
 	// *Locked helper). Since mu is a non-reentrant sync.Mutex, having log()
@@ -470,10 +485,25 @@ func (p *PostgresSource) streamLoop(ctx context.Context) {
 		backoff = time.Second
 
 		err = p.consumeStream(ctx, conn)
-		if err == nil || ctx.Err() != nil || errors.Is(err, context.Canceled) {
+
+		// Only a shutdown retires the source. Anything else reconnects.
+		//
+		// This returned on a nil error too, which retired the source
+		// permanently while the workflow was still active: streamLoop exited,
+		// teardownStream set initialized = false, and nothing decoded WAL ever
+		// again. Read then blocked forever on a message that could not arrive,
+		// so the whole pipeline sat idle — worker pool idle, sink writer idle,
+		// no errors logged — while pgx's background reader kept draining the
+		// socket, advancing sent_lsn and making the source look alive. The only
+		// cure was restarting the workflow, which built a new source.
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 			return
 		}
-		p.log("WARN", "Replication stream interrupted, reconnecting", "slot", p.slotName, "error", err)
+		if err == nil {
+			p.log("WARN", "Replication stream ended without an error; reconnecting", "slot", p.slotName)
+		} else {
+			p.log("WARN", "Replication stream interrupted, reconnecting", "slot", p.slotName, "error", err)
+		}
 		// Drop the broken connection so the next iteration recreates it.
 		p.closeReplConn()
 	}
@@ -578,8 +608,103 @@ func (p *PostgresSource) reconnectStream(ctx context.Context) error {
 	pubName := p.publicationName
 	p.mu.Unlock()
 
-	p.log("INFO", "Replication stream (re)established", "slot", slotName, "publication", pubName)
+	// A freshly established stream counts as activity, so the liveness watcher
+	// measures silence from now rather than from whenever the previous stream
+	// died.
+	p.noteStreamActivity()
+	p.refreshWalSenderTimeout(ctx)
+
+	p.log("INFO", "Replication stream (re)established", "slot", slotName, "publication", pubName,
+		"keepalive_deadline", p.StreamSilenceThreshold().String())
 	return nil
+}
+
+// noteStreamActivity records that something arrived on the replication stream.
+func (p *PostgresSource) noteStreamActivity() {
+	p.lastStreamActivity.Store(time.Now().UnixNano())
+}
+
+// noteEmitted records the WAL position of a change actually handed to consumers.
+func (p *PostgresSource) noteEmitted(lsn pglogrepl.LSN) {
+	if lsn == 0 {
+		return
+	}
+	for {
+		prev := p.lastEmittedLSN.Load()
+		if uint64(lsn) <= prev {
+			return
+		}
+		if p.lastEmittedLSN.CompareAndSwap(prev, uint64(lsn)) {
+			return
+		}
+	}
+}
+
+// PendingWork implements hermod.PendingWorkReporter. It reports whether this
+// source has handed over changes that were never acknowledged.
+//
+// Only positions actually delivered count. WAL that arrived and was filtered
+// out — a table this workflow does not follow, or traffic in another database
+// on the same server — is not work this pipeline owes, even though it shows up
+// as replication lag. Conflating the two is what would make an idle workflow on
+// a busy server look permanently wedged.
+func (p *PostgresSource) PendingWork() (pending bool, known bool) {
+	if !p.useCDC {
+		return false, false
+	}
+	p.mu.Lock()
+	acked := p.lastAckedLSN
+	p.mu.Unlock()
+	return p.lastEmittedLSN.Load() > uint64(acked), true
+}
+
+// LastStreamActivity implements hermod.StreamLivenessReporter.
+func (p *PostgresSource) LastStreamActivity() time.Time {
+	ns := p.lastStreamActivity.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
+}
+
+// streamSilenceFactor multiplies the keepalive cadence to get the deadline. A
+// keepalive is due every wal_sender_timeout/2, so three missed keepalives in a
+// row is the threshold — tolerant of one lost packet and one slow scheduler,
+// intolerant of a stream that has actually stopped.
+const streamSilenceFactor = 3
+
+// StreamSilenceThreshold implements hermod.StreamLivenessReporter. It is derived
+// from the server's own wal_sender_timeout rather than assumed, because a server
+// configured with a long timeout sends keepalives correspondingly rarely and a
+// hardcoded deadline would declare a healthy stream dead.
+func (p *PostgresSource) StreamSilenceThreshold() time.Duration {
+	if !p.useCDC {
+		return 0
+	}
+	timeout := time.Duration(p.walSenderTimeout.Load())
+	if timeout <= 0 {
+		// wal_sender_timeout = 0 disables keepalives entirely, so silence
+		// carries no information and the check must stay off.
+		return 0
+	}
+	return streamSilenceFactor * (timeout / 2)
+}
+
+// refreshWalSenderTimeout reads the server's keepalive cadence. A failure leaves
+// the previous value in place and, on a first attempt, leaves the liveness check
+// disabled — an unknown cadence is not grounds for declaring a stream dead.
+func (p *PostgresSource) refreshWalSenderTimeout(ctx context.Context) {
+	var ms int64
+	queryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err := p.pool.QueryRow(queryCtx,
+		`SELECT setting::bigint FROM pg_settings WHERE name = 'wal_sender_timeout'`).Scan(&ms)
+	if err != nil {
+		p.log("WARN", "Could not read wal_sender_timeout; stream liveness detection is disabled for this stream",
+			"error", err.Error())
+		return
+	}
+	p.walSenderTimeout.Store(int64(time.Duration(ms) * time.Millisecond))
 }
 
 // consumeStream reads from the replication connection until it errors or the
@@ -619,6 +744,11 @@ func (p *PostgresSource) consumeStream(ctx context.Context, conn *pgx.Conn) erro
 			}
 			continue
 		}
+		// Anything at all — WAL data or a bare keepalive — proves the walsender
+		// is still serving this stream. Recorded before dispatch so a message
+		// that fails to parse still counts as the stream being alive.
+		p.noteStreamActivity()
+
 		if err := p.handleReplicationMessage(ctx, conn, msg); err != nil {
 			return err
 		}
@@ -667,11 +797,50 @@ func (p *PostgresSource) receiveMessage(ctx context.Context, conn *pgx.Conn, dea
 
 // sendStandbyStatus reports the current write/flush positions to Postgres,
 // confirming progress and acting as a keepalive.
+// flushPosition is the WAL position this source may safely confirm to Postgres.
+//
+// Confirming a position tells the server every change below it is dealt with and
+// its WAL may be discarded. Get it wrong in one direction and acknowledged-but-
+// undelivered changes are destroyed with no way to replay them; get it wrong in
+// the other and the slot pins WAL on the source database forever.
+//
+// The acknowledged position is always safe. Beyond it, the received position is
+// safe too — but only when everything this source ever handed to the pipeline
+// has come back acknowledged. The gap between the last delivered change and the
+// last received one is WAL the pipeline was never given: changes to tables
+// outside the publication, activity in other databases on the same instance,
+// autovacuum. Nothing downstream can be waiting on data it was never sent, so
+// holding that WAL protects nothing and costs the source database its disk.
+//
+// When something is outstanding, no such argument is available: a delivered
+// message that has not been acknowledged might still be in flight, buffered in a
+// sink, or waiting on a retry, and confirming past it would discard the only
+// copy. So the position stays pinned at the acknowledgement.
+func (p *PostgresSource) flushPosition() pglogrepl.LSN {
+	p.mu.Lock()
+	received := p.lastReceivedLSN
+	acked := p.lastAckedLSN
+	p.mu.Unlock()
+
+	if !p.useCDC {
+		return acked
+	}
+
+	// Anything delivered and not yet acknowledged pins the position.
+	if p.lastEmittedLSN.Load() > uint64(acked) {
+		return acked
+	}
+	if received > acked {
+		return received
+	}
+	return acked
+}
+
 func (p *PostgresSource) sendStandbyStatus(ctx context.Context, conn *pgx.Conn) error {
 	p.mu.Lock()
 	write := p.lastReceivedLSN
-	flush := p.lastAckedLSN
 	p.mu.Unlock()
+	flush := p.flushPosition()
 	return pglogrepl.SendStandbyStatusUpdate(ctx, conn.PgConn(), pglogrepl.StandbyStatusUpdate{
 		WALWritePosition: write,
 		WALFlushPosition: flush,
@@ -754,27 +923,74 @@ func (p *PostgresSource) handleXLogData(ctx context.Context, data []byte) error 
 		p.mu.Unlock()
 		return nil
 	case *pglogrepl.InsertMessage:
-		return p.dispatch(ctx, p.handleInsert(currentLSN, lm))
+		return p.dispatch(ctx, currentLSN, p.handleInsert(currentLSN, lm))
 	case *pglogrepl.UpdateMessage:
-		return p.dispatch(ctx, p.handleUpdate(currentLSN, lm))
+		return p.dispatch(ctx, currentLSN, p.handleUpdate(currentLSN, lm))
 	case *pglogrepl.DeleteMessage:
-		return p.dispatch(ctx, p.handleDelete(currentLSN, lm))
+		return p.dispatch(ctx, currentLSN, p.handleDelete(currentLSN, lm))
 	default:
 		return nil
 	}
 }
 
+// dispatchBlockedWarnAfter is how long a handover to the consumer may stall
+// before it is reported. Backpressure is normal and this must not fire on it;
+// what it exists to catch is the indefinite case.
+const dispatchBlockedWarnAfter = 15 * time.Second
+
 // dispatch delivers a change message to consumers, respecting cancellation.
-func (p *PostgresSource) dispatch(ctx context.Context, msg hermod.Message) error {
+//
+// The handover deliberately blocks: dropping a decoded change here would lose
+// data that Postgres has already handed us and will not resend. But blocking is
+// also what makes a wedged pipeline invisible — this call sits inside the
+// replication loop, so while it waits, consumeStream cannot send standby status
+// updates. confirmed_flush_lsn then freezes and the source database retains WAL
+// indefinitely, with nothing logged. Observed at 21 MB and climbing on an
+// otherwise "running" workflow.
+//
+// So: still never drop, but stop being silent about it.
+func (p *PostgresSource) dispatch(ctx context.Context, lsn pglogrepl.LSN, msg hermod.Message) error {
 	if msg == nil {
 		return nil
 	}
+
+	// Fast path: hand over without allocating a timer.
 	select {
 	case p.msgChan <- msg:
+		p.noteEmitted(lsn)
 		return nil
 	case <-ctx.Done():
 		message.ReleaseMessage(msg)
 		return ctx.Err()
+	default:
+	}
+
+	warn := time.NewTimer(dispatchBlockedWarnAfter)
+	defer warn.Stop()
+	started := time.Now()
+	warned := false
+
+	for {
+		select {
+		case p.msgChan <- msg:
+			p.noteEmitted(lsn)
+			if warned {
+				p.log("INFO", "CDC handover resumed; the consumer is draining again",
+					"blocked_for", time.Since(started).String())
+			}
+			return nil
+		case <-ctx.Done():
+			message.ReleaseMessage(msg)
+			return ctx.Err()
+		case <-warn.C:
+			// Report once, then keep waiting: repeating this every interval
+			// would bury the log under one line per stalled message.
+			p.log("ERROR", "CDC stalled: the consumer is not accepting changes, so replication cannot be acknowledged",
+				"blocked_for", time.Since(started).String(),
+				"slot", p.slotName,
+				"hint", "the source database is retaining WAL for this slot; check sink health")
+			warned = true
+		}
 	}
 }
 

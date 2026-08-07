@@ -14,6 +14,7 @@ import (
 )
 
 func TestE2EScenario_FullWorkflow(t *testing.T) {
+	requireIntegrationInfra(t)
 	// 1. Setup Registry with Mock Storage
 	ms := &mockE2EStorage{
 		sources:   make(map[string]storage.Source),
@@ -111,6 +112,7 @@ func TestE2EScenario_FullWorkflow(t *testing.T) {
 }
 
 func TestE2EPostgresConnectionTest_NoBlock(t *testing.T) {
+	requireIntegrationInfra(t)
 	// This test verifies that a hanging Postgres connection test does not block the environment.
 	// Since we fixed Pooler.Get with singleflight and checkResourcesHealth to be async.
 

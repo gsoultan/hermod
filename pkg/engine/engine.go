@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/user/hermod"
@@ -40,6 +41,12 @@ type Engine struct {
 	sinkTypes  []string
 
 	onStatusChange func(telemetry.StatusUpdate)
+	// onStall is the supervisor hook: see SetOnStall.
+	onStall func(reason string)
+	// unroutableCount/unroutableLastLog track messages acknowledged with no sink
+	// resolved — silent data loss until it is reported.
+	unroutableCount   atomic.Int64
+	unroutableLastLog atomic.Pointer[time.Time]
 
 	// Internal state tracking (Facade components)
 	statusTracker *telemetry.StatusTracker
@@ -223,6 +230,22 @@ func (e *Engine) SetValidator(v schema.Validator) {
 
 func (e *Engine) SetTraceRecorder(tr hermod.TraceRecorder) {
 	e.traceRecorder = tr
+}
+
+// SetOnStall registers a supervisor for this engine. The watchdog calls it once
+// per stall episode, on its own goroutine, when the pipeline is holding work it
+// has stopped completing.
+//
+// This exists because a data pipeline has many ways to wedge and only one
+// reliable cure. Three separate wedge causes were found and fixed by hand (a
+// double-pooled pendingMessage, a circuit-breaker self-deadlock, a source that
+// retired itself silently) and the symptom still recurred. Restarting the
+// workflow recovered it every time, losing nothing, because the replication
+// slot holds un-acknowledged WAL until the new engine re-reads it. So rather
+// than assume the last bug was the last bug, supervise: detect the stall and
+// rebuild the engine, the way a process supervisor or a liveness probe would.
+func (e *Engine) SetOnStall(fn func(reason string)) {
+	e.onStall = fn
 }
 
 func (e *Engine) SetOnStatusChange(fn func(telemetry.StatusUpdate)) {

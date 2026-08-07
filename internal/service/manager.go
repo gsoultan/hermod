@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/kardianos/service"
 )
@@ -22,6 +24,7 @@ type Config struct {
 // program implements service.Interface.
 type program struct {
 	exit    chan struct{}
+	done    chan struct{}
 	runFunc func(ctx context.Context)
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -29,7 +32,13 @@ type program struct {
 
 func (p *program) Start(s service.Service) error {
 	// Start should not block. Do the actual work in a goroutine.
-	go p.runFunc(p.ctx)
+	go func() {
+		// Closing done is what lets Run() return when the application stops on
+		// its own rather than on a signal. Without it the process outlives the
+		// work it was started for.
+		defer close(p.done)
+		p.runFunc(p.ctx)
+	}()
 	return nil
 }
 
@@ -76,9 +85,24 @@ func Manage(cfg Config, action string, runFunc func(ctx context.Context)) error 
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &program{
 		exit:    make(chan struct{}),
+		done:    make(chan struct{}),
 		runFunc: runFunc,
 		ctx:     ctx,
 		cancel:  cancel,
+	}
+
+	// Run() otherwise waits for a termination signal and nothing else, so an
+	// application that finishes by itself leaves the process running with no
+	// listener and no work. RunWait is the supported hook for widening that
+	// wait; it is honoured by the launchd, systemd, upstart and sysv backends.
+	svcConfig.Option["RunWait"] = func() {
+		sigChan := make(chan os.Signal, 3)
+		signal.Notify(sigChan, syscall.SIGTERM, os.Interrupt)
+		defer signal.Stop(sigChan)
+		select {
+		case <-sigChan:
+		case <-p.done:
+		}
 	}
 
 	s, err := service.New(p, svcConfig)

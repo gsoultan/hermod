@@ -176,6 +176,12 @@ func (w *Worker) GetMetrics() (cpu, mem float64) {
 // Start starts the worker loop. It is hardened so that an unexpected panic in
 // any synchronous step (registration, polling, sync, health checks or cleanup)
 // is recovered and surfaced as an error instead of crashing the host process.
+// maxConsecutivePanics bounds how many back-to-back panicking sync cycles the
+// worker will absorb before it stops and reports failure. One or two are
+// treated as transient; beyond that the worker is not making progress and
+// should be restarted by its supervisor rather than spinning silently.
+const maxConsecutivePanics = 3
+
 func (w *Worker) Start(ctx context.Context) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -196,15 +202,26 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 
 	defer w.cleanup(ctx)
 
+	// A single panic in a sync cycle is absorbed so a transient fault does not
+	// take the worker down. A persistent one is not: without a limit the loop
+	// re-panics every tick forever, flooding logs and making no progress while
+	// still looking alive from the outside. After maxConsecutivePanics the
+	// worker gives up and surfaces the failure to its supervisor.
+	consecutivePanics := 0
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
 			shouldExit := false
+			panicked := false
+			var lastPanic any
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
+						panicked = true
+						lastPanic = r
 						w.logger.Error("Worker: sync/health loop panicked", "panic", r, "stack", string(debug.Stack()))
 					}
 				}()
@@ -216,6 +233,18 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 					w.checkHealth(ctx)
 				}
 			}()
+
+			if panicked {
+				consecutivePanics++
+				if consecutivePanics >= maxConsecutivePanics {
+					w.logger.Error("Worker: giving up after repeated panics",
+						"consecutive_panics", consecutivePanics, "last_panic", lastPanic)
+					return fmt.Errorf("worker sync loop panicked %d times consecutively; last panic: %v",
+						consecutivePanics, lastPanic)
+				}
+			} else {
+				consecutivePanics = 0
+			}
 
 			if shouldExit {
 				return nil
