@@ -17,6 +17,8 @@ import (
 	"github.com/user/hermod/internal/governance"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/comm/message"
+
+	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
 // validateWorkflow performs lightweight server-side validation for workflow configuration.
@@ -153,6 +155,8 @@ func (h *WorkflowHandler) BatchDeleteWorkflows(w http.ResponseWriter, r *http.Re
 			results[id] = "Error: " + err.Error()
 		} else {
 			_ = h.Registry.StopEngine(r.Context(), id)
+			// See DeleteWorkflow: Prometheus keeps a series forever once seen.
+			telemetry.ForgetWorkflow(id)
 			results[id] = "OK"
 			h.RecordAuditLog(r, "INFO", "Batch deleted workflow "+id, "DELETE", id, "", "", nil)
 		}
@@ -779,6 +783,17 @@ func (h *WorkflowHandler) DeleteWorkflow(w http.ResponseWriter, r *http.Request)
 		h.JsonError(w, "Failed to delete workflow: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Stop the engine before forgetting its metrics, so a still-running engine
+	// cannot immediately recreate the series we are about to drop. The batch
+	// delete path already did this; the single delete left the engine running
+	// until a worker sync happened to notice the row was gone.
+	if h.Registry != nil {
+		_ = h.Registry.StopEngine(r.Context(), id)
+	}
+	// Prometheus never reclaims a series on its own, so a deleted workflow's
+	// metrics would otherwise be exported for the life of the process.
+	telemetry.ForgetWorkflow(id)
 
 	h.RecordAuditLog(r, "INFO", "Deleted workflow "+id, "DELETE", id, "", "", nil)
 
@@ -1440,15 +1455,22 @@ func (h *WorkflowHandler) ImportWorkflow(w http.ResponseWriter, r *http.Request)
 	}
 
 	// 3. Upsert Workflow
+	// saveErr must be declared out here. Assigning to the `err` that the
+	// create-vs-update check declares in its own init statement writes to a
+	// variable scoped to that if/else, which dies at the closing brace — the
+	// check below then read the function-scoped err from io.ReadAll, which is
+	// always nil by this point. A workflow that failed to save was reported to
+	// the caller as imported successfully.
 	var isUpdate bool
-	if _, err := h.Storage.GetWorkflow(ctx, bundle.Workflow.ID); err == nil {
-		err = h.Storage.UpdateWorkflow(ctx, bundle.Workflow)
+	var saveErr error
+	if _, getErr := h.Storage.GetWorkflow(ctx, bundle.Workflow.ID); getErr == nil {
+		saveErr = h.Storage.UpdateWorkflow(ctx, bundle.Workflow)
 		isUpdate = true
 	} else {
-		err = h.Storage.CreateWorkflow(ctx, bundle.Workflow)
+		saveErr = h.Storage.CreateWorkflow(ctx, bundle.Workflow)
 	}
 
-	if err != nil {
+	if err := saveErr; err != nil {
 		h.JsonError(w, "Failed to save workflow: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

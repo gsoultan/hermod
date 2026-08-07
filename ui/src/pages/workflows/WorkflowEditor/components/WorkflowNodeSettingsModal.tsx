@@ -64,10 +64,11 @@ export function WorkflowNodeSettingsModal({
         <Stack gap="lg" style={{ width: '100%' }}>
           <Box>
             {selectedNode?.type === 'source' && (
-              <SourceForm 
+              <SourceForm
                 key={selectedNode.id}
-                embedded 
-                onSave={handleInlineSave} 
+                embedded
+                onSave={handleInlineSave}
+                onCancel={onClose}
                 onRunSimulation={handleTest}
                 isEditing={selectedNode.data.ref_id !== 'new'} 
                 initialData={selectedNodeData as Source | undefined} 
@@ -78,11 +79,12 @@ export function WorkflowNodeSettingsModal({
               />
             )}
             {selectedNode?.type === 'sink' && (
-              <SinkForm 
+              <SinkForm
                 key={selectedNode.id}
-                embedded 
-                onSave={handleInlineSave} 
-                isEditing={selectedNode.data.ref_id !== 'new'} 
+                embedded
+                onSave={handleInlineSave}
+                onCancel={onClose}
+                isEditing={selectedNode.data.ref_id !== 'new'}
                 initialData={selectedNodeData as Sink | undefined} 
                 vhost={vhost}
                 workerID={workerID}

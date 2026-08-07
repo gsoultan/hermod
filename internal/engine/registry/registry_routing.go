@@ -10,6 +10,7 @@ import (
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/engine/registry/interfaces"
 	"github.com/user/hermod/internal/storage"
+	"github.com/user/hermod/pkg/engine/telemetry"
 	"github.com/user/hermod/pkg/infra/evaluator"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -22,6 +23,41 @@ type subSource struct {
 	sourceID string
 	source   hermod.Source
 	running  bool
+
+	// failures counts consecutive read failures and retryAt is when this
+	// sub-source may next be respawned. A reader goroutine exits on error and is
+	// respawned lazily by the next multiSource.Read; without a backoff that
+	// makes a permanently dead source retry once per Read — measured at ~60k
+	// attempts/second — which burns a core for as long as the workflow runs.
+	// Both fields are guarded by multiSource.mu.
+	failures int
+	retryAt  time.Time
+}
+
+// subSourceRetryBase and subSourceRetryMax bound the per-source backoff. The
+// floor keeps a briefly-flapping source rejoining quickly; the ceiling keeps a
+// long-dead one cheap. This is deliberately separate from the engine-wide
+// reconnect backoff in runner.go: that one pauses the whole workflow, while
+// this one only holds back the source that is actually failing.
+const (
+	subSourceRetryBase = 100 * time.Millisecond
+	subSourceRetryMax  = 5 * time.Second
+)
+
+// retryDelay returns the backoff for the current consecutive-failure count,
+// doubling from the base up to the cap.
+func retryDelay(failures int) time.Duration {
+	if failures < 1 {
+		return subSourceRetryBase
+	}
+	d := subSourceRetryBase
+	for range failures - 1 {
+		d *= 2
+		if d >= subSourceRetryMax {
+			return subSourceRetryMax
+		}
+	}
+	return d
 }
 
 type multiSource struct {
@@ -30,6 +66,10 @@ type multiSource struct {
 	errChan chan error
 	mu      sync.Mutex
 	closed  bool
+
+	// workflowID labels the per-source backoff metric. It is set at build time
+	// and never mutated, so it needs no lock.
+	workflowID string
 }
 
 func (m *multiSource) Read(ctx context.Context) (hermod.Message, error) {
@@ -39,8 +79,15 @@ func (m *multiSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, errors.New("multiSource closed")
 	}
 
+	now := time.Now()
+	// If every source ends up backing off, nothing will produce and nothing will
+	// wake this call: the select below would block until the workflow is
+	// cancelled. Track when the earliest one becomes eligible so the wait can be
+	// bounded by that instead.
+	anyRunning := false
+	var nextRetry time.Time
 	for _, s := range m.sources {
-		if !s.running {
+		if !s.running && !now.Before(s.retryAt) {
 			s.running = true
 			go func(ss *subSource) {
 				defer func() {
@@ -49,8 +96,30 @@ func (m *multiSource) Read(ctx context.Context) (hermod.Message, error) {
 					m.mu.Unlock()
 				}()
 				for {
+					// A source is allowed to return (nil, nil) meaning "nothing
+					// right now" — runner.go handles exactly that. The loop below
+					// only returns on a read error, or when *sending a message*
+					// loses the race to ctx.Done(); a source that keeps yielding
+					// nothing hits neither, so this goroutine outlived every
+					// cancellation and spun for the life of the process. That is
+					// one leaked, CPU-burning goroutine per source per workflow
+					// stop, which is what a restart loop accumulates.
+					if ctx.Err() != nil {
+						return
+					}
 					msg, err := ss.source.Read(ctx)
 					if err != nil {
+						// Hold this source back before it is respawned. Only the
+						// failing source is delayed; its healthy peers keep
+						// streaming through the same multiplexer.
+						m.mu.Lock()
+						ss.failures++
+						ss.retryAt = time.Now().Add(retryDelay(ss.failures))
+						m.mu.Unlock()
+						// A source stuck in backoff delivers nothing while the
+						// workflow still reports healthy, because its siblings
+						// are fine. Without this counter that is invisible.
+						telemetry.SubSourceBackoff.WithLabelValues(m.workflowID, ss.sourceID).Inc()
 						if ctx.Err() == nil {
 							select {
 							case m.errChan <- err:
@@ -60,6 +129,12 @@ func (m *multiSource) Read(ctx context.Context) (hermod.Message, error) {
 						return
 					}
 					if msg != nil {
+						// A successful read clears the backoff, so a source that
+						// flaps once is not penalised for the rest of its life.
+						m.mu.Lock()
+						ss.failures = 0
+						ss.retryAt = time.Time{}
+						m.mu.Unlock()
 						msg.SetMetadata("_source_node_id", ss.nodeID)
 						// Remember the latest record this source actually
 						// forwarded downstream so passive sampling can surface
@@ -75,8 +150,35 @@ func (m *multiSource) Read(ctx context.Context) (hermod.Message, error) {
 				}
 			}(s)
 		}
+		if s.running {
+			anyRunning = true
+		} else if nextRetry.IsZero() || s.retryAt.Before(nextRetry) {
+			nextRetry = s.retryAt
+		}
 	}
 	m.mu.Unlock()
+
+	if !anyRunning && !nextRetry.IsZero() {
+		wait := time.Until(nextRetry)
+		if wait < 0 {
+			wait = 0
+		}
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case err := <-m.errChan:
+			return nil, err
+		case msg := <-m.msgChan:
+			return msg, nil
+		case <-timer.C:
+			// A source is eligible again. Return the sentinel so the engine's
+			// read loop calls back in and respawns it, rather than reporting a
+			// failure that has not happened.
+			return nil, nil
+		}
+	}
 
 	select {
 	case <-ctx.Done():

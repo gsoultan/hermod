@@ -3,6 +3,8 @@ package telemetry
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"github.com/user/hermod/pkg/comm/message"
 )
 
 var (
@@ -34,6 +36,39 @@ var (
 		Name: "hermod_engine_messages_dropped_no_target_total",
 		Help: "Messages acknowledged but delivered nowhere because no sink target resolved",
 	}, []string{"workflow_id"})
+
+	// MessageOverReleases mirrors message.OverReleaseCount. A message released
+	// after its refcount reached zero is back in the pool while an owner still
+	// holds it, so that owner reads whatever the pool refilled it with. The
+	// symptom is duplicated and lost payloads with the totals still balancing —
+	// no error, no dead-letter record. Any non-zero value is a correctness bug
+	// and should page, not merely graph.
+	//
+	// A GaugeFunc reads the live counter at scrape time, so there is no polling
+	// loop to keep in sync and no window where the exported value is stale.
+	MessageOverReleases = promauto.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "hermod_message_over_releases_total",
+		Help: "Messages released after their reference count already reached zero (always a bug)",
+	}, func() float64 { return float64(message.OverReleaseCount()) })
+
+	// WorkerAdmissionRejected counts workflows a worker declined to start
+	// because the host was above its resource threshold. This is deliberate load
+	// shedding, but it is indistinguishable from "the platform is fine" unless
+	// it is measured: the workflow simply never starts and only a warning is
+	// logged. Alert when it is sustained.
+	WorkerAdmissionRejected = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_worker_admission_rejected_total",
+		Help: "Workflows not started because the worker was over its CPU/memory admission threshold",
+	}, []string{"worker_id", "reason"})
+
+	// SubSourceBackoff counts times an individual source inside a multi-source
+	// workflow was held back after a read error. A source stuck in backoff is
+	// delivering nothing while its workflow still reports healthy, because its
+	// siblings are fine.
+	SubSourceBackoff = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_engine_sub_source_backoff_total",
+		Help: "Times a single source within a multi-source workflow was backed off after a read error",
+	}, []string{"workflow_id", "source_id"})
 
 	ActiveEngines = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "hermod_engine_active_total",

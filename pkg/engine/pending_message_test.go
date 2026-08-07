@@ -25,6 +25,7 @@ import (
 // There are 14 release sites against 2 acquire sites, so over-release must be
 // survivable rather than merely forbidden.
 func TestReleasePendingMessageNeverDoublePools(t *testing.T) {
+	allowPendingOverReleases(1) // the third release below
 	msg := message.AcquireMessage()
 	msg.SetPayload([]byte(`{"k":"v"}`))
 
@@ -44,6 +45,7 @@ func TestReleasePendingMessageNeverDoublePools(t *testing.T) {
 // The reference count must not be left negative, or the next acquire/release
 // cycle on a recycled object pools it early — the same failure one step later.
 func TestReleasePendingMessageDoesNotLeaveNegativeRefCount(t *testing.T) {
+	allowPendingOverReleases(3) // 5 releases against 2 references
 	msg := message.AcquireMessage()
 	msg.SetPayload([]byte(`{"k":"v"}`))
 
@@ -60,6 +62,7 @@ func TestReleasePendingMessageDoesNotLeaveNegativeRefCount(t *testing.T) {
 // The real shape: many goroutines releasing the same pendingMessage, as the
 // producer, the sink writer and the drop_oldest evictor all do. Run under -race.
 func TestReleasePendingMessageConcurrentOverRelease(t *testing.T) {
+	allowPendingOverReleases(200 * 2) // 4 releasers against 2 references, 200 rounds
 	for range 200 {
 		msg := message.AcquireMessage()
 		msg.SetPayload([]byte(`{"k":"v"}`))

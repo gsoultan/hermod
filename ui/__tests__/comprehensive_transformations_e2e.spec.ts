@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { Client } from 'pg';
+import { E2E_USER, E2E_PASS } from './support/auth';
 
 test.describe('Comprehensive Transformations E2E', () => {
   const sourceDB = 'hermod_test_source';
@@ -14,11 +15,11 @@ test.describe('Comprehensive Transformations E2E', () => {
   test.beforeEach(async ({ page }) => {
     page.on('console', msg => console.log('BROWSER:', msg.text()));
     // Login
-    await page.goto('http://localhost:5175/login');
-    await page.getByLabel('Username').first().fill('admin');
-    await page.locator('input[type="password"]').fill('admin123');
+    await page.goto('/login');
+    await page.getByLabel('Username').first().fill(E2E_USER);
+    await page.locator('input[type="password"]').fill(E2E_PASS);
     await page.getByRole('button', { name: 'Sign In' }).click();
-    await expect(page).toHaveURL('http://localhost:5175/', { timeout: 30000 });
+    await expect(page).toHaveURL(/\/$/, { timeout: 30000 });
   });
 
   test('Transformation Coverage: Core, Advanced, and UI Preview', async ({ page }) => {
@@ -201,7 +202,7 @@ test.describe('Comprehensive Transformations E2E', () => {
 
     // 4. Verify Workflow in UI
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto(`http://localhost:5175/workflows/${workflowID}`);
+    await page.goto(`/workflows/${workflowID}`);
     await page.waitForSelector('text=Comp Workflow');
     
     // Optional UI interaction check
@@ -300,7 +301,7 @@ test.describe('Comprehensive Transformations E2E', () => {
     } else {
         await filterNode.click({ force: true });
     }
-    await page.getByLabel('Value').fill('NonExistentName');
+    await page.getByLabel('Value').first().fill('NonExistentName');
     await page.getByRole('button', { name: 'Save' }).click();
     await page.getByRole('button', { name: 'Yes, Save & Restart' }).click();
     await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible({ timeout: 15000 });

@@ -749,8 +749,7 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 		val := cond["value"]
 		match := false
 
-		var fieldValRaw any
-		fieldValRaw = EvaluateField(msg, field)
+		fieldValRaw := EvaluateField(msg, field)
 		// Treat missing values consistently as empty string (UI simulator behavior)
 		fieldVal := ""
 		if fieldValRaw != nil {

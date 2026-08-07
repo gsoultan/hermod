@@ -191,13 +191,17 @@ type slowMockSource struct {
 
 func (s *slowMockSource) Read(ctx context.Context) (hermod.Message, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if len(s.messages) == 0 {
+		// Release before parking. Blocking on ctx.Done() while holding the lock
+		// deadlocks anything that inspects this source concurrently — which is
+		// exactly what a test waiting for "all messages handed over" does.
+		s.mu.Unlock()
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
 	msg := s.messages[0]
 	s.messages = s.messages[1:]
+	s.mu.Unlock()
 	return msg, nil
 }
 

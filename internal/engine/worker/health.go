@@ -107,13 +107,6 @@ func (w *Worker) checkResourcesHealth(ctx context.Context) {
 	}()
 }
 
-func (w *Worker) isResourceAssigned(id, workerID string) bool {
-	if workerID != "" {
-		return w.workerGUID != "" && workerID == w.workerGUID
-	}
-	return w.isAssigned(id, workerID)
-}
-
 func (w *Worker) checkSourceHealth(ctx context.Context, src storage.Source) {
 	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

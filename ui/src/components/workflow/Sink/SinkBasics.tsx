@@ -74,6 +74,7 @@ export function SinkBasics({
           onChange={(val) => onChangeVHost(val || '')}
           onBlur={() => setTouched((t) => ({ ...t, vhost: true }))}
           error={vhostError}
+          allowDeselect={false}
           required
         />
       )}
@@ -100,6 +101,7 @@ export function SinkBasics({
           onChange={(val) => onChangeType(val || '')}
           onBlur={() => setTouched((t) => ({ ...t, type: true }))}
           error={typeError}
+          allowDeselect={false}
           required
           searchable
         />

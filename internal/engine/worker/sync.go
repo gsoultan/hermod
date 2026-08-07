@@ -152,8 +152,18 @@ func (w *Worker) SyncWorkflow(ctx context.Context, wf storage.Workflow, sctx Syn
 
 	if wf.Active && !w.registry.IsEngineRunning(wf.ID) {
 		cpu, mem := w.GetMetrics()
-		if cpu > 0.85 || mem > 0.85 {
-			w.logger.Warn("Worker: admission control rejected new workflow", "workflow_id", wf.ID, "cpu", cpu, "mem", mem)
+		if cpu > admissionCPUThreshold || mem > admissionMemThreshold {
+			// Shedding load is deliberate, but from the outside it is
+			// indistinguishable from a healthy idle platform: the workflow just
+			// never starts. Count it so it can be alerted on rather than found
+			// by reading logs after someone notices missing data.
+			reason := "memory"
+			if cpu > admissionCPUThreshold {
+				reason = "cpu"
+			}
+			telemetry.WorkerAdmissionRejected.WithLabelValues(sctx.WorkerID, reason).Inc()
+			w.logger.Warn("Worker: admission control rejected new workflow",
+				"workflow_id", wf.ID, "cpu", cpu, "mem", mem, "reason", reason)
 			return
 		}
 	}

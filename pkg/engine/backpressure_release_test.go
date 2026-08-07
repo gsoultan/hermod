@@ -44,6 +44,7 @@ func (m *countingMessage) Release()                       { m.releaseCount.Add(1
 // eviction path and the owner both released the same pending message, causing a
 // double release / pool corruption.
 func TestBackpressureDropOldest_ReleasesEvictedMessageOnce(t *testing.T) {
+	allowPendingOverReleases(1) // the deliberate stray double-release below
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 

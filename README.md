@@ -616,6 +616,46 @@ Worker Metrics:
 - `hermod_worker_sync_duration_seconds`: Time taken for a worker synchronization cycle.
 - `hermod_worker_active_workflows_total`: Number of active workflows currently managed by the worker.
 - `hermod_worker_sync_errors_total`: Total number of worker synchronization errors or workflow start failures.
+- `hermod_worker_admission_rejected_total`: Workflows not started because the worker was over its
+  CPU/memory admission threshold, labelled by `reason` (`cpu` or `memory`).
+
+### Alerting on silent failures
+
+Most pipeline problems announce themselves as errors. These four do not — they lose or withhold data
+while every status stays green — so each one needs an alert rather than a dashboard.
+
+| Metric | What a non-zero value means | Action |
+| :--- | :--- | :--- |
+| `hermod_message_over_releases_total` | A message was released after its reference count already reached zero, so it returned to the pool while still in use and another message overwrote it. Symptom is duplicated *and* lost payloads with the totals still balancing. | **Page.** This is a code defect, never a capacity issue. Capture the workflow topology and open a bug; the `TestMain` guards in `internal/engine/registry` and `pkg/engine` should have caught it before release. |
+| `hermod_engine_messages_dropped_no_target_total` | Messages were acknowledged to the source and then delivered nowhere, because a workflow that has sinks resolved none of them. They are not in a dead-letter queue. | **Page.** Check sink reachability and the workflow's edges. Data already acknowledged is unrecoverable from the source. |
+| `hermod_worker_admission_rejected_total` | The worker is shedding load: it is refusing to start new workflows because the host is above its threshold. Affected workflows simply never start. | Investigate host load. The reading is host-wide, so on a shared machine this can fire on load Hermod does not own — raise `HERMOD_ADMISSION_CPU_THRESHOLD` / `HERMOD_ADMISSION_MEM_THRESHOLD`, or give the worker a dedicated node. |
+| `hermod_engine_sub_source_backoff_total` | One source inside a multi-source workflow is failing and has been backed off. Its siblings keep streaming, so the workflow still reports healthy while that source delivers nothing. | Check that source's connectivity. Sustained growth means it is not recovering; the backoff caps at 5s between attempts. |
+
+Admission control knobs (both default to `0.85`; set to `1` or higher to disable that dimension):
+
+```bash
+HERMOD_ADMISSION_CPU_THRESHOLD=0.85   # refuse new workflows above this host CPU fraction
+HERMOD_ADMISSION_MEM_THRESHOLD=0.85   # refuse new workflows above this host memory fraction
+```
+
+### Rebalancing and failback
+
+When workers compete for a workflow, the current owner gets a weight bonus so workflows do not flap
+between workers on small load differences — every move is a stop and a restart, which for a CDC
+source means tearing down a replication connection.
+
+The trade-off is that rebalancing *by load* is slow. At the default `2.0`, a saturated worker still
+retains roughly 199 keys in 200 against a completely idle peer, so a worker that has just recovered
+may reclaim very little for a long time. **Failback after a worker dies is unaffected and complete**
+— a dead owner stops being a candidate at all, and its workflows move immediately.
+
+```bash
+HERMOD_LEASE_HYSTERESIS=2.0   # incumbent's weight multiplier; 1.0 disables the bonus
+```
+
+Lower it towards `1.0` to trade stability for faster load-following. Measured on a two-worker
+cluster with one idle and one saturated worker, an idle worker reclaims 1 key in 200 at `2.0` and
+192 in 200 at `1.0` (`TestLeaseHysteresisIsConfigurable`).
 
 ## Performance Tuning Guide
 

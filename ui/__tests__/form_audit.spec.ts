@@ -1,5 +1,6 @@
 import { test, type Page } from '@playwright/test';
 import { writeFileSync } from 'fs';
+import { E2E_USER, E2E_PASS } from './support/auth';
 
 /**
  * Form structure audit.
@@ -14,8 +15,8 @@ const FORM_ROUTES = ['/sources/new', '/sinks/new', '/workflows/new', '/settings'
 
 const login = async (page: Page) => {
   await page.goto('/login');
-  await page.getByPlaceholder('Your username').fill('admin');
-  await page.getByPlaceholder('Your password').fill('admin');
+  await page.getByPlaceholder('Your username').fill(E2E_USER);
+  await page.getByPlaceholder('Your password').fill(E2E_PASS);
   await page.getByRole('button', { name: /sign in|login/i }).click();
   await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 30000 });
 };

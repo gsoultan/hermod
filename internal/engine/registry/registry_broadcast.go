@@ -443,14 +443,6 @@ func (r *Registry) hasLiveMessageSubscribers() bool {
 	return r.hasLiveSubs.Load() > 0
 }
 
-// hasStatusObservers reports whether any client is watching status, dashboard
-// or live-message streams. Node payload samples are only consumed by these
-// observers, so capturing them (which copies the message payload) is skipped
-// entirely when nobody is connected.
-func (r *Registry) hasStatusObservers() bool {
-	return r.hasStatusSubs.Load() > 0 || r.hasLiveSubs.Load() > 0
-}
-
 func (r *Registry) getConsistentData(msg hermod.Message) map[string]any {
 	if msg == nil {
 		return nil

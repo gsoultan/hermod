@@ -752,6 +752,30 @@ func (w *sinkWriter) run(ctx context.Context) {
 	w.runOn(ctx, w.ch)
 }
 
+// defaultDrainWriteTimeout bounds shutdown writes when no DrainTimeout is
+// configured. Draining has to be bounded by something: a sink that never
+// returns would otherwise hold the process open forever and hang a rolling
+// deploy on one bad destination.
+const defaultDrainWriteTimeout = 30 * time.Second
+
+// drainBudget is how long shutdown work is allowed to keep going.
+func drainBudget(e *Engine) time.Duration {
+	if e != nil && e.config.DrainTimeout > 0 {
+		return e.config.DrainTimeout
+	}
+	return defaultDrainWriteTimeout
+}
+
+// drainWriteContext returns a context detached from the (already cancelled)
+// engine context and bounded by the drain budget, for shutdown work that must
+// still be attempted but must also terminate.
+func drainWriteContext(parent context.Context, drainTimeout time.Duration) (context.Context, context.CancelFunc) {
+	if drainTimeout <= 0 {
+		drainTimeout = defaultDrainWriteTimeout
+	}
+	return context.WithTimeout(context.WithoutCancel(parent), drainTimeout)
+}
+
 func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -777,6 +801,49 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 	var batchBytes int
 	ticker := time.NewTicker(batchTimeout)
 	defer ticker.Stop()
+
+	// Sink writes run on a context detached from the engine's.
+	//
+	// The engine context governs whether to keep *accepting* work, not whether
+	// to finish work already accepted. Handing it to sink writes conflated the
+	// two: on shutdown it is cancelled, so every sink that honours cancellation
+	// — which is most of them — refused immediately, and messages already taken
+	// from the source (often already acknowledged to it) were lost during the
+	// very drain that exists to deliver them. Detaching also saves the write
+	// that is already in flight at the moment of cancellation, which a
+	// swap-on-shutdown could not.
+	//
+	// Unbounded detachment would hang shutdown behind a wedged sink, so the
+	// drain budget is armed when shutdown begins and cancels whatever is left.
+	writeCtx, writeCancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer writeCancel()
+
+	// The budget has to be armed independently of the loop below. This
+	// goroutine can be parked *inside* a sink write when cancellation arrives,
+	// and a timer started from the loop would then never run — the write that
+	// needs cancelling is the very thing preventing the loop from arming it.
+	// That deadlocks shutdown behind exactly the wedged sink the budget exists
+	// to escape. The watcher exits with writeCtx, which the defer above always
+	// cancels, so it cannot outlive this call.
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-writeCtx.Done():
+			return
+		}
+		t := time.NewTimer(drainBudget(w.engine))
+		defer t.Stop()
+		select {
+		case <-t.C:
+			writeCancel()
+		case <-writeCtx.Done():
+		}
+	}()
+
+	// shutdown is ctx.Done(), nilled once observed: a cancelled context's Done
+	// channel stays ready forever, so leaving it in the select would spin the
+	// loop hot instead of letting it drain.
+	shutdown := ctx.Done()
 
 	flush := func() {
 		if len(batch) == 0 {
@@ -807,11 +874,11 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 		isBatch := false
 		if bs, ok := w.sink.(hermod.BatchSink); ok && len(msgsReuse) > 1 {
 			isBatch = true
-			err = w.engine.writeBatchToSink(ctx, bs, msgsReuse, w.sinkID, w.index)
+			err = w.engine.writeBatchToSink(writeCtx, bs, msgsReuse, w.sinkID, w.index)
 		} else {
 			perMsgErr = make([]error, len(msgsReuse))
 			for i, m := range msgsReuse {
-				e := w.engine.writeToSink(ctx, w.sink, m, w.sinkID, w.index, observeAttemptErr)
+				e := w.engine.writeToSink(writeCtx, w.sink, m, w.sinkID, w.index, observeAttemptErr)
 				perMsgErr[i] = e
 				if e != nil {
 					err = e
@@ -903,9 +970,15 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 					}
 				case <-ticker.C:
 					flush()
-				case <-ctx.Done():
+				case <-shutdown:
+					// Shutdown has begun. Do NOT return here: the runner cancels
+					// the context first and only afterwards — once every in-flight
+					// sender has finished — closes this input channel. Returning
+					// now abandons everything still queued, which the source has
+					// already handed over and in many cases already acknowledged.
+					// The `!ok` branch above is what actually completes the drain.
+					shutdown = nil
 					flush()
-					return true
 				}
 			}
 		}()
@@ -971,9 +1044,8 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 		} else {
 			select {
 			case target <- pm:
-			case <-ctx.Done():
-				signalDone(pm, ctx.Err())
-				releasePendingMessage(pm)
+			default:
+				w.enqueueOrDrain(ctx, target, pm)
 			}
 		}
 	case config.BPSpillToDisk:
@@ -1010,10 +1082,41 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 	default: // BPBlock
 		select {
 		case target <- pm:
-		case <-ctx.Done():
-			signalDone(pm, ctx.Err())
-			releasePendingMessage(pm)
+		default:
+			w.enqueueOrDrain(ctx, target, pm)
 		}
+	}
+}
+
+// enqueueOrDrain hands the message to the writer, and on shutdown keeps trying
+// for the drain budget instead of dropping it.
+//
+// Giving up the moment the engine context is cancelled loses messages at the
+// door: they have already been taken from the source — often already
+// acknowledged to it — but never reach the writer, so the writer's own drain
+// never sees them. Blocking is safe here because the writer keeps consuming
+// until its channel is closed, and the runner only closes that channel after
+// every sender has returned. The budget is what keeps it from becoming an
+// unbounded wait behind a wedged sink.
+func (w *sinkWriter) enqueueOrDrain(ctx context.Context, target chan *pendingMessage, pm *pendingMessage) {
+	select {
+	case target <- pm:
+		return
+	case <-ctx.Done():
+	}
+
+	var drainTimeout time.Duration
+	if w.engine != nil {
+		drainTimeout = w.engine.config.DrainTimeout
+	}
+	enqCtx, cancel := drainWriteContext(ctx, drainTimeout)
+	defer cancel()
+
+	select {
+	case target <- pm:
+	case <-enqCtx.Done():
+		signalDone(pm, enqCtx.Err())
+		releasePendingMessage(pm)
 	}
 }
 

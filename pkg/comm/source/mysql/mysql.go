@@ -96,10 +96,10 @@ func (m *MySQLSource) init(ctx context.Context) error {
 		m.mu.Lock()
 		if m.db == nil {
 			m.db = newDb
-			db = newDb
 		} else {
+			// Another goroutine won the race; close the handle we opened rather
+			// than leaking it.
 			newDb.Close()
-			db = m.db
 		}
 		m.mu.Unlock()
 	}

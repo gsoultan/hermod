@@ -125,6 +125,13 @@ interface SinkFormProps {
   isEditing?: boolean;
   embedded?: boolean;
   onSave?: (data: any) => void;
+  /**
+   * Dismiss without saving. Embedded hosts (the workflow editor drawer and the
+   * node settings modal) must supply this — Cancel used to be expressed as
+   * `onSave(null)`, which the editor's inline-save handler dereferenced and
+   * threw on, leaving the button dead. Cancel is its own signal now.
+   */
+  onCancel?: () => void;
   vhost?: string;
   workerID?: string;
   availableFields?: any[];
@@ -135,12 +142,13 @@ interface SinkFormProps {
   isRefreshing?: boolean;
 }
 
-export function SinkForm({ 
-    initialData, 
-    isEditing = false, 
-    embedded = false, 
-    onSave, 
-    vhost, 
+export function SinkForm({
+    initialData,
+    isEditing = false,
+    embedded = false,
+    onSave,
+    onCancel,
+    vhost,
     workerID,
     availableFields,
     upstreamSource
@@ -237,7 +245,12 @@ export function SinkForm({
         setTestResult={setTestResult}
         updateConfig={updateConfig}
         handleSinkChange={handleSinkChange}
-        onCancel={() => embedded ? (onSave && onSave(null)) : navigate({ to: '/sinks' })}
+        onCancel={() => {
+          if (onCancel) { onCancel(); return; }
+          // Never fall back to onSave(null): the save path treats its argument
+          // as a real config and corrupts (or crashes on) the node.
+          if (!embedded) navigate({ to: '/sinks' });
+        }}
         configComponents={configComponents}
         availableFields={availableFields}
         upstreamSource={upstreamSource}

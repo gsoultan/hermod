@@ -63,6 +63,13 @@ interface SourceFormProps {
   isEditing?: boolean;
   embedded?: boolean;
   onSave?: (data: any) => void;
+  /**
+   * Dismiss without saving. Embedded hosts (the workflow editor drawer and the
+   * node settings modal) must supply this — Cancel used to be expressed as
+   * `onSave(null)`, which the editor's inline-save handler dereferenced and
+   * threw on, leaving the button dead. Cancel is its own signal now.
+   */
+  onCancel?: () => void;
   vhost?: string;
   workerID?: string;
   onRefreshFields?: () => void;
@@ -70,12 +77,13 @@ interface SourceFormProps {
   onRunSimulation?: (input?: any) => void;
 }
 
-export function SourceForm({ 
-    initialData, 
-    isEditing = false, 
-    embedded = false, 
-    onSave, 
-    vhost, 
+export function SourceForm({
+    initialData,
+    isEditing = false,
+    embedded = false,
+    onSave,
+    onCancel,
+    vhost,
     workerID,
     onRefreshFields,
     isRefreshing,
@@ -210,7 +218,12 @@ export function SourceForm({
         setTestResult={setTestResult}
         updateConfig={updateConfig}
         handleSourceChange={handleSourceChange}
-        onCancel={() => embedded ? (onSave && onSave(null)) : navigate({ to: '/sources' })}
+        onCancel={() => {
+          if (onCancel) { onCancel(); return; }
+          // Never fall back to onSave(null): the save path treats its argument
+          // as a real config and corrupts (or crashes on) the node.
+          if (!embedded) navigate({ to: '/sources' });
+        }}
         discoveredTables={discoveredTables}
         discoveredDatabases={discoveredDatabases}
         isFetchingTables={isFetchingTables}

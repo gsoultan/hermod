@@ -55,6 +55,7 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
               onChange={(val) => handleSourceChange({ vhost: val || '' })}
               onBlur={() => setTouched((t) => ({ ...t, vhost: true }))}
               error={vhostError}
+              allowDeselect={false}
               required
               description="Project or environment namespace"
               mih={80}
@@ -82,6 +83,7 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
               onChange={(val) => handleSourceChange({ type: val || '' })}
               onBlur={() => setTouched((t) => ({ ...t, type: true }))}
               error={typeError}
+              allowDeselect={false}
               required
               searchable
             />

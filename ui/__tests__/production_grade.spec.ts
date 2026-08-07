@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { Client } from 'pg';
+import { E2E_USER, E2E_PASS } from './support/auth';
 
 test.describe('Hermod Production Grade E2E', () => {
   const sourceDB = 'hermod_test_source';
@@ -14,11 +15,11 @@ test.describe('Hermod Production Grade E2E', () => {
   test.beforeEach(async ({ page }) => {
     page.on('console', msg => console.log('BROWSER:', msg.text()));
     // Login
-    await page.goto('http://localhost:5175/login');
-    await page.getByPlaceholder('Your username').fill('admin');
-    await page.getByPlaceholder('Your password').fill('admin123');
+    await page.goto('/login');
+    await page.getByPlaceholder('Your username').fill(E2E_USER);
+    await page.getByPlaceholder('Your password').fill(E2E_PASS);
     await page.getByRole('button', { name: 'Sign In' }).click();
-    await expect(page).toHaveURL('http://localhost:5175/', { timeout: 30000 });
+    await expect(page).toHaveURL(/\/$/, { timeout: 30000 });
   });
 
   test('End-to-End Pipeline: Multi-Source, Multi-Sink (Sequential/Parallel), Advanced Transforms, and Observability', async ({ page }) => {
@@ -69,9 +70,9 @@ test.describe('Hermod Production Grade E2E', () => {
     }, { vhostName, timestamp, sourceDB, sinkDB });
 
     // 2. Build Complex Workflow
-    await page.goto('http://localhost:5175/workflows/new');
-    await page.getByLabel('Workflow Name').fill(`Prod Workflow ${timestamp}`);
-    await page.getByLabel('Virtual Host').selectOption(vhostName);
+    await page.goto('/workflows/new');
+    await page.getByLabel('Workflow Name').first().fill(`Prod Workflow ${timestamp}`);
+    await page.getByLabel('Virtual Host').first().selectOption(vhostName);
     await page.getByRole('button', { name: 'Create Workflow' }).click();
 
     await page.waitForURL(/\/workflows\/[a-z0-9-]+/);

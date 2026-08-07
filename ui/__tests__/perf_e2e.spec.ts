@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { Client } from 'pg';
+import { E2E_USER, E2E_PASS } from './support/auth';
 
 test.describe('Performance and Stress E2E', () => {
   const sourceDB = 'hermod_test_source';
@@ -17,11 +18,11 @@ test.describe('Performance and Stress E2E', () => {
     const vhostName = `vhost_perf_${timestamp}`;
 
     // 1. Login
-    await page.goto('http://localhost:5175/login');
-    await page.getByLabel('Username').first().fill('admin');
-    await page.locator('input[type="password"]').fill('admin123');
+    await page.goto('/login');
+    await page.getByLabel('Username').first().fill(E2E_USER);
+    await page.locator('input[type="password"]').fill(E2E_PASS);
     await page.click('button[type="submit"]');
-    await expect(page).toHaveURL('http://localhost:5175/', { timeout: 10000 });
+    await expect(page).toHaveURL(/\/$/, { timeout: 10000 });
 
     // 2. Setup via API
     const setupData = await page.evaluate(async ({ vhostName, timestamp, sourceDB, sinkDB }) => {
