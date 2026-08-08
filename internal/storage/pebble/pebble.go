@@ -746,3 +746,9 @@ func (s *pebbleStorage) DeleteSuspendedMessage(ctx context.Context, id string) e
 func (s *pebbleStorage) DeleteApproval(ctx context.Context, id string) error {
 	return errors.New("not implemented")
 }
+
+// ReEncryptSecrets is not implemented, consistent with the rest of the source
+// and sink surface on this backend.
+func (s *pebbleStorage) ReEncryptSecrets(ctx context.Context, newKey string) error {
+	return errors.New("not implemented")
+}

@@ -105,9 +105,18 @@ func (b *FileBuffer) saveState() error {
 }
 
 func (b *FileBuffer) Produce(ctx context.Context, msg hermod.Message) (err error) {
-	// Ensure message is released after production (since it's encoded/copied)
+	// The message is encoded into the file here, so this call's reference to it
+	// is done with. Drop that reference — do not seize the object.
+	//
+	// This used to call message.ReleaseMessage, which resets the message and
+	// returns it to the pool *unconditionally*, ignoring the reference count.
+	// With a second owner still holding it (the sink writer's pendingMessage,
+	// or the runner's routed targets) that owner's message was wiped and
+	// refilled underneath it, and its own later Release drove the count
+	// negative. Release() pools it only on the last reference, which is what
+	// "takes ownership" was always meant to mean.
 	if dm, ok := msg.(*message.DefaultMessage); ok {
-		defer message.ReleaseMessage(dm)
+		defer dm.Release()
 	}
 
 	b.mu.Lock()

@@ -4,58 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/security/crypto"
+	"github.com/user/hermod/internal/storage/configsecrets"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
-
-var sensitiveKeys = map[string]bool{
-	"password":          true,
-	"connection_string": true,
-	"uri":               true,
-	"token":             true,
-	"secret":            true,
-	"key":               true,
-	"access_key":        true,
-	"secret_key":        true,
-}
-
-func encryptConfig(config map[string]string) map[string]string {
-	encrypted := make(map[string]string)
-	for k, v := range config {
-		if sensitiveKeys[strings.ToLower(k)] && v != "" {
-			enc, err := crypto.Encrypt(v)
-			if err == nil {
-				encrypted[k] = "enc:" + enc
-				continue
-			}
-		}
-		encrypted[k] = v
-	}
-	return encrypted
-}
-
-func decryptConfig(config map[string]string) map[string]string {
-	decrypted := make(map[string]string)
-	for k, v := range config {
-		if strings.HasPrefix(v, "enc:") {
-			dec, err := crypto.Decrypt(v[4:])
-			if err == nil {
-				decrypted[k] = dec
-				continue
-			}
-		}
-		decrypted[k] = v
-	}
-	return decrypted
-}
 
 type mongoStorage struct {
 	client *mongo.Client
@@ -382,7 +340,7 @@ func (s *mongoStorage) ListSources(ctx context.Context, filter storage.CommonFil
 			return nil, 0, err
 		}
 		src.Source.ID = src.ID
-		src.Config = decryptConfig(src.Config)
+		src.Config = configsecrets.Decrypt(src.Config)
 		sources = append(sources, src.Source)
 	}
 
@@ -393,7 +351,7 @@ func (s *mongoStorage) CreateSource(ctx context.Context, src storage.Source) err
 	if src.ID == "" {
 		src.ID = uuid.New().String()
 	}
-	src.Config = encryptConfig(src.Config)
+	src.Config = configsecrets.Encrypt(src.Config)
 
 	coll := s.db.Collection("sources")
 	_, err := coll.InsertOne(ctx, bson.M{
@@ -412,7 +370,7 @@ func (s *mongoStorage) CreateSource(ctx context.Context, src storage.Source) err
 }
 
 func (s *mongoStorage) UpdateSource(ctx context.Context, src storage.Source) error {
-	src.Config = encryptConfig(src.Config)
+	src.Config = configsecrets.Encrypt(src.Config)
 	coll := s.db.Collection("sources")
 	_, err := coll.UpdateOne(ctx, bson.M{"_id": src.ID}, bson.M{"$set": bson.M{
 		"name":      src.Name,
@@ -460,7 +418,7 @@ func (s *mongoStorage) GetSource(ctx context.Context, id string) (storage.Source
 		return storage.Source{}, err
 	}
 	src.Source.ID = src.ID
-	src.Config = decryptConfig(src.Config)
+	src.Config = configsecrets.Decrypt(src.Config)
 	return src.Source, nil
 }
 
@@ -510,7 +468,7 @@ func (s *mongoStorage) ListSinks(ctx context.Context, filter storage.CommonFilte
 			return nil, 0, err
 		}
 		snk.Sink.ID = snk.ID
-		snk.Config = decryptConfig(snk.Config)
+		snk.Config = configsecrets.Decrypt(snk.Config)
 		sinks = append(sinks, snk.Sink)
 	}
 
@@ -521,7 +479,7 @@ func (s *mongoStorage) CreateSink(ctx context.Context, snk storage.Sink) error {
 	if snk.ID == "" {
 		snk.ID = uuid.New().String()
 	}
-	snk.Config = encryptConfig(snk.Config)
+	snk.Config = configsecrets.Encrypt(snk.Config)
 
 	coll := s.db.Collection("sinks")
 	_, err := coll.InsertOne(ctx, bson.M{
@@ -538,7 +496,7 @@ func (s *mongoStorage) CreateSink(ctx context.Context, snk storage.Sink) error {
 }
 
 func (s *mongoStorage) UpdateSink(ctx context.Context, snk storage.Sink) error {
-	snk.Config = encryptConfig(snk.Config)
+	snk.Config = configsecrets.Encrypt(snk.Config)
 	coll := s.db.Collection("sinks")
 	_, err := coll.UpdateOne(ctx, bson.M{"_id": snk.ID}, bson.M{"$set": bson.M{
 		"name":      snk.Name,
@@ -578,7 +536,7 @@ func (s *mongoStorage) GetSink(ctx context.Context, id string) (storage.Sink, er
 		return storage.Sink{}, err
 	}
 	snk.Sink.ID = snk.ID
-	snk.Config = decryptConfig(snk.Config)
+	snk.Config = configsecrets.Decrypt(snk.Config)
 	return snk.Sink, nil
 }
 

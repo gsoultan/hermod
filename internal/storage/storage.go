@@ -397,6 +397,12 @@ type Storage interface {
 	ListSinks(ctx context.Context, filter CommonFilter) ([]Sink, int, error)
 	CreateSink(ctx context.Context, snk Sink) error
 	UpdateSink(ctx context.Context, snk Sink) error
+
+	// ReEncryptSecrets rewrites every stored credential under newKey. Key
+	// rotation must call this *before* installing the new key: rotating
+	// without it leaves every password and API key encrypted under a key the
+	// process no longer has.
+	ReEncryptSecrets(ctx context.Context, newKey string) error
 	UpdateSinkStatus(ctx context.Context, id string, status string) error
 	DeleteSink(ctx context.Context, id string) error
 	GetSink(ctx context.Context, id string) (Sink, error)

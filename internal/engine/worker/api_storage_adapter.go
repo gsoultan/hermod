@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/user/hermod"
@@ -274,4 +275,12 @@ func (a *apiStorage) ListSuspendedMessages(ctx context.Context, workflowID strin
 func (a *apiStorage) DeleteSuspendedMessage(ctx context.Context, id string) error { return nil }
 func (a *apiStorage) GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error) {
 	return storage.DashboardStats{}, nil
+}
+
+// ReEncryptSecrets is refused here by design. This adapter is what a worker
+// uses to reach the control plane over HTTP; it holds no database and no master
+// key. Rotation belongs to the API server that owns both, and silently doing
+// nothing would let an operator believe a rotation had succeeded.
+func (a *apiStorage) ReEncryptSecrets(ctx context.Context, newKey string) error {
+	return fmt.Errorf("re-encrypting secrets is a control-plane operation; a worker cannot perform it")
 }

@@ -657,6 +657,72 @@ Lower it towards `1.0` to trade stability for faster load-following. Measured on
 cluster with one idle and one saturated worker, an idle worker reclaims 1 key in 200 at `2.0` and
 192 in 200 at `1.0` (`TestLeaseHysteresisIsConfigurable`).
 
+### Delivery guarantee
+
+Delivery is **at-least-once**: a message is acknowledged to its source only after every sink write
+succeeds, so a crash or an abrupt stop replays whatever was not acknowledged. Duplicates are
+therefore possible and expected.
+
+What makes that **exactly-once as observed at the destination** is the sink's upsert. Every SQL sink
+writes with `ON CONFLICT` / `ON DUPLICATE KEY` / `MERGE`, keyed on the message id, so a redelivered
+message overwrites its own row rather than adding one.
+
+That holds on one condition: **the source must supply a stable identity.** The key is taken from,
+in order:
+
+1. `metadata["idempotency_key"]` — set this when the source knows its own natural key (a CDC row's
+   primary key, an order number);
+2. the message id;
+3. a generated UUID, if neither is present.
+
+A message that reaches case 3 gets a *different* key on every delivery, so its duplicates cannot be
+collapsed — two deliveries of an identity-less message are genuinely indistinguishable. If a source
+of yours produces messages without an id, set `idempotency_key` in a transformation before the sink.
+
+Sinks that are not upserts (webhook, SMTP, queues) deduplicate only where they say so; SMTP computes
+its own key from the message and recipient.
+
+### Credential encryption and master key rotation
+
+Connector credentials — passwords, API keys, DSNs, GCP service-account documents — are encrypted
+with AES-256-GCM before they reach the metadata database, and decrypted on read. Which values count
+as credentials is decided by shape rather than by an exact list (`internal/storage/configsecrets`),
+so a connector added later with an `smtp_password` is covered without anyone remembering to add it.
+Non-credentials that merely look like one — `s3_key` is an object path, `routing_key` is routing —
+are listed explicitly as exceptions.
+
+**Set a master key.** Without one, Hermod encrypts with a constant that is published in this
+repository, which protects nobody. Set `crypto_master_key` in `db_config.yaml`, or rotate through
+`PUT /api/config/crypto` (Admin only, minimum 16 characters).
+
+**Rotation re-encrypts before it switches.** `PUT /api/config/crypto` rewrites every stored
+credential under the new key first, in one transaction, and installs the key only once that has
+committed. If anything cannot be re-encrypted the request fails and *nothing* is changed — including
+the case where a value is already unreadable from an earlier bad rotation, because re-encrypting it
+would mean writing back a blank and destroying a credential that the right key could still recover.
+
+A value that cannot be decrypted reads back empty, never as raw ciphertext, and logs which key
+failed. Handing ciphertext to a driver as though it were the password is what previously turned a
+key mistake into unexplained authentication failures against the *destination* database.
+
+Upgrades are safe: key derivation changed from truncate-and-zero-pad to SHA-256, and `Decrypt` falls
+back to the old derivation, so existing data still opens and moves forward as it is rewritten.
+
+### Backup and restore
+
+`GET /api/backup/export` and `POST /api/backup/import` (both Admin only) carry sources, sinks,
+workflows, vhosts, workspaces and notification settings.
+
+The export contains **decrypted credentials in plaintext** — necessarily, since a backup that cannot
+restore a credential is not a backup, and the target instance may have a different master key. Treat
+the file as a secret: it is every credential in the deployment in one document.
+
+Both endpoints fail loudly rather than quietly. An export that cannot read the database returns an
+error instead of downloading an empty file with a plausible name, and refuses rather than truncating
+if the deployment holds more than 1000 objects of any one kind. A restore reports which objects could
+not be written instead of always answering 204; it still attempts every object, because recovering
+most of a configuration beats stopping at the first bad row.
+
 ### Shutdown budget — must fit inside your orchestrator's grace period
 
 On SIGTERM, Hermod stops accepting new work and then *drains*: it finishes writing the messages it
