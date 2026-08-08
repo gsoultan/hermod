@@ -150,9 +150,18 @@ ingress:
 
 # --- Observability ------------------------------------------------------------
 #
-# /metrics is unauthenticated by design, so it must not be exposed publicly.
-# Keep the Service ClusterIP, or put a NetworkPolicy in front of it.
+# Keep the Service ClusterIP regardless of the token below, or put a
+# NetworkPolicy in front of it.
 metrics:
+  # /metrics is open by default, as a scrape target normally is. The metrics
+  # carry workflow, source and worker names though, so an unauthenticated read
+  # maps the deployment. Set a token to close it -- the ServiceMonitor below
+  # picks it up automatically. Health probes stay open either way; a token
+  # covering them would make the kubelet restart the pod on a loop.
+  token: ""
+  existingTokenSecret: ""
+  existingTokenSecretKey: metricsToken
+
   serviceMonitor:
     enabled: false
     interval: 30s

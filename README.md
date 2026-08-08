@@ -713,9 +713,18 @@ data, rather than letting you find out during a rolling restart:
 | `replicaCount > 1` with a ReadWriteOnce volume | Replicas after the first stay unschedulable. |
 
 The image is distroless and runs as uid 65532 with a read-only root filesystem.
-`/metrics` is unauthenticated, so the Service stays `ClusterIP` — do not put it
-behind a public LoadBalancer. Hermod serves plain HTTP and has no TLS listener
-of its own; terminate TLS at the ingress.
+Hermod serves plain HTTP and has no TLS listener of its own; terminate TLS at
+the ingress.
+
+`/metrics` is open by default, as a scrape target normally is — requiring a
+session cookie would break every scraper. The metrics do carry `workflow_id`,
+`source_id` and `worker_id` labels though, so an unauthenticated read maps the
+deployment: how many pipelines exist, what they are called, and which are
+failing. Set `HERMOD_METRICS_TOKEN` (or `metrics.token` in the chart, which
+wires the ServiceMonitor to match) to require `Authorization: Bearer <token>`.
+The health probes stay open either way — a token covering them would make the
+kubelet fail every probe and restart the pod on a loop. Either way, keep the
+Service `ClusterIP` rather than behind a public LoadBalancer.
 
 Enable `metrics.prometheusRule.enabled` to install the four alerts in
 [Alerting on silent failures](#alerting-on-silent-failures). Two of them page.

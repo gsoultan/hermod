@@ -88,6 +88,13 @@ spec:
                   name: {{ include "hermod.secretName" . }}
                   key: dbConnection
             {{- end }}
+            {{- if or .Values.metrics.token .Values.metrics.existingTokenSecret }}
+            - name: HERMOD_METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.metrics.existingTokenSecret | default (include "hermod.fullname" .) }}
+                  key: {{ .Values.metrics.existingTokenSecretKey }}
+            {{- end }}
             {{- range $k, $v := .Values.env }}
             - name: {{ $k }}
               value: {{ $v | quote }}

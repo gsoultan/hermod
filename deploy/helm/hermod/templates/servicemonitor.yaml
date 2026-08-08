@@ -16,4 +16,13 @@ spec:
     - port: http
       path: /metrics
       interval: {{ .Values.metrics.serviceMonitor.interval }}
+      {{- if or .Values.metrics.token .Values.metrics.existingTokenSecret }}
+      # Without this the scrape gets a 401 and the metrics silently stop, which
+      # takes the four silent-failure alerts down with them.
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ .Values.metrics.existingTokenSecret | default (include "hermod.fullname" .) }}
+          key: {{ .Values.metrics.existingTokenSecretKey }}
+      {{- end }}
 {{- end }}
