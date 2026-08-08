@@ -4,7 +4,6 @@
 package mongodb
 
 import (
-	"context"
 	"os"
 	"testing"
 	"time"

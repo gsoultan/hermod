@@ -20,10 +20,7 @@ func TestE2E_PgBouncer_Real(t *testing.T) {
 	ctx := context.Background()
 	// 1. Setup Postgres Storage for Metadata
 	metadataDSN := "postgres://postgres:postgres@localhost:5432/hermod_metadata?sslmode=disable"
-	db, err := sql.Open("pgx", metadataDSN)
-	if err != nil {
-		t.Fatalf("Failed to open metadata DB: %v", err)
-	}
+	db := requireIntegrationDB(t, metadataDSN)
 	defer db.Close()
 
 	ms := sqlstorage.NewSQLStorage(db, "pgx")
@@ -95,15 +92,31 @@ func TestE2E_PgBouncer_Real(t *testing.T) {
 	var memBefore, memAfter runtime.MemStats
 	runtime.ReadMemStats(&memBefore)
 
-	err = reg.StartWorkflow(wfID, wf)
+	// The workflow's source query reads test_data, so it has to exist before the
+	// engine starts rather than being assumed to be lying around from an earlier
+	// run on someone's laptop.
+	sourceDB := requireIntegrationDB(t, strings.ReplaceAll(sourceDSN, "&pgbouncer=true", ""))
+	defer sourceDB.Close()
+	seedTestData(t, sourceDB)
+
+	// Three rows that exist before the engine starts. The assertion below wants
+	// 3 + 1000, and those three used to be whatever a previous run had left in
+	// the table -- so the count was only ever right by luck.
+	for i := range 3 {
+		if _, err := sourceDB.ExecContext(ctx,
+			"INSERT INTO test_data (name, value) VALUES ($1, $2)",
+			fmt.Sprintf("baseline_%d", i), i); err != nil {
+			t.Fatalf("seeding baseline row %d: %v", i, err)
+		}
+	}
+
+	err := reg.StartWorkflow(wfID, wf)
 	if err != nil {
 		t.Fatalf("Failed to start workflow: %v", err)
 	}
 	defer reg.StopEngine(ctx, wfID)
 
 	// 4.5 High Traffic: Insert 1000 more rows
-	sourceDB, _ := sql.Open("pgx", strings.ReplaceAll(sourceDSN, "&pgbouncer=true", ""))
-	defer sourceDB.Close()
 	for i := 0; i < 1000; i++ {
 		_, err = sourceDB.Exec("INSERT INTO test_data (name, value) VALUES ($1, $2)", fmt.Sprintf("item_%d", i), i)
 		if err != nil {

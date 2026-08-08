@@ -7,12 +7,14 @@ import (
 	"context"
 	"database/sql"
 	"github.com/user/hermod/internal/engine/registry"
-	"github.com/user/hermod/internal/factory"
+	"github.com/user/hermod/internal/engine/worker"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
 	sqlstorage "github.com/user/hermod/internal/storage/sql"
 	"github.com/user/hermod/pkg/comm/message"
@@ -23,6 +25,17 @@ import (
 // TestTwoWorkerLeaseFailover verifies that only one worker processes a workflow at a time
 // and after the first worker stops and lease TTL expires, the second worker steals the lease
 // and continues processing. It also asserts no duplicate rows are stored thanks to idempotency.
+// leaseTTL is short so the test does not take a minute, but it is the one
+// timing constant the failover genuinely depends on, so it is named.
+const leaseTTL = 3 * time.Second
+
+// readyTimeout bounds the waits for something that should simply happen — a
+// worker syncing, a lease being stolen. It is deliberately far longer than any
+// of them need. These are liveness assertions, not latency ones: a regression
+// means the thing never happens, and a tight bound only converts a busy machine
+// into a red build.
+const readyTimeout = 60 * time.Second
+
 func TestTwoWorkerLeaseFailover(t *testing.T) {
 	if os.Getenv("HERMOD_INTEGRATION") != "1" {
 		t.Skip("integration: set HERMOD_INTEGRATION=1 to run")
@@ -56,7 +69,7 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	}
 
 	// --- registry.Registry ---
-	reg := registry.Newregistry.Registry(store)
+	reg := registry.NewRegistry(store)
 
 	// --- Source and Sink records ---
 	src := storage.Source{
@@ -66,7 +79,7 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 		Active: true,
 		Config: map[string]string{"path": "/e2e"},
 	}
-	if err := store.factory.CreateSource(ctx, src); err != nil {
+	if err := store.CreateSource(ctx, src); err != nil {
 		t.Fatalf("create source: %v", err)
 	}
 
@@ -77,7 +90,7 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 		Active: true,
 		Config: map[string]string{"path": sinkPath},
 	}
-	if err := store.factory.CreateSink(ctx, snk); err != nil {
+	if err := store.CreateSink(ctx, snk); err != nil {
 		t.Fatalf("create sink: %v", err)
 	}
 
@@ -97,14 +110,14 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	}
 
 	// --- Workers ---
-	w1 := NewWorker(store, reg)
+	w1 := worker.NewWorker(store, reg)
 	w1.SetWorkerConfig(0, 1, "worker-1", "")
-	w1.SetLeaseTTL(3) // seconds
+	w1.SetLeaseTTL(int(leaseTTL.Seconds()))
 	w1.SetSyncInterval(500 * time.Millisecond)
 
-	w2 := NewWorker(store, reg)
+	w2 := worker.NewWorker(store, reg)
 	w2.SetWorkerConfig(0, 1, "worker-2", "")
-	w2.SetLeaseTTL(3)
+	w2.SetLeaseTTL(int(leaseTTL.Seconds()))
 	w2.SetSyncInterval(500 * time.Millisecond)
 
 	// Start worker 1
@@ -112,8 +125,30 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	defer cancel1()
 	go w1.Start(ctx1)
 
-	// Wait briefly for initial sync
-	time.Sleep(500 * time.Millisecond)
+	// Wait for the worker to have registered its webhook source.
+	//
+	// This was a fixed 500ms sleep, which is a guess about how long a sync
+	// takes rather than a fact about it. Under load -- a full `go test ./...`
+	// with every package competing for CPU -- the sync had not finished and the
+	// dispatch below failed with "no webhook registered for path: /e2e". Waiting
+	// for the condition instead of for the clock makes the test deterministic
+	// and, when the sync genuinely breaks, it fails for that reason rather than
+	// intermittently.
+	dispatchWhenReady := func(t *testing.T, path string, m hermod.Message) {
+		t.Helper()
+		deadline := time.Now().Add(readyTimeout)
+		for {
+			err := webhook.Dispatch(path, m)
+			if err == nil {
+				return
+			}
+			if !strings.Contains(err.Error(), "no webhook registered") || time.Now().After(deadline) {
+				t.Fatalf("dispatch to %s after waiting %s for the worker to register it: %v",
+					path, readyTimeout, err)
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
 
 	// Inject two messages
 	m1 := message.AcquireMessage()
@@ -126,12 +161,8 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	m2.SetTable(table)
 	m2.SetAfter([]byte(`{"n":2}`))
 	defer message.ReleaseMessage(m2)
-	if err := webhook.Dispatch("/e2e", m1); err != nil {
-		t.Fatalf("dispatch m1: %v", err)
-	}
-	if err := webhook.Dispatch("/e2e", m2); err != nil {
-		t.Fatalf("dispatch m2: %v", err)
-	}
+	dispatchWhenReady(t, "/e2e", m1)
+	dispatchWhenReady(t, "/e2e", m2)
 
 	// Wait for processing
 	awaitRows(t, sinkDB, table, 2, 5*time.Second)
@@ -153,17 +184,23 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	defer cancel2()
 	go w2.Start(ctx2)
 
-	// Allow TTL to expire and worker 2 to acquire lease
-	time.Sleep(4 * time.Second)
+	// Wait for worker 2 to steal the lease and restart the engine.
+	//
+	// The lease TTL is 3s, so failover cannot be quicker than that; the sleep
+	// below only skips polling during a window where success is impossible. The
+	// deadline after it is deliberately generous. What this test is for is
+	// "does the lease get stolen at all" -- a regression there means failover is
+	// broken and the workflow stops dead. Tying it to a tight deadline instead
+	// measures how loaded the machine is, which is how this failed under a full
+	// parallel test run rather than because of anything in the engine.
+	time.Sleep(leaseTTL)
 
-	// Ensure the engine is running again under worker 2 before dispatching
-	waitDeadline := time.Now().Add(3 * time.Second)
-	for {
-		if reg.IsEngineRunning(wf.ID) {
-			break
-		}
+	waitDeadline := time.Now().Add(readyTimeout)
+	for !reg.IsEngineRunning(wf.ID) {
 		if time.Now().After(waitDeadline) {
-			t.Fatalf("engine did not restart on worker 2 in time")
+			t.Fatalf("worker 2 never took over the workflow after worker 1 stopped; "+
+				"the lease was not stolen within %s of the %s TTL expiring, so the "+
+				"workflow would stay stopped", 60*time.Second, leaseTTL)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
