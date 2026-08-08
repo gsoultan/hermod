@@ -101,6 +101,17 @@ func runApp(svcCtx context.Context, o *Options) int {
 	dbType, dbConn, logType, logConn := getStorageConfig(o)
 	firstRun := !config.IsDBConfigured()
 
+	// Say so when credentials are being encrypted with the built-in key. It is
+	// a constant in published source, so "encrypted at rest" means nothing
+	// against anyone who can read the database — and there is otherwise no
+	// signal anywhere that no key was configured.
+	if !firstRun && crypto.IsDefaultMasterKey() {
+		logger.Warn("No crypto master key is configured, so stored credentials are " +
+			"encrypted with the built-in default key and are readable by anyone with " +
+			"the source. Set crypto_master_key in db_config.yaml, HERMOD_MASTER_KEY, " +
+			"or rotate via PUT /api/config/crypto.")
+	}
+
 	var store, logStore storage.Storage
 	if !isWorkerModeWithPlatform(o) && !firstRun {
 		store = initPrimaryStorage(svcCtx, dbType, dbConn, logger)
