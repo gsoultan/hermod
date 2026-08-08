@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { writeFileSync } from 'fs';
+import { E2E_USER, E2E_PASS } from './support/auth';
 
 /**
  * Automated layout audit.
@@ -36,8 +37,8 @@ const timings: { route: string; ms: number; domNodes: number }[] = [];
 
 const login = async (page: Page) => {
   await page.goto('/login');
-  await page.getByPlaceholder('Your username').fill('admin');
-  await page.getByPlaceholder('Your password').fill('admin');
+  await page.getByPlaceholder('Your username').fill(E2E_USER);
+  await page.getByPlaceholder('Your password').fill(E2E_PASS);
   await page.getByRole('button', { name: /sign in|login/i }).click();
   await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 30000 });
 };
@@ -153,8 +154,17 @@ test.describe('Hermod layout audit', () => {
         // A page ballooning past ~1800 nodes usually means an unpaginated list.
         // /logs sits near 640 with its 30-row page, so this catches a real
         // regression without flagging normal growth.
-        if (r.domNodes > 1800) {
-          findings.push({ route, viewport: vp.name, kind: 'DOM_BLOAT', detail: `${r.domNodes} nodes` });
+        //
+        // /workflows and /lineage are paginated too (30 rows, WorkflowsPage.tsx),
+        // but their rows are far heavier — a checkbox, several badges and six
+        // tooltip-wrapped action icons each, around 64 nodes per row against
+        // /logs' ~20. A full page lands near 2,250. Give them a scoped budget so
+        // the check keeps doing its actual job (catching an *unbounded* list)
+        // instead of failing on a bounded one. If a row's markup is ever
+        // slimmed, lower this.
+        const budget = /^\/(workflows|lineage)$/.test(route) ? 2600 : 1800;
+        if (r.domNodes > budget) {
+          findings.push({ route, viewport: vp.name, kind: 'DOM_BLOAT', detail: `${r.domNodes} nodes (budget ${budget})` });
         }
         if (r.crashed) findings.push({ route, viewport: vp.name, kind: 'CRASH', detail: 'ErrorBoundary shown' });
         if (r.emptyRoot) findings.push({ route, viewport: vp.name, kind: 'EMPTY', detail: '#root is empty' });

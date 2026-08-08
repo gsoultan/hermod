@@ -18,9 +18,16 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
         <Text size="sm" fw={500}>Capture Data Changes (CDC)</Text>
         <Text size="xs" c="dimmed">Enable real-time change tracking vs periodic polling</Text>
       </Stack>
-      <Switch 
+      {/*
+        The visible text sits in a sibling Stack for layout, so it is not the
+        switch's accessible name — screen readers announced this control as an
+        unlabelled toggle, and it could not be targeted by its label at all.
+        aria-label restates the visible text so the two agree.
+      */}
+      <Switch
         checked={useCDCChecked}
         onChange={(e) => updateConfig('use_cdc', e.target.checked ? 'true' : 'false')}
+        aria-label="Capture Data Changes (CDC)"
       />
     </Group>
   );

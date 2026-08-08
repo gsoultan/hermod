@@ -303,8 +303,20 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 		select {
 		case <-done:
 		case <-time.After(r.engine.config.DrainTimeout):
-			r.engine.logger.Warn("Sink writers draining exceeded drain_timeout; still waiting", "workflow_id", r.engine.workflowID, "timeout", r.engine.config.DrainTimeout.String())
-			<-done
+			// The budget has expired, and the writers' own detached write
+			// contexts are cancelled at the same deadline, so they should be
+			// unwinding now. Give them a grace period to finish and then stop
+			// waiting: an unbounded <-done here meant one sink that never
+			// returns held the whole process open, which is the failure mode
+			// the timeout exists to escape.
+			r.engine.logger.Warn("Sink writers draining exceeded drain_timeout",
+				"workflow_id", r.engine.workflowID, "timeout", r.engine.config.DrainTimeout.String())
+			select {
+			case <-done:
+			case <-time.After(drainAbandonGrace):
+				r.engine.logger.Error("Abandoning sink writer drain; a sink is not returning",
+					"workflow_id", r.engine.workflowID, "grace", drainAbandonGrace.String())
+			}
 		}
 	} else {
 		writersWg.Wait()
@@ -831,7 +843,22 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 					serrCh <- err
 				}
 			case <-ctx.Done():
-				serrCh <- ctx.Err()
+				// Shutdown. Abandoning the wait here reports a failure for a
+				// message the writer is still draining and will deliver, so the
+				// acknowledgement below is skipped: the message goes out *and*
+				// replays on the next start. Wait out the drain budget for a
+				// real answer instead — the same budget the writer honours, so
+				// this cannot outlive it.
+				drainCtx, cancelDrain := drainWriteContext(ctx, drainBudget(r.engine))
+				select {
+				case err := <-pm.done:
+					if err != nil {
+						serrCh <- err
+					}
+				case <-drainCtx.Done():
+					serrCh <- drainCtx.Err()
+				}
+				cancelDrain()
 			}
 			releasePendingMessage(pm)
 		})
@@ -845,12 +872,25 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		}
 	}
 
-	// Acknowledge the message to the source after all successful sink writes
+	// Acknowledge the message to the source after all successful sink writes.
+	//
+	// For a CDC source this is what advances the replication slot, and it is a
+	// network round trip to the upstream server. On the engine's own context it
+	// is refused the moment shutdown begins, so every message the drain
+	// successfully delivered would be replayed on the next start — a duplicate
+	// per in-flight message per deploy. It gets the same detached, bounded
+	// treatment as the write it confirms.
+	ackCtx := ctx
+	if ctx.Err() != nil {
+		var cancelAck context.CancelFunc
+		ackCtx, cancelAck = drainWriteContext(ctx, drainBudget(r.engine))
+		defer cancelAck()
+	}
 	if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
-		if err := r.engine.outboxStore.DeleteOutboxItem(ctx, outboxID); err != nil {
+		if err := r.engine.outboxStore.DeleteOutboxItem(ackCtx, outboxID); err != nil {
 			r.engine.logger.Error("Failed to delete outbox item", "workflow_id", r.engine.workflowID, "id", outboxID, "error", err)
 		}
-	} else if err := r.engine.source.Ack(ctx, m); err != nil {
+	} else if err := r.engine.source.Ack(ackCtx, m); err != nil {
 		r.engine.logger.Error("Source acknowledgement failed", "workflow_id", r.engine.workflowID, "error", err)
 		return
 	}
@@ -858,3 +898,10 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 	telemetry.MessagesProcessed.WithLabelValues(r.engine.workflowID, r.engine.sourceID).Inc()
 	r.engine.statusTracker.IncProcessed()
 }
+
+// drainAbandonGrace is how long shutdown waits for sink writers *after* the
+// drain budget has already expired. The writers' write contexts are cancelled
+// at the budget, so this only covers unwinding; a sink that still has not
+// returned is not going to, and holding the process open for it turns a slow
+// destination into a stuck deploy.
+const drainAbandonGrace = 10 * time.Second

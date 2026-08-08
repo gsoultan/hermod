@@ -395,14 +395,61 @@ func (m *DefaultMessage) MarshalJSON() ([]byte, error) {
 	return json.Marshal(res)
 }
 
+// overReleases counts Release calls that arrive after a message's refcount has
+// already reached zero. It is always a caller bug: the message is back in the
+// pool and may already have been re-acquired and refilled, so the over-releasing
+// owner is reading someone else's data. That shows up as messages delivered
+// twice while others are never delivered at all, with the total conserved —
+// silent data loss that no error path reports.
+//
+// It is counted rather than fatal because panicking in the message hot path
+// would turn a recoverable accounting slip into an outage. Mirrors
+// engine.PendingOverReleaseCount, which does the same for pendingMessage.
+var overReleases atomic.Int64
+
+// OverReleaseCount reports how many times a message was released after its
+// refcount already reached zero. Any non-zero value means some owner is
+// releasing a reference it does not hold; treat it as a correctness bug, not a
+// tuning signal.
+func OverReleaseCount() int64 { return overReleases.Load() }
+
+// ResetOverReleaseCount zeroes the counter. Intended for tests that assert a
+// pipeline runs with balanced reference counting.
+func ResetOverReleaseCount() { overReleases.Store(0) }
+
 func (m *DefaultMessage) Release() {
-	if atomic.AddInt32(&m.refCount, -1) == 0 {
+	n := atomic.AddInt32(&m.refCount, -1)
+	if n == 0 {
 		ReleaseMessage(m)
+		return
+	}
+	if n < 0 {
+		// Record it and nothing else. Clamping the count back to zero here was
+		// tempting — a negative count never reaches zero again — but the write
+		// races with AcquireMessage's StoreInt32(1): a message pooled by this
+		// same over-release can already have been handed to a new owner, and
+		// resetting the count under them makes the *next* legitimate Release
+		// pool a message that is still in use. That converted an accounting slip
+		// into real message loss, measured as an intermittent
+		// TestEngineGracefulShutdown failure. Observe, do not mutate.
+		overReleases.Add(1)
 	}
 }
 
 func (m *DefaultMessage) Retain() {
 	atomic.AddInt32(&m.refCount, 1)
+}
+
+// RefCount reports the message's current reference count.
+//
+// It exists so the ownership contract can actually be asserted rather than
+// reasoned about. Every node executor must return messages the caller owns one
+// reference to; that invariant is invisible without being able to read the
+// count, which is why a violation in the traversal's source branch went
+// unnoticed until it was corrupting data. Use it in tests and diagnostics, not
+// to make control-flow decisions: the value can change under you at any moment.
+func (m *DefaultMessage) RefCount() int32 {
+	return atomic.LoadInt32(&m.refCount)
 }
 
 // Reset clears the message state so it can be reused.

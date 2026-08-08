@@ -18,11 +18,6 @@ var errOperationPanicked = service.ErrOperationPanicked
 
 // --- Test Connectivity ---
 
-func (r *Registry) discoveryKey(prefix string, cfg any) string {
-	b, _ := json.Marshal(cfg)
-	return prefix + ":" + string(b)
-}
-
 func (r *Registry) TestSource(ctx context.Context, cfg factory.SourceConfig) error {
 	return r.discoveryService.TestSource(ctx, cfg)
 }

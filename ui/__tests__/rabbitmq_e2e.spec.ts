@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { Client } from 'pg';
+import { E2E_USER, E2E_PASS } from './support/auth';
 
 test.describe('RabbitMQ to Postgres E2E and UI Logic', () => {
   const sourceDB = 'hermod_test_source';
@@ -14,11 +15,11 @@ test.describe('RabbitMQ to Postgres E2E and UI Logic', () => {
   test.beforeEach(async ({ page }) => {
     page.on('console', msg => console.log('BROWSER:', msg.text()));
     // Login
-    await page.goto('http://localhost:5175/login');
-    await page.getByLabel('Username').first().fill('admin');
-    await page.locator('input[type="password"]').fill('admin123');
+    await page.goto('/login');
+    await page.getByLabel('Username').first().fill(E2E_USER);
+    await page.locator('input[type="password"]').fill(E2E_PASS);
     await page.getByRole('button', { name: 'Sign In' }).click();
-    await expect(page).toHaveURL('http://localhost:5175/', { timeout: 30000 });
+    await expect(page).toHaveURL(/\/$/, { timeout: 30000 });
   });
 
   test('RabbitMQ -> Transformations -> Postgres Sink (Scenario)', async ({ page }) => {
@@ -151,7 +152,7 @@ test.describe('RabbitMQ to Postgres E2E and UI Logic', () => {
     const workflowID = workflowRes.id;
 
     // 3. Verify Field Propagation in UI
-    await page.goto(`http://localhost:5175/workflows/${workflowID}`);
+    await page.goto(`/workflows/${workflowID}`);
     await page.waitForSelector('.react-flow__node');
     await page.waitForTimeout(5000); // Wait for layout to settle
 

@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/user/hermod/pkg/comm/transformer"
 
@@ -21,21 +20,14 @@ import (
 
 func init() {
 	transformer.Register("wasm", &WasmTransformer{
-		cache:    make(map[string]wazero.CompiledModule),
-		binCache: make(map[string]*binEntry),
+		cache: make(map[string]wazero.CompiledModule),
 	})
 }
 
 type WasmTransformer struct {
-	mu       sync.RWMutex
-	runtime  wazero.Runtime
-	cache    map[string]wazero.CompiledModule
-	binCache map[string]*binEntry
-}
-
-type binEntry struct {
-	bin     []byte
-	modTime time.Time
+	mu      sync.RWMutex
+	runtime wazero.Runtime
+	cache   map[string]wazero.CompiledModule
 }
 
 func (t *WasmTransformer) getRuntime(ctx context.Context) wazero.Runtime {
@@ -69,6 +61,11 @@ func (t *WasmTransformer) Prepare(config map[string]any) (map[string]any, error)
 	} else {
 		wasmURL, _ := config["wasmURL"].(string)
 		marketplaceID, _ := config["marketplaceID"].(string)
+		// The io.ReadAll error has to be checked. `resp, err := http.Get(...)`
+		// declares an err scoped to this branch, so `bin, err = io.ReadAll(...)`
+		// wrote to a variable nothing looked at again: a download truncated
+		// mid-transfer produced a partial module that was then compiled and run.
+		// A truncated WASM binary is not a safe thing to execute.
 		if marketplaceID != "" {
 			url := fmt.Sprintf("https://marketplace.hermod.io/api/v1/plugins/%s/download", marketplaceID)
 			resp, err := http.Get(url)
@@ -76,14 +73,26 @@ func (t *WasmTransformer) Prepare(config map[string]any) (map[string]any, error)
 				return config, fmt.Errorf("failed to fetch from marketplace: %w", err)
 			}
 			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return config, fmt.Errorf("marketplace returned HTTP %d for plugin %s", resp.StatusCode, marketplaceID)
+			}
 			bin, err = io.ReadAll(resp.Body)
+			if err != nil {
+				return config, fmt.Errorf("failed to read plugin %s from marketplace: %w", marketplaceID, err)
+			}
 		} else if wasmURL != "" {
 			resp, err := http.Get(wasmURL)
 			if err != nil {
 				return config, fmt.Errorf("failed to fetch from url: %w", err)
 			}
 			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return config, fmt.Errorf("wasm url returned HTTP %d", resp.StatusCode)
+			}
 			bin, err = io.ReadAll(resp.Body)
+			if err != nil {
+				return config, fmt.Errorf("failed to read wasm from url: %w", err)
+			}
 		} else if b, ok := config["wasmBytes"].([]byte); ok {
 			bin = b
 		} else if s, ok := config["wasmBytes"].(string); ok {

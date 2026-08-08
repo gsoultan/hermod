@@ -53,6 +53,13 @@ export function NodeConfigDrawer({
 
   const handleSave = (cfg: any) => {
     if (!selectedNode) return;
+    // A save with no payload is not a save. Cancel is delivered through
+    // onCancel now, but guard here too so a stray null can never be written
+    // into the node config or reported to the user as a successful save.
+    if (cfg == null) {
+      onClose();
+      return;
+    }
     if (onSave) {
       onSave(cfg);
     } else {
@@ -107,10 +114,11 @@ export function NodeConfigDrawer({
 
       <ScrollArea h="calc(100vh - 70px)" p="md" offsetScrollbars>
         {type === 'source' && (
-          <SourceForm 
-            initialData={sourceData} 
-            onSave={handleSave} 
-            vhost={vhost} 
+          <SourceForm
+            initialData={sourceData}
+            onSave={handleSave}
+            onCancel={onClose}
+            vhost={vhost}
             workerID={workerID}
             embedded
             isEditing={isEditing}
@@ -120,10 +128,11 @@ export function NodeConfigDrawer({
           />
         )}
         {type === 'sink' && (
-          <SinkForm 
-            initialData={sinkData} 
-            onSave={handleSave} 
-            vhost={vhost} 
+          <SinkForm
+            initialData={sinkData}
+            onSave={handleSave}
+            onCancel={onClose}
+            vhost={vhost}
             workerID={workerID}
             availableFields={availableFields}
             incomingPayload={incomingPayload}

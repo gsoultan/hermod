@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { Client } from 'pg';
 import { execSync } from 'child_process';
+import { E2E_USER, E2E_PASS } from './support/auth';
 
 /**
  * PostgreSQL CDC Table Tracking E2E Test
@@ -36,8 +37,8 @@ test.describe('PostgreSQL CDC Table Tracking E2E', () => {
 
     // Login
     await page.goto('/login');
-    await page.getByPlaceholder('Your username').fill('admin');
-    await page.getByPlaceholder('Your password').fill('admin123');
+    await page.getByPlaceholder('Your username').fill(E2E_USER);
+    await page.getByPlaceholder('Your password').fill(E2E_PASS);
     await page.getByRole('button', { name: 'Sign In' }).click();
     await expect(page).toHaveURL('/', { timeout: 30000 });
   });

@@ -194,6 +194,17 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 
 func (t *WorkflowTraversal) runNode(ctx context.Context, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	if node.Type == "source" {
+		// Every message in the returned slice is owned by the caller, which
+		// releases each one after handleResults — the same contract
+		// Registry.RunWorkflowNode implements by retaining when it passes the
+		// input straight through. Returning the input here without retaining it
+		// made processNode release one reference more than it held: the message
+		// went back to the pool while the runner and the routed sink references
+		// were still using it, was re-acquired and refilled by the source, and
+		// the stale owners then delivered the wrong payload. The symptom was
+		// messages delivered twice while others were never delivered, with the
+		// total conserved, and no error logged anywhere.
+		msg.Retain()
 		return []hermod.Message{msg}, "", nil
 	}
 

@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { Client } from 'pg';
 import { spawn } from 'child_process';
+import { E2E_USER, E2E_PASS } from './support/auth';
 
 test.describe('Advanced Transformations Logic and E2E', () => {
   let workerProcess: any;
@@ -18,8 +19,8 @@ test.describe('Advanced Transformations Logic and E2E', () => {
 
   const login = async (page: Page) => {
     await page.goto('/login');
-    await page.getByPlaceholder('Your username').fill('admin');
-    await page.getByPlaceholder('Your password').fill('admin123');
+    await page.getByPlaceholder('Your username').fill(E2E_USER);
+    await page.getByPlaceholder('Your password').fill(E2E_PASS);
     await page.click('button:has-text("Sign In")');
     // Wait for the URL to change and ensure we are not on login page
     await page.waitForURL(url => !url.href.includes('/login'), { timeout: 30000 });
@@ -324,7 +325,7 @@ test.describe('Advanced Transformations Logic and E2E', () => {
     // Actually, let's just fill the config since it's already char_map
     await page.click('text=Add Operation');
     await page.click('text=Uppercase');
-    await page.getByLabel('Field').fill('name');
+    await page.getByLabel('Field').first().fill('name');
 
     // Run Preview
     await page.locator('textarea').fill(JSON.stringify({ name: 'john' }));

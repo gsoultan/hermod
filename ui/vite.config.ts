@@ -9,6 +9,15 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// Where the dev server listens and which backend it proxies to. The defaults
+// are the values scripts/dev.sh and playwright.config.ts expect, so nothing
+// changes unless you ask for it. Override them to run a second UI against an
+// isolated backend (an E2E run on a throwaway database, say) without stopping
+// the stack you are developing in.
+const HERMOD_UI_PORT = Number(process.env.HERMOD_UI_PORT ?? 5175)
+const HERMOD_API_TARGET = process.env.HERMOD_API_TARGET ?? 'http://localhost:4005'
+const HERMOD_WS_TARGET = HERMOD_API_TARGET.replace(/^http/, 'ws')
+
 // https://vite.dev/config/
 export default defineConfig({
   resolve: {
@@ -143,19 +152,23 @@ export default defineConfig({
     // Pinned so `bun run dev`, scripts/dev.sh and playwright.config.ts all agree
     // on one origin. Left unset it defaulted to 5173 while Playwright expected
     // 5175, so E2E runs silently hit nothing.
-    port: 5175,
+    //
+    // Both are overridable so a second, isolated stack can be run alongside the
+    // usual one — an E2E run against a throwaway database must not have to stop
+    // the dev instance you are working in.
+    port: HERMOD_UI_PORT,
     strictPort: true,
     proxy: {
       '/api/ws': {
-        target: 'ws://localhost:4005',
+        target: HERMOD_WS_TARGET,
         ws: true,
       },
       '/api': {
-        target: 'http://localhost:4005',
+        target: HERMOD_API_TARGET,
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:4005',
+        target: HERMOD_WS_TARGET,
         ws: true,
       },
     },

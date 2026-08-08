@@ -334,9 +334,18 @@ export function useWorkflowMutations(
     }
   }, [isNew, active, saveMutation, setSaveConfirmOpened]);
 
-  const handleInlineSave = (updatedData: Partial<Source | Sink>) => {
+  const handleInlineSave = (updatedData: Partial<Source | Sink> | null | undefined) => {
     if (!selectedNode) return;
-    updateNodeConfig(selectedNode.id, { 
+    // Cancel is delivered via onCancel, not as a null save. Historically it
+    // arrived here as null and `updatedData.name` threw, so the settings modal
+    // never closed and the Cancel button appeared dead. Treat a missing payload
+    // as "nothing to persist" instead of crashing the click handler.
+    if (updatedData == null) {
+      setSettingsOpened(false);
+      setSelectedNode(null);
+      return;
+    }
+    updateNodeConfig(selectedNode.id, {
        ...updatedData, 
        label: (updatedData as any).name || selectedNode.data.label,
        ref_id: (updatedData as any).id 

@@ -142,8 +142,21 @@ func (w *Worker) calculateScore(wrk storage.Worker, resourceID string, currentOw
 
 	weight := w.calculateWeight(wrk)
 	if currentOwnerID != "" && wrk.ID == currentOwnerID {
-		// Hysteresis bonus: substantially increase weight to prevent flapping
-		weight *= 2.0
+		// Hysteresis bonus: favour the current owner so workflows do not flap
+		// between workers on small load differences. Every move costs a stop and
+		// a restart — for a CDC source that means tearing down a replication
+		// connection — so stability is worth a lot here.
+		//
+		// The cost is that rebalancing by load becomes very slow: at the default
+		// 2.0 a saturated incumbent still retains roughly 199 keys in 200
+		// against an idle peer (measured in TestRendezvousHysteresisStillAllowsFailback),
+		// so an idle worker that has just recovered may reclaim nothing for a
+		// long time. Failback after a worker *dies* is unaffected and complete —
+		// the dead owner stops being a candidate at all.
+		//
+		// Lower it (towards 1.0, which disables the bonus) to trade stability for
+		// faster load rebalancing.
+		weight *= leaseHysteresisFactor
 	}
 
 	// Highest Random Weight (Rendezvous Hashing) with weights

@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { Client } from 'pg';
+import { E2E_USER, E2E_PASS } from './support/auth';
 
 test.describe('Heavy Load Multi-Worker E2E', () => {
   const sourceDB = 'hermod_test_source';
@@ -18,8 +19,8 @@ test.describe('Heavy Load Multi-Worker E2E', () => {
     console.log(`Registering worker ${id}...`);
     await page.goto('/workers');
     await page.getByRole('button', { name: /Register Worker/i }).first().click();
-    await page.getByLabel('Host').fill(`127.0.0.1`);
-    await page.getByLabel('Description').fill(`Heavy Load Worker ${id}`);
+    await page.getByLabel('Host').first().fill(`127.0.0.1`);
+    await page.getByLabel('Description').first().fill(`Heavy Load Worker ${id}`);
     await page.getByRole('button', { name: /Register Worker/i }).last().click();
 
     const commandLocator = page.getByText(/hermod --mode=worker --worker-guid=/i);
@@ -80,8 +81,8 @@ test.describe('Heavy Load Multi-Worker E2E', () => {
 
     // 1. Login
     await page.goto('/login');
-    await page.getByPlaceholder('Your username').fill('admin');
-    await page.getByPlaceholder('Your password').fill('admin123');
+    await page.getByPlaceholder('Your username').fill(E2E_USER);
+    await page.getByPlaceholder('Your password').fill(E2E_PASS);
     await page.click('button:has-text("Sign In")');
     await expect(page).not.toHaveURL(/login/);
 

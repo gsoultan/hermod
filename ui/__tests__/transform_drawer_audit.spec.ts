@@ -1,13 +1,14 @@
 import { test, type Page } from '@playwright/test';
 import { mkdirSync } from 'fs';
+import { E2E_USER, E2E_PASS } from './support/auth';
 
 const BASE = process.env.AUDIT_BASE_URL || 'http://localhost:5175';
 const SHOTS = 'audit-shots';
 
 const login = async (page: Page) => {
   await page.goto(`${BASE}/login`);
-  await page.getByPlaceholder('Your username').fill('admin');
-  await page.getByPlaceholder('Your password').fill('admin');
+  await page.getByPlaceholder('Your username').fill(E2E_USER);
+  await page.getByPlaceholder('Your password').fill(E2E_PASS);
   await page.getByRole('button', { name: /sign in|login/i }).click();
   await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 30000 });
 };

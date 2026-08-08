@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { E2E_USER, E2E_PASS } from './support/auth';
 
 /**
  * Regression guard for workflow-editor canvas real estate.
@@ -16,8 +17,8 @@ import { test, expect, type Page } from '@playwright/test';
 
 const login = async (page: Page) => {
   await page.goto('/login');
-  await page.getByPlaceholder('Your username').fill('admin');
-  await page.getByPlaceholder('Your password').fill('admin');
+  await page.getByPlaceholder('Your username').fill(E2E_USER);
+  await page.getByPlaceholder('Your password').fill(E2E_PASS);
   await page.getByRole('button', { name: /sign in|login/i }).click();
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30000 });
 };

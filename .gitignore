@@ -68,6 +68,7 @@ form-audit.json
 # Screenshots and geometry dumps from the sidebar/visual audit — regenerated on
 # every run, useful locally and as CI artifacts, never worth committing.
 ui/audit-shots/
+/audit-shots/
 
 # Ad-hoc artifacts that accumulate in the working tree during local runs and
 # debugging. None of them are inputs to a build or a test.

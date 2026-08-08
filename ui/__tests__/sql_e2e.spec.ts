@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { Client } from 'pg';
+import { E2E_USER, E2E_PASS } from './support/auth';
 
 test.describe('SQL Transformation and Query Builder E2E', () => {
   const sourceDB = 'hermod_test_source';
@@ -15,13 +16,13 @@ test.describe('SQL Transformation and Query Builder E2E', () => {
     page.on('console', msg => console.log('BROWSER:', msg.text()));
     // Login
     console.log('Navigating to login...');
-    await page.goto('http://localhost:5175/login');
-    await page.getByLabel('Username').first().fill('admin');
-    await page.locator('input[type="password"]').fill('admin123');
+    await page.goto('/login');
+    await page.getByLabel('Username').first().fill(E2E_USER);
+    await page.locator('input[type="password"]').fill(E2E_PASS);
     console.log('Clicking Sign In...');
     await page.getByRole('button', { name: 'Sign In' }).click();
     console.log('Waiting for navigation...');
-    await expect(page).toHaveURL('http://localhost:5175/', { timeout: 30000 });
+    await expect(page).toHaveURL(/\/$/, { timeout: 30000 });
     console.log('Login successful');
   });
 

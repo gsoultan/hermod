@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { spawn, execSync } from 'child_process';
+import { E2E_USER, E2E_PASS } from './support/auth';
 
 test.describe('Worker Agent Installation and Setup', () => {
   test('should register and connect a worker', async ({ page }) => {
@@ -14,8 +15,8 @@ test.describe('Worker Agent Installation and Setup', () => {
     console.log('Navigating to login...');
     await page.goto('/login');
     console.log('Filling credentials...');
-    await page.getByPlaceholder('Your username').fill('admin');
-    await page.getByPlaceholder('Your password').fill('admin123');
+    await page.getByPlaceholder('Your username').fill(E2E_USER);
+    await page.getByPlaceholder('Your password').fill(E2E_PASS);
     await page.click('button:has-text("Sign In")');
     
     // Wait for login to complete
@@ -33,8 +34,8 @@ test.describe('Worker Agent Installation and Setup', () => {
 
     // 3. Register a new worker
     console.log('Filling worker form...');
-    await page.getByLabel('Host').fill('127.0.0.1');
-    await page.getByLabel('Description').fill('E2E Test Worker');
+    await page.getByLabel('Host').first().fill('127.0.0.1');
+    await page.getByLabel('Description').first().fill('E2E Test Worker');
     await page.getByRole('button', { name: /Register Worker/i }).last().click();
 
     // 4. Verify success and get installation command

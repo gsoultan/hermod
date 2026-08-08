@@ -119,10 +119,15 @@ func LoadConfig(path string) (*Config, error) {
 }
 
 func SaveConfig(path string, cfg *Config) error {
-	// Ensure directory exists if path is in a non-existent directory
+	// Owner-only, like db_config.yaml. This file's schema carries a Vault token,
+	// an OpenBao token, a database password, an OIDC client secret and AWS
+	// credentials; at 0644 every one of those was readable by any local account,
+	// and baked into a container image, by anyone who can pull it. The
+	// permissions follow what the file *can* hold, not what a particular
+	// deployment happens to populate.
 	dir := filepath.Dir(path)
 	if dir != "." && dir != "" {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0700); err != nil {
 			return fmt.Errorf("failed to create config directory: %w", err)
 		}
 	}
@@ -131,7 +136,13 @@ func SaveConfig(path string, cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return err
+	}
+	// WriteFile only applies the mode when it creates the file, so an existing
+	// config written by an older version keeps its permissions unless they are
+	// tightened explicitly. Upgrades are exactly when this matters.
+	return os.Chmod(path, 0600)
 }
 
 var envRegex = regexp.MustCompile(`\${(\w+)(?::-([^}]*))?}`)

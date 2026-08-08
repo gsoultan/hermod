@@ -89,9 +89,10 @@ func (r *Registry) buildWorkflowSources(ctx context.Context, wf storage.Workflow
 	}
 
 	ms := &multiSource{
-		sources: subSources,
-		msgChan: make(chan hermod.Message, 100),
-		errChan: make(chan error, len(subSources)),
+		sources:    subSources,
+		msgChan:    make(chan hermod.Message, 100),
+		errChan:    make(chan error, len(subSources)),
+		workflowID: wf.ID,
 	}
 	return srcConfigs, ms, nil
 }
@@ -559,6 +560,19 @@ func (r *Registry) setupWorkflowRouter(
 	inDegree map[string]int,
 	sinkNodeToIndex map[string]int,
 ) {
+	// A message enters at exactly one source, so a node fed by several *source*
+	// nodes must not treat its siblings' edges as co-requisites — it would never
+	// fire and the message would be acknowledged and dropped. Precompute the
+	// in-degree restricted to the subgraph each source can reach, once per
+	// workflow, so the router pays a map lookup rather than a graph walk per
+	// message. Fan-out that converges *within* one traversal (switch branches
+	// rejoining) is still counted, so joins keep their barrier.
+	entryIDs := make([]string, 0, len(sourceNodes))
+	for _, sn := range sourceNodes {
+		entryIDs = append(entryIDs, sn.ID)
+	}
+	inDegreeByEntry := traversal.ReachableInDegreeByEntry(adj, entryIDs)
+
 	eng.SetRouter(func(ctx context.Context, msg hermod.Message) ([]pkgengine.RoutedMessage, error) {
 		// Stamp the workflow id onto every message as it enters the workflow.
 		// Downstream trace recording (doApplyTransformation) and PII discovery
@@ -576,7 +590,12 @@ func (r *Registry) setupWorkflowRouter(
 		// trace always shows "message received" even before any transform runs.
 		r.recordSourceIngestTrace(ctx, id, sourceNodeID, msg)
 
-		t := traversal.Acquire(r, eng, id, nodeMap, adj, nodeIndex, edgeLabels, edgeBreakpoints, inDegree, sinkNodeToIndex)
+		effectiveInDegree := inDegree
+		if reachable, ok := inDegreeByEntry[sourceNodeID]; ok {
+			effectiveInDegree = reachable
+		}
+
+		t := traversal.Acquire(r, eng, id, nodeMap, adj, nodeIndex, edgeLabels, edgeBreakpoints, effectiveInDegree, sinkNodeToIndex)
 		msg.Retain()
 		t.CurrentMessages[nodeIndex[sourceNodeID]] = msg
 

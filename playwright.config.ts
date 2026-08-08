@@ -9,7 +9,9 @@ export default defineConfig({
   reporter: 'list',
   timeout: 60000,
   use: {
-    baseURL: 'http://localhost:5175',
+    // Overridable so a run can be pointed at an isolated stack (a throwaway
+    // database on another port) instead of the dev instance you are working in.
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5175',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     actionTimeout: 15000,

@@ -202,22 +202,6 @@ func (s *MSSQLSink) executeBatch(ctx context.Context, tx *sql.Tx, table string, 
 	return nil
 }
 
-func (s *MSSQLSink) upsertMapped(ctx context.Context, tx *sql.Tx, table string, msg hermod.Message) error {
-	return s.upsertMappedBatch(ctx, tx, table, []hermod.Message{msg})
-}
-
-func (s *MSSQLSink) insertMapped(ctx context.Context, tx *sql.Tx, table string, msg hermod.Message) error {
-	return s.insertMappedBatch(ctx, tx, table, []hermod.Message{msg})
-}
-
-func (s *MSSQLSink) updateMapped(ctx context.Context, tx *sql.Tx, table string, msg hermod.Message) error {
-	return s.updateMappedBatch(ctx, tx, table, []hermod.Message{msg})
-}
-
-func (s *MSSQLSink) deleteMapped(ctx context.Context, tx *sql.Tx, table string, msg hermod.Message) error {
-	return s.deleteMappedBatch(ctx, tx, table, []hermod.Message{msg})
-}
-
 func (s *MSSQLSink) ensureTable(ctx context.Context, tx *sql.Tx, table string) error {
 	if _, ok := s.verifiedTables.Load(table); ok {
 		return nil

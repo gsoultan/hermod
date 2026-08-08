@@ -59,15 +59,12 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 		return nil
 	}
 	s.mu.Lock()
-	pool := s.pool
+	initialised := s.pool != nil
 	s.mu.Unlock()
-	if pool == nil {
+	if !initialised {
 		if err := s.init(ctx); err != nil {
 			return err
 		}
-		s.mu.Lock()
-		pool = s.pool
-		s.mu.Unlock()
 	}
 
 	// Ensure table exists
