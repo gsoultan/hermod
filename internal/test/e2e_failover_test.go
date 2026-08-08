@@ -9,6 +9,7 @@ import (
 	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/engine/worker"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -44,11 +45,21 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	ctx := t.Context()
 
 	// --- Platform storage (SQLite on disk) ---
-	stateDB, err := sql.Open("sqlite", "file:e2e_state.db?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)")
+	//
+	// In a temp directory, not the package directory. These databases were
+	// created as bare relative paths and removed by name at the end, which
+	// leaves the SQLite WAL sidecars (-wal, -shm) behind: a run that ended
+	// early left state that the next run opened, and the failures that caused
+	// looked like flakiness in the engine rather than debris on disk.
+	// t.TempDir is removed wholesale, sidecars included.
+	dir := t.TempDir()
+	const pragmas = "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
+
+	stateDB, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "e2e_state.db")+pragmas)
 	if err != nil {
 		t.Fatalf("open state db: %v", err)
 	}
-	defer func() { stateDB.Close(); os.Remove("e2e_state.db") }()
+	defer stateDB.Close()
 
 	store := sqlstorage.NewSQLStorage(stateDB, "sqlite")
 	if err := store.Init(ctx); err != nil {
@@ -56,12 +67,12 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	}
 
 	// --- Sink SQLite DB ---
-	sinkPath := "e2e_sink.db"
-	sinkDB, err := sql.Open("sqlite", sinkPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)")
+	sinkPath := filepath.Join(dir, "e2e_sink.db")
+	sinkDB, err := sql.Open("sqlite", sinkPath+pragmas)
 	if err != nil {
 		t.Fatalf("open sink db: %v", err)
 	}
-	defer func() { sinkDB.Close(); os.Remove(sinkPath) }()
+	defer sinkDB.Close()
 
 	table := "e2e_msgs"
 	if _, err := sinkDB.Exec("CREATE TABLE IF NOT EXISTS " + table + " (id TEXT PRIMARY KEY, data BLOB NOT NULL)"); err != nil {
@@ -123,7 +134,11 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	// Start worker 1
 	ctx1, cancel1 := context.WithCancel(t.Context())
 	defer cancel1()
-	go w1.Start(ctx1)
+	// Surface the worker's own failure. Discarding this error meant that when
+	// the worker did not come up, the test blamed whatever it was waiting for
+	// next -- "no webhook registered" -- rather than saying why.
+	startErr := make(chan error, 2)
+	go func() { startErr <- w1.Start(ctx1) }()
 
 	// Wait for the worker to have registered its webhook source.
 	//
@@ -138,6 +153,15 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 		t.Helper()
 		deadline := time.Now().Add(readyTimeout)
 		for {
+			select {
+			case werr := <-startErr:
+				if werr != nil {
+					t.Fatalf("the worker exited instead of registering %s: %v", path, werr)
+				}
+				t.Fatalf("the worker returned before registering %s", path)
+			default:
+			}
+
 			err := webhook.Dispatch(path, m)
 			if err == nil {
 				return
@@ -182,7 +206,7 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	// Start worker 2; it should steal the lease after TTL
 	ctx2, cancel2 := context.WithCancel(t.Context())
 	defer cancel2()
-	go w2.Start(ctx2)
+	go func() { startErr <- w2.Start(ctx2) }()
 
 	// Wait for worker 2 to steal the lease and restart the engine.
 	//
