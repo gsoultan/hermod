@@ -240,6 +240,32 @@ func (f *cdcFixture) collect(t *testing.T, n int, within time.Duration) []hermod
 	return got
 }
 
+// collectUntil returns as soon as a captured message satisfies match, rather
+// than waiting out a fixed count. Waiting for "4 messages" when only 3 ever
+// arrive costs the whole timeout on the happy path.
+func (f *cdcFixture) collectUntil(t *testing.T, within time.Duration, match func(hermod.Message) bool) ([]hermod.Message, bool) {
+	t.Helper()
+	var got []hermod.Message
+	t.Cleanup(func() {
+		for _, m := range got {
+			m.Release()
+		}
+	})
+
+	deadline := time.After(within)
+	for {
+		select {
+		case m := <-f.msgs:
+			got = append(got, m)
+			if match(m) {
+				return got, true
+			}
+		case <-deadline:
+			return got, false
+		}
+	}
+}
+
 func mustExec(t *testing.T, db *sql.DB, q string, args ...any) {
 	t.Helper()
 	if _, err := db.ExecContext(context.Background(), q, args...); err != nil {
@@ -410,5 +436,109 @@ func TestCDCResumesFromSlotAfterRestart(t *testing.T) {
 		t.Errorf("the change made during downtime was not replayed after restart; "+
 			"captured %v. A worker redeploy would drop every change committed while it "+
 			"was down, with nothing to show for it", seen)
+	}
+}
+
+// TestCDCPublicationTracksTableListChanges covers changing which tables a
+// running CDC source follows.
+//
+// This is what cdc_table_tracking_e2e.spec.ts existed to prove, through the
+// source wizard: add a table to an active pipeline and its changes start
+// arriving; the ones already tracked keep arriving. The property has nothing to
+// do with the DOM — it is publication reconciliation — and the browser version
+// could not survive the wizard being redesigned.
+//
+// Getting this wrong is quiet in both directions. A table that is not added
+// stops nothing and reports nothing; it simply never delivers. A table that is
+// not removed keeps streaming rows the operator believes they have untracked,
+// which is a data-governance problem rather than an outage.
+func TestCDCPublicationTracksTableListChanges(t *testing.T) {
+	f := newCDCFixture(t)
+	ctx := t.Context()
+
+	second := f.table + "_audit"
+	mustExec(t, f.db, "DROP TABLE IF EXISTS "+second)
+	mustExec(t, f.db, fmt.Sprintf(
+		"CREATE TABLE %s (id SERIAL PRIMARY KEY, name TEXT NOT NULL)", second))
+	mustExec(t, f.db, fmt.Sprintf("ALTER TABLE %s REPLICA IDENTITY FULL", second))
+	t.Cleanup(func() { mustExec(t, f.db, "DROP TABLE IF EXISTS "+second) })
+
+	// Phase 1: only the first table is published.
+	f.start(t, ctx, true)
+
+	mustExec(t, f.db, fmt.Sprintf("INSERT INTO %s (name) VALUES ($1)", f.table), "tracked-first")
+	mustExec(t, f.db, fmt.Sprintf("INSERT INTO %s (name) VALUES ($1)", second), "untracked-yet")
+
+	got := f.collect(t, 1, 30*time.Second)
+	if len(got) == 0 {
+		t.Fatalf("nothing captured from the initially tracked table (%s)", f.why())
+	}
+	for _, m := range got {
+		if strings.Contains(string(m.After()), "untracked-yet") {
+			t.Error("a change from a table outside the publication was captured before it was added")
+		}
+	}
+
+	// Phase 2: the operator adds the second table. Reconciliation happens when
+	// the source comes up with the wider list, which is what saving the source
+	// and restarting the workflow does.
+	f.stop()
+
+	f.source = NewPostgresSource(f.dsn, f.slot, f.pub, []string{f.table, second}, true, "", time.Second)
+	f.source.SetPersistentSlot(true)
+	f.msgs = make(chan hermod.Message, 256)
+	readCtx, cancel := context.WithCancel(ctx)
+	f.cancel = cancel
+	go func() {
+		for {
+			msg, err := f.source.Read(readCtx)
+			if readCtx.Err() != nil {
+				return
+			}
+			if err != nil {
+				f.setErr(err)
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+			if msg == nil {
+				continue
+			}
+			select {
+			case f.msgs <- msg:
+			case <-readCtx.Done():
+				msg.Release()
+				return
+			}
+		}
+	}()
+
+	// Wait for the publication to actually list both tables, rather than
+	// assuming the restart was instant.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		n := scalar(t, f.db, fmt.Sprintf(
+			"SELECT count(*) FROM pg_publication_tables WHERE pubname = '%s'", f.pub))
+		if n == "2" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("publication %q still lists %s table(s) after the source restarted with two; "+
+				"the added table would silently never deliver (%s)", f.pub, n, f.why())
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	mustExec(t, f.db, fmt.Sprintf("INSERT INTO %s (name) VALUES ($1)", second), "now-tracked")
+
+	after, foundNew := f.collectUntil(t, 45*time.Second, func(m hermod.Message) bool {
+		return strings.Contains(string(m.After()), "now-tracked")
+	})
+	if !foundNew {
+		seen := make([]string, 0, len(after))
+		for _, m := range after {
+			seen = append(seen, m.Table())
+		}
+		t.Errorf("a change in the newly tracked table never arrived; captured tables %v. "+
+			"Adding a table to a running pipeline reports success and delivers nothing", seen)
 	}
 }

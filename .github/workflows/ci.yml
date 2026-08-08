@@ -147,7 +147,8 @@ jobs:
             ui/__tests__/core_scenarios_e2e.spec.ts \
             ui/__tests__/multi_pipeline_editor_e2e.spec.ts \
             ui/__tests__/workflow_surface_e2e.spec.ts \
-            ui/__tests__/required_select_e2e.spec.ts
+            ui/__tests__/required_select_e2e.spec.ts \
+            ui/__tests__/worker_e2e.spec.ts
       - name: Stop Hermod
         if: always()
         run: ./scripts/dev.sh --stop
@@ -316,27 +317,41 @@ jobs:
     # pipeline unusable; running them nowhere is how they rotted. Nightly, and
     # on demand, is the compromise.
     #
-    # continue-on-error until they are rewritten. They were dormant long enough
-    # that they now describe a UI that no longer exists: the source wizard gained
-    # required-field validation, CDC defaults to on, several inputs became
-    # Autocompletes, and the Postgres replication step was redesigned around
-    # live slot/publication discovery. Repairing them locator-by-locator does not
-    # converge — each fix reveals the next — so they need rewriting against the
-    # current design.
+    # continue-on-error, and the list keeps shrinking as specs are converted.
     #
-    # The rewrite is under way, and mostly it is a move rather than a repair.
-    # What cdc_e2e.spec.ts was really asserting — a row changes in Postgres and
-    # arrives as a message, with before and after images, only for published
-    # tables, and replayed after a restart — now lives in
-    # pkg/comm/source/postgres/cdc_integration_test.go and runs in the required
-    # integration-go job in about five seconds. What is left here that genuinely
-    # belongs in a browser is the wizard itself, and that is what these specs
-    # should shrink to.
+    # These were dormant long enough that they describe a UI that no longer
+    # exists: the source wizard gained required-field validation, CDC defaults
+    # to on, several inputs became Autocompletes, and the Postgres replication
+    # step was redesigned around live slot/publication discovery. Repairing them
+    # locator-by-locator does not converge -- each fix reveals the next.
     #
-    # They still earn their keep in the meantime: this run is what surfaced the
-    # required-Select deselect bug and the unlabelled CDC switch, both of which
-    # are fixed. A permanently red required job would just train everyone to
-    # ignore the pipeline, which is the same trap the govulncheck wrapper avoids.
+    # Mostly the answer is a move rather than a repair, because what they were
+    # really asserting was never in the DOM. Converted so far, with where each
+    # one went:
+    #
+    #   cdc_e2e                -> pkg/comm/source/postgres/cdc_integration_test.go
+    #                             (insert/update/delete in commit order with
+    #                             before and after images, published tables only,
+    #                             replay after restart)
+    #   cdc_table_tracking_e2e -> same file, TestCDCPublicationTracksTableListChanges
+    #   sql_e2e                -> internal/engine/registry/discovery_integration_test.go
+    #                             (table and column discovery, ad-hoc query, and
+    #                             a broken query reporting an error rather than
+    #                             an empty result)
+    #   worker_e2e             -> promoted to the required E2E job above; it
+    #                             passes and needs no external service, so it was
+    #                             only ever here by mistake
+    #
+    # What is left is six specs whose data-plane content is already covered in
+    # Go -- node_ownership_test.go exercises 16 node executors, plus
+    # multi_pipeline_e2e_test.go, heavy_load_test.go and
+    # pipeline_property_test.go -- and whose remaining value is the UI journey
+    # itself. That is what still needs rewriting against the current design.
+    #
+    # A permanently red required job trains everyone to ignore the pipeline,
+    # which is the same trap the govulncheck wrapper avoids. They still earn
+    # their keep meanwhile: this run is what surfaced the required-Select
+    # deselect bug and the unlabelled CDC switch, both fixed.
     continue-on-error: true
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     services:
@@ -394,16 +409,12 @@ jobs:
       - name: E2E (integration)
         run: |
           bunx playwright test \
-            ui/__tests__/cdc_e2e.spec.ts \
-            ui/__tests__/cdc_table_tracking_e2e.spec.ts \
             ui/__tests__/advanced_transformations_e2e.spec.ts \
             ui/__tests__/comprehensive_transformations_e2e.spec.ts \
             ui/__tests__/production_grade.spec.ts \
             ui/__tests__/rabbitmq_e2e.spec.ts \
-            ui/__tests__/sql_e2e.spec.ts \
             ui/__tests__/heavy_load_e2e.spec.ts \
-            ui/__tests__/perf_e2e.spec.ts \
-            ui/__tests__/worker_e2e.spec.ts
+            ui/__tests__/perf_e2e.spec.ts
       - name: Stop Hermod
         if: always()
         run: ./scripts/dev.sh --stop
