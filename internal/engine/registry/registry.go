@@ -1290,7 +1290,19 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 		return res, err
 	}
 
-	return modifiedMsg, nil
+	// Nothing is registered under this name.
+	//
+	// This used to return the message untouched. Every real transformation is
+	// in the registry, and workflow validation does not check the type either,
+	// so the only thing that reached here was a typo — and the consequence was
+	// that messages flowed through untransformed, with no error and nothing in
+	// the logs. The pipeline reported healthy while writing unmasked, unmapped
+	// or unconverted rows to the destination.
+	//
+	// Failing is the honest answer, and applyTransformation already offers the
+	// escape hatch: a workflow that genuinely wants a no-op can set
+	// onError: "continue".
+	return nil, fmt.Errorf("unknown transformation type %q: no transformer is registered under that name", transType)
 }
 
 func (r *Registry) shouldTrace(workflowID string, msg hermod.Message) bool {
