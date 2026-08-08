@@ -1,0 +1,32 @@
+{{ .Chart.Name }} {{ .Chart.AppVersion }} installed as {{ .Release.Name }}.
+
+Reach the UI:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "hermod.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  open http://localhost:{{ .Values.service.port }}
+
+{{- if not (or .Values.masterKey .Values.existingSecret) }}
+
+WARNING: no crypto master key is set, so connector credentials are encrypted
+with the built-in default key -- a constant published in Hermod's source, which
+protects nobody who can read the database. Set masterKey or existingSecret.
+{{- end }}
+{{- if not .Values.persistence.enabled }}
+
+WARNING: persistence is disabled. db_config.yaml, including the generated JWT
+secret, lives in an emptyDir and is lost on restart: every user is logged out
+and first-time setup runs again. This is only safe when a shared database holds
+the state.
+{{- end }}
+{{- if not .Values.metrics.prometheusRule.enabled }}
+
+Four Hermod failure modes lose data while every status stays green. The alerts
+for them ship with this chart but are off:
+
+  --set metrics.prometheusRule.enabled=true
+{{- end }}
+
+Shutdown: HERMOD_SHUTDOWN_TIMEOUT={{ .Values.shutdownTimeout }} inside a
+terminationGracePeriodSeconds of {{ .Values.terminationGracePeriodSeconds }}s.
+Hermod drains in-flight messages on SIGTERM; if you raise the timeout, raise the
+grace period with it or the pod is killed mid-drain.

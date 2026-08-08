@@ -163,6 +163,98 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # Deployment artifacts.
+  #
+  # The image and the chart are only exercised at release time otherwise, which
+  # is the worst moment to discover either is broken. Building the image on
+  # every push also catches the failure mode the Dockerfile guards against: the
+  # UI is embedded at compile time, so a binary built without the assets starts
+  # happily and serves a blank page.
+  deploy-artifacts:
+    name: Image and chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Load rather than push, so the container can actually be run below.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: hermod:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # A built image is not a working one. This is the same check the chart's
+      # probes rely on, so if it fails here it would have failed as a
+      # CrashLoopBackOff in a cluster.
+      - name: Container starts and serves its probes
+        run: |
+          docker run -d --name hermod-ci -p 4000:4000 \
+            -e HERMOD_CONFIG_DIR=/tmp/hermod hermod:ci
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:4000/livez >/dev/null 2>&1; then
+              echo "livez OK after ${i}s"; break
+            fi
+            if [ "$i" = 60 ]; then
+              echo "container never became live:"; docker logs hermod-ci; exit 1
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:4000/readyz -o /dev/null -w 'readyz: %{http_code}\n' || true
+          curl -fsS http://localhost:4000/metrics | head -1
+          # The embedded UI: a blank page here is the failure this guards.
+          curl -fsS http://localhost:4000/ | grep -qi "<!doctype html" \
+            || { echo "the embedded UI did not render"; docker logs hermod-ci; exit 1; }
+
+      - name: Container drains rather than being killed on SIGTERM
+        run: |
+          start=$(date +%s)
+          docker stop --timeout 60 hermod-ci
+          end=$(date +%s)
+          echo "shutdown took $((end - start))s"
+          # Exit 0 means it handled SIGTERM and left on its own terms; 137 is
+          # SIGKILL, which is what happens when a drain overruns its budget.
+          code=$(docker inspect hermod-ci --format '{{.State.ExitCode}}')
+          test "$code" != "137" || { echo "container was SIGKILLed, not drained"; exit 1; }
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint and render the chart
+        run: |
+          helm lint deploy/helm/hermod
+          helm template t deploy/helm/hermod > /dev/null
+          helm template t deploy/helm/hermod --set metrics.prometheusRule.enabled=true \
+            --set metrics.serviceMonitor.enabled=true --set ingress.enabled=true > /dev/null
+
+      # The guards are the reason the chart exists. Each of these deploys
+      # happily and loses data, so rendering must refuse them.
+      - name: Chart refuses configurations that lose data
+        run: |
+          fails() {
+            if helm template t deploy/helm/hermod "$@" >/dev/null 2>&1; then
+              echo "FAIL: chart accepted: $*"; exit 1
+            fi
+            echo "ok, refused: $*"
+          }
+          fails --set terminationGracePeriodSeconds=20
+          fails --set masterKey=abc --set existingSecret=s
+          fails --set replicaCount=3
+          fails --set replicaCount=3 --set database.type=postgres --set database.connectionSecret=dsn
+
+      - name: Validate the alert rules
+        run: |
+          go install github.com/prometheus/prometheus/cmd/promtool@latest
+          helm template t deploy/helm/hermod --set metrics.prometheusRule.enabled=true \
+            | scripts/extract-prometheus-rules.sh > /tmp/rules.yaml
+          "$(go env GOPATH)/bin/promtool" check rules /tmp/rules.yaml
+
   # Go integration tests: real Postgres, no browser.
   #
   # This is where the data-plane coverage belongs. The Playwright specs below

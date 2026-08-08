@@ -682,6 +682,44 @@ of yours produces messages without an id, set `idempotency_key` in a transformat
 Sinks that are not upserts (webhook, SMTP, queues) deduplicate only where they say so; SMTP computes
 its own key from the message and recipient.
 
+### Deploying on Kubernetes
+
+A container image and a Helm chart ship with each release:
+
+```bash
+helm install hermod oci://ghcr.io/user/charts/hermod \
+  --version <release> \
+  --set existingSecret=hermod-master-key \
+  --set metrics.prometheusRule.enabled=true
+```
+
+Or from a checkout: `helm install hermod deploy/helm/hermod`.
+
+The chart wires the pieces this document describes and that are easy to get
+subtly wrong: `/livez` as the liveness probe and `/readyz` as readiness (never
+the other way round — pointing liveness at `/readyz` restarts every pod during a
+database blip instead of merely routing away from them), a
+`terminationGracePeriodSeconds` that exceeds `HERMOD_SHUTDOWN_TIMEOUT`, the
+crypto master key as a Secret, and a volume for `db_config.yaml`.
+
+It **refuses to render** four configurations that install cleanly and then lose
+data, rather than letting you find out during a rolling restart:
+
+| Refused | Why |
+| :--- | :--- |
+| `terminationGracePeriodSeconds` ≤ `shutdownTimeout` | Kubernetes kills the pod mid-drain; everything taken from a source and not yet written is discarded. |
+| Both `masterKey` and `existingSecret` | Ambiguous which key encrypts stored credentials. |
+| `replicaCount > 1` with no shared database | Each replica keeps its own workflows, leases and users, so they cannot coordinate. |
+| `replicaCount > 1` with a ReadWriteOnce volume | Replicas after the first stay unschedulable. |
+
+The image is distroless and runs as uid 65532 with a read-only root filesystem.
+`/metrics` is unauthenticated, so the Service stays `ClusterIP` — do not put it
+behind a public LoadBalancer. Hermod serves plain HTTP and has no TLS listener
+of its own; terminate TLS at the ingress.
+
+Enable `metrics.prometheusRule.enabled` to install the four alerts in
+[Alerting on silent failures](#alerting-on-silent-failures). Two of them page.
+
 ### Credential encryption and master key rotation
 
 Connector credentials — passwords, API keys, DSNs, GCP service-account documents — are encrypted

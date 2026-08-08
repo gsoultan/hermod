@@ -1,0 +1,38 @@
+# Keep the build context small and, more importantly, keep local state out of
+# the image. `COPY . .` would otherwise pull in node_modules, build caches, and
+# any database or config file sitting in the working tree.
+
+.git
+.github
+node_modules
+ui/node_modules
+ui/dist
+
+# Generated UI assets are produced by the ui stage; copying a stale local build
+# in would silently win over the freshly built one.
+internal/api/static/*
+!internal/api/static/.gitkeep
+
+# Local state and secrets — a db_config.yaml holds the JWT secret and the crypto
+# master key, and must never be baked into an image.
+*.db
+*.db-shm
+*.db-wal
+db_config.yaml
+config.yaml
+.hermod/
+
+# Tooling output
+graphify-out
+test-results
+playwright-report
+coverage
+dist
+*.log
+*.out
+*.test
+
+# Editor and OS noise
+.idea
+.vscode
+.DS_Store
