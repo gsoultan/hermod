@@ -16,12 +16,14 @@ func (h *WorkerHandler) RegisterWorkerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/workers", h.ListWorkers)
 	mux.HandleFunc("GET /api/workers/recommend", h.RecommendWorker)
 	mux.HandleFunc("GET /api/workers/{id}", h.GetWorker)
-	mux.HandleFunc("POST /api/workers", h.CreateWorker)
-	mux.HandleFunc("PUT /api/workers/{id}", h.UpdateWorker)
+	mux.Handle("POST /api/workers", h.AdminOnly(h.CreateWorker))
+	mux.Handle("PUT /api/workers/{id}", h.AdminOnly(h.UpdateWorker))
 	mux.HandleFunc("POST /api/workers/{id}/heartbeat", h.UpdateWorkerHeartbeat)
 	mux.HandleFunc("POST /api/workers/{id}/start", h.StartWorker)
 	mux.HandleFunc("POST /api/workers/{id}/shutdown", h.ShutdownWorker)
-	mux.HandleFunc("DELETE /api/workers/{id}", h.DeleteWorker)
+	// StartWorker and ShutdownWorker check the role in-handler; these three did
+	// not, so a Viewer could create, rename or delete a worker.
+	mux.Handle("DELETE /api/workers/{id}", h.AdminOnly(h.DeleteWorker))
 }
 
 func (h *WorkerHandler) ListWorkers(w http.ResponseWriter, r *http.Request) {

@@ -16,6 +16,8 @@ import (
 	hermod "github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
 	sourcebuf "github.com/user/hermod/pkg/comm/source"
+
+	"github.com/user/hermod/pkg/infra/sqlident"
 )
 
 // Source is a client-mode WebSocket source that dials a ws/wss URL and
@@ -209,11 +211,23 @@ func (s *Source) loop(ctx context.Context) {
 				m.SetOperation(hermod.OpSnapshot)
 			}
 		}
+		// The table and schema on a message are not just labels: a SQL sink with
+		// no table configured falls back to them, and they are interpolated into
+		// the statement because no driver accepts a placeholder for an
+		// identifier. Taking them unvalidated from a wire frame let a peer choose
+		// what got pasted into an INSERT or MERGE against the destination
+		// database. Drop anything that is not a plain identifier rather than
+		// failing the message — the payload is still deliverable, it just does
+		// not get to name its own table.
 		if env.Table != "" {
-			m.SetTable(env.Table)
+			if err := sqlident.Validate(env.Table); err == nil {
+				m.SetTable(env.Table)
+			}
 		}
 		if env.Schema != "" {
-			m.SetSchema(env.Schema)
+			if err := sqlident.Validate(env.Schema); err == nil {
+				m.SetSchema(env.Schema)
+			}
 		}
 		for k, v := range env.Metadata {
 			m.SetMetadata(k, v)

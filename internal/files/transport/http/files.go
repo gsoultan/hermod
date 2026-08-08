@@ -15,5 +15,5 @@ func NewFileHandler(h *handlers.Handler) *FileHandler {
 }
 
 func (h *FileHandler) RegisterFileRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/files/upload", h.UploadFile)
+	mux.Handle("POST /api/files/upload", h.EditorOnly(h.UploadFile))
 }

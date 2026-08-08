@@ -98,3 +98,20 @@ formatters:
   enable:
     - gofmt      # Standard Go formatting.
     - goimports  # Manage and group imports.
+
+issues:
+  # This configuration is strict on purpose, and the codebase predates it by a
+  # long way: a full run reports well over 300 findings, most of them
+  # complexity and error-check debt in code nobody is touching. A gate that can
+  # never be green is a gate everyone learns to ignore, and it hid three real
+  # SA4006 swallowed errors among the noise.
+  #
+  # So it gates *new* code instead. Anything introduced relative to the merge
+  # base fails the build; the existing backlog is visible with
+  # `golangci-lint run --new=false ./...` and can be paid down deliberately
+  # rather than blocking every change.
+  new-from-merge-base: main
+  # Report every new finding rather than the default per-linter cap, so a
+  # change cannot slip issues past the limit.
+  max-issues-per-linter: 0
+  max-same-issues: 0

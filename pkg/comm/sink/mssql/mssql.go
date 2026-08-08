@@ -3,6 +3,7 @@ package mssql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -12,6 +13,8 @@ import (
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"
 	"github.com/user/hermod/pkg/infra/sqlutil"
+
+	"github.com/user/hermod/pkg/infra/sqlident"
 )
 
 type MSSQLSink struct {
@@ -82,6 +85,9 @@ func (s *MSSQLSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 		}
 
 		table := s.resolveTableName(msg)
+		if table == "" {
+			return errors.New("mssql sink: refusing to write to an unsafe or empty table name")
+		}
 		op := s.resolveOperation(msg)
 
 		if len(batches) > 0 && batches[len(batches)-1].table == table && batches[len(batches)-1].op == op {
@@ -105,12 +111,21 @@ func (s *MSSQLSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 }
 
 func (s *MSSQLSink) resolveTableName(msg hermod.Message) string {
+	// Identifiers cannot be parameterized, so this name is interpolated into the
+	// statement. Validate it here — the last point before it becomes SQL — rather
+	// than trusting whoever supplied it: sink config comes from an authenticated
+	// editor, but the fallback comes from the *message*, and a message's table can
+	// originate on the wire. An unsafe name yields "" so the caller fails the write
+	// instead of executing it.
 	table := s.tableName
 	if table == "" {
 		table = msg.Table()
 		if msg.Schema() != "" {
 			table = fmt.Sprintf("%s.%s", msg.Schema(), table)
 		}
+	}
+	if err := sqlident.Validate(table); err != nil {
+		return ""
 	}
 	return table
 }

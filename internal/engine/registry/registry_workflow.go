@@ -845,8 +845,10 @@ func (r *Registry) StopAll() {
 	r.mu.Unlock()
 
 	var wg sync.WaitGroup
-	// Use a timed context to bound the overall shutdown of all engines.
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	// Bound the overall shutdown from the shared budget rather than a local
+	// constant, so this can never outlive the process-wide deadline (or the
+	// orchestrator's grace period) that contains it.
+	ctx, cancel := context.WithTimeout(context.Background(), config.Shutdown().PerEngine)
 	defer cancel()
 
 	for _, id := range ids {

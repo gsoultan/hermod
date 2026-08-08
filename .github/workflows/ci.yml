@@ -19,6 +19,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # golangci-lint's new-from-merge-base needs the merge base in history.
+          fetch-depth: 0
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -36,11 +39,14 @@ jobs:
       # merge unnoticed. Race detection is on because the engine is concurrent.
       - name: Test (race)
         run: go test -race ./...
+      # Gates new code only (see issues.new-from-merge-base in .golangci.yml).
+      # The pre-existing backlog is reported by the nightly lint-debt job rather
+      # than blocking every change.
       - name: Lint (golangci-lint)
         uses: golangci/golangci-lint-action@v8
         with:
           version: latest
-          args: --timeout=5m
+          args: --timeout=10m
       - name: Staticcheck
         run: |
           go install honnef.co/go/tools/cmd/staticcheck@latest
@@ -268,3 +274,24 @@ jobs:
           # CI runners reap goroutines less eagerly than a laptop.
           HERMOD_SOAK_GOROUTINE_SLACK: "20"
         run: go test -run TestSoak -timeout 40m ./internal/engine/registry/
+
+  lint-debt:
+    name: Lint backlog (informational)
+    runs-on: ubuntu-latest
+    # The full lint surface, including everything that predates the current
+    # config. Not a gate — a standing report so the debt stays visible and can
+    # be paid down deliberately instead of being forgotten behind a green tick.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Full lint report
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+          golangci-lint run --new-from-merge-base="" --timeout=15m ./... || true

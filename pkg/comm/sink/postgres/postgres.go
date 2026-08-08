@@ -20,6 +20,8 @@ import (
 	"github.com/user/hermod/pkg/infra/evaluator"
 	"github.com/user/hermod/pkg/infra/pgxutil"
 	"github.com/user/hermod/pkg/infra/sqlutil"
+
+	"github.com/user/hermod/pkg/infra/sqlident"
 )
 
 // pgExecutor abstracts the subset of pgx behaviour shared by *pgxpool.Pool,
@@ -156,6 +158,9 @@ func (s *PostgresSink) WriteBatch(ctx context.Context, msgs []hermod.Message) er
 	// semantics (e.g. a delete followed by an insert for the same key).
 	if localTx != nil && s.classifyBatch(msgs) == bulkModeCopy {
 		table := s.resolveTable(msgs[0])
+		if table == "" {
+			return errors.New("postgres sink: refusing to write to an unsafe or empty table name")
+		}
 		if err := s.ensureTable(ctx, executor, table); err != nil {
 			return fmt.Errorf("ensure table %s: %w", table, err)
 		}
@@ -206,6 +211,9 @@ func (s *PostgresSink) beginExecution(ctx context.Context) (pgExecutor, pgx.Tx, 
 
 func (s *PostgresSink) applyMessage(ctx context.Context, executor pgExecutor, msg hermod.Message) error {
 	table := s.resolveTable(msg)
+	if table == "" {
+		return errors.New("postgres sink: refusing to write to an unsafe or empty table name")
+	}
 	if err := s.ensureTable(ctx, executor, table); err != nil {
 		return fmt.Errorf("ensure table %s: %w", table, err)
 	}
@@ -216,14 +224,23 @@ func (s *PostgresSink) applyMessage(ctx context.Context, executor pgExecutor, ms
 }
 
 func (s *PostgresSink) resolveTable(msg hermod.Message) string {
-	if s.tableName != "" {
-		return s.tableName
+	// Identifiers cannot be parameterized, so this name is interpolated into the
+	// statement. Validate it here — the last point before it becomes SQL — rather
+	// than trusting whoever supplied it: sink config comes from an authenticated
+	// editor, but the fallback comes from the *message*, and a message's table can
+	// originate on the wire. An unsafe name yields "" so the caller fails the write
+	// instead of executing it.
+	name := s.tableName
+	if name == "" {
+		name = msg.Table()
+		if msg.Schema() != "" {
+			name = fmt.Sprintf("%s.%s", msg.Schema(), name)
+		}
 	}
-	table := msg.Table()
-	if msg.Schema() != "" {
-		return fmt.Sprintf("%s.%s", msg.Schema(), table)
+	if err := sqlident.Validate(name); err != nil {
+		return ""
 	}
-	return table
+	return name
 }
 
 func (s *PostgresSink) resolveOperation(msg hermod.Message) hermod.Operation {

@@ -657,6 +657,45 @@ Lower it towards `1.0` to trade stability for faster load-following. Measured on
 cluster with one idle and one saturated worker, an idle worker reclaims 1 key in 200 at `2.0` and
 192 in 200 at `1.0` (`TestLeaseHysteresisIsConfigurable`).
 
+### Shutdown budget — must fit inside your orchestrator's grace period
+
+On SIGTERM, Hermod stops accepting new work and then *drains*: it finishes writing the messages it
+has already taken from its sources and acknowledges them, so they are neither lost nor replayed.
+That takes time, and if the orchestrator kills the process partway through, the undelivered
+remainder is discarded — the drain protects nothing.
+
+Every shutdown stage derives from one total, so the stages always nest:
+
+| Stage | Share of total | Default | What it bounds |
+| :--- | :--- | :--- | :--- |
+| Total | 100% | 25s | The whole stop, including closing storage |
+| PerEngine | 80% | 20s | Stopping one workflow, and `StopAll` across all of them |
+| Drain | 55% | ~13s | Sink writes once shutdown has begun |
+| Grace | 20% | 5s | Writers unwinding after the drain budget expires |
+
+```bash
+HERMOD_SHUTDOWN_TIMEOUT=25s   # keep below terminationGracePeriodSeconds
+```
+
+**The default is 25s because Kubernetes' default `terminationGracePeriodSeconds` is 30s.** If you
+raise `HERMOD_SHUTDOWN_TIMEOUT`, raise the grace period to match — and leave a few seconds of
+margin, because the kubelet's timer starts before the signal is delivered and the process still has
+to close its database handles after the engines stop:
+
+```yaml
+spec:
+  terminationGracePeriodSeconds: 60   # must exceed HERMOD_SHUTDOWN_TIMEOUT
+  containers:
+    - name: hermod
+      env:
+        - name: HERMOD_SHUTDOWN_TIMEOUT
+          value: "45s"
+```
+
+A per-sink `drain_timeout` larger than the budget is clamped to it rather than allowed to overrun
+the process-wide deadline. `TestShutdownBudgetStagesNest` and
+`TestShutdownDefaultFitsKubernetesGracePeriod` hold both properties.
+
 ## Performance Tuning Guide
 
 This section summarizes practical knobs to keep Hermod lightweight (low CPU/RAM) while maintaining throughput and reliability.

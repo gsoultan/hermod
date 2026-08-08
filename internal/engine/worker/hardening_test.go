@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -68,7 +69,7 @@ func newHardeningStorage(workflowCount int) *hardeningStorage {
 
 func (s *hardeningStorage) down() error {
 	if s.failStorage.Load() {
-		return fmt.Errorf("control plane unavailable")
+		return errors.New("control plane unavailable")
 	}
 	return nil
 }
