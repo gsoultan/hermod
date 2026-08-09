@@ -48,7 +48,11 @@ worker.yaml
 /.hermod
 main
 hermod_state.db
-ui/bun.lock
+# ui/bun.lock is deliberately NOT ignored, for the same reason as go.sum below:
+# CI runs `bun install --frozen-lockfile` in ui/, which has nothing to freeze
+# against without it, and the Dockerfile's `COPY ui/bun.lock*` tolerates the
+# file being absent. Untracked, UI dependency versions float between builds and
+# two builds of the same tag can differ.
 # go.sum is deliberately NOT ignored. It is a build input, not build output:
 # without it `go build` fails on a clean checkout with "missing go.sum entry"
 # for every dependency, which is exactly what happened to CI. It is also the
