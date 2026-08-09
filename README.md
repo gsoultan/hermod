@@ -621,6 +621,10 @@ Worker Metrics:
 
 ### Alerting on silent failures
 
+Each of these has a procedure in [`RUNBOOK.md`](./RUNBOOK.md), along with key
+rotation, backup and restore, replication-slot WAL retention, and what is known
+*not* to be covered.
+
 Most pipeline problems announce themselves as errors. These four do not — they lose or withhold data
 while every status stays green — so each one needs an alert rather than a dashboard.
 
