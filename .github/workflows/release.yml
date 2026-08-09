@@ -4,10 +4,26 @@ on:
   push:
     tags:
       - 'v*'
+  # Re-publish an existing tag with the *current* workflow.
+  #
+  # A tag-triggered run executes the workflow file as it was at that tag, so a
+  # bug in this file can only be fixed by cutting another tag -- which is how
+  # v1.7.1 and v1.7.2 came to exist with binaries and no image. This lets a
+  # release be retried from main after the fix.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish, e.g. v1.7.3
+        required: true
 
 permissions:
   contents: write
   packages: write
+
+env:
+  # The one place the version is decided. github.ref_name is the tag on a push
+  # and the branch on a dispatch, so it cannot be used directly by both.
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   # Container image.
@@ -41,6 +57,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
 
       - name: Prepare platform name
         id: prep
@@ -85,7 +104,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ env.RELEASE_TAG }}
           cache-from: type=gha,scope=${{ steps.prep.outputs.pair }}
           cache-to: type=gha,mode=max,scope=${{ steps.prep.outputs.pair }}
           outputs: type=image,name=ghcr.io/${{ steps.repo.outputs.name }},push-by-digest=true,name-canonical=true,push=true
@@ -143,9 +162,9 @@ jobs:
         with:
           images: ghcr.io/${{ steps.repo.outputs.name }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=semver,pattern={{version}},value=${{ env.RELEASE_TAG }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.RELEASE_TAG }}
+            type=raw,value=latest,enable=${{ !contains(env.RELEASE_TAG, '-') }}
 
       - name: Create the manifest list
         working-directory: /tmp/digests
@@ -157,7 +176,7 @@ jobs:
       # rather than let someone discover it with a pull.
       - name: Verify the published manifest
         run: |
-          docker buildx imagetools inspect "ghcr.io/${{ steps.repo.outputs.name }}:${GITHUB_REF_NAME#v}" \
+          docker buildx imagetools inspect "ghcr.io/${{ steps.repo.outputs.name }}:${RELEASE_TAG#v}" \
             | tee /tmp/manifest.txt
           grep -q "linux/amd64" /tmp/manifest.txt
           grep -q "linux/arm64" /tmp/manifest.txt
@@ -175,6 +194,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
@@ -184,7 +206,7 @@ jobs:
 
       - name: Package and push
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           helm package deploy/helm/hermod \
             --version "$version" \
             --app-version "$version" \
@@ -197,6 +219,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Set up Go
@@ -224,3 +247,9 @@ jobs:
           args: release --clean --skip=validate
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # v1.7.3 and v1.7.3-rc.1 sat on the same commit, so git describe
+          # picked the release candidate: goreleaser built 1.7.3-rc.1 artifacts
+          # and failed uploading them to the rc's existing release. The image
+          # jobs were unaffected because they read the triggering ref, not the
+          # git history.
+          GORELEASER_CURRENT_TAG: ${{ env.RELEASE_TAG }}
