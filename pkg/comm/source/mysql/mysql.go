@@ -146,6 +146,22 @@ type mysqlEventHandler struct {
 	source *MySQLSource
 }
 
+// mysqlActionToOperation maps a binlog action onto Hermod's vocabulary. A sink
+// distinguishes an insert from a delete by this alone, so an unrecognised
+// action must not quietly become a create.
+func mysqlActionToOperation(action string) hermod.Operation {
+	switch action {
+	case canal.InsertAction:
+		return hermod.OpCreate
+	case canal.UpdateAction:
+		return hermod.OpUpdate
+	case canal.DeleteAction:
+		return hermod.OpDelete
+	default:
+		return hermod.Operation(action)
+	}
+}
+
 func (h *mysqlEventHandler) OnRow(e *canal.RowsEvent) error {
 	action := e.Action
 	var rows [][]any
@@ -175,6 +191,28 @@ func (h *mysqlEventHandler) OnRow(e *canal.RowsEvent) error {
 		msg.SetData("_schema", e.Table.Schema)
 		for k, v := range data {
 			msg.SetData(k, v)
+		}
+
+		// The fields the rest of the pipeline actually routes on.
+		//
+		// This path set _table and _schema as *data* and stopped there, so
+		// Table(), Schema(), Operation() and After() were all empty on every
+		// MySQL CDC message. A SQL sink takes its target table from the message
+		// when its own config does not pin one, and decides insert against
+		// delete from the operation, so binlog changes arrived at sinks with no
+		// table, no operation and no after-image. The snapshot path a few
+		// hundred lines below always set them; only CDC did not.
+		msg.SetTable(e.Table.Name)
+		msg.SetSchema(e.Table.Schema)
+		msg.SetOperation(mysqlActionToOperation(action))
+		// Every other source stamps this, and the snapshot path below does too;
+		// only CDC did not, so a routing or audit rule keyed on it saw nothing.
+		msg.SetMetadata("source", "mysql")
+		if afterJSON, err := json.Marshal(data); err == nil {
+			msg.SetAfter(afterJSON)
+		} else {
+			h.source.log("ERROR", "cannot encode row image",
+				"schema", e.Table.Schema, "table", e.Table.Name, "error", err)
 		}
 
 		// Set a stable ID if possible (e.g. from PK)
