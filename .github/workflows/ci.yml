@@ -430,43 +430,42 @@ jobs:
     # pipeline unusable; running them nowhere is how they rotted. Nightly, and
     # on demand, is the compromise.
     #
-    # continue-on-error, and down from ten specs to three.
+    # continue-on-error, and down from ten specs to one.
     #
-    # These describe a UI that no longer exists -- the source wizard gained
-    # required-field validation, CDC defaults to on, several inputs became
-    # Autocompletes, and the Postgres replication step was redesigned around
-    # live slot/publication discovery. Repairing them locator-by-locator does
-    # not converge.
-    #
-    # Mostly the answer was a move rather than a repair, because what they were
-    # asserting was never in the DOM. Retired, with where each one went:
+    # These described a UI that no longer exists, and mostly the answer was a
+    # move rather than a repair: what they asserted was never in the DOM.
+    # Retired, with where each one went:
     #
     #   cdc_e2e, cdc_table_tracking_e2e
     #     -> pkg/comm/source/postgres/cdc_integration_test.go
     #   sql_e2e
     #     -> internal/engine/registry/discovery_integration_test.go
-    #   rabbitmq_e2e (mocked its broker; the assertions were all about the
+    #   rabbitmq_e2e (mocked its broker; every assertion was about the
     #     simulation endpoint, which had no Go coverage at all)
     #     -> internal/engine/registry/simulation_test.go
     #   heavy_load_e2e, perf_e2e
     #     -> internal/engine/registry/multiworker_load_integration_test.go
+    #   advanced_transformations_e2e, comprehensive_transformations_e2e
+    #     -> internal/engine/registry/transformation_types_test.go and
+    #        db_lookup_integration_test.go. Checked type by type before
+    #        deleting: all eleven the specs exercised are covered, including
+    #        parallel_pipeline, which routes to a different function from
+    #        pipeline and was the last one nothing reached.
     #   worker_e2e -> promoted to the required E2E job; it passes and needs no
     #     external service, so it was only ever here by mistake
     #
-    # The two transformation specs stay for now. Checking them properly turned
-    # up a real gap rather than duplication: they exercised eleven
-    # transformation types and Go covered six, so char_map, data_conversion,
-    # fuzzy_lookup, lua and mask -- the PII control -- had no coverage anywhere
-    # else. transformation_types_test.go closes that; what is left in the specs
-    # is api_lookup and db_lookup, which need an HTTP endpoint and a database.
-    #
-    # production_grade stays because its multi-source/multi-sink journey with
-    # sequential and parallel delivery is the one thing no other test walks.
+    # production_grade stays. Its UI half is covered by
+    # multi_pipeline_editor_e2e and workflow_surface_e2e, but it also asserts
+    # that a sequential sink and a parallel sink both deliver, with the field
+    # values to prove it. Those are genuinely different execution models --
+    # sequential writes inline and exposes success/error branches, parallel
+    # passes through to the async writers -- and Go covers only the flag
+    # resolution (TestResolveSinkNodeSequential), not the behaviour. Replacing
+    # it needs a running engine and a real sink, so it is a piece of work
+    # rather than a move.
     #
     # A permanently red required job trains everyone to ignore the pipeline,
-    # which is the same trap the govulncheck wrapper avoids. They still earn
-    # their keep meanwhile: this run is what surfaced the required-Select
-    # deselect bug and the unlabelled CDC switch, both fixed.
+    # which is the same trap the govulncheck wrapper avoids.
     continue-on-error: true
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     services:
@@ -524,8 +523,6 @@ jobs:
       - name: E2E (integration)
         run: |
           bunx playwright test \
-            ui/__tests__/advanced_transformations_e2e.spec.ts \
-            ui/__tests__/comprehensive_transformations_e2e.spec.ts \
             ui/__tests__/production_grade.spec.ts
       - name: Stop Hermod
         if: always()

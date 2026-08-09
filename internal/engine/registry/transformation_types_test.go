@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/comm/message"
 	// Transformers register themselves in init(), so the test binary has to
 	// link the packages it exercises. cmd/hermod imports both; without these a
@@ -193,5 +194,79 @@ func TestUnknownTransformationIsRejected(t *testing.T) {
 		}
 		t.Error("an unknown transformation type was accepted; a typo in a workflow " +
 			"would forward messages untransformed and report success")
+	}
+}
+
+// TestParallelPipelineAppliesEveryStep covers the one transformation type the
+// retired browser specs exercised that nothing in Go reached.
+//
+// parallel_pipeline is a distinct code path from pipeline: the node executor
+// routes them to different functions, and the parallel one fans the message out
+// to a clone per step and runs them concurrently. node_ownership_test.go has a
+// case named "parallel-pipeline" but it configures transType "pipeline", so the
+// concurrent path was never executed.
+//
+// A step quietly dropped here is invisible: the message arrives at the sink
+// missing a field, with no error anywhere.
+func TestParallelPipelineAppliesEveryStep(t *testing.T) {
+	reg := newSimRegistry(t)
+
+	node := &storage.WorkflowNode{
+		ID:   "par",
+		Type: "transformation",
+		Config: map[string]any{
+			"transType": "parallel_pipeline",
+			"steps": `[{"transType":"set","column.a":"'1'"},` +
+				`{"transType":"set","column.b":"'2'"},` +
+				`{"transType":"set","column.c":"'3'"}]`,
+		},
+	}
+
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	msg.SetAfter([]byte(`{"k":"v"}`))
+	msg.SetPayload([]byte(`{"k":"v"}`))
+
+	out, _, err := reg.RunWorkflowNode("wf-parallel", node, msg)
+	if err != nil {
+		t.Fatalf("parallel_pipeline: %v", err)
+	}
+	t.Cleanup(func() {
+		for _, m := range out {
+			if m != msg {
+				m.Release()
+			}
+		}
+	})
+	if len(out) == 0 {
+		t.Fatal("parallel_pipeline produced no messages; every branch was lost")
+	}
+
+	// Each step runs on its own clone, so the fields land across the returned
+	// messages rather than all on one. What must not happen is a step vanishing.
+	seen := map[string]bool{}
+	for _, m := range out {
+		got := map[string]any{}
+		if raw := m.After(); len(raw) > 0 {
+			_ = json.Unmarshal(raw, &got)
+		}
+		for k, v := range m.Data() {
+			got[k] = v
+		}
+		for _, f := range []string{"a", "b", "c"} {
+			if _, ok := got[f]; ok {
+				seen[f] = true
+			}
+		}
+		if _, ok := got["k"]; !ok {
+			t.Errorf("a branch lost the original field k: %v", got)
+		}
+	}
+
+	for _, f := range []string{"a", "b", "c"} {
+		if !seen[f] {
+			t.Errorf("no branch produced field %q across %d message(s); a parallel step "+
+				"was dropped without reporting an error", f, len(out))
+		}
 	}
 }
