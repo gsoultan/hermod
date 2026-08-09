@@ -2,6 +2,9 @@ package smtp
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"testing"
@@ -610,10 +613,22 @@ func TestSmtpSink_IdempotencyEmptyKeyFallback(t *testing.T) {
 	})
 }
 
+// TestSmtpSink_RealSend sends through a real SMTP server.
+//
+// It was gated on SMTP_HOST, which CI never set, so it had never run -- the
+// last of the tests that skipped silently on a missing environment variable.
+// The other three that turned up in that audit were hiding real bugs.
+//
+// It also only checked that Write returned nil, which is a weaker claim than it
+// looks: an SMTP server accepts a message long before anyone can read it, so a
+// sink that composed a malformed body or addressed nobody would still pass.
+// When SMTP_VERIFY_API points at a Mailpit instance the test now reads the
+// message back and checks what actually arrived. Against a real relay, where
+// there is nothing to inspect, it falls back to the delivery check alone.
 func TestSmtpSink_RealSend(t *testing.T) {
 	host := os.Getenv("SMTP_HOST")
 	if host == "" {
-		t.Skip("SMTP_HOST not set, skipping real send test")
+		t.Skip("integration: set SMTP_HOST (and optionally SMTP_VERIFY_API) to run")
 	}
 
 	port, _ := strconv.Atoi(os.Getenv("SMTP_PORT"))
@@ -623,7 +638,13 @@ func TestSmtpSink_RealSend(t *testing.T) {
 	to := os.Getenv("SMTP_TO")
 	ssl := os.Getenv("SMTP_SSL") == "true"
 
-	sink := NewSmtpSink(host, port, user, pass, ssl, from, []string{to}, "Hermod Test Email", nil, "inline", "<h1>Test Email from Hermod</h1><p>This is a test email sent from Hermod unit tests.</p>", "", gsmail.S3Config{}, true)
+	// A subject unique to this run, so the inbox check cannot be satisfied by a
+	// message an earlier run left behind.
+	subject := fmt.Sprintf("Hermod Test Email %d", time.Now().UnixNano())
+
+	sink := NewSmtpSink(host, port, user, pass, ssl, from, []string{to}, subject, nil, "inline",
+		"<h1>Test Email from Hermod</h1><p>This is a test email sent from Hermod unit tests.</p>",
+		"", gsmail.S3Config{}, true)
 
 	msg := message.AcquireMessage()
 	defer message.ReleaseMessage(msg)
@@ -631,8 +652,83 @@ func TestSmtpSink_RealSend(t *testing.T) {
 	msg.SetTable("test_table")
 	msg.SetOperation(hermod.OpSnapshot)
 
-	err := sink.Write(t.Context(), msg)
-	if err != nil {
-		t.Fatalf("Failed to send real email: %v", err)
+	if err := sink.Write(t.Context(), msg); err != nil {
+		t.Fatalf("sending through %s:%d failed: %v", host, port, err)
 	}
+
+	api := os.Getenv("SMTP_VERIFY_API")
+	if api == "" {
+		return
+	}
+
+	// Accepted is not delivered. Poll briefly: the server may not have filed it
+	// by the time Write returns.
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		got, err := mailpitSubjects(t, api)
+		if err == nil {
+			for _, m := range got {
+				if m.subject == subject {
+					if len(m.to) == 0 {
+						t.Errorf("the message arrived addressed to nobody; a sink that "+
+							"drops recipients still reports a successful send. Subject %q", subject)
+					}
+					for _, addr := range m.to {
+						if addr != to {
+							t.Errorf("message went to %q, want %q", addr, to)
+						}
+					}
+					return
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Write reported success but no message with subject %q reached the "+
+				"server within 15s; the send was accepted and the mail was not delivered", subject)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+type mailpitMessage struct {
+	subject string
+	to      []string
+}
+
+// mailpitSubjects reads the inbox back out of Mailpit's API.
+func mailpitSubjects(t *testing.T, api string) ([]mailpitMessage, error) {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+		strings.TrimSuffix(api, "/")+"/api/v1/messages", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		Messages []struct {
+			Subject string `json:"Subject"`
+			To      []struct {
+				Address string `json:"Address"`
+			} `json:"To"`
+		} `json:"messages"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+
+	out := make([]mailpitMessage, 0, len(body.Messages))
+	for _, m := range body.Messages {
+		msg := mailpitMessage{subject: m.Subject}
+		for _, a := range m.To {
+			msg.to = append(msg.to, a.Address)
+		}
+		out = append(out, msg)
+	}
+	return out, nil
 }
