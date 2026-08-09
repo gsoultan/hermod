@@ -17,14 +17,94 @@ jobs:
   # and a shutdown budget calibrated to terminationGracePeriodSeconds. Both
   # architectures match the goreleaser targets so a tag means the same thing
   # however you consume it.
+  # One native runner per architecture, pushed by digest and merged into a
+  # manifest afterwards.
+  #
+  # This was a single job building linux/amd64,linux/arm64 together. GitHub's
+  # standard runners are amd64, so the arm64 half ran under QEMU -- compiling
+  # the whole Go module and running the UI build a second time, emulated. It
+  # took forty minutes, against five or six for the same image natively in CI.
+  # A release that slow is one people put off cutting.
+  #
+  # ubuntu-24.04-arm is native and free for public repositories, so each half
+  # now builds on its own architecture in parallel.
   image:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Prepare platform name
+        id: prep
+        run: echo "pair=${platform//\//-}" >> "$GITHUB_OUTPUT"
+        env:
+          platform: ${{ matrix.platform }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+
+      # No tags here: each architecture is pushed by digest and the merge job
+      # below is what attaches the tags. Tagging per-arch would leave whichever
+      # finished last as the single-platform image behind :1.2.3.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+          cache-from: type=gha,scope=${{ steps.prep.outputs.pair }}
+          cache-to: type=gha,mode=max,scope=${{ steps.prep.outputs.pair }}
+          outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
+          provenance: true
+          sbom: true
+
+      - name: Export the digest
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${{ steps.build.outputs.digest }}"
+
+      - name: Upload the digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ steps.prep.outputs.pair }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  image-manifest:
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -46,20 +126,20 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ github.ref_name }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
+      - name: Create the manifest list
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/${{ github.repository }}@sha256:%s ' *)
+
+      # A manifest that exists is not the same as one that resolves. Fail here
+      # rather than let someone discover it with a pull.
+      - name: Verify the published manifest
+        run: |
+          docker buildx imagetools inspect "ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME#v}" \
+            | tee /tmp/manifest.txt
+          grep -q "linux/amd64" /tmp/manifest.txt
+          grep -q "linux/arm64" /tmp/manifest.txt
 
   # Helm chart, published as an OCI artifact next to the image.
   #
@@ -68,7 +148,9 @@ jobs:
   # to be.
   chart:
     runs-on: ubuntu-latest
-    needs: image
+    # The manifest, not the per-architecture builds: a chart published while
+    # only one arch had landed would name a tag that does not resolve yet.
+    needs: image-manifest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
