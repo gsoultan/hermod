@@ -1,6 +1,7 @@
 package rabbitmq
 
 import (
+	"os"
 	"testing"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -69,11 +70,25 @@ func TestRabbitMQQueueSource_SampleFromLastConsumed(t *testing.T) {
 	}
 }
 
+// TestRabbitMQQueueSource_Sample exercises the Sample path the source wizard
+// calls to show a user what their queue contains.
+//
+// It was skipped unconditionally -- `t.Skip("...needs live RabbitMQ")` with no
+// condition attached -- so it never ran even when a broker was available, and
+// the nightly job has been starting RabbitMQ for it all along. That is the same
+// shape as the MongoDB lease filter and the MySQL CDC fields: a test that could
+// not fail, guarding code nobody was checking.
+//
+// It now gates on RABBITMQ_URL like every other integration test here, so it
+// skips when there is no broker and runs when there is.
 func TestRabbitMQQueueSource_Sample(t *testing.T) {
-	// Skip if no RabbitMQ is available
-	t.Skip("Skipping RabbitMQ integration test; needs live RabbitMQ")
-
-	url := "amqp://guest:guest@localhost:5672/"
+	if os.Getenv("HERMOD_INTEGRATION") != "1" {
+		t.Skip("integration: set HERMOD_INTEGRATION=1 to run")
+	}
+	url := os.Getenv("RABBITMQ_URL")
+	if url == "" {
+		t.Skip("integration: set RABBITMQ_URL to run")
+	}
 	queue := "test_sample_queue"
 
 	// Setup: publish a message
