@@ -295,6 +295,39 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      # MySQL, Redis and Mongo were reachable by these tests from nobody: the
+      # files compiled and were never executed, which is how a lease filter
+      # that matched no document at all survived in the MongoDB backend.
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: hermod_it
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 3306:3306
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+      mongo:
+        image: mongo:7
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 27017:27017
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -340,6 +373,11 @@ jobs:
           # thresholds directly rather than through the environment.
           HERMOD_ADMISSION_CPU_THRESHOLD: "1"
           HERMOD_ADMISSION_MEM_THRESHOLD: "1"
+          MYSQL_DSN: root:root@tcp(127.0.0.1:3306)/hermod_it?parseTime=true
+          REDIS_ADDR: 127.0.0.1:6379
+          REDIS_STREAM: hermod_it_stream
+          MONGODB_URI: mongodb://127.0.0.1:27017
+          MONGODB_DB: hermod_it
         run: go test -tags=integration -count=1 -timeout 15m ./...
 
   e2e-integration:

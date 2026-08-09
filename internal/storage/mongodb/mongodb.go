@@ -240,8 +240,14 @@ func (s *mongoStorage) AcquireWorkflowLease(ctx context.Context, workflowID, own
 	now := time.Now().UTC()
 	until := now.Add(time.Duration(ttlSeconds) * time.Second)
 
+	// _id, not "id". CreateWorkflow stores the workflow under _id and
+	// GetWorkflow reads it back the same way; these three lease functions
+	// filtered on a field no workflow document has, so every one of them
+	// matched nothing. Acquire returned (false, nil) -- indistinguishable from
+	// "another worker holds it" -- which meant that on MongoDB storage no
+	// worker could ever take a lease and therefore no workflow ever started.
 	filter := bson.M{
-		"id": workflowID,
+		"_id": workflowID,
 		"$or": []bson.M{
 			{"owner_id": bson.M{"$exists": false}},
 			{"owner_id": nil},
@@ -272,7 +278,7 @@ func (s *mongoStorage) RenewWorkflowLease(ctx context.Context, workflowID, owner
 	now := time.Now().UTC()
 	until := now.Add(time.Duration(ttlSeconds) * time.Second)
 
-	filter := bson.M{"id": workflowID, "owner_id": ownerID, "lease_until": bson.M{"$gte": now}}
+	filter := bson.M{"_id": workflowID, "owner_id": ownerID, "lease_until": bson.M{"$gte": now}}
 	update := bson.M{"$set": bson.M{"lease_until": until}}
 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
 
@@ -288,7 +294,7 @@ func (s *mongoStorage) RenewWorkflowLease(ctx context.Context, workflowID, owner
 
 func (s *mongoStorage) ReleaseWorkflowLease(ctx context.Context, workflowID, ownerID string) error {
 	coll := s.db.Collection("workflows")
-	filter := bson.M{"id": workflowID, "owner_id": ownerID}
+	filter := bson.M{"_id": workflowID, "owner_id": ownerID}
 	update := bson.M{"$unset": bson.M{"owner_id": "", "lease_until": ""}}
 	_, err := coll.UpdateOne(ctx, filter, update)
 	return err
