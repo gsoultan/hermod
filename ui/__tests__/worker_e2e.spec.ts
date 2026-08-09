@@ -1,5 +1,29 @@
 import { test, expect } from '@playwright/test';
 import { spawn, execSync } from 'child_process';
+import { existsSync } from 'fs';
+
+// Resolve the hermod binary rather than assuming one is lying in the repo root.
+//
+// scripts/dev.sh builds to .dev/hermod; './hermod' only exists on a machine
+// where someone once built there by hand. This spec spawned './hermod'
+// directly, so it passed locally off a months-old stale binary and failed in CI
+// with "spawn ./hermod ENOENT".
+function hermodBinary(): string {
+  const candidates = [
+    process.env.HERMOD_BIN,
+    '.dev/hermod',
+    './hermod',
+  ].filter((p): p is string => Boolean(p));
+
+  const found = candidates.find(p => existsSync(p));
+  if (!found) {
+    throw new Error(
+      `no hermod binary found (looked at ${candidates.join(', ')}). ` +
+      'Run scripts/dev.sh, or set HERMOD_BIN.',
+    );
+  }
+  return found;
+}
 import { E2E_USER, E2E_PASS } from './support/auth';
 
 test.describe('Worker Agent Installation and Setup', () => {
@@ -79,7 +103,7 @@ test.describe('Worker Agent Installation and Setup', () => {
     
     // 5. Start the worker agent in background
     console.log('Starting worker agent with args:', commandArgs);
-    const workerProcess = spawn('./hermod', commandArgs, {
+    const workerProcess = spawn(hermodBinary(), commandArgs, {
       env: { 
           ...process.env, 
           HERMOD_MASTER_KEY: 'secret'

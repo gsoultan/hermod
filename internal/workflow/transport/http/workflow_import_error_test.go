@@ -110,7 +110,7 @@ func TestImportWorkflowReportsStorageFailure(t *testing.T) {
 			mux := http.NewServeMux()
 			h.RegisterWorkflowRoutes(mux)
 
-			req := httptest.NewRequest("POST", "/api/workflows/import", bytes.NewReader(body))
+			req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/workflows/import", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			rr := httptest.NewRecorder()
 			mux.ServeHTTP(rr, req)
@@ -140,7 +140,7 @@ func TestImportWorkflowSucceedsWhenStorageAccepts(t *testing.T) {
 	mux := http.NewServeMux()
 	h.RegisterWorkflowRoutes(mux)
 
-	req := httptest.NewRequest("POST", "/api/workflows/import", bytes.NewReader(body))
+	req := httptest.NewRequestWithContext(t.Context(), "POST", "/api/workflows/import", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	mux.ServeHTTP(rr, req)

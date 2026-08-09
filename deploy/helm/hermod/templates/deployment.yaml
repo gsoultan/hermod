@@ -1,0 +1,175 @@
+{{- include "hermod.validate" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hermod.fullname" . }}
+  labels:
+    {{- include "hermod.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- if .Values.persistence.enabled }}
+  # Recreate, not RollingUpdate: with a ReadWriteOnce volume the new pod cannot
+  # attach until the old one has released it, so a rolling update deadlocks with
+  # the new pod Pending forever.
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "hermod.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hermod.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Roll the pods when the master key or DSN changes; without this a
+        # Secret edit is invisible until something else triggers a restart.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "hermod.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+
+      # Must exceed HERMOD_SHUTDOWN_TIMEOUT. Hermod drains in-flight messages on
+      # SIGTERM; killed partway through, whatever it had taken from a source and
+      # not yet written is lost. hermod.validate enforces the relationship.
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+
+      containers:
+        - name: hermod
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          args:
+            - --port={{ .Values.service.port }}
+            - --grpc-port={{ .Values.service.grpcPort }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+            - name: grpc
+              containerPort: {{ .Values.service.grpcPort }}
+          env:
+            - name: HERMOD_SHUTDOWN_TIMEOUT
+              value: {{ .Values.shutdownTimeout | quote }}
+            - name: HERMOD_CONFIG_DIR
+              value: {{ .Values.persistence.mountPath | quote }}
+            {{- if or .Values.masterKey .Values.existingSecret }}
+            - name: HERMOD_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hermod.secretName" . }}
+                  key: {{ .Values.existingSecretKey }}
+            {{- end }}
+            {{- with .Values.database.type }}
+            - name: HERMOD_DB_TYPE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.database.connectionSecret }}
+            - name: HERMOD_DB_CONN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.connectionSecret }}
+                  key: {{ .Values.database.connectionSecretKey }}
+            {{- else if .Values.database.connection }}
+            - name: HERMOD_DB_CONN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hermod.secretName" . }}
+                  key: dbConnection
+            {{- end }}
+            {{- if or .Values.metrics.token .Values.metrics.existingTokenSecret }}
+            - name: HERMOD_METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.metrics.existingTokenSecret | default (include "hermod.fullname" .) }}
+                  key: {{ .Values.metrics.existingTokenSecretKey }}
+            {{- end }}
+            {{- range $k, $v := .Values.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          {{- if .Values.probes.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.startup.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          {{- end }}
+          {{- if .Values.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              # /livez only reports that the process is up. Pointing this at
+              # /readyz would restart every pod during a database blip instead
+              # of merely routing away from them.
+              path: {{ .Values.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          {{- end }}
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: {{ .Values.persistence.mountPath }}
+            # readOnlyRootFilesystem is on, so anything that writes needs a
+            # mount. Spill-to-disk backpressure and temp files land in /tmp.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "hermod.fullname" . }}
+          {{- else }}
+          # Ephemeral: first-run setup and the generated JWT secret do not
+          # survive a restart. Fine only when a shared database holds the state.
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

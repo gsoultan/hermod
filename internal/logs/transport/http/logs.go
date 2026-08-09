@@ -11,7 +11,8 @@ func (h *LogHandler) RegisterLogRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/logs", h.ListLogs)
 	mux.HandleFunc("POST /api/logs", h.CreateLog)
 	mux.HandleFunc("POST /api/logs/batch", h.CreateLogs)
-	mux.HandleFunc("DELETE /api/logs", h.DeleteLogs)
+	// Wiping the log store destroys the audit trail; administrators only.
+	mux.Handle("DELETE /api/logs", h.AdminOnly(h.DeleteLogs))
 }
 
 // maxLogBatchBytes bounds a single log-shipping request.

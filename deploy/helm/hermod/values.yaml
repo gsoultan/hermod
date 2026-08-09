@@ -1,0 +1,182 @@
+image:
+  repository: ghcr.io/user/hermod
+  # Defaults to .Chart.AppVersion when empty, so the chart and the image stay
+  # in step unless you deliberately pin something else.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Hermod holds workflow leases and drains in-flight messages on shutdown. Two
+# replicas both running the same workflow is prevented by the lease, but scaling
+# up only helps if you have more workflows than one pod can carry.
+replicaCount: 1
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 4000
+  grpcPort: 50051
+  annotations: {}
+
+# --- Shutdown -----------------------------------------------------------------
+#
+# On SIGTERM Hermod stops accepting work and drains: it finishes writing what it
+# already took from its sources and acknowledges it. Killed partway through, the
+# undelivered remainder is discarded and the drain protected nothing.
+#
+# terminationGracePeriodSeconds MUST exceed shutdownTimeout, or Kubernetes ends
+# the pod mid-drain. The chart fails rendering if it does not.
+shutdownTimeout: 25s
+terminationGracePeriodSeconds: 60
+
+# --- Credentials --------------------------------------------------------------
+#
+# Without a master key Hermod encrypts stored credentials with a constant that
+# is published in its source, which protects nobody; it logs a warning at
+# start-up when that is the case.
+#
+# Set existingSecret to a Secret you manage (recommended — it keeps the key out
+# of values.yaml and out of `helm get values`), or masterKey to have the chart
+# create one. Rotating afterwards must go through PUT /api/config/crypto, which
+# re-encrypts stored credentials; changing the Secret alone leaves every
+# credential encrypted under a key the process no longer has.
+masterKey: ""
+existingSecret: ""
+existingSecretKey: masterKey
+
+# --- Persistence --------------------------------------------------------------
+#
+# db_config.yaml (JWT secret, crypto master key) and first-run setup live here.
+# Without a volume the pod re-runs first-time setup on every restart.
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  # Mount path must match HERMOD_CONFIG_DIR in the image.
+  mountPath: /var/lib/hermod
+
+# --- Database -----------------------------------------------------------------
+#
+# Leave type empty to use the on-disk default and configure through the setup
+# UI. For anything beyond a single replica this must be a shared database.
+database:
+  type: ""
+  # Prefer connectionSecret over inlining a DSN: it contains a password.
+  connection: ""
+  connectionSecret: ""
+  connectionSecretKey: dsn
+
+# Arbitrary extra environment. Everything in README's tuning guide is settable
+# here — HERMOD_ADMISSION_CPU_THRESHOLD, HERMOD_BUFFER_TYPE, and so on.
+env: {}
+envFrom: []
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    # No CPU limit by default: throttling a pipeline mid-drain makes shutdown
+    # overrun its budget. Set one if your platform requires it, and raise
+    # terminationGracePeriodSeconds to match.
+    memory: 1Gi
+
+# Distroless :nonroot is uid 65532. runAsNonRoot makes the kubelet refuse to
+# start the pod if a future image regresses to root.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# --- Probes -------------------------------------------------------------------
+#
+# /livez is a bare 200 — it answers "is the process up", nothing more, which is
+# what a liveness probe should ask. /readyz checks dependencies, so it is the
+# one that pulls a pod out of the Service when its database is unreachable.
+# Do not point liveness at /readyz: a database blip would restart every pod
+# rather than just stop routing to them.
+probes:
+  liveness:
+    enabled: true
+    path: /livez
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    enabled: true
+    path: /readyz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startup:
+    # Covers a slow first boot (migrations, first-run setup) without making the
+    # liveness threshold loose enough to hide a genuine hang later.
+    enabled: true
+    path: /livez
+    periodSeconds: 5
+    failureThreshold: 30
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: hermod.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# --- Observability ------------------------------------------------------------
+#
+# Keep the Service ClusterIP regardless of the token below, or put a
+# NetworkPolicy in front of it.
+metrics:
+  # /metrics is open by default, as a scrape target normally is. The metrics
+  # carry workflow, source and worker names though, so an unauthenticated read
+  # maps the deployment. Set a token to close it -- the ServiceMonitor below
+  # picks it up automatically. Health probes stay open either way; a token
+  # covering them would make the kubelet restart the pod on a loop.
+  token: ""
+  existingTokenSecret: ""
+  existingTokenSecretKey: metricsToken
+
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+  # The four alerts covering failures that lose data while every status stays
+  # green. See README "Alerting on silent failures".
+  prometheusRule:
+    enabled: false
+    labels: {}
+    # Two of these page. Read the runbook annotations before changing that.
+    severityOverride: {}
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []

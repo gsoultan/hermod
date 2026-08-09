@@ -13,50 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/security/crypto"
+	"github.com/user/hermod/internal/storage/configsecrets"
 	_ "modernc.org/sqlite"
 )
-
-var sensitiveKeys = map[string]bool{
-	"password":          true,
-	"connection_string": true,
-	"uri":               true,
-	"token":             true,
-	"secret":            true,
-	"key":               true,
-	"access_key":        true,
-	"secret_key":        true,
-}
-
-func encryptConfig(config map[string]string) map[string]string {
-	encrypted := make(map[string]string)
-	for k, v := range config {
-		if sensitiveKeys[strings.ToLower(k)] && v != "" {
-			enc, err := crypto.Encrypt(v)
-			if err == nil {
-				encrypted[k] = "enc:" + enc
-				continue
-			}
-		}
-		encrypted[k] = v
-	}
-	return encrypted
-}
-
-func decryptConfig(config map[string]string) map[string]string {
-	decrypted := make(map[string]string)
-	for k, v := range config {
-		if strings.HasPrefix(v, "enc:") {
-			dec, err := crypto.Decrypt(v[4:])
-			if err == nil {
-				decrypted[k] = dec
-				continue
-			}
-		}
-		decrypted[k] = v
-	}
-	return decrypted
-}
 
 type sqlStorage struct {
 	db      *sql.DB
@@ -506,7 +465,7 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 			if err := json.Unmarshal([]byte(configStr.String), &src.Config); err != nil {
 				return nil, 0, err
 			}
-			src.Config = decryptConfig(src.Config)
+			src.Config = configsecrets.Decrypt(src.Config)
 		}
 		sources = append(sources, src)
 	}
@@ -517,7 +476,7 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 }
 
 func (s *sqlStorage) CreateSource(ctx context.Context, src storage.Source) error {
-	configBytes, err := json.Marshal(encryptConfig(src.Config))
+	configBytes, err := json.Marshal(configsecrets.Encrypt(src.Config))
 	if err != nil {
 		return err
 	}
@@ -531,7 +490,7 @@ func (s *sqlStorage) CreateSource(ctx context.Context, src storage.Source) error
 }
 
 func (s *sqlStorage) UpdateSource(ctx context.Context, src storage.Source) error {
-	configBytes, err := json.Marshal(encryptConfig(src.Config))
+	configBytes, err := json.Marshal(configsecrets.Encrypt(src.Config))
 	if err != nil {
 		return err
 	}
@@ -604,7 +563,7 @@ func (s *sqlStorage) GetSource(ctx context.Context, id string) (storage.Source, 
 		if err := json.Unmarshal([]byte(configStr.String), &src.Config); err != nil {
 			return storage.Source{}, err
 		}
-		src.Config = decryptConfig(src.Config)
+		src.Config = configsecrets.Decrypt(src.Config)
 	}
 	return src, nil
 }
@@ -686,7 +645,7 @@ func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter)
 			if err := json.Unmarshal([]byte(configStr.String), &snk.Config); err != nil {
 				return nil, 0, err
 			}
-			snk.Config = decryptConfig(snk.Config)
+			snk.Config = configsecrets.Decrypt(snk.Config)
 		}
 		sinks = append(sinks, snk)
 	}
@@ -697,7 +656,7 @@ func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter)
 }
 
 func (s *sqlStorage) CreateSink(ctx context.Context, snk storage.Sink) error {
-	configBytes, err := json.Marshal(encryptConfig(snk.Config))
+	configBytes, err := json.Marshal(configsecrets.Encrypt(snk.Config))
 	if err != nil {
 		return err
 	}
@@ -710,7 +669,7 @@ func (s *sqlStorage) CreateSink(ctx context.Context, snk storage.Sink) error {
 }
 
 func (s *sqlStorage) UpdateSink(ctx context.Context, snk storage.Sink) error {
-	configBytes, err := json.Marshal(encryptConfig(snk.Config))
+	configBytes, err := json.Marshal(configsecrets.Encrypt(snk.Config))
 	if err != nil {
 		return err
 	}
@@ -762,7 +721,7 @@ func (s *sqlStorage) GetSink(ctx context.Context, id string) (storage.Sink, erro
 		if err := json.Unmarshal([]byte(configStr.String), &snk.Config); err != nil {
 			return storage.Sink{}, err
 		}
-		snk.Config = decryptConfig(snk.Config)
+		snk.Config = configsecrets.Decrypt(snk.Config)
 	}
 	return snk, nil
 }

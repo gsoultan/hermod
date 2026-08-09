@@ -1,0 +1,20 @@
+apiVersion: v2
+name: hermod
+description: Hermod data pipeline platform — multi-source CDC, transformation and sink delivery
+type: application
+
+# Chart version is independent of the app. appVersion is overridden at package
+# time by the release pipeline so a chart always names the image tag it was cut
+# with.
+version: 0.1.0
+appVersion: "0.0.0"
+
+home: https://github.com/user/hermod
+sources:
+  - https://github.com/user/hermod
+
+keywords:
+  - cdc
+  - etl
+  - data-pipeline
+  - change-data-capture

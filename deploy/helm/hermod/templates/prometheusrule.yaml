@@ -1,0 +1,97 @@
+{{- if .Values.metrics.prometheusRule.enabled }}
+{{- $sev := .Values.metrics.prometheusRule.severityOverride | default dict }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "hermod.fullname" . }}
+  labels:
+    {{- include "hermod.labels" . | nindent 4 }}
+    {{- with .Values.metrics.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    # Failures that lose or withhold data while every status stays green.
+    #
+    # Ordinary pipeline problems announce themselves as errors and show up on a
+    # dashboard. These four do not: throughput looks normal, workflows report
+    # healthy, and the data is gone. That is why they are alerts and not panels.
+    - name: hermod.silent-failures
+      rules:
+        - alert: HermodMessageOverRelease
+          # Any occurrence at all. This is a memory-safety defect, not a
+          # threshold to tune: a message returned to the pool while still in
+          # use, and another message overwrote it. The symptom is duplicated
+          # *and* lost payloads with the totals still balancing, which is close
+          # to impossible to diagnose from the outside.
+          expr: increase(hermod_message_over_releases_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: {{ get $sev "HermodMessageOverRelease" | default "critical" }}
+          annotations:
+            summary: "Hermod released a message that was already free ({{ `{{ $labels.instance }}` }})"
+            description: >-
+              A message was released after its reference count reached zero, so it
+              returned to the pool while still referenced and another message
+              overwrote it. Payloads are being both duplicated and lost while the
+              counters still balance.
+            runbook: >-
+              Page. This is a code defect, never capacity. Capture the workflow
+              topology and open a bug; the TestMain guards in
+              internal/engine/registry and pkg/engine should have caught it
+              before release.
+
+        - alert: HermodMessagesDroppedNoTarget
+          # Acknowledged to the source, then delivered nowhere, and not in a
+          # dead-letter queue. Unrecoverable the moment it happens.
+          expr: increase(hermod_engine_messages_dropped_no_target_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: {{ get $sev "HermodMessagesDroppedNoTarget" | default "critical" }}
+          annotations:
+            summary: "Workflow {{ `{{ $labels.workflow_id }}` }} acknowledged messages and delivered them nowhere"
+            description: >-
+              A workflow that has sinks resolved none of them. The messages were
+              acknowledged to the source and dropped, and they are not in a
+              dead-letter queue.
+            runbook: >-
+              Page. Check sink reachability and the workflow's edges. Data already
+              acknowledged cannot be replayed from the source.
+
+        - alert: HermodWorkerSheddingLoad
+          # Sustained rather than instantaneous: brief shedding under a spike is
+          # the mechanism working. Workflows that never start are the problem.
+          expr: increase(hermod_worker_admission_rejected_total[10m]) > 0
+          for: 15m
+          labels:
+            severity: {{ get $sev "HermodWorkerSheddingLoad" | default "warning" }}
+          annotations:
+            summary: "Worker {{ `{{ $labels.worker_id }}` }} is refusing to start workflows ({{ `{{ $labels.reason }}` }})"
+            description: >-
+              The worker is above its admission threshold and is refusing new
+              workflows. Affected workflows simply never start; nothing reports an
+              error.
+            runbook: >-
+              Investigate host load. The reading is host-wide, so on a shared
+              machine this can fire on load Hermod does not own. Either raise
+              HERMOD_ADMISSION_CPU_THRESHOLD / HERMOD_ADMISSION_MEM_THRESHOLD, or
+              give the worker a dedicated node.
+
+        - alert: HermodSubSourceBackingOff
+          # One source in a multi-source workflow is failing while its siblings
+          # keep streaming, so the workflow still reports healthy.
+          expr: increase(hermod_engine_sub_source_backoff_total[10m]) > 0
+          for: 15m
+          labels:
+            severity: {{ get $sev "HermodSubSourceBackingOff" | default "warning" }}
+          annotations:
+            summary: "Source {{ `{{ $labels.source_id }}` }} in workflow {{ `{{ $labels.workflow_id }}` }} is failing"
+            description: >-
+              One source is failing and has been backed off. Its siblings keep
+              streaming, so the workflow reports healthy while that source
+              delivers nothing.
+            runbook: >-
+              Check that source's connectivity. Sustained growth means it is not
+              recovering; the backoff caps at 5s between attempts, so this will
+              not resolve itself.
+{{- end }}

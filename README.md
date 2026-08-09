@@ -657,6 +657,158 @@ Lower it towards `1.0` to trade stability for faster load-following. Measured on
 cluster with one idle and one saturated worker, an idle worker reclaims 1 key in 200 at `2.0` and
 192 in 200 at `1.0` (`TestLeaseHysteresisIsConfigurable`).
 
+### Delivery guarantee
+
+Delivery is **at-least-once**: a message is acknowledged to its source only after every sink write
+succeeds, so a crash or an abrupt stop replays whatever was not acknowledged. Duplicates are
+therefore possible and expected.
+
+What makes that **exactly-once as observed at the destination** is the sink's upsert. Every SQL sink
+writes with `ON CONFLICT` / `ON DUPLICATE KEY` / `MERGE`, keyed on the message id, so a redelivered
+message overwrites its own row rather than adding one.
+
+That holds on one condition: **the source must supply a stable identity.** The key is taken from,
+in order:
+
+1. `metadata["idempotency_key"]` — set this when the source knows its own natural key (a CDC row's
+   primary key, an order number);
+2. the message id;
+3. a generated UUID, if neither is present.
+
+A message that reaches case 3 gets a *different* key on every delivery, so its duplicates cannot be
+collapsed — two deliveries of an identity-less message are genuinely indistinguishable. If a source
+of yours produces messages without an id, set `idempotency_key` in a transformation before the sink.
+
+Sinks that are not upserts (webhook, SMTP, queues) deduplicate only where they say so; SMTP computes
+its own key from the message and recipient.
+
+### Deploying on Kubernetes
+
+A container image and a Helm chart ship with each release:
+
+```bash
+helm install hermod oci://ghcr.io/user/charts/hermod \
+  --version <release> \
+  --set existingSecret=hermod-master-key \
+  --set metrics.prometheusRule.enabled=true
+```
+
+Or from a checkout: `helm install hermod deploy/helm/hermod`.
+
+The chart wires the pieces this document describes and that are easy to get
+subtly wrong: `/livez` as the liveness probe and `/readyz` as readiness (never
+the other way round — pointing liveness at `/readyz` restarts every pod during a
+database blip instead of merely routing away from them), a
+`terminationGracePeriodSeconds` that exceeds `HERMOD_SHUTDOWN_TIMEOUT`, the
+crypto master key as a Secret, and a volume for `db_config.yaml`.
+
+It **refuses to render** four configurations that install cleanly and then lose
+data, rather than letting you find out during a rolling restart:
+
+| Refused | Why |
+| :--- | :--- |
+| `terminationGracePeriodSeconds` ≤ `shutdownTimeout` | Kubernetes kills the pod mid-drain; everything taken from a source and not yet written is discarded. |
+| Both `masterKey` and `existingSecret` | Ambiguous which key encrypts stored credentials. |
+| `replicaCount > 1` with no shared database | Each replica keeps its own workflows, leases and users, so they cannot coordinate. |
+| `replicaCount > 1` with a ReadWriteOnce volume | Replicas after the first stay unschedulable. |
+
+The image is distroless and runs as uid 65532 with a read-only root filesystem.
+Hermod serves plain HTTP and has no TLS listener of its own; terminate TLS at
+the ingress.
+
+`/metrics` is open by default, as a scrape target normally is — requiring a
+session cookie would break every scraper. The metrics do carry `workflow_id`,
+`source_id` and `worker_id` labels though, so an unauthenticated read maps the
+deployment: how many pipelines exist, what they are called, and which are
+failing. Set `HERMOD_METRICS_TOKEN` (or `metrics.token` in the chart, which
+wires the ServiceMonitor to match) to require `Authorization: Bearer <token>`.
+The health probes stay open either way — a token covering them would make the
+kubelet fail every probe and restart the pod on a loop. Either way, keep the
+Service `ClusterIP` rather than behind a public LoadBalancer.
+
+Enable `metrics.prometheusRule.enabled` to install the four alerts in
+[Alerting on silent failures](#alerting-on-silent-failures). Two of them page.
+
+### Credential encryption and master key rotation
+
+Connector credentials — passwords, API keys, DSNs, GCP service-account documents — are encrypted
+with AES-256-GCM before they reach the metadata database, and decrypted on read. Which values count
+as credentials is decided by shape rather than by an exact list (`internal/storage/configsecrets`),
+so a connector added later with an `smtp_password` is covered without anyone remembering to add it.
+Non-credentials that merely look like one — `s3_key` is an object path, `routing_key` is routing —
+are listed explicitly as exceptions.
+
+**Set a master key.** Without one, Hermod encrypts with a constant that is published in this
+repository, which protects nobody. Set `crypto_master_key` in `db_config.yaml`, or rotate through
+`PUT /api/config/crypto` (Admin only, minimum 16 characters).
+
+**Rotation re-encrypts before it switches.** `PUT /api/config/crypto` rewrites every stored
+credential under the new key first, in one transaction, and installs the key only once that has
+committed. If anything cannot be re-encrypted the request fails and *nothing* is changed — including
+the case where a value is already unreadable from an earlier bad rotation, because re-encrypting it
+would mean writing back a blank and destroying a credential that the right key could still recover.
+
+A value that cannot be decrypted reads back empty, never as raw ciphertext, and logs which key
+failed. Handing ciphertext to a driver as though it were the password is what previously turned a
+key mistake into unexplained authentication failures against the *destination* database.
+
+Upgrades are safe: key derivation changed from truncate-and-zero-pad to SHA-256, and `Decrypt` falls
+back to the old derivation, so existing data still opens and moves forward as it is rewritten.
+
+### Backup and restore
+
+`GET /api/backup/export` and `POST /api/backup/import` (both Admin only) carry sources, sinks,
+workflows, vhosts, workspaces and notification settings.
+
+The export contains **decrypted credentials in plaintext** — necessarily, since a backup that cannot
+restore a credential is not a backup, and the target instance may have a different master key. Treat
+the file as a secret: it is every credential in the deployment in one document.
+
+Both endpoints fail loudly rather than quietly. An export that cannot read the database returns an
+error instead of downloading an empty file with a plausible name, and refuses rather than truncating
+if the deployment holds more than 1000 objects of any one kind. A restore reports which objects could
+not be written instead of always answering 204; it still attempts every object, because recovering
+most of a configuration beats stopping at the first bad row.
+
+### Shutdown budget — must fit inside your orchestrator's grace period
+
+On SIGTERM, Hermod stops accepting new work and then *drains*: it finishes writing the messages it
+has already taken from its sources and acknowledges them, so they are neither lost nor replayed.
+That takes time, and if the orchestrator kills the process partway through, the undelivered
+remainder is discarded — the drain protects nothing.
+
+Every shutdown stage derives from one total, so the stages always nest:
+
+| Stage | Share of total | Default | What it bounds |
+| :--- | :--- | :--- | :--- |
+| Total | 100% | 25s | The whole stop, including closing storage |
+| PerEngine | 80% | 20s | Stopping one workflow, and `StopAll` across all of them |
+| Drain | 55% | ~13s | Sink writes once shutdown has begun |
+| Grace | 20% | 5s | Writers unwinding after the drain budget expires |
+
+```bash
+HERMOD_SHUTDOWN_TIMEOUT=25s   # keep below terminationGracePeriodSeconds
+```
+
+**The default is 25s because Kubernetes' default `terminationGracePeriodSeconds` is 30s.** If you
+raise `HERMOD_SHUTDOWN_TIMEOUT`, raise the grace period to match — and leave a few seconds of
+margin, because the kubelet's timer starts before the signal is delivered and the process still has
+to close its database handles after the engines stop:
+
+```yaml
+spec:
+  terminationGracePeriodSeconds: 60   # must exceed HERMOD_SHUTDOWN_TIMEOUT
+  containers:
+    - name: hermod
+      env:
+        - name: HERMOD_SHUTDOWN_TIMEOUT
+          value: "45s"
+```
+
+A per-sink `drain_timeout` larger than the budget is clamped to it rather than allowed to overrun
+the process-wide deadline. `TestShutdownBudgetStagesNest` and
+`TestShutdownDefaultFitsKubernetesGracePeriod` hold both properties.
+
 ## Performance Tuning Guide
 
 This section summarizes practical knobs to keep Hermod lightweight (low CPU/RAM) while maintaining throughput and reliability.

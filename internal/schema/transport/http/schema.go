@@ -11,7 +11,8 @@ import (
 
 func (h *SchemaHandler) RegisterSchemaRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/schemas", h.ListSchemas)
-	mux.HandleFunc("POST /api/schemas", h.RegisterSchema)
+	// A registered schema governs validation for every workflow that uses it.
+	mux.Handle("POST /api/schemas", h.EditorOnly(h.RegisterSchema))
 	mux.HandleFunc("GET /api/schemas/{name}", h.GetLatestSchema)
 	mux.HandleFunc("GET /api/schemas/{name}/history", h.GetSchemaHistory)
 }

@@ -19,6 +19,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # golangci-lint's new-from-merge-base needs the merge base in history.
+          fetch-depth: 0
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -32,15 +35,27 @@ jobs:
         run: go build ./...
       - name: Verify (vet)
         run: go vet ./...
+      # Integration tests sit behind a build tag, so `go build` and the vet
+      # above never look at them. Three of the five had stopped compiling —
+      # a package rename applied by search-and-replace, an import left behind,
+      # and a constructor that gained a parameter — which meant the worker
+      # failover, lease-stealing and sink idempotency coverage had silently not
+      # run for however long. Type-checking them costs seconds and needs none of
+      # the services they talk to.
+      - name: Verify (vet, integration-tagged)
+        run: go vet -tags=integration ./...
       # The suite was previously absent from CI entirely, so a red test could
       # merge unnoticed. Race detection is on because the engine is concurrent.
       - name: Test (race)
         run: go test -race ./...
+      # Gates new code only (see issues.new-from-merge-base in .golangci.yml).
+      # The pre-existing backlog is reported by the nightly lint-debt job rather
+      # than blocking every change.
       - name: Lint (golangci-lint)
         uses: golangci/golangci-lint-action@v8
         with:
           version: latest
-          args: --timeout=5m
+          args: --timeout=10m
       - name: Staticcheck
         run: |
           go install honnef.co/go/tools/cmd/staticcheck@latest
@@ -132,7 +147,8 @@ jobs:
             ui/__tests__/core_scenarios_e2e.spec.ts \
             ui/__tests__/multi_pipeline_editor_e2e.spec.ts \
             ui/__tests__/workflow_surface_e2e.spec.ts \
-            ui/__tests__/required_select_e2e.spec.ts
+            ui/__tests__/required_select_e2e.spec.ts \
+            ui/__tests__/worker_e2e.spec.ts
       - name: Stop Hermod
         if: always()
         run: ./scripts/dev.sh --stop
@@ -148,6 +164,184 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # Deployment artifacts.
+  #
+  # The image and the chart are only exercised at release time otherwise, which
+  # is the worst moment to discover either is broken. Building the image on
+  # every push also catches the failure mode the Dockerfile guards against: the
+  # UI is embedded at compile time, so a binary built without the assets starts
+  # happily and serves a blank page.
+  deploy-artifacts:
+    name: Image and chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Load rather than push, so the container can actually be run below.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: hermod:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # A built image is not a working one. This is the same check the chart's
+      # probes rely on, so if it fails here it would have failed as a
+      # CrashLoopBackOff in a cluster.
+      - name: Container starts and serves its probes
+        run: |
+          docker run -d --name hermod-ci -p 4000:4000 \
+            -e HERMOD_CONFIG_DIR=/tmp/hermod hermod:ci
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:4000/livez >/dev/null 2>&1; then
+              echo "livez OK after ${i}s"; break
+            fi
+            if [ "$i" = 60 ]; then
+              echo "container never became live:"; docker logs hermod-ci; exit 1
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:4000/readyz -o /dev/null -w 'readyz: %{http_code}\n' || true
+          curl -fsS http://localhost:4000/metrics | head -1
+          # The embedded UI: a blank page here is the failure this guards.
+          curl -fsS http://localhost:4000/ | grep -qi "<!doctype html" \
+            || { echo "the embedded UI did not render"; docker logs hermod-ci; exit 1; }
+
+      - name: Container drains rather than being killed on SIGTERM
+        run: |
+          start=$(date +%s)
+          docker stop --timeout 60 hermod-ci
+          end=$(date +%s)
+          echo "shutdown took $((end - start))s"
+          # Exit 0 means it handled SIGTERM and left on its own terms; 137 is
+          # SIGKILL, which is what happens when a drain overruns its budget.
+          code=$(docker inspect hermod-ci --format '{{.State.ExitCode}}')
+          test "$code" != "137" || { echo "container was SIGKILLed, not drained"; exit 1; }
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint and render the chart
+        run: |
+          helm lint deploy/helm/hermod
+          helm template t deploy/helm/hermod > /dev/null
+          helm template t deploy/helm/hermod --set metrics.prometheusRule.enabled=true \
+            --set metrics.serviceMonitor.enabled=true --set ingress.enabled=true > /dev/null
+
+      # The guards are the reason the chart exists. Each of these deploys
+      # happily and loses data, so rendering must refuse them.
+      - name: Chart refuses configurations that lose data
+        run: |
+          fails() {
+            if helm template t deploy/helm/hermod "$@" >/dev/null 2>&1; then
+              echo "FAIL: chart accepted: $*"; exit 1
+            fi
+            echo "ok, refused: $*"
+          }
+          fails --set terminationGracePeriodSeconds=20
+          fails --set masterKey=abc --set existingSecret=s
+          fails --set replicaCount=3
+          fails --set replicaCount=3 --set database.type=postgres --set database.connectionSecret=dsn
+
+      # The release tarball, not `go install`: the Prometheus module carries
+      # replace directives, so `go install .../cmd/promtool@latest` refuses with
+      # "must not contain directives that would cause it to be interpreted
+      # differently than if it were the main module".
+      - name: Validate the alert rules
+        env:
+          PROMETHEUS_VERSION: 3.13.2
+        run: |
+          curl -sSfL "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz" \
+            | tar -xz
+          promtool="./prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
+          "$promtool" --version
+          helm template t deploy/helm/hermod --set metrics.prometheusRule.enabled=true \
+            | scripts/extract-prometheus-rules.sh > /tmp/rules.yaml
+          # Guard against the extraction silently producing nothing, which would
+          # make promtool pass on an empty file and report no rules at all.
+          test -s /tmp/rules.yaml
+          "$promtool" check rules /tmp/rules.yaml | tee /tmp/promtool.out
+          grep -q "SUCCESS: 4 rules found" /tmp/promtool.out
+
+  # Go integration tests: real Postgres, no browser.
+  #
+  # This is where the data-plane coverage belongs. The Playwright specs below
+  # tried to prove that a row changing in a source database arrives as a message
+  # by driving the source wizard through a browser, and rotted the moment the
+  # wizard was redesigned -- none of what they were really testing lives in the
+  # DOM. Driving the source directly runs in seconds instead of minutes, does
+  # not care what the form looks like, and points at replication rather than at
+  # a button when it fails. So this job is required, and the browser one is not.
+  integration-go:
+    name: Integration (Go, real Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: hermod_it
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # CDC needs logical decoding, which is not the default and needs a restart
+      # to take effect.
+      - name: Enable logical replication
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -c "ALTER SYSTEM SET wal_level = logical;"
+          docker restart "$(docker ps -q --filter ancestor=postgres:16)"
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -U postgres && break
+            sleep 2
+          done
+          test "$(psql -h localhost -U postgres -tAc "SHOW wal_level")" = "logical"
+      # The e2e recovery, retention and PgBouncer tests hardcode these database
+      # names (see AGENTS.md); without them they fail on "database does not
+      # exist" rather than testing anything.
+      - name: Create the fixture databases
+        env:
+          PGPASSWORD: postgres
+        run: |
+          for db in hermod_metadata hermod_test_source hermod_test_sink; do
+            psql -h localhost -U postgres -c "CREATE DATABASE $db;"
+          done
+
+      - name: Test (integration)
+        env:
+          HERMOD_INTEGRATION: "1"
+          POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/hermod_it?sslmode=disable
+          # Admission control sheds new workflows above 85% host CPU. A runner
+          # executing the whole suite in parallel sits above that, so the worker
+          # refused to start the workflow under test and the failover test timed
+          # out waiting for a webhook that was never going to register. 1
+          # disables the check (see README's admission knobs); shedding is
+          # covered by internal/engine/worker/admission_test.go, which sets the
+          # thresholds directly rather than through the environment.
+          HERMOD_ADMISSION_CPU_THRESHOLD: "1"
+          HERMOD_ADMISSION_MEM_THRESHOLD: "1"
+        run: go test -tags=integration -count=1 -timeout 15m ./...
+
   e2e-integration:
     name: E2E (Postgres + RabbitMQ) [informational]
     runs-on: ubuntu-latest
@@ -156,18 +350,43 @@ jobs:
     # pipeline unusable; running them nowhere is how they rotted. Nightly, and
     # on demand, is the compromise.
     #
-    # continue-on-error until they are rewritten. They were dormant long enough
-    # that they now describe a UI that no longer exists: the source wizard gained
+    # continue-on-error, and down from ten specs to three.
+    #
+    # These describe a UI that no longer exists -- the source wizard gained
     # required-field validation, CDC defaults to on, several inputs became
     # Autocompletes, and the Postgres replication step was redesigned around
-    # live slot/publication discovery. Repairing them locator-by-locator does not
-    # converge — each fix reveals the next — so they need rewriting against the
-    # current design.
+    # live slot/publication discovery. Repairing them locator-by-locator does
+    # not converge.
     #
-    # They still earn their keep in the meantime: this run is what surfaced the
-    # required-Select deselect bug and the unlabelled CDC switch, both of which
-    # are fixed. A permanently red required job would just train everyone to
-    # ignore the pipeline, which is the same trap the govulncheck wrapper avoids.
+    # Mostly the answer was a move rather than a repair, because what they were
+    # asserting was never in the DOM. Retired, with where each one went:
+    #
+    #   cdc_e2e, cdc_table_tracking_e2e
+    #     -> pkg/comm/source/postgres/cdc_integration_test.go
+    #   sql_e2e
+    #     -> internal/engine/registry/discovery_integration_test.go
+    #   rabbitmq_e2e (mocked its broker; the assertions were all about the
+    #     simulation endpoint, which had no Go coverage at all)
+    #     -> internal/engine/registry/simulation_test.go
+    #   heavy_load_e2e, perf_e2e
+    #     -> internal/engine/registry/multiworker_load_integration_test.go
+    #   worker_e2e -> promoted to the required E2E job; it passes and needs no
+    #     external service, so it was only ever here by mistake
+    #
+    # The two transformation specs stay for now. Checking them properly turned
+    # up a real gap rather than duplication: they exercised eleven
+    # transformation types and Go covered six, so char_map, data_conversion,
+    # fuzzy_lookup, lua and mask -- the PII control -- had no coverage anywhere
+    # else. transformation_types_test.go closes that; what is left in the specs
+    # is api_lookup and db_lookup, which need an HTTP endpoint and a database.
+    #
+    # production_grade stays because its multi-source/multi-sink journey with
+    # sequential and parallel delivery is the one thing no other test walks.
+    #
+    # A permanently red required job trains everyone to ignore the pipeline,
+    # which is the same trap the govulncheck wrapper avoids. They still earn
+    # their keep meanwhile: this run is what surfaced the required-Select
+    # deselect bug and the unlabelled CDC switch, both fixed.
     continue-on-error: true
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     services:
@@ -225,16 +444,9 @@ jobs:
       - name: E2E (integration)
         run: |
           bunx playwright test \
-            ui/__tests__/cdc_e2e.spec.ts \
-            ui/__tests__/cdc_table_tracking_e2e.spec.ts \
             ui/__tests__/advanced_transformations_e2e.spec.ts \
             ui/__tests__/comprehensive_transformations_e2e.spec.ts \
-            ui/__tests__/production_grade.spec.ts \
-            ui/__tests__/rabbitmq_e2e.spec.ts \
-            ui/__tests__/sql_e2e.spec.ts \
-            ui/__tests__/heavy_load_e2e.spec.ts \
-            ui/__tests__/perf_e2e.spec.ts \
-            ui/__tests__/worker_e2e.spec.ts
+            ui/__tests__/production_grade.spec.ts
       - name: Stop Hermod
         if: always()
         run: ./scripts/dev.sh --stop
@@ -268,3 +480,24 @@ jobs:
           # CI runners reap goroutines less eagerly than a laptop.
           HERMOD_SOAK_GOROUTINE_SLACK: "20"
         run: go test -run TestSoak -timeout 40m ./internal/engine/registry/
+
+  lint-debt:
+    name: Lint backlog (informational)
+    runs-on: ubuntu-latest
+    # The full lint surface, including everything that predates the current
+    # config. Not a gate — a standing report so the debt stays visible and can
+    # be paid down deliberately instead of being forgotten behind a green tick.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Full lint report
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+          golangci-lint run --new-from-merge-base="" --timeout=15m ./... || true

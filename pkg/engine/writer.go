@@ -613,17 +613,18 @@ func (sw *sinkWriter) recordSuccess() {
 func (sw *sinkWriter) recordFailure() {
 	sw.cbMu.Lock()
 
-	threshold := sw.config.CircuitBreakerThreshold
+	cbCfg := sw.snapshotConfig()
+	threshold := cbCfg.CircuitBreakerThreshold
 	if threshold <= 0 {
 		threshold = 5 // Default threshold
 	}
 
-	interval := sw.config.CircuitBreakerInterval
+	interval := cbCfg.CircuitBreakerInterval
 	if interval <= 0 {
 		interval = 1 * time.Minute
 	}
 
-	coolDown := sw.config.CircuitBreakerCoolDown
+	coolDown := cbCfg.CircuitBreakerCoolDown
 	if coolDown <= 0 {
 		coolDown = 30 * time.Second
 	}
@@ -655,6 +656,21 @@ func (sw *sinkWriter) recordFailure() {
 	}
 }
 
+// snapshotConfig returns a copy of the writer's config under the same lock
+// UpdateSinkConfig takes to write it.
+//
+// updateMu already existed and the write side already used it; the read sides
+// did not, so editing a sink on a running workflow raced the writer goroutine.
+// The race detector caught it on UpdateSinkConfig vs runOn reading
+// w.config.BatchSize, but every other w.config read had the same problem.
+// Config is a plain struct, so a copy under the lock is both correct and cheap
+// enough to take once per call rather than per field.
+func (sw *sinkWriter) snapshotConfig() config.SinkConfig {
+	sw.updateMu.RLock()
+	defer sw.updateMu.RUnlock()
+	return sw.config
+}
+
 // shutdownSpill stops the spill-buffer consumer (if any) and waits for it to
 // fully return. It must be called before w.ch is closed so the consumer can
 // never send on a closed channel. It is safe to call when no spill consumer is
@@ -674,14 +690,15 @@ func (w *sinkWriter) shutdownSpill() {
 // producer or writer goroutine starts, so that w.spillBuffer can be read by the
 // producer path (enqueueWithStrategy) without a data race.
 func (w *sinkWriter) setupSpillBuffer() {
-	if w.config.BackpressureStrategy != config.BPSpillToDisk {
+	spillCfg := w.snapshotConfig()
+	if spillCfg.BackpressureStrategy != config.BPSpillToDisk {
 		return
 	}
-	path := w.config.SpillPath
+	path := spillCfg.SpillPath
 	if path == "" {
 		path = ".hermod-spill-" + w.sinkID
 	}
-	maxSize := w.config.SpillMaxSize
+	maxSize := spillCfg.SpillMaxSize
 	if maxSize <= 0 {
 		maxSize = 100 * 1024 * 1024 // 100MB default
 	}
@@ -752,18 +769,18 @@ func (w *sinkWriter) run(ctx context.Context) {
 	w.runOn(ctx, w.ch)
 }
 
-// defaultDrainWriteTimeout bounds shutdown writes when no DrainTimeout is
-// configured. Draining has to be bounded by something: a sink that never
-// returns would otherwise hold the process open forever and hang a rolling
-// deploy on one bad destination.
-const defaultDrainWriteTimeout = 30 * time.Second
-
 // drainBudget is how long shutdown work is allowed to keep going.
+//
+// An operator-set DrainTimeout is honoured when it fits inside the process-wide
+// budget and clamped when it does not: a per-sink setting must not be able to
+// push the whole stop past the orchestrator's grace period, because being
+// SIGKILLed mid-drain loses more than giving up early does.
 func drainBudget(e *Engine) time.Duration {
-	if e != nil && e.config.DrainTimeout > 0 {
-		return e.config.DrainTimeout
+	budget := config.Shutdown()
+	if e == nil {
+		return budget.Drain
 	}
-	return defaultDrainWriteTimeout
+	return budget.ClampDrain(e.config.DrainTimeout)
 }
 
 // drainWriteContext returns a context detached from the (already cancelled)
@@ -771,7 +788,7 @@ func drainBudget(e *Engine) time.Duration {
 // still be attempted but must also terminate.
 func drainWriteContext(parent context.Context, drainTimeout time.Duration) (context.Context, context.CancelFunc) {
 	if drainTimeout <= 0 {
-		drainTimeout = defaultDrainWriteTimeout
+		drainTimeout = config.Shutdown().Drain
 	}
 	return context.WithTimeout(context.WithoutCancel(parent), drainTimeout)
 }
@@ -784,13 +801,15 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			}
 		}
 	}()
-	// Batch sizing state is kept goroutine-local.
-	batchSize := w.config.BatchSize
+	// Batch sizing state is kept goroutine-local, from one snapshot taken under
+	// the lock rather than field-by-field off the shared struct.
+	cfg := w.snapshotConfig()
+	batchSize := cfg.BatchSize
 	if batchSize < 1 {
 		batchSize = 1
 	}
 	w.currentBatchSize.Store(int64(batchSize))
-	batchTimeout := w.config.BatchTimeout
+	batchTimeout := cfg.BatchTimeout
 	if batchTimeout == 0 {
 		batchTimeout = 100 * time.Millisecond
 	}
@@ -904,7 +923,7 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			}
 		}
 
-		if w.config.AdaptiveBatching {
+		if cfg.AdaptiveBatching {
 			duration := time.Since(start)
 			if err == nil {
 				if duration < batchTimeout/2 && len(input) > 0 {
@@ -960,7 +979,7 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 						if payload := msg.Payload(); payload != nil {
 							batchBytes += len(payload)
 						}
-						if len(batch) >= batchSize || (w.config.BatchBytes > 0 && batchBytes >= w.config.BatchBytes) {
+						if len(batch) >= batchSize || (cfg.BatchBytes > 0 && batchBytes >= cfg.BatchBytes) {
 							flush()
 						}
 					} else {
@@ -1033,7 +1052,7 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 			telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPDropNewest)).Inc()
 		}
 	case config.BPSampling:
-		rate := w.config.SamplingRate
+		rate := w.snapshotConfig().SamplingRate
 		if rate <= 0 {
 			rate = 0.5
 		}
@@ -1060,8 +1079,16 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 				// by the owning goroutine after pm.done) would release it a second
 				// time, recycling the message while it is still being read
 				// elsewhere (use-after-free / data race).
-				err := w.spillBuffer.Produce(ctx, pm.msg)
+				//
+				// The order matters and used to be wrong: Produce ran while
+				// pm.msg was still set, so between Produce releasing the message
+				// and the detach on the next line, the owning goroutine could
+				// call releasePendingMessage and release it a second time. Rare,
+				// scheduling-dependent, and exactly the over-release the
+				// TestMain tripwire kept reporting.
+				msg := pm.msg
 				pm.msg = nil
+				err := w.spillBuffer.Produce(ctx, msg)
 				if err != nil {
 					signalDone(pm, fmt.Errorf("spill to disk failed: %w", err))
 				} else {
@@ -1098,7 +1125,7 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 // until its channel is closed, and the runner only closes that channel after
 // every sender has returned. The budget is what keeps it from becoming an
 // unbounded wait behind a wedged sink.
-func (w *sinkWriter) enqueueOrDrain(ctx context.Context, target chan *pendingMessage, pm *pendingMessage) {
+func (sw *sinkWriter) enqueueOrDrain(ctx context.Context, target chan *pendingMessage, pm *pendingMessage) {
 	select {
 	case target <- pm:
 		return
@@ -1106,8 +1133,8 @@ func (w *sinkWriter) enqueueOrDrain(ctx context.Context, target chan *pendingMes
 	}
 
 	var drainTimeout time.Duration
-	if w.engine != nil {
-		drainTimeout = w.engine.config.DrainTimeout
+	if sw.engine != nil {
+		drainTimeout = sw.engine.config.DrainTimeout
 	}
 	enqCtx, cancel := drainWriteContext(ctx, drainTimeout)
 	defer cancel()

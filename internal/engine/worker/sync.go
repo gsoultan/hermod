@@ -9,6 +9,7 @@ import (
 
 	"github.com/user/hermod/internal/factory"
 	"github.com/user/hermod/internal/storage"
+	"github.com/user/hermod/pkg/engine/config"
 	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
@@ -304,7 +305,7 @@ func (w *Worker) stopWorkflow(ctx context.Context, id string) {
 		}()
 		// Use context.Background for the actual stop to ensure it completes even if
 		// the triggering sync context is canceled, but with a reasonable timeout.
-		stopCtx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+		stopCtx, cancel := context.WithTimeout(context.Background(), config.Shutdown().PerEngine)
 		defer cancel()
 		_ = w.registry.StopEngineWithoutUpdate(stopCtx, id)
 		w.stopLeaseRenewal(id)

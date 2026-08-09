@@ -313,9 +313,9 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 				"workflow_id", r.engine.workflowID, "timeout", r.engine.config.DrainTimeout.String())
 			select {
 			case <-done:
-			case <-time.After(drainAbandonGrace):
+			case <-time.After(drainAbandonGrace()):
 				r.engine.logger.Error("Abandoning sink writer drain; a sink is not returning",
-					"workflow_id", r.engine.workflowID, "grace", drainAbandonGrace.String())
+					"workflow_id", r.engine.workflowID, "grace", drainAbandonGrace().String())
 			}
 		}
 	} else {
@@ -454,7 +454,16 @@ func (r *Runner) checkHealth(interval time.Duration) {
 	}
 
 	srcStatus, _, engStatus, _, _, _, _, _ := r.engine.statusTracker.GetStatus()
-	if allSinksOk && srcStatus == "running" {
+	if allSinksOk && srcStatus == "running" && engStatus != "stalled" {
+		// Not while stalled. The stall watchdog owns that status: it sets it
+		// when nothing completes while work is outstanding, and clears it again
+		// when it sees progress resume (see watchForStalls).
+		//
+		// A wedged sink is not an unreachable one — it accepts connections and
+		// answers Ping, it just never finishes a write. So allSinksOk stays
+		// true here, and this used to overwrite "stalled" with "running" on the
+		// next tick. The stall was real, the supervisor had already been told,
+		// and the status the UI reads said the workflow was fine.
 		if engStatus != "running" && strings.HasPrefix(engStatus, "reconnecting") {
 			r.engine.logger.Info("System reconnected successfully", "workflow_id", r.engine.workflowID, "action", "reconnect")
 		}
@@ -836,7 +845,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		target.Message.Retain()
 		pm := acquirePendingMessage(target.Message)
 		swg.Go(func() {
-			sw.enqueueWithStrategy(ctx, pm, sw.config.BackpressureStrategy)
+			sw.enqueueWithStrategy(ctx, pm, sw.snapshotConfig().BackpressureStrategy)
 			select {
 			case err := <-pm.done:
 				if err != nil {
@@ -903,5 +912,6 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 // drain budget has already expired. The writers' write contexts are cancelled
 // at the budget, so this only covers unwinding; a sink that still has not
 // returned is not going to, and holding the process open for it turns a slow
-// destination into a stuck deploy.
-const drainAbandonGrace = 10 * time.Second
+// destination into a stuck deploy. Derived from the shared budget so it cannot
+// push the total past the orchestrator's grace period.
+func drainAbandonGrace() time.Duration { return config.Shutdown().Grace }

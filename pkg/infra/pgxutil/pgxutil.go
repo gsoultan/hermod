@@ -85,14 +85,43 @@ func ParsePoolConfig(connString string) (*pgxpool.Config, bool, error) {
 		ApplyPoolerSafety(cfg.ConnConfig)
 	}
 
-	// Increase default pool size for shared connection pooling to prevent
-	// Test Connection timeouts during busy periods.
-	if cfg.MaxConns <= 10 {
-		cfg.MaxConns = 50
+	// Raise the pool size, but only when nobody asked for a particular one.
+	//
+	// This used to be `if cfg.MaxConns <= 10 { cfg.MaxConns = 50 }`, which
+	// cannot tell a small pgx default from a deliberate cap: an operator who
+	// set pool_max_conns=5 got 50 instead, per DSN. Managed Postgres sells
+	// connection limits, PgBouncer pools are sized on purpose, and the stock
+	// max_connections is 100 — three DSNs at the inflated size exhaust it, and
+	// the server then drops connections mid-query somewhere unrelated.
+	if !hasExplicitPoolSize(cleaned) {
+		cfg.MaxConns = defaultMaxConns
 	}
 	cfg.HealthCheckPeriod = 1 * time.Minute
 
 	return cfg, pooled, nil
+}
+
+// defaultMaxConns is what Hermod uses when a DSN says nothing. pgx defaults to
+// roughly the CPU count, which is too few for the number of concurrent
+// workflows a single engine drives.
+const defaultMaxConns int32 = 50
+
+// hasExplicitPoolSize reports whether the DSN sets pool_max_conns itself, in
+// either the URL or the keyword/value form.
+func hasExplicitPoolSize(connString string) bool {
+	if strings.Contains(connString, "://") {
+		if u, err := url.Parse(connString); err == nil {
+			return u.Query().Has("pool_max_conns")
+		}
+		// Unparseable: fall through to the substring check rather than
+		// silently overriding a setting that may well be there.
+	}
+	for _, field := range strings.Fields(connString) {
+		if strings.HasPrefix(field, "pool_max_conns=") {
+			return true
+		}
+	}
+	return strings.Contains(connString, "pool_max_conns=")
 }
 
 // stripPoolerParams removes the custom pooler markers from connString (in both

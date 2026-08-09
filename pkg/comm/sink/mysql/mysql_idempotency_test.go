@@ -4,7 +4,6 @@
 package mysql
 
 import (
-	"context"
 	"database/sql"
 	"os"
 	"testing"
@@ -35,7 +34,7 @@ func TestMySQLSink_IdempotentUpsert(t *testing.T) {
 	}
 	defer db.Exec("DROP TABLE IF EXISTS " + table)
 
-	snk := NewMySQLSink(dsn, "", nil, true, "hard_delete", "", "", false, false)
+	snk := NewMySQLSink(dsn, "", nil, true, "hard_delete", "", "", "", false, false)
 	ctx := t.Context()
 
 	// First write

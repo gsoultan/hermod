@@ -137,6 +137,31 @@ POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/hermod_test_sink?sslmo
   rtk go test ./pkg/comm/sink/postgres -tags=integration
 ```
 
+**Type-check them even when you cannot run them.** `go build`, `go vet` and `go test` all ignore
+files behind a build tag, so an integration test can stop compiling without anything going red.
+That is not hypothetical: three of the five were broken at once — a package rename applied by
+search-and-replace, a leftover import, and a constructor that had gained a parameter — so the
+worker failover, lease-stealing and sink idempotency coverage silently did not run. After changing
+a constructor signature or renaming a package, run:
+
+```bash
+rtk go vet -tags=integration ./...
+```
+
+CI does this in `Verify (vet, integration-tagged)`, and the required `integration-go` job runs the
+tagged tests against a real Postgres with `wal_level=logical` (needed for the CDC tests).
+
+Two conventions these tests follow, both learned the hard way:
+
+- **Skip on a missing fixture, fail on a broken feature.** A test that `t.Fatalf`s because the
+  database it hardcoded is absent reads like a product defect and is not one. Use
+  `requireIntegrationDB`, and create the tables you read rather than assuming an earlier run left
+  them behind.
+- **Wait for conditions, not for the clock.** Fixed sleeps sized against an idle laptop fail under a
+  full parallel run, and a tight deadline on "did the lease get stolen" measures machine load rather
+  than the engine. Put test databases in `t.TempDir()` too — removing a SQLite file by name leaves
+  its `-wal` and `-shm` sidecars for the next run to trip over.
+
 Note `.junie/POSTGRES_MCP.md` documents the **Junie/JetBrains** integration, which is a separate
 configuration from the one above.
 

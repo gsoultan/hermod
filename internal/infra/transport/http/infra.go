@@ -110,9 +110,38 @@ func (h *InfraHandler) UpdateCryptoMasterKey(w http.ResponseWriter, r *http.Requ
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Re-encrypt every stored credential under the new key *before* the key is
+	// installed or persisted.
+	//
+	// This used to save the key and return 204. Everything already in the
+	// database — every source and sink password, API key and service-account
+	// document — stayed encrypted under the old key, and there was no longer a
+	// key that could open it. The failure was not even loud: the storage layer
+	// passed the unopened ciphertext to connectors as though it were the
+	// plaintext, so the operator saw authentication errors against their own
+	// databases and nothing tying them to the rotation.
+	//
+	// Order matters. ReEncryptSecrets writes the new ciphertext while the old
+	// key is still in force, so if it fails, nothing has changed and the running
+	// system is untouched.
+	if h.Storage != nil {
+		if err := h.Storage.ReEncryptSecrets(r.Context(), key); err != nil {
+			http.Error(w, "cannot rotate the master key: "+err.Error()+
+				"; no key was changed and no data was modified", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	cfg.CryptoMasterKey = key
 	if err := config.SaveDBConfig(cfg); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		// The data is already under the new key but the key was not persisted.
+		// Install it in memory anyway so the running process stays consistent
+		// with its own database, and tell the operator to fix the file, because
+		// the next restart will come up with the old key and fail to decrypt.
+		crypto.SetMasterKey(key)
+		http.Error(w, "secrets were re-encrypted with the new key but it could not be saved: "+
+			err.Error()+"; set crypto_master_key in db_config.yaml before restarting",
+			http.StatusInternalServerError)
 		return
 	}
 
@@ -1233,20 +1262,85 @@ func (h *InfraHandler) ExportConfig(w http.ResponseWriter, r *http.Request) {
 		Settings: make(map[string]string),
 	}
 
-	filter := storage.CommonFilter{Limit: 1000}
-	data.Sources, _, _ = h.Storage.ListSources(ctx, filter)
-	data.Sinks, _, _ = h.Storage.ListSinks(ctx, filter)
-	data.Workflows, _, _ = h.Storage.ListWorkflows(ctx, filter)
-	data.VHosts, _, _ = h.Storage.ListVHosts(ctx, filter)
-	data.Workspaces, _ = h.Storage.ListWorkspaces(ctx)
+	// Every list below used to discard its error and its total:
+	//
+	//	data.Sources, _, _ = h.Storage.ListSources(ctx, filter)
+	//
+	// A database that was unreachable produced a 200 with an attachment header
+	// and a file full of empty arrays. It is named hermod-config-backup.json
+	// and looks entirely normal; the operator finds out during a restore, which
+	// is the one moment they cannot afford to. The same discarded total hid the
+	// row cap: a deployment with more objects than the limit got a backup
+	// missing the overflow, silently.
+	filter := storage.CommonFilter{Limit: exportLimit}
 
+	var total int
+	var err error
+	if data.Sources, total, err = h.Storage.ListSources(ctx, filter); err != nil {
+		h.JsonError(w, "cannot export sources, so this backup would be incomplete: "+err.Error(),
+			http.StatusInternalServerError)
+		return
+	} else if total > exportLimit {
+		h.exportTruncated(w, "sources", total)
+		return
+	}
+	if data.Sinks, total, err = h.Storage.ListSinks(ctx, filter); err != nil {
+		h.JsonError(w, "cannot export sinks, so this backup would be incomplete: "+err.Error(),
+			http.StatusInternalServerError)
+		return
+	} else if total > exportLimit {
+		h.exportTruncated(w, "sinks", total)
+		return
+	}
+	if data.Workflows, total, err = h.Storage.ListWorkflows(ctx, filter); err != nil {
+		h.JsonError(w, "cannot export workflows, so this backup would be incomplete: "+err.Error(),
+			http.StatusInternalServerError)
+		return
+	} else if total > exportLimit {
+		h.exportTruncated(w, "workflows", total)
+		return
+	}
+	if data.VHosts, total, err = h.Storage.ListVHosts(ctx, filter); err != nil {
+		h.JsonError(w, "cannot export vhosts, so this backup would be incomplete: "+err.Error(),
+			http.StatusInternalServerError)
+		return
+	} else if total > exportLimit {
+		h.exportTruncated(w, "vhosts", total)
+		return
+	}
+	if data.Workspaces, err = h.Storage.ListWorkspaces(ctx); err != nil {
+		h.JsonError(w, "cannot export workspaces, so this backup would be incomplete: "+err.Error(),
+			http.StatusInternalServerError)
+		return
+	}
+
+	// A missing setting is not a failure; anything else is.
 	if val, err := h.Storage.GetSetting(ctx, "notification_settings"); err == nil {
 		data.Settings["notification_settings"] = val
 	}
 
+	// Serialise before committing to a 200, so an encoding failure is not
+	// written into the middle of a file the browser has already started saving.
+	body, err := json.Marshal(data)
+	if err != nil {
+		h.JsonError(w, "cannot serialise the backup: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", "attachment; filename=hermod-config-backup.json")
-	_ = json.NewEncoder(w).Encode(data)
+	_, _ = w.Write(body)
+}
+
+// exportLimit bounds a single export. It is a real bound rather than a silent
+// one: past it the export fails instead of truncating.
+const exportLimit = 1000
+
+func (h *InfraHandler) exportTruncated(w http.ResponseWriter, kind string, total int) {
+	h.JsonError(w, fmt.Sprintf(
+		"this deployment has %d %s but an export carries at most %d; the backup would be "+
+			"silently incomplete, so it was refused", total, kind, exportLimit),
+		http.StatusInternalServerError)
 }
 
 func (h *InfraHandler) ImportConfig(w http.ResponseWriter, r *http.Request) {
@@ -1263,34 +1357,65 @@ func (h *InfraHandler) ImportConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+
+	// Every write here used to be `_ = h.Storage.Create...(...)`, and the
+	// handler finished with an unconditional 204. A restore into a database
+	// that rejected every row reported success, and the operator — who is
+	// running this because something has already gone wrong — would believe
+	// their configuration was back.
+	//
+	// The restore still runs to completion rather than stopping at the first
+	// failure: recovering most of a configuration is more useful than
+	// recovering the prefix before the first bad row. What changes is that the
+	// response says exactly what did not make it.
+	var failures []string
+	record := func(kind, id string, err error) {
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s %s: %v", kind, id, err))
+		}
+	}
+
 	for _, v := range data.VHosts {
 		if _, err := h.Storage.GetVHost(ctx, v.ID); err != nil {
-			_ = h.Storage.CreateVHost(ctx, v)
+			record("vhost", v.ID, h.Storage.CreateVHost(ctx, v))
 		}
 	}
 	for _, src := range data.Sources {
 		if _, err := h.Storage.GetSource(ctx, src.ID); err != nil {
-			_ = h.Storage.CreateSource(ctx, src)
+			record("source", src.ID, h.Storage.CreateSource(ctx, src))
 		} else {
-			_ = h.Storage.UpdateSource(ctx, src)
+			record("source", src.ID, h.Storage.UpdateSource(ctx, src))
 		}
 	}
 	for _, snk := range data.Sinks {
 		if _, err := h.Storage.GetSink(ctx, snk.ID); err != nil {
-			_ = h.Storage.CreateSink(ctx, snk)
+			record("sink", snk.ID, h.Storage.CreateSink(ctx, snk))
 		} else {
-			_ = h.Storage.UpdateSink(ctx, snk)
+			record("sink", snk.ID, h.Storage.UpdateSink(ctx, snk))
 		}
 	}
 	for _, wf := range data.Workflows {
 		if _, err := h.Storage.GetWorkflow(ctx, wf.ID); err != nil {
-			_ = h.Storage.CreateWorkflow(ctx, wf)
+			record("workflow", wf.ID, h.Storage.CreateWorkflow(ctx, wf))
 		} else {
-			_ = h.Storage.UpdateWorkflow(ctx, wf)
+			record("workflow", wf.ID, h.Storage.UpdateWorkflow(ctx, wf))
 		}
 	}
 	for k, v := range data.Settings {
-		_ = h.Storage.SaveSetting(ctx, k, v)
+		record("setting", k, h.Storage.SaveSetting(ctx, k, v))
+	}
+
+	if len(failures) > 0 {
+		const shown = 10
+		listed := failures
+		suffix := ""
+		if len(listed) > shown {
+			listed = listed[:shown]
+			suffix = fmt.Sprintf(" (and %d more)", len(failures)-shown)
+		}
+		h.JsonError(w, fmt.Sprintf("restore is incomplete: %d object(s) could not be written: %s%s",
+			len(failures), strings.Join(listed, "; "), suffix), http.StatusInternalServerError)
+		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)

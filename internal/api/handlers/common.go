@@ -189,7 +189,31 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			strings.HasPrefix(path, "/api/webhooks/") ||
 			strings.HasPrefix(path, "/api/forms/") ||
 			strings.HasPrefix(path, "/forms/") ||
-			path == "/livez" || path == "/readyz" || path == "/metrics" {
+			path == "/livez" || path == "/readyz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// /metrics is open by default, because that is what a Prometheus scrape
+		// target normally is and requiring a session cookie would break every
+		// scraper. But the metrics carry workflow_id, source_id and worker_id
+		// labels, so an unauthenticated read maps the deployment — how many
+		// pipelines there are, what they are called, and which are failing.
+		//
+		// Setting HERMOD_METRICS_TOKEN closes it without changing anything for
+		// operators who have not opted in. The health probes above stay open
+		// deliberately: a token covering them would make the kubelet fail every
+		// probe and restart the pod on a loop.
+		if path == "/metrics" {
+			if token := os.Getenv("HERMOD_METRICS_TOKEN"); token != "" {
+				presented := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+				// Constant time: the comparison is against a secret, and a
+				// scrape endpoint is as good an oracle as any other.
+				if subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
+					return
+				}
+			}
 			next.ServeHTTP(w, r)
 			return
 		}

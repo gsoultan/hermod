@@ -12,6 +12,7 @@ import (
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/engine/registry"
 	"github.com/user/hermod/internal/storage"
+	"github.com/user/hermod/pkg/engine/config"
 	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
@@ -259,7 +260,11 @@ func (w *Worker) cleanup(ctx context.Context) {
 			w.logger.Error("Worker: cleanup panicked", "panic", r, "stack", string(debug.Stack()))
 		}
 	}()
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// The worker's cleanup is the outermost stage of a graceful stop, so it
+	// takes the full budget — which is sized to finish inside the
+	// orchestrator's grace period. It was 60s, twice Kubernetes' default, so a
+	// rolling deploy SIGKILLed the process while it was still draining.
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), config.Shutdown().Total)
 	defer cancel()
 	if w.registry != nil {
 		w.registry.StopAll()

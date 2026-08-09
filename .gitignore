@@ -49,7 +49,12 @@ worker.yaml
 main
 hermod_state.db
 ui/bun.lock
-go.sum
+# go.sum is deliberately NOT ignored. It is a build input, not build output:
+# without it `go build` fails on a clean checkout with "missing go.sum entry"
+# for every dependency, which is exactly what happened to CI. It is also the
+# only thing verifying that a given module version still contains what it
+# contained when it was vendored, so ignoring it removes a supply-chain control
+# as well as reproducibility.
 /graphify-out/
 /.agents
 /.claude

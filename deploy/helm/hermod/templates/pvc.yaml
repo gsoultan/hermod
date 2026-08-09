@@ -1,0 +1,21 @@
+{{- if .Values.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hermod.fullname" . }}
+  labels:
+    {{- include "hermod.labels" . | nindent 4 }}
+  annotations:
+    # Keep the config -- and the generated JWT secret -- across a helm uninstall.
+    # Losing it logs every user out and re-runs first-time setup.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}
