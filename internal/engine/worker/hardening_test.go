@@ -689,7 +689,11 @@ func TestWorkerFailoverThenFailbackUnderLoad(t *testing.T) {
 	reg2.StopAll()
 	store.expireWorker("worker-2", 5*time.Minute)
 	time.Sleep(20 * time.Millisecond)
-	if !waitCond(15*time.Second, func() bool {
+	// Generous, because this is a liveness assertion: the question is whether
+	// the recovered worker takes everything over at all, not how fast. Starting
+	// twenty workflows on a loaded CI runner took longer than 15s and reported
+	// 19/20, which measures the machine rather than the failover logic.
+	if !waitCond(60*time.Second, func() bool {
 		w1b.SetMetrics(0.05, 0.05)
 		w1b.sync(ctx, false)
 		return runningWorkflows(reg1b, store) == workflows

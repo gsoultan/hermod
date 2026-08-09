@@ -118,6 +118,16 @@ func seedRecoveryTables(t *testing.T, sourceDB *sql.DB) {
 		)`,
 		`ALTER TABLE orders REPLICA IDENTITY FULL`,
 		`TRUNCATE orders`,
+		// customers is the "unmonitored" table in the retention tests: traffic
+		// against it must not pin WAL, which only means anything if the table
+		// exists and is genuinely outside the publication.
+		`CREATE TABLE IF NOT EXISTS customers (
+			id SERIAL PRIMARY KEY,
+			customer_code TEXT,
+			customer_name TEXT,
+			region TEXT
+		)`,
+		`TRUNCATE customers`,
 	)
 
 	sinkDB, err := sql.Open("pgx", recoverySinkDSN)

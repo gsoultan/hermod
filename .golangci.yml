@@ -110,7 +110,7 @@ issues:
   # base fails the build; the existing backlog is visible with
   # `golangci-lint run --new=false ./...` and can be paid down deliberately
   # rather than blocking every change.
-  new-from-merge-base: main
+  new-from-merge-base: origin/main
   # Report every new finding rather than the default per-linter cap, so a
   # change cannot slip issues past the limit.
   max-issues-per-linter: 0
