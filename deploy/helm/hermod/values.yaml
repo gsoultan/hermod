@@ -1,5 +1,10 @@
 image:
-  repository: ghcr.io/user/hermod
+  # Must match where the release workflow actually pushes
+  # (ghcr.io/${{ github.repository }}, lowercased). This defaulted to
+  # ghcr.io/user/hermod -- taken from the Go module path, which is not a
+  # registry -- so v1.7.0 shipped a chart that installs cleanly and then sits
+  # in ImagePullBackOff. The CI chart step now asserts the two agree.
+  repository: ghcr.io/gsoultan/hermod
   # Defaults to .Chart.AppVersion when empty, so the chart and the image stay
   # in step unless you deliberately pin something else.
   tag: ""

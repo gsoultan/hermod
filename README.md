@@ -687,7 +687,7 @@ its own key from the message and recipient.
 A container image and a Helm chart ship with each release:
 
 ```bash
-helm install hermod oci://ghcr.io/user/charts/hermod \
+helm install hermod oci://ghcr.io/gsoultan/charts/hermod \
   --version <release> \
   --set existingSecret=hermod-master-key \
   --set metrics.prometheusRule.enabled=true

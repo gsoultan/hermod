@@ -234,6 +234,24 @@ jobs:
           helm template t deploy/helm/hermod --set metrics.prometheusRule.enabled=true \
             --set metrics.serviceMonitor.enabled=true --set ingress.enabled=true > /dev/null
 
+      # The chart must name the image this repository actually publishes.
+      # v1.7.0 shipped with the default pointing at ghcr.io/user/hermod, taken
+      # from the Go module path rather than the registry, so the chart
+      # installed cleanly and then sat in ImagePullBackOff. Nothing caught it
+      # because `helm template` renders a wrong image reference just as happily
+      # as a right one.
+      - name: Chart points at the image this repo publishes
+        run: |
+          expected="ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          rendered=$(helm template t deploy/helm/hermod \
+            | grep -oE 'image: "[^"]+"' | head -1 | sed -E 's/image: "(.*):.*"/\1/')
+          echo "expected: $expected"
+          echo "rendered: $rendered"
+          test "$rendered" = "$expected" || {
+            echo "The chart would pull an image this repository does not publish."
+            exit 1
+          }
+
       # The guards are the reason the chart exists. Each of these deploys
       # happily and loses data, so rendering must refuse them.
       - name: Chart refuses configurations that lose data
