@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,6 +16,25 @@ import (
 	"github.com/user/hermod/internal/storage"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// withDBConfig gives the test a db_config.yaml of its own.
+//
+// The login handler calls config.LoadDBConfig, which returns the underlying
+// ENOENT when no config file exists *and* neither HERMOD_DB_TYPE nor
+// HERMOD_DB_CONN is set (db_config.go: "if everything is empty and file was
+// missing, return original error"). The handler turns that into a 500. So these
+// tests passed on a developer machine with a real ~/.hermod/db_config.yaml and
+// failed on a clean CI runner, which is the wrong thing for the environment to
+// decide.
+func withDBConfig(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "db_config.yaml"),
+		[]byte("type: sqlite\nconn: \"file::memory:\"\njwt_secret: testsecret\n"), 0o600); err != nil {
+		t.Fatalf("writing db_config.yaml: %v", err)
+	}
+	t.Setenv("HERMOD_CONFIG_DIR", dir)
+}
 
 // twoFAMockStorage is a minimal in-memory storage mock for 2FA tests.
 type twoFAMockStorage struct {
@@ -60,6 +80,7 @@ func (m *twoFAMockStorage) CreateAuditLog(ctx context.Context, log storage.Audit
 func (m *twoFAMockStorage) CreateLog(ctx context.Context, log storage.Log) error { return nil }
 
 func TestLogin2FAFlow_SuccessAndFailure(t *testing.T) {
+	withDBConfig(t)
 	t.Setenv("HERMOD_JWT_SECRET", "testsecret")
 
 	// Prepare user with 2FA enabled
@@ -132,6 +153,7 @@ func TestLogin2FAFlow_SuccessAndFailure(t *testing.T) {
 }
 
 func TestSetupVerifyDisable2FA(t *testing.T) {
+	withDBConfig(t)
 	t.Setenv("HERMOD_JWT_SECRET", "testsecret")
 	// user without 2FA enabled yet
 	pwdHash, _ := bcrypt.GenerateFromPassword([]byte("pw"), bcrypt.DefaultCost)
@@ -197,6 +219,7 @@ func TestSetupVerifyDisable2FA(t *testing.T) {
 }
 
 func TestPendingEnrollmentFlow_DuringLogin(t *testing.T) {
+	withDBConfig(t)
 	t.Setenv("HERMOD_JWT_SECRET", "testsecret")
 
 	// Admin toggled 2FA enabled but user has no registered secret yet
@@ -287,6 +310,7 @@ func TestPendingEnrollmentFlow_DuringLogin(t *testing.T) {
 // middleware returns 401 and the UI bounces the user back to /login, breaking
 // first-time 2FA enrollment after a correct username/password.
 func TestAuthMiddleware_AllowsPreAuth2FAEndpoints(t *testing.T) {
+	withDBConfig(t)
 	t.Setenv("HERMOD_JWT_SECRET", "testsecret")
 
 	ms := newTwoFAMockStorage()

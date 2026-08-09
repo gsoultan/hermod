@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/user/hermod/internal/storage"
@@ -43,6 +45,36 @@ func withUser(r *http.Request, role storage.Role) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), UserContextKey, u))
 }
 
+// configuredSystem makes IsDBConfigured deterministic.
+//
+// IsFirstRun short-circuits on !config.IsDBConfigured() before it ever looks at
+// the user count, and IsDBConfigured just checks whether db_config.yaml exists
+// in HERMOD_CONFIG_DIR. So on a developer machine with a configured Hermod in
+// ~/.hermod these tests enforced authorization, and on a clean CI runner the
+// same code took the first-run bypass and let anonymous requests straight
+// through — passing locally for a reason that had nothing to do with the
+// assertions. Ambient machine state must not decide whether an authorization
+// test is meaningful.
+func configuredSystem(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "db_config.yaml"),
+		[]byte("type: sqlite\nconn: \"file::memory:\"\n"), 0o600); err != nil {
+		t.Fatalf("writing db_config.yaml: %v", err)
+	}
+	t.Setenv("HERMOD_CONFIG_DIR", dir)
+}
+
+// unconfiguredSystem is the genuine first-run state: no config file anywhere.
+func unconfiguredSystem(t *testing.T) {
+	t.Helper()
+	t.Setenv("HERMOD_CONFIG_DIR", t.TempDir())
+	// IsDBConfigured also treats these as "configured", so a value inherited
+	// from the environment would defeat the point.
+	t.Setenv("HERMOD_DB_TYPE", "")
+	t.Setenv("HERMOD_DB_CONN", "")
+}
+
 // TestRbacMiddlewareDecisions is the full truth table for the guard every
 // protected route uses.
 func TestRbacMiddlewareDecisions(t *testing.T) {
@@ -75,7 +107,9 @@ func TestRbacMiddlewareDecisions(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			// A configured system: users exist, so the first-run bypass is off.
+			// A configured system with users, so the first-run bypass is off
+			// for a reason this test controls rather than inherits.
+			configuredSystem(t)
 			h := &Handler{Storage: &rbacStorage{userCount: 1}}
 
 			reached := false
@@ -141,6 +175,10 @@ func TestRbacFirstRunBypassIsNarrow(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			// Every case here is a *configured* system; the question is only
+			// whether users exist. The genuinely unconfigured case is covered
+			// by TestFirstRunBypassNeedsNoConfigFile below.
+			configuredSystem(t)
 			h := &Handler{Storage: tc.store}
 
 			reached := false
@@ -167,6 +205,7 @@ func TestRbacFirstRunBypassIsNarrow(t *testing.T) {
 // wired to the same role by accident — a one-word slip that would silently
 // promote every administrative route to editor access.
 func TestAdminOnlyIsStricterThanEditorOnly(t *testing.T) {
+	configuredSystem(t)
 	h := &Handler{Storage: &rbacStorage{userCount: 1}}
 	ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
 
@@ -190,6 +229,7 @@ func TestAdminOnlyIsStricterThanEditorOnly(t *testing.T) {
 // rather than panic into the recover middleware and return a 500 that looks
 // like a bug rather than a rejection.
 func TestRbacRejectsAMalformedIdentity(t *testing.T) {
+	configuredSystem(t)
 	h := &Handler{Storage: &rbacStorage{userCount: 1}}
 
 	for _, bad := range []any{
@@ -209,5 +249,37 @@ func TestRbacRejectsAMalformedIdentity(t *testing.T) {
 		if rr.Code != http.StatusUnauthorized {
 			t.Errorf("identity %#v produced HTTP %d, want 401", bad, rr.Code)
 		}
+	}
+}
+
+// TestFirstRunBypassNeedsNoConfigFile covers the other half of the bypass
+// condition, and the reason these tests now pin their config directory.
+//
+// IsFirstRun returns true as soon as db_config.yaml is absent, before it looks
+// at the user count at all. That is deliberate — the setup wizard has to be
+// reachable on a fresh install — but it means an instance that loses its config
+// file has authorization disabled entirely until it is configured again, no
+// matter how many users exist in the database.
+func TestFirstRunBypassNeedsNoConfigFile(t *testing.T) {
+	unconfiguredSystem(t)
+
+	// Users exist, which on a configured system would switch the bypass off.
+	h := &Handler{Storage: &rbacStorage{userCount: 5}}
+
+	reached := false
+	guarded := h.RbacMiddleware(storage.RoleAdministrator)(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) {
+			reached = true
+			w.WriteHeader(http.StatusOK)
+		}))
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/guarded", nil)
+	rr := httptest.NewRecorder()
+	guarded.ServeHTTP(rr, req)
+
+	if !reached {
+		t.Errorf("anonymous request was refused with HTTP %d on an unconfigured instance; "+
+			"the setup wizard would be unreachable and the install could never be completed",
+			rr.Code)
 	}
 }
