@@ -92,10 +92,17 @@ jobs:
           provenance: true
           sbom: true
 
+      # The filename is the bare hex, with the sha256: prefix stripped: an
+      # artifact path cannot contain a colon, and the merge step below adds the
+      # prefix back when it builds the @sha256:... reference. Naming the file
+      # with the raw digest failed both jobs *after* the image had already been
+      # pushed, so the blobs were in the registry with nothing tagging them.
       - name: Export the digest
         run: |
           mkdir -p /tmp/digests
-          touch "/tmp/digests/${{ steps.build.outputs.digest }}"
+          digest="${{ steps.build.outputs.digest }}"
+          test -n "$digest"
+          touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload the digest
         uses: actions/upload-artifact@v4
