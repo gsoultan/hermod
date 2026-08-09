@@ -48,6 +48,16 @@ jobs:
         env:
           platform: ${{ matrix.platform }}
 
+      # ghcr.io rejects an uppercase repository name. metadata-action lowercases
+      # its own `images:` input, which is why the single-job build got away with
+      # it -- but the push-by-digest `outputs:` below names the image directly
+      # and does not, so "ghcr.io/gsoultan/Hermod" failed both architectures
+      # with "repository name must be lowercase". Compute it once and use it
+      # everywhere the name is written by hand.
+      - name: Repository name, lowercased
+        id: repo
+        run: echo "name=$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -62,7 +72,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ steps.repo.outputs.name }}
 
       # No tags here: each architecture is pushed by digest and the merge job
       # below is what attaches the tags. Tagging per-arch would leave whichever
@@ -78,7 +88,7 @@ jobs:
             VERSION=${{ github.ref_name }}
           cache-from: type=gha,scope=${{ steps.prep.outputs.pair }}
           cache-to: type=gha,mode=max,scope=${{ steps.prep.outputs.pair }}
-          outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=ghcr.io/${{ steps.repo.outputs.name }},push-by-digest=true,name-canonical=true,push=true
           provenance: true
           sbom: true
 
@@ -106,6 +116,10 @@ jobs:
           pattern: digests-*
           merge-multiple: true
 
+      - name: Repository name, lowercased
+        id: repo
+        run: echo "name=$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -120,7 +134,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ steps.repo.outputs.name }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -130,13 +144,13 @@ jobs:
         working-directory: /tmp/digests
         run: |
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/${{ github.repository }}@sha256:%s ' *)
+            $(printf 'ghcr.io/${{ steps.repo.outputs.name }}@sha256:%s ' *)
 
       # A manifest that exists is not the same as one that resolves. Fail here
       # rather than let someone discover it with a pull.
       - name: Verify the published manifest
         run: |
-          docker buildx imagetools inspect "ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME#v}" \
+          docker buildx imagetools inspect "ghcr.io/${{ steps.repo.outputs.name }}:${GITHUB_REF_NAME#v}" \
             | tee /tmp/manifest.txt
           grep -q "linux/amd64" /tmp/manifest.txt
           grep -q "linux/arm64" /tmp/manifest.txt
