@@ -249,12 +249,25 @@ jobs:
           fails --set replicaCount=3
           fails --set replicaCount=3 --set database.type=postgres --set database.connectionSecret=dsn
 
+      # The release tarball, not `go install`: the Prometheus module carries
+      # replace directives, so `go install .../cmd/promtool@latest` refuses with
+      # "must not contain directives that would cause it to be interpreted
+      # differently than if it were the main module".
       - name: Validate the alert rules
+        env:
+          PROMETHEUS_VERSION: 3.13.2
         run: |
-          go install github.com/prometheus/prometheus/cmd/promtool@latest
+          curl -sSfL "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz" \
+            | tar -xz
+          promtool="./prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
+          "$promtool" --version
           helm template t deploy/helm/hermod --set metrics.prometheusRule.enabled=true \
             | scripts/extract-prometheus-rules.sh > /tmp/rules.yaml
-          "$(go env GOPATH)/bin/promtool" check rules /tmp/rules.yaml
+          # Guard against the extraction silently producing nothing, which would
+          # make promtool pass on an empty file and report no rules at all.
+          test -s /tmp/rules.yaml
+          "$promtool" check rules /tmp/rules.yaml | tee /tmp/promtool.out
+          grep -q "SUCCESS: 4 rules found" /tmp/promtool.out
 
   # Go integration tests: real Postgres, no browser.
   #
@@ -303,10 +316,30 @@ jobs:
             sleep 2
           done
           test "$(psql -h localhost -U postgres -tAc "SHOW wal_level")" = "logical"
+      # The e2e recovery, retention and PgBouncer tests hardcode these database
+      # names (see AGENTS.md); without them they fail on "database does not
+      # exist" rather than testing anything.
+      - name: Create the fixture databases
+        env:
+          PGPASSWORD: postgres
+        run: |
+          for db in hermod_metadata hermod_test_source hermod_test_sink; do
+            psql -h localhost -U postgres -c "CREATE DATABASE $db;"
+          done
+
       - name: Test (integration)
         env:
           HERMOD_INTEGRATION: "1"
           POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/hermod_it?sslmode=disable
+          # Admission control sheds new workflows above 85% host CPU. A runner
+          # executing the whole suite in parallel sits above that, so the worker
+          # refused to start the workflow under test and the failover test timed
+          # out waiting for a webhook that was never going to register. 1
+          # disables the check (see README's admission knobs); shedding is
+          # covered by internal/engine/worker/admission_test.go, which sets the
+          # thresholds directly rather than through the environment.
+          HERMOD_ADMISSION_CPU_THRESHOLD: "1"
+          HERMOD_ADMISSION_MEM_THRESHOLD: "1"
         run: go test -tags=integration -count=1 -timeout 15m ./...
 
   e2e-integration:
