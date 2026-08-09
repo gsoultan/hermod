@@ -91,6 +91,52 @@ type recoveryHarness struct {
 // newRecoveryHarness stands up a workflow that reads real CDC from
 // hermod_test_source through the real registry, engine and supervisor, and
 // writes to a sink the test can take offline.
+// seedRecoveryTables creates the source table these tests replicate from, plus
+// the sink table they land in.
+//
+// REPLICA IDENTITY FULL because the pipeline reads before-images; the default
+// only publishes the primary key, and the sink writes would be missing columns.
+func seedRecoveryTables(t *testing.T, sourceDB *sql.DB) {
+	t.Helper()
+	ctx := context.Background()
+
+	mustSeed := func(db *sql.DB, stmts ...string) {
+		t.Helper()
+		for _, q := range stmts {
+			if _, err := db.ExecContext(ctx, q); err != nil {
+				t.Fatalf("seeding %q: %v", q, err)
+			}
+		}
+	}
+
+	mustSeed(sourceDB,
+		`CREATE TABLE IF NOT EXISTS orders (
+			id SERIAL PRIMARY KEY,
+			order_ref TEXT,
+			customer_code TEXT,
+			amount NUMERIC
+		)`,
+		`ALTER TABLE orders REPLICA IDENTITY FULL`,
+		`TRUNCATE orders`,
+	)
+
+	sinkDB, err := sql.Open("pgx", recoverySinkDSN)
+	if err != nil {
+		t.Fatalf("open sink db: %v", err)
+	}
+	t.Cleanup(func() { _ = sinkDB.Close() })
+	if err := sinkDB.PingContext(ctx); err != nil {
+		t.Skipf("sink database unreachable: %v", err)
+	}
+	mustSeed(sinkDB,
+		`CREATE TABLE IF NOT EXISTS orders_enriched (
+			id TEXT PRIMARY KEY,
+			data JSONB
+		)`,
+		`TRUNCATE orders_enriched`,
+	)
+}
+
 func newRecoveryHarness(t *testing.T, stallThreshold time.Duration) *recoveryHarness {
 	t.Helper()
 	ctx := context.Background()
@@ -119,6 +165,14 @@ func newRecoveryHarness(t *testing.T, stallThreshold time.Duration) *recoveryHar
 	if err := sourceDB.PingContext(ctx); err != nil {
 		t.Skipf("source database unreachable: %v", err)
 	}
+
+	// Create the tables rather than assume them. These referenced `orders` and
+	// `orders_enriched` without ever creating either, so on a machine without
+	// that hand-prepared fixture the publication could not be created, the CDC
+	// source never attached, and the test failed 30s later on "the replication
+	// slot never became active" -- which reads like a replication bug and is
+	// not one.
+	seedRecoveryTables(t, sourceDB)
 
 	h := &recoveryHarness{
 		sink:     &gateSink{},

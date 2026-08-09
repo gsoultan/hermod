@@ -613,17 +613,18 @@ func (sw *sinkWriter) recordSuccess() {
 func (sw *sinkWriter) recordFailure() {
 	sw.cbMu.Lock()
 
-	threshold := sw.config.CircuitBreakerThreshold
+	cbCfg := sw.snapshotConfig()
+	threshold := cbCfg.CircuitBreakerThreshold
 	if threshold <= 0 {
 		threshold = 5 // Default threshold
 	}
 
-	interval := sw.config.CircuitBreakerInterval
+	interval := cbCfg.CircuitBreakerInterval
 	if interval <= 0 {
 		interval = 1 * time.Minute
 	}
 
-	coolDown := sw.config.CircuitBreakerCoolDown
+	coolDown := cbCfg.CircuitBreakerCoolDown
 	if coolDown <= 0 {
 		coolDown = 30 * time.Second
 	}
@@ -655,6 +656,21 @@ func (sw *sinkWriter) recordFailure() {
 	}
 }
 
+// snapshotConfig returns a copy of the writer's config under the same lock
+// UpdateSinkConfig takes to write it.
+//
+// updateMu already existed and the write side already used it; the read sides
+// did not, so editing a sink on a running workflow raced the writer goroutine.
+// The race detector caught it on UpdateSinkConfig vs runOn reading
+// w.config.BatchSize, but every other w.config read had the same problem.
+// Config is a plain struct, so a copy under the lock is both correct and cheap
+// enough to take once per call rather than per field.
+func (sw *sinkWriter) snapshotConfig() config.SinkConfig {
+	sw.updateMu.RLock()
+	defer sw.updateMu.RUnlock()
+	return sw.config
+}
+
 // shutdownSpill stops the spill-buffer consumer (if any) and waits for it to
 // fully return. It must be called before w.ch is closed so the consumer can
 // never send on a closed channel. It is safe to call when no spill consumer is
@@ -674,14 +690,15 @@ func (w *sinkWriter) shutdownSpill() {
 // producer or writer goroutine starts, so that w.spillBuffer can be read by the
 // producer path (enqueueWithStrategy) without a data race.
 func (w *sinkWriter) setupSpillBuffer() {
-	if w.config.BackpressureStrategy != config.BPSpillToDisk {
+	spillCfg := w.snapshotConfig()
+	if spillCfg.BackpressureStrategy != config.BPSpillToDisk {
 		return
 	}
-	path := w.config.SpillPath
+	path := spillCfg.SpillPath
 	if path == "" {
 		path = ".hermod-spill-" + w.sinkID
 	}
-	maxSize := w.config.SpillMaxSize
+	maxSize := spillCfg.SpillMaxSize
 	if maxSize <= 0 {
 		maxSize = 100 * 1024 * 1024 // 100MB default
 	}
@@ -784,13 +801,15 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			}
 		}
 	}()
-	// Batch sizing state is kept goroutine-local.
-	batchSize := w.config.BatchSize
+	// Batch sizing state is kept goroutine-local, from one snapshot taken under
+	// the lock rather than field-by-field off the shared struct.
+	cfg := w.snapshotConfig()
+	batchSize := cfg.BatchSize
 	if batchSize < 1 {
 		batchSize = 1
 	}
 	w.currentBatchSize.Store(int64(batchSize))
-	batchTimeout := w.config.BatchTimeout
+	batchTimeout := cfg.BatchTimeout
 	if batchTimeout == 0 {
 		batchTimeout = 100 * time.Millisecond
 	}
@@ -904,7 +923,7 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			}
 		}
 
-		if w.config.AdaptiveBatching {
+		if cfg.AdaptiveBatching {
 			duration := time.Since(start)
 			if err == nil {
 				if duration < batchTimeout/2 && len(input) > 0 {
@@ -960,7 +979,7 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 						if payload := msg.Payload(); payload != nil {
 							batchBytes += len(payload)
 						}
-						if len(batch) >= batchSize || (w.config.BatchBytes > 0 && batchBytes >= w.config.BatchBytes) {
+						if len(batch) >= batchSize || (cfg.BatchBytes > 0 && batchBytes >= cfg.BatchBytes) {
 							flush()
 						}
 					} else {
@@ -1033,7 +1052,7 @@ func (w *sinkWriter) enqueueWithStrategy(ctx context.Context, pm *pendingMessage
 			telemetry.BackpressureDropTotal.WithLabelValues(w.engine.workflowID, w.sinkID, string(config.BPDropNewest)).Inc()
 		}
 	case config.BPSampling:
-		rate := w.config.SamplingRate
+		rate := w.snapshotConfig().SamplingRate
 		if rate <= 0 {
 			rate = 0.5
 		}

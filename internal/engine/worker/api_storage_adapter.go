@@ -2,7 +2,7 @@ package worker
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"time"
 
 	"github.com/user/hermod"
@@ -282,5 +282,5 @@ func (a *apiStorage) GetDashboardStats(ctx context.Context, vhost string) (stora
 // key. Rotation belongs to the API server that owns both, and silently doing
 // nothing would let an operator believe a rotation had succeeded.
 func (a *apiStorage) ReEncryptSecrets(ctx context.Context, newKey string) error {
-	return fmt.Errorf("re-encrypting secrets is a control-plane operation; a worker cannot perform it")
+	return errors.New("re-encrypting secrets is a control-plane operation; a worker cannot perform it")
 }

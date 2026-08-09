@@ -845,7 +845,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		target.Message.Retain()
 		pm := acquirePendingMessage(target.Message)
 		swg.Go(func() {
-			sw.enqueueWithStrategy(ctx, pm, sw.config.BackpressureStrategy)
+			sw.enqueueWithStrategy(ctx, pm, sw.snapshotConfig().BackpressureStrategy)
 			select {
 			case err := <-pm.done:
 				if err != nil {

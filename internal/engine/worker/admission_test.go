@@ -32,7 +32,18 @@ func TestAdmissionRejectionIsCounted(t *testing.T) {
 		t.Fatalf("SelfRegister: %v", err)
 	}
 
-	// Well over the default 0.85 threshold on CPU.
+	// Pin the thresholds rather than relying on the package defaults, which
+	// come from HERMOD_ADMISSION_CPU_THRESHOLD at init. CI sets that to 1 to
+	// stop a loaded runner shedding the workflows other tests are waiting on,
+	// and this test asserts the opposite behaviour, so it has to state the
+	// thresholds it wants. TestAdmissionThresholdsAreConfigurable already does
+	// this; this one inherited them and broke the moment the environment
+	// disagreed.
+	origCPU, origMem := admissionCPUThreshold, admissionMemThreshold
+	t.Cleanup(func() { admissionCPUThreshold, admissionMemThreshold = origCPU, origMem })
+	admissionCPUThreshold, admissionMemThreshold = 0.85, 0.85
+
+	// Well over the threshold on CPU.
 	w.SetMetrics(0.99, 0.10)
 	before := counterValue(t, "worker-admission", "cpu")
 
