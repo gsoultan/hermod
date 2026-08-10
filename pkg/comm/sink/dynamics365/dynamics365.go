@@ -91,6 +91,14 @@ func (s *Sink) authenticate(ctx context.Context) error {
 }
 
 func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
+	// A nil message is an upstream bug, but it must surface as an error the
+	// engine can route to a DLQ rather than as an unrecovered dereference in a
+	// worker goroutine. Checked before authenticate so a nil never costs a
+	// token round-trip.
+	if msg == nil {
+		return errors.New("dynamics365 sink: nil message")
+	}
+
 	if err := s.authenticate(ctx); err != nil {
 		return err
 	}

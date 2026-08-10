@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,6 +33,13 @@ func NewSink(config Config) *Sink {
 }
 
 func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
+	// A nil message is an upstream bug, but it must surface as an error the
+	// engine can route to a DLQ rather than as an unrecovered dereference in a
+	// worker goroutine.
+	if msg == nil {
+		return errors.New("servicenow sink: nil message")
+	}
+
 	url := fmt.Sprintf("%s/api/now/table/%s", s.config.InstanceURL, s.config.Table)
 
 	data := msg.Data()
