@@ -17,14 +17,17 @@ import (
 	sinkdiscord "github.com/user/hermod/pkg/comm/sink/discord"
 	sinkdynamics365 "github.com/user/hermod/pkg/comm/sink/dynamics365"
 	sinkelasticsearch "github.com/user/hermod/pkg/comm/sink/elasticsearch"
+	sinkfacebook "github.com/user/hermod/pkg/comm/sink/facebook"
 	sinkfailover "github.com/user/hermod/pkg/comm/sink/failover"
 	sinkfcm "github.com/user/hermod/pkg/comm/sink/fcm"
 	sinkfile "github.com/user/hermod/pkg/comm/sink/file"
 	sinkftp "github.com/user/hermod/pkg/comm/sink/ftp"
 	sinkgooglesheets "github.com/user/hermod/pkg/comm/sink/googlesheets"
 	sinkhttp "github.com/user/hermod/pkg/comm/sink/http"
+	sinkinstagram "github.com/user/hermod/pkg/comm/sink/instagram"
 	sinkkafka "github.com/user/hermod/pkg/comm/sink/kafka"
 	sinkkinesis "github.com/user/hermod/pkg/comm/sink/kinesis"
+	sinklinkedin "github.com/user/hermod/pkg/comm/sink/linkedin"
 	sinkmilvus "github.com/user/hermod/pkg/comm/sink/milvus"
 	sinkmongodb "github.com/user/hermod/pkg/comm/sink/mongodb"
 	sinkmqtt "github.com/user/hermod/pkg/comm/sink/mqtt"
@@ -33,6 +36,7 @@ import (
 	sinknats "github.com/user/hermod/pkg/comm/sink/nats"
 	sinkoracle "github.com/user/hermod/pkg/comm/sink/oracle"
 	sinkpgvector "github.com/user/hermod/pkg/comm/sink/pgvector"
+	sinkpinecone "github.com/user/hermod/pkg/comm/sink/pinecone"
 	sinkpostgres "github.com/user/hermod/pkg/comm/sink/postgres"
 	sinkpubsub "github.com/user/hermod/pkg/comm/sink/pubsub"
 	sinkpulsar "github.com/user/hermod/pkg/comm/sink/pulsar"
@@ -50,6 +54,8 @@ import (
 	sinksse "github.com/user/hermod/pkg/comm/sink/sse"
 	sinkstdout "github.com/user/hermod/pkg/comm/sink/stdout"
 	sinktelegram "github.com/user/hermod/pkg/comm/sink/telegram"
+	sinktiktok "github.com/user/hermod/pkg/comm/sink/tiktok"
+	sinktwitter "github.com/user/hermod/pkg/comm/sink/twitter"
 	sinkwebsocket "github.com/user/hermod/pkg/comm/sink/websocket"
 
 	srccassandra "github.com/user/hermod/pkg/comm/source/cassandra"
@@ -57,12 +63,16 @@ import (
 	srcclickhouse "github.com/user/hermod/pkg/comm/source/clickhouse"
 	srccron "github.com/user/hermod/pkg/comm/source/cron"
 	srcdb2 "github.com/user/hermod/pkg/comm/source/db2"
+	srcdiscord "github.com/user/hermod/pkg/comm/source/discord"
 	srcdynamics365 "github.com/user/hermod/pkg/comm/source/dynamics365"
 	srcexcel "github.com/user/hermod/pkg/comm/source/excel"
+	srcfacebook "github.com/user/hermod/pkg/comm/source/facebook"
 	srcfile "github.com/user/hermod/pkg/comm/source/file"
 	srcgraphql "github.com/user/hermod/pkg/comm/source/graphql"
 	srchttp "github.com/user/hermod/pkg/comm/source/http"
+	srcinstagram "github.com/user/hermod/pkg/comm/source/instagram"
 	srckafka "github.com/user/hermod/pkg/comm/source/kafka"
+	srclinkedin "github.com/user/hermod/pkg/comm/source/linkedin"
 	srcmainframe "github.com/user/hermod/pkg/comm/source/mainframe"
 	srcmariadb "github.com/user/hermod/pkg/comm/source/mariadb"
 	srcmongodb "github.com/user/hermod/pkg/comm/source/mongodb"
@@ -76,7 +86,10 @@ import (
 	srcredis "github.com/user/hermod/pkg/comm/source/redis"
 	srcsap "github.com/user/hermod/pkg/comm/source/sap"
 	srcscylladb "github.com/user/hermod/pkg/comm/source/scylladb"
+	srcslack "github.com/user/hermod/pkg/comm/source/slack"
 	srcsqlite "github.com/user/hermod/pkg/comm/source/sqlite"
+	srctiktok "github.com/user/hermod/pkg/comm/source/tiktok"
+	srctwitter "github.com/user/hermod/pkg/comm/source/twitter"
 	srcwebhook "github.com/user/hermod/pkg/comm/source/webhook"
 	srcwebsocket "github.com/user/hermod/pkg/comm/source/websocket"
 	srcyugabyte "github.com/user/hermod/pkg/comm/source/yugabyte"
@@ -306,15 +319,7 @@ func TestSinkConformance(t *testing.T) {
 		return sinkftp.NewFTPSink(deadHost, 1, "u", "p", false, time.Second, "/", "", "f", "overwrite", false, fmtr())
 	})
 
-	// NOT REGISTERED: facebook, instagram, linkedin, tiktok, twitter.
-	//
-	// Each hardcodes its vendor hostname (graph.facebook.com, api.twitter.com,
-	// and so on) with no injectable base URL, so constructing one here dials the
-	// real internet. That is slow, flaky, and — as pinecone demonstrated — one
-	// connector doing live DNS and TLS degrades every other connector's dial in
-	// the same run.
-	//
-	// Same remedy as pinecone: give them a base-URL override and they can join.
+	// These take their endpoint as configuration, so they need no override.
 	conformance.RunSinkSuite(t, "dynamics365", func() hermod.Sink {
 		return sinkdynamics365.NewSink(sinkdynamics365.Config{
 			Resource: deadURL, TenantID: "t", ClientID: "c", ClientSecret: "s",
@@ -331,6 +336,28 @@ func TestSinkConformance(t *testing.T) {
 		return sinksmtp.NewSmtpSink(deadHost, 1, "u", "p", false, "from@example.test",
 			[]string{"to@example.test"}, "subject", fmtr(), "", "", "", gsmail.S3Config{}, false)
 	})
+
+	// Vendor-API sinks. Each hardcodes its hostname in the constructor and now
+	// exposes SetBaseURL, which is the seam that lets them be exercised offline.
+	// Without it they dialled the live internet, which kept them untested and
+	// degraded every other connector's dial in the same run.
+	vendorSinks := map[string]func() hermod.Sink{
+		"facebook":  func() hermod.Sink { return sinkfacebook.NewFacebookSink("tok", "page", fmtr()) },
+		"instagram": func() hermod.Sink { return sinkinstagram.NewInstagramSink("tok", "igid", fmtr()) },
+		"linkedin":  func() hermod.Sink { return sinklinkedin.NewLinkedInSink("tok", "urn:li:person:x", fmtr()) },
+		"tiktok":    func() hermod.Sink { return sinktiktok.NewTikTokSink("tok", fmtr()) },
+		"twitter":   func() hermod.Sink { return sinktwitter.NewTwitterSink("tok", fmtr()) },
+		"pinecone": func() hermod.Sink {
+			return sinkpinecone.NewSink(sinkpinecone.Config{APIKey: "k", Environment: "dev", IndexName: "i"})
+		},
+	}
+	for name, ctor := range vendorSinks {
+		conformance.RunSinkSuite(t, name, func() hermod.Sink {
+			s := ctor()
+			s.(interface{ SetBaseURL(string) }).SetBaseURL(deadURL)
+			return s
+		})
+	}
 
 	sinkOrSkip(t, "fcm", func() (hermod.Sink, error) {
 		return sinkfcm.NewFCMSink("{}", fmtr())
@@ -448,17 +475,32 @@ func TestSourceConformance(t *testing.T) {
 		}, nil)
 	})
 
-	// NOT REGISTERED: discord, slack, facebook, instagram, linkedin, tiktok,
-	// twitter, firebase, googlesheets, googleanalytics.
+	// Vendor-API pollers. Same story as the sinks above: the hostname is baked
+	// into the constructor, and SetBaseURL is what makes them testable offline.
+	vendorSources := map[string]func() hermod.Source{
+		"discord":   func() hermod.Source { return srcdiscord.NewDiscordSource("tok", "chan", poll) },
+		"slack":     func() hermod.Source { return srcslack.NewSlackSource("tok", "chan", poll) },
+		"facebook":  func() hermod.Source { return srcfacebook.NewFacebookSource("tok", "page", poll, "feed") },
+		"instagram": func() hermod.Source { return srcinstagram.NewInstagramSource("tok", "igid", poll, "media") },
+		"linkedin":  func() hermod.Source { return srclinkedin.NewLinkedInSource("tok", "urn:li:person:x", poll) },
+		"tiktok":    func() hermod.Source { return srctiktok.NewTikTokSource("tok", poll, "video") },
+		"twitter":   func() hermod.Source { return srctwitter.NewTwitterSource("tok", "hermod", poll, "search") },
+	}
+	for name, ctor := range vendorSources {
+		conformance.RunSourceSuite(t, name, func() hermod.Source {
+			s := ctor()
+			s.(interface{ SetBaseURL(string) }).SetBaseURL(deadURL)
+			return s
+		})
+	}
+
+	// NOT REGISTERED: firebase, googlesheets, googleanalytics, batchsql, form, grpc.
 	//
-	// The social pollers hardcode their vendor hostname with no injectable base
-	// URL, so constructing one dials the real internet — see the equivalent note
-	// in TestSinkConformance. The Google-backed ones build an SDK client from a
-	// credentials blob and reach out to Google's token endpoint on the same
-	// terms.
-	//
-	// They stay out for the same reason pinecone does: a suite that talks to the
-	// internet is slow, flaky, and degrades the connectors that do not.
+	// The Google-backed sources build an SDK client from a credentials blob and
+	// reach Google's token endpoint before any base URL of ours applies, so the
+	// SetBaseURL seam does not help them. batchsql, form and grpc each need a
+	// collaborator -- a DBProvider, a submission Storage, a .proto on disk --
+	// that the suite cannot supply without testing the fake instead.
 
 	// NOT REGISTERED: batchsql, form, grpc.
 	//

@@ -24,6 +24,8 @@ type Config struct {
 type Sink struct {
 	config Config
 	client *http.Client
+	// baseURL, when set, replaces both derived Pinecone hosts. See SetBaseURL.
+	baseURL string
 }
 
 // NewSink creates a new Pinecone sink.
@@ -36,6 +38,42 @@ func NewSink(cfg Config) *Sink {
 	}
 }
 
+// SetBaseURL overrides both Pinecone endpoints with a single host.
+//
+// Pinecone addresses two different hosts derived from the config — a controller
+// for index metadata and a per-index host for vector writes — and neither was
+// injectable. Any construction therefore dialled the live internet, which kept
+// this sink out of the conformance suite; it was also slow and flaky enough
+// there to degrade every other connector's dial in the same run.
+//
+// One override covers both because the point is to redirect the connector at a
+// test server, not to model Pinecone's topology. Paths are unchanged, so a stub
+// still sees /databases/... and /vectors/upsert.
+//
+// An empty string leaves the derived hosts in place.
+func (s *Sink) SetBaseURL(u string) {
+	if u != "" {
+		s.baseURL = u
+	}
+}
+
+// controllerURL is the index-metadata endpoint.
+func (s *Sink) controllerURL() string {
+	if s.baseURL != "" {
+		return s.baseURL
+	}
+	return fmt.Sprintf("https://controller.%s.pinecone.io", s.config.Environment)
+}
+
+// indexURL is the per-index data-plane endpoint.
+func (s *Sink) indexURL() string {
+	if s.baseURL != "" {
+		return s.baseURL
+	}
+	return fmt.Sprintf("https://%s-%s.svc.%s.pinecone.io",
+		s.config.IndexName, s.config.Environment, s.config.Environment)
+}
+
 // Write writes a single message to Pinecone.
 func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 	return s.WriteBatch(ctx, []hermod.Message{msg})
@@ -44,7 +82,7 @@ func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 // Ping checks if the Pinecone index is accessible.
 func (s *Sink) Ping(ctx context.Context) error {
 	// Simplified ping: check if we can get index info
-	url := fmt.Sprintf("https://controller.%s.pinecone.io/databases/%s", s.config.Environment, s.config.IndexName)
+	url := fmt.Sprintf("%s/databases/%s", s.controllerURL(), s.config.IndexName)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -81,6 +119,13 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 
 	vectors := make([]Vector, 0, len(msgs))
 	for _, msg := range msgs {
+		// A nil entry is an upstream bug, but it must not take the batch — and
+		// the worker goroutine — down with it. Skipped rather than rejected:
+		// the rest of the batch is still valid work.
+		if msg == nil {
+			continue
+		}
+
 		var v Vector
 		data := msg.Data()
 
@@ -130,7 +175,7 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 	}
 
 	// Host URL calculation (simplified for example)
-	url := fmt.Sprintf("https://%s-%s.svc.%s.pinecone.io/vectors/upsert", s.config.IndexName, s.config.Environment, s.config.Environment)
+	url := s.indexURL() + "/vectors/upsert"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
 		return err

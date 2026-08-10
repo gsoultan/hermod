@@ -251,3 +251,19 @@ func (s *FacebookSource) SetState(state map[string]string) {
 func (s *FacebookSource) Close() error {
 	return nil
 }
+
+// SetBaseURL overrides the vendor endpoint this connector talks to.
+//
+// The hostname is hardcoded in the constructor, which made the connector
+// impossible to exercise without dialling the live API -- so it sat outside the
+// conformance suite, untested, while connectors that took an address were
+// covered. This is the seam that closes that gap: point it at a test server or
+// a dead address and the contract can be checked offline.
+//
+// An empty string leaves the default in place, so a caller that has nothing to
+// override does not have to special-case it.
+func (s *FacebookSource) SetBaseURL(u string) {
+	if u != "" {
+		s.baseURL = u
+	}
+}

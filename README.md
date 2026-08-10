@@ -442,9 +442,22 @@ Tiers are assigned on evidence, not intent:
 | **Beta** | Substantial implementation with unit tests, but no live-infrastructure test. Expect to validate against your own environment first. |
 | **Experimental** | Thin implementation, no tests, or a known semantic limitation. Suitable for prototyping. Do not put data you cannot lose behind one. |
 
-Every connector, regardless of tier, is covered by the contract suite in
-`pkg/comm/conformance` for lifecycle, nil-safety and context-deadline behaviour. That
-suite proves a connector is not obviously broken; it does not prove the data path.
+**80 of 86 connectors** are covered by the contract suite in `pkg/comm/conformance`,
+which checks lifecycle, nil-safety and context-deadline behaviour with no live
+infrastructure. That suite proves a connector is not obviously broken; it does not
+prove the data path, which is what separates GA from Beta.
+
+The six that are not covered, and why:
+
+| Connector | Reason |
+| :--- | :--- |
+| `batchsql`, `form`, `grpc` (sources) | Each needs a collaborator the suite cannot supply — a `DBProvider`, a submission `Storage`, a `.proto` on disk. Faking one would exercise the fake, not the connector. |
+| `firebase`, `googlesheets`, `googleanalytics` (sources) | Build an SDK client from a credentials blob and reach Google's token endpoint before any base URL of ours applies. |
+
+Connectors that address a fixed vendor host — Slack, Discord, Twitter/X, LinkedIn,
+Facebook, Instagram, TikTok, Pinecone — expose `SetBaseURL` so they can be pointed
+at a test server. Without that seam they dialled the live internet on construction,
+which is why they were untested; anything new in that shape should provide it too.
 
 ### GA
 
@@ -477,8 +490,8 @@ Thin, untested, or semantically limited. Specific caveats where they matter:
 | **Cassandra**, **ScyllaDB** (sources) | CQL cannot `ORDER BY` an arbitrary column, so incremental polling returns an *arbitrary* qualifying row and the cursor can skip rows permanently. Sound **only** when the id field is a clustering column inside a restricted partition. The source logs a warning on first use. |
 | **SAP** | OData polling client (~180 lines). No IDoc, BAPI or delta queues. OData is SAP's sanctioned direction for third parties after Note 3255746, but it is roughly 10× slower than ODP-RFC for bulk extraction. |
 | **Mainframe**, **Dynamics 365**, **ServiceNow**, **Salesforce** | Thin REST/OData clients, no tests. |
-| **Social / SaaS** — Slack, Discord, Telegram, Twitter, LinkedIn, Facebook, Instagram, TikTok, Google Sheets, Google Analytics, Firebase, FCM | Small API wrappers, mostly untested. Fine for notifications; not for data of record. |
-| **Pinecone**, **Milvus**, **Kinesis**, **Pub/Sub**, **Pulsar**, **FTP**, **generic CDC**, **GraphQL**, **cron**, **webhook**, **form** | Minimal implementations, no tests. |
+| **Social / SaaS** — Slack, Discord, Telegram, Twitter/X, LinkedIn, Facebook, Instagram, TikTok, Google Sheets, Google Analytics, Firebase, FCM | Small API wrappers. Contract-tested (except the three Google-backed sources), but no data-path coverage. Fine for notifications; not for data of record. |
+| **Pinecone**, **Milvus**, **Kinesis**, **Pub/Sub**, **Pulsar**, **FTP**, **generic CDC**, **GraphQL**, **cron**, **webhook**, **form** | Minimal implementations. Contract-tested except `form`, which needs a submission store. |
 
 Moving a connector up a tier means adding the missing evidence, not editing this
 table. If you depend on one, an integration test is the most useful contribution you
