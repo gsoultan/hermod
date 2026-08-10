@@ -1,1946 +1,2293 @@
-# Graph Report - Hermod  (2026-07-20)
+# Graph Report - Hermod  (2026-08-10)
 
 ## Corpus Check
-- 714 files · ~439,373 words
+- 910 files · ~576,951 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 7056 nodes · 14288 edges · 556 communities (429 shown, 127 thin omitted)
-- Extraction: 91% EXTRACTED · 9% INFERRED · 0% AMBIGUOUS · INFERRED: 1331 edges (avg confidence: 0.8)
+- 8490 nodes · 17393 edges · 629 communities (500 shown, 129 thin omitted)
+- Extraction: 90% EXTRACTED · 10% INFERRED · 0% AMBIGUOUS · INFERRED: 1820 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `d6c9cfa0`
+- Built from commit: `871beb7c`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- mongoStorage
-- pebbleStorage
-- BaseMockStorage
-- Context
-- router.tsx
-- GenericFileSource
-- apiStorage
-- Handler
-- NewSQLStorage
-- sinkWriter
-- Context
-- evaluator.go
-- Engine
-- HandlerFunc
-- NewRegistry
-- SinkForm.tsx
-- Handler
-- Hub
-- sqlStorage
-- AcquireMessage
-- MSSQLSource
-- Context
-- NatsJetStreamSource
-- CommonFilter
-- SQLStore
-- WorkerAPIClient
-- Message
-- Context
-- Handler
-- Worker
-- PostgresSource
-- WorkflowEditorPage.tsx
-- dependencies
-- GetMsgValByPath
-- QuoteIdent
-- Registry
-- FlowCanvas.tsx
-- Registry
-- Worker
-- NewServer
-- devDependencies
-- ReleaseMessage
-- NewManager
-- setupTests.ts
-- MySQLSource
-- MSSQLSink
-- apiFetch
-- Registry
-- ParseConfig
-- Context
-- DefaultMessage
-- StatusTracker
-- SQLiteStore
-- compilerOptions
-- Autoscaler
-- Options
-- Storage
-- MySQLSink
-- SQLiteSink
-- Source
-- postgres.go
-- NewPostgresSource
-- priorityMockMessage
-- FailoverSink
-- ColumnInfo
-- statefulSource
-- SQLiteSource
-- RegisterNodeExecutor
-- RabbitMQQueueSource
-- Context
-- OracleSource
-- SmtpSink
-- TransformationForm.tsx
-- WorkflowNode
-- Context
-- MariaDBSource
-- Schema
-- Context
-- SourceForm.tsx
-- SourceConfigFields.tsx
-- MongoDBSource
-- OutboxItem
-- Manager
-- ClickHouseSource
-- Logger
-- Algorithm
-- Handler
-- Handler
-- .ListSinks
-- OracleSink
-- ScyllaDBSource
-- compilerOptions
-- CassandraSource
-- DB2Source
-- hermod.go
-- MetricsSource
-- failoverStorage
-- Sink
-- PostgresSink
-- YugabyteSource
-- EmailLayoutBuilder.tsx
-- WasmTransformer
-- FirebaseSource
-- CassandraSink
-- config.go
-- NodeContext
-- mockSourceWithLimit
-- mockMessage
-- mockMessage
-- Formatter
-- GoogleAnalyticsSource
-- Optimizer
-- Context
-- resources.go
-- BatchSQLSource
-- FileBuffer
-- ClickHouseSink
-- storage.go
-- StateStore
-- GraphQLSource
-- Context
-- Hermod: Enterprise-Grade Data Integration & Streaming Platform
-- TemplateField.tsx
-- StatusUpdate
-- NewValidator
-- parallelMockMessage
-- worker_test.go
-- Context
-- fullFakeRegistry
-- RedisSource
-- sourceSampling.ts
-- Runner
-- twoFAMockStorage
-- Source
-- mockMessage
-- ColumnMappingEditor.tsx
-- .ReadAll
-- SelfHealingService
-- source_grpc.pb.go
-- main
-- Source
-- ElasticsearchSink
-- MessageTrace
-- BloomFilter
-- GoogleSheetsSink
-- .createSourceInternal
-- Context
-- NewJSONFormatter
-- KafkaSink
-- .lookupSQL
-- SalesforceSink
-- Sink
-- NewStateStore
-- SQLQueryBuilder.tsx
-- RTK Commands by Workflow
-- DiscordSource
-- Source
-- Handler
-- Handler
-- InstagramSource
-- DatabaseLogger
-- createSinkBase
-- Source
-- MongoDBSink
-- Sink
-- SlackSource
-- TwitterSource
-- validators.go
-- OtherSourceConfig.tsx
-- ErrorBoundary.tsx
-- LuaTransformer
-- CombinedBuffer
-- DiscordSink
-- TestWriteToSink_EmitsIdempotencyMetrics
-- Context
-- statusMockSource
-- NewStorage
-- GenericProtoSource
-- .Publish
-- .HandleWebhook
-- MockWorkflowStorage
-- RabbitMQStreamSource
-- Context
-- Context
-- NewWorker
-- Service
-- sql.go
-- LinkedInSource
-- WebhookRequest
-- RedisSink
-- SlackSink
-- Sink
-- Source
-- .resolveSecrets
-- PublishRequest
-- Sink
-- FileSink
-- GoogleSheetsSource
-- wsWriteJSON
-- loginAttemptKey
-- registry.go
-- Registry
-- Worker
-- Sink
-- Engine
-- BatchBufferSink
-- S3ParquetSink
-- evaluator_test.go
-- startAPI
-- stubCtx
-- FacebookSink
-- FTPSink
-- Log
-- HTTPSource
-- InstagramSink
-- SelfCorrectionGate
-- .Get
-- Worker
-- LinkedInSink
-- NatsJetStreamSink
-- TikTokSink
-- TwitterSink
-- PollingSource
-- compilerOptions
-- App.tsx
-- DetailFlowCanvas.tsx
-- rollingStats
-- mockReadySource
-- panicSource
-- workerStartMockStorage
-- TestHttpSinkCompression
-- mockMessage
-- security_test.go
-- client.go
-- PubSubSink
-- RabbitMQQueueSink
-- WebhookSource
-- PrioritySource
-- dataWorker.ts
-- index.ts
-- ParameterizeTemplate
-- mockStorage
-- NewPebbleStorage
-- HttpSink
-- CronSource
-- .handleXLogData
-- closeTrackingSource
-- Engine
-- DefaultLogger
-- StringMap
-- .Execute
-- .Read
-- .ServeFormPage
-- .HandleApprovalDecision
-- loadDeliveredSample
-- Context
-- .applyTransformation
-- newFailbackWorker
-- KinesisSink
-- PublishResponse
-- Sink
-- Sink
-- PulsarSink
-- RabbitMQStreamSink
-- Sink
-- .Transform
-- DetermineIdempotencyKey
-- EtcdStateStore
-- TransformationForm
-- mockRegistry
-- Conn
-- Source
-- DB2Connector
-- OracleConnector
-- formStorageAdapter
-- .Transform
-- HTTP Sink Webhook Examples
-- LocalStorage
-- mockStorageForValidation
-- TestWorkerAPIClient_LeaseAlwaysOwned
-- TestWorkerStartRecoversFromPanic
-- Router
-- S3Sink
-- RedisStateStore
-- scripts
-- AggregateTransformer
-- TestBatchSQLSource
-- RingBuffer
-- LoadDBConfig
-- .Execute
-- CheckpointManager
-- TestPublishAuthentication
-- .HandleValidateWorkflow
-- .Transform
-- NewCompressor
-- NewPostgresSink
-- TelegramSink
-- Hermod Development Roadmap & Ideas
-- fix-tabler-icons.js
-- DatabaseSourceConfig.tsx
-- KubernetesWorkerManager
-- setupRegistry
-- .Execute
-- switch_test.go
-- OutboxTransactionalSource
-- Hermod SSE Sink Example
-- .GetSchemaHistory
-- .HandleReadiness
-- .resumeSuspendedMessage
-- Security Guidelines (Draft)
-- package.json
-- SetupPage.tsx
-- .Transform
-- root.go
-- .Execute
-- .Execute
-- .CreateLog
-- TestHandleStatusWS_ReleasesSubscriberOnClientDisconnect
-- nil_storage_test.go
-- sql_placeholder_test.go
-- reproduction_nil_storage_test.go
-- .ListFormSubmissions
-- .Transform
-- LogFilter
-- source.pb.go
-- ParseColumnMappings
-- ScanRows
-- TestVerifyEmailExists
-- Usage
-- Hermod Management Platform UI
-- useValidateWorker.ts
-- LineagePage.tsx
-- DashboardPage.tsx
-- .Transform
-- .Transform
-- .Transform
-- .Transform
-- .Execute
-- .Execute
-- .runOutboxRelay
-- storage.go
-- Handler
-- .HandleWSIn
-- .Generate
-- lookup_cache_test.go
-- .Execute
-- .ListFormSubmissions
-- .ListWorkers
-- sql_placeholders_test.go
-- WorkflowExportBundle
-- VHost
-- Worker
-- Workflow
-- .Transform
-- BenchmarkMessagePayload
-- .Transform
-- noopLogger
-- seed.go
-- commands.ts
-- UserForm.tsx
-- snappyCompressor
-- .GetDashboardStats
-- .HandleVersion
-- .ListTemplates
-- .UploadFile
-- workers_shutdown_test.go
-- TestSecretResolutionInGetOrOpenDB
-- mockSamplingStorage
-- .ListWorkflows
-- Workspace
-- Config
-- TestDefaultLogger_ErrorHandling
-- Production Considerations
-- Real-time Data Streams (SSE)
-- UI Testing
-- UnitTestForm.tsx
-- VHostForm.tsx
-- WorkerForm.tsx
-- AdvancedConfig.tsx
-- FilterConfig.tsx
-- MappingConfig.tsx
-- SetFieldsConfig.tsx
-- SQLConfig.tsx
-- ConditionConfig.tsx
-- RouterConfig.tsx
-- WorkflowsPage_TemplatesModal.tsx
-- useSetupStore.ts
-- workflowStatus.ts
-- diffWorker.ts
-- vite.config.ts
-- Connector
-- SourceConfig
-- .RegisterInfrastructureRoutes
-- TestReproTestSinkPostgres
-- TestResourceAwareSharding_SelfIncludedWhenHeartbeatStale
-- TestMongo_WorkflowLease_AcquireRenewRelease
-- .ListWorkspaces
-- WorkflowHealth
-- TestVersionFormatting
-- SanitizeMap
-- TestDefaultSourceBuffer
-- TestMessageID
-- TestCircuitBreakerTransitions
-- Modern API Sources (GraphQL & gRPC)
-- TestStringMapUnmarshalCoercesScalars
-- DataLineageModal.tsx
-- WorkflowHistoryModal.tsx
-- Dynamics365SinkConfig.tsx
-- ElasticsearchSinkConfig.tsx
-- FailoverSinkConfig.tsx
-- FTPSinkConfig.tsx
-- GoogleSheetsSinkConfig.tsx
-- MilvusSinkConfig.tsx
-- MiscSinkConfig.tsx
-- PineconeSinkConfig.tsx
-- QueueSinkConfig.tsx
-- S3SinkConfig.tsx
-- S3SinkTypeConfig.tsx
-- SalesforceSinkConfig.tsx
-- SapSinkConfig.tsx
-- ServiceNowSinkConfig.tsx
-- AggregateConfig.tsx
-- MaskConfig.tsx
-- PipelineConfig.tsx
-- ValidatorConfig.tsx
-- LookupConfig.tsx
-- ApprovalConfig.tsx
-- CircuitBreakerConfig.tsx
-- CollectConfig.tsx
-- ErrorHandlingConfig.tsx
-- ForeachConfig.tsx
-- JoinConfig.tsx
-- LogConfig.tsx
-- RateLimitConfig.tsx
-- LuaConfig.tsx
-- WasmConfig.tsx
-- PreviewPanel.tsx
-- QuickActions.tsx
-- TargetExplorer.tsx
-- TargetSchemaPanel.tsx
-- CommunityMarketplace.tsx
-- ComplianceDashboard.tsx
-- ProfilePage.tsx
-- ApprovalsPage.tsx
-- useNodeContext.test.tsx
-- layoutWorker.ts
-- tsconfig.json
-- cypress
-- eslint
-- eslint-plugin-jsx-a11y
-- eslint-plugin-react-refresh
-- Storage
-- globals
-- decisionBody
-- TemplateDef
-- hello world.md
-- interface.go
-- .ListApprovals
-- .GetDashboardStats
-- postcss-preset-mantine
-- postcss-simple-vars
-- qrcode
-- react-dom
-- Advanced Transformation Nodes
-- Authentication & Account Security
-- Reliability and Data Loss Prevention
-- Performance Tuning Guide
-- install_hermod.sh
-- install-service.sh
-- update-version.sh
-- @tanstack/react-query
-- @testing-library/react
-- @types/react
-- typescript-eslint
-- vite
-- shims-qrcode.d.ts
-- github.com/user/hermod
+- Community 0
+- Community 1
+- Community 2
+- Community 3
+- Community 4
+- Community 5
+- Community 6
+- Community 7
+- Community 8
+- Community 9
+- Community 10
+- Community 11
+- Community 12
+- Community 13
+- Community 14
+- Community 15
+- Community 16
+- Community 17
+- Community 18
+- Community 19
+- Community 20
+- Community 21
+- Community 22
+- Community 23
+- Community 24
+- Community 25
+- Community 26
+- Community 27
+- Community 28
+- Community 29
+- Community 30
+- Community 31
+- Community 32
+- Community 33
+- Community 34
+- Community 35
+- Community 36
+- Community 37
+- Community 38
+- Community 39
+- Community 40
+- Community 41
+- Community 42
+- Community 43
+- Community 44
+- Community 45
+- Community 46
+- Community 47
+- Community 48
+- Community 49
+- Community 50
+- Community 51
+- Community 52
+- Community 53
+- Community 54
+- Community 55
+- Community 56
+- Community 57
+- Community 58
+- Community 59
+- Community 60
+- Community 61
+- Community 62
+- Community 63
+- Community 64
+- Community 65
+- Community 66
+- Community 67
+- Community 68
+- Community 69
+- Community 70
+- Community 71
+- Community 72
+- Community 73
+- Community 74
+- Community 75
+- Community 76
+- Community 77
+- Community 78
+- Community 79
+- Community 80
+- Community 81
+- Community 82
+- Community 83
+- Community 84
+- Community 85
+- Community 86
+- Community 87
+- Community 88
+- Community 89
+- Community 90
+- Community 91
+- Community 92
+- Community 93
+- Community 94
+- Community 95
+- Community 96
+- Community 97
+- Community 98
+- Community 99
+- Community 100
+- Community 101
+- Community 102
+- Community 103
+- Community 104
+- Community 105
+- Community 106
+- Community 107
+- Community 108
+- Community 109
+- Community 110
+- Community 111
+- Community 112
+- Community 113
+- Community 114
+- Community 115
+- Community 116
+- Community 117
+- Community 118
+- Community 119
+- Community 120
+- Community 121
+- Community 122
+- Community 123
+- Community 124
+- Community 125
+- Community 126
+- Community 127
+- Community 128
+- Community 129
+- Community 130
+- Community 131
+- Community 132
+- Community 133
+- Community 134
+- Community 135
+- Community 136
+- Community 137
+- Community 138
+- Community 139
+- Community 140
+- Community 141
+- Community 142
+- Community 143
+- Community 144
+- Community 145
+- Community 146
+- Community 147
+- Community 148
+- Community 149
+- Community 150
+- Community 151
+- Community 152
+- Community 153
+- Community 154
+- Community 155
+- Community 156
+- Community 157
+- Community 158
+- Community 159
+- Community 160
+- Community 161
+- Community 162
+- Community 163
+- Community 164
+- Community 165
+- Community 166
+- Community 167
+- Community 168
+- Community 169
+- Community 170
+- Community 171
+- Community 172
+- Community 173
+- Community 174
+- Community 175
+- Community 176
+- Community 177
+- Community 178
+- Community 179
+- Community 180
+- Community 181
+- Community 182
+- Community 183
+- Community 184
+- Community 185
+- Community 186
+- Community 187
+- Community 188
+- Community 189
+- Community 190
+- Community 191
+- Community 192
+- Community 193
+- Community 194
+- Community 195
+- Community 196
+- Community 197
+- Community 198
+- Community 199
+- Community 200
+- Community 201
+- Community 202
+- Community 203
+- Community 204
+- Community 205
+- Community 206
+- Community 207
+- Community 208
+- Community 209
+- Community 210
+- Community 211
+- Community 212
+- Community 213
+- Community 214
+- Community 215
+- Community 216
+- Community 217
+- Community 218
+- Community 219
+- Community 220
+- Community 221
+- Community 222
+- Community 223
+- Community 224
+- Community 225
+- Community 226
+- Community 227
+- Community 228
+- Community 229
+- Community 230
+- Community 231
+- Community 232
+- Community 233
+- Community 234
+- Community 235
+- Community 236
+- Community 237
+- Community 238
+- Community 239
+- Community 240
+- Community 241
+- Community 242
+- Community 243
+- Community 244
+- Community 245
+- Community 246
+- Community 247
+- Community 248
+- Community 249
+- Community 250
+- Community 251
+- Community 252
+- Community 253
+- Community 254
+- Community 255
+- Community 256
+- Community 257
+- Community 258
+- Community 259
+- Community 260
+- Community 261
+- Community 262
+- Community 263
+- Community 264
+- Community 265
+- Community 266
+- Community 267
+- Community 268
+- Community 269
+- Community 270
+- Community 271
+- Community 272
+- Community 273
+- Community 274
+- Community 275
+- Community 276
+- Community 277
+- Community 278
+- Community 279
+- Community 280
+- Community 281
+- Community 282
+- Community 283
+- Community 284
+- Community 285
+- Community 286
+- Community 287
+- Community 288
+- Community 289
+- Community 290
+- Community 291
+- Community 292
+- Community 293
+- Community 294
+- Community 295
+- Community 296
+- Community 297
+- Community 298
+- Community 299
+- Community 300
+- Community 301
+- Community 302
+- Community 303
+- Community 304
+- Community 305
+- Community 306
+- Community 307
+- Community 308
+- Community 309
+- Community 310
+- Community 311
+- Community 312
+- Community 313
+- Community 314
+- Community 315
+- Community 316
+- Community 317
+- Community 318
+- Community 319
+- Community 320
+- Community 321
+- Community 322
+- Community 323
+- Community 324
+- Community 325
+- Community 326
+- Community 327
+- Community 328
+- Community 329
+- Community 330
+- Community 331
+- Community 332
+- Community 333
+- Community 334
+- Community 335
+- Community 336
+- Community 337
+- Community 338
+- Community 339
+- Community 340
+- Community 341
+- Community 342
+- Community 343
+- Community 344
+- Community 345
+- Community 346
+- Community 347
+- Community 348
+- Community 349
+- Community 350
+- Community 351
+- Community 352
+- Community 353
+- Community 354
+- Community 355
+- Community 356
+- Community 357
+- Community 358
+- Community 359
+- Community 360
+- Community 361
+- Community 362
+- Community 363
+- Community 364
+- Community 365
+- Community 366
+- Community 367
+- Community 368
+- Community 369
+- Community 370
+- Community 371
+- Community 372
+- Community 373
+- Community 374
+- Community 375
+- Community 376
+- Community 377
+- Community 378
+- Community 379
+- Community 380
+- Community 381
+- Community 382
+- Community 383
+- Community 384
+- Community 385
+- Community 386
+- Community 387
+- Community 388
+- Community 389
+- Community 390
+- Community 391
+- Community 392
+- Community 393
+- Community 394
+- Community 395
+- Community 396
+- Community 397
+- Community 398
+- Community 399
+- Community 400
+- Community 401
+- Community 402
+- Community 403
+- Community 404
+- Community 405
+- Community 406
+- Community 407
+- Community 408
+- Community 409
+- Community 410
+- Community 411
+- Community 412
+- Community 413
+- Community 415
+- Community 416
+- Community 417
+- Community 418
+- Community 419
+- Community 420
+- Community 421
+- Community 422
+- Community 423
+- Community 424
+- Community 425
+- Community 426
+- Community 427
+- Community 428
+- Community 429
+- Community 430
+- Community 431
+- Community 432
+- Community 433
+- Community 434
+- Community 435
+- Community 436
+- Community 437
+- Community 438
+- Community 439
+- Community 440
+- Community 441
+- Community 442
+- Community 443
+- Community 444
+- Community 445
+- Community 446
+- Community 447
+- Community 448
+- Community 449
+- Community 450
+- Community 451
+- Community 452
+- Community 453
+- Community 454
+- Community 455
+- Community 456
+- Community 457
+- Community 458
+- Community 459
+- Community 460
+- Community 461
+- Community 462
+- Community 463
+- Community 464
+- Community 465
+- Community 466
+- Community 467
+- Community 468
+- Community 469
+- Community 470
+- Community 471
+- Community 473
+- Community 474
+- Community 475
+- Community 482
+- Community 483
+- Community 484
+- Community 485
+- Community 486
+- Community 487
+- Community 488
+- Community 489
+- Community 490
+- Community 491
+- Community 492
+- Community 493
+- Community 494
+- Community 496
+- Community 497
+- Community 498
+- Community 499
+- Community 506
+- Community 507
+- Community 513
+- Community 514
+- Community 515
+- Community 517
+- Community 518
+- Community 519
+- Community 520
+- Community 522
+- Community 523
+- Community 524
+- Community 526
+- Community 527
+- Community 531
+- Community 534
+- Community 535
+- Community 536
+- Community 537
+- Community 538
+- Community 540
+- Community 543
+- Community 546
+- Community 548
+- Community 550
+- Community 551
+- Community 552
+- Community 553
+- Community 554
+- Community 555
+- Community 556
+- Community 557
+- Community 558
+- Community 559
+- Community 560
+- Community 561
+- Community 562
+- Community 563
+- Community 564
+- Community 565
+- Community 566
+- Community 567
+- Community 568
+- Community 569
+- Community 570
+- Community 571
+- Community 573
+- Community 574
+- Community 575
+- Community 576
+- Community 577
+- Community 681
+- Community 685
+- Community 686
+- Community 695
+- Community 706
 
 ## God Nodes (most connected - your core abstractions)
-1. `Message` - 568 edges
-2. `AcquireMessage()` - 209 edges
-3. `BaseMockStorage` - 112 edges
-4. `sqlStorage` - 109 edges
-5. `mongoStorage` - 102 edges
-6. `pebbleStorage` - 101 edges
-7. `Logger` - 95 edges
-8. `Registry` - 90 edges
-9. `apiStorage` - 83 edges
-10. `PostgresSource` - 77 edges
+1. `Message` - 619 edges
+2. `AcquireMessage()` - 250 edges
+3. `react` - 124 edges
+4. `BaseMockStorage` - 117 edges
+5. `sqlStorage` - 109 edges
+6. `Logger` - 106 edges
+7. `mongoStorage` - 102 edges
+8. `pebbleStorage` - 102 edges
+9. `Registry` - 98 edges
+10. `PostgresSource` - 93 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `main()` --calls--> `IsUIEmbedded()`  [INFERRED]
-  cmd/hermod/main.go → internal/api/server.go
+- `runApp()` --calls--> `IsDefaultMasterKey()`  [INFERRED]
+  cmd/hermod/main.go → pkg/security/crypto/crypto.go
 - `main()` --calls--> `EnsureConfigDir()`  [INFERRED]
   cmd/hermod-edge/main.go → internal/config/paths.go
+- `main()` --calls--> `Apply()`  [INFERRED]
+  cmd/hermod-edge/main.go → internal/runtimetune/memory.go
+- `main()` --calls--> `StartScavenger()`  [INFERRED]
+  cmd/hermod-edge/main.go → internal/runtimetune/memory.go
 - `parseFlags()` --calls--> `GetConfigPath()`  [INFERRED]
   cmd/hermod-edge/main.go → internal/config/paths.go
-- `initStorage()` --calls--> `GetConfigPath()`  [INFERRED]
-  cmd/hermod-edge/main.go → internal/config/paths.go
-- `setupRegistry()` --calls--> `LoadConfig()`  [INFERRED]
-  cmd/hermod/app.go → internal/config/config.go
 
 ## Import Cycles
 - None detected.
 
-## Communities (556 total, 127 thin omitted)
+## Hyperedges (group relationships)
+- **CI/CD Pipeline** — github_workflows_ci_quick_verify, github_workflows_release_goreleaser, goreleaser_hermod [INFERRED 0.95]
+- **Core Platform Documentation** — readme_hermod, agents_agent_skills, roadmap_hermod_edge [INFERRED 0.85]
+- **Worker Provisioning and Auth Flow** — before_alert_worker_registration_success_page, before_alert_hermod_worker_cli_command, before_alert_worker_token_authentication [EXTRACTED 1.00]
 
-### Community 0 - "mongoStorage"
-Cohesion: 0.05
-Nodes (22): Database, decryptConfig(), encryptConfig(), Approval, Client, Context, DashboardStats, FormSubmission (+14 more)
+## Communities (629 total, 129 thin omitted)
 
-### Community 1 - "pebbleStorage"
+### Community 0 - "Community 0"
+Cohesion: 0.04
+Nodes (18): Decrypt(), Approval, Context, DashboardStats, FormSubmission, FormSubmissionFilter, LineageEdge, mongoStorage (+10 more)
+
+### Community 1 - "Community 1"
 Cohesion: 0.05
 Nodes (17): Approval, Context, DashboardStats, DB, FormSubmission, FormSubmissionFilter, LineageEdge, Plugin (+9 more)
 
-### Community 2 - "BaseMockStorage"
-Cohesion: 0.05
-Nodes (9): Context, LineageEdge, Plugin, Sink, Source, Storage, Time, User (+1 more)
+### Community 2 - "Community 2"
+Cohesion: 0.04
+Nodes (59): ackMockSource, counterSink, drainSlowSink, failPingSink, mockBatchSink, mockSink, mockSource, mockSourceWithLimit (+51 more)
 
-### Community 3 - "Context"
+### Community 3 - "Community 3"
+Cohesion: 0.02
+Nodes (79): AddSinkPage, addSinkRoute, AddSourcePage, addSourceRoute, AddUserPage, addUserRoute, AddVHostPage, addVHostRoute (+71 more)
+
+### Community 4 - "Community 4"
 Cohesion: 0.06
-Nodes (42): ackMockSource, drainSlowSink, failPingSink, mockBatchSink, mockSink, mockSource, mockSourceWithPing, nilMsgSink (+34 more)
+Nodes (41): ClientConfig, Backend, CSVSource, fileRef, Format, ftpReadCloser, GenericConfig, GenericFileSource (+33 more)
 
-### Community 4 - "router.tsx"
-Cohesion: 0.03
-Nodes (78): AddSinkPage, addSinkRoute, AddSourcePage, addSourceRoute, AddUserPage, addUserRoute, AddVHostPage, addVHostRoute (+70 more)
-
-### Community 5 - "GenericFileSource"
+### Community 5 - "Community 5"
 Cohesion: 0.06
-Nodes (41): ClientConfig, Closer, Backend, CSVSource, fileRef, Format, ftpReadCloser, GenericConfig (+33 more)
+Nodes (16): Approval, Context, DashboardStats, FormSubmission, FormSubmissionFilter, LineageEdge, Plugin, Sink (+8 more)
 
-### Community 6 - "apiStorage"
-Cohesion: 0.06
-Nodes (15): Approval, Context, DashboardStats, FormSubmission, FormSubmissionFilter, LineageEdge, Plugin, Sink (+7 more)
+### Community 6 - "Community 6"
+Cohesion: 0.07
+Nodes (28): DQMetricType, DQResult, ReportService, Scorer, UnitTestResult, getDQStatus(), Context, Storage (+20 more)
 
-### Community 7 - "Handler"
-Cohesion: 0.09
-Nodes (20): DQMetricType, DQResult, ReportService, Scorer, UnitTestResult, Context, Duration, Handler (+12 more)
-
-### Community 8 - "NewSQLStorage"
-Cohesion: 0.06
-Nodes (48): CancelFunc, Context, Registry, Storage, initStorage(), main(), parseFlags(), runReconciliationLoop() (+40 more)
-
-### Community 9 - "sinkWriter"
-Cohesion: 0.05
-Nodes (22): BackpressureStrategy, SinkConfig, countingMessage, pendingMessage, sinkWriter, Int32, T, TestBackpressureDropOldest_ReleasesEvictedMessageOnce() (+14 more)
-
-### Community 10 - "Context"
+### Community 7 - "Community 7"
 Cohesion: 0.07
 Nodes (27): Context, Duration, RWMutex, Sink, Time, NewCircuitBreakerSink(), Context, Duration (+19 more)
 
-### Community 11 - "evaluator.go"
-Cohesion: 0.05
-Nodes (28): AdvancedTransformer, columnConfig, RateLimitTransformer, FilterTransformer, MappingTransformer, Evaluator, ForeachTransformer, APILookupTransformer (+20 more)
-
-### Community 12 - "Engine"
-Cohesion: 0.06
-Nodes (14): RouterFunc, TraceRecorder, Config, Context, Duration, Engine, Mutex, RWMutex (+6 more)
-
-### Community 13 - "HandlerFunc"
-Cohesion: 0.07
-Nodes (24): HandlerFunc, contextKey, SessionClaims, allowedCORSOrigins(), extractBearerOrCookie(), Config, Context, Handler (+16 more)
-
-### Community 14 - "NewRegistry"
-Cohesion: 0.09
-Nodes (34): NewRegistry(), setValByPath(), Context, Int64, Mutex, mockSource, mockStorage, Source (+26 more)
-
-### Community 15 - "SinkForm.tsx"
-Cohesion: 0.06
-Nodes (40): DatabaseSinkConfig, Dynamics365SinkConfig, ElasticsearchSinkConfig, FailoverSinkConfig, FTPSinkConfig, GoogleSheetsSinkConfig, MilvusSinkConfig, PgvectorSinkConfig (+32 more)
-
-### Community 16 - "Handler"
-Cohesion: 0.15
-Nodes (9): Context, Handler, Request, ResponseWriter, Storage, SanitizeDBError(), LoadConfig(), SaveConfig() (+1 more)
-
-### Community 17 - "Hub"
-Cohesion: 0.07
-Nodes (26): Handler, Request, ResponseWriter, splitLines(), GetDataHub(), GetInternalHub(), Context, Duration (+18 more)
-
-### Community 18 - "sqlStorage"
-Cohesion: 0.09
-Nodes (9): Approval, DashboardStats, Plugin, queryRegistry, Row, Rows, User, VHost (+1 more)
-
-### Community 19 - "AcquireMessage"
-Cohesion: 0.07
-Nodes (37): T, TestForeach_Execute_MissingArrayPath(), TestForeach_Execute_NonArray(), TestForeach_Execute_Success(), T, TestFileBuffer(), TestFileBuffer_Persistence(), T (+29 more)
-
-### Community 20 - "MSSQLSource"
-Cohesion: 0.11
-Nodes (15): MSSQLSource, tableInfo, Context, DB, Duration, Mutex, Rows, NewMSSQLSource() (+7 more)
-
-### Community 22 - "NatsJetStreamSource"
-Cohesion: 0.07
-Nodes (22): KafkaSource, Msg, NatsJetStreamSource, Context, Mutex, Reader, Transport, NewKafkaSource() (+14 more)
-
-### Community 23 - "CommonFilter"
-Cohesion: 0.07
-Nodes (22): Time, Approval, ApprovalFilter, AuditFilter, AuditLog, CommonFilter, DashboardStats, FormSubmission (+14 more)
-
-### Community 24 - "SQLStore"
-Cohesion: 0.08
-Nodes (17): Event, EventStoreSource, queryRegistry, SQLStore, main(), Context, DB, Duration (+9 more)
-
-### Community 25 - "WorkerAPIClient"
-Cohesion: 0.11
-Nodes (15): Storage, NewAPIStorage(), T, TestAPIStorage_SafeDefaults(), TestNewAPIStorage_SatisfiesStorage(), Client, Context, Response (+7 more)
-
-### Community 26 - "Message"
-Cohesion: 0.09
-Nodes (18): FacebookSource, JoinExecutor, FormSource, Message, Context, Mutex, Registry, Client (+10 more)
-
-### Community 27 - "Context"
-Cohesion: 0.09
-Nodes (11): Context, Mutex, Sink, Source, Workflow, failingSource, mockReconStorage, mockSimpleStorage (+3 more)
-
-### Community 28 - "Handler"
-Cohesion: 0.20
-Nodes (10): Context, Handler, Request, ResponseWriter, ServeMux, User, oidcProvider(), requestIsHTTPS() (+2 more)
-
-### Community 29 - "Worker"
-Cohesion: 0.09
-Nodes (12): Bool, CancelFunc, Context, Duration, Mutex, RWMutex, Storage, Time (+4 more)
-
-### Community 30 - "PostgresSource"
-Cohesion: 0.12
-Nodes (8): CancelFunc, Duration, Map, Mutex, RWMutex, WaitGroup, PostgresSource, RelationMessage
-
-### Community 31 - "WorkflowEditorPage.tsx"
-Cohesion: 0.12
-Nodes (23): EditorToolbar(), EditorToolbarProps, FlowCanvas(), LiveLogPanel(), LiveLogPanelProps, NodeConfigModal(), NodeConfigModalProps, WorkflowHeader() (+15 more)
-
-### Community 32 - "dependencies"
-Cohesion: 0.05
-Nodes (37): baseline-browser-mapping, caniuse-lite, clsx, dagre, @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities, @mantine/core (+29 more)
-
-### Community 33 - "GetMsgValByPath"
-Cohesion: 0.07
-Nodes (9): DQScorerTransformer, CharMapTransformer, mockMessage, JoinTransformer, Context, Context, Context, GetMsgValByPath() (+1 more)
-
-### Community 34 - "QuoteIdent"
-Cohesion: 0.16
-Nodes (22): SCDRegistry, SCDTransformer, Context, DB, GetConfigString(), GetConfigStringSlice(), SplitComma(), ToInt64() (+14 more)
-
-### Community 35 - "Registry"
-Cohesion: 0.13
-Nodes (17): Producer, parseDuration(), acquireWorkflowTraversal(), buildSinkEngineConfigs(), createWorkflowBuffer(), Approval, CancelFunc, Context (+9 more)
-
-### Community 36 - "FlowCanvas.tsx"
-Cohesion: 0.11
-Nodes (25): ConnectionLine, edgeTypes, FlowCanvasProps, nodeTypes, LiveEdge, useStyledFlow(), ApprovalNode(), BaseNode() (+17 more)
-
-### Community 37 - "Registry"
-Cohesion: 0.09
-Nodes (12): Group, Config, DashboardStats, Duration, Int32, Manager, Mutex, Registry (+4 more)
-
-### Community 38 - "Worker"
-Cohesion: 0.16
-Nodes (14): Context, Sink, SinkConfig, Source, SourceConfig, Time, Worker, Workflow (+6 more)
-
-### Community 39 - "NewServer"
-Cohesion: 0.08
-Nodes (23): Server, WorkerUpdater, Config, Handler, Registry, Storage, IsUIEmbedded(), NewServer() (+15 more)
-
-### Community 40 - "devDependencies"
-Cohesion: 0.06
-Nodes (33): autoprefixer, @eslint/js, eslint-plugin-react-hooks, jsdom, msw, postcss, rollup-plugin-visualizer, tailwindcss (+25 more)
-
-### Community 41 - "ReleaseMessage"
-Cohesion: 0.16
-Nodes (24): ReleaseMessage(), Context, Email, RetryConfig, T, TestSmtpSink_ArrayParameter(), TestSmtpSink_IdempotencyEmptyKeyFallback(), TestSmtpSink_IdempotencySkipDuplicate() (+16 more)
-
-### Community 42 - "NewManager"
-Cohesion: 0.08
-Nodes (24): Client, Context, NewAWSSecretsManager(), Client, Context, NewAzureKeyVaultManager(), Context, Manager (+16 more)
-
-### Community 43 - "setupTests.ts"
-Cohesion: 0.07
-Nodes (8): useSourceForm(), UseSourceFormProps, SettingsPage(), TemplatesModal, MemoryStorage, NoopResizeObserver, NoopWebSocket, server
-
-### Community 44 - "MySQLSource"
-Cohesion: 0.14
-Nodes (12): Canal, DummyEventHandler, mysqlEventHandler, MySQLSource, Context, DB, Mutex, Rows (+4 more)
-
-### Community 45 - "MSSQLSink"
-Cohesion: 0.19
-Nodes (8): MSSQLSink, ColumnMapping, Context, DB, Map, Mutex, Tx, NewMSSQLSink()
-
-### Community 46 - "apiFetch"
-Cohesion: 0.11
-Nodes (20): apiFetch(), getClaimsFromToken(), getRoleFromToken(), getToken(), removeToken(), setToken(), AICopilot(), WebhookHistory() (+12 more)
-
-### Community 47 - "Registry"
-Cohesion: 0.11
-Nodes (6): Context, DashboardStats, Registry, Time, LiveMessage, DebuggerEvent
-
-### Community 48 - "ParseConfig"
-Cohesion: 0.13
-Nodes (20): ConnConfig, T, TestOpenSQLDBPgBouncerMarkers(), ApplyPoolerSafety(), Config, IsPooledConnString(), ParseConfig(), ParsePoolConfig() (+12 more)
-
-### Community 49 - "Context"
-Cohesion: 0.12
-Nodes (16): parallelMockBuffer, parallelMockSink, parallelMockSource, slowSink, Context, Duration, Handler, Mutex (+8 more)
-
-### Community 50 - "DefaultMessage"
-Cohesion: 0.09
-Nodes (3): DefaultMessage, RWMutex, RawMessage
-
-### Community 51 - "StatusTracker"
-Cohesion: 0.09
-Nodes (8): Duration, Int64, Map, RWMutex, Time, Uint64, NewStatusTracker(), StatusTracker
-
-### Community 52 - "SQLiteStore"
+### Community 8 - "Community 8"
 Cohesion: 0.11
 Nodes (15): smtpIdemAdapter, wasmSinkAdapter, SQLiteStore, Context, Get(), NewRegistry(), Register(), Context (+7 more)
 
-### Community 53 - "compilerOptions"
+### Community 9 - "Community 9"
+Cohesion: 0.14
+Nodes (19): ConstantTimeCompare(), IsSafeWasmURL(), T, TestCorsMiddlewareAllowsConfiguredOrigin(), TestCorsMiddlewareDeniesUnknownOrigin(), TestIsCORSOriginAllowed(), TestIsOriginAllowedExactHost(), TestIsRateLimitedConcurrent() (+11 more)
+
+### Community 10 - "Community 10"
+Cohesion: 0.04
+Nodes (92): Context, T, TestForeach_Execute_MissingArrayPath(), TestForeach_Execute_NonArray(), TestForeach_Execute_Success(), T, TestSwitch_Execute_Default(), TestSwitch_Execute_Function() (+84 more)
+
+### Community 11 - "Community 11"
+Cohesion: 0.05
+Nodes (17): Approval, Context, DashboardStats, FormSubmission, FormSubmissionFilter, LineageEdge, Plugin, Sink (+9 more)
+
+### Community 12 - "Community 12"
+Cohesion: 0.05
+Nodes (16): RouterFunc, TraceRecorder, Config, Context, Duration, Engine, Int64, Mutex (+8 more)
+
+### Community 13 - "Community 13"
+Cohesion: 0.06
+Nodes (29): HandlerFunc, contextKey, Handler, LoginAttempt, SessionClaims, WorkerUpdater, allowedCORSOrigins(), extractSessionToken() (+21 more)
+
+### Community 14 - "Community 14"
+Cohesion: 0.18
+Nodes (8): GetDataHub(), Context, Duration, NewSSESink(), T, TestSSESink_PublishAndReceive(), TestSSESink_WithSecurity(), SSESink
+
+### Community 15 - "Community 15"
 Cohesion: 0.07
-Nodes (28): DOM.Iterable, ES2022, src, vite/client, vitest/globals, compilerOptions, allowImportingTsExtensions, baseUrl (+20 more)
+Nodes (24): AdvancedTransformer, columnConfig, FilterTransformer, Evaluator, ForeachTransformer, APILookupTransformer, Context, init() (+16 more)
 
-### Community 54 - "Autoscaler"
-Cohesion: 0.10
-Nodes (17): Autoscaler, mockStorage, mockWorkerManager, WorkerManager, countOnlineWorkers(), Duration, Storage, WaitGroup (+9 more)
-
-### Community 55 - "Options"
+### Community 16 - "Community 16"
 Cohesion: 0.16
-Nodes (18): parseOptions(), createWorkerIdentity(), getWorkerName(), getWorkerStore(), CancelFunc, Context, Registry, Storage (+10 more)
+Nodes (6): LoadConfig(), Context, InfraHandler, Request, ResponseWriter, Storage
 
-### Community 56 - "Storage"
+### Community 17 - "Community 17"
+Cohesion: 0.15
+Nodes (7): MSSQLSource, tableInfo, Context, DB, Duration, Mutex, Rows
+
+### Community 18 - "Community 18"
+Cohesion: 0.67
+Nodes (3): T, TestFileBuffer(), TestFileBuffer_Persistence()
+
+### Community 20 - "Community 20"
+Cohesion: 0.24
+Nodes (7): Context, Time, Worker, Workflow, Sink, Source, SyncContext
+
+### Community 21 - "Community 21"
+Cohesion: 0.07
+Nodes (24): Duration, Time, Approval, ApprovalFilter, AuditFilter, AuditLog, CommonFilter, DashboardStats (+16 more)
+
+### Community 22 - "Community 22"
+Cohesion: 0.24
+Nodes (7): FormSource, Dispatch(), Context, Storage, NewFormSource(), Register(), Unregister()
+
+### Community 23 - "Community 23"
+Cohesion: 0.10
+Nodes (18): Storage, NewAPIStorage(), T, TestAPIStorage_SafeDefaults(), TestNewAPIStorage_SatisfiesStorage(), Client, Context, Response (+10 more)
+
+### Community 24 - "Community 24"
+Cohesion: 0.13
+Nodes (16): Server, Config, Registry, Storage, NewServer(), Duration, Registry, T (+8 more)
+
+### Community 25 - "Community 25"
+Cohesion: 0.09
+Nodes (11): Context, Mutex, Sink, Source, Workflow, failingSource, mockReconStorage, mockSimpleStorage (+3 more)
+
+### Community 26 - "Community 26"
+Cohesion: 0.13
+Nodes (27): SCDRegistry, SCDTransformer, Context, DB, GetConfigString(), GetConfigStringSlice(), GetFromMapPath(), ParameterizeTemplate() (+19 more)
+
+### Community 27 - "Community 27"
+Cohesion: 0.07
+Nodes (18): Event, EventStoreSource, SQLStore, main(), Message, Registry, Context, DB (+10 more)
+
+### Community 28 - "Community 28"
+Cohesion: 0.09
+Nodes (32): NewRegistry(), Context, Int64, Mutex, Source, Storage, T, Workflow (+24 more)
+
+### Community 29 - "Community 29"
+Cohesion: 0.09
+Nodes (12): Bool, CancelFunc, Context, Duration, Mutex, RWMutex, Storage, Time (+4 more)
+
+### Community 30 - "Community 30"
+Cohesion: 0.06
+Nodes (35): baseline-browser-mapping, caniuse-lite, clsx, dagre, @dnd-kit/core, @dnd-kit/utilities, @mantine/core, @mantine/hooks (+27 more)
+
+### Community 31 - "Community 31"
+Cohesion: 0.07
+Nodes (39): DB, T, redactDSN(), requireIntegrationDB(), requireIntegrationInfra(), seedTestData(), T, TestE2E_CDC_PgBouncer_Failure() (+31 more)
+
+### Community 32 - "Community 32"
+Cohesion: 0.10
+Nodes (27): AICopilot(), EditorToolbar(), EditorToolbarProps, LiveLogPanel(), LiveLogPanelProps, NodeConfigDrawer(), NodeConfigDrawerProps, SidebarDrawer() (+19 more)
+
+### Community 33 - "Community 33"
+Cohesion: 0.08
+Nodes (10): DQScorerTransformer, mockMessage, JoinTransformer, Context, Context, GetMsgValByPath(), T, TestJSONPathRootFallsBackToBeforeImage() (+2 more)
+
+### Community 34 - "Community 34"
+Cohesion: 0.22
+Nodes (9): Cookie, Context, AuthHandler, Request, ResponseWriter, User, oidcProvider(), requestIsHTTPS() (+1 more)
+
+### Community 35 - "Community 35"
+Cohesion: 0.07
+Nodes (13): Config, DashboardStats, Duration, Group, Int32, Manager, Mutex, Registry (+5 more)
+
+### Community 36 - "Community 36"
+Cohesion: 0.06
+Nodes (35): autoprefixer, cypress, jsdom, msw, oxlint, postcss, postcss-preset-mantine, rollup-plugin-visualizer (+27 more)
+
+### Community 37 - "Community 37"
+Cohesion: 0.11
+Nodes (6): Context, DashboardStats, Registry, Time, LiveMessage, DebuggerEvent
+
+### Community 38 - "Community 38"
+Cohesion: 0.11
+Nodes (13): CancelFunc, Context, Int64, Map, Mutex, Pool, RWMutex, Tx (+5 more)
+
+### Community 39 - "Community 39"
+Cohesion: 0.15
+Nodes (24): ConnectionLine, FlowCanvas(), FlowCanvasProps, LiveEdge, useStyledFlow(), ApprovalNode(), BaseNode(), PlusHandle() (+16 more)
+
+### Community 40 - "Community 40"
+Cohesion: 0.11
+Nodes (29): ConnConfig, T, TestConnectionPoolResponsiveness(), T, TestOpenSQLDBPgBouncerMarkers(), Pooler, ApplyPoolerSafety(), Config (+21 more)
+
+### Community 41 - "Community 41"
+Cohesion: 0.09
+Nodes (12): mockMessage, mockTraceRecorder, safeModeMockSink, schemaMockSink, schemaMockSource, Context, Mutex, T (+4 more)
+
+### Community 42 - "Community 42"
+Cohesion: 0.07
+Nodes (4): DefaultMessage, RWMutex, parseTableParts(), RawMessage
+
+### Community 43 - "Community 43"
+Cohesion: 0.33
+Nodes (13): closeStorage(), getStorageConfig(), CancelFunc, Context, Options, Storage, initLogStorage(), initMasterKey() (+5 more)
+
+### Community 45 - "Community 45"
+Cohesion: 0.08
+Nodes (24): Client, Context, NewAWSSecretsManager(), Client, Context, NewAzureKeyVaultManager(), Context, Manager (+16 more)
+
+### Community 46 - "Community 46"
+Cohesion: 0.07
+Nodes (29): configComponents, DatabaseSinkConfig, Dynamics365SinkConfig, ElasticsearchSinkConfig, FailoverSinkConfig, FTPSinkConfig, GoogleSheetsSinkConfig, MilvusSinkConfig (+21 more)
+
+### Community 47 - "Community 47"
+Cohesion: 0.06
+Nodes (17): useSourceForm(), UseSourceFormProps, ConnectivityTab(), DeveloperTab(), GovernanceTab(), ObservabilityTab(), PlatformTab(), SecurityTab() (+9 more)
+
+### Community 48 - "Community 48"
+Cohesion: 0.11
+Nodes (6): Approval, Context, DashboardStats, Row, Rows, User
+
+### Community 49 - "Community 49"
+Cohesion: 0.20
+Nodes (8): MSSQLSink, ColumnMapping, Context, DB, Map, Mutex, Tx, NewMSSQLSink()
+
+### Community 50 - "Community 50"
+Cohesion: 0.14
+Nodes (14): sinkWriter, drainBudget(), drainWriteContext(), CancelFunc, Context, Duration, Engine, Engine (+6 more)
+
+### Community 51 - "Community 51"
+Cohesion: 0.09
+Nodes (23): apiFetch(), apiJson(), FieldExplorer, PreviewPanel, QuickActions, SetFieldEditor, TargetExplorer, TransformationForm() (+15 more)
+
+### Community 52 - "Community 52"
+Cohesion: 0.13
+Nodes (15): Canal, DummyEventHandler, mysqlEventHandler, MySQLSource, Context, DB, Mutex, Rows (+7 more)
+
+### Community 53 - "Community 53"
+Cohesion: 0.17
+Nodes (5): MessageState, Pointer, PublishResponse, SizeCache, UnknownFields
+
+### Community 54 - "Community 54"
+Cohesion: 0.09
+Nodes (8): Duration, Int64, Map, RWMutex, Time, Uint64, NewStatusTracker(), StatusTracker
+
+### Community 55 - "Community 55"
+Cohesion: 0.08
+Nodes (10): mockBuffer, mockOutboxStorage, Duration, Time, OutboxItem, TraceStep, Context, Mutex (+2 more)
+
+### Community 56 - "Community 56"
+Cohesion: 0.09
+Nodes (14): findNodeByID(), getValByPath(), Context, Duration, Mutex, Registry, Source, Time (+6 more)
+
+### Community 57 - "Community 57"
+Cohesion: 0.07
+Nodes (27): DOM.Iterable, ES2022, src, vite/client, vitest/globals, compilerOptions, allowImportingTsExtensions, jsx (+19 more)
+
+### Community 58 - "Community 58"
+Cohesion: 0.18
+Nodes (9): Autoscaler, WorkerManager, countOnlineWorkers(), Duration, Storage, WaitGroup, Worker, Workflow (+1 more)
+
+### Community 59 - "Community 59"
+Cohesion: 0.27
+Nodes (16): createWorkerIdentity(), getWorkerName(), getWorkerStore(), CancelFunc, Context, Options, Registry, Storage (+8 more)
+
+### Community 60 - "Community 60"
 Cohesion: 0.13
 Nodes (14): Storage, NewDiscordNotificationProvider(), NewEmailNotificationProvider(), NewGenericWebhookProvider(), NewSlackNotificationProvider(), NewTelegramNotificationProvider(), NewUINotificationProvider(), DiscordNotificationProvider (+6 more)
 
-### Community 57 - "MySQLSink"
-Cohesion: 0.18
-Nodes (10): MySQLSink, ColumnMapping, Context, DB, Map, Mutex, Tx, T (+2 more)
-
-### Community 58 - "SQLiteSink"
-Cohesion: 0.17
-Nodes (10): ColumnMapping, Context, DB, Map, Mutex, Tx, T, TestSQLiteSink_IdempotentByID() (+2 more)
-
-### Community 59 - "Source"
-Cohesion: 0.11
-Nodes (12): fakeMessage, Source, buildClientOptions(), buildSampleMessage(), Client, ClientOptions, Context, RWMutex (+4 more)
-
-### Community 60 - "postgres.go"
-Cohesion: 0.14
-Nodes (24): baseDataType(), buildColumnDefinition(), T, TestBuildColumnDefinition(), TestBuildUpsertQuery(), TestFilterNilMessages(), TestIsEmptyIdentity(), TestQuoteColumn() (+16 more)
-
-### Community 61 - "NewPostgresSource"
-Cohesion: 0.17
-Nodes (24): buildReplicationAppName(), classifyReplicationError(), hostnameOrUnknown(), isPIDAlive(), isSlotActiveError(), NewPostgresSource(), buildKeepalive(), LSN (+16 more)
-
-### Community 62 - "priorityMockMessage"
+### Community 61 - "Community 61"
 Cohesion: 0.10
 Nodes (5): Context, T, TestPrioritySource(), priorityMockMessage, priorityMockSource
 
-### Community 63 - "FailoverSink"
+### Community 62 - "Community 62"
 Cohesion: 0.18
 Nodes (12): FailoverSink, mockSink, Context, Sink, NewFailoverSink(), NewFailoverSinkWithStrategy(), Context, T (+4 more)
 
-### Community 64 - "ColumnInfo"
-Cohesion: 0.24
-Nodes (9): ColumnInfo, alterColumnType(), Context, isEmptyIdentity(), loadColumns(), quoteColumn(), quoteTable(), tableExists() (+1 more)
+### Community 63 - "Community 63"
+Cohesion: 0.15
+Nodes (14): Producer, buildSinkEngineConfigs(), createWorkflowBuffer(), Approval, CancelFunc, Context, Engine, Registry (+6 more)
 
-### Community 65 - "statefulSource"
+### Community 64 - "Community 64"
 Cohesion: 0.13
-Nodes (9): findNodeByID(), getValByPath(), Context, Mutex, Registry, Source, multiSource, statefulSource (+1 more)
+Nodes (28): T, TestFlushPositionAgreesWithPendingWork(), TestFlushPositionNeverOutrunsUnacknowledgedWork(), T, TestPendingWorkTracksDeliveredButUnacknowledgedChanges(), buildReplicationAppName(), classifyReplicationError(), hostnameOrUnknown() (+20 more)
 
-### Community 66 - "SQLiteSource"
-Cohesion: 0.18
-Nodes (9): Context, DB, Mutex, NewSQLiteSource(), T, TestSQLiteSource_Ping(), TestSQLiteSource_Read(), TestSQLiteSource_Sample() (+1 more)
+### Community 65 - "Community 65"
+Cohesion: 0.27
+Nodes (4): Context, DB, Mutex, SQLiteSource
 
-### Community 67 - "RegisterNodeExecutor"
-Cohesion: 0.11
-Nodes (16): ValidatorNode, GetNodeExecutor(), RegisterNodeExecutor(), init(), init(), Context, init(), init() (+8 more)
+### Community 66 - "Community 66"
+Cohesion: 0.08
+Nodes (19): ForeachNode, SinkExecutor, ValidatorNode, NodeExecutor, GetNodeExecutor(), RegisterNodeExecutor(), init(), init() (+11 more)
 
-### Community 68 - "RabbitMQQueueSource"
-Cohesion: 0.16
-Nodes (15): Delivery, buildSampleMessage(), CancelFunc, Channel, Connection, Context, Mutex, lastConsumedKey() (+7 more)
+### Community 67 - "Community 67"
+Cohesion: 0.12
+Nodes (16): parallelMockBuffer, parallelMockSink, parallelMockSource, slowSink, Context, Duration, Handler, Mutex (+8 more)
 
-### Community 69 - "Context"
-Cohesion: 0.30
-Nodes (6): Context, Registry, SinkConfig, SourceConfig, T, runWithContext()
+### Community 68 - "Community 68"
+Cohesion: 0.29
+Nodes (7): Context, Group, SinkConfig, SourceConfig, T, RunWithContext(), DiscoveryService
 
-### Community 70 - "OracleSource"
+### Community 69 - "Community 69"
+Cohesion: 0.15
+Nodes (16): T, TestCreateLogsWritesThroughOnPostgres(), TestCreateLogsWritesThroughOnSQLite(), DB, Storage, NewSQLStorage(), T, TestSQLStorage_ListAllSchemas() (+8 more)
+
+### Community 70 - "Community 70"
+Cohesion: 0.22
+Nodes (8): MySQLSink, ColumnMapping, Context, DB, Map, Mutex, Tx, NewMySQLSink()
+
+### Community 71 - "Community 71"
 Cohesion: 0.17
 Nodes (8): OracleSource, Context, DB, Duration, Mutex, NewOracleSource(), T, TestOracleSource_Ping()
 
-### Community 71 - "SmtpSink"
-Cohesion: 0.11
-Nodes (14): TryFixJSON(), computeIdempotencyKey(), Context, Email, Mutex, RetryConfig, Time, normalizeAndDedupeEmails() (+6 more)
+### Community 72 - "Community 72"
+Cohesion: 0.21
+Nodes (8): ColumnMapping, Context, DB, Map, Mutex, Tx, NewSQLiteSink(), SQLiteSink
 
-### Community 72 - "TransformationForm.tsx"
-Cohesion: 0.10
-Nodes (19): CircuitBreakerConfig, FieldExplorer, FilterEditor, JoinConfig, PreviewPanel, QuickActions, SetFieldEditor, TargetExplorer (+11 more)
+### Community 73 - "Community 73"
+Cohesion: 0.09
+Nodes (20): TermExtractionConfig(), TermExtractionConfigProps, CircuitBreakerConfig(), CircuitBreakerConfigProps, ForeachConfig(), ForeachConfigProps, JoinConfig(), JoinConfigProps (+12 more)
 
-### Community 73 - "WorkflowNode"
-Cohesion: 0.16
-Nodes (11): ConditionNode, Context, init(), Context, Engine, Mutex, Registry, WaitGroup (+3 more)
+### Community 74 - "Community 74"
+Cohesion: 0.24
+Nodes (6): getString(), Context, SinkHandler, Request, ResponseWriter, ServeMux
 
-### Community 74 - "Context"
+### Community 75 - "Community 75"
+Cohesion: 0.28
+Nodes (5): Context, SourceHandler, Request, ResponseWriter, ServeMux
+
+### Community 76 - "Community 76"
 Cohesion: 0.12
-Nodes (10): Context, Int64, mockSource, mockStorage, Sink, Source, T, Workflow (+2 more)
+Nodes (10): Context, Int64, Sink, Source, T, Workflow, TestHeavyLoad(), heavyMockSink (+2 more)
 
-### Community 75 - "MariaDBSource"
-Cohesion: 0.17
-Nodes (8): MariaDBSource, Context, DB, Duration, Mutex, NewMariaDBSource(), T, TestMariaDBSource_Ping()
+### Community 77 - "Community 77"
+Cohesion: 0.25
+Nodes (5): Context, DB, Source, SourceConfig, openSQLDB()
 
-### Community 76 - "Schema"
-Cohesion: 0.10
+### Community 78 - "Community 78"
+Cohesion: 0.08
 Nodes (6): Context, Storage, T, TestStorageRegistry_Register(), mockStorage, Schema
 
-### Community 78 - "SourceForm.tsx"
-Cohesion: 0.11
-Nodes (17): ADMIN_ROLE, ApiListResponse, SOURCE_TYPES, SourceForm(), SourceFormProps, CDCReuseModal(), CDCReuseModalProps, FormScriptSnippet() (+9 more)
-
-### Community 79 - "SourceConfigFields.tsx"
-Cohesion: 0.11
-Nodes (16): Dynamics365SourceConfig(), Dynamics365SourceConfigProps, ExcelSourceConfig(), ExcelSourceConfigProps, FileSourceConfig(), FileSourceConfigProps, MainframeSourceConfig(), MainframeSourceConfigProps (+8 more)
-
-### Community 80 - "MongoDBSource"
+### Community 79 - "Community 79"
 Cohesion: 0.20
+Nodes (9): Map, Mutex, PostgresSink, isEmptyIdentity(), quoteColumn(), quoteTable(), splitSchemaTable(), tableExists() (+1 more)
+
+### Community 80 - "Community 80"
+Cohesion: 0.21
 Nodes (8): ChangeStream, MongoDBSource, GetClient(), Client, Context, Mutex, NewMongoDBSource(), Raw
 
-### Community 81 - "OutboxItem"
-Cohesion: 0.13
-Nodes (7): mockBuffer, mockOutboxStorage, OutboxItem, Context, Mutex, T, TestEngine_OutboxRelay()
-
-### Community 82 - "Manager"
-Cohesion: 0.12
-Nodes (11): Context, Context, RWMutex, NewManager(), Context, NewMeshSink(), Cluster, Manager (+3 more)
-
-### Community 83 - "ClickHouseSource"
+### Community 81 - "Community 81"
 Cohesion: 0.21
 Nodes (6): ClickHouseSource, Conn, Context, Duration, Mutex, NewClickHouseSource()
 
-### Community 84 - "Logger"
-Cohesion: 0.17
-Nodes (14): closeStorage(), getStorageConfig(), CancelFunc, Context, Storage, initLogStorage(), initMasterKey(), initPrimaryStorage() (+6 more)
-
-### Community 85 - "Algorithm"
-Cohesion: 0.13
-Nodes (11): Algorithm, lz4Compressor, noneCompressor, zstdCompressor, algoToByte(), byteToAlgo(), decodeFromBytes(), decodeMessage() (+3 more)
-
-### Community 86 - "Handler"
-Cohesion: 0.22
-Nodes (5): getString(), Handler, Request, ResponseWriter, ServeMux
-
-### Community 87 - "Handler"
-Cohesion: 0.24
-Nodes (4): Handler, Request, ResponseWriter, ServeMux
-
-### Community 88 - ".ListSinks"
-Cohesion: 0.13
-Nodes (9): decryptConfig(), encryptConfig(), LineageEdge, Sink, Source, Decrypt(), Encrypt(), T (+1 more)
-
-### Community 89 - "OracleSink"
-Cohesion: 0.23
-Nodes (8): OracleSink, ColumnMapping, Context, DB, Map, Mutex, Tx, NewOracleSink()
-
-### Community 90 - "ScyllaDBSource"
-Cohesion: 0.21
-Nodes (8): ClusterConfig, Context, Duration, Mutex, Session, NewScyllaDBSource(), ValidateIdent(), ScyllaDBSource
-
-### Community 91 - "compilerOptions"
-Cohesion: 0.09
-Nodes (21): ES2023, vite.config.ts, compilerOptions, allowImportingTsExtensions, lib, module, moduleDetection, moduleResolution (+13 more)
-
-### Community 92 - "CassandraSource"
-Cohesion: 0.20
-Nodes (7): CassandraSource, ClusterConfig, Context, Duration, Mutex, Session, NewCassandraSource()
-
-### Community 93 - "DB2Source"
-Cohesion: 0.21
-Nodes (6): DB2Source, Context, DB, Duration, Mutex, NewDB2Source()
-
-### Community 94 - "hermod.go"
-Cohesion: 0.11
-Nodes (20): BatchSink, Browser, ColumnDiscoverer, contextKey, Discoverer, Handler, IdempotencyReporter, LagReporter (+12 more)
-
-### Community 95 - "MetricsSource"
-Cohesion: 0.15
-Nodes (7): PublicationInfo, ReplicationSlotInfo, Context, Duration, Source, NewMetricsSource(), MetricsSource
-
-### Community 96 - "failoverStorage"
-Cohesion: 0.17
-Nodes (9): Context, Mutex, Sink, Source, T, Worker, Workflow, TestWorkerFailover() (+1 more)
-
-### Community 97 - "Sink"
-Cohesion: 0.20
-Nodes (10): Sink, formatFloat32(), formatFloat64(), formatVector(), ColumnMapping, Context, Map, Mutex (+2 more)
-
-### Community 98 - "PostgresSink"
-Cohesion: 0.20
-Nodes (6): Map, Mutex, Pool, Tx, validateTxID(), PostgresSink
-
-### Community 99 - "YugabyteSource"
-Cohesion: 0.21
-Nodes (6): Conn, Context, Duration, Mutex, NewYugabyteSource(), YugabyteSource
-
-### Community 100 - "EmailLayoutBuilder.tsx"
-Cohesion: 0.14
-Nodes (15): BaseBlock, Block, BlockType, ButtonBlock, DividerBlock, EmailLayoutBuilder(), EmailLayoutBuilderProps, EmailSettings (+7 more)
-
-### Community 101 - "WasmTransformer"
-Cohesion: 0.14
-Nodes (12): binEntry, readerWrapper, wasmBuffer, WasmTransformer, CompiledModule, Context, Mutex, Reader (+4 more)
-
-### Community 102 - "FirebaseSource"
-Cohesion: 0.15
-Nodes (10): App, FirebaseSource, Client, Context, Duration, Time, NewFirebaseSource(), T (+2 more)
-
-### Community 103 - "CassandraSink"
-Cohesion: 0.23
-Nodes (8): Batch, CassandraSink, ColumnMapping, Context, Map, Mutex, Session, NewCassandraSink()
-
-### Community 104 - "config.go"
-Cohesion: 0.16
-Nodes (17): AuthConfig, BufferConfig, EngineConfig, FileStorageConfig, ObservabilityConfig, OIDCConfig, OTLPConfig, S3Config (+9 more)
-
-### Community 105 - "NodeContext"
-Cohesion: 0.18
-Nodes (10): StatefulNode, TransformationNode, Context, Context, Context, Time, init(), NodeContext (+2 more)
-
-### Community 106 - "mockSourceWithLimit"
+### Community 82 - "Community 82"
 Cohesion: 0.10
-Nodes (6): counterSink, mockSourceWithLimit, orderSink, testLogger, Mutex, WaitGroup
+Nodes (21): ConditionNode, StatefulNode, WaitNode, TransformationNode, NodeContext, Context, Context, Context (+13 more)
 
-### Community 108 - "mockMessage"
-Cohesion: 0.13
-Nodes (9): mockMessage, RoutedMessage, T, TestEngineSchemaValidation(), TestRecordTraceStep_Default(), TestRecordTraceStep_DeterministicSampling(), TestSafeModeDivertsToDLQ(), DefaultConfig() (+1 more)
+### Community 83 - "Community 83"
+Cohesion: 0.10
+Nodes (22): BatchSink, Browser, ColumnDiscoverer, contextKey, Discoverer, Handler, IdempotencyReporter, LagReporter (+14 more)
 
-### Community 109 - "Formatter"
+### Community 84 - "Community 84"
 Cohesion: 0.16
-Nodes (10): FCMSink, Formatter, Client, Context, Mutex, NewFCMSink(), NewFCMSinkWithDefaults(), Context (+2 more)
+Nodes (9): Context, RWMutex, NewManager(), Context, NewMeshSink(), Cluster, Manager, MeshManager (+1 more)
 
-### Community 110 - "GoogleAnalyticsSource"
-Cohesion: 0.16
-Nodes (9): GoogleAnalyticsSource, Context, Duration, Row, Time, NewGoogleAnalyticsSource(), T, TestGoogleAnalyticsSource_State() (+1 more)
-
-### Community 111 - "Optimizer"
-Cohesion: 0.16
-Nodes (10): init(), init(), Context, Duration, Engine, Mutex, NewOptimizer(), AIOptimizer (+2 more)
-
-### Community 112 - "Context"
+### Community 85 - "Community 85"
 Cohesion: 0.17
-Nodes (7): Context, T, newBlockingDiscoverSink(), TestDiscoverSinkTables_RespectsContextDeadline(), TestDiscoverSinkTables_ReturnsResult(), blockingDiscoverSink, discoverSink
+Nodes (9): MariaDBSource, SanitizeMap(), Context, DB, Duration, Mutex, NewMariaDBSource(), T (+1 more)
 
-### Community 113 - "resources.go"
-Cohesion: 0.16
-Nodes (18): ResourceData, Provider(), providerConfigure(), dataSourceWorkspace(), dataSourceWorkspaceRead(), ResourceData, resourceWorkflow(), resourceWorkflowCreate() (+10 more)
+### Community 86 - "Community 86"
+Cohesion: 0.26
+Nodes (3): Context, Tx, validateTxID()
 
-### Community 114 - "BatchSQLSource"
-Cohesion: 0.19
-Nodes (7): BatchSQLSource, Config, DBProvider, Context, Cron, Mutex, NewBatchSQLSource()
+### Community 87 - "Community 87"
+Cohesion: 0.18
+Nodes (9): ClusterConfig, Context, Duration, Mutex, Once, Session, NewScyllaDBSource(), ValidateIdent() (+1 more)
 
-### Community 115 - "FileBuffer"
-Cohesion: 0.19
-Nodes (10): countingReader, FileBuffer, Context, File, Handler, Mutex, Reader, Writer (+2 more)
+### Community 88 - "Community 88"
+Cohesion: 0.08
+Nodes (21): DatabaseSourceConfig(), DatabaseSourceConfigProps, Dynamics365SourceConfig(), Dynamics365SourceConfigProps, ExcelSourceConfig(), ExcelSourceConfigProps, FileSourceConfig(), FileSourceConfigProps (+13 more)
 
-### Community 116 - "ClickHouseSink"
-Cohesion: 0.25
-Nodes (7): ClickHouseSink, ColumnMapping, Conn, Context, Map, Mutex, NewClickHouseSink()
-
-### Community 117 - "storage.go"
-Cohesion: 0.17
-Nodes (16): Context, T, User, TestComputeSetupStatus(), computeSetupStatus(), configureSQLDB(), getSQLDriverAndConn(), Context (+8 more)
-
-### Community 118 - "StateStore"
-Cohesion: 0.19
-Nodes (9): CollectNode, Migrator, StateMigrator, StateStore, Context, NewStateMigrator(), Context, Mutex (+1 more)
-
-### Community 119 - "GraphQLSource"
+### Community 89 - "Community 89"
 Cohesion: 0.15
-Nodes (9): GraphQLSource, mockMessage, Dispatch(), Context, NewGraphQLSource(), Register(), T, TestGraphQLSourceRead() (+1 more)
+Nodes (16): FieldExplorer(), FieldExplorerProps, MappingEditor(), MappingEditorProps, callFunction(), Condition, FieldInfo, getValByPath() (+8 more)
 
-### Community 120 - "Context"
-Cohesion: 0.16
-Nodes (9): Context, Mutex, Source, T, TestEngineStatusFlickering(), TestEngineStatusWhenReadHangs(), flickeringSource, hangingSource (+1 more)
+### Community 90 - "Community 90"
+Cohesion: 0.10
+Nodes (4): countingMessage, Int32, T, TestBackpressureDropOldest_ReleasesEvictedMessageOnce()
 
-### Community 121 - "Hermod: Enterprise-Grade Data Integration & Streaming Platform"
-Cohesion: 0.11
-Nodes (19): Audit Logging, Benchmarks, Continuous Integration (CI), Contributing & Documentation, Data Governance and Schema Validation, Distributed State & Coordination, Enterprise Data Platform Features, Enterprise Features (+11 more)
-
-### Community 122 - "TemplateField.tsx"
-Cohesion: 0.13
-Nodes (11): CommonProps, TemplateField(), TemplateFieldProps, DBLookupConfig(), DBLookupConfigProps, SQLQueryBuilder, Condition, FilterEditor() (+3 more)
-
-### Community 123 - "StatusUpdate"
-Cohesion: 0.17
-Nodes (6): Context, Engine, NewAIOptimizer(), DefaultAIOptimizer, Duration, StatusUpdate
-
-### Community 124 - "NewValidator"
-Cohesion: 0.24
-Nodes (9): Context, Storage, NewStorageRegistry(), NewValidator(), Registry, SchemaConfig, SchemaType, StorageRegistry (+1 more)
-
-### Community 126 - "worker_test.go"
-Cohesion: 0.20
-Nodes (12): T, Worker, TestReconnectAfterRegistryRestart(), TestResourceAwareSharding_Distribution(), TestResourceAwareSharding_Hysteresis(), TestResourceAwareSharding_LoadBalance(), TestWorker_ReleaseAllLeases(), TestWorker_SelfRegister() (+4 more)
-
-### Community 127 - "Context"
-Cohesion: 0.14
-Nodes (6): Context, T, TestOptimizer_Heuristics(), mockLogger, mockSink, mockSource
-
-### Community 128 - "fullFakeRegistry"
-Cohesion: 0.20
-Nodes (12): fakeRegistry, fullFakeRegistry, Context, DB, Duration, Source, T, TestDBLookup_ModePrioritization() (+4 more)
-
-### Community 129 - "RedisSource"
-Cohesion: 0.22
-Nodes (9): applyStreamValues(), Client, Context, Mutex, NewRedisSource(), streamDataBytes(), T, TestApplyStreamValues() (+1 more)
-
-### Community 130 - "sourceSampling.ts"
-Cohesion: 0.17
-Nodes (14): formatRelativeTime(), SamplePanel(), SamplePanelProps, StepDef, StepState, DATABASE_TYPES, ERROR_RULES, ErrorRule (+6 more)
-
-### Community 131 - "Runner"
-Cohesion: 0.25
-Nodes (7): Runner, CancelFunc, Context, Duration, Engine, WaitGroup, NewRunner()
-
-### Community 132 - "twoFAMockStorage"
-Cohesion: 0.28
-Nodes (10): twoFAMockStorage, Context, Storage, T, User, newTwoFAMockStorage(), TestAuthMiddleware_AllowsPreAuth2FAEndpoints(), TestLogin2FAFlow_SuccessAndFailure() (+2 more)
-
-### Community 133 - "Source"
-Cohesion: 0.21
-Nodes (9): Config, Conn, Context, Dialer, Duration, Mutex, New(), envelope (+1 more)
-
-### Community 135 - "ColumnMappingEditor.tsx"
-Cohesion: 0.18
-Nodes (9): ColumnMapping, ColumnMappingEditor(), ColumnMappingEditorProps, DATA_TYPES, DatabaseSinkConfigProps, PgvectorSinkConfigProps, PostgresSinkConfig(), PostgresSinkConfigProps (+1 more)
-
-### Community 136 - ".ReadAll"
-Cohesion: 0.19
-Nodes (6): AIMapper, AIMapperTransformer, AITransformer, Client, Context, Context
-
-### Community 137 - "SelfHealingService"
-Cohesion: 0.28
-Nodes (7): CopilotResult, FixSuggestion, PerformanceRecommendation, SchemaImpact, SelfHealingService, Context, Workflow
-
-### Community 138 - "source_grpc.pb.go"
-Cohesion: 0.17
-Nodes (11): ClientConnInterface, Context, NewSourceServiceClient(), RegisterSourceServiceServer(), _SourceService_Publish_Handler(), SourceServiceClient, SourceServiceServer, UnimplementedSourceServiceServer (+3 more)
-
-### Community 139 - "main"
-Cohesion: 0.18
-Nodes (13): buildUIAndExit(), filterServiceArgs(), main(), EnsureConfigDir(), GetConfigDir(), T, TestEnsureConfigDir(), BuildUI() (+5 more)
-
-### Community 140 - "Source"
-Cohesion: 0.22
-Nodes (7): Source, SourceConfig, Client, Context, RWMutex, Time, NewSource()
-
-### Community 141 - "ElasticsearchSink"
-Cohesion: 0.30
-Nodes (5): ElasticsearchSink, Client, Context, NewElasticsearchSink(), prepareTemplateData()
-
-### Community 142 - "MessageTrace"
-Cohesion: 0.14
-Nodes (6): mockTraceRecorder, Duration, Time, TraceStep, Mutex, MessageTrace
-
-### Community 143 - "BloomFilter"
-Cohesion: 0.18
-Nodes (6): BloomFilter, RotatingBloomFilter, RWMutex, NewBloomFilter(), RWMutex, NewRotatingBloomFilter()
-
-### Community 144 - "GoogleSheetsSink"
-Cohesion: 0.32
-Nodes (3): GoogleSheetsSink, Context, NewGoogleSheetsSink()
-
-### Community 145 - ".createSourceInternal"
-Cohesion: 0.20
-Nodes (5): DB, Source, SourceConfig, openSQLDB(), Source
-
-### Community 146 - "Context"
-Cohesion: 0.36
-Nodes (3): Context, Workflow, NotificationSettings
-
-### Community 147 - "NewJSONFormatter"
-Cohesion: 0.17
-Nodes (10): JSONFormatter, JSONMode, NewJSONFormatter(), T, TestJSONFormatter(), T, TestJSONFormatter_NilMessage(), T (+2 more)
-
-### Community 148 - "KafkaSink"
-Cohesion: 0.23
-Nodes (5): KafkaSink, Context, Transport, Writer, NewKafkaSink()
-
-### Community 149 - ".lookupSQL"
-Cohesion: 0.22
-Nodes (9): DBLookupTransformer, RegistryProvider, asSlice(), buildLookupQuery(), Context, DB, Source, T (+1 more)
-
-### Community 150 - "SalesforceSink"
-Cohesion: 0.31
-Nodes (6): Client, Context, RWMutex, NewSalesforceSink(), authResponse, SalesforceSink
-
-### Community 151 - "Sink"
-Cohesion: 0.28
-Nodes (7): ColumnMapping, Context, DB, Mutex, Tx, NewSink(), Sink
-
-### Community 152 - "NewStateStore"
-Cohesion: 0.17
-Nodes (9): T, TestAggregateTransformer_Persistence(), NewMemoryStore(), NewStateStore(), Context, DB, NewSQLiteStateStore(), Config (+1 more)
-
-### Community 153 - "SQLQueryBuilder.tsx"
-Cohesion: 0.17
-Nodes (13): formatSQL(), jsToSqlType(), NEWLINE_KEYWORDS, normalizeRows(), QUICK_KEYWORDS, renderCellValue(), SQLQueryBuilder(), SQLQueryBuilderProps (+5 more)
-
-### Community 154 - "RTK Commands by Workflow"
-Cohesion: 0.13
-Nodes (14): Analysis & Debug (70-90% savings), Build & Compile (80-90% savings), Files & Search (60-75% savings), Git (59-80% savings), GitHub (26-87% savings), Golden Rule, Infrastructure (85% savings), JavaScript/TypeScript Tooling (70-90% savings) (+6 more)
-
-### Community 155 - "DiscordSource"
-Cohesion: 0.20
-Nodes (7): DiscordSource, Client, Context, Duration, Mutex, Time, NewDiscordSource()
-
-### Community 156 - "Source"
-Cohesion: 0.30
-Nodes (4): Source, Context, New(), normalizeHeaders()
-
-### Community 157 - "Handler"
-Cohesion: 0.35
-Nodes (4): Handler, Request, ResponseWriter, Worker
-
-### Community 158 - "Handler"
-Cohesion: 0.28
-Nodes (7): Context, Handler, Request, ResponseWriter, ServeMux, isSafeWasmURL(), validatePluginID()
-
-### Community 159 - "InstagramSource"
-Cohesion: 0.23
-Nodes (6): InstagramSource, Client, Context, Duration, Time, NewInstagramSource()
-
-### Community 160 - "DatabaseLogger"
-Cohesion: 0.25
-Nodes (6): CancelFunc, Context, Mutex, NewDatabaseLogger(), DatabaseLogger, LogCreator
-
-### Community 161 - "createSinkBase"
-Cohesion: 0.23
-Nodes (13): T, TestBuildConnectionString_RabbitMQ_SSL(), BuildConnectionString(), buildWSTLSConfig(), CreateSink(), createSinkBase(), CreateSource(), createSourceBase() (+5 more)
-
-### Community 162 - "Source"
-Cohesion: 0.23
-Nodes (5): Config, Source, Context, DB, NewSource()
-
-### Community 163 - "MongoDBSink"
-Cohesion: 0.28
-Nodes (6): MongoDBSink, Client, ColumnMapping, Context, Mutex, NewMongoDBSink()
-
-### Community 164 - "Sink"
-Cohesion: 0.31
-Nodes (5): Client, Context, NewSink(), Config, Sink
-
-### Community 165 - "SlackSource"
-Cohesion: 0.20
-Nodes (7): Client, Context, Duration, Mutex, Time, NewSlackSource(), SlackSource
-
-### Community 166 - "TwitterSource"
-Cohesion: 0.20
-Nodes (7): Client, Context, Duration, Mutex, Time, NewTwitterSource(), TwitterSource
-
-### Community 167 - "validators.go"
-Cohesion: 0.19
-Nodes (8): Context, MessageDescriptor, NewAvroValidator(), NewJSONSchemaValidator(), NewProtobufValidator(), AvroValidator, JSONSchemaValidator, ProtobufValidator
-
-### Community 168 - "OtherSourceConfig.tsx"
-Cohesion: 0.18
-Nodes (9): FormFieldItem, FormFieldType, FormLayoutBuilder(), FormLayoutBuilderProps, FormPreview(), GenerateToken(), GenerateTokenProps, OtherSourceConfig() (+1 more)
-
-### Community 169 - "ErrorBoundary.tsx"
-Cohesion: 0.15
-Nodes (7): ErrorBoundary, Props, State, LayoutProps, SideLinkProps, ErrorPage(), ErrorPageProps
-
-### Community 170 - "LuaTransformer"
-Cohesion: 0.21
-Nodes (7): LuaTransformer, FunctionProto, LState, LValue, Context, Pool, RWMutex
-
-### Community 171 - "CombinedBuffer"
-Cohesion: 0.19
-Nodes (9): CombinedBuffer, CombinedOptions, Context, Duration, Handler, RWMutex, NewCombinedBuffer(), T (+1 more)
-
-### Community 172 - "DiscordSink"
-Cohesion: 0.29
-Nodes (6): DiscordSink, Context, NewDiscordSink(), T, TestDiscordSink_Write_Bot(), TestDiscordSink_Write_Webhook()
-
-### Community 173 - "TestWriteToSink_EmitsIdempotencyMetrics"
-Cohesion: 0.16
-Nodes (5): idempNoopLogger, reporterSink, Context, T, TestWriteToSink_EmitsIdempotencyMetrics()
-
-### Community 174 - "Context"
-Cohesion: 0.19
-Nodes (4): safeModeMockSink, schemaMockSink, schemaMockSource, Context
-
-### Community 175 - "statusMockSource"
-Cohesion: 0.20
-Nodes (8): statusMockSink, statusMockSource, Context, Mutex, Sink, Source, T, TestEngineGranularStatus()
-
-### Community 176 - "NewStorage"
-Cohesion: 0.19
-Nodes (8): S3Storage, Context, Storage, NewStorage(), Client, Context, Reader, NewS3Storage()
-
-### Community 177 - "GenericProtoSource"
-Cohesion: 0.22
-Nodes (6): GenericProtoSource, Context, MessageDescriptor, RWMutex, Source, NewGenericProtoSource()
-
-### Community 178 - ".Publish"
+### Community 91 - "Community 91"
 Cohesion: 0.22
 Nodes (8): GrpcSource, Server, Dispatch(), Context, Storage, NewGrpcSource(), Register(), Unregister()
 
-### Community 179 - ".HandleWebhook"
-Cohesion: 0.34
-Nodes (7): collectHeaders(), Handler, Request, ResponseWriter, readRequestBody(), verifyWebhookSignature(), writeDispatched()
+### Community 92 - "Community 92"
+Cohesion: 0.17
+Nodes (7): Context, T, newBlockingDiscoverSink(), TestDiscoverSinkTables_RespectsContextDeadline(), TestDiscoverSinkTables_ReturnsResult(), blockingDiscoverSink, discoverSink
 
-### Community 180 - "MockWorkflowStorage"
-Cohesion: 0.26
-Nodes (7): MockWorkflowStorage, Context, Sink, Source, T, Workflow, TestWorkflowExportImport()
+### Community 93 - "Community 93"
+Cohesion: 0.24
+Nodes (4): Context, Registry, SinkConfig, SourceConfig
 
-### Community 181 - "RabbitMQStreamSource"
-Cohesion: 0.26
-Nodes (7): Consumer, Context, Environment, Mutex, messageID(), NewRabbitMQStreamSource(), RabbitMQStreamSource
+### Community 94 - "Community 94"
+Cohesion: 0.18
+Nodes (3): LineageEdge, Sink, Source
 
-### Community 182 - "Context"
+### Community 96 - "Community 96"
 Cohesion: 0.23
-Nodes (3): Context, Sink, SinkConfig
+Nodes (8): OracleSink, ColumnMapping, Context, DB, Map, Mutex, Tx, NewOracleSink()
 
-### Community 183 - "Context"
+### Community 97 - "Community 97"
+Cohesion: 0.09
+Nodes (21): ES2023, vite.config.ts, compilerOptions, allowImportingTsExtensions, lib, module, moduleDetection, moduleResolution (+13 more)
+
+### Community 98 - "Community 98"
+Cohesion: 0.19
+Nodes (8): CassandraSource, ClusterConfig, Context, Duration, Mutex, Once, Session, NewCassandraSource()
+
+### Community 99 - "Community 99"
+Cohesion: 0.10
+Nodes (12): Algorithm, lz4Compressor, noneCompressor, snappyCompressor, zstdCompressor, algoToByte(), byteToAlgo(), decodeFromBytes() (+4 more)
+
+### Community 100 - "Community 100"
+Cohesion: 0.21
+Nodes (6): DB2Source, Context, DB, Duration, Mutex, NewDB2Source()
+
+### Community 101 - "Community 101"
+Cohesion: 0.17
+Nodes (9): Context, Mutex, Sink, Source, T, Worker, Workflow, TestWorkerFailover() (+1 more)
+
+### Community 102 - "Community 102"
+Cohesion: 0.15
+Nodes (17): T, TestBuildConnectionString_RabbitMQ_SSL(), BuildConnectionString(), buildWSTLSConfig(), CreateSink(), createSinkBase(), CreateSource(), createSourceBase() (+9 more)
+
+### Community 103 - "Community 103"
+Cohesion: 0.20
+Nodes (10): Sink, formatFloat32(), formatFloat64(), formatVector(), ColumnMapping, Context, Map, Mutex (+2 more)
+
+### Community 104 - "Community 104"
+Cohesion: 0.21
+Nodes (6): Conn, Context, Duration, Mutex, NewYugabyteSource(), YugabyteSource
+
+### Community 105 - "Community 105"
+Cohesion: 0.14
+Nodes (15): BaseBlock, Block, BlockType, ButtonBlock, DividerBlock, EmailLayoutBuilder(), EmailLayoutBuilderProps, EmailSettings (+7 more)
+
+### Community 106 - "Community 106"
+Cohesion: 0.15
+Nodes (10): readerWrapper, wasmBuffer, WasmTransformer, CompiledModule, Context, Mutex, Reader, RWMutex (+2 more)
+
+### Community 107 - "Community 107"
+Cohesion: 0.15
+Nodes (10): App, FirebaseSource, Client, Context, Duration, Time, NewFirebaseSource(), T (+2 more)
+
+### Community 108 - "Community 108"
+Cohesion: 0.23
+Nodes (8): Batch, CassandraSink, ColumnMapping, Context, Map, Mutex, Session, NewCassandraSink()
+
+### Community 110 - "Community 110"
+Cohesion: 0.16
+Nodes (11): FCMSink, Formatter, Client, Context, Mutex, NewFCMSink(), NewFCMSinkWithDefaults(), Client (+3 more)
+
+### Community 111 - "Community 111"
+Cohesion: 0.16
+Nodes (9): GoogleAnalyticsSource, Context, Duration, Row, Time, NewGoogleAnalyticsSource(), T, TestGoogleAnalyticsSource_State() (+1 more)
+
+### Community 112 - "Community 112"
+Cohesion: 0.16
+Nodes (10): init(), Context, Duration, Engine, Mutex, NewOptimizer(), init(), AIOptimizer (+2 more)
+
+### Community 113 - "Community 113"
+Cohesion: 0.21
+Nodes (10): DBLookupTransformer, RegistryProvider, asSlice(), buildLookupQuery(), Context, DB, RWMutex, Source (+2 more)
+
+### Community 114 - "Community 114"
+Cohesion: 0.16
+Nodes (18): ResourceData, Provider(), providerConfigure(), dataSourceWorkspace(), dataSourceWorkspaceRead(), ResourceData, resourceWorkflow(), resourceWorkflowCreate() (+10 more)
+
+### Community 115 - "Community 115"
+Cohesion: 0.17
+Nodes (15): Batcher, Batcher[K, V], Result, K, Duration, Context, Duration, Mutex (+7 more)
+
+### Community 116 - "Community 116"
+Cohesion: 0.25
+Nodes (7): ClickHouseSink, ColumnMapping, Conn, Context, Map, Mutex, NewClickHouseSink()
+
+### Community 117 - "Community 117"
+Cohesion: 0.21
+Nodes (15): AuthConfig, BufferConfig, EngineConfig, FileStorageConfig, ObservabilityConfig, OIDCConfig, OTLPConfig, S3Config (+7 more)
+
+### Community 118 - "Community 118"
+Cohesion: 0.19
+Nodes (9): CollectNode, Migrator, StateMigrator, StateStore, Context, NewStateMigrator(), Context, Mutex (+1 more)
+
+### Community 119 - "Community 119"
+Cohesion: 0.15
+Nodes (9): GraphQLSource, mockMessage, Dispatch(), Context, NewGraphQLSource(), Register(), T, TestGraphQLSourceRead() (+1 more)
+
+### Community 120 - "Community 120"
+Cohesion: 0.16
+Nodes (9): Context, Mutex, Source, T, TestEngineStatusFlickering(), TestEngineStatusWhenReadHangs(), flickeringSource, hangingSource (+1 more)
+
+### Community 121 - "Community 121"
+Cohesion: 0.22
+Nodes (9): Source, buildClientOptions(), buildSampleMessage(), Client, ClientOptions, Context, RWMutex, NewSource() (+1 more)
+
+### Community 122 - "Community 122"
+Cohesion: 0.12
+Nodes (8): PublicationInfo, ReplicationSlotInfo, Context, Duration, Source, Time, NewMetricsSource(), MetricsSource
+
+### Community 123 - "Community 123"
+Cohesion: 0.21
+Nodes (7): CommonProps, TemplateField(), TemplateFieldProps, DBLookupConfig(), DBLookupConfigProps, SQLQueryBuilder, SetFieldEditorProps
+
+### Community 124 - "Community 124"
+Cohesion: 0.27
+Nodes (8): FileBuffer, Context, File, Handler, Mutex, Writer, NewFileBuffer(), NewFileBufferWithCompressor()
+
+### Community 125 - "Community 125"
+Cohesion: 0.17
+Nodes (6): Context, Engine, NewAIOptimizer(), DefaultAIOptimizer, Duration, StatusUpdate
+
+### Community 126 - "Community 126"
+Cohesion: 0.24
+Nodes (9): Context, Storage, NewStorageRegistry(), NewValidator(), Registry, SchemaConfig, SchemaType, StorageRegistry (+1 more)
+
+### Community 128 - "Community 128"
+Cohesion: 0.18
+Nodes (9): lagState, drainAbandonGrace(), CancelFunc, Context, Duration, Engine, Runner, WaitGroup (+1 more)
+
+### Community 129 - "Community 129"
+Cohesion: 0.20
+Nodes (12): T, Worker, TestReconnectAfterRegistryRestart(), TestResourceAwareSharding_Distribution(), TestResourceAwareSharding_Hysteresis(), TestResourceAwareSharding_LoadBalance(), TestWorker_ReleaseAllLeases(), TestWorker_SelfRegister() (+4 more)
+
+### Community 130 - "Community 130"
+Cohesion: 0.14
+Nodes (6): Context, T, TestOptimizer_Heuristics(), mockLogger, mockSink, mockSource
+
+### Community 131 - "Community 131"
+Cohesion: 0.20
+Nodes (12): fakeRegistry, fullFakeRegistry, Context, DB, Duration, Source, T, TestDBLookup_ModePrioritization() (+4 more)
+
+### Community 132 - "Community 132"
+Cohesion: 0.22
+Nodes (9): applyStreamValues(), Client, Context, Mutex, NewRedisSource(), streamDataBytes(), T, TestApplyStreamValues() (+1 more)
+
+### Community 133 - "Community 133"
+Cohesion: 0.17
+Nodes (14): formatRelativeTime(), SamplePanel(), SamplePanelProps, StepDef, StepState, DATABASE_TYPES, ERROR_RULES, ErrorRule (+6 more)
+
+### Community 134 - "Community 134"
+Cohesion: 0.14
+Nodes (16): CopilotResult, FixSuggestion, PerformanceRecommendation, SchemaImpact, SelfHealingService, Context, Workflow, NewSelfHealingService() (+8 more)
+
+### Community 135 - "Community 135"
+Cohesion: 0.23
+Nodes (7): BatchSQLSource, Config, DBProvider, Context, Cron, Mutex, NewBatchSQLSource()
+
+### Community 136 - "Community 136"
+Cohesion: 0.33
+Nodes (10): CancelFunc, Context, Registry, Storage, initStorage(), main(), parseFlags(), runReconciliationLoop() (+2 more)
+
+### Community 137 - "Community 137"
+Cohesion: 0.20
+Nodes (9): Consumer, Context, Environment, Mutex, messageID(), NewRabbitMQStreamSource(), T, TestMessageID() (+1 more)
+
+### Community 138 - "Community 138"
+Cohesion: 0.29
+Nodes (11): twoFAMockStorage, Context, Storage, T, User, newTwoFAMockStorage(), TestAuthMiddleware_AllowsPreAuth2FAEndpoints(), TestLogin2FAFlow_SuccessAndFailure() (+3 more)
+
+### Community 139 - "Community 139"
+Cohesion: 0.29
+Nodes (5): WorkerHandler, Request, ResponseWriter, ServeMux, Worker
+
+### Community 141 - "Community 141"
+Cohesion: 0.02
+Nodes (32): react, EmptyStateProps, Role, User, UserFormProps, VHost, VHostFormProps, Worker (+24 more)
+
+### Community 142 - "Community 142"
+Cohesion: 0.19
+Nodes (11): ClientConnInterface, Context, NewSourceServiceClient(), RegisterSourceServiceServer(), _SourceService_Publish_Handler(), SourceServiceClient, SourceServiceServer, UnimplementedSourceServiceServer (+3 more)
+
+### Community 143 - "Community 143"
+Cohesion: 0.16
+Nodes (15): Delivery, buildSampleMessage(), CancelFunc, Channel, Connection, Context, Mutex, lastConsumedKey() (+7 more)
+
+### Community 144 - "Community 144"
+Cohesion: 0.22
+Nodes (7): Source, SourceConfig, Client, Context, RWMutex, Time, NewSource()
+
+### Community 145 - "Community 145"
+Cohesion: 0.30
+Nodes (5): ElasticsearchSink, Client, Context, NewElasticsearchSink(), prepareTemplateData()
+
+### Community 146 - "Community 146"
+Cohesion: 0.18
+Nodes (14): ReachableInDegree(), ReachableInDegreeByEntry(), sortedKeys(), T, TestWorkflowTraversal_MultipleSourcesConvergingOnOneNode(), TestWorkflowTraversal_SwitchJoinStillBarriers(), Acquire(), Context (+6 more)
+
+### Community 147 - "Community 147"
+Cohesion: 0.30
+Nodes (4): Source, Context, New(), normalizeHeaders()
+
+### Community 148 - "Community 148"
+Cohesion: 0.18
+Nodes (6): BloomFilter, RotatingBloomFilter, RWMutex, NewBloomFilter(), RWMutex, NewRotatingBloomFilter()
+
+### Community 149 - "Community 149"
+Cohesion: 0.32
+Nodes (3): GoogleSheetsSink, Context, NewGoogleSheetsSink()
+
+### Community 150 - "Community 150"
+Cohesion: 0.36
+Nodes (3): Context, Workflow, NotificationSettings
+
+### Community 151 - "Community 151"
+Cohesion: 0.25
+Nodes (14): Apply(), applyGCPercent(), applyMemoryLimit(), Context, Duration, scavengeIntervalFromEnv(), scavengeLoop(), StartScavenger() (+6 more)
+
+### Community 152 - "Community 152"
+Cohesion: 0.17
+Nodes (10): JSONFormatter, JSONMode, NewJSONFormatter(), T, TestJSONFormatter(), T, TestJSONFormatter_NilMessage(), T (+2 more)
+
+### Community 153 - "Community 153"
+Cohesion: 0.29
+Nodes (5): KafkaSink, Context, Transport, Writer, NewKafkaSink()
+
+### Community 154 - "Community 154"
+Cohesion: 0.19
+Nodes (9): Msg, NatsJetStreamSource, Conn, Context, JetStreamContext, Mutex, Option, NewNatsJetStreamSource() (+1 more)
+
+### Community 155 - "Community 155"
+Cohesion: 0.31
+Nodes (6): Client, Context, RWMutex, NewSalesforceSink(), authResponse, SalesforceSink
+
+### Community 156 - "Community 156"
+Cohesion: 0.28
+Nodes (7): ColumnMapping, Context, DB, Mutex, Tx, NewSink(), Sink
+
+### Community 157 - "Community 157"
+Cohesion: 0.17
+Nodes (11): Config, Conn, Context, Dialer, Duration, Mutex, New(), T (+3 more)
+
+### Community 158 - "Community 158"
+Cohesion: 0.17
+Nodes (9): T, TestAggregateTransformer_Persistence(), NewMemoryStore(), NewStateStore(), Context, DB, NewSQLiteStateStore(), Config (+1 more)
+
+### Community 159 - "Community 159"
+Cohesion: 0.13
+Nodes (9): AIMapper, AIMapperTransformer, AITransformer, Context, MeshClient, Client, Context, Context (+1 more)
+
+### Community 160 - "Community 160"
+Cohesion: 0.20
+Nodes (7): DiscordSource, Client, Context, Duration, Mutex, Time, NewDiscordSource()
+
+### Community 161 - "Community 161"
+Cohesion: 0.23
+Nodes (6): FacebookSource, Client, Context, Duration, Time, NewFacebookSource()
+
+### Community 162 - "Community 162"
+Cohesion: 0.35
+Nodes (8): Conn, WSHandler, Request, ResponseWriter, ServeMux, startWSReadPump(), wsWriteJSON(), wsWritePing()
+
+### Community 163 - "Community 163"
+Cohesion: 0.23
+Nodes (6): InstagramSource, Client, Context, Duration, Time, NewInstagramSource()
+
+### Community 164 - "Community 164"
+Cohesion: 0.13
+Nodes (14): T, TestDatabaseLoggerBoundsItsBuffer(), TestDatabaseLoggerDoesNotBlockTheCallerOnAFullBuffer(), TestDatabaseLoggerKeepsTeeingWhileStorageIsDown(), Bool, CancelFunc, Context, Mutex (+6 more)
+
+### Community 165 - "Community 165"
+Cohesion: 0.23
+Nodes (5): Config, Source, Context, DB, NewSource()
+
+### Community 166 - "Community 166"
+Cohesion: 0.28
+Nodes (6): MongoDBSink, Client, ColumnMapping, Context, Mutex, NewMongoDBSink()
+
+### Community 167 - "Community 167"
+Cohesion: 0.24
+Nodes (12): alterColumnType(), baseDataType(), buildColumnDefinition(), buildUpsertQuery(), coerceStringValue(), filterNilMessages(), ColumnMapping, marshalJSONValue() (+4 more)
+
+### Community 168 - "Community 168"
+Cohesion: 0.31
+Nodes (5): Client, Context, NewSink(), Config, Sink
+
+### Community 169 - "Community 169"
+Cohesion: 0.10
+Nodes (15): TryFixJSON(), computeIdempotencyKey(), Context, Email, Mutex, RetryConfig, Time, NewSmtpSink() (+7 more)
+
+### Community 170 - "Community 170"
+Cohesion: 0.06
+Nodes (21): Client, Context, Duration, Mutex, Time, NewSlackSource(), Client, Context (+13 more)
+
+### Community 171 - "Community 171"
+Cohesion: 0.09
+Nodes (38): envFloat(), counterValue(), T, TestAdmissionRejectionIsCounted(), TestAdmissionThresholdsAreConfigurable(), TestEnvFloatFallsBackOnGarbage(), Bool, Context (+30 more)
+
+### Community 172 - "Community 172"
+Cohesion: 0.08
+Nodes (18): backloggedSource, silentStreamSource, stallState, Context, Duration, Engine, Runner, Time (+10 more)
+
+### Community 173 - "Community 173"
+Cohesion: 0.15
+Nodes (11): T, TestAvroValidatorRejectsAHostileSchemaWithoutHanging(), TestSchemaPackageNeverDecodesAvro(), Context, MessageDescriptor, NewAvroValidator(), NewJSONSchemaValidator(), NewProtobufValidator() (+3 more)
+
+### Community 174 - "Community 174"
+Cohesion: 0.09
+Nodes (21): FormFieldItem, FormFieldType, FormLayoutBuilder(), FormLayoutBuilderProps, formatSQL(), jsToSqlType(), NEWLINE_KEYWORDS, normalizeRows() (+13 more)
+
+### Community 175 - "Community 175"
+Cohesion: 0.15
+Nodes (7): ErrorBoundary, Props, State, LayoutProps, SideLinkProps, ErrorPage(), ErrorPageProps
+
+### Community 176 - "Community 176"
+Cohesion: 0.21
+Nodes (7): LuaTransformer, FunctionProto, LState, LValue, Context, Pool, RWMutex
+
+### Community 177 - "Community 177"
+Cohesion: 0.19
+Nodes (9): CombinedBuffer, CombinedOptions, Context, Duration, Handler, RWMutex, NewCombinedBuffer(), T (+1 more)
+
+### Community 178 - "Community 178"
+Cohesion: 0.15
+Nodes (4): stubCtx, switchStubCtx, Context, Sink
+
+### Community 180 - "Community 180"
+Cohesion: 0.18
+Nodes (3): idempNoopLogger, reporterSink, Context
+
+### Community 181 - "Community 181"
+Cohesion: 0.21
+Nodes (6): statusMockSink, statusMockSource, Context, Mutex, Sink, Source
+
+### Community 182 - "Community 182"
+Cohesion: 0.19
+Nodes (8): S3Storage, Context, Storage, NewStorage(), Client, Context, Reader, NewS3Storage()
+
+### Community 183 - "Community 183"
+Cohesion: 0.22
+Nodes (6): GenericProtoSource, Context, MessageDescriptor, RWMutex, Source, NewGenericProtoSource()
+
+### Community 184 - "Community 184"
 Cohesion: 0.23
 Nodes (7): Context, T, newBlockingSink(), TestTestSink_RespectsContextDeadline(), TestTestSink_ReturnsPingResult(), blockingSink, nonBlockingSink
 
-### Community 184 - "NewWorker"
+### Community 185 - "Community 185"
 Cohesion: 0.20
 Nodes (10): Context, T, Worker, TestWorkerPollShutdownRequest(), TestWorkerRequestShutdown(), TestWorkerTriggerShutdown(), Registry, NewWorker() (+2 more)
 
-### Community 185 - "Service"
-Cohesion: 0.20
-Nodes (10): RWMutex, Time, GetDefaultLogger(), CancelFunc, Context, Manage(), Provider, Service (+2 more)
+### Community 186 - "Community 186"
+Cohesion: 0.16
+Nodes (13): RWMutex, Time, GetDefaultLogger(), CancelFunc, Context, Manage(), T, TestManageContextStaysLiveWhileRunning() (+5 more)
 
-### Community 186 - "sql.go"
-Cohesion: 0.20
-Nodes (9): T, TestExecWithRetry_BusyThenSuccess(), TestExecWithRetry_ContextCancel(), TestExecWithRetry_NonBusyError(), TestIsSQLiteBusyError(), coerceTime(), Time, isSQLiteBusyError() (+1 more)
-
-### Community 187 - "LinkedInSource"
+### Community 187 - "Community 187"
 Cohesion: 0.22
 Nodes (6): LinkedInSource, Client, Context, Duration, Time, NewLinkedInSource()
 
-### Community 189 - "RedisSink"
+### Community 189 - "Community 189"
 Cohesion: 0.21
 Nodes (7): Client, Context, Mutex, NewRedisSink(), T, TestRedisSink_Write(), RedisSink
 
-### Community 190 - "SlackSink"
+### Community 190 - "Community 190"
 Cohesion: 0.29
 Nodes (6): Context, NewSlackSink(), T, TestSlackSink_Write_Bot(), TestSlackSink_Write_Webhook(), SlackSink
 
-### Community 191 - "Sink"
-Cohesion: 0.26
-Nodes (8): Config, Conn, Context, Dialer, Duration, Mutex, New(), Sink
+### Community 191 - "Community 191"
+Cohesion: 0.20
+Nodes (10): Config, Conn, Context, Dialer, Duration, Mutex, New(), T (+2 more)
 
-### Community 192 - "Source"
+### Community 192 - "Community 192"
 Cohesion: 0.22
 Nodes (6): Client, Context, Mutex, NewSource(), Source, SourceConfig
 
-### Community 193 - ".resolveSecrets"
-Cohesion: 0.22
-Nodes (9): Context, ResolveSecret(), T, TestCombinedManager(), TestEnvManager(), TestResolveSecret(), CombinedManager, EnvManager (+1 more)
+### Community 193 - "Community 193"
+Cohesion: 0.12
+Nodes (15): ADMIN_ROLE, SOURCE_TYPES, SourceForm(), SourceFormProps, SourceWizard(), SourceWizardProps, CDCReuseModal(), CDCReuseModalProps (+7 more)
 
-### Community 195 - "Sink"
+### Community 194 - "Community 194"
 Cohesion: 0.28
 Nodes (7): Config, Sink, Client, Context, RWMutex, Time, NewSink()
 
-### Community 196 - "FileSink"
+### Community 195 - "Community 195"
 Cohesion: 0.21
 Nodes (7): FileSink, Context, File, Mutex, NewFileSink(), T, TestFileSink()
 
-### Community 197 - "GoogleSheetsSource"
+### Community 196 - "Community 196"
 Cohesion: 0.24
 Nodes (4): GoogleSheetsSource, Context, Duration, NewGoogleSheetsSource()
 
-### Community 198 - "wsWriteJSON"
-Cohesion: 0.45
-Nodes (7): Conn, Handler, Request, ResponseWriter, startWSReadPump(), wsWriteJSON(), wsWritePing()
-
-### Community 199 - "loginAttemptKey"
-Cohesion: 0.23
-Nodes (11): loginAttempt, clientIP(), Mutex, Request, Time, loginAttemptKey(), T, TestLoginAttemptKeyScoping() (+3 more)
-
-### Community 200 - "registry.go"
+### Community 197 - "Community 197"
 Cohesion: 0.19
 Nodes (9): CancelFunc, Engine, Time, Workflow, activeEngine, LiveMessage, lookupCacheEntry, PIIStats (+1 more)
 
-### Community 201 - "Registry"
-Cohesion: 0.19
-Nodes (3): Context, Registry, Sink
-
-### Community 202 - "Worker"
+### Community 198 - "Community 198"
 Cohesion: 0.27
 Nodes (3): Duration, Time, Worker
 
-### Community 203 - "Sink"
+### Community 199 - "Community 199"
 Cohesion: 0.29
 Nodes (7): Config, Sink, Client, Context, Mutex, NewSink(), toFloat32Slice()
 
-### Community 204 - "Engine"
+### Community 200 - "Community 200"
 Cohesion: 0.21
 Nodes (7): Engine, Scanner, NewEngine(), T, TestEngine_Discover(), TestEngine_Mask(), Regexp
 
-### Community 205 - "BatchBufferSink"
+### Community 201 - "Community 201"
 Cohesion: 0.31
 Nodes (7): CancelFunc, Context, Duration, Mutex, Sink, NewBatchBufferSink(), BatchBufferSink
 
-### Community 206 - "S3ParquetSink"
-Cohesion: 0.27
-Nodes (6): Client, Context, NewS3ParquetSink(), T, TestNewS3ParquetSink(), S3ParquetSink
+### Community 202 - "Community 202"
+Cohesion: 0.28
+Nodes (12): T, TestBuildColumnDefinition(), TestBuildUpsertQuery(), TestFilterNilMessages(), TestIsEmptyIdentity(), TestQuoteColumn(), TestResolveDataType(), TestResolveOperation() (+4 more)
 
-### Community 207 - "evaluator_test.go"
+### Community 203 - "Community 203"
 Cohesion: 0.28
 Nodes (12): T, TestEvaluateConditions_CDCEnvelopeAliasing(), TestEvaluateConditions_CDCMetaFields(), TestEvaluateConditions_DateAndFunctions(), TestEvaluateConditions_NilMessage(), TestEvaluateConditions_NumericTrimAndMissing(), TestEvaluateConditions_Regex(), TestEvaluateConditions_ValueTemplateResolution() (+4 more)
 
-### Community 208 - "startAPI"
-Cohesion: 0.33
-Nodes (11): Config, Context, Registry, Storage, Worker, runServer(), runWorkerOnly(), startAPI() (+3 more)
+### Community 204 - "Community 204"
+Cohesion: 0.24
+Nodes (9): Context, ResolveSecret(), T, TestCombinedManager(), TestEnvManager(), TestResolveSecret(), CombinedManager, EnvManager (+1 more)
 
-### Community 209 - "stubCtx"
-Cohesion: 0.18
-Nodes (3): stubCtx, Context, Sink
+### Community 205 - "Community 205"
+Cohesion: 0.24
+Nodes (15): Config, Context, Options, Registry, Storage, Worker, runServer(), runWorkerOnly() (+7 more)
 
-### Community 210 - "FacebookSink"
+### Community 206 - "Community 206"
+Cohesion: 0.40
+Nodes (3): BackpressureStrategy, SinkConfig, Duration
+
+### Community 207 - "Community 207"
 Cohesion: 0.29
 Nodes (6): FacebookSink, Context, NewFacebookSink(), T, TestFacebookSink_Ping(), TestFacebookSink_Write()
 
-### Community 211 - "FTPSink"
+### Community 208 - "Community 208"
 Cohesion: 0.29
 Nodes (6): FTPSink, Context, Duration, ServerConn, NewFTPSink(), render()
 
-### Community 212 - "Log"
+### Community 209 - "Community 209"
 Cohesion: 0.20
-Nodes (5): lockoutMockStorage, Context, Storage, User, Log
+Nodes (8): HTTPSource, Client, Context, Duration, Time, NewHTTPSource(), T, TestHTTPSource_Read()
 
-### Community 213 - "HTTPSource"
-Cohesion: 0.27
-Nodes (6): HTTPSource, Client, Context, Duration, Time, NewHTTPSource()
+### Community 210 - "Community 210"
+Cohesion: 0.26
+Nodes (6): workerStartMockStorage, Context, Storage, T, Worker, TestStartWorker()
 
-### Community 214 - "InstagramSink"
+### Community 211 - "Community 211"
 Cohesion: 0.29
 Nodes (6): InstagramSink, Context, NewInstagramSink(), T, TestInstagramSink_Ping(), TestInstagramSink_Write()
 
-### Community 215 - "SelfCorrectionGate"
-Cohesion: 0.24
-Nodes (9): NewSelfHealingService(), Duration, Engine, RWMutex, Time, NewSelfCorrectionGate(), CorrectionAction, FailurePattern (+1 more)
+### Community 212 - "Community 212"
+Cohesion: 0.12
+Nodes (18): ackTrackingSource, drainSource, recordingSink, CancelFunc, Config, Context, Duration, Int64 (+10 more)
 
-### Community 216 - ".Get"
-Cohesion: 0.26
-Nodes (9): Context, T, TestWasmTransformer_Base64Invalid(), TestWasmTransformer_Registration(), TestWasmTransformer_Transform_MissingBinary(), T, TestForeach_Basic(), TestForeach_DropEmpty() (+1 more)
+### Community 213 - "Community 213"
+Cohesion: 0.21
+Nodes (3): Context, Registry, Sink
 
-### Community 217 - "Worker"
-Cohesion: 0.29
+### Community 214 - "Community 214"
+Cohesion: 0.33
 Nodes (5): Context, Duration, Sink, Source, Worker
 
-### Community 218 - "LinkedInSink"
+### Community 215 - "Community 215"
 Cohesion: 0.29
 Nodes (6): LinkedInSink, Context, NewLinkedInSink(), T, TestLinkedInSink_Ping(), TestLinkedInSink_Write()
 
-### Community 219 - "NatsJetStreamSink"
+### Community 216 - "Community 216"
 Cohesion: 0.26
 Nodes (7): NatsJetStreamSink, Conn, Context, JetStreamContext, Mutex, Option, NewNatsJetStreamSink()
 
-### Community 220 - "TikTokSink"
+### Community 217 - "Community 217"
 Cohesion: 0.29
 Nodes (6): Context, NewTikTokSink(), T, TestTikTokSink_Ping(), TestTikTokSink_Write(), TikTokSink
 
-### Community 221 - "TwitterSink"
+### Community 218 - "Community 218"
 Cohesion: 0.29
 Nodes (6): Context, NewTwitterSink(), T, TestTwitterSink_Ping(), TestTwitterSink_Write(), TwitterSink
 
-### Community 222 - "PollingSource"
+### Community 219 - "Community 219"
 Cohesion: 0.27
 Nodes (5): Context, DB, Duration, NewPollingSource(), PollingSource
 
-### Community 223 - "compilerOptions"
+### Community 220 - "Community 220"
 Cohesion: 0.17
 Nodes (10): cypress, es5, **/*.ts, compilerOptions, lib, target, types, include (+2 more)
 
-### Community 224 - "App.tsx"
-Cohesion: 0.20
-Nodes (7): App(), queryClient, VHostContext, VHostContextType, VHostProvider(), theme, router
-
-### Community 225 - "DetailFlowCanvas.tsx"
+### Community 221 - "Community 221"
 Cohesion: 0.20
 Nodes (5): DebugEvent, WorkflowDebugger(), DetailFlowCanvas(), DetailFlowCanvasProps, nodeTypes
 
-### Community 226 - "rollingStats"
+### Community 222 - "Community 222"
 Cohesion: 0.29
 Nodes (4): rollingStats, StatValidatorTransformer, Context, RWMutex
 
-### Community 227 - "mockReadySource"
+### Community 223 - "Community 223"
 Cohesion: 0.24
 Nodes (6): mockReadySource, Context, Mutex, Source, T, TestEngineUsesReadyChecker()
 
-### Community 228 - "panicSource"
+### Community 224 - "Community 224"
+Cohesion: 0.38
+Nodes (3): panicSource, Context, Mutex
+
+### Community 226 - "Community 226"
+Cohesion: 0.17
+Nodes (13): lockoutMockStorage, clientIP(), Request, loginAttemptKey(), SanitizeDBError(), Context, Storage, T (+5 more)
+
+### Community 227 - "Community 227"
+Cohesion: 0.11
+Nodes (22): Mutex, Registry, T, Workflow, newSupervisorHarness(), TestManualStopRefillsTheRestartBudget(), TestSuperviseStallRebuildsTheWorkflow(), TestSupervisorBacksOffBetweenRestarts() (+14 more)
+
+### Community 228 - "Community 228"
 Cohesion: 0.27
-Nodes (6): panicSource, Context, Mutex, T, TestEnginePanicDoesNotAffectSiblingWorkflow(), TestEnginePanicIsolation()
+Nodes (9): T, TestExecWithRetry_BusyThenSuccess(), TestExecWithRetry_ContextCancel(), TestExecWithRetry_NonBusyError(), TestIsSQLiteBusyError(), coerceTime(), Time, isSQLiteBusyError() (+1 more)
 
-### Community 229 - "workerStartMockStorage"
-Cohesion: 0.27
-Nodes (6): workerStartMockStorage, Context, Storage, T, Worker, TestStartWorker()
-
-### Community 230 - "TestHttpSinkCompression"
-Cohesion: 0.22
-Nodes (7): mockFormatter, T, TestHttpSinkCompression(), NewHttpSink(), T, TestHttpSink_Ping(), TestHttpSink_Write()
-
-### Community 232 - "security_test.go"
-Cohesion: 0.33
-Nodes (10): T, TestCorsMiddlewareAllowsConfiguredOrigin(), TestCorsMiddlewareDeniesUnknownOrigin(), TestIsCORSOriginAllowed(), TestIsOriginAllowedExactHost(), TestIsRateLimitedConcurrent(), TestIsSafeWasmURL(), TestIsValidFormPath() (+2 more)
-
-### Community 233 - "client.go"
+### Community 229 - "Community 229"
 Cohesion: 0.20
 Nodes (10): IP, Fetch(), Client, Context, Duration, Response, IsIPPrivate(), NewSecureClient() (+2 more)
 
-### Community 234 - "PubSubSink"
+### Community 230 - "Community 230"
+Cohesion: 0.09
+Nodes (14): retainingIdleSource, unknownPendingSource, Bool, Context, T, Uint64, TestGrowingLagAloneIsNotAStall(), T (+6 more)
+
+### Community 231 - "Community 231"
 Cohesion: 0.31
 Nodes (6): Client, Context, Mutex, NewPubSubSink(), PubSubSink, Topic
 
-### Community 235 - "RabbitMQQueueSink"
+### Community 232 - "Community 232"
 Cohesion: 0.31
 Nodes (6): Channel, Connection, Context, Mutex, NewRabbitMQQueueSink(), RabbitMQQueueSink
 
-### Community 236 - "WebhookSource"
-Cohesion: 0.27
-Nodes (6): Dispatch(), Context, NewWebhookSource(), Register(), Unregister(), WebhookSource
+### Community 233 - "Community 233"
+Cohesion: 0.14
+Nodes (8): Context, Duration, RWMutex, Source, Time, NewPrioritySource(), readyOrPing(), PrioritySource
 
-### Community 237 - "PrioritySource"
-Cohesion: 0.25
-Nodes (4): Context, Source, NewPrioritySource(), PrioritySource
-
-### Community 238 - "dataWorker.ts"
+### Community 234 - "Community 234"
 Cohesion: 0.25
 Nodes (5): useDataWorker(), LiveMessage, LiveStreamInspector(), DataRequest, DataResponse
 
-### Community 239 - "index.ts"
-Cohesion: 0.18
-Nodes (10): WorkflowState, LogEntry, Role, Sink, Source, User, VHost, Worker (+2 more)
+### Community 235 - "Community 235"
+Cohesion: 0.22
+Nodes (8): Role, Sink, Source, User, VHost, Worker, Workflow, Workspace
 
-### Community 240 - "ParameterizeTemplate"
-Cohesion: 0.20
-Nodes (6): ExecuteSQLTransformer, Context, GetFromMapPath(), ParameterizeTemplate(), T, TestParameterizeTemplate()
-
-### Community 241 - "mockStorage"
+### Community 236 - "Community 236"
 Cohesion: 0.22
 Nodes (7): mockStorage, Context, Storage, T, User, VHost, TestFullServerVHostsRouting()
 
-### Community 242 - "NewPebbleStorage"
-Cohesion: 0.29
-Nodes (8): Cache, cacheBytesFromEnv(), Storage, newPebbleOptions(), NewPebbleStorage(), T, TestCacheBytesFromEnv(), TestNewPebbleOptions_Bounds()
+### Community 237 - "Community 237"
+Cohesion: 0.26
+Nodes (3): BackendMessage, Conn, Time
 
-### Community 243 - "HttpSink"
+### Community 238 - "Community 238"
+Cohesion: 0.25
+Nodes (9): Cache, cacheBytesFromEnv(), Options, Storage, newPebbleOptions(), NewPebbleStorage(), T, TestCacheBytesFromEnv() (+1 more)
+
+### Community 239 - "Community 239"
+Cohesion: 0.27
+Nodes (10): buildUIAndExit(), filterServiceArgs(), main(), IsUIEmbedded(), BuildUI(), CanBuildUI(), copyDir(), ensureBun() (+2 more)
+
+### Community 240 - "Community 240"
 Cohesion: 0.36
 Nodes (4): Compressor, HttpSink, Client, Context
 
-### Community 244 - "CronSource"
+### Community 241 - "Community 241"
 Cohesion: 0.27
 Nodes (5): CronSource, EntryID, Context, Cron, NewCronSource()
 
-### Community 245 - ".handleXLogData"
-Cohesion: 0.27
-Nodes (4): DeleteMessage, InsertMessage, LSN, UpdateMessage
+### Community 242 - "Community 242"
+Cohesion: 0.19
+Nodes (5): DeleteMessage, InsertMessage, LSN, isPIDAlive(), UpdateMessage
 
-### Community 246 - "closeTrackingSource"
-Cohesion: 0.27
-Nodes (5): closeTrackingSource, Bool, Context, T, TestGracefulStopClosesSource()
+### Community 243 - "Community 243"
+Cohesion: 0.32
+Nodes (3): closeTrackingSource, Bool, Context
 
-### Community 247 - "Engine"
+### Community 244 - "Community 244"
 Cohesion: 0.22
 Nodes (4): Context, Duration, Engine, Time
 
-### Community 248 - "DefaultLogger"
+### Community 245 - "Community 245"
+Cohesion: 0.24
+Nodes (22): Duration, Registry, T, Workflow, multiPipelineWorkflow(), newPipeStorage(), startMultiPipeline(), TestMultiPipelineOneSinkDownDoesNotStarveHealthySinks() (+14 more)
+
+### Community 246 - "Community 246"
 Cohesion: 0.31
 Nodes (4): Event, Sampler, NewDefaultLogger(), DefaultLogger
 
-### Community 249 - "StringMap"
-Cohesion: 0.24
-Nodes (7): SinkConfig, SourceConfig, StringMap, Duration, Sink, Source, coerceToString()
+### Community 247 - "Community 247"
+Cohesion: 0.15
+Nodes (10): SinkConfig, SourceConfig, StringMap, resolveSinkNodeSequential(), T, TestResolveSinkNodeSequential(), Duration, Sink (+2 more)
 
-### Community 250 - ".Execute"
+### Community 248 - "Community 248"
 Cohesion: 0.27
 Nodes (5): Filter, Context, Mutex, init(), DeduplicateNode
 
-### Community 251 - ".Read"
-Cohesion: 0.20
-Nodes (8): BackupData, generateJWTSecret(), Sink, Source, VHost, Workflow, Workspace, maskDSN()
-
-### Community 252 - ".ServeFormPage"
-Cohesion: 0.36
-Nodes (5): FormField, Handler, Request, ResponseWriter, isValidFormPath()
-
-### Community 253 - ".HandleApprovalDecision"
+### Community 249 - "Community 249"
 Cohesion: 0.44
-Nodes (4): Handler, Request, ResponseWriter, ServeMux
+Nodes (4): ApprovalHandler, Request, ResponseWriter, ServeMux
 
-### Community 254 - "loadDeliveredSample"
-Cohesion: 0.31
-Nodes (7): hasSampleData(), loadDeliveredSample(), recordDeliveredSample(), T, TestHasSampleData(), TestRecordAndLoadDeliveredSample(), TestRecordDeliveredSampleStoresClone()
+### Community 250 - "Community 250"
+Cohesion: 0.15
+Nodes (14): DBConfig, BackupData, SubstituteEnvVars(), getDBConfigPath(), IsDBConfigured(), LoadDBConfig(), SaveDBConfig(), generateJWTSecret() (+6 more)
 
-### Community 255 - "Context"
+### Community 251 - "Community 251"
 Cohesion: 0.31
 Nodes (5): Context, T, TestTestSource_NilSourceGuard(), TestTestSource_PanicContained(), panicSource
 
-### Community 256 - ".applyTransformation"
+### Community 252 - "Community 252"
 Cohesion: 0.22
 Nodes (4): getConfigString(), Engine, PIIEngine(), Transformation
 
-### Community 257 - "newFailbackWorker"
+### Community 253 - "Community 253"
 Cohesion: 0.40
 Nodes (9): assertNoDoubleRun(), Registry, T, Worker, newFailbackStore(), newFailbackWorker(), runningCount(), setWorkerLoad() (+1 more)
 
-### Community 258 - "KinesisSink"
+### Community 254 - "Community 254"
 Cohesion: 0.31
 Nodes (5): KinesisSink, Client, Context, Mutex, NewKinesisSink()
 
-### Community 259 - "PublishResponse"
-Cohesion: 0.20
-Nodes (4): MessageState, PublishResponse, SizeCache, UnknownFields
-
-### Community 260 - "Sink"
+### Community 256 - "Community 256"
 Cohesion: 0.33
 Nodes (5): Sink, Client, ClientOptions, Context, New()
 
-### Community 261 - "Sink"
+### Community 257 - "Community 257"
 Cohesion: 0.38
 Nodes (5): Config, Sink, Client, Context, NewSink()
 
-### Community 262 - "PulsarSink"
+### Community 258 - "Community 258"
 Cohesion: 0.33
 Nodes (5): Client, Context, Mutex, NewPulsarSink(), PulsarSink
 
-### Community 263 - "RabbitMQStreamSink"
+### Community 259 - "Community 259"
 Cohesion: 0.33
 Nodes (5): Context, Environment, Mutex, NewRabbitMQStreamSink(), RabbitMQStreamSink
 
-### Community 264 - "Sink"
+### Community 260 - "Community 260"
 Cohesion: 0.38
 Nodes (5): Client, Context, NewSink(), Config, Sink
 
-### Community 266 - "DetermineIdempotencyKey"
-Cohesion: 0.36
-Nodes (8): DetermineIdempotencyKey(), EnsureIdempotencyID(), IdempotencyRequired(), T, TestDetermineIdempotencyKey_Empty(), TestDetermineIdempotencyKey_MetadataPreferred(), TestEnsureIdempotencyID_SetsWhenEmpty(), TestIdempotencyRequired()
+### Community 262 - "Community 262"
+Cohesion: 0.08
+Nodes (27): benchLogger, benchSource, nullBatchSink, nullSink, RoutedMessage, BenchmarkBatchVsInflight(), BenchmarkEngineThroughput(), BenchmarkEngineThroughputBatched() (+19 more)
 
-### Community 267 - "EtcdStateStore"
+### Community 263 - "Community 263"
 Cohesion: 0.27
 Nodes (5): Client, Context, Duration, NewEtcdStateStore(), EtcdStateStore
 
-### Community 268 - "TransformationForm"
-Cohesion: 0.22
-Nodes (6): apiJson(), TransformationForm(), PreviewVars, usePreviewTransformation(), useTargetSchema(), UseTargetSchemaParams
+### Community 264 - "Community 264"
+Cohesion: 0.07
+Nodes (26): A CDC workflow stopped delivering, A workflow is not running anywhere, After a restart, Alerts, and what to do about them, Backup and restore, Crypto master key, Delivery guarantees, stated plainly, Hermod operations runbook (+18 more)
 
-### Community 269 - "mockRegistry"
+### Community 265 - "Community 265"
+Cohesion: 0.13
+Nodes (11): App(), ConfirmContext, ConfirmOptions, ConfirmProvider(), Resolver, VHostContext, VHostContextType, VHostProvider() (+3 more)
+
+### Community 266 - "Community 266"
 Cohesion: 0.31
 Nodes (6): mockRegistry, Context, DB, Source, T, TestSCDTransformer_AllTypes()
 
-### Community 270 - "Conn"
-Cohesion: 0.44
-Nodes (3): BackendMessage, Conn, Time
-
-### Community 271 - "Source"
+### Community 267 - "Community 267"
 Cohesion: 0.31
 Nodes (4): CDCPayload, Source, Context, NewSource()
 
-### Community 272 - "DB2Connector"
+### Community 268 - "Community 268"
 Cohesion: 0.33
 Nodes (3): DB2Connector, Context, NewDB2Connector()
 
-### Community 273 - "OracleConnector"
+### Community 269 - "Community 269"
 Cohesion: 0.33
 Nodes (3): OracleConnector, Context, NewOracleConnector()
 
-### Community 274 - "formStorageAdapter"
+### Community 270 - "Community 270"
 Cohesion: 0.25
-Nodes (4): FormSubmission, FormSubmissionFilter, formStorageAdapter, RegistryStorage
+Nodes (4): RegistryStorage, FormSubmission, FormSubmissionFilter, formStorageAdapter
 
-### Community 276 - "HTTP Sink Webhook Examples"
-Cohesion: 0.22
-Nodes (8): 1. Simple Webhook Receiver, 2. Authenticated Webhook Receiver, Configuration in Hermod, Examples, For the Authenticated example:, For the Simple example:, HTTP Sink Webhook Examples, Payload Structure
-
-### Community 277 - "LocalStorage"
+### Community 272 - "Community 272"
 Cohesion: 0.31
 Nodes (4): LocalStorage, Context, Reader, NewLocalStorage()
 
-### Community 278 - "mockStorageForValidation"
+### Community 273 - "Community 273"
+Cohesion: 0.33
+Nodes (4): JoinExecutor, Context, Mutex, init()
+
+### Community 274 - "Community 274"
 Cohesion: 0.28
 Nodes (7): mockStorageForValidation, Context, Storage, T, Workflow, TestHandleValidateWorkflow(), TestValidateWorkflow()
 
-### Community 279 - "TestWorkerAPIClient_LeaseAlwaysOwned"
+### Community 275 - "Community 275"
 Cohesion: 0.42
-Nodes (6): Context, T, TestJSONEqual(), TestRenewLeaseOnce(), TestWorkerAPIClient_LeaseAlwaysOwned(), leaseMockStorage
+Nodes (4): SchemaHandler, Request, ResponseWriter, ServeMux
 
-### Community 280 - "TestWorkerStartRecoversFromPanic"
+### Community 276 - "Community 276"
+Cohesion: 0.12
+Nodes (10): Approval, Bool, Context, Int64, Mutex, Sink, Source, pipeSink (+2 more)
+
+### Community 277 - "Community 277"
+Cohesion: 0.39
+Nodes (7): loadDeliveredSample(), recordDeliveredSample(), T, hasSampleData(), TestHasSampleData(), TestRecordAndLoadDeliveredSample(), TestRecordDeliveredSampleStoresClone()
+
+### Community 278 - "Community 278"
+Cohesion: 0.17
+Nodes (19): AEAD, keyState, Decrypt(), derive(), deriveLegacy(), Encrypt(), EncryptWith(), init() (+11 more)
+
+### Community 279 - "Community 279"
 Cohesion: 0.28
 Nodes (6): Context, T, Worker, Workflow, TestWorkerStartRecoversFromPanic(), panicStorage
 
-### Community 281 - "Router"
-Cohesion: 0.28
-Nodes (5): ClusterNode, Router, Context, RWMutex, NewRouter()
+### Community 280 - "Community 280"
+Cohesion: 0.12
+Nodes (8): Logger, ClusterNode, Router, Context, NewStdoutSink(), RWMutex, NewRouter(), StdoutSink
 
-### Community 282 - "S3Sink"
-Cohesion: 0.36
-Nodes (4): Client, Context, NewS3Sink(), S3Sink
+### Community 281 - "Community 281"
+Cohesion: 0.19
+Nodes (21): T, TestAPILookupDoesNotSilentlySucceedOnAnError(), TestAPILookupEnrichesFromTheEndpoint(), Registry, T, Workflow, newSimRegistry(), simWorkflow() (+13 more)
 
-### Community 283 - "RedisStateStore"
+### Community 282 - "Community 282"
+Cohesion: 0.16
+Nodes (15): Encrypt(), IsEncrypted(), IsSensitive(), ReEncrypt(), T, TestDecryptDoesNotHandBackCiphertext(), TestEncryptDecryptRoundTrips(), TestNonSecretConfigKeysAreLeftAlone() (+7 more)
+
+### Community 283 - "Community 283"
 Cohesion: 0.31
 Nodes (5): Client, Context, Duration, NewRedisStateStore(), RedisStateStore
 
-### Community 284 - "scripts"
-Cohesion: 0.22
-Nodes (9): scripts, build, cypress:open, cypress:run, dev, fix:icons, lint, preview (+1 more)
+### Community 284 - "Community 284"
+Cohesion: 0.15
+Nodes (13): scripts, build, cypress:open, cypress:run, dev, fix:icons, lint, lint:fix (+5 more)
 
-### Community 285 - "AggregateTransformer"
+### Community 285 - "Community 285"
+Cohesion: 0.24
+Nodes (20): Handler, Request, T, guarded(), metricsRequest(), TestHealthProbesStayOpenWhenMetricsIsGuarded(), TestMetricsOpenByDefault(), TestMetricsRequiresTokenWhenConfigured() (+12 more)
+
+### Community 286 - "Community 286"
 Cohesion: 0.25
 Nodes (5): AggregateTransformer, aggState, Map, Mutex, Time
 
-### Community 286 - "TestBatchSQLSource"
+### Community 287 - "Community 287"
 Cohesion: 0.39
 Nodes (6): mockDBProvider, Context, DB, T, TestBatchSQLSource(), TestBatchSQLSource_Sample()
 
-### Community 287 - "RingBuffer"
-Cohesion: 0.29
+### Community 288 - "Community 288"
+Cohesion: 0.25
 Nodes (4): RingBuffer, Context, Handler, RWMutex
 
-### Community 288 - "LoadDBConfig"
-Cohesion: 0.46
-Nodes (6): DBConfig, SubstituteEnvVars(), getDBConfigPath(), IsDBConfigured(), LoadDBConfig(), SaveDBConfig()
+### Community 289 - "Community 289"
+Cohesion: 0.15
+Nodes (7): Context, Duration, T, Time, TestSourceWrappersForwardOptionalInterfaces(), fullSource, inertSource
 
-### Community 289 - ".Execute"
-Cohesion: 0.43
-Nodes (4): WaitNode, Context, Duration, init()
+### Community 290 - "Community 290"
+Cohesion: 0.30
+Nodes (15): decode(), CancelFunc, Context, DB, Duration, Mutex, T, mustExec() (+7 more)
 
-### Community 290 - "CheckpointManager"
+### Community 291 - "Community 291"
 Cohesion: 0.39
 Nodes (5): CheckpointManager, Context, Engine, Mutex, NewCheckpointManager()
 
-### Community 291 - "TestPublishAuthentication"
-Cohesion: 0.32
-Nodes (6): mockStorage, Context, Source, Storage, T, TestPublishAuthentication()
+### Community 292 - "Community 292"
+Cohesion: 0.39
+Nodes (4): LogHandler, Request, ResponseWriter, ServeMux
 
-### Community 292 - ".HandleValidateWorkflow"
+### Community 293 - "Community 293"
 Cohesion: 0.29
-Nodes (5): ValidationIssue, Handler, Request, ResponseWriter, Workflow
+Nodes (5): ValidationIssue, WorkflowHandler, Request, ResponseWriter, Workflow
 
-### Community 294 - "NewCompressor"
+### Community 297 - "Community 297"
+Cohesion: 0.18
+Nodes (3): fakeMessage, T, TestBuildSampleMessage()
+
+### Community 298 - "Community 298"
 Cohesion: 0.32
 Nodes (6): T, TestFileBufferWithCompression(), NewCompressor(), T, TestCompressors(), TestEmptyData()
 
-### Community 295 - "NewPostgresSink"
-Cohesion: 0.29
-Nodes (6): NewPostgresSink(), T, TestPostgresSink_CloseIsIdempotent(), TestPostgresSink_ConvertValue(), T, TestReproPingTimeout()
+### Community 299 - "Community 299"
+Cohesion: 0.25
+Nodes (5): ColumnInfo, Duration, Pool, Time, loadColumns()
 
-### Community 296 - "TelegramSink"
+### Community 300 - "Community 300"
+Cohesion: 0.20
+Nodes (16): bulkITDSN(), bulkITMappings(), bulkITMsg(), dropTable(), dumpTable(), ColumnMapping, T, TestBulkCopyMatchesOrderedPath() (+8 more)
+
+### Community 301 - "Community 301"
 Cohesion: 0.46
 Nodes (3): Context, NewTelegramSink(), TelegramSink
 
-### Community 297 - "Hermod Development Roadmap & Ideas"
-Cohesion: 0.25
-Nodes (6): 🤖 AI & Data Intelligence, 🚀 Enhanced Control Flow & Reliability (Implemented ✅), 🏢 Enterprise Governance & Observability, Hermod Development Roadmap & Ideas, 🔗 Infrastructure & Connectivity, ✨ "Zero-Entry" Ease of Use
-
-### Community 298 - "fix-tabler-icons.js"
+### Community 302 - "Community 302"
 Cohesion: 0.32
 Nodes (7): collectFiles(), __dirname, __filename, main(), rebuildTablerImport(), SRC_DIR, UI_DIR
 
-### Community 299 - "DatabaseSourceConfig.tsx"
-Cohesion: 0.29
-Nodes (6): DatabaseSourceConfig(), DatabaseSourceConfigProps, PostgresReplicationConfig(), PostgresReplicationConfigProps, Publication, ReplicationSlot
+### Community 303 - "Community 303"
+Cohesion: 0.09
+Nodes (21): coverage, dist, jsx-a11y, node_modules, typescript, categories, correctness, ignorePatterns (+13 more)
 
-### Community 300 - "KubernetesWorkerManager"
+### Community 304 - "Community 304"
+Cohesion: 0.29
+Nodes (7): Layered Architecture Pattern, Rust Token Killer (RTK), UI Build, Change Data Capture (CDC), Hermod Platform, Authentication Strategy, Drag-and-Drop Workflow Editor
+
+### Community 305 - "Community 305"
+Cohesion: 0.22
+Nodes (12): Bool, Context, Int64, T, newIsoMultiSource(), TestMultiSourceBrokenPeerDoesNotHotSpin(), TestMultiSourceHealthySiblingsKeepDeliveringWhileOnePeerIsDown(), TestMultiSourceReaderExitsOnCancel() (+4 more)
+
+### Community 306 - "Community 306"
 Cohesion: 0.33
 Nodes (4): KubernetesWorkerManager, Context, Storage, Worker
 
-### Community 301 - "setupRegistry"
-Cohesion: 0.57
-Nodes (6): applyEngineConfig(), Config, Registry, Storage, initRegistryComponents(), setupRegistry()
+### Community 307 - "Community 307"
+Cohesion: 0.29
+Nodes (7): Hermod Enterprise Edition, Hermod Platform Feature Set, Hermod Worker CLI Command, Worker Installation Command Instructions, Worker Token Security Policy, Hermod Worker Registration Success Page, Worker Token Authentication
 
-### Community 302 - ".Execute"
+### Community 308 - "Community 308"
+Cohesion: 0.21
+Nodes (12): applyEngineConfig(), Config, Options, Registry, Storage, initRegistryComponents(), setupRegistry(), Context (+4 more)
+
+### Community 309 - "Community 309"
+Cohesion: 0.38
+Nodes (5): Context, T, User, TestComputeSetupStatus(), fakeUserLister
+
+### Community 310 - "Community 310"
 Cohesion: 0.33
 Nodes (4): ApprovalNode, Approval, Context, init()
 
-### Community 303 - "switch_test.go"
-Cohesion: 0.38
-Nodes (5): switchStubCtx, T, TestSwitch_Execute_Default(), TestSwitch_Execute_Function(), TestSwitch_Execute_Regex()
-
-### Community 304 - "OutboxTransactionalSource"
+### Community 311 - "Community 311"
 Cohesion: 0.38
 Nodes (3): OutboxTransactionalSource, Context, Source
 
-### Community 305 - "Hermod SSE Sink Example"
-Cohesion: 0.29
-Nodes (6): Browser Compatibility, Hermod SSE Sink Example, How it works, Security, Setup Instructions, SSE Endpoint Details
-
-### Community 306 - ".GetSchemaHistory"
-Cohesion: 0.62
-Nodes (3): Handler, Request, ResponseWriter
-
-### Community 307 - ".HandleReadiness"
+### Community 312 - "Community 312"
 Cohesion: 0.38
-Nodes (4): Handler, Request, ResponseWriter, statusFromBool()
+Nodes (4): InfraHandler, Request, ResponseWriter, statusFromBool()
 
-### Community 309 - "Security Guidelines (Draft)"
+### Community 313 - "Community 313"
+Cohesion: 0.15
+Nodes (14): batchOf(), bulkTestMappings(), ColumnMapping, T, msgWithOp(), TestClassifyBatch(), TestDedupeByKeyLastWins(), dedupeByKeyLastWins() (+6 more)
+
+### Community 315 - "Community 315"
+Cohesion: 0.15
+Nodes (6): blockingSink, idleSource, silentLaggingSource, Bool, Context, Uint64
+
+### Community 316 - "Community 316"
 Cohesion: 0.29
-Nodes (6): Authentication, Content Security Policy (CSP), CSRF Protection (when using cookies), Next Steps, Secrets & PII, Security Guidelines (Draft)
+Nodes (6): dependencies, devDependencies, @playwright/test, @types/node, @types/node, @playwright/test
 
-### Community 310 - "package.json"
+### Community 317 - "Community 317"
 Cohesion: 0.29
 Nodes (6): name, private, resolutions, caniuse-lite, type, version
 
-### Community 311 - "SetupPage.tsx"
+### Community 318 - "Community 318"
+Cohesion: 0.16
+Nodes (8): Context, Duration, Mutex, Context, discardingLogCreator, failingLogCreator, slowLogCreator, Log
+
+### Community 319 - "Community 319"
+Cohesion: 0.21
+Nodes (15): die(), HERMOD_CONFIG_DIR, HERMOD_JWT_SECRET, ok(), on_exit(), require_container_cli(), rt_exec(), rt_ls_all() (+7 more)
+
+### Community 320 - "Community 320"
 Cohesion: 0.38
 Nodes (4): buildConnForFetch(), defaultPort(), handleFetchDatabases(), SetupPageProps
 
-### Community 312 - ".Transform"
+### Community 321 - "Community 321"
 Cohesion: 0.33
 Nodes (3): SamplingTransformer, Context, Rand
 
-### Community 314 - ".Execute"
+### Community 323 - "Community 323"
 Cohesion: 0.40
 Nodes (3): RouterNode, Context, init()
 
-### Community 315 - ".Execute"
+### Community 324 - "Community 324"
 Cohesion: 0.40
 Nodes (3): SwitchNode, Context, init()
 
-### Community 316 - ".CreateLog"
-Cohesion: 0.60
-Nodes (3): Handler, Request, ResponseWriter
+### Community 325 - "Community 325"
+Cohesion: 0.33
+Nodes (4): DashboardHandler, Request, ResponseWriter, ServeMux
 
-### Community 317 - "TestHandleStatusWS_ReleasesSubscriberOnClientDisconnect"
+### Community 326 - "Community 326"
 Cohesion: 0.47
-Nodes (5): Duration, Registry, T, TestHandleStatusWS_ReleasesSubscriberOnClientDisconnect(), waitForStatusSubscribers()
+Nodes (4): FileHandler, Handler, ServeMux, NewFileHandler()
 
-### Community 318 - "nil_storage_test.go"
+### Community 327 - "Community 327"
 Cohesion: 0.53
 Nodes (5): T, TestNewRegistry_NoPanicWithoutStorage(), TestReconcileSuspendedMessages_NilStorage(), TestRegistry_Methods_NilStorage(), TestRegistry_ValidateWorkflow_NilStorage()
 
-### Community 319 - "sql_placeholder_test.go"
+### Community 329 - "Community 329"
 Cohesion: 0.53
 Nodes (5): T, TestPreparePlaceholders_Default_Extra(), TestPreparePlaceholders_PGX_Extra(), TestPreparePlaceholders_SQLServer_Extra(), TestPrepareQuery_Types()
 
-### Community 320 - "reproduction_nil_storage_test.go"
+### Community 330 - "Community 330"
+Cohesion: 0.47
+Nodes (5): awaitRows(), DB, Duration, T, TestTwoWorkerLeaseFailover()
+
+### Community 331 - "Community 331"
 Cohesion: 0.53
 Nodes (5): T, TestGetOrOpenDBByID_NilStorage(), TestGetSource_NilStorage(), TestRebuildWorkflow_NilStorage(), TestStartWorkflow_NilStorage()
 
-### Community 322 - ".Transform"
+### Community 332 - "Community 332"
+Cohesion: 0.19
+Nodes (14): sqlSinkCtor, fmtr(), Sink, Source, T, sinkOrSkip(), sourceOrSkip(), TestRegistryCoversFormatter() (+6 more)
+
+### Community 333 - "Community 333"
+Cohesion: 0.26
+Nodes (15): rbacStorage, configuredSystem(), Context, Request, Role, Storage, T, User (+7 more)
+
+### Community 334 - "Community 334"
 Cohesion: 0.40
 Nodes (3): MulticastTransformer, Context, toString()
 
-### Community 324 - "source.pb.go"
-Cohesion: 0.40
-Nodes (3): file_pkg_source_grpc_proto_source_proto_init(), file_pkg_source_grpc_proto_source_proto_rawDescGZIP(), init()
-
-### Community 325 - "ParseColumnMappings"
-Cohesion: 0.40
-Nodes (4): ParseColumnMappings(), T, TestParseColumnMappings(), ColumnMapping
-
-### Community 326 - "ScanRows"
+### Community 335 - "Community 335"
 Cohesion: 0.33
 Nodes (4): Rows, ScanRows(), T, TestScanRows()
 
-### Community 327 - "TestVerifyEmailExists"
+### Community 336 - "Community 336"
 Cohesion: 0.33
 Nodes (4): Context, T, TestVerifyEmailExists(), VerifyEmailExists()
 
-### Community 328 - "Usage"
-Cohesion: 0.33
-Nodes (6): API Mode (Default), As a Library, As an Application, Hermod CLI (`hermodctl`), Multi-Platform Support, Usage
-
-### Community 329 - "Hermod Management Platform UI"
-Cohesion: 0.33
-Nodes (5): Build Verification, Development, Hermod Management Platform UI, Key Features, Production Build
-
-### Community 331 - "LineagePage.tsx"
+### Community 338 - "Community 338"
 Cohesion: 0.40
 Nodes (4): getLayoutedElements(), LineageEdge, LineagePage(), nodeTypes
 
-### Community 337 - ".Execute"
-Cohesion: 0.40
-Nodes (3): ForeachNode, Context, init()
+### Community 339 - "Community 339"
+Cohesion: 0.29
+Nodes (3): DashboardStats, StatCardProps, RFC-6455
 
-### Community 338 - ".Execute"
-Cohesion: 0.40
-Nodes (3): SinkExecutor, Context, init()
+### Community 345 - "Community 345"
+Cohesion: 0.19
+Nodes (8): GetInternalHub(), Context, Duration, Once, RWMutex, Event, Hub, StreamConfig
 
-### Community 339 - ".runOutboxRelay"
+### Community 346 - "Community 346"
 Cohesion: 0.40
 Nodes (3): OutboxStorage, Context, Engine
 
-### Community 340 - "storage.go"
+### Community 347 - "Community 347"
+Cohesion: 0.28
+Nodes (10): pendingMessage, allowPendingOverReleases(), T, TestReleasePendingMessageConcurrentOverRelease(), TestReleasePendingMessageDoesNotLeaveNegativeRefCount(), TestReleasePendingMessageNeverDoublePools(), acquirePendingMessage(), Int32 (+2 more)
+
+### Community 349 - "Community 349"
 Cohesion: 0.40
 Nodes (4): FormSubmission, FormSubmissionFilter, Storage, Time
 
-### Community 342 - ".HandleWSIn"
+### Community 351 - "Community 351"
 Cohesion: 0.60
-Nodes (3): Handler, Request, ResponseWriter
+Nodes (3): WSHandler, Request, ResponseWriter
 
-### Community 343 - ".Generate"
+### Community 352 - "Community 352"
 Cohesion: 0.50
 Nodes (3): Context, NewGenerator(), DefaultGenerator
 
-### Community 344 - "lookup_cache_test.go"
+### Community 353 - "Community 353"
 Cohesion: 0.60
 Nodes (4): T, TestLookupCache_SetGet(), TestLookupCache_SizeBound(), TestLookupCache_TTLExpiry()
 
-### Community 345 - ".Execute"
-Cohesion: 0.40
-Nodes (3): Context, init(), LogNode
-
-### Community 348 - "sql_placeholders_test.go"
+### Community 354 - "Community 354"
 Cohesion: 0.60
 Nodes (4): T, TestPreparePlaceholders_PGX(), TestPreparePlaceholders_SQLite_NoChange(), TestPreparePlaceholders_SQLServer()
 
-### Community 349 - "WorkflowExportBundle"
+### Community 355 - "Community 355"
 Cohesion: 0.40
 Nodes (4): Sink, Source, Workflow, WorkflowExportBundle
 
-### Community 354 - "BenchmarkMessagePayload"
-Cohesion: 0.60
-Nodes (4): BenchmarkMessagePayload(), BenchmarkMessageSetData(), BenchmarkSanitizeValue(), B
+### Community 356 - "Community 356"
+Cohesion: 0.24
+Nodes (8): failingWorkflowStorage, Context, Sink, Source, T, Workflow, TestImportWorkflowReportsStorageFailure(), TestImportWorkflowSucceedsWhenStorageAccepts()
 
-### Community 357 - "seed.go"
+### Community 357 - "Community 357"
+Cohesion: 0.37
+Nodes (14): Options, assertReturnsWithin(), boundedCtx(), closeBounded(), firstOpt(), Closer, Context, Sink (+6 more)
+
+### Community 358 - "Community 358"
+Cohesion: 0.30
+Nodes (7): collectHeaders(), WebhookHandler, Request, ResponseWriter, ServeMux, readRequestBody(), writeDispatched()
+
+### Community 359 - "Community 359"
+Cohesion: 0.26
+Nodes (7): MockWorkflowStorage, Context, Sink, Source, T, Workflow, TestWorkflowExportImport()
+
+### Community 360 - "Community 360"
+Cohesion: 0.20
+Nodes (11): clearSession(), ensureSession(), fetchMe(), getSessionRole(), getSessionUser(), refreshSession(), SessionState, SessionStatus (+3 more)
+
+### Community 361 - "Community 361"
+Cohesion: 0.29
+Nodes (12): computeSetupStatus(), configureSQLDB(), getSQLDriverAndConn(), Context, DB, Storage, initNoSQLStorage(), initSQLStorage() (+4 more)
+
+### Community 363 - "Community 363"
+Cohesion: 0.36
+Nodes (12): Duration, T, Time, reportSoak(), requireSoak(), sampleResources(), soakDuration(), soakGoroutineSlack() (+4 more)
+
+### Community 366 - "Community 366"
 Cohesion: 0.70
 Nodes (4): main(), setupDB2(), setupDB3(), setupHermodDB()
 
-### Community 359 - "UserForm.tsx"
-Cohesion: 0.40
-Nodes (3): Role, User, UserFormProps
+### Community 368 - "Community 368"
+Cohesion: 0.29
+Nodes (6): KafkaSource, Context, Mutex, Reader, Transport, NewKafkaSource()
 
-### Community 361 - ".GetDashboardStats"
+### Community 369 - "Community 369"
 Cohesion: 0.50
-Nodes (3): Handler, Request, ResponseWriter
+Nodes (4): Hermod UI Layout, Worker Installation Command, Worker GUID (worker-i9retkc), Worker Registration Success
 
-### Community 362 - ".HandleVersion"
+### Community 372 - "Community 372"
 Cohesion: 0.50
-Nodes (3): Handler, Request, ResponseWriter
+Nodes (3): FormHandler, Request, ResponseWriter
 
-### Community 363 - ".ListTemplates"
+### Community 373 - "Community 373"
 Cohesion: 0.50
-Nodes (3): Handler, Request, ResponseWriter
+Nodes (3): InfraHandler, Request, ResponseWriter
 
-### Community 364 - ".UploadFile"
-Cohesion: 0.50
-Nodes (3): Handler, Request, ResponseWriter
+### Community 374 - "Community 374"
+Cohesion: 0.83
+Nodes (3): Handler, ApprovalHandler, NewApprovalHandler()
 
-### Community 365 - "workers_shutdown_test.go"
-Cohesion: 0.67
-Nodes (3): T, TestShutdownWorker(), TestShutdownWorkerSurfacedToGetWorker()
+### Community 375 - "Community 375"
+Cohesion: 0.83
+Nodes (3): Handler, AuthHandler, NewAuthHandler()
 
-### Community 366 - "TestSecretResolutionInGetOrOpenDB"
+### Community 376 - "Community 376"
+Cohesion: 0.07
+Nodes (28): cacheControlForPath(), T, TestCacheControlForPath(), Handler, Handler, DashboardHandler, NewDashboardHandler(), Handler (+20 more)
+
+### Community 377 - "Community 377"
+Cohesion: 0.27
+Nodes (6): Client, Context, NewS3ParquetSink(), T, TestNewS3ParquetSink(), S3ParquetSink
+
+### Community 378 - "Community 378"
 Cohesion: 0.50
 Nodes (3): T, TestSecretResolutionInGetOrOpenDB(), mockSecretManager
 
-### Community 367 - "mockSamplingStorage"
+### Community 379 - "Community 379"
 Cohesion: 0.67
 Nodes (3): FormSubmission, FormSubmissionFilter, mockSamplingStorage
 
-### Community 370 - "Config"
-Cohesion: 0.67
-Nodes (3): DefaultConfig(), Config, Duration
+### Community 380 - "Community 380"
+Cohesion: 0.21
+Nodes (5): Context, T, TestPrioritySourceForwardsOptionalInterfaces(), discardLogger, lagAwareSource
 
-### Community 371 - "TestDefaultLogger_ErrorHandling"
+### Community 381 - "Community 381"
+Cohesion: 0.11
+Nodes (21): backupStorage, InfraHandler, adminRequest(), Context, Request, Sink, Source, Storage (+13 more)
+
+### Community 382 - "Community 382"
+Cohesion: 0.17
+Nodes (14): recordingLogStorage, Handler, LogHandler, NewLogHandler(), Context, Mutex, Reader, Response (+6 more)
+
+### Community 383 - "Community 383"
+Cohesion: 0.83
+Nodes (3): Handler, MarketplaceHandler, NewMarketplaceHandler()
+
+### Community 384 - "Community 384"
+Cohesion: 0.31
+Nodes (11): MustBeSafe(), Quote(), quotePart(), T, TestQuotedOutputCannotEscapeItsQuotes(), TestQuotePerDialect(), TestValidateAcceptsRealTableNames(), TestValidateRejectsInjection() (+3 more)
+
+### Community 385 - "Community 385"
+Cohesion: 0.32
+Nodes (11): BuildFirstRowQuery(), BuildIncrementalQuery(), limitStyleFor(), T, TestBuildFirstRowQuery_OracleRownumIsSafeWithoutOrdering(), TestBuildFirstRowQuery_PerDialect(), TestBuildIncrementalQuery_PerDialect(), TestBuildIncrementalQuery_RejectsBadIdentifiers() (+3 more)
+
+### Community 386 - "Community 386"
+Cohesion: 0.83
+Nodes (3): Handler, SourceHandler, NewSourceHandler()
+
+### Community 387 - "Community 387"
+Cohesion: 0.83
+Nodes (3): Handler, SSEHandler, NewSSEHandler()
+
+### Community 388 - "Community 388"
+Cohesion: 0.23
+Nodes (8): mockStorage, mockWorkerManager, Context, Storage, T, Worker, Workflow, TestAutoscaler_OnlineWorkersOnly()
+
+### Community 389 - "Community 389"
+Cohesion: 0.17
+Nodes (11): Batching, By in-flight cap, By payload size, Engine throughput, Hermod Benchmarks, Host, Message pooling, Not yet measured (+3 more)
+
+### Community 390 - "Community 390"
+Cohesion: 0.38
+Nodes (3): parseOptions(), Options, GetConfigPath()
+
+### Community 391 - "Community 391"
+Cohesion: 0.67
+Nodes (3): T, TestShutdownWorker(), TestShutdownWorkerSurfacedToGetWorker()
+
+### Community 392 - "Community 392"
+Cohesion: 0.33
+Nodes (9): ShutdownBudget, budgetFrom(), Duration, Shutdown(), T, TestClampDrainKeepsPerSinkSettingsInsideTheBudget(), TestShutdownBudgetStagesNest(), TestShutdownDefaultFitsKubernetesGracePeriod() (+1 more)
+
+### Community 393 - "Community 393"
+Cohesion: 0.26
+Nodes (6): FormField, IsValidFormPath(), FormHandler, Request, ResponseWriter, ServeMux
+
+### Community 395 - "Community 395"
+Cohesion: 0.33
+Nodes (7): DefaultConfig(), T, TestDefaultConfigReadsRecoveryThresholdsFromEnv(), envBytes(), envDuration(), Config, Duration
+
+### Community 396 - "Community 396"
 Cohesion: 0.67
 Nodes (3): contains(), T, TestDefaultLogger_ErrorHandling()
 
-### Community 372 - "Production Considerations"
-Cohesion: 0.50
-Nodes (4): Advanced Logic & Control Flow, Execution‑Level Fan‑out (Foreach Node), Production Considerations, SQLite busy/locked handling
+### Community 398 - "Community 398"
+Cohesion: 0.17
+Nodes (7): Connector conformance suite — the contract every source and sink must pass, Gates, Hermod — memory index, Memories, Postgres Sink & Polling Infrastructure Improvements, Session auth is cookie-only — the token is not reachable from JavaScript, sqlutil owns SQL dialect differences — do not hand-write them in a connector
 
-### Community 373 - "Real-time Data Streams (SSE)"
-Cohesion: 0.50
-Nodes (4): Consuming the Stream, Real-time Data Streams (SSE), Sample Client, Security Features
+### Community 399 - "Community 399"
+Cohesion: 0.22
+Nodes (7): mockFormatter, T, TestHttpSinkCompression(), NewHttpSink(), T, TestHttpSink_Ping(), TestHttpSink_Write()
 
-### Community 374 - "UI Testing"
-Cohesion: 0.50
-Nodes (4): End-to-End Tests (Cypress), Running Integration Tests, UI Testing, Unit & Component Tests
-
-### Community 378 - "AdvancedConfig.tsx"
+### Community 400 - "Community 400"
 Cohesion: 0.50
 Nodes (3): AdvancedConfig(), AdvancedConfigProps, SetFieldEditor
 
-### Community 379 - "FilterConfig.tsx"
+### Community 401 - "Community 401"
 Cohesion: 0.50
 Nodes (3): FilterConfig(), FilterConfigProps, FilterEditor
 
-### Community 380 - "MappingConfig.tsx"
+### Community 402 - "Community 402"
 Cohesion: 0.50
 Nodes (3): MappingConfig(), MappingConfigProps, MappingEditor
 
-### Community 381 - "SetFieldsConfig.tsx"
+### Community 403 - "Community 403"
 Cohesion: 0.50
 Nodes (3): SetFieldEditor, SetFieldsConfig(), SetFieldsConfigProps
 
-### Community 382 - "SQLConfig.tsx"
+### Community 404 - "Community 404"
 Cohesion: 0.50
 Nodes (3): SQLConfig(), SQLConfigProps, SQLQueryBuilder
 
-### Community 383 - "ConditionConfig.tsx"
+### Community 405 - "Community 405"
 Cohesion: 0.50
 Nodes (3): ConditionConfig(), ConditionConfigProps, FilterEditor
 
-### Community 384 - "RouterConfig.tsx"
+### Community 406 - "Community 406"
 Cohesion: 0.50
 Nodes (3): RouterConfig(), RouterConfigProps, RouterEditor
 
-### Community 386 - "useSetupStore.ts"
+### Community 408 - "Community 408"
 Cohesion: 0.50
 Nodes (3): DbType, SetupConfigState, useSetupStore
 
-### Community 404 - "Modern API Sources (GraphQL & gRPC)"
+### Community 411 - "Community 411"
+Cohesion: 0.33
+Nodes (3): __dirname, HERMOD_UI_PORT, HERMOD_WS_TARGET
+
+### Community 412 - "Community 412"
+Cohesion: 0.35
+Nodes (10): DB, Registry, SourceConfig, T, newDiscoveryFixture(), TestDiscoverColumnsReturnsNamesAndTypes(), TestDiscoverTablesFindsARealTable(), TestExecuteSQLReportsAnErrorRatherThanEmptyResults() (+2 more)
+
+### Community 416 - "Community 416"
 Cohesion: 0.67
-Nodes (3): GraphQL Source, gRPC Source, Modern API Sources (GraphQL & gRPC)
+Nodes (3): GoReleaser Job, hermod binary, Hermod Edge Orchestration
+
+### Community 421 - "Community 421"
+Cohesion: 0.25
+Nodes (6): Database, Client, Storage, T, TestMongo_WorkflowLease_AcquireRenewRelease(), NewMongoStorage()
+
+### Community 422 - "Community 422"
+Cohesion: 0.33
+Nodes (4): Mutex, T, TestDatabaseLoggerAlwaysReachesTheProcessLog(), captureLogger
+
+### Community 423 - "Community 423"
+Cohesion: 0.31
+Nodes (8): Sink, SinkConfig, Source, SourceConfig, jsonEqual(), sinkConfigsChanged(), sourceConfigsChanged(), stripInternalFields()
+
+### Community 426 - "Community 426"
+Cohesion: 0.27
+Nodes (8): missPolicy, applyMissPolicy(), missError(), resolveMissPolicy(), contains(), T, TestMissPolicyFailProducesAnError(), TestResolveMissPolicy()
+
+### Community 428 - "Community 428"
+Cohesion: 0.67
+Nodes (3): Hermod Visual Branding, Hermod Rocket Logo, Lucide Rocket Icon
+
+### Community 429 - "Community 429"
+Cohesion: 0.27
+Nodes (6): Dispatch(), Context, NewWebhookSource(), Register(), Unregister(), WebhookSource
+
+### Community 431 - "Community 431"
+Cohesion: 0.22
+Nodes (7): FilterDataConfig(), FilterDataConfigProps, FilterEditor, Condition, FilterEditor(), FilterEditorProps, RouterEditorProps
+
+### Community 432 - "Community 432"
+Cohesion: 0.33
+Nodes (5): SSEHandler, Request, ResponseWriter, ServeMux, splitLines()
+
+### Community 433 - "Community 433"
+Cohesion: 0.56
+Nodes (9): T, newRotationStorage(), TestReEncryptRefusesWhenAValueIsUnreadable(), TestReEncryptUpgradesPlaintextWrittenByAnOlderRule(), TestRotationKeepsCredentialsReadable(), TestRotationWithoutReEncryptionIsDetectable(), withKey(), SetMasterKey() (+1 more)
+
+### Community 436 - "Community 436"
+Cohesion: 0.36
+Nodes (8): die(), ls_all(), ls_running(), ok(), port_in_use(), say(), create-postgres.sh script, warn()
+
+### Community 438 - "Community 438"
+Cohesion: 0.42
+Nodes (6): Context, T, TestJSONEqual(), TestRenewLeaseOnce(), TestWorkerAPIClient_LeaseAlwaysOwned(), leaseMockStorage
+
+### Community 443 - "Community 443"
+Cohesion: 0.58
+Nodes (8): columnsOf(), DB, T, newMigrationDB(), TestInitIsIdempotent(), TestMigrationAddsAMissingColumn(), TestMigrationIsAdditiveOnly(), TestMigrationPreservesExistingData()
+
+### Community 452 - "Community 452"
+Cohesion: 0.39
+Nodes (7): NewMSSQLSource(), normalizeTableName(), T, TestMSSQLSource_MapToMessage(), TestMSSQLSource_MatchTable(), TestMSSQLSource_New(), TestNormalizeTableName()
+
+### Community 455 - "Community 455"
+Cohesion: 0.42
+Nodes (8): dsnFor(), T, itoa(), TestDefaultPoolSizeAppliesWhenUnspecified(), TestExplicitPoolSizeIsRespected(), TestExplicitPoolSizeIsRespectedInKeywordDSN(), TestLargeExplicitPoolSizeIsRespected(), TestPoolSizeSurvivesPoolerMarkerStripping()
+
+### Community 456 - "Community 456"
+Cohesion: 0.32
+Nodes (6): mockStorage, Context, Source, Storage, T, TestPublishAuthentication()
+
+### Community 461 - "Community 461"
+Cohesion: 0.43
+Nodes (6): EnsureConfigDir(), GetConfigDir(), T, TestEnsureConfigDir(), TestGetConfigDir(), TestGetConfigPathUsesOverride()
+
+### Community 462 - "Community 462"
+Cohesion: 0.25
+Nodes (6): M, TestMain(), ResetOverReleaseCount(), M, TestMain(), PendingOverReleaseCount()
+
+### Community 464 - "Community 464"
+Cohesion: 0.54
+Nodes (7): T, ownershipCases(), refCount(), TestNilMessageIntoExecutorsIsSafe(), TestNodeExecutorsHonourOwnershipContract(), TestRunWorkflowNodePassthroughRetains(), ownershipCase
+
+### Community 466 - "Community 466"
+Cohesion: 0.36
+Nodes (5): Handler, Mutex, T, TestWorkerShipsLogBatchesToThePlatform(), logSink
+
+### Community 467 - "Community 467"
+Cohesion: 0.46
+Nodes (7): benchDSN(), benchMappings(), BenchmarkPostgresWriteBatch(), buildBatch(), B, ColumnMapping, resetBenchTable()
+
+### Community 468 - "Community 468"
+Cohesion: 0.36
+Nodes (7): basicsValidators, EntityBasics, useEntityBasicsForm(), UseEntityBasicsFormArgs, validateName(), validateType(), validateVHost()
+
+### Community 469 - "Community 469"
+Cohesion: 0.29
+Nodes (3): RateLimitTransformer, Context, Map
+
+### Community 470 - "Community 470"
+Cohesion: 0.62
+Nodes (6): T, newTestHub(), TestConcurrentShutdownAndUnsub(), TestDoubleUnsubNoPanic(), TestPublishAfterUnsubNoSendOnClosed(), TestShutdownThenUnsubNoDoubleClose()
+
+### Community 482 - "Community 482"
+Cohesion: 0.48
+Nodes (5): NewSQLiteSource(), T, TestSQLiteSource_Ping(), TestSQLiteSource_Read(), TestSQLiteSource_Sample()
+
+### Community 483 - "Community 483"
+Cohesion: 0.60
+Nodes (5): Registry, T, newDBLookupFixture(), TestDBLookupEnrichesFromATable(), TestDBLookupMissFollowsItsConfiguredPolicy()
+
+### Community 486 - "Community 486"
+Cohesion: 0.60
+Nodes (5): dispatchUntilAccepted(), DB, T, mustExecDB(), TestMultiWorkflowLoadDeliversEveryRowExactlyOnce()
+
+### Community 487 - "Community 487"
+Cohesion: 0.40
+Nodes (3): file_pkg_source_grpc_proto_source_proto_init(), file_pkg_source_grpc_proto_source_proto_rawDescGZIP(), init()
+
+### Community 492 - "Community 492"
+Cohesion: 0.47
+Nodes (3): psql_src(), say(), e2e_load.sh script
+
+### Community 493 - "Community 493"
+Cohesion: 0.80
+Nodes (4): T, registeredInSource(), TestEveryTransformerIsLinkedIntoTheBinary(), TestTransformerScanFindsTheKnownPackages()
+
+### Community 496 - "Community 496"
+Cohesion: 0.60
+Nodes (4): DB, T, newTestDB(), TestWorkflowLease_AcquireRenewRelease()
+
+### Community 497 - "Community 497"
+Cohesion: 0.60
+Nodes (4): T, TestKafkaSinkDoesNotClaimTransactional(), TestKafkaSinkDoesNotClaimTwoPhaseCommit(), TestKafkaSinkIsStillASink()
+
+### Community 499 - "Community 499"
+Cohesion: 0.40
+Nodes (4): ConnectGocql(), ClusterConfig, Context, Session
+
+### Community 515 - "Community 515"
+Cohesion: 0.60
+Nodes (4): T, TestLastStreamActivity(), TestPostgresSourceReportsStreamLiveness(), TestStreamSilenceThresholdFollowsWalSenderTimeout()
+
+### Community 519 - "Community 519"
+Cohesion: 0.40
+Nodes (3): effectiveBatchSize(), T, TestEffectiveBatchSize()
+
+### Community 520 - "Community 520"
+Cohesion: 0.60
+Nodes (3): fail(), pass(), dev_cleanup_test.sh script
+
+### Community 523 - "Community 523"
+Cohesion: 0.67
+Nodes (3): T, TestEveryMutatingRouteIsGuarded(), TestUnguardedRouteListIsHonest()
+
+### Community 535 - "Community 535"
+Cohesion: 0.50
+Nodes (3): uvx, postgres, postgres-mcp
+
+### Community 536 - "Community 536"
+Cohesion: 0.67
+Nodes (3): T, TestProduceDropsItsOwnReferenceNotTheObject(), TestProduceOnASoleReferenceStillPools()
+
+### Community 537 - "Community 537"
+Cohesion: 0.67
+Nodes (3): T, TestCloneAfterPoolReuseDoesNotDeadlock(), TestCloneIsIndependent()
+
+### Community 538 - "Community 538"
+Cohesion: 0.67
+Nodes (3): T, TestSignalDoneDeliversToWaiter(), TestSignalDoneNeverBlocks()
+
+### Community 706 - "Community 706"
+Cohesion: 0.07
+Nodes (13): FORM_ROUTES, Finding, findings, ROUTES, timings, VIEWPORTS, SocketRecord, RFC-6455 (+5 more)
 
 ## Knowledge Gaps
-- **523 isolated node(s):** `workerIdentity`, `github.com/user/hermod`, `SinkOperationMode`, `Source`, `ReadyChecker` (+518 more)
+- **572 isolated node(s):** `uvx`, `postgres-mcp`, `workerIdentity`, `github.com/user/hermod`, `SinkOperationMode` (+567 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **127 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **129 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Message` connect `Message` to `Context`, `GenericFileSource`, `Handler`, `sinkWriter`, `Context`, `evaluator.go`, `NewRegistry`, `Hub`, `MSSQLSource`, `NatsJetStreamSource`, `SQLStore`, `Context`, `PostgresSource`, `GetMsgValByPath`, `QuoteIdent`, `Registry`, `ReleaseMessage`, `MySQLSource`, `MSSQLSink`, `Registry`, `ParseConfig`, `Context`, `DefaultMessage`, `SQLiteStore`, `MySQLSink`, `SQLiteSink`, `Source`, `postgres.go`, `priorityMockMessage`, `FailoverSink`, `ColumnInfo`, `statefulSource`, `SQLiteSource`, `RegisterNodeExecutor`, `RabbitMQQueueSource`, `Context`, `OracleSource`, `SmtpSink`, `WorkflowNode`, `Context`, `MariaDBSource`, `Context`, `MongoDBSource`, `OutboxItem`, `Manager`, `ClickHouseSource`, `Algorithm`, `OracleSink`, `ScyllaDBSource`, `CassandraSource`, `DB2Source`, `hermod.go`, `MetricsSource`, `Sink`, `PostgresSink`, `YugabyteSource`, `WasmTransformer`, `FirebaseSource`, `CassandraSink`, `NodeContext`, `mockSourceWithLimit`, `mockMessage`, `mockMessage`, `Formatter`, `GoogleAnalyticsSource`, `Context`, `BatchSQLSource`, `FileBuffer`, `ClickHouseSink`, `StateStore`, `GraphQLSource`, `Context`, `parallelMockMessage`, `Context`, `RedisSource`, `Runner`, `Source`, `mockMessage`, `.ReadAll`, `Source`, `ElasticsearchSink`, `GoogleSheetsSink`, `NewJSONFormatter`, `KafkaSink`, `.lookupSQL`, `SalesforceSink`, `Sink`, `DiscordSource`, `Source`, `InstagramSource`, `Source`, `MongoDBSink`, `Sink`, `SlackSource`, `TwitterSource`, `LuaTransformer`, `CombinedBuffer`, `DiscordSink`, `TestWriteToSink_EmitsIdempotencyMetrics`, `Context`, `statusMockSource`, `GenericProtoSource`, `.Publish`, `.HandleWebhook`, `RabbitMQStreamSource`, `Context`, `LinkedInSource`, `RedisSink`, `SlackSink`, `Sink`, `Source`, `PublishRequest`, `Sink`, `FileSink`, `GoogleSheetsSource`, `Registry`, `Sink`, `BatchBufferSink`, `S3ParquetSink`, `stubCtx`, `FacebookSink`, `FTPSink`, `HTTPSource`, `InstagramSink`, `LinkedInSink`, `NatsJetStreamSink`, `TikTokSink`, `TwitterSink`, `PollingSource`, `rollingStats`, `mockReadySource`, `panicSource`, `TestHttpSinkCompression`, `mockMessage`, `PubSubSink`, `RabbitMQQueueSink`, `WebhookSource`, `PrioritySource`, `ParameterizeTemplate`, `HttpSink`, `CronSource`, `.handleXLogData`, `closeTrackingSource`, `Engine`, `.Execute`, `.Read`, `loadDeliveredSample`, `Context`, `.applyTransformation`, `KinesisSink`, `PublishResponse`, `Sink`, `Sink`, `PulsarSink`, `RabbitMQStreamSink`, `Sink`, `.Transform`, `DetermineIdempotencyKey`, `Source`, `DB2Connector`, `OracleConnector`, `.Transform`, `Router`, `S3Sink`, `RingBuffer`, `.Execute`, `.Transform`, `TelegramSink`, `.Execute`, `switch_test.go`, `.Transform`, `.Execute`, `.Execute`, `.Transform`, `.Transform`, `.Transform`, `.Transform`, `.Transform`, `.Execute`, `.Execute`, `.Execute`, `.Transform`, `.Transform`?**
-  _High betweenness centrality (0.356) - this node is a cross-community bridge._
-- **Why does `Logger` connect `Logger` to `Context`, `GenericFileSource`, `SelfHealingService`, `Context`, `Source`, `Engine`, `.createSourceInternal`, `Hub`, `MSSQLSource`, `SQLStore`, `Router`, `Source`, `Worker`, `PostgresSource`, `Source`, `Sink`, `Registry`, `MySQLSource`, `setupRegistry`, `Autoscaler`, `NewWorker`, `Service`, `FailoverSink`, `Source`, `ColumnInfo`, `statefulSource`, `Sink`, `GoogleSheetsSource`, `OracleSource`, `MariaDBSource`, `startAPI`, `Manager`, `ClickHouseSource`, `SelfCorrectionGate`, `ScyllaDBSource`, `CassandraSource`, `DB2Source`, `hermod.go`, `MetricsSource`, `PollingSource`, `PostgresSink`, `YugabyteSource`, `FirebaseSource`, `PrioritySource`, `GoogleAnalyticsSource`, `Optimizer`, `Formatter`, `BatchSQLSource`, `DefaultLogger`, `StatusUpdate`?**
-  _High betweenness centrality (0.121) - this node is a cross-community bridge._
-- **Why does `AcquireMessage()` connect `AcquireMessage` to `Context`, `GenericFileSource`, `Handler`, `NewSQLStorage`, `NewRegistry`, `Hub`, `MSSQLSource`, `NatsJetStreamSource`, `SQLStore`, `Message`, `Registry`, `NewServer`, `ReleaseMessage`, `MySQLSource`, `ParseConfig`, `Context`, `DefaultMessage`, `MySQLSink`, `SQLiteSink`, `Source`, `postgres.go`, `FailoverSink`, `SQLiteSource`, `RegisterNodeExecutor`, `RabbitMQQueueSource`, `Context`, `OracleSource`, `Context`, `MariaDBSource`, `Context`, `MongoDBSource`, `ClickHouseSource`, `Algorithm`, `Handler`, `ScyllaDBSource`, `CassandraSource`, `DB2Source`, `YugabyteSource`, `FirebaseSource`, `mockSourceWithLimit`, `mockMessage`, `GoogleAnalyticsSource`, `BatchSQLSource`, `fullFakeRegistry`, `RedisSource`, `Source`, `Source`, `ElasticsearchSink`, `NewJSONFormatter`, `NewStateStore`, `DiscordSource`, `Source`, `InstagramSource`, `Source`, `SlackSource`, `TwitterSource`, `CombinedBuffer`, `DiscordSink`, `TestWriteToSink_EmitsIdempotencyMetrics`, `.Publish`, `.HandleWebhook`, `RabbitMQStreamSource`, `LinkedInSource`, `RedisSink`, `SlackSink`, `Source`, `FileSink`, `GoogleSheetsSource`, `FacebookSink`, `HTTPSource`, `InstagramSink`, `.Get`, `LinkedInSink`, `TikTokSink`, `TwitterSink`, `panicSource`, `TestHttpSinkCompression`, `CronSource`, `.handleXLogData`, `loadDeliveredSample`, `DetermineIdempotencyKey`, `mockRegistry`, `NewCompressor`, `switch_test.go`, `.resumeSuspendedMessage`, `.runOutboxRelay`, `.HandleWSIn`, `BenchmarkMessagePayload`, `SanitizeMap`?**
-  _High betweenness centrality (0.074) - this node is a cross-community bridge._
-- **Are the 206 inferred relationships involving `AcquireMessage()` (e.g. with `.runBatch()` and `.Sample()`) actually correct?**
-  _`AcquireMessage()` has 206 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `workerIdentity`, `github.com/user/hermod`, `SinkOperationMode` to the rest of the system?**
-  _523 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `mongoStorage` be split into smaller, more focused modules?**
+- **Why does `Message` connect `Community 27` to `Community 2`, `Community 4`, `Community 6`, `Community 7`, `Community 8`, `Community 10`, `Community 14`, `Community 15`, `Community 17`, `Community 22`, `Community 25`, `Community 26`, `Community 28`, `Community 31`, `Community 33`, `Community 37`, `Community 38`, `Community 41`, `Community 42`, `Community 49`, `Community 50`, `Community 52`, `Community 53`, `Community 55`, `Community 56`, `Community 61`, `Community 62`, `Community 63`, `Community 65`, `Community 66`, `Community 67`, `Community 68`, `Community 70`, `Community 71`, `Community 72`, `Community 76`, `Community 79`, `Community 80`, `Community 81`, `Community 82`, `Community 83`, `Community 84`, `Community 85`, `Community 86`, `Community 87`, `Community 90`, `Community 91`, `Community 92`, `Community 93`, `Community 96`, `Community 98`, `Community 99`, `Community 100`, `Community 103`, `Community 104`, `Community 106`, `Community 107`, `Community 108`, `Community 109`, `Community 110`, `Community 111`, `Community 113`, `Community 116`, `Community 118`, `Community 119`, `Community 120`, `Community 121`, `Community 122`, `Community 124`, `Community 127`, `Community 128`, `Community 130`, `Community 132`, `Community 135`, `Community 137`, `Community 140`, `Community 143`, `Community 144`, `Community 145`, `Community 146`, `Community 147`, `Community 149`, `Community 152`, `Community 153`, `Community 154`, `Community 155`, `Community 156`, `Community 157`, `Community 159`, `Community 160`, `Community 161`, `Community 163`, `Community 165`, `Community 166`, `Community 167`, `Community 168`, `Community 169`, `Community 170`, `Community 172`, `Community 176`, `Community 177`, `Community 178`, `Community 179`, `Community 180`, `Community 181`, `Community 183`, `Community 184`, `Community 187`, `Community 189`, `Community 190`, `Community 191`, `Community 192`, `Community 194`, `Community 195`, `Community 196`, `Community 199`, `Community 201`, `Community 207`, `Community 208`, `Community 209`, `Community 211`, `Community 212`, `Community 213`, `Community 215`, `Community 216`, `Community 217`, `Community 218`, `Community 219`, `Community 222`, `Community 223`, `Community 224`, `Community 225`, `Community 230`, `Community 231`, `Community 232`, `Community 233`, `Community 240`, `Community 241`, `Community 242`, `Community 243`, `Community 244`, `Community 248`, `Community 250`, `Community 251`, `Community 252`, `Community 254`, `Community 256`, `Community 257`, `Community 258`, `Community 259`, `Community 260`, `Community 261`, `Community 262`, `Community 267`, `Community 268`, `Community 269`, `Community 271`, `Community 273`, `Community 276`, `Community 277`, `Community 280`, `Community 288`, `Community 289`, `Community 290`, `Community 296`, `Community 300`, `Community 301`, `Community 305`, `Community 310`, `Community 313`, `Community 315`, `Community 321`, `Community 323`, `Community 324`, `Community 334`, `Community 340`, `Community 341`, `Community 342`, `Community 343`, `Community 344`, `Community 347`, `Community 358`, `Community 362`, `Community 364`, `Community 368`, `Community 370`, `Community 377`, `Community 399`, `Community 429`, `Community 464`, `Community 467`, `Community 469`, `Community 494`?**
+  _High betweenness centrality (0.346) - this node is a cross-community bridge._
+- **Why does `AcquireMessage()` connect `Community 10` to `Community 2`, `Community 4`, `Community 6`, `Community 14`, `Community 17`, `Community 18`, `Community 22`, `Community 536`, `Community 537`, `Community 24`, `Community 27`, `Community 28`, `Community 31`, `Community 33`, `Community 548`, `Community 38`, `Community 41`, `Community 42`, `Community 52`, `Community 62`, `Community 63`, `Community 65`, `Community 66`, `Community 67`, `Community 70`, `Community 71`, `Community 72`, `Community 75`, `Community 76`, `Community 80`, `Community 81`, `Community 85`, `Community 86`, `Community 87`, `Community 91`, `Community 93`, `Community 98`, `Community 99`, `Community 100`, `Community 104`, `Community 107`, `Community 111`, `Community 121`, `Community 131`, `Community 132`, `Community 135`, `Community 137`, `Community 143`, `Community 144`, `Community 145`, `Community 146`, `Community 147`, `Community 152`, `Community 154`, `Community 157`, `Community 158`, `Community 160`, `Community 161`, `Community 163`, `Community 165`, `Community 170`, `Community 177`, `Community 187`, `Community 189`, `Community 190`, `Community 192`, `Community 195`, `Community 196`, `Community 202`, `Community 207`, `Community 209`, `Community 211`, `Community 212`, `Community 215`, `Community 217`, `Community 218`, `Community 230`, `Community 241`, `Community 242`, `Community 262`, `Community 266`, `Community 276`, `Community 277`, `Community 281`, `Community 298`, `Community 300`, `Community 305`, `Community 313`, `Community 314`, `Community 330`, `Community 332`, `Community 346`, `Community 347`, `Community 351`, `Community 358`, `Community 368`, `Community 399`, `Community 464`, `Community 467`, `Community 483`, `Community 486`?**
+  _High betweenness centrality (0.103) - this node is a cross-community bridge._
+- **Why does `Logger` connect `Community 280` to `Community 2`, `Community 4`, `Community 134`, `Community 135`, `Community 7`, `Community 12`, `Community 14`, `Community 144`, `Community 17`, `Community 147`, `Community 27`, `Community 29`, `Community 289`, `Community 35`, `Community 164`, `Community 165`, `Community 38`, `Community 168`, `Community 43`, `Community 308`, `Community 52`, `Community 56`, `Community 185`, `Community 58`, `Community 186`, `Community 62`, `Community 192`, `Community 194`, `Community 196`, `Community 71`, `Community 205`, `Community 77`, `Community 79`, `Community 81`, `Community 83`, `Community 84`, `Community 85`, `Community 87`, `Community 219`, `Community 98`, `Community 100`, `Community 104`, `Community 361`, `Community 233`, `Community 107`, `Community 111`, `Community 112`, `Community 246`, `Community 122`, `Community 380`, `Community 125`?**
+  _High betweenness centrality (0.097) - this node is a cross-community bridge._
+- **Are the 247 inferred relationships involving `AcquireMessage()` (e.g. with `.runBatch()` and `.Sample()`) actually correct?**
+  _`AcquireMessage()` has 247 INFERRED edges - model-reasoned connections that need verification._
+- **What connects `uvx`, `postgres-mcp`, `workerIdentity` to the rest of the system?**
+  _572 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `Community 0` be split into smaller, more focused modules?**
+  _Cohesion score 0.043434343434343436 - nodes in this community are weakly interconnected._
+- **Should `Community 1` be split into smaller, more focused modules?**
   _Cohesion score 0.04553264604810996 - nodes in this community are weakly interconnected._
-- **Should `pebbleStorage` be split into smaller, more focused modules?**
-  _Cohesion score 0.046052631578947366 - nodes in this community are weakly interconnected._
