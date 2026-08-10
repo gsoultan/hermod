@@ -372,19 +372,30 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      # CDC needs logical decoding, which is not the default and needs a restart
-      # to take effect.
-      - name: Enable logical replication
+      # Two settings that are off by default and need a restart to take effect,
+      # so they are applied together in one restart:
+      #
+      #   wal_level=logical            — CDC does nothing without logical decoding.
+      #   max_prepared_transactions>0  — PREPARE TRANSACTION fails outright at 0,
+      #                                  so the transactional sink group tests
+      #                                  cannot run. They fail rather than skip
+      #                                  when it is unset, deliberately: a silent
+      #                                  skip on the only tests covering the
+      #                                  prepared-transaction hazard would leave
+      #                                  the suite green while covering nothing.
+      - name: Enable logical replication and prepared transactions
         env:
           PGPASSWORD: postgres
         run: |
           psql -h localhost -U postgres -c "ALTER SYSTEM SET wal_level = logical;"
+          psql -h localhost -U postgres -c "ALTER SYSTEM SET max_prepared_transactions = 32;"
           docker restart "$(docker ps -q --filter ancestor=postgres:16)"
           for i in $(seq 1 30); do
             pg_isready -h localhost -U postgres && break
             sleep 2
           done
           test "$(psql -h localhost -U postgres -tAc "SHOW wal_level")" = "logical"
+          test "$(psql -h localhost -U postgres -tAc "SHOW max_prepared_transactions")" -gt 0
       # The e2e recovery, retention and PgBouncer tests hardcode these database
       # names (see AGENTS.md); without them they fail on "database does not
       # exist" rather than testing anything.
