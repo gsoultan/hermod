@@ -17,6 +17,7 @@ vi.mock('@tanstack/react-router', () => ({
 
 import { SourceForm } from '@/components/forms/SourceForm'
 import { SinkForm } from '@/components/forms/SinkForm'
+import { signInAs } from '@/test/setupTests'
 
 function Harness({ children }: { children: React.ReactNode }) {
   const queryClient = new QueryClient({
@@ -36,7 +37,7 @@ function Harness({ children }: { children: React.ReactNode }) {
 describe('embedded Source/Sink form Cancel', () => {
   beforeEach(() => {
     navigateSpy.mockClear()
-    localStorage.setItem('hermod_token', 'dummy.jwt.token')
+    signInAs()
     server.use(
       http.get('/api/vhosts', () => HttpResponse.json({ data: [], total: 0 })),
       http.get('/api/workers', () => HttpResponse.json({ data: [], total: 0 })),

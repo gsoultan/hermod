@@ -1,12 +1,35 @@
 import '@testing-library/jest-dom'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
+import { useSessionStore, type SessionUser } from '@/auth/session'
 
 export const server = setupServer(
   http.get('/api/config/status', () =>
     HttpResponse.json({ configured: true, user_setup: true })
   ),
+  // Default to logged out. A test that needs a session calls signInAs(), which
+  // seeds the store directly and short-circuits this.
+  http.get('/api/me', () => new HttpResponse(null, { status: 401 })),
 )
+
+/**
+ * Seed an authenticated session.
+ *
+ * Tests used to fake being logged in with
+ * `localStorage.setItem('hermod_token', 'dummy.jwt.token')`, which worked
+ * because the app decoded its role out of that token. The session now comes
+ * from GET /api/me and lives in a store, so this seeds the store instead —
+ * no token, and no network round trip.
+ */
+export function signInAs(role = 'Administrator', username = 'tester'): void {
+  const user: SessionUser = { id: 'u-test', username, role }
+  useSessionStore.setState({ user, status: 'authenticated' })
+}
+
+/** Seed a resolved, logged-out session. */
+export function signOut(): void {
+  useSessionStore.setState({ user: null, status: 'anonymous' })
+}
 
 // Node exposes an experimental, disabled `localStorage` global that shadows
 // jsdom's implementation, leaving `localStorage.setItem` undefined in tests.
@@ -78,5 +101,11 @@ class NoopWebSocket {
 ;(globalThis as any).WebSocket = NoopWebSocket as any
 
 beforeAll(() => server.listen())
-afterEach(() => server.resetHandlers())
+afterEach(() => {
+  server.resetHandlers()
+  // Reset to 'unknown' rather than 'anonymous': a test that forgets to seed a
+  // session should hit the default /api/me handler and be told it is logged
+  // out, not silently inherit the previous test's answer.
+  useSessionStore.setState({ user: null, status: 'unknown' })
+})
 afterAll(() => server.close())

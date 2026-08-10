@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, Modal, List, ThemeIcon, TextInput, Pagination } from '@mantine/core';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiFetch, getRoleFromToken } from '@/api';
+import { apiFetch } from '@/api';
+import { getSessionRole } from '@/auth/session';
 import { useVHost } from '@/context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
 import { useDisclosure } from '@mantine/hooks';
@@ -12,7 +13,7 @@ const API_BASE = '/api';
 export function SinksPage() {
   const queryClient = useQueryClient();
   const { selectedVHost } = useVHost();
-  const role = getRoleFromToken();
+  const role = getSessionRole();
   const isViewer = role === 'Viewer';
   const navigate = useNavigate();
   const [opened, { open, close }] = useDisclosure(false);

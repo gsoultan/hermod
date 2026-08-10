@@ -67,6 +67,7 @@ var unguardedMutatingRoutes = map[string]string{
 	"POST /api/auth/2fa/verify":        "verifying the caller's own second factor",
 	"POST /api/auth/2fa/disable":       "disabling the caller's own second factor",
 	"POST /api/auth/generate-password": "returns a random string; touches no state",
+	"POST /api/logout":                 "expires the caller's own session cookie; every role may end its own session",
 
 	// agent paths: called by worker processes, not humans
 	"POST /api/logs":                   "worker agents ship logs here (worker_api_client.go)",

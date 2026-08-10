@@ -26,10 +26,8 @@ async function apiCreate(page: Page, path: string, body: unknown) {
     async ([p, b]) => {
       const res = await fetch(p as string, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('hermod_token')}`,
-        },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(b),
       });
       return { status: res.status, body: await res.text() };
@@ -151,7 +149,7 @@ test.describe('node drawer forms: Cancel must dismiss without saving', () => {
       const listed = await page.evaluate(
         async ([p]) => {
           const res = await fetch(p as string, {
-            headers: { Authorization: `Bearer ${localStorage.getItem('hermod_token')}` },
+            credentials: 'include',
           });
           return res.ok ? await res.text() : '';
         },

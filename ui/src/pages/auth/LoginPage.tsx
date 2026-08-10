@@ -4,7 +4,7 @@ import { Text, TextInput, Button, Paper, Stack, Container, PasswordInput, Group,
 import { useMutation } from '@tanstack/react-query'
 import { useNavigate, useSearch, Link } from '@tanstack/react-router'
 import { apiFetch } from '@/api'
-import { setToken } from '../../auth/storage'
+import { refreshSession } from '../../auth/session'
 
 export function LoginPage() {
   const [username, setUsername] = useState('')
@@ -42,7 +42,7 @@ export function LoginPage() {
       }
       return response.json()
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       if (data.two_factor_required) {
         setTwoFactorRequired(true);
         setUserId(data.user_id);
@@ -55,7 +55,9 @@ export function LoginPage() {
         setPendingToken(data.pending_token);
         return;
       }
-      setToken(data.token)
+      // The session is the HttpOnly cookie the response just set; load the
+      // identity behind it so route guards and the shell have a role to read.
+      await refreshSession()
       navigate({ to: redirect || '/' })
     },
     onError: (err) => {
@@ -80,8 +82,10 @@ export function LoginPage() {
       }
       return response.json()
     },
-    onSuccess: (data) => {
-      setToken(data.token)
+    onSuccess: async () => {
+      // The session is the HttpOnly cookie the response just set; load the
+      // identity behind it so route guards and the shell have a role to read.
+      await refreshSession()
       navigate({ to: redirect || '/' })
     },
     onError: (err) => {
@@ -150,7 +154,7 @@ export function LoginPage() {
       }
       return response.json()
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       setEnrollSecret(data.secret)
       setEnrollURL(data.url)
     },
@@ -173,8 +177,10 @@ export function LoginPage() {
       }
       return response.json()
     },
-    onSuccess: (data) => {
-      setToken(data.token)
+    onSuccess: async () => {
+      // The session is the HttpOnly cookie the response just set; load the
+      // identity behind it so route guards and the shell have a role to read.
+      await refreshSession()
       navigate({ to: redirect || '/' })
     },
     onError: (err) => {

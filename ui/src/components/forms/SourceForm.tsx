@@ -9,7 +9,8 @@ import { CDCReuseModal } from '../workflow/Source/CDCReuseModal';
 import { SourceSetupInstructions } from '../workflow/Source/SourceSetupInstructions';
 import { IconAlertCircle, IconExternalLink } from '@tabler/icons-react';
 import { useSuspenseQuery } from '@tanstack/react-query';
-import { apiFetch, getRoleFromToken } from '@/api';
+import { apiFetch } from '@/api';
+import { getSessionRole } from '@/auth/session';
 
 const API_BASE = '/api';
 const ADMIN_ROLE = 'Administrator' as const;
@@ -90,7 +91,7 @@ export function SourceForm({
     onRunSimulation
 }: SourceFormProps) {
   const { availableVHosts } = useVHost();
-  const role = getRoleFromToken();
+  const role = getSessionRole();
   const navigate = useNavigate();
 
   const {

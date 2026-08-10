@@ -6,6 +6,7 @@ import { server } from '../test/setupTests'
 import { http, HttpResponse, delay } from 'msw'
 import { TransformationForm } from '@/components/forms/TransformationForm'
 import { vi } from 'vitest'
+import { signInAs } from '@/test/setupTests'
 
 // Mock tanstack router Link to avoid heavy router
 vi.mock('@tanstack/react-router', () => ({
@@ -38,7 +39,7 @@ describe('Transformation preview', () => {
   }
 
   it('shows success preview result', async () => {
-    localStorage.setItem('hermod_token', 'dummy.jwt.token')
+    signInAs()
     server.use(
       http.post('/api/transformations/test', async () => {
         return HttpResponse.json({ ok: true })
@@ -57,7 +58,7 @@ describe('Transformation preview', () => {
   })
 
   it('shows error on preview failure', async () => {
-    localStorage.setItem('hermod_token', 'dummy.jwt.token')
+    signInAs()
     server.use(
       http.post('/api/transformations/test', async () => {
         return HttpResponse.json({ error: 'Bad request' }, { status: 400 })
@@ -74,7 +75,7 @@ describe('Transformation preview', () => {
   })
 
   it('cancels an in-flight preview request', async () => {
-    localStorage.setItem('hermod_token', 'dummy.jwt.token')
+    signInAs()
     server.use(
       http.post('/api/transformations/test', async (_req) => {
         // Simulate a request that is cancellable but settles quickly for tests
@@ -97,7 +98,7 @@ describe('Transformation preview', () => {
   })
 
   it('shows a generic error when the preview request fails at network level', async () => {
-    localStorage.setItem('hermod_token', 'dummy.jwt.token')
+    signInAs()
     // Simulate a network error (e.g., connection refused / fetch throws)
     server.use(
       http.post('/api/transformations/test', async () => {

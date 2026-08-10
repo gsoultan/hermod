@@ -5,10 +5,11 @@ import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { VHostProvider } from '@/context/VHostContext'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
+import { signOut } from '@/test/setupTests'
 
 describe('Auth redirect', () => {
   it('redirects unauthenticated users to /login', async () => {
-    localStorage.removeItem('hermod_token')
+    signOut()
     window.history.pushState({}, '', '/workflows')
 
     const queryClient = new QueryClient()

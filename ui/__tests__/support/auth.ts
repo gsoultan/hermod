@@ -34,12 +34,14 @@ export async function login(page: Page): Promise<void> {
     .not.toHaveURL(/login/, { timeout: 30000 });
 }
 
-/** The bearer token for the current session, for direct API calls. */
-export async function authToken(page: Page): Promise<string> {
-  return page.evaluate(() => localStorage.getItem('hermod_token') ?? '');
-}
-
-/** Call the API as the logged-in user. */
+/**
+ * Call the API as the logged-in user.
+ *
+ * Authentication is the HttpOnly session cookie, which `credentials: 'include'`
+ * sends. There is deliberately no way to obtain a bearer token here: the session
+ * token is no longer readable from JavaScript, which is the point — a helper
+ * that could still reach it would mean the browser could too.
+ */
 export async function apiRequest(
   page: Page,
   path: string,
@@ -49,10 +51,8 @@ export async function apiRequest(
     async ([p, method, body]) => {
       const res = await fetch(p as string, {
         method: (method as string) || 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('hermod_token')}`,
-        },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: body ? (body as string) : undefined,
       });
       return { status: res.status, body: await res.text() };

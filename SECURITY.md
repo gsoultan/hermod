@@ -61,25 +61,44 @@ silently break external integrations. If you operate one, prefer the
 `Authorization: Bearer` header — any non-browser client can set it — and treat a
 token in the URL as logged.
 
-### Still open: the session token is in localStorage
+### The session token is not reachable from JavaScript
 
-The login response returns the JWT in its JSON body as well as in the cookie, and
-the UI keeps that copy in `localStorage` (`ui/src/auth/storage.ts`), attaching it
-as a Bearer header (`ui/src/api.tsx`). Any XSS can read it and exfiltrate a
-24-hour session.
+`/api/login` no longer returns the JWT in its body, and the UI stores nothing:
+`ui/src/auth/storage.ts` is gone. The session exists only as the `HttpOnly`
+cookie, so an XSS cannot read it out of storage or a response.
 
-The streaming dependency that used to justify it is gone, so what remains is a
-smaller, purely local problem: `getClaimsFromToken()` / `getRoleFromToken()`
-decode the stored JWT to learn the current user's role, across 21 call sites in 7
-files.
+The identity the UI needs is not the credential. Role and username come from
+`GET /api/me` into an in-memory store (`ui/src/auth/session.ts`), hydrated once
+in the router's `beforeLoad`. Those are not secrets; the token is.
 
-**The fix:** hydrate a session store from the existing `GET /api/me` at app
-start, reimplement `getRoleFromToken()` to read from it, then stop returning the
-token in the login body and delete `ui/src/auth/storage.ts`. The role is not a
-secret; the token is.
+Verified end to end in a browser by `ui/__tests__/no_token_in_storage_e2e.spec.ts`:
+after login, nothing shaped like a JWT is in `localStorage` or `sessionStorage`,
+`/api/login`'s body carries no token, `document.cookie` cannot see
+`hermod_session`, and the cookie is flagged `HttpOnly`.
 
-Until that lands, treat the session token as XSS-exfiltratable and keep the CSP
-below strict.
+### Logout ends the session
+
+There was no logout endpoint. The UI's logout button deleted its localStorage
+copy and navigated away, which looked like a logout only because the route guard
+then found no token — the cookie was untouched and stayed valid for its full 24
+hours.
+
+`POST /api/logout` now expires the cookie, and the UI calls it. Confirmed by the
+same spec: `/api/me` returns 401 immediately afterwards.
+
+**Residual:** the session is a stateless JWT, so expiring the cookie ends it for
+that browser but does not revoke the token. A copy captured beforehand stays
+valid until it expires. Real revocation needs server-side session state — a
+store of issued or revoked IDs checked per request — which is not implemented.
+
+### Remaining hardening, in priority order
+
+1. **CSRF token on the general API**, required before any deployment sets
+   `SameSite=None` (which disables the cross-site protection currently relied on).
+2. **Session revocation** and rotation on privilege change; shorten the 24h
+   window with a sliding expiry.
+3. **Document the CI security runbook** so these checks run per release rather
+   than from memory.
 
 ## CSRF
 
@@ -113,17 +132,6 @@ currently a session-compromise vector, not just a defacement one.
   parameters, go through `sqlutil.QuoteIdent` / `ValidateIdent` — never string
   interpolation.
 - Use least-privilege credentials for every connected system.
-
-## Open items, in priority order
-
-1. **Stream tickets, then drop the localStorage token** (see above). Everything else
-   here is lower impact.
-2. **CSRF token on the general API**, required before any deployment sets
-   `SameSite=None`.
-3. **Session rotation** on login and on privilege change; sliding expiry to shorten
-   the 24h window.
-4. **Document the CI security runbook** so these checks run per release rather than
-   on memory.
 
 ## Dependency Vulnerability Scanning
 

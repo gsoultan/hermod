@@ -29,8 +29,8 @@ const ErrorPage = lazy(async () => ({ default: (await import('./pages/system/Err
 const NotFoundPage = lazy(async () => ({ default: (await import('./pages/system/NotFoundPage')).NotFoundPage }))
 const Layout = lazy(async () => ({ default: (await import('./components/layout/Layout')).Layout }))
 import { Center, Loader } from '@mantine/core'
-import { apiFetch, getRoleFromToken } from './api'
-import { getToken } from './auth/storage'
+import { apiFetch } from './api'
+import { ensureSession, getSessionRole } from './auth/session'
 import {lazy, Suspense} from "react"
 // Lazy-load remaining pages to comply with bundle-size & lazy-loading guidelines
 const SettingsPage = lazy(async () => ({ default: (await import('./pages/system/SettingsPage')).SettingsPage }))
@@ -106,9 +106,16 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
     }
 
     try {
-      // Defer network until we know user is authenticated
-      const token = getToken()
-      if (!token) {
+      // Resolve who is logged in before anything renders. This is the only
+      // place the session is hydrated, which is what lets getSessionRole() stay
+      // synchronous at its call sites.
+      //
+      // It replaces a localStorage check. That was cheaper — no network — but
+      // it only worked because a copy of the session token was sitting in
+      // storage for JavaScript to find, which is exactly what had to go. The
+      // request is made once and shared; /api/me answers from the cookie.
+      const user = await ensureSession()
+      if (!user) {
         throw redirect({
           to: '/login',
           search: {
@@ -221,7 +228,7 @@ const vhostsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/vhosts',
   beforeLoad: () => {
-    if (getRoleFromToken() !== 'Administrator') {
+    if (getSessionRole() !== 'Administrator') {
       throw redirect({ to: '/' })
     }
   }
@@ -261,7 +268,7 @@ const workersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/workers',
   beforeLoad: () => {
-    if (getRoleFromToken() !== 'Administrator') {
+    if (getSessionRole() !== 'Administrator') {
       throw redirect({ to: '/' })
     }
   }
@@ -342,7 +349,7 @@ const usersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/users',
   beforeLoad: () => {
-    if (getRoleFromToken() !== 'Administrator') {
+    if (getSessionRole() !== 'Administrator') {
       throw redirect({ to: '/' })
     }
   }
@@ -397,7 +404,7 @@ const settingsRoute = createRoute({
     </Suspense>
   ),
   beforeLoad: () => {
-    if (getRoleFromToken() !== 'Administrator') {
+    if (getSessionRole() !== 'Administrator') {
       throw redirect({ to: '/' })
     }
   }
@@ -437,7 +444,7 @@ const auditLogsRoute = createRoute({
     </Suspense>
   ),
   beforeLoad: () => {
-    if (getRoleFromToken() !== 'Administrator') {
+    if (getSessionRole() !== 'Administrator') {
       throw redirect({ to: '/' })
     }
   },
@@ -506,9 +513,11 @@ const loginRoute = createRoute({
       redirect: (search.redirect as string) || '/',
     }
   },
-  beforeLoad: () => {
-    const token = localStorage.getItem('hermod_token')
-    if (token) {
+  beforeLoad: async () => {
+    // Bounce an already-authenticated visitor away from the login form. This
+    // used to look for a token in localStorage; the session now lives only in
+    // the HttpOnly cookie, so the server has to be asked.
+    if (await ensureSession()) {
       throw redirect({
         to: '/',
       })

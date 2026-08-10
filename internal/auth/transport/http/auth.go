@@ -38,6 +38,7 @@ func (h *AuthHandler) RegisterAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/auth/oidc", h.OidcLogin)
 	mux.HandleFunc("GET /api/auth/callback", h.OidcCallback)
 	mux.HandleFunc("POST /api/forgot-password", h.ForgotPassword)
+	mux.HandleFunc("POST /api/logout", h.Logout)
 	mux.HandleFunc("GET /api/me", h.Me)
 	mux.HandleFunc("PUT /api/me", h.UpdateMe)
 	mux.Handle("GET /api/users", h.AdminOnly(h.ListUsers))
@@ -53,6 +54,41 @@ func (h *AuthHandler) RegisterAuthRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/vhosts/", h.AdminOnly(h.CreateVHost))
 	mux.Handle("PUT /api/vhosts/{id}", h.AdminOnly(h.UpdateVHost))
 	mux.Handle("DELETE /api/vhosts/{id}", h.AdminOnly(h.DeleteVHost))
+}
+
+// sessionCookieName is the only cookie that carries a Hermod session.
+const sessionCookieName = "hermod_session"
+
+// sessionCookie builds the session cookie. maxAge is the lifetime in seconds,
+// or -1 to delete.
+//
+// One builder for both setting and clearing: a cookie is only replaced when the
+// name, path and domain match, so a logout that spelled any of them differently
+// would leave the original in place and silently fail to end the session.
+//
+// gosec cannot prove Secure is set because it is derived from the request
+// scheme. That is deliberate — pinning it true would stop the cookie working
+// over plain HTTP on localhost, which is how the dev stack runs. It is forced
+// true for SameSite=None, where browsers require it.
+//
+//nolint:gosec // G124: Secure is request-derived; see above.
+func sessionCookie(r *http.Request, value string, maxAge int) *http.Cookie {
+	isHTTPS := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+
+	ss := handlers.SameSiteFromEnv()
+	cookie := &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    value,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   isHTTPS,
+		SameSite: ss,
+		MaxAge:   maxAge,
+	}
+	if ss == http.SameSiteNoneMode {
+		cookie.Secure = true
+	}
+	return cookie
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -165,33 +201,20 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isHTTPS := func(r *http.Request) bool {
-		if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-			return true
-		}
-		return r.TLS != nil
-	}
-
-	ss := handlers.SameSiteFromEnv()
-	cookie := &http.Cookie{
-		Name:     "hermod_session",
-		Value:    tokenString,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   isHTTPS(r),
-		SameSite: ss,
-		MaxAge:   24 * 60 * 60,
-	}
-	if ss == http.SameSiteNoneMode {
-		cookie.Secure = true
-	}
-	http.SetCookie(w, cookie)
+	http.SetCookie(w, sessionCookie(r, tokenString, 24*60*60))
 	h.RecordAuditLog(r, "INFO", "User "+user.Username+" logged in", "login", user.ID, "user", "", nil)
 
+	// The session token is NOT returned in the body.
+	//
+	// It used to be, and the UI stored that copy in localStorage so it could
+	// read the role out of the claims and put the token in WebSocket URLs.
+	// Both needs are gone -- the role comes from GET /api/me and streams
+	// authenticate with the cookie -- so returning it would only recreate a
+	// credential that JavaScript can reach and an XSS can take.
+	//
+	// The cookie set above is the whole session.
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"token": tokenString,
-	})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 var (
@@ -366,27 +389,7 @@ func (h *AuthHandler) OidcCallback(w http.ResponseWriter, r *http.Request) {
 
 	h.RecordAuditLog(r, "INFO", "User "+user.Username+" logged in (OIDC)", "login", user.ID, "user", "", nil)
 
-	isHTTPS := func(r *http.Request) bool {
-		if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-			return true
-		}
-		return r.TLS != nil
-	}
-
-	ss := handlers.SameSiteFromEnv()
-	cookie := &http.Cookie{
-		Name:     "hermod_session",
-		Value:    tokenString,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   isHTTPS(r),
-		SameSite: ss,
-		MaxAge:   24 * 60 * 60,
-	}
-	if ss == http.SameSiteNoneMode {
-		cookie.Secure = true
-	}
-	http.SetCookie(w, cookie)
+	http.SetCookie(w, sessionCookie(r, tokenString, 24*60*60))
 
 	http.Redirect(w, r, "/", http.StatusFound)
 }
@@ -861,30 +864,12 @@ func (h *AuthHandler) Verify2FAPending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isHTTPS := func(r *http.Request) bool {
-		if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-			return true
-		}
-		return r.TLS != nil
-	}
-	ss := handlers.SameSiteFromEnv()
-	cookie := &http.Cookie{
-		Name:     "hermod_session",
-		Value:    tokenString,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   isHTTPS(r),
-		SameSite: ss,
-		MaxAge:   24 * 60 * 60,
-	}
-	if ss == http.SameSiteNoneMode {
-		cookie.Secure = true
-	}
-	http.SetCookie(w, cookie)
+	http.SetCookie(w, sessionCookie(r, tokenString, 24*60*60))
 	h.RecordAuditLog(r, "INFO", "Enabled 2FA (during login) for "+user.Username, "update", user.ID, "user", "", nil)
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
+	// Session token deliberately not returned; see the note in Login.
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func (h *AuthHandler) Disable2FA(w http.ResponseWriter, r *http.Request) {
@@ -976,33 +961,12 @@ func (h *AuthHandler) Login2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isHTTPS := func(r *http.Request) bool {
-		if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-			return true
-		}
-		return r.TLS != nil
-	}
-
-	ss := handlers.SameSiteFromEnv()
-	cookie := &http.Cookie{
-		Name:     "hermod_session",
-		Value:    tokenString,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   isHTTPS(r),
-		SameSite: ss,
-		MaxAge:   24 * 60 * 60,
-	}
-	if ss == http.SameSiteNoneMode {
-		cookie.Secure = true
-	}
-	http.SetCookie(w, cookie)
+	http.SetCookie(w, sessionCookie(r, tokenString, 24*60*60))
 	h.RecordAuditLog(r, "INFO", "User "+user.Username+" logged in (2FA)", "login", user.ID, "user", "", nil)
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"token": tokenString,
-	})
+	// Session token deliberately not returned; see the note in Login.
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func (h *AuthHandler) GeneratePasswordHandler(w http.ResponseWriter, r *http.Request) {
@@ -1031,6 +995,32 @@ func (h *AuthHandler) SanitizeUser(u *storage.User) {
 	}
 	u.Password = ""
 	u.TwoFactorSecret = ""
+}
+
+// Logout clears the session cookie.
+//
+// There was no logout endpoint before. The UI's logout button deleted the token
+// it kept in localStorage and navigated to /login, which looked like a logout
+// because the route guard then found no token — but the hermod_session cookie
+// was untouched and stayed valid for its full 24 hours. Anyone with the browser
+// could resume the session, and any request that relied on the cookie rather
+// than the header never stopped being authenticated.
+//
+// Now that the cookie is the only credential, that gap is the difference
+// between logging out and appearing to.
+//
+// Expiring the cookie is all a stateless JWT session can do: the token remains
+// valid until it expires, so a copy captured beforehand still works. Revocation
+// would need server-side session state, which is noted in SECURITY.md rather
+// than implied here.
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	// maxAge -1 deletes. The other attributes have to match the cookie that was
+	// set at login or the browser treats it as a different cookie and keeps the
+	// original — which is why both go through one builder.
+	http.SetCookie(w, sessionCookie(r, "", -1))
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "logged out"})
 }
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {

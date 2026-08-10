@@ -6,6 +6,7 @@ import { server } from '../test/setupTests'
 import { http, HttpResponse } from 'msw'
 import WorkflowsPage from '../pages/workflows/WorkflowsPage'
 import { vi } from 'vitest'
+import { signInAs } from '@/test/setupTests'
 
 // Avoid importing the full app router (heavy). Mock Link to a simple anchor.
 vi.mock('@tanstack/react-router', () => {
@@ -16,7 +17,7 @@ vi.mock('@tanstack/react-router', () => {
 
 describe.skip('Workflows: import/save via modal', () => {
   it('imports a workflow JSON and shows it in the list (happy path)', async () => {
-    localStorage.setItem('hermod_token', 'dummy.jwt.token')
+    signInAs()
     window.history.pushState({}, '', '/workflows')
 
     // In-memory items emulate server state

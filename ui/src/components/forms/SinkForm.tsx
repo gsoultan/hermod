@@ -6,7 +6,7 @@ import type { Sink } from '@/types';
 import { IconAlertCircle, IconExternalLink } from '@tabler/icons-react';
 import { useSinkForm } from '@/hooks/useSinkForm';
 import { SinkWizard } from './SinkWizard';
-import { getRoleFromToken } from '@/api';
+import { getSessionRole } from '@/auth/session';
 
 // Lazy load config components
 const PostgresSinkConfig = lazy(() => import('../workflow/Sink/PostgresSinkConfig').then(m => ({ default: m.PostgresSinkConfig })));
@@ -154,7 +154,7 @@ export function SinkForm({
     upstreamSource
 }: SinkFormProps) {
   const navigate = useNavigate();
-  const role = getRoleFromToken();
+  const role = getSessionRole();
   const { availableVHosts } = useVHost();
   
   const {

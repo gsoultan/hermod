@@ -7,6 +7,7 @@ import { http, HttpResponse } from 'msw'
 import WorkflowsPage from '../pages/workflows/WorkflowsPage'
 import { vi } from 'vitest'
 import { ConfirmProvider } from '@/components/common/ConfirmProvider'
+import { signInAs } from '@/test/setupTests'
 
 // Avoid importing the full app router (heavy). Mock Link to a simple anchor.
 vi.mock('@tanstack/react-router', () => {
@@ -18,7 +19,7 @@ vi.mock('@tanstack/react-router', () => {
 describe('Workflows: toggle happy path', () => {
   it('toggles a workflow from Inactive to Active and refetches list', async () => {
     // Authenticated session
-    localStorage.setItem('hermod_token', 'dummy.jwt.token')
+    signInAs()
     window.history.pushState({}, '', '/workflows')
 
     // Simple in-memory state to reflect server-side active flag

@@ -1,38 +1,15 @@
 import { notifications } from '@mantine/notifications';
-import { getToken, removeToken } from './auth/storage';
+import { clearSession } from './auth/session';
 import { IconAlertCircle, IconExternalLink } from '@tabler/icons-react';
 import { Text, Group, Anchor, Stack } from '@mantine/core';
 
-export function getClaimsFromToken(): any {
-  const token = getToken();
-  if (!token) return null;
-  try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-    return JSON.parse(jsonPayload);
-  } catch (e) {
-    return null;
-  }
-}
-
-export function getRoleFromToken(): string | null {
-  return getClaimsFromToken()?.role || null;
-}
-
 export async function apiFetch(url: string, options: RequestInit & { silent?: boolean } = {}) {
-  const token = getToken();
-  
-  const headers = new Headers(options.headers);
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-
+  // No Authorization header: the credential is the HttpOnly session cookie,
+  // which `credentials: 'include'` sends. Reading a token in JS to put it here
+  // is what forced a copy of it into localStorage, where any XSS could take it.
   const response = await fetch(url, {
     ...options,
-    headers,
+    headers: new Headers(options.headers),
     credentials: 'include',
     // Allow callers to pass AbortSignal for cancellation
     signal: options.signal,
@@ -45,7 +22,7 @@ export async function apiFetch(url: string, options: RequestInit & { silent?: bo
     url.includes('/api/login') || url.includes('/api/auth/2fa/');
 
   if (response.status === 401 && !isPreAuthEndpoint) {
-    removeToken();
+    clearSession();
     const currentPath = window.location.pathname;
     if (currentPath !== '/login' && currentPath !== '/setup' && currentPath !== '/forgot-password') {
       window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;

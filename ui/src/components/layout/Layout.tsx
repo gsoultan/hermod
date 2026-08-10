@@ -4,7 +4,8 @@ import React, { useEffect, useRef, type ReactNode } from 'react';
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVHost } from '@/context/VHostContext';
-import { apiFetch, getRoleFromToken, getClaimsFromToken } from '@/api';
+import { apiFetch } from '@/api';
+import { getSessionRole, getSessionUser, clearSession } from '@/auth/session';
 import { Spotlight, spotlight } from '@mantine/spotlight';
 import '@mantine/spotlight/styles.css';
 import { notifications } from '@mantine/notifications';
@@ -122,7 +123,7 @@ export function Layout({ children }: LayoutProps) {
     // only, or the user's own toggle inside the editor would be undone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCanvasRoute, closeDesktop, openDesktop]);
-  const role = getRoleFromToken();
+  const role = getSessionRole();
   const isAdmin = role === 'Administrator';
   const canEdit = role === 'Administrator' || role === 'Editor';
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
@@ -222,9 +223,18 @@ export function Layout({ children }: LayoutProps) {
     return <main>{children}</main>;
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem('hermod_token');
-    navigate({ 
+  const handleLogout = async () => {
+    // Ask the server to expire the session cookie. Clearing client state alone
+    // is not a logout: the cookie is the credential, and it would otherwise stay
+    // valid for its full 24 hours with the browser still holding it.
+    try {
+      await apiFetch('/api/logout', { method: 'POST', silent: true });
+    } catch {
+      // Even if the call fails, drop local state and leave — staying on an
+      // authenticated-looking page after the user asked to leave is worse.
+    }
+    clearSession();
+    navigate({
       to: '/login',
       search: {
         redirect: activePage,
@@ -508,13 +518,13 @@ export function Layout({ children }: LayoutProps) {
               <Menu.Target>
                 <ActionIcon aria-label="Account menu" variant="subtle" color="gray" size="lg" radius="xl" title="Account">
                   <Avatar size="sm" radius="xl" color="blue">
-                    {getClaimsFromToken()?.username?.charAt(0).toUpperCase()}
+                    {getSessionUser()?.username?.charAt(0).toUpperCase()}
                   </Avatar>
                 </ActionIcon>
               </Menu.Target>
 
               <Menu.Dropdown>
-                <Menu.Label>Account ({getClaimsFromToken()?.username})</Menu.Label>
+                <Menu.Label>Account ({getSessionUser()?.username})</Menu.Label>
                 <Menu.Item 
                   leftSection={<IconUser size="1rem" stroke={1.5} />}
                   onClick={() => navigate({ to: '/profile' })}

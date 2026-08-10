@@ -29,8 +29,9 @@ test.describe('Hermod Production Grade E2E', () => {
 
     // 1. Setup Infrastructure via evaluate (faster)
     const setupData = await page.evaluate(async ({ vhostName, timestamp, sourceDB, sinkDB }) => {
-      const token = localStorage.getItem('hermod_token');
-      const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+      // Same-origin fetch sends the HttpOnly session cookie by default; there
+      // is no readable token to put in a header any more.
+      const headers = { 'Content-Type': 'application/json' };
 
       await fetch('/api/vhosts', { method: 'POST', headers, body: JSON.stringify({ name: vhostName }) });
 
@@ -81,8 +82,9 @@ test.describe('Hermod Production Grade E2E', () => {
 
     // Add nodes via API to save time in UI interaction, then reload to verify UI
     await page.evaluate(async ({ workflowId, setupData, timestamp }) => {
-      const token = localStorage.getItem('hermod_token');
-      const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+      // Same-origin fetch sends the HttpOnly session cookie by default; there
+      // is no readable token to put in a header any more.
+      const headers = { 'Content-Type': 'application/json' };
       
       const workflow = await (await fetch(`/api/workflows/${workflowId}`, { headers })).json();
       
