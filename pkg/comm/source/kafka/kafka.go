@@ -96,6 +96,13 @@ func (s *KafkaSource) Read(ctx context.Context) (hermod.Message, error) {
 }
 
 func (s *KafkaSource) Ack(ctx context.Context, msg hermod.Message) error {
+	// A nil message must surface as an error rather than a dereference. The
+	// engine acknowledges on the hot path, so a crash — or, as this actually
+	// behaved, a goroutine that never returns — takes the consumer with it.
+	if msg == nil {
+		return errors.New("kafka source: nil message")
+	}
+
 	topic := msg.Metadata()["kafka_topic"]
 	partitionStr := msg.Metadata()["kafka_partition"]
 	offsetStr := msg.Metadata()["kafka_offset"]

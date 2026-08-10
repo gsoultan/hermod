@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/gsmail"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/conformance"
 	jsonfmt "github.com/user/hermod/pkg/comm/formatter/json"
@@ -14,8 +15,10 @@ import (
 	sinkcassandra "github.com/user/hermod/pkg/comm/sink/cassandra"
 	sinkclickhouse "github.com/user/hermod/pkg/comm/sink/clickhouse"
 	sinkdiscord "github.com/user/hermod/pkg/comm/sink/discord"
+	sinkdynamics365 "github.com/user/hermod/pkg/comm/sink/dynamics365"
 	sinkelasticsearch "github.com/user/hermod/pkg/comm/sink/elasticsearch"
 	sinkfailover "github.com/user/hermod/pkg/comm/sink/failover"
+	sinkfcm "github.com/user/hermod/pkg/comm/sink/fcm"
 	sinkfile "github.com/user/hermod/pkg/comm/sink/file"
 	sinkftp "github.com/user/hermod/pkg/comm/sink/ftp"
 	sinkgooglesheets "github.com/user/hermod/pkg/comm/sink/googlesheets"
@@ -35,9 +38,13 @@ import (
 	sinkpulsar "github.com/user/hermod/pkg/comm/sink/pulsar"
 	sinkrabbitmq "github.com/user/hermod/pkg/comm/sink/rabbitmq"
 	sinkredis "github.com/user/hermod/pkg/comm/sink/redis"
+	sinks3 "github.com/user/hermod/pkg/comm/sink/s3"
+	sinks3parquet "github.com/user/hermod/pkg/comm/sink/s3parquet"
 	sinksalesforce "github.com/user/hermod/pkg/comm/sink/salesforce"
+	sinksap "github.com/user/hermod/pkg/comm/sink/sap"
 	sinkservicenow "github.com/user/hermod/pkg/comm/sink/servicenow"
 	sinkslack "github.com/user/hermod/pkg/comm/sink/slack"
+	sinksmtp "github.com/user/hermod/pkg/comm/sink/smtp"
 	sinksnowflake "github.com/user/hermod/pkg/comm/sink/snowflake"
 	sinksqlite "github.com/user/hermod/pkg/comm/sink/sqlite"
 	sinksse "github.com/user/hermod/pkg/comm/sink/sse"
@@ -46,13 +53,17 @@ import (
 	sinkwebsocket "github.com/user/hermod/pkg/comm/sink/websocket"
 
 	srccassandra "github.com/user/hermod/pkg/comm/source/cassandra"
+	srccdc "github.com/user/hermod/pkg/comm/source/cdc"
 	srcclickhouse "github.com/user/hermod/pkg/comm/source/clickhouse"
 	srccron "github.com/user/hermod/pkg/comm/source/cron"
 	srcdb2 "github.com/user/hermod/pkg/comm/source/db2"
+	srcdynamics365 "github.com/user/hermod/pkg/comm/source/dynamics365"
 	srcexcel "github.com/user/hermod/pkg/comm/source/excel"
 	srcfile "github.com/user/hermod/pkg/comm/source/file"
 	srcgraphql "github.com/user/hermod/pkg/comm/source/graphql"
 	srchttp "github.com/user/hermod/pkg/comm/source/http"
+	srckafka "github.com/user/hermod/pkg/comm/source/kafka"
+	srcmainframe "github.com/user/hermod/pkg/comm/source/mainframe"
 	srcmariadb "github.com/user/hermod/pkg/comm/source/mariadb"
 	srcmongodb "github.com/user/hermod/pkg/comm/source/mongodb"
 	srcmqtt "github.com/user/hermod/pkg/comm/source/mqtt"
@@ -63,10 +74,12 @@ import (
 	srcpostgres "github.com/user/hermod/pkg/comm/source/postgres"
 	srcrabbitmq "github.com/user/hermod/pkg/comm/source/rabbitmq"
 	srcredis "github.com/user/hermod/pkg/comm/source/redis"
+	srcsap "github.com/user/hermod/pkg/comm/source/sap"
 	srcscylladb "github.com/user/hermod/pkg/comm/source/scylladb"
 	srcsqlite "github.com/user/hermod/pkg/comm/source/sqlite"
 	srcwebhook "github.com/user/hermod/pkg/comm/source/webhook"
 	srcwebsocket "github.com/user/hermod/pkg/comm/source/websocket"
+	srcyugabyte "github.com/user/hermod/pkg/comm/source/yugabyte"
 )
 
 // This file is the connector conformance registry.
@@ -292,6 +305,42 @@ func TestSinkConformance(t *testing.T) {
 	sinkOrSkip(t, "ftp", func() (hermod.Sink, error) {
 		return sinkftp.NewFTPSink(deadHost, 1, "u", "p", false, time.Second, "/", "", "f", "overwrite", false, fmtr())
 	})
+
+	// NOT REGISTERED: facebook, instagram, linkedin, tiktok, twitter.
+	//
+	// Each hardcodes its vendor hostname (graph.facebook.com, api.twitter.com,
+	// and so on) with no injectable base URL, so constructing one here dials the
+	// real internet. That is slow, flaky, and — as pinecone demonstrated — one
+	// connector doing live DNS and TLS degrades every other connector's dial in
+	// the same run.
+	//
+	// Same remedy as pinecone: give them a base-URL override and they can join.
+	conformance.RunSinkSuite(t, "dynamics365", func() hermod.Sink {
+		return sinkdynamics365.NewSink(sinkdynamics365.Config{
+			Resource: deadURL, TenantID: "t", ClientID: "c", ClientSecret: "s",
+			Entity: "accounts", Operation: "create",
+		}, nil)
+	})
+	conformance.RunSinkSuite(t, "sap", func() hermod.Sink {
+		return sinksap.NewSink(sinksap.Config{
+			Host: deadURL, Client: "100", Protocol: "odata",
+			Service: "API_TEST_SRV", Entity: "A_Test",
+		}, nil)
+	})
+	conformance.RunSinkSuite(t, "smtp", func() hermod.Sink {
+		return sinksmtp.NewSmtpSink(deadHost, 1, "u", "p", false, "from@example.test",
+			[]string{"to@example.test"}, "subject", fmtr(), "", "", "", gsmail.S3Config{}, false)
+	})
+
+	sinkOrSkip(t, "fcm", func() (hermod.Sink, error) {
+		return sinkfcm.NewFCMSink("{}", fmtr())
+	})
+	sinkOrSkip(t, "s3", func() (hermod.Sink, error) {
+		return sinks3.NewS3Sink(context.Background(), "us-east-1", "b", "p/", "ak", "sk", deadURL, fmtr(), ".json", "application/json")
+	})
+	sinkOrSkip(t, "s3parquet", func() (hermod.Sink, error) {
+		return sinks3parquet.NewS3ParquetSink(context.Background(), "us-east-1", "b", "p/", "ak", "sk", deadURL, "", 1)
+	})
 }
 
 func TestSourceConformance(t *testing.T) {
@@ -370,6 +419,54 @@ func TestSourceConformance(t *testing.T) {
 	sourceOrSkip(t, "rabbitmq", func() (hermod.Source, error) {
 		return srcrabbitmq.NewRabbitMQQueueSource("amqp://"+deadAddr, "q")
 	})
+
+	conformance.RunSourceSuite(t, "yugabyte", func() hermod.Source {
+		return srcyugabyte.NewYugabyteSource("postgres://u:p@"+deadAddr+"/d", tables, "id", poll, true)
+	})
+	conformance.RunSourceSuite(t, "kafka", func() hermod.Source {
+		return srckafka.NewKafkaSource([]string{deadAddr}, "t", "g", "", "")
+	})
+	conformance.RunSourceSuite(t, "cdc", func() hermod.Source {
+		return srccdc.NewSource("postgres", map[string]any{"conn": "postgres://u:p@" + deadAddr + "/d"})
+	})
+	conformance.RunSourceSuite(t, "mainframe", func() hermod.Source {
+		return srcmainframe.NewSource(srcmainframe.Config{
+			Host: deadHost, Port: 1, User: "u", Password: "p",
+			Database: "d", Table: "t", Type: "db2", Interval: "1s",
+		}, nil)
+	})
+	conformance.RunSourceSuite(t, "sap", func() hermod.Source {
+		return srcsap.NewSource(srcsap.SourceConfig{
+			Host: deadURL, Client: "100", Service: "API_TEST_SRV",
+			Entity: "A_Test", PollInterval: "1s", IDField: "id",
+		}, nil)
+	})
+	conformance.RunSourceSuite(t, "dynamics365", func() hermod.Source {
+		return srcdynamics365.NewSource(srcdynamics365.SourceConfig{
+			Resource: deadURL, TenantID: "t", ClientID: "c", ClientSecret: "s",
+			Entity: "accounts", PollInterval: "1s", IDField: "modifiedon",
+		}, nil)
+	})
+
+	// NOT REGISTERED: discord, slack, facebook, instagram, linkedin, tiktok,
+	// twitter, firebase, googlesheets, googleanalytics.
+	//
+	// The social pollers hardcode their vendor hostname with no injectable base
+	// URL, so constructing one dials the real internet — see the equivalent note
+	// in TestSinkConformance. The Google-backed ones build an SDK client from a
+	// credentials blob and reach out to Google's token endpoint on the same
+	// terms.
+	//
+	// They stay out for the same reason pinecone does: a suite that talks to the
+	// internet is slow, flaky, and degrades the connectors that do not.
+
+	// NOT REGISTERED: batchsql, form, grpc.
+	//
+	// Each needs a collaborator the suite cannot supply without becoming a
+	// different kind of test: batchsql takes a DBProvider, form takes a
+	// submission Storage, and grpc loads a .proto file off disk at construction.
+	// Faking those would exercise the fake, not the connector, so they stay out
+	// until there is an integration test with the real thing.
 }
 
 // TestRegistryCoversFormatter is a smoke check that the shared formatter used

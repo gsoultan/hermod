@@ -250,12 +250,13 @@ func RunSourceSuite(t *testing.T, name string, newSource func() hermod.Source, o
 	})
 
 	t.Run(name+"/AckNilMessageDoesNotPanic", func(t *testing.T) {
-
 		s := newSource()
 		defer closeBounded(t, s)
-		defer guardPanic(t, "Ack(nil)")
 
-		_ = s.Ack(boundedCtx(t), nil)
+		// Bounded, not merely panic-guarded. The Kafka source's Ack dereferenced
+		// a nil message and did not crash — it stopped returning, which an
+		// unbounded call turns into a hung suite rather than a failed assertion.
+		assertReturnsWithin(t, o, "Ack", func(ctx context.Context) { _ = s.Ack(ctx, nil) })
 	})
 }
 

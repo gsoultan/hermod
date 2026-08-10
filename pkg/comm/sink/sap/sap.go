@@ -40,6 +40,14 @@ func NewSink(config Config, logger hermod.Logger) *Sink {
 }
 
 func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
+	// Guarded at the dispatch point rather than in each protocol handler: every
+	// branch below dereferences msg, and a nil must surface as an error the
+	// engine can route to a DLQ instead of an unrecovered dereference in a
+	// worker goroutine.
+	if msg == nil {
+		return errors.New("sap sink: nil message")
+	}
+
 	switch s.config.Protocol {
 	case "bapi":
 		return s.callBAPI(ctx, msg)
