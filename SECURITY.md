@@ -97,8 +97,7 @@ store of issued or revoked IDs checked per request — which is not implemented.
    hour rather than a day (see above), but revoking a specific session before it
    expires still needs server-side session state, and a design choice about
    where that state lives and what it costs per request.
-2. **Document the CI security runbook** so these checks run per release rather
-   than from memory.
+2. *(done — see "Verifying this document" below.)*
 
 ## CSRF
 
@@ -146,6 +145,41 @@ currently a session-compromise vector, not just a defacement one.
   parameters, go through `sqlutil.QuoteIdent` / `ValidateIdent` — never string
   interpolation.
 - Use least-privilege credentials for every connected system.
+
+## Verifying this document
+
+Every claim above that can be checked has a check, and they run together:
+
+```bash
+./scripts/security-check.sh          # everything that needs no server
+./scripts/security-check.sh --e2e    # plus the browser checks
+```
+
+It runs in CI on every build, so a claim that quietly stops being true fails
+there rather than during an incident. The script prints the claim before each
+check, so a reader can see what is being asserted and not just that something
+passed.
+
+| Claim | Held by |
+| :--- | :--- |
+| No reachable known vulnerability | `scripts/govulncheck.sh` (with reviewed exemptions) |
+| Streams authenticate by cookie, refuse URL tokens | `internal/api/handlers/stream_auth_test.go` |
+| Session window is an hour, capped at a day | `internal/api/handlers/session_lifetime_test.go` |
+| CSRF on cookie state changes, header auth exempt | `internal/api/handlers/csrf_test.go` |
+| Every mutating route is guarded, or listed | `internal/api/handlers/route_guard_test.go` |
+| A restrictive CSP is set, and permits WebSockets | `internal/api/handlers/security_headers_test.go` |
+| SQL identifiers are quoted, never interpolated | `pkg/infra/sqlutil` |
+| Hermod never decodes untrusted Avro | `TestNoUntrustedAvroDecoding` |
+| No credential reaches web storage | `ui/__tests__/no_token_in_storage_e2e.spec.ts` (`--e2e`) |
+
+**What has no check, stated so the table is not mistaken for the whole posture:**
+
+- **Session revocation** — not implemented, so there is nothing to verify. The
+  window is bounded but a captured token is not revocable.
+- **"Do not log secrets or PII"** — a review discipline. A grep would be theatre,
+  not a check.
+- **The two-phase-commit operational hazard** — covered by the integration tests
+  in `pkg/comm/sink/txgroup`, which need a real PostgreSQL and so run separately.
 
 ## Dependency Vulnerability Scanning
 

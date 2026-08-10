@@ -68,6 +68,13 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           ./scripts/govulncheck.sh
+      # One command that runs every check backing a claim in SECURITY.md, so the
+      # posture is verified per build rather than remembered. It re-runs a few
+      # tests the main suite already covers; that is the point — the value is in
+      # a single place that fails when a security claim stops being true, rather
+      # than the claim quietly outliving its enforcement.
+      - name: Security checks
+        run: ./scripts/security-check.sh
       # dev.sh teardown has to reap processes that no longer hold a port; one
       # that survived a run for hours poisoned the next run's log with errors
       # from a database it was no longer using. --stop touches no container
