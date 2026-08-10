@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
@@ -344,5 +345,68 @@ func TestPreflightPassesWhenEveryMemberIsCapable(t *testing.T) {
 	}
 	if err := g.Preflight(context.Background()); err != nil {
 		t.Fatalf("Preflight rejected a capable group: %v", err)
+	}
+}
+
+// TestStartReaperSweepsAndStops covers the scheduler, not the reaping logic
+// (which twopc tests). What matters here is that it actually fires, and that
+// stopping it waits rather than leaking a goroutine into the next test.
+func TestStartReaperSweepsAndStops(t *testing.T) {
+	store := newMemStore()
+	a := &txSink{name: "a"}
+	b := &txSink{name: "b"}
+
+	// MaxPreparedAge of a nanosecond makes anything in doubt immediately stale.
+	c, err := twopc.New(twopc.Options{
+		Store: store, WorkflowID: "wf-1", MaxPreparedAge: time.Nanosecond,
+	})
+	if err != nil {
+		t.Fatalf("twopc.New: %v", err)
+	}
+	g, err := New([]Member{{ID: "a", Sink: a}, {ID: "b", Sink: b}}, c, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	stop := g.StartReaper(context.Background(), 5*time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
+	stop()
+
+	// Nothing was in doubt, so nothing should have been rolled back. The value
+	// of the assertion is the inverse: a reaper that rolled back healthy
+	// transactions on a timer would show up here.
+	if _, _, rolledBack := a.counts(); rolledBack != 0 {
+		t.Errorf("the reaper rolled back %d transactions with nothing in doubt", rolledBack)
+	}
+
+	// stop() must be synchronous: a second call proves it did not leave a
+	// goroutine running that would panic on a closed channel.
+	stop()
+}
+
+// TestStartReaperStopsWithItsContext: a cancelled context must wind the sweep
+// down without needing the stop function, since the engine's shutdown path
+// cancels rather than calling back.
+func TestStartReaperStopsWithItsContext(t *testing.T) {
+	c, _ := twopc.New(twopc.Options{Store: newMemStore(), WorkflowID: "wf-1"})
+	g, err := New([]Member{
+		{ID: "a", Sink: &txSink{name: "a"}},
+		{ID: "b", Sink: &txSink{name: "b"}},
+	}, c, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := g.StartReaper(ctx, 5*time.Millisecond)
+	cancel()
+
+	done := make(chan struct{})
+	go func() { stop(); close(done) }()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the reaper did not stop when its context was cancelled")
 	}
 }

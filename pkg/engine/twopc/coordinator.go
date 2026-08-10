@@ -215,7 +215,22 @@ func (c *Coordinator) Run(ctx context.Context, participants []Participant, work 
 // prepareAll runs work, records intent, and collects votes. On any failure it
 // rolls back whatever it touched and returns the error.
 func (c *Coordinator) prepareAll(ctx context.Context, participants []Participant, work func(context.Context) error) (*record, error) {
-	// The writes happen first: a participant prepares changes it already holds.
+	// Open a transaction on every participant before anything is written.
+	//
+	// This is not ceremony: a participant can only prepare work that is already
+	// inside a transaction it owns. PostgresSink, for one, refuses to prepare
+	// with "no active transaction" — so a coordinator that skipped this would
+	// fail on the first real batch while passing every test whose fake accepts
+	// Prepare unconditionally.
+	for i, p := range participants {
+		if err := p.Sink.Begin(ctx); err != nil {
+			// Roll back the ones already open; the rest were never touched.
+			c.rollbackOpen(ctx, participants[:i])
+			return nil, fmt.Errorf("twopc: participant %q could not begin: %w", p.ID, err)
+		}
+	}
+
+	// The writes happen next: a participant prepares changes it already holds.
 	if err := work(ctx); err != nil {
 		c.rollbackOpen(ctx, participants)
 		return nil, fmt.Errorf("twopc: write failed, transaction abandoned: %w", err)

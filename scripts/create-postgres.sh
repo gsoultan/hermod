@@ -136,6 +136,7 @@ if [[ "${SKIP_CREATE:-0}" != "1" ]]; then
     -c wal_level=logical \
     -c max_replication_slots=10 \
     -c max_wal_senders=10 \
+    -c max_prepared_transactions=32 \
     -c listen_addresses='*' \
     >/dev/null || die "failed to create container '$NAME'"
   ok "created"
@@ -160,6 +161,17 @@ if [[ "$wal" == "logical" ]]; then
   ok "wal_level=logical (CDC ready)"
 else
   warn "wal_level is '$wal', not 'logical' — PostgreSQL CDC sources will not work"
+fi
+
+# Transactional sink groups need PREPARE TRANSACTION, which PostgreSQL disables
+# by default (max_prepared_transactions = 0) and which cannot be turned on
+# without a restart. Verify rather than assume: without it, 2PC fails at the
+# first batch rather than at start-up.
+prep="$(container exec "$NAME" psql -U postgres -tAc 'SHOW max_prepared_transactions' 2>/dev/null || true)"
+if [[ "${prep:-0}" -gt 0 ]]; then
+  ok "max_prepared_transactions=$prep (2PC ready)"
+else
+  warn "max_prepared_transactions is 0 — transactional sink groups will refuse to start"
 fi
 
 # --- databases ----------------------------------------------------------------

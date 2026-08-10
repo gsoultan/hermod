@@ -461,3 +461,104 @@ func TestRequiresAStore(t *testing.T) {
 		t.Fatal("expected New to reject a nil store")
 	}
 }
+
+// TestOpensATransactionBeforeWriting pins the begin phase.
+//
+// It was missing at first and no fake caught it: they accepted Prepare
+// unconditionally, while a real PostgreSQL sink refuses with "no active
+// transaction". The protocol is Begin -> write -> Prepare, and the first step
+// is only observable if something asserts on it.
+func TestOpensATransactionBeforeWriting(t *testing.T) {
+	c := newTestCoordinator(t, newMemStore())
+
+	a := &orderedParticipant{fakeParticipant: fakeParticipant{name: "a"}}
+	b := &orderedParticipant{fakeParticipant: fakeParticipant{name: "b"}}
+
+	if err := c.Run(context.Background(), []Participant{{ID: "a", Sink: a}, {ID: "b", Sink: b}},
+		func(context.Context) error {
+			a.note("work")
+			b.note("work")
+			return nil
+		}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	for _, p := range []*orderedParticipant{a, b} {
+		got := p.steps()
+		want := []string{"begin", "work", "prepare", "commitPrepared"}
+		if len(got) != len(want) {
+			t.Fatalf("%s: steps %v, want %v", p.name, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("%s: step %d was %q, want %q (full: %v)", p.name, i, got[i], want[i], got)
+			}
+		}
+	}
+}
+
+// TestBeginFailureTouchesNothing: if a participant cannot open a transaction,
+// no write may have happened anywhere.
+func TestBeginFailureTouchesNothing(t *testing.T) {
+	c := newTestCoordinator(t, newMemStore())
+
+	a := &orderedParticipant{fakeParticipant: fakeParticipant{name: "a"}}
+	b := &orderedParticipant{fakeParticipant: fakeParticipant{name: "b"}, beginErr: errors.New("connection refused")}
+
+	worked := false
+	err := c.Run(context.Background(), []Participant{{ID: "a", Sink: a}, {ID: "b", Sink: b}},
+		func(context.Context) error { worked = true; return nil })
+	if err == nil {
+		t.Fatal("expected Run to fail when a participant cannot begin")
+	}
+	if worked {
+		t.Error("the write ran even though a participant could not open a transaction")
+	}
+	if prepared, _, _ := a.counts(); prepared != 0 {
+		t.Error("a participant was prepared after a failed begin")
+	}
+}
+
+// orderedParticipant records the sequence of protocol steps it was asked for.
+type orderedParticipant struct {
+	fakeParticipant
+	beginErr error
+
+	stepMu sync.Mutex
+	seq    []string
+}
+
+func (p *orderedParticipant) note(step string) {
+	p.stepMu.Lock()
+	defer p.stepMu.Unlock()
+	p.seq = append(p.seq, step)
+}
+
+func (p *orderedParticipant) steps() []string {
+	p.stepMu.Lock()
+	defer p.stepMu.Unlock()
+	return append([]string(nil), p.seq...)
+}
+
+func (p *orderedParticipant) Begin(ctx context.Context) error {
+	if p.beginErr != nil {
+		return p.beginErr
+	}
+	p.note("begin")
+	return p.fakeParticipant.Begin(ctx)
+}
+
+func (p *orderedParticipant) Prepare(ctx context.Context) (string, error) {
+	p.note("prepare")
+	return p.fakeParticipant.Prepare(ctx)
+}
+
+func (p *orderedParticipant) CommitPrepared(ctx context.Context, txID string) error {
+	p.note("commitPrepared")
+	return p.fakeParticipant.CommitPrepared(ctx, txID)
+}
+
+func (p *orderedParticipant) RollbackPrepared(ctx context.Context, txID string) error {
+	p.note("rollbackPrepared")
+	return p.fakeParticipant.RollbackPrepared(ctx, txID)
+}

@@ -465,7 +465,7 @@ turning it on:
 | :--- | :--- |
 | **Preflight** | At start-up, refuses to run if `max_prepared_transactions = 0` (the PostgreSQL default, which makes `PREPARE` fail) or if the sink is behind a transaction pooler (where a prepared transaction cannot be resolved on the backend that created it). |
 | **Recovery** | On every start, resolves transactions left in doubt by the previous run. **Presumed abort**: a transaction commits only if the coordinator's decision was durable before the crash. |
-| **Reaper** | Rolls back anything prepared for longer than `MaxPreparedAge` (default 15 minutes). This is what stops a coordinator that died and never came back from holding locks forever. It only ever rolls back — committing on a timer would apply a batch nobody decided to commit. |
+| **Reaper** | Rolls back anything prepared for longer than `MaxPreparedAge` (default 15 minutes). Run it continuously with `Sink.StartReaper(ctx, interval)` — `Recover` only covers restarts, and the case that hurts is a coordinator that prepares, dies, and never comes back. It only ever rolls back: committing on a timer would apply a batch nobody decided to commit. |
 
 **Required PostgreSQL configuration.** `max_prepared_transactions` must be at least the
 number of concurrent transactional groups. It defaults to `0` and **changing it requires
@@ -501,6 +501,29 @@ ROLLBACK PREPARED '<gid>';
 Roll back rather than commit unless you have positively established the transaction
 should have committed. Presumed abort is the safe direction for the same reason the
 coordinator uses it.
+
+### Verified against a real server
+
+The coordinator's unit tests use fakes, which prove the protocol is implemented
+but say nothing about whether PostgreSQL behaves the way it assumes. The
+integration tests in `pkg/comm/sink/txgroup` close that gap, asserting against
+`pg_prepared_xacts` — the same view an operator would check — rather than
+trusting a sink's account of itself:
+
+```bash
+HERMOD_INTEGRATION=1 POSTGRES_DSN='postgres://...' go test ./pkg/comm/sink/txgroup/
+```
+
+They found two defects that every fake-based test had passed over:
+
+- `PreflightTwoPhaseCommit` read `SHOW max_prepared_transactions`, which returns
+  **text**. Scanning it into an int failed on every call — and being a preflight,
+  that would have blocked 2PC from ever starting.
+- The coordinator never called `Begin`, so a real sink refused to prepare with
+  "no active transaction". The fakes accepted `Prepare` unconditionally, so the
+  missing phase was invisible.
+
+Both are fixed, and both are now covered by tests that would catch a regression.
 
 ### Residual risk, stated plainly
 

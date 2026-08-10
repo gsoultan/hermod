@@ -484,8 +484,13 @@ func (s *PostgresSink) PreflightTwoPhaseCommit(ctx context.Context) error {
 			"Connect this sink directly to PostgreSQL, or take it out of the transactional group")
 	}
 
+	// current_setting(...)::int rather than SHOW: SHOW returns the value as
+	// text, so scanning it into an int fails — which made this check error on
+	// every call and, being a preflight, would have blocked 2PC from ever
+	// starting. Caught only by running it against a real server.
 	var maxPrepared int
-	if err := s.pool.QueryRow(ctx, "SHOW max_prepared_transactions").Scan(&maxPrepared); err != nil {
+	if err := s.pool.QueryRow(ctx,
+		"SELECT current_setting('max_prepared_transactions')::int").Scan(&maxPrepared); err != nil {
 		return fmt.Errorf("postgres sink: cannot read max_prepared_transactions: %w", err)
 	}
 	if maxPrepared == 0 {
