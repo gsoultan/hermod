@@ -12,21 +12,23 @@ import (
 	"github.com/gocql/gocql"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	sourcebuf "github.com/user/hermod/pkg/comm/source"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
 // CassandraSource implements the hermod.Source interface for Cassandra.
 type CassandraSource struct {
-	hosts        []string
-	useCDC       bool
-	tables       []string
-	idField      string
-	pollInterval time.Duration
-	cluster      *gocql.ClusterConfig
-	session      *gocql.Session
-	mu           sync.Mutex
-	logger       hermod.Logger
-	lastIDs      map[string]any
+	hosts         []string
+	useCDC        bool
+	tables        []string
+	idField       string
+	pollInterval  time.Duration
+	cluster       *gocql.ClusterConfig
+	session       *gocql.Session
+	mu            sync.Mutex
+	logger        hermod.Logger
+	lastIDs       map[string]any
+	warnUnordered sync.Once
 }
 
 func NewCassandraSource(hosts []string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *CassandraSource {
@@ -87,7 +89,7 @@ func (c *CassandraSource) init(ctx context.Context) error {
 	cluster.Consistency = gocql.One
 	cluster.Timeout = 5 * time.Second
 
-	session, err := cluster.CreateSession()
+	session, err := sourcebuf.ConnectGocql(ctx, cluster)
 	if err != nil {
 		return fmt.Errorf("failed to connect to cassandra: %w", err)
 	}
@@ -130,8 +132,24 @@ func (c *CassandraSource) Read(ctx context.Context) (hermod.Message, error) {
 				if err := sqlutil.ValidateIdent(c.idField); err != nil {
 					return nil, err
 				}
-				// Cassandra doesn't support > on all types easily without ALLOW FILTERING or specific indexing
-				// But for polling we assume it's an incremental field (like a timestamp or counter)
+				// CQL cannot ORDER BY an arbitrary column: ordering is only
+				// permitted on clustering columns, and only when the partition
+				// key is restricted with = or IN. So unlike the SQL sources —
+				// which use sqlutil.BuildIncrementalQuery to guarantee the row
+				// limit is applied after a sort — this query returns an
+				// ARBITRARY row matching id > watermark.
+				//
+				// The cursor then advances to that row, so any qualifying row
+				// with a lower id is skipped permanently. This mode is only
+				// sound when idField is a clustering column inside a single
+				// restricted partition, which Hermod cannot verify from here.
+				//
+				// Tracked as an Experimental-tier limitation in README.md.
+				c.warnUnordered.Do(func() {
+					c.log("WARN",
+						"cassandra: incremental polling cannot be ordered in CQL; rows may be skipped unless the id field is a clustering column in a restricted partition",
+						"table", table, "id_field", c.idField)
+				})
 				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? LIMIT 1 ALLOW FILTERING", table, c.idField)
 				args = append(args, lastID)
 			} else {

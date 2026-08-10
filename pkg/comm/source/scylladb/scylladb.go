@@ -18,17 +18,18 @@ import (
 
 // ScyllaDBSource implements the hermod.Source interface for ScyllaDB.
 type ScyllaDBSource struct {
-	hosts        []string
-	useCDC       bool
-	tables       []string
-	idField      string
-	pollInterval time.Duration
-	session      *gocql.Session
-	cluster      *gocql.ClusterConfig
-	mu           sync.Mutex
-	logger       hermod.Logger
-	lastIDs      map[string]any
-	msgChan      chan hermod.Message
+	hosts         []string
+	useCDC        bool
+	tables        []string
+	idField       string
+	pollInterval  time.Duration
+	session       *gocql.Session
+	cluster       *gocql.ClusterConfig
+	mu            sync.Mutex
+	logger        hermod.Logger
+	lastIDs       map[string]any
+	msgChan       chan hermod.Message
+	warnUnordered sync.Once
 }
 
 func NewScyllaDBSource(hosts []string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *ScyllaDBSource {
@@ -90,7 +91,7 @@ func (s *ScyllaDBSource) init(ctx context.Context) error {
 	cluster.Consistency = gocql.One
 	cluster.Timeout = 5 * time.Second
 
-	session, err := cluster.CreateSession()
+	session, err := sourcebuf.ConnectGocql(ctx, cluster)
 	if err != nil {
 		return fmt.Errorf("failed to connect to scylladb: %w", err)
 	}
@@ -143,6 +144,16 @@ func (s *ScyllaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 				if err := sqlutil.ValidateIdent(s.idField); err != nil {
 					return nil, err
 				}
+				// See the equivalent note in the Cassandra source: CQL cannot
+				// ORDER BY an arbitrary column, so this returns an arbitrary
+				// qualifying row and the watermark can skip rows. Sound only
+				// when idField is a clustering column in a restricted
+				// partition. Experimental tier — see README.md.
+				s.warnUnordered.Do(func() {
+					s.log("WARN",
+						"scylladb: incremental polling cannot be ordered in CQL; rows may be skipped unless the id field is a clustering column in a restricted partition",
+						"table", table, "id_field", s.idField)
+				})
 				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? LIMIT 1 ALLOW FILTERING", table, s.idField)
 				args = append(args, lastID)
 			} else {
