@@ -678,7 +678,14 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		return file.NewFileSink(cfg.Config["filename"], fmttr)
 	case "kafka":
 		brokers := strings.Split(cfg.Config["brokers"], ",")
-		return sinkkafka.NewKafkaSink(brokers, cfg.Config["topic"], cfg.Config["username"], cfg.Config["password"], fmttr, cfg.Config["transactional_id"]), nil
+		// transactional_id is accepted for config compatibility but has never
+		// had an effect: the sink writes at-least-once. Fail loudly rather than
+		// let an operator believe they configured exactly-once delivery.
+		if strings.TrimSpace(cfg.Config["transactional_id"]) != "" {
+			return nil, errors.New("kafka sink: transactional_id is not supported — this sink delivers at-least-once. " +
+				"Remove the setting, and use sink-side idempotency for duplicate suppression")
+		}
+		return sinkkafka.NewKafkaSink(brokers, cfg.Config["topic"], cfg.Config["username"], cfg.Config["password"], fmttr), nil
 	case "postgres", "yugabyte":
 		mappings, _ := sqlutil.ParseColumnMappings(cfg.Config["column_mappings"])
 		useExisting := cfg.Config["use_existing_table"] == "true"

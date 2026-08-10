@@ -11,20 +11,35 @@ import (
 )
 
 type KafkaSink struct {
-	writer          *kafka.Writer
-	transport       *kafka.Transport
-	formatter       hermod.Formatter
-	transactionalID string
+	writer    *kafka.Writer
+	transport *kafka.Transport
+	formatter hermod.Formatter
 }
 
-func NewKafkaSink(brokers []string, topic string, username, password string, formatter hermod.Formatter, transactionalID string) *KafkaSink {
-	var transport *kafka.Transport
+// NewKafkaSink builds an at-least-once Kafka sink.
+//
+// It previously took a transactionalID, which was stored and never read — the
+// writer was never configured for transactions. The parameter was removed
+// rather than left in place, because a knob that silently does nothing is how
+// an operator ends up believing they have exactly-once delivery. See the note
+// above Write for what real EOS support would require.
+func NewKafkaSink(brokers []string, topic string, username, password string, formatter hermod.Formatter) *KafkaSink {
+	// Always own a Transport, even without SASL.
+	//
+	// Leaving this nil makes kafka-go fall back to its package-level
+	// DefaultTransport, which is shared process-wide and keeps background
+	// connection and metadata-refresh goroutines alive against every broker any
+	// sink has ever touched. Those goroutines outlive Close, so a torn-down
+	// pipeline keeps dialling a broker it no longer writes to, and a workflow
+	// that is edited repeatedly accumulates them for the life of the process.
+	//
+	// Owning the Transport means CloseIdleConnections in Close actually reclaims
+	// them.
+	transport := &kafka.Transport{}
 	if username != "" {
-		transport = &kafka.Transport{
-			SASL: plain.Mechanism{
-				Username: username,
-				Password: password,
-			},
+		transport.SASL = plain.Mechanism{
+			Username: username,
+			Password: password,
 		}
 	}
 
@@ -36,42 +51,28 @@ func NewKafkaSink(brokers []string, topic string, username, password string, for
 			AllowAutoTopicCreation: true,
 			Transport:              transport,
 		},
-		transport:       transport,
-		formatter:       formatter,
-		transactionalID: transactionalID,
+		transport: transport,
+		formatter: formatter,
 	}
 }
 
-func (s *KafkaSink) Begin(ctx context.Context) error {
-	// For production Kafka EOS, we use the transactional writer
-	// Since we are using segmentio/kafka-go, we ensure the writer is configured for it
-	// if s.transactionalID == "", we fall back to non-transactional or return error if required
-	return nil // Initialization is usually done in NewKafkaSink or first Write
-}
-
-func (s *KafkaSink) Commit(ctx context.Context) error {
-	return nil
-}
-
-func (s *KafkaSink) Rollback(ctx context.Context) error {
-	return nil
-}
-
-func (s *KafkaSink) Prepare(ctx context.Context) (string, error) {
-	// 2PC Prepare for Kafka usually means finishing the transaction locally
-	// and returning a unique ID. Since Kafka transactions are atomic on commit,
-	// we use a generated txID for the 2PC manager.
-	txID := fmt.Sprintf("kafka-tx-%d", time.Now().UnixNano())
-	return txID, nil
-}
-
-func (s *KafkaSink) CommitPrepared(ctx context.Context, txID string) error {
-	return s.Commit(ctx)
-}
-
-func (s *KafkaSink) RollbackPrepared(ctx context.Context, txID string) error {
-	return s.Rollback(ctx)
-}
+// NOTE: KafkaSink deliberately does NOT implement hermod.Transactional or
+// hermod.TwoPhaseCommit.
+//
+// It previously did, with six methods that all returned nil. Because the 2PC
+// contract reports failure through the error return, a no-op Rollback tells a
+// coordinator the rollback succeeded while the records remain committed on the
+// broker — the transaction silently diverges instead of failing loudly.
+//
+// Honest at-least-once delivery is strictly better than a false atomicity
+// guarantee, so the methods are gone and callers' type assertions now correctly
+// evaluate to false.
+//
+// Implementing this properly requires a transactional producer
+// (InitTransactions / BeginTransaction / AbortTransaction). segmentio/kafka-go
+// does not expose one, so real Kafka EOS is blocked on migrating to franz-go or
+// confluent-kafka-go. pkg/comm/sink/kafka/twopc_test.go fails the build if the
+// interface is satisfied again without that work.
 
 func (s *KafkaSink) Write(ctx context.Context, msg hermod.Message) error {
 	return s.WriteBatch(ctx, []hermod.Message{msg})
@@ -121,10 +122,21 @@ func (s *KafkaSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 }
 
 func (s *KafkaSink) Ping(ctx context.Context) error {
+	// Never let the client's own timeout outlive the caller's deadline. Ping is
+	// the readiness path, called behind a probe timeout of a few seconds; a
+	// hardcoded 10s here means the probe gives up while this call is still
+	// running, leaving a goroutine and a connection behind on every scrape.
+	timeout := 10 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < timeout {
+			timeout = remaining
+		}
+	}
+
 	client := &kafka.Client{
 		Addr:      s.writer.Addr,
 		Transport: s.transport,
-		Timeout:   10 * time.Second,
+		Timeout:   timeout,
 	}
 	_, err := client.Metadata(ctx, &kafka.MetadataRequest{
 		Topics: []string{s.writer.Topic},
@@ -136,5 +148,11 @@ func (s *KafkaSink) Ping(ctx context.Context) error {
 }
 
 func (s *KafkaSink) Close() error {
-	return s.writer.Close()
+	err := s.writer.Close()
+	// Release the transport's pooled connections and their background
+	// goroutines. Without this they survive the sink that created them.
+	if s.transport != nil {
+		s.transport.CloseIdleConnections()
+	}
+	return err
 }

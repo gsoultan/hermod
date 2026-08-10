@@ -233,6 +233,17 @@ type Transactional interface {
 }
 
 // TwoPhaseCommit is an optional interface for sinks that support 2PC.
+//
+// STATUS: no coordinator drives this yet. The engine never calls Prepare /
+// CommitPrepared / RollbackPrepared, so implementing it does not currently give
+// a workflow cross-sink atomicity. PostgresSink implements it against real
+// PREPARE TRANSACTION / COMMIT PREPARED so the single-sink path is correct and
+// ready for a coordinator to be built on top.
+//
+// Implement this only with genuine prepared-transaction semantics. A no-op
+// implementation is actively harmful: the contract reports failure through the
+// error return, so a Rollback that returns nil without rolling anything back
+// tells a future coordinator the abort succeeded while the writes stand.
 type TwoPhaseCommit interface {
 	Transactional
 	Prepare(ctx context.Context) (string, error) // Returns transaction ID
