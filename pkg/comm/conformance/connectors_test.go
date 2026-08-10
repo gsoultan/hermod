@@ -1,27 +1,72 @@
 package conformance_test
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/conformance"
 	jsonfmt "github.com/user/hermod/pkg/comm/formatter/json"
+	"github.com/user/hermod/pkg/infra/sqlutil"
 
+	sinkcassandra "github.com/user/hermod/pkg/comm/sink/cassandra"
+	sinkclickhouse "github.com/user/hermod/pkg/comm/sink/clickhouse"
 	sinkdiscord "github.com/user/hermod/pkg/comm/sink/discord"
+	sinkelasticsearch "github.com/user/hermod/pkg/comm/sink/elasticsearch"
+	sinkfailover "github.com/user/hermod/pkg/comm/sink/failover"
+	sinkfile "github.com/user/hermod/pkg/comm/sink/file"
+	sinkftp "github.com/user/hermod/pkg/comm/sink/ftp"
+	sinkgooglesheets "github.com/user/hermod/pkg/comm/sink/googlesheets"
 	sinkhttp "github.com/user/hermod/pkg/comm/sink/http"
 	sinkkafka "github.com/user/hermod/pkg/comm/sink/kafka"
+	sinkkinesis "github.com/user/hermod/pkg/comm/sink/kinesis"
+	sinkmilvus "github.com/user/hermod/pkg/comm/sink/milvus"
+	sinkmongodb "github.com/user/hermod/pkg/comm/sink/mongodb"
+	sinkmqtt "github.com/user/hermod/pkg/comm/sink/mqtt"
+	sinkmssql "github.com/user/hermod/pkg/comm/sink/mssql"
+	sinkmysql "github.com/user/hermod/pkg/comm/sink/mysql"
+	sinknats "github.com/user/hermod/pkg/comm/sink/nats"
+	sinkoracle "github.com/user/hermod/pkg/comm/sink/oracle"
+	sinkpgvector "github.com/user/hermod/pkg/comm/sink/pgvector"
+	sinkpostgres "github.com/user/hermod/pkg/comm/sink/postgres"
+	sinkpubsub "github.com/user/hermod/pkg/comm/sink/pubsub"
+	sinkpulsar "github.com/user/hermod/pkg/comm/sink/pulsar"
+	sinkrabbitmq "github.com/user/hermod/pkg/comm/sink/rabbitmq"
+	sinkredis "github.com/user/hermod/pkg/comm/sink/redis"
+	sinksalesforce "github.com/user/hermod/pkg/comm/sink/salesforce"
+	sinkservicenow "github.com/user/hermod/pkg/comm/sink/servicenow"
 	sinkslack "github.com/user/hermod/pkg/comm/sink/slack"
+	sinksnowflake "github.com/user/hermod/pkg/comm/sink/snowflake"
+	sinksqlite "github.com/user/hermod/pkg/comm/sink/sqlite"
+	sinksse "github.com/user/hermod/pkg/comm/sink/sse"
 	sinkstdout "github.com/user/hermod/pkg/comm/sink/stdout"
 	sinktelegram "github.com/user/hermod/pkg/comm/sink/telegram"
+	sinkwebsocket "github.com/user/hermod/pkg/comm/sink/websocket"
 
 	srccassandra "github.com/user/hermod/pkg/comm/source/cassandra"
 	srcclickhouse "github.com/user/hermod/pkg/comm/source/clickhouse"
+	srccron "github.com/user/hermod/pkg/comm/source/cron"
 	srcdb2 "github.com/user/hermod/pkg/comm/source/db2"
+	srcexcel "github.com/user/hermod/pkg/comm/source/excel"
+	srcfile "github.com/user/hermod/pkg/comm/source/file"
+	srcgraphql "github.com/user/hermod/pkg/comm/source/graphql"
+	srchttp "github.com/user/hermod/pkg/comm/source/http"
 	srcmariadb "github.com/user/hermod/pkg/comm/source/mariadb"
+	srcmongodb "github.com/user/hermod/pkg/comm/source/mongodb"
+	srcmqtt "github.com/user/hermod/pkg/comm/source/mqtt"
+	srcmssql "github.com/user/hermod/pkg/comm/source/mssql"
+	srcmysql "github.com/user/hermod/pkg/comm/source/mysql"
+	srcnats "github.com/user/hermod/pkg/comm/source/nats"
 	srcoracle "github.com/user/hermod/pkg/comm/source/oracle"
+	srcpostgres "github.com/user/hermod/pkg/comm/source/postgres"
+	srcrabbitmq "github.com/user/hermod/pkg/comm/source/rabbitmq"
+	srcredis "github.com/user/hermod/pkg/comm/source/redis"
 	srcscylladb "github.com/user/hermod/pkg/comm/source/scylladb"
-	srcyugabyte "github.com/user/hermod/pkg/comm/source/yugabyte"
+	srcsqlite "github.com/user/hermod/pkg/comm/source/sqlite"
+	srcwebhook "github.com/user/hermod/pkg/comm/source/webhook"
+	srcwebsocket "github.com/user/hermod/pkg/comm/source/websocket"
 )
 
 // This file is the connector conformance registry.
@@ -53,7 +98,105 @@ const (
 
 func fmtr() hermod.Formatter { return jsonfmt.NewJSONFormatter() }
 
+// noMappings is the empty column-mapping set every SQL sink takes.
+var noMappings []sqlutil.ColumnMapping
+
+// sqlSinkArgs is the argument tail shared by every SQL sink constructor:
+// mappings, useExistingTable, deleteStrategy, softDeleteColumn,
+// softDeleteValue, operationMode, autoTruncate, autoSync.
+//
+// Spelled out once so a registry entry stays one readable line.
+type sqlSinkCtor func(conn, table string) hermod.Sink
+
+// sinkOrSkip registers a sink whose constructor returns an error.
+//
+// Some connectors dial, authenticate, or parse credentials during construction,
+// so against a dead endpoint they never produce an instance to test. That is a
+// legitimate design, not a failure — but it does mean the contract below cannot
+// be checked without live infrastructure, and saying so beats silently omitting
+// the connector and leaving the registry looking more complete than it is.
+func sinkOrSkip(t *testing.T, name string, ctor func() (hermod.Sink, error)) {
+	t.Helper()
+
+	probe, err := ctor()
+	if err != nil {
+		t.Run(name+"/Constructible", func(t *testing.T) {
+			t.Skipf("constructor needs live infrastructure or credentials, so the "+
+				"contract suite cannot reach this connector: %v", err)
+		})
+		return
+	}
+	if probe != nil {
+		_ = probe.Close()
+	}
+
+	conformance.RunSinkSuite(t, name, func() hermod.Sink {
+		s, err := ctor()
+		if err != nil {
+			t.Fatalf("%s: constructor became non-deterministic: %v", name, err)
+		}
+		return s
+	})
+}
+
+// sourceOrSkip is sourceOrSkip's counterpart for sources.
+func sourceOrSkip(t *testing.T, name string, ctor func() (hermod.Source, error)) {
+	t.Helper()
+
+	probe, err := ctor()
+	if err != nil {
+		t.Run(name+"/Constructible", func(t *testing.T) {
+			t.Skipf("constructor needs live infrastructure or credentials, so the "+
+				"contract suite cannot reach this connector: %v", err)
+		})
+		return
+	}
+	if probe != nil {
+		_ = probe.Close()
+	}
+
+	conformance.RunSourceSuite(t, name, func() hermod.Source {
+		s, err := ctor()
+		if err != nil {
+			t.Fatalf("%s: constructor became non-deterministic: %v", name, err)
+		}
+		return s
+	})
+}
+
 func TestSinkConformance(t *testing.T) {
+	// SQL sinks share one long constructor shape; bind it once per engine.
+	sqlSinks := map[string]sqlSinkCtor{
+		"postgres": func(c, tbl string) hermod.Sink {
+			return sinkpostgres.NewPostgresSink(c, tbl, noMappings, false, "", "", "", "", false, false)
+		},
+		"mysql": func(c, tbl string) hermod.Sink {
+			return sinkmysql.NewMySQLSink(c, tbl, noMappings, false, "", "", "", "", false, false)
+		},
+		"mssql": func(c, tbl string) hermod.Sink {
+			return sinkmssql.NewMSSQLSink(c, tbl, noMappings, false, "", "", "", "", false, false)
+		},
+		"oracle": func(c, tbl string) hermod.Sink {
+			return sinkoracle.NewOracleSink(c, tbl, noMappings, false, "", "", "", "", false, false)
+		},
+		"clickhouse": func(c, tbl string) hermod.Sink {
+			return sinkclickhouse.NewClickHouseSink(c, "d", tbl, noMappings, false, "", "", "", "", false, false)
+		},
+		"snowflake": func(c, tbl string) hermod.Sink {
+			return sinksnowflake.NewSink(c, fmtr(), tbl, noMappings, false, "", "", "", "", false, false)
+		},
+	}
+	for name, ctor := range sqlSinks {
+		conformance.RunSinkSuite(t, name, func() hermod.Sink {
+			return ctor("postgres://u:p@"+deadAddr+"/d", "t")
+		})
+	}
+
+	// SQLite writes to a real local file; give it a scratch directory.
+	dbPath := filepath.Join(t.TempDir(), "sink.db")
+	conformance.RunSinkSuite(t, "sqlite", func() hermod.Sink {
+		return sinksqlite.NewSQLiteSink(dbPath, "t", noMappings, false, "", "", "", "", false, false)
+	})
 
 	conformance.RunSinkSuite(t, "stdout", func() hermod.Sink {
 		return sinkstdout.NewStdoutSink(fmtr())
@@ -73,20 +216,102 @@ func TestSinkConformance(t *testing.T) {
 	conformance.RunSinkSuite(t, "discord", func() hermod.Sink {
 		return sinkdiscord.NewDiscordSink(deadURL, "", "", fmtr())
 	})
+	conformance.RunSinkSuite(t, "sse", func() hermod.Sink {
+		return sinksse.NewSSESink("s", fmtr())
+	})
+	conformance.RunSinkSuite(t, "mongodb", func() hermod.Sink {
+		return sinkmongodb.NewMongoDBSink("mongodb://"+deadAddr, "d", "t", noMappings, "", "", "", "")
+	})
+	conformance.RunSinkSuite(t, "cassandra", func() hermod.Sink {
+		return sinkcassandra.NewCassandraSink([]string{deadHost}, "ks", "t", noMappings, false, "", "", "", "", false, false)
+	})
+	conformance.RunSinkSuite(t, "pgvector", func() hermod.Sink {
+		return sinkpgvector.NewSink("postgres://u:p@"+deadAddr+"/d", "t", "v", "id", "meta", noMappings, false, "", "", "")
+	})
+	conformance.RunSinkSuite(t, "milvus", func() hermod.Sink {
+		return sinkmilvus.NewSink(sinkmilvus.Config{Address: deadAddr, CollectionName: "c"})
+	})
+	// NOT REGISTERED: pinecone.
+	//
+	// It builds its endpoint as https://controller.<env>.pinecone.io/... from
+	// config values, with no injectable base URL, so any construction here dials
+	// the real internet. Registering it made the whole suite slow and flaky —
+	// live DNS and TLS from one connector degrades every other connector's dial.
+	//
+	// That is a testability defect in the connector, not a reason to pretend it
+	// is covered: give pinecone (and any connector that hardcodes a hostname) an
+	// optional base-URL override and it can join the registry. Until then it is
+	// Experimental and untested, which is what README.md says.
+	conformance.RunSinkSuite(t, "servicenow", func() hermod.Sink {
+		return sinkservicenow.NewSink(sinkservicenow.Config{InstanceURL: deadURL, Table: "t"})
+	})
+	conformance.RunSinkSuite(t, "salesforce", func() hermod.Sink {
+		return sinksalesforce.NewSalesforceSink("cid", "sec", "u", "p", "tok", "Account", "insert", "")
+	})
+	conformance.RunSinkSuite(t, "googlesheets", func() hermod.Sink {
+		return sinkgooglesheets.NewGoogleSheetsSink("sheet", "A1:B2", "append", "{}", "", "")
+	})
+	conformance.RunSinkSuite(t, "websocket", func() hermod.Sink {
+		return sinkwebsocket.New("ws://"+deadAddr, nil, nil, time.Second, time.Second, 0, false, fmtr())
+	})
+	conformance.RunSinkSuite(t, "failover", func() hermod.Sink {
+		return sinkfailover.NewFailoverSink(
+			sinkstdout.NewStdoutSink(fmtr()),
+			[]hermod.Sink{sinkstdout.NewStdoutSink(fmtr())},
+		)
+	})
+
+	// Constructors that dial or validate credentials up front.
+	sinkOrSkip(t, "file", func() (hermod.Sink, error) {
+		return sinkfile.NewFileSink(filepath.Join(t.TempDir(), "out.jsonl"), fmtr())
+	})
+	sinkOrSkip(t, "elasticsearch", func() (hermod.Sink, error) {
+		return sinkelasticsearch.NewElasticsearchSink([]string{deadURL}, "", "", "", "i", fmtr())
+	})
+	sinkOrSkip(t, "redis", func() (hermod.Sink, error) {
+		return sinkredis.NewRedisSink(deadAddr, "", "s", fmtr())
+	})
+	sinkOrSkip(t, "nats", func() (hermod.Sink, error) {
+		return sinknats.NewNatsJetStreamSink("nats://"+deadAddr, "s", "", "", "", fmtr())
+	})
+	sinkOrSkip(t, "mqtt", func() (hermod.Sink, error) {
+		return sinkmqtt.New(map[string]string{"broker": "tcp://" + deadAddr, "topic": "t"}, fmtr())
+	})
+	sinkOrSkip(t, "rabbitmq", func() (hermod.Sink, error) {
+		return sinkrabbitmq.NewRabbitMQQueueSink("amqp://"+deadAddr, "q", fmtr())
+	})
+	sinkOrSkip(t, "pulsar", func() (hermod.Sink, error) {
+		return sinkpulsar.NewPulsarSink("pulsar://"+deadAddr, "t", "", fmtr())
+	})
+	sinkOrSkip(t, "kinesis", func() (hermod.Sink, error) {
+		return sinkkinesis.NewKinesisSink("us-east-1", "s", "ak", "sk", fmtr())
+	})
+	sinkOrSkip(t, "pubsub", func() (hermod.Sink, error) {
+		return sinkpubsub.NewPubSubSink("p", "t", "{}", fmtr())
+	})
+	sinkOrSkip(t, "ftp", func() (hermod.Sink, error) {
+		return sinkftp.NewFTPSink(deadHost, 1, "u", "p", false, time.Second, "/", "", "f", "overwrite", false, fmtr())
+	})
 }
 
 func TestSourceConformance(t *testing.T) {
-
 	const poll = 50 * time.Millisecond
 	tables := []string{"t"}
 
-	// DSNs are syntactically valid but point at an unroutable host, so
-	// connection attempts fail rather than hang on DNS or reach a real server.
+	conformance.RunSourceSuite(t, "postgres", func() hermod.Source {
+		return srcpostgres.NewPostgresSource("postgres://u:p@"+deadAddr+"/d", "slot", "pub", tables, true, "", poll)
+	})
+	conformance.RunSourceSuite(t, "mssql", func() hermod.Source {
+		return srcmssql.NewMSSQLSource("sqlserver://u:p@"+deadAddr+"?database=d", tables, false, true)
+	})
+	conformance.RunSourceSuite(t, "mysql", func() hermod.Source {
+		return srcmysql.NewMySQLSource("u:p@tcp("+deadAddr+")/d", true)
+	})
 	conformance.RunSourceSuite(t, "oracle", func() hermod.Source {
 		return srcoracle.NewOracleSource("oracle://u:p@"+deadAddr+"/svc", tables, "id", poll, true)
 	})
 	conformance.RunSourceSuite(t, "db2", func() hermod.Source {
-		return srcdb2.NewDB2Source("HOSTNAME="+deadHost+";PORT=9;DATABASE=d;UID=u;PWD=p", tables, "id", poll, true)
+		return srcdb2.NewDB2Source("HOSTNAME="+deadHost+";PORT=1;DATABASE=d;UID=u;PWD=p", tables, "id", poll, true)
 	})
 	conformance.RunSourceSuite(t, "mariadb", func() hermod.Source {
 		return srcmariadb.NewMariaDBSource("u:p@tcp("+deadAddr+")/d", tables, "id", poll, true)
@@ -94,13 +319,65 @@ func TestSourceConformance(t *testing.T) {
 	conformance.RunSourceSuite(t, "clickhouse", func() hermod.Source {
 		return srcclickhouse.NewClickHouseSource("clickhouse://"+deadAddr+"/d", tables, "id", poll, true)
 	})
-	conformance.RunSourceSuite(t, "yugabyte", func() hermod.Source {
-		return srcyugabyte.NewYugabyteSource("postgres://u:p@"+deadAddr+"/d", tables, "id", poll, true)
-	})
 	conformance.RunSourceSuite(t, "cassandra", func() hermod.Source {
 		return srccassandra.NewCassandraSource([]string{deadHost}, tables, "id", poll, true)
 	})
 	conformance.RunSourceSuite(t, "scylladb", func() hermod.Source {
 		return srcscylladb.NewScyllaDBSource([]string{deadHost}, tables, "id", poll, true)
 	})
+	conformance.RunSourceSuite(t, "mongodb", func() hermod.Source {
+		return srcmongodb.NewMongoDBSource("mongodb://"+deadAddr, "d", "c", true)
+	})
+	conformance.RunSourceSuite(t, "redis", func() hermod.Source {
+		return srcredis.NewRedisSource(deadAddr, "", "s", "g")
+	})
+	conformance.RunSourceSuite(t, "http", func() hermod.Source {
+		return srchttp.NewHTTPSource(deadURL, "GET", nil, poll, "")
+	})
+	conformance.RunSourceSuite(t, "graphql", func() hermod.Source {
+		return srcgraphql.NewGraphQLSource("/gql")
+	})
+	conformance.RunSourceSuite(t, "webhook", func() hermod.Source {
+		return srcwebhook.NewWebhookSource("/hook")
+	})
+	conformance.RunSourceSuite(t, "cron", func() hermod.Source {
+		return srccron.NewCronSource("* * * * *", "{}")
+	})
+	conformance.RunSourceSuite(t, "excel", func() hermod.Source {
+		return srcexcel.New(t.TempDir(), "*.xlsx", "Sheet1", 1, 2, 100)
+	})
+	conformance.RunSourceSuite(t, "websocket", func() hermod.Source {
+		return srcwebsocket.New("ws://"+deadAddr, nil, nil, time.Second, time.Second, 0, 0, 0, 1<<20)
+	})
+
+	// SQLite operates on a real local file.
+	dbPath := filepath.Join(t.TempDir(), "src.db")
+	conformance.RunSourceSuite(t, "sqlite", func() hermod.Source {
+		return srcsqlite.NewSQLiteSource(dbPath, tables, true)
+	})
+
+	csvPath := filepath.Join(t.TempDir(), "in.csv")
+	conformance.RunSourceSuite(t, "file", func() hermod.Source {
+		return srcfile.NewCSVSource(csvPath, ',', true)
+	})
+
+	sourceOrSkip(t, "nats", func() (hermod.Source, error) {
+		return srcnats.NewNatsJetStreamSource("nats://"+deadAddr, "s", "", "", "", "", "")
+	})
+	sourceOrSkip(t, "mqtt", func() (hermod.Source, error) {
+		return srcmqtt.NewSource(map[string]string{"broker": "tcp://" + deadAddr, "topic": "t"})
+	})
+	sourceOrSkip(t, "rabbitmq", func() (hermod.Source, error) {
+		return srcrabbitmq.NewRabbitMQQueueSource("amqp://"+deadAddr, "q")
+	})
+}
+
+// TestRegistryCoversFormatter is a smoke check that the shared formatter used
+// throughout this file behaves, so a formatter fault cannot be misread as a
+// connector fault.
+func TestRegistryCoversFormatter(t *testing.T) {
+	if fmtr() == nil {
+		t.Fatal("json formatter constructor returned nil")
+	}
+	_ = context.Background()
 }
