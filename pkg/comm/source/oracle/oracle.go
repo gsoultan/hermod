@@ -131,23 +131,24 @@ func (o *OracleSource) Read(ctx context.Context) (hermod.Message, error) {
 			lastID := o.lastIDs[table]
 			o.mu.Unlock()
 
-			quotedTable, err := sqlutil.QuoteIdent("oracle", table)
-			if err != nil {
-				return nil, err
-			}
-
 			var query string
 			var args []any
+			var err error
 
 			if lastID != nil && o.idField != "" {
-				quotedID, _ := sqlutil.QuoteIdent("oracle", o.idField)
-				// Oracle uses :1, :2 for placeholders in some drivers, but go-ora supports ? or :1
-				// Hermod's sqlutil should handle this if we want to be very portable.
-				// For now, let's use the standard ? if supported or adjust.
-				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? AND ROWNUM <= 1 ORDER BY %s ASC", quotedTable, quotedID, quotedID)
+				// Both the row-limiting syntax and the bind placeholder style
+				// are dialect concerns; sqlutil owns them so Oracle's ROWNUM
+				// ordering rule is applied in exactly one place.
+				query, err = sqlutil.BuildIncrementalQuery("oracle", table, o.idField)
+				if err != nil {
+					return nil, err
+				}
 				args = append(args, lastID)
 			} else {
-				query = fmt.Sprintf("SELECT * FROM %s WHERE ROWNUM <= 1", quotedTable)
+				query, err = sqlutil.BuildFirstRowQuery("oracle", table)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			rows, err := o.db.QueryContext(ctx, query, args...)

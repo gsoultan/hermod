@@ -127,20 +127,21 @@ func (y *YugabyteSource) Read(ctx context.Context) (hermod.Message, error) {
 			lastID := y.lastIDs[table]
 			y.mu.Unlock()
 
-			quotedTable, err := sqlutil.QuoteIdent("pgx", table)
-			if err != nil {
-				return nil, err
-			}
-
 			var query string
 			var args []any
+			var err error
 
 			if lastID != nil && y.idField != "" {
-				quotedID, _ := sqlutil.QuoteIdent("pgx", y.idField)
-				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > $1 ORDER BY %s ASC LIMIT 1", quotedTable, quotedID, quotedID)
+				query, err = sqlutil.BuildIncrementalQuery("yugabyte", table, y.idField)
+				if err != nil {
+					return nil, err
+				}
 				args = append(args, lastID)
 			} else {
-				query = fmt.Sprintf("SELECT * FROM %s LIMIT 1", quotedTable)
+				query, err = sqlutil.BuildFirstRowQuery("yugabyte", table)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			rows, err := y.conn.Query(ctx, query, args...)

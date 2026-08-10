@@ -136,20 +136,21 @@ func (c *ClickHouseSource) Read(ctx context.Context) (hermod.Message, error) {
 			lastID := c.lastIDs[table]
 			c.mu.Unlock()
 
-			quotedTable, err := sqlutil.QuoteIdent("clickhouse", table)
-			if err != nil {
-				return nil, err
-			}
-
 			var query string
 			var args []any
+			var err error
 
 			if lastID != nil && c.idField != "" {
-				quotedID, _ := sqlutil.QuoteIdent("clickhouse", c.idField)
-				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? ORDER BY %s ASC LIMIT 1", quotedTable, quotedID, quotedID)
+				query, err = sqlutil.BuildIncrementalQuery("clickhouse", table, c.idField)
+				if err != nil {
+					return nil, err
+				}
 				args = append(args, lastID)
 			} else {
-				query = fmt.Sprintf("SELECT * FROM %s LIMIT 1", quotedTable)
+				query, err = sqlutil.BuildFirstRowQuery("clickhouse", table)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			rows, err := c.conn.Query(ctx, query, args...)

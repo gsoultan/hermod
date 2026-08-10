@@ -133,20 +133,21 @@ func (d *DB2Source) Read(ctx context.Context) (hermod.Message, error) {
 			lastID := d.lastIDs[table]
 			d.mu.Unlock()
 
-			quotedTable, err := sqlutil.QuoteIdent("db2", table)
-			if err != nil {
-				return nil, err
-			}
-
 			var query string
 			var args []any
+			var err error
 
 			if lastID != nil && d.idField != "" {
-				quotedID, _ := sqlutil.QuoteIdent("db2", d.idField)
-				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? ORDER BY %s ASC FETCH FIRST 1 ROWS ONLY", quotedTable, quotedID, quotedID)
+				query, err = sqlutil.BuildIncrementalQuery("db2", table, d.idField)
+				if err != nil {
+					return nil, err
+				}
 				args = append(args, lastID)
 			} else {
-				query = fmt.Sprintf("SELECT * FROM %s FETCH FIRST 1 ROWS ONLY", quotedTable)
+				query, err = sqlutil.BuildFirstRowQuery("db2", table)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			rows, err := d.db.QueryContext(ctx, query, args...)

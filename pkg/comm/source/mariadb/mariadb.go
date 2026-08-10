@@ -134,20 +134,21 @@ func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 			lastID := m.lastIDs[table]
 			m.mu.Unlock()
 
-			quotedTable, err := sqlutil.QuoteIdent("mysql", table)
-			if err != nil {
-				return nil, err
-			}
-
 			var query string
 			var args []any
+			var err error
 
 			if lastID != nil && m.idField != "" {
-				quotedID, _ := sqlutil.QuoteIdent("mysql", m.idField)
-				query = fmt.Sprintf("SELECT * FROM %s WHERE %s > ? ORDER BY %s ASC LIMIT 1", quotedTable, quotedID, quotedID)
+				query, err = sqlutil.BuildIncrementalQuery("mariadb", table, m.idField)
+				if err != nil {
+					return nil, err
+				}
 				args = append(args, lastID)
 			} else {
-				query = fmt.Sprintf("SELECT * FROM %s LIMIT 1", quotedTable)
+				query, err = sqlutil.BuildFirstRowQuery("mariadb", table)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			rows, err := m.db.QueryContext(ctx, query, args...)
