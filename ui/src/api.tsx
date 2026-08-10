@@ -3,13 +3,46 @@ import { clearSession } from './auth/session';
 import { IconAlertCircle, IconExternalLink } from '@tabler/icons-react';
 import { Text, Group, Anchor, Stack } from '@mantine/core';
 
+const CSRF_COOKIE = 'hermod_csrf';
+const CSRF_HEADER = 'X-CSRF-Token';
+
+/**
+ * Reads the CSRF token the server issued alongside the session.
+ *
+ * Unlike the session cookie this one is deliberately readable: the whole
+ * double-submit scheme depends on the client echoing it in a header, which a
+ * cross-origin attacker cannot do. The token is not a credential on its own.
+ */
+function csrfToken(): string | null {
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${CSRF_COOKIE}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+/** Methods that can change state, and therefore need the token. */
+function isStateChanging(method: string): boolean {
+  return !['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase());
+}
+
 export async function apiFetch(url: string, options: RequestInit & { silent?: boolean } = {}) {
   // No Authorization header: the credential is the HttpOnly session cookie,
   // which `credentials: 'include'` sends. Reading a token in JS to put it here
   // is what forced a copy of it into localStorage, where any XSS could take it.
+  const headers = new Headers(options.headers);
+
+  // Echo the CSRF token on anything that changes state. The server only
+  // enforces this for cookie-authenticated requests, which is every request
+  // from this client.
+  const method = options.method ?? 'GET';
+  if (isStateChanging(method)) {
+    const token = csrfToken();
+    if (token) {
+      headers.set(CSRF_HEADER, token);
+    }
+  }
+
   const response = await fetch(url, {
     ...options,
-    headers: new Headers(options.headers),
+    headers,
     credentials: 'include',
     // Allow callers to pass AbortSignal for cancellation
     signal: options.signal,

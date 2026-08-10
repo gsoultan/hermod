@@ -2,8 +2,11 @@ import { useState } from 'react';
 import { 
   Title, Text, SimpleGrid, Card, Group, Badge, Button, 
   TextInput, Stack, Box, ThemeIcon, Tabs, Paper, Tooltip, Divider, Loader, Center
-} from '@mantine/core';import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { notifications } from '@mantine/notifications';import { IconCheck, IconCloudDownload, IconExternalLink, IconPuzzle, IconSearch, IconShieldCheck, IconStar, IconTrash, IconUser } from '@tabler/icons-react';
+} from '@mantine/core';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { notifications } from '@mantine/notifications';
+import { IconCheck, IconCloudDownload, IconExternalLink, IconPuzzle, IconSearch, IconShieldCheck, IconStar, IconTrash, IconUser } from '@tabler/icons-react';
+import { apiFetch } from '@/api';
 interface Plugin {
     id: string;
     name: string;
@@ -26,7 +29,7 @@ export function CommunityMarketplace() {
   const { data: plugins, isLoading, error } = useQuery<Plugin[]>({
     queryKey: ['marketplace', 'plugins'],
     queryFn: async () => {
-      const res = await fetch('/api/marketplace/plugins');
+      const res = await apiFetch('/api/marketplace/plugins');
       if (!res.ok) throw new Error('Failed to fetch plugins');
       return res.json();
     }
@@ -34,7 +37,7 @@ export function CommunityMarketplace() {
 
   const installMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch('/api/marketplace/install', {
+      const res = await apiFetch('/api/marketplace/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id })
@@ -61,7 +64,7 @@ export function CommunityMarketplace() {
 
   const uninstallMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch('/api/marketplace/uninstall', {
+      const res = await apiFetch('/api/marketplace/uninstall', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id })

@@ -30,8 +30,12 @@ test.describe('Hermod Production Grade E2E', () => {
     // 1. Setup Infrastructure via evaluate (faster)
     const setupData = await page.evaluate(async ({ vhostName, timestamp, sourceDB, sinkDB }) => {
       // Same-origin fetch sends the HttpOnly session cookie by default; there
-      // is no readable token to put in a header any more.
-      const headers = { 'Content-Type': 'application/json' };
+      // is no readable token to put in a header any more. The CSRF token is a
+      // different matter: it is readable on purpose and must be echoed on
+      // anything that changes state.
+      const csrf = document.cookie.match(/(?:^|;\s*)hermod_csrf=([^;]*)/);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf[1]);
 
       await fetch('/api/vhosts', { method: 'POST', headers, body: JSON.stringify({ name: vhostName }) });
 
@@ -83,8 +87,12 @@ test.describe('Hermod Production Grade E2E', () => {
     // Add nodes via API to save time in UI interaction, then reload to verify UI
     await page.evaluate(async ({ workflowId, setupData, timestamp }) => {
       // Same-origin fetch sends the HttpOnly session cookie by default; there
-      // is no readable token to put in a header any more.
-      const headers = { 'Content-Type': 'application/json' };
+      // is no readable token to put in a header any more. The CSRF token is a
+      // different matter: it is readable on purpose and must be echoed on
+      // anything that changes state.
+      const csrf = document.cookie.match(/(?:^|;\s*)hermod_csrf=([^;]*)/);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (csrf) headers['X-CSRF-Token'] = decodeURIComponent(csrf[1]);
       
       const workflow = await (await fetch(`/api/workflows/${workflowId}`, { headers })).json();
       

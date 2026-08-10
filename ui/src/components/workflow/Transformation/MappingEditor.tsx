@@ -18,6 +18,7 @@ import {
 import { useMemo } from 'react';
 import { notifications } from '@mantine/notifications';
 import { getValByPath } from '../../../utils/transformationUtils';
+import { apiFetch } from '@/api';
 import {
   IconArrowRight,
   IconPlus,
@@ -194,7 +195,7 @@ export function MappingEditor({
 
   const handleSuggestMapping = async () => {
     try {
-      const res = await fetch('/api/ai/suggest-mapping', {
+      const res = await apiFetch('/api/ai/suggest-mapping', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source_fields: availableFields, target_fields: availableFields }),

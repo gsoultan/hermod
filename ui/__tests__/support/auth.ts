@@ -49,10 +49,21 @@ export async function apiRequest(
 ): Promise<{ status: number; body: string }> {
   return page.evaluate(
     async ([p, method, body]) => {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+      // State-changing requests need the CSRF token echoed from its cookie.
+      // Reading it here rather than importing the app's helper keeps this
+      // usable from page.evaluate, which runs outside the bundle.
+      const verb = ((method as string) || 'GET').toUpperCase();
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(verb)) {
+        const match = document.cookie.match(/(?:^|;\s*)hermod_csrf=([^;]*)/);
+        if (match) headers['X-CSRF-Token'] = decodeURIComponent(match[1]);
+      }
+
       const res = await fetch(p as string, {
-        method: (method as string) || 'GET',
+        method: verb,
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: body ? (body as string) : undefined,
       });
       return { status: res.status, body: await res.text() };

@@ -93,28 +93,41 @@ store of issued or revoked IDs checked per request — which is not implemented.
 
 ### Remaining hardening, in priority order
 
-1. **CSRF token on the general API**, required before any deployment sets
-   `SameSite=None` (which disables the cross-site protection currently relied on).
-2. **Session revocation** and rotation on privilege change; shorten the 24h
-   window with a sliding expiry.
-3. **Document the CI security runbook** so these checks run per release rather
+1. **Session revocation** and rotation on privilege change; shorten the 24h
+   window with a sliding expiry. The session is a stateless JWT, so this needs
+   server-side session state.
+2. **Document the CI security runbook** so these checks run per release rather
    than from memory.
 
 ## CSRF
 
-The main API relies on `SameSite` for cross-origin protection. There is **no
-double-submit CSRF token on the general API surface** — the only CSRF token
-handling lives in the public forms endpoints
-(`internal/forms/transport/http/forms.go`).
+State-changing requests authenticated **by cookie** must carry a double-submit
+token: the server issues `hermod_csrf` as a readable cookie alongside the
+session, and the client echoes it in `X-CSRF-Token`. The two must match, compared
+in constant time.
 
-`SameSite=Lax` blocks cross-site POST/PUT/PATCH/DELETE, so state-changing calls are
-covered in practice. Two caveats worth knowing:
+It works because an attacker on another origin can make the browser *send* the
+cookie but cannot read it to populate the header — and cannot set custom headers
+cross-origin at all. The token is not a credential on its own, which is why it is
+deliberately **not** `HttpOnly`; making it so would leave the client unable to
+read it and disable the protection entirely.
 
-- Deployments that set `SameSite=None` (needed for cross-origin embedding) lose that
-  protection entirely and **must** add a CSRF token before doing so.
-- Because the API also accepts `Authorization: Bearer`, a request carrying an
-  explicit header is not a classic CSRF vector — but it does mean SameSite is the
-  only control for cookie-authenticated requests.
+Scope, and the reasoning behind it:
+
+| Request | Enforced? | Why |
+| :--- | :--- | :--- |
+| Cookie-authenticated `POST`/`PUT`/`PATCH`/`DELETE` | **Yes** | This is the vector: the browser attaches the cookie to a cross-site request automatically. |
+| `Authorization: Bearer` or `X-Worker-Token` | No | Not forgeable cross-origin — an attacker cannot set those headers. Enforcing would break every CLI, worker and integration for no gain. |
+| `GET`, `HEAD`, `OPTIONS` | No | Read paths. A token buys nothing and would break navigation. |
+| `/api/login`, 2FA, webhooks, form posts | No | Public by design, or the request that establishes the session in the first place. |
+
+The token is issued wherever a session begins (login and all three 2FA paths) and
+cleared on logout, so it cannot outlive the session it belonged to.
+
+**This was the stated prerequisite for `SameSite=None`.** A deployment that needs
+cross-origin embedding can now set it without losing cross-site protection
+entirely — though `Lax` or `Strict` remains preferable where the UI is
+same-origin.
 
 ## Content Security Policy
 

@@ -202,6 +202,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, sessionCookie(r, tokenString, 24*60*60))
+	// A session and its CSRF token begin together: the token is only meaningful
+	// while there is a cookie-authenticated session to protect.
+	handlers.IssueCSRFToken(w, r)
 	h.RecordAuditLog(r, "INFO", "User "+user.Username+" logged in", "login", user.ID, "user", "", nil)
 
 	// The session token is NOT returned in the body.
@@ -390,6 +393,9 @@ func (h *AuthHandler) OidcCallback(w http.ResponseWriter, r *http.Request) {
 	h.RecordAuditLog(r, "INFO", "User "+user.Username+" logged in (OIDC)", "login", user.ID, "user", "", nil)
 
 	http.SetCookie(w, sessionCookie(r, tokenString, 24*60*60))
+	// A session and its CSRF token begin together: the token is only meaningful
+	// while there is a cookie-authenticated session to protect.
+	handlers.IssueCSRFToken(w, r)
 
 	http.Redirect(w, r, "/", http.StatusFound)
 }
@@ -865,6 +871,9 @@ func (h *AuthHandler) Verify2FAPending(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, sessionCookie(r, tokenString, 24*60*60))
+	// A session and its CSRF token begin together: the token is only meaningful
+	// while there is a cookie-authenticated session to protect.
+	handlers.IssueCSRFToken(w, r)
 	h.RecordAuditLog(r, "INFO", "Enabled 2FA (during login) for "+user.Username, "update", user.ID, "user", "", nil)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -962,6 +971,9 @@ func (h *AuthHandler) Login2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, sessionCookie(r, tokenString, 24*60*60))
+	// A session and its CSRF token begin together: the token is only meaningful
+	// while there is a cookie-authenticated session to protect.
+	handlers.IssueCSRFToken(w, r)
 	h.RecordAuditLog(r, "INFO", "User "+user.Username+" logged in (2FA)", "login", user.ID, "user", "", nil)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1018,6 +1030,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	// set at login or the browser treats it as a different cookie and keeps the
 	// original — which is why both go through one builder.
 	http.SetCookie(w, sessionCookie(r, "", -1))
+	handlers.ClearCSRFToken(w, r)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "logged out"})

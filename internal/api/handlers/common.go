@@ -324,6 +324,24 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// CSRF, for cookie-authenticated state changes only.
+		//
+		// The cookie is the forgeable case: a browser attaches it to whatever
+		// cross-site request it was tricked into making. A request that
+		// authenticated by header is not forgeable — an attacker cannot set
+		// Authorization cross-origin — so enforcing there would break every
+		// CLI, worker and integration for no security gain.
+		//
+		// Enforced after the session is validated so an unauthenticated request
+		// still gets 401 rather than a confusing 403.
+		if authenticatedByCookie(r) && isStateChanging(r.Method) && !checkCSRF(r) {
+			h.JsonError(w,
+				"Forbidden: missing or invalid CSRF token. Send the "+CSRFCookieName+
+					" cookie value in the "+CSRFHeaderName+" header.",
+				http.StatusForbidden)
+			return
+		}
+
 		// Use claims to build user context (avoids DB hit and dependency in tests)
 		user := storage.User{
 			ID:       claims.UserID,
@@ -532,6 +550,24 @@ func isUIStreamPath(path string) bool { return uiStreamPaths[path] }
 // The caller needs the origin, not just the value: a credential in a URL is
 // held to a different standard than one in a header or a cookie, because only
 // the URL gets logged by every hop in between.
+// authenticatedByCookie reports whether the session came from the cookie rather
+// than a header or query parameter. Only that case is a CSRF vector: the
+// browser attaches the cookie automatically, whereas a header has to be set
+// deliberately by a client that already holds the credential.
+func authenticatedByCookie(r *http.Request) bool {
+	if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+		return false
+	}
+	if r.Header.Get("X-Worker-Token") != "" {
+		return false
+	}
+	if r.URL.Query().Get("token") != "" {
+		return false
+	}
+	c, err := r.Cookie("hermod_session")
+	return err == nil && c.Value != ""
+}
+
 func extractSessionToken(r *http.Request) (token string, fromQuery bool, ok bool) {
 	authHeader := r.Header.Get("Authorization")
 	if strings.HasPrefix(authHeader, "Bearer ") {

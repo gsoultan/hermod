@@ -99,7 +99,15 @@ test.describe('Session storage', () => {
     await expect(page).not.toHaveURL(/login/, { timeout: 30000 });
 
     const status = await page.evaluate(async () => {
-      const res = await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+      // Logout is a cookie-authenticated state change, so it needs the CSRF
+      // token like any other. The app's own logout goes through apiFetch, which
+      // adds it; this raw call has to do it by hand.
+      const csrf = document.cookie.match(/(?:^|;\s*)hermod_csrf=([^;]*)/);
+      const res = await fetch('/api/logout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: csrf ? { 'X-CSRF-Token': decodeURIComponent(csrf[1]) } : {},
+      });
       return res.status;
     });
     expect(status).toBe(200);

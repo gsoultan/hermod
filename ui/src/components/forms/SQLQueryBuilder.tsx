@@ -7,6 +7,7 @@ import {
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { getValByPath } from '@/utils/transformationUtils';
+import { apiFetch } from '@/api';
 import {
   IconAlertCircle, IconCopy, IconDatabase, IconPlayerPlay, IconTable,
   IconColumns, IconRefresh, IconPlus, IconArrowsMaximize, IconArrowsMinimize,
@@ -177,7 +178,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/${type}s/query`, {
+      const response = await apiFetch(`/api/${type}s/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config: buildConfigPayload(), query, sampleData: sampleMessage }),
@@ -211,7 +212,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
     setFetchingTables(true);
     setError(null);
     try {
-      const response = await fetch(`/api/${type}s/discover/tables`, {
+      const response = await apiFetch(`/api/${type}s/discover/tables`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildConfigPayload()),
@@ -234,7 +235,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
     setFetchingColumns(true);
     setSelectedTable(tableName);
     try {
-      const response = await fetch(`/api/${type}s/discover/columns`, {
+      const response = await apiFetch(`/api/${type}s/discover/columns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [type]: buildConfigPayload(), table: tableName }),
