@@ -93,9 +93,10 @@ store of issued or revoked IDs checked per request — which is not implemented.
 
 ### Remaining hardening, in priority order
 
-1. **Session revocation** and rotation on privilege change; shorten the 24h
-   window with a sliding expiry. The session is a stateless JWT, so this needs
-   server-side session state.
+1. **Session revocation** and rotation on privilege change. The window is now an
+   hour rather than a day (see above), but revoking a specific session before it
+   expires still needs server-side session state, and a design choice about
+   where that state lives and what it costs per request.
 2. **Document the CI security runbook** so these checks run per release rather
    than from memory.
 

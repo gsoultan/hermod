@@ -342,6 +342,11 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Slide the session forward on activity. The short TTL is what limits a
+		// stolen token's usefulness; renewing here is what stops it limiting a
+		// legitimate user's working day.
+		h.maybeRenewSession(w, r, claims, tokenString)
+
 		// Use claims to build user context (avoids DB hit and dependency in tests)
 		user := storage.User{
 			ID:       claims.UserID,

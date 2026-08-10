@@ -56,39 +56,11 @@ func (h *AuthHandler) RegisterAuthRoutes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/vhosts/{id}", h.AdminOnly(h.DeleteVHost))
 }
 
-// sessionCookieName is the only cookie that carries a Hermod session.
-const sessionCookieName = "hermod_session"
-
-// sessionCookie builds the session cookie. maxAge is the lifetime in seconds,
-// or -1 to delete.
-//
-// One builder for both setting and clearing: a cookie is only replaced when the
-// name, path and domain match, so a logout that spelled any of them differently
-// would leave the original in place and silently fail to end the session.
-//
-// gosec cannot prove Secure is set because it is derived from the request
-// scheme. That is deliberate — pinning it true would stop the cookie working
-// over plain HTTP on localhost, which is how the dev stack runs. It is forced
-// true for SameSite=None, where browsers require it.
-//
-//nolint:gosec // G124: Secure is request-derived; see above.
+// sessionCookie delegates to the shared builder in handlers, so login, 2FA,
+// renewal and logout cannot drift apart on the attributes that decide whether a
+// browser treats two cookies as the same one.
 func sessionCookie(r *http.Request, value string, maxAge int) *http.Cookie {
-	isHTTPS := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
-
-	ss := handlers.SameSiteFromEnv()
-	cookie := &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    value,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   isHTTPS,
-		SameSite: ss,
-		MaxAge:   maxAge,
-	}
-	if ss == http.SameSiteNoneMode {
-		cookie.Secure = true
-	}
-	return cookie
+	return handlers.SessionCookie(r, value, maxAge)
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -187,13 +159,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"id":       user.ID,
-		"username": user.Username,
-		"role":     string(user.Role),
-		"vhosts":   user.VHosts,
-		"exp":      time.Now().Add(time.Hour * 24).Unix(),
-	})
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256,
+		handlers.NewSessionClaims(user.ID, user.Username, string(user.Role), user.VHosts))
 
 	tokenString, err := token.SignedString([]byte(dbCfg.JWTSecret))
 	if err != nil {
@@ -201,7 +168,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, sessionCookie(r, tokenString, 24*60*60))
+	http.SetCookie(w, sessionCookie(r, tokenString, handlers.SessionCookieMaxAge()))
 	// A session and its CSRF token begin together: the token is only meaningful
 	// while there is a cookie-authenticated session to protect.
 	handlers.IssueCSRFToken(w, r)
@@ -392,7 +359,7 @@ func (h *AuthHandler) OidcCallback(w http.ResponseWriter, r *http.Request) {
 
 	h.RecordAuditLog(r, "INFO", "User "+user.Username+" logged in (OIDC)", "login", user.ID, "user", "", nil)
 
-	http.SetCookie(w, sessionCookie(r, tokenString, 24*60*60))
+	http.SetCookie(w, sessionCookie(r, tokenString, handlers.SessionCookieMaxAge()))
 	// A session and its CSRF token begin together: the token is only meaningful
 	// while there is a cookie-authenticated session to protect.
 	handlers.IssueCSRFToken(w, r)
@@ -857,20 +824,15 @@ func (h *AuthHandler) Verify2FAPending(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Issue final JWT and set cookie (completes login)
-	finalToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"id":       user.ID,
-		"username": user.Username,
-		"role":     string(user.Role),
-		"vhosts":   user.VHosts,
-		"exp":      time.Now().Add(time.Hour * 24).Unix(),
-	})
+	finalToken := jwt.NewWithClaims(jwt.SigningMethodHS256,
+		handlers.NewSessionClaims(user.ID, user.Username, string(user.Role), user.VHosts))
 	tokenString, err := finalToken.SignedString([]byte(dbCfg.JWTSecret))
 	if err != nil {
 		h.JsonError(w, "Failed to generate token", http.StatusInternalServerError)
 		return
 	}
 
-	http.SetCookie(w, sessionCookie(r, tokenString, 24*60*60))
+	http.SetCookie(w, sessionCookie(r, tokenString, handlers.SessionCookieMaxAge()))
 	// A session and its CSRF token begin together: the token is only meaningful
 	// while there is a cookie-authenticated session to protect.
 	handlers.IssueCSRFToken(w, r)
@@ -956,13 +918,8 @@ func (h *AuthHandler) Login2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Issue final JWT
-	finalToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"id":       user.ID,
-		"username": user.Username,
-		"role":     string(user.Role),
-		"vhosts":   user.VHosts,
-		"exp":      time.Now().Add(time.Hour * 24).Unix(),
-	})
+	finalToken := jwt.NewWithClaims(jwt.SigningMethodHS256,
+		handlers.NewSessionClaims(user.ID, user.Username, string(user.Role), user.VHosts))
 
 	tokenString, err := finalToken.SignedString([]byte(dbCfg.JWTSecret))
 	if err != nil {
@@ -970,7 +927,7 @@ func (h *AuthHandler) Login2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, sessionCookie(r, tokenString, 24*60*60))
+	http.SetCookie(w, sessionCookie(r, tokenString, handlers.SessionCookieMaxAge()))
 	// A session and its CSRF token begin together: the token is only meaningful
 	// while there is a cookie-authenticated session to protect.
 	handlers.IssueCSRFToken(w, r)
