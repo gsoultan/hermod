@@ -29,37 +29,56 @@ On login the server sets `hermod_session` (`internal/auth/transport/http/auth.go
 | `Path` | `/` |
 | `MaxAge` | 24h |
 
-### Open: the token is also in localStorage, which defeats the cookie
+### Streams authenticate with the cookie; no credential goes in a URL
 
-**This is the top outstanding security item.** The login response returns the JWT in
-its JSON body as well as in the cookie. The UI stores that copy in `localStorage`
-(`ui/src/auth/storage.ts`) and attaches it as a Bearer header
-(`ui/src/api.tsx:30`), while also sending the cookie via `credentials: 'include'`
-(`ui/src/api.tsx:36`).
+The UI's WebSocket and SSE endpoints used to accept the session JWT as a
+`?token=` query parameter. That is the reason a copy of the token had to live in
+`localStorage`: a browser cannot set headers on `new WebSocket(url)`, so for the
+UI to put a credential in the URL it had to be able to read one from JavaScript.
 
-Both mechanisms are therefore live at once, and the weaker one sets the ceiling:
-any XSS can read `localStorage` and exfiltrate a 24-hour session token. Making the
-cookie `HttpOnly` buys nothing while a second copy sits in reachable storage.
+That requirement was false. A browser sends cookies on a same-origin WebSocket
+handshake exactly as it does on any other request (RFC 6455 §4.1) — and three of
+the UI's own sockets (sinks, sources, layout) had always relied on that and
+worked. The other five carried a token for no reason.
 
-It has not simply been deleted because **seven UI call sites need the raw token to
-open a WebSocket or SSE stream** — `WorkflowDebugger.tsx:33`,
-`useWorkflowWebSockets.ts:77,111`, `WorkflowDetailPage.tsx:181,219`,
-`LiveStreamInspector.tsx:38`, `DashboardPage.tsx:153`. The browser WebSocket API
-cannot set request headers, which is why the `?token=` path exists at all. Removing
-localStorage without replacing that path breaks live streaming across the app.
+So as of this change:
 
-Putting a 24-hour credential in a URL is itself a weakness: query strings land in
-server access logs, proxy logs, and browser history.
+- The UI sends **no credential in any stream URL**. All of its WebSockets
+  authenticate with the `HttpOnly` session cookie.
+- The UI stream endpoints — `/api/ws/live`, `/api/ws/status`, `/api/ws/dashboard`,
+  `/api/ws/logs`, `/api/ws/debugger`, `/api/notifications/sse` — **reject** a token
+  presented in the query string (`internal/api/handlers/common.go`,
+  `uiStreamPaths`). Enforced by `stream_auth_test.go`, which also pins that the
+  cookie path still works, since refusing the query parameter is only correct
+  while the cookie does.
 
-**The fix is a short-lived stream ticket**, not a bigger cookie:
+This keeps session tokens out of access logs, proxy logs and browser history.
 
-1. Add an authenticated `POST /api/v1/stream-ticket` returning a single-use,
-   narrowly-scoped token with a TTL in the tens of seconds.
-2. Have WebSocket/SSE callers fetch a ticket and pass *that* in the query string.
-3. Accept tickets only on stream endpoints; drop `?token=` for session JWTs.
-4. Stop returning the JWT in the login body and delete `ui/src/auth/storage.ts`.
+**Residual, deliberate:** `/api/ws/in/*` and `/api/ws/out/*` still accept a query
+token. They are integration endpoints with no auth of their own, so a non-browser
+producer that cannot set headers has nothing else to use. Tightening them would
+silently break external integrations. If you operate one, prefer the
+`Authorization: Bearer` header — any non-browser client can set it — and treat a
+token in the URL as logged.
 
-Until step 4 lands, treat the session token as XSS-exfiltratable and keep the CSP
+### Still open: the session token is in localStorage
+
+The login response returns the JWT in its JSON body as well as in the cookie, and
+the UI keeps that copy in `localStorage` (`ui/src/auth/storage.ts`), attaching it
+as a Bearer header (`ui/src/api.tsx`). Any XSS can read it and exfiltrate a
+24-hour session.
+
+The streaming dependency that used to justify it is gone, so what remains is a
+smaller, purely local problem: `getClaimsFromToken()` / `getRoleFromToken()`
+decode the stored JWT to learn the current user's role, across 21 call sites in 7
+files.
+
+**The fix:** hydrate a session store from the existing `GET /api/me` at app
+start, reimplement `getRoleFromToken()` to read from it, then stop returning the
+token in the login body and delete `ui/src/auth/storage.ts`. The role is not a
+secret; the token is.
+
+Until that lands, treat the session token as XSS-exfiltratable and keep the CSP
 below strict.
 
 ## CSRF

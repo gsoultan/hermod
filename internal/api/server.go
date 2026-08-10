@@ -160,6 +160,7 @@ func (s *Server) Routes() http.Handler {
 	workerH.RegisterWorkerRoutes(mux)
 
 	mux.HandleFunc("POST /api/graphql/{path...}", webhooksH.HandleGraphQL)
+
 	mux.Handle("/metrics", promhttp.Handler())
 
 	// Static files

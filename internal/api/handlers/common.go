@@ -255,7 +255,16 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		tokenString, ok := extractBearerOrCookie(r)
+		tokenString, fromQuery, ok := extractSessionToken(r)
+
+		// No credential in the URL on a UI stream endpoint. The browser already
+		// sends the session cookie on the handshake, so a token here is either
+		// the old code path or someone replaying one out of a log.
+		if ok && fromQuery && isUIStreamPath(path) {
+			h.JsonError(w, "Unauthorized: authenticate streams with the session cookie, not a query parameter", http.StatusUnauthorized)
+			return
+		}
+
 		if !ok {
 			// Fallback: allow worker token authentication for non-setup API calls
 			// Workers authenticate using the X-Worker-Token header.
@@ -488,25 +497,58 @@ type SessionClaims struct {
 	jwt.RegisteredClaims
 }
 
-func extractBearerOrCookie(r *http.Request) (string, bool) {
-	// Try Authorization header
+// uiStreamPaths are the streaming endpoints the UI opens from the browser.
+//
+// A credential in a URL is logged by every hop it passes: the server's access
+// log, any proxy in front of it, and the browser's own history. These endpoints
+// used to accept the session token that way, which is why a copy of a 24-hour
+// JWT had to live in localStorage where any XSS could read it.
+//
+// None of that was necessary. A browser sends the HttpOnly hermod_session
+// cookie on a same-origin WebSocket handshake (RFC 6455 §4.1) exactly as it
+// does for any other request — which is how the sinks, sources and layout
+// status sockets have always authenticated. So the UI sends no token here, and
+// these paths refuse one, which is what stops the habit coming back.
+//
+// /api/ws/in and /api/ws/out are deliberately absent. They are integration
+// endpoints with no auth of their own, so an external non-browser client that
+// cannot set headers has only the query parameter. Tightening them would be a
+// silent break for someone else's running integration; the residual is recorded
+// in SECURITY.md.
+var uiStreamPaths = map[string]bool{
+	"/api/ws/live":           true,
+	"/api/ws/status":         true,
+	"/api/ws/dashboard":      true,
+	"/api/ws/logs":           true,
+	"/api/ws/debugger":       true,
+	"/api/notifications/sse": true,
+}
+
+func isUIStreamPath(path string) bool { return uiStreamPaths[path] }
+
+// extractSessionToken returns the presented token and whether it came from the
+// query string.
+//
+// The caller needs the origin, not just the value: a credential in a URL is
+// held to a different standard than one in a header or a cookie, because only
+// the URL gets logged by every hop in between.
+func extractSessionToken(r *http.Request) (token string, fromQuery bool, ok bool) {
 	authHeader := r.Header.Get("Authorization")
 	if strings.HasPrefix(authHeader, "Bearer ") {
-		return authHeader[7:], true
+		return authHeader[7:], false, true
 	}
 
-	// Try query parameter (specifically for WebSockets)
-	if token := r.URL.Query().Get("token"); token != "" {
-		return token, true
+	// Query parameter: the only option for WebSocket and EventSource clients.
+	if t := r.URL.Query().Get("token"); t != "" {
+		return t, true, true
 	}
 
-	// Try cookie
 	cookie, err := r.Cookie("hermod_session")
 	if err == nil {
-		return cookie.Value, true
+		return cookie.Value, false, true
 	}
 
-	return "", false
+	return "", false, false
 }
 
 func parseSessionClaims(tokenString string, secret []byte) (SessionClaims, error) {

@@ -16,7 +16,6 @@ import { Link, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
-import { getToken } from '@/auth/storage';
 import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import { formatDateTime } from '@/utils/dateUtils';
 import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
@@ -177,10 +176,10 @@ export function WorkflowDetailPage() {
   useEffect(() => {
     if (activeTab !== 'logs') return;
 
+    // Authenticated by the HttpOnly session cookie, sent on the same-origin
+    // WebSocket handshake. No credential in the URL.
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const token = getToken();
-    const tokenParam = token ? `&token=${token}` : '';
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/logs?workflow_id=${id}${tokenParam}`;
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/logs?workflow_id=${encodeURIComponent(id)}`;
     const ws = new WebSocket(wsUrl);
 
     ws.onmessage = (event) => {
@@ -216,9 +215,7 @@ export function WorkflowDetailPage() {
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const token = getToken();
-    const tokenParam = token ? `&token=${token}` : '';
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/status?workflow_id=${id}${tokenParam}`;
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/status?workflow_id=${encodeURIComponent(id)}`;
     const ws = new WebSocket(wsUrl);
 
     ws.onmessage = (event) => {

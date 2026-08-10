@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { getToken } from '@/auth/storage';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 
 const MAX_RECONNECT_DELAY = 30000;
@@ -72,11 +71,10 @@ export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: b
   useEffect(() => {
     if (!id || id === 'new' || !active || logsPaused) return;
 
-    const buildUrl = () => {
-      const token = getToken();
-      const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
-      return `${getWsProtocol()}//${window.location.host}/api/ws/logs?workflow_id=${encodeURIComponent(id)}${tokenParam}`;
-    };
+    // Authenticated by the HttpOnly session cookie, sent on the same-origin
+    // WebSocket handshake. No credential in the URL.
+    const buildUrl = () =>
+      `${getWsProtocol()}//${window.location.host}/api/ws/logs?workflow_id=${encodeURIComponent(id)}`;
 
     const onMessage = (event: MessageEvent) => {
       try {
@@ -104,13 +102,8 @@ export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: b
   useEffect(() => {
     if (!id || id === 'new') return;
 
-    const buildUrl = () => {
-      const token = getToken();
-      const base = `${getWsProtocol()}//${window.location.host}/api/ws/status`;
-      return token
-        ? `${base}?token=${encodeURIComponent(token)}&workflow_id=${encodeURIComponent(id)}`
-        : `${base}?workflow_id=${encodeURIComponent(id)}`;
-    };
+    const buildUrl = () =>
+      `${getWsProtocol()}//${window.location.host}/api/ws/status?workflow_id=${encodeURIComponent(id)}`;
 
     const onMessage = (event: MessageEvent) => {
       try {

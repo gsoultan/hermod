@@ -7,7 +7,6 @@ import {
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import { IconFilter, IconSearch, IconTerminal2, IconTrash } from '@tabler/icons-react';
 import { useDataWorker } from '../../../../hooks/useDataWorker';
-import { getToken } from '@/auth/storage';
 interface LiveMessage {
   workflow_id: string;
   node_id: string;
@@ -33,10 +32,10 @@ export function LiveStreamInspector({ opened, onClose, workflowId }: {
 
   useEffect(() => {
     if (opened && !paused) {
+      // Authenticated by the HttpOnly session cookie, which the browser sends
+      // on a same-origin WebSocket handshake. No credential in the URL.
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const token = getToken();
-      const tokenParam = token ? `&token=${token}` : '';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws/live?workflow_id=${workflowId}${tokenParam}`);
+      const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws/live?workflow_id=${encodeURIComponent(workflowId)}`);
       
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);

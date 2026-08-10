@@ -8,7 +8,6 @@ import {
   IconCircleX, IconActivity, IconTerminal2
 } from '@tabler/icons-react';
 import { formatDateTime } from '@/utils/dateUtils';
-import { getToken } from '@/auth/storage';
 
 interface DebugEvent {
   type: string;
@@ -29,8 +28,15 @@ export function WorkflowDebugger({ workflowId }: { workflowId: string }) {
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const token = getToken();
-    const socket = new WebSocket(`${protocol}//${host}/api/v1/debug?workflow_id=${workflowId}&token=${token}`);
+    // This pointed at /api/v1/debug, which is not a registered route — the only
+    // debugger endpoint is /api/ws/debugger — so this socket never connected and
+    // the panel stayed on "Disconnected" forever.
+    //
+    // Authenticated by the HttpOnly session cookie, sent on the same-origin
+    // handshake, so there is no credential in the URL.
+    const socket = new WebSocket(
+      `${protocol}//${host}/api/ws/debugger?workflow_id=${encodeURIComponent(workflowId)}`,
+    );
 
     socket.onopen = () => setIsConnected(true);
     socket.onclose = () => setIsConnected(false);
