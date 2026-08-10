@@ -232,13 +232,33 @@ type Transactional interface {
 	Rollback(ctx context.Context) error
 }
 
+// TwoPhaseCommitPreflight is an optional interface for participants that can
+// check, before any data moves, whether real two-phase commit is actually
+// available to them.
+//
+// It exists because "implements TwoPhaseCommit" is not the same as "can honour
+// it right now". A PostgreSQL sink behind a transaction pooler cannot use
+// PREPARE TRANSACTION at all — the in-doubt transaction has to be resolved on
+// the backend that created it, which a pooler cannot guarantee — and PostgreSQL
+// ships with max_prepared_transactions = 0, which makes PREPARE fail outright.
+//
+// Without this check those cases surface as a mid-batch failure at best, and at
+// worst as a participant that quietly commits when asked to prepare: the
+// coordinator then believes it can still roll back, and the transaction
+// silently diverges. A participant that cannot guarantee the contract should
+// say so here and be refused at start-up.
+type TwoPhaseCommitPreflight interface {
+	// PreflightTwoPhaseCommit returns nil only if a later Prepare would give a
+	// genuinely in-doubt, resolvable transaction.
+	PreflightTwoPhaseCommit(ctx context.Context) error
+}
+
 // TwoPhaseCommit is an optional interface for sinks that support 2PC.
 //
-// STATUS: no coordinator drives this yet. The engine never calls Prepare /
-// CommitPrepared / RollbackPrepared, so implementing it does not currently give
-// a workflow cross-sink atomicity. PostgresSink implements it against real
-// PREPARE TRANSACTION / COMMIT PREPARED so the single-sink path is correct and
-// ready for a coordinator to be built on top.
+// It is driven by pkg/engine/twopc.Coordinator, which a transactional sink
+// group (pkg/comm/sink/txgroup) uses to commit several sinks atomically. The
+// coordinator makes its decision durable before telling any participant, so a
+// crash mid-round is resolved on the next start rather than left in doubt.
 //
 // Implement this only with genuine prepared-transaction semantics. A no-op
 // implementation is actively harmful: the contract reports failure through the

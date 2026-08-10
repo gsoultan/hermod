@@ -34,7 +34,7 @@ state of the code, not modesty.
 
 Hermod is built for mission-critical enterprise data workloads, providing robust features for governance, reliability, and observability:
 
-- **Two-Phase Commit (2PC) — Postgres only, single-sink**: The **Postgres** sink implements real `PREPARE TRANSACTION` / `COMMIT PREPARED` / `ROLLBACK PREPARED`, including detection of transaction poolers (PgBouncer) where 2PC is unavailable. Note the scope honestly: **no coordinator currently drives 2PC across multiple sinks**, so this gives single-sink atomicity, not distributed atomicity. The Kafka sink does *not* implement 2PC — it previously carried no-op stubs that would have reported a failed rollback as a successful one, and those have been removed.
+- **Two-Phase Commit (2PC) across a transactional sink group**: A group of sinks commits atomically — either every member applied the batch or none did — and the guarantee survives a crash, because the coordinator's decision is durable before any member is told about it. Recovery uses **presumed abort**, and a reaper rolls back anything left in doubt past a deadline, which is what keeps an interrupted round from holding PostgreSQL locks indefinitely. Scope, stated plainly: **only the Postgres sink can participate today**, so the realistic shape is two or more Postgres sinks kept consistent; a group containing a sink that cannot take part is refused at construction rather than silently degraded. Kafka does *not* participate — it previously carried no-op stubs that would have reported a failed rollback as a success. See [Distributed transactions](#distributed-transactions-transactional-sink-groups), including the operational hazard note, before enabling.
 - **SSO & OpenID Connect (OIDC)**: Support for centralized identity providers like **Okta**, **Auth0**, and **Azure AD** for platform-wide authentication and RBAC.
 - **Vector Database Sinks**: Built-in support for **Pinecone**, **Milvus**, and **pgvector** to power enterprise AI knowledge bases and RAG pipelines.
 - **Hermod CLI (`hermodctl`)**: A powerful terminal-based tool for workflow linting, secret management, and real-time remote monitoring.
@@ -428,6 +428,90 @@ Notes:
 
 Default is 15000 ms. WAL mode and other safe pragmas are enabled by default.
 
+## Distributed transactions (transactional sink groups)
+
+A **transactional sink group** writes to several sinks inside one distributed
+transaction: either every member applied the batch or none did, and that holds across
+a crash. It is built on `pkg/engine/twopc` (the coordinator and its durable log) and
+`pkg/comm/sink/txgroup` (the group, which presents to the engine as a single sink).
+
+**Currently only the PostgreSQL sink can participate.** It is the one sink implementing
+`hermod.TwoPhaseCommit` with real `PREPARE TRANSACTION` semantics, so the realistic
+shape today is two or more Postgres sinks kept consistent with each other. A group
+containing a sink that cannot participate is **refused at construction**, not silently
+degraded.
+
+### Why it is opt-in
+
+The engine gives every sink its own writer goroutine with its own batching loop. That
+independence is why it sustains ~100k msgs/s, and it is also why sinks cannot otherwise
+agree on a transaction boundary. A group replaces that independence with a barrier: its
+members commit in lockstep at the pace of the slowest, and a member that cannot prepare
+aborts the batch for all of them. Use one where a partial write is genuinely worse than
+a slower pipeline; leave everything else on the fast path.
+
+### ⚠️ Operational hazard — read before enabling on PostgreSQL
+
+`PREPARE TRANSACTION` leaves a transaction **in doubt**: it holds its locks, keeps its
+snapshot, and **survives a server restart** until somebody resolves it. An unresolved
+prepared transaction therefore **blocks VACUUM cluster-wide**, which ends in transaction
+ID wraparound if it is left long enough. This is a database-availability problem, not an
+untidy row.
+
+Hermod defends against that in three places, and you should understand all three before
+turning it on:
+
+| Defence | What it does |
+| :--- | :--- |
+| **Preflight** | At start-up, refuses to run if `max_prepared_transactions = 0` (the PostgreSQL default, which makes `PREPARE` fail) or if the sink is behind a transaction pooler (where a prepared transaction cannot be resolved on the backend that created it). |
+| **Recovery** | On every start, resolves transactions left in doubt by the previous run. **Presumed abort**: a transaction commits only if the coordinator's decision was durable before the crash. |
+| **Reaper** | Rolls back anything prepared for longer than `MaxPreparedAge` (default 15 minutes). This is what stops a coordinator that died and never came back from holding locks forever. It only ever rolls back — committing on a timer would apply a batch nobody decided to commit. |
+
+**Required PostgreSQL configuration.** `max_prepared_transactions` must be at least the
+number of concurrent transactional groups. It defaults to `0` and **changing it requires
+a server restart**:
+
+```
+max_prepared_transactions = 16   # postgresql.conf, then restart
+```
+
+**Do not put a pooler in front of a group member.** PgBouncer in transaction or statement
+mode cannot guarantee that the commit lands on the backend that prepared it. Hermod's
+preflight refuses this outright rather than degrading, because the degraded behaviour —
+committing at prepare time — would leave the coordinator believing it could still roll
+back.
+
+**Checking for stranded transactions.** Prepared transactions are visible in
+`pg_prepared_xacts`, and this is worth alerting on:
+
+```sql
+SELECT gid, prepared, owner, database
+FROM pg_prepared_xacts
+ORDER BY prepared;
+```
+
+Anything older than a few minutes that Hermod is not actively working on should be
+resolved. If Hermod's own log was lost — the state store was wiped, say — it cannot
+resolve them and you must do it by hand:
+
+```sql
+ROLLBACK PREPARED '<gid>';
+```
+
+Roll back rather than commit unless you have positively established the transaction
+should have committed. Presumed abort is the safe direction for the same reason the
+coordinator uses it.
+
+### Residual risk, stated plainly
+
+There is a window between a participant's `Prepare` returning and its identifier
+reaching the log. A crash inside that window leaves a prepared transaction the
+coordinator cannot name. The log is written after **every** vote rather than once at
+the end, which narrows the window to a single participant, but it does not close it —
+closing it needs the participant to accept a coordinator-supplied transaction ID, which
+`hermod.TwoPhaseCommit` does not currently offer. Until then, the `pg_prepared_xacts`
+check above is the backstop.
+
 ## Connector maturity tiers
 
 Hermod ships 41 source and 45 sink connectors. They are **not equally mature**, and a
@@ -501,7 +585,7 @@ can make.
 
 Hermod is built for scale and reliability, offering enterprise-grade features out of the box:
 
-- **Two-Phase Commit (2PC)**: Support for atomic multi-sink delivery, ensuring that data is either committed to both the internal state and external systems (Kafka, Postgres) or not at all.
+- **Two-Phase Commit (2PC)**: Atomic multi-sink delivery via a transactional sink group, with a durable coordinator log, presumed-abort crash recovery and a reaper for transactions left in doubt. Postgres participates; Kafka does not.
 - **SSO & OIDC**: Centralized authentication via Okta, Azure AD, and Auth0, with automatic RBAC mapping.
 - **Vector Database Sinks**: Optimized connectors for **Pinecone**, **Milvus**, and **pgvector** for AI-driven data pipelines.
 - **Hermod CLI**: Full lifecycle management (Lint, Secret, Monitor, GitOps) from the command line.

@@ -459,6 +459,45 @@ func (s *PostgresSink) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }
 
+// PreflightTwoPhaseCommit reports whether this sink can genuinely take part in
+// a distributed transaction, and refuses loudly when it cannot.
+//
+// Two ways it cannot, both of which are silent without this check:
+//
+//   - Behind a transaction pooler. A prepared transaction has to be resolved on
+//     the backend that created it, which a pooler cannot guarantee, so Prepare
+//     degrades to committing locally and returning a sentinel. That is fine for
+//     a lone sink and catastrophic inside a group: the coordinator believes it
+//     can still roll back, the data is already committed, and a later abort
+//     leaves this sink diverged from the others with nothing reporting it.
+//   - max_prepared_transactions = 0, which is the PostgreSQL default. PREPARE
+//     TRANSACTION then fails outright, so every batch aborts mid-flight instead
+//     of failing at start-up where an operator would see it.
+func (s *PostgresSink) PreflightTwoPhaseCommit(ctx context.Context) error {
+	if err := s.init(ctx); err != nil {
+		return err
+	}
+
+	if s.pooled {
+		return errors.New("postgres sink: two-phase commit is not possible through a transaction pooler " +
+			"(a prepared transaction must be resolved on the backend that created it). " +
+			"Connect this sink directly to PostgreSQL, or take it out of the transactional group")
+	}
+
+	var maxPrepared int
+	if err := s.pool.QueryRow(ctx, "SHOW max_prepared_transactions").Scan(&maxPrepared); err != nil {
+		return fmt.Errorf("postgres sink: cannot read max_prepared_transactions: %w", err)
+	}
+	if maxPrepared == 0 {
+		return errors.New("postgres sink: max_prepared_transactions is 0, so PREPARE TRANSACTION will fail. " +
+			"Set it to at least the number of concurrent transactional groups (it needs a server restart), " +
+			"and read the operational hazard note in README.md first — a prepared transaction holds locks " +
+			"and blocks VACUUM until it is resolved")
+	}
+
+	return nil
+}
+
 func (s *PostgresSink) wrapError(err error, duration time.Duration, pooled bool) error {
 	if err == nil {
 		return nil
