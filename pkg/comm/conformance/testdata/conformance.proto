@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package conformance;
+
+// A minimal message so the generic Protobuf source has a descriptor to load.
+// The suite checks lifecycle and context handling, not decoding, so the shape
+// only has to be valid — not representative of anything real.
+message Event {
+  string id = 1;
+  string payload = 2;
+}

@@ -144,6 +144,14 @@ func (s *FormSource) Read(ctx context.Context) (hermod.Message, error) {
 }
 
 func (s *FormSource) Ack(ctx context.Context, msg hermod.Message) error {
+	// A nil message must surface as an error rather than a dereference. The
+	// engine acknowledges on the hot path, so a crash — or, as this class of
+	// bug has actually behaved elsewhere, a goroutine that never returns —
+	// takes the source with it.
+	if msg == nil {
+		return errors.New("form source: nil message")
+	}
+
 	if s.Storage != nil {
 		return s.Storage.UpdateFormSubmissionStatus(ctx, msg.ID(), "completed")
 	}

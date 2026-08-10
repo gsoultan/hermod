@@ -2,6 +2,7 @@ package conformance_test
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -58,6 +59,7 @@ import (
 	sinktwitter "github.com/user/hermod/pkg/comm/sink/twitter"
 	sinkwebsocket "github.com/user/hermod/pkg/comm/sink/websocket"
 
+	srcbatchsql "github.com/user/hermod/pkg/comm/source/batchsql"
 	srccassandra "github.com/user/hermod/pkg/comm/source/cassandra"
 	srccdc "github.com/user/hermod/pkg/comm/source/cdc"
 	srcclickhouse "github.com/user/hermod/pkg/comm/source/clickhouse"
@@ -68,7 +70,12 @@ import (
 	srcexcel "github.com/user/hermod/pkg/comm/source/excel"
 	srcfacebook "github.com/user/hermod/pkg/comm/source/facebook"
 	srcfile "github.com/user/hermod/pkg/comm/source/file"
+	srcfirebase "github.com/user/hermod/pkg/comm/source/firebase"
+	srcform "github.com/user/hermod/pkg/comm/source/form"
+	srcgoogleanalytics "github.com/user/hermod/pkg/comm/source/googleanalytics"
+	srcgooglesheets "github.com/user/hermod/pkg/comm/source/googlesheets"
 	srcgraphql "github.com/user/hermod/pkg/comm/source/graphql"
+	srcgrpc "github.com/user/hermod/pkg/comm/source/grpc"
 	srchttp "github.com/user/hermod/pkg/comm/source/http"
 	srcinstagram "github.com/user/hermod/pkg/comm/source/instagram"
 	srckafka "github.com/user/hermod/pkg/comm/source/kafka"
@@ -494,21 +501,42 @@ func TestSourceConformance(t *testing.T) {
 		})
 	}
 
-	// NOT REGISTERED: firebase, googlesheets, googleanalytics, batchsql, form, grpc.
+	// Connectors needing a collaborator.
 	//
-	// The Google-backed sources build an SDK client from a credentials blob and
-	// reach Google's token endpoint before any base URL of ours applies, so the
-	// SetBaseURL seam does not help them. batchsql, form and grpc each need a
-	// collaborator -- a DBProvider, a submission Storage, a .proto on disk --
-	// that the suite cannot supply without testing the fake instead.
+	// These were excluded at first on the grounds that faking a DBProvider, a
+	// submission Storage or a .proto would test the fake rather than the
+	// connector. That reasoning holds for the data path and not for this suite:
+	// what is being checked is the connector's own lifecycle, nil-safety and
+	// context handling, and a stub collaborator is simply the seam that lets it
+	// be constructed. Excluding them left six connectors with no coverage at all
+	// to avoid a theoretical weakness in coverage they did not have.
+	conformance.RunSourceSuite(t, "batchsql", func() hermod.Source {
+		return srcbatchsql.NewBatchSQLSource(deadDBProvider{}, srcbatchsql.Config{
+			SourceID: "s1", Cron: "@every 1h", Queries: "SELECT 1",
+		})
+	})
+	conformance.RunSourceSuite(t, "form", func() hermod.Source {
+		return srcform.NewFormSource("/signup", noopFormStorage{})
+	})
 
-	// NOT REGISTERED: batchsql, form, grpc.
-	//
-	// Each needs a collaborator the suite cannot supply without becoming a
-	// different kind of test: batchsql takes a DBProvider, form takes a
-	// submission Storage, and grpc loads a .proto file off disk at construction.
-	// Faking those would exercise the fake, not the connector, so they stay out
-	// until there is an integration test with the real thing.
+	// Google-backed sources. The SDK client is built lazily, so construction
+	// succeeds with placeholder credentials and the contract is still checkable;
+	// only the data path needs real ones.
+	conformance.RunSourceSuite(t, "firebase", func() hermod.Source {
+		return srcfirebase.NewFirebaseSource("proj", "coll", "{}", "ts", poll)
+	})
+	conformance.RunSourceSuite(t, "googlesheets", func() hermod.Source {
+		return srcgooglesheets.NewGoogleSheetsSource("sheet", "A1:B2", "{}", poll)
+	})
+	conformance.RunSourceSuite(t, "googleanalytics", func() hermod.Source {
+		return srcgoogleanalytics.NewGoogleAnalyticsSource("prop", "{}", "activeUsers", "country", poll)
+	})
+
+	sourceOrSkip(t, "grpc", func() (hermod.Source, error) {
+		// Wraps another source and loads a descriptor off disk at construction.
+		inner := srchttp.NewHTTPSource(deadURL, "GET", nil, poll, "")
+		return srcgrpc.NewGenericProtoSource("testdata/conformance.proto", "conformance.Event", inner)
+	})
 }
 
 // TestRegistryCoversFormatter is a smoke check that the shared formatter used
@@ -520,3 +548,28 @@ func TestRegistryCoversFormatter(t *testing.T) {
 	}
 	_ = context.Background()
 }
+
+// deadDBProvider satisfies the batchsql source's collaborator with a pool
+// pointed at a closed port, so the connector is constructible and its own
+// lifecycle behaviour is what gets exercised.
+type deadDBProvider struct{}
+
+func (deadDBProvider) GetOrOpenDBByID(_ context.Context, _ string) (*sql.DB, string, error) {
+	db, err := sql.Open("pgx", "postgres://u:p@"+deadAddr+"/d")
+	return db, "pgx", err
+}
+
+// noopFormStorage satisfies the form source's persistence collaborator. The
+// form source receives submissions over HTTP; storage is where they land, and
+// none of the contract under test reaches it.
+type noopFormStorage struct{}
+
+func (noopFormStorage) CreateFormSubmission(context.Context, srcform.FormSubmission) error {
+	return nil
+}
+
+func (noopFormStorage) ListFormSubmissions(context.Context, srcform.FormSubmissionFilter) ([]srcform.FormSubmission, int, error) {
+	return nil, 0, nil
+}
+
+func (noopFormStorage) UpdateFormSubmissionStatus(context.Context, string, string) error { return nil }

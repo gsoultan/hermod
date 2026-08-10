@@ -580,17 +580,21 @@ Tiers are assigned on evidence, not intent:
 | **Beta** | Substantial implementation with unit tests, but no live-infrastructure test. Expect to validate against your own environment first. |
 | **Experimental** | Thin implementation, no tests, or a known semantic limitation. Suitable for prototyping. Do not put data you cannot lose behind one. |
 
-**80 of 86 connectors** are covered by the contract suite in `pkg/comm/conformance`,
+**Every connector** is covered by the contract suite in `pkg/comm/conformance`,
 which checks lifecycle, nil-safety and context-deadline behaviour with no live
-infrastructure. That suite proves a connector is not obviously broken; it does not
-prove the data path, which is what separates GA from Beta.
+infrastructure. That suite proves a connector is not obviously broken; it does
+not prove the data path, which is what separates GA from Beta.
 
-The six that are not covered, and why:
+The one exception is the `txgroup` sink itself, a composite that wraps other
+sinks. It has its own suite and its own PostgreSQL integration tests, which
+cover more than the generic contract could.
 
-| Connector | Reason |
-| :--- | :--- |
-| `batchsql`, `form`, `grpc` (sources) | Each needs a collaborator the suite cannot supply — a `DBProvider`, a submission `Storage`, a `.proto` on disk. Faking one would exercise the fake, not the connector. |
-| `firebase`, `googlesheets`, `googleanalytics` (sources) | Build an SDK client from a credentials blob and reach Google's token endpoint before any base URL of ours applies. |
+Connectors needing a collaborator — `batchsql` a `DBProvider`, `form` a
+submission store, `grpc` a `.proto` on disk — are constructed against a stub.
+That is deliberate: what is being checked is the connector's own lifecycle and
+context handling, and the stub is only the seam that lets it be built. Excluding
+them left six connectors with no coverage at all in order to avoid a theoretical
+weakness in coverage they did not have.
 
 Connectors that address a fixed vendor host — Slack, Discord, Twitter/X, LinkedIn,
 Facebook, Instagram, TikTok, Pinecone — expose `SetBaseURL` so they can be pointed
@@ -628,8 +632,8 @@ Thin, untested, or semantically limited. Specific caveats where they matter:
 | **Cassandra**, **ScyllaDB** (sources) | CQL cannot `ORDER BY` an arbitrary column, so incremental polling returns an *arbitrary* qualifying row and the cursor can skip rows permanently. Sound **only** when the id field is a clustering column inside a restricted partition. The source logs a warning on first use. |
 | **SAP** | OData polling client (~180 lines). No IDoc, BAPI or delta queues. OData is SAP's sanctioned direction for third parties after Note 3255746, but it is roughly 10× slower than ODP-RFC for bulk extraction. |
 | **Mainframe**, **Dynamics 365**, **ServiceNow**, **Salesforce** | Thin REST/OData clients, no tests. |
-| **Social / SaaS** — Slack, Discord, Telegram, Twitter/X, LinkedIn, Facebook, Instagram, TikTok, Google Sheets, Google Analytics, Firebase, FCM | Small API wrappers. Contract-tested (except the three Google-backed sources), but no data-path coverage. Fine for notifications; not for data of record. |
-| **Pinecone**, **Milvus**, **Kinesis**, **Pub/Sub**, **Pulsar**, **FTP**, **generic CDC**, **GraphQL**, **cron**, **webhook**, **form** | Minimal implementations. Contract-tested except `form`, which needs a submission store. |
+| **Social / SaaS** — Slack, Discord, Telegram, Twitter/X, LinkedIn, Facebook, Instagram, TikTok, Google Sheets, Google Analytics, Firebase, FCM | Small API wrappers. Contract-tested, but no data-path coverage. Fine for notifications; not for data of record. |
+| **Pinecone**, **Milvus**, **Kinesis**, **Pub/Sub**, **Pulsar**, **FTP**, **generic CDC**, **GraphQL**, **cron**, **webhook**, **form**, **batchsql**, **gRPC** | Minimal implementations. Contract-tested; no data-path coverage. |
 
 Moving a connector up a tier means adding the missing evidence, not editing this
 table. If you depend on one, an integration test is the most useful contribution you
