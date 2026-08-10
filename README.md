@@ -441,6 +441,37 @@ shape today is two or more Postgres sinks kept consistent with each other. A gro
 containing a sink that cannot participate is **refused at construction**, not silently
 degraded.
 
+### Declaring one
+
+A group is a sink of type `txgroup` whose config names its members. It is a
+single node in the DAG, which is what lets the engine drive it through one
+writer — every sink otherwise gets its own writer goroutine with its own
+batching loop, and independent batches cannot share a transaction boundary.
+
+```json
+{
+  "type": "txgroup",
+  "config": {
+    "members": "orders-primary,orders-replica",
+    "max_prepared_age": "15m"
+  }
+}
+```
+
+| Field | Meaning |
+| :--- | :--- |
+| `members` | Comma-separated sink IDs, at least two. Each must implement two-phase commit, or the group is refused at construction. |
+| `max_prepared_age` | Optional (default 15m). How long a transaction may sit in doubt before the reaper rolls it back. |
+
+**A durable state store is required.** The coordinator's log has to outlive the
+process — a crash with an in-memory log strands prepared transactions with
+nothing able to resolve them — so a group refuses to start unless distributed
+state (Redis or Etcd) is configured.
+
+On start-up the group preflights every member, resolves anything the previous
+run left in doubt, and starts its reaper. A member that cannot genuinely
+participate stops the workflow starting rather than failing mid-batch.
+
 ### Why it is opt-in
 
 The engine gives every sink its own writer goroutine with its own batching loop. That

@@ -822,6 +822,10 @@ func (r *Registry) createSinkInternal(ctx context.Context, cfg factory.SinkConfi
 	// Resolve secrets in config
 	cfg.Config = r.resolveSecrets(ctx, cfg.Config)
 
+	if cfg.Type == "txgroup" {
+		return r.createTxGroupSink(ctx, cfg)
+	}
+
 	if cfg.Type == "failover" {
 		primaryID := cfg.Config["primary_id"]
 		fallbackIDsStr := cfg.Config["fallback_ids"]
