@@ -1,6 +1,32 @@
-# Hermod: Enterprise-Grade Data Integration & Streaming Platform
+# Hermod
 
-Hermod is a high-performance, distributed data integration platform designed to bridge the gap between various data sources and sinks. Built with Go and React, it provides mission-critical features for data governance, reliability, and real-time observability.
+**Real-time Postgres CDC to 40+ destinations, with a visual pipeline editor. One Go
+binary, self-hosted, running locally in about a minute.**
+
+No JVM, no Kafka cluster required, no per-row cloud bill. `./scripts/dev.sh` brings up
+Postgres, the API, a worker and the UI, and completes first-run setup for you.
+
+Where it fits: managed ELT (Fivetran) and open-source ELT (Airbyte) are
+batch-scheduled and measure freshness in minutes. Real-time CDC services (Estuary)
+are sub-second but not self-hostable. Stream processors (Redpanda Connect, NiFi)
+have no visual pipeline editor or need a JVM. Hermod is the self-hosted overlap:
+sub-second Postgres CDC, in-pipeline windowing and transforms, and a DAG you can see.
+
+If you need 600 connectors, use Airbyte. If you need durable multi-day workflow
+orchestration, use Temporal. If you need one binary that tails a Postgres WAL and
+lands it somewhere else, in order and without a cluster, that is this.
+
+### Maturity, up front
+
+Hermod covers a lot of surface, and that surface is **not uniformly deep**. Connectors
+are tiered — GA, Beta, Experimental — in
+[Connector maturity tiers](#connector-maturity-tiers). Read that table before picking
+a connector for production. Anything not listed as GA has not been tested against
+live infrastructure.
+
+Delivery is **at-least-once** with sink-side idempotency for duplicate suppression.
+Where this document says a guarantee is scoped or unfinished, that is the literal
+state of the code, not modesty.
 
 ---
 
@@ -8,7 +34,7 @@ Hermod is a high-performance, distributed data integration platform designed to 
 
 Hermod is built for mission-critical enterprise data workloads, providing robust features for governance, reliability, and observability:
 
-- **Two-Phase Commit (2PC)**: Guaranteed atomic delivery for mission-critical sinks like **Postgres** and **Kafka**, ensuring no data loss or duplication in distributed environments.
+- **Two-Phase Commit (2PC) — Postgres only, single-sink**: The **Postgres** sink implements real `PREPARE TRANSACTION` / `COMMIT PREPARED` / `ROLLBACK PREPARED`, including detection of transaction poolers (PgBouncer) where 2PC is unavailable. Note the scope honestly: **no coordinator currently drives 2PC across multiple sinks**, so this gives single-sink atomicity, not distributed atomicity. The Kafka sink does *not* implement 2PC — it previously carried no-op stubs that would have reported a failed rollback as a successful one, and those have been removed.
 - **SSO & OpenID Connect (OIDC)**: Support for centralized identity providers like **Okta**, **Auth0**, and **Azure AD** for platform-wide authentication and RBAC.
 - **Vector Database Sinks**: Built-in support for **Pinecone**, **Milvus**, and **pgvector** to power enterprise AI knowledge bases and RAG pipelines.
 - **Hermod CLI (`hermodctl`)**: A powerful terminal-based tool for workflow linting, secret management, and real-time remote monitoring.
@@ -22,7 +48,7 @@ Hermod is built for mission-critical enterprise data workloads, providing robust
 - **WebAssembly (WASM) Transformations**: Run custom business logic written in Go, Rust, or C++ at near-native speed within the pipeline.
 - **Automated PII Scanning**: Built-in `mask` transformation detects and redacts sensitive data (PII/PHI) using a sophisticated regex-based discovery engine.
 - **Audit Logging**: Complete history of administrative changes and system events for security and compliance audits.
-- **Exactly-Once Semantics (EOS)**: Guarantees 100% data consistency using the **Transactional Outbox** pattern for SQL sources, ensuring messages are only acknowledged after successful delivery.
+- **At-least-once delivery with exactly-once *effects* at the sink**: Messages are acknowledged only after successful delivery, using the **Transactional Outbox** pattern for SQL sources. Combined with sink-side idempotency keys (see [Idempotency and Exactly-Once Effects](#idempotency-and-exactly-once-effects-sink-side)), a duplicate delivery does not produce a duplicate row. This is *not* end-to-end exactly-once delivery: the transport is at-least-once and duplicates are suppressed where they land, which is the same guarantee most of this category actually ships.
 - **Sequential Control Flow**: Explicitly chain sinks and transformations sequentially. Supports "Sinks as Transformers" by returning data from a sink back into the workflow pipeline.
 - **Stateful Event Correlation (Join/Zip)**: Wait for and join messages from multiple sources based on a common key before downstream delivery.
 - **Circuit Breaker & Failure Recovery**: Protect downstream systems with a built-in Circuit Breaker node. Automatically routes messages to failure branches when error thresholds are exceeded.
@@ -30,9 +56,9 @@ Hermod is built for mission-critical enterprise data workloads, providing robust
 - **Visual Lineage with Data Diffs**: Enhanced message tracing with "Before and After" snapshots for every transformation node in the DAG. Visually debug exactly how data is mutated at each step.
 - **AIOps & Self-Healing Optimization**: AI-driven performance tuning that automatically adjusts concurrency, batch sizes, and retry policies based on real-time throughput and error patterns.
 - **Intelligent Data Quality Alerts**: Automated detection of data quality drift using the `governance.Scorer`. Alerts trigger when schema adherence or DQ scores drift from historical averages.
-- **Global Mesh Governance**: A full "Control Plane" architecture that allows a central Hermod instance to manage multiple remote clusters, handling cross-region failover and global schema enforcement.
+- **Global Mesh Governance (experimental)**: A cluster registry and an HTTP forwarding sink, letting one Hermod instance route messages to another. Scope check: it is roughly 320 lines, `Failover` marks a cluster's status and logs rather than redirecting traffic, and there are no health checks, retries or partition handling. Treat it as a foundation, not a control plane.
 - **WASM & Blueprint Marketplace**: Discover, version, and share custom WebAssembly transformers and Go-based workflow blueprints via an integrated Marketplace.
-- **Enterprise Connectivity & CDC**: Specialized Change Data Capture (CDC) sources for legacy systems like **Oracle (LogMiner)** and **IBM DB2** to facilitate modernization of legacy environments.
+- **Legacy connectivity via incremental polling (Oracle, IBM DB2)**: Sources for **Oracle** and **IBM DB2** that track a monotonically increasing key and emit new rows. To be precise about what this is and is not: it is **watermark polling, not log-based CDC** — there is no LogMiner or journal reader. It therefore sees **inserts only**; updates and deletes to existing rows are invisible, and every message is emitted as a create. Query construction goes through `sqlutil.BuildIncrementalQuery`, which applies each dialect's row limit *after* the sort (Oracle's `ROWNUM` is evaluated before `ORDER BY`, so it is applied to an ordered subquery — getting this wrong silently skips rows).
 - **Advanced Database Mapping & Schema Discovery**: Production-ready column mapping for all major databases (**Postgres**, **MySQL**, **MSSQL**, **Oracle**, **Snowflake**, **MongoDB**, etc.). Supports automatic table creation, identity/auto-increment columns, and "Smart Mapping" from both source and sink schemas.
 - **Resource-Aware Sharding**: Advanced worker sharding using Rendezvous hashing weighted by real-time CPU/Memory metrics. Ensures optimal workload distribution and prevents workflow flapping with built-in hysteresis.
 - **AI-Native Transformations**: Integrated "Cognitive ETL" nodes for **AI Enrichment** and **AI Mapping**, supporting OpenAI and local Ollama models. Includes **AI Mapping Suggestions** that automatically propose fixes for schema mismatches.
@@ -402,6 +428,62 @@ Notes:
 
 Default is 15000 ms. WAL mode and other safe pragmas are enabled by default.
 
+## Connector maturity tiers
+
+Hermod ships 41 source and 45 sink connectors. They are **not equally mature**, and a
+list that presents a 2,500-line integration-tested Postgres CDC reader next to an
+87-line HTTP poller as equals is not telling you anything useful.
+
+Tiers are assigned on evidence, not intent:
+
+| Tier | Criteria |
+| :--- | :--- |
+| **GA** | Substantial implementation, unit tests, **and** an integration test that runs against live infrastructure. Suitable for production. |
+| **Beta** | Substantial implementation with unit tests, but no live-infrastructure test. Expect to validate against your own environment first. |
+| **Experimental** | Thin implementation, no tests, or a known semantic limitation. Suitable for prototyping. Do not put data you cannot lose behind one. |
+
+Every connector, regardless of tier, is covered by the contract suite in
+`pkg/comm/conformance` for lifecycle, nil-safety and context-deadline behaviour. That
+suite proves a connector is not obviously broken; it does not prove the data path.
+
+### GA
+
+| Connector | Direction | Evidence |
+| :--- | :--- | :--- |
+| **PostgreSQL** | source + sink | Logical-replication CDC, 2,572 / 1,448 lines, 13 test files, live-DB integration + bulk-load + idempotency + PgBouncer e2e |
+| **MySQL** | source + sink | Live-DB integration tests, idempotency coverage (`MYSQL_DSN`) |
+| **SQLite** | source + sink | Local-file engine, tested in-process |
+| **File** | source + sink | 1,238-line source with tests; used throughout the e2e suite |
+| **RabbitMQ** | source | Queue integration test against a live broker |
+| **Redis** | sink | Integration test against a live server |
+
+### Beta
+
+Substantial and unit-tested, but unproven against live infrastructure in CI:
+
+**Sources** — MSSQL, MariaDB, ClickHouse, MongoDB, gRPC, MQTT, WebSocket, HTTP,
+BatchSQL, Excel.
+**Sinks** — MSSQL, Oracle, ClickHouse, Elasticsearch, SMTP, Snowflake, MongoDB,
+RabbitMQ, Kafka *(at-least-once; no transactional producer)*, HTTP, WebSocket,
+S3 / S3-Parquet, pgvector, Failover.
+
+### Experimental
+
+Thin, untested, or semantically limited. Specific caveats where they matter:
+
+| Connector | Caveat |
+| :--- | :--- |
+| **Oracle**, **DB2** (sources) | Watermark polling, **not** log-based CDC. Inserts only — updates and deletes are invisible. |
+| **Cassandra**, **ScyllaDB** (sources) | CQL cannot `ORDER BY` an arbitrary column, so incremental polling returns an *arbitrary* qualifying row and the cursor can skip rows permanently. Sound **only** when the id field is a clustering column inside a restricted partition. The source logs a warning on first use. |
+| **SAP** | OData polling client (~180 lines). No IDoc, BAPI or delta queues. OData is SAP's sanctioned direction for third parties after Note 3255746, but it is roughly 10× slower than ODP-RFC for bulk extraction. |
+| **Mainframe**, **Dynamics 365**, **ServiceNow**, **Salesforce** | Thin REST/OData clients, no tests. |
+| **Social / SaaS** — Slack, Discord, Telegram, Twitter, LinkedIn, Facebook, Instagram, TikTok, Google Sheets, Google Analytics, Firebase, FCM | Small API wrappers, mostly untested. Fine for notifications; not for data of record. |
+| **Pinecone**, **Milvus**, **Kinesis**, **Pub/Sub**, **Pulsar**, **FTP**, **generic CDC**, **GraphQL**, **cron**, **webhook**, **form** | Minimal implementations, no tests. |
+
+Moving a connector up a tier means adding the missing evidence, not editing this
+table. If you depend on one, an integration test is the most useful contribution you
+can make.
+
 ## Enterprise Features
 
 Hermod is built for scale and reliability, offering enterprise-grade features out of the box:
@@ -413,7 +495,7 @@ Hermod is built for scale and reliability, offering enterprise-grade features ou
 - **Global Schema Registry**: Centralized management of data contracts with versioning and compatibility checks. Supports JSON Schema, Avro, and Protobuf.
 - **WebAssembly (WASM) Transformations**: Run custom business logic at near-native speed. WASM nodes allow you to use Go, Rust, or C++ for complex data processing within the Hermod engine.
 - **Adaptive Throughput Control**: The engine automatically monitors processing latency and throttles ingestion if downstream sinks are under pressure or if worker resources are constrained.
-- **Exactly-Once Semantics (EOS)**: Infrastructure for atomic processing patterns using Transactional interfaces, minimizing message duplication in high-integrity use cases.
+- **Transactional interfaces**: Optional `Transactional` / `TwoPhaseCommit` interfaces a sink may implement to support atomic processing patterns. Currently implemented with real prepared-transaction semantics by the Postgres sink only, and not yet driven by a cross-sink coordinator.
 - **Granular RBAC**: Role-Based Access Control allowing you to restrict access to Admins (full access), Editors (workflow management), and Viewers (dashboards only).
 - **Automated PII Discovery & Masking**: Intelligent sensitive data detection during the transformation phase to ensure compliance with GDPR/HIPAA.
 - **Distributed Trace Visualization**: Trace any message's journey through the DAG visually, showing latency and data mutations at every node.

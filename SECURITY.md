@@ -1,45 +1,110 @@
-# Security Guidelines (Draft)
+# Security Guidelines
 
-This document outlines the current and planned security posture for the Hermod UI and backend integration. It will evolve as we transition from token-in-storage to secure cookie-based auth.
+The security posture of the Hermod UI and backend, as implemented. Each claim
+below names the code that backs it, so a reader can check rather than trust. Where
+something is still open it says so, with the specific reason it is still open.
+
+This document was previously marked "(Draft)" and described cookie auth and CSP as
+future work. Both had since shipped. A security document that understates what
+exists is not cautious — it costs the reader the ability to tell which of its
+statements are current.
 
 ## Authentication
 
-- Current (temporary): Bearer token stored via a small storage abstraction (`ui/src/auth/storage.ts`). The UI reads the token to attach `Authorization: Bearer <token>` to requests.
-- Target: Server-set HttpOnly session cookie.
-  - Cookie attributes: `HttpOnly`, `Secure` (in production), `SameSite=Lax` (or `Strict` if UX allows), `Path=/`.
-  - Session rotation on login and sensitive actions.
-  - Short TTL with sliding expiration where appropriate.
+Session auth is a JWT (HS256, algorithm pinned against confusion attacks —
+`internal/api/handlers/common.go:parseSessionClaims`). The server accepts it from
+three places, in this order (`internal/api/handlers/common.go:~490`):
 
-## CSRF Protection (when using cookies)
+1. `Authorization: Bearer <token>`
+2. `?token=<token>` query parameter — for WebSocket and SSE connections
+3. `hermod_session` cookie
 
-- Prefer the **Double Submit Cookie** or **SameSite + CSRF token** strategy:
-  - Backend issues a CSRF token (e.g., via header or non-HttpOnly cookie) and validates it against a request header `X-CSRF-Token`.
-  - Enforce token validation on state-changing endpoints (POST/PUT/PATCH/DELETE).
-  - For APIs used by third-party origins, consider an **Origin/Referer** check as an additional layer.
+On login the server sets `hermod_session` (`internal/auth/transport/http/auth.go:176`):
 
-## Content Security Policy (CSP)
+| Attribute | Value |
+| :--- | :--- |
+| `HttpOnly` | always |
+| `Secure` | when the request is HTTPS, detected via `r.TLS` or `X-Forwarded-Proto` |
+| `SameSite` | from `SameSiteFromEnv()`; forced `Secure` when `None` |
+| `Path` | `/` |
+| `MaxAge` | 24h |
 
-- Enforce a restrictive CSP to reduce XSS risk:
-  - `default-src 'self'`
-  - `script-src 'self'` (avoid inline scripts; if absolutely necessary, use nonces)
-  - `style-src 'self' 'unsafe-inline'` (transition away from inline styles where possible)
-  - `img-src 'self' data:`
-  - `connect-src 'self'` (extend to API domains as needed)
-  - `frame-ancestors 'none'`
-- Avoid `dangerouslySetInnerHTML` in the UI. If rendering untrusted HTML is ever necessary, sanitize with a well-reviewed library on the server side.
+### Open: the token is also in localStorage, which defeats the cookie
+
+**This is the top outstanding security item.** The login response returns the JWT in
+its JSON body as well as in the cookie. The UI stores that copy in `localStorage`
+(`ui/src/auth/storage.ts`) and attaches it as a Bearer header
+(`ui/src/api.tsx:30`), while also sending the cookie via `credentials: 'include'`
+(`ui/src/api.tsx:36`).
+
+Both mechanisms are therefore live at once, and the weaker one sets the ceiling:
+any XSS can read `localStorage` and exfiltrate a 24-hour session token. Making the
+cookie `HttpOnly` buys nothing while a second copy sits in reachable storage.
+
+It has not simply been deleted because **seven UI call sites need the raw token to
+open a WebSocket or SSE stream** — `WorkflowDebugger.tsx:33`,
+`useWorkflowWebSockets.ts:77,111`, `WorkflowDetailPage.tsx:181,219`,
+`LiveStreamInspector.tsx:38`, `DashboardPage.tsx:153`. The browser WebSocket API
+cannot set request headers, which is why the `?token=` path exists at all. Removing
+localStorage without replacing that path breaks live streaming across the app.
+
+Putting a 24-hour credential in a URL is itself a weakness: query strings land in
+server access logs, proxy logs, and browser history.
+
+**The fix is a short-lived stream ticket**, not a bigger cookie:
+
+1. Add an authenticated `POST /api/v1/stream-ticket` returning a single-use,
+   narrowly-scoped token with a TTL in the tens of seconds.
+2. Have WebSocket/SSE callers fetch a ticket and pass *that* in the query string.
+3. Accept tickets only on stream endpoints; drop `?token=` for session JWTs.
+4. Stop returning the JWT in the login body and delete `ui/src/auth/storage.ts`.
+
+Until step 4 lands, treat the session token as XSS-exfiltratable and keep the CSP
+below strict.
+
+## CSRF
+
+The main API relies on `SameSite` for cross-origin protection. There is **no
+double-submit CSRF token on the general API surface** — the only CSRF token
+handling lives in the public forms endpoints
+(`internal/forms/transport/http/forms.go`).
+
+`SameSite=Lax` blocks cross-site POST/PUT/PATCH/DELETE, so state-changing calls are
+covered in practice. Two caveats worth knowing:
+
+- Deployments that set `SameSite=None` (needed for cross-origin embedding) lose that
+  protection entirely and **must** add a CSRF token before doing so.
+- Because the API also accepts `Authorization: Bearer`, a request carrying an
+  explicit header is not a classic CSRF vector — but it does mean SameSite is the
+  only control for cookie-authenticated requests.
+
+## Content Security Policy
+
+CSP is set on API responses (`internal/api/handlers/common.go:417`). Verify the
+active policy against your deployment rather than assuming the values here, and
+keep `frame-ancestors 'none'` unless the UI is deliberately embedded.
+
+Avoid `dangerouslySetInnerHTML` in the UI. Given the localStorage gap above, XSS is
+currently a session-compromise vector, not just a defacement one.
 
 ## Secrets & PII
 
-- Do not log secrets/PII in either UI or backend.
-- Use parameterized queries for all SQL.
-- Ensure least-privilege credentials for all services.
+- Do not log secrets or PII in the UI or the backend.
+- Use parameterized queries for all SQL. Identifiers, which cannot be bound as
+  parameters, go through `sqlutil.QuoteIdent` / `ValidateIdent` — never string
+  interpolation.
+- Use least-privilege credentials for every connected system.
 
-## Next Steps
+## Open items, in priority order
 
-1. Switch UI auth to cookie-based sessions (HttpOnly) and remove direct token handling from client code.
-2. Implement CSRF token issuance and validation on the backend; update UI to pass token via `X-CSRF-Token`.
-3. Add CSP headers in backend responses (environment-specific), document any allowed third-party origins.
-4. Document local/CI runbook for security verification.
+1. **Stream tickets, then drop the localStorage token** (see above). Everything else
+   here is lower impact.
+2. **CSRF token on the general API**, required before any deployment sets
+   `SameSite=None`.
+3. **Session rotation** on login and on privilege change; sliding expiry to shorten
+   the 24h window.
+4. **Document the CI security runbook** so these checks run per release rather than
+   on memory.
 
 ## Dependency Vulnerability Scanning
 

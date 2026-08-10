@@ -93,3 +93,15 @@ ui/audit-shots/
 /hermod_log_e2e.db-wal
 # SQLite files created when a DSN query string is mistakenly used as a filename.
 /?_pragma=*
+
+# --- Build artefacts and test databases -------------------------------------
+# These were previously committed (hermodctl at 11 MB, plus SQLite files left
+# behind by the registry tests). Patterns rather than paths, so a test that
+# writes its scratch database somewhere new does not add it to the next commit.
+/hermodctl
+/hermod_bin
+/registry.test
+*.test
+*.db
+*.db-shm
+*.db-wal

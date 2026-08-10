@@ -23,4 +23,11 @@ This document outlines the planned features, development directions, and future 
 
 ## 🔗 Infrastructure & Connectivity
 - **Expanded Connector Library**: Continued development of native, high-performance connectors for enterprise systems.
-- **Improved Atomic Delivery**: Enhanced support for Two-Phase Commit (2PC) and multi-sink consistency across a wider range of sink types.
+- **A 2PC coordinator**: The `TwoPhaseCommit` interface exists and the Postgres sink implements it
+  with real prepared transactions, but **nothing drives it** — the engine never calls
+  `Prepare` / `CommitPrepared` / `RollbackPrepared`, so today it buys single-sink atomicity only.
+  The work is the coordinator: a transaction log, a recovery path that resolves in-doubt
+  transactions after a crash, and a policy for sinks that cannot participate. Until that lands,
+  additional 2PC sink implementations have nothing to plug into.
+- **Kafka exactly-once**: Requires a transactional producer, which `segmentio/kafka-go` does not
+  expose. Blocked on migrating to `franz-go` or `confluent-kafka-go`.
