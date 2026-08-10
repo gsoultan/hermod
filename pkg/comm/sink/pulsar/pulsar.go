@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/apache/pulsar-client-go/pulsar"
 	"github.com/user/hermod"
@@ -38,6 +39,16 @@ func (s *PulsarSink) ensureConnected(ctx context.Context) error {
 
 	opts := pulsar.ClientOptions{
 		URL: s.url,
+	}
+	// Without these the client uses its own defaults (5s connect, 30s
+	// operation) regardless of the caller's deadline, so a readiness Ping with
+	// a two-second budget still blocks for tens of seconds against an
+	// unreachable broker.
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > 0 {
+			opts.ConnectionTimeout = remaining
+			opts.OperationTimeout = remaining
+		}
 	}
 	if s.token != "" {
 		opts.Authentication = pulsar.NewAuthenticationToken(s.token)

@@ -210,7 +210,7 @@ func (t *DBLookupTransformer) lookupMongoDB(ctx context.Context, src storage.Sou
 		}
 	}
 
-	client, err := sourcemongodb.GetClient(uri)
+	client, err := sourcemongodb.GetClient(ctx, uri)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to mongodb for lookup: %w", err)
 	}

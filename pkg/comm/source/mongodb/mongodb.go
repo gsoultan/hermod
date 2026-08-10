@@ -21,7 +21,14 @@ var (
 	clientsMu sync.RWMutex
 )
 
-func GetClient(uri string) (*mongo.Client, error) {
+// GetClient returns the shared client for uri, dialling it on first use.
+//
+// It takes a context because the verification ping below has to be bounded by
+// whatever the caller allowed. It previously built its own 10s context from
+// Background and ignored the caller's entirely, so a source Read or a readiness
+// Ping with a two-second budget still waited ten — and the driver's own
+// server-selection timeout could stretch that further.
+func GetClient(ctx context.Context, uri string) (*mongo.Client, error) {
 	clientsMu.RLock()
 	client, ok := clients[uri]
 	clientsMu.RUnlock()
@@ -36,10 +43,21 @@ func GetClient(uri string) (*mongo.Client, error) {
 		return client, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Cap the wait at 10s, but never exceed the caller's deadline.
+	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	ctx = dialCtx
 
-	client, err := mongo.Connect(options.Client().ApplyURI(uri))
+	// Bound server selection too: without this the driver spends its own
+	// default (30s) looking for a reachable node before the ping even runs.
+	opts := options.Client().ApplyURI(uri)
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > 0 {
+			opts = opts.SetServerSelectionTimeout(remaining)
+		}
+	}
+
+	client, err := mongo.Connect(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +107,7 @@ func (m *MongoDBSource) init(ctx context.Context) error {
 
 	if client == nil {
 		var err error
-		client, err = GetClient(m.uri)
+		client, err = GetClient(ctx, m.uri)
 		if err != nil {
 			return fmt.Errorf("failed to connect to mongodb: %w", err)
 		}
@@ -355,7 +373,7 @@ func (m *MongoDBSource) IsReady(ctx context.Context) error {
 
 	var err error
 	if client == nil {
-		client, err = GetClient(m.uri)
+		client, err = GetClient(ctx, m.uri)
 		if err != nil {
 			return fmt.Errorf("failed to connect to mongodb for readiness check: %w", err)
 		}
@@ -386,7 +404,7 @@ func (m *MongoDBSource) Ping(ctx context.Context) error {
 
 	if client == nil {
 		var err error
-		client, err = GetClient(m.uri)
+		client, err = GetClient(ctx, m.uri)
 		if err != nil {
 			return fmt.Errorf("failed to connect to mongodb for ping: %w", err)
 		}
@@ -434,7 +452,7 @@ func (m *MongoDBSource) DiscoverDatabases(ctx context.Context) ([]string, error)
 
 	if client == nil {
 		var err error
-		client, err = GetClient(m.uri)
+		client, err = GetClient(ctx, m.uri)
 		if err != nil {
 			return nil, err
 		}
@@ -451,7 +469,7 @@ func (m *MongoDBSource) DiscoverTables(ctx context.Context) ([]string, error) {
 
 	if client == nil {
 		var err error
-		client, err = GetClient(m.uri)
+		client, err = GetClient(ctx, m.uri)
 		if err != nil {
 			return nil, err
 		}
@@ -469,7 +487,7 @@ func (m *MongoDBSource) DiscoverColumns(ctx context.Context, table string) ([]he
 
 	if client == nil {
 		var err error
-		client, err = GetClient(m.uri)
+		client, err = GetClient(ctx, m.uri)
 		if err != nil {
 			return nil, err
 		}
@@ -505,7 +523,7 @@ func (m *MongoDBSource) Sample(ctx context.Context, table string) (hermod.Messag
 
 	if client == nil {
 		var err error
-		client, err = GetClient(m.uri)
+		client, err = GetClient(ctx, m.uri)
 		if err != nil {
 			return nil, err
 		}
