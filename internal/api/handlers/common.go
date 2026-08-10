@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/user/hermod"
 	"github.com/user/hermod/internal/ai"
 	"github.com/user/hermod/internal/config"
 	"github.com/user/hermod/internal/engine/registry"
@@ -65,6 +66,38 @@ type Handler struct {
 	// a graceful shutdown. Workers learn of the request when they poll their own
 	// record (the flag is surfaced as storage.Worker.Draining on API responses).
 	DrainingWorkers sync.Map
+
+	// Revoker ends sessions before their token expires. Lazily initialised by
+	// SessionRevoker so a zero-value Handler — which the tests use throughout —
+	// still authenticates rather than panicking.
+	Revoker     *Revoker
+	revokerOnce sync.Once
+
+	// revocationMu guards the refresher's stop function. The refresher is
+	// started explicitly by whoever builds the Handler, not by the lazy getter.
+	revocationMu   sync.Mutex
+	stopRevocation func()
+}
+
+// SessionRevoker returns the handler's revoker, creating it on first use.
+//
+// It is wired to the state store when there is one, so a revocation reaches
+// other instances; without one it still revokes locally, which is the whole
+// deployment in the default single-instance case.
+func (h *Handler) SessionRevoker() *Revoker {
+	h.revokerOnce.Do(func() {
+		if h.Revoker != nil {
+			return
+		}
+		// The registry owns the configured state store; take it from there
+		// rather than adding a second way to hold the same thing.
+		var store hermod.StateStore
+		if h.Registry != nil {
+			store = h.Registry.StateStore()
+		}
+		h.Revoker = NewRevoker(store)
+	})
+	return h.Revoker
 }
 
 // MarkWorkerDraining records that a graceful shutdown has been requested for the
@@ -342,6 +375,14 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// A valid signature is not enough: the session may have been ended
+		// before its token expires. This is a map lookup, not a store read —
+		// see revocation.go for why that matters here.
+		if h.SessionRevoker().IsRevoked(claims) {
+			h.JsonError(w, "Unauthorized: session has been revoked", http.StatusUnauthorized)
+			return
+		}
+
 		// Slide the session forward on activity. The short TTL is what limits a
 		// stolen token's usefulness; renewing here is what stops it limiting a
 		// legitimate user's working day.
@@ -517,7 +558,39 @@ type SessionClaims struct {
 	Username string   `json:"username"`
 	Role     string   `json:"role"`
 	VHosts   []string `json:"vhosts"`
+
+	// TokenID names this specific session so it can be revoked on its own.
+	// Empty on tokens issued before revocation existed; those are reachable
+	// only through RevokeUser, which matches on SessionStart instead.
+	TokenID string `json:"jti,omitempty"`
+
+	// SessionStart is when the original login happened, carried across sliding
+	// renewals. It is what RevokeUser compares against, and what stops a
+	// whole-user revocation from also invalidating the login that follows it.
+	SessionStart time.Time `json:"-"`
+
 	jwt.RegisteredClaims
+}
+
+// UnmarshalJSON decodes SessionStart from the numeric "sst" claim, which the
+// standard unmarshaller cannot map onto a time.Time.
+func (c *SessionClaims) UnmarshalJSON(data []byte) error {
+	type alias SessionClaims // avoid recursing into this method
+	aux := struct {
+		SessionStart *float64 `json:"sst"`
+		*alias
+	}{alias: (*alias)(c)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.SessionStart != nil {
+		// Shared with renewal's decoder so the two cannot drift apart; keeping
+		// the fraction is what stops a revocation from catching the login that
+		// followed it. See timeFromNumericDate.
+		c.SessionStart = timeFromNumericDate(*aux.SessionStart)
+	}
+	return nil
 }
 
 // uiStreamPaths are the streaming endpoints the UI opens from the browser.

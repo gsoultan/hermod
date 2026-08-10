@@ -86,17 +86,38 @@ hours.
 `POST /api/logout` now expires the cookie, and the UI calls it. Confirmed by the
 same spec: `/api/me` returns 401 immediately afterwards.
 
-**Residual:** the session is a stateless JWT, so expiring the cookie ends it for
-that browser but does not revoke the token. A copy captured beforehand stays
-valid until it expires. Real revocation needs server-side session state — a
-store of issued or revoked IDs checked per request — which is not implemented.
+Expiring the cookie only ends the session in that browser, so logout also
+*revokes* the token: a copy captured beforehand stops working too. Every session
+now carries a `jti`, and `POST /api/logout` adds it to a revocation list the auth
+middleware checks before it accepts a request — and before it renews one, so a
+revoked session is not handed a fresh cookie on its way out.
+
+Changing a password revokes every session that user holds, which is the case a
+per-session list cannot express: nobody enumerated those sessions. A password is
+rotated either routinely or because it was compromised, and in the second case
+the sessions opened with the old one are precisely what has to stop working.
+Sessions created *after* the change survive, so the user can log straight back in.
+
+**How it is stored, and what that costs.** The middleware derives the user from
+the token's claims specifically so an authenticated request costs no I/O, and a
+revocation lookup per request would undo that. So the list lives in memory and is
+*replicated* through the configured state store rather than read from it:
+`IsRevoked` is a map lookup under a read lock, and a background refresh carries
+revocations between instances every 10 seconds.
+
+**Residual:** on a multi-instance deployment a revocation is immediate on the
+instance that performed it and takes up to that refresh interval to reach the
+others. Closing that window entirely means a store lookup on every authenticated
+request. The trade is deliberate, which is why the interval is short rather than
+absent. On a single instance — the default — there is no window. Entries are
+dropped once the token would have expired anyway, which is what bounds the list.
 
 ### Remaining hardening, in priority order
 
-1. **Session revocation** and rotation on privilege change. The window is now an
-   hour rather than a day (see above), but revoking a specific session before it
-   expires still needs server-side session state, and a design choice about
-   where that state lives and what it costs per request.
+1. **Rotation on privilege change.** Revocation now exists (see above), and a
+   role change should use it: a session that was minted as an administrator keeps
+   the claims it was issued with until it expires or is revoked. Demoting a user
+   should revoke their sessions the way a password change does.
 2. *(done — see "Verifying this document" below.)*
 
 ## CSRF
@@ -171,11 +192,16 @@ passed.
 | SQL identifiers are quoted, never interpolated | `pkg/infra/sqlutil` |
 | Hermod never decodes untrusted Avro | `TestNoUntrustedAvroDecoding` |
 | No credential reaches web storage | `ui/__tests__/no_token_in_storage_e2e.spec.ts` (`--e2e`) |
+| Logout revokes the token, not just the cookie | `TestRevokedCookieIsRejectedByTheMiddleware` |
+| A password change ends every session that user holds | `TestRevokeUserRejectsEveryCookieForThatUser` |
+| …and does not lock the user out of their own account | `TestPasswordChangeDoesNotLockTheUserOut` |
+| Revocation is checked before a session is renewed | `TestRevocationIsCheckedBeforeRenewal` |
 
 **What has no check, stated so the table is not mistaken for the whole posture:**
 
-- **Session revocation** — not implemented, so there is nothing to verify. The
-  window is bounded but a captured token is not revocable.
+- **Cross-instance revocation timing** — the tests cover replication through the
+  store, but the refresh interval on a real multi-instance deployment is not
+  exercised by CI.
 - **"Do not log secrets or PII"** — a review discipline. A grep would be theatre,
   not a check.
 - **The two-phase-commit operational hazard** — covered by the integration tests

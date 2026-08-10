@@ -610,6 +610,18 @@ func (h *AuthHandler) ChangeUserPassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// End every session this user holds. A password is changed either because
+	// it was rotated or because it was compromised, and in the second case the
+	// sessions opened with the old one are exactly what needs to stop working.
+	// Leaving them alive makes the change cosmetic against the threat it exists
+	// for.
+	if err := h.SessionRevoker().RevokeUser(r.Context(), id); err != nil {
+		h.RecordAuditLog(r, "WARN", "Password changed but session revocation did not replicate: "+err.Error(),
+			"update", id, "user", "", nil)
+	} else {
+		h.RecordAuditLog(r, "INFO", "Password changed; all sessions revoked", "update", id, "user", "", nil)
+	}
+
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "password updated"})
 }
@@ -978,11 +990,29 @@ func (h *AuthHandler) SanitizeUser(u *storage.User) {
 // Now that the cookie is the only credential, that gap is the difference
 // between logging out and appearing to.
 //
-// Expiring the cookie is all a stateless JWT session can do: the token remains
-// valid until it expires, so a copy captured beforehand still works. Revocation
-// would need server-side session state, which is noted in SECURITY.md rather
-// than implied here.
+// Expiring the cookie is only half of it, and on its own the weaker half: it
+// ends the session in this browser while the token itself stays valid, so a
+// copy captured beforehand keeps working. So logout also revokes the session by
+// its jti. See internal/api/handlers/revocation.go for where that state lives
+// and what it costs.
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	// Revoke before clearing the cookie. Expiring the cookie ends the session
+	// for this browser; revoking is what stops a copy of the token captured
+	// beforehand from continuing to work.
+	if claims, err := h.CurrentSessionClaims(r); err == nil && claims.TokenID != "" {
+		expiry := time.Now().Add(24 * time.Hour)
+		if claims.ExpiresAt != nil {
+			expiry = claims.ExpiresAt.Time
+		}
+		if err := h.SessionRevoker().Revoke(r.Context(), claims.TokenID, expiry); err != nil {
+			// The session is still revoked on this instance; the error means it
+			// did not reach the others. Worth recording, not worth failing the
+			// logout over — refusing to log out is the worse outcome.
+			h.RecordAuditLog(r, "WARN", "Session revocation did not replicate: "+err.Error(),
+				"logout", claims.UserID, "user", "", nil)
+		}
+	}
+
 	// maxAge -1 deletes. The other attributes have to match the cookie that was
 	// set at login or the browser treats it as a different cookie and keeps the
 	// original — which is why both go through one builder.

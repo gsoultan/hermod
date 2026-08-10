@@ -80,6 +80,10 @@ func NewServer(registry *registry.Registry, store storage.Storage, cfg *config.C
 		ConfigPath:    configPath,
 		RateLimitQuit: make(chan struct{}),
 	}
+	// Keep the revocation list in step with other instances and bounded. A
+	// revoker nobody refreshes only ever holds what this instance revoked.
+	s.Handler.StartSessionRevocation(context.Background())
+
 	// Initialize file storage from config; fallback to local uploads dir
 	if cfg != nil {
 		if fstorage, err := filestorage.NewStorage(context.Background(), cfg.FileStorage); err == nil {
@@ -306,6 +310,9 @@ func (s *Server) StartGRPC(addr string) error {
 }
 
 func (s *Server) Stop() {
+	if s.Handler != nil {
+		s.Handler.StopSessionRevocation()
+	}
 	if s.GrpcServer != nil {
 		s.GrpcServer.GracefulStop()
 	}
