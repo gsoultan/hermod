@@ -45,7 +45,7 @@ func (r *Registry) createTxGroupSink(ctx context.Context, cfg factory.SinkConfig
 
 	members := make([]txgroup.Member, 0, len(memberIDs))
 	for _, id := range memberIDs {
-		snk, err := r.resolveAndCreateSink(ctx, id)
+		snk, err := r.resolveAndCreateTxGroupMember(ctx, id)
 		if err != nil {
 			closeMembers(members)
 			return nil, fmt.Errorf("txgroup sink %q: cannot create member %q: %w", cfg.ID, id, err)

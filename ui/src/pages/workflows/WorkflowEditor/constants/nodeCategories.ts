@@ -5,7 +5,7 @@ import {
   IconTerminal2, IconVariable, IconWorld, IconCircleCheck, IconChartBar, IconCode, 
   IconTable, IconBroadcast, IconRefresh, IconLetterCase, IconPercentage, IconTableExport, IconNumbers,
   IconDatabaseExport, IconNote, IconTag, IconBrandDiscord, IconBrandSlack, IconBrandTwitter, 
-  IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink
+  IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock
 } from '@tabler/icons-react';
 
 export const NODE_CATEGORIES = [
@@ -227,6 +227,7 @@ export const NODE_CATEGORIES = [
     group: 'sinks',
     items: [
       { type: 'sink', refId: 'new', label: 'Failover Group', subType: 'failover', icon: IconArrowsSplit, color: 'orange', description: 'Primary/Secondary failover logic' },
+      { type: 'sink', refId: 'new', label: 'Transactional Group (2PC)', subType: 'txgroup', icon: IconLock, color: 'orange', description: 'Write to several sinks in one transaction — all apply or none' },
     ]
   },
   {

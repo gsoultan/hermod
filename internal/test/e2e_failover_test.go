@@ -131,6 +131,15 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	w2.SetLeaseTTL(int(leaseTTL.Seconds()))
 	w2.SetSyncInterval(500 * time.Millisecond)
 
+	// Turn off load shedding for both workers. This test is about whether a
+	// lease is stolen, and admission control is a separate mechanism with its
+	// own tests. Left on, a busy machine makes the worker taking over refuse the
+	// workflow, and the failure surfaces as the missing webhook further down —
+	// blaming the engine for the host being loaded, which is how this test
+	// failed inside a full parallel run.
+	w1.SetAdmissionThresholds(1, 1)
+	w2.SetAdmissionThresholds(1, 1)
+
 	// Start worker 1
 	ctx1, cancel1 := context.WithCancel(t.Context())
 	defer cancel1()

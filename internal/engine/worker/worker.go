@@ -32,17 +32,22 @@ type Worker struct {
 	workerDescription string
 	lastHealthCheck   time.Time
 	leaseTTLSeconds   int
-	renewMu           sync.Mutex
-	renewCancel       map[string]context.CancelFunc
-	cacheMu           sync.RWMutex
-	workerCache       []storage.Worker
-	workerCacheTime   time.Time
-	workerCacheTTL    time.Duration
-	currentCPU        atomic.Uint64
-	currentMem        atomic.Uint64
-	draining          atomic.Bool
-	healthChecking    atomic.Bool
-	shutdownFunc      context.CancelFunc
+
+	// admissionCPU and admissionMem override the process-wide load-shedding
+	// thresholds for this worker. Zero means use the process-wide value.
+	admissionCPU    float64
+	admissionMem    float64
+	renewMu         sync.Mutex
+	renewCancel     map[string]context.CancelFunc
+	cacheMu         sync.RWMutex
+	workerCache     []storage.Worker
+	workerCacheTime time.Time
+	workerCacheTTL  time.Duration
+	currentCPU      atomic.Uint64
+	currentMem      atomic.Uint64
+	draining        atomic.Bool
+	healthChecking  atomic.Bool
+	shutdownFunc    context.CancelFunc
 }
 
 // NewWorker creates a new worker.
@@ -88,6 +93,36 @@ func (w *Worker) SetLeaseTTL(ttlSeconds int) {
 		ttlSeconds = 30
 	}
 	w.leaseTTLSeconds = ttlSeconds
+}
+
+// SetAdmissionThresholds overrides this worker's load-shedding thresholds. Zero
+// or negative leaves the process-wide setting in place.
+//
+// The process-wide values come from the environment and are read once at
+// startup, which is the right shape for an operator setting and the wrong one
+// for anything that needs to differ per worker — a worker sized for bursty CDC
+// wants different headroom from one polling a few APIs, and a test exercising
+// lease failover wants no shedding at all. Passing 1 or above disables that
+// dimension, the same escape hatch the environment variables offer.
+func (w *Worker) SetAdmissionThresholds(cpu, mem float64) {
+	if cpu > 0 {
+		w.admissionCPU = cpu
+	}
+	if mem > 0 {
+		w.admissionMem = mem
+	}
+}
+
+// admissionLimits returns the thresholds this worker admits against.
+func (w *Worker) admissionLimits() (cpu, mem float64) {
+	cpu, mem = admissionCPUThreshold, admissionMemThreshold
+	if w.admissionCPU > 0 {
+		cpu = w.admissionCPU
+	}
+	if w.admissionMem > 0 {
+		mem = w.admissionMem
+	}
+	return cpu, mem
 }
 
 // SetSyncInterval sets how often the worker reconciles workflows from storage.

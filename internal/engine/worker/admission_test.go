@@ -125,3 +125,39 @@ func TestEnvFloatFallsBackOnGarbage(t *testing.T) {
 		})
 	}
 }
+
+// TestAWorkerCanOverrideTheAdmissionThresholds.
+//
+// The process-wide thresholds are read from the environment once at startup,
+// which suits an operator setting and nothing that has to differ per worker.
+// Without an override, anything running in a loaded process — a worker sized
+// differently, or a test exercising a mechanism that is not load shedding —
+// inherits a decision it cannot influence.
+//
+// This surfaced as an end-to-end failover test that failed under a parallel test
+// run: the host was busy, the worker taking over refused to admit the workflow,
+// and the test reported the missing webhook four steps downstream rather than
+// the shedding that caused it.
+func TestAWorkerCanOverrideTheAdmissionThresholds(t *testing.T) {
+	origCPU, origMem := admissionCPUThreshold, admissionMemThreshold
+	t.Cleanup(func() { admissionCPUThreshold, admissionMemThreshold = origCPU, origMem })
+	admissionCPUThreshold, admissionMemThreshold = 0.5, 0.5
+
+	w := &Worker{}
+	if cpu, mem := w.admissionLimits(); cpu != 0.5 || mem != 0.5 {
+		t.Errorf("an unconfigured worker should use the process-wide thresholds, got cpu=%v mem=%v", cpu, mem)
+	}
+
+	w.SetAdmissionThresholds(1, 1)
+	if cpu, mem := w.admissionLimits(); cpu != 1 || mem != 1 {
+		t.Errorf("the override was not applied, got cpu=%v mem=%v", cpu, mem)
+	}
+
+	// Zero and negative must leave the process-wide setting alone, so a partial
+	// override does not silently reset the other dimension.
+	other := &Worker{}
+	other.SetAdmissionThresholds(0.9, 0)
+	if cpu, mem := other.admissionLimits(); cpu != 0.9 || mem != 0.5 {
+		t.Errorf("a partial override changed the wrong dimension, got cpu=%v mem=%v", cpu, mem)
+	}
+}

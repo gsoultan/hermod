@@ -203,13 +203,18 @@ func newRecoveryHarness(t *testing.T, stallThreshold time.Duration) *recoveryHar
 	cfg.StreamSilenceInterval = time.Second
 	reg.SetConfig(cfg)
 
+	// Names as well as IDs vary per run. The metadata database has a unique
+	// constraint on name, and cleanup deletes by ID — so a run interrupted
+	// partway leaves a row behind that every later run then collides with, for
+	// good. That is a permanently poisoned database from one Ctrl-C, and it
+	// presents as a duplicate-key error in a test about sink outages.
 	sourceID := fmt.Sprintf("src-recovery-%d", stamp)
 	sinkID := fmt.Sprintf("snk-recovery-%d", stamp)
 	wfID := fmt.Sprintf("wf-recovery-%d", stamp)
 
 	src := storage.Source{
 		ID:   sourceID,
-		Name: "Recovery CDC Source",
+		Name: fmt.Sprintf("Recovery CDC Source %d", stamp),
 		Type: "postgres",
 		Config: map[string]string{
 			"connection_string": recoverySourceDSN,
@@ -226,7 +231,7 @@ func newRecoveryHarness(t *testing.T, stallThreshold time.Duration) *recoveryHar
 
 	snk := storage.Sink{
 		ID:   sinkID,
-		Name: "Recovery Sink",
+		Name: fmt.Sprintf("Recovery Sink %d", stamp),
 		Type: "postgres",
 		Config: map[string]string{
 			"connection_string": recoverySinkDSN,
@@ -247,7 +252,7 @@ func newRecoveryHarness(t *testing.T, stallThreshold time.Duration) *recoveryHar
 
 	h.wf = storage.Workflow{
 		ID:     wfID,
-		Name:   "Recovery E2E",
+		Name:   fmt.Sprintf("Recovery E2E %d", stamp),
 		Active: true,
 		Nodes: []storage.WorkflowNode{
 			{ID: "src-1", Type: "source", RefID: sourceID},
