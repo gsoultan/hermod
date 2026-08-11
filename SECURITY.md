@@ -138,11 +138,17 @@ dropped once the token would have expired anyway, which is what bounds the list.
 
 ### Remaining hardening, in priority order
 
-1. **Rotation on privilege change.** Revocation now exists (see above), and a
-   role change should use it: a session that was minted as an administrator keeps
-   the claims it was issued with until it expires or is revoked. Demoting a user
-   should revoke their sessions the way a password change does.
-2. *(done — see "Verifying this document" below.)*
+1. **Cross-instance revocation timing.** A revocation is immediate on the
+   instance that performed it and reaches the others within the refresh interval.
+   Closing that window entirely means a store lookup on every authenticated
+   request, which is the cost the design exists to avoid — so this is a known
+   trade rather than a defect, and it is listed here because the interval is not
+   exercised by CI against a real multi-instance deployment.
+2. **The `/api/ws/in` and `/api/ws/out` integration endpoints** have no
+   authentication of their own and accept a token in the query string, because an
+   external non-browser client that cannot set headers has nothing else. They are
+   deliberately excluded from the rule that keeps credentials out of URLs;
+   tightening them would silently break someone's running integration.
 
 ## CSRF
 
