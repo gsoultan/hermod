@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -521,6 +522,45 @@ func (h *AuthHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(user)
 }
 
+// revokeSessionsOf ends every session a user holds, because something changed
+// that their token can no longer be trusted to reflect.
+//
+// The auth middleware builds the request's user from the token's claims and
+// never reads the database — that is what keeps an authenticated request free of
+// I/O — so those claims stay authoritative until the token expires. Every
+// administrative action that invalidates them has to say so here, or it does not
+// take effect until the session happens to end.
+//
+// Replication failure is logged, not returned: the revocation still holds on
+// this instance, and failing the administrative action the operator just
+// performed is the worse outcome.
+func (h *AuthHandler) revokeSessionsOf(r *http.Request, userID, action, reason string) {
+	if userID == "" {
+		return
+	}
+	if err := h.SessionRevoker().RevokeUser(r.Context(), userID); err != nil {
+		h.RecordAuditLog(r, "WARN", reason+", but session revocation did not replicate: "+err.Error(),
+			action, userID, "user", "", nil)
+		return
+	}
+	h.RecordAuditLog(r, "INFO", reason+"; all sessions revoked", action, userID, "user", "", nil)
+}
+
+// sameVHosts compares two vhost grants as sets.
+//
+// Order is not meaning here, and a UI that re-sends the same grants in a
+// different order must not look like a permission change — that would log people
+// out for saving a form they did not alter.
+func sameVHosts(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	x, y := slices.Clone(a), slices.Clone(b)
+	slices.Sort(x)
+	slices.Sort(y)
+	return slices.Equal(x, y)
+}
+
 func (h *AuthHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	role, _ := h.GetRoleAndVHosts(r)
 	if role != storage.RoleAdministrator {
@@ -540,6 +580,10 @@ func (h *AuthHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		h.JsonError(w, "User not found", http.StatusNotFound)
 		return
 	}
+
+	// Kept to compare against after the merge: only some of these fields are
+	// carried in a session's claims, and only those need to end sessions.
+	before := user
 
 	// Merge changes
 	if req.Username != "" {
@@ -570,6 +614,21 @@ func (h *AuthHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	if err := h.Storage.UpdateUser(r.Context(), user); err != nil {
 		h.JsonError(w, "Failed to update user: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Revoke only when the change is one a live session would otherwise carry
+	// stale: the role and vhosts it authorises with, or the password it was
+	// obtained with. A new display name or email changes nothing a request is
+	// allowed to do, and logging people out for those would make routine edits
+	// an outage — which is how a security control ends up switched off.
+	switch {
+	case req.Password != "":
+		h.revokeSessionsOf(r, user.ID, "update", "Password changed for "+user.Username)
+	case before.Role != user.Role:
+		h.revokeSessionsOf(r, user.ID, "update",
+			"Role changed for "+user.Username+" from "+string(before.Role)+" to "+string(user.Role))
+	case !sameVHosts(before.VHosts, user.VHosts):
+		h.revokeSessionsOf(r, user.ID, "update", "VHost access changed for "+user.Username)
 	}
 
 	h.SanitizeUser(&user)
@@ -615,12 +674,7 @@ func (h *AuthHandler) ChangeUserPassword(w http.ResponseWriter, r *http.Request)
 	// sessions opened with the old one are exactly what needs to stop working.
 	// Leaving them alive makes the change cosmetic against the threat it exists
 	// for.
-	if err := h.SessionRevoker().RevokeUser(r.Context(), id); err != nil {
-		h.RecordAuditLog(r, "WARN", "Password changed but session revocation did not replicate: "+err.Error(),
-			"update", id, "user", "", nil)
-	} else {
-		h.RecordAuditLog(r, "INFO", "Password changed; all sessions revoked", "update", id, "user", "", nil)
-	}
+	h.revokeSessionsOf(r, id, "update", "Password changed for "+user.Username)
 
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "password updated"})
@@ -638,6 +692,12 @@ func (h *AuthHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		h.JsonError(w, "Failed to delete user", http.StatusInternalServerError)
 		return
 	}
+	// The account is gone, but its token still authenticates: the middleware
+	// builds the request's user from claims and never checks the account still
+	// exists. Without this, a deleted user keeps their access for the full life
+	// of the token.
+	h.revokeSessionsOf(r, id, "delete", "Deleted user "+id)
+
 	h.RecordAuditLog(r, "INFO", "Deleted user "+id, "delete", id, "user", "", nil)
 	w.WriteHeader(http.StatusNoContent)
 }

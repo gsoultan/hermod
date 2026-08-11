@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/config"
 )
@@ -61,6 +64,21 @@ const (
 	// worth attacking: it means a session that began in the millisecond before
 	// a password change survives it.
 	revocationSkew = time.Millisecond
+
+	// maxTrackedRevocations caps how many single-session revocations are held.
+	//
+	// Every entry expires on its own, which bounds the list in time but not in
+	// rate: a logged-in user can loop login/logout as fast as the API answers,
+	// and each cycle adds an entry that lives for the token's full hour. At
+	// roughly a hundred bytes an entry this ceiling is a few megabytes, which is
+	// the point — a bound that is never reached in normal use and cannot be
+	// walked past under abuse.
+	maxTrackedRevocations = 100_000
+
+	// revocationLowWater is how far below the cap eviction reclaims, so the
+	// sort it costs is amortised over many insertions instead of running on
+	// every one once the list is full.
+	revocationLowWater = maxTrackedRevocations * 9 / 10
 )
 
 // Revoker decides whether a session has been ended before its token expires.
@@ -138,6 +156,7 @@ func (r *Revoker) Revoke(ctx context.Context, tokenID string, expiresAt time.Tim
 
 	r.mu.Lock()
 	r.sessions[tokenID] = expiresAt
+	r.evictLocked()
 	r.mu.Unlock()
 
 	return r.replicate(ctx, revocationKeyPrefix+tokenID, expiresAt)
@@ -210,8 +229,14 @@ func (r *Revoker) addToIndex(ctx context.Context, key string) error {
 	return r.store.Set(ctx, revocationIndexKey, data)
 }
 
-// Refresh pulls revocations recorded by other instances into memory. Call it
-// periodically; StartRefreshing does that.
+// Refresh pulls revocations recorded by other instances into memory, and
+// removes entries the store no longer needs to hold. Call it periodically;
+// StartRefreshing does that.
+//
+// Its cost is a function of what changed, not of everything ever revoked. An
+// entry is immutable once written, so an entry already in memory is never read
+// again — an idle refresh is a single read of the index no matter how long the
+// process has been up.
 func (r *Revoker) Refresh(ctx context.Context) error {
 	if r.store == nil {
 		return nil
@@ -234,31 +259,154 @@ func (r *Revoker) Refresh(ctx context.Context) error {
 		return fmt.Errorf("revocation index is corrupt: %w", err)
 	}
 
-	for _, key := range keys {
-		data, err := r.store.Get(ctx, key)
-		if err != nil || len(data) == 0 {
-			continue
-		}
-		var entry struct {
-			ExpiresAt int64 `json:"expires_at"`
-		}
-		if err := json.Unmarshal(data, &entry); err != nil {
-			continue
-		}
-		expiry := time.Unix(entry.ExpiresAt, 0)
+	now := time.Now()
+	var expired []string
 
-		r.mu.Lock()
-		switch {
-		case strings.HasPrefix(key, revocationKeyPrefix):
-			r.sessions[strings.TrimPrefix(key, revocationKeyPrefix)] = expiry
-		case strings.HasPrefix(key, userRevocationKeyPrefix):
-			// The stored value is the cutoff plus a max session age; recover the
-			// cutoff so sessions started after it still survive.
-			r.users[strings.TrimPrefix(key, userRevocationKeyPrefix)] = expiry.Add(-maxSessionAge())
+	for _, key := range keys {
+		expiry, held := r.heldExpiry(key)
+		if !held {
+			data, err := r.store.Get(ctx, key)
+			if err != nil || len(data) == 0 {
+				continue
+			}
+			var entry struct {
+				ExpiresAt int64 `json:"expires_at"`
+			}
+			if err := json.Unmarshal(data, &entry); err != nil {
+				continue
+			}
+			expiry = time.Unix(entry.ExpiresAt, 0)
+			r.hold(key, expiry)
 		}
-		r.mu.Unlock()
+		if now.After(expiry) {
+			expired = append(expired, key)
+		}
+	}
+
+	if len(expired) > 0 {
+		r.dropFromStore(ctx, expired)
 	}
 	return nil
+}
+
+// heldExpiry reports the store-side expiry of a key this instance already holds
+// in memory, so Refresh can skip reading it again.
+func (r *Revoker) heldExpiry(key string) (time.Time, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	switch {
+	case strings.HasPrefix(key, revocationKeyPrefix):
+		expiry, ok := r.sessions[strings.TrimPrefix(key, revocationKeyPrefix)]
+		return expiry, ok
+	case strings.HasPrefix(key, userRevocationKeyPrefix):
+		// Memory holds the cutoff; the store holds it plus a max session age.
+		cutoff, ok := r.users[strings.TrimPrefix(key, userRevocationKeyPrefix)]
+		return cutoff.Add(maxSessionAge()), ok
+	}
+	return time.Time{}, false
+}
+
+// hold records an entry read from the store.
+func (r *Revoker) hold(key string, expiry time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	switch {
+	case strings.HasPrefix(key, revocationKeyPrefix):
+		r.sessions[strings.TrimPrefix(key, revocationKeyPrefix)] = expiry
+		r.evictLocked()
+	case strings.HasPrefix(key, userRevocationKeyPrefix):
+		// Recover the cutoff so sessions started after it still survive.
+		r.users[strings.TrimPrefix(key, userRevocationKeyPrefix)] = expiry.Add(-maxSessionAge())
+	}
+}
+
+// evictLocked keeps the session list under maxTrackedRevocations. Callers hold
+// the write lock.
+//
+// Evicting a revocation means that session works again, so this gives up as
+// little as it can: entries that have already expired first — they had stopped
+// mattering anyway — and only then the live entries closest to expiring, which
+// are the ones with the least remaining life to surrender.
+//
+// The users map is not capped. Its keys are account IDs, so it is bounded by the
+// number of accounts rather than by request rate.
+func (r *Revoker) evictLocked() {
+	if len(r.sessions) <= maxTrackedRevocations {
+		return
+	}
+
+	now := time.Now()
+	for id, expiry := range r.sessions {
+		if now.After(expiry) {
+			delete(r.sessions, id)
+		}
+	}
+	if len(r.sessions) <= maxTrackedRevocations {
+		return
+	}
+
+	type entry struct {
+		id     string
+		expiry time.Time
+	}
+	live := make([]entry, 0, len(r.sessions))
+	for id, expiry := range r.sessions {
+		live = append(live, entry{id, expiry})
+	}
+	slices.SortFunc(live, func(a, b entry) int { return a.expiry.Compare(b.expiry) })
+
+	dropped := len(live) - revocationLowWater
+	for i := range dropped {
+		delete(r.sessions, live[i].id)
+	}
+	revocationEvictionsTotal.Add(float64(dropped))
+}
+
+// dropFromStore removes entries whose token has expired anyway.
+//
+// Prune bounds what this instance holds in memory; without this the durable copy
+// grew for the life of the deployment, and the index kept naming entries every
+// cold start would then read.
+func (r *Revoker) dropFromStore(ctx context.Context, expired []string) {
+	for _, key := range expired {
+		if err := r.store.Delete(ctx, key); err != nil {
+			// Leave the index naming it and try again next tick. Rewriting the
+			// index now would orphan the entry: nothing would ever look at it
+			// again, and nothing would ever delete it.
+			return
+		}
+	}
+
+	// Re-read immediately before rewriting, so a revocation recorded since this
+	// refresh began is not dropped from the index by the rewrite.
+	//
+	// hermod.StateStore offers no compare-and-swap, so this narrows the window
+	// rather than closing it. What survives it is small and bounded: a
+	// revocation written inside the gap loses its *index* entry, never the
+	// revocation itself, so every instance that has already seen it still
+	// honours it and only a cold-starting one would miss it.
+	raw, err := r.store.Get(ctx, revocationIndexKey)
+	if err != nil {
+		return
+	}
+	var keys []string
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		return
+	}
+
+	kept := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if !slices.Contains(expired, k) {
+			kept = append(kept, k)
+		}
+	}
+	data, err := json.Marshal(kept)
+	if err != nil {
+		return
+	}
+	_ = r.store.Set(ctx, revocationIndexKey, data)
 }
 
 // Prune drops entries whose token would have expired anyway. Without it the
@@ -310,6 +458,7 @@ func (r *Revoker) StartRefreshing(ctx context.Context, interval time.Duration) (
 			case <-ticker.C:
 				_ = r.Refresh(ctx)
 				r.Prune()
+				r.observe()
 			}
 		}
 	}()
@@ -381,4 +530,38 @@ func (h *Handler) RevocationRefreshRunning() bool {
 	h.revocationMu.Lock()
 	defer h.revocationMu.Unlock()
 	return h.stopRevocation != nil
+}
+
+// Observability.
+//
+// The list shrinking is what proves pruning still runs, and a size that only
+// climbs is the first sign it does not. That failure is silent otherwise: the
+// control keeps working right up until the process runs out of memory.
+var (
+	revokedSessionsGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "hermod_revoked_sessions",
+		Help: "Session revocations currently held in memory. Should rise and fall; " +
+			"a value that only rises means expired entries are not being pruned.",
+	})
+	revokedUsersGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "hermod_revoked_users",
+		Help: "Whole-user revocations currently held in memory, from password changes, " +
+			"role changes and account deletions.",
+	})
+	revocationEvictionsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "hermod_revocation_evictions_total",
+		Help: "Revocations dropped because the list hit its cap. Any non-zero value " +
+			"means sessions that were revoked became usable again; investigate the " +
+			"source of the churn.",
+	})
+)
+
+// observe publishes the current list sizes.
+func (r *Revoker) observe() {
+	r.mu.RLock()
+	sessions, users := len(r.sessions), len(r.users)
+	r.mu.RUnlock()
+
+	revokedSessionsGauge.Set(float64(sessions))
+	revokedUsersGauge.Set(float64(users))
 }

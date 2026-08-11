@@ -92,11 +92,23 @@ now carries a `jti`, and `POST /api/logout` adds it to a revocation list the aut
 middleware checks before it accepts a request — and before it renews one, so a
 revoked session is not handed a fresh cookie on its way out.
 
-Changing a password revokes every session that user holds, which is the case a
-per-session list cannot express: nobody enumerated those sessions. A password is
-rotated either routinely or because it was compromised, and in the second case
-the sessions opened with the old one are precisely what has to stop working.
-Sessions created *after* the change survive, so the user can log straight back in.
+Every administrative action that invalidates a token's claims revokes the
+sessions holding them. The middleware builds the request's user from those
+claims and never reads the database — that is what keeps an authenticated
+request free of I/O — so until the token expires, the role, the vhosts and the
+account's very existence are whatever they were at login:
+
+| Action | Why the session cannot be left alive |
+| --- | --- |
+| Password change | A password is rotated routinely or because it was compromised; in the second case the sessions opened with the old one are precisely what has to stop working. |
+| Role change | A demotion that leaves the old session holding administrator claims has not demoted anybody. |
+| VHost change | The grant is carried in the claims and used for scoping. |
+| Account deletion | The account is gone and the token still authenticates. |
+
+Sessions created *after* the change survive, so a user can log straight back in.
+Changes that alter nothing a request is permitted to do — a display name, an
+email — deliberately do not revoke. Logging people out for routine edits is how
+a security control ends up switched off.
 
 **How it is stored, and what that costs.** The middleware derives the user from
 the token's claims specifically so an authenticated request costs no I/O, and a
@@ -104,6 +116,18 @@ revocation lookup per request would undo that. So the list lives in memory and i
 *replicated* through the configured state store rather than read from it:
 `IsRevoked` is a map lookup under a read lock, and a background refresh carries
 revocations between instances every 10 seconds.
+
+The list is bounded in two ways. Entries are dropped once the token would have
+expired anyway, and a hard cap of 100,000 sessions stops an authenticated user
+from growing it without limit by looping login and logout — time bounds the list
+only if the input rate is not attacker-controlled. Reaching the cap evicts the
+entries closest to expiring, which surrenders the least revocation per byte
+reclaimed, and increments `hermod_revocation_evictions_total`. Any non-zero
+value there means revoked sessions became usable again and wants investigating.
+
+**Operationally:** `hermod_revoked_sessions` and `hermod_revoked_users` should
+rise and fall. A value that only rises means pruning has stopped, which is
+otherwise silent until the process runs out of memory.
 
 **Residual:** on a multi-instance deployment a revocation is immediate on the
 instance that performed it and takes up to that refresh interval to reach the
@@ -193,6 +217,10 @@ passed.
 | Hermod never decodes untrusted Avro | `TestNoUntrustedAvroDecoding` |
 | No credential reaches web storage | `ui/__tests__/no_token_in_storage_e2e.spec.ts` (`--e2e`) |
 | Logout revokes the token, not just the cookie | `TestRevokedCookieIsRejectedByTheMiddleware` |
+| A demotion, vhost change or deletion ends that user's sessions | `internal/auth/transport/http/revocation_on_admin_action_test.go` |
+| …while a cosmetic edit does not | `TestACosmeticEditDoesNotEndSessions` |
+| The list is bounded against login/logout churn | `TestTheListIsBounded` |
+| An idle refresh costs one store read, not one per entry | `TestRefreshDoesNotRereadWhatItAlreadyHolds` |
 | A password change ends every session that user holds | `TestRevokeUserRejectsEveryCookieForThatUser` |
 | …and does not lock the user out of their own account | `TestPasswordChangeDoesNotLockTheUserOut` |
 | Revocation is checked before a session is renewed | `TestRevocationIsCheckedBeforeRenewal` |

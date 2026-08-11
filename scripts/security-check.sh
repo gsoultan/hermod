@@ -68,6 +68,11 @@ note "revoked session is rejected before it can be renewed."
 run "revocation list"            go test ./internal/api/handlers/ -run 'Revok|Refresh' -count=1
 run "revocation through the API" go test ./internal/api/handlers/ -run 'RevokedCookie|RevokeUserRejects|PasswordChangeDoesNotLock|RevocationIsCheckedBeforeRenewal' -count=1
 run "the refresher is wired up"  go test ./internal/api/ -run 'TestNewServerStartsSessionRevocation' -count=1
+note "Claim: a role change, vhost change or account deletion ends that user's sessions,"
+note "while an edit that changes nothing they are permitted to do leaves them alone."
+run "revocation on admin action"  go test ./internal/auth/transport/http/ -run 'EndsTheirSessions|AlsoRevokes|CosmeticEdit|AnotherUserIsUnaffected' -count=1
+note "Claim: the list is bounded against churn, and an idle refresh costs one store read."
+run "bounds and refresh cost"     go test ./internal/api/handlers/ -run 'TheListIsBounded|TheBoundPrefersExpired|RefreshDoesNotReread|ExpiredRevocationsLeaveTheStore' -count=1
 
 step "CSRF"
 note "Claim: cookie-authenticated state changes require a matching double-submit token,"
