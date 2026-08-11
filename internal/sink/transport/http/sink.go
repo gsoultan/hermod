@@ -28,9 +28,25 @@ func (h *SinkHandler) RegisterSinkRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/sinks/browse", h.EditorOnly(h.BrowseSinkTable))
 	mux.Handle("POST /api/sinks/query", h.EditorOnly(h.QuerySink))
 	mux.Handle("POST /api/sinks/truncate", h.EditorOnly(h.TruncateSinkTable))
+	mux.HandleFunc("GET /api/sinks/capabilities/two-phase", h.ListTwoPhaseCapableSinkTypes)
 	mux.Handle("POST /api/sinks/smtp/preview", h.EditorOnly(h.PreviewSmtpTemplate))
 	mux.Handle("POST /api/sinks/smtp/validate", h.EditorOnly(h.ValidateEmail))
 	mux.Handle("DELETE /api/sinks/{id}", h.EditorOnly(h.DeleteSink))
+}
+
+// ListTwoPhaseCapableSinkTypes reports the sink types that can be members of a
+// transactional group.
+//
+// The workflow editor filters its member picker with this. It cannot derive the
+// answer itself, and a capability list kept by hand in the UI would drift from
+// the engine — leaving someone to assemble a group in the editor that refuses to
+// start when the workflow runs. This is the same list the engine enforces, so
+// the two cannot disagree.
+func (h *SinkHandler) ListTwoPhaseCapableSinkTypes(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"types": factory.TwoPhaseCapableSinkTypes(),
+	})
 }
 
 func (h *SinkHandler) ListSinks(w http.ResponseWriter, r *http.Request) {

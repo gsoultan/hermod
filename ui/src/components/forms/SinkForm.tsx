@@ -24,6 +24,7 @@ const PineconeSinkConfig = lazy(() => import('../workflow/Sink/PineconeSinkConfi
 const MilvusSinkConfig = lazy(() => import('../workflow/Sink/MilvusSinkConfig').then(m => ({ default: m.MilvusSinkConfig })));
 const PgvectorSinkConfig = lazy(() => import('../workflow/Sink/PgvectorSinkConfig').then(m => ({ default: m.PgvectorSinkConfig })));
 const FailoverSinkConfig = lazy(() => import('../workflow/Sink/FailoverSinkConfig').then(m => ({ default: m.FailoverSinkConfig })));
+const TxGroupSinkConfig = lazy(() => import('../workflow/Sink/TxGroupSinkConfig').then(m => ({ default: m.TxGroupSinkConfig })));
 const SapSinkConfig = lazy(() => import('../workflow/Sink/SapSinkConfig').then(m => ({ default: m.SapSinkConfig })));
 const Dynamics365SinkConfig = lazy(() => import('../workflow/Sink/Dynamics365SinkConfig').then(m => ({ default: m.Dynamics365SinkConfig })));
 const S3SinkConfig = lazy(() => import('../workflow/Sink/S3SinkConfig'));
@@ -78,6 +79,7 @@ const SINK_TYPES = [
   { value: 'linkedin', label: 'LinkedIn' , group: 'Social Media' },
   { value: 'tiktok', label: 'TikTok' , group: 'Social Media' },
   { value: 'failover', label: 'Failover Group' , group: 'APIs & Triggers' },
+  { value: 'txgroup', label: 'Transactional Group (2PC)' , group: 'APIs & Triggers' },
 ];
 
 const configComponents: Record<string, any> = {
@@ -109,6 +111,7 @@ const configComponents: Record<string, any> = {
   milvus: MilvusSinkConfig,
   pgvector: PgvectorSinkConfig,
   failover: FailoverSinkConfig,
+  txgroup: TxGroupSinkConfig,
   sap: SapSinkConfig,
   dynamics365: Dynamics365SinkConfig,
   s3: S3SinkConfig,
