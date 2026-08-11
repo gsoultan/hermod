@@ -863,6 +863,38 @@ func (r *Registry) createSinkInternal(ctx context.Context, cfg factory.SinkConfi
 	return factory.CreateSink(cfg)
 }
 
+// resolveAndCreateTxGroupMember builds one member of a transactional group.
+//
+// It deliberately does not go through createSinkInternal. That path applies the
+// tracing and retry decorators, which forward Write and the discovery calls but
+// not Begin, Commit, Prepare or CommitPrepared — so a decorated sink does not
+// satisfy hermod.TwoPhaseCommit and the group rejects it. Every group built from
+// stored configuration failed at startup for that reason, while the tests that
+// construct sinks directly passed. See factory.CreateSinkForTransactionGroup for
+// why forwarding through the decorators would be the wrong repair.
+//
+// The type is checked here as well, so an ineligible member is named plainly
+// rather than reported as a missing interface.
+func (r *Registry) resolveAndCreateTxGroupMember(ctx context.Context, id string) (hermod.Sink, error) {
+	if r.storage == nil {
+		return nil, errors.New("registry storage is not available")
+	}
+	dbSnk, err := r.GetSinkConfig(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sink %s from storage: %w", id, err)
+	}
+	if !factory.SupportsTwoPhaseCommit(dbSnk.Type) {
+		return nil, fmt.Errorf("sink %q is a %q sink, which cannot take part in two-phase commit; "+
+			"a transactional group accepts only: %s",
+			id, dbSnk.Type, strings.Join(factory.TwoPhaseCapableSinkTypes(), ", "))
+	}
+	return factory.CreateSinkForTransactionGroup(factory.SinkConfig{
+		ID:     dbSnk.ID,
+		Type:   dbSnk.Type,
+		Config: dbSnk.Config,
+	})
+}
+
 func (r *Registry) resolveAndCreateSink(ctx context.Context, id string) (hermod.Sink, error) {
 	if r.storage == nil {
 		return nil, errors.New("registry storage is not available")

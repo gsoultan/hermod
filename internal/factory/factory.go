@@ -646,6 +646,28 @@ func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 	return sink.NewRetrySink(decorated, 3, 100*time.Millisecond, nil), nil
 }
 
+// CreateSinkForTransactionGroup builds a sink for membership of a transactional
+// group, without the tracing and retry decorators.
+//
+// Two reasons, and either alone would be enough.
+//
+// The decorators forward Write, WriteBatch and the discovery calls, but not
+// Begin, Commit, Prepare or CommitPrepared. A decorated sink therefore does not
+// satisfy hermod.TwoPhaseCommit, and a group refuses to start when a member does
+// not — so every group built through the registry failed at startup, while the
+// tests that construct sinks directly passed.
+//
+// The second reason is why forwarding them through the decorators would be the
+// wrong fix. Retrying a failed Write inside a prepared transaction is not a
+// retry of an idempotent operation: the transaction may already be aborted, and
+// a write that did land would be applied twice within the same prepared
+// transaction. Failure handling for a group belongs to the coordinator, which
+// rolls every participant back together. A member that quietly retried
+// underneath it would be making that decision on its own.
+func CreateSinkForTransactionGroup(cfg SinkConfig) (hermod.Sink, error) {
+	return createSinkBase(cfg)
+}
+
 func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 	// Substitute environment variables in config
 	for k, v := range cfg.Config {
