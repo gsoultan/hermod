@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -521,6 +522,45 @@ func (h *AuthHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(user)
 }
 
+// revokeSessionsOf ends every session a user holds, because something changed
+// that their token can no longer be trusted to reflect.
+//
+// The auth middleware builds the request's user from the token's claims and
+// never reads the database — that is what keeps an authenticated request free of
+// I/O — so those claims stay authoritative until the token expires. Every
+// administrative action that invalidates them has to say so here, or it does not
+// take effect until the session happens to end.
+//
+// Replication failure is logged, not returned: the revocation still holds on
+// this instance, and failing the administrative action the operator just
+// performed is the worse outcome.
+func (h *AuthHandler) revokeSessionsOf(r *http.Request, userID, action, reason string) {
+	if userID == "" {
+		return
+	}
+	if err := h.SessionRevoker().RevokeUser(r.Context(), userID); err != nil {
+		h.RecordAuditLog(r, "WARN", reason+", but session revocation did not replicate: "+err.Error(),
+			action, userID, "user", "", nil)
+		return
+	}
+	h.RecordAuditLog(r, "INFO", reason+"; all sessions revoked", action, userID, "user", "", nil)
+}
+
+// sameVHosts compares two vhost grants as sets.
+//
+// Order is not meaning here, and a UI that re-sends the same grants in a
+// different order must not look like a permission change — that would log people
+// out for saving a form they did not alter.
+func sameVHosts(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	x, y := slices.Clone(a), slices.Clone(b)
+	slices.Sort(x)
+	slices.Sort(y)
+	return slices.Equal(x, y)
+}
+
 func (h *AuthHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	role, _ := h.GetRoleAndVHosts(r)
 	if role != storage.RoleAdministrator {
@@ -540,6 +580,10 @@ func (h *AuthHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		h.JsonError(w, "User not found", http.StatusNotFound)
 		return
 	}
+
+	// Kept to compare against after the merge: only some of these fields are
+	// carried in a session's claims, and only those need to end sessions.
+	before := user
 
 	// Merge changes
 	if req.Username != "" {
@@ -570,6 +614,21 @@ func (h *AuthHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	if err := h.Storage.UpdateUser(r.Context(), user); err != nil {
 		h.JsonError(w, "Failed to update user: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Revoke only when the change is one a live session would otherwise carry
+	// stale: the role and vhosts it authorises with, or the password it was
+	// obtained with. A new display name or email changes nothing a request is
+	// allowed to do, and logging people out for those would make routine edits
+	// an outage — which is how a security control ends up switched off.
+	switch {
+	case req.Password != "":
+		h.revokeSessionsOf(r, user.ID, "update", "Password changed for "+user.Username)
+	case before.Role != user.Role:
+		h.revokeSessionsOf(r, user.ID, "update",
+			"Role changed for "+user.Username+" from "+string(before.Role)+" to "+string(user.Role))
+	case !sameVHosts(before.VHosts, user.VHosts):
+		h.revokeSessionsOf(r, user.ID, "update", "VHost access changed for "+user.Username)
 	}
 
 	h.SanitizeUser(&user)
@@ -610,6 +669,13 @@ func (h *AuthHandler) ChangeUserPassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// End every session this user holds. A password is changed either because
+	// it was rotated or because it was compromised, and in the second case the
+	// sessions opened with the old one are exactly what needs to stop working.
+	// Leaving them alive makes the change cosmetic against the threat it exists
+	// for.
+	h.revokeSessionsOf(r, id, "update", "Password changed for "+user.Username)
+
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "password updated"})
 }
@@ -626,6 +692,12 @@ func (h *AuthHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		h.JsonError(w, "Failed to delete user", http.StatusInternalServerError)
 		return
 	}
+	// The account is gone, but its token still authenticates: the middleware
+	// builds the request's user from claims and never checks the account still
+	// exists. Without this, a deleted user keeps their access for the full life
+	// of the token.
+	h.revokeSessionsOf(r, id, "delete", "Deleted user "+id)
+
 	h.RecordAuditLog(r, "INFO", "Deleted user "+id, "delete", id, "user", "", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -978,11 +1050,29 @@ func (h *AuthHandler) SanitizeUser(u *storage.User) {
 // Now that the cookie is the only credential, that gap is the difference
 // between logging out and appearing to.
 //
-// Expiring the cookie is all a stateless JWT session can do: the token remains
-// valid until it expires, so a copy captured beforehand still works. Revocation
-// would need server-side session state, which is noted in SECURITY.md rather
-// than implied here.
+// Expiring the cookie is only half of it, and on its own the weaker half: it
+// ends the session in this browser while the token itself stays valid, so a
+// copy captured beforehand keeps working. So logout also revokes the session by
+// its jti. See internal/api/handlers/revocation.go for where that state lives
+// and what it costs.
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	// Revoke before clearing the cookie. Expiring the cookie ends the session
+	// for this browser; revoking is what stops a copy of the token captured
+	// beforehand from continuing to work.
+	if claims, err := h.CurrentSessionClaims(r); err == nil && claims.TokenID != "" {
+		expiry := time.Now().Add(24 * time.Hour)
+		if claims.ExpiresAt != nil {
+			expiry = claims.ExpiresAt.Time
+		}
+		if err := h.SessionRevoker().Revoke(r.Context(), claims.TokenID, expiry); err != nil {
+			// The session is still revoked on this instance; the error means it
+			// did not reach the others. Worth recording, not worth failing the
+			// logout over — refusing to log out is the worse outcome.
+			h.RecordAuditLog(r, "WARN", "Session revocation did not replicate: "+err.Error(),
+				"logout", claims.UserID, "user", "", nil)
+		}
+	}
+
 	// maxAge -1 deletes. The other attributes have to match the cookie that was
 	// set at login or the browser treats it as a different cookie and keeps the
 	// original — which is why both go through one builder.

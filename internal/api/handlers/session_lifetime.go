@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"math"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/user/hermod/internal/config"
 )
 
@@ -75,13 +77,38 @@ func maxSessionAge() time.Duration {
 func NewSessionClaims(userID, username, role string, vhosts []string) jwt.MapClaims {
 	now := time.Now()
 	return jwt.MapClaims{
-		"id":              userID,
-		"username":        username,
-		"role":            role,
-		"vhosts":          vhosts,
-		"exp":             now.Add(sessionTTL()).Unix(),
-		SessionStartClaim: now.Unix(),
+		"id":       userID,
+		"username": username,
+		"role":     role,
+		"vhosts":   vhosts,
+		"exp":      now.Add(sessionTTL()).Unix(),
+		// jti names this session so it can be revoked individually. Without it
+		// the only instrument is RevokeUser, which ends every session the user
+		// holds — far blunter than "log this browser out".
+		"jti":             uuid.NewString(),
+		SessionStartClaim: numericDate(now),
 	}
+}
+
+// numericDate renders t as a JWT NumericDate keeping sub-second resolution.
+//
+// Whole seconds are not enough here. RevokeUser's cutoff is an instant with
+// nanosecond precision, and IsRevoked ends every session that began before it.
+// Truncating this claim down to the second puts the login that *follows* a
+// password change before the cutoff that the change installed, so the user is
+// locked out of the account they just reset — reliably, not occasionally.
+//
+// RFC 7519 §2 defines NumericDate as a JSON number and explicitly permits
+// non-integer values, so a fractional second is a legal claim rather than a
+// private encoding. Tokens carrying the older whole-second form still decode to
+// the same instant they always did.
+func numericDate(t time.Time) float64 {
+	// Not UnixNano()/1e9: nanoseconds since the epoch is a nineteen-digit
+	// integer and float64 carries about sixteen, so that conversion rounds the
+	// instant by a few hundred nanoseconds — in either direction. Splitting the
+	// value keeps the whole seconds exact and spends the mantissa on the
+	// fraction instead.
+	return float64(t.Unix()) + float64(t.Nanosecond())/float64(time.Second)
 }
 
 // SessionCookieMaxAge is the cookie lifetime that matches the token's.
@@ -126,13 +153,17 @@ func (h *Handler) maybeRenewSession(w http.ResponseWriter, r *http.Request, clai
 		return false
 	}
 
+	// The renewed token keeps the same jti. A renewal is the same session
+	// continuing, so minting a new id would let it slip out from under a
+	// revocation simply by staying active.
 	renewed := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"id":              claims.UserID,
 		"username":        claims.Username,
 		"role":            claims.Role,
 		"vhosts":          claims.VHosts,
 		"exp":             time.Now().Add(ttl).Unix(),
-		SessionStartClaim: start.Unix(),
+		"jti":             claims.TokenID,
+		SessionStartClaim: numericDate(start),
 	})
 	signed, err := renewed.SignedString([]byte(dbCfg.JWTSecret))
 	if err != nil {
@@ -189,10 +220,23 @@ func sessionStartOf(rawToken string) time.Time {
 	}
 	switch v := claims[SessionStartClaim].(type) {
 	case float64:
-		return time.Unix(int64(v), 0)
+		return timeFromNumericDate(v)
 	case int64:
-		return time.Unix(v, 0)
+		return timeFromNumericDate(float64(v))
 	default:
 		return time.Time{}
 	}
+}
+
+// timeFromNumericDate is the inverse of numericDate, and the only place this
+// claim is turned back into an instant.
+//
+// Both sites that read it have to agree. Renewal carries the session start
+// forward, so a decoder that dropped the fraction here would rewind the session
+// to the start of its second on every renewal — quietly moving a session that
+// began after a password change to before it, and throwing the user out an hour
+// later with nothing pointing at the cause.
+func timeFromNumericDate(v float64) time.Time {
+	sec, frac := math.Modf(v)
+	return time.Unix(int64(sec), int64(frac*float64(time.Second)))
 }

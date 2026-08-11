@@ -19,24 +19,35 @@ var (
 	mu       sync.RWMutex
 )
 
-// Register creates a new channel for a gRPC path.
+// Register creates a new channel for a gRPC source path, superseding any existing
+// registration. The newest registration owns the path: when a workflow moves
+// between workers, the one taking the lease over is the one that should receive.
+//
+// It used to return the existing channel instead, which meant the worker taking
+// over and the worker being replaced read from the same one — so the outgoing
+// teardown closed the channel its successor was reading.
 func Register(path string) chan hermod.Message {
 	mu.Lock()
 	defer mu.Unlock()
-	if ch, ok := registry[path]; ok {
-		return ch
-	}
 	ch := make(chan hermod.Message, sourcebuf.DefaultSourceBuffer)
 	registry[path] = ch
 	return ch
 }
 
-// Unregister closes and removes the channel for a gRPC path.
-func Unregister(path string) {
+// Unregister releases a path, but only if ch is still the channel registered
+// for it.
+//
+// The ownership check is what makes a handover safe. Nothing orders the outgoing
+// worker's teardown against the incoming worker's registration, so deleting by
+// path alone let a worker that had already lost the lease close and remove its
+// successor's channel. The successor was then reading from a closed channel that
+// no longer appeared in the registry: the workflow reported itself running and
+// never received another message.
+func Unregister(path string, ch chan hermod.Message) {
 	mu.Lock()
 	defer mu.Unlock()
-	if ch, ok := registry[path]; ok {
-		close(ch)
+	if current, ok := registry[path]; ok && current == ch {
+		close(current)
 		delete(registry, path)
 	}
 }
@@ -89,7 +100,7 @@ func (s *GrpcSource) Read(ctx context.Context) (hermod.Message, error) {
 func (s *GrpcSource) Ack(ctx context.Context, msg hermod.Message) error { return nil }
 func (s *GrpcSource) Ping(ctx context.Context) error                    { return nil }
 func (s *GrpcSource) Close() error {
-	Unregister(s.Path)
+	Unregister(s.Path, s.ch)
 	return nil
 }
 

@@ -43,6 +43,18 @@ type Source struct {
 	conn *websocket.Conn
 	out  chan hermod.Message
 	quit chan struct{}
+
+	// startOnce keeps the read loop to exactly one goroutine. Read is called
+	// once per message by the engine, so starting the loop on the way past
+	// started one per message — each dialling the endpoint and reading the same
+	// connection, which gorilla/websocket does not allow.
+	startOnce sync.Once
+	// closeOnce lets Close be called more than once, as shutdown paths do,
+	// without closing an already-closed channel.
+	closeOnce sync.Once
+	// stopLoop cancels the loop's own context, so a dial in progress does not
+	// outlive Close.
+	stopLoop context.CancelFunc
 }
 
 type envelope struct {
@@ -132,10 +144,21 @@ func (s *Source) connect(ctx context.Context) error {
 }
 
 func (s *Source) loop(ctx context.Context) {
+	// Read once, here. The field is not reassigned for the life of the source,
+	// but reading it on every pass was an unsynchronised read of a field Close
+	// wrote — and when Close set it to nil, a loop that read it afterwards
+	// selected on a nil channel, which never fires, fell through to the default
+	// case and kept reconnecting to a source that had been closed.
+	s.mu.Lock()
+	quit := s.quit
+	s.mu.Unlock()
+
 	backoff := s.reconnectBase
 	for {
 		select {
-		case <-s.quit:
+		case <-quit:
+			return
+		case <-ctx.Done():
 			return
 		default:
 		}
@@ -251,8 +274,18 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 	}
 	s.mu.Unlock()
 
-	// Ensure loop is running
-	go s.loop(ctx)
+	// Exactly one loop, for the life of the source rather than of this call.
+	//
+	// The context is detached from this Read's: the loop outlives any single
+	// call, so cancelling one read must not tear down the connection the next
+	// one needs. Close cancels it.
+	s.startOnce.Do(func() {
+		loopCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		s.mu.Lock()
+		s.stopLoop = cancel
+		s.mu.Unlock()
+		go s.loop(loopCtx)
+	})
 
 	select {
 	case m := <-s.out:
@@ -276,12 +309,24 @@ func (s *Source) Ping(ctx context.Context) error {
 }
 
 func (s *Source) Close() error {
+	// The quit channel is closed but never set to nil: the loop reads that field
+	// to know when to stop, and replacing it with nil is how a closed source
+	// carried on reconnecting.
+	s.closeOnce.Do(func() {
+		s.mu.Lock()
+		quit, stop := s.quit, s.stopLoop
+		s.mu.Unlock()
+
+		if quit != nil {
+			close(quit)
+		}
+		if stop != nil {
+			stop()
+		}
+	})
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.quit != nil {
-		close(s.quit)
-		s.quit = nil
-	}
 	if s.conn != nil {
 		err := s.conn.Close()
 		s.conn = nil

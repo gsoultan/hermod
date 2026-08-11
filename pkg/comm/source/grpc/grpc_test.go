@@ -34,8 +34,8 @@ func TestPublishAuthentication(t *testing.T) {
 	server := &Server{Storage: ms}
 
 	// Register the source to avoid "no gRPC source registered" error
-	_ = Register("/test/path")
-	defer Unregister("/test/path")
+	ch := Register("/test/path")
+	defer Unregister("/test/path", ch)
 
 	tests := []struct {
 		name    string

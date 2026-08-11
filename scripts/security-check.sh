@@ -60,6 +60,20 @@ note "is an hour with an absolute cap."
 run "stream auth rules"      go test ./internal/api/handlers/ -run 'UIStreams|IntegrationWSEndpoints|NormalAPIUnaffected|ExpiredSession' -count=1
 run "session lifetime"       go test ./internal/api/handlers/ -run 'Session|Renew' -count=1
 
+step "Session revocation"
+note "Claims: logging out revokes the token rather than only clearing the cookie, so a"
+note "copy captured beforehand stops working; changing a password ends every session"
+note "that user holds without locking them out of the account they just reset; and a"
+note "revoked session is rejected before it can be renewed."
+run "revocation list"            go test ./internal/api/handlers/ -run 'Revok|Refresh' -count=1
+run "revocation through the API" go test ./internal/api/handlers/ -run 'RevokedCookie|RevokeUserRejects|PasswordChangeDoesNotLock|RevocationIsCheckedBeforeRenewal' -count=1
+run "the refresher is wired up"  go test ./internal/api/ -run 'TestNewServerStartsSessionRevocation' -count=1
+note "Claim: a role change, vhost change or account deletion ends that user's sessions,"
+note "while an edit that changes nothing they are permitted to do leaves them alone."
+run "revocation on admin action"  go test ./internal/auth/transport/http/ -run 'EndsTheirSessions|AlsoRevokes|CosmeticEdit|AnotherUserIsUnaffected' -count=1
+note "Claim: the list is bounded against churn, and an idle refresh costs one store read."
+run "bounds and refresh cost"     go test ./internal/api/handlers/ -run 'TheListIsBounded|TheBoundPrefersExpired|RefreshDoesNotReread|ExpiredRevocationsLeaveTheStore' -count=1
+
 step "CSRF"
 note "Claim: cookie-authenticated state changes require a matching double-submit token,"
 note "and header-authenticated requests are deliberately exempt."
@@ -108,10 +122,9 @@ fi
 #
 # Stated so the list above is not mistaken for the whole posture:
 #
-#   * Session revocation. The session is a stateless JWT, so a captured token
-#     stays valid until it expires. The window is bounded (an hour, capped at a
-#     day) but not revocable. There is nothing to check because it is not
-#     implemented; SECURITY.md tracks it.
+#   * Cross-instance revocation timing. Revocation itself is checked below, but
+#     the interval it takes to reach another instance is a property of a real
+#     multi-instance deployment and is not exercised here.
 #   * "Do not log secrets or PII." No test holds this — it is a review
 #     discipline, and a grep would be theatre rather than a check.
 #   * The two-phase-commit operational hazard. Covered by the integration tests
