@@ -112,28 +112,25 @@ func TestSplitMemberIDs(t *testing.T) {
 	}
 }
 
-// fakeStateStore is a hermod.StateStore that holds nothing. It exists so the
-// tests above can get past the durability check to reach the case they are
-// actually about.
+// fakeStateStore is a hermod.StateStore held in memory.
+//
+// A missing key returns (nil, nil), which is what every real implementation
+// does — Redis maps redis.Nil, etcd an empty result, and SQLite sql.ErrNoRows,
+// all to no value and no error. It returned an error instead, which is a fake
+// being stricter than the thing it stands for: the first start of a group has no
+// transaction log, so recovery read a missing index and reported it as unread
+// rather than as empty. Nothing in production behaves that way, so the tests
+// were exercising a case that cannot happen while missing the one that always
+// does.
 type fakeStateStore struct{ kv map[string][]byte }
 
 func newFakeStateStore() *fakeStateStore { return &fakeStateStore{kv: map[string][]byte{}} }
 
 func (f *fakeStateStore) Get(_ context.Context, k string) ([]byte, error) {
-	v, ok := f.kv[k]
-	if !ok {
-		return nil, errNotFoundForTest
-	}
-	return v, nil
+	return f.kv[k], nil
 }
 func (f *fakeStateStore) Set(_ context.Context, k string, v []byte) error { f.kv[k] = v; return nil }
 func (f *fakeStateStore) Delete(_ context.Context, k string) error        { delete(f.kv, k); return nil }
-
-var errNotFoundForTest = errNotFound{}
-
-type errNotFound struct{}
-
-func (errNotFound) Error() string { return "not found" }
 
 // ---------------------------------------------------------------------------
 // Members built from stored configuration.
