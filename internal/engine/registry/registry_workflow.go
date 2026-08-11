@@ -895,6 +895,29 @@ func (r *Registry) stopEngine(ctx context.Context, id string, updateStorage bool
 	// Release lock to allow other operations while waiting for engine to stop
 	r.mu.Unlock()
 
+	// From here the engine is coming down whatever else happens, so the entry
+	// saying it runs on this worker has to go on every path out — including the
+	// early returns below when the caller's context is already done.
+	//
+	// It did not, and that is a failover wedging itself: the worker losing its
+	// lease has a cancelled context, so its stop returned immediately and left
+	// the entry behind. IsEngineRunning then answered true for an engine that
+	// was gone, the worker taking over tried to stop it before starting its own,
+	// hit the same early return, and retried every sync interval forever. The
+	// workflow reported itself running, received nothing, and could not be
+	// restarted without bouncing the process.
+	//
+	// Only this engine is retired. If a takeover has already registered a
+	// replacement under the same id, removing it by key alone would stop the
+	// workflow that had just been correctly started.
+	defer func() {
+		r.mu.Lock()
+		if current, ok := r.engines[id]; ok && current == ae {
+			delete(r.engines, id)
+		}
+		r.mu.Unlock()
+	}()
+
 	// Wait for engine to gracefully shutdown
 	select {
 	case <-ae.done:
@@ -933,10 +956,6 @@ func (r *Registry) stopEngine(ctx context.Context, id string, updateStorage bool
 			}
 		}
 	}
-
-	r.mu.Lock()
-	delete(r.engines, id)
-	r.mu.Unlock()
 
 	return nil
 }

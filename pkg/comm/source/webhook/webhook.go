@@ -14,7 +14,9 @@ var (
 	mu       sync.RWMutex
 )
 
-// Register creates a new channel for a webhook path.
+// Register creates a new channel for a webhook path, superseding any existing
+// registration. The newest registration owns the path: when a workflow moves
+// between workers, the one taking the lease over is the one that should receive.
 func Register(path string) chan hermod.Message {
 	mu.Lock()
 	defer mu.Unlock()
@@ -23,12 +25,24 @@ func Register(path string) chan hermod.Message {
 	return ch
 }
 
-// Unregister closes and removes the channel for a webhook path.
-func Unregister(path string) {
+// Unregister releases a path, but only if ch is still the channel registered
+// for it.
+//
+// The ownership check is what makes a handover safe. Nothing orders the
+// outgoing worker's teardown against the incoming worker's registration, so
+// deleting by path alone let a worker that had already lost the lease close and
+// remove its successor's channel. The successor was then reading from a closed
+// channel that no longer appeared in the registry: the workflow reported itself
+// running and never received another message.
+//
+// A stale caller now finds its channel is no longer the registered one and
+// leaves the path alone. Its own channel is simply dropped — its reader has
+// already returned through the cancelled context, and nothing else holds it.
+func Unregister(path string, ch chan hermod.Message) {
 	mu.Lock()
 	defer mu.Unlock()
-	if ch, ok := registry[path]; ok {
-		close(ch)
+	if current, ok := registry[path]; ok && current == ch {
+		close(current)
 		delete(registry, path)
 	}
 }
@@ -82,8 +96,8 @@ func (s *WebhookSource) Ack(ctx context.Context, msg hermod.Message) error { ret
 // Ping is a no-op for webhooks.
 func (s *WebhookSource) Ping(ctx context.Context) error { return nil }
 
-// Close unregisters the source.
+// Close unregisters the source, unless another has already taken the path over.
 func (s *WebhookSource) Close() error {
-	Unregister(s.Path)
+	Unregister(s.Path, s.ch)
 	return nil
 }

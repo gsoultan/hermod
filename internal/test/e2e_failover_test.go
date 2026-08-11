@@ -137,8 +137,13 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	// Surface the worker's own failure. Discarding this error meant that when
 	// the worker did not come up, the test blamed whatever it was waiting for
 	// next -- "no webhook registered" -- rather than saying why.
-	startErr := make(chan error, 2)
-	go func() { startErr <- w1.Start(ctx1) }()
+	// One channel per worker, not one shared between them. Worker 1 is stopped
+	// on purpose partway through, so its exit is expected from that point on;
+	// with a shared channel the readiness check below would read that expected
+	// exit and report it as worker 2 having died.
+	w1Err := make(chan error, 1)
+	w2Err := make(chan error, 1)
+	go func() { w1Err <- w1.Start(ctx1) }()
 
 	// Wait for the worker to have registered its webhook source.
 	//
@@ -149,12 +154,12 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	// for the condition instead of for the clock makes the test deterministic
 	// and, when the sync genuinely breaks, it fails for that reason rather than
 	// intermittently.
-	dispatchWhenReady := func(t *testing.T, path string, m hermod.Message) {
+	dispatchWhenReady := func(t *testing.T, path string, m hermod.Message, workerErr <-chan error) {
 		t.Helper()
 		deadline := time.Now().Add(readyTimeout)
 		for {
 			select {
-			case werr := <-startErr:
+			case werr := <-workerErr:
 				if werr != nil {
 					t.Fatalf("the worker exited instead of registering %s: %v", path, werr)
 				}
@@ -185,8 +190,8 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	m2.SetTable(table)
 	m2.SetAfter([]byte(`{"n":2}`))
 	defer message.ReleaseMessage(m2)
-	dispatchWhenReady(t, "/e2e", m1)
-	dispatchWhenReady(t, "/e2e", m2)
+	dispatchWhenReady(t, "/e2e", m1, w1Err)
+	dispatchWhenReady(t, "/e2e", m2, w1Err)
 
 	// Wait for processing
 	awaitRows(t, sinkDB, table, 2, 5*time.Second)
@@ -197,7 +202,10 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	m1d.SetTable(table)
 	m1d.SetAfter([]byte(`{"n":1}`))
 	defer message.ReleaseMessage(m1d)
-	_ = webhook.Dispatch("/e2e", m1d)
+	// Not a discarded error: if this dispatch silently failed, the row count
+	// below would still be 2 and the test would pass without ever checking that
+	// a duplicate is suppressed.
+	dispatchWhenReady(t, "/e2e", m1d, w1Err)
 	awaitRows(t, sinkDB, table, 2, 2*time.Second)
 
 	// Simulate crash of worker 1
@@ -206,7 +214,7 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	// Start worker 2; it should steal the lease after TTL
 	ctx2, cancel2 := context.WithCancel(t.Context())
 	defer cancel2()
-	go func() { startErr <- w2.Start(ctx2) }()
+	go func() { w2Err <- w2.Start(ctx2) }()
 
 	// Wait for worker 2 to steal the lease and restart the engine.
 	//
@@ -240,12 +248,14 @@ func TestTwoWorkerLeaseFailover(t *testing.T) {
 	m4.SetTable(table)
 	m4.SetAfter([]byte(`{"n":22}`)) // duplicate id-2
 	defer message.ReleaseMessage(m4)
-	if err := webhook.Dispatch("/e2e", m3); err != nil {
-		t.Fatalf("dispatch m3: %v", err)
-	}
-	if err := webhook.Dispatch("/e2e", m4); err != nil {
-		t.Fatalf("dispatch m4: %v", err)
-	}
+	// Wait for worker 2 to register the source, exactly as worker 1's dispatches
+	// do. IsEngineRunning above reports that the engine has started, which is
+	// not the same instant as the webhook path being registered — so these two
+	// dispatches raced the takeover they had just waited for, and failed with
+	// "no webhook registered for path: /e2e" whenever the machine was loaded
+	// enough to lose that race.
+	dispatchWhenReady(t, "/e2e", m3, w2Err)
+	dispatchWhenReady(t, "/e2e", m4, w2Err)
 
 	// Expect only 3 distinct rows due to idempotency
 	awaitRows(t, sinkDB, table, 3, 6*time.Second)
