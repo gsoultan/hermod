@@ -3,6 +3,8 @@ package registry
 import (
 	"context"
 
+	"github.com/user/hermod/internal/engine/registry/nodes/reliability"
+
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/engine/registry/interfaces"
 )
@@ -84,4 +86,24 @@ func (r *Registry) GetSink(workflowID, nodeID string) (hermod.Sink, bool) {
 		return nil, false
 	}
 	return ae.sinks[idx], true
+}
+
+// RecordCircuitBreakerFailure counts a downstream failure against a circuit
+// breaker node.
+//
+// The breaker reads this count and opens once it passes its threshold. Nothing
+// incremented it before, so a node offered in the editor as "Stop flow on
+// failure threshold" always reported success however broken the downstream was
+// — a control that cannot fire, which is worse than no control because someone
+// believes it is there.
+//
+// The registry is the natural place for this: it already holds node state and
+// is what the traversal has a handle on.
+func (r *Registry) RecordCircuitBreakerFailure(workflowID, breakerNodeID string) {
+	if breakerNodeID == "" {
+		return
+	}
+	(&reliability.CircuitBreakerExecutor{}).RecordFailure(r, breakerNodeID)
+	r.BroadcastLog(workflowID, "WARN",
+		"Circuit breaker "+breakerNodeID+" recorded a downstream failure", "")
 }

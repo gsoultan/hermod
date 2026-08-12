@@ -133,3 +133,57 @@ func TestAnOpenBreakerHalfOpensAfterTheCooldown(t *testing.T) {
 			"would never be retried", status)
 	}
 }
+
+// TestStaleFailuresDoNotCount.
+//
+// A breaker counts *recent* failures, not every failure since the process
+// started. Without that, a healthy system that had one bad ten minutes last
+// week trips on its next single failure and stays tripped.
+//
+// It also decides where the counting happens. Resetting on success would mean
+// every successful message doing a reverse-edge lookup to find its breaker,
+// which is a cost on the hot path to serve a rare case. Ageing the count out
+// costs nothing when nothing is failing.
+func TestStaleFailuresDoNotCount(t *testing.T) {
+	e := &CircuitBreakerExecutor{}
+	nctx := newCBCtx()
+	node := cbNode(2)
+
+	// Two failures, long enough ago to be irrelevant.
+	nctx.SetNodeState("cb_"+node.ID, cbState{
+		Status:      "CLOSED",
+		Failures:    2,
+		LastFailure: time.Now().Add(-time.Hour),
+	})
+
+	_, status, err := e.Execute(t.Context(), nctx, "wf", node, cbMessage(t))
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if status != "success" {
+		t.Errorf("the breaker is %q on failures an hour old; a bad hour last week would "+
+			"leave it tripped for good", status)
+	}
+}
+
+// TestRecentFailuresStillCount is the other half — ageing them out must not
+// mean ignoring them.
+func TestRecentFailuresStillCount(t *testing.T) {
+	e := &CircuitBreakerExecutor{}
+	nctx := newCBCtx()
+	node := cbNode(2)
+
+	nctx.SetNodeState("cb_"+node.ID, cbState{
+		Status:      "CLOSED",
+		Failures:    2,
+		LastFailure: time.Now(),
+	})
+
+	_, status, err := e.Execute(t.Context(), nctx, "wf", node, cbMessage(t))
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if status != "failure" {
+		t.Errorf("the breaker is %q after two failures just now against a threshold of 2", status)
+	}
+}
