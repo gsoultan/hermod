@@ -48,9 +48,27 @@ func (e *JoinExecutor) handleJoin(nctx interfaces.NodeContext, nodeID, key strin
 	mu.Lock()
 	defer mu.Unlock()
 
-	msgs := []hermod.Message{}
-	if val, ok := nctx.GetNodeState(stateKey); ok {
-		msgs = val.([]hermod.Message)
+	// Checked, not asserted.
+	//
+	// A completed join clears its slot by storing nil rather than deleting the
+	// key, and the registry keeps nil as a value — so the key still exists and
+	// reads back as an untyped nil. Asserting that to a message slice panics and
+	// takes the workflow's goroutine with it, which made the second appearance
+	// of any join key fatal. Join keys come out of the data, so a repeated value
+	// is the normal case rather than an edge one.
+	//
+	// Node state is a shared map keyed by strings, so this must also survive
+	// another writer having put something else there.
+	var msgs []hermod.Message
+	if val, ok := nctx.GetNodeState(stateKey); ok && val != nil {
+		held, ok := val.([]hermod.Message)
+		if !ok {
+			nctx.BroadcastLog("", "ERROR", fmt.Sprintf(
+				"join node %s: state for key %q held %T rather than pending messages; starting over",
+				nodeID, key, val), msg.ID())
+		} else {
+			msgs = held
+		}
 	}
 
 	msg.Retain() // Retain for the join state
