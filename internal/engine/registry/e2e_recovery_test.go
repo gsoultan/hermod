@@ -176,6 +176,8 @@ func newRecoveryHarness(t *testing.T, stallThreshold time.Duration) *recoveryHar
 		t.Skipf("source database unreachable: %v", err)
 	}
 
+	dropStaleRecoverySlots(t, sourceDB)
+
 	// Create the tables rather than assume them. These referenced `orders` and
 	// `orders_enriched` without ever creating either, so on a machine without
 	// that hand-prepared fixture the publication could not be created, the CDC
@@ -309,6 +311,53 @@ func (h *recoveryHarness) effectiveSilenceThreshold(t *testing.T) time.Duration 
 		t.Fatal("the engine's source does not report stream liveness: a silent replication stream can never be detected")
 	}
 	return lr.StreamSilenceThreshold()
+}
+
+// dropStaleRecoverySlots removes replication slots left behind by earlier runs
+// of this test.
+//
+// The harness drops its own slot on cleanup, but an interrupted run — a
+// cancelled test, a timeout, a Ctrl-C — never reaches cleanup, and the slot
+// survives. A replication slot holds WAL until it is dropped, so they
+// accumulate: nine of them had built up on the development database, pinning up
+// to 1.8 GB of WAL each, and the first thing that failed was an unrelated
+// retention test rather than anything that created them.
+//
+// Only inactive slots matching this test's own prefix are dropped. An active
+// one belongs to a run happening right now, and nothing else in the system
+// names slots this way.
+func dropStaleRecoverySlots(t *testing.T, db *sql.DB) {
+	t.Helper()
+	rows, err := db.QueryContext(context.Background(),
+		`SELECT slot_name FROM pg_replication_slots
+		 WHERE slot_name LIKE 'sl\_recovery\_%' AND NOT active`)
+	if err != nil {
+		t.Logf("could not list replication slots: %v", err)
+		return
+	}
+	stale := func() []string {
+		defer rows.Close()
+		var names []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err == nil {
+				names = append(names, name)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			t.Logf("reading replication slots: %v", err)
+		}
+		return names
+	}()
+
+	for _, name := range stale {
+		if _, err := db.ExecContext(context.Background(),
+			`SELECT pg_drop_replication_slot($1)`, name); err != nil {
+			t.Logf("could not drop the stale slot %s: %v", name, err)
+			continue
+		}
+		t.Logf("dropped replication slot %s, left by an interrupted run", name)
+	}
 }
 
 func (h *recoveryHarness) dropSlot(t *testing.T) {
