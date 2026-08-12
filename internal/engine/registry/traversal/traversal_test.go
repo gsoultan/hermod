@@ -2,6 +2,7 @@ package traversal_test
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -18,6 +19,23 @@ type mockRegistry struct {
 	LogSvc            hermod.Logger
 	RunWorkflowNodeFn func(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error)
 	Logs              []string
+
+	breakerMu       sync.Mutex
+	BreakerFailures []string
+}
+
+// RecordCircuitBreakerFailure records which breakers were charged for a failure.
+func (m *mockRegistry) RecordCircuitBreakerFailure(_, breakerNodeID string) {
+	m.breakerMu.Lock()
+	defer m.breakerMu.Unlock()
+	m.BreakerFailures = append(m.BreakerFailures, breakerNodeID)
+}
+
+// chargedBreakers returns the breakers charged so far.
+func (m *mockRegistry) chargedBreakers() []string {
+	m.breakerMu.Lock()
+	defer m.breakerMu.Unlock()
+	return append([]string(nil), m.BreakerFailures...)
 }
 
 func (m *mockRegistry) RunWorkflowNode(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {

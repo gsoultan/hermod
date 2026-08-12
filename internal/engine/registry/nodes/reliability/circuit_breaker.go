@@ -15,8 +15,30 @@ func init() {
 	interfaces.RegisterNodeExecutor("circuit_breaker", &CircuitBreakerExecutor{})
 }
 
+// failureWindow is how long a failure counts for.
+//
+// A breaker opens on *recent* failures. Counting every failure since the
+// process started would trip a healthy system on its next single failure
+// because of a bad ten minutes last week, and leave it tripped.
+//
+// Ageing the count out is also what keeps this off the hot path: the
+// alternative is resetting on success, which means every successful message
+// looking up whether a breaker feeds it. Nothing is spent while nothing fails.
+const failureWindow = 2 * time.Minute
+
+// cooldown is how long an open breaker waits before letting one through to see
+// whether the downstream has recovered.
+const cooldown = 30 * time.Second
+
 func (e *CircuitBreakerExecutor) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	state := e.getCBState(nctx, node.ID)
+
+	// Failures older than the window are not evidence about now.
+	if state.Status == "CLOSED" && state.Failures > 0 &&
+		time.Since(state.LastFailure) > failureWindow {
+		state.Failures = 0
+		e.setCBState(nctx, node.ID, state)
+	}
 	threshold, _ := node.Config["failure_threshold"].(float64)
 	if threshold == 0 {
 		threshold = 5
@@ -29,7 +51,7 @@ func (e *CircuitBreakerExecutor) Execute(ctx context.Context, nctx interfaces.No
 	}
 
 	if state.Status == "OPEN" {
-		if time.Since(state.LastFailure) > 30*time.Second {
+		if time.Since(state.LastFailure) > cooldown {
 			state.Status = "HALF_OPEN"
 			e.setCBState(nctx, node.ID, state)
 		} else {

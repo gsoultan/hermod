@@ -19,6 +19,8 @@ type Registry interface {
 	PauseForDebugger(workflowID string, nodeID string, msg hermod.Message)
 	BroadcastLog(workflowID, level, message, details string)
 	Logger() hermod.Logger
+	// RecordCircuitBreakerFailure counts a downstream failure against a breaker.
+	RecordCircuitBreakerFailure(workflowID, breakerNodeID string)
 }
 
 type WorkflowTraversal struct {
@@ -122,6 +124,32 @@ func (t *WorkflowTraversal) Traverse(ctx context.Context, startNodeID string) {
 	t.Wg.Wait()
 }
 
+// countAgainstBreakers records a failure against every circuit breaker that
+// feeds the failed node.
+//
+// A breaker protects what it feeds, so its immediate downstream is what counts
+// against it. Anything further along is deliberately not counted: a breaker
+// three nodes upstream of a failure has no useful relationship to it, and
+// guessing otherwise makes a control that trips for reasons nobody can trace.
+//
+// The reverse lookup runs only when something has failed. That is why the count
+// ages out rather than resetting on success — resetting would put this on every
+// successful message to serve a case that is rare by definition.
+func (t *WorkflowTraversal) countAgainstBreakers(failedID string) {
+	for parent, targets := range t.Adj {
+		node := t.NodeMap[parent]
+		if node == nil || node.Type != "circuit_breaker" {
+			continue
+		}
+		for _, target := range targets {
+			if target == failedID {
+				t.Registry.RecordCircuitBreakerFailure(t.WorkflowID, parent)
+				break
+			}
+		}
+	}
+}
+
 // nodeWritesInline reports whether a sink node performs its own write, in which
 // case the async writers must not write it again. It reads the same flag the
 // sink executor reads (nodes/core/sink.go).
@@ -189,6 +217,10 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	//
 	// The message is dead-lettered here, while it is still alive: the deferred
 	// release above frees it as soon as this function returns.
+	if err != nil {
+		t.countAgainstBreakers(currID)
+	}
+
 	if err != nil && t.Eng != nil {
 		if !t.Eng.DeadLetterNodeFailure(ctx, currNode.ID, currMsg, err) {
 			t.Registry.BroadcastLog(t.WorkflowID, "ERROR", fmt.Sprintf(
