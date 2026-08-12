@@ -174,7 +174,7 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 
 	switch cfg.Type {
 	case "postgres":
-		src = sourcepostgres.NewPostgresSource(
+		pgSrc := sourcepostgres.NewPostgresSource(
 			connString,
 			cfg.Config["slot_name"],
 			cfg.Config["publication_name"],
@@ -183,6 +183,11 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 			cfg.Config["query"],
 			pollInterval,
 		)
+		// Off unless asked for. Turning it on by default would make every
+		// existing workflow re-read its source tables the first time a slot was
+		// recreated, which is the opposite of what an upgrade should do.
+		pgSrc.SetInitialLoad(cfg.Config["initial_load"] == "true")
+		src = pgSrc
 	case "mssql":
 		autoEnable := cfg.Config["auto_enable_cdc"] != "false"
 		src = mssql.NewMSSQLSource(connString, tables, autoEnable, useCDC)
