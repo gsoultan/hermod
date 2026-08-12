@@ -28,6 +28,20 @@ Delivery is **at-least-once** with sink-side idempotency for duplicate suppressi
 Where this document says a guarantee is scoped or unfinished, that is the literal
 state of the code, not modesty.
 
+**There is no automatic initial load.** Starting a CDC workflow streams changes from
+that moment on; rows already in the table are not carried across. A snapshot is a
+separate, manually triggered operation (`hermod.Snapshottable`, exposed on the source
+API), and it is not coordinated with the replication slot: it reads through an
+ordinary cursor rather than the slot's exported snapshot, so nothing ties "everything
+up to LSN X" to "every change after LSN X".
+
+The practical consequence is that a backfill and a stream have to be sequenced by
+hand. Create the replication slot first, then snapshot, then stream — that order
+overlaps rather than gaps, and the duplicates it produces are what sink-side
+idempotency is for. Snapshotting before the slot exists loses every change made in
+between, silently. Tools that do this for you — Debezium, Fivetran, Airbyte — treat a
+consistent snapshot-to-stream handoff as table stakes; Hermod does not have one yet.
+
 ---
 
 ## Enterprise Data Platform Features
@@ -634,6 +648,11 @@ Thin, untested, or semantically limited. Specific caveats where they matter:
 | **Mainframe**, **Dynamics 365**, **ServiceNow**, **Salesforce** | Thin REST/OData clients, no tests. |
 | **Social / SaaS** — Slack, Discord, Telegram, Twitter/X, LinkedIn, Facebook, Instagram, TikTok, Google Sheets, Google Analytics, Firebase, FCM | Small API wrappers. Contract-tested, but no data-path coverage. Fine for notifications; not for data of record. |
 | **Pinecone**, **Milvus**, **Kinesis**, **Pub/Sub**, **Pulsar**, **FTP**, **generic CDC**, **GraphQL**, **cron**, **webhook**, **form**, **batchsql**, **gRPC** | Minimal implementations. Contract-tested; no data-path coverage. |
+
+GA describes the *data path* — that changes are captured and land correctly. It does
+not mean a connector carries existing rows across when a workflow starts: no source
+does, including PostgreSQL. See [Maturity, up front](#maturity-up-front) for what
+initial load requires today.
 
 Moving a connector up a tier means adding the missing evidence, not editing this
 table. If you depend on one, an integration test is the most useful contribution you
