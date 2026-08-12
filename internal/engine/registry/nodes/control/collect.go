@@ -85,14 +85,33 @@ func (n *CollectNode) finish(ctx context.Context, nctx interfaces.NodeContext, s
 	resMsg.SetData(targetField, items)
 	resMsg.SetData("_count", len(items))
 
-	_ = store.Delete(ctx, key)
+	// The batch is complete and is emitted below, so a failed cleanup must not
+	// fail it — that would throw away work that succeeded. It does have to be
+	// loud: the items stay behind, and the next group with this id starts
+	// part-full and emits a batch carrying another group's data.
+	if err := store.Delete(ctx, key); err != nil {
+		nctx.BroadcastLog(workflowID, "ERROR", fmt.Sprintf(
+			"Collect emitted group %s but could not clear its state (%v); the next group "+
+				"with this id will start with these %d items still in it", groupID, err, len(items)), msg.ID())
+	}
 	nctx.BroadcastLog(workflowID, "INFO", fmt.Sprintf("Collect complete for group %s (%d items)", groupID, len(items)), msg.ID())
 	return []hermod.Message{resMsg}, "", nil
 }
 
 func (n *CollectNode) persist(ctx context.Context, nctx interfaces.NodeContext, store hermod.StateStore, workflowID string, key string, items []any, groupID string, total int, msgID string) ([]hermod.Message, string, error) {
-	newData, _ := json.Marshal(items)
-	_ = store.Set(ctx, key, newData)
+	newData, err := json.Marshal(items)
+	if err != nil {
+		return nil, "", fmt.Errorf("collect: could not encode the group so far: %w", err)
+	}
+
+	// This returns no messages: the item is accumulated in the state store and
+	// the group emits once it is complete. An item that was not stored is not
+	// merely one lost message — the group never reaches its total, so every
+	// message already collected into it is lost with it.
+	if err := store.Set(ctx, key, newData); err != nil {
+		return nil, "", fmt.Errorf("collect: could not store item %d/%d for group %s, "+
+			"so the group would never complete: %w", len(items), total, groupID, err)
+	}
 
 	nctx.BroadcastLog(workflowID, "INFO", fmt.Sprintf("Collected %d/%d items for group %s", len(items), total, groupID), msgID)
 	return nil, "", nil

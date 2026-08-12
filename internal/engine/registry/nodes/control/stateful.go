@@ -63,11 +63,23 @@ func (n *StatefulNode) getCurrentValue(ctx context.Context, nctx interfaces.Node
 	return 0
 }
 
+// saveValue persists the accumulator.
+//
+// A failure does not lose the message — it carries the new value onward — so
+// this does not fail the message over something the next one may well succeed
+// at. It is logged because the consequence is quiet and lasting: the next
+// message reads the stale value, and every total after that is wrong with
+// nothing to say why.
 func (n *StatefulNode) saveValue(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, val float64) {
 	key := workflowID + ":" + node.ID
-	if store := nctx.StateStore(); store != nil {
-		_ = store.Set(ctx, "node:"+key, []byte(fmt.Sprintf("%f", val)))
-	} else {
+	store := nctx.StateStore()
+	if store == nil {
 		nctx.SetNodeState(key, val)
+		return
+	}
+	if err := store.Set(ctx, "node:"+key, []byte(fmt.Sprintf("%f", val))); err != nil {
+		nctx.BroadcastLog(workflowID, "ERROR", fmt.Sprintf(
+			"Stateful node %s could not persist its value (%v); the next message will read "+
+				"the previous one and the running total will be wrong", node.ID, err), "")
 	}
 }
