@@ -630,8 +630,9 @@ which is why they were untested; anything new in that shape should provide it to
 | **MySQL** | source + sink | Live-DB integration tests, idempotency coverage (`MYSQL_DSN`) |
 | **SQLite** | source + sink | Local-file engine, tested in-process |
 | **File** | source + sink | 1,238-line source with tests; used throughout the e2e suite |
-| **RabbitMQ** | source | Queue integration test against a live broker |
+| **RabbitMQ** | source + sink | Queue integration tests against a live broker, both directions: the sink's messages are consumed back off the queue |
 | **Redis** | sink | Integration test against a live server |
+| **MongoDB** | sink | Live-server data-path tests: documents land, a repeated key does not duplicate, updates replace, deletes remove, batches arrive whole |
 
 ### Beta
 
@@ -639,9 +640,9 @@ Substantial and unit-tested, but unproven against live infrastructure in CI:
 
 **Sources** — MSSQL, MariaDB, ClickHouse, MongoDB, gRPC, MQTT, WebSocket, HTTP,
 BatchSQL, Excel.
-**Sinks** — MSSQL, Oracle, ClickHouse, Elasticsearch, SMTP, Snowflake, MongoDB,
-RabbitMQ, Kafka *(at-least-once; no transactional producer)*, HTTP, WebSocket,
-S3 / S3-Parquet, pgvector, Failover.
+**Sinks** — MSSQL, Oracle, ClickHouse, Elasticsearch, SMTP, Snowflake,
+Kafka *(at-least-once; no transactional producer)*, HTTP, WebSocket,
+S3 / S3-Parquet, pgvector, Failover, TxGroup.
 
 ### Experimental
 
