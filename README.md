@@ -28,19 +28,26 @@ Delivery is **at-least-once** with sink-side idempotency for duplicate suppressi
 Where this document says a guarantee is scoped or unfinished, that is the literal
 state of the code, not modesty.
 
-**There is no automatic initial load.** Starting a CDC workflow streams changes from
-that moment on; rows already in the table are not carried across. A snapshot is a
-separate, manually triggered operation (`hermod.Snapshottable`, exposed on the source
-API), and it is not coordinated with the replication slot: it reads through an
-ordinary cursor rather than the slot's exported snapshot, so nothing ties "everything
-up to LSN X" to "every change after LSN X".
+**Initial load is available for PostgreSQL, and off by default.** Set
+`initial_load: "true"` on a Postgres CDC source and the rows already in the watched
+tables are carried across before streaming begins.
 
-The practical consequence is that a backfill and a stream have to be sequenced by
-hand. Create the replication slot first, then snapshot, then stream — that order
-overlaps rather than gaps, and the duplicates it produces are what sink-side
-idempotency is for. Snapshotting before the slot exists loses every change made in
-between, silently. Tools that do this for you — Debezium, Fivetran, Airbyte — treat a
-consistent snapshot-to-stream handoff as table stakes; Hermod does not have one yet.
+It is consistent rather than approximate. The replication slot is created over the
+replication protocol so that it exports a snapshot, the backfill reads at exactly
+that snapshot, and streaming starts from the slot's consistent point — so nothing
+committed before the boundary is missed and nothing is read twice at it.
+
+It runs only when the slot is created, which is the source's own record of having run
+before: if the slot exists, changes have already streamed from it and the rows are
+downstream. That makes the backfill once-only with no extra bookkeeping, and it means
+turning the flag on for a workflow that is already running does nothing until the
+slot is dropped.
+
+Off by default deliberately: enabling it for every existing workflow would re-read
+every source table the first time a slot was recreated, which is the opposite of what
+an upgrade should do. Other CDC sources still have no initial load — for those, a
+backfill and a stream have to be sequenced by hand, slot first, and the duplicates
+that ordering produces are what sink-side idempotency is for.
 
 ---
 
@@ -650,9 +657,9 @@ Thin, untested, or semantically limited. Specific caveats where they matter:
 | **Pinecone**, **Milvus**, **Kinesis**, **Pub/Sub**, **Pulsar**, **FTP**, **generic CDC**, **GraphQL**, **cron**, **webhook**, **form**, **batchsql**, **gRPC** | Minimal implementations. Contract-tested; no data-path coverage. |
 
 GA describes the *data path* — that changes are captured and land correctly. It does
-not mean a connector carries existing rows across when a workflow starts: no source
-does, including PostgreSQL. See [Maturity, up front](#maturity-up-front) for what
-initial load requires today.
+not mean a connector carries existing rows across when a workflow starts: only the
+PostgreSQL source does, and only when asked. See
+[Maturity, up front](#maturity-up-front).
 
 Moving a connector up a tier means adding the missing evidence, not editing this
 table. If you depend on one, an integration test is the most useful contribution you

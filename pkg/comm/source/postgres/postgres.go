@@ -89,12 +89,26 @@ type PostgresSource struct {
 	appName         string        // Stable, instance-unique application_name for the replication connection
 	pool            *pgxpool.Pool // Shared connection pool for metadata
 	replConn        *pgx.Conn     // Replication connection for streaming
-	typeMap         *pgtype.Map
-	relations       map[uint32]*pglogrepl.RelationMessage
-	mu              sync.Mutex
-	initialized     bool
-	lastReceivedLSN pglogrepl.LSN
-	lastAckedLSN    pglogrepl.LSN
+
+	// initialLoad asks for the rows already in the watched tables to be carried
+	// across before streaming begins. Off by default: turning it on for an
+	// existing workflow would re-read every source table on the next restart.
+	initialLoad bool
+	// snapshotHoldConn is the replication connection that created the slot and
+	// exported the snapshot. The snapshot stays valid only while it is open, so
+	// it is held for the backfill and closed straight after.
+	snapshotHoldConn *pgx.Conn
+	// exportedSnapshot is the snapshot the slot exported when it was created,
+	// valid only while replConn stays open. Empty when there is no backfill to
+	// run — because none was asked for, or because the slot already existed and
+	// a consistent one is no longer obtainable.
+	exportedSnapshot string
+	typeMap          *pgtype.Map
+	relations        map[uint32]*pglogrepl.RelationMessage
+	mu               sync.Mutex
+	initialized      bool
+	lastReceivedLSN  pglogrepl.LSN
+	lastAckedLSN     pglogrepl.LSN
 	// lastStreamActivity (unix nanos) is when anything last arrived on the
 	// replication stream, keepalives included. Read without the mutex by the
 	// engine's liveness watcher, so it is atomic.
@@ -377,6 +391,70 @@ func (p *PostgresSource) createPublicationWithAllTables(ctx context.Context, quo
 	return nil
 }
 
+// SetInitialLoad asks for a one-time backfill of the watched tables before
+// streaming starts.
+//
+// It happens only when the replication slot is created, which is the source's
+// own record of having run before: if the slot exists, changes have been
+// streamed from it and the rows are already downstream. That makes the backfill
+// once-only without any extra bookkeeping, and means enabling this on a running
+// workflow does nothing until the slot is dropped.
+func (p *PostgresSource) SetInitialLoad(enabled bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.initialLoad = enabled
+}
+
+// runInitialLoad carries the rows already in the watched tables across, reading
+// at the snapshot the slot exported when it was created.
+//
+// A failure is logged rather than returned: the slot exists by this point and is
+// already accumulating WAL, so refusing to stream would strand it while solving
+// nothing. What is lost is the pre-existing rows, which is exactly what the log
+// says.
+func (p *PostgresSource) runInitialLoad(ctx context.Context, tables []string) {
+	defer func() {
+		// Release the snapshot and the connection holding it open. Leaving that
+		// connection around would keep a transaction open on the server for the
+		// life of the source, which holds back vacuum on every table it can see.
+		p.mu.Lock()
+		p.exportedSnapshot = ""
+		hold := p.snapshotHoldConn
+		p.snapshotHoldConn = nil
+		p.mu.Unlock()
+
+		if hold != nil {
+			closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = hold.Close(closeCtx)
+		}
+	}()
+
+	if len(tables) == 0 {
+		discovered, err := p.DiscoverTables(ctx)
+		if err != nil {
+			p.log("ERROR", "Initial load could not discover tables; rows already in the "+
+				"source will not be carried across", "error", err.Error())
+			return
+		}
+		tables = discovered
+	}
+
+	p.log("INFO", "Initial load starting", "tables", strings.Join(tables, ","))
+	for _, table := range tables {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := p.snapshotTable(ctx, table); err != nil {
+			p.log("ERROR", "Initial load failed for a table; its existing rows were not "+
+				"carried across, though later changes to it will still stream",
+				"table", table, "error", err.Error())
+			continue
+		}
+	}
+	p.log("INFO", "Initial load complete; streaming changes from the slot's consistent point")
+}
+
 func (p *PostgresSource) ensureReplicationSlot(ctx context.Context) error {
 	var exists bool
 	err := p.pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)", p.slotName).Scan(&exists)
@@ -384,16 +462,135 @@ func (p *PostgresSource) ensureReplicationSlot(ctx context.Context) error {
 		return fmt.Errorf("failed to check if replication slot exists: %w", err)
 	}
 
-	if !exists {
-		_, err = p.pool.Exec(ctx, "SELECT pg_create_logical_replication_slot($1, 'pgoutput')", p.slotName)
-		if err != nil {
-			if strings.Contains(err.Error(), "wal_level") {
-				return fmt.Errorf("failed to create replication slot: wal_level must be set to 'logical' in postgres.conf: %w", err)
-			}
-			return fmt.Errorf("failed to create replication slot: %w", err)
-		}
-		p.log("INFO", "Created replication slot", "slot", p.slotName)
+	if exists {
+		// The slot has streamed before, so the rows are already downstream and
+		// there is nothing to backfill. This is also why the backfill needs no
+		// separate "already done" record.
+		return nil
 	}
+
+	if p.wantsInitialLoad() {
+		err := p.createSlotWithExportedSnapshot(ctx)
+		if err == nil {
+			return nil
+		}
+		// Fall through to the ordinary creation below rather than refuse to
+		// start. Without the exported snapshot there is no consistent backfill,
+		// so none is attempted — streaming a table's changes is still better
+		// than not starting at all, and the log says what was lost.
+		p.log("WARN", "Could not create the slot with an exported snapshot; "+
+			"starting without an initial load, so rows already in the table will not be carried across",
+			"slot", p.slotName, "error", err.Error())
+	}
+
+	_, err = p.pool.Exec(ctx, "SELECT pg_create_logical_replication_slot($1, 'pgoutput')", p.slotName)
+	if err != nil {
+		if strings.Contains(err.Error(), "wal_level") {
+			return fmt.Errorf("failed to create replication slot: wal_level must be set to 'logical' in postgres.conf: %w", err)
+		}
+		return fmt.Errorf("failed to create replication slot: %w", err)
+	}
+	p.log("INFO", "Created replication slot", "slot", p.slotName)
+	return nil
+}
+
+// validSlotName mirrors what PostgreSQL accepts for a replication slot. The
+// replication protocol takes no parameters, so the name is inlined into the
+// command and has to be checked rather than escaped.
+func validSlotName(name string) bool {
+	if name == "" || len(name) > 63 {
+		return false
+	}
+	for _, r := range name {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// isSyntaxError reports whether the server rejected the command as malformed,
+// which is how a pre-15 server answers the modern option-list spelling and how
+// a modern one answers the legacy keyword.
+func isSyntaxError(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "42601"
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "syntax error")
+}
+
+func (p *PostgresSource) wantsInitialLoad() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.initialLoad
+}
+
+// createSlotWithExportedSnapshot creates the slot over the replication protocol
+// so it exports a snapshot, which is what makes a gapless handoff possible.
+//
+// pg_create_logical_replication_slot(), the SQL function used otherwise, cannot
+// export one. Only CREATE_REPLICATION_SLOT on a replication connection can, and
+// the snapshot it hands back is valid only while that connection stays open —
+// which is why the backfill runs before streaming starts on the same connection,
+// and why this is the only moment a consistent backfill is available at all.
+//
+// The snapshot is taken at the slot's consistent point, so every change after it
+// arrives on the stream: no gap, and no duplicate beyond what the delivery
+// guarantee already allows.
+func (p *PostgresSource) createSlotWithExportedSnapshot(ctx context.Context) error {
+	// A connection of its own, not the one used for streaming.
+	//
+	// Exporting a snapshot holds a transaction open on the connection that
+	// created the slot, for as long as the snapshot must stay readable. Reusing
+	// that connection to stream afterwards leaves it pinned by that
+	// transaction: replication starts, reports itself connected at the
+	// consistent point, and then never advances. Streaming keeps its own
+	// connection, and this one is closed once the backfill is done.
+	conn, err := p.openReplicationConn(ctx)
+	if err != nil {
+		return fmt.Errorf("replication connection for the exported snapshot: %w", err)
+	}
+	keep := false
+	defer func() {
+		if !keep {
+			closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = conn.Close(closeCtx)
+		}
+	}()
+
+	// The command is issued here rather than through pglogrepl's helper, which
+	// still emits the pre-15 form ("... pgoutput EXPORT_SNAPSHOT"). PostgreSQL 15
+	// replaced that with a parenthesised option list and removed the old
+	// keyword, so the helper fails with a syntax error on any current server.
+	// Both spellings are tried, newest first.
+	if !validSlotName(p.slotName) {
+		return fmt.Errorf("slot name %q is not a valid replication slot name; "+
+			"only lower-case letters, digits and underscores are allowed", p.slotName)
+	}
+
+	res, err := pglogrepl.ParseCreateReplicationSlot(conn.PgConn().Exec(ctx,
+		fmt.Sprintf("CREATE_REPLICATION_SLOT %s LOGICAL pgoutput (SNAPSHOT 'export')", p.slotName)))
+	if err != nil && isSyntaxError(err) {
+		res, err = pglogrepl.ParseCreateReplicationSlot(conn.PgConn().Exec(ctx,
+			fmt.Sprintf("CREATE_REPLICATION_SLOT %s LOGICAL pgoutput EXPORT_SNAPSHOT", p.slotName)))
+	}
+	if err != nil {
+		if strings.Contains(err.Error(), "wal_level") {
+			return fmt.Errorf("wal_level must be set to 'logical': %w", err)
+		}
+		return err
+	}
+
+	p.mu.Lock()
+	p.exportedSnapshot = res.SnapshotName
+	p.snapshotHoldConn = conn
+	p.mu.Unlock()
+	keep = true
+
+	p.log("INFO", "Created replication slot with an exported snapshot for the initial load",
+		"slot", p.slotName, "consistent_point", res.ConsistentPoint, "snapshot", res.SnapshotName)
 	return nil
 }
 
@@ -1344,6 +1541,31 @@ func (p *PostgresSource) ensureReplConn(ctx context.Context) error {
 	return nil
 }
 
+// openReplicationConn dials a fresh replication connection. The caller owns it.
+func (p *PostgresSource) openReplicationConn(ctx context.Context) (*pgx.Conn, error) {
+	connConfig, pooled, err := pgxutil.ParseConfig(p.connString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string for replication: %w", err)
+	}
+	if pooled {
+		return nil, errors.New("CDC requires a direct Postgres connection; PgBouncer " +
+			"transaction/statement mode does not support logical replication")
+	}
+	if connConfig.RuntimeParams == nil {
+		connConfig.RuntimeParams = make(map[string]string)
+	}
+	connConfig.RuntimeParams["replication"] = "database"
+
+	p.mu.Lock()
+	appName := p.appName
+	p.mu.Unlock()
+	if strings.TrimSpace(appName) != "" {
+		connConfig.RuntimeParams["application_name"] = appName
+	}
+
+	return pgx.ConnectConfig(ctx, connConfig)
+}
+
 func (p *PostgresSource) ensureConnNoLock(ctx context.Context) error {
 	if p.pool != nil {
 		return nil
@@ -1469,7 +1691,17 @@ func (p *PostgresSource) initialize(ctx context.Context) error {
 	}
 	streamCtx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
+	backfill := p.exportedSnapshot
+	tables := append([]string(nil), p.tables...)
 	p.wg.Go(func() {
+		// The backfill runs before streaming and on the same goroutine, so the
+		// rows already in the tables reach the pipeline ahead of any change to
+		// them. It cannot run inline in Read(): it delivers into the same
+		// channel Read drains, so the first call would block on a full buffer
+		// and never return to empty it.
+		if backfill != "" {
+			p.runInitialLoad(streamCtx, tables)
+		}
 		p.streamLoop(streamCtx)
 	})
 
@@ -2435,11 +2667,28 @@ func (p *PostgresSource) streamSnapshotCursor(ctx context.Context, conn *pgx.Con
 		colList = strings.Join(colNames, ", ")
 	}
 
-	tx, err := conn.Begin(ctx)
+	// A backfill that is part of an initial load reads at the slot's consistent
+	// point, so it sees the database exactly as of the moment streaming begins:
+	// nothing committed before it is missed, and nothing after it is read twice.
+	// REPEATABLE READ is required — SET TRANSACTION SNAPSHOT is rejected at READ
+	// COMMITTED — and it has to be the first statement in the transaction.
+	snapshot := p.currentExportedSnapshot()
+
+	txOpts := pgx.TxOptions{}
+	if snapshot != "" {
+		txOpts.IsoLevel = pgx.RepeatableRead
+	}
+	tx, err := conn.BeginTx(ctx, txOpts)
 	if err != nil {
 		return fmt.Errorf("failed to begin snapshot tx for %q: %w", table, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if snapshot != "" {
+		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+quoteLiteral(snapshot)); err != nil {
+			return fmt.Errorf("failed to bind the snapshot for %q: %w", table, err)
+		}
+	}
 
 	// Cursor name is derived from a UUID (hex only), so it is a safe identifier.
 	cursorName := "hermod_snap_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -2457,6 +2706,19 @@ func (p *PostgresSource) streamSnapshotCursor(ctx context.Context, conn *pgx.Con
 			return nil
 		}
 	}
+}
+
+func (p *PostgresSource) currentExportedSnapshot() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.exportedSnapshot
+}
+
+// quoteLiteral renders a string as a SQL literal. Snapshot names come from the
+// server, but SET TRANSACTION SNAPSHOT takes no parameters, so the value has to
+// be inlined and must be escaped rather than trusted.
+func quoteLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 // fetchSnapshotBatch fetches and emits a single cursor batch, returning the
