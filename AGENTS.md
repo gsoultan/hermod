@@ -238,10 +238,46 @@ arrives with its tests written afterwards is rejected in review, regardless of w
 Prose-only documentation, generated code (`buf generate` output), and pure formatting need no new test —
 but must still not break the existing suite. Everything else is covered by the law above.
 
+### Reachability: test the way the feature is configured
+
+**A feature configured through storage needs one test that starts from storage.** Not a
+unit test of its parts, and not an integration test that constructs those parts by hand —
+one test that reads the configuration the way the running system reads it, builds what the
+running system builds, and asserts the feature works.
+
+This rule exists because it kept not existing. Three bugs with the same shape:
+
+| Feature | Unit tests | Integration tests | Reality |
+| --- | --- | --- | --- |
+| Transactional sink group | passed | passed | could not start at all — members built through the factory are wrapped in decorators that do not forward `Prepare`, so the group rejected every one |
+| Session revocation | passed | n/a | the issued token carried no `jti`, so logging out revoked nothing |
+| Worker failover | passed | passed | a cancelled context stranded the registry entry, wedging the workflow permanently |
+
+Each had good coverage of both sides of a seam and none of the join. The parts were right;
+the assembly was not, and no test looked at the assembly.
+
+**What counts**
+
+- It starts where the operator starts: a stored record, an API call, a config file.
+- It goes through the real construction path — factory, registry, middleware — rather than
+  calling constructors directly.
+- It asserts the observable outcome: rows in the target database, a 401 from the endpoint,
+  a message delivered. Not an intermediate value.
+- It fails when the feature is unreachable. Confirm that by breaking the wiring on purpose
+  and watching it fail — a regression test that does not catch its own regression is
+  decoration.
+
+`internal/engine/registry/txgroup_reachability_integration_test.go` is the worked example:
+stored sink configuration → registry → factory → group → two real PostgreSQL databases.
+
+**When to skip it.** Pure functions, parsers, and anything with no configured construction
+path. There is no assembly to get wrong.
+
 ### Definition of Done
 
 - [ ] Roll call recorded; every engaged profile signed off with evidence
 - [ ] A test existed, failed first, and now passes — observed, not assumed
+- [ ] A feature built from stored configuration has a reachability test (see above)
 - [ ] `rtk go test -race ./...` green
 - [ ] `rtk golangci-lint run ./...` and `rtk govulncheck ./...` clean (Go changes)
 - [ ] `rtk bun run typecheck` + `rtk bun run lint` clean (UI changes)
