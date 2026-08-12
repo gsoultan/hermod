@@ -6,6 +6,8 @@ import (
 	"os"
 	"time"
 
+	dashboardhttp "github.com/user/hermod/internal/dashboard/transport/http"
+
 	"github.com/user/hermod/internal/storage"
 )
 
@@ -34,6 +36,7 @@ func (h *InfraHandler) HandleReadiness(w http.ResponseWriter, r *http.Request) {
 	overallOK := true
 
 	// 1. Database Check
+	dbStart := time.Now()
 	dbOK := true
 	if h.Storage != nil {
 		if _, _, err := h.Storage.ListSources(ctx, storage.CommonFilter{Limit: 1}); err != nil {
@@ -42,8 +45,11 @@ func (h *InfraHandler) HandleReadiness(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	checks["database"] = map[string]any{"ok": dbOK}
+	recordReadiness("database", dbOK, dbStart)
 
 	// 2. Workers Check
+	workersStart := time.Now()
+	workersOK := true
 	recentWorkers := 0
 	staleWorkers := 0
 	ttl := 60
@@ -58,6 +64,7 @@ func (h *InfraHandler) HandleReadiness(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		} else {
+			workersOK = false
 			overallOK = false
 		}
 	}
@@ -66,8 +73,10 @@ func (h *InfraHandler) HandleReadiness(w http.ResponseWriter, r *http.Request) {
 		"recent":      recentWorkers,
 		"stale":       staleWorkers,
 	}
+	recordReadiness("workers", workersOK, workersStart)
 
 	// 3. Leases Check
+	leasesStart := time.Now()
 	leasesOK := true
 	activeOwned := 0
 	totalActive := 0
@@ -94,6 +103,7 @@ func (h *InfraHandler) HandleReadiness(w http.ResponseWriter, r *http.Request) {
 		"total":        totalActive,
 		"active_owned": activeOwned,
 	}
+	recordReadiness("leases", leasesOK, leasesStart)
 
 	if os.Getenv("HERMOD_READY_LEASES_REQUIRED") == "true" && !leasesOK {
 		overallOK = false
@@ -109,6 +119,26 @@ func (h *InfraHandler) HandleReadiness(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.RespondReadiness(w, overallOK, status, checks)
+}
+
+// recordReadiness publishes the result of one readiness check.
+//
+// hermod_readiness_status and hermod_readiness_latency_seconds were declared,
+// documented and written by nothing. A gauge nobody writes is worse than a
+// missing one: it appears in the metrics endpoint, an operator builds an alert
+// on it, and the alert never fires because the series never changes.
+//
+// The label is per component because "the service is unready" is not
+// actionable and "the database check failed" is. The latency is worth having on
+// its own: a readiness check that has become slow is the warning before it
+// starts failing.
+func recordReadiness(component string, ok bool, started time.Time) {
+	value := 0.0
+	if ok {
+		value = 1.0
+	}
+	dashboardhttp.ReadinessStatus.WithLabelValues(component).Set(value)
+	dashboardhttp.ReadinessLatencySeconds.WithLabelValues(component).Observe(time.Since(started).Seconds())
 }
 
 func statusFromBool(ok bool) string {
