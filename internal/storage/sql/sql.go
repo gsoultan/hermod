@@ -171,6 +171,14 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		return err
 	}
 
+	// Record what was applied, now that everything succeeded. A failed migration
+	// returns above and leaves the previous fingerprint in place, which is what
+	// makes a half-applied schema visible instead of silent.
+	//
+	// Failing to write the note is not a reason to refuse to start: the schema
+	// itself is correct at this point.
+	_ = s.recordSchemaState(ctx)
+
 	// Backfill vhost ids that are missing (NULL or empty). Such rows can be
 	// created when a vhost is inserted directly into the database without an id,
 	// which makes them impossible to edit/delete from the UI because the edit
