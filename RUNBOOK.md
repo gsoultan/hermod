@@ -164,6 +164,34 @@ jq '{sources: (.sources|length), sinks: (.sinks|length), workflows: (.workflows|
 
 Compare against the live counts. Better: restore into a scratch instance.
 
+### Scheduling one
+
+Backups can be written on a timer. It is **off unless a destination is named** —
+there is no default directory, so it cannot be switched on by accident, which for
+this payload matters more than convenience.
+
+The destination must not be readable beyond its owner. A backup is every
+credential in the deployment in plaintext; a `0755` directory would make that
+readable by every user on the host, so the schedule refuses to start rather than
+writing one there:
+
+```
+Scheduled backups are configured but disabled: backup directory "/var/backups"
+is mode 0755 and readable beyond its owner; ... chmod 700 it
+```
+
+Files are written `0600`, through a temporary file renamed into place, so a
+reader never sees a half-written backup and a crash never leaves one. Retention
+keeps the newest N and only ever deletes files it wrote itself — a destination
+shared with anything else cannot lose that.
+
+Every outcome is logged, successes included, which is how you confirm the
+schedule is alive without going to look at the directory. A failure is logged
+and retried on the next tick rather than stopping the service.
+
+The same refusals as the manual export apply: a deployment over the object cap
+gets no file at all rather than a truncated one.
+
 ### Restoring
 
 ```bash
@@ -280,7 +308,6 @@ say so.
 
 Stated so nobody assumes otherwise:
 
-- **Scheduled backups.** Not implemented.
 - **Restoring a single workflow** from a full backup. The import is all-or-nothing
   per object; there is no selective restore.
 - **Multi-region failover.** Untested.

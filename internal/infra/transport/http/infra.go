@@ -1250,6 +1250,65 @@ type BackupData struct {
 	Settings   map[string]string   `json:"settings"`
 }
 
+// ErrExportTooLarge reports that a deployment holds more objects of one kind
+// than an export carries. The export refuses rather than truncating: a backup
+// missing its overflow is not partially useful, and the operator finds out
+// during a restore, which is the one moment they cannot afford to.
+type ErrExportTooLarge struct {
+	Kind  string
+	Total int
+	Limit int
+}
+
+func (e *ErrExportTooLarge) Error() string {
+	return fmt.Sprintf("this deployment has %d %s, more than the %d an export carries; "+
+		"the backup was refused rather than silently truncated", e.Total, e.Kind, e.Limit)
+}
+
+// CollectBackup gathers everything a backup carries.
+//
+// It is shared by the download endpoint and the scheduled writer, so the two
+// cannot drift: whatever the endpoint refuses to produce, the scheduler refuses
+// to write. Every list surfaces its error rather than discarding it — an
+// unreachable database used to produce a plausible-looking file full of empty
+// arrays.
+func (h *InfraHandler) CollectBackup(ctx context.Context) (BackupData, error) {
+	data := BackupData{Settings: make(map[string]string)}
+	filter := storage.CommonFilter{Limit: exportLimit}
+
+	var total int
+	var err error
+	if data.Sources, total, err = h.Storage.ListSources(ctx, filter); err != nil {
+		return data, fmt.Errorf("cannot export sources, so this backup would be incomplete: %w", err)
+	} else if total > exportLimit {
+		return data, &ErrExportTooLarge{Kind: "sources", Total: total, Limit: exportLimit}
+	}
+	if data.Sinks, total, err = h.Storage.ListSinks(ctx, filter); err != nil {
+		return data, fmt.Errorf("cannot export sinks, so this backup would be incomplete: %w", err)
+	} else if total > exportLimit {
+		return data, &ErrExportTooLarge{Kind: "sinks", Total: total, Limit: exportLimit}
+	}
+	if data.Workflows, total, err = h.Storage.ListWorkflows(ctx, filter); err != nil {
+		return data, fmt.Errorf("cannot export workflows, so this backup would be incomplete: %w", err)
+	} else if total > exportLimit {
+		return data, &ErrExportTooLarge{Kind: "workflows", Total: total, Limit: exportLimit}
+	}
+	if data.VHosts, total, err = h.Storage.ListVHosts(ctx, filter); err != nil {
+		return data, fmt.Errorf("cannot export vhosts, so this backup would be incomplete: %w", err)
+	} else if total > exportLimit {
+		return data, &ErrExportTooLarge{Kind: "vhosts", Total: total, Limit: exportLimit}
+	}
+	if data.Workspaces, err = h.Storage.ListWorkspaces(ctx); err != nil {
+		return data, fmt.Errorf("cannot export workspaces, so this backup would be incomplete: %w", err)
+	}
+
+	// A missing setting is not a failure; anything else is.
+	if val, err := h.Storage.GetSetting(ctx, "notification_settings"); err == nil {
+		data.Settings["notification_settings"] = val
+	}
+	return data, nil
+}
+
 func (h *InfraHandler) ExportConfig(w http.ResponseWriter, r *http.Request) {
 	role, _ := h.GetRoleAndVHosts(r)
 	if role != storage.RoleAdministrator {
@@ -1257,66 +1316,15 @@ func (h *InfraHandler) ExportConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
-	data := BackupData{
-		Settings: make(map[string]string),
-	}
-
-	// Every list below used to discard its error and its total:
-	//
-	//	data.Sources, _, _ = h.Storage.ListSources(ctx, filter)
-	//
-	// A database that was unreachable produced a 200 with an attachment header
-	// and a file full of empty arrays. It is named hermod-config-backup.json
-	// and looks entirely normal; the operator finds out during a restore, which
-	// is the one moment they cannot afford to. The same discarded total hid the
-	// row cap: a deployment with more objects than the limit got a backup
-	// missing the overflow, silently.
-	filter := storage.CommonFilter{Limit: exportLimit}
-
-	var total int
-	var err error
-	if data.Sources, total, err = h.Storage.ListSources(ctx, filter); err != nil {
-		h.JsonError(w, "cannot export sources, so this backup would be incomplete: "+err.Error(),
-			http.StatusInternalServerError)
+	data, err := h.CollectBackup(r.Context())
+	if err != nil {
+		var tooLarge *ErrExportTooLarge
+		if errors.As(err, &tooLarge) {
+			h.exportTruncated(w, tooLarge.Kind, tooLarge.Total)
+			return
+		}
+		h.JsonError(w, err.Error(), http.StatusInternalServerError)
 		return
-	} else if total > exportLimit {
-		h.exportTruncated(w, "sources", total)
-		return
-	}
-	if data.Sinks, total, err = h.Storage.ListSinks(ctx, filter); err != nil {
-		h.JsonError(w, "cannot export sinks, so this backup would be incomplete: "+err.Error(),
-			http.StatusInternalServerError)
-		return
-	} else if total > exportLimit {
-		h.exportTruncated(w, "sinks", total)
-		return
-	}
-	if data.Workflows, total, err = h.Storage.ListWorkflows(ctx, filter); err != nil {
-		h.JsonError(w, "cannot export workflows, so this backup would be incomplete: "+err.Error(),
-			http.StatusInternalServerError)
-		return
-	} else if total > exportLimit {
-		h.exportTruncated(w, "workflows", total)
-		return
-	}
-	if data.VHosts, total, err = h.Storage.ListVHosts(ctx, filter); err != nil {
-		h.JsonError(w, "cannot export vhosts, so this backup would be incomplete: "+err.Error(),
-			http.StatusInternalServerError)
-		return
-	} else if total > exportLimit {
-		h.exportTruncated(w, "vhosts", total)
-		return
-	}
-	if data.Workspaces, err = h.Storage.ListWorkspaces(ctx); err != nil {
-		h.JsonError(w, "cannot export workspaces, so this backup would be incomplete: "+err.Error(),
-			http.StatusInternalServerError)
-		return
-	}
-
-	// A missing setting is not a failure; anything else is.
-	if val, err := h.Storage.GetSetting(ctx, "notification_settings"); err == nil {
-		data.Settings["notification_settings"] = val
 	}
 
 	// Serialise before committing to a 200, so an encoding failure is not
