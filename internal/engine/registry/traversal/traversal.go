@@ -122,6 +122,17 @@ func (t *WorkflowTraversal) Traverse(ctx context.Context, startNodeID string) {
 	t.Wg.Wait()
 }
 
+// nodeWritesInline reports whether a sink node performs its own write, in which
+// case the async writers must not write it again. It reads the same flag the
+// sink executor reads (nodes/core/sink.go).
+func nodeWritesInline(node *storage.WorkflowNode) bool {
+	if node == nil {
+		return false
+	}
+	seq, _ := node.Config["sequential"].(bool)
+	return seq
+}
+
 func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -168,8 +179,21 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 
 	msgs, branch, err := t.runNode(ctx, currNode, currMsg)
 
-	// If the current node is a sink, route the results to the writer.
-	if currNode.Type == "sink" {
+	// If the current node is a sink, route the results to the writer — unless it
+	// already wrote them itself.
+	//
+	// The sequential flag picks between two models. Off, this node is a
+	// pass-through and the engine's sink writers do the write, so this routing
+	// is the only thing that delivers anything. On, the executor writes inline
+	// and returns the message so the success and error branches have something
+	// to carry.
+	//
+	// Routing regardless of which model ran meant a sequential sink wrote inline
+	// and then handed the same message to the writer: two deliveries per
+	// message, for the life of the workflow. Worse on the failing path, where
+	// the executor returns the message with the error branch and the writer then
+	// retried a write the workflow had already been told had failed.
+	if currNode.Type == "sink" && !nodeWritesInline(currNode) {
 		t.RoutedMu.Lock()
 		if sinkIdx, ok := t.SinkNodeToIndex[currID]; ok {
 			for _, m := range msgs {
