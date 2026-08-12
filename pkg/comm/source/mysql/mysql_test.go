@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -98,20 +99,96 @@ func TestMySQLSource_Read(t *testing.T) {
 		}
 	}()
 
-	// Give the binlog stream a moment to attach.
-	time.Sleep(2 * time.Second)
+	// Wait for the stream to be live, not for the clock.
+	//
+	// canal.Run() starts from the server's *current* binlog position, so a row
+	// written before it attaches is not late — it is not in the stream at all,
+	// and no deadline will find it. The two-second sleep that used to stand here
+	// was a guess about how long attaching takes; when it was wrong the test
+	// failed 45 seconds later saying a committed change never reached the
+	// pipeline, which describes a broken pipeline rather than a test that
+	// started writing too early.
+	//
+	// Instead: write sentinel rows until one comes back. That proves the stream
+	// is attached and carrying this table, and it cannot be fooled by a slow
+	// machine.
+	// Read errors were discarded here, which is why the one CI failure of this
+	// test said only that a row never arrived. If the canal dies — a dropped
+	// replica connection, a server-id collision with another test opening its
+	// own stream — Read returns an error for the rest of the run, the loop spins
+	// throwing them away, and forty-five seconds later the test reports a
+	// symptom with the cause deleted. The first one is kept and reported.
+	var firstErr error
+	note := func(err error) {
+		if err != nil && firstErr == nil && !errors.Is(err, context.Canceled) &&
+			!errors.Is(err, context.DeadlineExceeded) {
+			firstErr = err
+		}
+	}
+	because := func() string {
+		if firstErr == nil {
+			return "no read error was reported, so the stream was silent rather than broken"
+		}
+		return "the first read error was: " + firstErr.Error()
+	}
+
+	const sentinelID = 1
+	live := false
+	attachDeadline := time.After(45 * time.Second)
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	mustExec(t, db, "INSERT INTO "+table+" (id, name, price) VALUES (?, ?, ?)",
+		sentinelID, "sentinel", 0.01)
+
+	for !live {
+		select {
+		case r := <-reads:
+			note(r.err)
+			if r.err != nil || r.msg == nil {
+				continue
+			}
+			if strings.EqualFold(r.msg.Table(), table) {
+				live = true
+			}
+			r.msg.Release()
+
+		case <-ticker.C:
+			// Replace the sentinel rather than accumulating rows, so a slow
+			// attach does not leave the table full of them.
+			mustExec(t, db, "REPLACE INTO "+table+" (id, name, price) VALUES (?, ?, ?)",
+				sentinelID, "sentinel", 0.01)
+
+		case <-attachDeadline:
+			t.Fatalf("no change to the watched table arrived within 45s of writing one; "+
+				"the binlog stream never attached, so CDC is not running at all — %s", because())
+		}
+	}
+
+	// The stream is carrying this table, so this row cannot be missed.
 	mustExec(t, db, "INSERT INTO "+table+" (id, name, price) VALUES (?, ?, ?)", 50, "Gadget", 19.99)
 
 	// Find *this* insert. The binlog carries everything the server does, so
-	// filtering to the table under test is the whole point.
+	// filtering to the row under test is the whole point.
 	deadline := time.After(45 * time.Second)
 	for {
 		select {
 		case r := <-reads:
+			note(r.err)
 			if r.err != nil || r.msg == nil {
 				continue
 			}
 			if !strings.EqualFold(r.msg.Table(), table) {
+				r.msg.Release()
+				continue
+			}
+
+			var after map[string]any
+			if err := json.Unmarshal(r.msg.After(), &after); err != nil {
+				t.Fatalf("after-image %q is not JSON: %v", r.msg.After(), err)
+			}
+			// Sentinels share the table; only the row under test is asserted on.
+			id := strings.TrimSuffix(fmt.Sprintf("%v", after["id"]), ".0")
+			if id != "50" {
 				r.msg.Release()
 				continue
 			}
@@ -122,17 +199,6 @@ func TestMySQLSource_Read(t *testing.T) {
 			if got := r.msg.Metadata()["source"]; got != "mysql" {
 				t.Errorf("metadata source = %q, want mysql", got)
 			}
-
-			var after map[string]any
-			if err := json.Unmarshal(r.msg.After(), &after); err != nil {
-				t.Fatalf("after-image %q is not JSON: %v", r.msg.After(), err)
-			}
-			// The row image may carry a number as float64 or as a string
-			// depending on the column type, so compare the rendered value
-			// rather than assuming a Go type.
-			if got := strings.TrimSuffix(fmt.Sprintf("%v", after["id"]), ".0"); got != "50" {
-				t.Errorf("after id = %v (%T), want 50 (full row: %v)", after["id"], after["id"], after)
-			}
 			if s, _ := after["name"].(string); s != "Gadget" {
 				t.Errorf("after name = %v, want Gadget (full row: %v)", after["name"], after)
 			}
@@ -140,8 +206,9 @@ func TestMySQLSource_Read(t *testing.T) {
 			return
 
 		case <-deadline:
-			t.Fatal("the inserted row never arrived over CDC within 45s; a change " +
-				"committed to a watched table is not reaching the pipeline")
+			t.Fatalf("the inserted row never arrived over CDC within 45s, although the "+
+				"stream was already carrying this table; a committed change is being lost — %s",
+				because())
 		}
 	}
 }
