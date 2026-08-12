@@ -179,6 +179,24 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 
 	msgs, branch, err := t.runNode(ctx, currNode, currMsg)
 
+	// A node that failed must not take the message with it.
+	//
+	// The dead-letter sink caught validation failures and sink write failures.
+	// A node failing inside the workflow was logged and the message released, so
+	// a workflow with a dead-letter sink configured still lost every message a
+	// transformation, condition or wait rejected — and the log line looked
+	// enough like handling that nobody would go looking.
+	//
+	// The message is dead-lettered here, while it is still alive: the deferred
+	// release above frees it as soon as this function returns.
+	if err != nil && t.Eng != nil {
+		if !t.Eng.DeadLetterNodeFailure(ctx, currNode.ID, currMsg, err) {
+			t.Registry.BroadcastLog(t.WorkflowID, "ERROR", fmt.Sprintf(
+				"Node %s failed and there is no dead-letter sink, so the message is lost: %v",
+				currNode.ID, err), currMsg.ID())
+		}
+	}
+
 	// If the current node is a sink, route the results to the writer — unless it
 	// already wrote them itself.
 	//

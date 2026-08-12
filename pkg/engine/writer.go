@@ -181,6 +181,39 @@ func (e *Engine) prepareDLQMessage(m hermod.Message, sinkID string, errStr strin
 	telemetry.DeadLetterCount.WithLabelValues(e.workflowID, sinkID).Inc()
 }
 
+// DeadLetterNodeFailure sends a message that a workflow node could not process
+// to the dead-letter sink, and reports whether it went anywhere.
+//
+// Node failures did not reach the dead-letter sink at all. The traversal logged
+// "Node %s failed" and released the message, so a workflow with a dead-letter
+// sink configured still lost every message a transformation, condition or any
+// other node rejected — the DLQ covered validation and sink failures only, and
+// the gap was invisible because the log line looked like handling.
+//
+// Returning false means nothing was configured to catch it, which is the
+// caller's cue to say so rather than imply the message was kept.
+func (e *Engine) DeadLetterNodeFailure(ctx context.Context, nodeID string, msg hermod.Message, cause error) bool {
+	if e.deadLetterSink == nil || msg == nil {
+		return false
+	}
+
+	errStr := ""
+	if cause != nil {
+		errStr = cause.Error()
+	}
+	e.prepareDLQMessage(msg, "", errStr)
+	if nodeID != "" {
+		msg.SetMetadata("_hermod_failed_node", nodeID)
+	}
+
+	if err := e.deadLetterSink.Write(ctx, msg); err != nil {
+		e.logger.Error("Dead-letter write failed for a node failure; the message is lost",
+			"workflow_id", e.workflowID, "node_id", nodeID, "message_id", msg.ID(), "error", err)
+		return false
+	}
+	return true
+}
+
 func (e *Engine) writeToDLQ(ctx context.Context, sinkID string, msgs ...hermod.Message) {
 	if e.deadLetterSink == nil || len(msgs) == 0 {
 		return
