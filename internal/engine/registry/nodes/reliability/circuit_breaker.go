@@ -58,3 +58,29 @@ func (e *CircuitBreakerExecutor) getCBState(nctx interfaces.NodeContext, nodeID 
 func (e *CircuitBreakerExecutor) setCBState(nctx interfaces.NodeContext, nodeID string, state cbState) {
 	nctx.SetNodeState("cb_"+nodeID, state)
 }
+
+// RecordFailure counts a downstream failure against the breaker.
+//
+// Without this the breaker could not open at all: Execute read a failure count
+// that nothing ever incremented, so every message took the success branch
+// however broken the downstream was. A control that cannot fire is worse than
+// no control, because someone believes it is there.
+func (e *CircuitBreakerExecutor) RecordFailure(nctx interfaces.NodeContext, nodeID string) {
+	state := e.getCBState(nctx, nodeID)
+	state.Failures++
+	state.LastFailure = time.Now()
+	e.setCBState(nctx, nodeID, state)
+}
+
+// RecordSuccess clears the count.
+//
+// Consecutive failures are what indicate a broken downstream. Counting them for
+// all time would trip a healthy system that had one bad hour last week, and
+// leave it tripped.
+func (e *CircuitBreakerExecutor) RecordSuccess(nctx interfaces.NodeContext, nodeID string) {
+	state := e.getCBState(nctx, nodeID)
+	if state.Failures == 0 && state.Status == "CLOSED" {
+		return
+	}
+	e.setCBState(nctx, nodeID, cbState{Status: "CLOSED"})
+}
