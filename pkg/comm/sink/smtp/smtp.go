@@ -239,8 +239,18 @@ func (s *SmtpSink) Write(ctx context.Context, msg hermod.Message) error {
 			s.lastWriteDedup = true
 			return nil
 		}
-		// Proceed to send; on success, mark sent
+		// The claim is held across the send and given up if it fails.
+		//
+		// Without the release, a failed send left the key claimed for good: the
+		// retry was told it had already been handled, returned success as a
+		// suppressed duplicate, and the message was gone. Any transient SMTP
+		// error — a timeout, a refused connection, a rate limit — permanently
+		// dropped the message while the pipeline recorded a delivery.
 		if err := s.sender.Send(ctx, email); err != nil {
+			if rerr := s.idemStore.Release(ctx, key); rerr != nil {
+				return fmt.Errorf("send failed (%w) and the idempotency claim could not be "+
+					"released (%v), so a retry of this message will be suppressed", err, rerr)
+			}
 			return err
 		}
 		if err := s.idemStore.MarkSent(ctx, key); err != nil {
@@ -351,6 +361,10 @@ type IdempotencyStore interface {
 	Claim(ctx context.Context, key string) (bool, error)
 	// MarkSent records a successful completion for the key.
 	MarkSent(ctx context.Context, key string) error
+	// Release gives up a claim whose work did not complete, so a retry can take
+	// it again. Releasing a key that was already marked sent must do nothing,
+	// and releasing one never claimed must not be an error.
+	Release(ctx context.Context, key string) error
 }
 
 // computeIdempotencyKey creates a deterministic key from message id and email content.

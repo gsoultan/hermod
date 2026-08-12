@@ -75,6 +75,27 @@ func (s *SQLiteStore) MarkSent(ctx context.Context, key string) error {
 	return err
 }
 
+// Release gives up a claim that never completed, so a retry can take it again.
+//
+// A claim is taken before the work and marked sent afterwards. Without a way to
+// give it up, a failed attempt leaves the key claimed for good: the retry is
+// told it was already handled, and the message is dropped while the caller
+// reports a suppressed duplicate. That is at-most-once wearing at-least-once's
+// clothes, and it is the delivery guarantee this package underwrites.
+//
+// Only unsent claims are released. A key that was marked sent stays, because
+// releasing it would re-admit the duplicate the whole store exists to suppress.
+//
+// Releasing something never claimed is not an error: retry paths call this
+// speculatively, and failing them over a no-op would be its own bug.
+func (s *SQLiteStore) Release(ctx context.Context, key string) error {
+	_, err := s.db.ExecContext(ctx,
+		fmt.Sprintf(commonQueries[QueryRelease], s.table),
+		key,
+	)
+	return err
+}
+
 // Close closes the underlying DB.
 func (s *SQLiteStore) Close() error { return s.db.Close() }
 

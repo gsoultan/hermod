@@ -51,6 +51,19 @@ func (m *pingCounterSender) Ping(ctx context.Context) error {
 // mockIdemStore is a simple in-memory implementation to test idempotency behavior.
 type mockIdemStore struct {
 	seen map[string]struct{}
+	sent map[string]struct{}
+}
+
+// Release gives up an unsent claim, so a retry after a failed send is not
+// mistaken for a duplicate.
+func (s *mockIdemStore) Release(_ context.Context, key string) error {
+	if s.sent != nil {
+		if _, done := s.sent[key]; done {
+			return nil // a completed key keeps its claim
+		}
+	}
+	delete(s.seen, key)
+	return nil
 }
 
 func (s *mockIdemStore) Claim(ctx context.Context, key string) (bool, error) {
@@ -64,7 +77,13 @@ func (s *mockIdemStore) Claim(ctx context.Context, key string) (bool, error) {
 	return true, nil
 }
 
-func (s *mockIdemStore) MarkSent(ctx context.Context, key string) error { return nil }
+func (s *mockIdemStore) MarkSent(_ context.Context, key string) error {
+	if s.sent == nil {
+		s.sent = make(map[string]struct{})
+	}
+	s.sent[key] = struct{}{}
+	return nil
+}
 
 type mockMessage struct {
 	id string

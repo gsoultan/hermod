@@ -114,6 +114,9 @@ type smtpIdemAdapter struct{ s *idempotency.SQLiteStore }
 func (a smtpIdemAdapter) Claim(ctx context.Context, key string) (bool, error) {
 	return a.s.Claim(ctx, key)
 }
+func (a smtpIdemAdapter) Release(ctx context.Context, key string) error {
+	return a.s.Release(ctx, key)
+}
 func (a smtpIdemAdapter) MarkSent(ctx context.Context, key string) error {
 	return a.s.MarkSent(ctx, key)
 }
