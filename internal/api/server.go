@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"mime"
 	"net"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/user/hermod/internal/ai"
@@ -57,6 +59,10 @@ type Server struct {
 	Handler    *handlers.Handler
 	Storage    storage.Storage
 	GrpcServer *googlegrpc.Server
+
+	// stopBackups ends the scheduled-backup writer. Nil when no backup
+	// directory is configured, which is the default.
+	stopBackups func()
 }
 
 // NewServer constructs a new Server with the provided engine registry and storage backend.
@@ -83,6 +89,26 @@ func NewServer(registry *registry.Registry, store storage.Storage, cfg *config.C
 	// Keep the revocation list in step with other instances and bounded. A
 	// revoker nobody refreshes only ever holds what this instance revoked.
 	s.Handler.StartSessionRevocation(context.Background())
+
+	// Scheduled backups, when a destination is configured. There is no default
+	// directory: a backup carries every credential in the deployment in
+	// plaintext, so writing one unattended is something an operator asks for
+	// rather than something that starts happening on upgrade.
+	if cfg != nil && strings.TrimSpace(cfg.Backup.Directory) != "" {
+		schedule := infrahttp.BackupSchedule{
+			Directory: cfg.Backup.Directory,
+			Retention: cfg.Backup.Retention,
+		}
+		if raw := strings.TrimSpace(cfg.Backup.Interval); raw != "" {
+			if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+				schedule.Interval = d
+			} else {
+				log.Printf("Scheduled backups: interval %q is not a duration; using the default", raw)
+			}
+		}
+		s.stopBackups = infrahttp.NewInfraHandler(s.Handler).
+			StartScheduledBackups(context.Background(), schedule)
+	}
 
 	// Initialize file storage from config; fallback to local uploads dir
 	if cfg != nil {
@@ -310,6 +336,10 @@ func (s *Server) StartGRPC(addr string) error {
 }
 
 func (s *Server) Stop() {
+	if s.stopBackups != nil {
+		s.stopBackups()
+		s.stopBackups = nil
+	}
 	if s.Handler != nil {
 		s.Handler.StopSessionRevocation()
 	}

@@ -21,6 +21,26 @@ type Config struct {
 	Observability ObservabilityConfig `json:"observability" yaml:"observability"`
 	Auth          AuthConfig          `json:"auth" yaml:"auth"`
 	FileStorage   FileStorageConfig   `json:"file_storage" yaml:"file_storage"`
+	Backup        BackupConfig        `json:"backup" yaml:"backup"`
+}
+
+// BackupConfig schedules configuration backups.
+//
+// Directory is deliberately required rather than defaulted. A backup carries
+// decrypted credentials in plaintext — one file is every credential in the
+// deployment — so writing one unattended is a decision an operator makes
+// explicitly, not something that starts happening on upgrade because a default
+// path existed. Empty means no schedule.
+//
+// The directory must not be readable beyond its owner; the writer refuses at
+// start-up otherwise. See RUNBOOK.md.
+type BackupConfig struct {
+	Directory string `json:"directory" yaml:"directory"`
+	// Interval between backups, as a duration ("24h", "6h"). Empty uses the
+	// default in the backup writer.
+	Interval string `json:"interval" yaml:"interval"`
+	// Retention is how many files to keep. Zero uses the writer's default.
+	Retention int `json:"retention" yaml:"retention"`
 }
 
 type AuthConfig struct {
