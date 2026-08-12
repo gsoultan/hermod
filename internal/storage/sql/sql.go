@@ -142,6 +142,13 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		s.queries.get(QueryInitOutboxTable),
 		s.queries.get(QueryInitWorkspacesTable),
 		s.queries.get(QueryInitPluginsTable),
+		// suspended_messages was defined in the query set but never created here,
+		// so on every SQL backend it did not exist. The Wait node writes a message
+		// to it and drops the message from the pipeline on the assumption it will
+		// be resumed later; with no table the write failed, the error was
+		// discarded, and the message was gone. A wait longer than thirty seconds
+		// destroyed everything that passed through it.
+		s.queries.get(QueryInitSuspendedMessagesTable),
 	}
 
 	for _, q := range initQueries {
@@ -153,9 +160,16 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		}
 	}
 
-	// 2. Perform automatic schema migration to add any missing columns.
-	// This ensures that existing databases are kept in sync with code-level schema changes.
-	s.autoMigrate(ctx)
+	// 2. Bring existing databases up to the schema this version expects.
+	//
+	// A failure here stops start-up. Running on a schema that is missing a column
+	// does not avoid the problem, it relocates it: the service comes up, serves
+	// traffic, and fails later on whichever query touches the missing column
+	// first. Refusing to start puts the failure in front of whoever is doing the
+	// upgrade, while they are still watching.
+	if err := s.autoMigrate(ctx); err != nil {
+		return err
+	}
 
 	// Backfill vhost ids that are missing (NULL or empty). Such rows can be
 	// created when a vhost is inserted directly into the database without an id,
@@ -272,112 +286,153 @@ func (s *sqlStorage) seedPlugins(ctx context.Context) {
 // autoMigrate automatically adds missing columns to tables based on the CREATE TABLE definitions in commonQueries.
 // This ensures that existing databases are kept in sync with the current schema without manual migration steps
 // for every new field.
-func (s *sqlStorage) autoMigrate(ctx context.Context) {
+// autoMigrate brings the live schema up to what the code expects by adding any
+// missing columns, and reports every addition it could not make.
+//
+// It used to return nothing, and swallowed each failure that was not "column
+// already exists" — the line that would have logged it was commented out. A
+// column that could not be added therefore left the database missing it while
+// Init reported success, and the failure resurfaced later as a query error
+// against a column that was never created, with nothing linking the two.
+//
+// Adding a NOT NULL column without a default to a table that already has rows
+// is rejected by SQLite and PostgreSQL alike, and is an ordinary thing for a
+// schema change to want. Every deployment upgrade runs this code.
+//
+// Failures are collected rather than returned at the first one, so an operator
+// fixing a broken upgrade gets the whole list instead of one item per restart.
+func (s *sqlStorage) autoMigrate(ctx context.Context) error {
+	var failures []string
+
 	for _, query := range commonQueries {
-		q := strings.TrimSpace(query)
-		if !strings.HasPrefix(strings.ToUpper(q), "CREATE TABLE") {
+		table, body, ok := parseCreateTable(query)
+		if !ok {
 			continue
 		}
-
-		// Extract table name
-		// Match "CREATE TABLE [IF NOT EXISTS] tableName ("
-		q = strings.ReplaceAll(q, "\n", " ")
-		q = strings.ReplaceAll(q, "\t", " ")
-
-		openParenIdx := strings.Index(q, "(")
-		if openParenIdx == -1 {
-			continue
-		}
-		header := strings.TrimSpace(q[:openParenIdx])
-		headerParts := strings.Fields(header)
-		if len(headerParts) == 0 {
-			continue
-		}
-		tableName := headerParts[len(headerParts)-1]
-
-		body := q[openParenIdx+1:]
-		lastCloseParenIdx := strings.LastIndex(body, ")")
-		if lastCloseParenIdx != -1 {
-			body = body[:lastCloseParenIdx]
-		}
-
-		// Split by comma, attempting to avoid splitting on commas inside parentheses (e.g. DECIMAL(10,2))
-		var columns []string
-		var current strings.Builder
-		parenCount := 0
-		for _, r := range body {
-			switch r {
-			case '(':
-				parenCount++
-			case ')':
-				parenCount--
-			}
-			if r == ',' && parenCount == 0 {
-				columns = append(columns, current.String())
-				current.Reset()
-			} else {
-				current.WriteRune(r)
-			}
-		}
-		if current.Len() > 0 {
-			columns = append(columns, current.String())
-		}
-
-		for _, colLine := range columns {
-			colLine = strings.TrimSpace(colLine)
-			if colLine == "" {
+		for _, colLine := range splitColumnDefs(body) {
+			colName, colType, ok := parseColumnDef(colLine)
+			if !ok {
 				continue
 			}
-
-			upperColLine := strings.ToUpper(colLine)
-			if strings.HasPrefix(upperColLine, "PRIMARY KEY") ||
-				strings.HasPrefix(upperColLine, "UNIQUE") ||
-				strings.HasPrefix(upperColLine, "CONSTRAINT") ||
-				strings.HasPrefix(upperColLine, "FOREIGN KEY") ||
-				strings.HasPrefix(upperColLine, "CHECK") {
-				continue
-			}
-
-			colParts := strings.Fields(colLine)
-			if len(colParts) < 2 {
-				continue
-			}
-
-			colName := colParts[0]
-			colType := strings.Join(colParts[1:], " ")
-
-			// Skip if it's ID or looks like a table-level constraint
-			if strings.ToLower(colName) == "id" {
-				continue
-			}
-
-			// Clean up colType for ALTER TABLE
-			// SQLite doesn't like UNIQUE/PRIMARY KEY or REFERENCES in ADD COLUMN
-			if s.driver == "sqlite" {
-				colType = strings.ReplaceAll(colType, "UNIQUE", "")
-				colType = strings.ReplaceAll(colType, "PRIMARY KEY", "")
-				if idx := strings.Index(strings.ToUpper(colType), "REFERENCES"); idx != -1 {
-					colType = colType[:idx]
-				}
-			}
-
-			alterQuery := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, colName, colType)
-			alterQuery = s.prepareQuery(alterQuery)
-			_, err := s.db.ExecContext(ctx, alterQuery)
-			if err != nil {
-				errStr := strings.ToLower(err.Error())
-				// Ignore if column already exists (SQLSTATE 42701 in Postgres, errno 1060 in MySQL)
-				if strings.Contains(errStr, "already exists") ||
-					strings.Contains(errStr, "duplicate") ||
-					strings.Contains(errStr, "42701") ||
-					strings.Contains(errStr, "1060") {
-					continue
-				}
-				// Optionally log other migration errors
-				// log.Printf("Auto-migration failed for %s.%s: %v", tableName, colName, err)
+			if err := s.addColumn(ctx, table, colName, s.alterableType(colType)); err != nil {
+				failures = append(failures,
+					fmt.Sprintf("%s.%s (%s): %v", table, colName, strings.TrimSpace(colType), err))
 			}
 		}
 	}
+
+	if len(failures) > 0 {
+		return fmt.Errorf("the database schema is missing %d column(s) this version needs, "+
+			"and they could not be added: %s", len(failures), strings.Join(failures, "; "))
+	}
+	return nil
+}
+
+// parseCreateTable pulls the table name and the column body out of a
+// "CREATE TABLE [IF NOT EXISTS] name (...)" statement.
+func parseCreateTable(query string) (table, body string, ok bool) {
+	q := strings.TrimSpace(query)
+	if !strings.HasPrefix(strings.ToUpper(q), "CREATE TABLE") {
+		return "", "", false
+	}
+	q = strings.ReplaceAll(q, "\n", " ")
+	q = strings.ReplaceAll(q, "\t", " ")
+
+	open := strings.Index(q, "(")
+	if open == -1 {
+		return "", "", false
+	}
+	headerParts := strings.Fields(strings.TrimSpace(q[:open]))
+	if len(headerParts) == 0 {
+		return "", "", false
+	}
+
+	body = q[open+1:]
+	if last := strings.LastIndex(body, ")"); last != -1 {
+		body = body[:last]
+	}
+	return headerParts[len(headerParts)-1], body, true
+}
+
+// splitColumnDefs splits a CREATE TABLE body on commas, ignoring the ones
+// inside parentheses so DECIMAL(10,2) survives intact.
+func splitColumnDefs(body string) []string {
+	var (
+		defs    []string
+		current strings.Builder
+		depth   int
+	)
+	for _, r := range body {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		}
+		if r == ',' && depth == 0 {
+			defs = append(defs, current.String())
+			current.Reset()
+			continue
+		}
+		current.WriteRune(r)
+	}
+	if current.Len() > 0 {
+		defs = append(defs, current.String())
+	}
+	return defs
+}
+
+// parseColumnDef returns the name and type of a column definition, rejecting
+// table-level constraints and the primary key, which cannot be added later.
+func parseColumnDef(colLine string) (name, colType string, ok bool) {
+	colLine = strings.TrimSpace(colLine)
+	if colLine == "" {
+		return "", "", false
+	}
+
+	upper := strings.ToUpper(colLine)
+	for _, prefix := range []string{"PRIMARY KEY", "UNIQUE", "CONSTRAINT", "FOREIGN KEY", "CHECK"} {
+		if strings.HasPrefix(upper, prefix) {
+			return "", "", false
+		}
+	}
+
+	parts := strings.Fields(colLine)
+	if len(parts) < 2 || strings.EqualFold(parts[0], "id") {
+		return "", "", false
+	}
+	return parts[0], strings.Join(parts[1:], " "), true
+}
+
+// alterableType strips the parts of a column type that a driver will not accept
+// in ADD COLUMN.
+func (s *sqlStorage) alterableType(colType string) string {
+	if s.driver != "sqlite" {
+		return colType
+	}
+	colType = strings.ReplaceAll(colType, "UNIQUE", "")
+	colType = strings.ReplaceAll(colType, "PRIMARY KEY", "")
+	if idx := strings.Index(strings.ToUpper(colType), "REFERENCES"); idx != -1 {
+		colType = colType[:idx]
+	}
+	return colType
+}
+
+// addColumn adds one column, treating "it is already there" as success. That is
+// the normal case on every restart after the first.
+func (s *sqlStorage) addColumn(ctx context.Context, table, name, colType string) error {
+	query := s.prepareQuery(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, name, colType))
+	if _, err := s.db.ExecContext(ctx, query); err != nil {
+		// SQLSTATE 42701 in Postgres, errno 1060 in MySQL.
+		errStr := strings.ToLower(err.Error())
+		for _, benign := range []string{"already exists", "duplicate", "42701", "1060"} {
+			if strings.Contains(errStr, benign) {
+				return nil
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilter) ([]storage.Source, int, error) {
