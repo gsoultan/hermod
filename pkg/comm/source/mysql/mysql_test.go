@@ -51,7 +51,10 @@ func TestMySQLSource_Read(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	if err := db.PingContext(t.Context()); err != nil {
-		t.Skipf("mysql unreachable: %v", err)
+		// A failure, not a skip. MYSQL_DSN being set is a statement that a
+		// server should be there, so an unreachable one is a broken environment
+		// — and skipping turns that into a green run that tested nothing.
+		t.Fatalf("MYSQL_DSN names a server that is not reachable (%s): %v", dsn, err)
 	}
 
 	// Binlog CDC needs row-based logging. Skip with the reason rather than

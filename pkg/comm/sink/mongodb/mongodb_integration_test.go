@@ -52,10 +52,13 @@ func newMongoFixture(t *testing.T) *mongoFixture {
 	ctx := t.Context()
 	client, err := mongo.Connect(options.Client().ApplyURI(uri))
 	if err != nil {
-		t.Skipf("mongo unreachable: %v", err)
+		t.Fatalf("MONGODB_URI names a server that is not reachable (%s): %v", uri, err)
 	}
+	// A failure, not a skip: naming the server in the environment says it should
+	// be there, and skipping a suite whose infrastructure vanished is how a CI
+	// job reports success having tested nothing.
 	if err := client.Ping(ctx, nil); err != nil {
-		t.Skipf("mongo unreachable: %v", err)
+		t.Fatalf("MONGODB_URI names a server that is not reachable (%s): %v", uri, err)
 	}
 
 	db := os.Getenv("MONGODB_DB")
