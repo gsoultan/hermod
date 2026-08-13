@@ -131,10 +131,20 @@ func (h *FormHandler) HandleForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate required fields
+	// Validate required fields.
+	//
+	// A field list that will not parse is refused rather than treated as empty.
+	// Discarding this error left `fields` empty, so the loop below ran zero
+	// times and every required-field check was silently skipped — malformed
+	// stored configuration turned validation off and the submission was
+	// accepted with nothing in it.
 	var fields []FormField
 	if fStr := srcCfg["fields"]; fStr != "" {
-		_ = json.Unmarshal([]byte(fStr), &fields)
+		if err := json.Unmarshal([]byte(fStr), &fields); err != nil {
+			sendErr("this form's field definitions could not be read, so its required "+
+				"fields cannot be checked", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	for _, f := range fields {
@@ -215,9 +225,15 @@ func (h *FormHandler) ServeFormPage(w http.ResponseWriter, r *http.Request) {
 	}
 	description := cfg["description"]
 
+	// The same refusal when rendering: a form drawn from field definitions that
+	// would not parse is an empty form, which looks like a form with no fields
+	// rather than a broken one.
 	var fields []FormField
 	if fStr := cfg["fields"]; fStr != "" {
-		_ = json.Unmarshal([]byte(fStr), &fields)
+		if err := json.Unmarshal([]byte(fStr), &fields); err != nil {
+			http.Error(w, "this form's field definitions could not be read", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Generate CSRF-like token for bot protection

@@ -234,10 +234,26 @@ func (h *SourceHandler) DeleteSource(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 					if wf.Active {
-						_ = h.Registry.StopEngine(ctx, wf.ID)
+						// Both errors were discarded, and the delete then
+						// returned 204. A stop that failed left the engine
+						// running against a source about to be deleted, and an
+						// update that failed left the workflow marked active
+						// while pointing at nothing — which the next worker sync
+						// tries to start and cannot.
+						if err := h.Registry.StopEngine(ctx, wf.ID); err != nil {
+							h.JsonError(w, "cannot delete this source: workflow "+wf.Name+
+								" is running on it and could not be stopped: "+err.Error(),
+								http.StatusConflict)
+							return
+						}
 						wf.Active = false
 						wf.Status = "Stopped"
-						_ = h.Storage.UpdateWorkflow(ctx, wf)
+						if err := h.Storage.UpdateWorkflow(ctx, wf); err != nil {
+							h.JsonError(w, "cannot delete this source: workflow "+wf.Name+
+								" was stopped but could not be recorded as stopped: "+err.Error(),
+								http.StatusInternalServerError)
+							return
+						}
 					}
 				}
 			}
