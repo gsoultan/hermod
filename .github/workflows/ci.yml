@@ -447,6 +447,29 @@ jobs:
           done
           curl -sf http://127.0.0.1:2379/health | grep -q '"health":"true"'
 
+      # A replica set, separate from the mongo service above.
+      #
+      # Change streams — which is all the MongoDB CDC source is — cannot run on
+      # a standalone mongod, and a service container has no way to override the
+      # command to pass --replSet. So this one is started by hand on another
+      # port and handed over as MONGODB_RS_URI. The service container stays as
+      # it is for every other MongoDB test.
+      - name: Start a MongoDB replica set for change streams
+        run: |
+          docker run -d --name mongo-rs -p 27018:27017 mongo:7 \
+            mongod --replSet rs0 --bind_ip_all
+          for i in $(seq 1 30); do
+            docker exec mongo-rs mongosh --quiet --eval 'db.adminCommand("ping")' >/dev/null 2>&1 && break
+            sleep 2
+          done
+          docker exec mongo-rs mongosh --quiet --eval \
+            'rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27017"}]})'
+          for i in $(seq 1 30); do
+            docker exec mongo-rs mongosh --quiet --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)' && break
+            sleep 2
+          done
+          docker exec mongo-rs mongosh --quiet --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)'
+
       - name: Test (integration)
         env:
           HERMOD_INTEGRATION: "1"
@@ -466,6 +489,7 @@ jobs:
           MONGODB_URI: mongodb://127.0.0.1:27017
           MONGODB_DB: hermod_it
           ETCD_ENDPOINTS: 127.0.0.1:2379
+          MONGODB_RS_URI: mongodb://127.0.0.1:27018/?directConnection=true
           RABBITMQ_URL: amqp://guest:guest@127.0.0.1:5672/
           SMTP_HOST: 127.0.0.1
           SMTP_PORT: "1025"
