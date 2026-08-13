@@ -362,6 +362,28 @@ jobs:
           --health-retries 10
         ports:
           - 5672:5672
+      # etcd, so the state store contract runs against all three of its
+      # implementations rather than two. The etcd store was the last one whose
+      # behaviour was taken on trust: the contract file existed and skipped on
+      # every run, which reads as nine passing clauses in the log.
+      #
+      # No --health-cmd, deliberately. Docker runs a health command through
+      # /bin/sh, and this image has no shell, so any --health-cmd never executes
+      # and the service is reported as failed however healthy etcd is. The wait
+      # step below uses etcd's own HTTP health endpoint from the runner instead.
+      etcd:
+        image: quay.io/coreos/etcd:v3.5.17
+        env:
+          ETCD_NAME: n1
+          ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+          ETCD_ADVERTISE_CLIENT_URLS: http://0.0.0.0:2379
+          ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+          ETCD_INITIAL_ADVERTISE_PEER_URLS: http://0.0.0.0:2380
+          ETCD_INITIAL_CLUSTER: n1=http://0.0.0.0:2380
+          ETCD_INITIAL_CLUSTER_STATE: new
+          ALLOW_NONE_AUTHENTICATION: "yes"
+        ports:
+          - 2379:2379
       # A mail catcher, so the SMTP sink's send path is exercised rather than
       # skipped. Its API lets the test read the message back: an SMTP server
       # accepts a message long before anyone can read it, so "Write returned
@@ -414,6 +436,17 @@ jobs:
             psql -h localhost -U postgres -c "CREATE DATABASE $db;"
           done
 
+      # Fails rather than continues if etcd never comes up: the contract would
+      # otherwise fail nine clauses on connection errors, which is a slower and
+      # less obvious way of saying the same thing.
+      - name: Wait for etcd
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:2379/health && break
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:2379/health | grep -q '"health":"true"'
+
       - name: Test (integration)
         env:
           HERMOD_INTEGRATION: "1"
@@ -432,6 +465,7 @@ jobs:
           REDIS_STREAM: hermod_it_stream
           MONGODB_URI: mongodb://127.0.0.1:27017
           MONGODB_DB: hermod_it
+          ETCD_ENDPOINTS: 127.0.0.1:2379
           RABBITMQ_URL: amqp://guest:guest@127.0.0.1:5672/
           SMTP_HOST: 127.0.0.1
           SMTP_PORT: "1025"
