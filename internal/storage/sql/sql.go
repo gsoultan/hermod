@@ -31,6 +31,30 @@ func NewSQLStorage(db *sql.DB, driver string) storage.Storage {
 	}
 }
 
+// likeEscape is the escape character used with LIKE.
+//
+// Not a backslash, deliberately: MySQL treats a backslash as an escape inside
+// string literals by default, so ESCAPE '\' is ambiguous there while meaning a
+// literal backslash in PostgreSQL. An exclamation mark is ordinary text in all
+// three dialects this supports.
+const likeEscape = "!"
+
+// likeContains builds a LIKE operand matching search anywhere, as text.
+//
+// The search text used to be concatenated straight into the pattern, so the two
+// LIKE wildcards were live: searching for "%" matched every row rather than the
+// rows containing a per-cent sign, and "_" matched any single character. Both
+// made the search box quietly answer a different question from the one asked.
+// Callers must pair this with ESCAPE.
+func likeContains(search string) string {
+	r := strings.NewReplacer(
+		likeEscape, likeEscape+likeEscape,
+		"%", likeEscape+"%",
+		"_", likeEscape+"_",
+	)
+	return "%" + r.Replace(search) + "%"
+}
+
 // prepareQuery rewrites parameter placeholders and types to match the current driver.
 func (s *sqlStorage) prepareQuery(query string) string {
 	q := s.preparePlaceholders(query)
@@ -450,8 +474,8 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 	var where []string
 
 	if filter.Search != "" {
-		search := "%" + filter.Search + "%"
-		where = append(where, "(id LIKE ? OR name LIKE ? OR type LIKE ? OR vhost LIKE ?)")
+		search := likeContains(filter.Search)
+		where = append(where, "(id LIKE ? ESCAPE '!' OR name LIKE ? ESCAPE '!' OR type LIKE ? ESCAPE '!' OR vhost LIKE ? ESCAPE '!')")
 		args = append(args, search, search, search, search)
 	}
 
@@ -638,8 +662,8 @@ func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter)
 	var where []string
 
 	if filter.Search != "" {
-		search := "%" + filter.Search + "%"
-		where = append(where, "(id LIKE ? OR name LIKE ? OR type LIKE ? OR vhost LIKE ?)")
+		search := likeContains(filter.Search)
+		where = append(where, "(id LIKE ? ESCAPE '!' OR name LIKE ? ESCAPE '!' OR type LIKE ? ESCAPE '!' OR vhost LIKE ? ESCAPE '!')")
 		args = append(args, search, search, search, search)
 	}
 
@@ -848,8 +872,8 @@ func (s *sqlStorage) ListUsers(ctx context.Context, filter storage.CommonFilter)
 	var where []string
 
 	if filter.Search != "" {
-		search := "%" + filter.Search + "%"
-		where = append(where, "(id LIKE ? OR username LIKE ? OR full_name LIKE ? OR email LIKE ? OR role LIKE ?)")
+		search := likeContains(filter.Search)
+		where = append(where, "(id LIKE ? ESCAPE '!' OR username LIKE ? ESCAPE '!' OR full_name LIKE ? ESCAPE '!' OR email LIKE ? ESCAPE '!' OR role LIKE ? ESCAPE '!')")
 		args = append(args, search, search, search, search, search)
 	}
 
@@ -1060,8 +1084,8 @@ func (s *sqlStorage) ListVHosts(ctx context.Context, filter storage.CommonFilter
 	var where []string
 
 	if filter.Search != "" {
-		search := "%" + filter.Search + "%"
-		where = append(where, "(id LIKE ? OR name LIKE ? OR description LIKE ?)")
+		search := likeContains(filter.Search)
+		where = append(where, "(id LIKE ? ESCAPE '!' OR name LIKE ? ESCAPE '!' OR description LIKE ? ESCAPE '!')")
 		args = append(args, search, search, search)
 	}
 
@@ -1155,8 +1179,8 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 	}
 
 	if filter.Search != "" {
-		query += " AND name LIKE ?"
-		args = append(args, "%"+filter.Search+"%")
+		query += " AND name LIKE ? ESCAPE '!'"
+		args = append(args, likeContains(filter.Search))
 	}
 
 	if filter.WorkspaceID != "" {
@@ -1203,8 +1227,8 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		countArgs = append(countArgs, *filter.Active)
 	}
 	if filter.Search != "" {
-		countQuery += " AND name LIKE ?"
-		countArgs = append(countArgs, "%"+filter.Search+"%")
+		countQuery += " AND name LIKE ? ESCAPE '!'"
+		countArgs = append(countArgs, likeContains(filter.Search))
 	}
 
 	if err := s.queryRow(ctx, countQuery, countArgs...).Scan(&total); err != nil {
@@ -1563,8 +1587,8 @@ func (s *sqlStorage) ListWorkers(ctx context.Context, filter storage.CommonFilte
 	var where []string
 
 	if filter.Search != "" {
-		search := "%" + filter.Search + "%"
-		where = append(where, "(id LIKE ? OR name LIKE ? OR host LIKE ? OR description LIKE ?)")
+		search := likeContains(filter.Search)
+		where = append(where, "(id LIKE ? ESCAPE '!' OR name LIKE ? ESCAPE '!' OR host LIKE ? ESCAPE '!' OR description LIKE ? ESCAPE '!')")
 		args = append(args, search, search, search, search)
 	}
 
@@ -1714,10 +1738,10 @@ func (s *sqlStorage) ListLogs(ctx context.Context, filter storage.LogFilter) ([]
 		args = append(args, filter.Action)
 	}
 	if filter.Search != "" {
-		search := "%" + filter.Search + "%"
+		search := likeContains(filter.Search)
 		// Avoid scanning large 'data' payloads for LIKE to improve performance.
 		// Search in message and identifiers only.
-		where += " AND (message LIKE ? OR action LIKE ? OR source_id LIKE ? OR sink_id LIKE ? OR workflow_id LIKE ?)"
+		where += " AND (message LIKE ? ESCAPE '!' OR action LIKE ? ESCAPE '!' OR source_id LIKE ? ESCAPE '!' OR sink_id LIKE ? ESCAPE '!' OR workflow_id LIKE ? ESCAPE '!')"
 		args = append(args, search, search, search, search, search)
 	}
 
@@ -2197,8 +2221,8 @@ func (s *sqlStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilt
 	var where []string
 
 	if filter.Search != "" {
-		search := "%" + filter.Search + "%"
-		where = append(where, "(id LIKE ? OR username LIKE ? OR action LIKE ? OR entity_id LIKE ? OR payload LIKE ?)")
+		search := likeContains(filter.Search)
+		where = append(where, "(id LIKE ? ESCAPE '!' OR username LIKE ? ESCAPE '!' OR action LIKE ? ESCAPE '!' OR entity_id LIKE ? ESCAPE '!' OR payload LIKE ? ESCAPE '!')")
 		args = append(args, search, search, search, search, search)
 	}
 	if filter.UserID != "" {
