@@ -73,15 +73,25 @@ func GetClient(ctx context.Context, uri string) (*mongo.Client, error) {
 
 // MongoDBSource implements the hermod.Source interface for MongoDB Change Streams.
 type MongoDBSource struct {
-	uri             string
-	database        string
-	collection      string
-	useCDC          bool
-	client          *mongo.Client
-	stream          *mongo.ChangeStream
-	mu              sync.Mutex
+	uri        string
+	database   string
+	collection string
+	useCDC     bool
+	client     *mongo.Client
+	stream     *mongo.ChangeStream
+	mu         sync.Mutex
+	// lastResumeToken is the position of the last acknowledged message, and the
+	// only one GetState reports. The engine persists that on every ack
+	// (registry_routing.go, statefulSource.Ack), so it decides where a restart
+	// comes back to: anything ahead of it is a message the pipeline will never
+	// be given again.
 	lastResumeToken bson.Raw
-	msgChan         chan hermod.Message
+	// readToken is how far the stream has been read, which is further ahead
+	// whenever messages are in flight. It is used to reopen the stream inside
+	// this process, where those in-flight messages are still alive and will be
+	// acknowledged, and it is deliberately not persisted.
+	readToken bson.Raw
+	msgChan   chan hermod.Message
 }
 
 func NewMongoDBSource(uri, database, collection string, useCDC bool) *MongoDBSource {
@@ -127,8 +137,14 @@ func (m *MongoDBSource) init(ctx context.Context) error {
 	}
 
 	opts := options.ChangeStream()
-	if len(m.lastResumeToken) > 0 {
-		opts.SetResumeAfter(m.lastResumeToken)
+	m.mu.Lock()
+	resumeFrom := m.readToken
+	if len(resumeFrom) == 0 {
+		resumeFrom = m.lastResumeToken
+	}
+	m.mu.Unlock()
+	if len(resumeFrom) > 0 {
+		opts.SetResumeAfter(resumeFrom)
 	}
 
 	var stream *mongo.ChangeStream
@@ -197,10 +213,14 @@ func (m *MongoDBSource) Read(ctx context.Context) (hermod.Message, error) {
 				return nil, fmt.Errorf("failed to decode change stream event: %w", err)
 			}
 
-			// Store resume token for internal reconnect
+			// Only the read position moves here. Advancing the acknowledged
+			// position on read is what lost data: the engine persists GetState
+			// on every ack, so a message that had been read and not yet
+			// delivered was already behind the saved position, and a restart
+			// never handed it out again.
 			token := stream.ResumeToken()
 			m.mu.Lock()
-			m.lastResumeToken = token
+			m.readToken = token
 			m.mu.Unlock()
 
 			msg := message.AcquireMessage()
@@ -438,6 +458,9 @@ func (m *MongoDBSource) GetState() map[string]string {
 func (m *MongoDBSource) SetState(state map[string]string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// readToken is cleared with it: the messages after this point were never
+	// acknowledged, so this is where reading has to start again.
+	m.readToken = nil
 	if tokenHex, ok := state["resume_token"]; ok {
 		if token, err := hex.DecodeString(tokenHex); err == nil {
 			m.lastResumeToken = bson.Raw(token)
