@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,33 @@ func NewMongoStorage(client *mongo.Client, dbName string) storage.Storage {
 		client: client,
 		db:     client.Database(dbName),
 	}
+}
+
+// searchAcross builds a case-insensitive substring match over the given fields.
+//
+// filter.Search arrives from the search box on a list screen. It was placed
+// directly into $regex, which meant the server compiled it as a regular
+// expression rather than looking for it as text, and gave anyone who can search
+// a list three things they should not have:
+//
+//   - "." matched every character, so a one-character search returned the whole
+//     collection — every source, sink, user or audit entry the filter covers.
+//   - "[" was a syntax error, so a character typed into a search box came back
+//     as a failed request rather than as no results.
+//   - a nested quantifier such as "(a+)+$" was evaluated against every document,
+//     which is paid for in database CPU by whoever typed it. This is the control
+//     plane: leases and scheduling share that server.
+//
+// The SQL backend binds the same string as a parameter to LIKE, where it is
+// text. QuoteMeta makes this backend agree, and makes a name that genuinely
+// contains regex syntax findable by typing it.
+func searchAcross(search string, fields ...string) []bson.M {
+	pattern := bson.M{"$regex": regexp.QuoteMeta(search), "$options": "i"}
+	or := make([]bson.M, 0, len(fields))
+	for _, f := range fields {
+		or = append(or, bson.M{f: pattern})
+	}
+	return or
 }
 
 func (s *mongoStorage) ListApprovals(ctx context.Context, filter storage.ApprovalFilter) ([]storage.Approval, int, error) {
@@ -305,12 +333,7 @@ func (s *mongoStorage) ListSources(ctx context.Context, filter storage.CommonFil
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = []bson.M{
-			{"_id": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"name": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"type": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"vhost": bson.M{"$regex": filter.Search, "$options": "i"}},
-		}
+		query["$or"] = searchAcross(filter.Search, "_id", "name", "type", "vhost")
 	}
 
 	if filter.VHost != "" {
@@ -433,12 +456,7 @@ func (s *mongoStorage) ListSinks(ctx context.Context, filter storage.CommonFilte
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = []bson.M{
-			{"_id": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"name": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"type": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"vhost": bson.M{"$regex": filter.Search, "$options": "i"}},
-		}
+		query["$or"] = searchAcross(filter.Search, "_id", "name", "type", "vhost")
 	}
 
 	if filter.VHost != "" {
@@ -551,12 +569,7 @@ func (s *mongoStorage) ListUsers(ctx context.Context, filter storage.CommonFilte
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = []bson.M{
-			{"_id": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"username": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"full_name": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"email": bson.M{"$regex": filter.Search, "$options": "i"}},
-		}
+		query["$or"] = searchAcross(filter.Search, "_id", "username", "full_name", "email")
 	}
 
 	total, err := coll.CountDocuments(ctx, query)
@@ -694,11 +707,7 @@ func (s *mongoStorage) ListVHosts(ctx context.Context, filter storage.CommonFilt
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = []bson.M{
-			{"_id": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"name": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"description": bson.M{"$regex": filter.Search, "$options": "i"}},
-		}
+		query["$or"] = searchAcross(filter.Search, "_id", "name", "description")
 	}
 
 	total, err := coll.CountDocuments(ctx, query)
@@ -788,11 +797,7 @@ func (s *mongoStorage) ListWorkflows(ctx context.Context, filter storage.CommonF
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = []bson.M{
-			{"_id": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"name": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"vhost": bson.M{"$regex": filter.Search, "$options": "i"}},
-		}
+		query["$or"] = searchAcross(filter.Search, "_id", "name", "vhost")
 	}
 
 	if filter.VHost != "" {
@@ -998,11 +1003,7 @@ func (s *mongoStorage) ListWorkers(ctx context.Context, filter storage.CommonFil
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = []bson.M{
-			{"_id": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"name": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"host": bson.M{"$regex": filter.Search, "$options": "i"}},
-		}
+		query["$or"] = searchAcross(filter.Search, "_id", "name", "host")
 	}
 
 	total, err := coll.CountDocuments(ctx, query)
@@ -1142,15 +1143,7 @@ func (s *mongoStorage) ListLogs(ctx context.Context, filter storage.LogFilter) (
 		query["action"] = filter.Action
 	}
 	if filter.Search != "" {
-		query["$or"] = []bson.M{
-			{"message": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"data": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"source_id": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"sink_id": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"workflow_id": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"user_id": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"username": bson.M{"$regex": filter.Search, "$options": "i"}},
-		}
+		query["$or"] = searchAcross(filter.Search, "message", "data", "source_id", "sink_id", "workflow_id", "user_id", "username")
 	}
 
 	total, err := coll.CountDocuments(ctx, query)
@@ -1522,13 +1515,7 @@ func (s *mongoStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFi
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = []bson.M{
-			{"_id": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"username": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"action": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"entity_id": bson.M{"$regex": filter.Search, "$options": "i"}},
-			{"payload": bson.M{"$regex": filter.Search, "$options": "i"}},
-		}
+		query["$or"] = searchAcross(filter.Search, "_id", "username", "action", "entity_id", "payload")
 	}
 	if filter.UserID != "" {
 		query["user_id"] = filter.UserID
