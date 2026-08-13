@@ -47,14 +47,17 @@ func newRabbitSinkFixture(t *testing.T) *rabbitSinkFixture {
 		t.Skip("integration: set HERMOD_INTEGRATION=1 and RABBITMQ_URL to run")
 	}
 
+	// A failure, not a skip. RABBITMQ_URL being set says a broker should be
+	// there; skipping when it is not turns a broken environment into a green run
+	// that tested nothing.
 	conn, err := amqp.Dial(url)
 	if err != nil {
-		t.Skipf("rabbitmq unreachable: %v", err)
+		t.Fatalf("RABBITMQ_URL names a broker that is not reachable (%s): %v", url, err)
 	}
 	ch, err := conn.Channel()
 	if err != nil {
 		_ = conn.Close()
-		t.Skipf("rabbitmq channel: %v", err)
+		t.Fatalf("rabbitmq channel on %s: %v", url, err)
 	}
 
 	queue := fmt.Sprintf("hermod_sink_%x", time.Now().UnixNano())

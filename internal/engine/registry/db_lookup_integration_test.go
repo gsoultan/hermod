@@ -49,7 +49,9 @@ func newDBLookupFixture(t *testing.T) (*Registry, string) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	if err := db.PingContext(t.Context()); err != nil {
-		t.Skipf("postgres unreachable: %v", err)
+		// A failure, not a skip: the DSN naming this server is the statement
+		// that it should be there.
+		t.Fatalf("the configured PostgreSQL is not reachable: %v", err)
 	}
 
 	table := "lookup_" + strings.ToLower(t.Name())
