@@ -13,6 +13,30 @@ import (
 	"github.com/user/hermod"
 )
 
+// etcdEndpoints returns the endpoints to test against, or ends the test.
+//
+// Skipping is right when someone runs the suite locally without a server. It is
+// wrong in CI, where an etcd service is configured precisely so that this runs,
+// and where a skip is indistinguishable in the log from nine passing clauses —
+// which is the state this contract spent its whole life in. So a missing
+// endpoint is a failure there, and anyone who removes the service finds out
+// from a red build rather than from a green one that covers less than it says.
+func etcdEndpoints(t *testing.T) string {
+	t.Helper()
+	endpoints := os.Getenv("ETCD_ENDPOINTS")
+	if endpoints != "" && os.Getenv("HERMOD_INTEGRATION") == "1" {
+		return endpoints
+	}
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		t.Fatalf("HERMOD_INTEGRATION=%q ETCD_ENDPOINTS=%q in CI, where an etcd service "+
+			"is configured for this test; the contract would skip and report success "+
+			"for clauses it never ran",
+			os.Getenv("HERMOD_INTEGRATION"), endpoints)
+	}
+	t.Skip("integration: set HERMOD_INTEGRATION=1 and ETCD_ENDPOINTS to run")
+	return ""
+}
+
 // The etcd store against a real server.
 //
 // This is the third of three, and the last one whose behaviour was taken on
@@ -29,10 +53,7 @@ import (
 //	HERMOD_INTEGRATION=1 ETCD_ENDPOINTS=127.0.0.1:2379 \
 //	go test -tags=integration ./pkg/infra/state/
 func TestEtcdStateStoreContract(t *testing.T) {
-	endpoints := os.Getenv("ETCD_ENDPOINTS")
-	if os.Getenv("HERMOD_INTEGRATION") != "1" || endpoints == "" {
-		t.Skip("integration: set HERMOD_INTEGRATION=1 and ETCD_ENDPOINTS to run")
-	}
+	endpoints := etcdEndpoints(t)
 
 	RunStoreContract(t, "etcd", func(t *testing.T) hermod.StateStore {
 		t.Helper()
@@ -63,10 +84,7 @@ func TestEtcdStateStoreContract(t *testing.T) {
 // store is unavailable whenever that member is, which removes the reason to
 // have chosen etcd in the first place.
 func TestEtcdIsConfigurableWithMoreThanOneEndpoint(t *testing.T) {
-	endpoints := os.Getenv("ETCD_ENDPOINTS")
-	if os.Getenv("HERMOD_INTEGRATION") != "1" || endpoints == "" {
-		t.Skip("integration: set HERMOD_INTEGRATION=1 and ETCD_ENDPOINTS to run")
-	}
+	endpoints := etcdEndpoints(t)
 
 	// A live member followed by one that is not listening, which is the whole
 	// point of naming more than one. A client that parsed the list reaches the
