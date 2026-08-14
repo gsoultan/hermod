@@ -28,26 +28,39 @@ Delivery is **at-least-once** with sink-side idempotency for duplicate suppressi
 Where this document says a guarantee is scoped or unfinished, that is the literal
 state of the code, not modesty.
 
-**Initial load is available for PostgreSQL, and off by default.** Set
-`initial_load: "true"` on a Postgres CDC source and the rows already in the watched
-tables are carried across before streaming begins.
+**Initial load is available for PostgreSQL, MySQL and MongoDB, and off by default.**
+Set `initial_load: "true"` on one of those CDC sources and the rows already in the
+watched tables are carried across before streaming begins.
 
-It is consistent rather than approximate. The replication slot is created over the
-replication protocol so that it exports a snapshot, the backfill reads at exactly
-that snapshot, and streaming starts from the slot's consistent point — so nothing
-committed before the boundary is missed and nothing is read twice at it.
+**PostgreSQL is consistent rather than approximate.** The replication slot is created
+over the replication protocol so that it exports a snapshot, the backfill reads at
+exactly that snapshot, and streaming starts from the slot's consistent point — so
+nothing committed before the boundary is missed and nothing is read twice at it.
 
-It runs only when the slot is created, which is the source's own record of having run
-before: if the slot exists, changes have already streamed from it and the rows are
-downstream. That makes the backfill once-only with no extra bookkeeping, and it means
-turning the flag on for a workflow that is already running does nothing until the
-slot is dropped.
+**MySQL and MongoDB are gapless but not snapshot-isolated.** Neither offers Postgres's
+exported-snapshot handshake, so the boundary is pinned by position instead: the binlog
+coordinates (MySQL) or the cluster time (MongoDB) are taken *before* the tables are
+read, and streaming resumes from there. Nothing committed during the backfill is lost,
+but a row changed while it runs arrives twice — once as it was, once as it became.
+That is the ordinary at-least-once bargain and sink-side idempotency collapses it; see
+[Delivery guarantee](#delivery-guarantee).
+
+Each source keeps its own record of having run, so the backfill is once-only and
+turning the flag on for a workflow that is already streaming does nothing. For
+PostgreSQL the record is the replication slot itself — if it exists, changes have
+already streamed from it and the rows are downstream — so enabling the flag takes
+effect only once the slot is dropped. MySQL and MongoDB leave nothing server-side that
+could serve the same purpose, and their stream positions cannot stand in either: a
+backfill moves no binlog position and produces no resume token, so a table carried
+across and then never written to would be indistinguishable from one that had never
+run. They record completion in the source state the engine persists on every ack
+(`initial_load: done`), alongside the position.
 
 Off by default deliberately: enabling it for every existing workflow would re-read
-every source table the first time a slot was recreated, which is the opposite of what
-an upgrade should do. Other CDC sources still have no initial load — for those, a
-backfill and a stream have to be sequenced by hand, slot first, and the duplicates
-that ordering produces are what sink-side idempotency is for.
+every source table the first time a position was reset, which is the opposite of what
+an upgrade should do. The remaining CDC sources still have no initial load — for
+those, a backfill and a stream have to be sequenced by hand, position first, and the
+duplicates that ordering produces are what sink-side idempotency is for.
 
 ---
 

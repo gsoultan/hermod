@@ -140,8 +140,15 @@ func TestMySQLSource_Read(t *testing.T) {
 	attachDeadline := time.After(45 * time.Second)
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
+	// Each retry has to change the row. A REPLACE that writes back the values
+	// already there is optimised into an update of nothing, and ROW-format
+	// binlog does not record a row that did not change — so re-writing an
+	// identical sentinel produces no binlog event at all and the retry loop
+	// generates nothing for the stream to carry. This nudge counter is what
+	// makes each write a real change.
+	nudge := 0
 	mustExec(t, db, "INSERT INTO "+table+" (id, name, price) VALUES (?, ?, ?)",
-		sentinelID, "sentinel", 0.01)
+		sentinelID, "sentinel-0", 0.01)
 
 	for !live {
 		select {
@@ -157,9 +164,11 @@ func TestMySQLSource_Read(t *testing.T) {
 
 		case <-ticker.C:
 			// Replace the sentinel rather than accumulating rows, so a slow
-			// attach does not leave the table full of them.
+			// attach does not leave the table full of them — but with a value
+			// that actually differs each time, or nothing reaches the binlog.
+			nudge++
 			mustExec(t, db, "REPLACE INTO "+table+" (id, name, price) VALUES (?, ?, ?)",
-				sentinelID, "sentinel", 0.01)
+				sentinelID, fmt.Sprintf("sentinel-%d", nudge), 0.01)
 
 		case <-attachDeadline:
 			t.Fatalf("no change to the watched table arrived within 45s of writing one; "+
