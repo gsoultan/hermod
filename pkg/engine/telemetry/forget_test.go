@@ -155,6 +155,8 @@ func forgetListNames() []string {
 		"SinkWriteCount",
 		"SinkWriteErrors",
 		"SubSourceBackoff",
+		"TxGroupInDoubt",
+		"TxGroupReaped",
 		"WorkflowNodeErrors",
 		"WorkflowNodeProcessed",
 	}

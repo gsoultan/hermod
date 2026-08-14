@@ -23,11 +23,18 @@ This document outlines the planned features, development directions, and future 
 
 ## 🔗 Infrastructure & Connectivity
 - **Expanded Connector Library**: Continued development of native, high-performance connectors for enterprise systems.
-- **A 2PC coordinator**: The `TwoPhaseCommit` interface exists and the Postgres sink implements it
-  with real prepared transactions, but **nothing drives it** — the engine never calls
-  `Prepare` / `CommitPrepared` / `RollbackPrepared`, so today it buys single-sink atomicity only.
-  The work is the coordinator: a transaction log, a recovery path that resolves in-doubt
-  transactions after a crash, and a policy for sinks that cannot participate. Until that lands,
-  additional 2PC sink implementations have nothing to plug into.
+- **More 2PC-capable sinks**: The coordinator is **built** (`pkg/engine/twopc`), with a durable
+  transaction log, a recovery path that resolves in-doubt transactions at start-up, and a reaper
+  that sweeps ones left past their deadline. It is driven by the transactional sink group
+  (`pkg/comm/sink/txgroup`), wired in `internal/engine/registry/txgroup.go`, and covered by unit,
+  crash-point and live-PostgreSQL tests. See
+  [Distributed transactions](./README.md#distributed-transactions-transactional-sink-groups),
+  which also states the residual risk plainly.
+
+  What limits it now is participants, not the coordinator: **PostgreSQL is the only sink that
+  implements `hermod.TwoPhaseCommit`**, so a group can only span PostgreSQL destinations. A group
+  refuses to start if any member cannot participate, rather than silently offering no atomicity.
+  The next step is a second implementation — and closing the one window the README documents,
+  which needs `hermod.TwoPhaseCommit` to accept a coordinator-supplied transaction ID.
 - **Kafka exactly-once**: Requires a transactional producer, which `segmentio/kafka-go` does not
   expose. Blocked on migrating to `franz-go` or `confluent-kafka-go`.

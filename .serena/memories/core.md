@@ -16,7 +16,10 @@ recommending a connector for production, check the tier.
 **Claims must match code.** The most expensive problem this codebase has had is
 documentation ahead of implementation — a README promising LogMiner CDC and Kafka
 2PC that the code did not implement. Delivery is **at-least-once** with sink-side
-idempotency. 2PC is Postgres-only and single-sink (no coordinator drives it).
+idempotency. 2PC has a real coordinator (`pkg/engine/twopc`) driven by the
+transactional sink group, with a durable log, start-up recovery and a reaper —
+but PostgreSQL is still the only sink implementing `hermod.TwoPhaseCommit`, so a
+group can only span PostgreSQL destinations.
 Oracle and DB2 are watermark polling, not log-based CDC — inserts only. If you
 find a claim that outruns the code, fix the claim.
 

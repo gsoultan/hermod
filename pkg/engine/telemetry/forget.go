@@ -39,6 +39,8 @@ func workflowLabelled() []labelDeleter {
 		SinkWriteCount,
 		SinkWriteErrors,
 		SubSourceBackoff,
+		TxGroupInDoubt,
+		TxGroupReaped,
 		WorkflowNodeErrors,
 		WorkflowNodeProcessed,
 	}

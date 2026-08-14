@@ -541,3 +541,8 @@ func (c *Coordinator) load(ctx context.Context) ([]*record, error) {
 	sort.Slice(records, func(i, j int) bool { return records[i].StartedAt.Before(records[j].StartedAt) })
 	return records, nil
 }
+
+// WorkflowID reports the workflow this coordinator's transaction log is scoped
+// to. It labels the metrics the reaper publishes, so an in-doubt transaction
+// can be traced back to the workflow that left it.
+func (c *Coordinator) WorkflowID() string { return c.workflowID }

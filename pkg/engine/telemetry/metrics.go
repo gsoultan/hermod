@@ -70,6 +70,35 @@ var (
 		Help: "Times a single source within a multi-source workflow was backed off after a read error",
 	}, []string{"workflow_id", "source_id"})
 
+	// TxGroupInDoubt reports transactions a transactional sink group has
+	// prepared but not resolved.
+	//
+	// This is the most expensive state the system can be in. On PostgreSQL a
+	// prepared transaction holds locks and blocks VACUUM cluster-wide — not
+	// only for the table involved, and not only for Hermod — for as long as it
+	// lasts. The documented backstop was a human remembering to run
+	// `SELECT * FROM pg_prepared_xacts` against the destination, which is a
+	// check nobody runs on a good day and therefore is not running on the bad
+	// one.
+	//
+	// A gauge rather than a counter, and republished on every reaper sweep
+	// including the sweeps that find nothing: a value only written when
+	// something is wrong never comes back down, and the alert it drives cannot
+	// clear.
+	TxGroupInDoubt = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "hermod_txgroup_in_doubt",
+		Help: "Transactions prepared by a transactional sink group and not yet resolved",
+	}, []string{"workflow_id"})
+
+	// TxGroupReaped counts transactions the reaper rolled back after they
+	// passed their deadline. Non-zero means something failed to resolve its own
+	// transaction and the backstop caught it — working as designed, and worth
+	// knowing about.
+	TxGroupReaped = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_txgroup_reaped_total",
+		Help: "Transactions rolled back by the reaper after being left in doubt past their deadline",
+	}, []string{"workflow_id"})
+
 	// SinkUnmappedField counts fields a message carried that the sink's column
 	// mappings do not cover, and which were therefore not written.
 	//

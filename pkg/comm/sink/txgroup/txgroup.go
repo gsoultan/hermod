@@ -241,3 +241,10 @@ func (s *Sink) Close() error {
 	}
 	return firstErr
 }
+
+// InDoubt reports how many transactions this group has prepared and not
+// resolved. Exposed so the reaper can publish it; see telemetry.TxGroupInDoubt
+// for why that number matters more than most.
+func (s *Sink) InDoubt(ctx context.Context) (int, error) {
+	return s.coordinator.InDoubt(ctx)
+}
