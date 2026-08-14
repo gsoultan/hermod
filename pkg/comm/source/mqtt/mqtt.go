@@ -35,6 +35,13 @@ type Source struct {
 	qos    byte
 	msgCh  chan hermod.Message
 	closed bool
+
+	// done is closed by Close. It is what lets a broker callback blocked on a
+	// full buffer give up, and what readers wait on instead of a closed
+	// channel — msgCh is deliberately never closed, because the callback that
+	// sends to it runs inside Paho and cannot be joined.
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // buildClientOptions translates the raw config map into Paho client options plus
@@ -153,6 +160,7 @@ func NewSource(cfg map[string]string) (*Source, error) {
 		topics: topics,
 		qos:    qos,
 		msgCh:  make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
+		done:   make(chan struct{}),
 	}
 
 	// Global message handler pushes to channel
@@ -171,15 +179,25 @@ func NewSource(cfg map[string]string) (*Source, error) {
 		msg.SetMetadata("qos", strconv.Itoa(int(m.Qos())))
 		msg.SetMetadata("retained", strconv.FormatBool(m.Retained()))
 		msg.SetMetadata("duplicate", strconv.FormatBool(m.Duplicate()))
+		// Wait for room rather than deciding what to throw away.
+		//
+		// This used to evict the oldest buffered message and push the new one.
+		// The eviction was silent, the evicted message was abandoned rather
+		// than released — so every drop cost the pool a message — and the push
+		// that followed was a blocking send outside any select, which parked
+		// this callback inside Paho's delivery goroutine whenever the buffer
+		// refilled in between, stopping every later message for this client.
+		//
+		// Choosing what to discard is the engine's job, not a source's: it has
+		// a backpressure policy with hermod_engine_backpressure_drop_total
+		// behind it. Blocking here is ordinary MQTT flow control, and at QoS 1
+		// and above the broker redelivers what it could not hand over.
 		select {
 		case s.msgCh <- msg:
-		default:
-			// Channel full: drop oldest by non-blocking receive then push
-			select {
-			case <-s.msgCh:
-			default:
-			}
-			s.msgCh <- msg
+		case <-s.done:
+			// Shutting down. Release rather than abandon, or the message never
+			// returns to the pool.
+			message.ReleaseMessage(msg)
 		}
 	})
 
@@ -239,7 +257,12 @@ func (s *Source) ensureClient() error {
 
 // Read blocks until a message arrives or context is done. Returns (nil, nil) on context timeout/cancel.
 func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
-	if s.closed {
+	// Under the lock: Close writes this field, and a reader is normally still
+	// in flight when it does.
+	s.mu.RLock()
+	closed := s.closed
+	s.mu.RUnlock()
+	if closed {
 		return nil, context.Canceled
 	}
 	if err := s.ensureClient(); err != nil {
@@ -254,6 +277,8 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 	select {
 	case <-ctx.Done():
 		return nil, nil
+	case <-s.done:
+		return nil, context.Canceled
 	case msg := <-s.msgCh:
 		return msg, nil
 	}
@@ -362,6 +387,10 @@ func buildSampleMessage(m paho.Message) hermod.Message {
 }
 
 func (s *Source) Close() error {
+	// Before the lock, so a callback parked on a full buffer is released
+	// rather than holding Paho's delivery goroutine while Disconnect waits.
+	s.closeOnce.Do(func() { close(s.done) })
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
@@ -369,7 +398,11 @@ func (s *Source) Close() error {
 		s.client.Disconnect(250)
 		s.client = nil
 	}
-	close(s.msgCh)
+	// msgCh is deliberately not closed. The broker callback sends to it from
+	// inside Paho, and there is no way to join that goroutine — closing the
+	// channel underneath it is "send on closed channel", which takes the
+	// process down rather than producing an error the engine can handle.
+	// Readers use done instead.
 	return nil
 }
 
