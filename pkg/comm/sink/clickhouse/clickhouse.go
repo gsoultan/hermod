@@ -142,7 +142,16 @@ func (s *ClickHouseSink) WriteBatch(ctx context.Context, msgs []hermod.Message) 
 		return err
 	}
 
-	for _, msg := range msgs {
+	// inserts, not msgs.
+	//
+	// This walked every message in the batch, so a delete was issued above and
+	// then the very same row appended straight back here. ClickHouse makes that
+	// permanent rather than merely late: ALTER TABLE ... DELETE is an
+	// asynchronous mutation over the parts that exist when it is created, and
+	// the re-insert lands in a new part the mutation never covers. A CDC stream
+	// carrying an insert and a delete in one batch — which is most of them —
+	// left the deleted row in place, with no error anywhere.
+	for _, msg := range inserts {
 		if len(s.mappings) > 0 {
 			var args []any
 			for _, m := range s.mappings {

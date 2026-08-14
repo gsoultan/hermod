@@ -437,6 +437,16 @@ jobs:
           KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
         ports:
           - 9092:9092
+      # ClickHouse, so its sink is proven to move a record rather than assumed
+      # to. CLICKHOUSE_SKIP_USER_SETUP leaves the default user password-less,
+      # which is what makes an unauthenticated test connection work.
+      clickhouse:
+        image: clickhouse/clickhouse-server:latest
+        env:
+          CLICKHOUSE_SKIP_USER_SETUP: "1"
+        ports:
+          - 9000:9000
+          - 8123:8123
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -562,6 +572,7 @@ jobs:
           SMTP_TO: ops@example.com
           SMTP_VERIFY_API: http://127.0.0.1:8025
           KAFKA_BROKERS: 127.0.0.1:9092
+          CLICKHOUSE_ADDR: 127.0.0.1:9000
         # -race, and this job is the only place it can do any good: these tests
         # are the only ones that drive a connector against a live server, and
         # the concurrency that matters — a Close landing while a stream is
