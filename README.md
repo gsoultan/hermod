@@ -896,6 +896,30 @@ Worker Metrics:
 - `hermod_worker_admission_rejected_total`: Workflows not started because the worker was over its
   CPU/memory admission threshold, labelled by `reason` (`cpu` or `memory`).
 
+### Tracing — following one record end to end
+
+Traces are exported over OTLP when it is configured (see `OTLPConfig`); nothing is emitted
+otherwise. A record produces one trace:
+
+```
+source.receive          ← where it entered, one per message
+└─ RunWorkflowNode      ← one per node it passes through
+   └─ sink.write        ← one per sink write
+```
+
+**The trace context travels on the message, not in a `context.Context`.** The read loop and
+the sink writers are different goroutines joined by a buffer, so a Go context cannot reach
+from one to the other. It is carried in message metadata under the W3C `traceparent` key —
+which means a sink that forwards metadata as headers or attributes (Pub/Sub does) propagates
+the trace to whatever consumes it next, with no Hermod-specific handling required.
+
+A record that arrives without a `traceparent` starts a new trace rather than failing.
+Tracing is diagnostics, and must never be the reason a record does not move.
+
+**Batch writes use links, not a parent.** The messages in one batch were read separately and
+each carries its own trace, so `sink.write_batch` links to all of them. Promoting one to
+parent would claim the batch belonged to that record's trace and orphan every other one.
+
 ### Alerting on silent failures
 
 Each of these has a procedure in [`RUNBOOK.md`](./RUNBOOK.md), along with key

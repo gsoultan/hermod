@@ -14,6 +14,9 @@ import (
 	"github.com/user/hermod/pkg/engine/idempotency"
 	"github.com/user/hermod/pkg/engine/source"
 	"github.com/user/hermod/pkg/engine/telemetry"
+	"github.com/user/hermod/pkg/infra/tracing"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Runner struct {
@@ -631,6 +634,32 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 			}
 
 			r.engine.recordSourceActivity()
+
+			// Where a trace begins — but only if nothing upstream already
+			// started one. The registry's multiplexer stamps a record as it
+			// takes it from a sub-source; stamping again here would overwrite
+			// that context and orphan the span it belongs to. When the engine
+			// is used directly as a library there is nothing above it, and this
+			// is the entry point.
+			//
+			// The span is started and ended around the handover rather than
+			// around the Read above, because Read blocks until something
+			// arrives — a quiet source would otherwise report minutes of
+			// "reading" that were minutes of waiting.
+			//
+			// The context it produces cannot be passed on: the sink writers run
+			// on other goroutines fed by the buffer, so it is stamped onto the
+			// message instead and picked up again at the write.
+			if !trace.SpanContextFromContext(tracing.Extract(ctx, m)).IsValid() {
+				readCtx, span := tracer.Start(ctx, "source.receive", trace.WithAttributes(
+					attribute.String("workflow_id", r.engine.workflowID),
+					attribute.String("message_id", m.ID()),
+					attribute.String("table", m.Table()),
+					attribute.String("operation", string(m.Operation())),
+				))
+				tracing.Inject(readCtx, m)
+				span.End()
+			}
 
 			if err := r.engine.buffer.Produce(ctx, m); err != nil {
 				r.engine.logger.Error("Failed to write message to buffer", "workflow_id", r.engine.workflowID, "error", err)

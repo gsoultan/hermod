@@ -17,6 +17,7 @@ import (
 	"github.com/user/hermod/pkg/comm/buffer"
 	"github.com/user/hermod/pkg/engine/config"
 	"github.com/user/hermod/pkg/engine/telemetry"
+	"github.com/user/hermod/pkg/infra/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -250,6 +251,11 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 	if msg == nil {
 		return nil
 	}
+	// Continue the trace the source read started. This runs on a different
+	// goroutine from the read, so the link comes off the message rather than
+	// out of ctx; without it every write is the root of its own trace.
+	ctx = tracing.Extract(ctx, msg)
+
 	// Trace single write
 	var span trace.Span
 	ctx, span = tracer.Start(ctx, "sink.write", trace.WithAttributes(
@@ -410,13 +416,26 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 		return nil
 	}
 
+	// A batch belongs to no single trace: its messages were read separately and
+	// each carries its own. So they are attached as links rather than as a
+	// parent — one arbitrary message promoted to parent would claim the batch
+	// belongs to that record's trace and orphan every other one.
+	links := make([]trace.Link, 0, len(msgs))
+	for _, m := range msgs {
+		if sc := trace.SpanContextFromContext(tracing.Extract(ctx, m)); sc.IsValid() {
+			links = append(links, trace.Link{SpanContext: sc})
+		}
+	}
+
 	// Trace batch write
 	var span trace.Span
-	ctx, span = tracer.Start(ctx, "sink.write_batch", trace.WithAttributes(
-		attribute.String("workflow_id", e.workflowID),
-		attribute.String("sink_id", sinkID),
-		attribute.Int("batch_size", len(msgs)),
-	))
+	ctx, span = tracer.Start(ctx, "sink.write_batch",
+		trace.WithLinks(links...),
+		trace.WithAttributes(
+			attribute.String("workflow_id", e.workflowID),
+			attribute.String("sink_id", sinkID),
+			attribute.Int("batch_size", len(msgs)),
+		))
 	defer span.End()
 
 	// Pre-write validation
