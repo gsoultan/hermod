@@ -646,16 +646,29 @@ which is why they were untested; anything new in that shape should provide it to
 | **RabbitMQ** | source + sink | Queue integration tests against a live broker, both directions: the sink's messages are consumed back off the queue |
 | **Redis** | sink | Integration test against a live server |
 | **MongoDB** | sink | Live-server data-path tests: documents land, a repeated key does not duplicate, updates replace, deletes remove, batches arrive whole |
+| **MongoDB** | source | Live replica-set change-stream tests (`MONGODB_RS_URI`): the resume position advances on acknowledgement rather than on read, unacknowledged messages are redelivered after a restart, the initial load carries existing documents once, and a write during the backfill is not lost between it and the tail |
+| **SMTP** | sink | Live send against a mail catcher, read back through its API (`SMTP_HOST` + `SMTP_VERIFY_API`) — an SMTP server accepts a message long before anyone can read it, so a nil return is a weaker claim than it looks. Retry and duplicate-suppression covered too |
 
 ### Beta
 
 Substantial and unit-tested, but unproven against live infrastructure in CI:
 
-**Sources** — MSSQL, MariaDB, ClickHouse, MongoDB, gRPC, MQTT, WebSocket, HTTP,
+**Sources** — MSSQL, MariaDB, ClickHouse, gRPC, MQTT, WebSocket, HTTP,
 BatchSQL, Excel.
-**Sinks** — MSSQL, Oracle, ClickHouse, Elasticsearch, SMTP, Snowflake,
+**Sinks** — MSSQL, Oracle, ClickHouse, Elasticsearch, Snowflake,
 Kafka *(at-least-once; no transactional producer)*, HTTP, WebSocket,
-S3 / S3-Parquet, pgvector, Failover, TxGroup.
+S3 / S3-Parquet, pgvector, Failover.
+
+**TxGroup** stays here despite having live-PostgreSQL tests that cover more than
+most GA entries — commit landing in both tables, and rows staying invisible after
+a crash between prepare and recovery. Two things hold it back, and both are
+semantic rather than a gap in coverage: PostgreSQL is the only sink implementing
+`hermod.TwoPhaseCommit`, so a group can span nothing else; and there is a
+documented window in which a crash strands a prepared transaction the coordinator
+cannot name, which on PostgreSQL holds locks cluster-wide until someone finds it.
+See [Residual risk, stated plainly](#residual-risk-stated-plainly). Neither is a
+reason to avoid it — they are reasons to know what you are taking on, which is
+what a tier is for.
 
 ### Experimental
 
