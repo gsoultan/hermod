@@ -648,6 +648,7 @@ which is why they were untested; anything new in that shape should provide it to
 | **MongoDB** | sink | Live-server data-path tests: documents land, a repeated key does not duplicate, updates replace, deletes remove, batches arrive whole |
 | **MongoDB** | source | Live replica-set change-stream tests (`MONGODB_RS_URI`): the resume position advances on acknowledgement rather than on read, unacknowledged messages are redelivered after a restart, the initial load carries existing documents once, and a write during the backfill is not lost between it and the tail |
 | **SMTP** | sink | Live send against a mail catcher, read back through its API (`SMTP_HOST` + `SMTP_VERIFY_API`) — an SMTP server accepts a message long before anyone can read it, so a nil return is a weaker claim than it looks. Retry and duplicate-suppression covered too |
+| **Kafka** | source + sink | Live-broker round trip (`KAFKA_BROKERS`): a record written by the sink comes back out of the source with its key intact, and acknowledging advances the consumer group's offset so a restart is not handed what was already delivered. **At-least-once only** — see the note under Beta about why it cannot do better |
 
 ### Beta
 
@@ -655,10 +656,17 @@ Substantial and unit-tested, but unproven against live infrastructure in CI:
 
 **Sources** — MSSQL, MariaDB, ClickHouse, gRPC, MQTT, WebSocket, HTTP,
 BatchSQL, Excel.
-**Sinks** — MSSQL, Oracle, ClickHouse, Elasticsearch, Snowflake,
-Kafka *(at-least-once; no transactional producer, and it cannot join a
-transactional sink group — see [ROADMAP](./ROADMAP.md))*, HTTP, WebSocket,
+**Sinks** — MSSQL, Oracle, ClickHouse, Elasticsearch, Snowflake, HTTP, WebSocket,
 S3 / S3-Parquet, pgvector, Failover.
+
+**Kafka is GA for its data path but at-least-once only**, and that ceiling is not
+a coverage gap. There is no transactional producer — `segmentio/kafka-go` exposes
+the wire primitives but nothing on its `Writer` — and Kafka cannot join a
+transactional sink group at all, because recovery there must be able to *commit*
+a transaction an earlier process prepared and Kafka can only abort one. See
+[ROADMAP](./ROADMAP.md). At-least-once with sink-side idempotency is Hermod's
+documented guarantee everywhere, so this is the same bargain as the rest of the
+platform rather than a Kafka-specific caveat.
 
 **TxGroup** stays here despite having live-PostgreSQL tests that cover more than
 most GA entries — commit landing in both tables, and rows staying invisible after
