@@ -56,6 +56,11 @@ type MySQLSource struct {
 	// meaningless without the file it is an offset into.
 	currentFile string
 
+	// done is closed by Close, and is what lets a row handler blocked on a full
+	// buffer give up instead of holding the reader open forever.
+	done      chan struct{}
+	closeOnce sync.Once
+
 	initialLoad bool
 	// initialLoadComplete is the source's record of having backfilled. MySQL
 	// leaves nothing server-side that could stand in for it the way a
@@ -93,8 +98,14 @@ func NewMySQLSource(connString string, useCDC bool) *MySQLSource {
 		useCDC:     useCDC,
 		msgChan:    make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 		errChan:    make(chan error, 10),
+		done:       make(chan struct{}),
 	}
 }
+
+// errSourceClosed stops the binlog reader when the source is shutting down. It
+// travels out through canal, which wraps it, so the shutdown path tests whether
+// done is closed rather than trying to unwrap this back out again.
+var errSourceClosed = errors.New("mysql source closed")
 
 func (m *MySQLSource) SetLogger(logger hermod.Logger) {
 	m.mu.Lock()
@@ -242,8 +253,20 @@ func (m *MySQLSource) init(ctx context.Context) error {
 			// c, not m.canal: the field is read from other goroutines and there
 			// is no reason to reach for it when the value is already in hand.
 			if err := c.RunFrom(start); err != nil {
-				m.log("ERROR", "canal run failed", "error", err)
-				m.errChan <- err
+				select {
+				case <-m.done:
+					// Shutting down. The reader stopping is what was asked for,
+					// not a failure to report.
+				default:
+					m.log("ERROR", "canal run failed", "error", err)
+					// Non-blocking: nothing may be reading by now, and a
+					// blocked send here would strand this goroutine for the
+					// life of the process.
+					select {
+					case m.errChan <- err:
+					default:
+					}
+				}
 			}
 		}()
 	}
@@ -392,11 +415,28 @@ func (h *mysqlEventHandler) OnRow(e *canal.RowsEvent) error {
 			msg.SetID(fmt.Sprintf("%s:%s:%v", e.Table.Schema, e.Table.Name, pkVal))
 		}
 
+		// Wait for room rather than discarding what does not fit.
+		//
+		// This used to release the message when the buffer was full, which is a
+		// silent delete: no error, no log, no metric, and the binlog position
+		// moves on regardless. Any burst larger than the buffer lost its tail,
+		// and the resume position made the loss permanent — the dropped rows
+		// were never acknowledged, but the rows after them were, so the
+		// watermark advanced straight past them.
+		//
+		// Blocking here stops the binlog reader, which is the correct
+		// backpressure: MySQL keeps the binlog until we catch up, exactly as
+		// PostgreSQL retains WAL behind a replication slot. It carries the same
+		// hazard, too — a consumer stalled for longer than the server's
+		// binlog_expire_logs_seconds will find its position purged — and that is
+		// a visible, recoverable failure rather than a quiet one.
 		select {
 		case h.source.msgChan <- msg:
-		default:
-			// Buffer full
+		case <-h.source.done:
+			// Closing. Drop what cannot be delivered and stop the reader; the
+			// position was never acknowledged, so these rows come back.
 			message.ReleaseMessage(msg)
+			return errSourceClosed
 		}
 	}
 	return nil
@@ -584,6 +624,13 @@ func (m *MySQLSource) Ping(ctx context.Context) error {
 
 func (m *MySQLSource) Close() error {
 	m.log("INFO", "Closing MySQLSource")
+
+	// Before the lock: a row handler parked on a full buffer holds the binlog
+	// reader, and canal.Close waits for that reader to stop. Releasing it first
+	// is what keeps Close from waiting on a goroutine that is waiting on a
+	// consumer that has already gone away.
+	m.closeOnce.Do(func() { close(m.done) })
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -814,7 +861,15 @@ func (m *MySQLSource) snapshotTable(ctx context.Context, table string) error {
 	var colNames []string
 	var pkCols []string
 	for _, c := range cols {
-		quoted, _ := sqlutil.QuoteIdent("mysql", c.Name)
+		// The error is checked, not discarded. QuoteIdent returns "" when it
+		// rejects a name, and appending that produced a malformed statement
+		// that failed later with a syntax error naming nothing useful — and it
+		// quietly weakened the assumption the query below is built on, which is
+		// that every identifier in it has been through here.
+		quoted, err := sqlutil.QuoteIdent("mysql", c.Name)
+		if err != nil {
+			return fmt.Errorf("column %q of table %q cannot be quoted safely: %w", c.Name, table, err)
+		}
 		colNames = append(colNames, quoted)
 		if c.IsPK {
 			pkCols = append(pkCols, quoted)
@@ -854,6 +909,13 @@ func (m *MySQLSource) snapshotTable(ctx context.Context, table string) error {
 		query := fmt.Sprintf("SELECT %s FROM %s ORDER BY %s LIMIT %d OFFSET %d",
 			colList, quotedTable, orderBy, snapshotBatchSize, offset)
 
+		//nolint:gosec // G701: every identifier interpolated above went through
+		// sqlutil.QuoteIdent, which validates the name and fails the call rather
+		// than returning something unquoted — the table with its error checked
+		// at the top of this function, the columns and the ORDER BY list in the
+		// loop above. The remaining verbs are a const and an int. MySQL takes no
+		// placeholder in any of these positions, so interpolation is the only
+		// option and quoting is what makes it safe.
 		rows, err := db.QueryContext(ctx, query)
 		if err != nil {
 			return fmt.Errorf("failed to query snapshot batch for %q at offset %d: %w", table, offset, err)

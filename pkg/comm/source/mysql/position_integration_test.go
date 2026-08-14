@@ -361,3 +361,73 @@ func TestInitialLoadRunsOnlyOnce(t *testing.T) {
 		break
 	}
 }
+
+// Backpressure, rather than dropping what does not fit.
+//
+// The row handler offered each message to the buffer and released it when the
+// buffer was full, which is a silent delete: no error, no log, no metric, and
+// the binlog position moves on regardless. Any burst larger than the 64-message
+// buffer lost its tail, and the resume position made it permanent — the dropped
+// rows were never acknowledged, but the rows after them were, so the watermark
+// advanced straight past them.
+//
+// A source that cannot keep up must make the reader wait, which is what holding
+// the binlog is for.
+func TestABurstLargerThanTheBufferIsNotDropped(t *testing.T) {
+	_, db, table := requireMySQL(t)
+	dsn := os.Getenv("MYSQL_DSN")
+
+	src := NewMySQLSource(dsn, true)
+	t.Cleanup(func() { _ = src.Close() })
+
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	if err := src.init(ctx); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	// Comfortably more than sourcebuf.DefaultSourceBuffer (64), written before
+	// anything reads, so the buffer is full long before the burst ends.
+	const burst = 250
+	for i := 1; i <= burst; i++ {
+		insertRow(t, db, table, i, fmt.Sprintf("burst row %d", i))
+	}
+
+	readCtx, readCancel := context.WithTimeout(t.Context(), 60*time.Second)
+	defer readCancel()
+
+	seen := make(map[int]bool, burst)
+	for len(seen) < burst {
+		msg, err := src.Read(readCtx)
+		if err != nil {
+			break
+		}
+		if msg == nil || msg.Table() != table {
+			continue
+		}
+		var row map[string]any
+		if err := json.Unmarshal(msg.After(), &row); err != nil {
+			continue
+		}
+		id, ok := row["id"].(float64)
+		if !ok {
+			continue
+		}
+		seen[int(id)] = true
+	}
+
+	if len(seen) != burst {
+		var missing []int
+		for i := 1; i <= burst && len(missing) < 10; i++ {
+			if !seen[i] {
+				missing = append(missing, i)
+			}
+		}
+		t.Errorf("%d of %d rows written in one burst arrived; %d were dropped (first missing ids: %v)\n"+
+			"the row handler discards a message when the buffer is full instead of waiting for "+
+			"room, so nothing reports the loss and the resume position moves past the rows that "+
+			"were thrown away",
+			len(seen), burst, burst-len(seen), missing)
+	}
+}
