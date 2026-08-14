@@ -656,7 +656,8 @@ Substantial and unit-tested, but unproven against live infrastructure in CI:
 **Sources** — MSSQL, MariaDB, ClickHouse, gRPC, MQTT, WebSocket, HTTP,
 BatchSQL, Excel.
 **Sinks** — MSSQL, Oracle, ClickHouse, Elasticsearch, Snowflake,
-Kafka *(at-least-once; no transactional producer)*, HTTP, WebSocket,
+Kafka *(at-least-once; no transactional producer, and it cannot join a
+transactional sink group — see [ROADMAP](./ROADMAP.md))*, HTTP, WebSocket,
 S3 / S3-Parquet, pgvector, Failover.
 
 **TxGroup** stays here despite having live-PostgreSQL tests that cover more than

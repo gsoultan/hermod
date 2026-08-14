@@ -36,5 +36,24 @@ This document outlines the planned features, development directions, and future 
   refuses to start if any member cannot participate, rather than silently offering no atomicity.
   The next step is a second implementation — and closing the one window the README documents,
   which needs `hermod.TwoPhaseCommit` to accept a coordinator-supplied transaction ID.
-- **Kafka exactly-once**: Requires a transactional producer, which `segmentio/kafka-go` does not
-  expose. Blocked on migrating to `franz-go` or `confluent-kafka-go`.
+- **Kafka exactly-once**: Worth separating into the two different things it could mean, because
+  only one of them is reachable.
+
+  **Exactly-once within Kafka** — transactional produce, with consumer offsets committed inside
+  the same transaction — is reachable and is the useful one. It needs a producer-level
+  transactional API. `segmentio/kafka-go` exposes the wire primitives (`InitProducerID`,
+  `AddPartitionsToTxn`, `AddOffsetsToTxn`, `EndTxn`, `TxnOffsetCommit`) but its `Writer` has no
+  transaction support at all, so using them means reimplementing producer-side bookkeeping —
+  per-produce partition registration, epoch and sequence handling — which is exactly what
+  `franz-go` already provides. That migration is the work.
+
+  **Kafka as a member of a transactional sink group** is *not* reachable, and no client library
+  changes that. The coordinator's recovery path has to be able to commit a transaction that a
+  previous process prepared. Kafka has no such operation: a producer restarting with the same
+  `transactional.id` calls `InitProducerID`, which fences the old epoch and **aborts** whatever
+  it left in flight. Abort is the only outcome recovery can choose, so `CommitPrepared` cannot
+  be honoured and `hermod.TwoPhaseCommit` cannot be implemented truthfully.
+
+  `pkg/comm/sink/kafka/twopc_test.go` already holds that line, and should keep holding it: it
+  fails if the sink ever starts claiming `TwoPhaseCommit` or `Transactional`, because no-op
+  methods would let a coordinator read a failed rollback as a successful one.
