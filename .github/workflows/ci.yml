@@ -134,8 +134,10 @@ jobs:
       - name: Start Hermod
         run: ./scripts/dev.sh --sqlite --reset --detach
       # Every spec here runs against the SQLite stack above and needs no
-      # external service. Specs that need Postgres or RabbitMQ run in the
-      # `e2e-integration` job instead.
+      # external service — which is now every spec there is. Anything needing
+      # Postgres or RabbitMQ belongs in `integration-go`, driven directly
+      # rather than through a browser; see the note above the `soak` job for
+      # where the last such spec went.
       #
       # These used to be four hand-listed audits, and the eleven functional
       # specs ran nowhere. Nothing executed them, so nothing reported that they
@@ -498,119 +500,19 @@ jobs:
           SMTP_VERIFY_API: http://127.0.0.1:8025
         run: go test -tags=integration -count=1 -timeout 15m ./...
 
-  e2e-integration:
-    name: E2E (Postgres + RabbitMQ) [informational]
-    runs-on: ubuntu-latest
-    # These specs drive real CDC, real queues and real sink writes, so they need
-    # services and take minutes. Running them on every push would make the
-    # pipeline unusable; running them nowhere is how they rotted. Nightly, and
-    # on demand, is the compromise.
-    #
-    # continue-on-error, and down from ten specs to one.
-    #
-    # These described a UI that no longer exists, and mostly the answer was a
-    # move rather than a repair: what they asserted was never in the DOM.
-    # Retired, with where each one went:
-    #
-    #   cdc_e2e, cdc_table_tracking_e2e
-    #     -> pkg/comm/source/postgres/cdc_integration_test.go
-    #   sql_e2e
-    #     -> internal/engine/registry/discovery_integration_test.go
-    #   rabbitmq_e2e (mocked its broker; every assertion was about the
-    #     simulation endpoint, which had no Go coverage at all)
-    #     -> internal/engine/registry/simulation_test.go
-    #   heavy_load_e2e, perf_e2e
-    #     -> internal/engine/registry/multiworker_load_integration_test.go
-    #   advanced_transformations_e2e, comprehensive_transformations_e2e
-    #     -> internal/engine/registry/transformation_types_test.go and
-    #        db_lookup_integration_test.go. Checked type by type before
-    #        deleting: all eleven the specs exercised are covered, including
-    #        parallel_pipeline, which routes to a different function from
-    #        pipeline and was the last one nothing reached.
-    #   worker_e2e -> promoted to the required E2E job; it passes and needs no
-    #     external service, so it was only ever here by mistake
-    #
-    # production_grade stays. Its UI half is covered by
-    # multi_pipeline_editor_e2e and workflow_surface_e2e, but it also asserts
-    # that a sequential sink and a parallel sink both deliver, with the field
-    # values to prove it. Those are genuinely different execution models --
-    # sequential writes inline and exposes success/error branches, parallel
-    # passes through to the async writers -- and Go covers only the flag
-    # resolution (TestResolveSinkNodeSequential), not the behaviour. Replacing
-    # it needs a running engine and a real sink, so it is a piece of work
-    # rather than a move.
-    #
-    # A permanently red required job trains everyone to ignore the pipeline,
-    # which is the same trap the govulncheck wrapper avoids.
-    continue-on-error: true
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-        # wal_level=logical is required for the CDC specs; without it the
-        # replication slot cannot be created and every CDC test fails on setup.
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-      rabbitmq:
-        image: rabbitmq:3-management
-        options: >-
-          --health-cmd "rabbitmq-diagnostics -q ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5672:5672
-          - 15672:15672
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Install dependencies
-        run: |
-          bun install --frozen-lockfile
-          cd ui && bun install --frozen-lockfile
-      - name: Install Playwright browsers
-        run: bunx playwright install --with-deps chromium
-      - name: Enable logical replication and create test databases
-        env:
-          PGPASSWORD: postgres
-        run: |
-          psql -h localhost -U postgres -c "ALTER SYSTEM SET wal_level = logical;"
-          psql -h localhost -U postgres -c "CREATE DATABASE hermod_test_source;"
-          psql -h localhost -U postgres -c "CREATE DATABASE hermod_test_sink;"
-      - name: Start Hermod
-        run: ./scripts/dev.sh --sqlite --reset --detach
-      - name: E2E (integration)
-        run: |
-          bunx playwright test \
-            ui/__tests__/production_grade.spec.ts
-      - name: Stop Hermod
-        if: always()
-        run: ./scripts/dev.sh --stop
-      - name: Upload traces
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-integration-results
-          path: test-results/
-          retention-days: 7
-          if-no-files-found: ignore
+  # The browser E2E job that used to live here is gone, and so is the last spec
+  # in it. production_grade.spec.ts was the only one left: its UI half was
+  # already covered by multi_pipeline_editor_e2e and workflow_surface_e2e, and
+  # the part that was not — that a sequential sink and a parallel sink both
+  # deliver, with the field values to prove it — is now
+  # internal/engine/registry/sink_delivery_models_integration_test.go.
+  #
+  # That move is the point. The spec needed a browser, Postgres and RabbitMQ,
+  # took minutes, and ran continue-on-error on a nightly schedule, so a
+  # regression in either sink model could merge with nothing going red. The Go
+  # test runs in integration-go above, which is required, and finishes in under
+  # a second. A required gate that runs on every push beats an informational one
+  # that runs nightly and is ignored.
 
   soak:
     name: Soak (resource trends)
