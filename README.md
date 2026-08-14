@@ -935,6 +935,24 @@ while every status stays green — so each one needs an alert rather than a dash
 | `hermod_engine_messages_dropped_no_target_total` | Messages were acknowledged to the source and then delivered nowhere, because a workflow that has sinks resolved none of them. They are not in a dead-letter queue. | **Page.** Check sink reachability and the workflow's edges. Data already acknowledged is unrecoverable from the source. |
 | `hermod_worker_admission_rejected_total` | The worker is shedding load: it is refusing to start new workflows because the host is above its threshold. Affected workflows simply never start. | Investigate host load. The reading is host-wide, so on a shared machine this can fire on load Hermod does not own — raise `HERMOD_ADMISSION_CPU_THRESHOLD` / `HERMOD_ADMISSION_MEM_THRESHOLD`, or give the worker a dedicated node. |
 | `hermod_engine_sub_source_backoff_total` | One source inside a multi-source workflow is failing and has been backed off. Its siblings keep streaming, so the workflow still reports healthy while that source delivers nothing. | Check that source's connectivity. Sustained growth means it is not recovering; the backoff caps at 5s between attempts. |
+| `hermod_sink_unmapped_field_total` | A message carried a field the sink's column mappings do not cover, so it was not written. Usually the source grew a column: the destination has quietly stopped matching it, and every status stays green. | Add the field to the sink's column mappings, or confirm the omission is intended. Labelled by `table` and `field`, and counted once per field per sink rather than per message — the value is which field, not how many rows. |
+
+### Schema evolution — when a source grows a column
+
+A CDC source picks up whatever the upstream table has, so adding a column there starts
+sending it without anything in Hermod being reconfigured. What happens next depends on how
+the sink is configured, and both behaviours are deliberate:
+
+- **Without column mappings**, a SQL sink writes `(id, data)` with the message as a JSON
+  document, so the new field arrives on its own. Nothing to do.
+- **With column mappings**, the sink writes exactly the columns it was told about. The new
+  field is not written — a mapping is a statement about which fields matter — but it is
+  reported through `hermod_sink_unmapped_field_total` and a log line naming the field, so
+  the loss is visible rather than silent.
+
+Neither mode alters the destination's schema in response to a message. Automatic column
+addition exists only as `sync_columns`, which reconciles the table to the *configured
+mappings* at start-up, not to what arrives at runtime.
 
 Admission control knobs (both default to `0.85`; set to `1` or higher to disable that dimension):
 

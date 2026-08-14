@@ -70,6 +70,19 @@ var (
 		Help: "Times a single source within a multi-source workflow was backed off after a read error",
 	}, []string{"workflow_id", "source_id"})
 
+	// SinkUnmappedField counts fields a message carried that the sink's column
+	// mappings do not cover, and which were therefore not written.
+	//
+	// This is how a source growing a column becomes visible. A mapped sink
+	// writes only the columns it was told about, so a new field upstream is
+	// read by nothing — the destination quietly stops matching the source while
+	// every status stays green. Counted once per field per sink rather than per
+	// message: a schema change is a standing condition, not an event per row.
+	SinkUnmappedField = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_sink_unmapped_field_total",
+		Help: "Message fields with no column mapping, which are not written to the destination",
+	}, []string{"table", "field"})
+
 	ActiveEngines = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "hermod_engine_active_total",
 		Help: "The total number of active engines",

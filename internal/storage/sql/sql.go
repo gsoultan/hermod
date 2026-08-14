@@ -184,6 +184,14 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		}
 	}
 
+	// Refuse a database a newer release already migrated, before anything is
+	// altered. The statements above are all IF NOT EXISTS and so ran harmlessly;
+	// what must not happen is this binary going on to read and write a schema
+	// shape it does not know. See checkSchemaVersion.
+	if err := s.checkSchemaVersion(ctx); err != nil {
+		return err
+	}
+
 	// 2. Bring existing databases up to the schema this version expects.
 	//
 	// A failure here stops start-up. Running on a schema that is missing a column
