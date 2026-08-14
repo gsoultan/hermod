@@ -60,6 +60,25 @@ jobs:
         run: |
           go install honnef.co/go/tools/cmd/staticcheck@latest
           staticcheck ./...
+      # The gRPC source's wire contract. CLAUDE.md has listed these two as
+      # gates for some time, but there was no buf.yaml and neither had ever
+      # run — so `hermod.source.grpc.v1 SourceService`, which external clients
+      # call to push records in, could be changed in any way at all with
+      # nothing objecting. See buf.yaml for why only that module is gated and
+      # why one lint rule is excluded.
+      - name: Setup buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
+      - name: Buf lint
+        run: buf lint
+      # Module-scoped on both sides. The bare form compares whole trees, and a
+      # merge base predating buf.yaml has no module layout to compare against,
+      # which reports every file as deleted rather than reporting a break.
+      - name: Buf breaking
+        run: |
+          buf breaking pkg/comm/source/grpc/proto \
+            --against ".git#branch=${{ github.event.pull_request.base.ref || github.event.repository.default_branch }},subdir=pkg/comm/source/grpc/proto"
       # Wrapper, not bare govulncheck: it records reviewed exemptions with the
       # reason each vulnerable path is unreachable, and still fails on anything
       # unexempted. A gate that is permanently red because of one unfixable
