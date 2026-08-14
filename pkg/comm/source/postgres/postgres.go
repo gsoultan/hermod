@@ -2327,7 +2327,23 @@ func (p *PostgresSource) Close() error {
 	p.relations = make(map[uint32]*pglogrepl.RelationMessage)
 
 	p.replConn = nil
-	p.pool = nil
+
+	// p.pool is deliberately left in place.
+	//
+	// Clearing it here was a data race against every unlocked reader of the
+	// field — publicationExists, Ping, DiscoverTables and a dozen more — and
+	// Close is exactly what runs when a workflow stops while an API request is
+	// still in flight. Locking those readers instead would mean touching some
+	// thirty sites, several of which already hold this mutex and would deadlock
+	// on the way through.
+	//
+	// It is unnecessary as well as unsafe. The pool belongs to
+	// pgxutil.DefaultPooler, which caches it by DSN for the life of the process
+	// and which Close deliberately does not close, so dropping the reference
+	// released nothing. Leaving it makes the field write-once: ensureConn
+	// assigns it under this mutex on first use and returns early ever after, so
+	// every later read is of a value that was published before the reader
+	// existed.
 
 	return nil
 }

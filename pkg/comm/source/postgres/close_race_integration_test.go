@@ -112,3 +112,48 @@ func TestCloseDoesNotRaceTheReplicationStream(t *testing.T) {
 		<-done
 	}
 }
+
+// The metadata pool, closed out from under the goroutines still reading it.
+//
+// Close set p.pool = nil under the mutex, while publicationExists, Ping,
+// DiscoverTables and a dozen others read p.pool without it. Every one of those
+// reads is a race against a concurrent Close, and Close is exactly what runs
+// when a workflow stops while an API request is still in flight.
+//
+// The field is otherwise written once — ensureConn assigns it under the mutex
+// and returns early ever after — so clearing it in Close was the only thing
+// making those reads unsafe. It also released nothing: the pool belongs to
+// pgxutil.DefaultPooler, which caches it for the life of the process and which
+// Close deliberately does not close.
+func TestCloseDoesNotRaceMetadataReaders(t *testing.T) {
+	dsn := os.Getenv("POSTGRES_DSN")
+	if os.Getenv("HERMOD_INTEGRATION") != "1" || dsn == "" {
+		t.Skip("integration: set HERMOD_INTEGRATION=1 and POSTGRES_DSN to run")
+	}
+
+	for range 5 {
+		src := NewPostgresSource(dsn, "", "", nil, false, "", 0)
+
+		// Establish the pool before racing, so this is about Close clearing it
+		// rather than about the first assignment.
+		if err := src.Ping(t.Context()); err != nil {
+			t.Fatalf("ping: %v", err)
+		}
+
+		readersDone := make(chan struct{})
+		go func() {
+			defer close(readersDone)
+			for range 50 {
+				_ = src.Ping(context.Background())
+				_, _ = src.DiscoverTables(context.Background())
+			}
+		}()
+
+		// Close while those are in flight.
+		time.Sleep(5 * time.Millisecond)
+		if err := src.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+		<-readersDone
+	}
+}

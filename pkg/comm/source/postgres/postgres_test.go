@@ -61,9 +61,18 @@ func TestPostgresSource_DefaultSlotAndPublication(t *testing.T) {
 func TestPostgresSource_CloseUninitializedIsSafeAndIdempotent(t *testing.T) {
 	// Lightweight operations (test connection, fetch tables/databases, etc.)
 	// open the metadata connection without marking the source initialized.
-	// Close must still release that connection (and reset state) so repeated
-	// requests do not leak connections and take the worker offline. It must
-	// also be safe to call multiple times.
+	// Close must still release the replication connection (and reset state) so
+	// repeated requests do not leak connections and take the worker offline. It
+	// must also be safe to call multiple times.
+	//
+	// This used to assert that the metadata pool was cleared too. It no longer
+	// is, and the reason the assertion was here does not survive being looked
+	// at: the pool belongs to pgxutil.DefaultPooler, which caches it by DSN for
+	// the life of the process, and Close deliberately does not close it — so
+	// dropping the reference released no connection and prevented no leak. What
+	// it did do was write a field that a dozen unlocked readers were reading,
+	// which is a data race reachable whenever a workflow stops while an API
+	// request is in flight. See the note in Close.
 	s := NewPostgresSource("postgres://user:pass@localhost:5432/db", "", "", nil, false, "", 0)
 
 	if err := s.Close(); err != nil {
@@ -75,9 +84,6 @@ func TestPostgresSource_CloseUninitializedIsSafeAndIdempotent(t *testing.T) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.pool != nil {
-		t.Errorf("metadata pool not released after Close: got %v", s.pool)
-	}
 	if s.replConn != nil {
 		t.Errorf("replication connection not released after Close: got %v", s.replConn)
 	}
