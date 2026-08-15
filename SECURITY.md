@@ -197,6 +197,28 @@ currently a session-compromise vector, not just a defacement one.
   interpolation.
 - Use least-privilege credentials for every connected system.
 
+### Structured payloads are encoded, never printed
+
+The rule above is about SQL, but it generalises: **a value that came from a
+message is data, and data goes into a serialiser rather than a format string.**
+The document id, the table, the index — none of them belong to the connector.
+They are whatever the pipeline put there: a CDC primary key, a Kafka message
+key, a field lifted out of a webhook body.
+
+The Elasticsearch sink built its bulk action lines with `fmt.Fprintf` and `%s`.
+Bulk is NDJSON — one action object per line — so a document id containing a
+quote and a newline closed the action object and wrote further action lines of
+its own. Against an `index` action that is mostly inert, because Elasticsearch
+reads the following line as the document source; against a `delete`, which has
+no source line, the next line is parsed as another action. A document id could
+therefore delete documents from an index the sink was never pointed at.
+
+It is fixed, and `TestADocumentIDCannotInjectBulkActions` holds the line by
+seeding a second index and asserting the injected delete does not reach it.
+Document bodies are compacted for the same reason: a newline inside a
+pretty-printed payload would otherwise end the line and turn the remainder into
+actions.
+
 ## Verifying this document
 
 Every claim above that can be checked has a check, and they run together:

@@ -123,7 +123,9 @@ func (s *ElasticsearchSink) WriteBatch(ctx context.Context, msgs []hermod.Messag
 
 		switch op {
 		case hermod.OpDelete:
-			fmt.Fprintf(&buf, `{ "delete" : { "_index" : "%s", "_id" : "%s" } }%s`, index, msg.ID(), "\n")
+			if err := writeBulkAction(&buf, "delete", index, msg.ID()); err != nil {
+				return err
+			}
 		default:
 			var data []byte
 			if s.formatter != nil {
@@ -134,8 +136,17 @@ func (s *ElasticsearchSink) WriteBatch(ctx context.Context, msgs []hermod.Messag
 			} else {
 				data = msg.Payload()
 			}
-			fmt.Fprintf(&buf, `{ "index" : { "_index" : "%s", "_id" : "%s" } }%s`, index, msg.ID(), "\n")
-			buf.Write(data)
+			if err := writeBulkAction(&buf, "index", index, msg.ID()); err != nil {
+				return err
+			}
+			// Compacted, so a newline inside the document cannot end the line
+			// and turn the rest of it into further actions. Bulk is NDJSON: one
+			// object per line is the whole format, and a pretty-printed payload
+			// would otherwise split across several.
+			if err := json.Compact(&buf, data); err != nil {
+				return fmt.Errorf("message %s does not carry a JSON document, which is the "+
+					"only thing Elasticsearch bulk accepts: %w", msg.ID(), err)
+			}
 			buf.WriteByte('\n')
 		}
 	}
@@ -433,4 +444,33 @@ func prepareTemplateData(data map[string]any) map[string]any {
 		}
 	}
 	return newData
+}
+
+// writeBulkAction appends one NDJSON action line, encoded rather than printed.
+//
+// This was built with fmt.Fprintf and %s, and the two values it interpolates
+// are not the sink's own: the document id is whatever the pipeline put there —
+// a CDC primary key, a Kafka message key, a field out of a webhook body — and
+// the index can be templated from the message too.
+//
+// Bulk is NDJSON, one action object per line, so an id containing a quote and a
+// newline did not merely corrupt its own request. It closed the action object
+// and wrote further action lines of its own choosing. Against an `index` action
+// that is mostly harmless, because Elasticsearch reads the next line as the
+// document source; against a `delete`, which carries no source, the next line
+// is parsed as another action. A document id could therefore delete documents
+// from an index this sink was never pointed at — demonstrated in
+// TestADocumentIDCannotInjectBulkActions before this was changed.
+//
+// json.Marshal escapes both, so neither can end the line or the object.
+func writeBulkAction(buf *bytes.Buffer, action, index, id string) error {
+	line, err := json.Marshal(map[string]map[string]string{
+		action: {"_index": index, "_id": id},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to encode bulk %s action for %q: %w", action, id, err)
+	}
+	buf.Write(line)
+	buf.WriteByte('\n')
+	return nil
 }
