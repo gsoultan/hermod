@@ -458,6 +458,21 @@ jobs:
           ES_JAVA_OPTS: -Xms512m -Xmx512m
         ports:
           - 9200:9200
+      # PostgreSQL with pgvector, separate from the postgres service above:
+      # that one is stock and has no vector extension, and the CDC tests want
+      # it left alone with its own wal_level and prepared-transaction settings.
+      pgvector:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hermod_it
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -607,6 +622,7 @@ jobs:
           S3_ENDPOINT: http://127.0.0.1:9500
           S3_ACCESS_KEY: minioadmin
           S3_SECRET_KEY: minioadmin
+          PGVECTOR_DSN: postgres://postgres:postgres@127.0.0.1:5433/hermod_it?sslmode=disable
         # -race, and this job is the only place it can do any good: these tests
         # are the only ones that drive a connector against a live server, and
         # the concurrency that matters — a Close landing while a stream is
