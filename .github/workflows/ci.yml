@@ -533,6 +533,25 @@ jobs:
             sleep 1
           done
 
+      # MinIO by hand rather than as a service, for the same reason the replica
+      # set below is: its entrypoint needs a `server` argument and a service
+      # container has no way to pass one. Started on 9500 so it cannot collide
+      # with ClickHouse's native port.
+      - name: Start MinIO for the S3 sink
+        run: |
+          docker run -d --name minio -p 9500:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:9500/minio/health/live >/dev/null 2>&1; then
+              echo "minio ready after ${i}s"; break
+            fi
+            if [ "$i" = 60 ]; then
+              echo "minio never became ready"; docker logs minio; exit 1
+            fi
+            sleep 1
+          done
+
       # A replica set, separate from the mongo service above.
       #
       # Change streams — which is all the MongoDB CDC source is — cannot run on
@@ -585,6 +604,9 @@ jobs:
           KAFKA_BROKERS: 127.0.0.1:9092
           CLICKHOUSE_ADDR: 127.0.0.1:9000
           ELASTICSEARCH_URL: http://127.0.0.1:9200
+          S3_ENDPOINT: http://127.0.0.1:9500
+          S3_ACCESS_KEY: minioadmin
+          S3_SECRET_KEY: minioadmin
         # -race, and this job is the only place it can do any good: these tests
         # are the only ones that drive a connector against a live server, and
         # the concurrency that matters — a Close landing while a stream is

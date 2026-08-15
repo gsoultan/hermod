@@ -884,6 +884,11 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 			fmttr,
 			cfg.Config["suffix"],
 			cfg.Config["content_type"],
+			// Off by default: the timestamped key is what an archive wants, and
+			// turning this on for an existing sink would change where every
+			// object lands. Set it when the bucket should hold one object per
+			// record rather than one per delivery.
+			cfg.Config["idempotent_key"] == "true",
 		)
 	case "s3-parquet":
 		parallelizer, _ := strconv.ParseInt(cfg.Config["parallelizer"], 10, 64)

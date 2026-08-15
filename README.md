@@ -1029,6 +1029,14 @@ of yours produces messages without an id, set `idempotency_key` in a transformat
 Sinks that are not upserts (webhook, SMTP, queues) deduplicate only where they say so; SMTP computes
 its own key from the message and recipient.
 
+**S3 keeps every delivery by default.** Its object key carries a timestamp, so a redelivery lands
+beside the delivery before it rather than on top of it. That is what an archive wants — successive
+CDC updates to one row share a message id, and keying on the id alone would keep only the newest —
+but it does mean a retry leaves a duplicate object, and retries are the mechanism at-least-once
+works by. Set `idempotent_key: "true"` on the sink to key on the message id instead, which gives
+the upsert behaviour the guarantee above describes, at the cost of keeping only the latest version
+of each record.
+
 ### Deploying on Kubernetes
 
 A container image and a Helm chart ship with each release:
