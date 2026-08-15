@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"
+	"github.com/user/hermod/pkg/infra/sqlident"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -53,6 +55,37 @@ func (s *ClickHouseSink) Write(ctx context.Context, msg hermod.Message) error {
 	return s.WriteBatch(ctx, []hermod.Message{msg})
 }
 
+// resolveTable returns the table to write to, refusing a name that cannot
+// safely be part of a statement.
+//
+// Identifiers cannot be bound as parameters, so this one is interpolated into
+// CREATE TABLE, INSERT and ALTER TABLE ... DELETE. When the sink is not pinned
+// to a table the name comes from the *message*, and a message's table
+// originates upstream — on the wire, for a webhook or a generic source.
+//
+// Without this check a message chose the table, its schema and its engine: a
+// name of `pwned (id String) ENGINE = Memory --` produced one entirely legal
+// CREATE TABLE and left `pwned` sitting in the destination. A semicolon is
+// rejected by ClickHouse, but a single statement is not, so the server is no
+// defence here.
+//
+// The PostgreSQL sink has done this since a comment in it explained why; this
+// is the same check, for the same reason.
+func (s *ClickHouseSink) resolveTable(msg hermod.Message) (string, error) {
+	name := s.tableName
+	if name == "" && msg != nil {
+		name = msg.Table()
+	}
+	if name == "" {
+		return "", errors.New("clickhouse sink: no table configured and the message names none")
+	}
+	if err := sqlident.Validate(name); err != nil {
+		return "", fmt.Errorf("clickhouse sink: refusing to build a statement around table "+
+			"name %q: %w", name, err)
+	}
+	return name, nil
+}
+
 func (s *ClickHouseSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 	// Filter nil messages
 	filtered := make([]hermod.Message, 0, len(msgs))
@@ -72,9 +105,9 @@ func (s *ClickHouseSink) WriteBatch(ctx context.Context, msgs []hermod.Message) 
 		}
 	}
 
-	table := s.tableName
-	if table == "" {
-		table = msgs[0].Table()
+	table, err := s.resolveTable(msgs[0])
+	if err != nil {
+		return err
 	}
 
 	if err := s.ensureTable(ctx, table); err != nil {

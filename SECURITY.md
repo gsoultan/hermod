@@ -197,6 +197,31 @@ currently a session-compromise vector, not just a defacement one.
   interpolation.
 - Use least-privilege credentials for every connected system.
 
+### A table name can come from a message
+
+When a SQL sink is not pinned to a table it takes one from the message, and a
+message's table originates upstream — on the wire, for a webhook or a generic
+source. That identifier cannot be bound as a parameter, so it is interpolated
+into `CREATE TABLE`, `INSERT` and `DELETE`.
+
+The PostgreSQL sink has validated it for some time. The ClickHouse sink did not,
+and the consequence was not theoretical: a message whose table was
+`pwned (id String) ENGINE = Memory --` produced one entirely legal `CREATE
+TABLE` and left `pwned` in the destination with the schema and engine the
+message asked for. A semicolon is rejected by ClickHouse — "Multi-statements are
+not allowed" — so the server stops the crude version of this and none of the
+interesting ones; do not mistake that for a defence.
+
+Both sinks now run the name through `sqlident.Validate` and refuse rather than
+build a statement around it.
+`TestAnUnsafeTableNameFromAMessageIsRefused` holds the line.
+
+**Two sinks are the same shape and not yet fixed:** `cassandra` and `snowflake`
+build statements with `fmt.Sprintf` and never call `QuoteIdent` or `Validate`.
+Neither can be exercised from an arm64 workstation — Cassandra needs a cluster
+and Snowflake is cloud-only — so they are recorded here rather than claimed
+fixed.
+
 ### Structured payloads are encoded, never printed
 
 The rule above is about SQL, but it generalises: **a value that came from a

@@ -169,3 +169,63 @@ func TestADeleteInAMixedBatchDoesNotComeBack(t *testing.T) {
 		t.Errorf("the insert in the mixed batch landed %d times, want 1", n)
 	}
 }
+
+// The table name can come from the message, and nothing checked it.
+//
+// When the sink is not pinned to a table it takes one from msgs[0].Table(), and
+// that name is interpolated into INSERT, ALTER TABLE ... DELETE and CREATE
+// TABLE with fmt.Sprintf. A message's table originates upstream — for a webhook
+// or a generic source, on the wire — so this is an identifier from outside
+// being pasted into SQL.
+//
+// The PostgreSQL sink already solved exactly this and says why in its own
+// comment: sink config comes from an authenticated editor, but the fallback
+// comes from the message, so the name is validated and an unsafe one fails the
+// write instead of executing it. This sink had no such check.
+func TestAnUnsafeTableNameFromAMessageIsRefused(t *testing.T) {
+	addr, _, conn := requireClickHouse(t)
+
+	// Not pinned to a table, so the name comes from the message.
+	sink := NewClickHouseSink(addr, "default", "", nil, false, "", "", "", "", false, false)
+	t.Cleanup(func() { _ = sink.Close() })
+
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	msg.SetID("a")
+	msg.SetOperation(hermod.OpCreate)
+	msg.SetPayload([]byte(`{"v":1}`))
+	// Deliberately a single statement. A version with a semicolon is rejected
+	// by ClickHouse itself ("Multi-statements are not allowed") — the server
+	// saving us rather than the sink being safe, and a test that used one
+	// would pass without proving anything. Without the semicolon the injected
+	// text is part of one perfectly legal CREATE TABLE, and before this was
+	// fixed it ran: a table named `pwned` appeared in the destination with the
+	// schema and the ENGINE the message asked for.
+	msg.SetTable(`pwned (id String) ENGINE = Memory --`)
+
+	err := sink.WriteBatch(t.Context(), []hermod.Message{msg})
+	if err == nil {
+		t.Fatal("a message carrying an unsafe table name was written without complaint\n" +
+			"the name is interpolated into CREATE TABLE, INSERT and ALTER TABLE, and a " +
+			"message's table comes from upstream — the PostgreSQL sink validates exactly " +
+			"this and refuses, and this one did not")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "table") {
+		t.Errorf("the refusal does not mention the table name: %v", err)
+	}
+
+	// The part that matters: no table of the injected shape may exist.
+	var n uint64
+	if err := conn.QueryRow(context.Background(),
+		"SELECT count() FROM system.tables WHERE database = 'default' AND name = 'pwned'").
+		Scan(&n); err != nil {
+		t.Fatalf("checking system.tables: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("a message's table name created the table `pwned` in the destination\n" +
+			"the name is interpolated into CREATE TABLE, so a message chose the table, its " +
+			"schema and its engine — the PostgreSQL sink validates this exact input and " +
+			"refuses; this one did not")
+		_ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS default.pwned")
+	}
+}
