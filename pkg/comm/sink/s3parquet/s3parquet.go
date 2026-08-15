@@ -103,11 +103,30 @@ func (s *S3ParquetSink) WriteBatch(ctx context.Context, msgs []hermod.Message) e
 	}
 
 	for _, msg := range filtered {
+		// Refuse a record with nothing to write, naming it.
+		//
+		// This used to fall back to unmarshalling the payload when Data() was
+		// nil and `continue` past a record it could not decode — silently, with
+		// the batch still reporting success. That fallback was also dead:
+		// Data() unmarshals the payload itself, so it returns an empty map
+		// rather than nil and the skip never ran.
+		//
+		// What actually happened was worse than the silent drop it looked like.
+		// An empty map marshals to "{}", the parquet writer accepts a row with
+		// none of its required fields, and WriteStop then fails the whole batch
+		// with "interface conversion: interface {} is nil, not string" — a
+		// message naming neither the record nor the reason. Every good record in
+		// that batch is blocked behind it, and because the engine retries a
+		// failed batch it fails the same way forever.
+		//
+		// Failing here instead gives the engine something it can act on: the
+		// error names the record, and a batch that keeps failing goes to the
+		// dead-letter sink rather than wedging the pipeline.
 		data := msg.Data()
-		if data == nil {
-			if err := json.Unmarshal(msg.Payload(), &data); err != nil {
-				continue
-			}
+		if len(data) == 0 {
+			return fmt.Errorf("message %s carries no data the parquet schema can be "+
+				"built from: Data() is empty and the payload is not JSON (%.60q)",
+				msg.ID(), string(msg.Payload()))
 		}
 
 		jsonData, err := json.Marshal(data)
