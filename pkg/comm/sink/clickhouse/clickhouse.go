@@ -51,6 +51,24 @@ func NewClickHouseSink(addr string, database string, tableName string, mappings 
 	}
 }
 
+// qcol quotes a mapped column name, refusing one that cannot be quoted safely.
+//
+// The mapped path pasted TargetColumn straight into INSERT, ALTER TABLE and
+// CREATE TABLE with no quoting at all, so a name containing a quote character
+// ended its own identifier and the rest was read as SQL. Confirmed against a
+// real server: the injected text came back in ClickHouse's own parse error,
+// having been assembled into the CREATE TABLE verbatim.
+//
+// sqlutil.QuoteIdent validates the name and escapes the quote, which is the
+// rule SECURITY.md states and the other SQL sinks follow.
+func qcol(name string) (string, error) {
+	quoted, err := sqlutil.QuoteIdent("clickhouse", name)
+	if err != nil {
+		return "", fmt.Errorf("invalid column name %q: %w", name, err)
+	}
+	return quoted, nil
+}
+
 func (s *ClickHouseSink) Write(ctx context.Context, msg hermod.Message) error {
 	return s.WriteBatch(ctx, []hermod.Message{msg})
 }
@@ -163,7 +181,11 @@ func (s *ClickHouseSink) WriteBatch(ctx context.Context, msgs []hermod.Message) 
 			if m.IsIdentity || m.SourceField == "" {
 				continue
 			}
-			insertCols = append(insertCols, m.TargetColumn)
+			q, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
+			insertCols = append(insertCols, q)
 		}
 		query = fmt.Sprintf("INSERT INTO %s.%s (%s)", s.database, table, strings.Join(insertCols, ", "))
 	} else {
@@ -226,7 +248,11 @@ func (s *ClickHouseSink) deleteMapped(ctx context.Context, table string, msg her
 	for _, m := range s.mappings {
 		if m.IsPrimaryKey {
 			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			pks = append(pks, m.TargetColumn+" = ?")
+			q, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
+			pks = append(pks, q+" = ?")
 			args = append(args, val)
 		}
 	}
@@ -437,9 +463,17 @@ func (s *ClickHouseSink) ensureTable(ctx context.Context, table string) error {
 				if m.IsNullable && !strings.HasPrefix(strings.ToLower(dataType), "nullable") {
 					dataType = fmt.Sprintf("Nullable(%s)", dataType)
 				}
-				cols = append(cols, fmt.Sprintf("%s %s", m.TargetColumn, dataType))
+				q, err := qcol(m.TargetColumn)
+				if err != nil {
+					return err
+				}
+				cols = append(cols, fmt.Sprintf("%s %s", q, dataType))
 				if m.IsPrimaryKey {
-					orderBy = append(orderBy, m.TargetColumn)
+					qOrder, err := qcol(m.TargetColumn)
+					if err != nil {
+						return err
+					}
+					orderBy = append(orderBy, qOrder)
 				}
 			}
 			if len(orderBy) == 0 {
@@ -481,7 +515,11 @@ func (s *ClickHouseSink) syncColumns(ctx context.Context, table string) error {
 			if m.IsNullable && !strings.HasPrefix(strings.ToLower(dataType), "nullable") {
 				dataType = fmt.Sprintf("Nullable(%s)", dataType)
 			}
-			alterQuery := fmt.Sprintf("ALTER TABLE %s.%s ADD COLUMN %s %s", s.database, table, m.TargetColumn, dataType)
+			q, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
+			alterQuery := fmt.Sprintf("ALTER TABLE %s.%s ADD COLUMN %s %s", s.database, table, q, dataType)
 			if err := s.conn.Exec(ctx, alterQuery); err != nil {
 				return err
 			}

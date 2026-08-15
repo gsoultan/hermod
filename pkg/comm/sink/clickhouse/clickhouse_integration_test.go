@@ -14,6 +14,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
 // The ClickHouse sink, against a real server.
@@ -227,5 +228,93 @@ func TestAnUnsafeTableNameFromAMessageIsRefused(t *testing.T) {
 			"schema and its engine — the PostgreSQL sink validates this exact input and " +
 			"refuses; this one did not")
 		_ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS default.pwned")
+	}
+}
+
+// The mapped-column path, which is a different construction from the (id, data)
+// one every other test here uses — a different INSERT, a different DELETE, and
+// its own CREATE TABLE. It is also the path anyone with a real destination
+// schema is on, and none of it had been exercised.
+func TestMappedColumnsInsertAndDelete(t *testing.T) {
+	addr, table, conn := requireClickHouse(t)
+
+	mappings := []sqlutil.ColumnMapping{
+		{SourceField: "$.id", TargetColumn: "id", DataType: "String", IsPrimaryKey: true},
+		{SourceField: "$.name", TargetColumn: "name", DataType: "String"},
+	}
+	sink := NewClickHouseSink(addr, "default", table, mappings, false, "", "", "", "", false, false)
+	t.Cleanup(func() { _ = sink.Close() })
+
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	msg.SetID("a")
+	msg.SetOperation(hermod.OpCreate)
+	msg.SetData("id", "a")
+	msg.SetData("name", "ada")
+
+	if err := sink.WriteBatch(t.Context(), []hermod.Message{msg}); err != nil {
+		t.Fatalf("mapped insert: %v", err)
+	}
+
+	var name string
+	if err := conn.QueryRow(context.Background(),
+		fmt.Sprintf("SELECT name FROM default.%s WHERE id = ?", table), "a").Scan(&name); err != nil {
+		t.Fatalf("reading back: %v", err)
+	}
+	if name != "ada" {
+		t.Errorf("mapped column landed as %q, want ada", name)
+	}
+
+	del := message.AcquireMessage()
+	t.Cleanup(del.Release)
+	del.SetID("a")
+	del.SetOperation(hermod.OpDelete)
+	del.SetData("id", "a")
+	if err := sink.WriteBatch(t.Context(), []hermod.Message{del}); err != nil {
+		t.Fatalf("mapped delete: %v", err)
+	}
+	waitForMutations(t, conn, table)
+	if n := rowCount(t, conn, table, "a"); n != 0 {
+		t.Errorf("the mapped delete left %d row(s)", n)
+	}
+}
+
+// A mapped column name that would break out of its own quoting.
+//
+// The mapped path pasted TargetColumn straight into INSERT, DELETE, CREATE
+// TABLE and ALTER TABLE with no quoting at all — not even the manual backticks
+// the MySQL sink used. ClickHouse quotes identifiers with double quotes or
+// backticks, so a name containing one ends its own identifier and the rest is
+// read as SQL.
+//
+// These names come from sink configuration rather than from a message, so this
+// is hardening rather than an incident. The assertion is that the sink refuses
+// the name, not merely that the write fails: a server rejecting one payload is
+// a different property from the name never reaching a statement.
+func TestAMappedColumnNameCannotBreakOutOfItsQuoting(t *testing.T) {
+	addr, table, _ := requireClickHouse(t)
+
+	mappings := []sqlutil.ColumnMapping{
+		{SourceField: "$.id", TargetColumn: "id", DataType: "String", IsPrimaryKey: true},
+		{SourceField: "$.name", TargetColumn: `name" , x String) ENGINE = Memory --`, DataType: "String"},
+	}
+	sink := NewClickHouseSink(addr, "default", table, mappings, false, "", "", "", "", false, false)
+	t.Cleanup(func() { _ = sink.Close() })
+
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	msg.SetID("a")
+	msg.SetOperation(hermod.OpCreate)
+	msg.SetData("id", "a")
+	msg.SetData("name", "ada")
+
+	err := sink.WriteBatch(t.Context(), []hermod.Message{msg})
+	if err == nil {
+		t.Fatal("a column name that ends its own quoting was accepted")
+	}
+	if !strings.Contains(err.Error(), "invalid column name") {
+		t.Errorf("the write failed, but not because the sink refused the name: %v\n"+
+			"that is the server rejecting one payload rather than the name being kept out "+
+			"of the statement, and a name chosen to parse would have run", err)
 	}
 }
