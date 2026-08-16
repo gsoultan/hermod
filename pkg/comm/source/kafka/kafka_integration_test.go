@@ -69,7 +69,59 @@ func requireKafka(t *testing.T) ([]string, string) {
 			_ = c.Close()
 		}
 	})
+
+	waitForTopic(t, brokers[0], topic)
 	return brokers, topic
+}
+
+// waitForTopic blocks until the topic is actually usable, which is not the same
+// as CreateTopics having returned.
+//
+// CreateTopics completes when the controller has accepted the request. The
+// topic still has to appear in the metadata the producer's broker serves, and a
+// partition leader still has to be elected. Producing inside that window fails
+// with UNKNOWN_TOPIC_OR_PARTITION, and the failure belongs to the test setup
+// rather than to anything the sink did.
+//
+// This is not hypothetical: it is how these tests failed in CI, on one of two
+// runs of the same commit — which is what a race looks like from the outside,
+// and why the local run and the other CI run both stayed green.
+func waitForTopic(t *testing.T, broker, topic string) {
+	t.Helper()
+
+	deadline := time.Now().Add(30 * time.Second)
+	var last error
+	for time.Now().Before(deadline) {
+		conn, err := kafkago.Dial("tcp", broker)
+		if err != nil {
+			last = err
+			time.Sleep(250 * time.Millisecond)
+			continue
+		}
+		parts, err := conn.ReadPartitions(topic)
+		_ = conn.Close()
+
+		switch {
+		case err != nil:
+			last = err
+		case len(parts) == 0:
+			last = fmt.Errorf("no partitions reported")
+		default:
+			// A partition with no leader cannot accept a write yet.
+			leaderless := 0
+			for _, p := range parts {
+				if p.Leader.Host == "" {
+					leaderless++
+				}
+			}
+			if leaderless == 0 {
+				return
+			}
+			last = fmt.Errorf("%d of %d partition(s) have no leader", leaderless, len(parts))
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatalf("topic %s was created but never became usable within 30s: %v", topic, last)
 }
 
 // produce writes n messages through the sink, which is the path a workflow uses.
