@@ -473,6 +473,16 @@ jobs:
           --health-retries 5
         ports:
           - 5433:5432
+      # Azure SQL Edge rather than SQL Server: it is the variant with an arm64
+      # image, which is what makes this connector testable on a developer
+      # workstation as well as here. The T-SQL the sink emits is the same.
+      mssql:
+        image: mcr.microsoft.com/azure-sql-edge:latest
+        env:
+          ACCEPT_EULA: "1"
+          MSSQL_SA_PASSWORD: Hermod!Passw0rd
+        ports:
+          - 1433:1433
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -623,6 +633,7 @@ jobs:
           S3_ACCESS_KEY: minioadmin
           S3_SECRET_KEY: minioadmin
           PGVECTOR_DSN: postgres://postgres:postgres@127.0.0.1:5433/hermod_it?sslmode=disable
+          MSSQL_DSN: sqlserver://sa:Hermod%21Passw0rd@127.0.0.1:1433?database=master&encrypt=disable
         # -race, and this job is the only place it can do any good: these tests
         # are the only ones that drive a connector against a live server, and
         # the concurrency that matters — a Close landing while a stream is

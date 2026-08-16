@@ -51,6 +51,21 @@ func NewMSSQLSink(connString string, tableName string, mappings []sqlutil.Column
 	}
 }
 
+// qcol quotes a mapped column name, refusing one QuoteIdent rejects.
+//
+// Every call site used to discard this error. QuoteIdent returns "" for a name
+// it will not quote, so a rejected name did not stop the write — it became an
+// empty identifier inside the statement, and the write failed as
+// "Incorrect syntax near ')'": a parse error naming neither the column nor the
+// reason. Refusing here says which column and why.
+func qcol(name string) (string, error) {
+	quoted, err := sqlutil.QuoteIdent("mssql", name)
+	if err != nil {
+		return "", fmt.Errorf("invalid column name %q: %w", name, err)
+	}
+	return quoted, nil
+}
+
 func (s *MSSQLSink) Write(ctx context.Context, msg hermod.Message) error {
 	return s.WriteBatch(ctx, []hermod.Message{msg})
 }
@@ -257,7 +272,10 @@ func (s *MSSQLSink) ensureTable(ctx context.Context, tx *sql.Tx, table string) e
 				if dataType == "" {
 					dataType = "NVARCHAR(MAX)"
 				}
-				qCol, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
+				qCol, err := qcol(m.TargetColumn)
+				if err != nil {
+					return err
+				}
 				colDef := fmt.Sprintf("%s %s", qCol, dataType)
 				if m.IsIdentity {
 					if strings.Contains(strings.ToUpper(dataType), "INT") {
@@ -330,7 +348,10 @@ func (s *MSSQLSink) syncColumns(ctx context.Context, tx *sql.Tx, table string) e
 		}
 
 		if !exists {
-			qCol, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
+			qCol, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
 			colDef := fmt.Sprintf("%s %s", qCol, dataType)
 			if m.IsIdentity {
 				if strings.Contains(strings.ToUpper(dataType), "INT") {
@@ -351,7 +372,10 @@ func (s *MSSQLSink) syncColumns(ctx context.Context, tx *sql.Tx, table string) e
 		} else {
 			// Basic type check
 			if !strings.EqualFold(col.Type, dataType) && !strings.Contains(strings.ToLower(dataType), strings.ToLower(col.Type)) {
-				qCol, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
+				qCol, err := qcol(m.TargetColumn)
+				if err != nil {
+					return err
+				}
 				alterQuery := fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s %s", quotedTable, qCol, dataType)
 				if _, err := tx.ExecContext(ctx, alterQuery); err != nil {
 					return err
@@ -433,7 +457,10 @@ func (s *MSSQLSink) insertMappedBatch(ctx context.Context, tx *sql.Tx, table str
 		if m.IsIdentity && (val == nil || val == "" || val == 0) {
 			continue
 		}
-		quoted, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
+		quoted, err := qcol(m.TargetColumn)
+		if err != nil {
+			return err
+		}
 		cols = append(cols, quoted)
 	}
 
@@ -489,7 +516,10 @@ func (s *MSSQLSink) upsertMappedBatch(ctx context.Context, tx *sql.Tx, table str
 		if m.IsIdentity && (val == nil || val == "" || val == 0) {
 			continue
 		}
-		quoted, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
+		quoted, err := qcol(m.TargetColumn)
+		if err != nil {
+			return err
+		}
 		cols = append(cols, quoted)
 		if m.IsPrimaryKey {
 			pkCols = append(pkCols, quoted)
@@ -560,7 +590,10 @@ func (s *MSSQLSink) deleteMappedBatch(ctx context.Context, tx *sql.Tx, table str
 	var pkCols []string
 	for _, m := range s.mappings {
 		if m.IsPrimaryKey {
-			quoted, _ := sqlutil.QuoteIdent("mssql", m.TargetColumn)
+			quoted, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
 			pkCols = append(pkCols, quoted)
 		}
 	}

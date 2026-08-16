@@ -218,9 +218,17 @@ build a statement around it.
 
 **Two sinks are the same shape and not yet fixed:** `cassandra` and `snowflake`
 build statements with `fmt.Sprintf` and never call `QuoteIdent` or `Validate`.
-Neither can be exercised from an arm64 workstation — Cassandra needs a cluster
-and Snowflake is cloud-only — so they are recorded here rather than claimed
-fixed.
+Cassandra needs a cluster and Snowflake is cloud-only, so they are recorded here
+rather than claimed fixed.
+
+MSSQL was on that list, on the assumption that SQL Server has no arm64 image.
+That was wrong: **Azure SQL Edge** is arm64-native and runs the same T-SQL, so
+the sink is now exercised against a real server both in CI and on a workstation.
+It quoted its identifiers already but discarded `QuoteIdent`'s error, so a
+rejected name became an empty identifier and the write failed as
+`Incorrect syntax near ')'` — naming neither the column nor the reason. It
+refuses by name now. The lesson generalises: "untestable" was a property of the
+image I reached for, not of the connector.
 
 ### Structured payloads are encoded, never printed
 
