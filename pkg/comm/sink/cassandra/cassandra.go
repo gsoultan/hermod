@@ -11,6 +11,7 @@ import (
 	"github.com/gocql/gocql"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"
+	"github.com/user/hermod/pkg/infra/sqlident"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -65,7 +66,16 @@ func (s *CassandraSink) WriteBatch(ctx context.Context, msgs []hermod.Message) e
 		}
 	}
 
-	// Group by table
+	// Group by table.
+	//
+	// The name is validated before it is used. When the sink is not pinned to a
+	// table it comes from the message, and a message's table originates
+	// upstream — on the wire, for a webhook or a generic source — while every
+	// statement below interpolates it into CQL. Cassandra's parser rejects the
+	// clumsy shapes, but that is the server refusing one payload rather than
+	// the name being kept out of the statement: a name chosen to parse would
+	// have gone through. The PostgreSQL and ClickHouse sinks make the same
+	// check for the same reason.
 	groups := make(map[string][]hermod.Message)
 	for _, msg := range msgs {
 		if msg == nil {
@@ -74,6 +84,10 @@ func (s *CassandraSink) WriteBatch(ctx context.Context, msgs []hermod.Message) e
 		table := s.tableName
 		if table == "" {
 			table = msg.Table()
+		}
+		if err := sqlident.Validate(table); err != nil {
+			return fmt.Errorf("cassandra sink: refusing to build a statement around table "+
+				"name %q: %w", table, err)
 		}
 		groups[table] = append(groups[table], msg)
 	}
@@ -132,7 +146,11 @@ func (s *CassandraSink) WriteBatch(ctx context.Context, msgs []hermod.Message) e
 						continue
 					}
 
-					cols = append(cols, m.TargetColumn)
+					qCol, err := sqlutil.QuoteIdent("cassandra", m.TargetColumn)
+					if err != nil {
+						return fmt.Errorf("invalid column name %q: %w", m.TargetColumn, err)
+					}
+					cols = append(cols, qCol)
 					placeholders = append(placeholders, "?")
 					args = append(args, val)
 				}

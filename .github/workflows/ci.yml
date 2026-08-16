@@ -483,6 +483,21 @@ jobs:
           MSSQL_SA_PASSWORD: Hermod!Passw0rd
         ports:
           - 1433:1433
+      # Cassandra, arm64-capable and slow to start — the heap is held down
+      # because the default sizing assumes a machine this is not.
+      cassandra:
+        image: cassandra:5
+        env:
+          CASSANDRA_CLUSTER_NAME: hermod
+          HEAP_NEWSIZE: 128M
+          MAX_HEAP_SIZE: 1G
+        options: >-
+          --health-cmd "cqlsh -e 'describe keyspaces'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 20
+        ports:
+          - 9042:9042
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -577,6 +592,19 @@ jobs:
             sleep 1
           done
 
+      # The test keyspace. The sink does not create keyspaces and should not,
+      # so the job makes the one the tests write into.
+      - name: Create the Cassandra keyspace
+        run: |
+          for i in $(seq 1 40); do
+            if docker exec "$(docker ps -q --filter ancestor=cassandra:5)" \
+                cqlsh -e "CREATE KEYSPACE IF NOT EXISTS hermod_it WITH replication = {'class':'SimpleStrategy','replication_factor':1};" 2>/dev/null; then
+              echo "keyspace ready after ${i} attempts"; break
+            fi
+            if [ "$i" = 40 ]; then echo "cassandra never accepted CQL"; exit 1; fi
+            sleep 5
+          done
+
       # A replica set, separate from the mongo service above.
       #
       # Change streams — which is all the MongoDB CDC source is — cannot run on
@@ -634,6 +662,7 @@ jobs:
           S3_SECRET_KEY: minioadmin
           PGVECTOR_DSN: postgres://postgres:postgres@127.0.0.1:5433/hermod_it?sslmode=disable
           MSSQL_DSN: sqlserver://sa:Hermod%21Passw0rd@127.0.0.1:1433?database=master&encrypt=disable
+          CASSANDRA_HOSTS: 127.0.0.1
         # -race, and this job is the only place it can do any good: these tests
         # are the only ones that drive a connector against a live server, and
         # the concurrency that matters — a Close landing while a stream is

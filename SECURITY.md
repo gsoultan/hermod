@@ -216,19 +216,28 @@ Both sinks now run the name through `sqlident.Validate` and refuse rather than
 build a statement around it.
 `TestAnUnsafeTableNameFromAMessageIsRefused` holds the line.
 
-**Two sinks are the same shape and not yet fixed:** `cassandra` and `snowflake`
-build statements with `fmt.Sprintf` and never call `QuoteIdent` or `Validate`.
-Cassandra needs a cluster and Snowflake is cloud-only, so they are recorded here
-rather than claimed fixed.
+**Cassandra** had the same shape and is fixed: it took its table from
+`msg.Table()` when unpinned and interpolated it into CQL unchecked. Cassandra's
+parser rejects the clumsy payloads — the injected text still reached the
+statement, arriving verbatim in `CREATE TABLE hermod_it.pwned (id[,]...` — so
+that was the server refusing one shape, not the name being kept out. It now
+validates the table and quotes mapped columns.
 
-MSSQL was on that list, on the assumption that SQL Server has no arm64 image.
-That was wrong: **Azure SQL Edge** is arm64-native and runs the same T-SQL, so
-the sink is now exercised against a real server both in CI and on a workstation.
-It quoted its identifiers already but discarded `QuoteIdent`'s error, so a
-rejected name became an empty identifier and the write failed as
-`Incorrect syntax near ')'` — naming neither the column nor the reason. It
-refuses by name now. The lesson generalises: "untestable" was a property of the
-image I reached for, not of the connector.
+**Snowflake is the one still open.** It builds statements with `fmt.Sprintf` and
+never calls `QuoteIdent` or `Validate`. It is cloud-only, so there is no way to
+exercise it here, and it is recorded rather than claimed fixed.
+
+MSSQL and Cassandra were both on this list as "unreachable from an arm64
+workstation". Both were wrong. **Azure SQL Edge** is arm64-native and speaks the
+same T-SQL; the official Cassandra image publishes arm64 and merely wants
+memory and patience. MSSQL also turned out to quote its identifiers already but
+discard `QuoteIdent`'s error, so a rejected name became an empty identifier and
+the write failed as `Incorrect syntax near ')'`, naming neither the column nor
+the reason.
+
+The lesson is worth keeping: *untestable* described the image reached for, not
+the connector. Assume a connector is testable until an actual attempt says
+otherwise.
 
 ### Structured payloads are encoded, never printed
 
