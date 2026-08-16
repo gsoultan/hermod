@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	_ "github.com/snowflakedb/gosnowflake"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"
+	"github.com/user/hermod/pkg/infra/sqlident"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -51,9 +53,64 @@ func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 	return s.WriteBatch(ctx, []hermod.Message{msg})
 }
 
+// resolveTable returns the table a message will be written to, refusing a name
+// that cannot safely be part of a statement.
+//
+// When the sink is not pinned to a table the name comes from the message, and a
+// message's table originates upstream — on the wire, for a webhook or a generic
+// source — while every statement below interpolates it. This is the same check
+// the PostgreSQL, ClickHouse and Cassandra sinks make.
+func (s *Sink) resolveTable(msg hermod.Message) (string, error) {
+	table := s.tableName
+	if table == "" && msg != nil {
+		table = msg.Table()
+		if msg.Schema() != "" {
+			table = fmt.Sprintf("%s.%s", msg.Schema(), table)
+		}
+	}
+	if table == "" {
+		return "", errors.New("snowflake sink: no table configured and the message names none")
+	}
+	if err := sqlident.Validate(table); err != nil {
+		return "", fmt.Errorf("snowflake sink: refusing to build a statement around table "+
+			"name %q: %w", table, err)
+	}
+	return table, nil
+}
+
+// qcol quotes a mapped column name, refusing one that cannot be quoted safely.
+func qcol(name string) (string, error) {
+	quoted, err := sqlutil.QuoteIdent("snowflake", name)
+	if err != nil {
+		return "", fmt.Errorf("invalid column name %q: %w", name, err)
+	}
+	return quoted, nil
+}
+
 func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 	if len(msgs) == 0 {
 		return nil
+	}
+
+	// Names are checked before anything connects, deliberately. A rejected
+	// identifier is the sink's own decision and should not depend on whether
+	// the warehouse happens to be reachable — which is also what makes this
+	// guard testable without a Snowflake account.
+	for _, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+		if _, err := s.resolveTable(msg); err != nil {
+			return err
+		}
+	}
+	for _, m := range s.mappings {
+		if m.TargetColumn == "" {
+			continue
+		}
+		if _, err := qcol(m.TargetColumn); err != nil {
+			return err
+		}
 	}
 
 	s.mu.Lock()
@@ -87,12 +144,9 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 			continue
 		}
 
-		table := s.tableName
-		if table == "" {
-			table = msg.Table()
-			if msg.Schema() != "" {
-				table = fmt.Sprintf("%s.%s", msg.Schema(), table)
-			}
+		table, err := s.resolveTable(msg)
+		if err != nil {
+			return err
 		}
 
 		op := msg.Operation()
@@ -185,7 +239,11 @@ func (s *Sink) deleteMapped(ctx context.Context, tx *sql.Tx, table string, msg h
 	for _, m := range s.mappings {
 		if m.IsPrimaryKey {
 			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			pks = append(pks, m.TargetColumn+" = ?")
+			q, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
+			pks = append(pks, q+" = ?")
 			args = append(args, val)
 		}
 	}
@@ -329,14 +387,18 @@ func (s *Sink) upsertMapped(ctx context.Context, tx *sql.Tx, table string, msg h
 			continue
 		}
 
-		cols = append(cols, m.TargetColumn)
-		selectCols = append(selectCols, "? AS "+m.TargetColumn)
+		q, err := qcol(m.TargetColumn)
+		if err != nil {
+			return err
+		}
+		cols = append(cols, q)
+		selectCols = append(selectCols, "? AS "+q)
 		args = append(args, val)
 
 		if m.IsPrimaryKey {
-			pks = append(pks, "target."+m.TargetColumn+" = source."+m.TargetColumn)
+			pks = append(pks, "target."+q+" = source."+q)
 		} else {
-			updates = append(updates, "target."+m.TargetColumn+" = source."+m.TargetColumn)
+			updates = append(updates, "target."+q+" = source."+q)
 		}
 	}
 

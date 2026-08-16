@@ -223,9 +223,20 @@ statement, arriving verbatim in `CREATE TABLE hermod_it.pwned (id[,]...` — so
 that was the server refusing one shape, not the name being kept out. It now
 validates the table and quotes mapped columns.
 
-**Snowflake is the one still open.** It builds statements with `fmt.Sprintf` and
-never calls `QuoteIdent` or `Validate`. It is cloud-only, so there is no way to
-exercise it here, and it is recorded rather than claimed fixed.
+**Snowflake is fixed, and is the one fix not watched failing against a real
+server.** It is cloud-only, so there is no warehouse to point it at from a
+workstation or from CI. Read it knowing that.
+
+What made it testable at all is where the check sits: the table and the mapped
+column names are validated *before* anything connects, so a sink pointed at an
+address that does not exist still refuses a bad identifier rather than failing
+to dial. That is deliberate — a rejected identifier is the sink's own decision
+and should not depend on whether the warehouse is reachable — and it means the
+guard has real tests that run anywhere, including a check that removing it makes
+them fail.
+
+What those tests cannot cover is whether the quoted SQL Snowflake finally
+receives is accepted by Snowflake. That still needs an account.
 
 MSSQL and Cassandra were both on this list as "unreachable from an arm64
 workstation". Both were wrong. **Azure SQL Edge** is arm64-native and speaks the
