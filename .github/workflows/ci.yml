@@ -513,6 +513,29 @@ jobs:
         ports:
           - 9042:9042
     steps:
+      # This job starts thirteen service containers and then builds the whole
+      # tree with -race, and it ran the hosted runner out of disk:
+      #
+      #   ##[error]No space left on device : '.../_diag/pages/....log'
+      #
+      # It had passed on the commit before, so the job sits right at the edge
+      # rather than over it — which is the worse failure, because it fails
+      # intermittently for a reason that has nothing to do with the change being
+      # tested, and a gate that goes red at random is one people learn to ignore.
+      #
+      # The runner image ships toolchains this repository never uses. Removing
+      # them costs about half a minute and buys back tens of gigabytes, which is
+      # a far better trade than dropping a service and testing less.
+      # Only unused toolchains are removed. Deliberately left alone: the agent
+      # tools directory, which is where setup-go installs Go two steps later,
+      # and the Docker images, because the service containers are already
+      # running on them by the time any step executes.
+      - name: Free disk space on the runner
+        run: |
+          echo "before: $(df -h --output=avail / | tail -1 | tr -d ' ') available"
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /usr/share/swift || true
+          echo "after:  $(df -h --output=avail / | tail -1 | tr -d ' ') available"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Setup Go
