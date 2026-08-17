@@ -1,5 +1,6 @@
 import { TextInput, Stack, Group, Divider, Checkbox, PasswordInput, NumberInput, Fieldset, Switch, Text, SimpleGrid } from '@mantine/core';
 import { PostgresReplicationConfig } from './PostgresReplicationConfig';
+import { ConnectionUrlPaste } from '../../shared/ConnectionUrlPaste';
 
 interface DatabaseSourceConfigProps {
   type: string;
@@ -71,6 +72,16 @@ export function DatabaseSourceConfig({ type, config, updateConfig, tablesInput, 
       
       <Fieldset legend="Connection Details">
         <Stack gap="sm">
+          {type !== 'cassandra' && type !== 'scylladb' && (
+            <ConnectionUrlPaste
+              updateConfig={updateConfig}
+              applyKeys={
+                type === 'mongodb'
+                  ? ['host', 'port', 'user', 'password', 'database', 'uri']
+                  : ['host', 'port', 'user', 'password', 'database', 'sslmode']
+              }
+            />
+          )}
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
             {type === 'cassandra' || type === 'scylladb' ? (
               <TextInput 

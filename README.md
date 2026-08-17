@@ -655,12 +655,13 @@ which is why they were untested; anything new in that shape should provide it to
 | **pgvector** | sink | Live-server tests (`PGVECTOR_DSN`): a vector is stored, upserted and deleted, and an identifier needing quotes gets them |
 | **S3 / S3-Parquet** | sink | Live MinIO tests (`S3_ENDPOINT`): an object is put, distinct messages land separately, the default key keeps every delivery while the idempotent key does not leave a second object, a batch becomes a Parquet object, and one undecodable message is named rather than wedging the batch |
 | **Cassandra** | sink | Live-node tests (`CASSANDRA_HOSTS`): a row lands and a delete removes it, and a table name arriving on a message is refused rather than interpolated into CQL. The Cassandra **source** is a different matter — see Experimental |
+| **MQTT** | source | Live-broker tests (`MQTT_BROKER`): a published message comes out of Read with payload and topic intact, and a 200-message burst arrives whole — the silent drop-oldest this source once had would have eaten its head |
 
 ### Beta
 
 Substantial and unit-tested, but unproven against live infrastructure in CI:
 
-**Sources** — MSSQL, gRPC, MQTT, WebSocket, HTTP, BatchSQL, Excel.
+**Sources** — MSSQL, gRPC, WebSocket, HTTP, BatchSQL, Excel.
 **Sinks** — Oracle, Snowflake, HTTP, WebSocket, Failover.
 
 The MSSQL **source** is genuinely a CDC source — it reads `CHANGETABLE` and emits

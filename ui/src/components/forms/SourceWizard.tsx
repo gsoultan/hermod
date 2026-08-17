@@ -4,6 +4,7 @@ import { IconCheck, IconDatabase, IconActivity, IconInfoCircle, IconRefresh, Ico
 import { SourceBasics } from '../workflow/Source/SourceBasics';
 import { SourceConfigFields } from '../workflow/Source/SourceConfigFields';
 import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
+import { missingConnectionFieldsWithUri } from '@/lib/connectorRequirements';
 
 interface SourceWizardProps {
   source: any;
@@ -68,14 +69,23 @@ export function SourceWizard({
   // wizard advanced through every step with everything blank and only failed at
   // submit, by which point the step that was wrong is no longer on screen.
   const missingForStep = (step: number): string[] => {
-    if (step !== 0) return [];
-    // Same validators the fields use, so the Next button and the inline errors
-    // always agree about what is wrong.
-    return [
-      validateName(source.name),
-      validateType(source.type),
-      validateVHost(source.vhost, !embedded),
-    ].filter(Boolean) as string[];
+    if (step === 0) {
+      // Same validators the fields use, so the Next button and the inline
+      // errors always agree about what is wrong.
+      return [
+        validateName(source.name),
+        validateType(source.type),
+        validateVHost(source.vhost, !embedded),
+      ].filter(Boolean) as string[];
+    }
+    if (step === 1) {
+      // The connection step gets the same treatment Basics got: what this
+      // connector minimally needs, named in the user's words, before Next
+      // works. One module holds the per-type answer, so the tooltip and the
+      // gate cannot disagree.
+      return missingConnectionFieldsWithUri('source', source.type, source.config);
+    }
+    return [];
   };
   const missing = missingForStep(active);
 
@@ -189,15 +199,17 @@ export function SourceWizard({
           <Card withBorder padding="lg" radius="md" mt="md">
             <Stack gap="md">
               <Text fw={600} size="lg">Step 3: Reliability Settings</Text>
-              <Text size="sm" c="dimmed">Define how the source handles disconnections and restarts.</Text>
+              <Text size="sm" c="dimmed">
+                The defaults here are safe. If you are unsure, change nothing and go on.
+              </Text>
               <Divider />
               <Fieldset legend="Auto-Recovery" radius="md">
-                <TextInput 
-                  label="Reconnect Intervals" 
-                  placeholder="1s, 5s, 30s, 1m" 
-                  description="Backoff strategy for reconnection attempts (comma-separated)."
-                  value={source.config.reconnect_intervals || ''} 
-                  onChange={(e) => updateConfig('reconnect_intervals', e.target.value)} 
+                <TextInput
+                  label="If the connection drops, retry after…"
+                  placeholder="1s, 5s, 30s, 1m"
+                  description="Waits between reconnection attempts, shortest first. Leave empty to use the defaults shown."
+                  value={source.config.reconnect_intervals || ''}
+                  onChange={(e) => updateConfig('reconnect_intervals', e.target.value)}
                 />
               </Fieldset>
               {source.type === 'postgres' && (

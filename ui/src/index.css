@@ -1,19 +1,22 @@
+/*
+ * Tailwind v4 with Mantine owning the base styles.
+ *
+ * Layer order is the contract: Mantine's component styles must beat Tailwind's
+ * theme variables, and Tailwind utilities must beat Mantine, so a className on
+ * a Mantine component still wins. Preflight is deliberately not imported — the
+ * v3 config disabled it (corePlugins.preflight: false) because Mantine ships
+ * its own reset, and importing both makes buttons and headings fight.
+ */
+@layer tailwind-theme, tailwind-base, mantine, tailwind-utilities;
+
+@import 'tailwindcss/theme.css' layer(tailwind-theme);
+@import 'tailwindcss/utilities.css' layer(tailwind-utilities);
 @import '@mantine/core/styles.layer.css';
-
-@layer tailwind-base, mantine, tailwind-utilities;
-
-@layer tailwind-base {
-  @tailwind base;
-}
-
-@layer tailwind-utilities {
-  @tailwind components;
-  @tailwind utilities;
-}
 
 @layer tailwind-base {
   body {
-    @apply antialiased;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 

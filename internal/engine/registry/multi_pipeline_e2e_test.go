@@ -65,9 +65,19 @@ type pipeSink struct {
 	mu         sync.Mutex
 	got        []map[string]any
 	writes     atomic.Int64
+	delivered  atomic.Int64
 	failUntil  int64
 	alwaysFail bool
 	closed     atomic.Bool
+	// countOnly stops the sink keeping every message it accepts.
+	//
+	// Retaining them is what makes the assertions in the functional tests
+	// possible, and it is fine when a test moves hundreds of messages. It is
+	// ruinous in the soak, which moves millions: a fifteen-minute run put
+	// 13.7M ToMap() copies in this slice and the heap it was supposed to be
+	// watching was almost entirely its own. A leak detector whose own
+	// retention dominates the measurement cannot detect anything.
+	countOnly bool
 }
 
 func (s *pipeSink) Write(ctx context.Context, msg hermod.Message) error {
@@ -77,6 +87,10 @@ func (s *pipeSink) Write(ctx context.Context, msg hermod.Message) error {
 	}
 	if n <= s.failUntil {
 		return fmt.Errorf("%s: injected transient write failure %d", s.name, n)
+	}
+	s.delivered.Add(1)
+	if s.countOnly {
+		return nil
 	}
 	s.mu.Lock()
 	s.got = append(s.got, msg.ToMap())
@@ -95,10 +109,10 @@ func (s *pipeSink) received() []map[string]any {
 	return out
 }
 
+// count reports accepted writes. It reads the counter rather than the slice so
+// it keeps working for a countOnly sink, which retains nothing.
 func (s *pipeSink) count() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.got)
+	return int(s.delivered.Load())
 }
 
 // distinct counts unique origin/seq pairs. Delivery is at-least-once, so the

@@ -709,6 +709,34 @@ jobs:
             sleep 1
           done
 
+      # Mosquitto 2.x refuses remote connections without a config saying
+      # otherwise, and a service block cannot override the command — so a
+      # step, like MinIO above.
+      - name: Start Mosquitto for the MQTT source
+        run: |
+          printf 'listener 1883\nallow_anonymous true\n' > /tmp/mosquitto.conf
+          docker run -d --name mosquitto -p 1883:1883 \
+            -v /tmp/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro \
+            eclipse-mosquitto:2
+          for i in $(seq 1 30); do
+            # Exit 27 is "connected, no message within -W" — a healthy idle
+            # broker. Anything meaning "could not connect" keeps waiting.
+            #
+            # `|| rc=$?` is load-bearing, not style: these steps run under
+            # `bash -e`, where a *bare* command returning non-zero ends the
+            # script on the spot. Written as `cmd` then `rc=$?`, the healthy
+            # 27 killed the step before the assignment ever ran.
+            rc=0
+            docker exec mosquitto mosquitto_sub -t probe -C 1 -W 1 -h 127.0.0.1 >/dev/null 2>&1 || rc=$?
+            if [ "$rc" = 0 ] || [ "$rc" = 27 ]; then
+              echo "mosquitto ready after ${i}s"; break
+            fi
+            if [ "$i" = 30 ]; then
+              echo "mosquitto never became ready (last rc=$rc)"; docker logs mosquitto; exit 1
+            fi
+            sleep 1
+          done
+
       # The test keyspace. The sink does not create keyspaces and should not,
       # so the job makes the one the tests write into.
       - name: Create the Cassandra keyspace
@@ -780,6 +808,7 @@ jobs:
           PGVECTOR_DSN: postgres://postgres:postgres@127.0.0.1:5433/hermod_it?sslmode=disable
           MSSQL_DSN: sqlserver://sa:Hermod%21Passw0rd@127.0.0.1:1433?database=master&encrypt=disable
           CASSANDRA_HOSTS: 127.0.0.1
+          MQTT_BROKER: tcp://127.0.0.1:1883
         # -race, and this job is the only place it can do any good: these tests
         # are the only ones that drive a connector against a live server, and
         # the concurrency that matters — a Close landing while a stream is

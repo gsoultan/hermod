@@ -253,7 +253,13 @@ func TestSoakSustainedThroughputDoesNotLeak(t *testing.T) {
 		"s-a": {name: "a", count: perSource},
 		"s-b": {name: "b", count: perSource},
 	}
-	sinks := map[string]*pipeSink{"snk-x": {name: "x"}, "snk-y": {name: "y"}}
+	// countOnly: this test moves millions of messages, and a sink that kept
+	// them would be measuring its own slice rather than the engine. See the
+	// field's comment in multi_pipeline_e2e_test.go.
+	sinks := map[string]*pipeSink{
+		"snk-x": {name: "x", countOnly: true},
+		"snk-y": {name: "y", countOnly: true},
+	}
 
 	wf := multiPipelineWorkflow("wf-soak-sustained", []string{"x", "y"})
 	// Drop the two unused source nodes from the standard three-source shape.

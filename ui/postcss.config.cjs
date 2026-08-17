@@ -1,9 +1,8 @@
 module.exports = {
   plugins: {
-    'postcss-import': {},
-    'tailwindcss/nesting': {},
-    tailwindcss: {},
-    autoprefixer: {},
+    // Tailwind v4: one plugin replaces tailwindcss + autoprefixer +
+    // postcss-import + nesting (Lightning CSS handles all four).
+    '@tailwindcss/postcss': {},
     'postcss-preset-mantine': {},
     'postcss-simple-vars': {
       variables: {
