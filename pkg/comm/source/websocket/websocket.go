@@ -73,6 +73,14 @@ func New(url string, headers map[string]string, subprotocols []string, connectTi
 	if reconnectMax <= 0 {
 		reconnectMax = 30 * time.Second
 	}
+	// The dial wraps its context in WithTimeout(ctx, connectTimeout), and zero
+	// makes that deadline already-passed: a source that can never connect. The
+	// factory parses an absent connect_timeout into exactly that zero. The
+	// read timeout needs no default — zero there means "no read deadline",
+	// which is guarded where it is used.
+	if connectTimeout <= 0 {
+		connectTimeout = 30 * time.Second
+	}
 	s := &Source{
 		url:               url,
 		headers:           headers,
