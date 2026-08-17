@@ -223,20 +223,27 @@ statement, arriving verbatim in `CREATE TABLE hermod_it.pwned (id[,]...` — so
 that was the server refusing one shape, not the name being kept out. It now
 validates the table and quotes mapped columns.
 
-**Snowflake is fixed, and is the one fix not watched failing against a real
-server.** It is cloud-only, so there is no warehouse to point it at from a
-workstation or from CI. Read it knowing that.
+**Snowflake and Oracle are fixed, and are the two fixes not watched failing
+against a real server.** Snowflake is cloud-only; Oracle has no server reachable
+from this workstation or from CI. Read both knowing that.
 
-What made it testable at all is where the check sits: the table and the mapped
+Oracle had both halves of the pattern at once: the unpinned table came from
+`msg.Table()` and went into MERGE, DELETE and CREATE TABLE unexamined, and every
+`QuoteIdent` error on a mapped column was discarded, so a rejected name became
+an empty identifier — the MSSQL failure mode. Its mapped upsert also indexed
+`cols[0]` unguarded, so a message whose every mapped field was identity-skipped
+panicked the worker instead of failing the write.
+
+What made both testable at all is where the check sits: the table and the mapped
 column names are validated *before* anything connects, so a sink pointed at an
 address that does not exist still refuses a bad identifier rather than failing
 to dial. That is deliberate — a rejected identifier is the sink's own decision
-and should not depend on whether the warehouse is reachable — and it means the
+and should not depend on whether the server is reachable — and it means each
 guard has real tests that run anywhere, including a check that removing it makes
-them fail.
+them fail with a dial timeout instead of a refusal.
 
-What those tests cannot cover is whether the quoted SQL Snowflake finally
-receives is accepted by Snowflake. That still needs an account.
+What those tests cannot cover is whether the quoted SQL the server finally
+receives is accepted by it. That still needs an account, or a server.
 
 MSSQL and Cassandra were both on this list as "unreachable from an arm64
 workstation". Both were wrong. **Azure SQL Edge** is arm64-native and speaks the

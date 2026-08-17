@@ -668,11 +668,11 @@ updates and deletes — so what it lacks is coverage, not capability. The pollin
 sources that were previously listed here are a different case and have moved to
 Experimental: see the inserts-only row below.
 
-**Snowflake** carries one caveat the others do not. Its identifiers are validated
-like every other SQL sink's, but Snowflake is cloud-only and no warehouse is
-reachable from CI, so that guard is the only one in this repository never watched
-failing against a real server. It has tests that run without an account, and they
-cover the refusal rather than the resulting SQL.
+**Snowflake and Oracle** carry one caveat the others do not. Their identifiers
+are validated like every other SQL sink's, but no Snowflake warehouse or Oracle
+server is reachable from CI, so those two guards are the only ones in this
+repository never watched failing against a real server. Both have tests that run
+without one — they cover the refusal rather than the resulting SQL.
 
 **Kafka is GA for its data path but at-least-once only**, and that ceiling is not
 a coverage gap. There is no transactional producer — `segmentio/kafka-go` exposes

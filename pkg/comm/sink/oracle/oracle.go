@@ -12,6 +12,7 @@ import (
 	_ "github.com/sijms/go-ora/v2"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"
+	"github.com/user/hermod/pkg/infra/sqlident"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -53,10 +54,71 @@ func (s *OracleSink) Write(ctx context.Context, msg hermod.Message) error {
 	return s.WriteBatch(ctx, []hermod.Message{msg})
 }
 
+// resolveTable picks the table a message writes to and refuses one that cannot
+// safely be interpolated into a statement. When the sink is not pinned to a
+// table the name comes from msg.Table() — an identifier that originated
+// upstream, on the wire for a webhook or a generic source — and it used to go
+// into MERGE, DELETE and CREATE TABLE unexamined.
+func (s *OracleSink) resolveTable(msg hermod.Message) (string, error) {
+	table := s.tableName
+	if table == "" && msg != nil {
+		table = msg.Table()
+		if msg.Schema() != "" {
+			table = fmt.Sprintf("%s.%s", msg.Schema(), table)
+		}
+	}
+	if table == "" {
+		return "", errors.New("oracle sink: no table configured and the message names none")
+	}
+	if err := sqlident.Validate(table); err != nil {
+		return "", fmt.Errorf("oracle sink: refusing to build a statement around table "+
+			"name %q: %w", table, err)
+	}
+	return table, nil
+}
+
+// qcol quotes a mapped column name and keeps the error. Every QuoteIdent call
+// in this sink discarded it — `quoted, _ :=` — and QuoteIdent returns "" when
+// it rejects a name, so an unquotable column did not stop the write; it became
+// an empty identifier inside the statement, which fails as an Oracle parse
+// error naming neither the column nor the reason.
+func qcol(name string) (string, error) {
+	quoted, err := sqlutil.QuoteIdent("oracle", name)
+	if err != nil {
+		return "", fmt.Errorf("invalid column name %q: %w", name, err)
+	}
+	return quoted, nil
+}
+
 func (s *OracleSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 	if len(msgs) == 0 {
 		return nil
 	}
+
+	// Names are checked before anything connects, Oracle being unreachable
+	// from a workstation or CI. A rejected identifier is this sink's own
+	// decision and must not depend on whether a server happens to answer —
+	// which is also what makes the refusal testable without one.
+	tables := make([]string, len(msgs))
+	for i, msg := range msgs {
+		if msg == nil {
+			continue
+		}
+		table, err := s.resolveTable(msg)
+		if err != nil {
+			return err
+		}
+		tables[i] = table
+	}
+	for _, m := range s.mappings {
+		if m.SourceField == "" {
+			continue
+		}
+		if _, err := qcol(m.TargetColumn); err != nil {
+			return err
+		}
+	}
+
 	s.mu.Lock()
 	db := s.db
 	s.mu.Unlock()
@@ -75,18 +137,12 @@ func (s *OracleSink) WriteBatch(ctx context.Context, msgs []hermod.Message) erro
 	}
 	defer tx.Rollback()
 
-	for _, msg := range msgs {
+	for i, msg := range msgs {
 		if msg == nil {
 			continue
 		}
 
-		table := s.tableName
-		if table == "" {
-			table = msg.Table()
-			if msg.Schema() != "" {
-				table = fmt.Sprintf("%s.%s", msg.Schema(), table)
-			}
-		}
+		table := tables[i]
 
 		if err := s.ensureTable(ctx, tx, table); err != nil {
 			return fmt.Errorf("ensure table %s: %w", table, err)
@@ -177,7 +233,10 @@ func (s *OracleSink) upsertMapped(ctx context.Context, tx *sql.Tx, table string,
 			continue
 		}
 
-		quoted, _ := sqlutil.QuoteIdent("oracle", m.TargetColumn)
+		quoted, err := qcol(m.TargetColumn)
+		if err != nil {
+			return err
+		}
 		cols = append(cols, quoted)
 		placeholder := fmt.Sprintf(":%d", len(args)+1)
 		selectCols = append(selectCols, fmt.Sprintf("%s AS %s", placeholder, quoted))
@@ -191,6 +250,11 @@ func (s *OracleSink) upsertMapped(ctx context.Context, tx *sql.Tx, table string,
 		}
 	}
 
+	// Guard before the cols[0] fallback: a message whose every mapped field
+	// was identity-skipped used to panic here instead of failing as a write.
+	if len(cols) == 0 {
+		return fmt.Errorf("no mapped column produced a value for message %s", msg.ID())
+	}
 	if pkCol == "" {
 		pkCol = cols[0]
 		pkSource = "source." + cols[0]
@@ -228,7 +292,10 @@ func (s *OracleSink) insertMapped(ctx context.Context, tx *sql.Tx, table string,
 		if m.IsIdentity && (val == nil || val == "" || val == 0) {
 			continue
 		}
-		quoted, _ := sqlutil.QuoteIdent("oracle", m.TargetColumn)
+		quoted, err := qcol(m.TargetColumn)
+		if err != nil {
+			return err
+		}
 		cols = append(cols, quoted)
 		placeholders = append(placeholders, fmt.Sprintf(":%d", len(args)+1))
 		args = append(args, val)
@@ -252,7 +319,10 @@ func (s *OracleSink) updateMapped(ctx context.Context, tx *sql.Tx, table string,
 	for _, m := range s.mappings {
 		if !m.IsPrimaryKey {
 			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			quoted, _ := sqlutil.QuoteIdent("oracle", m.TargetColumn)
+			quoted, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
 			updates = append(updates, fmt.Sprintf("%s = :%d", quoted, len(allArgs)+1))
 			allArgs = append(allArgs, val)
 		}
@@ -260,7 +330,10 @@ func (s *OracleSink) updateMapped(ctx context.Context, tx *sql.Tx, table string,
 	for _, m := range s.mappings {
 		if m.IsPrimaryKey {
 			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			quoted, _ := sqlutil.QuoteIdent("oracle", m.TargetColumn)
+			quoted, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
 			pks = append(pks, fmt.Sprintf("%s = :%d", quoted, len(allArgs)+1))
 			allArgs = append(allArgs, val)
 		}
@@ -295,7 +368,10 @@ func (s *OracleSink) deleteMapped(ctx context.Context, tx *sql.Tx, table string,
 	for _, m := range s.mappings {
 		if m.IsPrimaryKey {
 			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			qCol, _ := sqlutil.QuoteIdent("oracle", m.TargetColumn)
+			qCol, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
 			pks = append(pks, fmt.Sprintf("%s = :%d", qCol, len(args)+1))
 			args = append(args, val)
 		}
@@ -308,11 +384,14 @@ func (s *OracleSink) deleteMapped(ctx context.Context, tx *sql.Tx, table string,
 	}
 
 	if s.deleteStrategy == "soft_delete" && s.softDeleteColumn != "" {
-		qCol, _ := sqlutil.QuoteIdent("oracle", s.softDeleteColumn)
+		qCol, err := qcol(s.softDeleteColumn)
+		if err != nil {
+			return err
+		}
 		query := fmt.Sprintf("UPDATE %s SET %s = :%d WHERE %s",
 			table, qCol, len(args)+1, strings.Join(pks, " AND "))
 		args = append(args, s.softDeleteValue)
-		_, err := tx.ExecContext(ctx, query, args...)
+		_, err = tx.ExecContext(ctx, query, args...)
 		return err
 	}
 
@@ -338,7 +417,10 @@ func (s *OracleSink) ensureTable(ctx context.Context, tx *sql.Tx, table string) 
 		return nil
 	}
 
-	quoted, _ := sqlutil.QuoteIdent("oracle", table)
+	quoted, err := sqlutil.QuoteIdent("oracle", table)
+	if err != nil {
+		return fmt.Errorf("invalid table name %q: %w", table, err)
+	}
 	var query string
 	if len(s.mappings) > 0 {
 		var cols []string
@@ -347,7 +429,10 @@ func (s *OracleSink) ensureTable(ctx context.Context, tx *sql.Tx, table string) 
 			if dataType == "" {
 				dataType = "CLOB"
 			}
-			qCol, _ := sqlutil.QuoteIdent("oracle", m.TargetColumn)
+			qCol, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
 			colDef := fmt.Sprintf("%s %s", qCol, dataType)
 			if m.IsIdentity {
 				if strings.Contains(strings.ToUpper(dataType), "INT") || strings.Contains(strings.ToUpper(dataType), "NUMBER") {
