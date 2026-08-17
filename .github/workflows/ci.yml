@@ -72,6 +72,20 @@ jobs:
           github_token: ${{ github.token }}
       - name: Buf lint
         run: buf lint
+      # buf reads the comparison side by cloning .git, and a clone only carries
+      # local branches. actions/checkout leaves the base as a remote-tracking ref
+      # and HEAD detached, so refs/heads/<base> does not exist and buf fails with
+      # "couldn't find remote ref" — an infrastructure error that looks nothing
+      # like a breaking change. fetch-depth: 0 above gives us the objects; this
+      # only gives the ref a local name buf can resolve.
+      - name: Give buf a local ref to compare against
+        run: |
+          base="${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}"
+          # On a push to the base branch itself, checkout is already on it and
+          # git refuses to fetch into the current branch. Nothing to do there.
+          if [ "$(git rev-parse --abbrev-ref HEAD)" != "$base" ]; then
+            git fetch --no-tags --force origin "refs/heads/$base:refs/heads/$base"
+          fi
       # Module-scoped on both sides. The bare form compares whole trees, and a
       # merge base predating buf.yaml has no module layout to compare against,
       # which reports every file as deleted rather than reporting a break.
