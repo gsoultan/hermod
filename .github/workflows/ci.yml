@@ -142,6 +142,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # The swapfile below takes 8G of a ~14G disk, and the golangci-lint
+      # install then died at link time with 6MB free. Same cleanup as the
+      # other jobs, and it has to come first: the freed space is what the
+      # swapfile and the toolchain builds share.
+      - name: Free disk space on the runner
+        run: |
+          echo "before: $(df -h --output=avail / | tail -1 | tr -d ' ') available"
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /usr/share/swift || true
+          echo "after:  $(df -h --output=avail / | tail -1 | tr -d ' ') available"
       - name: Give the scan swap to overflow into
         run: |
           free -h | sed -n '1,3p'
