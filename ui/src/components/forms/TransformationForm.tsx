@@ -23,6 +23,7 @@ const QuickActions = lazy(() =>
 );
 import { IconArrowRight, IconCode, IconDatabase, IconFunction, IconHelpCircle, IconInfoCircle, IconList, IconPlus, IconPuzzle, IconRefresh, IconSearch, IconSettings, IconVariable } from '@tabler/icons-react';
 import { preparePayload, getValByPath } from '@/utils/transformationUtils';
+import { guideFor } from '@/lib/transformationGuide';
 
 // Modular configuration components (Junie compliance)
 
@@ -432,9 +433,33 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                     <IconHelpCircle size="1rem" />
                   </ActionIcon>
                 </MantineTooltip>
-                <Badge variant="light" color="blue" size="lg" style={{ textTransform: 'uppercase' }}>{transType}</Badge>
+                {/* The human name, not the raw registry key: "History tracking
+                    (SCD)" orients; "SCD" is a password. */}
+                <Badge variant="light" color="blue" size="lg">{guideFor(transType).title}</Badge>
               </Group>
             </Group>
+
+            {/* What this node does and what to do first, where the eyes
+                already are — the answer used to live only behind the help
+                icon's modal. */}
+            {guideFor(transType).what && (
+              <Text size="sm" c="dimmed">
+                {guideFor(transType).what}{' '}
+                <Text span size="sm" fw={500} c="var(--mantine-color-text)">
+                  {guideFor(transType).firstStep}
+                </Text>
+              </Text>
+            )}
+
+            {!incomingPayload && (
+              <Alert icon={<IconInfoCircle size="1rem" />} color="blue" py="xs">
+                <Text size="xs">
+                  No sample data yet, so the live preview has nothing to show.
+                  Use the refresh icon next to AVAILABLE FIELDS to pull a sample
+                  from your source — then every change previews as you type.
+                </Text>
+              </Alert>
+            )}
 
             <Divider />
 
