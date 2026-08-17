@@ -27,6 +27,23 @@ jobs:
     name: Verify (Go)
     runs-on: ubuntu-latest
     steps:
+      # This job died three runs straight at the same step — ~2 minutes into
+      # installing govulncheck — with "The runner has received a shutdown
+      # signal", exit 143. Two of those were parallel runs on separate VMs
+      # killed in lockstep, which rules out random eviction: the condition is
+      # deterministic per VM. It is the disk. The job builds the whole tree
+      # twice (plain and -race), fills the golangci-lint and staticcheck
+      # caches, and the govulncheck install is simply the next write after
+      # nothing is left — at which point the runner agent cannot even write
+      # its own diagnostics, so it dies with the shutdown message instead of
+      # the honest "No space left on device" the integration job showed.
+      # Same remedy as there: drop toolchains this repository never uses.
+      - name: Free disk space on the runner
+        run: |
+          echo "before: $(df -h --output=avail / | tail -1 | tr -d ' ') available"
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /usr/share/swift || true
+          echo "after:  $(df -h --output=avail / | tail -1 | tr -d ' ') available"
       - name: Checkout
         uses: actions/checkout@v4
         with:
