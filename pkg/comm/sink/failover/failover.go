@@ -2,7 +2,6 @@ package failover
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync/atomic"
 
@@ -98,55 +97,63 @@ func (s *FailoverSink) WriteBatch(ctx context.Context, msgs []hermod.Message) er
 	return s.writeBatchFailover(ctx, msgs)
 }
 
+// writeBatchFailover retries the whole batch on each fallback in turn.
+//
+// A hazard worth knowing, documented rather than hidden: a primary that dies
+// partway through a batch has already committed the rows before the failure,
+// and the fallback then receives the entire batch — so the leading rows exist
+// in both destinations. Sink-side idempotency cannot deduplicate across two
+// different stores. That is the price of failover under at-least-once
+// delivery; a test pins the behaviour so it stays a documented one.
 func (s *FailoverSink) writeBatchFailover(ctx context.Context, msgs []hermod.Message) error {
 	// Try primary as BatchSink if it supports it
+	var lastErr error
 	if bs, ok := s.primary.(hermod.BatchSink); ok {
-		err := bs.WriteBatch(ctx, msgs)
-		if err == nil {
+		lastErr = bs.WriteBatch(ctx, msgs)
+		if lastErr == nil {
 			return nil
 		}
 	} else {
 		// Fallback to individual writes if primary doesn't support batching
-		allOk := true
 		for _, msg := range msgs {
 			if err := s.primary.Write(ctx, msg); err != nil {
-				allOk = false
+				lastErr = err
 				break
 			}
 		}
-		if allOk {
+		if lastErr == nil {
 			return nil
 		}
 	}
 
 	if s.logger != nil {
-		s.logger.Warn("Primary sink batch write failed, trying fallbacks")
+		s.logger.Warn("Primary sink batch write failed, trying fallbacks", "error", lastErr)
 	}
 
 	for i, fallback := range s.fallbacks {
+		var err error
 		if bs, ok := fallback.(hermod.BatchSink); ok {
-			err := bs.WriteBatch(ctx, msgs)
-			if err == nil {
-				return nil
-			}
+			err = bs.WriteBatch(ctx, msgs)
 		} else {
-			allOk := true
 			for _, msg := range msgs {
-				if err := fallback.Write(ctx, msg); err != nil {
-					allOk = false
+				if e := fallback.Write(ctx, msg); e != nil {
+					err = e
 					break
 				}
 			}
-			if allOk {
-				return nil
-			}
 		}
+		if err == nil {
+			return nil
+		}
+		lastErr = err
 		if s.logger != nil {
-			s.logger.Warn("Fallback sink batch write failed", "index", i)
+			s.logger.Warn("Fallback sink batch write failed", "index", i, "error", err)
 		}
 	}
 
-	return errors.New("all sinks in failover group failed batch write")
+	// The last cause, not a bare sentence: an operator debugging "all sinks
+	// failed" needs at least one of the reasons in hand.
+	return fmt.Errorf("all sinks in failover group failed batch write: %w", lastErr)
 }
 
 func (s *FailoverSink) writeBatchRoundRobin(ctx context.Context, msgs []hermod.Message) error {
