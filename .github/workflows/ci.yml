@@ -2,12 +2,22 @@ name: CI
 
 on:
   push:
+    # Only main. A branch with an open PR used to run everything twice — once
+    # for push, once for pull_request — and the pair of ~15-minute jobs twice
+    # over meant every push queued half an hour of duplicate work.
+    branches: [main]
   pull_request:
   # Nightly: the integration E2E and soak jobs are too slow for every push but
   # too valuable to run only by hand.
   schedule:
     - cron: '0 3 * * *'
   workflow_dispatch:
+
+# A newer push supersedes the runs of the older one; let it cancel them. The
+# nightly run groups by run_id so a schedule can never cancel anything.
+concurrency:
+  group: ci-${{ github.event_name == 'schedule' && github.run_id || format('{0}-{1}', github.workflow, github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 permissions:
   contents: read
