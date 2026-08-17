@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/canal"
+	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
 	mysql_driver "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"github.com/user/hermod"
@@ -31,6 +34,62 @@ type MySQLSource struct {
 	errChan    chan error
 	mu         sync.Mutex
 	logger     hermod.Logger
+
+	// tables scopes the initial load. Empty means every table in the
+	// connected database, which is what DiscoverTables reports.
+	tables []string
+
+	// ackedPos is the binlog position of the last acknowledged message, and
+	// the only position GetState reports. The engine persists that on every ack
+	// (registry_routing.go, statefulSource.Ack), so it decides where a restart
+	// comes back to: anything ahead of it is a change the pipeline will never
+	// be given again.
+	//
+	// Before this existed the source implemented none of hermod.Stateful, so
+	// canal was started with a zero Position. That is not "start from now": an
+	// empty binlog filename makes the server serve the oldest file it still
+	// holds, so every start replayed the whole retained history and no restart
+	// could resume from what had been delivered.
+	ackedPos mysql.Position
+	// currentFile is the binlog the reader is on, tracked through OnRotate.
+	// The row events themselves carry only an offset (Header.LogPos), which is
+	// meaningless without the file it is an offset into.
+	currentFile string
+
+	// done is closed by Close, and is what lets a row handler blocked on a full
+	// buffer give up instead of holding the reader open forever.
+	done      chan struct{}
+	closeOnce sync.Once
+
+	initialLoad bool
+	// initialLoadComplete is the source's record of having backfilled. MySQL
+	// leaves nothing server-side that could stand in for it the way a
+	// PostgreSQL replication slot does, and the binlog position cannot: a
+	// backfill moves no binlog position, so a table that was carried across
+	// and then never written to would look exactly like one that had never run.
+	initialLoadComplete bool
+	initialLoadStarted  bool
+	backfillCancel      context.CancelFunc
+}
+
+// SetTables scopes the initial load to the named tables. Without it the
+// backfill covers every table DiscoverTables reports.
+func (m *MySQLSource) SetTables(tables ...string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tables = append([]string(nil), tables...)
+}
+
+// SetInitialLoad asks for a one-time backfill of the watched tables before the
+// binlog is read.
+//
+// It runs only when the source has no record of having run before, so enabling
+// it on a workflow that is already streaming does nothing until that record is
+// cleared. See initialLoadComplete for what the record is.
+func (m *MySQLSource) SetInitialLoad(enabled bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.initialLoad = enabled
 }
 
 func NewMySQLSource(connString string, useCDC bool) *MySQLSource {
@@ -39,8 +98,14 @@ func NewMySQLSource(connString string, useCDC bool) *MySQLSource {
 		useCDC:     useCDC,
 		msgChan:    make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 		errChan:    make(chan error, 10),
+		done:       make(chan struct{}),
 	}
 }
+
+// errSourceClosed stops the binlog reader when the source is shutting down. It
+// travels out through canal, which wraps it, so the shutdown path tests whether
+// done is closed rather than trying to unwrap this back out again.
+var errSourceClosed = errors.New("mysql source closed")
 
 func (m *MySQLSource) SetLogger(logger hermod.Logger) {
 	m.mu.Lock()
@@ -130,15 +195,131 @@ func (m *MySQLSource) init(ctx context.Context) error {
 		c.SetEventHandler(&mysqlEventHandler{source: m})
 		m.canal = c
 
+		// Where to start, in order of preference. Never the zero Position:
+		// canal passes it straight through as an empty binlog filename, which
+		// the server answers with the oldest file it still holds.
+		start := m.ackedPos
+		resumed := start.Name != ""
+		if !resumed {
+			pos, err := c.GetMasterPos()
+			if err != nil {
+				return fmt.Errorf("failed to read the current binlog position, which is where "+
+					"a first run has to start: %w", err)
+			}
+			start = pos
+
+			// Record it as the resume floor straight away, rather than waiting
+			// for the first acknowledged change. Everything strictly before
+			// this point has been handled — either carried across by the
+			// backfill about to run, or deliberately skipped because a source
+			// with no state starts from now — so it is a true watermark, and
+			// it is the only one that exists until a change is acknowledged.
+			//
+			// Without it there is a window with no persisted position at all:
+			// a source that backfilled a quiet table and was then restarted
+			// would call GetMasterPos again and silently skip everything
+			// written while it was down.
+			m.ackedPos = start
+		}
+		m.currentFile = start.Name
+
+		wantBackfill := m.initialLoad && !m.initialLoadStarted && !m.initialLoadComplete && !resumed
+		if wantBackfill {
+			m.initialLoadStarted = true
+		}
+		backfillCtx, cancel := context.WithCancel(context.Background())
+		m.backfillCancel = cancel
+
 		go func() {
-			if err := m.canal.Run(); err != nil {
-				m.log("ERROR", "canal run failed", "error", err)
-				m.errChan <- err
+			// The backfill runs before the binlog reader and on the same
+			// goroutine, so the rows already in the tables reach the pipeline
+			// ahead of any change to them. The position was taken before the
+			// backfill began, so a write made while it runs is at or after
+			// `start` and is replayed by the reader rather than lost between
+			// the two. Where the two overlap the row arrives twice, which
+			// sink-side idempotency collapses.
+			//
+			// It cannot run inline here: it delivers into the same channel
+			// Read drains, so a table larger than the buffer would block until
+			// Read emptied it, and Read is what this goroutine is feeding.
+			if wantBackfill {
+				m.runInitialLoad(backfillCtx)
+			}
+			if backfillCtx.Err() != nil {
+				return
+			}
+			m.log("INFO", "Starting binlog reader", "file", start.Name, "position", start.Pos,
+				"resumed", resumed)
+			// c, not m.canal: the field is read from other goroutines and there
+			// is no reason to reach for it when the value is already in hand.
+			if err := c.RunFrom(start); err != nil {
+				select {
+				case <-m.done:
+					// Shutting down. The reader stopping is what was asked for,
+					// not a failure to report.
+				default:
+					m.log("ERROR", "canal run failed", "error", err)
+					// Non-blocking: nothing may be reading by now, and a
+					// blocked send here would strand this goroutine for the
+					// life of the process.
+					select {
+					case m.errChan <- err:
+					default:
+					}
+				}
 			}
 		}()
 	}
 
 	return nil
+}
+
+// runInitialLoad carries across the rows already in the watched tables.
+//
+// A failure is logged rather than returned: the binlog position is already
+// pinned by this point and the reader is about to start from it, so refusing to
+// stream would strand a working reader to no purpose. What is lost is the
+// pre-existing rows, which is what the log says. The completion record is not
+// written in that case, so the next restart tries again rather than quietly
+// settling for a partial copy.
+func (m *MySQLSource) runInitialLoad(ctx context.Context) {
+	m.mu.Lock()
+	tables := append([]string(nil), m.tables...)
+	m.mu.Unlock()
+
+	if len(tables) == 0 {
+		discovered, err := m.DiscoverTables(ctx)
+		if err != nil {
+			m.log("ERROR", "Initial load could not discover tables; rows already in the "+
+				"source will not be carried across", "error", err.Error())
+			return
+		}
+		tables = discovered
+	}
+
+	m.log("INFO", "Initial load starting", "tables", strings.Join(tables, ","))
+	failed := 0
+	for _, table := range tables {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := m.snapshotTable(ctx, table); err != nil {
+			failed++
+			m.log("ERROR", "Initial load failed for a table; its existing rows were not "+
+				"carried across, though later changes to it will still stream",
+				"table", table, "error", err.Error())
+		}
+	}
+	if failed > 0 {
+		m.log("WARN", "Initial load finished with failures; it will run again on the next "+
+			"restart because no completion was recorded", "tables_failed", failed)
+		return
+	}
+
+	m.mu.Lock()
+	m.initialLoadComplete = true
+	m.mu.Unlock()
+	m.log("INFO", "Initial load complete; reading the binlog from the pinned position")
 }
 
 type mysqlEventHandler struct {
@@ -208,6 +389,19 @@ func (h *mysqlEventHandler) OnRow(e *canal.RowsEvent) error {
 		// Every other source stamps this, and the snapshot path below does too;
 		// only CDC did not, so a routing or audit rule keyed on it saw nothing.
 		msg.SetMetadata("source", "mysql")
+
+		// Where this row came from, so acknowledging it can move the resume
+		// position. Header.LogPos is the offset *after* the event, which is
+		// exactly where a restart should pick up.
+		if e.Header != nil {
+			h.source.mu.Lock()
+			file := h.source.currentFile
+			h.source.mu.Unlock()
+			if file != "" {
+				msg.SetMetadata("binlog_file", file)
+				msg.SetMetadata("binlog_pos", strconv.FormatUint(uint64(e.Header.LogPos), 10))
+			}
+		}
 		if afterJSON, err := json.Marshal(data); err == nil {
 			msg.SetAfter(afterJSON)
 		} else {
@@ -221,13 +415,41 @@ func (h *mysqlEventHandler) OnRow(e *canal.RowsEvent) error {
 			msg.SetID(fmt.Sprintf("%s:%s:%v", e.Table.Schema, e.Table.Name, pkVal))
 		}
 
+		// Wait for room rather than discarding what does not fit.
+		//
+		// This used to release the message when the buffer was full, which is a
+		// silent delete: no error, no log, no metric, and the binlog position
+		// moves on regardless. Any burst larger than the buffer lost its tail,
+		// and the resume position made the loss permanent — the dropped rows
+		// were never acknowledged, but the rows after them were, so the
+		// watermark advanced straight past them.
+		//
+		// Blocking here stops the binlog reader, which is the correct
+		// backpressure: MySQL keeps the binlog until we catch up, exactly as
+		// PostgreSQL retains WAL behind a replication slot. It carries the same
+		// hazard, too — a consumer stalled for longer than the server's
+		// binlog_expire_logs_seconds will find its position purged — and that is
+		// a visible, recoverable failure rather than a quiet one.
 		select {
 		case h.source.msgChan <- msg:
-		default:
-			// Buffer full
+		case <-h.source.done:
+			// Closing. Drop what cannot be delivered and stop the reader; the
+			// position was never acknowledged, so these rows come back.
 			message.ReleaseMessage(msg)
+			return errSourceClosed
 		}
 	}
+	return nil
+}
+
+// OnRotate records the binlog file the reader has moved onto. Row events carry
+// only an offset, so without this the acknowledged position would name the
+// wrong file the moment the server rotated and a restart would resume at an
+// arbitrary point in it.
+func (h *mysqlEventHandler) OnRotate(header *replication.EventHeader, e *replication.RotateEvent) error {
+	h.source.mu.Lock()
+	h.source.currentFile = string(e.NextLogName)
+	h.source.mu.Unlock()
 	return nil
 }
 
@@ -236,7 +458,14 @@ func (h *mysqlEventHandler) String() string {
 }
 
 func (m *MySQLSource) Read(ctx context.Context) (hermod.Message, error) {
-	if m.db == nil || (m.useCDC && m.canal == nil) {
+	// Under the lock: Close clears both of these from another goroutine, and a
+	// reader is normally still in flight when it does. The race detector never
+	// saw it because the only test that drives this path is integration-tagged
+	// and CI runs that job without -race.
+	m.mu.Lock()
+	needInit := m.db == nil || (m.useCDC && m.canal == nil)
+	m.mu.Unlock()
+	if needInit {
 		if err := m.init(ctx); err != nil {
 			return nil, err
 		}
@@ -257,8 +486,70 @@ func (m *MySQLSource) Read(ctx context.Context) (hermod.Message, error) {
 	}
 }
 
+// Ack moves the position a restart resumes from.
+//
+// Snapshot messages carry no binlog position and move nothing — they did not
+// come from the binlog. What records a finished backfill is initialLoadComplete,
+// which GetState reports separately.
+//
+// The position only ever moves forward, matching the PostgreSQL source's
+// handling of the LSN: out-of-order acks cannot drag it backwards.
 func (m *MySQLSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
+	meta := msg.Metadata()
+	file := meta["binlog_file"]
+	if file == "" {
+		return nil
+	}
+	pos, err := strconv.ParseUint(meta["binlog_pos"], 10, 32)
+	if err != nil {
+		// Acking must still succeed; the previously stored position stands.
+		return nil
+	}
+
+	acked := mysql.Position{Name: file, Pos: uint32(pos)}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.ackedPos.Name == "" || acked.Compare(m.ackedPos) > 0 {
+		m.ackedPos = acked
+	}
 	return nil
+}
+
+func (m *MySQLSource) GetState() map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.ackedPos.Name == "" && !m.initialLoadComplete {
+		return nil
+	}
+	state := make(map[string]string, 3)
+	if m.ackedPos.Name != "" {
+		state["binlog_file"] = m.ackedPos.Name
+		state["binlog_pos"] = strconv.FormatUint(uint64(m.ackedPos.Pos), 10)
+	}
+	// Reported separately from the position because it has to survive the case
+	// where there is none: a backfill moves no binlog position, so without this
+	// a table that was carried across and then never written to would be
+	// backfilled again on every restart.
+	if m.initialLoadComplete {
+		state["initial_load"] = "done"
+	}
+	return state
+}
+
+func (m *MySQLSource) SetState(state map[string]string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if file := state["binlog_file"]; file != "" {
+		if pos, err := strconv.ParseUint(state["binlog_pos"], 10, 32); err == nil {
+			m.ackedPos = mysql.Position{Name: file, Pos: uint32(pos)}
+		}
+	}
+	if state["initial_load"] == "done" {
+		m.initialLoadComplete = true
+	}
 }
 
 func (m *MySQLSource) IsReady(ctx context.Context) error {
@@ -333,8 +624,22 @@ func (m *MySQLSource) Ping(ctx context.Context) error {
 
 func (m *MySQLSource) Close() error {
 	m.log("INFO", "Closing MySQLSource")
+
+	// Before the lock: a row handler parked on a full buffer holds the binlog
+	// reader, and canal.Close waits for that reader to stop. Releasing it first
+	// is what keeps Close from waiting on a goroutine that is waiting on a
+	// consumer that has already gone away.
+	m.closeOnce.Do(func() { close(m.done) })
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Stop the backfill before the handle it reads through is closed, so a
+	// cancelled source does not leave a goroutine scanning tables.
+	if m.backfillCancel != nil {
+		m.backfillCancel()
+		m.backfillCancel = nil
+	}
 
 	if m.canal != nil {
 		m.canal.Close()
@@ -556,7 +861,15 @@ func (m *MySQLSource) snapshotTable(ctx context.Context, table string) error {
 	var colNames []string
 	var pkCols []string
 	for _, c := range cols {
-		quoted, _ := sqlutil.QuoteIdent("mysql", c.Name)
+		// The error is checked, not discarded. QuoteIdent returns "" when it
+		// rejects a name, and appending that produced a malformed statement
+		// that failed later with a syntax error naming nothing useful — and it
+		// quietly weakened the assumption the query below is built on, which is
+		// that every identifier in it has been through here.
+		quoted, err := sqlutil.QuoteIdent("mysql", c.Name)
+		if err != nil {
+			return fmt.Errorf("column %q of table %q cannot be quoted safely: %w", c.Name, table, err)
+		}
 		colNames = append(colNames, quoted)
 		if c.IsPK {
 			pkCols = append(pkCols, quoted)
@@ -580,12 +893,30 @@ func (m *MySQLSource) snapshotTable(ctx context.Context, table string) error {
 		orderBy = colNames[0]
 	}
 
+	// Taken under the lock. The backfill runs on its own goroutine now, and
+	// Close clears the handle from another one; reading the field directly was
+	// a race that only became reachable when the snapshot stopped being
+	// synchronous.
+	m.mu.Lock()
+	db := m.db
+	m.mu.Unlock()
+	if db == nil {
+		return errors.New("the source was closed before the table could be read")
+	}
+
 	offset := 0
 	for {
 		query := fmt.Sprintf("SELECT %s FROM %s ORDER BY %s LIMIT %d OFFSET %d",
 			colList, quotedTable, orderBy, snapshotBatchSize, offset)
 
-		rows, err := m.db.QueryContext(ctx, query)
+		//nolint:gosec // G701: every identifier interpolated above went through
+		// sqlutil.QuoteIdent, which validates the name and fails the call rather
+		// than returning something unquoted — the table with its error checked
+		// at the top of this function, the columns and the ORDER BY list in the
+		// loop above. The remaining verbs are a const and an int. MySQL takes no
+		// placeholder in any of these positions, so interpolation is the only
+		// option and quoting is what makes it safe.
+		rows, err := db.QueryContext(ctx, query)
 		if err != nil {
 			return fmt.Errorf("failed to query snapshot batch for %q at offset %d: %w", table, offset, err)
 		}

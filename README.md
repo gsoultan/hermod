@@ -28,26 +28,39 @@ Delivery is **at-least-once** with sink-side idempotency for duplicate suppressi
 Where this document says a guarantee is scoped or unfinished, that is the literal
 state of the code, not modesty.
 
-**Initial load is available for PostgreSQL, and off by default.** Set
-`initial_load: "true"` on a Postgres CDC source and the rows already in the watched
-tables are carried across before streaming begins.
+**Initial load is available for PostgreSQL, MySQL and MongoDB, and off by default.**
+Set `initial_load: "true"` on one of those CDC sources and the rows already in the
+watched tables are carried across before streaming begins.
 
-It is consistent rather than approximate. The replication slot is created over the
-replication protocol so that it exports a snapshot, the backfill reads at exactly
-that snapshot, and streaming starts from the slot's consistent point — so nothing
-committed before the boundary is missed and nothing is read twice at it.
+**PostgreSQL is consistent rather than approximate.** The replication slot is created
+over the replication protocol so that it exports a snapshot, the backfill reads at
+exactly that snapshot, and streaming starts from the slot's consistent point — so
+nothing committed before the boundary is missed and nothing is read twice at it.
 
-It runs only when the slot is created, which is the source's own record of having run
-before: if the slot exists, changes have already streamed from it and the rows are
-downstream. That makes the backfill once-only with no extra bookkeeping, and it means
-turning the flag on for a workflow that is already running does nothing until the
-slot is dropped.
+**MySQL and MongoDB are gapless but not snapshot-isolated.** Neither offers Postgres's
+exported-snapshot handshake, so the boundary is pinned by position instead: the binlog
+coordinates (MySQL) or the cluster time (MongoDB) are taken *before* the tables are
+read, and streaming resumes from there. Nothing committed during the backfill is lost,
+but a row changed while it runs arrives twice — once as it was, once as it became.
+That is the ordinary at-least-once bargain and sink-side idempotency collapses it; see
+[Delivery guarantee](#delivery-guarantee).
+
+Each source keeps its own record of having run, so the backfill is once-only and
+turning the flag on for a workflow that is already streaming does nothing. For
+PostgreSQL the record is the replication slot itself — if it exists, changes have
+already streamed from it and the rows are downstream — so enabling the flag takes
+effect only once the slot is dropped. MySQL and MongoDB leave nothing server-side that
+could serve the same purpose, and their stream positions cannot stand in either: a
+backfill moves no binlog position and produces no resume token, so a table carried
+across and then never written to would be indistinguishable from one that had never
+run. They record completion in the source state the engine persists on every ack
+(`initial_load: done`), alongside the position.
 
 Off by default deliberately: enabling it for every existing workflow would re-read
-every source table the first time a slot was recreated, which is the opposite of what
-an upgrade should do. Other CDC sources still have no initial load — for those, a
-backfill and a stream have to be sequenced by hand, slot first, and the duplicates
-that ordering produces are what sink-side idempotency is for.
+every source table the first time a position was reset, which is the opposite of what
+an upgrade should do. The remaining CDC sources still have no initial load — for
+those, a backfill and a stream have to be sequenced by hand, position first, and the
+duplicates that ordering produces are what sink-side idempotency is for.
 
 ---
 
@@ -633,16 +646,53 @@ which is why they were untested; anything new in that shape should provide it to
 | **RabbitMQ** | source + sink | Queue integration tests against a live broker, both directions: the sink's messages are consumed back off the queue |
 | **Redis** | sink | Integration test against a live server |
 | **MongoDB** | sink | Live-server data-path tests: documents land, a repeated key does not duplicate, updates replace, deletes remove, batches arrive whole |
+| **MongoDB** | source | Live replica-set change-stream tests (`MONGODB_RS_URI`): the resume position advances on acknowledgement rather than on read, unacknowledged messages are redelivered after a restart, the initial load carries existing documents once, and a write during the backfill is not lost between it and the tail |
+| **SMTP** | sink | Live send against a mail catcher, read back through its API (`SMTP_HOST` + `SMTP_VERIFY_API`) — an SMTP server accepts a message long before anyone can read it, so a nil return is a weaker claim than it looks. Retry and duplicate-suppression covered too |
+| **Kafka** | source + sink | Live-broker round trip (`KAFKA_BROKERS`): a record written by the sink comes back out of the source with its key intact, and acknowledging advances the consumer group's offset so a restart is not handed what was already delivered. **At-least-once only** — see the note under Beta about why it cannot do better |
+| **ClickHouse** | sink | Live-server tests (`CLICKHOUSE_ADDR`): an insert lands; a delete in a batch that also inserts does not come back, which it used to; mapped columns insert and delete; and a mapped column name cannot break out of its quoting |
+| **MSSQL** | sink | Live-server tests against Azure SQL Edge (`MSSQL_DSN`): insert, upsert on redelivery and delete through the mapped path, and a column name that cannot be quoted is refused by name rather than becoming an empty identifier |
+| **Elasticsearch** | sink | Live-server tests (`ELASTICSEARCH_URL`): a document is indexed and deleted, and a document id cannot inject its own actions into the bulk stream |
+| **pgvector** | sink | Live-server tests (`PGVECTOR_DSN`): a vector is stored, upserted and deleted, and an identifier needing quotes gets them |
+| **S3 / S3-Parquet** | sink | Live MinIO tests (`S3_ENDPOINT`): an object is put, distinct messages land separately, the default key keeps every delivery while the idempotent key does not leave a second object, a batch becomes a Parquet object, and one undecodable message is named rather than wedging the batch |
+| **Cassandra** | sink | Live-node tests (`CASSANDRA_HOSTS`): a row lands and a delete removes it, and a table name arriving on a message is refused rather than interpolated into CQL. The Cassandra **source** is a different matter — see Experimental |
 
 ### Beta
 
 Substantial and unit-tested, but unproven against live infrastructure in CI:
 
-**Sources** — MSSQL, MariaDB, ClickHouse, MongoDB, gRPC, MQTT, WebSocket, HTTP,
-BatchSQL, Excel.
-**Sinks** — MSSQL, Oracle, ClickHouse, Elasticsearch, SMTP, Snowflake,
-Kafka *(at-least-once; no transactional producer)*, HTTP, WebSocket,
-S3 / S3-Parquet, pgvector, Failover, TxGroup.
+**Sources** — MSSQL, gRPC, MQTT, WebSocket, HTTP, BatchSQL, Excel.
+**Sinks** — Oracle, Snowflake, HTTP, WebSocket, Failover.
+
+The MSSQL **source** is genuinely a CDC source — it reads `CHANGETABLE` and emits
+updates and deletes — so what it lacks is coverage, not capability. The polling
+sources that were previously listed here are a different case and have moved to
+Experimental: see the inserts-only row below.
+
+**Snowflake and Oracle** carry one caveat the others do not. Their identifiers
+are validated like every other SQL sink's, but no Snowflake warehouse or Oracle
+server is reachable from CI, so those two guards are the only ones in this
+repository never watched failing against a real server. Both have tests that run
+without one — they cover the refusal rather than the resulting SQL.
+
+**Kafka is GA for its data path but at-least-once only**, and that ceiling is not
+a coverage gap. There is no transactional producer — `segmentio/kafka-go` exposes
+the wire primitives but nothing on its `Writer` — and Kafka cannot join a
+transactional sink group at all, because recovery there must be able to *commit*
+a transaction an earlier process prepared and Kafka can only abort one. See
+[ROADMAP](./ROADMAP.md). At-least-once with sink-side idempotency is Hermod's
+documented guarantee everywhere, so this is the same bargain as the rest of the
+platform rather than a Kafka-specific caveat.
+
+**TxGroup** stays here despite having live-PostgreSQL tests that cover more than
+most GA entries — commit landing in both tables, and rows staying invisible after
+a crash between prepare and recovery. Two things hold it back, and both are
+semantic rather than a gap in coverage: PostgreSQL is the only sink implementing
+`hermod.TwoPhaseCommit`, so a group can span nothing else; and there is a
+documented window in which a crash strands a prepared transaction the coordinator
+cannot name, which on PostgreSQL holds locks cluster-wide until someone finds it.
+See [Residual risk, stated plainly](#residual-risk-stated-plainly). Neither is a
+reason to avoid it — they are reasons to know what you are taking on, which is
+what a tier is for.
 
 ### Experimental
 
@@ -650,8 +700,8 @@ Thin, untested, or semantically limited. Specific caveats where they matter:
 
 | Connector | Caveat |
 | :--- | :--- |
-| **Oracle**, **DB2** (sources) | Watermark polling, **not** log-based CDC. Inserts only — updates and deletes are invisible. |
-| **Cassandra**, **ScyllaDB** (sources) | CQL cannot `ORDER BY` an arbitrary column, so incremental polling returns an *arbitrary* qualifying row and the cursor can skip rows permanently. Sound **only** when the id field is a clustering column inside a restricted partition. The source logs a warning on first use. |
+| **Oracle**, **DB2**, **ClickHouse**, **MariaDB**, **YugabyteDB** (sources) | Watermark polling, **not** log-based CDC. Inserts only — updates and deletes are invisible. The limitation is structural rather than a gap: these sources can only construct `OpCreate` and `OpSnapshot`, so there is no code path by which an update or a delete could reach a sink. A row changed after it was read is never re-emitted, and a deleted row is never retracted downstream. **MariaDB is the easiest to be caught by**: it has a binlog and Hermod's MySQL source does read one, so the MariaDB source looks like it should do CDC too. It does not. Use the MySQL source against MariaDB if you need updates and deletes. ClickHouse is listed here despite having live-infrastructure tests, because the tier is set by semantics rather than by coverage. |
+| **Cassandra**, **ScyllaDB** (sources) | Inserts only, as in the row above — updates and deletes are invisible. On top of that, CQL cannot `ORDER BY` an arbitrary column, so incremental polling returns an *arbitrary* qualifying row and the cursor can skip rows permanently. Sound **only** when the id field is a clustering column inside a restricted partition. The source logs a warning on first use. The Cassandra **sink** is unaffected and is GA. |
 | **SAP** | OData polling client (~180 lines). No IDoc, BAPI or delta queues. OData is SAP's sanctioned direction for third parties after Note 3255746, but it is roughly 10× slower than ODP-RFC for bulk extraction. |
 | **Mainframe**, **Dynamics 365**, **ServiceNow**, **Salesforce** | Thin REST/OData clients, no tests. |
 | **Social / SaaS** — Slack, Discord, Telegram, Twitter/X, LinkedIn, Facebook, Instagram, TikTok, Google Sheets, Google Analytics, Firebase, FCM | Small API wrappers. Contract-tested, but no data-path coverage. Fine for notifications; not for data of record. |
@@ -883,6 +933,30 @@ Worker Metrics:
 - `hermod_worker_admission_rejected_total`: Workflows not started because the worker was over its
   CPU/memory admission threshold, labelled by `reason` (`cpu` or `memory`).
 
+### Tracing — following one record end to end
+
+Traces are exported over OTLP when it is configured (see `OTLPConfig`); nothing is emitted
+otherwise. A record produces one trace:
+
+```
+source.receive          ← where it entered, one per message
+└─ RunWorkflowNode      ← one per node it passes through
+   └─ sink.write        ← one per sink write
+```
+
+**The trace context travels on the message, not in a `context.Context`.** The read loop and
+the sink writers are different goroutines joined by a buffer, so a Go context cannot reach
+from one to the other. It is carried in message metadata under the W3C `traceparent` key —
+which means a sink that forwards metadata as headers or attributes (Pub/Sub does) propagates
+the trace to whatever consumes it next, with no Hermod-specific handling required.
+
+A record that arrives without a `traceparent` starts a new trace rather than failing.
+Tracing is diagnostics, and must never be the reason a record does not move.
+
+**Batch writes use links, not a parent.** The messages in one batch were read separately and
+each carries its own trace, so `sink.write_batch` links to all of them. Promoting one to
+parent would claim the batch belonged to that record's trace and orphan every other one.
+
 ### Alerting on silent failures
 
 Each of these has a procedure in [`RUNBOOK.md`](./RUNBOOK.md), along with key
@@ -898,6 +972,26 @@ while every status stays green — so each one needs an alert rather than a dash
 | `hermod_engine_messages_dropped_no_target_total` | Messages were acknowledged to the source and then delivered nowhere, because a workflow that has sinks resolved none of them. They are not in a dead-letter queue. | **Page.** Check sink reachability and the workflow's edges. Data already acknowledged is unrecoverable from the source. |
 | `hermod_worker_admission_rejected_total` | The worker is shedding load: it is refusing to start new workflows because the host is above its threshold. Affected workflows simply never start. | Investigate host load. The reading is host-wide, so on a shared machine this can fire on load Hermod does not own — raise `HERMOD_ADMISSION_CPU_THRESHOLD` / `HERMOD_ADMISSION_MEM_THRESHOLD`, or give the worker a dedicated node. |
 | `hermod_engine_sub_source_backoff_total` | One source inside a multi-source workflow is failing and has been backed off. Its siblings keep streaming, so the workflow still reports healthy while that source delivers nothing. | Check that source's connectivity. Sustained growth means it is not recovering; the backoff caps at 5s between attempts. |
+| `hermod_sink_unmapped_field_total` | A message carried a field the sink's column mappings do not cover, so it was not written. Usually the source grew a column: the destination has quietly stopped matching it, and every status stays green. | Add the field to the sink's column mappings, or confirm the omission is intended. Labelled by `table` and `field`, and counted once per field per sink rather than per message — the value is which field, not how many rows. |
+| `hermod_txgroup_in_doubt` | A transactional sink group has prepared transactions it has not resolved. On PostgreSQL each one holds locks and blocks `VACUUM` **cluster-wide** — not just for that table, and not just for Hermod — for as long as it lasts. | **Page if it stays above zero.** Brief non-zero values are normal mid-commit. Sustained ones mean the reaper is not resolving them; check the group's members are reachable and cross-check `SELECT * FROM pg_prepared_xacts` on the destination. Republished on every sweep, so it clears on its own once resolved. |
+| `hermod_txgroup_reaped_total` | The reaper rolled back transactions left in doubt past their deadline. The backstop working as designed — and evidence something upstream failed to resolve its own transaction. | Not itself an emergency, but growth means commits are being abandoned rather than completed. Look for coordinator crashes or unreachable members around each increment. |
+
+### Schema evolution — when a source grows a column
+
+A CDC source picks up whatever the upstream table has, so adding a column there starts
+sending it without anything in Hermod being reconfigured. What happens next depends on how
+the sink is configured, and both behaviours are deliberate:
+
+- **Without column mappings**, a SQL sink writes `(id, data)` with the message as a JSON
+  document, so the new field arrives on its own. Nothing to do.
+- **With column mappings**, the sink writes exactly the columns it was told about. The new
+  field is not written — a mapping is a statement about which fields matter — but it is
+  reported through `hermod_sink_unmapped_field_total` and a log line naming the field, so
+  the loss is visible rather than silent.
+
+Neither mode alters the destination's schema in response to a message. Automatic column
+addition exists only as `sync_columns`, which reconciles the table to the *configured
+mappings* at start-up, not to what arrives at runtime.
 
 Admission control knobs (both default to `0.85`; set to `1` or higher to disable that dimension):
 
@@ -949,6 +1043,14 @@ of yours produces messages without an id, set `idempotency_key` in a transformat
 
 Sinks that are not upserts (webhook, SMTP, queues) deduplicate only where they say so; SMTP computes
 its own key from the message and recipient.
+
+**S3 keeps every delivery by default.** Its object key carries a timestamp, so a redelivery lands
+beside the delivery before it rather than on top of it. That is what an archive wants — successive
+CDC updates to one row share a message id, and keying on the id alone would keep only the newest —
+but it does mean a retry leaves a duplicate object, and retries are the mechanism at-least-once
+works by. Set `idempotent_key: "true"` on the sink to key on the message id instead, which gives
+the upsert behaviour the guarantee above describes, at the cost of keeping only the latest version
+of each record.
 
 ### Deploying on Kubernetes
 

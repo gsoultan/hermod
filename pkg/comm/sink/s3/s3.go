@@ -22,9 +22,15 @@ type S3Sink struct {
 	suffix      string
 	contentType string
 	formatter   hermod.Formatter
+	// idempotentKey drops the timestamp from the object key so a redelivered
+	// message overwrites itself. See Write.
+	idempotentKey bool
 }
 
-func NewS3Sink(ctx context.Context, region, bucket, keyPrefix, accessKey, secretKey, endpoint string, formatter hermod.Formatter, suffix string, contentType string) (*S3Sink, error) {
+// NewS3Sink builds the sink. idempotentKey selects the object key layout: see
+// the note in Write for why the default keeps a timestamp and when to turn it
+// off.
+func NewS3Sink(ctx context.Context, region, bucket, keyPrefix, accessKey, secretKey, endpoint string, formatter hermod.Formatter, suffix string, contentType string, idempotentKey bool) (*S3Sink, error) {
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
@@ -41,13 +47,14 @@ func NewS3Sink(ctx context.Context, region, bucket, keyPrefix, accessKey, secret
 	})
 
 	return &S3Sink{
-		client:      client,
-		bucket:      bucket,
-		keyPrefix:   keyPrefix,
-		region:      region,
-		suffix:      suffix,
-		contentType: contentType,
-		formatter:   formatter,
+		client:        client,
+		bucket:        bucket,
+		keyPrefix:     keyPrefix,
+		region:        region,
+		suffix:        suffix,
+		contentType:   contentType,
+		idempotentKey: idempotentKey,
+		formatter:     formatter,
 	}, nil
 }
 
@@ -77,7 +84,26 @@ func (s *S3Sink) Write(ctx context.Context, msg hermod.Message) error {
 	if ext[0] != '.' {
 		ext = "." + ext
 	}
+	// Where a redelivery lands.
+	//
+	// Delivery is at-least-once, so the same message arrives more than once
+	// whenever a write is retried or a worker restarts with it unacknowledged.
+	// What normally makes that harmless is the sink writing the record to the
+	// same place twice; every SQL sink does it with an upsert keyed on the
+	// message id.
+	//
+	// The default here does the opposite: the key carries a timestamp, so every
+	// delivery invents a new location and a redelivery cannot overwrite the one
+	// before it. That is deliberate rather than accidental — it is what an
+	// archive wants, because successive CDC updates to one row share an id and
+	// keying on the id alone would keep only the newest. But it does mean
+	// retries leave duplicates at rest, so it is opt-out rather than silent:
+	// idempotent_key keys on the message id and lets a redelivery overwrite
+	// itself.
 	key := fmt.Sprintf("%s%s_%d%s", s.keyPrefix, msg.ID(), time.Now().UnixNano(), ext)
+	if s.idempotentKey {
+		key = fmt.Sprintf("%s%s%s", s.keyPrefix, msg.ID(), ext)
+	}
 
 	input := &s3.PutObjectInput{
 		Bucket: aws.String(s.bucket),

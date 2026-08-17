@@ -50,6 +50,18 @@ func NewSink(connString, table, vectorCol, idCol, metadataCol string, mappings [
 	}
 }
 
+// ident quotes an identifier, rejecting one that cannot be quoted safely.
+//
+// SECURITY.md states the rule these statements were breaking: identifiers
+// cannot be bound as parameters, so they go through sqlutil.QuoteIdent rather
+// than into a format string. The mapped path already did this; the unmapped
+// path and the table bootstrap did not, so an ordinary reserved word or
+// mixed-case name — "order", "Embedding" — produced a syntax error instead of a
+// column, and a hostile one produced whatever it liked.
+func ident(name string) (string, error) {
+	return sqlutil.QuoteIdent("pgx", name)
+}
+
 func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 	return s.WriteBatch(ctx, []hermod.Message{msg})
 }
@@ -95,8 +107,16 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 				if s.idColumn != "" {
 					idCol = s.idColumn
 				}
-				query := fmt.Sprintf("DELETE FROM %s WHERE %s = $1", s.table, idCol)
-				_, err := s.pool.Exec(ctx, query, msg.ID())
+				qTable, err := ident(s.table)
+				if err != nil {
+					return fmt.Errorf("invalid table name %q: %w", s.table, err)
+				}
+				qID, err := ident(idCol)
+				if err != nil {
+					return fmt.Errorf("invalid id column %q: %w", idCol, err)
+				}
+				query := fmt.Sprintf("DELETE FROM %s WHERE %s = $1", qTable, qID)
+				_, err = s.pool.Exec(ctx, query, msg.ID())
 				if err != nil {
 					return fmt.Errorf("pgvector delete error: %w", err)
 				}
@@ -133,22 +153,46 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 			}
 		}
 
-		query := fmt.Sprintf("INSERT INTO %s (%s, %s", s.table, s.idColumn, s.vectorColumn)
+		// idColumn is defaulted here as it is on the delete path above. It was
+		// not, so an unset id column produced "INSERT INTO t (, embedding" —
+		// a syntax error on insert while delete worked perfectly well.
+		insertIDCol := s.idColumn
+		if insertIDCol == "" {
+			insertIDCol = "id"
+		}
+		qTable, err := ident(s.table)
+		if err != nil {
+			return fmt.Errorf("invalid table name %q: %w", s.table, err)
+		}
+		qID, err := ident(insertIDCol)
+		if err != nil {
+			return fmt.Errorf("invalid id column %q: %w", insertIDCol, err)
+		}
+		qVec, err := ident(s.vectorColumn)
+		if err != nil {
+			return fmt.Errorf("invalid vector column %q: %w", s.vectorColumn, err)
+		}
+
+		query := fmt.Sprintf("INSERT INTO %s (%s, %s", qTable, qID, qVec)
 		placeholders := "$1, $2"
 		args := []any{id, vectorStr}
 
+		var qMeta string
 		if s.metadataColumn != "" {
-			query += ", " + s.metadataColumn
+			qMeta, err = ident(s.metadataColumn)
+			if err != nil {
+				return fmt.Errorf("invalid metadata column %q: %w", s.metadataColumn, err)
+			}
+			query += ", " + qMeta
 			placeholders += ", $3"
 			args = append(args, data) // Use full data as metadata
 		}
-		query += fmt.Sprintf(") VALUES (%s) ON CONFLICT (%s) DO UPDATE SET %s = $2", placeholders, s.idColumn, s.vectorColumn)
+		query += fmt.Sprintf(") VALUES (%s) ON CONFLICT (%s) DO UPDATE SET %s = $2", placeholders, qID, qVec)
 		if s.metadataColumn != "" {
-			query += fmt.Sprintf(", %s = $3", s.metadataColumn)
+			query += fmt.Sprintf(", %s = $3", qMeta)
 		}
 
-		_, err := s.pool.Exec(ctx, query, args...)
-		if err != nil {
+		if _, err := s.pool.Exec(ctx, query, args...); err != nil {
 			return err
 		}
 	}
@@ -324,7 +368,11 @@ func (s *Sink) ensureTable(ctx context.Context, table string) error {
 			}
 			cols = append(cols, colDef)
 		}
-		query = fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s)", table, strings.Join(cols, ", "))
+		qTable, err := ident(table)
+		if err != nil {
+			return fmt.Errorf("invalid table name %q: %w", table, err)
+		}
+		query = fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s)", qTable, strings.Join(cols, ", "))
 	} else {
 		// Default schema
 		idCol := "id"
@@ -339,8 +387,24 @@ func (s *Sink) ensureTable(ctx context.Context, table string) error {
 		if s.metadataColumn != "" {
 			metaCol = s.metadataColumn
 		}
+		qTable, err := ident(table)
+		if err != nil {
+			return fmt.Errorf("invalid table name %q: %w", table, err)
+		}
+		qID, err := ident(idCol)
+		if err != nil {
+			return fmt.Errorf("invalid id column %q: %w", idCol, err)
+		}
+		qVec, err := ident(vecCol)
+		if err != nil {
+			return fmt.Errorf("invalid vector column %q: %w", vecCol, err)
+		}
+		qMeta, err := ident(metaCol)
+		if err != nil {
+			return fmt.Errorf("invalid metadata column %q: %w", metaCol, err)
+		}
 		query = fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s TEXT PRIMARY KEY, %s vector, %s JSONB)",
-			table, idCol, vecCol, metaCol)
+			qTable, qID, qVec, qMeta)
 	}
 
 	// Ensure pgvector extension exists

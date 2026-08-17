@@ -210,14 +210,16 @@ func (s *Source) readNextRowFromFile(ctx context.Context, path string) (hermod.M
 		}
 	}
 
-	// Resolve sheet
+	// Resolve sheet. The lookup used to declare a fresh sh with :=, verify the
+	// name existed, and discard it — so the named sheet was checked and then
+	// the first sheet was read anyway, with metadata claiming the named one.
 	var sh *xlsx.Sheet
 	if s.Sheet != "" {
-		sh, ok := wb.Sheet[s.Sheet]
+		named, ok := wb.Sheet[s.Sheet]
 		if !ok {
 			return nil, true, fmt.Errorf("sheet not found: %s", s.Sheet)
 		}
-		_ = sh
+		sh = named
 	}
 	if sh == nil {
 		if len(wb.Sheets) == 0 {
@@ -226,16 +228,14 @@ func (s *Source) readNextRowFromFile(ctx context.Context, path string) (hermod.M
 		sh = wb.Sheets[0]
 	}
 
+	if s.HeaderRow > 0 && s.StartRow == 0 {
+		s.StartRow = s.HeaderRow + 1
+	}
+
 	// Iterate rows
 	current := 0
 	for _, row := range sh.Rows {
 		current++
-		if s.rowIdx == 0 {
-			if s.HeaderRow > 0 && s.StartRow == 0 {
-				s.StartRow = s.HeaderRow + 1
-			}
-			s.rowIdx = 1
-		}
 		// Extract cells to strings
 		cols := make([]string, len(row.Cells))
 		for i, c := range row.Cells {
@@ -251,11 +251,20 @@ func (s *Source) readNextRowFromFile(ctx context.Context, path string) (hermod.M
 		if s.StartRow > 0 && current < s.StartRow {
 			continue
 		}
+		// The workbook is reopened on every Read, so the cursor is what makes
+		// the calls advance. It was written after each emit and never read:
+		// every call returned the first data row again, forever.
+		if current < s.rowIdx {
+			continue
+		}
 
 		// Build message
 		m := message.AcquireMessage()
 		m.SetID(uuid.NewString())
-		m.SetOperation(hermod.Operation("insert"))
+		// hermod.OpCreate, not the literal "insert": sinks switch on the
+		// platform's operation constants, and an operation none of them match
+		// is dropped or misrouted downstream.
+		m.SetOperation(hermod.OpCreate)
 		// table name: basename of file or URL path
 		base := path
 		if strings.HasPrefix(strings.ToLower(path), "http") {

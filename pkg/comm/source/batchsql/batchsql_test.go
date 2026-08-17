@@ -68,7 +68,15 @@ func TestBatchSQLSource(t *testing.T) {
 		t.Errorf("expected name test2, got %v", msg2.Data()["name"])
 	}
 
-	// Verify state was updated
+	// The cursor moves on acknowledgement, not on read: GetState is what the
+	// engine persists, and a cursor ahead of unacknowledged rows loses them
+	// across a restart.
+	if err := source.Ack(ctx, msg); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.Ack(ctx, msg2); err != nil {
+		t.Fatal(err)
+	}
 	state := source.GetState()
 	if state["last_value"] != "2" {
 		t.Errorf("expected last_value 2, got %s", state["last_value"])
@@ -87,6 +95,9 @@ func TestBatchSQLSource(t *testing.T) {
 	}
 	if msg3.Data()["name"] != "test3" {
 		t.Errorf("expected name test3, got %v", msg3.Data()["name"])
+	}
+	if err := source.Ack(ctx, msg3); err != nil {
+		t.Fatal(err)
 	}
 
 	if source.GetState()["last_value"] != "3" {

@@ -41,8 +41,23 @@ type Sink struct {
 	formatter hermod.Formatter
 }
 
+// Defaults for the two timeouts nobody sets. The factory parses absent config
+// keys into zero, and a zero connect timeout is a context whose deadline has
+// already passed — a sink that cannot ever dial. A zero write timeout is a
+// write deadline of "now", which is the same fate one step later.
+const (
+	defaultConnectTimeout = 30 * time.Second
+	defaultWriteTimeout   = 30 * time.Second
+)
+
 // New creates a new WebSocket sink.
 func New(url string, headers map[string]string, subprotocols []string, connectTimeout, writeTimeout, heartbeatInterval time.Duration, requireAck bool, fmttr hermod.Formatter) *Sink {
+	if connectTimeout <= 0 {
+		connectTimeout = defaultConnectTimeout
+	}
+	if writeTimeout <= 0 {
+		writeTimeout = defaultWriteTimeout
+	}
 	d := websocket.Dialer{Subprotocols: subprotocols}
 	return &Sink{
 		url:               url,
@@ -159,6 +174,13 @@ func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 		_ = s.conn.SetReadDeadline(time.Now().Add(s.writeTimeout))
 		_, data, err := s.conn.ReadMessage()
 		if err != nil {
+			// Same treatment as a failed write. gorilla read errors are
+			// permanent, so a kept connection fails every later ack read too
+			// — and if the peer's ack merely arrived late, it would be read
+			// as the answer to the *next* message. Drop the connection so the
+			// retry dials fresh.
+			_ = s.conn.Close()
+			s.conn = nil
 			return err
 		}
 		type ack struct {

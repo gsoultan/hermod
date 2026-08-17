@@ -46,6 +46,14 @@ declare -a EXEMPT=(
 
 MODE="${1:-gate}"
 
+# A note on memory, because it took four dead CI runs to learn: the
+# symbol-level scan of this tree peaks at 7–9GB resident (measured with
+# /usr/bin/time -l), which is more than a private-repo GitHub runner has in
+# total. The overshoot does not fail politely — the VM's OOM killer takes the
+# runner agent, which reports only "the runner has received a shutdown
+# signal". GOMEMLIMIT is not the fix: the live set really is that large, so a
+# soft limit just made the GC burn 15× the CPU while RSS grew anyway
+# (measured too). CI gives the scan swap instead; see the security-gates job.
 json="$(govulncheck -format json ./... 2>/dev/null || true)"
 
 # govulncheck emits a stream of pretty-printed JSON objects rather than JSONL,

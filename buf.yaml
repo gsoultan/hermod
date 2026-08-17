@@ -1,0 +1,35 @@
+# Protobuf lint and breaking-change configuration.
+#
+# CLAUDE.md has listed `buf lint` and `buf breaking` as gates for some time,
+# but there was no buf configuration and CI never ran either. This makes the
+# claim true rather than weakening it.
+#
+# Only pkg/comm/source/grpc/proto is a module. It defines
+# `hermod.source.grpc.v1 SourceService`, which external clients call to push
+# records into the gRPC source — a published wire contract, versioned v1, that
+# nothing was stopping anyone from changing. pkg/comm/conformance/testdata is
+# deliberately not a module: it is a fixture for the connector contract suite,
+# has no clients, and gating it would only make the fixture expensive to edit.
+version: v2
+
+modules:
+  - path: pkg/comm/source/grpc/proto
+
+lint:
+  use:
+    - STANDARD
+  except:
+    # PACKAGE_DIRECTORY_MATCH wants hermod/source/grpc/v1/ on disk to match the
+    # package name. Satisfying it means moving the file, which changes the
+    # go_package path and every import of the generated code — churn in the
+    # generated layer to satisfy a naming convention, with nothing gained for
+    # the wire contract. The rule that protects clients is `breaking` below,
+    # and that one runs unmodified.
+    - PACKAGE_DIRECTORY_MATCH
+
+breaking:
+  use:
+    # Wire and generated-source compatibility both. A change that breaks either
+    # breaks somebody's client, and the whole point of gating this file is that
+    # neither can happen by accident.
+    - FILE

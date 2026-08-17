@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -173,7 +174,6 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 	s.mu.Unlock()
 
 	count := 0
-	newLastValue := lastValue
 
 	for _, q := range queries {
 		// Replace template variable
@@ -214,20 +214,16 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 				}
 				msg.SetData(colName, val)
 
+				// The watermark this row represents travels on the message,
+				// and acknowledging it is what moves the persisted cursor.
+				// The read loop must not move it: GetState is the engine's
+				// persistence contract, and a cursor that advanced here was
+				// already past rows still in flight — a crash before the
+				// sinks wrote them erased them from the resume.
 				if s.config.IncrementalColumn != "" && colName == s.config.IncrementalColumn {
-					currentVal := fmt.Sprintf("%v", val)
-					if currentVal > newLastValue {
-						newLastValue = currentVal
-					}
+					msg.SetMetadata(watermarkKey, fmt.Sprintf("%v", val))
 				}
 			}
-
-			// Persist the watermark before emitting the message so that any
-			// consumer observing this message is guaranteed to also observe the
-			// updated state (avoids a read-before-write ordering race).
-			s.mu.Lock()
-			s.state["last_value"] = newLastValue
-			s.mu.Unlock()
 
 			select {
 			case s.msgCh <- msg:
@@ -241,15 +237,50 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 		rows.Close()
 	}
 
-	s.mu.Lock()
-	s.state["last_value"] = newLastValue
-	s.mu.Unlock()
-
 	s.log("INFO", "Completed batch SQL job", "source_id", s.config.SourceID, "records_found", count)
 }
 
-// Ack is a no-op for BatchSQLSource.
+// watermarkKey is the metadata key carrying a row's incremental-column value.
+const watermarkKey = "batchsql_last_value"
+
+// maxWatermark returns the larger of two watermark values, numerically when
+// both sides are numbers. The maximum used to be taken on strings, where
+// "10" < "9": on a numeric column the cursor stuck at 9 forever and every
+// later row was re-selected by every scheduled run.
+func maxWatermark(current, candidate string) string {
+	if candidate == "" {
+		return current
+	}
+	if current == "" {
+		return candidate
+	}
+	a, errA := strconv.ParseFloat(current, 64)
+	b, errB := strconv.ParseFloat(candidate, 64)
+	if errA == nil && errB == nil {
+		if b > a {
+			return candidate
+		}
+		return current
+	}
+	if candidate > current {
+		return candidate
+	}
+	return current
+}
+
+// Ack moves the cursor to the acknowledged row's watermark — before releasing
+// the message, whose metadata carries it.
 func (s *BatchSQLSource) Ack(ctx context.Context, msg hermod.Message) error {
+	// The conformance suite feeds every source a nil ack, because a worker
+	// goroutine dereferencing one takes the whole engine down.
+	if msg == nil {
+		return nil
+	}
+	if v := msg.Metadata()[watermarkKey]; v != "" {
+		s.mu.Lock()
+		s.state["last_value"] = maxWatermark(s.state["last_value"], v)
+		s.mu.Unlock()
+	}
 	if m, ok := msg.(*message.DefaultMessage); ok {
 		message.ReleaseMessage(m)
 	}

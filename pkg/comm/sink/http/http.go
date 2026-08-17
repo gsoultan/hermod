@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/compression"
@@ -19,10 +20,16 @@ type HttpSink struct {
 	compressor compression.Compressor
 }
 
+// defaultTimeout bounds every exchange when nobody configures one, matching
+// the FTP sink's default. Without it a server that accepts the connection and
+// never answers blocks Write forever, and the engine cannot retry a write
+// that never returns.
+const defaultTimeout = 30 * time.Second
+
 func NewHttpSink(url string, formatter hermod.Formatter, headers map[string]string) *HttpSink {
 	return &HttpSink{
 		url:        url,
-		client:     &http.Client{},
+		client:     &http.Client{Timeout: defaultTimeout},
 		formatter:  formatter,
 		headers:    headers,
 		pingMethod: "HEAD",
@@ -35,6 +42,13 @@ func (s *HttpSink) SetCompressor(comp compression.Compressor) {
 
 func (s *HttpSink) SetPingMethod(method string) {
 	s.pingMethod = method
+}
+
+// SetTimeout bounds every exchange — dial, write, response — replacing the
+// default. Zero disables the bound, which is what it was before this existed:
+// a sink that blocks forever on a server that accepts and never answers.
+func (s *HttpSink) SetTimeout(d time.Duration) {
+	s.client.Timeout = d
 }
 
 func (s *HttpSink) Write(ctx context.Context, msg hermod.Message) error {
@@ -74,6 +88,12 @@ func (s *HttpSink) Write(ctx context.Context, msg hermod.Message) error {
 
 	for k, v := range s.headers {
 		req.Header.Set(k, v)
+	}
+	// The same default WriteBatch has always sent. A single write went out
+	// untyped, so a receiver strict about 415 accepted batches and refused
+	// singles.
+	if req.Header.Get("Content-Type") == "" {
+		req.Header.Set("Content-Type", "application/json")
 	}
 
 	resp, err := s.client.Do(req)

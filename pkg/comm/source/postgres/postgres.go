@@ -2278,13 +2278,35 @@ func (p *PostgresSource) Close() error {
 	slotName := p.slotName
 	publicationName := p.publicationName
 
-	// Close connections to unblock ReceiveMessage if context cancel doesn't
-	p.closeReplConnLocked()
 	// Do not close the shared pool; it is managed by the DefaultPooler.
 	p.mu.Unlock()
 
-	// Wait for streamLoop to finish
-	p.wg.Wait()
+	// Wait for streamLoop to stop before anything touches the replication
+	// connection.
+	//
+	// This used to close the connection first and wait afterwards, which is a
+	// close racing a read: streamLoop spends nearly all its time inside
+	// PgConn.ReceiveMessage on that connection, and it holds its own reference,
+	// so the mutex above protects nothing. It also closes the connection itself
+	// on the way out (teardownStream), which made the close here redundant in
+	// every shutdown that went to plan.
+	//
+	// Cancelling the stream context is what stops it: receiveMessage passes
+	// that context to ReceiveMessage, which returns as soon as it is cancelled.
+	if !waitTimeout(&p.wg, streamStopTimeout) {
+		// The reader did not stop. Forcing the connection closed is what the
+		// old code did unconditionally, and the hazard its comment named — an
+		// unblock for a read that cancellation did not reach. It is still a
+		// race, but a bounded last resort rather than the first move, and the
+		// alternative is spending the whole shutdown budget waiting for a
+		// goroutine that is not coming back.
+		p.log("WARN", "Replication stream did not stop when cancelled; forcing the connection "+
+			"closed", "slot", slotName, "waited", streamStopTimeout.String())
+		p.mu.Lock()
+		p.closeReplConnLocked()
+		p.mu.Unlock()
+		p.wg.Wait()
+	}
 
 	// Only attempt slot/publication cleanup when CDC streaming was actually
 	// initialized OR when a slot was requested; otherwise no replication slot was created by this source.
@@ -2305,7 +2327,23 @@ func (p *PostgresSource) Close() error {
 	p.relations = make(map[uint32]*pglogrepl.RelationMessage)
 
 	p.replConn = nil
-	p.pool = nil
+
+	// p.pool is deliberately left in place.
+	//
+	// Clearing it here was a data race against every unlocked reader of the
+	// field — publicationExists, Ping, DiscoverTables and a dozen more — and
+	// Close is exactly what runs when a workflow stops while an API request is
+	// still in flight. Locking those readers instead would mean touching some
+	// thirty sites, several of which already hold this mutex and would deadlock
+	// on the way through.
+	//
+	// It is unnecessary as well as unsafe. The pool belongs to
+	// pgxutil.DefaultPooler, which caches it by DSN for the life of the process
+	// and which Close deliberately does not close, so dropping the reference
+	// released nothing. Leaving it makes the field write-once: ensureConn
+	// assigns it under this mutex on first use and returns early ever after, so
+	// every later read is of a value that was published before the reader
+	// existed.
 
 	return nil
 }
@@ -2831,4 +2869,35 @@ func (p *PostgresSource) ExecuteSQL(ctx context.Context, query string) ([]map[st
 		return nil, err
 	}
 	return results, nil
+}
+
+// streamStopTimeout bounds how long Close waits for streamLoop to stop of its
+// own accord before forcing the replication connection closed.
+//
+// Comfortably inside the process shutdown budget (HERMOD_SHUTDOWN_TIMEOUT,
+// 25s by default, with 20s of that for stopping one workflow), so a source that
+// will not stop cannot consume the whole of it. In practice the wait is
+// milliseconds: cancelling the stream context returns ReceiveMessage
+// immediately.
+const streamStopTimeout = 5 * time.Second
+
+// waitTimeout waits for wg, reporting false if it did not finish within d.
+//
+// The helper goroutine is not a leak in the case that matters: when the wait
+// times out the caller forces the connection closed, which is what lets the
+// reader — and therefore this goroutine — finish.
+func waitTimeout(wg *sync.WaitGroup, d time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
 }

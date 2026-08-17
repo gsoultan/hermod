@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/user/hermod"
+	"github.com/user/hermod/pkg/infra/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -30,6 +31,9 @@ func NewTracingSink(s hermod.Sink, sinkID string) *TracingSink {
 }
 
 func (s *TracingSink) Write(ctx context.Context, msg hermod.Message) error {
+	// Continue the trace the source read started; this runs on a different
+	// goroutine, so the link comes off the message rather than out of ctx.
+	ctx = tracing.Extract(ctx, msg)
 	ctx, span := tracer.Start(ctx, "sink.write", trace.WithAttributes(
 		attribute.String("sink_id", s.sinkID),
 		attribute.String("message_id", msg.ID()),
@@ -47,7 +51,16 @@ func (s *TracingSink) Write(ctx context.Context, msg hermod.Message) error {
 }
 
 func (s *TracingSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
-	ctx, span := tracer.Start(ctx, "sink.write_batch", trace.WithAttributes(
+	// Links, not a parent: the messages in a batch were read separately and
+	// each carries its own trace, so promoting one to parent would orphan the
+	// rest.
+	links := make([]trace.Link, 0, len(msgs))
+	for _, m := range msgs {
+		if sc := trace.SpanContextFromContext(tracing.Extract(ctx, m)); sc.IsValid() {
+			links = append(links, trace.Link{SpanContext: sc})
+		}
+	}
+	ctx, span := tracer.Start(ctx, "sink.write_batch", trace.WithLinks(links...), trace.WithAttributes(
 		attribute.String("sink_id", s.sinkID),
 		attribute.Int("batch_size", len(msgs)),
 	))

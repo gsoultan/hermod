@@ -370,7 +370,7 @@ func TestSinkConformance(t *testing.T) {
 		return sinkfcm.NewFCMSink("{}", fmtr())
 	})
 	sinkOrSkip(t, "s3", func() (hermod.Sink, error) {
-		return sinks3.NewS3Sink(context.Background(), "us-east-1", "b", "p/", "ak", "sk", deadURL, fmtr(), ".json", "application/json")
+		return sinks3.NewS3Sink(context.Background(), "us-east-1", "b", "p/", "ak", "sk", deadURL, fmtr(), ".json", "application/json", false)
 	})
 	sinkOrSkip(t, "s3parquet", func() (hermod.Sink, error) {
 		return sinks3parquet.NewS3ParquetSink(context.Background(), "us-east-1", "b", "p/", "ak", "sk", deadURL, "", 1)

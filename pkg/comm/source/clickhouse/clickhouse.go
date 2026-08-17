@@ -9,7 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"reflect"
+
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
 	sourcebuf "github.com/user/hermod/pkg/comm/source"
@@ -27,7 +30,12 @@ type ClickHouseSource struct {
 	mu           sync.Mutex
 	logger       hermod.Logger
 	lastIDs      map[string]any
-	msgChan      chan hermod.Message
+	// ackedIDs is the watermark of the last *acknowledged* row per table, and
+	// the only one GetState reports. lastIDs above is how far reading has got,
+	// which is further ahead whenever messages are in flight; it keeps the
+	// poller moving inside this process and is deliberately not persisted.
+	ackedIDs map[string]any
+	msgChan  chan hermod.Message
 }
 
 func NewClickHouseSource(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *ClickHouseSource {
@@ -41,6 +49,7 @@ func NewClickHouseSource(connString string, tables []string, idField string, pol
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
 		lastIDs:      make(map[string]any),
+		ackedIDs:     make(map[string]any),
 		msgChan:      make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 	}
 }
@@ -110,6 +119,46 @@ func (c *ClickHouseSource) init(ctx context.Context) error {
 	return nil
 }
 
+// scanRow reads one row into a map, allocating each destination from the type
+// the driver says the column has.
+//
+// Every scan here used to point at an interface{}, which the ClickHouse driver
+// refuses outright — "converting UInt64 to *interface {} is unsupported. try
+// using *uint64". A UInt64 is the most ordinary column type there is, so the
+// source could not read a numeric column at all: the poll failed on the first
+// row of any table with one, and had done since it was written. Nothing caught
+// it because nothing had ever run this against a server.
+//
+// ColumnTypes gives the concrete Go type per column, so the destinations are
+// allocated to match and the driver has something it can fill.
+func scanRow(rows driver.Rows) (map[string]any, error) {
+	columns := rows.Columns()
+	types := rows.ColumnTypes()
+
+	dest := make([]any, len(columns))
+	for i := range dest {
+		if i < len(types) && types[i].ScanType() != nil {
+			dest[i] = reflect.New(types[i].ScanType()).Interface()
+		} else {
+			var v any
+			dest[i] = &v
+		}
+	}
+	if err := rows.Scan(dest...); err != nil {
+		return nil, err
+	}
+
+	record := make(map[string]any, len(columns))
+	for i, col := range columns {
+		val := reflect.ValueOf(dest[i]).Elem().Interface()
+		if b, ok := val.([]byte); ok {
+			val = string(b)
+		}
+		record[col] = val
+	}
+	return record, nil
+}
+
 func (c *ClickHouseSource) Read(ctx context.Context) (hermod.Message, error) {
 	if err := c.init(ctx); err != nil {
 		return nil, err
@@ -159,31 +208,14 @@ func (c *ClickHouseSource) Read(ctx context.Context) (hermod.Message, error) {
 			}
 
 			if rows.Next() {
-				columns := rows.Columns()
-				values := make([]any, len(columns))
-				dest := make([]any, len(columns))
-				for i := range dest {
-					dest[i] = &values[i]
-				}
-
-				if err := rows.Scan(dest...); err != nil {
+				record, err := scanRow(rows)
+				if err != nil {
 					rows.Close()
 					return nil, err
 				}
 				rows.Close()
 
-				record := make(map[string]any)
-				var currentID any
-				for i, col := range columns {
-					val := values[i]
-					if b, ok := val.([]byte); ok {
-						val = string(b)
-					}
-					record[col] = val
-					if col == c.idField {
-						currentID = val
-					}
-				}
+				currentID := record[c.idField]
 
 				if currentID != nil {
 					c.mu.Lock()
@@ -198,6 +230,13 @@ func (c *ClickHouseSource) Read(ctx context.Context) (hermod.Message, error) {
 				msg.SetTable(table)
 				msg.SetAfter(afterJSON)
 				msg.SetMetadata("source", "clickhouse")
+				// The watermark this row represents, so acknowledging it can
+				// move the persisted position. Read must not move it: the
+				// engine writes GetState down on every ack, so a position that
+				// advanced here would already be past a message still in flight.
+				if currentID != nil {
+					msg.SetMetadata("clickhouse_last_id", fmt.Sprintf("%v", currentID))
+				}
 
 				return msg, nil
 			}
@@ -252,25 +291,10 @@ func (c *ClickHouseSource) snapshotTable(ctx context.Context, table string) erro
 	}
 	defer rows.Close()
 
-	columns := rows.Columns()
 	for rows.Next() {
-		values := make([]any, len(columns))
-		dest := make([]any, len(columns))
-		for i := range dest {
-			dest[i] = &values[i]
-		}
-
-		if err := rows.Scan(dest...); err != nil {
+		record, err := scanRow(rows)
+		if err != nil {
 			return err
-		}
-
-		record := make(map[string]any)
-		for i, colName := range columns {
-			val := values[i]
-			if b, ok := val.([]byte); ok {
-				val = string(b)
-			}
-			record[colName] = val
 		}
 
 		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
@@ -298,7 +322,7 @@ func (c *ClickHouseSource) GetState() map[string]string {
 	defer c.mu.Unlock()
 
 	state := make(map[string]string)
-	for table, id := range c.lastIDs {
+	for table, id := range c.ackedIDs {
 		state["last_id:"+table] = fmt.Sprintf("%v", id)
 	}
 	return state
@@ -311,12 +335,39 @@ func (c *ClickHouseSource) SetState(state map[string]string) {
 	for k, v := range state {
 		if strings.HasPrefix(k, "last_id:") {
 			table := strings.TrimPrefix(k, "last_id:")
+			// Both: the acknowledged position is where this source resumes, and
+			// reading starts from there too. Rows after it were never delivered.
 			c.lastIDs[table] = v
+			c.ackedIDs[table] = v
 		}
 	}
 }
 
+// Ack moves the position a restart resumes from.
+//
+// It used to do nothing, while Read advanced the watermark the moment a row was
+// fetched — so the position the engine persisted was always at least one row
+// ahead of what had been delivered, and a worker that died with a message in
+// flight came back past it. The row was never handed out again and nothing
+// reported a gap.
+//
+// The same distinction the MongoDB and MySQL sources draw, for the same reason.
 func (c *ClickHouseSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
+	id := msg.Metadata()["clickhouse_last_id"]
+	if id == "" {
+		return nil
+	}
+	table := msg.Table()
+	if table == "" {
+		return nil
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ackedIDs[table] = id
 	return nil
 }
 
@@ -432,26 +483,9 @@ func (c *ClickHouseSource) Sample(ctx context.Context, table string) (hermod.Mes
 		return nil, fmt.Errorf("no records found in table %s", table)
 	}
 
-	columns := rows.Columns()
-	values := make([]any, len(columns))
-	// clickhouse-go v2 uses Scan for results
-	dest := make([]any, len(columns))
-	for i := range dest {
-		dest[i] = &values[i]
-	}
-
-	if err := rows.Scan(dest...); err != nil {
+	record, err := scanRow(rows)
+	if err != nil {
 		return nil, err
-	}
-
-	record := make(map[string]any)
-	for i, colName := range columns {
-		val := values[i]
-		if b, ok := val.([]byte); ok {
-			record[colName] = string(b)
-		} else {
-			record[colName] = val
-		}
 	}
 
 	afterJSON, _ := json.Marshal(message.SanitizeMap(record))

@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
+	"github.com/user/hermod/pkg/engine/telemetry"
 	"github.com/user/hermod/pkg/infra/evaluator"
 	"github.com/user/hermod/pkg/infra/pgxutil"
 	"github.com/user/hermod/pkg/infra/sqlutil"
@@ -56,6 +57,15 @@ type PostgresSink struct {
 	operationMode    string
 	autoTruncate     bool
 	autoSync         bool
+
+	// mappedFields is the set of top-level message fields the mappings cover,
+	// used to notice the ones they do not. Built once at construction: it is
+	// consulted per message and the mappings never change after that.
+	mappedFields map[string]bool
+	// reportedUnmapped remembers which fields have already been reported, so a
+	// schema change is one line and one counter increment rather than a flood
+	// at message rate.
+	reportedUnmapped sync.Map
 }
 
 func NewPostgresSink(connString string, tableName string, mappings []sqlutil.ColumnMapping, useExistingTable bool, deleteStrategy string, softDeleteColumn string, softDeleteValue string, operationMode string, autoTruncate bool, autoSync bool) *PostgresSink {
@@ -66,6 +76,7 @@ func NewPostgresSink(connString string, tableName string, mappings []sqlutil.Col
 		connString:       connString,
 		tableName:        tableName,
 		mappings:         mappings,
+		mappedFields:     mappedFieldSet(mappings),
 		useExistingTable: useExistingTable,
 		deleteStrategy:   deleteStrategy,
 		softDeleteColumn: softDeleteColumn,
@@ -73,6 +84,45 @@ func NewPostgresSink(connString string, tableName string, mappings []sqlutil.Col
 		operationMode:    operationMode,
 		autoTruncate:     autoTruncate,
 		autoSync:         autoSync,
+	}
+}
+
+// mappedFieldSet reduces the mappings to the top-level message field names they
+// read. SourceField is a path such as "$.name" or "$.address.city"; what
+// matters here is the first segment, because that is the granularity a message
+// field arrives at.
+func mappedFieldSet(mappings []sqlutil.ColumnMapping) map[string]bool {
+	set := make(map[string]bool, len(mappings))
+	for _, m := range mappings {
+		field := strings.TrimPrefix(m.SourceField, "$.")
+		if i := strings.IndexAny(field, ".["); i > 0 {
+			field = field[:i]
+		}
+		if field != "" {
+			set[field] = true
+		}
+	}
+	return set
+}
+
+// log reports through the configured logger, if there is one. Unlike the
+// sources, a sink with no logger stays quiet rather than falling back to the
+// standard logger: it is constructed per workflow and a fallback here would
+// write to stderr from library code the caller did not ask to be noisy.
+func (s *PostgresSink) log(level, msg string, keysAndValues ...any) {
+	logger := s.getLogger()
+	if logger == nil {
+		return
+	}
+	switch level {
+	case "DEBUG":
+		logger.Debug(msg, keysAndValues...)
+	case "INFO":
+		logger.Info(msg, keysAndValues...)
+	case "ERROR":
+		logger.Error(msg, keysAndValues...)
+	default:
+		logger.Warn(msg, keysAndValues...)
 	}
 }
 
@@ -275,6 +325,7 @@ func (s *PostgresSink) applyOperation(ctx context.Context, executor pgExecutor, 
 
 func (s *PostgresSink) applyUpsert(ctx context.Context, executor pgExecutor, table string, msg hermod.Message) error {
 	if len(s.mappings) > 0 {
+		s.reportUnmappedFields(msg)
 		switch s.operationMode {
 		case "insert":
 			return s.insertMapped(ctx, executor, table, msg)
@@ -1245,4 +1296,43 @@ func (s *PostgresSink) updateMapped(ctx context.Context, executor pgExecutor, ta
 		quoted, strings.Join(updates, ", "), strings.Join(pks, " AND "))
 	_, err = executor.Exec(ctx, query, args...)
 	return err
+}
+
+// reportUnmappedFields says so, once, when a message carries fields the column
+// mappings do not cover.
+//
+// A source that grows a column starts sending it without anything here being
+// reconfigured, and a mapped sink writes only the columns it was told about —
+// so the new field is read by nothing and never lands. That is a defensible
+// design: a mapping is a statement about which fields matter. What is not
+// defensible is doing it silently. The destination stops matching the source
+// while every status stays green, which is the failure mode this project pages
+// on elsewhere.
+//
+// Reported once per field per sink rather than per message: a schema change is
+// a standing condition, and logging it per row turns one event into a flood at
+// message rate. The counter is what an alert should watch; the log is what
+// tells you which field.
+func (s *PostgresSink) reportUnmappedFields(msg hermod.Message) {
+	if msg == nil {
+		return
+	}
+	data := msg.Data()
+	if len(data) == 0 {
+		return
+	}
+
+	for field := range data {
+		if s.mappedFields[field] {
+			continue
+		}
+		if _, seen := s.reportedUnmapped.LoadOrStore(field, struct{}{}); seen {
+			continue
+		}
+		telemetry.SinkUnmappedField.WithLabelValues(s.tableName, field).Inc()
+		s.log("WARN", "Message field has no column mapping and is not being written; "+
+			"if the source has grown a column, add it to the mapping or the destination "+
+			"will not match the source",
+			"table", s.tableName, "field", field)
+	}
 }

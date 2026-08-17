@@ -197,6 +197,88 @@ currently a session-compromise vector, not just a defacement one.
   interpolation.
 - Use least-privilege credentials for every connected system.
 
+### A table name can come from a message
+
+When a SQL sink is not pinned to a table it takes one from the message, and a
+message's table originates upstream — on the wire, for a webhook or a generic
+source. That identifier cannot be bound as a parameter, so it is interpolated
+into `CREATE TABLE`, `INSERT` and `DELETE`.
+
+The PostgreSQL sink has validated it for some time. The ClickHouse sink did not,
+and the consequence was not theoretical: a message whose table was
+`pwned (id String) ENGINE = Memory --` produced one entirely legal `CREATE
+TABLE` and left `pwned` in the destination with the schema and engine the
+message asked for. A semicolon is rejected by ClickHouse — "Multi-statements are
+not allowed" — so the server stops the crude version of this and none of the
+interesting ones; do not mistake that for a defence.
+
+Both sinks now run the name through `sqlident.Validate` and refuse rather than
+build a statement around it.
+`TestAnUnsafeTableNameFromAMessageIsRefused` holds the line.
+
+**Cassandra** had the same shape and is fixed: it took its table from
+`msg.Table()` when unpinned and interpolated it into CQL unchecked. Cassandra's
+parser rejects the clumsy payloads — the injected text still reached the
+statement, arriving verbatim in `CREATE TABLE hermod_it.pwned (id[,]...` — so
+that was the server refusing one shape, not the name being kept out. It now
+validates the table and quotes mapped columns.
+
+**Snowflake and Oracle are fixed, and are the two fixes not watched failing
+against a real server.** Snowflake is cloud-only; Oracle has no server reachable
+from this workstation or from CI. Read both knowing that.
+
+Oracle had both halves of the pattern at once: the unpinned table came from
+`msg.Table()` and went into MERGE, DELETE and CREATE TABLE unexamined, and every
+`QuoteIdent` error on a mapped column was discarded, so a rejected name became
+an empty identifier — the MSSQL failure mode. Its mapped upsert also indexed
+`cols[0]` unguarded, so a message whose every mapped field was identity-skipped
+panicked the worker instead of failing the write.
+
+What made both testable at all is where the check sits: the table and the mapped
+column names are validated *before* anything connects, so a sink pointed at an
+address that does not exist still refuses a bad identifier rather than failing
+to dial. That is deliberate — a rejected identifier is the sink's own decision
+and should not depend on whether the server is reachable — and it means each
+guard has real tests that run anywhere, including a check that removing it makes
+them fail with a dial timeout instead of a refusal.
+
+What those tests cannot cover is whether the quoted SQL the server finally
+receives is accepted by it. That still needs an account, or a server.
+
+MSSQL and Cassandra were both on this list as "unreachable from an arm64
+workstation". Both were wrong. **Azure SQL Edge** is arm64-native and speaks the
+same T-SQL; the official Cassandra image publishes arm64 and merely wants
+memory and patience. MSSQL also turned out to quote its identifiers already but
+discard `QuoteIdent`'s error, so a rejected name became an empty identifier and
+the write failed as `Incorrect syntax near ')'`, naming neither the column nor
+the reason.
+
+The lesson is worth keeping: *untestable* described the image reached for, not
+the connector. Assume a connector is testable until an actual attempt says
+otherwise.
+
+### Structured payloads are encoded, never printed
+
+The rule above is about SQL, but it generalises: **a value that came from a
+message is data, and data goes into a serialiser rather than a format string.**
+The document id, the table, the index — none of them belong to the connector.
+They are whatever the pipeline put there: a CDC primary key, a Kafka message
+key, a field lifted out of a webhook body.
+
+The Elasticsearch sink built its bulk action lines with `fmt.Fprintf` and `%s`.
+Bulk is NDJSON — one action object per line — so a document id containing a
+quote and a newline closed the action object and wrote further action lines of
+its own. Against an `index` action that is mostly inert, because Elasticsearch
+reads the following line as the document source; against a `delete`, which has
+no source line, the next line is parsed as another action. A document id could
+therefore delete documents from an index the sink was never pointed at.
+
+It is fixed, and `TestADocumentIDCannotInjectBulkActions` holds the line by
+seeding a second index and asserting the injected delete does not reach it.
+Document bodies are compacted for the same reason: a newline inside a
+pretty-printed payload would otherwise end the line and turn the remainder into
+actions.
+
 ## Verifying this document
 
 Every claim above that can be checked has a check, and they run together:
@@ -221,7 +303,7 @@ passed.
 | A restrictive CSP is set, and permits WebSockets | `internal/api/handlers/security_headers_test.go` |
 | SQL identifiers are quoted, never interpolated | `pkg/infra/sqlutil` |
 | Hermod never decodes untrusted Avro | `TestNoUntrustedAvroDecoding` |
-| No credential reaches web storage | `ui/__tests__/no_token_in_storage_e2e.spec.ts` (`--e2e`) |
+| No credential reaches web storage | `ui/__tests__/no_token_in_storage_e2e.spec.ts` — CI's e2e job on every push, or `--e2e` locally |
 | Logout revokes the token, not just the cookie | `TestRevokedCookieIsRejectedByTheMiddleware` |
 | A demotion, vhost change or deletion ends that user's sessions | `internal/auth/transport/http/revocation_on_admin_action_test.go` |
 | …while a cosmetic edit does not | `TestACosmeticEditDoesNotEndSessions` |

@@ -2,12 +2,22 @@ name: CI
 
 on:
   push:
+    # Only main. A branch with an open PR used to run everything twice — once
+    # for push, once for pull_request — and the pair of ~15-minute jobs twice
+    # over meant every push queued half an hour of duplicate work.
+    branches: [main]
   pull_request:
   # Nightly: the integration E2E and soak jobs are too slow for every push but
   # too valuable to run only by hand.
   schedule:
     - cron: '0 3 * * *'
   workflow_dispatch:
+
+# A newer push supersedes the runs of the older one; let it cancel them. The
+# nightly run groups by run_id so a schedule can never cancel anything.
+concurrency:
+  group: ci-${{ github.event_name == 'schedule' && github.run_id || format('{0}-{1}', github.workflow, github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 permissions:
   contents: read
@@ -17,6 +27,23 @@ jobs:
     name: Verify (Go)
     runs-on: ubuntu-latest
     steps:
+      # This job died three runs straight at the same step — ~2 minutes into
+      # installing govulncheck — with "The runner has received a shutdown
+      # signal", exit 143. Two of those were parallel runs on separate VMs
+      # killed in lockstep, which rules out random eviction: the condition is
+      # deterministic per VM. It is the disk. The job builds the whole tree
+      # twice (plain and -race), fills the golangci-lint and staticcheck
+      # caches, and the govulncheck install is simply the next write after
+      # nothing is left — at which point the runner agent cannot even write
+      # its own diagnostics, so it dies with the shutdown message instead of
+      # the honest "No space left on device" the integration job showed.
+      # Same remedy as there: drop toolchains this repository never uses.
+      - name: Free disk space on the runner
+        run: |
+          echo "before: $(df -h --output=avail / | tail -1 | tr -d ' ') available"
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /usr/share/swift || true
+          echo "after:  $(df -h --output=avail / | tail -1 | tr -d ' ') available"
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -60,6 +87,85 @@ jobs:
         run: |
           go install honnef.co/go/tools/cmd/staticcheck@latest
           staticcheck ./...
+      # The gRPC source's wire contract. CLAUDE.md has listed these two as
+      # gates for some time, but there was no buf.yaml and neither had ever
+      # run — so `hermod.source.grpc.v1 SourceService`, which external clients
+      # call to push records in, could be changed in any way at all with
+      # nothing objecting. See buf.yaml for why only that module is gated and
+      # why one lint rule is excluded.
+      - name: Setup buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
+      - name: Buf lint
+        run: buf lint
+      # buf reads the comparison side by cloning .git, and a clone only carries
+      # local branches. actions/checkout leaves the base as a remote-tracking ref
+      # and HEAD detached, so refs/heads/<base> does not exist and buf fails with
+      # "couldn't find remote ref" — an infrastructure error that looks nothing
+      # like a breaking change. fetch-depth: 0 above gives us the objects; this
+      # only gives the ref a local name buf can resolve.
+      - name: Give buf a local ref to compare against
+        run: |
+          base="${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}"
+          # On a push to the base branch itself, checkout is already on it and
+          # git refuses to fetch into the current branch. Nothing to do there.
+          if [ "$(git rev-parse --abbrev-ref HEAD)" != "$base" ]; then
+            git fetch --no-tags --force origin "refs/heads/$base:refs/heads/$base"
+          fi
+      # Module-scoped on both sides. The bare form compares whole trees, and a
+      # merge base predating buf.yaml has no module layout to compare against,
+      # which reports every file as deleted rather than reporting a break.
+      - name: Buf breaking
+        run: |
+          buf breaking pkg/comm/source/grpc/proto \
+            --against ".git#branch=${{ github.event.pull_request.base.ref || github.event.repository.default_branch }},subdir=pkg/comm/source/grpc/proto"
+  # Split out of Verify (Go) after four consecutive runs of that job died at
+  # the govulncheck step with "the runner has received a shutdown signal". The
+  # symbol-level scan peaks at 7–9GB resident (measured with /usr/bin/time -l)
+  # and a private-repo runner has 7GB total, so the VM's OOM killer took the
+  # runner agent itself — nothing in the log said memory, and two parallel
+  # runs dying in lockstep at the same step is what gave it away as
+  # deterministic. GOMEMLIMIT is not the fix: the live set really is that
+  # large, so a soft limit just multiplied GC time by 15 while RSS grew anyway
+  # (also measured). Swap is — it preserves the scan exactly and turns the
+  # overshoot into slowness instead of a dead runner. The split additionally
+  # takes the ~10-minute security tail off the Verify (Go) critical path.
+  security-gates:
+    name: Verify (security gates)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # security-check.sh runs golangci-lint, whose config ratchets with
+          # new-from-merge-base: origin/main. A shallow clone has no merge
+          # base, so the ratchet silently widens to the whole backlog and the
+          # job fails on findings older than the branch.
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # The swapfile below takes 8G of a ~14G disk, and the golangci-lint
+      # install then died at link time with 6MB free. Same cleanup as the
+      # other jobs, and it has to come first: the freed space is what the
+      # swapfile and the toolchain builds share.
+      - name: Free disk space on the runner
+        run: |
+          echo "before: $(df -h --output=avail / | tail -1 | tr -d ' ') available"
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /usr/share/swift || true
+          echo "after:  $(df -h --output=avail / | tail -1 | tr -d ' ') available"
+      - name: Give the scan swap to overflow into
+        run: |
+          free -h | sed -n '1,3p'
+          sudo fallocate -l 8G /swapfile2
+          sudo chmod 600 /swapfile2
+          sudo mkswap /swapfile2
+          sudo swapon /swapfile2
+          free -h | sed -n '1,3p'
       # Wrapper, not bare govulncheck: it records reviewed exemptions with the
       # reason each vulnerable path is unreachable, and still fails on anything
       # unexempted. A gate that is permanently red because of one unfixable
@@ -68,6 +174,11 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           ./scripts/govulncheck.sh
+      # security-check.sh shells out to golangci-lint by name (its static-
+      # analysis step), and this job no longer inherits the binary from the
+      # lint action next door. Same pinned version as Verify (Go) uses.
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
       # One command that runs every check backing a claim in SECURITY.md, so the
       # posture is verified per build rather than remembered. It re-runs a few
       # tests the main suite already covers; that is the point — the value is in
@@ -134,8 +245,10 @@ jobs:
       - name: Start Hermod
         run: ./scripts/dev.sh --sqlite --reset --detach
       # Every spec here runs against the SQLite stack above and needs no
-      # external service. Specs that need Postgres or RabbitMQ run in the
-      # `e2e-integration` job instead.
+      # external service — which is now every spec there is. Anything needing
+      # Postgres or RabbitMQ belongs in `integration-go`, driven directly
+      # rather than through a browser; see the note above the `soak` job for
+      # where the last such spec went.
       #
       # These used to be four hand-listed audits, and the eleven functional
       # specs ran nowhere. Nothing executed them, so nothing reported that they
@@ -155,7 +268,9 @@ jobs:
             ui/__tests__/multi_pipeline_editor_e2e.spec.ts \
             ui/__tests__/workflow_surface_e2e.spec.ts \
             ui/__tests__/required_select_e2e.spec.ts \
-            ui/__tests__/worker_e2e.spec.ts
+            ui/__tests__/worker_e2e.spec.ts \
+            ui/__tests__/no_token_in_storage_e2e.spec.ts \
+            ui/__tests__/stream_auth_e2e.spec.ts
       - name: Stop Hermod
         if: always()
         run: ./scripts/dev.sh --stop
@@ -393,7 +508,114 @@ jobs:
         ports:
           - 1025:1025
           - 8025:8025
+      # A broker, so the Kafka connectors are proven to move a record rather
+      # than assumed to. KRaft mode, so there is no ZooKeeper to start: the
+      # single node is both broker and controller.
+      #
+      # No --health-cmd. The image has no lightweight readiness probe that
+      # works from Docker's shell, and a broker reports a listening socket well
+      # before it will serve metadata; the wait step below asks the broker for
+      # its API versions instead, which is the thing the client actually needs.
+      kafka:
+        image: apache/kafka:latest
+        env:
+          KAFKA_NODE_ID: "1"
+          KAFKA_PROCESS_ROLES: broker,controller
+          KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@127.0.0.1:9093
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+        ports:
+          - 9092:9092
+      # ClickHouse, so its sink is proven to move a record rather than assumed
+      # to. CLICKHOUSE_SKIP_USER_SETUP leaves the default user password-less,
+      # which is what makes an unauthenticated test connection work.
+      clickhouse:
+        image: clickhouse/clickhouse-server:latest
+        env:
+          CLICKHOUSE_SKIP_USER_SETUP: "1"
+        ports:
+          - 9000:9000
+          - 8123:8123
+      # Elasticsearch, so the bulk path is proven rather than assumed. Security
+      # off and a small heap: this is a single-node cluster for one test file,
+      # not a deployment.
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: -Xms512m -Xmx512m
+        ports:
+          - 9200:9200
+      # PostgreSQL with pgvector, separate from the postgres service above:
+      # that one is stock and has no vector extension, and the CDC tests want
+      # it left alone with its own wal_level and prepared-transaction settings.
+      pgvector:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hermod_it
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
+      # Azure SQL Edge rather than SQL Server: it is the variant with an arm64
+      # image, which is what makes this connector testable on a developer
+      # workstation as well as here. The T-SQL the sink emits is the same.
+      mssql:
+        image: mcr.microsoft.com/azure-sql-edge:latest
+        env:
+          ACCEPT_EULA: "1"
+          MSSQL_SA_PASSWORD: Hermod!Passw0rd
+        ports:
+          - 1433:1433
+      # Cassandra, arm64-capable and slow to start — the heap is held down
+      # because the default sizing assumes a machine this is not.
+      cassandra:
+        image: cassandra:5
+        env:
+          CASSANDRA_CLUSTER_NAME: hermod
+          HEAP_NEWSIZE: 128M
+          MAX_HEAP_SIZE: 1G
+        options: >-
+          --health-cmd "cqlsh -e 'describe keyspaces'"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 20
+        ports:
+          - 9042:9042
     steps:
+      # This job starts thirteen service containers and then builds the whole
+      # tree with -race, and it ran the hosted runner out of disk:
+      #
+      #   ##[error]No space left on device : '.../_diag/pages/....log'
+      #
+      # It had passed on the commit before, so the job sits right at the edge
+      # rather than over it — which is the worse failure, because it fails
+      # intermittently for a reason that has nothing to do with the change being
+      # tested, and a gate that goes red at random is one people learn to ignore.
+      #
+      # The runner image ships toolchains this repository never uses. Removing
+      # them costs about half a minute and buys back tens of gigabytes, which is
+      # a far better trade than dropping a service and testing less.
+      # Only unused toolchains are removed. Deliberately left alone: the agent
+      # tools directory, which is where setup-go installs Go two steps later,
+      # and the Docker images, because the service containers are already
+      # running on them by the time any step executes.
+      - name: Free disk space on the runner
+        run: |
+          echo "before: $(df -h --output=avail / | tail -1 | tr -d ' ') available"
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /usr/share/swift || true
+          echo "after:  $(df -h --output=avail / | tail -1 | tr -d ' ') available"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Setup Go
@@ -447,6 +669,59 @@ jobs:
           done
           curl -sf http://127.0.0.1:2379/health | grep -q '"health":"true"'
 
+      # Fails rather than continues if the broker never serves metadata. A
+      # listening socket appears well before Kafka will answer a client, so
+      # waiting on the port would hand the tests a broker that refuses them and
+      # turn one clear failure into a screenful of confusing ones.
+      - name: Wait for Kafka
+        run: |
+          for i in $(seq 1 60); do
+            if printf '' | nc -z 127.0.0.1 9092 2>/dev/null; then
+              # Socket is up; now ask for metadata, which is what a client needs.
+              if docker run --rm --network host apache/kafka:latest \
+                  /opt/kafka/bin/kafka-broker-api-versions.sh \
+                  --bootstrap-server 127.0.0.1:9092 >/dev/null 2>&1; then
+                echo "kafka ready after ${i}s"; break
+              fi
+            fi
+            if [ "$i" = 60 ]; then
+              echo "kafka never became ready"; exit 1
+            fi
+            sleep 1
+          done
+
+      # MinIO by hand rather than as a service, for the same reason the replica
+      # set below is: its entrypoint needs a `server` argument and a service
+      # container has no way to pass one. Started on 9500 so it cannot collide
+      # with ClickHouse's native port.
+      - name: Start MinIO for the S3 sink
+        run: |
+          docker run -d --name minio -p 9500:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:9500/minio/health/live >/dev/null 2>&1; then
+              echo "minio ready after ${i}s"; break
+            fi
+            if [ "$i" = 60 ]; then
+              echo "minio never became ready"; docker logs minio; exit 1
+            fi
+            sleep 1
+          done
+
+      # The test keyspace. The sink does not create keyspaces and should not,
+      # so the job makes the one the tests write into.
+      - name: Create the Cassandra keyspace
+        run: |
+          for i in $(seq 1 40); do
+            if docker exec "$(docker ps -q --filter ancestor=cassandra:5)" \
+                cqlsh -e "CREATE KEYSPACE IF NOT EXISTS hermod_it WITH replication = {'class':'SimpleStrategy','replication_factor':1};" 2>/dev/null; then
+              echo "keyspace ready after ${i} attempts"; break
+            fi
+            if [ "$i" = 40 ]; then echo "cassandra never accepted CQL"; exit 1; fi
+            sleep 5
+          done
+
       # A replica set, separate from the mongo service above.
       #
       # Change streams — which is all the MongoDB CDC source is — cannot run on
@@ -496,121 +771,45 @@ jobs:
           SMTP_FROM: hermod@example.com
           SMTP_TO: ops@example.com
           SMTP_VERIFY_API: http://127.0.0.1:8025
-        run: go test -tags=integration -count=1 -timeout 15m ./...
+          KAFKA_BROKERS: 127.0.0.1:9092
+          CLICKHOUSE_ADDR: 127.0.0.1:9000
+          ELASTICSEARCH_URL: http://127.0.0.1:9200
+          S3_ENDPOINT: http://127.0.0.1:9500
+          S3_ACCESS_KEY: minioadmin
+          S3_SECRET_KEY: minioadmin
+          PGVECTOR_DSN: postgres://postgres:postgres@127.0.0.1:5433/hermod_it?sslmode=disable
+          MSSQL_DSN: sqlserver://sa:Hermod%21Passw0rd@127.0.0.1:1433?database=master&encrypt=disable
+          CASSANDRA_HOSTS: 127.0.0.1
+        # -race, and this job is the only place it can do any good: these tests
+        # are the only ones that drive a connector against a live server, and
+        # the concurrency that matters — a Close landing while a stream is
+        # mid-read, or while an API request is still in flight — needs a real
+        # connection to happen at all.
+        #
+        # Without it two data races in the PostgreSQL source sat here
+        # indefinitely, one of them surfacing as an occasional failure in an
+        # unrelated test that nobody could reproduce on demand. The unit suite
+        # already runs with -race; this job did not, so a race in any connector
+        # was invisible to CI by construction.
+        #
+        # The timeout goes up with it: -race costs roughly 2-5x in wall clock,
+        # and a suite that starts timing out is a suite that gets its gate
+        # removed.
+        run: go test -tags=integration -race -count=1 -timeout 30m ./...
 
-  e2e-integration:
-    name: E2E (Postgres + RabbitMQ) [informational]
-    runs-on: ubuntu-latest
-    # These specs drive real CDC, real queues and real sink writes, so they need
-    # services and take minutes. Running them on every push would make the
-    # pipeline unusable; running them nowhere is how they rotted. Nightly, and
-    # on demand, is the compromise.
-    #
-    # continue-on-error, and down from ten specs to one.
-    #
-    # These described a UI that no longer exists, and mostly the answer was a
-    # move rather than a repair: what they asserted was never in the DOM.
-    # Retired, with where each one went:
-    #
-    #   cdc_e2e, cdc_table_tracking_e2e
-    #     -> pkg/comm/source/postgres/cdc_integration_test.go
-    #   sql_e2e
-    #     -> internal/engine/registry/discovery_integration_test.go
-    #   rabbitmq_e2e (mocked its broker; every assertion was about the
-    #     simulation endpoint, which had no Go coverage at all)
-    #     -> internal/engine/registry/simulation_test.go
-    #   heavy_load_e2e, perf_e2e
-    #     -> internal/engine/registry/multiworker_load_integration_test.go
-    #   advanced_transformations_e2e, comprehensive_transformations_e2e
-    #     -> internal/engine/registry/transformation_types_test.go and
-    #        db_lookup_integration_test.go. Checked type by type before
-    #        deleting: all eleven the specs exercised are covered, including
-    #        parallel_pipeline, which routes to a different function from
-    #        pipeline and was the last one nothing reached.
-    #   worker_e2e -> promoted to the required E2E job; it passes and needs no
-    #     external service, so it was only ever here by mistake
-    #
-    # production_grade stays. Its UI half is covered by
-    # multi_pipeline_editor_e2e and workflow_surface_e2e, but it also asserts
-    # that a sequential sink and a parallel sink both deliver, with the field
-    # values to prove it. Those are genuinely different execution models --
-    # sequential writes inline and exposes success/error branches, parallel
-    # passes through to the async writers -- and Go covers only the flag
-    # resolution (TestResolveSinkNodeSequential), not the behaviour. Replacing
-    # it needs a running engine and a real sink, so it is a piece of work
-    # rather than a move.
-    #
-    # A permanently red required job trains everyone to ignore the pipeline,
-    # which is the same trap the govulncheck wrapper avoids.
-    continue-on-error: true
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-        # wal_level=logical is required for the CDC specs; without it the
-        # replication slot cannot be created and every CDC test fails on setup.
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-      rabbitmq:
-        image: rabbitmq:3-management
-        options: >-
-          --health-cmd "rabbitmq-diagnostics -q ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5672:5672
-          - 15672:15672
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Install dependencies
-        run: |
-          bun install --frozen-lockfile
-          cd ui && bun install --frozen-lockfile
-      - name: Install Playwright browsers
-        run: bunx playwright install --with-deps chromium
-      - name: Enable logical replication and create test databases
-        env:
-          PGPASSWORD: postgres
-        run: |
-          psql -h localhost -U postgres -c "ALTER SYSTEM SET wal_level = logical;"
-          psql -h localhost -U postgres -c "CREATE DATABASE hermod_test_source;"
-          psql -h localhost -U postgres -c "CREATE DATABASE hermod_test_sink;"
-      - name: Start Hermod
-        run: ./scripts/dev.sh --sqlite --reset --detach
-      - name: E2E (integration)
-        run: |
-          bunx playwright test \
-            ui/__tests__/production_grade.spec.ts
-      - name: Stop Hermod
-        if: always()
-        run: ./scripts/dev.sh --stop
-      - name: Upload traces
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-integration-results
-          path: test-results/
-          retention-days: 7
-          if-no-files-found: ignore
+  # The browser E2E job that used to live here is gone, and so is the last spec
+  # in it. production_grade.spec.ts was the only one left: its UI half was
+  # already covered by multi_pipeline_editor_e2e and workflow_surface_e2e, and
+  # the part that was not — that a sequential sink and a parallel sink both
+  # deliver, with the field values to prove it — is now
+  # internal/engine/registry/sink_delivery_models_integration_test.go.
+  #
+  # That move is the point. The spec needed a browser, Postgres and RabbitMQ,
+  # took minutes, and ran continue-on-error on a nightly schedule, so a
+  # regression in either sink model could merge with nothing going red. The Go
+  # test runs in integration-go above, which is required, and finishes in under
+  # a second. A required gate that runs on every push beats an informational one
+  # that runs nightly and is ignored.
 
   soak:
     name: Soak (resource trends)

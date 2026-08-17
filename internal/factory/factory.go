@@ -195,7 +195,11 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 		autoEnable := cfg.Config["auto_enable_cdc"] != "false"
 		src = mssql.NewMSSQLSource(connString, tables, autoEnable, useCDC)
 	case "mysql":
-		src = mysql.NewMySQLSource(connString, useCDC)
+		mySrc := mysql.NewMySQLSource(connString, useCDC)
+		mySrc.SetTables(tables...)
+		// Off unless asked for, for the same reason as PostgreSQL above.
+		mySrc.SetInitialLoad(cfg.Config["initial_load"] == "true")
+		src = mySrc
 	case "oracle":
 		src = oracle.NewOracleSource(connString, tables, idField, pollInterval, useCDC)
 	case "db2":
@@ -231,7 +235,10 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 				uri = fmt.Sprintf("mongodb://%s:%s", host, port)
 			}
 		}
-		src = sourcemongodb.NewMongoDBSource(uri, cfg.Config["database"], cfg.Config["collection"], useCDC)
+		mgSrc := sourcemongodb.NewMongoDBSource(uri, cfg.Config["database"], cfg.Config["collection"], useCDC)
+		// Off unless asked for, for the same reason as PostgreSQL above.
+		mgSrc.SetInitialLoad(cfg.Config["initial_load"] == "true")
+		src = mgSrc
 	case "mariadb":
 		src = mariadb.NewMariaDBSource(connString, tables, idField, pollInterval, useCDC)
 	case "cassandra":
@@ -877,6 +884,11 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 			fmttr,
 			cfg.Config["suffix"],
 			cfg.Config["content_type"],
+			// Off by default: the timestamped key is what an archive wants, and
+			// turning this on for an existing sink would change where every
+			// object lands. Set it when the bucket should hold one object per
+			// record rather than one per delivery.
+			cfg.Config["idempotent_key"] == "true",
 		)
 	case "s3-parquet":
 		parallelizer, _ := strconv.ParseInt(cfg.Config["parallelizer"], 10, 64)
@@ -940,6 +952,13 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		if algo := cfg.Config["compression"]; algo != "" {
 			if comp, err := compression.NewCompressor(compression.Algorithm(algo)); err == nil {
 				sink.SetCompressor(comp)
+			}
+		}
+		// Same key and parsing as the FTP sink. The default lives in the sink;
+		// this only overrides it.
+		if t, ok := cfg.Config["timeout"]; ok && t != "" {
+			if d, err := time.ParseDuration(t); err == nil {
+				sink.SetTimeout(d)
 			}
 		}
 		return sink, nil

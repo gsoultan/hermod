@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/infra/evaluator"
+	"github.com/user/hermod/pkg/infra/sqlident"
 	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
@@ -49,8 +51,57 @@ func NewClickHouseSink(addr string, database string, tableName string, mappings 
 	}
 }
 
+// qcol quotes a mapped column name, refusing one that cannot be quoted safely.
+//
+// The mapped path pasted TargetColumn straight into INSERT, ALTER TABLE and
+// CREATE TABLE with no quoting at all, so a name containing a quote character
+// ended its own identifier and the rest was read as SQL. Confirmed against a
+// real server: the injected text came back in ClickHouse's own parse error,
+// having been assembled into the CREATE TABLE verbatim.
+//
+// sqlutil.QuoteIdent validates the name and escapes the quote, which is the
+// rule SECURITY.md states and the other SQL sinks follow.
+func qcol(name string) (string, error) {
+	quoted, err := sqlutil.QuoteIdent("clickhouse", name)
+	if err != nil {
+		return "", fmt.Errorf("invalid column name %q: %w", name, err)
+	}
+	return quoted, nil
+}
+
 func (s *ClickHouseSink) Write(ctx context.Context, msg hermod.Message) error {
 	return s.WriteBatch(ctx, []hermod.Message{msg})
+}
+
+// resolveTable returns the table to write to, refusing a name that cannot
+// safely be part of a statement.
+//
+// Identifiers cannot be bound as parameters, so this one is interpolated into
+// CREATE TABLE, INSERT and ALTER TABLE ... DELETE. When the sink is not pinned
+// to a table the name comes from the *message*, and a message's table
+// originates upstream — on the wire, for a webhook or a generic source.
+//
+// Without this check a message chose the table, its schema and its engine: a
+// name of `pwned (id String) ENGINE = Memory --` produced one entirely legal
+// CREATE TABLE and left `pwned` sitting in the destination. A semicolon is
+// rejected by ClickHouse, but a single statement is not, so the server is no
+// defence here.
+//
+// The PostgreSQL sink has done this since a comment in it explained why; this
+// is the same check, for the same reason.
+func (s *ClickHouseSink) resolveTable(msg hermod.Message) (string, error) {
+	name := s.tableName
+	if name == "" && msg != nil {
+		name = msg.Table()
+	}
+	if name == "" {
+		return "", errors.New("clickhouse sink: no table configured and the message names none")
+	}
+	if err := sqlident.Validate(name); err != nil {
+		return "", fmt.Errorf("clickhouse sink: refusing to build a statement around table "+
+			"name %q: %w", name, err)
+	}
+	return name, nil
 }
 
 func (s *ClickHouseSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
@@ -72,9 +123,9 @@ func (s *ClickHouseSink) WriteBatch(ctx context.Context, msgs []hermod.Message) 
 		}
 	}
 
-	table := s.tableName
-	if table == "" {
-		table = msgs[0].Table()
+	table, err := s.resolveTable(msgs[0])
+	if err != nil {
+		return err
 	}
 
 	if err := s.ensureTable(ctx, table); err != nil {
@@ -130,7 +181,11 @@ func (s *ClickHouseSink) WriteBatch(ctx context.Context, msgs []hermod.Message) 
 			if m.IsIdentity || m.SourceField == "" {
 				continue
 			}
-			insertCols = append(insertCols, m.TargetColumn)
+			q, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
+			insertCols = append(insertCols, q)
 		}
 		query = fmt.Sprintf("INSERT INTO %s.%s (%s)", s.database, table, strings.Join(insertCols, ", "))
 	} else {
@@ -142,7 +197,16 @@ func (s *ClickHouseSink) WriteBatch(ctx context.Context, msgs []hermod.Message) 
 		return err
 	}
 
-	for _, msg := range msgs {
+	// inserts, not msgs.
+	//
+	// This walked every message in the batch, so a delete was issued above and
+	// then the very same row appended straight back here. ClickHouse makes that
+	// permanent rather than merely late: ALTER TABLE ... DELETE is an
+	// asynchronous mutation over the parts that exist when it is created, and
+	// the re-insert lands in a new part the mutation never covers. A CDC stream
+	// carrying an insert and a delete in one batch — which is most of them —
+	// left the deleted row in place, with no error anywhere.
+	for _, msg := range inserts {
 		if len(s.mappings) > 0 {
 			var args []any
 			for _, m := range s.mappings {
@@ -184,7 +248,11 @@ func (s *ClickHouseSink) deleteMapped(ctx context.Context, table string, msg her
 	for _, m := range s.mappings {
 		if m.IsPrimaryKey {
 			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			pks = append(pks, m.TargetColumn+" = ?")
+			q, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
+			pks = append(pks, q+" = ?")
 			args = append(args, val)
 		}
 	}
@@ -395,9 +463,17 @@ func (s *ClickHouseSink) ensureTable(ctx context.Context, table string) error {
 				if m.IsNullable && !strings.HasPrefix(strings.ToLower(dataType), "nullable") {
 					dataType = fmt.Sprintf("Nullable(%s)", dataType)
 				}
-				cols = append(cols, fmt.Sprintf("%s %s", m.TargetColumn, dataType))
+				q, err := qcol(m.TargetColumn)
+				if err != nil {
+					return err
+				}
+				cols = append(cols, fmt.Sprintf("%s %s", q, dataType))
 				if m.IsPrimaryKey {
-					orderBy = append(orderBy, m.TargetColumn)
+					qOrder, err := qcol(m.TargetColumn)
+					if err != nil {
+						return err
+					}
+					orderBy = append(orderBy, qOrder)
 				}
 			}
 			if len(orderBy) == 0 {
@@ -439,7 +515,11 @@ func (s *ClickHouseSink) syncColumns(ctx context.Context, table string) error {
 			if m.IsNullable && !strings.HasPrefix(strings.ToLower(dataType), "nullable") {
 				dataType = fmt.Sprintf("Nullable(%s)", dataType)
 			}
-			alterQuery := fmt.Sprintf("ALTER TABLE %s.%s ADD COLUMN %s %s", s.database, table, m.TargetColumn, dataType)
+			q, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
+			alterQuery := fmt.Sprintf("ALTER TABLE %s.%s ADD COLUMN %s %s", s.database, table, q, dataType)
 			if err := s.conn.Exec(ctx, alterQuery); err != nil {
 				return err
 			}

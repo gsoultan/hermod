@@ -52,6 +52,26 @@ func NewMySQLSink(connString string, tableName string, mappings []sqlutil.Column
 	}
 }
 
+// qcol quotes a mapped column name, refusing one that cannot be quoted safely.
+//
+// These were wrapped in backticks with fmt.Sprintf, which neither validates the
+// name nor escapes a backtick inside it — so a name carrying one ended its own
+// identifier and the remainder became statement text. Confirmed against a real
+// server: a column named "name`, (SELECT 1)) -- " produced
+// "`name`, (SELECT 1)) -- `" in the statement, and MySQL rejected it only
+// because that particular text happened to be invalid SQL. A name chosen to
+// parse would not have been.
+//
+// sqlutil.QuoteIdent validates the name and doubles any backtick, which is the
+// rule SECURITY.md states and which the rest of the SQL sinks follow.
+func qcol(name string) (string, error) {
+	quoted, err := sqlutil.QuoteIdent("mysql", name)
+	if err != nil {
+		return "", fmt.Errorf("invalid column name %q: %w", name, err)
+	}
+	return quoted, nil
+}
+
 func (s *MySQLSink) Write(ctx context.Context, msg hermod.Message) error {
 	return s.WriteBatch(ctx, []hermod.Message{msg})
 }
@@ -416,7 +436,11 @@ func (s *MySQLSink) deleteMapped(ctx context.Context, tx *sql.Tx, table string, 
 	for _, m := range s.mappings {
 		if m.IsPrimaryKey {
 			val := evaluator.GetMsgValByPath(msg, m.SourceField)
-			pks = append(pks, fmt.Sprintf("`%s` = ?", m.TargetColumn))
+			q, err := qcol(m.TargetColumn)
+			if err != nil {
+				return err
+			}
+			pks = append(pks, q+" = ?")
 			args = append(args, val)
 		}
 	}
@@ -636,14 +660,18 @@ func (s *MySQLSink) upsertMapped(ctx context.Context, tx *sql.Tx, table string, 
 			continue
 		}
 
-		cols = append(cols, fmt.Sprintf("`%s`", m.TargetColumn))
+		q, err := qcol(m.TargetColumn)
+		if err != nil {
+			return err
+		}
+		cols = append(cols, q)
 		placeholders = append(placeholders, "?")
 		args = append(args, val)
 
 		if m.IsPrimaryKey {
 			pks = append(pks, m.TargetColumn)
 		} else {
-			updates = append(updates, fmt.Sprintf("`%s` = VALUES(`%s`)", m.TargetColumn, m.TargetColumn))
+			updates = append(updates, q+" = VALUES("+q+")")
 		}
 	}
 
@@ -677,7 +705,11 @@ func (s *MySQLSink) insertMapped(ctx context.Context, tx *sql.Tx, table string, 
 		if m.IsIdentity && (val == nil || val == "" || val == 0) {
 			continue
 		}
-		cols = append(cols, fmt.Sprintf("`%s`", m.TargetColumn))
+		q, err := qcol(m.TargetColumn)
+		if err != nil {
+			return err
+		}
+		cols = append(cols, q)
 		placeholders = append(placeholders, "?")
 		args = append(args, val)
 	}
@@ -703,11 +735,15 @@ func (s *MySQLSink) updateMapped(ctx context.Context, tx *sql.Tx, table string, 
 			continue
 		}
 		val := evaluator.GetMsgValByPath(msg, m.SourceField)
+		q, err := qcol(m.TargetColumn)
+		if err != nil {
+			return err
+		}
 		if m.IsPrimaryKey {
-			pks = append(pks, fmt.Sprintf("`%s` = ?", m.TargetColumn))
+			pks = append(pks, q+" = ?")
 			pkArgs = append(pkArgs, val)
 		} else {
-			updates = append(updates, fmt.Sprintf("`%s` = ?", m.TargetColumn))
+			updates = append(updates, q+" = ?")
 			args = append(args, val)
 		}
 	}

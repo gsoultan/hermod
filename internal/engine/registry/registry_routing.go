@@ -12,6 +12,7 @@ import (
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/engine/telemetry"
 	"github.com/user/hermod/pkg/infra/evaluator"
+	"github.com/user/hermod/pkg/infra/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -136,6 +137,25 @@ func (m *multiSource) Read(ctx context.Context) (hermod.Message, error) {
 						ss.retryAt = time.Time{}
 						m.mu.Unlock()
 						msg.SetMetadata("_source_node_id", ss.nodeID)
+
+						// Where a trace begins for the workflow path. Started and
+						// ended around the handover rather than around the Read
+						// above, which blocks until something arrives — a quiet
+						// source would otherwise report its idle time as work. The
+						// context cannot be passed on, because the nodes that
+						// process this message run on other goroutines, so it
+						// travels on the message and is picked up in
+						// RunWorkflowNode.
+						readCtx, span := tracer.Start(ctx, "source.receive", trace.WithAttributes(
+							attribute.String("workflow_id", m.workflowID),
+							attribute.String("source_id", ss.sourceID),
+							attribute.String("node_id", ss.nodeID),
+							attribute.String("message_id", msg.ID()),
+							attribute.String("table", msg.Table()),
+						))
+						tracing.Inject(readCtx, msg)
+						span.End()
+
 						// Remember the latest record this source actually
 						// forwarded downstream so passive sampling can surface
 						// real data even when the live consumer drains the
@@ -412,6 +432,11 @@ func (r *Registry) RunWorkflowNode(workflowID string, node *storage.WorkflowNode
 	}
 
 	ctx := context.WithValue(context.Background(), hermod.RegistryKey, r)
+	// Background is a fresh root, so without this every node was its own
+	// trace and a message passing through five nodes produced five unrelated
+	// traces. The link comes off the message because the node runs on a
+	// different goroutine from the read that produced it.
+	ctx = tracing.Extract(ctx, msg)
 	ctx, span := tracer.Start(ctx, "RunWorkflowNode", trace.WithAttributes(
 		attribute.String("workflow_id", workflowID),
 		attribute.String("node_id", node.ID),

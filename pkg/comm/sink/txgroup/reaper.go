@@ -3,6 +3,8 @@ package txgroup
 import (
 	"context"
 	"time"
+
+	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
 // DefaultReapInterval is how often StartReaper sweeps for transactions left in
@@ -55,21 +57,44 @@ func (s *Sink) StartReaper(ctx context.Context, interval time.Duration) (stop fu
 	}
 }
 
-// reapOnce performs one sweep, logging what it found.
+// reapOnce performs one sweep, logging and publishing what it found.
 func (s *Sink) reapOnce(ctx context.Context) {
+	workflowID := s.coordinator.WorkflowID()
+
 	reaped, err := s.Reap(ctx)
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Error("txgroup: reap sweep failed; transactions may still be in doubt",
 				"error", err)
 		}
+		// Deliberately no gauge update here. A sweep that could not read the
+		// store knows nothing about the current count, and writing a stale or
+		// zero value would clear an alert while the condition it reports is
+		// still true — worse than leaving the last known number in place.
 		return
 	}
-	if reaped > 0 && s.logger != nil {
-		// Worth a warning rather than an info: reaping is a correctness
-		// backstop, and a non-zero count means something upstream failed to
-		// resolve its own transaction.
-		s.logger.Warn("txgroup: rolled back transactions left in doubt past their deadline",
-			"count", reaped)
+	if reaped > 0 {
+		telemetry.TxGroupReaped.WithLabelValues(workflowID).Add(float64(reaped))
+		if s.logger != nil {
+			// Worth a warning rather than an info: reaping is a correctness
+			// backstop, and a non-zero count means something upstream failed to
+			// resolve its own transaction.
+			s.logger.Warn("txgroup: rolled back transactions left in doubt past their deadline",
+				"count", reaped)
+		}
+	}
+
+	// Published on every successful sweep, including the ones that find
+	// nothing. A gauge only written when something is wrong never comes back
+	// down, and the alert it drives cannot clear.
+	//
+	// This is the number that matters: a transaction in doubt but not yet past
+	// its deadline is invisible to the reaping count above, and on PostgreSQL
+	// it is already holding locks and blocking VACUUM cluster-wide.
+	if n, err := s.InDoubt(ctx); err == nil {
+		telemetry.TxGroupInDoubt.WithLabelValues(workflowID).Set(float64(n))
+	} else if s.logger != nil {
+		s.logger.Error("txgroup: could not count transactions in doubt; the gauge is stale",
+			"error", err)
 	}
 }

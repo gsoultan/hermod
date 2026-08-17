@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/user/hermod"
 	"github.com/user/hermod/internal/storage"
 	"github.com/user/hermod/pkg/comm/message"
@@ -116,27 +117,32 @@ func (s *Server) Publish(ctx context.Context, req *proto.PublishRequest) (*proto
 		path = "/grpc/default"
 	}
 
-	// Verify API Key if storage is available
+	// Verify API Key if storage is available. A nil Storage means no key
+	// store is wired at all — standalone use — and that is the only case
+	// that skips the check. A store that exists but cannot be read fails
+	// closed: skipping here turned a storage hiccup into anonymous ingress
+	// on an endpoint the operator had put a key on.
 	if s.Storage != nil {
 		sources, _, err := s.Storage.ListSources(ctx, storage.CommonFilter{})
-		if err == nil {
-			var apiKey string
-			for _, src := range sources {
-				if src.Type == "grpc" && src.Config["path"] == path {
-					apiKey = src.Config["api_key"]
-					break
-				}
+		if err != nil {
+			return nil, fmt.Errorf("api key verification unavailable: %w", err)
+		}
+		var apiKey string
+		for _, src := range sources {
+			if src.Type == "grpc" && src.Config["path"] == path {
+				apiKey = src.Config["api_key"]
+				break
 			}
+		}
 
-			if apiKey != "" {
-				md, ok := metadata.FromIncomingContext(ctx)
-				if !ok {
-					return nil, errors.New("missing metadata")
-				}
-				tokens := md.Get("x-api-key")
-				if len(tokens) == 0 || tokens[0] != apiKey {
-					return nil, errors.New("invalid api key")
-				}
+		if apiKey != "" {
+			md, ok := metadata.FromIncomingContext(ctx)
+			if !ok {
+				return nil, errors.New("missing metadata")
+			}
+			tokens := md.Get("x-api-key")
+			if len(tokens) == 0 || tokens[0] != apiKey {
+				return nil, errors.New("invalid api key")
 			}
 		}
 	}
@@ -145,7 +151,9 @@ func (s *Server) Publish(ctx context.Context, req *proto.PublishRequest) (*proto
 	if req.Id != "" {
 		msg.SetID(req.Id)
 	} else {
-		// ID will be generated if missing
+		// An empty ID reaches SQL sinks as an empty primary key, where every
+		// anonymous record upserts the same row.
+		msg.SetID(uuid.NewString())
 	}
 	msg.SetOperation(hermod.Operation(req.Operation))
 	msg.SetTable(req.Table)

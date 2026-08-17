@@ -114,8 +114,8 @@ if [[ "$RUN_E2E" == "1" ]]; then
 else
   printf '\n%s▸ Browser verification%s\n' "$BOLD" "$RESET"
   note "skipped — re-run with --e2e against a running stack (./scripts/dev.sh --sqlite)"
-  note "Until then, two claims are unverified: that no credential reaches web storage,"
-  note "and that streams send none in the URL."
+  note "Both claims — no credential in web storage, none in a stream URL — also run"
+  note "in CI's e2e job on every push, so skipping here leaves them checked there."
 fi
 
 # --- Not covered ---------------------------------------------------------------
