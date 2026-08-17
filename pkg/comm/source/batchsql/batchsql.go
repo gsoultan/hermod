@@ -271,6 +271,11 @@ func maxWatermark(current, candidate string) string {
 // Ack moves the cursor to the acknowledged row's watermark — before releasing
 // the message, whose metadata carries it.
 func (s *BatchSQLSource) Ack(ctx context.Context, msg hermod.Message) error {
+	// The conformance suite feeds every source a nil ack, because a worker
+	// goroutine dereferencing one takes the whole engine down.
+	if msg == nil {
+		return nil
+	}
 	if v := msg.Metadata()[watermarkKey]; v != "" {
 		s.mu.Lock()
 		s.state["last_value"] = maxWatermark(s.state["last_value"], v)
