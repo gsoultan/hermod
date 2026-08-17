@@ -137,6 +137,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # security-check.sh runs golangci-lint, whose config ratchets with
+          # new-from-merge-base: origin/main. A shallow clone has no merge
+          # base, so the ratchet silently widens to the whole backlog and the
+          # job fails on findings older than the branch.
+          fetch-depth: 0
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
