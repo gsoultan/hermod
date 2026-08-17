@@ -649,15 +649,30 @@ which is why they were untested; anything new in that shape should provide it to
 | **MongoDB** | source | Live replica-set change-stream tests (`MONGODB_RS_URI`): the resume position advances on acknowledgement rather than on read, unacknowledged messages are redelivered after a restart, the initial load carries existing documents once, and a write during the backfill is not lost between it and the tail |
 | **SMTP** | sink | Live send against a mail catcher, read back through its API (`SMTP_HOST` + `SMTP_VERIFY_API`) — an SMTP server accepts a message long before anyone can read it, so a nil return is a weaker claim than it looks. Retry and duplicate-suppression covered too |
 | **Kafka** | source + sink | Live-broker round trip (`KAFKA_BROKERS`): a record written by the sink comes back out of the source with its key intact, and acknowledging advances the consumer group's offset so a restart is not handed what was already delivered. **At-least-once only** — see the note under Beta about why it cannot do better |
+| **ClickHouse** | sink | Live-server tests (`CLICKHOUSE_ADDR`): an insert lands; a delete in a batch that also inserts does not come back, which it used to; mapped columns insert and delete; and a mapped column name cannot break out of its quoting |
+| **MSSQL** | sink | Live-server tests against Azure SQL Edge (`MSSQL_DSN`): insert, upsert on redelivery and delete through the mapped path, and a column name that cannot be quoted is refused by name rather than becoming an empty identifier |
+| **Elasticsearch** | sink | Live-server tests (`ELASTICSEARCH_URL`): a document is indexed and deleted, and a document id cannot inject its own actions into the bulk stream |
+| **pgvector** | sink | Live-server tests (`PGVECTOR_DSN`): a vector is stored, upserted and deleted, and an identifier needing quotes gets them |
+| **S3 / S3-Parquet** | sink | Live MinIO tests (`S3_ENDPOINT`): an object is put, distinct messages land separately, the default key keeps every delivery while the idempotent key does not leave a second object, a batch becomes a Parquet object, and one undecodable message is named rather than wedging the batch |
+| **Cassandra** | sink | Live-node tests (`CASSANDRA_HOSTS`): a row lands and a delete removes it, and a table name arriving on a message is refused rather than interpolated into CQL. The Cassandra **source** is a different matter — see Experimental |
 
 ### Beta
 
 Substantial and unit-tested, but unproven against live infrastructure in CI:
 
-**Sources** — MSSQL, MariaDB, ClickHouse, gRPC, MQTT, WebSocket, HTTP,
-BatchSQL, Excel.
-**Sinks** — MSSQL, Oracle, ClickHouse, Elasticsearch, Snowflake, HTTP, WebSocket,
-S3 / S3-Parquet, pgvector, Failover.
+**Sources** — MSSQL, gRPC, MQTT, WebSocket, HTTP, BatchSQL, Excel.
+**Sinks** — Oracle, Snowflake, HTTP, WebSocket, Failover.
+
+The MSSQL **source** is genuinely a CDC source — it reads `CHANGETABLE` and emits
+updates and deletes — so what it lacks is coverage, not capability. The polling
+sources that were previously listed here are a different case and have moved to
+Experimental: see the inserts-only row below.
+
+**Snowflake** carries one caveat the others do not. Its identifiers are validated
+like every other SQL sink's, but Snowflake is cloud-only and no warehouse is
+reachable from CI, so that guard is the only one in this repository never watched
+failing against a real server. It has tests that run without an account, and they
+cover the refusal rather than the resulting SQL.
 
 **Kafka is GA for its data path but at-least-once only**, and that ceiling is not
 a coverage gap. There is no transactional producer — `segmentio/kafka-go` exposes
@@ -685,8 +700,8 @@ Thin, untested, or semantically limited. Specific caveats where they matter:
 
 | Connector | Caveat |
 | :--- | :--- |
-| **Oracle**, **DB2** (sources) | Watermark polling, **not** log-based CDC. Inserts only — updates and deletes are invisible. |
-| **Cassandra**, **ScyllaDB** (sources) | CQL cannot `ORDER BY` an arbitrary column, so incremental polling returns an *arbitrary* qualifying row and the cursor can skip rows permanently. Sound **only** when the id field is a clustering column inside a restricted partition. The source logs a warning on first use. |
+| **Oracle**, **DB2**, **ClickHouse**, **MariaDB**, **YugabyteDB** (sources) | Watermark polling, **not** log-based CDC. Inserts only — updates and deletes are invisible. The limitation is structural rather than a gap: these sources can only construct `OpCreate` and `OpSnapshot`, so there is no code path by which an update or a delete could reach a sink. A row changed after it was read is never re-emitted, and a deleted row is never retracted downstream. **MariaDB is the easiest to be caught by**: it has a binlog and Hermod's MySQL source does read one, so the MariaDB source looks like it should do CDC too. It does not. Use the MySQL source against MariaDB if you need updates and deletes. ClickHouse is listed here despite having live-infrastructure tests, because the tier is set by semantics rather than by coverage. |
+| **Cassandra**, **ScyllaDB** (sources) | Inserts only, as in the row above — updates and deletes are invisible. On top of that, CQL cannot `ORDER BY` an arbitrary column, so incremental polling returns an *arbitrary* qualifying row and the cursor can skip rows permanently. Sound **only** when the id field is a clustering column inside a restricted partition. The source logs a warning on first use. The Cassandra **sink** is unaffected and is GA. |
 | **SAP** | OData polling client (~180 lines). No IDoc, BAPI or delta queues. OData is SAP's sanctioned direction for third parties after Note 3255746, but it is roughly 10× slower than ODP-RFC for bulk extraction. |
 | **Mainframe**, **Dynamics 365**, **ServiceNow**, **Salesforce** | Thin REST/OData clients, no tests. |
 | **Social / SaaS** — Slack, Discord, Telegram, Twitter/X, LinkedIn, Facebook, Instagram, TikTok, Google Sheets, Google Analytics, Firebase, FCM | Small API wrappers. Contract-tested, but no data-path coverage. Fine for notifications; not for data of record. |
