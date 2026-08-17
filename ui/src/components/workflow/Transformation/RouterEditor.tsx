@@ -87,7 +87,7 @@ export function RouterEditor({
 
       <Stack gap="md">
         {rules.map((rule, idx) => (
-          <Card key={idx} withBorder radius="md" p="md" className="hover:shadow-sm transition-shadow">
+          <Card key={idx} withBorder radius="md" p="md" className="hover:shadow-xs transition-shadow">
             <Stack gap="md">
               <Group justify="space-between">
                 <Group gap="xs">
