@@ -954,6 +954,13 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 				sink.SetCompressor(comp)
 			}
 		}
+		// Same key and parsing as the FTP sink. The default lives in the sink;
+		// this only overrides it.
+		if t, ok := cfg.Config["timeout"]; ok && t != "" {
+			if d, err := time.ParseDuration(t); err == nil {
+				sink.SetTimeout(d)
+			}
+		}
 		return sink, nil
 	case "websocket":
 		headers := make(map[string]string)
