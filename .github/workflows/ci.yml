@@ -120,6 +120,36 @@ jobs:
         run: |
           buf breaking pkg/comm/source/grpc/proto \
             --against ".git#branch=${{ github.event.pull_request.base.ref || github.event.repository.default_branch }},subdir=pkg/comm/source/grpc/proto"
+  # Split out of Verify (Go) after four consecutive runs of that job died at
+  # the govulncheck step with "the runner has received a shutdown signal". The
+  # symbol-level scan peaks at 7–9GB resident (measured with /usr/bin/time -l)
+  # and a private-repo runner has 7GB total, so the VM's OOM killer took the
+  # runner agent itself — nothing in the log said memory, and two parallel
+  # runs dying in lockstep at the same step is what gave it away as
+  # deterministic. GOMEMLIMIT is not the fix: the live set really is that
+  # large, so a soft limit just multiplied GC time by 15 while RSS grew anyway
+  # (also measured). Swap is — it preserves the scan exactly and turns the
+  # overshoot into slowness instead of a dead runner. The split additionally
+  # takes the ~10-minute security tail off the Verify (Go) critical path.
+  security-gates:
+    name: Verify (security gates)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Give the scan swap to overflow into
+        run: |
+          free -h | sed -n '1,3p'
+          sudo fallocate -l 8G /swapfile2
+          sudo chmod 600 /swapfile2
+          sudo mkswap /swapfile2
+          sudo swapon /swapfile2
+          free -h | sed -n '1,3p'
       # Wrapper, not bare govulncheck: it records reviewed exemptions with the
       # reason each vulnerable path is unreachable, and still fails on anything
       # unexempted. A gate that is permanently red because of one unfixable
@@ -128,6 +158,11 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           ./scripts/govulncheck.sh
+      # security-check.sh shells out to golangci-lint by name (its static-
+      # analysis step), and this job no longer inherits the binary from the
+      # lint action next door. Same pinned version as Verify (Go) uses.
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
       # One command that runs every check backing a claim in SECURITY.md, so the
       # posture is verified per build rather than remembered. It re-runs a few
       # tests the main suite already covers; that is the point — the value is in
