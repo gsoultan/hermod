@@ -252,7 +252,9 @@ jobs:
             ui/__tests__/multi_pipeline_editor_e2e.spec.ts \
             ui/__tests__/workflow_surface_e2e.spec.ts \
             ui/__tests__/required_select_e2e.spec.ts \
-            ui/__tests__/worker_e2e.spec.ts
+            ui/__tests__/worker_e2e.spec.ts \
+            ui/__tests__/no_token_in_storage_e2e.spec.ts \
+            ui/__tests__/stream_auth_e2e.spec.ts
       - name: Stop Hermod
         if: always()
         run: ./scripts/dev.sh --stop

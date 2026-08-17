@@ -303,7 +303,7 @@ passed.
 | A restrictive CSP is set, and permits WebSockets | `internal/api/handlers/security_headers_test.go` |
 | SQL identifiers are quoted, never interpolated | `pkg/infra/sqlutil` |
 | Hermod never decodes untrusted Avro | `TestNoUntrustedAvroDecoding` |
-| No credential reaches web storage | `ui/__tests__/no_token_in_storage_e2e.spec.ts` (`--e2e`) |
+| No credential reaches web storage | `ui/__tests__/no_token_in_storage_e2e.spec.ts` — CI's e2e job on every push, or `--e2e` locally |
 | Logout revokes the token, not just the cookie | `TestRevokedCookieIsRejectedByTheMiddleware` |
 | A demotion, vhost change or deletion ends that user's sessions | `internal/auth/transport/http/revocation_on_admin_action_test.go` |
 | …while a cosmetic edit does not | `TestACosmeticEditDoesNotEndSessions` |
