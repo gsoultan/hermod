@@ -2,6 +2,7 @@ import { TextInput, Group, ActionIcon, Title, Stack, Badge, Autocomplete, Switch
 import { IconRefresh } from '@tabler/icons-react';
 import { useState, type FC } from 'react';
 import { ColumnMappingEditor, type ColumnMapping } from './ColumnMappingEditor';
+import { ConnectionUrlPaste } from '../../shared/ConnectionUrlPaste';
 import { apiFetch } from '@/api';
 import { notifications } from '@mantine/notifications';
 import { useConfirm } from '@/components/common/ConfirmProvider';
@@ -192,6 +193,9 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
 
     return (
       <>
+        <ConnectionUrlPaste
+          updateConfig={(k, v) => updateConfig(k === 'database' ? 'dbname' : k, v)}
+        />
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <TextInput 
             label="Host" 

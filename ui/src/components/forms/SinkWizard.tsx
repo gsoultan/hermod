@@ -5,6 +5,7 @@ import { SinkBasics } from '../workflow/Sink/SinkBasics';
 import { RetryPolicyFields } from '../workflow/Sink/RetryPolicyFields';
 import { Suspense } from 'react';
 import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
+import { missingConnectionFieldsWithUri } from '@/lib/connectorRequirements';
 
 interface SinkWizardProps {
   sink: any;
@@ -48,14 +49,21 @@ export function SinkWizard({
   // See SourceWizard: the wizard used to advance with every required field
   // blank and only fail at submit.
   const missingForStep = (step: number): string[] => {
-    if (step !== 0) return [];
-    // Same validators the fields use, so the Next button and the inline errors
-    // always agree about what is wrong.
-    return [
-      validateName(sink.name),
-      validateType(sink.type),
-      validateVHost(sink.vhost, !embedded),
-    ].filter(Boolean) as string[];
+    if (step === 0) {
+      // Same validators the fields use, so the Next button and the inline
+      // errors always agree about what is wrong.
+      return [
+        validateName(sink.name),
+        validateType(sink.type),
+        validateVHost(sink.vhost, !embedded),
+      ].filter(Boolean) as string[];
+    }
+    if (step === 1) {
+      // The connection step, gated the same way Basics is: what this sink
+      // minimally needs, named in the user's words.
+      return missingConnectionFieldsWithUri('sink', sink.type, sink.config);
+    }
+    return [];
   };
   const missing = missingForStep(active);
 
