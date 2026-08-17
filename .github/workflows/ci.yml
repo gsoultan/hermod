@@ -720,9 +720,14 @@ jobs:
             eclipse-mosquitto:2
           for i in $(seq 1 30); do
             # Exit 27 is "connected, no message within -W" — a healthy idle
-            # broker. Anything that means "could not connect" keeps waiting.
-            docker exec mosquitto mosquitto_sub -t probe -C 1 -W 1 -h 127.0.0.1 >/dev/null 2>&1
-            rc=$?
+            # broker. Anything meaning "could not connect" keeps waiting.
+            #
+            # `|| rc=$?` is load-bearing, not style: these steps run under
+            # `bash -e`, where a *bare* command returning non-zero ends the
+            # script on the spot. Written as `cmd` then `rc=$?`, the healthy
+            # 27 killed the step before the assignment ever ran.
+            rc=0
+            docker exec mosquitto mosquitto_sub -t probe -C 1 -W 1 -h 127.0.0.1 >/dev/null 2>&1 || rc=$?
             if [ "$rc" = 0 ] || [ "$rc" = 27 ]; then
               echo "mosquitto ready after ${i}s"; break
             fi
