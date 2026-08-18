@@ -384,7 +384,13 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 				}
 			}
 		}
-		e.logger.Info("Message written to sink",
+		// Debug, not Info. A successful write is the single most frequent
+		// event this platform produces — one line per message means a healthy
+		// pipeline's steady state is an unbounded log stream. At the soak's
+		// sustained rate that is tens of thousands of lines a second, which
+		// costs real money to store and buries every line worth reading.
+		// Failures, retries, reconnections and drops keep their levels.
+		e.logger.Debug("Message written to sink",
 			"workflow_id", e.workflowID,
 			"sink_id", sinkID,
 			"action", "write",
