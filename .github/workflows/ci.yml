@@ -854,13 +854,24 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # The one job that never got this, because it only runs on a schedule and
+      # so was never in front of me while the other three were being fixed. It
+      # builds the whole tree like they do, and it died at 14m25s with "the
+      # runner has received a shutdown signal" — this repository's signature
+      # for the runner agent being killed by resource exhaustion.
+      - name: Free disk space on the runner
+        run: |
+          echo "before: $(df -h --output=avail / | tail -1 | tr -d ' ') available"
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /usr/share/swift || true
+          echo "after:  $(df -h --output=avail / | tail -1 | tr -d ' ') available"
       - name: Soak (10 minutes)
         env:
           HERMOD_SOAK: "1"
           HERMOD_SOAK_DURATION: 10m
           # CI runners reap goroutines less eagerly than a laptop.
           HERMOD_SOAK_GOROUTINE_SLACK: "20"
-        run: go test -run TestSoak -timeout 40m ./internal/engine/registry/
+        run: go test -v -run TestSoak -timeout 40m ./internal/engine/registry/
 
   lint-debt:
     name: Lint backlog (informational)
