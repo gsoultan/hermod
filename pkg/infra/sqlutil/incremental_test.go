@@ -39,8 +39,12 @@ func TestBuildIncrementalQuery_PerDialect(t *testing.T) {
 			want:   `SELECT * FROM "t" WHERE "id" > ? ORDER BY "id" ASC LIMIT 1`,
 		},
 		{
+			// Upper case, because Snowflake folds unquoted identifiers that
+			// way: quoting the name as typed would address a lower-case
+			// column ordinary DDL never created. See
+			// TestQuotingFollowsTheDialectsOwnCaseFolding.
 			driver: "snowflake",
-			want:   `SELECT * FROM "t" WHERE "id" > ? ORDER BY "id" ASC LIMIT 1`,
+			want:   `SELECT * FROM "T" WHERE "ID" > ? ORDER BY "ID" ASC LIMIT 1`,
 		},
 		{
 			// SQL Server has no LIMIT; TOP binds after ORDER BY is applied.
@@ -57,8 +61,11 @@ func TestBuildIncrementalQuery_PerDialect(t *testing.T) {
 			// Oracle: ROWNUM is assigned during predicate evaluation, BEFORE
 			// ORDER BY. It must therefore be applied to an already-ordered
 			// subquery, never in the same WHERE clause as the watermark.
+			// Identifiers are upper-cased for the same reason as Snowflake
+			// above; verified against a real Oracle server, where the
+			// lower-case form failed every statement with ORA-00904.
 			driver: "oracle",
-			want:   `SELECT * FROM (SELECT * FROM "t" WHERE "id" > :1 ORDER BY "id" ASC) WHERE ROWNUM <= 1`,
+			want:   `SELECT * FROM (SELECT * FROM "T" WHERE "ID" > :1 ORDER BY "ID" ASC) WHERE ROWNUM <= 1`,
 		},
 	}
 
@@ -159,7 +166,7 @@ func TestBuildFirstRowQuery_PerDialect(t *testing.T) {
 		{"clickhouse", `SELECT * FROM "t" LIMIT 1`},
 		{"mssql", `SELECT TOP 1 * FROM [t]`},
 		{"db2", `SELECT * FROM "t" FETCH FIRST 1 ROWS ONLY`},
-		{"oracle", `SELECT * FROM "t" WHERE ROWNUM <= 1`},
+		{"oracle", `SELECT * FROM "T" WHERE ROWNUM <= 1`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.driver, func(t *testing.T) {

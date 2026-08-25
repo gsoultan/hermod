@@ -53,8 +53,25 @@ func quoteSegment(driver, s string) string {
 		return "`" + strings.ReplaceAll(s, "`", "``") + "`"
 	case "mssql", "sqlserver":
 		return "[" + strings.ReplaceAll(s, "]", "]]") + "]"
+	case "oracle", "snowflake":
+		// Oracle and Snowflake fold *unquoted* identifiers to UPPER case —
+		// the opposite of PostgreSQL, which folds to lower. Quoting makes a
+		// name case-sensitive in every dialect, so quoting it as the user
+		// typed it means something different here: a mapping to `id` becomes
+		// "id", a lower-case column that ordinary DDL never created, and
+		// every statement fails with ORA-00904 naming a column that does not
+		// exist. Folding first makes the quoted form mean what unquoted DDL
+		// would have meant, which is what a configuration is written against.
+		//
+		// The cost is that a column deliberately created lower-case and
+		// quoted can no longer be addressed. That is rare, widely regarded as
+		// a mistake in both dialects, and a far smaller loss than every write
+		// to a conventional table failing.
+		return "\"" + strings.ToUpper(strings.ReplaceAll(s, "\"", "\"\"")) + "\""
 	default:
-		// pgx/postgres/snowflake/oracle/clickhouse/cassandra/yugabyte + safe fallback.
+		// pgx/postgres/clickhouse/cassandra/yugabyte + safe fallback: these
+		// either fold to lower case or are case-sensitive, so the name as
+		// typed is already the right one.
 		return "\"" + strings.ReplaceAll(s, "\"", "\"\"") + "\""
 	}
 }
