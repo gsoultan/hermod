@@ -92,7 +92,7 @@ func TestOracleMappedInsertUpsertAndDelete(t *testing.T) {
 		{SourceField: "$.id", TargetColumn: "id", DataType: "VARCHAR2(64)", IsPrimaryKey: true},
 		{SourceField: "$.name", TargetColumn: "name", DataType: "VARCHAR2(64)"},
 	}
-	sink := NewOracleSink(dsn, table, mappings, false, "", "", "", "upsert", false, false)
+	sink := NewOracleSink(dsn, table, mappings, false, "", "", "", "", false, false)
 	t.Cleanup(func() { _ = sink.Close() })
 
 	ctx := t.Context()
@@ -147,7 +147,7 @@ func TestAnUnsafeTableNameFromAMessageIsRefusedLive(t *testing.T) {
 	dsn, db, _ := requireOracle(t)
 
 	// Not pinned, so the name comes from the message.
-	sink := NewOracleSink(dsn, "", nil, false, "", "", "", "upsert", false, false)
+	sink := NewOracleSink(dsn, "", nil, false, "", "", "", "", false, false)
 	t.Cleanup(func() { _ = sink.Close() })
 
 	msg := message.AcquireMessage()
@@ -170,5 +170,53 @@ func TestAnUnsafeTableNameFromAMessageIsRefusedLive(t *testing.T) {
 		"SELECT count(*) FROM user_tables WHERE table_name = 'PWNED'").Scan(&count)
 	if count != 0 {
 		t.Errorf("a table matching the injected name exists")
+	}
+}
+
+// Writing into an existing, conventionally-named Oracle table.
+//
+// This is the case a real deployment starts from: the table already exists,
+// created by a DBA with ordinary unquoted DDL, so Oracle folded its column
+// names to upper case — ID, NAME. The user then maps to them the way every
+// example and every other connector in this project spells them, in lower
+// case.
+//
+// QuoteIdent quotes for Oracle exactly as it does for PostgreSQL, producing
+// "id". But the two databases fold in opposite directions: PostgreSQL folds
+// unquoted identifiers to lower case, so "id" matches the natural column,
+// while Oracle folds to UPPER case, so "id" names a different column that
+// does not exist. Every write to a conventional Oracle table therefore fails
+// with ORA-00904, and the failure names the column rather than the cause.
+func TestWritingToAnExistingConventionallyNamedTable(t *testing.T) {
+	dsn, db, table := requireOracle(t)
+
+	// Ordinary DDL, the way a DBA writes it: unquoted, so Oracle stores ID/NAME.
+	if _, err := db.ExecContext(t.Context(), fmt.Sprintf(
+		"CREATE TABLE %s (id VARCHAR2(64) PRIMARY KEY, name VARCHAR2(64))", table)); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	mappings := []sqlutil.ColumnMapping{
+		{SourceField: "$.id", TargetColumn: "id", IsPrimaryKey: true},
+		{SourceField: "$.name", TargetColumn: "name"},
+	}
+	// useExistingTable: the sink must write into the table as it stands.
+	sink := NewOracleSink(dsn, table, mappings, true, "", "", "", "", false, false)
+	t.Cleanup(func() { _ = sink.Close() })
+
+	if err := sink.Write(t.Context(), omsg(t, "a", "ada", hermod.OpCreate)); err != nil {
+		t.Fatalf("writing to an existing table with conventional column names: %v\n"+
+			"the mapping names id/name in lower case, which is how every example "+
+			"spells them; Oracle folds unquoted DDL to upper case, so quoting the "+
+			"lower-case form names a column that does not exist", err)
+	}
+
+	var name string
+	if err := db.QueryRowContext(t.Context(),
+		fmt.Sprintf("SELECT name FROM %s WHERE id = :1", table), "a").Scan(&name); err != nil {
+		t.Fatalf("reading back with ordinary SQL: %v", err)
+	}
+	if name != "ada" {
+		t.Errorf("row landed with name=%q, want ada", name)
 	}
 }

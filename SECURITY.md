@@ -223,9 +223,30 @@ statement, arriving verbatim in `CREATE TABLE hermod_it.pwned (id[,]...` — so
 that was the server refusing one shape, not the name being kept out. It now
 validates the table and quotes mapped columns.
 
-**Snowflake and Oracle are fixed, and are the two fixes not watched failing
-against a real server.** Snowflake is cloud-only; Oracle has no server reachable
-from this workstation or from CI. Read both knowing that.
+**Oracle is fixed and now verified against a real server.** A
+`gvenzl/oracle-free:23-slim` container on the workstation runs the sink's
+integration suite, including the identifier guard: a table name arriving on a
+message is refused before a statement is built, and Oracle never grows a table
+of the injected shape. That test is not wired into CI — Oracle Free wants ~2GB
+of RAM and a slow first boot, and the integration job already runs at the edge
+of a 7GB runner — so it stays a local gate until a larger runner or a hosted
+instance exists, at which point setting `ORACLE_DSN` promotes it with no test
+change.
+
+Standing that server up immediately paid for itself. It found that the sink
+could not write to a conventionally-named Oracle table **at all**: identifiers
+were quoted exactly as PostgreSQL quotes them, but Oracle folds unquoted names
+to UPPER case where PostgreSQL folds to lower, so a mapping to `id` produced
+`"id"` — a lower-case column ordinary DDL never creates — and every statement
+failed with `ORA-00904`. Snowflake folds the same way and had the same latent
+defect. Both now fold before quoting. See
+`TestQuotingFollowsTheDialectsOwnCaseFolding`.
+
+**Snowflake remains the one fix not watched failing against a real server.** It
+is cloud-only, so there is no warehouse to point it at from a workstation or
+from CI. Its casing fix above shares a mechanism with Oracle's, which *was*
+verified — but the Snowflake half of it is inference from documented folding
+behaviour, not observation. Read it knowing that.
 
 Oracle had both halves of the pattern at once: the unpinned table came from
 `msg.Table()` and went into MERGE, DELETE and CREATE TABLE unexamined, and every

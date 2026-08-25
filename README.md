@@ -654,6 +654,7 @@ which is why they were untested; anything new in that shape should provide it to
 | **Elasticsearch** | sink | Live-server tests (`ELASTICSEARCH_URL`): a document is indexed and deleted, and a document id cannot inject its own actions into the bulk stream |
 | **pgvector** | sink | Live-server tests (`PGVECTOR_DSN`): a vector is stored, upserted and deleted, and an identifier needing quotes gets them |
 | **S3 / S3-Parquet** | sink | Live MinIO tests (`S3_ENDPOINT`): an object is put, distinct messages land separately, the default key keeps every delivery while the idempotent key does not leave a second object, a batch becomes a Parquet object, and one undecodable message is named rather than wedging the batch |
+| **Oracle** | sink | Live-server tests against `gvenzl/oracle-free` (`ORACLE_DSN`, local rather than CI — the image wants ~2GB and a slow first boot): insert, upsert on redelivery and delete through the mapped path; a write into an existing, conventionally-named table; and the identifier guard asserted against the server, where an injected table name is refused and no table of that shape appears. Standing the server up is what found that the sink could not write to an ordinary Oracle table at all — identifiers were quoted PostgreSQL-style, but Oracle folds unquoted names to UPPER case, so every statement failed with `ORA-00904` |
 | **Cassandra** | sink | Live-node tests (`CASSANDRA_HOSTS`): a row lands and a delete removes it, and a table name arriving on a message is refused rather than interpolated into CQL. The Cassandra **source** is a different matter — see Experimental |
 | **MQTT** | source | Live-broker tests (`MQTT_BROKER`): a published message comes out of Read with payload and topic intact, and a 200-message burst arrives whole — the silent drop-oldest this source once had would have eaten its head |
 
@@ -662,18 +663,19 @@ which is why they were untested; anything new in that shape should provide it to
 Substantial and unit-tested, but unproven against live infrastructure in CI:
 
 **Sources** — MSSQL, gRPC, WebSocket, HTTP, BatchSQL, Excel.
-**Sinks** — Oracle, Snowflake, HTTP, WebSocket, Failover.
+**Sinks** — Snowflake, HTTP, WebSocket, Failover.
 
 The MSSQL **source** is genuinely a CDC source — it reads `CHANGETABLE` and emits
 updates and deletes — so what it lacks is coverage, not capability. The polling
 sources that were previously listed here are a different case and have moved to
 Experimental: see the inserts-only row below.
 
-**Snowflake and Oracle** carry one caveat the others do not. Their identifiers
-are validated like every other SQL sink's, but no Snowflake warehouse or Oracle
-server is reachable from CI, so those two guards are the only ones in this
-repository never watched failing against a real server. Both have tests that run
-without one — they cover the refusal rather than the resulting SQL.
+**Snowflake** carries one caveat the others do not. Its identifiers are validated
+like every other SQL sink's, but no warehouse is reachable from CI, so that guard
+is the only one in this repository never watched failing against a real server.
+It has tests that run without one — they cover the refusal rather than the
+resulting SQL. Oracle used to sit here too; standing a real server up moved it to
+GA and found a total-failure bug on the way (see its row above).
 
 **Kafka is GA for its data path but at-least-once only**, and that ceiling is not
 a coverage gap. There is no transactional producer — `segmentio/kafka-go` exposes
