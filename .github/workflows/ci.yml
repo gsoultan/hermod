@@ -85,7 +85,13 @@ jobs:
           args: --timeout=10m
       - name: Staticcheck
         run: |
-          go install honnef.co/go/tools/cmd/staticcheck@latest
+          # Pinned, not @latest. An unpinned linter makes this gate
+          # irreproducible: the same commit passes today and fails tomorrow
+          # because a new release added a check, and the failure lands on
+          # whoever happens to open the next pull request — for code they did
+          # not touch. That is exactly how it went red on the Oracle branch.
+          # Bumping this is a deliberate commit that owns the new findings.
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
           staticcheck ./...
       # The gRPC source's wire contract. CLAUDE.md has listed these two as
       # gates for some time, but there was no buf.yaml and neither had ever
