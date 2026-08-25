@@ -1,6 +1,9 @@
 package provider
 
 import (
+	"context"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
@@ -26,11 +29,13 @@ func Provider() *schema.Provider {
 		DataSourcesMap: map[string]*schema.Resource{
 			"hermod_workspace": dataSourceWorkspace(),
 		},
-		ConfigureFunc: providerConfigure,
+		// ConfigureContextFunc, not ConfigureFunc: the bare form is deprecated
+		// because it cannot carry a cancellation.
+		ConfigureContextFunc: providerConfigure,
 	}
 }
 
-func providerConfigure(d *schema.ResourceData) (any, error) {
+func providerConfigure(_ context.Context, d *schema.ResourceData) (any, diag.Diagnostics) {
 	config := Config{
 		Endpoint: d.Get("endpoint").(string),
 		Token:    d.Get("token").(string),
