@@ -73,8 +73,25 @@ jobs:
         run: go vet -tags=integration ./...
       # The suite was previously absent from CI entirely, so a red test could
       # merge unnoticed. Race detection is on because the engine is concurrent.
+      #
+      # -short excludes four load tests in internal/engine/worker that stand up
+      # 120 concurrent workflows apiece. Under Go 1.27 the race detector's
+      # shadow memory for those went from 3.10 GB to 8.73 GB — measured — and
+      # the package was killed outright on a 7GB runner, with nothing in the
+      # log naming memory. They are not dropped; they run below without the
+      # detector, where the same 120 workflows cost 1.98 GB. That split keeps
+      # both properties honestly: every concurrent path is still race-checked,
+      # and the load path is still exercised at full scale.
       - name: Test (race)
-        run: go test -race ./...
+        run: go test -race -short ./...
+      # The load tests -short skipped above, at full scale. No -race: the
+      # detector is what makes them unaffordable, not the load, and running
+      # them here means "skipped under -short" never quietly becomes "not run".
+      - name: Test (load, no race detector)
+        run: |
+          go test -count=1 -timeout 15m \
+            -run 'HeavySyncLoad|FailbackUnderLoad|RestartCycles|DoesNotLeakGoroutines' \
+            ./internal/engine/worker/
       # Gates new code only (see issues.new-from-merge-base in .golangci.yml).
       # The pre-existing backlog is reported by the nightly lint-debt job rather
       # than blocking every change.
