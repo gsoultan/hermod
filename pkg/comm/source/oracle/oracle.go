@@ -28,7 +28,10 @@ type OracleSource struct {
 	mu           sync.Mutex
 	logger       hermod.Logger
 	lastIDs      map[string]any
-	msgChan      chan hermod.Message
+	// pendingIDs is the furthest row handed to a caller, acknowledged or not.
+	// It keeps a running process moving forward; only lastIDs is persisted.
+	pendingIDs map[string]any
+	msgChan    chan hermod.Message
 }
 
 func NewOracleSource(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *OracleSource {
@@ -42,6 +45,7 @@ func NewOracleSource(connString string, tables []string, idField string, pollInt
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
 		lastIDs:      make(map[string]any),
+		pendingIDs:   make(map[string]any),
 		msgChan:      make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 	}
 }
@@ -128,7 +132,13 @@ func (o *OracleSource) Read(ctx context.Context) (hermod.Message, error) {
 
 		for _, table := range o.tables {
 			o.mu.Lock()
-			lastID := o.lastIDs[table]
+			// Poll from the furthest row handed out, acknowledged or not, so a
+			// single process does not re-read what it is already carrying. The
+			// *persisted* cursor is lastIDs, moved only by Ack.
+			lastID := o.pendingIDs[table]
+			if lastID == nil {
+				lastID = o.lastIDs[table]
+			}
 			o.mu.Unlock()
 
 			var query string
@@ -183,9 +193,20 @@ func (o *OracleSource) Read(ctx context.Context) (hermod.Message, error) {
 					}
 				}
 
+				// The watermark travels on the message; acknowledging it is
+				// what moves the persisted cursor. It must not move here:
+				// GetState is the engine's persistence contract, so a cursor
+				// advanced at read time is already past rows still in flight,
+				// and a crash before the sinks wrote them erases them from the
+				// resume. Same defect, same fix, as the ClickHouse, MongoDB,
+				// MySQL and BatchSQL sources.
+				//
+				// pendingIDs keeps the in-process poll moving forward so the
+				// next Read does not re-select the row just handed out; it is
+				// deliberately not what GetState reports.
 				if currentID != nil {
 					o.mu.Lock()
-					o.lastIDs[table] = currentID
+					o.pendingIDs[table] = currentID
 					o.mu.Unlock()
 				}
 
@@ -196,6 +217,10 @@ func (o *OracleSource) Read(ctx context.Context) (hermod.Message, error) {
 				msg.SetTable(table)
 				msg.SetAfter(afterJSON)
 				msg.SetMetadata("source", "oracle")
+				if currentID != nil {
+					msg.SetMetadata(watermarkKey, fmt.Sprintf("%v", currentID))
+					msg.SetMetadata(watermarkTableKey, table)
+				}
 
 				return msg, nil
 			}
@@ -319,7 +344,29 @@ func (o *OracleSource) SetState(state map[string]string) {
 	}
 }
 
+// watermarkKey and watermarkTableKey carry the row's incremental value and the
+// table it came from, so an Ack can move the cursor without the source having
+// to guess which read it belonged to.
+const (
+	watermarkKey      = "oracle_last_id"
+	watermarkTableKey = "oracle_table"
+)
+
+// Ack moves the persisted cursor to the acknowledged row.
 func (o *OracleSource) Ack(ctx context.Context, msg hermod.Message) error {
+	// A nil ack is fed to every source by the conformance suite, because a
+	// worker goroutine dereferencing one takes the engine down.
+	if msg == nil {
+		return nil
+	}
+	md := msg.Metadata()
+	id, table := md[watermarkKey], md[watermarkTableKey]
+	if id == "" || table == "" {
+		return nil
+	}
+	o.mu.Lock()
+	o.lastIDs[table] = id
+	o.mu.Unlock()
 	return nil
 }
 
