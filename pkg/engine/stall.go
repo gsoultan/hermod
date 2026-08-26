@@ -313,9 +313,17 @@ func (e *Engine) hasSinks() bool {
 // signal it exists to raise.
 const unroutableWarnInterval = 30 * time.Second
 
-// reportUnroutable reports messages that were acknowledged and dropped because
-// the workflow resolved no sink for them, at most once per interval, with a
-// running total so the scale of the loss is visible.
+// reportUnroutable reports messages the workflow resolved no sink for, at most
+// once per interval, with a running total so the scale is visible.
+//
+// The wording follows what actually happens next, because the two outcomes
+// could not be more different for the operator reading it. With a dead-letter
+// sink the message is parked there and the source is acknowledged: nothing is
+// lost, look in the DLQ. Without one the message is deliberately NOT
+// acknowledged — it stays on the source and is redelivered on the next run.
+// This line used to claim "the source has been acknowledged" unconditionally,
+// which for the no-DLQ branch told the operator their data was gone at the
+// exact moment the engine was preserving it.
 func (e *Engine) reportUnroutable(m hermod.Message) {
 	e.unroutableCount.Add(1)
 
@@ -332,9 +340,16 @@ func (e *Engine) reportUnroutable(m hermod.Message) {
 	if m != nil {
 		id = m.ID()
 	}
-	e.logger.Error("Messages acknowledged but delivered nowhere: the workflow has sinks but resolved no target",
+	hint := "no dead-letter sink is configured; these messages are NOT acknowledged — " +
+		"they remain on the source and will be redelivered, which retains WAL/queue " +
+		"backlog until a sink target resolves again"
+	if e.deadLetterSink != nil {
+		hint = "these messages are parked in the dead-letter sink and the source is " +
+			"acknowledged; recover them from the DLQ"
+	}
+	e.logger.Error("Messages delivered nowhere: the workflow has sinks but resolved no target",
 		"workflow_id", e.workflowID,
 		"dropped_total", e.unroutableCount.Load(),
 		"example_message_id", id,
-		"hint", "a sink is likely unreachable; these messages are NOT in a dead-letter queue and the source has been acknowledged")
+		"hint", hint)
 }
