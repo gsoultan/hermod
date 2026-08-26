@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/user/hermod/pkg/comm/message"
 	_ "modernc.org/sqlite"
 )
 
@@ -163,5 +164,34 @@ func TestAckOfNilDoesNotPanic(t *testing.T) {
 
 	if err := src.Ack(t.Context(), nil); err != nil {
 		t.Fatalf("ack(nil): %v", err)
+	}
+}
+
+// A watermark that cannot be parsed must leave the cursor alone rather than
+// clearing it or advancing past the row.
+//
+// This source writes the value itself with FormatInt, so an unparseable one
+// means the metadata was rewritten or dropped downstream. Leaving the cursor
+// put redelivers the row, which is the safe direction; skipping it would lose
+// it, and returning an error would tell the engine the acknowledgement failed
+// and have it present the same message forever.
+func TestAnUnparseableWatermarkLeavesTheCursorAlone(t *testing.T) {
+	path, table := numberedDB(t, 2)
+	src := NewSQLiteSource(path, []string{table}, true)
+	t.Cleanup(func() { _ = src.Close() })
+
+	src.SetState(map[string]string{table: "1"})
+
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	msg.SetID("corrupt")
+	msg.SetTable(table)
+	msg.SetMetadata(watermarkKey, "not-a-rowid")
+
+	if err := src.Ack(t.Context(), msg); err != nil {
+		t.Fatalf("ack: %v", err)
+	}
+	if got := src.GetState()[table]; got != "1" {
+		t.Errorf("an unparseable watermark moved the cursor to %q, want it left at 1", got)
 	}
 }

@@ -191,6 +191,28 @@ func (s *SQLiteSource) init(ctx context.Context) error {
 // the source having to guess which read it belonged to.
 const watermarkKey = "sqlite_rowid"
 
+// parseWatermark reads the rowid a message is carrying, reporting whether it
+// found a usable one.
+//
+// Absent and unparseable are deliberately the same answer, and it is not an
+// error to return: this source writes the value itself with FormatInt, so a
+// value that will not parse means the metadata was rewritten or dropped
+// somewhere downstream. The safe response to a watermark that cannot be
+// trusted is to leave the cursor where it is, which redelivers the row rather
+// than skipping it. Returning an error instead would tell the engine the
+// acknowledgement failed, and it would keep presenting the same message
+// forever.
+func parseWatermark(raw string) (int64, bool) {
+	if raw == "" {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
+}
+
 // Ack moves the persisted cursor to the acknowledged row. It must not move on
 // read: GetState is the engine's persistence contract, so a cursor advanced
 // when a row is handed out is already past rows still in flight, and a crash
@@ -201,16 +223,9 @@ func (s *SQLiteSource) Ack(ctx context.Context, msg hermod.Message) error {
 	if msg == nil {
 		return nil
 	}
-	raw := msg.Metadata()[watermarkKey]
-	if raw == "" {
-		return nil
-	}
-	id, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil {
-		return nil
-	}
 	table := msg.Table()
-	if table == "" {
+	id, ok := parseWatermark(msg.Metadata()[watermarkKey])
+	if table == "" || !ok {
 		return nil
 	}
 	s.mu.Lock()
