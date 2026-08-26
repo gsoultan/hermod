@@ -32,7 +32,7 @@ linters:
     - gocyclo        # Cyclomatic complexity.
     - funlen         # Function length limit.
     - gocognit       # Cognitive complexity.
-    # --- Modernization (Go 1.26 idioms) ---
+    # --- Modernization (Go 1.27 idioms) ---
     - usestdlibvars  # Encourages using stdlib constants/vars.
     - perfsprint     # Encourages faster alternatives to fmt.Sprintf.
 
