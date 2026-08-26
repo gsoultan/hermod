@@ -29,7 +29,10 @@ type MariaDBSource struct {
 	mu           sync.Mutex
 	logger       hermod.Logger
 	lastIDs      map[string]any
-	msgChan      chan hermod.Message
+	// pendingIDs is the furthest row handed to a caller, acknowledged or
+	// not. It keeps a running poll moving forward; only lastIDs is persisted.
+	pendingIDs map[string]any
+	msgChan    chan hermod.Message
 }
 
 func NewMariaDBSource(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *MariaDBSource {
@@ -43,6 +46,7 @@ func NewMariaDBSource(connString string, tables []string, idField string, pollIn
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
 		lastIDs:      make(map[string]any),
+		pendingIDs:   make(map[string]any),
 		msgChan:      make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 	}
 }
@@ -131,7 +135,19 @@ func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 
 		for _, table := range m.tables {
 			m.mu.Lock()
-			lastID := m.lastIDs[table]
+			// Poll from the furthest row handed out, acknowledged or not, so a
+
+			// single process does not re-read what it is already carrying. The
+
+			// *persisted* cursor is lastIDs, moved only by Ack.
+
+			lastID := m.pendingIDs[table]
+
+			if lastID == nil {
+
+				lastID = m.lastIDs[table]
+
+			}
 			m.mu.Unlock()
 
 			var query string
@@ -185,7 +201,7 @@ func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 
 				if currentID != nil {
 					m.mu.Lock()
-					m.lastIDs[table] = currentID
+					m.pendingIDs[table] = currentID
 					m.mu.Unlock()
 				}
 
@@ -196,6 +212,10 @@ func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 				msg.SetTable(table)
 				msg.SetAfter(afterJSON)
 				msg.SetMetadata("source", "mariadb")
+				if currentID != nil {
+					msg.SetMetadata(watermarkKey, fmt.Sprintf("%v", currentID))
+					msg.SetMetadata(watermarkTableKey, table)
+				}
 
 				return msg, nil
 			}
@@ -324,7 +344,32 @@ func (m *MariaDBSource) SetState(state map[string]string) {
 	}
 }
 
+// watermarkKey and watermarkTableKey carry the row's incremental value and
+// the table it came from, so an Ack can move the cursor without the source
+// having to guess which read it belonged to.
+const (
+	watermarkKey      = "mariadb_last_id"
+	watermarkTableKey = "mariadb_table"
+)
+
+// Ack moves the persisted cursor to the acknowledged row. It must not move on
+// read: GetState is the engine's persistence contract, so a cursor advanced
+// when a row is handed out is already past rows still in flight, and a crash
+// before the sinks wrote them erases them from the resume.
 func (m *MariaDBSource) Ack(ctx context.Context, msg hermod.Message) error {
+	// The conformance suite feeds every source a nil ack, because a worker
+	// goroutine dereferencing one takes the engine down.
+	if msg == nil {
+		return nil
+	}
+	md := msg.Metadata()
+	id, table := md[watermarkKey], md[watermarkTableKey]
+	if id == "" || table == "" {
+		return nil
+	}
+	m.mu.Lock()
+	m.lastIDs[table] = id
+	m.mu.Unlock()
 	return nil
 }
 

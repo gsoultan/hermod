@@ -28,7 +28,10 @@ type DB2Source struct {
 	mu           sync.Mutex
 	logger       hermod.Logger
 	lastIDs      map[string]any
-	msgChan      chan hermod.Message
+	// pendingIDs is the furthest row handed to a caller, acknowledged or
+	// not. It keeps a running poll moving forward; only lastIDs is persisted.
+	pendingIDs map[string]any
+	msgChan    chan hermod.Message
 }
 
 func NewDB2Source(connString string, tables []string, idField string, pollInterval time.Duration, useCDC bool) *DB2Source {
@@ -42,6 +45,7 @@ func NewDB2Source(connString string, tables []string, idField string, pollInterv
 		pollInterval: pollInterval,
 		useCDC:       useCDC,
 		lastIDs:      make(map[string]any),
+		pendingIDs:   make(map[string]any),
 		msgChan:      make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 	}
 }
@@ -130,7 +134,19 @@ func (d *DB2Source) Read(ctx context.Context) (hermod.Message, error) {
 
 		for _, table := range d.tables {
 			d.mu.Lock()
-			lastID := d.lastIDs[table]
+			// Poll from the furthest row handed out, acknowledged or not, so a
+
+			// single process does not re-read what it is already carrying. The
+
+			// *persisted* cursor is lastIDs, moved only by Ack.
+
+			lastID := d.pendingIDs[table]
+
+			if lastID == nil {
+
+				lastID = d.lastIDs[table]
+
+			}
 			d.mu.Unlock()
 
 			var query string
@@ -184,7 +200,7 @@ func (d *DB2Source) Read(ctx context.Context) (hermod.Message, error) {
 
 				if currentID != nil {
 					d.mu.Lock()
-					d.lastIDs[table] = currentID
+					d.pendingIDs[table] = currentID
 					d.mu.Unlock()
 				}
 
@@ -195,6 +211,10 @@ func (d *DB2Source) Read(ctx context.Context) (hermod.Message, error) {
 				msg.SetTable(table)
 				msg.SetAfter(afterJSON)
 				msg.SetMetadata("source", "db2")
+				if currentID != nil {
+					msg.SetMetadata(watermarkKey, fmt.Sprintf("%v", currentID))
+					msg.SetMetadata(watermarkTableKey, table)
+				}
 
 				return msg, nil
 			}
@@ -318,7 +338,32 @@ func (d *DB2Source) SetState(state map[string]string) {
 	}
 }
 
+// watermarkKey and watermarkTableKey carry the row's incremental value and
+// the table it came from, so an Ack can move the cursor without the source
+// having to guess which read it belonged to.
+const (
+	watermarkKey      = "db2_last_id"
+	watermarkTableKey = "db2_table"
+)
+
+// Ack moves the persisted cursor to the acknowledged row. It must not move on
+// read: GetState is the engine's persistence contract, so a cursor advanced
+// when a row is handed out is already past rows still in flight, and a crash
+// before the sinks wrote them erases them from the resume.
 func (d *DB2Source) Ack(ctx context.Context, msg hermod.Message) error {
+	// The conformance suite feeds every source a nil ack, because a worker
+	// goroutine dereferencing one takes the engine down.
+	if msg == nil {
+		return nil
+	}
+	md := msg.Metadata()
+	id, table := md[watermarkKey], md[watermarkTableKey]
+	if id == "" || table == "" {
+		return nil
+	}
+	d.mu.Lock()
+	d.lastIDs[table] = id
+	d.mu.Unlock()
 	return nil
 }
 
