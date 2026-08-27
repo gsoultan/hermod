@@ -26,16 +26,20 @@ type SQLiteSource struct {
 	db      *sql.DB
 	mu      sync.Mutex
 	lastIDs map[string]int64
-	msgChan chan hermod.Message
+	// pendingIDs is the furthest rowid handed to a caller, acknowledged or not.
+	// It keeps a running poll moving forward; only lastIDs is persisted.
+	pendingIDs map[string]int64
+	msgChan    chan hermod.Message
 }
 
 func NewSQLiteSource(dbPath string, tables []string, useCDC bool) *SQLiteSource {
 	return &SQLiteSource{
-		dbPath:  dbPath,
-		tables:  tables,
-		useCDC:  useCDC,
-		lastIDs: make(map[string]int64),
-		msgChan: make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
+		dbPath:     dbPath,
+		tables:     tables,
+		useCDC:     useCDC,
+		lastIDs:    make(map[string]int64),
+		pendingIDs: make(map[string]int64),
+		msgChan:    make(chan hermod.Message, sourcebuf.DefaultSourceBuffer),
 	}
 }
 
@@ -72,7 +76,13 @@ func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
 
 		for _, table := range s.tables {
 			s.mu.Lock()
-			lastID := s.lastIDs[table]
+			// Poll from the furthest row handed out, acknowledged or not, so a
+			// single process does not re-read what it is already carrying. The
+			// *persisted* cursor is lastIDs, moved only by Ack.
+			lastID, ok := s.pendingIDs[table]
+			if !ok {
+				lastID = s.lastIDs[table]
+			}
 			s.mu.Unlock()
 
 			query := fmt.Sprintf("SELECT rowid AS _hermod_rowid, * FROM %s WHERE rowid > %d ORDER BY rowid ASC LIMIT 1", table, lastID)
@@ -110,8 +120,14 @@ func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
 					}
 				}
 
+				// The watermark travels on the message; acknowledging it is
+				// what moves the persisted cursor. It must not move here:
+				// GetState is the engine's persistence contract, so a cursor
+				// advanced at read time is already past rows still in flight,
+				// and a crash before the sinks wrote them erases them from the
+				// resume.
 				s.mu.Lock()
-				s.lastIDs[table] = currentRowID
+				s.pendingIDs[table] = currentRowID
 				s.mu.Unlock()
 
 				msg := message.AcquireMessage()
@@ -122,6 +138,7 @@ func (s *SQLiteSource) Read(ctx context.Context) (hermod.Message, error) {
 					msg.SetData(k, v)
 				}
 				msg.SetMetadata("source", "sqlite")
+				msg.SetMetadata(watermarkKey, strconv.FormatInt(currentRowID, 10))
 				return msg, nil
 			}
 			rows.Close()
@@ -170,8 +187,50 @@ func (s *SQLiteSource) init(ctx context.Context) error {
 	return nil
 }
 
+// watermarkKey carries the row's rowid, so an Ack can move the cursor without
+// the source having to guess which read it belonged to.
+const watermarkKey = "sqlite_rowid"
+
+// parseWatermark reads the rowid a message is carrying, reporting whether it
+// found a usable one.
+//
+// Absent and unparseable are deliberately the same answer, and it is not an
+// error to return: this source writes the value itself with FormatInt, so a
+// value that will not parse means the metadata was rewritten or dropped
+// somewhere downstream. The safe response to a watermark that cannot be
+// trusted is to leave the cursor where it is, which redelivers the row rather
+// than skipping it. Returning an error instead would tell the engine the
+// acknowledgement failed, and it would keep presenting the same message
+// forever.
+func parseWatermark(raw string) (int64, bool) {
+	if raw == "" {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
+}
+
+// Ack moves the persisted cursor to the acknowledged row. It must not move on
+// read: GetState is the engine's persistence contract, so a cursor advanced
+// when a row is handed out is already past rows still in flight, and a crash
+// before the sinks wrote them erases them from the resume.
 func (s *SQLiteSource) Ack(ctx context.Context, msg hermod.Message) error {
-	// Acknowledgement logic for SQLite if needed (e.g. updating a watermark table)
+	// The conformance suite feeds every source a nil ack, because a worker
+	// goroutine dereferencing one takes the engine down.
+	if msg == nil {
+		return nil
+	}
+	table := msg.Table()
+	id, ok := parseWatermark(msg.Metadata()[watermarkKey])
+	if table == "" || !ok {
+		return nil
+	}
+	s.mu.Lock()
+	s.lastIDs[table] = id
+	s.mu.Unlock()
 	return nil
 }
 
