@@ -34,7 +34,10 @@ type Source struct {
 	token  string
 	expiry time.Time
 	lastID string
-	mu     sync.RWMutex
+	// pendingID is the furthest record handed to a caller, acknowledged or
+	// not. It keeps a running poll moving forward; only lastID is persisted.
+	pendingID string
+	mu        sync.RWMutex
 }
 
 func NewSource(config SourceConfig, logger hermod.Logger) *Source {
@@ -110,7 +113,13 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 
 	s.mu.RLock()
 	token := s.token
-	lastID := s.lastID
+	// Poll from the furthest record handed out, acknowledged or not, so a
+	// single process does not re-read what it is already carrying. The
+	// *persisted* cursor is lastID, moved only by Ack.
+	lastID := s.pendingID
+	if lastID == "" {
+		lastID = s.lastID
+	}
 	s.mu.RUnlock()
 
 	// Build Web API URL
@@ -183,14 +192,25 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 	// Update lastID for delta tracking
 	if s.config.IDField != "" {
 		if val, ok := record[s.config.IDField]; ok {
+			// The watermark travels on the message; acknowledging it is
+			// what moves the persisted cursor. It must not move here:
+			// GetState is the engine's persistence contract, so a cursor
+			// advanced at read time is already past records still in
+			// flight, and a crash before the sinks wrote them erases them
+			// from the resume.
 			s.mu.Lock()
-			s.lastID = fmt.Sprintf("%v", val)
+			s.pendingID = fmt.Sprintf("%v", val)
 			s.mu.Unlock()
 		}
 	}
 
 	msg := message.AcquireMessage()
 	msg.SetID(fmt.Sprintf("d365_%d", time.Now().UnixNano()))
+	if s.config.IDField != "" {
+		if val, ok := record[s.config.IDField]; ok {
+			msg.SetMetadata(watermarkKey, fmt.Sprintf("%v", val))
+		}
+	}
 	for k, v := range record {
 		msg.SetData(k, v)
 	}
@@ -198,7 +218,27 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 	return msg, nil
 }
 
+// watermarkKey carries the record's ID-field value, so an Ack can move the
+// cursor without the source having to guess which read it belonged to.
+const watermarkKey = "dynamics365_last_id"
+
+// Ack moves the persisted cursor to the acknowledged record. It must not move
+// on read: GetState is the engine's persistence contract, so a cursor advanced
+// when a record is handed out is already past records still in flight, and a
+// crash before the sinks wrote them erases them from the resume.
 func (s *Source) Ack(ctx context.Context, msg hermod.Message) error {
+	// The conformance suite feeds every source a nil ack, because a worker
+	// goroutine dereferencing one takes the engine down.
+	if msg == nil {
+		return nil
+	}
+	id := msg.Metadata()[watermarkKey]
+	if id == "" {
+		return nil
+	}
+	s.mu.Lock()
+	s.lastID = id
+	s.mu.Unlock()
 	return nil
 }
 
