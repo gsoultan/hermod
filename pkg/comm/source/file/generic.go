@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,15 +18,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/user/hermod/pkg/infra/httpclient"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	goftp "github.com/jlaffaye/ftp"
 	sftp "github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
+
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
-	"golang.org/x/crypto/ssh"
 )
 
 // Backend enumerates supported storage backends for files.
@@ -152,7 +156,7 @@ func (s *GenericFileSource) Ping(ctx context.Context) error {
 		for k, v := range s.cfg.Headers {
 			req.Header.Set(k, v)
 		}
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := httpclient.DataClient.Do(req)
 		if err != nil {
 			return err
 		}
@@ -633,7 +637,7 @@ func (s *GenericFileSource) readFileBytes(ctx context.Context, ref *fileRef) ([]
 		for k, v := range s.cfg.Headers {
 			req.Header.Set(k, v)
 		}
-		resp, e := http.DefaultClient.Do(req)
+		resp, e := httpclient.DataClient.Do(req)
 		if e != nil {
 			return nil, nil, e
 		}
