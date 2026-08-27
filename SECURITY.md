@@ -136,6 +136,40 @@ request. The trade is deliberate, which is why the interval is short rather than
 absent. On a single instance — the default — there is no window. Entries are
 dropped once the token would have expired anyway, which is what bounds the list.
 
+### Request-level denial of service
+
+The API server sets its own timeouts, because Go's `http.Server` has none by
+default and this one had none set — only `Addr` and `Handler`. A client that
+opens a connection and then dribbles its request headers a byte at a time was
+held for as long as it liked; enough such connections exhaust the server
+without ever completing a request. That is Slowloris, and the Dockerfile
+`EXPOSE`s this port directly, so the default deployment has no reverse proxy
+to absorb it.
+
+| Setting | Value | Why |
+| :--- | :--- | :--- |
+| `ReadHeaderTimeout` | 20s | Bounds the part that must be fast. Long enough for a slow mobile client, short enough that a stalled one cannot hold a slot. |
+| `IdleTimeout` | 120s | Reclaims idle keep-alive connections between requests. |
+| `MaxHeaderBytes` | Go default (1MB) | Stated explicitly so it is a decision rather than an inheritance. |
+| `MaxHeaderValueCount` | Go default (500) | New in Go 1.27. A client repeating one header thousands of times is a cheap way to make the server allocate. |
+
+**`WriteTimeout` and `ReadTimeout` are deliberately not set.** Both apply to the
+whole exchange, and this server also carries the UI's WebSockets
+(`/api/ws/live` and the rest) and Server-Sent Events, which are long-lived by
+design. Either would sever a working stream mid-flight on a timer. The two
+settings above touch only the header phase and the idle phase, so no stream in
+progress is affected.
+
+Verified against a real socket rather than by reading the struct:
+`TestAClientThatDribblesHeadersIsDisconnected` in `cmd/hermod` opens a
+connection, sends a partial header set and never terminates it, and requires
+the server to hang up. With the timeout removed the same test waits five
+seconds and fails, which is what makes it evidence.
+
+**Residual:** a request *body* is still unbounded in time, deliberately — large
+imports and uploads may legitimately take a while. A deployment that does not
+need slow uploads should put a proxy in front with a body timeout.
+
 ### Remaining hardening, in priority order
 
 1. **Cross-instance revocation timing.** A revocation is immediate on the
