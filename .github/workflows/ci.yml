@@ -84,14 +84,21 @@ jobs:
       # and the load path is still exercised at full scale.
       - name: Test (race)
         run: go test -race -short ./...
-      # The load tests -short skipped above, at full scale. No -race: the
-      # detector is what makes them unaffordable, not the load, and running
-      # them here means "skipped under -short" never quietly becomes "not run".
-      - name: Test (load, no race detector)
+      # Everything -short skips above, at full scale. No -race: the detector is
+      # what makes these unaffordable, not the work they do, and running them
+      # here means "skipped under -short" never quietly becomes "not run" —
+      # which is how the integration tests in this repository had already
+      # stopped compiling unnoticed once.
+      #
+      # This is every test in the tree guarded by testing.Short(), not just the
+      # four worker ones that forced the split: the registry's heavy-load test
+      # and both property tests over random pipeline topologies are guarded too,
+      # and dropping those would trade a memory problem for a coverage one.
+      - name: Test (load and property, no race detector)
         run: |
-          go test -count=1 -timeout 15m \
-            -run 'HeavySyncLoad|FailbackUnderLoad|RestartCycles|DoesNotLeakGoroutines' \
-            ./internal/engine/worker/
+          go test -count=1 -timeout 20m \
+            -run 'HeavySyncLoad|FailbackUnderLoad|RestartCycles|DoesNotLeakGoroutines|TestHeavyLoad|AcrossRandomTopologies' \
+            ./internal/engine/worker/ ./internal/engine/registry/
       # Gates new code only (see issues.new-from-merge-base in .golangci.yml).
       # The pre-existing backlog is reported by the nightly lint-debt job rather
       # than blocking every change.
@@ -859,7 +866,13 @@ jobs:
         # The timeout goes up with it: -race costs roughly 2-5x in wall clock,
         # and a suite that starts timing out is a suite that gets its gate
         # removed.
-        run: go test -tags=integration -race -count=1 -timeout 30m ./...
+        # -short for the same reason as the unit job: the four worker load
+        # tests stand up 120 concurrent workflows each, and under Go 1.27 the
+        # race detector's shadow memory for them is 8.73 GB against a 7GB
+        # runner. This job runs every package too, so it hits the same wall —
+        # it did, with the same "runner has received a shutdown signal" and no
+        # mention of memory. They run un-raced in the unit job's load step.
+        run: go test -tags=integration -race -short -count=1 -timeout 30m ./...
 
   # The browser E2E job that used to live here is gone, and so is the last spec
   # in it. production_grade.spec.ts was the only one left: its UI half was
