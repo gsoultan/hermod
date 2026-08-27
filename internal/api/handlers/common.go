@@ -502,7 +502,7 @@ func allowedCORSOrigins() []string {
 		return nil
 	}
 	var out []string
-	for _, o := range strings.Split(raw, ",") {
+	for o := range strings.SplitSeq(raw, ",") {
 		if o = strings.TrimSpace(o); o != "" {
 			out = append(out, o)
 		}
@@ -810,8 +810,8 @@ func (h *Handler) IsOriginAllowed(origin, referer, allowed string) bool {
 	if allowed == "" {
 		return true
 	}
-	allowedList := strings.Split(allowed, ",")
-	for _, a := range allowedList {
+	allowedList := strings.SplitSeq(allowed, ",")
+	for a := range allowedList {
 		a = strings.TrimSpace(a)
 		if a == "" {
 			continue

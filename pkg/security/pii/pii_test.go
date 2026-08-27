@@ -1,6 +1,7 @@
 package pii
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -72,13 +73,7 @@ func TestEngine_Discover(t *testing.T) {
 			}
 			// Simplified check
 			for _, exp := range tt.expected {
-				found := false
-				for _, g := range got {
-					if g == exp {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(got, exp)
 				if !found {
 					t.Errorf("Discover() did not find %s", exp)
 				}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"strings"
 	"sync"
 	"text/template"
@@ -70,25 +71,19 @@ func (s *SmtpSink) Write(ctx context.Context, msg hermod.Message) error {
 
 	// Create a copy of the data and add system fields for the template
 	templateData := make(map[string]any)
-	for k, v := range data {
-		templateData[k] = v
-	}
+	maps.Copy(templateData, data)
 
 	// If no structured data provided, try to unmarshal payload JSON for convenience
 	if len(templateData) == 0 && len(msg.Payload()) > 0 {
 		var payloadMap map[string]any
 		payload := msg.Payload()
 		if err := json.Unmarshal(payload, &payloadMap); err == nil {
-			for k, v := range payloadMap {
-				templateData[k] = v
-			}
+			maps.Copy(templateData, payloadMap)
 		} else {
 			// Try once more with a more lenient approach (handling trailing commas)
 			if cleaned := message.TryFixJSON(payload); cleaned != nil {
 				if err := json.Unmarshal(cleaned, &payloadMap); err == nil {
-					for k, v := range payloadMap {
-						templateData[k] = v
-					}
+					maps.Copy(templateData, payloadMap)
 				}
 			}
 		}
@@ -141,8 +136,8 @@ func (s *SmtpSink) Write(ctx context.Context, msg hermod.Message) error {
 				return fmt.Errorf("failed to render recipient template %s: %w", recipient, err)
 			}
 			// Split by comma in case the template variable contains multiple emails
-			parts := strings.Split(rendered, ",")
-			for _, p := range parts {
+			parts := strings.SplitSeq(rendered, ",")
+			for p := range parts {
 				trimmed := strings.TrimSpace(p)
 				if trimmed == "" || strings.EqualFold(trimmed, "<no value>") {
 					continue // skip unresolved or empty values

@@ -14,7 +14,7 @@ import (
 func TestHttpSinkCompression(t *testing.T) {
 	testData := "this is a long enough message to trigger compression. "
 	var testDataSb15 strings.Builder
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		testDataSb15.WriteString("more data to make it much larger than 1024 bytes ")
 	}
 	testData += testDataSb15.String()

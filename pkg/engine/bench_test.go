@@ -115,7 +115,7 @@ func runThroughput(b *testing.B, count int64, payloadBytes int, cfg config.Confi
 	var snk hermod.Sink
 	var done chan struct{}
 	if useBatch {
-		bs := &nullBatchSink{nullSink: nullSink{done: make(chan struct{}), target: count}}
+		bs := &nullBatchSink{done: make(chan struct{}), target: count}
 		snk, done = bs, bs.done
 	} else {
 		ns := newNullSink(count)

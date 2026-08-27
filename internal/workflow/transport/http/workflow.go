@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -340,8 +341,8 @@ func (h *WorkflowHandler) HandleAISuggestMapping(w http.ResponseWriter, r *http.
 	lcs := func(a, b string) int {
 		na, nb := len(a), len(b)
 		best := 0
-		for i := 0; i < na; i++ {
-			for j := 0; j < nb; j++ {
+		for i := range na {
+			for j := range nb {
 				k := 0
 				for i+k < na && j+k < nb && a[i+k] == b[j+k] {
 					k++
@@ -480,9 +481,7 @@ func (h *WorkflowHandler) RunNodeUnitTests(w http.ResponseWriter, r *http.Reques
 			Config: make(map[string]any),
 		}
 		if targetNode.Config != nil {
-			for k, v := range targetNode.Config {
-				trans.Config[k] = v
-			}
+			maps.Copy(trans.Config, targetNode.Config)
 		}
 		// If it's a subType like "mapping", the engine needs that
 		if subType, ok := targetNode.Config["transType"].(string); ok {

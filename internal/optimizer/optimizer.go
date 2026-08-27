@@ -3,6 +3,7 @@ package optimizer
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/rand"
 	"sync"
 	"time"
@@ -73,9 +74,7 @@ func (o *Optimizer) Unregister(id string) {
 func (o *Optimizer) optimizeAll() {
 	o.mu.Lock()
 	engines := make(map[string]*engine.Engine)
-	for id, e := range o.registry {
-		engines[id] = e
-	}
+	maps.Copy(engines, o.registry)
 	o.mu.Unlock()
 
 	for id, e := range engines {
@@ -127,25 +126,16 @@ func (o *Optimizer) optimizeEngine(id string, e *engine.Engine) {
 
 			e.UpdateSinkConfig(sinkID, func(cfg *config.SinkConfig) {
 				// Increase batch size to handle more volume per request
-				cfg.BatchSize = int(float64(cfg.BatchSize) * 1.2)
-				if cfg.BatchSize > 10000 {
-					cfg.BatchSize = 10000
-				}
+				cfg.BatchSize = min(int(float64(cfg.BatchSize)*1.2), 10000)
 				// Slightly increase timeout to allow filling larger batches
-				cfg.BatchTimeout = time.Duration(float64(cfg.BatchTimeout) * 1.1)
-				if cfg.BatchTimeout > 2*time.Second {
-					cfg.BatchTimeout = 2 * time.Second
-				}
+				cfg.BatchTimeout = min(time.Duration(float64(cfg.BatchTimeout)*1.1), 2*time.Second)
 			})
 		} else if fill < 0.1 && status.ProcessedCount > 1000 {
 			// If buffer is very empty and we have processed enough messages (not just starting),
 			// maybe we can reduce batch size to improve latency.
 			e.UpdateSinkConfig(sinkID, func(cfg *config.SinkConfig) {
 				if cfg.BatchSize > 10 {
-					cfg.BatchSize = int(float64(cfg.BatchSize) * 0.8)
-					if cfg.BatchSize < 10 {
-						cfg.BatchSize = 10
-					}
+					cfg.BatchSize = max(int(float64(cfg.BatchSize)*0.8), 10)
 				}
 			})
 		}

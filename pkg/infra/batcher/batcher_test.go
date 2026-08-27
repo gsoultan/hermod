@@ -28,7 +28,7 @@ func TestBatcher(t *testing.T) {
 	results := make([]int, numRequests)
 	errs := make([]error, numRequests)
 
-	for i := 0; i < numRequests; i++ {
+	for i := range numRequests {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -47,7 +47,7 @@ func TestBatcher(t *testing.T) {
 		t.Errorf("Expected 2 batch calls (10 requests, batch size 5), got %d", callCount)
 	}
 
-	for i := 0; i < numRequests; i++ {
+	for i := range numRequests {
 		if errs[i] != nil {
 			t.Errorf("Request %d failed: %v", i, errs[i])
 		}

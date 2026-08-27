@@ -278,8 +278,8 @@ func TestEngineAck(t *testing.T) {
 
 	ackCalled := make(chan string, 1)
 	source := &ackMockSource{
-		mockSource: mockSource{msg: msg},
-		ackCalled:  ackCalled,
+		msg:       msg,
+		ackCalled: ackCalled,
 	}
 	sink := &mockSink{received: make(chan hermod.Message, 1)}
 	rb := buffer.NewRingBuffer(10)
@@ -607,9 +607,7 @@ func TestEngineValidation(t *testing.T) {
 
 	source := &mockSource{msg: msg}
 	sink := &validatingMockSink{
-		mockSink: mockSink{
-			received: make(chan hermod.Message, 10),
-		},
+		received: make(chan hermod.Message, 10),
 		validateFunc: func(msg hermod.Message) error {
 			if msg.Data()["status"] == "invalid" {
 				return errors.New("invalid payload")
@@ -736,7 +734,7 @@ func TestSinkWriter_BatchBytesFlush(t *testing.T) {
 	go sw.run(ctx)
 
 	// Send three messages: 4 + 4 + 4 bytes => 12 >= 10 triggers flush
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		m := message.AcquireMessage()
 		m.SetID(fmt.Sprintf("m-%d", i))
 		m.SetPayload([]byte("dddd")) // 4 bytes
@@ -853,7 +851,7 @@ func TestSinkWriter_PerKeyShardingOrder(t *testing.T) {
 			if len(got) != countPerKey {
 				t.Fatalf("key %s: expected %d items, got %d", k, countPerKey, len(got))
 			}
-			for i := 0; i < countPerKey; i++ {
+			for i := range countPerKey {
 				expected := fmt.Sprintf("%s-%02d", k, i)
 				if got[i] != expected {
 					t.Fatalf("key %s: expected order %s at pos %d, got %s", k, expected, i, got[i])

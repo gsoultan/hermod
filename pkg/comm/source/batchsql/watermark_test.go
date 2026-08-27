@@ -146,7 +146,7 @@ func TestARestartResumesFromTheAcknowledgedRow(t *testing.T) {
 	resumed.SetState(carried)
 
 	var names []string
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		msg, err := resumed.Read(ctx)
 		if err != nil {
 			t.Fatalf("read after restart: %v", err)

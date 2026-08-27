@@ -236,7 +236,7 @@ func decodeFromBytes(data []byte) (*message.DefaultMessage, error) {
 	}
 	metaCount := binary.LittleEndian.Uint32(data[offset : offset+4])
 	offset += 4
-	for i := uint32(0); i < metaCount; i++ {
+	for range metaCount {
 		k, err := readString()
 		if err != nil {
 			return nil, err

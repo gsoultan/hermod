@@ -117,7 +117,7 @@ func TestE2E_PgBouncer_Real(t *testing.T) {
 	defer reg.StopEngine(ctx, wfID)
 
 	// 4.5 High Traffic: Insert 1000 more rows
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		_, err = sourceDB.Exec("INSERT INTO test_data (name, value) VALUES ($1, $2)", fmt.Sprintf("item_%d", i), i)
 		if err != nil {
 			t.Fatalf("Failed to insert high traffic data: %v", err)

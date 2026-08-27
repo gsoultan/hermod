@@ -14,8 +14,8 @@ type FailoverSink struct {
 	primary   hermod.Sink
 	fallbacks []hermod.Sink
 	logger    hermod.Logger
-	strategy  string // "failover" (default), "round-robin"
-	counter   uint64 // For round-robin
+	strategy  string        // "failover" (default), "round-robin"
+	counter   atomic.Uint64 // For round-robin
 }
 
 func NewFailoverSink(primary hermod.Sink, fallbacks []hermod.Sink) *FailoverSink {
@@ -69,7 +69,7 @@ func (s *FailoverSink) writeFailover(ctx context.Context, msg hermod.Message) er
 
 func (s *FailoverSink) writeRoundRobin(ctx context.Context, msg hermod.Message) error {
 	total := len(s.fallbacks) + 1
-	idx := int(atomic.AddUint64(&s.counter, 1) % uint64(total))
+	idx := int(s.counter.Add(1) % uint64(total))
 
 	var target hermod.Sink
 	if idx == 0 {
@@ -158,7 +158,7 @@ func (s *FailoverSink) writeBatchFailover(ctx context.Context, msgs []hermod.Mes
 
 func (s *FailoverSink) writeBatchRoundRobin(ctx context.Context, msgs []hermod.Message) error {
 	total := len(s.fallbacks) + 1
-	idx := int(atomic.AddUint64(&s.counter, 1) % uint64(total))
+	idx := int(s.counter.Add(1) % uint64(total))
 
 	var target hermod.Sink
 	if idx == 0 {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"maps"
 	"path"
 	"path/filepath"
 	"strings"
@@ -93,9 +94,7 @@ func render(tmpl string, data map[string]any) (string, error) {
 
 func (s *FTPSink) buildTemplateData(msg hermod.Message) map[string]any {
 	data := map[string]any{}
-	for k, v := range msg.Data() {
-		data[k] = v
-	}
+	maps.Copy(data, msg.Data())
 	if _, ok := data["id"]; !ok {
 		data["id"] = msg.ID()
 	}

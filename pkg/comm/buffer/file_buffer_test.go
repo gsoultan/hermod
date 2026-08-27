@@ -29,7 +29,7 @@ func TestFileBuffer(t *testing.T) {
 	defer cancel()
 
 	// Produce some messages
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		msg := message.AcquireMessage()
 		msg.SetID(fmt.Sprintf("msg-%d", i))
 		msg.SetTable("test_table")

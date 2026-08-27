@@ -181,11 +181,11 @@ func TestEveryDefinedTableIsCreated(t *testing.T) {
 		if !strings.HasPrefix(strings.ToUpper(q), "CREATE TABLE") {
 			continue
 		}
-		open := strings.Index(q, "(")
-		if open == -1 {
+		before, _, ok := strings.Cut(q, "(")
+		if !ok {
 			continue
 		}
-		parts := strings.Fields(strings.TrimSpace(q[:open]))
+		parts := strings.Fields(strings.TrimSpace(before))
 		table := parts[len(parts)-1]
 
 		if !live[table] {

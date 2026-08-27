@@ -48,8 +48,8 @@ func ResolveSecret(ctx context.Context, mgr Manager, value string) string {
 		trimmed = strings.TrimSpace(trimmed[2 : len(trimmed)-2])
 	}
 
-	if strings.HasPrefix(trimmed, "secret:") {
-		key := strings.TrimPrefix(trimmed, "secret:")
+	if after, ok := strings.CutPrefix(trimmed, "secret:"); ok {
+		key := after
 		if mgr != nil {
 			val, err := mgr.Get(ctx, key)
 			if err == nil && val != "" {

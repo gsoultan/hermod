@@ -844,8 +844,8 @@ func (s *PostgresSink) lockTable(table string) func() {
 }
 
 func splitSchemaTable(table string) (schema, name string) {
-	if idx := strings.Index(table, "."); idx >= 0 {
-		return table[:idx], table[idx+1:]
+	if before, after, ok := strings.Cut(table, "."); ok {
+		return before, after
 	}
 	return "", table
 }

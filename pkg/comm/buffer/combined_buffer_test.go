@@ -27,7 +27,7 @@ func TestCombinedBuffer_ProduceConsume(t *testing.T) {
 
 	// Produce more than ring capacity to force spill to file
 	const N = 32
-	for i := 0; i < N; i++ {
+	for i := range N {
 		m := message.AcquireMessage()
 		m.SetID(strconv.Itoa(i))
 		if err := cb.Produce(ctx, m); err != nil {

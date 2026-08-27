@@ -148,13 +148,13 @@ func TestRecordTraceStep_DeterministicSampling(t *testing.T) {
 	msg := &mockMessage{id: msgID}
 
 	// Record multiple steps for the same message
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		e.RecordTraceStep(t.Context(), msg, "node-1", time.Now(), nil, nil)
 	}
 
 	// Wait for async processing
 	var steps []hermod.TraceStep
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		steps = recorder.GetSteps(msgID)
 		if len(steps) > 0 {
 			if len(steps) == 100 {
@@ -177,7 +177,7 @@ func TestRecordTraceStep_DeterministicSampling(t *testing.T) {
 	// Now check that different messages can have different sampling outcomes
 	sampledIn := 0
 	sampledOut := 0
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		mID := fmt.Sprintf("msg-%d", i)
 		m := &mockMessage{id: mID}
 		e.RecordTraceStep(t.Context(), m, "node-1", time.Now(), nil, nil)
@@ -186,7 +186,7 @@ func TestRecordTraceStep_DeterministicSampling(t *testing.T) {
 	// Wait for async processing
 	time.Sleep(500 * time.Millisecond)
 
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		mID := fmt.Sprintf("msg-%d", i)
 		if len(recorder.GetSteps(mID)) > 0 {
 			sampledIn++
@@ -215,7 +215,7 @@ func TestRecordTraceStep_Default(t *testing.T) {
 
 	// Wait for async processing
 	var steps []hermod.TraceStep
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		steps = recorder.GetSteps(msgID)
 		if len(steps) == 1 {
 			break

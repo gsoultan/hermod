@@ -1318,8 +1318,7 @@ func (h *InfraHandler) ExportConfig(w http.ResponseWriter, r *http.Request) {
 
 	data, err := h.CollectBackup(r.Context())
 	if err != nil {
-		var tooLarge *ErrExportTooLarge
-		if errors.As(err, &tooLarge) {
+		if tooLarge, ok := errors.AsType[*ErrExportTooLarge](err); ok {
 			h.exportTruncated(w, tooLarge.Kind, tooLarge.Total)
 			return
 		}
@@ -1720,10 +1719,8 @@ func (h *InfraHandler) ListAuditLogs(w http.ResponseWriter, r *http.Request) {
 
 	query := r.URL.Query()
 	filter := storage.AuditFilter{
-		CommonFilter: storage.CommonFilter{
-			Limit: 50,
-			Page:  1,
-		},
+		Limit:      50,
+		Page:       1,
 		Action:     query.Get("action"),
 		EntityType: query.Get("entity_type"),
 		EntityID:   query.Get("entity_id"),

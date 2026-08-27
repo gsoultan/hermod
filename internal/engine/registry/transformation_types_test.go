@@ -2,6 +2,7 @@ package registry
 
 import (
 	"encoding/json"
+	"maps"
 	"testing"
 
 	"github.com/user/hermod/internal/storage"
@@ -68,9 +69,7 @@ func transform(t *testing.T, reg *Registry, in map[string]any, cfg map[string]an
 			t.Fatalf("%s produced an unparseable after-image %q: %v", transType, raw, err)
 		}
 	}
-	for k, v := range out.Data() {
-		got[k] = v
-	}
+	maps.Copy(got, out.Data())
 	return got
 }
 
@@ -250,9 +249,7 @@ func TestParallelPipelineAppliesEveryStep(t *testing.T) {
 		if raw := m.After(); len(raw) > 0 {
 			_ = json.Unmarshal(raw, &got)
 		}
-		for k, v := range m.Data() {
-			got[k] = v
-		}
+		maps.Copy(got, m.Data())
 		for _, f := range []string{"a", "b", "c"} {
 			if _, ok := got[f]; ok {
 				seen[f] = true

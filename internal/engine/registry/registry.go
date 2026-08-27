@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,13 +52,7 @@ var tracer = otel.Tracer("hermod-registry")
 
 func init() {
 	// Register pgx as postgres driver if not already registered
-	found := false
-	for _, d := range sql.Drivers() {
-		if d == "postgres" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(sql.Drivers(), "postgres")
 	if !found {
 		sql.Register("postgres", stdlib.GetDefaultDriver())
 	}
@@ -447,8 +443,8 @@ func (r *Registry) purgeRetention() {
 			before := time.Now().AddDate(0, 0, -retentionDays)
 			if r.logStorage != nil {
 				_ = r.logStorage.DeleteLogs(ctx, storage.LogFilter{
-					CommonFilter: storage.CommonFilter{Until: before},
-					WorkflowID:   wf.ID,
+					Until:      before,
+					WorkflowID: wf.ID,
 				})
 			}
 		}
@@ -457,7 +453,7 @@ func (r *Registry) purgeRetention() {
 	// Global purge for logs without workflow (system logs)
 	if r.logStorage != nil {
 		_ = r.logStorage.DeleteLogs(ctx, storage.LogFilter{
-			CommonFilter:    storage.CommonFilter{Until: time.Now().AddDate(0, 0, -30)},
+			Until:           time.Now().AddDate(0, 0, -30),
 			WithoutWorkflow: true,
 		})
 	}
@@ -485,9 +481,7 @@ func (r *Registry) runIdleMonitor() {
 func (r *Registry) checkIdleWorkflows() {
 	r.mu.Lock()
 	engines := make(map[string]*activeEngine)
-	for id, ae := range r.engines {
-		engines[id] = ae
-	}
+	maps.Copy(engines, r.engines)
 	r.mu.Unlock()
 
 	for id, ae := range engines {
@@ -1123,9 +1117,7 @@ func (r *Registry) mergeData(dst, src map[string]any, strategy string) {
 	}
 	switch strategy {
 	case "overwrite":
-		for k, v := range src {
-			dst[k] = v
-		}
+		maps.Copy(dst, src)
 	case "if_missing":
 		for k, v := range src {
 			if _, ok := dst[k]; !ok {
@@ -1133,9 +1125,7 @@ func (r *Registry) mergeData(dst, src map[string]any, strategy string) {
 			}
 		}
 	case "shallow":
-		for k, v := range src {
-			dst[k] = v
-		}
+		maps.Copy(dst, src)
 	case "deep":
 		fallthrough
 	default:
@@ -1739,9 +1729,7 @@ func (r *Registry) GetPIIStats() map[string]*PIIStats {
 
 	// Return a copy
 	res := make(map[string]*PIIStats)
-	for k, v := range r.piiStats {
-		res[k] = v
-	}
+	maps.Copy(res, r.piiStats)
 	return res
 }
 
@@ -1818,8 +1806,8 @@ func parseDuration(s string) (time.Duration, error) {
 		return 0, nil
 	}
 
-	if strings.HasSuffix(s, "d") {
-		val := strings.TrimSuffix(s, "d")
+	if before, ok := strings.CutSuffix(s, "d"); ok {
+		val := before
 		f, err := strconv.ParseFloat(val, 64)
 		if err != nil {
 			return 0, fmt.Errorf("invalid duration %s: %w", s, err)
@@ -1904,10 +1892,8 @@ func (a *formStorageAdapter) ListFormSubmissions(ctx context.Context, filter sou
 		return nil, 0, nil
 	}
 	subs, total, err := a.storage.ListFormSubmissions(ctx, storage.FormSubmissionFilter{
-		CommonFilter: storage.CommonFilter{
-			Page:  filter.Page,
-			Limit: filter.Limit,
-		},
+		Page:   filter.Page,
+		Limit:  filter.Limit,
 		Path:   filter.Path,
 		Status: filter.Status,
 	})

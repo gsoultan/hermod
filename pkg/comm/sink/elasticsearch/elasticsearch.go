@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"text/template"
@@ -221,9 +222,7 @@ func (s *ElasticsearchSink) renderIndex(msg hermod.Message) (string, error) {
 
 	data := msg.Data()
 	templateData := make(map[string]any)
-	for k, v := range data {
-		templateData[k] = v
-	}
+	maps.Copy(templateData, data)
 
 	// Ensure system fields are available if not shadowed
 	if _, ok := templateData["id"]; !ok {
@@ -412,9 +411,7 @@ func (s *ElasticsearchSink) DiscoverTables(ctx context.Context) ([]string, error
 func prepareTemplateData(data map[string]any) map[string]any {
 	// Clone data to avoid modifying the original message data
 	newData := make(map[string]any, len(data))
-	for k, v := range data {
-		newData[k] = v
-	}
+	maps.Copy(newData, data)
 
 	// Try to unmarshal 'after' and 'before' if they are JSON strings
 	for _, key := range []string{"after", "before"} {

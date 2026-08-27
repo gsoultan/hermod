@@ -32,7 +32,7 @@ func TestConnectionPoolResponsiveness(t *testing.T) {
 	const workers = 100
 	done := make(chan bool, workers)
 
-	for i := 0; i < workers; i++ {
+	for range workers {
 		go func() {
 			// We expect this to fail because there's no DB, but we want to see it fail FAST
 			// or at least not block others if it was successful.
@@ -41,7 +41,7 @@ func TestConnectionPoolResponsiveness(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < workers; i++ {
+	for range workers {
 		<-done
 	}
 

@@ -97,10 +97,10 @@ func hasIntegrationTag(src string) bool {
 	head := src
 	if strings.HasPrefix(src, "package ") {
 		head = ""
-	} else if i := strings.Index(src, "\npackage "); i >= 0 {
-		head = src[:i]
+	} else if before, _, ok := strings.Cut(src, "\npackage "); ok {
+		head = before
 	}
-	for _, line := range strings.Split(head, "\n") {
+	for line := range strings.SplitSeq(head, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "//go:build") && strings.Contains(line, "integration") {
 			return true

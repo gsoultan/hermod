@@ -67,7 +67,7 @@ func TestEveryRowIsEmittedOnceInOrder(t *testing.T) {
 	s := New(dir, "people.xlsx", "", 1, 0, 0)
 
 	var got []string
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		msg := readOne(t, s)
 		if msg == nil {
 			t.Fatalf("row %d: Read returned nil before the file was exhausted", i+1)

@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/user/hermod/pkg/comm/transformer"
 
@@ -34,9 +35,7 @@ Target Schema: %s
 
 	// Reuse AITransformer logic
 	mapperConfig := make(map[string]any)
-	for k, v := range config {
-		mapperConfig[k] = v
-	}
+	maps.Copy(mapperConfig, config)
 	mapperConfig["prompt"] = prompt
 	mapperConfig["targetField"] = "" // We want to merge the JSON result
 

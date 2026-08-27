@@ -26,7 +26,7 @@ func main() {
 
 	// Wait for backends to actually terminate
 	fmt.Println("Waiting for backends to terminate...")
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		var count int
 		db.QueryRow("SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND datname IN ('postgres', 'hermod_test_source', 'hermod_test_sink', 'hermod_metadata')").Scan(&count)
 		if count == 0 {

@@ -471,8 +471,8 @@ func TestRequiresAStore(t *testing.T) {
 func TestOpensATransactionBeforeWriting(t *testing.T) {
 	c := newTestCoordinator(t, newMemStore())
 
-	a := &orderedParticipant{fakeParticipant: fakeParticipant{name: "a"}}
-	b := &orderedParticipant{fakeParticipant: fakeParticipant{name: "b"}}
+	a := &orderedParticipant{name: "a"}
+	b := &orderedParticipant{name: "b"}
 
 	if err := c.Run(context.Background(), []Participant{{ID: "a", Sink: a}, {ID: "b", Sink: b}},
 		func(context.Context) error {
@@ -502,8 +502,8 @@ func TestOpensATransactionBeforeWriting(t *testing.T) {
 func TestBeginFailureTouchesNothing(t *testing.T) {
 	c := newTestCoordinator(t, newMemStore())
 
-	a := &orderedParticipant{fakeParticipant: fakeParticipant{name: "a"}}
-	b := &orderedParticipant{fakeParticipant: fakeParticipant{name: "b"}, beginErr: errors.New("connection refused")}
+	a := &orderedParticipant{name: "a"}
+	b := &orderedParticipant{name: "b", beginErr: errors.New("connection refused")}
 
 	worked := false
 	err := c.Run(context.Background(), []Participant{{ID: "a", Sink: a}, {ID: "b", Sink: b}},

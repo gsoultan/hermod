@@ -187,10 +187,7 @@ func (r *Runner) watchForStalls(ctx context.Context) {
 		threshold = DefaultStallThreshold
 	}
 	// Sample several times per threshold so the reported duration is meaningful.
-	interval := threshold / 4
-	if interval < time.Second {
-		interval = time.Second
-	}
+	interval := max(threshold/4, time.Second)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

@@ -513,8 +513,7 @@ func validSlotName(name string) bool {
 // which is how a pre-15 server answers the modern option-list spelling and how
 // a modern one answers the legacy keyword.
 func isSyntaxError(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		return pgErr.Code == "42601"
 	}
 	return strings.Contains(strings.ToLower(err.Error()), "syntax error")

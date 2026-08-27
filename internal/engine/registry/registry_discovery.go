@@ -95,8 +95,8 @@ func (r *Registry) GetSourceFormSamples(ctx context.Context, path string, limit 
 		return nil, nil
 	}
 	subs, _, err := r.storage.ListFormSubmissions(ctx, storage.FormSubmissionFilter{
-		CommonFilter: storage.CommonFilter{Limit: limit},
-		Path:         path,
+		Limit: limit,
+		Path:  path,
 	})
 	if err != nil {
 		return nil, err

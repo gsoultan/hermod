@@ -76,7 +76,7 @@ func SanitizeValue(v any) any {
 		if rv.Kind() == reflect.Slice {
 			copy(b[:], rv.Bytes())
 		} else {
-			for i := 0; i < 16; i++ {
+			for i := range 16 {
 				b[i] = uint8(rv.Index(i).Uint())
 			}
 		}
@@ -110,7 +110,7 @@ type DefaultMessage struct {
 	payload   []byte
 	metadata  map[string]string
 	data      map[string]any
-	refCount  int32
+	refCount  atomic.Int32
 }
 
 func (m *DefaultMessage) ID() string {
@@ -253,7 +253,7 @@ func (m *DefaultMessage) Clone() hermod.Message {
 			metadata: make(map[string]string),
 			data:     make(map[string]any),
 		}
-		atomic.StoreInt32(&clone.refCount, 1)
+		clone.refCount.Store(1)
 	}
 
 	// The clone must be locked: a message can still be concurrently Reset by
@@ -273,12 +273,8 @@ func (m *DefaultMessage) Clone() hermod.Message {
 	clear(clone.metadata)
 	clear(clone.data)
 
-	for k, v := range m.metadata {
-		clone.metadata[k] = v
-	}
-	for k, v := range m.data {
-		clone.data[k] = v
-	}
+	maps.Copy(clone.metadata, m.metadata)
+	maps.Copy(clone.data, m.data)
 	return clone
 }
 
@@ -290,9 +286,7 @@ func (m *DefaultMessage) ToMap() map[string]any {
 
 	// 1. If not a CDC event, merge data fields into root
 	if m.operation == "" {
-		for k, v := range m.data {
-			res[k] = v
-		}
+		maps.Copy(res, m.data)
 
 		// 2. If data is empty but payload is not, unmarshal payload into root
 		if len(m.data) == 0 && len(m.payload) > 0 {
@@ -332,9 +326,7 @@ func (m *DefaultMessage) ToMap() map[string]any {
 
 	if len(m.metadata) > 0 {
 		md := make(map[string]string, len(m.metadata))
-		for k, v := range m.metadata {
-			md[k] = v
-		}
+		maps.Copy(md, m.metadata)
 		res["metadata"] = md
 	}
 
@@ -350,9 +342,7 @@ func (m *DefaultMessage) MarshalJSON() ([]byte, error) {
 	// 1. If not a CDC event, merge data fields into root
 	// For CDC events, we keep the root clean and only include system fields + envelopes
 	if m.operation == "" {
-		for k, v := range m.data {
-			res[k] = v
-		}
+		maps.Copy(res, m.data)
 
 		// 2. If data is empty but payload is not, unmarshal payload into root
 		if len(m.data) == 0 && len(m.payload) > 0 {
@@ -418,7 +408,7 @@ func OverReleaseCount() int64 { return overReleases.Load() }
 func ResetOverReleaseCount() { overReleases.Store(0) }
 
 func (m *DefaultMessage) Release() {
-	n := atomic.AddInt32(&m.refCount, -1)
+	n := m.refCount.Add(-1)
 	if n == 0 {
 		ReleaseMessage(m)
 		return
@@ -437,7 +427,7 @@ func (m *DefaultMessage) Release() {
 }
 
 func (m *DefaultMessage) Retain() {
-	atomic.AddInt32(&m.refCount, 1)
+	m.refCount.Add(1)
 }
 
 // RefCount reports the message's current reference count.
@@ -449,7 +439,7 @@ func (m *DefaultMessage) Retain() {
 // unnoticed until it was corrupting data. Use it in tests and diagnostics, not
 // to make control-flow decisions: the value can change under you at any moment.
 func (m *DefaultMessage) RefCount() int32 {
-	return atomic.LoadInt32(&m.refCount)
+	return m.refCount.Load()
 }
 
 // Reset clears the message state so it can be reused.
@@ -497,7 +487,7 @@ var messagePool = sync.Pool{
 // AcquireMessage gets a message from the pool.
 func AcquireMessage() *DefaultMessage {
 	m := messagePool.Get().(*DefaultMessage)
-	atomic.StoreInt32(&m.refCount, 1)
+	m.refCount.Store(1)
 	return m
 }
 

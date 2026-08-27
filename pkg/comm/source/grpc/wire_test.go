@@ -177,7 +177,7 @@ func TestAnAnonymousPublishGetsAnID(t *testing.T) {
 	defer cancel()
 
 	ids := make(map[string]bool)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		resp, err := client.Publish(ctx, &proto.PublishRequest{
 			Path:    "/grpc/anon",
 			Payload: []byte(`{}`),
