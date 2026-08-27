@@ -59,7 +59,7 @@ func (o *Options) defineWorkerFlags() {
 }
 
 func (o *Options) defineDBFlags() {
-	flag.StringVar(&o.dbType, "db-type", "sqlite", "database type: sqlite, postgres, mysql, mariadb, mongodb, pebble")
+	flag.StringVar(&o.dbType, "db-type", "sqlite", "database type: sqlite, postgres, mysql, mariadb, mongodb (pebble is a log store, not a metadata store)")
 	flag.StringVar(&o.dbConn, "db-conn", config.GetConfigPath("hermod.db"), "database connection string")
 	flag.StringVar(&o.logDBType, "log-db-type", "", "database type for logging (defaults to main db type)")
 	flag.StringVar(&o.logDBConn, "log-db-conn", "", "database connection string for logging (defaults to main db conn)")
