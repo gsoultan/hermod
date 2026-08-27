@@ -105,3 +105,4 @@ ui/audit-shots/
 *.db
 *.db-shm
 *.db-wal
+ui/*.png
