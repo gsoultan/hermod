@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/url"
@@ -207,6 +208,31 @@ func (h *InfraHandler) GetDBConfig(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// loadConfigOrEmpty reads the configuration file, treating "it does not exist
+// yet" as an empty configuration rather than an error.
+//
+// A fresh instance has no config.yaml — it is written the first time someone
+// saves settings. Reading it with config.LoadConfig therefore failed with
+// ENOENT, and all eight settings handlers turned that into a 500, so the first
+// thing a new administrator saw on the Settings page was a red "failed to load
+// configuration" toast. The page whose whole purpose is to create that file
+// was reporting its absence as a server fault, and the save handlers could not
+// write the first config either, because they load before they store.
+//
+// Any other read or parse error is still an error. A config.yaml that exists
+// and cannot be parsed is a real problem, and silently substituting defaults
+// would let the next save overwrite a file somebody meant to keep.
+func loadConfigOrEmpty(path string) (*config.Config, error) {
+	cfg, err := config.LoadConfig(path)
+	if err == nil {
+		return cfg, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return &config.Config{}, nil
+	}
+	return nil, err
+}
+
 func (h *InfraHandler) GetSecretConfig(w http.ResponseWriter, r *http.Request) {
 	role, _ := h.GetRoleAndVHosts(r)
 	if role != storage.RoleAdministrator {
@@ -214,7 +240,7 @@ func (h *InfraHandler) GetSecretConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.LoadConfig(h.ConfigPath)
+	cfg, err := loadConfigOrEmpty(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -246,7 +272,7 @@ func (h *InfraHandler) UpdateSecretConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	cfg, err := config.LoadConfig(h.ConfigPath)
+	cfg, err := loadConfigOrEmpty(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -286,7 +312,7 @@ func (h *InfraHandler) GetStateStoreConfig(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	cfg, err := config.LoadConfig(h.ConfigPath)
+	cfg, err := loadConfigOrEmpty(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -309,7 +335,7 @@ func (h *InfraHandler) UpdateStateStoreConfig(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	cfg, err := config.LoadConfig(h.ConfigPath)
+	cfg, err := loadConfigOrEmpty(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -344,7 +370,7 @@ func (h *InfraHandler) GetObservabilityConfig(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	cfg, err := config.LoadConfig(h.ConfigPath)
+	cfg, err := loadConfigOrEmpty(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -361,7 +387,7 @@ func (h *InfraHandler) GetFileStorageConfig(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	cfg, err := config.LoadConfig(h.ConfigPath)
+	cfg, err := loadConfigOrEmpty(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -393,7 +419,7 @@ func (h *InfraHandler) UpdateFileStorageConfig(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	cfg, err := config.LoadConfig(h.ConfigPath)
+	cfg, err := loadConfigOrEmpty(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return
@@ -434,7 +460,7 @@ func (h *InfraHandler) UpdateObservabilityConfig(w http.ResponseWriter, r *http.
 		return
 	}
 
-	cfg, err := config.LoadConfig(h.ConfigPath)
+	cfg, err := loadConfigOrEmpty(h.ConfigPath)
 	if err != nil {
 		h.JsonError(w, "failed to load configuration", http.StatusInternalServerError)
 		return

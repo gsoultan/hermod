@@ -140,14 +140,19 @@ export function WorkersPage() {
           {online ? (
             <Group gap="xs">
               <Tooltip label={`CPU Usage: ${Math.round((worker.cpu_usage || 0) * 100)}%`}>
+                {/* 54px, not 40. The percentage sits inside the ring, and at
+                    40px it only fit by overriding the font down to 8px — below
+                    the 11px floor the layout audit enforces, and unreadable on
+                    a laptop screen. Widening the ring keeps the number visible
+                    at the theme's own xs size instead of deleting it. */}
                 <RingProgress
-                  size={40}
-                  thickness={4}
+                  size={54}
+                  thickness={5}
                   roundCaps
                   sections={[{ value: (worker.cpu_usage || 0) * 100, color: (worker.cpu_usage || 0) > 0.8 ? 'red' : 'blue' }]}
                   label={
                     <Center>
-                      <Text size="xs" fw={700} style={{ fontSize: '8px' }}>
+                      <Text size="xs" fw={700}>
                         {Math.round((worker.cpu_usage || 0) * 100)}%
                       </Text>
                     </Center>
@@ -162,14 +167,19 @@ export function WorkersPage() {
           {online ? (
             <Group gap="xs">
               <Tooltip label={`Memory Usage: ${Math.round((worker.memory_usage || 0) * 100)}%`}>
+                {/* 54px, not 40. The percentage sits inside the ring, and at
+                    40px it only fit by overriding the font down to 8px — below
+                    the 11px floor the layout audit enforces, and unreadable on
+                    a laptop screen. Widening the ring keeps the number visible
+                    at the theme's own xs size instead of deleting it. */}
                 <RingProgress
-                  size={40}
-                  thickness={4}
+                  size={54}
+                  thickness={5}
                   roundCaps
                   sections={[{ value: (worker.memory_usage || 0) * 100, color: (worker.memory_usage || 0) > 0.8 ? 'orange' : 'teal' }]}
                   label={
                     <Center>
-                      <Text size="xs" fw={700} style={{ fontSize: '8px' }}>
+                      <Text size="xs" fw={700}>
                         {Math.round((worker.memory_usage || 0) * 100)}%
                       </Text>
                     </Center>
