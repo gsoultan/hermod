@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -40,8 +41,29 @@ func initStorage(dbType, dbConn string) (storage.Storage, error) {
 	var store storage.Storage
 	var err error
 
+	// Pebble is a log store, not a metadata store. It implements 16 of the
+	// Storage interface's 100 methods — logs, audit logs, traces and the
+	// lifecycle calls — and returns "not implemented" for the other 84,
+	// including everything to do with sources, sinks, workflows and users.
+	//
+	// The HTTP layer already refuses it for this reason
+	// (internal/infra/transport/http/infra.go: "pebble is only supported for
+	// logging database"), but the flag advertised it alongside the real
+	// database types and this function built it regardless. The result started
+	// cleanly and then failed every operation — and worse, computeSetupStatus
+	// treats a ListUsers error as "configured, with users", so the server also
+	// reported itself set up while being unable to authenticate anyone.
+	//
+	// Refusing here, where the choice is made, is the difference between a
+	// server that will not start and one that lies about being ready.
+	if dbType == "pebble" {
+		return nil, errors.New("pebble is a logging store, not a metadata store: it cannot " +
+			"hold sources, sinks, workflows or users. Use sqlite, postgres, mysql, mariadb " +
+			"or mongodb for --db-type")
+	}
+
 	switch dbType {
-	case "mongodb", "pebble":
+	case "mongodb":
 		store, err = initNoSQLStorage(dbType, dbConn)
 	default:
 		store, err = initSQLStorage(dbType, dbConn)
