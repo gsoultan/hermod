@@ -26,6 +26,27 @@ func runServer(ctx context.Context, o *Options, reg *registry.Registry, store, l
 	return nil
 }
 
+// HTTP server limits. Named rather than inline so the reasoning sits with the
+// numbers and a deployment that needs different ones can find them.
+const (
+	// Long enough for a slow mobile connection to finish sending headers,
+	// short enough that a Slowloris client cannot hold a slot for minutes.
+	readHeaderTimeout = 20 * time.Second
+
+	// Keep-alive reuse is normal and worth keeping; this only bounds how long
+	// an idle connection may sit before it is reclaimed.
+	idleTimeout = 120 * time.Second
+
+	// Go's own default, stated explicitly so it is a decision rather than an
+	// inheritance.
+	maxHeaderBytes = http.DefaultMaxHeaderBytes
+
+	// Go 1.27. Also its default, made explicit for the same reason: a client
+	// repeating one header thousands of times is a cheap way to make the
+	// server do expensive work.
+	maxHeaderValueCount = http.DefaultMaxHeaderValueCount
+)
+
 func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, logStore storage.Storage, cfg *config.Config, wrk *worker.Worker, logger hermod.Logger, configured, userSetup bool) error {
 	aiSvc := ai.NewSelfHealingService(logger)
 	server := api.NewServer(reg, store, cfg, o.configPath, aiSvc, logStore)
@@ -36,7 +57,39 @@ func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, lo
 	stopAutoscaler := startAutoscaler(o, store, configured, userSetup)
 	defer stopAutoscaler()
 
-	httpServer := &http.Server{Addr: fmt.Sprintf(":%d", o.port), Handler: server.Routes()}
+	// Go's http.Server has no timeouts by default, and this one had none set.
+	// A connection that opens and then dribbles its request headers one byte at
+	// a time is held open indefinitely — Slowloris — and enough of them exhaust
+	// the server without ever completing a request. The Dockerfile EXPOSEs this
+	// port directly, so there is no reverse proxy in the default deployment to
+	// absorb it.
+	//
+	// What is deliberately NOT set here matters as much as what is. WriteTimeout
+	// and ReadTimeout apply to the whole exchange, and this server also carries
+	// the UI's WebSockets (/api/ws/live and friends) and Server-Sent Events,
+	// which are long-lived by design: either one would sever a working stream
+	// mid-flight on a timer. ReadHeaderTimeout bounds only the part that must
+	// be fast — the headers — and IdleTimeout only reclaims keep-alive
+	// connections between requests, so neither touches a stream in progress.
+	httpServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", o.port),
+		Handler: server.Routes(),
+
+		// Headers must arrive promptly; a request body may legitimately take
+		// as long as it takes (large imports, uploads).
+		ReadHeaderTimeout: readHeaderTimeout,
+
+		// Reclaims idle keep-alive connections. Longer than the header
+		// timeout, because a browser reusing a connection is normal.
+		IdleTimeout: idleTimeout,
+
+		// A cap on total header size (Go's default is 1MB) and, since Go 1.27,
+		// on the number of values a single header may repeat — both are ways a
+		// client can make the server allocate far more than the request is
+		// worth.
+		MaxHeaderBytes:      maxHeaderBytes,
+		MaxHeaderValueCount: maxHeaderValueCount,
+	}
 	fatal := startServersAsync(
 		httpServer.ListenAndServe,
 		func() error { return server.StartGRPC(fmt.Sprintf(":%d", o.grpcPort)) },
