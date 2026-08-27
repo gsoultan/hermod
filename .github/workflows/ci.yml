@@ -73,16 +73,52 @@ jobs:
         run: go vet -tags=integration ./...
       # The suite was previously absent from CI entirely, so a red test could
       # merge unnoticed. Race detection is on because the engine is concurrent.
+      #
+      # -short excludes four load tests in internal/engine/worker that stand up
+      # 120 concurrent workflows apiece. Under Go 1.27 the race detector's
+      # shadow memory for those went from 3.10 GB to 8.73 GB — measured — and
+      # the package was killed outright on a 7GB runner, with nothing in the
+      # log naming memory. They are not dropped; they run below without the
+      # detector, where the same 120 workflows cost 1.98 GB. That split keeps
+      # both properties honestly: every concurrent path is still race-checked,
+      # and the load path is still exercised at full scale.
       - name: Test (race)
-        run: go test -race ./...
+        run: go test -race -short ./...
+      # Everything -short skips above, at full scale. No -race: the detector is
+      # what makes these unaffordable, not the work they do, and running them
+      # here means "skipped under -short" never quietly becomes "not run" —
+      # which is how the integration tests in this repository had already
+      # stopped compiling unnoticed once.
+      #
+      # This is every test in the tree guarded by testing.Short(), not just the
+      # four worker ones that forced the split: the registry's heavy-load test
+      # and both property tests over random pipeline topologies are guarded too,
+      # and dropping those would trade a memory problem for a coverage one.
+      - name: Test (load and property, no race detector)
+        run: |
+          go test -count=1 -timeout 20m \
+            -run 'HeavySyncLoad|FailbackUnderLoad|RestartCycles|DoesNotLeakGoroutines|TestHeavyLoad|AcrossRandomTopologies' \
+            ./internal/engine/worker/ ./internal/engine/registry/
       # Gates new code only (see issues.new-from-merge-base in .golangci.yml).
       # The pre-existing backlog is reported by the nightly lint-debt job rather
       # than blocking every change.
+      # Built from source rather than via golangci-lint-action, which downloads
+      # a prebuilt binary. Those binaries are compiled with whatever Go was
+      # current at their release — v2.13.1, the latest, is built with go1.26.6
+      # — and golangci-lint refuses outright when its own language version is
+      # below the target's:
+      #
+      #   can't load config: the Go language version (go1.26) used to build
+      #   golangci-lint is lower than the targeted Go version (1.27.0)
+      #
+      # `go install` compiles it with this repository's toolchain, so the two
+      # cannot drift apart again. The version stays pinned for the same reason
+      # staticcheck is: a linter that changes underneath the gate turns an
+      # unrelated pull request red.
       - name: Lint (golangci-lint)
-        uses: golangci/golangci-lint-action@v8
-        with:
-          version: latest
-          args: --timeout=10m
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
+          golangci-lint run --timeout=10m ./...
       - name: Staticcheck
         run: |
           # Pinned, not @latest. An unpinned linter makes this gate
@@ -830,7 +866,13 @@ jobs:
         # The timeout goes up with it: -race costs roughly 2-5x in wall clock,
         # and a suite that starts timing out is a suite that gets its gate
         # removed.
-        run: go test -tags=integration -race -count=1 -timeout 30m ./...
+        # -short for the same reason as the unit job: the four worker load
+        # tests stand up 120 concurrent workflows each, and under Go 1.27 the
+        # race detector's shadow memory for them is 8.73 GB against a 7GB
+        # runner. This job runs every package too, so it hits the same wall —
+        # it did, with the same "runner has received a shutdown signal" and no
+        # mention of memory. They run un-raced in the unit job's load step.
+        run: go test -tags=integration -race -short -count=1 -timeout 30m ./...
 
   # The browser E2E job that used to live here is gone, and so is the last spec
   # in it. production_grade.spec.ts was the only one left: its UI half was
