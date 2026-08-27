@@ -144,6 +144,26 @@ func TestInitialLoadRunsOnlyOnce(t *testing.T) {
 			t.Fatalf("ack %d: %v", i, err)
 		}
 	}
+	// One more Read before asking for the state, which is what the engine does
+	// and what establishes completion.
+	//
+	// The backfill runs in its own goroutine: it sends the documents, then
+	// records that it finished. Draining the documents therefore does not by
+	// itself mean the record exists yet — the two race, and Go 1.27's
+	// scheduler loses that race often enough to fail this test where 1.26 did
+	// not. Read is where the ordering is defined: it waits on the backfill
+	// before it will touch the change stream, so a Read that gets past that
+	// point has observed a finished backfill. A real consumer always reads
+	// again; this test stopped one Read early and asked about a moment the
+	// source does not define.
+	//
+	// The timeout is the answer here rather than a message: nothing has
+	// written to the collection since, so there is no change to stream. What
+	// matters is that Read waited for the backfill first.
+	drainCtx, drainCancel := context.WithTimeout(ctx, 3*time.Second)
+	_, _ = first.Read(drainCtx)
+	drainCancel()
+
 	state := first.GetState()
 	_ = first.Close()
 
