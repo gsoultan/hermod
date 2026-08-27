@@ -61,7 +61,7 @@ func TestEveryRowArrivesOnceInOrder(t *testing.T) {
 	defer cancel()
 
 	var got []string
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		msg, err := src.Read(ctx)
 		if err != nil {
 			t.Fatalf("read %d: %v", i+1, err)
@@ -92,7 +92,7 @@ func TestTheCursorDoesNotAdvancePastUnacknowledgedRows(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	// Two more read and left in flight, unacknowledged.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if _, err := src.Read(ctx); err != nil {
 			t.Fatalf("read: %v", err)
 		}
@@ -123,7 +123,7 @@ func TestARestartResumesFromTheAcknowledgedRow(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	// Read two more without acknowledging them, then crash.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if _, err := src.Read(ctx); err != nil {
 			t.Fatalf("read: %v", err)
 		}
@@ -139,7 +139,7 @@ func TestARestartResumesFromTheAcknowledgedRow(t *testing.T) {
 	resumed.SetState(carried)
 
 	var got []string
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		msg, err := resumed.Read(ctx)
 		if err != nil {
 			t.Fatalf("read after restart %d: %v", i+1, err)

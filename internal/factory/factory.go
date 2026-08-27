@@ -286,8 +286,8 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 			ex.URL = cfg.Config["url"]
 			headers := make(map[string]string)
 			if h, ok := cfg.Config["headers"]; ok && h != "" {
-				pairs := strings.Split(h, ",")
-				for _, pair := range pairs {
+				pairs := strings.SplitSeq(h, ",")
+				for pair := range pairs {
 					kv := strings.SplitN(pair, ":", 2)
 					if len(kv) == 2 {
 						headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
@@ -317,8 +317,8 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 			case "http":
 				headers := make(map[string]string)
 				if h, ok := cfg.Config["headers"]; ok && h != "" {
-					pairs := strings.Split(h, ",")
-					for _, pair := range pairs {
+					pairs := strings.SplitSeq(h, ",")
+					for pair := range pairs {
 						kv := strings.SplitN(pair, ":", 2)
 						if len(kv) == 2 {
 							headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
@@ -366,8 +366,8 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 				gcfg.URL = cfg.Config["url"]
 				headers := make(map[string]string)
 				if h, ok := cfg.Config["headers"]; ok && h != "" {
-					pairs := strings.Split(h, ",")
-					for _, pair := range pairs {
+					pairs := strings.SplitSeq(h, ",")
+					for pair := range pairs {
 						kv := strings.SplitN(pair, ":", 2)
 						if len(kv) == 2 {
 							headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
@@ -499,8 +499,8 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 	case "http":
 		headers := make(map[string]string)
 		if h, ok := cfg.Config["headers"]; ok && h != "" {
-			pairs := strings.Split(h, ",")
-			for _, pair := range pairs {
+			pairs := strings.SplitSeq(h, ",")
+			for pair := range pairs {
 				kv := strings.SplitN(pair, ":", 2)
 				if len(kv) == 2 {
 					headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
@@ -590,8 +590,8 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 		// Headers: "K:V,K2:V2"
 		headers := make(map[string]string)
 		if h, ok := cfg.Config["headers"]; ok && h != "" {
-			pairs := strings.Split(h, ",")
-			for _, pair := range pairs {
+			pairs := strings.SplitSeq(h, ",")
+			for pair := range pairs {
 				kv := strings.SplitN(pair, ":", 2)
 				if len(kv) == 2 {
 					headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
@@ -600,7 +600,7 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 		}
 		var subprotocols []string
 		if sp := strings.TrimSpace(cfg.Config["subprotocols"]); sp != "" {
-			for _, p := range strings.Split(sp, ",") {
+			for p := range strings.SplitSeq(sp, ",") {
 				if t := strings.TrimSpace(p); t != "" {
 					subprotocols = append(subprotocols, t)
 				}
@@ -940,8 +940,8 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 	case "http":
 		headers := make(map[string]string)
 		if h, ok := cfg.Config["headers"]; ok && h != "" {
-			pairs := strings.Split(h, ",")
-			for _, pair := range pairs {
+			pairs := strings.SplitSeq(h, ",")
+			for pair := range pairs {
 				kv := strings.SplitN(pair, ":", 2)
 				if len(kv) == 2 {
 					headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
@@ -965,8 +965,8 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 	case "websocket":
 		headers := make(map[string]string)
 		if h, ok := cfg.Config["headers"]; ok && h != "" {
-			pairs := strings.Split(h, ",")
-			for _, pair := range pairs {
+			pairs := strings.SplitSeq(h, ",")
+			for pair := range pairs {
 				kv := strings.SplitN(pair, ":", 2)
 				if len(kv) == 2 {
 					headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
@@ -975,7 +975,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		}
 		var subprotocols []string
 		if sp := strings.TrimSpace(cfg.Config["subprotocols"]); sp != "" {
-			for _, p := range strings.Split(sp, ",") {
+			for p := range strings.SplitSeq(sp, ",") {
 				if t := strings.TrimSpace(p); t != "" {
 					subprotocols = append(subprotocols, t)
 				}

@@ -142,17 +142,11 @@ func (g *SelfCorrectionGate) applyFix(workflowID, nodeID string, action Correcti
 			if cfg.MaxRetries > 10 {
 				cfg.MaxRetries = 10
 			}
-			cfg.RetryInterval = cfg.RetryInterval * 2
-			if cfg.RetryInterval > 10*time.Second {
-				cfg.RetryInterval = 10 * time.Second
-			}
+			cfg.RetryInterval = min(cfg.RetryInterval*2, 10*time.Second)
 		})
 	case ActionScaleBatch:
 		e.UpdateSinkConfig(nodeID, func(cfg *config.SinkConfig) {
-			cfg.BatchSize = int(float64(cfg.BatchSize) * 0.7)
-			if cfg.BatchSize < 1 {
-				cfg.BatchSize = 1
-			}
+			cfg.BatchSize = max(int(float64(cfg.BatchSize)*0.7), 1)
 		})
 	case ActionSafeMode:
 		e.SetSafeMode(true)

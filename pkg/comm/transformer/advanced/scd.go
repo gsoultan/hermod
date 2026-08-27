@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -201,8 +202,8 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 		}
 	} else if v, ok := config["mappings"].(string); ok && v != "" {
 		// Try parsing comma separated: current:prev,current2:prev2
-		parts := strings.Split(v, ",")
-		for _, p := range parts {
+		parts := strings.SplitSeq(v, ",")
+		for p := range parts {
 			kv := strings.Split(p, ":")
 			if len(kv) == 2 {
 				mappings[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
@@ -310,13 +311,7 @@ func (t *SCDTransformer) handleType3(ctx context.Context, db *sql.DB, driver, ta
 	if changed {
 		// Add any other fields from msg that are not in mappings or business keys
 		for field, val := range msg.Data() {
-			isBK := false
-			for _, bk := range businessKeys {
-				if bk == field {
-					isBK = true
-					break
-				}
-			}
+			isBK := slices.Contains(businessKeys, field)
 			if isBK {
 				continue
 			}
@@ -485,13 +480,7 @@ func (t *SCDTransformer) handleType4(ctx context.Context, db *sql.DB, driver, ta
 	updateArgs := make([]any, 0)
 	uIdx := 1
 	for field, val := range msg.Data() {
-		isBK := false
-		for _, bk := range businessKeys {
-			if bk == field {
-				isBK = true
-				break
-			}
-		}
+		isBK := slices.Contains(businessKeys, field)
 		if isBK {
 			continue
 		}
@@ -872,13 +861,7 @@ func (t *SCDTransformer) handleType1(ctx context.Context, db *sql.DB, driver, ta
 	updateArgs := make([]any, 0)
 	idx := 1
 	for field, val := range msg.Data() {
-		isBK := false
-		for _, bk := range businessKeys {
-			if bk == field {
-				isBK = true
-				break
-			}
-		}
+		isBK := slices.Contains(businessKeys, field)
 		if isBK {
 			continue
 		}

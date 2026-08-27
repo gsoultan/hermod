@@ -87,7 +87,7 @@ func ValidateIdent(name string) error {
 	if len(name) > maxIdentLen {
 		return fmt.Errorf("identifier too long (%d > %d): %q", len(name), maxIdentLen, name)
 	}
-	for _, seg := range strings.Split(name, ".") {
+	for seg := range strings.SplitSeq(name, ".") {
 		if !identSegmentRe.MatchString(seg) {
 			return fmt.Errorf("invalid identifier segment in %q", name)
 		}

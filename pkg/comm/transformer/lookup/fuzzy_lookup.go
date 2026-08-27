@@ -85,10 +85,7 @@ func (t *FuzzyLookupTransformer) similarity(s1, s2 string) float64 {
 	}
 
 	dist := t.levenshtein(s1, s2)
-	maxLen := len(s1)
-	if len(s2) > maxLen {
-		maxLen = len(s2)
-	}
+	maxLen := max(len(s2), len(s1))
 
 	return 1.0 - float64(dist)/float64(maxLen)
 }

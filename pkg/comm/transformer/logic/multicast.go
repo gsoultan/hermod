@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/user/hermod/pkg/comm/transformer"
 
@@ -49,9 +50,7 @@ func (t *MulticastTransformer) Transform(ctx context.Context, msg hermod.Message
 				}
 			}
 		} else {
-			for k, v := range src {
-				selected[k] = v
-			}
+			maps.Copy(selected, src)
 		}
 		// Prefix
 		if pfx, _ := bm["prefix"].(string); pfx != "" {

@@ -301,8 +301,8 @@ func parseSinkEngineConfig(cfg factory.SinkConfig) config.SinkConfig {
 		}
 	}
 	if val, ok := cfg.Config["retry_intervals"]; ok && val != "" {
-		parts := strings.Split(val, ",")
-		for _, p := range parts {
+		parts := strings.SplitSeq(val, ",")
+		for p := range parts {
 			if d, err := parseDuration(strings.TrimSpace(p)); err == nil {
 				psc.RetryIntervals = append(psc.RetryIntervals, d)
 			}
@@ -491,8 +491,8 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 		}
 
 		if val != "" {
-			parts := strings.Split(val, ",")
-			for _, part := range parts {
+			parts := strings.SplitSeq(val, ",")
+			for part := range parts {
 				part = strings.TrimSpace(part)
 				if d, err := parseDuration(part); err == nil {
 					sourceEngineCfg.ReconnectIntervals = append(sourceEngineCfg.ReconnectIntervals, d)
@@ -616,8 +616,8 @@ func (r *Registry) setupSchemaValidation(eng *pkgengine.Engine, ctx context.Cont
 	var v schema.Validator
 	var err error
 
-	if strings.HasPrefix(wf.Schema, "registry:") {
-		schemaName := strings.TrimPrefix(wf.Schema, "registry:")
+	if after, ok := strings.CutPrefix(wf.Schema, "registry:"); ok {
+		schemaName := after
 		v, _, err = r.schemaRegistry.GetLatestValidator(ctx, schemaName)
 	} else {
 		v, err = schema.NewValidator(schema.SchemaConfig{
@@ -704,8 +704,8 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 					prefix := node.ID + ":"
 					perSourceState := make(map[string]string)
 					for k, v := range sourceState {
-						if strings.HasPrefix(k, prefix) {
-							perSourceState[strings.TrimPrefix(k, prefix)] = v
+						if after, ok := strings.CutPrefix(k, prefix); ok {
+							perSourceState[after] = v
 						}
 					}
 					if len(perSourceState) == 0 {
@@ -726,8 +726,8 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 
 			prefix := id + ":"
 			for key, state := range r.nodeStates {
-				if strings.HasPrefix(key, prefix) {
-					nodeID := strings.TrimPrefix(key, prefix)
+				if after, ok := strings.CutPrefix(key, prefix); ok {
+					nodeID := after
 					if err := r.storage.UpdateNodeState(ctx, id, nodeID, state); err != nil {
 						return err
 					}

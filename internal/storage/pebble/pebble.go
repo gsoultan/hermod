@@ -201,10 +201,7 @@ func (s *pebbleStorage) ListLogs(ctx context.Context, filter storage.LogFilter) 
 		if start >= len(logs) {
 			return []storage.Log{}, total, nil
 		}
-		end := start + filter.Limit
-		if end > len(logs) {
-			end = len(logs)
-		}
+		end := min(start+filter.Limit, len(logs))
 		logs = logs[start:end]
 	} else if len(logs) > 100 {
 		logs = logs[:100]
@@ -354,10 +351,7 @@ func (s *pebbleStorage) ListAuditLogs(ctx context.Context, filter storage.AuditF
 		if start >= len(logs) {
 			return []storage.AuditLog{}, total, nil
 		}
-		end := start + filter.Limit
-		if end > len(logs) {
-			end = len(logs)
-		}
+		end := min(start+filter.Limit, len(logs))
 		logs = logs[start:end]
 	}
 

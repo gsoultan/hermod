@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -191,9 +192,7 @@ func (s *SQLStore) render(tplStr string, msg hermod.Message) string {
 		"payload":   string(msg.Payload()),
 	}
 	// Add message data fields
-	for k, v := range msg.Data() {
-		data[k] = v
-	}
+	maps.Copy(data, msg.Data())
 
 	if err := tmpl.Execute(&buf, data); err != nil {
 		if s.logger != nil {

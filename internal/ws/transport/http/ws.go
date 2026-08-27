@@ -261,8 +261,8 @@ func (h *WSHandler) HandleLogsWS(w http.ResponseWriter, r *http.Request) {
 	// Send initial logs
 	filter := storage.LogFilter{
 		WorkflowID: workflowID,
-	}
-	filter.Limit = 100
+
+		Limit: 100}
 	initialLogs, _, err := h.Storage.ListLogs(r.Context(), filter)
 	if err == nil {
 		if err := wsWriteJSON(conn, initialLogs); err != nil {

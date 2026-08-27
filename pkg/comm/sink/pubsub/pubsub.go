@@ -3,6 +3,7 @@ package pubsub
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 
 	"cloud.google.com/go/pubsub"
@@ -91,9 +92,7 @@ func (s *PubSubSink) Write(ctx context.Context, msg hermod.Message) error {
 	}
 
 	// Copy other metadata if available
-	for k, v := range msg.Metadata() {
-		pubMsg.Attributes[k] = v
-	}
+	maps.Copy(pubMsg.Attributes, msg.Metadata())
 
 	result := s.topic.Publish(ctx, pubMsg)
 

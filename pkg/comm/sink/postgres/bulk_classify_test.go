@@ -25,7 +25,7 @@ func msgWithOp(id string, op hermod.Operation) hermod.Message {
 
 func batchOf(n int, op hermod.Operation) []hermod.Message {
 	msgs := make([]hermod.Message, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		msgs = append(msgs, msgWithOp(string(rune('a'+i%26))+string(rune('0'+i/26)), op))
 	}
 	return msgs

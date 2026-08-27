@@ -116,7 +116,7 @@ func hasExplicitPoolSize(connString string) bool {
 		// Unparseable: fall through to the substring check rather than
 		// silently overriding a setting that may well be there.
 	}
-	for _, field := range strings.Fields(connString) {
+	for field := range strings.FieldsSeq(connString) {
 		if strings.HasPrefix(field, "pool_max_conns=") {
 			return true
 		}

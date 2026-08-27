@@ -25,8 +25,8 @@ func VerifyWebhookSignature(secret string, body []byte, signature string) bool {
 	}
 
 	actual := signature
-	if strings.HasPrefix(signature, "sha256=") {
-		actual = strings.TrimPrefix(signature, "sha256=")
+	if after, ok := strings.CutPrefix(signature, "sha256="); ok {
+		actual = after
 	}
 
 	sig, err := hex.DecodeString(actual)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -480,17 +481,13 @@ func (s *DiscoveryService) ExecuteSQL(ctx context.Context, cfg factory.SourceCon
 
 		// Use user-provided sample data if available
 		if len(userSample) > 0 {
-			for k, v := range userSample {
-				sampleData[k] = v
-			}
+			maps.Copy(sampleData, userSample)
 		} else {
 			// Fallback to table sampling
 			if msg, err := s.sampleTable(ctx, cfg, ""); err == nil && msg != nil {
 				data := msg.Data()
 				if len(data) > 0 {
-					for k, v := range data {
-						sampleData[k] = v
-					}
+					maps.Copy(sampleData, data)
 				}
 				if len(data) == 0 {
 					if after := msg.After(); len(after) > 0 {
@@ -562,16 +559,12 @@ func (s *DiscoveryService) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkC
 		}
 
 		if len(userSample) > 0 {
-			for k, v := range userSample {
-				sampleData[k] = v
-			}
+			maps.Copy(sampleData, userSample)
 		} else {
 			if msg, err := s.SampleSinkTable(ctx, cfg, ""); err == nil && msg != nil {
 				data := msg.Data()
 				if len(data) > 0 {
-					for k, v := range data {
-						sampleData[k] = v
-					}
+					maps.Copy(sampleData, data)
 				}
 			}
 		}

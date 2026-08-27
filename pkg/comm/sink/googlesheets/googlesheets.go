@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"text/template"
@@ -244,8 +245,8 @@ func (s *GoogleSheetsSink) handleDeleteColumn(ctx context.Context, spreadsheetID
 func (s *GoogleSheetsSink) getSheetID(ctx context.Context, spreadsheetID, sheetRange string) (int64, error) {
 	// Extract sheet name from range (e.g., "Sheet1!A1:B2" -> "Sheet1")
 	sheetName := sheetRange
-	if idx := strings.Index(sheetRange, "!"); idx != -1 {
-		sheetName = sheetRange[:idx]
+	if before, _, ok := strings.Cut(sheetRange, "!"); ok {
+		sheetName = before
 	}
 	sheetName = strings.Trim(sheetName, "'")
 
@@ -270,9 +271,7 @@ func (s *GoogleSheetsSink) getSheetID(ctx context.Context, spreadsheetID, sheetR
 func (s *GoogleSheetsSink) prepareTemplateData(msg hermod.Message) map[string]any {
 	data := msg.Data()
 	templateData := make(map[string]any)
-	for k, v := range data {
-		templateData[k] = v
-	}
+	maps.Copy(templateData, data)
 	templateData["id"] = msg.ID()
 	templateData["operation"] = msg.Operation()
 	templateData["table"] = msg.Table()

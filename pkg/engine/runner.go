@@ -86,7 +86,7 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 	r.engine.mu.RLock()
 	numSinks := len(r.engine.sinks)
 	sinkWriters := make([]*sinkWriter, numSinks)
-	for i := 0; i < numSinks; i++ {
+	for i := range numSinks {
 		snk := r.engine.sinks[i]
 		sinkID := ""
 		if i < len(r.engine.sinkIDs) {
@@ -510,7 +510,7 @@ func (r *Runner) preflightSinks(ctx context.Context) error {
 func (r *Runner) pingWithRetry(ctx context.Context, ping func(context.Context) error) error {
 	const backoff = 50 * time.Millisecond
 	var err error
-	for attempt := 0; attempt < preflightAttempts; attempt++ {
+	for attempt := range preflightAttempts {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():

@@ -192,10 +192,7 @@ func (s *MSSQLSink) executeBatch(ctx context.Context, tx *sql.Tx, table string, 
 	}
 
 	for i := 0; i < len(msgs); i += chunkSize {
-		end := i + chunkSize
-		if end > len(msgs) {
-			end = len(msgs)
-		}
+		end := min(i+chunkSize, len(msgs))
 		chunk := msgs[i:end]
 
 		var err error

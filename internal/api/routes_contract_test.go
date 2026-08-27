@@ -286,7 +286,7 @@ func readGolden(t *testing.T) []string {
 		t.Fatalf("reading %s: %v\ngenerate it with -update", routesGolden, err)
 	}
 	var out []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

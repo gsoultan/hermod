@@ -378,16 +378,16 @@ func parseCreateTable(query string) (table, body string, ok bool) {
 	q = strings.ReplaceAll(q, "\n", " ")
 	q = strings.ReplaceAll(q, "\t", " ")
 
-	open := strings.Index(q, "(")
-	if open == -1 {
+	before, after, ok := strings.Cut(q, "(")
+	if !ok {
 		return "", "", false
 	}
-	headerParts := strings.Fields(strings.TrimSpace(q[:open]))
+	headerParts := strings.Fields(strings.TrimSpace(before))
 	if len(headerParts) == 0 {
 		return "", "", false
 	}
 
-	body = q[open+1:]
+	body = after
 	if last := strings.LastIndex(body, ")"); last != -1 {
 		body = body[:last]
 	}
@@ -2068,10 +2068,7 @@ func (s *sqlStorage) ListWebhookRequests(ctx context.Context, filter storage.Web
 	if limit <= 0 {
 		limit = 100
 	}
-	page := filter.Page
-	if page < 1 {
-		page = 1
-	}
+	page := max(filter.Page, 1)
 	offset := (page - 1) * limit
 
 	countQuery := "SELECT COUNT(*) FROM webhook_requests WHERE " + where
@@ -2165,10 +2162,7 @@ func (s *sqlStorage) ListFormSubmissions(ctx context.Context, filter storage.For
 
 	baseQuery += " ORDER BY timestamp ASC"
 	if filter.Limit > 0 {
-		offset := (filter.Page - 1) * filter.Limit
-		if offset < 0 {
-			offset = 0
-		}
+		offset := max((filter.Page-1)*filter.Limit, 0)
 		baseQuery += fmt.Sprintf(" LIMIT %d OFFSET %d", filter.Limit, offset)
 	}
 

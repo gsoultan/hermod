@@ -94,7 +94,7 @@ func TestBulkCopyMatchesOrderedPath(t *testing.T) {
 	const n = bulkMinRows * 4
 	build := func() []hermod.Message {
 		msgs := make([]hermod.Message, 0, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			msgs = append(msgs, bulkITMsg(fmt.Sprintf("k%04d", i), fmt.Sprintf("name %d", i), i*3))
 		}
 		// Duplicate keys inside one batch: the ordered path applies them in
@@ -168,7 +168,7 @@ func TestMixedOperationBatchStaysOrdered(t *testing.T) {
 	defer snk.Close()
 
 	msgs := make([]hermod.Message, 0, bulkMinRows+2)
-	for i := 0; i < bulkMinRows; i++ {
+	for i := range bulkMinRows {
 		msgs = append(msgs, bulkITMsg(fmt.Sprintf("m%04d", i), "keep", i))
 	}
 	// Delete then re-insert the same key: only the ordered path gets this right.

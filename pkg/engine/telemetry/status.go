@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -129,9 +130,7 @@ func (s *StatusTracker) GetStatus() (sourceStatus string, sinkStatuses map[strin
 	engineStatus = s.engineStatus
 	// Copy sink statuses
 	sinkStatuses = make(map[string]string, len(s.sinkStatuses))
-	for k, v := range s.sinkStatuses {
-		sinkStatuses[k] = v
-	}
+	maps.Copy(sinkStatuses, s.sinkStatuses)
 	s.mu.RUnlock()
 
 	lastMsgTime = s.GetLastMsgTime()

@@ -144,10 +144,7 @@ func (e *Engine) SetSinkConfigs(configs []config.SinkConfig) {
 		if i < len(configs) {
 			sw.updateMu.Lock()
 			sw.config = configs[i]
-			batchSize := configs[i].BatchSize
-			if batchSize < 1 {
-				batchSize = 1
-			}
+			batchSize := max(configs[i].BatchSize, 1)
 			sw.currentBatchSize.Store(int64(batchSize))
 			sw.batchTimeout = configs[i].BatchTimeout
 			if sw.batchTimeout == 0 {
@@ -180,10 +177,7 @@ func (e *Engine) UpdateSinkConfig(sinkID string, update func(*config.SinkConfig)
 				if sw.sinkID == sinkID {
 					sw.updateMu.Lock()
 					sw.config = e.sinkConfigs[i]
-					batchSize := e.sinkConfigs[i].BatchSize
-					if batchSize < 1 {
-						batchSize = 1
-					}
+					batchSize := max(e.sinkConfigs[i].BatchSize, 1)
 					sw.currentBatchSize.Store(int64(batchSize))
 					sw.batchTimeout = e.sinkConfigs[i].BatchTimeout
 					if sw.batchTimeout == 0 {
@@ -366,10 +360,9 @@ func (e *Engine) GetStatus() telemetry.StatusUpdate {
 		AvgLatency:      latency,
 		Lag:             lag,
 		Throughput:      e.statusTracker.GetMPS(),
-	}
 
-	update.SinkCBStatuses = make(map[string]string)
-	update.SinkBufferFill = make(map[string]float64)
+		SinkCBStatuses: make(map[string]string),
+		SinkBufferFill: make(map[string]float64)}
 	for _, sw := range e.snapshotSinkWriters() {
 		sw.cbMu.Lock()
 		update.SinkCBStatuses[sw.sinkID] = sw.cbStatus
@@ -489,10 +482,7 @@ func (e *Engine) AcquireNode(ctx context.Context, nodeID string) error {
 		sem, ok = e.nodeSems[nodeID]
 		if !ok {
 			// Default node capacity from config or fallback
-			limit := e.config.MaxInflight / 2
-			if limit < 16 {
-				limit = 16
-			}
+			limit := max(e.config.MaxInflight/2, 16)
 			sem = make(chan struct{}, limit)
 			e.nodeSems[nodeID] = sem
 		}

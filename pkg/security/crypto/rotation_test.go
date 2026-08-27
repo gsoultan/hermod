@@ -44,9 +44,7 @@ func TestRotationIsSafeWhilePipelinesEncrypt(t *testing.T) {
 	// Pipelines encrypting and decrypting credentials, as happens on every
 	// source or sink save and every worker start.
 	for range 4 {
-		readers.Add(1)
-		go func() {
-			defer readers.Done()
+		readers.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -57,7 +55,7 @@ func TestRotationIsSafeWhilePipelinesEncrypt(t *testing.T) {
 					_, _ = Decrypt(enc)
 				}
 			}
-		}()
+		})
 	}
 
 	// An admin rotating the key underneath them.

@@ -56,7 +56,7 @@ func main() {
 	// source.SetStreamID("orders:1") // Optional: filter by stream
 
 	fmt.Println("Starting to read events from Event Store...")
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		msg, err := source.Read(ctx)
 		if err != nil {
 			log.Fatal(err)

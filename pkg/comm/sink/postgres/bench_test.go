@@ -51,7 +51,7 @@ func benchMappings() []sqlutil.ColumnMapping {
 // they must keep the ordered per-message path.
 func buildBatch(n int, idPrefix string) []hermod.Message {
 	msgs := make([]hermod.Message, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		m := message.AcquireMessage()
 		id := fmt.Sprintf("%s-%d", idPrefix, i)
 		m.SetID(id)

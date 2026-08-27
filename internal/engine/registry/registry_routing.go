@@ -179,10 +179,7 @@ func (m *multiSource) Read(ctx context.Context) (hermod.Message, error) {
 	m.mu.Unlock()
 
 	if !anyRunning && !nextRetry.IsZero() {
-		wait := time.Until(nextRetry)
-		if wait < 0 {
-			wait = 0
-		}
+		wait := max(time.Until(nextRetry), 0)
 		timer := time.NewTimer(wait)
 		defer timer.Stop()
 		select {

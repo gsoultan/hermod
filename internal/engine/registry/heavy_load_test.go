@@ -137,7 +137,7 @@ func TestHeavyLoad(t *testing.T) {
 	start := time.Now()
 
 	go func() {
-		for i := 0; i < numMessages; i++ {
+		for i := range numMessages {
 			msg := message.AcquireMessage()
 			msg.SetData("i", i)
 			src.msgChan <- msg

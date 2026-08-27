@@ -242,8 +242,8 @@ func (c *CassandraSource) SetState(state map[string]string) {
 	defer c.mu.Unlock()
 
 	for k, v := range state {
-		if strings.HasPrefix(k, "last_id:") {
-			table := strings.TrimPrefix(k, "last_id:")
+		if after, ok := strings.CutPrefix(k, "last_id:"); ok {
+			table := after
 			c.lastIDs[table] = v
 		}
 	}

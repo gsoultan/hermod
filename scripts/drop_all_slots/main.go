@@ -36,7 +36,7 @@ func main() {
 		_, _ = conn.Exec(context.Background(), "SELECT pg_terminate_backend(active_pid) FROM pg_replication_slots WHERE slot_name = $1 AND active_pid IS NOT NULL", slot)
 
 		// Wait a bit for termination
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			var active bool
 			err := conn.QueryRow(context.Background(), "SELECT active FROM pg_replication_slots WHERE slot_name = $1", slot).Scan(&active)
 			if err != nil || !active {

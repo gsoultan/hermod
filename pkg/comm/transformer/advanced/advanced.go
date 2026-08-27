@@ -28,9 +28,9 @@ type AdvancedTransformer struct {
 func (t *AdvancedTransformer) Prepare(config map[string]any) (map[string]any, error) {
 	var columns []columnConfig
 	for k, v := range config {
-		if strings.HasPrefix(k, "column.") {
+		if after, ok := strings.CutPrefix(k, "column."); ok {
 			columns = append(columns, columnConfig{
-				path: strings.TrimPrefix(k, "column."),
+				path: after,
 				expr: v,
 			})
 		}
@@ -54,9 +54,9 @@ func (t *AdvancedTransformer) Transform(ctx context.Context, msg hermod.Message,
 	} else {
 		// Fallback for non-prepared config
 		for k, v := range config {
-			if strings.HasPrefix(k, "column.") {
+			if after, ok0 := strings.CutPrefix(k, "column."); ok0 {
 				columns = append(columns, columnConfig{
-					path: strings.TrimPrefix(k, "column."),
+					path: after,
 					expr: v,
 				})
 			}

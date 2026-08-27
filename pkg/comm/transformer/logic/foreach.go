@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"errors"
+	"maps"
 	"strconv"
 
 	"github.com/user/hermod/pkg/comm/transformer"
@@ -113,9 +114,7 @@ func (t *ForeachTransformer) Transform(ctx context.Context, msg hermod.Message, 
 		if indexField != "" {
 			if m, ok := it.(map[string]any); ok {
 				cp := make(map[string]any, len(m)+1)
-				for k, v := range m {
-					cp[k] = v
-				}
+				maps.Copy(cp, m)
 				cp[indexField] = i
 				it = cp
 			}

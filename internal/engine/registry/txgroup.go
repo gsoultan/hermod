@@ -124,7 +124,7 @@ func (r *Registry) newTxCoordinator(cfg factory.SinkConfig) (*twopc.Coordinator,
 // trailing comma is not read as an anonymous member.
 func splitMemberIDs(raw string) []string {
 	var out []string
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		if id := strings.TrimSpace(part); id != "" {
 			out = append(out, id)
 		}

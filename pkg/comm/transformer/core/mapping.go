@@ -70,8 +70,8 @@ func (t *MappingTransformer) Transform(ctx context.Context, msg hermod.Message, 
 							return msg, nil
 						}
 					}
-				} else if strings.HasSuffix(k, "+") {
-					low, _ := strconv.ParseFloat(strings.TrimSuffix(k, "+"), 64)
+				} else if before, ok0 := strings.CutSuffix(k, "+"); ok0 {
+					low, _ := strconv.ParseFloat(before, 64)
 					if val >= low {
 						msg.SetData(targetField, v)
 						return msg, nil

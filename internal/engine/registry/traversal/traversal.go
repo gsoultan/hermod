@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -141,11 +142,8 @@ func (t *WorkflowTraversal) countAgainstBreakers(failedID string) {
 		if node == nil || node.Type != "circuit_breaker" {
 			continue
 		}
-		for _, target := range targets {
-			if target == failedID {
-				t.Registry.RecordCircuitBreakerFailure(t.WorkflowID, parent)
-				break
-			}
+		if slices.Contains(targets, failedID) {
+			t.Registry.RecordCircuitBreakerFailure(t.WorkflowID, parent)
 		}
 	}
 }

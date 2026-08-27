@@ -862,10 +862,7 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 	// Batch sizing state is kept goroutine-local, from one snapshot taken under
 	// the lock rather than field-by-field off the shared struct.
 	cfg := w.snapshotConfig()
-	batchSize := cfg.BatchSize
-	if batchSize < 1 {
-		batchSize = 1
-	}
+	batchSize := max(cfg.BatchSize, 1)
 	w.currentBatchSize.Store(int64(batchSize))
 	batchTimeout := cfg.BatchTimeout
 	if batchTimeout == 0 {
@@ -985,25 +982,16 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			duration := time.Since(start)
 			if err == nil {
 				if duration < batchTimeout/2 && len(input) > 0 {
-					increment := int(float64(batchSize) * 0.05)
-					if increment < 1 {
-						increment = 1
-					}
+					increment := max(int(float64(batchSize)*0.05), 1)
 					batchSize += increment
 					if batchSize > 5000 {
 						batchSize = 5000
 					}
 				} else if duration > time.Duration(float64(batchTimeout)*0.8) {
-					batchSize = int(float64(batchSize) * 0.9)
-					if batchSize < 1 {
-						batchSize = 1
-					}
+					batchSize = max(int(float64(batchSize)*0.9), 1)
 				}
 			} else {
-				batchSize = int(float64(batchSize) * 0.5)
-				if batchSize < 1 {
-					batchSize = 1
-				}
+				batchSize = max(int(float64(batchSize)*0.5), 1)
 			}
 			w.currentBatchSize.Store(int64(batchSize))
 		}

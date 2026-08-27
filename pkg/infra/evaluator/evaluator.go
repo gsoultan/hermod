@@ -3,9 +3,11 @@ package evaluator
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -303,12 +305,7 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		}
 		return true
 	case "or":
-		for _, arg := range args {
-			if ToBool(arg) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(args, ToBool)
 	case "not":
 		if len(args) > 0 {
 			return !ToBool(args[0])
@@ -554,9 +551,7 @@ func SetValByPath(data map[string]any, path string, val any) {
 		for k := range data {
 			delete(data, k)
 		}
-		for k, v := range newData {
-			data[k] = v
-		}
+		maps.Copy(data, newData)
 	}
 }
 

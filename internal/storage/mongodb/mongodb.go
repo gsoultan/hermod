@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"time"
 
@@ -1964,9 +1965,7 @@ func (s *mongoStorage) GetDashboardStats(ctx context.Context, vhost string) (sto
 	count, _ := srcColl.CountDocuments(ctx, filter)
 	stats.TotalSources = int(count)
 	activeSrcFilter := bson.M{"status": "running"}
-	for k, v := range filter {
-		activeSrcFilter[k] = v
-	}
+	maps.Copy(activeSrcFilter, filter)
 	count, _ = srcColl.CountDocuments(ctx, activeSrcFilter)
 	stats.ActiveSources = int(count)
 
@@ -1974,9 +1973,7 @@ func (s *mongoStorage) GetDashboardStats(ctx context.Context, vhost string) (sto
 	count, _ = snkColl.CountDocuments(ctx, filter)
 	stats.TotalSinks = int(count)
 	activeSnkFilter := bson.M{"status": "running"}
-	for k, v := range filter {
-		activeSnkFilter[k] = v
-	}
+	maps.Copy(activeSnkFilter, filter)
 	count, _ = snkColl.CountDocuments(ctx, activeSnkFilter)
 	stats.ActiveSinks = int(count)
 

@@ -419,7 +419,7 @@ func TestWorkerIsAssigned_StabilityAndDistribution(t *testing.T) {
 	counts := make([]int, 3)
 
 	for _, id := range ids {
-		for shard := 0; shard < 3; shard++ {
+		for shard := range 3 {
 			w.workerID = shard
 			if w.isAssigned(id, "") {
 				counts[shard]++
