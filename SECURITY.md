@@ -170,6 +170,26 @@ seconds and fails, which is what makes it evidence.
 imports and uploads may legitimately take a while. A deployment that does not
 need slow uploads should put a proxy in front with a body timeout.
 
+The gRPC server (port 50051, also `EXPOSE`d) was constructed the same way — 
+`grpc.NewServer()` with no options — and gRPC's default `MaxConcurrentStreams`
+is *unlimited*, so one client could open streams until the process ran out of
+memory. Its only authentication is the per-path API key checked inside
+`Publish`, which means everything before that check is reachable
+unauthenticated.
+
+| Setting | Value | Why |
+| :--- | :--- | :--- |
+| `MaxConcurrentStreams` | 1000 | A ceiling no real producer meets. gRPC's default is unlimited. |
+| `MaxRecvMsgSize` | 4MB | gRPC's default, stated rather than inherited. |
+| `MaxConnectionIdle` | 15m | Reclaims connections doing nothing; streams in progress are untouched. |
+| `KeepaliveEnforcementPolicy.MinTime` | 30s | Without one, a client may ping as fast as it likes — work for the server, nothing for the client. |
+
+**`MaxConnectionAge` is deliberately not set.** This is a data ingestion
+endpoint; forcing periodic reconnects would disrupt exactly the long-lived
+producer streams it exists to serve. `PermitWithoutStream` stays true for the
+same reason — a producer holding a connection open between batches is normal
+here.
+
 ### Remaining hardening, in priority order
 
 1. **Cross-instance revocation timing.** A revocation is immediate on the
