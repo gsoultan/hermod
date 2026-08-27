@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/user/hermod/pkg/infra/httpclient"
+
 	"github.com/user/hermod"
 )
 
@@ -78,7 +80,7 @@ func (s *LinkedInSink) Write(ctx context.Context, msg hermod.Message) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Restli-Protocol-Version", "2.0.0")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.DataClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -116,7 +118,7 @@ func (s *LinkedInSink) Ping(ctx context.Context) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+s.accessToken)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.DataClient.Do(req)
 	if err != nil {
 		return err
 	}

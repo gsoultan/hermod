@@ -205,21 +205,34 @@ stalled server held the call forever, taking the worker preparing the
 transformer with it, and a URL pointing at `169.254.169.254` or an internal
 address made the server fetch on the caller's behalf.
 
-**The remaining call sites are deliberately not converted, and converting them
-blindly would be a bug.** Hermod is self-hosted, and an HTTP *data source*
-pointed at `http://internal-api.local` is an ordinary thing to configure, not
-an attack — the SSRF guard would break exactly the deployments this software
-exists for. Those sites need per-request timeouts, which is a different change
-with a different argument, and they are listed here rather than quietly left:
+**The remaining call sites got timeouts, not the SSRF guard**, because
+converting them blindly would have been a bug. Hermod is self-hosted, and an
+HTTP *data source* pointed at `http://internal-api.local` is an ordinary thing
+to configure, not an attack — refusing private addresses there would break
+exactly the deployments this software exists for.
 
-- `pkg/comm/source/file/generic.go`, `file.go`, `pkg/comm/source/excel/excel.go`
-  — operator-configured source URLs. They pass a context, but a source context
-  is only cancelled at shutdown, so there is no per-request bound.
-- the social and messaging sinks (Slack, Discord, Telegram, Twitter/X,
-  Facebook, Instagram, TikTok) — these post to vendor endpoints, but several
-  take a webhook URL from configuration.
-- `pkg/comm/transformer/lookup/api_lookup.go` is already bounded, by an
-  explicit `context.WithTimeout` around each attempt.
+So there are two clients, and the difference between them is the whole point:
+
+| Client | Bounds | Refuses private addresses | For |
+| :--- | :--- | :--- | :--- |
+| `DefaultClient` | whole request, 10s | **yes** | code, and anything from a source the operator does not control |
+| `DataClient` | dial, TLS handshake, and the wait for response headers | **no** | operator-configured sources and destinations |
+
+`DataClient` deliberately sets no overall `Timeout`. A pipeline legitimately
+downloads large files and uploads large batches, and an overall cap would abort
+those on a clock rather than on a fault. It bounds the phases that must be fast
+and leaves the transfer alone — the same distinction the API server makes
+between `ReadHeaderTimeout` and `ReadTimeout`.
+
+26 call sites moved onto it: the file and Excel sources, and the social and
+messaging sinks (Slack, Discord, Telegram, Twitter/X, Facebook, Instagram,
+TikTok, LinkedIn). `pkg/comm/transformer/lookup/api_lookup.go` was already
+bounded by an explicit `context.WithTimeout` around each attempt and is left
+alone.
+
+A test pins the distinction rather than only the timeouts: `DataClient` reaches
+a loopback address and `DefaultClient` refuses one. If those ever agree, one of
+them has lost its purpose.
 
 ### Remaining hardening, in priority order
 

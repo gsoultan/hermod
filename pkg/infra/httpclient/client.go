@@ -80,3 +80,54 @@ func SafeDialer(network, address string, c syscall.RawConn) error {
 	}
 	return nil
 }
+
+// DataClient is for fetching operator-configured data sources and posting to
+// operator-configured destinations.
+//
+// It bounds the phases that must be fast — connecting, the TLS handshake, and
+// waiting for the server to begin its reply — but deliberately does not cap
+// the total duration of a request. A data pipeline legitimately downloads
+// large files and uploads large batches, and an overall Timeout would abort
+// those on a clock rather than on a fault. This is the same distinction the
+// API server makes between ReadHeaderTimeout and ReadTimeout: bound the wait,
+// not the work.
+//
+// It also deliberately performs NO SSRF check, which is what separates it from
+// DefaultClient. Hermod is self-hosted, and a source pointed at
+// http://internal-api.local is an ordinary thing to configure; refusing
+// private addresses here would break the deployments this software exists for.
+// Use DefaultClient instead whenever the thing being fetched is code, or comes
+// from somewhere the operator does not control.
+var DataClient = NewDataClient()
+
+// NewDataClient builds the client described by DataClient.
+func NewDataClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout:   dataDialTimeout,
+		KeepAlive: 30 * time.Second,
+	}
+	return &http.Client{
+		// No overall Timeout, on purpose. See DataClient.
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           dialer.DialContext,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   dataTLSTimeout,
+			ExpectContinueTimeout: 1 * time.Second,
+
+			// The one that matters most here. Without it, a server that
+			// accepts the connection and then never replies holds the caller
+			// forever — and http.DefaultClient, which these call sites used,
+			// sets none of these at all.
+			ResponseHeaderTimeout: dataResponseHeaderTimeout,
+		},
+	}
+}
+
+const (
+	dataDialTimeout           = 15 * time.Second
+	dataTLSTimeout            = 15 * time.Second
+	dataResponseHeaderTimeout = 60 * time.Second
+)

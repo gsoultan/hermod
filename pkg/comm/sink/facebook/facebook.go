@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
 	"net/url"
+
+	"github.com/user/hermod/pkg/infra/httpclient"
 
 	"github.com/user/hermod"
 )
@@ -61,7 +64,7 @@ func (s *FacebookSink) Write(ctx context.Context, msg hermod.Message) error {
 		return err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.DataClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -103,7 +106,7 @@ func (s *FacebookSink) Ping(ctx context.Context) error {
 		return err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.DataClient.Do(req)
 	if err != nil {
 		return err
 	}

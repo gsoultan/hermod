@@ -7,14 +7,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/user/hermod/pkg/infra/httpclient"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+
 	"github.com/user/hermod"
 	"github.com/user/hermod/pkg/comm/message"
 )
@@ -130,7 +134,7 @@ func (s *CSVSource) init(ctx context.Context) error {
 		for k, v := range s.headersMap {
 			req.Header.Set(k, v)
 		}
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := httpclient.DataClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("failed to fetch csv from http: %w", err)
 		}
@@ -282,7 +286,7 @@ func (s *CSVSource) Ping(ctx context.Context) error {
 		for k, v := range s.headersMap {
 			req.Header.Set(k, v)
 		}
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := httpclient.DataClient.Do(req)
 		if err != nil {
 			return err
 		}

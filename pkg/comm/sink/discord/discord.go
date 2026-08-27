@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/user/hermod/pkg/infra/httpclient"
+
 	"github.com/user/hermod"
 )
 
@@ -81,7 +83,7 @@ func (s *DiscordSink) sendWebhook(ctx context.Context, content string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.DataClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -107,7 +109,7 @@ func (s *DiscordSink) sendBotMessage(ctx context.Context, content string) error 
 	req.Header.Set("Authorization", "Bot "+s.token)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.DataClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -142,7 +144,7 @@ func (s *DiscordSink) Ping(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := httpclient.DataClient.Do(req)
 		if err != nil {
 			return err
 		}
@@ -160,7 +162,7 @@ func (s *DiscordSink) Ping(ctx context.Context) error {
 			return err
 		}
 		req.Header.Set("Authorization", "Bot "+s.token)
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := httpclient.DataClient.Do(req)
 		if err != nil {
 			return err
 		}
