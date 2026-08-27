@@ -42,6 +42,7 @@ import (
 	"github.com/user/hermod/pkg/comm/source/grpc/proto"
 	"github.com/user/hermod/pkg/infra/filestorage"
 	googlegrpc "google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 //go:embed all:static
@@ -324,12 +325,72 @@ func (s *Server) Routes() http.Handler {
 	)
 }
 
+// gRPC server limits. Named so the reasoning sits with the numbers.
+const (
+	// A generous ceiling rather than a tuning target: enough that no real
+	// producer meets it, low enough that one client cannot exhaust the
+	// process. gRPC's own default is unlimited.
+	maxConcurrentStreams = 1000
+
+	// gRPC's default, stated explicitly.
+	maxRecvMsgSize = 4 * 1024 * 1024
+
+	// Idle connections are reclaimed; active streams are not affected.
+	grpcMaxConnectionIdle = 15 * time.Minute
+
+	// How long the server waits before probing a quiet connection, and how
+	// long it waits for the answer.
+	grpcKeepaliveTime    = 2 * time.Minute
+	grpcKeepaliveTimeout = 20 * time.Second
+
+	// The floor on how often a client may ping. Generous on purpose: this
+	// guards against a flood, and a legitimate client pinging every minute is
+	// well inside it. PermitWithoutStream stays true because an idle producer
+	// holding a connection open between batches is normal here.
+	grpcMinKeepaliveInterval = 30 * time.Second
+)
+
 func (s *Server) StartGRPC(addr string) error {
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
-	s.GrpcServer = googlegrpc.NewServer()
+	// Constructed with options, because grpc.NewServer() with none leaves the
+	// same shape of exposure the HTTP server had: this port is EXPOSEd by the
+	// Dockerfile, and the only authentication is a per-path API key checked
+	// inside Publish, so anything before that is reachable unauthenticated.
+	//
+	// What is bounded here is what a client can consume without sending a
+	// valid request. What is not bounded is how long a legitimate producer may
+	// stay connected: this is a data ingestion endpoint, and MaxConnectionAge
+	// would force periodic reconnects on exactly the long-lived streams it
+	// exists to serve.
+	s.GrpcServer = googlegrpc.NewServer(
+		// Unlimited by default: one client could open streams until the
+		// process ran out of memory.
+		googlegrpc.MaxConcurrentStreams(maxConcurrentStreams),
+
+		// Go's default is 4MB; stated so it is a decision, and so the number
+		// sits next to the reason.
+		googlegrpc.MaxRecvMsgSize(maxRecvMsgSize),
+
+		// Reclaims connections that are doing nothing. Idle only — a stream
+		// in progress is untouched.
+		googlegrpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle: grpcMaxConnectionIdle,
+			Time:              grpcKeepaliveTime,
+			Timeout:           grpcKeepaliveTimeout,
+		}),
+
+		// Without an enforcement policy a client may ping as fast as it likes,
+		// which costs the server work per ping and nothing to send. MinTime
+		// is deliberately generous: it is a floor against flooding, not a
+		// tuning knob.
+		googlegrpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             grpcMinKeepaliveInterval,
+			PermitWithoutStream: true,
+		}),
+	)
 	proto.RegisterSourceServiceServer(s.GrpcServer, &grpcsource.Server{Storage: s.Storage})
 	fmt.Printf("Starting Hermod gRPC server on %s...\n", addr)
 	return s.GrpcServer.Serve(lis)
