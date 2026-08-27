@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/user/hermod/pkg/infra/httpclient"
 
 	"github.com/user/hermod/pkg/comm/transformer"
 
@@ -47,6 +50,24 @@ func (t *WasmTransformer) getRuntime(ctx context.Context) wazero.Runtime {
 	return t.runtime
 }
 
+// Both module downloads go through pkg/infra/httpclient rather than http.Get.
+//
+// http.Get has no timeout — http.DefaultClient's is zero — so a server that
+// accepted the connection and then stalled held this call forever, and with it
+// whichever worker was preparing the transformer. It also performs no SSRF
+// check, and the URL here comes from configuration: pointing it at
+// 169.254.169.254 or an internal address made the server fetch on the caller's
+// behalf.
+//
+// Both matter more here than almost anywhere else in this codebase, because
+// what arrives is not data. It is a WebAssembly module that is about to be
+// compiled and executed.
+//
+// The SSRF guard blocking private ranges is the right trade for *this* fetch
+// specifically. It would be the wrong trade for a data source: Hermod is
+// self-hosted, and reading from an internal HTTP service is an ordinary thing
+// to configure, not an attack. Those call sites need timeouts, not this
+// client.
 func (t *WasmTransformer) Prepare(config map[string]any) (map[string]any, error) {
 	var bin []byte
 	var err error
@@ -68,7 +89,7 @@ func (t *WasmTransformer) Prepare(config map[string]any) (map[string]any, error)
 		// A truncated WASM binary is not a safe thing to execute.
 		if marketplaceID != "" {
 			url := fmt.Sprintf("https://marketplace.hermod.io/api/v1/plugins/%s/download", marketplaceID)
-			resp, err := http.Get(url)
+			resp, err := httpclient.Fetch(context.Background(), url)
 			if err != nil {
 				return config, fmt.Errorf("failed to fetch from marketplace: %w", err)
 			}
@@ -81,7 +102,7 @@ func (t *WasmTransformer) Prepare(config map[string]any) (map[string]any, error)
 				return config, fmt.Errorf("failed to read plugin %s from marketplace: %w", marketplaceID, err)
 			}
 		} else if wasmURL != "" {
-			resp, err := http.Get(wasmURL)
+			resp, err := httpclient.Fetch(context.Background(), wasmURL)
 			if err != nil {
 				return config, fmt.Errorf("failed to fetch from url: %w", err)
 			}

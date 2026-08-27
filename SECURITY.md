@@ -190,6 +190,37 @@ producer streams it exists to serve. `PermitWithoutStream` stays true for the
 same reason — a producer holding a connection open between batches is normal
 here.
 
+### Outbound requests, and why they are not all treated alike
+
+`pkg/infra/httpclient` provides a client with timeouts and an SSRF guard that
+refuses connections to private and loopback ranges. One file used it. Twelve or
+more reached for `http.Get` or `http.DefaultClient` instead, both of which have
+**no timeout at all** — `http.DefaultClient.Timeout` is zero — and no address
+check.
+
+The WASM transformer's module download now uses the guarded client. It is the
+sharpest case in the codebase: the URL comes from configuration, and what
+arrives is not data but a WebAssembly module that is compiled and executed. A
+stalled server held the call forever, taking the worker preparing the
+transformer with it, and a URL pointing at `169.254.169.254` or an internal
+address made the server fetch on the caller's behalf.
+
+**The remaining call sites are deliberately not converted, and converting them
+blindly would be a bug.** Hermod is self-hosted, and an HTTP *data source*
+pointed at `http://internal-api.local` is an ordinary thing to configure, not
+an attack — the SSRF guard would break exactly the deployments this software
+exists for. Those sites need per-request timeouts, which is a different change
+with a different argument, and they are listed here rather than quietly left:
+
+- `pkg/comm/source/file/generic.go`, `file.go`, `pkg/comm/source/excel/excel.go`
+  — operator-configured source URLs. They pass a context, but a source context
+  is only cancelled at shutdown, so there is no per-request bound.
+- the social and messaging sinks (Slack, Discord, Telegram, Twitter/X,
+  Facebook, Instagram, TikTok) — these post to vendor endpoints, but several
+  take a webhook URL from configuration.
+- `pkg/comm/transformer/lookup/api_lookup.go` is already bounded, by an
+  explicit `context.WithTimeout` around each attempt.
+
 ### Remaining hardening, in priority order
 
 1. **Cross-instance revocation timing.** A revocation is immediate on the
