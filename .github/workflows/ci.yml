@@ -97,7 +97,7 @@ jobs:
       - name: Test (load and property, no race detector)
         run: |
           go test -count=1 -timeout 20m \
-            -run 'HeavySyncLoad|FailbackUnderLoad|RestartCycles|DoesNotLeakGoroutines|TestHeavyLoad|AcrossRandomTopologies' \
+            -run 'HeavySyncLoad|FailbackUnderLoad|RestartCycles|DoesNotLeakGoroutines|SurvivesControlPlaneOutage|TestHeavyLoad|AcrossRandomTopologies' \
             ./internal/engine/worker/ ./internal/engine/registry/
       # Gates new code only (see issues.new-from-merge-base in .golangci.yml).
       # The pre-existing backlog is reported by the nightly lint-debt job rather
