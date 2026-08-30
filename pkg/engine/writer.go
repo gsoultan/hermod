@@ -215,9 +215,24 @@ func (e *Engine) DeadLetterNodeFailure(ctx context.Context, nodeID string, msg h
 	return true
 }
 
-func (e *Engine) writeToDLQ(ctx context.Context, sinkID string, msgs ...hermod.Message) {
+// writeToDLQ parks messages in the dead-letter sink and reports whether that
+// worked.
+//
+// It used to return nothing. Every caller therefore followed it with `return
+// nil` — telling the engine the message was delivered — and one of them said so
+// in a comment: "Message preserved in DLQ". That was a claim, not a check. When
+// the dead-letter sink was unreachable the failure was logged, a metric was
+// incremented, and the message was acknowledged and lost, which is precisely
+// what a dead-letter sink exists to prevent.
+//
+// The engine already holds the opposite position a few lines away, in the
+// branch for a workflow with no dead-letter sink at all: it deliberately does
+// not acknowledge, because "retention is visible and recoverable; a silent drop
+// is neither". A DLQ write that failed leaves the message in exactly that
+// position — nowhere — so it now gets exactly that treatment.
+func (e *Engine) writeToDLQ(ctx context.Context, sinkID string, msgs ...hermod.Message) error {
 	if e.deadLetterSink == nil || len(msgs) == 0 {
-		return
+		return nil
 	}
 
 	// If the DLQ sink supports batching, use it
@@ -228,18 +243,26 @@ func (e *Engine) writeToDLQ(ctx context.Context, sinkID string, msgs ...hermod.M
 		if err := bsnk.WriteBatch(ctx, msgs); err != nil {
 			e.logger.Error("Failed to write batch to Dead Letter Sink", "workflow_id", e.workflowID, "error", err)
 			telemetry.DeadLetterErrors.WithLabelValues(e.workflowID, sinkID).Inc()
+			return fmt.Errorf("dead-letter sink write failed: %w", err)
 		}
-		return
+		return nil
 	}
 
-	// Fallback to single writes
+	// Fallback to single writes. The first failure is returned rather than
+	// collected: the caller's only decision is whether the batch is safe to
+	// acknowledge, and one message that did not land makes it unsafe.
+	var firstErr error
 	for _, m := range msgs {
 		e.prepareDLQMessage(m, sinkID, "")
 		if err := e.deadLetterSink.Write(ctx, m); err != nil {
 			e.logger.Error("Failed to write to Dead Letter Sink", "workflow_id", e.workflowID, "error", err)
 			telemetry.DeadLetterErrors.WithLabelValues(e.workflowID, sinkID).Inc()
+			if firstErr == nil {
+				firstErr = fmt.Errorf("dead-letter sink write failed: %w", err)
+			}
 		}
 	}
+	return firstErr
 }
 
 // writeToSink writes a single message to the sink with retry/reconnect.
@@ -273,8 +296,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		e.logger.Warn("Safe Mode Active: diverting message to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID())
 		msg.SetMetadata("_hermod_safe_mode", "true")
 		msg.SetMetadata("_hermod_original_sink", sinkID)
-		e.writeToDLQ(ctx, sinkID, msg)
-		return nil
+		return e.writeToDLQ(ctx, sinkID, msg)
 	}
 
 	// Pre-write validation
@@ -284,8 +306,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 			if e.deadLetterSink != nil {
 				e.logger.Info("Sending invalid message to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID())
 				msg.SetMetadata("_hermod_validation_failed", "true")
-				e.writeToDLQ(ctx, sinkID, msg)
-				return nil
+				return e.writeToDLQ(ctx, sinkID, msg)
 			}
 			return fmt.Errorf("validation error: %w", err)
 		}
@@ -406,8 +427,10 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		span.SetStatus(codes.Error, lastErr.Error())
 		if e.deadLetterSink != nil {
 			e.logger.Info("Sending message to Dead Letter Sink", "workflow_id", e.workflowID, "sink_id", sinkID, "message_id", msg.ID())
-			e.writeToDLQ(ctx, sinkID, msg)
-			return nil // Message preserved in DLQ
+			// Only nil if the message really is preserved. Reporting success
+			// for a park that failed is how a dead-letter sink turns into a
+			// silent drop.
+			return e.writeToDLQ(ctx, sinkID, msg)
 		}
 		return fmt.Errorf("sink write error: %w", lastErr)
 	}
@@ -461,7 +484,9 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 			validMsgs = append(validMsgs, m)
 		}
 		if len(invalidMsgs) > 0 {
-			e.writeToDLQ(ctx, sinkID, invalidMsgs...)
+			if err := e.writeToDLQ(ctx, sinkID, invalidMsgs...); err != nil {
+				return err
+			}
 		}
 		msgs = validMsgs
 	}
@@ -478,8 +503,7 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 				m.SetMetadata("_hermod_original_sink", sinkID)
 			}
 		}
-		e.writeToDLQ(ctx, sinkID, msgs...)
-		return nil
+		return e.writeToDLQ(ctx, sinkID, msgs...)
 	}
 
 	if len(msgs) == 1 {

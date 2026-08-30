@@ -845,11 +845,22 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		r.engine.reportUnroutable(m)
 
 		// Preferred: park it in the dead-letter sink, which preserves the message
-		// and lets the source advance.
+		// and lets the source advance — but only if the park actually worked.
+		// This used to acknowledge unconditionally, so a dead-letter sink that
+		// was unreachable turned every undeliverable message into a silent drop:
+		// the one outcome the sink exists to prevent, and the exact opposite of
+		// what the branch below does when there is no sink at all.
 		if r.engine.deadLetterSink != nil {
-			r.engine.writeToDLQ(ctx, "", m)
-			ack()
-			return
+			if err := r.engine.writeToDLQ(ctx, "", m); err == nil {
+				ack()
+				return
+			}
+			// The park failed, so the message is nowhere. That is the same
+			// position as having no dead-letter sink, and it gets the same
+			// answer: fall through and do not acknowledge.
+			r.engine.logger.Error("Dead-letter sink refused an undeliverable message; "+
+				"leaving it unacknowledged so it is redelivered rather than lost",
+				"workflow_id", r.engine.workflowID, "message_id", m.ID())
 		}
 
 		// No dead-letter sink: do NOT acknowledge. Leaving the message
