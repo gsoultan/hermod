@@ -41,6 +41,20 @@ note() { printf '  %s%s%s\n' "$DIM" "$1" "$RESET"; }
 run() {
   local name="$1"; shift
   if "$@" >/tmp/seccheck.out 2>&1; then
+    # A -run pattern that matches nothing is not a pass. `go test -run NoMatch`
+    # exits 0 and prints "[no tests to run]", so a renamed test silently turns
+    # one of these claims into a green tick that checks nothing — the same way
+    # a testing.Short() guard once removed a test from CI entirely without
+    # failing anything. Every check here names specific tests, so zero matches
+    # always means the name went stale, never that there was nothing to do.
+    if grep -q "no tests to run" /tmp/seccheck.out; then
+      printf '  %s✗%s %s\n' "$RED" "$RESET" "$name"
+      printf '      the -run pattern matched no tests, so this claim was not checked;\n'
+      printf '      a test was probably renamed. Update the pattern in %s.\n' "$0"
+      sed 's/^/      /' /tmp/seccheck.out | tail -5
+      FAILED+=("$name (matched no tests)")
+      return
+    fi
     printf '  %s✓%s %s\n' "$GREEN" "$RESET" "$name"
   else
     printf '  %s✗%s %s\n' "$RED" "$RESET" "$name"
