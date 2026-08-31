@@ -257,20 +257,43 @@ func (c *Coordinator) prepareAll(ctx context.Context, participants []Participant
 	}
 
 	for _, p := range participants {
-		txID, err := p.Sink.Prepare(ctx)
+		// The name is chosen and recorded here, before the participant is asked
+		// to prepare anything. Previously the participant named its own
+		// transaction and returned the name, which left a window: a crash
+		// between Prepare returning and the coordinator writing that name down
+		// produced a prepared transaction nothing could name. On PostgreSQL
+		// that transaction holds its locks cluster-wide until somebody finds it
+		// by hand in pg_prepared_xacts.
+		//
+		// Writing the name first inverts the failure: a crash now leaves at
+		// worst a name recorded for a transaction that was never prepared, and
+		// recovery rolling back an identifier that does not exist is a no-op.
+		// An orphan you can name is a cleanup; one you cannot is an outage.
+		txID := c.newTxID()
+		rec.TxIDs[p.ID] = txID
+		if err := c.save(ctx, rec); err != nil {
+			delete(rec.TxIDs, p.ID)
+			c.abort(ctx, participants, rec)
+			return nil, fmt.Errorf("twopc: cannot record the transaction ID for "+
+				"participant %q, refusing to prepare it: %w", p.ID, err)
+		}
+
+		actual, err := p.Sink.Prepare(ctx, txID)
 		if err != nil {
 			c.abort(ctx, participants, rec)
 			return nil, fmt.Errorf("twopc: participant %q could not prepare: %w", p.ID, err)
 		}
-		rec.TxIDs[p.ID] = txID
 
-		// Persist after every vote rather than once at the end. A crash between
-		// a Prepare returning and its identifier being written orphans that
-		// participant, so the window is kept to a single participant instead of
-		// the whole set.
-		if err := c.save(ctx, rec); err != nil {
-			c.abort(ctx, participants, rec)
-			return nil, fmt.Errorf("twopc: cannot record the vote of participant %q: %w", p.ID, err)
+		// A participant may report a different identifier — the PostgreSQL sink
+		// returns a sentinel when it is behind a pooler and had to commit
+		// locally instead. Record what is actually in force, since that is what
+		// recovery will act on.
+		if actual != txID {
+			rec.TxIDs[p.ID] = actual
+			if err := c.save(ctx, rec); err != nil {
+				c.abort(ctx, participants, rec)
+				return nil, fmt.Errorf("twopc: cannot record the vote of participant %q: %w", p.ID, err)
+			}
 		}
 	}
 
@@ -281,6 +304,16 @@ func (c *Coordinator) prepareAll(ctx context.Context, participants []Participant
 		return nil, fmt.Errorf("twopc: cannot record the prepared state: %w", err)
 	}
 	return rec, nil
+}
+
+// newTxID names a participant's transaction. The coordinator generates it so it
+// can be recorded before the transaction exists; see the loop in prepareAll.
+//
+// It is a UUID because the PostgreSQL sink interpolates it into PREPARE
+// TRANSACTION, which takes a string literal rather than a bind parameter, and
+// refuses anything that is not a UUID.
+func (c *Coordinator) newTxID() string {
+	return uuid.New().String()
 }
 
 // commitAll makes the decision durable, then applies it.

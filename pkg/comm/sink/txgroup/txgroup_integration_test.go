@@ -282,10 +282,10 @@ func prepareOnlyViaSinks(ctx context.Context, a, b *sinkpostgres.PostgresSink, _
 	if err := b.Write(ctx, msg("x1", "b")); err != nil {
 		return fmt.Errorf("write b: %w", err)
 	}
-	if _, err := a.Prepare(ctx); err != nil {
+	if _, err := a.Prepare(ctx, ""); err != nil {
 		return fmt.Errorf("prepare a: %w", err)
 	}
-	if _, err := b.Prepare(ctx); err != nil {
+	if _, err := b.Prepare(ctx, ""); err != nil {
 		return fmt.Errorf("prepare b: %w", err)
 	}
 	return nil

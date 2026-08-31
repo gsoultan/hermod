@@ -428,7 +428,7 @@ func (s *PostgresSink) Rollback(ctx context.Context) error {
 // later CommitPrepared/RollbackPrepared calls become no-ops for this sentinel.
 const localCommitTxID = "local-commit"
 
-func (s *PostgresSink) Prepare(ctx context.Context) (string, error) {
+func (s *PostgresSink) Prepare(ctx context.Context, txID string) (string, error) {
 	tx := s.currentTx()
 	if tx == nil {
 		return "", errors.New("no active transaction")
@@ -448,9 +448,21 @@ func (s *PostgresSink) Prepare(ctx context.Context) (string, error) {
 		return localCommitTxID, nil
 	}
 
-	txID := uuid.New().String()
-	// PREPARE TRANSACTION only accepts a string literal, not a bind parameter.
-	// txID is a server-generated UUID, so it is safe to interpolate.
+	// The coordinator supplies the ID so that it can write the name down
+	// before the transaction exists; see hermod.TwoPhaseCommit.Prepare. A
+	// caller that supplies none gets one, which keeps the sink usable on its
+	// own, but that path reopens the window the argument exists to close.
+	if txID == "" {
+		txID = uuid.New().String()
+	}
+	// PREPARE TRANSACTION only accepts a string literal, not a bind parameter,
+	// so the identifier is validated rather than bound: it must be a plain
+	// UUID, which is what the coordinator generates and what this falls back
+	// to. Anything else is refused rather than interpolated.
+	if _, err := uuid.Parse(txID); err != nil {
+		return "", fmt.Errorf("refusing to prepare under a transaction ID that is not a "+
+			"UUID (%q): it would be interpolated into PREPARE TRANSACTION: %w", txID, err)
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf("PREPARE TRANSACTION '%s'", txID)); err != nil {
 		return "", err
 	}

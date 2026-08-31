@@ -53,13 +53,19 @@ func (s *txSink) Begin(context.Context) error    { return nil }
 func (s *txSink) Commit(context.Context) error   { return nil }
 func (s *txSink) Rollback(context.Context) error { return nil }
 
-func (s *txSink) Prepare(context.Context) (string, error) {
+// Prepare honours the coordinator-supplied ID, as a real participant does: the
+// coordinator records the name before the transaction exists, so a participant
+// that substituted its own would reopen the window that argument closes.
+func (s *txSink) Prepare(_ context.Context, txID string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.prepareErr != nil {
 		return "", s.prepareErr
 	}
-	return s.name + "-tx", nil
+	if txID == "" {
+		return s.name + "-tx", nil
+	}
+	return txID, nil
 }
 
 func (s *txSink) CommitPrepared(context.Context, string) error {
