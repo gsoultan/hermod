@@ -266,7 +266,24 @@ type TwoPhaseCommitPreflight interface {
 // tells a future coordinator the abort succeeded while the writes stand.
 type TwoPhaseCommit interface {
 	Transactional
-	Prepare(ctx context.Context) (string, error) // Returns transaction ID
+	// Prepare votes to commit, under a transaction ID the coordinator supplies.
+	//
+	// The ID is an argument rather than a return value because of what happens
+	// when the process dies mid-flight. A participant that named its own
+	// transaction left a window between Prepare returning and the coordinator
+	// writing that name down: a crash there leaves a prepared transaction
+	// nothing can name, and on PostgreSQL a prepared transaction holds its
+	// locks cluster-wide until somebody finds it by hand in
+	// pg_prepared_xacts. Supplying the ID lets the coordinator record it
+	// *before* the transaction exists, so recovery can always name what it
+	// might have created.
+	//
+	// The returned string is the ID actually in force. It is normally the one
+	// passed in; a participant that cannot honour 2PC in its current
+	// configuration may return its own sentinel instead — the PostgreSQL sink
+	// does this behind a transaction pooler, where PREPARE TRANSACTION is
+	// unavailable and it degrades to a local commit.
+	Prepare(ctx context.Context, txID string) (string, error)
 	CommitPrepared(ctx context.Context, txID string) error
 	RollbackPrepared(ctx context.Context, txID string) error
 }

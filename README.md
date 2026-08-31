@@ -592,13 +592,29 @@ Both are fixed, and both are now covered by tests that would catch a regression.
 
 ### Residual risk, stated plainly
 
-There is a window between a participant's `Prepare` returning and its identifier
-reaching the log. A crash inside that window leaves a prepared transaction the
-coordinator cannot name. The log is written after **every** vote rather than once at
-the end, which narrows the window to a single participant, but it does not close it —
-closing it needs the participant to accept a coordinator-supplied transaction ID, which
-`hermod.TwoPhaseCommit` does not currently offer. Until then, the `pg_prepared_xacts`
-check above is the backstop.
+**This window is closed.** It used to exist between a participant's `Prepare`
+returning and its identifier reaching the log: the participant named its own
+transaction, so a crash in between left a prepared transaction the coordinator
+could not name — and on PostgreSQL a prepared transaction holds its locks
+cluster-wide until somebody finds it by hand in `pg_prepared_xacts`.
+
+`hermod.TwoPhaseCommit.Prepare` now takes the transaction ID as an argument.
+The coordinator generates it, makes it durable, and only then asks the
+participant to prepare under it. The failure is inverted rather than narrowed:
+a crash now leaves at worst a name recorded for a transaction that was never
+prepared, and rolling back an identifier that does not exist is a no-op. An
+orphan you can name is a cleanup; one you cannot is an outage.
+
+`TestTheTransactionIsNamedBeforeItCanExist` holds the ordering by observing,
+from inside a participant, what the store already contained at the moment it
+was asked to prepare. Reverting the order makes it fail and prints the
+identifier that would have been orphaned.
+
+A participant may still report a different identifier than the one supplied —
+the PostgreSQL sink does when it is behind a transaction pooler and degrades to
+a local commit — and the coordinator records what it is told, because that is
+what recovery must act on. The `pg_prepared_xacts` check remains as a backstop
+for transactions this coordinator never created.
 
 ## Connector maturity tiers
 

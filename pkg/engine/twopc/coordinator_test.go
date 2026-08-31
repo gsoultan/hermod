@@ -63,15 +63,18 @@ func (p *fakeParticipant) Rollback(context.Context) error {
 	return p.rollbackErr
 }
 
-func (p *fakeParticipant) Prepare(context.Context) (string, error) {
+// Prepare honours the coordinator-supplied ID, which is what a real
+// participant now does: the coordinator records the name before the
+// transaction exists, so returning a different one would defeat the point.
+func (p *fakeParticipant) Prepare(_ context.Context, txID string) (string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.prepareErr != nil {
 		return "", p.prepareErr
 	}
 	p.prepared++
-	p.lastTxID = p.name + "-tx"
-	return p.lastTxID, nil
+	p.lastTxID = txID
+	return txID, nil
 }
 
 func (p *fakeParticipant) CommitPrepared(_ context.Context, txID string) error {
@@ -548,9 +551,9 @@ func (p *orderedParticipant) Begin(ctx context.Context) error {
 	return p.fakeParticipant.Begin(ctx)
 }
 
-func (p *orderedParticipant) Prepare(ctx context.Context) (string, error) {
+func (p *orderedParticipant) Prepare(ctx context.Context, txID string) (string, error) {
 	p.note("prepare")
-	return p.fakeParticipant.Prepare(ctx)
+	return p.fakeParticipant.Prepare(ctx, txID)
 }
 
 func (p *orderedParticipant) CommitPrepared(ctx context.Context, txID string) error {
