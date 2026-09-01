@@ -502,7 +502,38 @@ func (s *PostgresSink) RollbackPrepared(ctx context.Context, txID string) error 
 		return err
 	}
 	_, err := s.pool.Exec(ctx, fmt.Sprintf("ROLLBACK PREPARED '%s'", txID))
+	if isUndefinedPreparedTransaction(err) {
+		// Already gone, which is the outcome this call exists to produce.
+		//
+		// Recovery must be able to run twice. It rolls back every identifier a
+		// coordinator recorded, and there are two ordinary reasons one is
+		// missing: an earlier recovery attempt already rolled it back, or the
+		// process died between the coordinator recording the name and this
+		// sink preparing anything under it — which is the window the
+		// coordinator-supplied ID deliberately trades into existence, because
+		// a name without a transaction is recoverable and a transaction
+		// without a name is not.
+		//
+		// Reporting an error here would strand the record: recovery would
+		// retry the same identifier forever and never reach the participants
+		// that do have something prepared.
+		return nil
+	}
 	return err
+}
+
+// isUndefinedPreparedTransaction reports whether err is PostgreSQL saying the
+// prepared transaction does not exist — SQLSTATE 42704, undefined_object.
+// Confirmed against a live server rather than taken from memory: ROLLBACK
+// PREPARED on an unknown identifier answers
+//
+//	ERROR: 42704: prepared transaction with identifier "…" does not exist
+func isUndefinedPreparedTransaction(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "42704"
 }
 
 // validateTxID ensures a prepared-transaction identifier is a well-formed UUID
