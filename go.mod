@@ -14,9 +14,8 @@ go 1.27.0
 // artifacts for it. The range deliberately starts at v1.0.0 rather than lower,
 // which leaves v1.0.0-rc.1 outside it -- a pre-release sorts below its release,
 // so v1.0.0-rc.1 < v1.0.0 -- making it the highest version left standing.
-retract (
-	[v1.0.0, v1.7.4] // Withdrawn; module path was github.com/user/hermod.
-)
+
+retract [v1.0.0, v1.7.4] // Withdrawn: published as github.com/user/hermod, which no repository matched.
 
 require (
 	cloud.google.com/go/firestore v1.18.0
