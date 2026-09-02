@@ -25,11 +25,24 @@ Two consequences worth knowing about:
   `:latest`, and the matching `charts/hermod` versions no longer resolve. If you
   are running one, keep your local copy until you have moved to `1.0.0-rc.1`;
   it cannot be pulled again.
-- **The Go module proxy keeps its own copy.** `proxy.golang.org` is immutable by
-  design, so the old tags still answer there and always will. This costs nothing
-  in practice, because the module never declared a path anyone could import —
-  see the module path change below — but it does mean `v1.7.3` will keep
-  resolving on the proxy while resolving nowhere else.
+- **The Go module proxy keeps its own copy, and it is not harmless.**
+  `proxy.golang.org` is immutable by design, so all 55 withdrawn versions still
+  answer there and always will. Because `v1.7.3` sorts above `v1.0.0-rc.1`, an
+  unversioned `go get github.com/gsoultan/hermod` selected the withdrawn version
+  and failed on it:
+
+  ```
+  go: github.com/gsoultan/hermod@upgrade (v1.7.3) requires ...: parsing go.mod:
+      module declares its path as: github.com/user/hermod
+              but was required as: github.com/gsoultan/hermod
+  ```
+
+  `v1.7.4` is published to fix this. It is a tombstone carrying a single
+  `retract` directive covering `[v1.0.0, v1.7.4]` — Go reads retractions from
+  the highest version, so retracting `v1.7.3` requires something above it — and
+  it holds no code, no image and no chart. The range starts at `v1.0.0`, which
+  leaves `v1.0.0-rc.1` outside it, since a pre-release sorts below its release.
+  `go get` therefore resolves to `v1.0.0-rc.1`.
 
 ### Breaking
 

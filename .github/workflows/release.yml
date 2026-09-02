@@ -26,6 +26,45 @@ env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
+  # Is this tag a tombstone?
+  #
+  # A withdrawn version cannot be un-published from proxy.golang.org, so the
+  # only way to stop `go get` selecting one is a `retract` directive -- and Go
+  # reads retractions from the go.mod of the *highest* version, which means
+  # retracting v1.7.3 requires publishing something above it. That tag exists to
+  # carry the directive and for no other reason: it must not become a release,
+  # must not take `latest`, and must not push an image, or it undoes the reset
+  # it was cut to protect.
+  #
+  # A tombstone is self-describing rather than listed here: it retracts its own
+  # version. Nothing else legitimately does that, and checking the tag's own
+  # go.mod means a future tombstone needs no change to this file.
+  tombstone:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Does this tag retract itself?
+        id: check
+        run: |
+          skip=$(go mod edit -json \
+            | jq -r --arg v "$RELEASE_TAG" '[.Retract // [] | .[] | select(.High == $v)] | length > 0')
+          echo "tag=$RELEASE_TAG retracts-itself=$skip"
+          if [ "$skip" = "true" ]; then
+            echo "This tag retracts itself, so it is a tombstone: publishing nothing." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
   # Container image.
   #
   # goreleaser below produces binaries and archives only, so for a long time
@@ -45,6 +84,8 @@ jobs:
   # ubuntu-24.04-arm is native and free for public repositories, so each half
   # now builds on its own architecture in parallel.
   image:
+    needs: tombstone
+    if: needs.tombstone.outputs.skip != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -214,6 +255,8 @@ jobs:
           helm push "dist/hermod-${version}.tgz" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts"
 
   goreleaser:
+    needs: tombstone
+    if: needs.tombstone.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
