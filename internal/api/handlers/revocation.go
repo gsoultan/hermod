@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/config"
 )
 
 // Session revocation.

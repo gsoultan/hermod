@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // IndexedStore adapts a plain hermod.StateStore into a twopc.Store.

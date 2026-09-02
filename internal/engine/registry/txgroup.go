@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/factory"
 	"github.com/gsoultan/Hermod/pkg/comm/sink/txgroup"
 	"github.com/gsoultan/Hermod/pkg/engine/twopc"

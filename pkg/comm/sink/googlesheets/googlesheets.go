@@ -10,7 +10,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 )

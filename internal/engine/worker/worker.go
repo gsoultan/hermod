@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/engine/registry"
 	"github.com/gsoultan/Hermod/internal/storage"
 	"github.com/gsoultan/Hermod/pkg/engine/config"

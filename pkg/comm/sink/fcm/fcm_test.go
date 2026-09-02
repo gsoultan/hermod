@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"firebase.google.com/go/v4/messaging"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/formatter/json"
 )
 

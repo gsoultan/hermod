@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Rolling back a prepared transaction has to be safe to do twice, and safe to

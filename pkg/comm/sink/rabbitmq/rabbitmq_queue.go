@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	hermod "github.com/gsoultan/Hermod"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/gsoultan/Hermod"
 )
 
 // RabbitMQQueueSink implements the hermod.Sink interface for RabbitMQ Queue.

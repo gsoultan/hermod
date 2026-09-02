@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/engine/registry/interfaces"
 	"github.com/gsoultan/Hermod/internal/storage"
 	msgpkg "github.com/gsoultan/Hermod/pkg/comm/message"

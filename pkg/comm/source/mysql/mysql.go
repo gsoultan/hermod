@@ -18,7 +18,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 	mysql_driver "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
 	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"

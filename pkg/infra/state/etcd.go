@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 

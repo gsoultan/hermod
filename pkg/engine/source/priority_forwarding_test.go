@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // lagAwareSource is a primary source that reports replication lag, runs a deep

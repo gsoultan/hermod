@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/sijms/go-ora/v2"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
 	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
+	_ "github.com/sijms/go-ora/v2"
 )
 
 // OracleSource implements the hermod.Source interface for Oracle.

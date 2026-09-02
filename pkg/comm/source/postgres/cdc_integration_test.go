@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
+	hermod "github.com/gsoultan/Hermod"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/gsoultan/Hermod"
 )
 
 // ---------------------------------------------------------------------------

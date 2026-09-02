@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // MetricsSource wraps a Source and records metrics.

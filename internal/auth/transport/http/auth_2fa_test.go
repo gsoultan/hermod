@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pquerna/otp/totp"
 	"github.com/gsoultan/Hermod/internal/api/handlers"
 	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 )
 

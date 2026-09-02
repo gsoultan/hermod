@@ -3,7 +3,7 @@ package factory
 import (
 	"time"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 type SourceConfig struct {

@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
 	sinkpostgres "github.com/gsoultan/Hermod/pkg/comm/sink/postgres"
 	"github.com/gsoultan/Hermod/pkg/comm/sink/txgroup"
 	"github.com/gsoultan/Hermod/pkg/engine/twopc"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ---------------------------------------------------------------------------

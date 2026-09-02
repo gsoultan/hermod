@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/redis/go-redis/v9"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/redis/go-redis/v9"
 )
 
 // RedisSource implements the hermod.Source interface for Redis Streams.

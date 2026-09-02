@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/gsoultan/Hermod/internal/storage"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // Batched log writes went to Postgres with the `?` placeholders unconverted.

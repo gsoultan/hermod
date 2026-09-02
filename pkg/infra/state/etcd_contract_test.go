@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // etcdEndpoints returns the endpoints to test against, or ends the test.

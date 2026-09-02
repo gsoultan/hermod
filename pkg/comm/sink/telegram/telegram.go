@@ -9,7 +9,7 @@ import (
 
 	"github.com/gsoultan/Hermod/pkg/infra/httpclient"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // TelegramSink implements the hermod.Sink interface for Telegram.

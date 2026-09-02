@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // ---------------------------------------------------------------------------

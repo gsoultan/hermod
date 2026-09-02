@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/storage"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
 	_ "modernc.org/sqlite"

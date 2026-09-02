@@ -10,7 +10,7 @@ import (
 
 	"github.com/gsoultan/Hermod/pkg/infra/httpclient"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // TikTokSink implements the hermod.Sink interface for TikTok.

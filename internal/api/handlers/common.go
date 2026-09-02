@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/ai"
 	"github.com/gsoultan/Hermod/internal/config"
 	"github.com/gsoultan/Hermod/internal/engine/registry"

@@ -8,11 +8,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/storage"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
 	"github.com/gsoultan/Hermod/pkg/comm/source/webhook"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Prometheus metrics for WebSocket server endpoints

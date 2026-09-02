@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/factory"
 	"github.com/gsoultan/Hermod/pkg/comm/transformer/core"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"

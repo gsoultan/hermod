@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/redis/go-redis/v9"
-	"github.com/gsoultan/Hermod"
 )
 
 type RedisStateStore struct {

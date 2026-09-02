@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/gsoultan/Hermod/internal/factory"
 	sqlstorage "github.com/gsoultan/Hermod/internal/storage/sql"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 )
 

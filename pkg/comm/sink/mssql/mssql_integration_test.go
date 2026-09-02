@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/microsoft/go-mssqldb"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
+	_ "github.com/microsoft/go-mssqldb"
 )
 
 // The MSSQL sink, against a real server.

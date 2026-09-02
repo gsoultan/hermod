@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus/testutil"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
 	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // idempNoopLogger is a no-op logger used to satisfy hermod.Logger in tests.

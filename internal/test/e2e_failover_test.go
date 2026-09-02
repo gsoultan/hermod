@@ -6,16 +6,17 @@ package test
 import (
 	"context"
 	"database/sql"
-	"github.com/gsoultan/Hermod/internal/engine/registry"
-	"github.com/gsoultan/Hermod/internal/engine/worker"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gsoultan/Hermod/internal/engine/registry"
+	"github.com/gsoultan/Hermod/internal/engine/worker"
+
 	"github.com/google/uuid"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/storage"
 	sqlstorage "github.com/gsoultan/Hermod/internal/storage/sql"
 	"github.com/gsoultan/Hermod/pkg/comm/message"

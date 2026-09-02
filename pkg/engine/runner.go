@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/engine/config"
 	"github.com/gsoultan/Hermod/pkg/engine/idempotency"
 	"github.com/gsoultan/Hermod/pkg/engine/source"

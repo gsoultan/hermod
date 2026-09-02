@@ -7,9 +7,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestPostgresSink_IdempotentUpsert(t *testing.T) {

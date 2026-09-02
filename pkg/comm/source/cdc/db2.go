@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // DB2Connector implements CDC for IBM DB2 databases.

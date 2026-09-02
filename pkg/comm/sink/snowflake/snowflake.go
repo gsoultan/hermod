@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/snowflakedb/gosnowflake"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlident"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
+	_ "github.com/snowflakedb/gosnowflake"
 )
 
 // Sink implements the hermod.Sink interface for Snowflake.

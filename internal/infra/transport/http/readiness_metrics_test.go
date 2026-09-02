@@ -5,9 +5,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/gsoultan/Hermod/internal/api/handlers"
 	dashboardhttp "github.com/gsoultan/Hermod/internal/dashboard/transport/http"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // ---------------------------------------------------------------------------

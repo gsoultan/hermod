@@ -22,7 +22,7 @@ import (
 	"github.com/google/uuid"
 	xlsx "github.com/tealeg/xlsx"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 

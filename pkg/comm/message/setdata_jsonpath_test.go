@@ -3,7 +3,7 @@ package message
 import (
 	"testing"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
 )
 

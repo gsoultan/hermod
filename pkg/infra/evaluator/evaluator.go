@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
-	"github.com/gsoultan/Hermod"
 )
 
 // Evaluator manages expression evaluation.

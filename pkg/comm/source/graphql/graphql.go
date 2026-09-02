@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
 )
 

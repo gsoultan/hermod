@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/gsmail"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/conformance"
 	jsonfmt "github.com/gsoultan/Hermod/pkg/comm/formatter/json"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/gsmail"
 
 	sinkcassandra "github.com/gsoultan/Hermod/pkg/comm/sink/cassandra"
 	sinkclickhouse "github.com/gsoultan/Hermod/pkg/comm/sink/clickhouse"

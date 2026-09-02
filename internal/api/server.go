@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/gsoultan/Hermod/internal/ai"
 	"github.com/gsoultan/Hermod/internal/api/handlers"
 	approvalhttp "github.com/gsoultan/Hermod/internal/approval/transport/http"
@@ -41,6 +40,7 @@ import (
 	grpcsource "github.com/gsoultan/Hermod/pkg/comm/source/grpc"
 	"github.com/gsoultan/Hermod/pkg/comm/source/grpc/proto"
 	"github.com/gsoultan/Hermod/pkg/infra/filestorage"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	googlegrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 )

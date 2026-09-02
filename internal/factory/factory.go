@@ -13,9 +13,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 
-	"github.com/gsoultan/gsmail"
-	gsmailSmtp "github.com/gsoultan/gsmail/smtp"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/config"
 	"github.com/gsoultan/Hermod/pkg/comm/eventstore"
 	jsonfmt "github.com/gsoultan/Hermod/pkg/comm/formatter/json"
@@ -106,6 +104,8 @@ import (
 	"github.com/gsoultan/Hermod/pkg/infra/compression"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 	"github.com/gsoultan/Hermod/pkg/security/idempotency"
+	"github.com/gsoultan/gsmail"
+	gsmailSmtp "github.com/gsoultan/gsmail/smtp"
 )
 
 // smtpIdemAdapter adapts the SQLite idempotency store to the SMTP sink interface.

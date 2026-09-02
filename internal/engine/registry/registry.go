@@ -18,11 +18,7 @@ import (
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/jackc/pgx/v5/stdlib"
-	_ "github.com/microsoft/go-mssqldb"
-	_ "github.com/sijms/go-ora/v2"
-	_ "github.com/snowflakedb/gosnowflake"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/ai"
 	"github.com/gsoultan/Hermod/internal/discovery/service"
 	"github.com/gsoultan/Hermod/internal/engine/registry/interfaces"
@@ -44,6 +40,10 @@ import (
 	"github.com/gsoultan/Hermod/pkg/infra/schema"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 	"github.com/gsoultan/Hermod/pkg/security/secrets"
+	"github.com/jackc/pgx/v5/stdlib"
+	_ "github.com/microsoft/go-mssqldb"
+	_ "github.com/sijms/go-ora/v2"
+	_ "github.com/snowflakedb/gosnowflake"
 	"go.opentelemetry.io/otel"
 	_ "modernc.org/sqlite"
 )

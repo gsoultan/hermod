@@ -13,7 +13,7 @@ import (
 
 	"github.com/cockroachdb/pebble"
 	"github.com/google/uuid"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/storage"
 )
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gsoultan/Hermod/internal/storage"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
+
 	// Transformers register themselves in init(), so the test binary has to
 	// link the packages it exercises. cmd/hermod imports both; without these a
 	// perfectly good transformation looks unregistered.

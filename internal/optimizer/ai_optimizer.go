@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/ai"
 	"github.com/gsoultan/Hermod/pkg/engine"
 	"github.com/gsoultan/Hermod/pkg/engine/telemetry"

@@ -16,7 +16,7 @@ import (
 
 	"github.com/gsoultan/Hermod/pkg/comm/transformer"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/transformer/core"
 	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
 	"golang.org/x/sync/singleflight"

@@ -11,7 +11,7 @@ import (
 	"github.com/gsoultan/Hermod/internal/factory"
 	"github.com/gsoultan/Hermod/internal/testutil"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/storage"
 )
 

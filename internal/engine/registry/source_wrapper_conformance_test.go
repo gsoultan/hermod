@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	commsource "github.com/gsoultan/Hermod/pkg/comm/source"
 	enginesource "github.com/gsoultan/Hermod/pkg/engine/source"
 )

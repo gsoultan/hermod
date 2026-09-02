@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gocql/gocql"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
 	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"

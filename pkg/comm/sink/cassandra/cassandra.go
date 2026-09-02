@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gocql/gocql"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlident"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"

@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"strconv"
 
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/transformer"
-
-	"github.com/gsoultan/Hermod"
 )
 
 func init() {

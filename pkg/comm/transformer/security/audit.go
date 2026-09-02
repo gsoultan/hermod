@@ -7,7 +7,7 @@ import (
 
 	"github.com/gsoultan/Hermod/pkg/comm/transformer"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 func init() {

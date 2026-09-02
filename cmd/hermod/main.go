@@ -10,15 +10,15 @@ import (
 	"syscall"
 
 	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/joho/godotenv"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/api"
 	"github.com/gsoultan/Hermod/internal/config"
 	"github.com/gsoultan/Hermod/internal/runtimetune"
 	"github.com/gsoultan/Hermod/internal/service"
 	"github.com/gsoultan/Hermod/internal/storage"
 	"github.com/gsoultan/Hermod/internal/version"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/joho/godotenv"
 
 	_ "github.com/gsoultan/Hermod/internal/engine/registry/nodes"
 	_ "github.com/gsoultan/Hermod/pkg/comm/transformer/advanced"

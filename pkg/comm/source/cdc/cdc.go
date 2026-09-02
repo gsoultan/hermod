@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // CDCPayload represents the structure of a change data capture event.

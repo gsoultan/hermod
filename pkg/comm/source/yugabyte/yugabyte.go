@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
 	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
+	"github.com/jackc/pgx/v5"
 )
 
 // YugabyteSource implements the hermod.Source interface for YugabyteDB.

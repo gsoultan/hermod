@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 type Config struct {

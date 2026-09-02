@@ -14,7 +14,7 @@ import (
 
 	"github.com/gsoultan/Hermod/pkg/comm/transformer"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/storage"
 	sourcemongodb "github.com/gsoultan/Hermod/pkg/comm/source/mongodb"
 	"github.com/gsoultan/Hermod/pkg/comm/transformer/core"

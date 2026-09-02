@@ -9,11 +9,11 @@ import (
 	"strings"
 	"sync"
 
-	_ "github.com/sijms/go-ora/v2"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlident"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
+	_ "github.com/sijms/go-ora/v2"
 )
 
 type OracleSink struct {

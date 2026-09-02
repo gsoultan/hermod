@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/factory"
 	"github.com/gsoultan/Hermod/internal/storage"
 	sqlstorage "github.com/gsoultan/Hermod/internal/storage/sql"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 const (

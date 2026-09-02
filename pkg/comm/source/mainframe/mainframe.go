@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/pkg/comm/message"
 	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 )

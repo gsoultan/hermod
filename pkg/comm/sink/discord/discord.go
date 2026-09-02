@@ -10,7 +10,7 @@ import (
 
 	"github.com/gsoultan/Hermod/pkg/infra/httpclient"
 
-	"github.com/gsoultan/Hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // DiscordSink implements the hermod.Sink interface for Discord.

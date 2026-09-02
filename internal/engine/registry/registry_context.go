@@ -3,9 +3,9 @@ package registry
 import (
 	"context"
 
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/engine/registry/nodes/reliability"
 
-	"github.com/gsoultan/Hermod"
 	"github.com/gsoultan/Hermod/internal/engine/registry/interfaces"
 )
 
