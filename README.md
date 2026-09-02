@@ -141,31 +141,41 @@ Hermod provides a professional CLI tool for developers and operators to manage t
 
 ### As a Library
 
+Compiled as `Example` in [`pkg/engine/example_test.go`](pkg/engine/example_test.go),
+so it cannot drift from the packages it names.
+
 ```go
 import (
     "context"
+    "log"
+    "time"
+
+    hermod "github.com/gsoultan/Hermod"
+    "github.com/gsoultan/Hermod/pkg/comm/buffer"
+    "github.com/gsoultan/Hermod/pkg/comm/formatter/json"
+    "github.com/gsoultan/Hermod/pkg/comm/sink/stdout"
     "github.com/gsoultan/Hermod/pkg/engine"
-    "github.com/gsoultan/Hermod/pkg/sink/stdout"
-    "github.com/gsoultan/Hermod/pkg/buffer"
-    // ... import your source
+    "github.com/gsoultan/Hermod/pkg/engine/config"
 )
 
 func main() {
-    src := // initialize your source
-    sinks := []hermod.Sink{stdout.NewStdoutSink(), // ... other sinks}
+    source := mySource{} // anything implementing hermod.Source
+    sinks := []hermod.Sink{stdout.NewStdoutSink(json.NewJSONFormatter())}
     buf := buffer.NewRingBuffer(1024)
 
-    eng := engine.NewEngine(src, sinks, buf)
-    
-    // Optional: Configure engine for production
-    eng.SetConfig(engine.Config{
+    eng := engine.NewEngine(source, sinks, buf)
+    eng.SetConfig(config.Config{
         MaxRetries:    5,
         RetryInterval: 200 * time.Millisecond,
     })
-    
-    eng.Start(context.Background())
+
+    if err := eng.Start(context.Background()); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
+
+`Start` blocks until the context is cancelled or the source is drained.
 
 ### Development Quick Start
 
