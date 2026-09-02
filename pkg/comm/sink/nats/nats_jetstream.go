@@ -6,7 +6,7 @@ import (
 
 	"sync"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 	"github.com/nats-io/nats.go"
 )
 

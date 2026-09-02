@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gsoultan/Hermod/internal/storage/configsecrets"
+	"github.com/gsoultan/hermod/internal/storage/configsecrets"
 )
 
 // secretTables are the tables holding connector configuration. Both are

@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 
-	_ "github.com/gsoultan/Hermod/pkg/comm/transformer/lookup"
+	_ "github.com/gsoultan/hermod/pkg/comm/transformer/lookup"
 )
 
 // ---------------------------------------------------------------------------

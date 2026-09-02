@@ -5,12 +5,12 @@ import (
 	"io"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/buffer"
-	"github.com/gsoultan/Hermod/pkg/comm/formatter/json"
-	"github.com/gsoultan/Hermod/pkg/comm/sink/stdout"
-	"github.com/gsoultan/Hermod/pkg/engine"
-	"github.com/gsoultan/Hermod/pkg/engine/config"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/buffer"
+	"github.com/gsoultan/hermod/pkg/comm/formatter/json"
+	"github.com/gsoultan/hermod/pkg/comm/sink/stdout"
+	"github.com/gsoultan/hermod/pkg/engine"
+	"github.com/gsoultan/hermod/pkg/engine/config"
 )
 
 // The README shows this under "As a Library". It lived only in the README and

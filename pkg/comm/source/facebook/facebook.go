@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 // FacebookSource implements the hermod.Source interface for polling Facebook Page feed.

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 func TestNewRegistry_NoPanicWithoutStorage(t *testing.T) {

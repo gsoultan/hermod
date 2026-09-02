@@ -3,7 +3,7 @@ package autoscaler
 import (
 	"context"
 
-	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 // WorkerManager defines the interface for managing workers (scaling, listing).

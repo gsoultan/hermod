@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gsoultan/Hermod/internal/engine/registry/interfaces"
-	"github.com/gsoultan/Hermod/internal/storage"
-	msgpkg "github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
+	"github.com/gsoultan/hermod/internal/storage"
+	msgpkg "github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 // ---------------------------------------------------------------------------

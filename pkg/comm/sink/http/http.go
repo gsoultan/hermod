@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/infra/compression"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/infra/compression"
 )
 
 type HttpSink struct {

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // MeshSink implements hermod.Sink to forward messages to other clusters.

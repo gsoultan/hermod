@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/gsoultan/Hermod/internal/factory"
+	"github.com/gsoultan/hermod/internal/factory"
 )
 
 // ---------------------------------------------------------------------------

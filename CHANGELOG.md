@@ -33,7 +33,7 @@ Two consequences worth knowing about:
 
 ### Breaking
 
-- **The module path is now `github.com/gsoultan/Hermod`.** It was
+- **The module path is now `github.com/gsoultan/hermod`.** It was
   `github.com/user/hermod`, a placeholder that matched no repository, so
   `go get`, `go install` and importing Hermod as a library all failed with a
   path mismatch regardless of which version you asked for. Fixing it is why this
@@ -118,4 +118,4 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
-[1.0.0-rc.1]: https://github.com/gsoultan/Hermod/releases/tag/v1.0.0-rc.1
+[1.0.0-rc.1]: https://github.com/gsoultan/hermod/releases/tag/v1.0.0-rc.1

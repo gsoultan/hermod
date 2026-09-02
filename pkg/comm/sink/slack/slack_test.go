@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 func TestSlackSink_Write_Webhook(t *testing.T) {

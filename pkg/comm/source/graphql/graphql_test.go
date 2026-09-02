@@ -3,7 +3,7 @@ package graphql
 import (
 	"testing"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 func TestGraphQLSourceRead(t *testing.T) {

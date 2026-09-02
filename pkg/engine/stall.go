@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // DefaultStallThreshold is how long a pipeline may hold outstanding work without

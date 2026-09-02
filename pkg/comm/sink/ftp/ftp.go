@@ -12,7 +12,7 @@ import (
 	"text/template"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 	goftp "github.com/jlaffaye/ftp"
 )
 

@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/factory"
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/internal/testutil"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	"github.com/gsoultan/Hermod/pkg/engine/config"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/factory"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/testutil"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/engine/config"
 )
 
 type heavyMockSource struct {

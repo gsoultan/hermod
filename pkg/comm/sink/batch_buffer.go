@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // BatchBufferSink coalesces messages before writing to the underlying sink.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gsoultan/Hermod/internal/config"
+	"github.com/gsoultan/hermod/internal/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"

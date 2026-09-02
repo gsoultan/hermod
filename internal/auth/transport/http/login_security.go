@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gsoultan/Hermod/internal/api/handlers"
+	"github.com/gsoultan/hermod/internal/api/handlers"
 )
 
 // clientIP extracts the best-effort client IP from the request, honoring the

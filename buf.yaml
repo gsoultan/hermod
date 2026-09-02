@@ -37,7 +37,7 @@ breaking:
     # FILE_SAME_GO_PACKAGE fires whenever go_package moves. It moved once, on
     # purpose: the module was declared as `github.com/user/hermod`, a
     # placeholder that matched no repository, so nothing could import Hermod at
-    # all. Correcting it to `github.com/gsoultan/Hermod` necessarily rewrites
+    # all. Correcting it to `github.com/gsoultan/hermod` necessarily rewrites
     # go_package, and there was no release anyone could have imported the old
     # path from.
     #

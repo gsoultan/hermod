@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/gsoultan/Hermod/internal/engine/registry"
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/hermod/internal/engine/registry"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
 func (h *WSHandler) RegisterWSRoutes(mux *http.ServeMux) {

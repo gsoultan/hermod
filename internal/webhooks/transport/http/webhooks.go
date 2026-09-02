@@ -8,13 +8,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/api/handlers"
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	"github.com/gsoultan/Hermod/pkg/comm/source/graphql"
-	"github.com/gsoultan/Hermod/pkg/comm/source/webhook"
-	"github.com/gsoultan/Hermod/pkg/infra/compression"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/api/handlers"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/source/graphql"
+	"github.com/gsoultan/hermod/pkg/comm/source/webhook"
+	"github.com/gsoultan/hermod/pkg/infra/compression"
 )
 
 // authenticateWebhook verifies the HMAC signature of an incoming webhook against

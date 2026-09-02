@@ -38,7 +38,7 @@ func TestDescriptorParses(t *testing.T) {
 
 	// go_package must match the module path, or importers of the generated
 	// code and the descriptor disagree about where this package lives.
-	const wantGoPkg = "github.com/gsoultan/Hermod/pkg/comm/source/grpc/proto"
+	const wantGoPkg = "github.com/gsoultan/hermod/pkg/comm/source/grpc/proto"
 	if got := protodesc.ToFileDescriptorProto(fd).GetOptions().GetGoPackage(); got != wantGoPkg {
 		t.Errorf("go_package = %q, want %q", got, wantGoPkg)
 	}

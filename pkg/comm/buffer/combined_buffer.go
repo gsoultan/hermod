@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/infra/compression"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/infra/compression"
 )
 
 // CombinedBuffer is a two-tier buffer: in-memory ring for speed and file-backed

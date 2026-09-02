@@ -12,7 +12,7 @@ package tracing
 import (
 	"context"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 	"go.opentelemetry.io/otel/propagation"
 )
 

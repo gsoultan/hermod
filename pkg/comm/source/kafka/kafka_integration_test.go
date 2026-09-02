@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	sinkkafka "github.com/gsoultan/Hermod/pkg/comm/sink/kafka"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	sinkkafka "github.com/gsoultan/hermod/pkg/comm/sink/kafka"
 	kafkago "github.com/segmentio/kafka-go"
 )
 

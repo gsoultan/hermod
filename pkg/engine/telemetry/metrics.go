@@ -4,7 +4,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 var (

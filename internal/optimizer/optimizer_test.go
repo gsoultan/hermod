@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/optimizer"
-	"github.com/gsoultan/Hermod/pkg/engine"
-	"github.com/gsoultan/Hermod/pkg/engine/config"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/optimizer"
+	"github.com/gsoultan/hermod/pkg/engine"
+	"github.com/gsoultan/hermod/pkg/engine/config"
 )
 
 type mockLogger struct{}

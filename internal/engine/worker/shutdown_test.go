@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/internal/testutil"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/testutil"
 )
 
 type drainMockStorage struct {

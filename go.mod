@@ -1,4 +1,4 @@
-module github.com/gsoultan/Hermod
+module github.com/gsoultan/hermod
 
 go 1.27.0
 

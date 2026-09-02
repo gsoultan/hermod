@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gsoultan/Hermod/internal/storage"
 	"github.com/gsoultan/gsmail"
 	"github.com/gsoultan/gsmail/smtp"
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 type NotificationSettings struct {

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/buffer"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	"github.com/gsoultan/Hermod/pkg/engine/config"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/buffer"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/engine/config"
 )
 
 type slowSink struct {

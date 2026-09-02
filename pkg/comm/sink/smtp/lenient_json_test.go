@@ -3,7 +3,7 @@ package smtp
 import (
 	"testing"
 
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 func TestSmtpSink_LenientJSON(t *testing.T) {

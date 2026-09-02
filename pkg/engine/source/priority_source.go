@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // PrioritySource wraps two sources and prioritizes reading from 'recovery' before 'primary'.

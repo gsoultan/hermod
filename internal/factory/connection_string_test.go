@@ -3,7 +3,7 @@ package factory_test
 import (
 	"testing"
 
-	"github.com/gsoultan/Hermod/internal/factory"
+	"github.com/gsoultan/hermod/internal/factory"
 )
 
 func TestBuildConnectionString_RabbitMQ_SSL(t *testing.T) {

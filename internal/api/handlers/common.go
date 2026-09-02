@@ -19,12 +19,12 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/ai"
-	"github.com/gsoultan/Hermod/internal/config"
-	"github.com/gsoultan/Hermod/internal/engine/registry"
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/pkg/infra/filestorage"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/ai"
+	"github.com/gsoultan/hermod/internal/config"
+	"github.com/gsoultan/hermod/internal/engine/registry"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/infra/filestorage"
 )
 
 type WorkerUpdater interface {

@@ -12,15 +12,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gsoultan/Hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod/pkg/comm/transformer"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/storage"
-	sourcemongodb "github.com/gsoultan/Hermod/pkg/comm/source/mongodb"
-	"github.com/gsoultan/Hermod/pkg/comm/transformer/core"
-	"github.com/gsoultan/Hermod/pkg/infra/batcher"
-	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
-	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/storage"
+	sourcemongodb "github.com/gsoultan/hermod/pkg/comm/source/mongodb"
+	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
+	"github.com/gsoultan/hermod/pkg/infra/batcher"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )

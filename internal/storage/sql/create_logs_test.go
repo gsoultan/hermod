@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/storage"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 

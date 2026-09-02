@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
-	"github.com/gsoultan/Hermod/pkg/infra/sqlident"
-	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/hermod/pkg/infra/sqlident"
+	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 	_ "github.com/snowflakedb/gosnowflake"
 )
 

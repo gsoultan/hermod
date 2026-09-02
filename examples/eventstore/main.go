@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gsoultan/Hermod/pkg/comm/eventstore"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/eventstore"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 	_ "modernc.org/sqlite"
 )
 

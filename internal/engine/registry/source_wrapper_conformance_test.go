@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	commsource "github.com/gsoultan/Hermod/pkg/comm/source"
-	enginesource "github.com/gsoultan/Hermod/pkg/engine/source"
+	"github.com/gsoultan/hermod"
+	commsource "github.com/gsoultan/hermod/pkg/comm/source"
+	enginesource "github.com/gsoultan/hermod/pkg/engine/source"
 )
 
 // fullSource implements every optional source interface the engine consults.

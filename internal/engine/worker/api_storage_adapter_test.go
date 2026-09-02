@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 // compile-time assertion that the adapter satisfies the full storage interface.

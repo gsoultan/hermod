@@ -9,5 +9,5 @@ package registry
 // through the empty-executor fallback and observe empty branches / untransformed
 // messages.
 import (
-	_ "github.com/gsoultan/Hermod/internal/engine/registry/nodes"
+	_ "github.com/gsoultan/hermod/internal/engine/registry/nodes"
 )

@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/gsoultan/Hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod/pkg/comm/transformer"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 func init() {

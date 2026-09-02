@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 )

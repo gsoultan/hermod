@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

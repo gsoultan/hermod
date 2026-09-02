@@ -9,7 +9,7 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
-	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 func (h *WorkerHandler) RegisterWorkerRoutes(mux *http.ServeMux) {

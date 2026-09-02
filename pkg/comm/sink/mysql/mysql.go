@@ -11,10 +11,10 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
-	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 )
 
 // MySQLSink implements the hermod.Sink interface for MySQL.

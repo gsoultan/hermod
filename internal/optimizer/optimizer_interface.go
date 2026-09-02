@@ -3,8 +3,8 @@ package optimizer
 import (
 	"context"
 
-	"github.com/gsoultan/Hermod/pkg/engine"
-	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/hermod/pkg/engine"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
 // AIOptimizer defines the interface for AI-driven performance optimization.

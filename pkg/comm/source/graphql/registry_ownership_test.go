@@ -3,7 +3,7 @@ package graphql
 import (
 	"testing"
 
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 // ---------------------------------------------------------------------------

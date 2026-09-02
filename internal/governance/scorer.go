@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // DQMetricType defines the type of data quality check.

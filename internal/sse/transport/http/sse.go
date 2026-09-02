@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gsoultan/Hermod/internal/sse"
+	"github.com/gsoultan/hermod/internal/sse"
 )
 
 func (h *SSEHandler) RegisterSSERoutes(mux *http.ServeMux) {

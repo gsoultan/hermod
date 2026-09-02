@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/gsoultan/Hermod/pkg/infra/httpclient"
+	"github.com/gsoultan/hermod/pkg/infra/httpclient"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // TwitterSink implements the hermod.Sink interface for Twitter (X).

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // Router handles inter-cluster message routing for the Hermod Mesh.

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 	dto "github.com/prometheus/client_model/go"
 )
 

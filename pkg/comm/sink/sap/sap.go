@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 type Config struct {

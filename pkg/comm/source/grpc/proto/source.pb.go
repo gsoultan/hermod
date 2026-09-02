@@ -203,7 +203,7 @@ const file_pkg_source_grpc_proto_source_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status2i\n" +
 	"\rSourceService\x12X\n" +
-	"\aPublish\x12%.hermod.source.grpc.v1.PublishRequest\x1a&.hermod.source.grpc.v1.PublishResponseB7Z5github.com/gsoultan/Hermod/pkg/comm/source/grpc/protob\x06proto3"
+	"\aPublish\x12%.hermod.source.grpc.v1.PublishRequest\x1a&.hermod.source.grpc.v1.PublishResponseB7Z5github.com/gsoultan/hermod/pkg/comm/source/grpc/protob\x06proto3"
 
 var (
 	file_pkg_source_grpc_proto_source_proto_rawDescOnce sync.Once

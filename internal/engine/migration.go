@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // Migrator defines the interface for state migration between nodes or workers.

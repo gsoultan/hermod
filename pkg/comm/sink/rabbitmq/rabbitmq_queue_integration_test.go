@@ -12,8 +12,8 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 // ---------------------------------------------------------------------------

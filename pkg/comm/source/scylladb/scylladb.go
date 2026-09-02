@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/gocql/gocql"
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
-	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	sourcebuf "github.com/gsoultan/hermod/pkg/comm/source"
+	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 )
 
 // ScyllaDBSource implements the hermod.Source interface for ScyllaDB.

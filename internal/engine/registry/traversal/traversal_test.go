@@ -6,12 +6,12 @@ import (
 	"sync/atomic"
 	"testing"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/engine/registry/interfaces"
-	"github.com/gsoultan/Hermod/internal/engine/registry/traversal"
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	pkgengine "github.com/gsoultan/Hermod/pkg/engine"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
+	"github.com/gsoultan/hermod/internal/engine/registry/traversal"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	pkgengine "github.com/gsoultan/hermod/pkg/engine"
 )
 
 // mockRegistry implements traversal.Registry

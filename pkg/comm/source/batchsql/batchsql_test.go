@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 	_ "modernc.org/sqlite"
 )
 

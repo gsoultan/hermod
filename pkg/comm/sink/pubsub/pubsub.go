@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"cloud.google.com/go/pubsub"
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 	"google.golang.org/api/option"
 )
 

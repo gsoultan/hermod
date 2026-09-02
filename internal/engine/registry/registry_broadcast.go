@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
 // --- Subscribe / Unsubscribe ---

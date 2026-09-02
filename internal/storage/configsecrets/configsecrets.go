@@ -22,7 +22,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/gsoultan/Hermod/pkg/security/crypto"
+	"github.com/gsoultan/hermod/pkg/security/crypto"
 )
 
 // prefix marks a stored value as ciphertext. Decrypt keys off this rather than

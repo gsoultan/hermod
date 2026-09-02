@@ -8,14 +8,14 @@ import (
 	"net/http"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/ai"
-	"github.com/gsoultan/Hermod/internal/api"
-	"github.com/gsoultan/Hermod/internal/autoscaler"
-	"github.com/gsoultan/Hermod/internal/config"
-	"github.com/gsoultan/Hermod/internal/engine/registry"
-	"github.com/gsoultan/Hermod/internal/engine/worker"
-	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/ai"
+	"github.com/gsoultan/hermod/internal/api"
+	"github.com/gsoultan/hermod/internal/autoscaler"
+	"github.com/gsoultan/hermod/internal/config"
+	"github.com/gsoultan/hermod/internal/engine/registry"
+	"github.com/gsoultan/hermod/internal/engine/worker"
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 func runServer(ctx context.Context, o *Options, reg *registry.Registry, store, logStore storage.Storage, cfg *config.Config, wrk *worker.Worker, logger hermod.Logger, configured, userSetup bool) error {

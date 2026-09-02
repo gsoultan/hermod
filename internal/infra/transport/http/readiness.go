@@ -6,9 +6,9 @@ import (
 	"os"
 	"time"
 
-	dashboardhttp "github.com/gsoultan/Hermod/internal/dashboard/transport/http"
+	dashboardhttp "github.com/gsoultan/hermod/internal/dashboard/transport/http"
 
-	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 func (h *InfraHandler) HandleReadiness(w http.ResponseWriter, r *http.Request) {

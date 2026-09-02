@@ -3,8 +3,8 @@ package evaluator_test
 import (
 	"testing"
 
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 )
 
 // "$.field" is JSONPath for "field at the document root" — a syntax marker, not

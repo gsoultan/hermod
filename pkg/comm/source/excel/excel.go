@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gsoultan/Hermod/pkg/infra/httpclient"
+	"github.com/gsoultan/hermod/pkg/infra/httpclient"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -22,8 +22,8 @@ import (
 	"github.com/google/uuid"
 	xlsx "github.com/tealeg/xlsx"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 // Source implements reading rows from .xlsx files located on a local path using a glob pattern.

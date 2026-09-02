@@ -5,9 +5,9 @@ import (
 	"os"
 	"testing"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	"github.com/gsoultan/Hermod/pkg/infra/state"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/infra/state"
 )
 
 func TestAggregateTransformer_Persistence(t *testing.T) {

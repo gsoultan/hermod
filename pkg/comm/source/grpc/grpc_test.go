@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/pkg/comm/source/grpc/proto"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/comm/source/grpc/proto"
 	"google.golang.org/grpc/metadata"
 )
 

@@ -14,9 +14,9 @@ import (
 	"time"
 
 	paho "github.com/eclipse/paho.mqtt.golang"
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	sourcebuf "github.com/gsoultan/hermod/pkg/comm/source"
 )
 
 // Source implements hermod.Source for MQTT brokers using Eclipse Paho.

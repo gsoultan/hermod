@@ -6,10 +6,10 @@ import (
 	"maps"
 	"strconv"
 
-	"github.com/gsoultan/Hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod/pkg/comm/transformer"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 )
 
 // ForeachTransformer iterates over an array field in the message and

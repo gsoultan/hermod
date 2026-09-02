@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 

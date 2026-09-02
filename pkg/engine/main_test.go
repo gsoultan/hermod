@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 // TestMain enforces both reference-counting contracts this package depends on.
