@@ -3,7 +3,7 @@ package worker
 import (
 	"context"
 
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 // WorkerStorage interface subset needed by worker.

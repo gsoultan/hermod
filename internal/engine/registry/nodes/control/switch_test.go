@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/storage"
-	msgpkg "github.com/user/hermod/pkg/comm/message"
-	"github.com/user/hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/storage"
+	msgpkg "github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
 )
 
 type switchStubCtx struct {

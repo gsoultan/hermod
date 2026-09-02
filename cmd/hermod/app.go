@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/config"
-	"github.com/user/hermod/internal/engine/registry"
-	"github.com/user/hermod/internal/observability"
-	"github.com/user/hermod/internal/storage"
-	engineConfig "github.com/user/hermod/pkg/engine/config"
-	"github.com/user/hermod/pkg/infra/state"
-	"github.com/user/hermod/pkg/security/secrets"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/config"
+	"github.com/gsoultan/Hermod/internal/engine/registry"
+	"github.com/gsoultan/Hermod/internal/observability"
+	"github.com/gsoultan/Hermod/internal/storage"
+	engineConfig "github.com/gsoultan/Hermod/pkg/engine/config"
+	"github.com/gsoultan/Hermod/pkg/infra/state"
+	"github.com/gsoultan/Hermod/pkg/security/secrets"
 )
 
 func setupRegistry(store, logStore storage.Storage, logger hermod.Logger, o *Options) (*registry.Registry, *config.Config) {

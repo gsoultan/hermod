@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/factory"
-	"github.com/user/hermod/pkg/comm/sink/txgroup"
-	"github.com/user/hermod/pkg/engine/twopc"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/factory"
+	"github.com/gsoultan/Hermod/pkg/comm/sink/txgroup"
+	"github.com/gsoultan/Hermod/pkg/engine/twopc"
 )
 
 // createTxGroupSink builds a transactional sink group: several sinks that

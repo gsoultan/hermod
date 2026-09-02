@@ -7,7 +7,7 @@ import (
 
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 type KafkaSink struct {

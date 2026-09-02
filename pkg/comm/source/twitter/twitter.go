@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 // TwitterSource implements the hermod.Source interface for polling Twitter (X) tweets.

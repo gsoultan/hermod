@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/user/hermod/internal/api/handlers"
-	dashboardhttp "github.com/user/hermod/internal/dashboard/transport/http"
+	"github.com/gsoultan/Hermod/internal/api/handlers"
+	dashboardhttp "github.com/gsoultan/Hermod/internal/dashboard/transport/http"
 )
 
 // ---------------------------------------------------------------------------

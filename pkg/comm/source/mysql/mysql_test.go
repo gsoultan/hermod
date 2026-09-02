@@ -12,7 +12,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // ---------------------------------------------------------------------------

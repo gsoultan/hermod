@@ -12,8 +12,8 @@ import (
 	"time"
 
 	kafkago "github.com/segmentio/kafka-go"
-	"github.com/user/hermod/pkg/comm/message"
-	sinkkafka "github.com/user/hermod/pkg/comm/sink/kafka"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	sinkkafka "github.com/gsoultan/Hermod/pkg/comm/sink/kafka"
 )
 
 // The Kafka data path, against a real broker.

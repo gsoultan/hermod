@@ -15,7 +15,7 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // ---------------------------------------------------------------------------

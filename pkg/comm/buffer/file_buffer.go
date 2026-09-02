@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
-	"github.com/user/hermod/pkg/infra/compression"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/infra/compression"
 )
 
 // FileBuffer is a persistent buffer that stores messages in an append-only log.

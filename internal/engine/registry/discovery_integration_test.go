@@ -13,8 +13,8 @@ import (
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/user/hermod/internal/factory"
-	sqlstorage "github.com/user/hermod/internal/storage/sql"
+	"github.com/gsoultan/Hermod/internal/factory"
+	sqlstorage "github.com/gsoultan/Hermod/internal/storage/sql"
 	_ "modernc.org/sqlite"
 )
 

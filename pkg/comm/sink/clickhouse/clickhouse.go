@@ -9,10 +9,10 @@ import (
 	"sync"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/infra/evaluator"
-	"github.com/user/hermod/pkg/infra/sqlident"
-	"github.com/user/hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlident"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 )
 
 type ClickHouseSink struct {

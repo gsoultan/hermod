@@ -14,8 +14,8 @@ import (
 
 	"github.com/gsoultan/gsmail"
 	gsmailSmtp "github.com/gsoultan/gsmail/smtp"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 // SmtpSink implements the hermod.Sink interface for SMTP.

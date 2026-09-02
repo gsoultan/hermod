@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	hermod "github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // Sink implements a simple WebSocket sink. It dials out to a ws/wss URL and

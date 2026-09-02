@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/buffer"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/buffer"
 )
 
 // retainingIdleSource reports growing replication lag while holding nothing the

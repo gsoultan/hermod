@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/nats-io/nats.go"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // NatsJetStreamSink implements the hermod.Sink interface for NATS JetStream.

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/security/crypto"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/pkg/security/crypto"
 	_ "modernc.org/sqlite"
 )
 

@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/factory"
-	"github.com/user/hermod/pkg/comm/transformer/core"
-	"github.com/user/hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/factory"
+	"github.com/gsoultan/Hermod/pkg/comm/transformer/core"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 	"golang.org/x/sync/singleflight"
 )
 

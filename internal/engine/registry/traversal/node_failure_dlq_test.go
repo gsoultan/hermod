@@ -6,11 +6,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry/traversal"
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/comm/message"
-	pkgengine "github.com/user/hermod/pkg/engine"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/engine/registry/traversal"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	pkgengine "github.com/gsoultan/Hermod/pkg/engine"
 )
 
 // ---------------------------------------------------------------------------

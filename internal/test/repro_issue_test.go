@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/buffer"
-	"github.com/user/hermod/pkg/engine"
-	"github.com/user/hermod/pkg/engine/config"
-	"github.com/user/hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/buffer"
+	"github.com/gsoultan/Hermod/pkg/engine"
+	"github.com/gsoultan/Hermod/pkg/engine/config"
+	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
 )
 
 type mockSink struct{}

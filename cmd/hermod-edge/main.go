@@ -10,12 +10,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/user/hermod/internal/config"
-	"github.com/user/hermod/internal/engine/registry"
-	"github.com/user/hermod/internal/runtimetune"
-	"github.com/user/hermod/internal/storage"
-	internal_sql "github.com/user/hermod/internal/storage/sql"
-	"github.com/user/hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/Hermod/internal/config"
+	"github.com/gsoultan/Hermod/internal/engine/registry"
+	"github.com/gsoultan/Hermod/internal/runtimetune"
+	"github.com/gsoultan/Hermod/internal/storage"
+	internal_sql "github.com/gsoultan/Hermod/internal/storage/sql"
+	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
 	_ "modernc.org/sqlite"
 )
 

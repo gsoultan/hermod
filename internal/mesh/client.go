@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // MeshClient handles HTTP communication with remote clusters.

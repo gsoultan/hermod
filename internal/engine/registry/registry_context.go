@@ -3,10 +3,10 @@ package registry
 import (
 	"context"
 
-	"github.com/user/hermod/internal/engine/registry/nodes/reliability"
+	"github.com/gsoultan/Hermod/internal/engine/registry/nodes/reliability"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry/interfaces"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/engine/registry/interfaces"
 )
 
 func (r *Registry) BroadcastLiveMessage(workflowID, nodeID string, msg hermod.Message, isError bool, errMsg string) {

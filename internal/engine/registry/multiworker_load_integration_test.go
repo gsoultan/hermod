@@ -14,10 +14,10 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/user/hermod/internal/storage"
-	sqlstorage "github.com/user/hermod/internal/storage/sql"
-	"github.com/user/hermod/pkg/comm/message"
-	"github.com/user/hermod/pkg/comm/source/webhook"
+	"github.com/gsoultan/Hermod/internal/storage"
+	sqlstorage "github.com/gsoultan/Hermod/internal/storage/sql"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/comm/source/webhook"
 	_ "modernc.org/sqlite"
 )
 

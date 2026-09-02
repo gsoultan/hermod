@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 type RedisStateStore struct {

@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
-	"github.com/user/hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 )
 
 // The MySQL sink's mapped-column path, against a real server.

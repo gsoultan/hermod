@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 )

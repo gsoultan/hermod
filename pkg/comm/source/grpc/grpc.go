@@ -7,11 +7,11 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/comm/message"
-	sourcebuf "github.com/user/hermod/pkg/comm/source"
-	"github.com/user/hermod/pkg/comm/source/grpc/proto"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
+	"github.com/gsoultan/Hermod/pkg/comm/source/grpc/proto"
 	"google.golang.org/grpc/metadata"
 )
 

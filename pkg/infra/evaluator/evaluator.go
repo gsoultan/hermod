@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // Evaluator manages expression evaluation.

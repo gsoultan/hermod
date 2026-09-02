@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/internal/testutil"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/testutil"
 )
 
 // panicStorage panics on GetWorker, which is invoked unguarded from the worker

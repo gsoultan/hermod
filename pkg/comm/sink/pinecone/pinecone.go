@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // Config represents the Pinecone sink configuration.

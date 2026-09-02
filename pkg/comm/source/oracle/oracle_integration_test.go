@@ -12,7 +12,7 @@ import (
 	"time"
 
 	_ "github.com/sijms/go-ora/v2"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // The Oracle source, against a real server.

@@ -21,11 +21,11 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
-	sourcebuf "github.com/user/hermod/pkg/comm/source"
-	"github.com/user/hermod/pkg/infra/pgxutil"
-	"github.com/user/hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
+	"github.com/gsoultan/Hermod/pkg/infra/pgxutil"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 )
 
 // Default identifiers used when the user does not provide a replication slot

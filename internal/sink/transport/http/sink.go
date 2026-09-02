@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/user/hermod/internal/factory"
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/Hermod/internal/factory"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 )
 
 func (h *SinkHandler) RegisterSinkRoutes(mux *http.ServeMux) {

@@ -1,7 +1,7 @@
 package http
 
 import (
-	"github.com/user/hermod/internal/api/handlers"
+	"github.com/gsoultan/Hermod/internal/api/handlers"
 )
 
 type SSEHandler struct {

@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/infra/schema"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/pkg/infra/schema"
 )
 
 func (h *SchemaHandler) RegisterSchemaRoutes(mux *http.ServeMux) {

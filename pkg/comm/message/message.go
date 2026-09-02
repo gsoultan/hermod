@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 
 	"github.com/google/uuid"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 var (

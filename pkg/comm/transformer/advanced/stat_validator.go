@@ -6,9 +6,9 @@ import (
 	"math"
 	"sync"
 
-	"github.com/user/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/Hermod/pkg/comm/transformer"
 
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 func init() {

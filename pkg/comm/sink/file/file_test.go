@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/hermod/pkg/comm/formatter/json"
-	"github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/comm/formatter/json"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 func TestFileSink(t *testing.T) {

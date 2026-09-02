@@ -8,7 +8,7 @@ import (
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/desc/protoparse"
 	"github.com/jhump/protoreflect/dynamic"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // GenericProtoSource wraps another source and decodes its payload using dynamic Protobuf descriptors.

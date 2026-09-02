@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // ---------------------------------------------------------------------------

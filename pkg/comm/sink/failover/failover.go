@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // FailoverSink wraps a primary sink and multiple fallback sinks.

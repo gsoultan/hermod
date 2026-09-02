@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 type JSONMode string

@@ -13,13 +13,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/api/handlers"
-	"github.com/user/hermod/internal/governance"
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/api/handlers"
+	"github.com/gsoultan/Hermod/internal/governance"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 
-	"github.com/user/hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
 )
 
 // validateWorkflow performs lightweight server-side validation for workflow configuration.

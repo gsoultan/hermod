@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/engine/config"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/engine/config"
 )
 
 // countingMessage is a minimal hermod.Message implementation that records how

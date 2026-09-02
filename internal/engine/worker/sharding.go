@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 func (w *Worker) isAssigned(resourceID string, currentOwnerID string) bool {

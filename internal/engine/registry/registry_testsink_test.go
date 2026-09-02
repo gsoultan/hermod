@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/factory"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/factory"
 )
 
 // blockingSink is a test double whose Ping ignores the provided context and

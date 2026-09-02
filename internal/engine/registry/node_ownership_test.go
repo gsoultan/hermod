@@ -3,16 +3,16 @@ package registry
 import (
 	"testing"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry/interfaces"
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/engine/registry/interfaces"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 
 	// Register every node executor and transformer under test.
-	_ "github.com/user/hermod/internal/engine/registry/nodes"
-	_ "github.com/user/hermod/pkg/comm/transformer/advanced"
-	_ "github.com/user/hermod/pkg/comm/transformer/core"
-	_ "github.com/user/hermod/pkg/comm/transformer/logic"
+	_ "github.com/gsoultan/Hermod/internal/engine/registry/nodes"
+	_ "github.com/gsoultan/Hermod/pkg/comm/transformer/advanced"
+	_ "github.com/gsoultan/Hermod/pkg/comm/transformer/core"
+	_ "github.com/gsoultan/Hermod/pkg/comm/transformer/logic"
 )
 
 // ---------------------------------------------------------------------------

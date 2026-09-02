@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 type rebuildCall struct {

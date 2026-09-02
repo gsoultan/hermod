@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/buffer"
-	"github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/buffer"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 // panicSource is a source whose Read panics, simulating a buggy/crashing

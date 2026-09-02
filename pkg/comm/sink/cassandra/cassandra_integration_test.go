@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/gocql/gocql"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 // The Cassandra sink, against a real node.

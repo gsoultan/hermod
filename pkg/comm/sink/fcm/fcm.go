@@ -9,7 +9,7 @@ import (
 
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/messaging"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 	"google.golang.org/api/option"
 )
 

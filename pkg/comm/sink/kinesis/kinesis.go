@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 type KinesisSink struct {

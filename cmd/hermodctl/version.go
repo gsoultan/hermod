@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/user/hermod/internal/version"
+	"github.com/gsoultan/Hermod/internal/version"
 
 	"github.com/spf13/cobra"
 )

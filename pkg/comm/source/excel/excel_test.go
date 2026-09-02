@@ -8,7 +8,7 @@ import (
 	"time"
 
 	xlsx "github.com/tealeg/xlsx"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // The Excel source, against real .xlsx files built with the same library it

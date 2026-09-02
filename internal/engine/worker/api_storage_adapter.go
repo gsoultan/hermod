@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 // apiStorage adapts a platform *WorkerAPIClient to the full storage.Storage

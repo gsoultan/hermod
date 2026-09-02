@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pglogrepl"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // Replication lag and outstanding work are different quantities, and the stall

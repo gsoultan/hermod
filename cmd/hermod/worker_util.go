@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/user/hermod/internal/engine/registry"
-	"github.com/user/hermod/internal/engine/worker"
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/engine/registry"
+	"github.com/gsoultan/Hermod/internal/engine/worker"
+	"github.com/gsoultan/Hermod/internal/storage"
 	"gopkg.in/yaml.v3"
 )
 

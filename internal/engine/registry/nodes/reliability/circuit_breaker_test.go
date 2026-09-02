@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry/interfaces"
-	"github.com/user/hermod/internal/storage"
-	msgpkg "github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/engine/registry/interfaces"
+	"github.com/gsoultan/Hermod/internal/storage"
+	msgpkg "github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 // ---------------------------------------------------------------------------

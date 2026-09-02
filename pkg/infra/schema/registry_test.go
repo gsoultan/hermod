@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 type mockStorage struct {

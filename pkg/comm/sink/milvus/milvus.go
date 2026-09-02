@@ -7,7 +7,7 @@ import (
 
 	"github.com/milvus-io/milvus-sdk-go/v2/client"
 	"github.com/milvus-io/milvus-sdk-go/v2/entity"
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // Config represents the Milvus sink configuration.

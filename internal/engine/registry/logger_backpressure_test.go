@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 // slowLogCreator stands in for log storage that is reachable but slow — a

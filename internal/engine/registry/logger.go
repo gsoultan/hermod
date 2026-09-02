@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 type LogCreator interface {

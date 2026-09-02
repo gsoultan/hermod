@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // ---------------------------------------------------------------------------

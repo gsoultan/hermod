@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 // captureLogger records what a process-level logger was asked to emit.

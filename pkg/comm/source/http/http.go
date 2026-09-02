@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 // HTTPSource implements the hermod.Source interface for polling HTTP endpoints.

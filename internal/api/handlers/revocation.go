@@ -13,8 +13,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/config"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/config"
 )
 
 // Session revocation.

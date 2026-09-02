@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/user/hermod/internal/api/handlers"
-	"github.com/user/hermod/internal/engine/registry"
+	"github.com/gsoultan/Hermod/internal/api/handlers"
+	"github.com/gsoultan/Hermod/internal/engine/registry"
 )
 
 // waitForStatusSubscribers polls until the registry reports the expected number

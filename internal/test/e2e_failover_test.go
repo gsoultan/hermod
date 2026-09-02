@@ -6,8 +6,8 @@ package test
 import (
 	"context"
 	"database/sql"
-	"github.com/user/hermod/internal/engine/registry"
-	"github.com/user/hermod/internal/engine/worker"
+	"github.com/gsoultan/Hermod/internal/engine/registry"
+	"github.com/gsoultan/Hermod/internal/engine/worker"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,11 +15,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/storage"
-	sqlstorage "github.com/user/hermod/internal/storage/sql"
-	"github.com/user/hermod/pkg/comm/message"
-	"github.com/user/hermod/pkg/comm/source/webhook"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/storage"
+	sqlstorage "github.com/gsoultan/Hermod/internal/storage/sql"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/comm/source/webhook"
 	_ "modernc.org/sqlite"
 )
 

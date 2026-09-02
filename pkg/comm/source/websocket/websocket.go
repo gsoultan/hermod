@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	hermod "github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
-	sourcebuf "github.com/user/hermod/pkg/comm/source"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
 
-	"github.com/user/hermod/pkg/infra/sqlident"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlident"
 )
 
 // Source is a client-mode WebSocket source that dials a ws/wss URL and

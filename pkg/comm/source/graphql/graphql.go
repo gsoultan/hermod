@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/user/hermod"
-	sourcebuf "github.com/user/hermod/pkg/comm/source"
+	"github.com/gsoultan/Hermod"
+	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
 )
 
 var (

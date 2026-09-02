@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/buffer"
-	"github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/buffer"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 // kvLogger keeps whole lines — message and key/values — so a test can assert

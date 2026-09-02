@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 func TestSQLiteSource_Read(t *testing.T) {

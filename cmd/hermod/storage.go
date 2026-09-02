@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/storage"
-	storagemongo "github.com/user/hermod/internal/storage/mongodb"
-	storagepebble "github.com/user/hermod/internal/storage/pebble"
-	storagesql "github.com/user/hermod/internal/storage/sql"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/storage"
+	storagemongo "github.com/gsoultan/Hermod/internal/storage/mongodb"
+	storagepebble "github.com/gsoultan/Hermod/internal/storage/pebble"
+	storagesql "github.com/gsoultan/Hermod/internal/storage/sql"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )

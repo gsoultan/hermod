@@ -20,7 +20,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X "github.com/user/hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
+      - -s -w -X "github.com/gsoultan/Hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
 
   - id: hermod-edge
     main: ./cmd/hermod-edge
@@ -35,7 +35,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X "github.com/user/hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
+      - -s -w -X "github.com/gsoultan/Hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
 
   - id: hermodctl
     main: ./cmd/hermodctl
@@ -50,7 +50,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X "github.com/user/hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
+      - -s -w -X "github.com/gsoultan/Hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
 
 archives:
   - formats:
@@ -62,7 +62,7 @@ archives:
 
 nfpms:
   - file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    homepage: https://github.com/user/hermod
+    homepage: https://github.com/gsoultan/Hermod
     maintainer: Hermod Team <support@hermod.io>
     description: Enterprise-Grade Data Integration & Streaming Platform
     license: MIT

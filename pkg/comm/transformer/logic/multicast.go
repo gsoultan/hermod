@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/user/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/Hermod/pkg/comm/transformer"
 
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 // MulticastTransformer explicitly clones the current message into an array under _fanout

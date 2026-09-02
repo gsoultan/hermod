@@ -3,8 +3,8 @@ package registry
 import (
 	"testing"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 // The engine reads the sequential flag from the workflow node

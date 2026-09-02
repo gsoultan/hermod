@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
-	"github.com/user/hermod/internal/factory"
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/engine/registry"
+	"github.com/gsoultan/Hermod/internal/factory"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 // setWorkerLoad mirrors a heartbeat: it updates both the worker's locally known

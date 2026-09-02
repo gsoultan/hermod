@@ -3,8 +3,8 @@ package registry
 import (
 	"strconv"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 // resolveSinkNodeSequential makes the sequential-sink flag reachable.

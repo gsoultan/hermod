@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/user/hermod/internal/api/handlers"
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/api/handlers"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 func (h *MarketplaceHandler) RegisterMarketplaceRoutes(mux *http.ServeMux) {

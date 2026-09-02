@@ -144,9 +144,9 @@ Hermod provides a professional CLI tool for developers and operators to manage t
 ```go
 import (
     "context"
-    "github.com/user/hermod/pkg/engine"
-    "github.com/user/hermod/pkg/sink/stdout"
-    "github.com/user/hermod/pkg/buffer"
+    "github.com/gsoultan/Hermod/pkg/engine"
+    "github.com/gsoultan/Hermod/pkg/sink/stdout"
+    "github.com/gsoultan/Hermod/pkg/buffer"
     // ... import your source
 )
 
@@ -244,7 +244,7 @@ Hermod is compiled for high performance and supports the following platforms and
 - **OS**: Linux only (Ubuntu, Debian, RedHat, Alpine).
 - **Architecture**: `amd64`, `arm64`.
 
-You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from the [GitHub Releases](https://github.com/user/hermod/releases) page.
+You can download the latest binaries and packages (`.deb`, `.rpm`, `.apk`) from the [GitHub Releases](https://github.com/gsoultan/Hermod/releases) page.
 
 #### API Mode (Default)
    To start Hermod in API mode (which also serves the UI):

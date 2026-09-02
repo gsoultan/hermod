@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/hermod/pkg/comm/message"
-	"github.com/user/hermod/pkg/infra/compression"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/infra/compression"
 )
 
 func TestHttpSinkCompression(t *testing.T) {

@@ -3,9 +3,9 @@ package engine
 import (
 	"context"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/engine/config"
-	"github.com/user/hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/engine/config"
+	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
 )
 
 // Re-export common types from sub-packages for backward compatibility

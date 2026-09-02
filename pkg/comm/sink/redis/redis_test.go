@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 func TestRedisSink_Write(t *testing.T) {

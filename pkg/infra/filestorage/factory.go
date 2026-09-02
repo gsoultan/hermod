@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/user/hermod/internal/config"
+	"github.com/gsoultan/Hermod/internal/config"
 )
 
 func NewStorage(ctx context.Context, cfg config.FileStorageConfig) (Storage, error) {

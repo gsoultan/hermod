@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/user/hermod"
+	"github.com/gsoultan/Hermod"
 )
 
 type StdoutSink struct {
