@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync"
 
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/milvus-io/milvus-sdk-go/v2/client"
 	"github.com/milvus-io/milvus-sdk-go/v2/entity"
-	"github.com/user/hermod"
 )
 
 // Config represents the Milvus sink configuration.

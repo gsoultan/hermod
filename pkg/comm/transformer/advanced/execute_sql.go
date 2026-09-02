@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/Hermod/pkg/comm/transformer"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/transformer/core"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/transformer/core"
 )
 
 func init() {

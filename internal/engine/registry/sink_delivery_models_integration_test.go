@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/factory"
+	"github.com/gsoultan/Hermod/internal/storage"
+	sqlstorage "github.com/gsoultan/Hermod/internal/storage/sql"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/factory"
-	"github.com/user/hermod/internal/storage"
-	sqlstorage "github.com/user/hermod/internal/storage/sql"
-	"github.com/user/hermod/pkg/comm/message"
 	_ "modernc.org/sqlite"
 )
 

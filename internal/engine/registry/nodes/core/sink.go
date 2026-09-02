@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry/interfaces"
-	"github.com/user/hermod/internal/storage"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/engine/registry/interfaces"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 type SinkExecutor struct{}

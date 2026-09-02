@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	sourcebuf "github.com/user/hermod/pkg/comm/source"
+	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
 )
 
 // What the broker callback does with a message it cannot hand over yet.

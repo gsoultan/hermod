@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 	"github.com/jackc/pgx/v5"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/infra/evaluator"
-	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
 // bulkMode selects how WriteBatch applies a batch.

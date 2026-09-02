@@ -3,7 +3,7 @@ package core
 import (
 	"strings"
 
-	"github.com/user/hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 )
 
 func GetConfigString(config map[string]any, key string) string {

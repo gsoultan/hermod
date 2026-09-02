@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/user/hermod/internal/version"
+	"github.com/gsoultan/Hermod/internal/version"
 )
 
 func (h *InfraHandler) HandleVersion(w http.ResponseWriter, r *http.Request) {

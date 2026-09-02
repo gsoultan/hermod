@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/factory"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/factory"
 )
 
 // The discovery service is what the UI talks to when an operator points Hermod

@@ -6,7 +6,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 type FileSink struct {

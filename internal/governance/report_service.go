@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 // ReportService generates compliance and operational reports.

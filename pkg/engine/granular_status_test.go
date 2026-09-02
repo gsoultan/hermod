@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/buffer"
-	"github.com/user/hermod/pkg/engine/telemetry"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/buffer"
+	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
 )
 
 type statusMockSource struct {

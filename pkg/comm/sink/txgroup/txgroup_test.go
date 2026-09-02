@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
-	"github.com/user/hermod/pkg/engine/twopc"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/engine/twopc"
 )
 
 // txSink is a member that can take part in a transaction.

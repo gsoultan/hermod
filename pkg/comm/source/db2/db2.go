@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
-	sourcebuf "github.com/user/hermod/pkg/comm/source"
-	"github.com/user/hermod/pkg/infra/sqlutil"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 )
 
 // DB2Source implements the hermod.Source interface for DB2.

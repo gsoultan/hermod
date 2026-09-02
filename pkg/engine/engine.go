@@ -7,12 +7,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/governance"
-	"github.com/user/hermod/pkg/engine/config"
-	"github.com/user/hermod/pkg/engine/source"
-	"github.com/user/hermod/pkg/engine/telemetry"
-	"github.com/user/hermod/pkg/infra/schema"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/governance"
+	"github.com/gsoultan/Hermod/pkg/engine/config"
+	"github.com/gsoultan/Hermod/pkg/engine/source"
+	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/Hermod/pkg/infra/schema"
 	"go.opentelemetry.io/otel"
 )
 

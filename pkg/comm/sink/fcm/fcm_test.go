@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"firebase.google.com/go/v4/messaging"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/formatter/json"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/formatter/json"
 )
 
 type mockMessage struct {

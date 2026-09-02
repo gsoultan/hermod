@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/ai"
-	"github.com/user/hermod/pkg/engine"
-	"github.com/user/hermod/pkg/engine/telemetry"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/ai"
+	"github.com/gsoultan/Hermod/pkg/engine"
+	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
 )
 
 // DefaultAIOptimizer implements AIOptimizer using the SelfHealingService.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // Manager handles inter-cluster routing and mesh topology.

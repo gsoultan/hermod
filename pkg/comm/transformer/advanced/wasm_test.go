@@ -4,9 +4,9 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/user/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/Hermod/pkg/comm/transformer"
 
-	"github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 func TestWasmTransformer_Transform_MissingBinary(t *testing.T) {

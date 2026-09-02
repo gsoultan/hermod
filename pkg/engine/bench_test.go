@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/buffer"
-	"github.com/user/hermod/pkg/comm/message"
-	"github.com/user/hermod/pkg/engine/config"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/buffer"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/engine/config"
 )
 
 // These benchmarks establish the end-to-end throughput baselines referenced in

@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 	"github.com/robfig/cron/v3"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
 )
 
 // CronSource implements the hermod.Source interface for scheduled triggers.

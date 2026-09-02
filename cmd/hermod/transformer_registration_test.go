@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/user/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/Hermod/pkg/comm/transformer"
 )
 
 // ---------------------------------------------------------------------------

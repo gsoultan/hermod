@@ -5,10 +5,10 @@ import (
 	"os"
 	"testing"
 
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
-	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
 func TestPostgresSink_ColumnMapping(t *testing.T) {

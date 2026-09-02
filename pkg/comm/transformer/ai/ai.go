@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/user/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/Hermod/pkg/comm/transformer"
 
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 func init() {

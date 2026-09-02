@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 type ValidationIssue struct {

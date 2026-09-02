@@ -15,11 +15,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 	_ "github.com/microsoft/go-mssqldb"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
-	sourcebuf "github.com/user/hermod/pkg/comm/source"
-	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
 // MSSQLSource implements the hermod.Source interface for MSSQL CDC.

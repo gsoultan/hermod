@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry/interfaces"
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/engine/telemetry"
-	"github.com/user/hermod/pkg/infra/evaluator"
-	"github.com/user/hermod/pkg/infra/tracing"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/engine/registry/interfaces"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/Hermod/pkg/infra/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )

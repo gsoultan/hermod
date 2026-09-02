@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
 // Transactions left in doubt, reported rather than left for somebody to notice.

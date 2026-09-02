@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod/pkg/infra/pgxutil"
+	"github.com/gsoultan/Hermod/pkg/infra/pgxutil"
 )
 
 func TestConnectionPoolResponsiveness(t *testing.T) {

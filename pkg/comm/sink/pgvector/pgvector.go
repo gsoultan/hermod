@@ -7,11 +7,11 @@ import (
 	"strings"
 	"sync"
 
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/Hermod/pkg/infra/pgxutil"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/infra/evaluator"
-	"github.com/user/hermod/pkg/infra/pgxutil"
-	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
 func init() {

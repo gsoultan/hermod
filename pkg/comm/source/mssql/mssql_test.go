@@ -3,7 +3,7 @@ package mssql
 import (
 	"testing"
 
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 func TestMSSQLSource_MapToMessage(t *testing.T) {

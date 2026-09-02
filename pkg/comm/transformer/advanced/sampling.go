@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/user/hermod/pkg/comm/transformer"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/transformer"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
 )
 
 func init() {

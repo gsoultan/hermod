@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // PollingSource is a generic implementation of a source that polls a database for changes.

@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 	"github.com/nats-io/nats.go"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
 )
 
 type NatsJetStreamSource struct {

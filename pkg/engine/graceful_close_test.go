@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/buffer"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/buffer"
 )
 
 // closeTrackingSource records whether Close was invoked. It blocks in Read

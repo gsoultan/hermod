@@ -33,3 +33,22 @@ breaking:
     # breaks somebody's client, and the whole point of gating this file is that
     # neither can happen by accident.
     - FILE
+  except:
+    # FILE_SAME_GO_PACKAGE fires whenever go_package moves. It moved once, on
+    # purpose: the module was declared as `github.com/user/hermod`, a
+    # placeholder that matched no repository, so nothing could import Hermod at
+    # all. Correcting it to `github.com/gsoultan/Hermod` necessarily rewrites
+    # go_package, and there was no release anyone could have imported the old
+    # path from.
+    #
+    # The rule is not simply dropped. What it protected — the generated Go
+    # import path not moving unnoticed — is now held by TestDescriptorParses in
+    # pkg/comm/source/grpc/proto, which asserts the literal go_package value
+    # rather than only that it is unchanged, and so also catches the case this
+    # rule cannot see: a descriptor edited by hand into something that does not
+    # parse. `buf build` and `go build` both accept that file; the test does
+    # not.
+    #
+    # Everything FILE covers about the wire contract — package, services,
+    # fields, numbers — still runs unmodified.
+    - FILE_SAME_GO_PACKAGE

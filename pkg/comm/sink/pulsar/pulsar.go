@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/apache/pulsar-client-go/pulsar"
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 type PulsarSink struct {

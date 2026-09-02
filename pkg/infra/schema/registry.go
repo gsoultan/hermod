@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/storage"
 	"github.com/xeipuuv/gojsonschema"
 )
 

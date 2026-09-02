@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/Hermod/internal/factory"
+	"github.com/gsoultan/Hermod/internal/storage"
+	sqlstorage "github.com/gsoultan/Hermod/internal/storage/sql"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/user/hermod/internal/factory"
-	"github.com/user/hermod/internal/storage"
-	sqlstorage "github.com/user/hermod/internal/storage/sql"
 )
 
 func TestE2E_PgBouncer_Real(t *testing.T) {

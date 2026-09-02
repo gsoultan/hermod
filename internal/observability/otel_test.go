@@ -3,7 +3,7 @@ package observability
 import (
 	"testing"
 
-	"github.com/user/hermod/internal/config"
+	"github.com/gsoultan/Hermod/internal/config"
 )
 
 func TestInitOTLP_Basic(t *testing.T) {

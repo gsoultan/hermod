@@ -9,9 +9,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/user/hermod/internal/api/handlers"
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/internal/testutil"
+	"github.com/gsoultan/Hermod/internal/api/handlers"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/testutil"
 )
 
 // failingWorkflowStorage accepts the sources and sinks in a bundle but refuses

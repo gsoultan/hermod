@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	hermod "github.com/gsoultan/Hermod"
 	xlsx "github.com/tealeg/xlsx"
-	"github.com/user/hermod"
 )
 
 // The Excel source, against real .xlsx files built with the same library it

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 // ---------------------------------------------------------------------------

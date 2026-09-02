@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/user/hermod/pkg/infra/httpclient"
+	"github.com/gsoultan/Hermod/pkg/infra/httpclient"
 
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // TikTokSink implements the hermod.Sink interface for TikTok.

@@ -12,13 +12,13 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/user/hermod/pkg/infra/httpclient"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/infra/httpclient"
 
-	"github.com/user/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/Hermod/pkg/comm/transformer"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
-	"github.com/user/hermod"
 )
 
 func init() {

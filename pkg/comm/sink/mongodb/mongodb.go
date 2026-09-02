@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/infra/evaluator"
-	"github.com/user/hermod/pkg/infra/sqlutil"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"

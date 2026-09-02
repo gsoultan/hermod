@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 func TestRingBuffer(t *testing.T) {

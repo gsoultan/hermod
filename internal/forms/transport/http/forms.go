@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/user/hermod/internal/api/handlers"
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/api/handlers"
+	"github.com/gsoultan/Hermod/internal/storage"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )

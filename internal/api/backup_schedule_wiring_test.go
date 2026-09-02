@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/user/hermod/internal/config"
+	"github.com/gsoultan/Hermod/internal/config"
 )
 
 // ---------------------------------------------------------------------------

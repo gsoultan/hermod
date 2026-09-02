@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gsoultan/Hermod/internal/factory"
+	"github.com/gsoultan/Hermod/internal/storage"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
-	"github.com/user/hermod/internal/factory"
-	"github.com/user/hermod/internal/storage"
 )
 
 func (w *Worker) checkHealth(ctx context.Context) {

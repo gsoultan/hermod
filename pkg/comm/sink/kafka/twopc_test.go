@@ -3,7 +3,7 @@ package kafka
 import (
 	"testing"
 
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // TestKafkaSinkDoesNotClaimTwoPhaseCommit is a guard, not a feature test.

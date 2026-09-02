@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/infra/evaluator"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
 )
 
 type Config struct {

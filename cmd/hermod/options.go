@@ -5,7 +5,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/user/hermod/internal/config"
+	"github.com/gsoultan/Hermod/internal/config"
 )
 
 type Options struct {

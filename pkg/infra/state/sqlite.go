@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/user/hermod"
 	// modernc.org/sqlite registers the pure-Go "sqlite" database/sql driver via init().
+	hermod "github.com/gsoultan/Hermod"
 	_ "modernc.org/sqlite"
 )
 

@@ -41,7 +41,7 @@ COPY --from=ui /src/ui/dist/ ./internal/api/static/
 ARG VERSION=dev
 ENV CGO_ENABLED=0
 RUN go build -trimpath \
-      -ldflags="-s -w -X 'github.com/user/hermod/internal/version.Version=${VERSION}'" \
+      -ldflags="-s -w -X 'github.com/gsoultan/Hermod/internal/version.Version=${VERSION}'" \
       -o /out/hermod ./cmd/hermod
 
 # Fail the build rather than ship a binary that serves a blank page.

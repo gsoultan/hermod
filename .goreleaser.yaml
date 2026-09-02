@@ -20,7 +20,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X "github.com/user/hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
+      - -s -w -X "github.com/gsoultan/Hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
 
   - id: hermod-edge
     main: ./cmd/hermod-edge
@@ -35,7 +35,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X "github.com/user/hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
+      - -s -w -X "github.com/gsoultan/Hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
 
   - id: hermodctl
     main: ./cmd/hermodctl
@@ -50,7 +50,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X "github.com/user/hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
+      - -s -w -X "github.com/gsoultan/Hermod/internal/version.Version={{.Tag}} (Enterprise Edition)"
 
 archives:
   - formats:
@@ -62,7 +62,7 @@ archives:
 
 nfpms:
   - file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    homepage: https://github.com/user/hermod
+    homepage: https://github.com/gsoultan/Hermod
     maintainer: Hermod Team <support@hermod.io>
     description: Enterprise-Grade Data Integration & Streaming Platform
     license: MIT
@@ -81,3 +81,18 @@ changelog:
     exclude:
       - '^docs:'
       - '^test:'
+
+release:
+  # Mark a release candidate as a pre-release, so GitHub does not label it
+  # "Latest" and offer it as the thing to download.
+  #
+  # It did exactly that before: v1.7.3-rc.1 was published with
+  # prerelease=false, because goreleaser's default is false rather than auto
+  # and nothing here overrode it. That tag happened to be superseded by v1.7.3
+  # within the hour, so nobody saw it holding the "Latest" badge -- an RC that
+  # is not followed quickly would have kept it, which is the whole thing an RC
+  # exists to avoid saying.
+  #
+  # `auto` reads the tag: anything with a pre-release part (-rc.1, -beta.2) is
+  # marked, a plain vX.Y.Z is not.
+  prerelease: auto

@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/engine/telemetry"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
 )
 
 type Autoscaler struct {

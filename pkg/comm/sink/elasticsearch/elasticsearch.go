@@ -13,8 +13,8 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esapi"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 type ElasticsearchSink struct {

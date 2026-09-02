@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
 	dto "github.com/prometheus/client_model/go"
-	"github.com/user/hermod/pkg/engine/telemetry"
 )
 
 // counterValue reads a labelled counter's current value.

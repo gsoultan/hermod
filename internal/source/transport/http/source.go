@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/factory"
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/comm/message"
-	"github.com/user/hermod/pkg/comm/source/webhook"
-	"github.com/user/hermod/pkg/infra/httpclient"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/factory"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/comm/source/webhook"
+	"github.com/gsoultan/Hermod/pkg/infra/httpclient"
 )
 
 func (h *SourceHandler) RegisterSourceRoutes(mux *http.ServeMux) {

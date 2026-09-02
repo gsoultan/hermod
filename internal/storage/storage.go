@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 var ErrNotFound = errors.New("not found")

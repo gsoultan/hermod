@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 func TestDefaultMessage_Payload(t *testing.T) {

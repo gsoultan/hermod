@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/redis/go-redis/v9"
-	"github.com/user/hermod"
 )
 
 // RedisSink implements the hermod.Sink interface for Redis (using Streams).

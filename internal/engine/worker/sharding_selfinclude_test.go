@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 // TestResourceAwareSharding_SelfIncludedWhenHeartbeatStale guards against a

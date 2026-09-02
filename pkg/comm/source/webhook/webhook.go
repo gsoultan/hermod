@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 var (

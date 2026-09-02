@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry"
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/engine/config"
-	"github.com/user/hermod/pkg/engine/telemetry"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/engine/registry"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/pkg/engine/config"
+	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
 )
 
 // Worker syncs the state of workflows from storage to the registry.

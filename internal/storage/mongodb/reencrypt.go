@@ -7,7 +7,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	"github.com/user/hermod/internal/storage/configsecrets"
+	"github.com/gsoultan/Hermod/internal/storage/configsecrets"
 )
 
 // ReEncryptSecrets rewrites every stored credential under newKey.

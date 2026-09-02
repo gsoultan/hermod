@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 // LinkedInSource implements the hermod.Source interface for polling LinkedIn UGC posts.

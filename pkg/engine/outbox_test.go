@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 type mockOutboxStorage struct {

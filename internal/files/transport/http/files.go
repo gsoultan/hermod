@@ -3,7 +3,7 @@ package http
 import (
 	"net/http"
 
-	"github.com/user/hermod/internal/api/handlers"
+	"github.com/gsoultan/Hermod/internal/api/handlers"
 )
 
 type FileHandler struct {

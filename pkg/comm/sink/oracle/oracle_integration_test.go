@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 	_ "github.com/sijms/go-ora/v2"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
-	"github.com/user/hermod/pkg/infra/sqlutil"
 )
 
 // The Oracle sink, against a real server.

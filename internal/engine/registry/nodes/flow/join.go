@@ -7,10 +7,10 @@ import (
 	"hash/fnv"
 	"sync"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/internal/engine/registry/interfaces"
-	"github.com/user/hermod/internal/storage"
-	"github.com/user/hermod/pkg/infra/evaluator"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/internal/engine/registry/interfaces"
+	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
 )
 
 type JoinExecutor struct {

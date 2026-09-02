@@ -3,8 +3,8 @@ package postgres
 import (
 	"testing"
 
+	hermod "github.com/gsoultan/Hermod"
 	"github.com/jackc/pglogrepl"
-	"github.com/user/hermod"
 )
 
 // Replication lag and outstanding work are different quantities, and the stall

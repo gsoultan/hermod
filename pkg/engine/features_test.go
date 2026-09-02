@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/buffer"
-	"github.com/user/hermod/pkg/comm/message"
-	"github.com/user/hermod/pkg/infra/schema"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/buffer"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/infra/schema"
 )
 
 func TestEngineSchemaValidation(t *testing.T) {

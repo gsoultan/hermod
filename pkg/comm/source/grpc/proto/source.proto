@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package hermod.source.grpc.v1;
 
-option go_package = "github.com/user/hermod/pkg/comm/source/grpc/proto";
+option go_package = "github.com/gsoultan/Hermod/pkg/comm/source/grpc/proto";
 
 service SourceService {
   rpc Publish(PublishRequest) returns (PublishResponse);

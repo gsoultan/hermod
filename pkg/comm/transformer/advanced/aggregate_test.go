@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod/pkg/comm/message"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 )
 
 func TestAggregateTransformer_Tumbling(t *testing.T) {

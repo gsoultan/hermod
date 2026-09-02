@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/gocql/gocql"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/infra/evaluator"
-	"github.com/user/hermod/pkg/infra/sqlident"
-	"github.com/user/hermod/pkg/infra/sqlutil"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlident"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 )
 
 // CassandraSink implements the hermod.Sink interface for Cassandra.

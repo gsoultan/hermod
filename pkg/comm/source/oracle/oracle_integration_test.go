@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	hermod "github.com/gsoultan/Hermod"
 	_ "github.com/sijms/go-ora/v2"
-	"github.com/user/hermod"
 )
 
 // The Oracle source, against a real server.

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/user/hermod/internal/storage"
+	"github.com/gsoultan/Hermod/internal/storage"
 )
 
 // Restart-storm limits. A workflow that stalls because its sink is genuinely

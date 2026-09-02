@@ -12,7 +12,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // Where the MySQL CDC source starts reading, and where it comes back to.

@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
 	_ "github.com/microsoft/go-mssqldb"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/infra/evaluator"
-	"github.com/user/hermod/pkg/infra/sqlutil"
 
-	"github.com/user/hermod/pkg/infra/sqlident"
+	"github.com/gsoultan/Hermod/pkg/infra/sqlident"
 )
 
 type MSSQLSink struct {

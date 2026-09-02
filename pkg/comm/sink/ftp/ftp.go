@@ -12,8 +12,8 @@ import (
 	"text/template"
 	"time"
 
+	hermod "github.com/gsoultan/Hermod"
 	goftp "github.com/jlaffaye/ftp"
-	"github.com/user/hermod"
 )
 
 // FTPSink implements the hermod.Sink interface for uploading files to an FTP/FTPS server.

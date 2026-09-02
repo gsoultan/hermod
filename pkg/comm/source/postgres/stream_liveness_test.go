@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/hermod"
+	hermod "github.com/gsoultan/Hermod"
 )
 
 // The silence deadline is derived from the server's own keepalive cadence

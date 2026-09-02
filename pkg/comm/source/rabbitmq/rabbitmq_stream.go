@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/Hermod/pkg/comm/message"
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/amqp"
 	"github.com/rabbitmq/rabbitmq-stream-go-client/pkg/stream"
-	"github.com/user/hermod"
-	"github.com/user/hermod/pkg/comm/message"
 )
 
 type RabbitMQStreamSource struct {
