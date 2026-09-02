@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/Hermod/pkg/engine/config"
+	"github.com/gsoultan/hermod/pkg/engine/config"
 )
 
 func TestCircuitBreakerTransitions(t *testing.T) {

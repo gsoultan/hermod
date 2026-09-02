@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 type RegistryStorage interface {

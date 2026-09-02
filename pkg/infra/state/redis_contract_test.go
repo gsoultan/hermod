@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // The Redis store against a real server.

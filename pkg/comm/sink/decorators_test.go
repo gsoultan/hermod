@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 type mockSink struct {

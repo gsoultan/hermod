@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"sync"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/transformer"
 
-	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 	"golang.org/x/time/rate"
 )
 

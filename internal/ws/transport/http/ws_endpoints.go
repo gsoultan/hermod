@@ -8,10 +8,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	"github.com/gsoultan/Hermod/pkg/comm/source/webhook"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/source/webhook"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

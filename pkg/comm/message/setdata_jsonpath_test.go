@@ -3,8 +3,8 @@ package message
 import (
 	"testing"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 )
 
 // Every transformer that writes a result takes a field path from the user, and

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/Hermod/internal/factory"
+	"github.com/gsoultan/hermod/internal/factory"
 )
 
 func TestReproTestSinkPostgres(t *testing.T) {

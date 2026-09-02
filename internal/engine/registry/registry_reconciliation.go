@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 func (r *Registry) startReconciliationLoop(ctx context.Context) {

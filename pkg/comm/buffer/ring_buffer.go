@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sync"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // RingBuffer is a high-performance, lock-free (using channels for now as a simple example,

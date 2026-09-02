@@ -7,8 +7,8 @@ import (
 	"math/rand"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/infra/tracing"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/infra/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"

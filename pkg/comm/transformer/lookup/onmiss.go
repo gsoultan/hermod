@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/gsoultan/Hermod/pkg/comm/transformer/core"
+	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
 )
 
 // LookupMisses counts lookups that produced no value, whatever the configured

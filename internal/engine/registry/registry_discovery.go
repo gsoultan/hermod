@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/discovery/service"
-	"github.com/gsoultan/Hermod/internal/factory"
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/discovery/service"
+	"github.com/gsoultan/hermod/internal/factory"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 // errOperationPanicked is returned when a source/sink connectivity or discovery

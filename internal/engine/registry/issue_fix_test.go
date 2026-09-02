@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 type mockSecretManager struct {

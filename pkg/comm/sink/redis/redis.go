@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 	"github.com/redis/go-redis/v9"
 )
 

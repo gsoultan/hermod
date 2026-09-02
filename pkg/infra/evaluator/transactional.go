@@ -3,7 +3,7 @@ package evaluator
 import (
 	"context"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 type OutboxTransactionalSource struct {

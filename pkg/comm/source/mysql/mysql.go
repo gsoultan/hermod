@@ -18,10 +18,10 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 	mysql_driver "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
-	"github.com/gsoultan/Hermod/pkg/infra/sqlutil"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	sourcebuf "github.com/gsoultan/hermod/pkg/comm/source"
+	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 )
 
 // MySQLSource implements the hermod.Source interface for MySQL CDC.

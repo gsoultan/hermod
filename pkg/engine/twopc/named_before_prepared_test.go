@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // The coordinator must be able to name any transaction a participant might

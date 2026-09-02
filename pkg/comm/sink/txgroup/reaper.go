@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
 // DefaultReapInterval is how often StartReaper sweeps for transactions left in

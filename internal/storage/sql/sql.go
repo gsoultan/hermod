@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/internal/storage/configsecrets"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/storage/configsecrets"
 	_ "modernc.org/sqlite"
 )
 

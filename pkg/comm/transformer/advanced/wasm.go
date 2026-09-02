@@ -12,10 +12,10 @@ import (
 	"path/filepath"
 	"sync"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/infra/httpclient"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/infra/httpclient"
 
-	"github.com/gsoultan/Hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod/pkg/comm/transformer"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"

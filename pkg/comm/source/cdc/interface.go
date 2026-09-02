@@ -3,7 +3,7 @@ package cdc
 import (
 	"context"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // Connector defines the interface for Change Data Capture connectors.

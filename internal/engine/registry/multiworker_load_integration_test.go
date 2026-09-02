@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/Hermod/internal/storage"
-	sqlstorage "github.com/gsoultan/Hermod/internal/storage/sql"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	"github.com/gsoultan/Hermod/pkg/comm/source/webhook"
+	"github.com/gsoultan/hermod/internal/storage"
+	sqlstorage "github.com/gsoultan/hermod/internal/storage/sql"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/source/webhook"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 )

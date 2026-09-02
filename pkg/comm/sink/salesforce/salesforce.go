@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 )
 
 // SalesforceSink implements the hermod.Sink interface for Salesforce Bulk API 2.0.

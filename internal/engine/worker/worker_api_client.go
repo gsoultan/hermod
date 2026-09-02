@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 // ErrPlatformConfig marks errors that stem from a misconfigured platform-url

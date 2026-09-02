@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 	_ "github.com/sijms/go-ora/v2"
 )
 

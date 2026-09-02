@@ -3,9 +3,9 @@ package test
 import (
 	"testing"
 
-	"github.com/gsoultan/Hermod/internal/engine/registry"
+	"github.com/gsoultan/hermod/internal/engine/registry"
 
-	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 func TestStartWorkflow_NilStorage(t *testing.T) {

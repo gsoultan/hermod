@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )

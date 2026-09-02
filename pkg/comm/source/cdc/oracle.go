@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // OracleConnector implements CDC for Oracle databases using LogMiner.

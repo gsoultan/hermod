@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 func TestSQLiteSource_Read(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gsoultan/Hermod/internal/api/handlers"
-	"github.com/gsoultan/Hermod/internal/storage"
+	"github.com/gsoultan/hermod/internal/api/handlers"
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 func (h *ApprovalHandler) RegisterApprovalRoutes(mux *http.ServeMux) {

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // ErrCircuitOpen is returned when the circuit breaker is open and rejecting requests.

@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gsoultan/Hermod/internal/factory"
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/pkg/engine/config"
-	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/hermod/internal/factory"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/engine/config"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
 func (w *Worker) sync(ctx context.Context, initial bool) {

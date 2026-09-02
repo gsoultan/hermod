@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // ---------------------------------------------------------------------------

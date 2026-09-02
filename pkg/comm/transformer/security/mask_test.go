@@ -3,7 +3,7 @@ package security
 import (
 	"testing"
 
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 func TestMaskTransformer_PII(t *testing.T) {

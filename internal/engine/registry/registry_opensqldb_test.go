@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gsoultan/Hermod/pkg/infra/pgxutil"
+	"github.com/gsoultan/hermod/pkg/infra/pgxutil"
 )
 
 // TestOpenSQLDBPgBouncerMarkers verifies that the generic SQL path routes the

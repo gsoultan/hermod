@@ -1,7 +1,7 @@
 package http
 
 import (
-	"github.com/gsoultan/Hermod/internal/api/handlers"
+	"github.com/gsoultan/hermod/internal/api/handlers"
 )
 
 type WSHandler struct {

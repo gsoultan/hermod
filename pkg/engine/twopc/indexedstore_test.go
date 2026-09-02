@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // plainStore is a hermod.StateStore: Get/Set/Delete and no enumeration. That

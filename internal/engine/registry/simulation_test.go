@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/gsoultan/Hermod/internal/storage"
-	sqlstorage "github.com/gsoultan/Hermod/internal/storage/sql"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/internal/storage"
+	sqlstorage "github.com/gsoultan/hermod/internal/storage/sql"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 	_ "modernc.org/sqlite"
 )
 

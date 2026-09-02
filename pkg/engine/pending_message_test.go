@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 // releasePendingMessage guarded the pool Put with `refCount.Add(-1) > 0`, which

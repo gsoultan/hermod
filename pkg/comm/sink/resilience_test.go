@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // fakeBatchSink is a controllable sink that implements both hermod.Sink and

@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/storage"
-	pkgengine "github.com/gsoultan/Hermod/pkg/engine"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/storage"
+	pkgengine "github.com/gsoultan/hermod/pkg/engine"
 )
 
 type Registry interface {

@@ -33,8 +33,8 @@ import (
 	"fmt"
 	"sync"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/engine/twopc"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/engine/twopc"
 )
 
 // Member is one sink in the group.

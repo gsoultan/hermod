@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/buffer"
-	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/buffer"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
 // recordFailure and recordSuccess mutated the circuit breaker under sw.cbMu and

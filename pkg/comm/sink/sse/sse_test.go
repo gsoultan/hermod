@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/sse"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/sse"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 func TestSSESink_PublishAndReceive(t *testing.T) {

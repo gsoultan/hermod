@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gsoultan/Hermod/internal/factory"
-	"github.com/gsoultan/Hermod/internal/storage"
-	sqlstorage "github.com/gsoultan/Hermod/internal/storage/sql"
+	"github.com/gsoultan/hermod/internal/factory"
+	"github.com/gsoultan/hermod/internal/storage"
+	sqlstorage "github.com/gsoultan/hermod/internal/storage/sql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 

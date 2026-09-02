@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/ai"
-	"github.com/gsoultan/Hermod/pkg/engine"
-	"github.com/gsoultan/Hermod/pkg/engine/config"
-	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/ai"
+	"github.com/gsoultan/hermod/pkg/engine"
+	"github.com/gsoultan/hermod/pkg/engine/config"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
 // CorrectionAction defines the type of fix to apply.

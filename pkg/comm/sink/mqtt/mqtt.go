@@ -11,7 +11,7 @@ import (
 	"time"
 
 	paho "github.com/eclipse/paho.mqtt.golang"
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // Sink implements hermod.Sink for MQTT brokers using Eclipse Paho.

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gsoultan/Hermod/internal/testutil"
+	"github.com/gsoultan/hermod/internal/testutil"
 )
 
 // leaseMockStorage lets each test control the lease method behavior.

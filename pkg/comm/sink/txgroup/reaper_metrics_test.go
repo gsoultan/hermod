@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 

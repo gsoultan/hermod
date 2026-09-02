@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
-	sourcebuf "github.com/gsoultan/Hermod/pkg/comm/source"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
+	sourcebuf "github.com/gsoultan/hermod/pkg/comm/source"
 )
 
 // Simple in-memory registry for form sources (for low-latency dispatch).

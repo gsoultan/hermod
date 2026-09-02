@@ -3,8 +3,8 @@ package transformer
 import (
 	"context"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/security/pii"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/security/pii"
 )
 
 var piiEngine = pii.NewEngine()

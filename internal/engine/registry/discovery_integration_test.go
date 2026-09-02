@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gsoultan/Hermod/internal/factory"
-	sqlstorage "github.com/gsoultan/Hermod/internal/storage/sql"
+	"github.com/gsoultan/hermod/internal/factory"
+	sqlstorage "github.com/gsoultan/hermod/internal/storage/sql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 )

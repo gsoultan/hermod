@@ -35,7 +35,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // ErrNotFound is what a Store returns for a missing key.

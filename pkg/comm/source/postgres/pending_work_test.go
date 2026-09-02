@@ -3,7 +3,7 @@ package postgres
 import (
 	"testing"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 	"github.com/jackc/pglogrepl"
 )
 

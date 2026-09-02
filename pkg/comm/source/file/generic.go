@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gsoultan/Hermod/pkg/infra/httpclient"
+	"github.com/gsoultan/hermod/pkg/infra/httpclient"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -28,8 +28,8 @@ import (
 	sftp "github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 // Backend enumerates supported storage backends for files.

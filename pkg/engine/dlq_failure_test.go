@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 // A dead-letter sink that refuses everything, and counts what it was asked to

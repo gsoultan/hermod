@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/internal/sse"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/sse"
 )
 
 // SSESink publishes messages to an in-process SSE hub under a named stream.

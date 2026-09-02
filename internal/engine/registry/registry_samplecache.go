@@ -3,7 +3,7 @@ package registry
 import (
 	"sync"
 
-	hermod "github.com/gsoultan/Hermod"
+	"github.com/gsoultan/hermod"
 )
 
 // lastDeliveredSamples caches the most recent message that each source

@@ -5,15 +5,15 @@ import (
 	"maps"
 	"testing"
 
-	"github.com/gsoultan/Hermod/internal/storage"
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 
 	// Transformers register themselves in init(), so the test binary has to
 	// link the packages it exercises. cmd/hermod imports both; without these a
 	// perfectly good transformation looks unregistered.
-	_ "github.com/gsoultan/Hermod/pkg/comm/transformer/advanced"
-	_ "github.com/gsoultan/Hermod/pkg/comm/transformer/core"
-	_ "github.com/gsoultan/Hermod/pkg/comm/transformer/security"
+	_ "github.com/gsoultan/hermod/pkg/comm/transformer/advanced"
+	_ "github.com/gsoultan/hermod/pkg/comm/transformer/core"
+	_ "github.com/gsoultan/hermod/pkg/comm/transformer/security"
 )
 
 // ---------------------------------------------------------------------------

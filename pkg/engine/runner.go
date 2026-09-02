@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
-	hermod "github.com/gsoultan/Hermod"
-	"github.com/gsoultan/Hermod/pkg/engine/config"
-	"github.com/gsoultan/Hermod/pkg/engine/idempotency"
-	"github.com/gsoultan/Hermod/pkg/engine/source"
-	"github.com/gsoultan/Hermod/pkg/engine/telemetry"
-	"github.com/gsoultan/Hermod/pkg/infra/tracing"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/engine/config"
+	"github.com/gsoultan/hermod/pkg/engine/idempotency"
+	"github.com/gsoultan/hermod/pkg/engine/source"
+	"github.com/gsoultan/hermod/pkg/engine/telemetry"
+	"github.com/gsoultan/hermod/pkg/infra/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )

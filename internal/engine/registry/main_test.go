@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/gsoultan/Hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 // TestMain enforces the message ownership contract across every test in this
