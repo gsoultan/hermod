@@ -2,6 +2,22 @@ module github.com/gsoultan/hermod
 
 go 1.27.0
 
+// Every 1.x version published before 2026-09-02 was withdrawn: the releases and
+// tags were deleted, and both GHCR packages with them. They are unusable in any
+// case -- each declares its module path as github.com/user/hermod, a
+// placeholder matching no repository -- but proxy.golang.org caches by design
+// and permanently, so `go get github.com/gsoultan/hermod` still resolved to
+// v1.7.3 and failed with a path mismatch instead of finding v1.0.0-rc.1.
+//
+// v1.7.4 exists only to carry this block. It is a tombstone: it retracts
+// itself, so nothing selects it, and the release workflow publishes no
+// artifacts for it. The range deliberately starts at v1.0.0 rather than lower,
+// which leaves v1.0.0-rc.1 outside it -- a pre-release sorts below its release,
+// so v1.0.0-rc.1 < v1.0.0 -- making it the highest version left standing.
+retract (
+	[v1.0.0, v1.7.4] // Withdrawn; module path was github.com/user/hermod.
+)
+
 require (
 	cloud.google.com/go/firestore v1.18.0
 	cloud.google.com/go/pubsub v1.47.0
