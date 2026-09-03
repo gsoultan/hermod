@@ -7,6 +7,33 @@ This file starts at 1.8.0. Everything published before it was withdrawn — see
 for what that means if you are running one, and why the number is 1.8.0 rather
 than the 1.0.0 the reset was aiming at.
 
+## [1.8.0-rc.2] — 2026-09-03
+
+### Security
+
+- **`golang.org/x/crypto` 0.54.0 → 0.56.0**, for [GO-2026-6354] and
+  [GO-2026-6355] — two denial-of-service defects in `golang.org/x/crypto/ssh`
+  where a channel can deadlock on an established connection. Both are reachable
+  from the SFTP file source, at `pkg/comm/source/file/generic.go:736`, where
+  `sshDialContext` calls `ssh.NewClientConn`.
+
+  The connection is outbound, so reaching it means Hermod has been configured to
+  poll an SFTP server that is hostile or has been compromised — not an exposure
+  anyone can reach unprompted. It is still reachable, which is why this is a
+  release rather than an exemption. `1.8.0-rc.1` shipped with the vulnerable
+  version: both advisories were published after it was cut, and the gate caught
+  them on the next run.
+
+  The handshake was already bounded by a deadline, cleared immediately
+  afterwards so transfers are not cut short. That is exactly the window these
+  advisories describe, so the timeout does not mitigate them.
+
+  `golang.org/x/text` (0.40.0 → 0.41.0) and three indirect `golang.org/x`
+  modules moved with it.
+
+[GO-2026-6354]: https://pkg.go.dev/vuln/GO-2026-6354
+[GO-2026-6355]: https://pkg.go.dev/vuln/GO-2026-6355
+
 ## [1.8.0-rc.1] — 2026-09-02
 
 A release candidate, not a final release. Everything below is tested and the
