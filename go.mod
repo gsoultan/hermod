@@ -16,8 +16,8 @@ go 1.27.0
 // so v1.0.0-rc.1 < v1.0.0 -- making it the highest version left standing.
 
 retract (
-	[v1.0.0, v1.7.4] // Withdrawn: published as github.com/user/hermod, which no repository matched.
-	v1.0.0-rc.1 // Withdrawn: proxy.golang.org holds v1.0.0 permanently, so the line resumes at v1.8.0.
+	[v1.0.0, v1.8.0] // Withdrawn; the module proxy serves these against commits that no longer exist here.
+	v1.0.0-rc.1 // Withdrawn; the proxy holds this against a commit predating the x/crypto SSH fix.
 )
 
 require (

@@ -79,24 +79,36 @@ any published version anyway — the module path was a placeholder until
 
 ### Why the withdrawn versions are retracted
 
-`v1.7.4` is a tombstone: a tag holding a `retract` directive and nothing else —
-no code, no image, no chart. Go reads retractions from the highest version, so
-retracting `v1.7.3` meant publishing something above it, and that is the only
-reason the tag exists. It is listed in `.github/tombstones`, which is how the
-release workflow knows to publish no artifacts for it.
+Two tombstones exist: `v1.7.4` and `v1.8.0`. A tombstone is a tag holding a
+`retract` directive and nothing else — no code, no image, no chart. Both are
+listed in `.github/tombstones`, which is how the release workflow knows to
+publish no artifacts for them.
 
-The directives cover `[v1.0.0, v1.7.4]` and `v1.0.0-rc.1`. Between them, every
-version the proxy still serves is marked, so `go get` fails with a retraction
-notice rather than quietly handing over a February commit or a build that
-predates the `x/crypto` fix in this release.
+They exist because Go reads retractions from the go.mod of the **highest release
+version**, which makes retracting anything require publishing something above
+it. `v1.7.4` was cut to retract the withdrawn `1.x` line. `v1.8.0` was cut
+because that turned out not to be enough:
 
-`v1.0.0-rc.1` — this release — is itself in that list, which is unusual and
-deliberate. The proxy already holds that version string against an older commit
-from an earlier attempt at this reset, and re-tagging cannot displace it. A Go
-user asking for `v1.0.0-rc.1` would otherwise receive code without the SSH
-denial-of-service fix above. Failing loudly is the better outcome, and it is the
-same reason the image, chart and binaries — which are freshly built from this
-commit and carry no such history — are published normally.
+- `v1.8.0-rc.1`, an intermediate candidate withdrawn for the `x/crypto` SSH
+  defects, sorts *above* `v1.7.4`, so no directive in `v1.7.4` could reach it.
+  `go get github.com/gsoultan/hermod` selected it and installed the vulnerable
+  build without complaint.
+- `v1.0.0-rc.1` sorts *below* `v1.0.0`, since a pre-release precedes its
+  release, so the `[v1.0.0, v1.7.4]` range never covered it either. It needs a
+  directive naming it, and that directive has to live in the highest release —
+  not in `v1.0.0-rc.1` itself, which is a pre-release and therefore not where Go
+  looks.
+
+The retraction is now `[v1.0.0, v1.8.0]` plus `v1.0.0-rc.1` by name, carried by
+the `v1.8.0` tombstone. Between them they cover every version the proxy can
+serve for this module path.
+
+`v1.0.0-rc.1` — this release — is itself retracted, which is unusual and
+deliberate. The proxy holds that version string against an older commit from an
+earlier attempt at this reset, and re-tagging cannot displace it, so a Go user
+asking for it would receive code without the SSH denial-of-service fix above.
+Failing loudly is the better outcome. The image, chart and binaries are freshly
+built from this commit, carry no such history, and are published normally.
 
 ### Breaking
 
