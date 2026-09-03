@@ -118,7 +118,7 @@ Hermod works by reading data from a `Source`, buffering it in a high-performance
 
 ## Install
 
-The current release is **`v1.8.0-rc.2`** — a release candidate. It is tested and
+The current release is **`v1.0.0-rc.1`** — a release candidate. It is tested and
 the gates are green, but it has not yet run in a production deployment. See
 [CHANGELOG.md](CHANGELOG.md) for what changed, what breaks, and the known gaps.
 
@@ -135,9 +135,9 @@ otherwise:
 ### Container image
 
 ```bash
-docker pull ghcr.io/gsoultan/hermod:1.8.0-rc.2
-docker run --rm ghcr.io/gsoultan/hermod:1.8.0-rc.2 -version
-# hermod v1.8.0-rc.2 (Enterprise Edition)
+docker pull ghcr.io/gsoultan/hermod:1.0.0-rc.1
+docker run --rm ghcr.io/gsoultan/hermod:1.0.0-rc.1 -version
+# hermod v1.0.0-rc.1 (Enterprise Edition)
 ```
 
 `linux/amd64` and `linux/arm64` are both published under that one tag.
@@ -146,7 +146,7 @@ docker run --rm ghcr.io/gsoultan/hermod:1.8.0-rc.2 -version
 
 ```bash
 helm install hermod oci://ghcr.io/gsoultan/charts/hermod \
-  --version 1.8.0-rc.2 \
+  --version 1.0.0-rc.1 \
   --set existingSecret=hermod-master-key
 ```
 
@@ -155,22 +155,31 @@ helm install hermod oci://ghcr.io/gsoultan/charts/hermod \
 `.deb`, `.rpm`, `.apk` and tarballs for Linux `amd64`/`arm64` are attached to
 the [release](https://github.com/gsoultan/hermod/releases).
 
-### As a Go module
+### From source
 
 ```bash
-go install github.com/gsoultan/hermod/cmd/hermod@v1.8.0-rc.2   # the binary
-go get github.com/gsoultan/hermod                              # as a library
+git clone https://github.com/gsoultan/hermod && cd hermod
+go build ./cmd/hermod
 ```
 
 Go 1.27 or later is required.
 
-> **Versions below `v1.8.0` do not work and are retracted.** Every release
-> before this one was withdrawn, but `proxy.golang.org` is immutable and still
-> serves them — under `module github.com/user/hermod`, a path that matches no
-> repository, so they fail to build. `v1.7.4` is a tombstone holding the
-> `retract` directive that keeps `go get` away from them; it contains no code.
-> This is also why the numbering resumes at `1.8.0` instead of restarting at
-> `1.0.0`, which the proxy has permanently bound to a commit from February.
+### `go get` does not work, and is not expected to
+
+> `go get github.com/gsoultan/hermod` and
+> `go install github.com/gsoultan/hermod/cmd/hermod@…` **fail at this version.**
+> Use the image, the chart, a packaged binary, or a checkout.
+>
+> Every version the Go module proxy can serve for this path is withdrawn and
+> retracted. The proxy is immutable, so the releases deleted in this reset still
+> answer there — and `v1.0.0` in particular is permanently bound to a commit
+> from February whose `go.mod` declared `github.com/user/hermod`, a path
+> matching no repository. Re-tagging cannot displace it.
+>
+> Nothing is lost that previously worked: the module path was a placeholder
+> until 2026-09-02, so no published release was ever importable. Restarting the
+> numbering at `1.0.0` was chosen over a `go get` path that has never
+> functioned. It starts working once the line passes `v1.7.4`.
 
 ## Usage
 
@@ -199,6 +208,10 @@ Hermod provides a professional CLI tool for developers and operators to manage t
 
 Compiled as `Example` in [`pkg/engine/example_test.go`](pkg/engine/example_test.go),
 so it cannot drift from the packages it names.
+
+Note that `go get` cannot fetch these packages at the current version — see
+[`go get` does not work](#go-get-does-not-work-and-is-not-expected-to). Building
+against a checkout, or a `replace` directive pointing at one, does work.
 
 ```go
 import (
@@ -1143,7 +1156,7 @@ A container image and a Helm chart ship with each release:
 
 ```bash
 helm install hermod oci://ghcr.io/gsoultan/charts/hermod \
-  --version 1.8.0-rc.2 \
+  --version 1.0.0-rc.1 \
   --set existingSecret=hermod-master-key \
   --set metrics.prometheusRule.enabled=true
 ```

@@ -28,27 +28,19 @@ env:
 jobs:
   # Is this tag a tombstone?
   #
-  # A withdrawn version cannot be un-published from proxy.golang.org, so the
-  # only way to stop `go get` selecting one is a `retract` directive -- and Go
-  # reads retractions from the go.mod of the *highest* version, which means
-  # retracting v1.7.3 requires publishing something above it. That tag exists to
-  # carry the directive and for no other reason: it must not become a release,
-  # must not take `latest`, and must not push an image, or it undoes the reset
-  # it was cut to protect.
+  # A tombstone carries a `retract` directive and nothing else -- no code
+  # anyone should run, no image, no chart, no binaries. Publishing one as a real
+  # release would take `latest` and the release badge, undoing the withdrawal it
+  # was cut to protect.
   #
-  # A tombstone is self-describing rather than listed here: it retracts its own
-  # version. Nothing else legitimately does that, and checking the tag's own
-  # go.mod means a future tombstone needs no change to this file.
-  #
-  # What this checks, exactly: whether the tag is named as a whole retract
-  # directive -- `retract v1.2.3`, or the upper bound of a range. That covers
-  # the tombstone, and it covers re-tagging any single version that has been
-  # retracted by name. It does *not* catch a tag falling inside a retracted
-  # *range*: re-creating v1.5.0, deleted and inside [v1.0.0, v1.7.4], would
-  # still publish. Closing that needs semver comparison rather than string
-  # equality, which is more machinery than the case earns -- those tags are
-  # deleted and would have to be deliberately recreated. It is written down
-  # here rather than left as an assumption someone else has to rediscover.
+  # Tombstones are listed in .github/tombstones rather than inferred. The
+  # earlier version of this job asked whether a tag retracted its own version,
+  # reasoning that nothing else would. That held exactly until a real release
+  # needed retracting for Go consumers while still shipping artifacts:
+  # v1.0.0-rc.1 is retracted by name -- the module proxy permanently caches that
+  # version against an older commit, so `go get` must fail rather than serve it
+  # -- yet it is a genuine release with an image, a chart and binaries. Under
+  # the old rule it would have published nothing, silently.
   tombstone:
     runs-on: ubuntu-latest
     outputs:
@@ -59,20 +51,17 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Does this tag retract itself?
+      - name: Is this tag listed as a tombstone?
         id: check
         run: |
-          skip=$(go mod edit -json \
-            | jq -r --arg v "$RELEASE_TAG" '[.Retract // [] | .[] | select(.High == $v)] | length > 0')
-          echo "tag=$RELEASE_TAG retracts-itself=$skip"
-          if [ "$skip" = "true" ]; then
-            echo "This tag retracts itself, so it is a tombstone: publishing nothing." >> "$GITHUB_STEP_SUMMARY"
+          skip=false
+          if [ -f .github/tombstones ] \
+            && grep -v '^\s*#' .github/tombstones | grep -qxF "$RELEASE_TAG"; then
+            skip=true
+            echo "$RELEASE_TAG is listed in .github/tombstones: publishing nothing." \
+              >> "$GITHUB_STEP_SUMMARY"
           fi
+          echo "tag=$RELEASE_TAG tombstone=$skip"
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
 
   # Container image.
