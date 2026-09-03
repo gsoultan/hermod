@@ -15,7 +15,10 @@ go 1.27.0
 // which leaves v1.0.0-rc.1 outside it -- a pre-release sorts below its release,
 // so v1.0.0-rc.1 < v1.0.0 -- making it the highest version left standing.
 
-retract [v1.0.0, v1.7.4] // Withdrawn: published as github.com/user/hermod, which no repository matched.
+retract (
+	[v1.0.0, v1.7.4] // Withdrawn: published as github.com/user/hermod, which no repository matched.
+	v1.0.0-rc.1 // Withdrawn: proxy.golang.org holds v1.0.0 permanently, so the line resumes at v1.8.0.
+)
 
 require (
 	cloud.google.com/go/firestore v1.18.0

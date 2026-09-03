@@ -2,57 +2,81 @@
 
 Notable changes to Hermod, newest first. Dates are ISO-8601.
 
-This file starts at 1.0.0. Hermod carried tags up to `v1.7.3` before that, and
-those releases were withdrawn rather than renumbered — see [Version numbering
-restarts here](#version-numbering-restarts-here).
+This file starts at 1.8.0. Everything published before it was withdrawn — see
+[The releases before this one are gone](#the-releases-before-this-one-are-gone)
+for what that means if you are running one, and why the number is 1.8.0 rather
+than the 1.0.0 the reset was aiming at.
 
-## [1.0.0-rc.1] — 2026-09-01
+## [1.8.0-rc.1] — 2026-09-02
 
 A release candidate, not a final release. Everything below is tested and the
 gates are green, but most of it landed within the last few weeks and none of it
-has yet run in a production deployment. `1.0.0` follows once it has.
+has yet run in a production deployment. `1.8.0` follows once it has.
 
-### Version numbering restarts here
+### The releases before this one are gone
 
-Every release before this one has been deleted: 52 GitHub releases, all 55 tags,
-and both GHCR packages (`hermod` and `charts/hermod`). Nothing published under a
-`1.x` number before 2026-09-01 is available any more, and none of it should be
+Every earlier release has been deleted: 52 GitHub releases, all 55 tags, and
+both GHCR packages (`hermod` and `charts/hermod`). Nothing published under a
+`1.x` number before 2026-09-02 is available any more, and none of it should be
 treated as a supported upgrade path to this release.
 
-Two consequences worth knowing about:
+**Container images and charts are gone.** `ghcr.io/gsoultan/hermod:1.7.3`,
+`:latest`, and the matching `charts/hermod` versions no longer resolve. If you
+are running one, keep your local copy until you have moved to `1.8.0-rc.1`; it
+cannot be pulled again.
 
-- **Container images and charts are gone.** `ghcr.io/gsoultan/hermod:1.7.3`,
-  `:latest`, and the matching `charts/hermod` versions no longer resolve. If you
-  are running one, keep your local copy until you have moved to `1.0.0-rc.1`;
-  it cannot be pulled again.
-- **The Go module proxy keeps its own copy, and it is not harmless.**
-  `proxy.golang.org` is immutable by design, so all 55 withdrawn versions still
-  answer there and always will. Because `v1.7.3` sorts above `v1.0.0-rc.1`, an
-  unversioned `go get github.com/gsoultan/hermod` selected the withdrawn version
-  and failed on it:
+### Why 1.8.0 and not 1.0.0
 
-  ```
-  go: github.com/gsoultan/hermod@upgrade (v1.7.3) requires ...: parsing go.mod:
-      module declares its path as: github.com/user/hermod
-              but was required as: github.com/gsoultan/hermod
-  ```
+The intent was to restart the numbering at 1.0.0. That is possible for
+everything except the one place it cannot be undone.
 
-  `v1.7.4` is published to fix this. It is a tombstone carrying a single
-  `retract` directive covering `[v1.0.0, v1.7.4]` — Go reads retractions from
-  the highest version, so retracting `v1.7.3` requires something above it — and
-  it holds no code, no image and no chart. The range starts at `v1.0.0`, which
-  leaves `v1.0.0-rc.1` outside it, since a pre-release sorts below its release.
-  `go get` therefore resolves to `v1.0.0-rc.1`.
+`proxy.golang.org` is immutable by design. It still answers for all 55 withdrawn
+versions and always will, and it maps `v1.0.0` to the commit that carried that
+tag in February — under the old `module github.com/user/hermod`, which matched
+no repository:
+
+```
+$ curl proxy.golang.org/github.com/gsoultan/hermod/@v/v1.0.0.info
+{"Version":"v1.0.0","Time":"2026-02-09T07:38:40Z","Hash":"915f5346..."}
+$ curl proxy.golang.org/github.com/gsoultan/hermod/@v/v1.0.0.mod
+module github.com/user/hermod
+```
+
+Re-tagging `v1.0.0` on current code would not change what the proxy serves.
+Every number from `v1.0.0` to `v1.7.4` is spent for this module path, so the
+release line resumes above them. GitHub releases, container tags and chart
+versions were never affected — those were deleted and are free — but a version
+number that works in four places and not the fifth is worse than one that works
+everywhere.
+
+`v1.8.0-rc.1` was never published before, which is why it is available.
+
+### Withdrawn versions are retracted
+
+Because `v1.7.3` sorts above this release, an unversioned
+`go get github.com/gsoultan/hermod` selected a withdrawn version and failed on
+it:
+
+```
+go: github.com/gsoultan/hermod@upgrade (v1.7.3) requires ...: parsing go.mod:
+    module declares its path as: github.com/user/hermod
+            but was required as: github.com/gsoultan/hermod
+```
+
+`v1.7.4` fixes this. It is a tombstone carrying a single `retract` directive
+covering `[v1.0.0, v1.7.4]` — Go reads retractions from the highest version, so
+retracting `v1.7.3` requires publishing something above it — and it holds no
+code, no image and no chart. `go get` now resolves to this release, and
+`go list -m -versions` reports it as the only selectable one.
 
 ### Breaking
 
 - **The module path is now `github.com/gsoultan/hermod`.** It was
   `github.com/user/hermod`, a placeholder that matched no repository, so
   `go get`, `go install` and importing Hermod as a library all failed with a
-  path mismatch regardless of which version you asked for. Fixing it is why this
-  release also renumbers: correcting a module path is breaking, and doing it at
-  a version reset costs nothing, whereas doing it in a live `1.x` line would
-  break importers for no benefit they asked for.
+  path mismatch regardless of which version you asked for. Nothing could import
+  Hermod at any version, so there was no importer for the change to break —
+  which is why it happens here rather than being carried forward.
 - **Go 1.27 is required to build.** `go.mod` declares `go 1.27.0`.
 - **`hermod.TwoPhaseCommit.Prepare` takes a transaction ID:**
   `Prepare(ctx context.Context, txID string) (string, error)`. The coordinator
@@ -131,4 +155,4 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
-[1.0.0-rc.1]: https://github.com/gsoultan/hermod/releases/tag/v1.0.0-rc.1
+[1.8.0-rc.1]: https://github.com/gsoultan/hermod/releases/tag/v1.8.0-rc.1

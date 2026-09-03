@@ -39,6 +39,16 @@ jobs:
   # A tombstone is self-describing rather than listed here: it retracts its own
   # version. Nothing else legitimately does that, and checking the tag's own
   # go.mod means a future tombstone needs no change to this file.
+  #
+  # What this checks, exactly: whether the tag is named as a whole retract
+  # directive -- `retract v1.2.3`, or the upper bound of a range. That covers
+  # the tombstone, and it covers re-tagging any single version that has been
+  # retracted by name. It does *not* catch a tag falling inside a retracted
+  # *range*: re-creating v1.5.0, deleted and inside [v1.0.0, v1.7.4], would
+  # still publish. Closing that needs semver comparison rather than string
+  # equality, which is more machinery than the case earns -- those tags are
+  # deleted and would have to be deliberately recreated. It is written down
+  # here rather than left as an assumption someone else has to rediscover.
   tombstone:
     runs-on: ubuntu-latest
     outputs:
