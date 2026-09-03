@@ -116,6 +116,62 @@ Hermod works by reading data from a `Source`, buffering it in a high-performance
    +-----------+----------+
 ```
 
+## Install
+
+The current release is **`v1.8.0-rc.2`** — a release candidate. It is tested and
+the gates are green, but it has not yet run in a production deployment. See
+[CHANGELOG.md](CHANGELOG.md) for what changed, what breaks, and the known gaps.
+
+Two things follow from it being a candidate, and both bite if you assume
+otherwise:
+
+- **There is no `:latest` image.** It is withheld from any pre-release, so
+  `docker pull ghcr.io/gsoultan/hermod:latest` returns a 404 rather than
+  quietly giving you something older.
+- **Helm needs an explicit `--version`.** Without one it reports
+  `could not locate a version matching provided version string`, because a
+  pre-release is not what a bare pull resolves to.
+
+### Container image
+
+```bash
+docker pull ghcr.io/gsoultan/hermod:1.8.0-rc.2
+docker run --rm ghcr.io/gsoultan/hermod:1.8.0-rc.2 -version
+# hermod v1.8.0-rc.2 (Enterprise Edition)
+```
+
+`linux/amd64` and `linux/arm64` are both published under that one tag.
+
+### Helm
+
+```bash
+helm install hermod oci://ghcr.io/gsoultan/charts/hermod \
+  --version 1.8.0-rc.2 \
+  --set existingSecret=hermod-master-key
+```
+
+### Binaries
+
+`.deb`, `.rpm`, `.apk` and tarballs for Linux `amd64`/`arm64` are attached to
+the [release](https://github.com/gsoultan/hermod/releases).
+
+### As a Go module
+
+```bash
+go install github.com/gsoultan/hermod/cmd/hermod@v1.8.0-rc.2   # the binary
+go get github.com/gsoultan/hermod                              # as a library
+```
+
+Go 1.27 or later is required.
+
+> **Versions below `v1.8.0` do not work and are retracted.** Every release
+> before this one was withdrawn, but `proxy.golang.org` is immutable and still
+> serves them — under `module github.com/user/hermod`, a path that matches no
+> repository, so they fail to build. `v1.7.4` is a tombstone holding the
+> `retract` directive that keeps `go get` away from them; it contains no code.
+> This is also why the numbering resumes at `1.8.0` instead of restarting at
+> `1.0.0`, which the proxy has permanently bound to a commit from February.
+
 ## Usage
 
 ### Hermod CLI (`hermodctl`)
@@ -1087,10 +1143,13 @@ A container image and a Helm chart ship with each release:
 
 ```bash
 helm install hermod oci://ghcr.io/gsoultan/charts/hermod \
-  --version <release> \
+  --version 1.8.0-rc.2 \
   --set existingSecret=hermod-master-key \
   --set metrics.prometheusRule.enabled=true
 ```
+
+`--version` is not optional while the current release is a candidate: without
+it Helm reports `could not locate a version matching provided version string`.
 
 Or from a checkout: `helm install hermod deploy/helm/hermod`.
 

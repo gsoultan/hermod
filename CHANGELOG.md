@@ -90,11 +90,21 @@ go: github.com/gsoultan/hermod@upgrade (v1.7.3) requires ...: parsing go.mod:
             but was required as: github.com/gsoultan/hermod
 ```
 
-`v1.7.4` fixes this. It is a tombstone carrying a single `retract` directive
-covering `[v1.0.0, v1.7.4]` — Go reads retractions from the highest version, so
+`v1.7.4` fixes this. It is a tombstone carrying a `retract` directive covering
+`[v1.0.0, v1.7.4]` — Go reads retractions from the highest version, so
 retracting `v1.7.3` requires publishing something above it — and it holds no
-code, no image and no chart. `go get` now resolves to this release, and
-`go list -m -versions` reports it as the only selectable one.
+code, no image and no chart. `go get github.com/gsoultan/hermod` and
+`go install …@latest` both resolve to this release.
+
+One directive is not in effect yet. `v1.0.0-rc.1`, the candidate this release
+renumbers, is retracted by name in *this* version's `go.mod`, but Go reads
+retractions from the highest **release** version, and that is still the `v1.7.4`
+tombstone — published before the directive existed, and carrying only the range,
+which does not reach a pre-release sorting below `v1.0.0`. So `v1.0.0-rc.1`
+remains selectable if asked for explicitly. It is harmless: nothing resolves to
+it by default, and its release, image and chart are all deleted. It starts being
+reported as retracted when `v1.8.0` ships, since that becomes the highest
+release and carries both directives.
 
 ### Breaking
 
