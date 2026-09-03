@@ -171,7 +171,8 @@ Go 1.27 or later is required.
 > Use the image, the chart, a packaged binary, or a checkout.
 >
 > Every version the Go module proxy can serve for this path is withdrawn and
-> retracted. The proxy is immutable, so the releases deleted in this reset still
+> retracted — the range `[v1.0.0, v1.8.0]` plus `v1.0.0-rc.1` by name, carried
+> by the `v1.8.0` tombstone tag. The proxy is immutable, so the releases deleted in this reset still
 > answer there — and `v1.0.0` in particular is permanently bound to a commit
 > from February whose `go.mod` declared `github.com/user/hermod`, a path
 > matching no repository. Re-tagging cannot displace it.
