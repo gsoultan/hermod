@@ -2,12 +2,14 @@
 
 Notable changes to Hermod, newest first. Dates are ISO-8601.
 
-This file starts at 1.8.0. Everything published before it was withdrawn — see
-[The releases before this one are gone](#the-releases-before-this-one-are-gone)
-for what that means if you are running one, and why the number is 1.8.0 rather
-than the 1.0.0 the reset was aiming at.
+This file starts at 1.0.0. Everything published before it was withdrawn — see
+[The releases before this one are gone](#the-releases-before-this-one-are-gone).
 
-## [1.8.0-rc.2] — 2026-09-03
+## [1.0.0-rc.1] — 2026-09-03
+
+A release candidate, not a final release. Everything below is tested and the
+gates are green, but most of it landed within the last few weeks and none of it
+has yet run in a production deployment. `1.0.0` follows once it has.
 
 ### Security
 
@@ -19,10 +21,8 @@ than the 1.0.0 the reset was aiming at.
 
   The connection is outbound, so reaching it means Hermod has been configured to
   poll an SFTP server that is hostile or has been compromised — not an exposure
-  anyone can reach unprompted. It is still reachable, which is why this is a
-  release rather than an exemption. `1.8.0-rc.1` shipped with the vulnerable
-  version: both advisories were published after it was cut, and the gate caught
-  them on the next run.
+  anyone can reach unprompted. It is still reachable, which is why this is an
+  upgrade rather than an exemption.
 
   The handshake was already bounded by a deadline, cleared immediately
   afterwards so transfers are not cut short. That is exactly the window these
@@ -34,33 +34,24 @@ than the 1.0.0 the reset was aiming at.
 [GO-2026-6354]: https://pkg.go.dev/vuln/GO-2026-6354
 [GO-2026-6355]: https://pkg.go.dev/vuln/GO-2026-6355
 
-## [1.8.0-rc.1] — 2026-09-02
-
-A release candidate, not a final release. Everything below is tested and the
-gates are green, but most of it landed within the last few weeks and none of it
-has yet run in a production deployment. `1.8.0` follows once it has.
-
 ### The releases before this one are gone
 
 Every earlier release has been deleted: 52 GitHub releases, all 55 tags, and
 both GHCR packages (`hermod` and `charts/hermod`). Nothing published under a
-`1.x` number before 2026-09-02 is available any more, and none of it should be
+`1.x` number before 2026-09-03 is available any more, and none of it should be
 treated as a supported upgrade path to this release.
 
 **Container images and charts are gone.** `ghcr.io/gsoultan/hermod:1.7.3`,
 `:latest`, and the matching `charts/hermod` versions no longer resolve. If you
-are running one, keep your local copy until you have moved to `1.8.0-rc.1`; it
+are running one, keep your local copy until you have moved to `1.0.0-rc.1`; it
 cannot be pulled again.
 
-### Why 1.8.0 and not 1.0.0
+### `go get` does not work at this version, by choice
 
-The intent was to restart the numbering at 1.0.0. That is possible for
-everything except the one place it cannot be undone.
-
-`proxy.golang.org` is immutable by design. It still answers for all 55 withdrawn
-versions and always will, and it maps `v1.0.0` to the commit that carried that
-tag in February — under the old `module github.com/user/hermod`, which matched
-no repository:
+The version numbering restarts here, and that is possible everywhere except one
+place: `proxy.golang.org` is immutable, and it still maps `v1.0.0` to the commit
+that carried that tag in February, under the old `module github.com/user/hermod`
+which matched no repository.
 
 ```
 $ curl proxy.golang.org/github.com/gsoultan/hermod/@v/v1.0.0.info
@@ -69,42 +60,43 @@ $ curl proxy.golang.org/github.com/gsoultan/hermod/@v/v1.0.0.mod
 module github.com/user/hermod
 ```
 
-Re-tagging `v1.0.0` on current code would not change what the proxy serves.
-Every number from `v1.0.0` to `v1.7.4` is spent for this module path, so the
-release line resumes above them. GitHub releases, container tags and chart
-versions were never affected — those were deleted and are free — but a version
-number that works in four places and not the fifth is worse than one that works
-everywhere.
+Re-tagging does not change what the proxy serves. Every number from `v1.0.0` to
+`v1.7.4` is spent for this module path, and `v1.0.0` has to stay retracted — if
+it did not, `go get` would resolve to that February commit and fail on the
+module path anyway.
 
-`v1.8.0-rc.1` was never published before, which is why it is available.
+The consequence, stated plainly: **Hermod is not currently consumable as a Go
+module.** `go get github.com/gsoultan/hermod` and
+`go install github.com/gsoultan/hermod/cmd/hermod@…` do not work at `1.0.0`, and
+will not until the line passes `v1.7.4`. The container image, Helm chart,
+GitHub release and packaged binaries are unaffected and are the supported ways
+to run it. Building from a checkout also works.
 
-### Withdrawn versions are retracted
+This was a deliberate trade: version numbers that read correctly everywhere a
+user actually installs Hermod, against a `go get` path that had never worked in
+any published version anyway — the module path was a placeholder until
+2026-09-02, so no release before this one could be imported either.
 
-Because `v1.7.3` sorts above this release, an unversioned
-`go get github.com/gsoultan/hermod` selected a withdrawn version and failed on
-it:
+### Why the withdrawn versions are retracted
 
-```
-go: github.com/gsoultan/hermod@upgrade (v1.7.3) requires ...: parsing go.mod:
-    module declares its path as: github.com/user/hermod
-            but was required as: github.com/gsoultan/hermod
-```
+`v1.7.4` is a tombstone: a tag holding a `retract` directive and nothing else —
+no code, no image, no chart. Go reads retractions from the highest version, so
+retracting `v1.7.3` meant publishing something above it, and that is the only
+reason the tag exists. It is listed in `.github/tombstones`, which is how the
+release workflow knows to publish no artifacts for it.
 
-`v1.7.4` fixes this. It is a tombstone carrying a `retract` directive covering
-`[v1.0.0, v1.7.4]` — Go reads retractions from the highest version, so
-retracting `v1.7.3` requires publishing something above it — and it holds no
-code, no image and no chart. `go get github.com/gsoultan/hermod` and
-`go install …@latest` both resolve to this release.
+The directives cover `[v1.0.0, v1.7.4]` and `v1.0.0-rc.1`. Between them, every
+version the proxy still serves is marked, so `go get` fails with a retraction
+notice rather than quietly handing over a February commit or a build that
+predates the `x/crypto` fix in this release.
 
-One directive is not in effect yet. `v1.0.0-rc.1`, the candidate this release
-renumbers, is retracted by name in *this* version's `go.mod`, but Go reads
-retractions from the highest **release** version, and that is still the `v1.7.4`
-tombstone — published before the directive existed, and carrying only the range,
-which does not reach a pre-release sorting below `v1.0.0`. So `v1.0.0-rc.1`
-remains selectable if asked for explicitly. It is harmless: nothing resolves to
-it by default, and its release, image and chart are all deleted. It starts being
-reported as retracted when `v1.8.0` ships, since that becomes the highest
-release and carries both directives.
+`v1.0.0-rc.1` — this release — is itself in that list, which is unusual and
+deliberate. The proxy already holds that version string against an older commit
+from an earlier attempt at this reset, and re-tagging cannot displace it. A Go
+user asking for `v1.0.0-rc.1` would otherwise receive code without the SSH
+denial-of-service fix above. Failing loudly is the better outcome, and it is the
+same reason the image, chart and binaries — which are freshly built from this
+commit and carry no such history — are published normally.
 
 ### Breaking
 
@@ -192,4 +184,4 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
-[1.8.0-rc.1]: https://github.com/gsoultan/hermod/releases/tag/v1.8.0-rc.1
+[1.0.0-rc.1]: https://github.com/gsoultan/hermod/releases/tag/v1.0.0-rc.1

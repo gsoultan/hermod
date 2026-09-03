@@ -1,0 +1,19 @@
+# Tags that must publish nothing.
+#
+# A tombstone tag exists only to carry a `retract` directive in its go.mod. Go
+# reads retractions from the highest version, so retracting a withdrawn release
+# means publishing a tag above it -- and that tag must not become a release,
+# must not take `latest`, and must not push an image, or it undoes the very
+# withdrawal it was cut to protect.
+#
+# One tag per line, exact match, `#` comments ignored. The release workflow
+# reads this file at the tag being released.
+#
+# This used to be inferred: the workflow asked whether a tag retracted its own
+# version, on the reasoning that nothing else would. That stopped being true the
+# moment a *real* release had to be retracted for Go consumers while still
+# shipping an image, a chart and binaries -- v1.0.0-rc.1 is exactly that, and
+# under the old rule it would have published nothing at all. Being listed is a
+# decision; retracting yourself is now just a fact about go.mod.
+
+v1.7.4
