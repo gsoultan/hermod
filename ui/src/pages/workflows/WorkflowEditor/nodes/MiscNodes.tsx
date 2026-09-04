@@ -3,10 +3,10 @@ import {
   Text, Badge, Group, ThemeIcon, Paper, useMantineColorScheme, ActionIcon 
 } from '@mantine/core';
 import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import { IconArrowsSplit, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconEye, IconFilter, IconGitBranch, IconGitMerge, IconList, IconNote, IconPlaylist, IconSearch, IconShieldLock, IconTerminal2, IconTrash, IconVariable } from '@tabler/icons-react';
-export const ValidatorNode = ({ id, data, selected }: any) => {
+const ValidatorNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Validator" color="orange" icon={IconChecklist} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="orange" />
@@ -15,7 +15,7 @@ export const ValidatorNode = ({ id, data, selected }: any) => {
   );
 };
 
-export const TransformationNode = ({ id, data, selected }: any) => {
+const TransformationNodeImpl = ({ id, data, selected }: any) => {
   const getIcon = () => {
     switch (data.transType) {
       case 'set': return IconVariable;
@@ -76,7 +76,7 @@ export const TransformationNode = ({ id, data, selected }: any) => {
   );
 };
 
-export const SwitchNode = ({ id, data, selected }: any) => {
+const SwitchNodeImpl = ({ id, data, selected }: any) => {
   let cases: any[] = [];
   try {
     cases = typeof data.cases === 'string' ? JSON.parse(data.cases || '[]') : (data.cases || []);
@@ -116,7 +116,7 @@ export const SwitchNode = ({ id, data, selected }: any) => {
   );
 };
 
-export const RouterNode = ({ id, data, selected }: any) => {
+const RouterNodeImpl = ({ id, data, selected }: any) => {
   let rules: any[] = [];
   try {
     rules = typeof data.rules === 'string' ? JSON.parse(data.rules || '[]') : (data.rules || []);
@@ -156,7 +156,7 @@ export const RouterNode = ({ id, data, selected }: any) => {
   );
 };
 
-export const MergeNode = ({ id, data, selected }: any) => {
+const MergeNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Merge" color="cyan" icon={IconGitMerge} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="cyan" />
@@ -165,7 +165,7 @@ export const MergeNode = ({ id, data, selected }: any) => {
   );
 };
 
-export const StatefulNode = ({ id, data, selected }: any) => {
+const StatefulNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Stateful" color="pink" icon={IconDatabase} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="pink" />
@@ -174,7 +174,7 @@ export const StatefulNode = ({ id, data, selected }: any) => {
   );
 };
 
-export const WaitNode = ({ id, data, selected }: any) => {
+const WaitNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Wait" color="blue" icon={IconClock} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="blue" />
@@ -183,7 +183,7 @@ export const WaitNode = ({ id, data, selected }: any) => {
   );
 };
 
-export const ForeachNode = ({ id, data, selected }: any) => {
+const ForeachNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Foreach" color="teal" icon={IconPlaylist} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="teal" />
@@ -193,7 +193,7 @@ export const ForeachNode = ({ id, data, selected }: any) => {
   );
 };
 
-export const LogNode = ({ id, data, selected }: any) => {
+const LogNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Log" color="gray" icon={IconTerminal2} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="gray" />
@@ -202,7 +202,7 @@ export const LogNode = ({ id, data, selected }: any) => {
   );
 };
 
-export const CollectNode = ({ id, data, selected }: any) => {
+const CollectNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Collect" color="indigo" icon={IconList} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="indigo" />
@@ -211,7 +211,7 @@ export const CollectNode = ({ id, data, selected }: any) => {
   );
 };
 
-export const DeduplicateNode = ({ id, data, selected }: any) => {
+const DeduplicateNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Deduplicate" color="violet" icon={IconCopy} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="violet" />
@@ -221,7 +221,7 @@ export const DeduplicateNode = ({ id, data, selected }: any) => {
   );
 };
 
-export const NoteNode = ({ id, data, selected }: any) => {
+const NoteNodeImpl = ({ id, data, selected }: any) => {
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
   const [hovered, setHovered] = useState(false);
@@ -276,4 +276,36 @@ export const NoteNode = ({ id, data, selected }: any) => {
   );
 };
 
-
+/*
+ * Node components are memoised.
+ *
+ * React Flow re-renders the node layer whenever anything in it changes; without
+ * memo, every node on the canvas re-rendered whenever any one node's telemetry
+ * arrived — several times a second on a running workflow, each render rebuilding
+ * a Paper/Group/Stack/ThemeIcon/Badge tree and its handles. React Flow's own
+ * documentation requires this.
+ */
+export const ValidatorNode = memo(ValidatorNodeImpl);
+export const TransformationNode = memo(TransformationNodeImpl);
+export const SwitchNode = memo(SwitchNodeImpl);
+export const RouterNode = memo(RouterNodeImpl);
+export const MergeNode = memo(MergeNodeImpl);
+export const StatefulNode = memo(StatefulNodeImpl);
+export const WaitNode = memo(WaitNodeImpl);
+export const ForeachNode = memo(ForeachNodeImpl);
+export const LogNode = memo(LogNodeImpl);
+export const CollectNode = memo(CollectNodeImpl);
+export const DeduplicateNode = memo(DeduplicateNodeImpl);
+export const NoteNode = memo(NoteNodeImpl);
+ValidatorNode.displayName = 'ValidatorNode';
+TransformationNode.displayName = 'TransformationNode';
+SwitchNode.displayName = 'SwitchNode';
+RouterNode.displayName = 'RouterNode';
+MergeNode.displayName = 'MergeNode';
+StatefulNode.displayName = 'StatefulNode';
+WaitNode.displayName = 'WaitNode';
+ForeachNode.displayName = 'ForeachNode';
+LogNode.displayName = 'LogNode';
+CollectNode.displayName = 'CollectNode';
+DeduplicateNode.displayName = 'DeduplicateNode';
+NoteNode.displayName = 'NoteNode';

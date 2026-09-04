@@ -6,9 +6,9 @@ import { useShallow } from 'zustand/react/shallow';
 import { useParams } from '@tanstack/react-router';
 import { apiFetch } from '../../../../api';
 import { notifications } from '@mantine/notifications';
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { IconArrowsExchange, IconBrandDiscord, IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandSlack, IconBrandTiktok, IconBrandTwitter, IconCircles, IconCloudUpload, IconDatabase, IconDeviceFloppy, IconFileSpreadsheet, IconMail, IconMessage, IconSearch, IconSettingsAutomation, IconTerminal2, IconWorld } from '@tabler/icons-react';
-export const SourceNode = ({ id, data, selected }: any) => {
+const SourceNodeImpl = ({ id, data, selected }: any) => {
   const getIcon = () => {
     if (data.type === 'webhook' || data.type === 'form' || data.type === 'graphql') return IconWorld;
     if (data.type === 'cron') return IconSettingsAutomation;
@@ -32,7 +32,7 @@ export const SourceNode = ({ id, data, selected }: any) => {
   );
 };
 
-export const SinkNode = ({ id, data, selected }: any) => {
+const SinkNodeImpl = ({ id, data, selected }: any) => {
   const { id: workflowId } = useParams({ strict: false }) as any;
   const { active, setDlqInspectorSink, setDlqInspectorOpened } = useWorkflowStore(useShallow((state: WorkflowState) => ({
     active: state.active,
@@ -118,4 +118,16 @@ export const SinkNode = ({ id, data, selected }: any) => {
   );
 };
 
-
+/*
+ * Node components are memoised.
+ *
+ * React Flow re-renders the node layer whenever anything in it changes; without
+ * memo, every node on the canvas re-rendered whenever any one node's telemetry
+ * arrived — several times a second on a running workflow, each render rebuilding
+ * a Paper/Group/Stack/ThemeIcon/Badge tree and its handles. React Flow's own
+ * documentation requires this.
+ */
+export const SourceNode = memo(SourceNodeImpl);
+export const SinkNode = memo(SinkNodeImpl);
+SourceNode.displayName = 'SourceNode';
+SinkNode.displayName = 'SinkNode';

@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, Modal, List, ThemeIcon, TextInput, Pagination } from '@mantine/core';
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
+import { useLiveStatuses } from '@/hooks/useLiveStatuses';
+import { LiveStatusIndicator } from '@/components/common/LiveStatusIndicator';
 import { getSessionRole } from '@/auth/session';
 import { useVHost } from '@/context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
@@ -25,27 +27,10 @@ export function SinksPage() {
   const [activePage, setPage] = useState(1);
   const itemsPerPage = 30;
 
-  const [liveStatuses, setLiveStatuses] = useState<Record<string, any>>({});
-
-  useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/status`;
-    const ws = new WebSocket(wsUrl);
-    
-    ws.onmessage = (event) => {
-      try {
-        const update = JSON.parse(event.data);
-        setLiveStatuses(prev => ({
-          ...prev,
-          [update.workflow_id]: update
-        }));
-      } catch (err) {
-        console.error('Failed to parse status update', err);
-      }
-    };
-
-    return () => ws.close();
-  }, []);
+  // Bounded, batched, and self-healing. See useLiveStatuses: this was an inline
+  // effect duplicated here and on the sibling page, with an unbounded map, a
+  // full re-render per frame, and no reconnect.
+  const { statuses: liveStatuses, connected: liveConnected } = useLiveStatuses();
 
   const { data: sinksResponse } = useQuery({
     queryKey: ['sinks', activePage, debouncedSearch, selectedVHost],
@@ -147,6 +132,7 @@ export function SinksPage() {
                   or Kafka to receive the data streams processed by Hermod.
                 </Text>
               </Box>
+              <LiveStatusIndicator connected={liveConnected} />
               {!isViewer && (
                 <Button leftSection={<IconPlus size="1rem" />} onClick={() => navigate({ to: '/sinks/new' })} radius="md">
                   Add Sink
