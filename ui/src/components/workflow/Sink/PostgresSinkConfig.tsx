@@ -1,4 +1,5 @@
 import { IconRefresh } from '@tabler/icons-react';
+import { useDebouncedValue } from '@mantine/hooks';
 import { FormRow } from '@/components/common/FormRow';
 import { ActionIcon, Autocomplete, Group, TextInput, Switch, Stack, Divider, Select, Button, Loader, Checkbox } from '@mantine/core'
 import { useState, type FC, useEffect } from 'react'
@@ -140,12 +141,22 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
     }
   };
 
+  // Target Table is an Autocomplete the user types into, and discovery is a live
+  // query against the sink's database. Keyed directly off config.table, typing
+  // "orders" issued six of them — one per character — because a partial name is
+  // not a table, so each failed and the mappings.length guard never engaged.
+  const [debouncedTable] = useDebouncedValue(config.table || '', 400);
+
   // Auto-discover columns when use_existing_table is enabled
   useEffect(() => {
-    if (config.use_existing_table === 'true' && config.table && mappings.length === 0) {
+    if (debouncedTable && config.use_existing_table === 'true' && mappings.length === 0) {
       handleSmartMap();
     }
-  }, [config.use_existing_table, config.table]);
+    // handleSmartMap and mappings are read fresh on each run; adding them to the
+    // deps would re-fire discovery whenever a mapping changes, which is the
+    // opposite of what the mappings.length guard is for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.use_existing_table, debouncedTable]);
 
   return (
     <Stack gap="sm">
