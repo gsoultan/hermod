@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, Modal, List, ThemeIcon, TextInput, Pagination } from '@mantine/core';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
+import { useLiveStatuses } from '@/hooks/useLiveStatuses';
+import { LiveStatusIndicator } from '@/components/common/LiveStatusIndicator';
 import { getSessionRole } from '@/auth/session';
 import { useVHost } from '@/context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
-import { useDisclosure } from '@mantine/hooks';
+import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import type { Sink, Workflow, Worker } from '@/types';
 import { IconActivity, IconAlertCircle, IconEdit, IconExternalLink, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
 const API_BASE = '/api';
@@ -19,36 +21,25 @@ export function SinksPage() {
   const [opened, { open, close }] = useDisclosure(false);
   const [sinkToDelete, setSinkToDelete] = useState<Sink | null>(null);
   const [search, setSearch] = useState('');
+  // Debounced so a burst of keystrokes costs one request, and used as the query
+  // key so the key changes once per search rather than once per character.
+  const [debouncedSearch] = useDebouncedValue(search, 300);
   const [activePage, setPage] = useState(1);
   const itemsPerPage = 30;
 
-  const [liveStatuses, setLiveStatuses] = useState<Record<string, any>>({});
-
-  useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/status`;
-    const ws = new WebSocket(wsUrl);
-    
-    ws.onmessage = (event) => {
-      try {
-        const update = JSON.parse(event.data);
-        setLiveStatuses(prev => ({
-          ...prev,
-          [update.workflow_id]: update
-        }));
-      } catch (err) {
-        console.error('Failed to parse status update', err);
-      }
-    };
-
-    return () => ws.close();
-  }, []);
+  // Bounded, batched, and self-healing. See useLiveStatuses: this was an inline
+  // effect duplicated here and on the sibling page, with an unbounded map, a
+  // full re-render per frame, and no reconnect.
+  const { statuses: liveStatuses, connected: liveConnected } = useLiveStatuses();
 
   const { data: sinksResponse } = useQuery({
-    queryKey: ['sinks', activePage, search, selectedVHost],
+    queryKey: ['sinks', activePage, debouncedSearch, selectedVHost],
+        // Hold the previous page/search on screen while the next one loads,
+        // instead of dropping to undefined and blanking the table.
+        placeholderData: keepPreviousData,
     queryFn: async () => {
       const vhostParam = selectedVHost !== 'all' ? `&vhost=${selectedVHost}` : '';
-      const res = await apiFetch(`${API_BASE}/sinks?page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(search)}${vhostParam}`);
+      const res = await apiFetch(`${API_BASE}/sinks?page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(debouncedSearch)}${vhostParam}`);
       if (!res.ok) throw new Error('Failed to fetch sinks');
       return res.json();
     },
@@ -128,15 +119,7 @@ export function SinksPage() {
   });
 
   return (
-    <Box p="md" style={{ animation: 'fadeIn 0.5s ease-in-out' }}>
-      <style>
-        {`
-          @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-        `}
-      </style>
+    <Box p="md" className="page-enter">
       <Stack gap="lg">
         <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Stack gap="md">
@@ -149,6 +132,7 @@ export function SinksPage() {
                   or Kafka to receive the data streams processed by Hermod.
                 </Text>
               </Box>
+              <LiveStatusIndicator connected={liveConnected} />
               {!isViewer && (
                 <Button leftSection={<IconPlus size="1rem" />} onClick={() => navigate({ to: '/sinks/new' })} radius="md">
                   Add Sink

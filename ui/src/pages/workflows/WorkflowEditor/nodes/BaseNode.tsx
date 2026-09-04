@@ -1,6 +1,7 @@
 import { createContext, useContext, type ReactNode, useState } from 'react';
 import { Handle, Position, type Node as FlowNode, type Edge as FlowEdge } from '@xyflow/react';
 import { Box, Text, useMantineColorScheme, ActionIcon, Tooltip, Paper, Group, Stack, ThemeIcon, rem, Badge } from '@mantine/core';
+import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import { IconEye, IconPlus, IconTrash } from '@tabler/icons-react';
 export const WorkflowContext = createContext<{
@@ -72,22 +73,48 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
 }) => {
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
-  const setSampleInspectorOpened = useWorkflowStore(state => state.setSampleInspectorOpened);
-  const setSampleNodeId = useWorkflowStore(state => state.setSampleNodeId);
-  const setNodes = useWorkflowStore(state => state.setNodes);
-  const setEdges = useWorkflowStore(state => state.setEdges);
-  const setSelectedNode = useWorkflowStore(state => state.setSelectedNode);
+
+  // Actions are stable for the store's lifetime, so one shallow selection costs
+  // nothing to compare and replaces five separate subscriptions per node.
+  const { setSampleInspectorOpened, setSampleNodeId, setNodes, setEdges, setSelectedNode } =
+    useWorkflowStore(
+      useShallow(state => ({
+        setSampleInspectorOpened: state.setSampleInspectorOpened,
+        setSampleNodeId: state.setSampleNodeId,
+        setNodes: state.setNodes,
+        setEdges: state.setEdges,
+        setSelectedNode: state.setSelectedNode,
+      }))
+    );
 
   const [hovered, setHovered] = useState(false);
 
-  const metric = useWorkflowStore(state => state.nodeMetrics[id]) ?? data.metric;
-  const errorCount = useWorkflowStore(state => state.nodeErrorMetrics[id]) ?? data.errorCount;
-  const sample = useWorkflowStore(state => state.nodeSamples[id]) ?? data.sample;
-  const cbStatus = useWorkflowStore(state => state.sinkCBStatuses[data.ref_id]) ?? data.cbStatus;
-  const bufferFill = useWorkflowStore(state => state.sinkBufferFill[data.ref_id]) ?? data.bufferFill;
-  const sourceStatus = useWorkflowStore(state => state.sourceStatus);
-  const sinkStatus = useWorkflowStore(state => state.sinkStatuses[data.ref_id]);
-  const workflowDeadLetterCount = useWorkflowStore(state => state.workflowDeadLetterCount);
+  // One shallow subscription for this node's live telemetry instead of eight.
+  //
+  // Zustand evaluates every selector on every set(), so with N nodes on canvas
+  // these were 11N selector runs per store write — and the store is written on
+  // every telemetry frame. Selecting the scalars together under useShallow means
+  // one comparison per node, and a re-render only when this node's own numbers
+  // move rather than whenever any node's do.
+  const live = useWorkflowStore(
+    useShallow(state => ({
+      metric: state.nodeMetrics[id],
+      errorCount: state.nodeErrorMetrics[id],
+      sample: state.nodeSamples[id],
+      cbStatus: state.sinkCBStatuses[data.ref_id],
+      bufferFill: state.sinkBufferFill[data.ref_id],
+      sourceStatus: state.sourceStatus,
+      sinkStatus: state.sinkStatuses[data.ref_id],
+      workflowDeadLetterCount: state.workflowDeadLetterCount,
+    }))
+  );
+
+  const metric = live.metric ?? data.metric;
+  const errorCount = live.errorCount ?? data.errorCount;
+  const sample = live.sample ?? data.sample;
+  const cbStatus = live.cbStatus ?? data.cbStatus;
+  const bufferFill = live.bufferFill ?? data.bufferFill;
+  const { sourceStatus, sinkStatus, workflowDeadLetterCount } = live;
 
   const nodeStatus = type === 'Source' ? sourceStatus : (type === 'Sink' ? sinkStatus : null);
 

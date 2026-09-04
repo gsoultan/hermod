@@ -63,15 +63,10 @@ export const LiveEdge = memo((props: EdgeProps) => {
 
   return (
     <>
-      <style>
-        {`
-          /* Animate dash movement from left → right along the edge path */
-          @keyframes dash { to { stroke-dashoffset: 1000; } }
-          .react-flow__edge-path {
-            transition: stroke-width 0.2s, stroke 0.2s;
-          }
-        `}
-      </style>
+      {/* The dash keyframes and edge-path transition are global and live in
+          index.css. They used to be emitted here, which meant one identical
+          <style> element per edge in the document — 30 edges, 30 copies, each
+          re-inserted whenever its edge re-rendered. */}
       <BaseEdge
         id={id}
         path={edgePath}

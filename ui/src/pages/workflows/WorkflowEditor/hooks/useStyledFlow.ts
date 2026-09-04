@@ -16,13 +16,28 @@ export function useStyledFlow() {
     }))
   );
 
-  const sinkDataRaw = useWorkflowStore((state) => 
-    JSON.stringify(state.nodes
-      .filter((n) => n.type === 'sink')
-      .map((n) => ({ id: n.id, ref_id: n.data.ref_id })))
-  );
+  // Select the stored array, derive outside the selector.
+  //
+  // This used to run `JSON.stringify(state.nodes.filter(...).map(...))` inside
+  // the selector and JSON.parse it back in a memo. Zustand runs every selector
+  // on every set(), and this store carries live telemetry — nodeMetrics,
+  // edgeThroughput, edgeSamples, logs — so a filter, a map and a full
+  // serialisation ran on every WebSocket frame just to answer "did the sinks
+  // change?".
+  //
+  // `state.nodes` is a stable reference between updates that do not touch it, so
+  // a telemetry frame now re-renders nothing here at all. useShallow would not
+  // work in its place: it compares one level deep, and the mapped objects are
+  // freshly allocated on every call, so no two results would ever match.
+  const nodes = useWorkflowStore((state) => state.nodes);
 
-  const sinkData = useMemo(() => JSON.parse(sinkDataRaw) as {id: string, ref_id: string}[], [sinkDataRaw]);
+  const sinkData = useMemo(
+    () =>
+      nodes
+        .filter((n) => n.type === 'sink')
+        .map((n) => ({ id: n.id, ref_id: n.data.ref_id as string })),
+    [nodes]
+  );
 
   const sourceId = useWorkflowStore((state) => 
     state.nodes.find((n) => n.type === 'source')?.id || null

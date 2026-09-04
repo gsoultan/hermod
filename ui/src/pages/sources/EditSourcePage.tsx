@@ -1,4 +1,6 @@
-import { Title, Paper, Stack, Group, Box, Text, Center, Loader } from '@mantine/core';
+import { Title, Paper, Stack, Group, Box, Text } from '@mantine/core';
+import { Suspense } from 'react';
+import { FormSkeleton } from '@/components/common/FormSkeleton';
 import { SourceForm } from '@/components/forms/SourceForm';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
@@ -7,7 +9,7 @@ import { IconDatabaseImport } from '@tabler/icons-react';
 export function EditSourcePage() {
   const { sourceId } = useParams({ from: '/sources/$sourceId/edit' });
 
-  const { data: source, isLoading } = useSuspenseQuery({
+  const { data: source } = useSuspenseQuery({
     queryKey: ['sources', sourceId],
     queryFn: async () => {
       const res = await apiFetch(`/api/sources/${sourceId}`);
@@ -15,14 +17,6 @@ export function EditSourcePage() {
       return res.json();
     }
   });
-
-  if (isLoading) {
-    return (
-      <Center h="100vh">
-        <Loader size="xl" />
-      </Center>
-    );
-  }
 
   return (
     <Box p="md">
@@ -38,7 +32,9 @@ export function EditSourcePage() {
         </Paper>
 
         <Paper p="xl" withBorder radius="md">
-          <SourceForm initialData={source} isEditing />
+          <Suspense fallback={<FormSkeleton />}>
+            <SourceForm initialData={source} isEditing />
+          </Suspense>
         </Paper>
       </Stack>
     </Box>

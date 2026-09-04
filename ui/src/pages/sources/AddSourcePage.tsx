@@ -1,4 +1,6 @@
 import { Title, Paper, Stack, Group, Box, Text } from '@mantine/core';
+import { Suspense } from 'react';
+import { FormSkeleton } from '@/components/common/FormSkeleton';
 import { SourceForm } from '@/components/forms/SourceForm';
 import { IconDatabaseImport } from '@tabler/icons-react';
 export function AddSourcePage() {
@@ -16,7 +18,9 @@ export function AddSourcePage() {
         </Paper>
 
         <Paper p="xl" withBorder radius="md">
-          <SourceForm />
+          <Suspense fallback={<FormSkeleton />}>
+            <SourceForm />
+          </Suspense>
         </Paper>
       </Stack>
     </Box>

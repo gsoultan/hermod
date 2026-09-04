@@ -81,11 +81,23 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
 
   const { styledEdges } = useStyledFlow();
   
-  const allEdgesRaw = useMemo(() => {
-    return JSON.stringify([...edges, ...styledEdges]);
-  }, [edges, styledEdges]);
-
-  const allEdges = useMemo(() => JSON.parse(allEdgesRaw), [allEdgesRaw]);
+  // Concatenate; do not round-trip through JSON.
+  //
+  // This was `JSON.parse(JSON.stringify([...edges, ...styledEdges]))`, memoised
+  // on the same inputs. It read as a deep-equality guard but did the opposite:
+  // it minted a brand-new object for every edge on every change, so React Flow's
+  // per-edge memoisation never held and all edges re-rendered whenever any one
+  // of them changed — which, with live throughput telemetry, is several times a
+  // second. It also deep-copied the array and built a large intermediate string
+  // each time (GC churn on the canvas's hot path), and silently mangled anything
+  // JSON cannot carry: Dates became strings, undefined fields vanished, NaN and
+  // Infinity became null.
+  //
+  // Identity is preserved per edge, so only genuinely changed edges re-render.
+  const allEdges = useMemo(
+    () => (styledEdges.length === 0 ? edges : [...edges, ...styledEdges]),
+    [edges, styledEdges]
+  );
 
   const onConnect = useCallback((params: Connection) => {
     const label = params.sourceHandle?.split(':::')[0] || params.sourceHandle || '';

@@ -114,7 +114,24 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
       // it only worked because a copy of the session token was sitting in
       // storage for JavaScript to find, which is exactly what had to go. The
       // request is made once and shared; /api/me answers from the cookie.
-      const user = await ensureSession()
+      //
+      // Start both gates together, but decide in order.
+      //
+      // Awaited one after the other these made a cold navigation two serial
+      // round-trips with nothing painted in between. Awaiting them *together* is
+      // wrong in the other direction: a logged-out user would wait on a config
+      // answer the redirect below is about to discard, and a failing config
+      // request would reach the error boundary before the login redirect fired.
+      //
+      // So issue both, then await only what each decision actually needs.
+      const sessionPromise = ensureSession()
+      const configPromise = getCachedConfigStatus()
+      // Mark the rejection handled up front: if the session gate redirects, this
+      // promise is never awaited and would otherwise surface as an unhandled
+      // rejection. Awaiting it below still rethrows.
+      configPromise.catch(() => {})
+
+      const user = await sessionPromise
       if (!user) {
         throw redirect({
           to: '/login',
@@ -124,7 +141,7 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
         })
       }
 
-      const data = await getCachedConfigStatus()
+      const data = await configPromise
       if (!data.configured || !data.user_setup) {
         throw redirect({
           to: '/setup',
@@ -618,8 +635,20 @@ export const router = createRouter({
       <Loader size="xl" />
     </Center>
   ),
-  defaultPendingMs: 0,
-  defaultPendingMinMs: 500,
+  // Warm the route's chunk and beforeLoad on hover/focus, so by the time the
+  // click lands the work is usually already done. Every page is a lazy import;
+  // without this, a navigation is always "fetch chunk, then fetch data".
+  defaultPreload: 'intent',
+  defaultPreloadDelay: 50,
+  // Only show the pending screen for a navigation that is actually slow, and
+  // never pin it once shown.
+  //
+  // This was `defaultPendingMs: 0` with `defaultPendingMinMs: 500`: the spinner
+  // appeared on any navigation that did not resolve synchronously and was then
+  // held for at least half a second, so a warm route that could have painted in
+  // 20ms still cost 500ms of full-viewport spinner.
+  defaultPendingMs: 300,
+  defaultPendingMinMs: 0,
   defaultErrorComponent: ({ error, reset }) => {
     // For 401 Unauthorized, apiFetch already handles redirect
     if (error instanceof Error && error.message === 'Unauthorized') {

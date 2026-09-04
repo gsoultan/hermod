@@ -242,15 +242,7 @@ export function WorkersPage() {
   })
 
   return (
-    <Box p="md" style={{ animation: 'fadeIn 0.5s ease-in-out' }}>
-      <style>
-        {`
-          @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-        `}
-      </style>
+    <Box p="md" className="page-enter">
       <Stack gap="lg">
         {workers.length > 0 && workers.every(w => !isOnline(w.last_seen)) && (
           <Alert icon={<IconAlertTriangle size="1rem" />} title="All Workers Offline" color="red" radius="md" variant="filled">

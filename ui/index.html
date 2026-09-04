@@ -1,13 +1,98 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-mantine-color-scheme="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="mask-icon" href="/favicon.svg" color="#4c6ef5" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Hermod — enterprise data integration and streaming platform. Build, run and monitor CDC pipelines." />
+
+    <!--
+      Paint the right colour on the very first frame.
+
+      The app renders dark by default, but the theme was applied only once React
+      had hydrated, so every cold load flashed the browser's white default first.
+      `color-scheme` tells the UA to use dark form controls and scrollbars before
+      any CSS parses, the `data-mantine-color-scheme` attribute above is what
+      Mantine itself keys off, and the inline background below covers the gap
+      until the stylesheet lands. The script reconciles all three with whatever
+      the user actually chose, before first paint.
+    -->
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#1a1b1e" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <style>
+      html { background: #1a1b1e; }
+      html[data-mantine-color-scheme='light'] { background: #ffffff; }
+      body { margin: 0; }
+
+      /* Shown until React mounts, then replaced. Sized and positioned like the
+         real AppShell so the first frame is the right shape rather than a blank
+         page that jumps when content arrives. */
+      #app-shell-fallback {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 12px;
+        font: 500 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: #909296;
+      }
+      #app-shell-fallback .spinner {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 3px solid rgba(144, 146, 150, 0.25);
+        border-top-color: #4c6ef5;
+        animation: app-shell-spin 700ms linear infinite;
+      }
+      @keyframes app-shell-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        #app-shell-fallback .spinner { animation: none; }
+      }
+    </style>
+    <script>
+      // Runs before first paint.
+      //
+      // This is Mantine's own ColorSchemeScript algorithm, inlined verbatim with
+      // defaultColorScheme "dark" to match MantineProvider in main.tsx. Copying
+      // it rather than approximating it matters: any divergence in the "auto"
+      // branch would reintroduce the flash in a narrower case instead of fixing
+      // it. Keep the two in step if the provider's default ever changes.
+      try {
+        var _colorScheme = window.localStorage.getItem('mantine-color-scheme-value');
+        var colorScheme =
+          _colorScheme === 'light' || _colorScheme === 'dark' || _colorScheme === 'auto'
+            ? _colorScheme
+            : 'dark';
+        var computedColorScheme =
+          colorScheme !== 'auto'
+            ? colorScheme
+            : window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
+        document.documentElement.setAttribute('data-mantine-color-scheme', computedColorScheme);
+        document.documentElement.style.colorScheme = computedColorScheme;
+      } catch (e) {}
+    </script>
+
     <title>Hermod</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="app-shell-fallback">
+        <div class="spinner"></div>
+        <div>Loading Hermod…</div>
+      </div>
+    </div>
+    <noscript>
+      <div style="padding: 24px; font: 14px/1.5 system-ui, sans-serif; color: #c1c2c5">
+        Hermod needs JavaScript enabled to run.
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -43,21 +43,47 @@ export default defineConfig({
         // workflow as running — actively misleading in an operations tool.
         // Nothing under /api is ever cached, and navigations there are excluded
         // from the SPA fallback.
-        globPatterns: ['**/*.{js,css,html,svg,woff2}'],
+        // png included so the install-prompt icons are available offline; they
+        // were excluded, which left a freshly installed app with no icon until
+        // it next reached the network.
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api/, /^\/streams/, /^\/metrics/, /^\/livez/, /^\/readyz/],
+        // Deliberately empty. The precache above covers the whole shell, and
+        // every asset URL is content-hashed, so Workbox stores them with
+        // revision:null and a deploy re-fetches only the chunks whose hash
+        // actually changed — not the full 2.3MB. Anything dynamic here is live
+        // pipeline state, where a cached answer would show a stopped workflow
+        // as running.
         runtimeCaching: [],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
       manifest: {
+        // An explicit id pins the app's identity. Derived from start_url
+        // otherwise, so changing start_url later would register a *new* app and
+        // orphan everyone's existing install.
+        id: '/',
         name: 'Hermod',
         short_name: 'Hermod',
         description: 'Enterprise data integration and streaming platform',
-        theme_color: '#4c6ef5',
+        // Matches the pre-paint background in index.html, so the splash screen
+        // and the first painted frame are the same colour.
+        theme_color: '#1a1b1e',
         background_color: '#1a1b1e',
         display: 'standalone',
+        orientation: 'any',
         start_url: '/',
+        scope: '/',
+        categories: ['productivity', 'developer', 'utilities'],
         icons: [
+          // Raster entries first: an SVG alone satisfies Chrome but leaves
+          // Windows tiles and several Android launchers without an icon.
+          { src: '/pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          // Without a maskable entry Android draws the "any" icon on a white
+          // plate and letterboxes it. This one keeps its glyph inside the inner
+          // 80% safe zone so every mask shape crops cleanly.
+          { src: '/pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           { src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
         ],
       },
@@ -113,23 +139,33 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // Isolate heavy libraries into their own async chunks to keep main smaller
-        manualChunks(id) {
-          const path = id.replace(/\\/g, '/');
-          if (
-            path.includes('/node_modules/reactflow') ||
-            path.includes('/node_modules/dagre') ||
-            path.includes('/node_modules/d3-')
-          ) {
-            return 'reactflow-vendor'
-          }
-          if (path.includes('/node_modules/@mantine/')) {
-            return 'mantine-vendor'
-          }
-          if (path.includes('/node_modules/@tanstack/')) {
-            return 'tanstack-vendor'
-          }
-        },
+        // No manualChunks — deliberately, and measured.
+        //
+        // There used to be hand-rolled buckets here: reactflow-vendor,
+        // mantine-vendor, tanstack-vendor. Two problems.
+        //
+        // First, the reactflow rule matched `/node_modules/reactflow`, but the
+        // package was renamed to `@xyflow/react` long ago, so the rule only ever
+        // caught dagre and d3 while the editor library itself landed in an
+        // anonymous chunk.
+        //
+        // Second, and worse: forcing modules into a shared bucket promotes the
+        // whole bucket to the entry as soon as *any* member is reachable
+        // eagerly. That put the workflow editor's graph library and the
+        // drag-and-drop kit on the critical path of the login screen. Fixing the
+        // rule name made it worse, not better — 1.45MB preloaded.
+        //
+        // Rolldown's own splitting tracks the eager/lazy boundary properly.
+        // Measured on the login route, bytes referenced by index.html:
+        //
+        //   hand-rolled buckets   1,092,246 raw / ~243 kB brotli /  6 files
+        //   automatic             755,000   raw /  ~172 kB brotli / 22 files
+        //
+        // 31% fewer bytes before first paint. The extra files are all
+        // preloaded in parallel and cache at a finer grain, so a change to one
+        // component no longer invalidates a 466kB vendor bucket.
+        //
+        // If you add a bucket here, re-measure. Grouping is not free.
       },
     },
   },

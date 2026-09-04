@@ -1,4 +1,4 @@
-import { Title, Paper, Stack, Group, Box, Text, Center, Loader } from '@mantine/core';
+import { Title, Paper, Stack, Group, Box, Text } from '@mantine/core';
 import { VHostForm } from '@/components/forms/VHostForm';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
@@ -7,7 +7,7 @@ import { IconServer } from '@tabler/icons-react';
 export function EditVHostPage() {
   const { vhostId } = useParams({ from: '/vhosts/$vhostId/edit' });
 
-  const { data: vhost, isLoading } = useSuspenseQuery({
+  const { data: vhost } = useSuspenseQuery({
     queryKey: ['vhosts', vhostId],
     queryFn: async () => {
       const res = await apiFetch(`/api/vhosts/${vhostId}`);
@@ -15,14 +15,6 @@ export function EditVHostPage() {
       return res.json();
     }
   });
-
-  if (isLoading) {
-    return (
-      <Center h="100vh">
-        <Loader size="xl" />
-      </Center>
-    );
-  }
 
   return (
     <Box p="md">

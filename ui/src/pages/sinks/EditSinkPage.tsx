@@ -1,4 +1,6 @@
-import { Title, Paper, Stack, Group, Box, Text, Center, Loader } from '@mantine/core';
+import { Title, Paper, Stack, Group, Box, Text } from '@mantine/core';
+import { Suspense } from 'react';
+import { FormSkeleton } from '@/components/common/FormSkeleton';
 import { SinkForm } from '@/components/forms/SinkForm';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
@@ -7,7 +9,7 @@ import { IconExternalLink } from '@tabler/icons-react';
 export function EditSinkPage() {
   const { sinkId } = useParams({ from: '/sinks/$sinkId/edit' });
 
-  const { data: sink, isLoading } = useSuspenseQuery({
+  const { data: sink } = useSuspenseQuery({
     queryKey: ['sinks', sinkId],
     queryFn: async () => {
       const res = await apiFetch(`/api/sinks/${sinkId}`);
@@ -15,14 +17,6 @@ export function EditSinkPage() {
       return res.json();
     }
   });
-
-  if (isLoading) {
-    return (
-      <Center h="100vh">
-        <Loader size="xl" />
-      </Center>
-    );
-  }
 
   return (
     <Box p="md">
@@ -38,7 +32,9 @@ export function EditSinkPage() {
         </Paper>
 
         <Paper p="xl" withBorder radius="md">
-          <SinkForm initialData={sink} isEditing />
+          <Suspense fallback={<FormSkeleton />}>
+            <SinkForm initialData={sink} isEditing />
+          </Suspense>
         </Paper>
       </Stack>
     </Box>
