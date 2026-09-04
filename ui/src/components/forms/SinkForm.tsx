@@ -1,9 +1,11 @@
-import { useState, lazy, useEffect } from 'react';
+import { lazy } from 'react';
 import { Stack, Alert, Text, Group, ActionIcon, Tooltip, List } from '@mantine/core';
 import { useVHost } from '@/context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
 import type { Sink } from '@/types';
 import { IconAlertCircle, IconExternalLink } from '@tabler/icons-react';
+import { useQuery } from '@tanstack/react-query';
+import { apiFetch } from '@/api';
 import { useSinkForm } from '@/hooks/useSinkForm';
 import { SinkWizard } from './SinkWizard';
 import { getSessionRole } from '@/auth/session';
@@ -186,16 +188,26 @@ export function SinkForm({
     ? (availableVHosts || []).map((v: any) => typeof v === 'string' ? v : v.name)
     : (availableVHosts || []);
 
-  const [workers, setWorkers] = useState<any[]>([]);
-
-  // Fetch workers for selection
-  useEffect(() => {
-    import('@/api').then(({ apiFetch }) => {
-        apiFetch('/api/workers').then(res => res.json()).then(data => {
-            setWorkers(data.data || []);
-        });
-    });
-  }, []);
+  // The same ['workers'] key SourceForm uses, so the two forms share one cache
+  // entry and one request.
+  //
+  // This used to be a bare useEffect that dynamically imported the api module
+  // and called setState on the result: no cache, no dedupe, no abort, and a
+  // fresh request on every mount — including a setState after unmount if the
+  // form closed while the request was in flight. A failing request also went
+  // nowhere, leaving an empty picker with no explanation.
+  const { data: workersResponse } = useQuery({
+    queryKey: ['workers'],
+    queryFn: async () => {
+      const res = await apiFetch('/api/workers');
+      // The worker picker is optional; an unavailable list must not fail the
+      // whole form, so this degrades to empty rather than throwing.
+      if (!res.ok) return { data: [], total: 0 };
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+  const workers = workersResponse?.data ?? [];
 
   return (
     <Stack gap="md">
