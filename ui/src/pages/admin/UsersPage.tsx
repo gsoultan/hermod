@@ -83,15 +83,7 @@ export function UsersPage() {
   ))
 
   return (
-    <Box p="md" style={{ animation: 'fadeIn 0.5s ease-in-out' }}>
-      <style>
-        {`
-          @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-        `}
-      </style>
+    <Box p="md" className="page-enter">
       <Stack gap="lg">
         <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Stack gap="md">

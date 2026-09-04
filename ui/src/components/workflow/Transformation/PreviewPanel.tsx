@@ -81,9 +81,13 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
 
   const displayData = viewMode === 'original' ? original : viewMode === 'diff' ? diffData : result;
 
-  // Serialise once per change rather than on every render, and hold the last
-  // rendered text while a refresh is in flight. Dropping to "// Loading..." on
-  // each re-run is what made the pane flicker even when the data was unchanged.
+  // Serialise once per change rather than on every render.
+  //
+  // Nothing here clears the displayed value while a refresh is in flight:
+  // `previewResult` upstream is only ever assigned on success, and `diffData`
+  // below is only replaced by a completed diff. That is what keeps the pane
+  // stable — it holds the last result and dims it, rather than dropping to
+  // "// Loading..." and back on every re-run.
   const serialised = useMemo(() => {
     if (displayData === undefined || displayData === null) return null;
     try {
@@ -93,16 +97,9 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
     }
   }, [displayData]);
 
-  const lastRendered = useRef<string | null>(null);
-  if (serialised !== null) lastRendered.current = serialised;
-
   const busy = !!loading || diffLoading;
-  const body =
-    serialised ??
-    lastRendered.current ??
-    (busy ? '// Loading…' : '// No preview yet');
-
-  const showsStaleWhileBusy = busy && serialised === null && lastRendered.current !== null;
+  const body = serialised ?? (busy ? '// Loading…' : '// No preview yet');
+  const showsStaleWhileBusy = busy && serialised !== null;
   const diffIsEmpty =
     viewMode === 'diff' && !busy && !!diffData && typeof diffData === 'object' && Object.keys(diffData).length === 0;
 

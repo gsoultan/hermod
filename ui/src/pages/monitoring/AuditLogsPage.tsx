@@ -53,7 +53,7 @@ export function AuditLogsPage() {
   };
 
   return (
-    <Box p="md" style={{ animation: 'fadeIn 0.5s ease-in-out' }}>
+    <Box p="md" className="page-enter">
       <Stack gap="lg">
         <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">
           <Group gap="sm">

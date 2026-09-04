@@ -8,11 +8,18 @@ import { SnapshotModal } from '../workflow/Source/SnapshotModal';
 import { CDCReuseModal } from '../workflow/Source/CDCReuseModal';
 import { SourceSetupInstructions } from '../workflow/Source/SourceSetupInstructions';
 import { IconAlertCircle, IconExternalLink } from '@tabler/icons-react';
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useSuspenseQueries } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
 import { getSessionRole } from '@/auth/session';
 
 const API_BASE = '/api';
+
+/** Reference lists degrade to empty rather than failing the whole form. */
+async function fetchList(url: string): Promise<{ data: any[]; total: number }> {
+  const res = await apiFetch(url);
+  if (res.ok) return res.json();
+  return { data: [], total: 0 };
+}
 const ADMIN_ROLE = 'Administrator' as const;
 
 const SOURCE_TYPES = [
@@ -131,36 +138,25 @@ export function SourceForm({
     workerID
   });
 
-  const { data: vhostsResponse } = useSuspenseQuery<any>({
-    queryKey: ['vhosts'],
-    queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/vhosts`);
-      if (res.ok) return res.json();
-      return { data: [], total: 0 };
-    }
+  // One suspend, three requests in parallel.
+  //
+  // These were three separate useSuspenseQuery calls. A suspense query throws on
+  // its first miss, so the component unmounted before reaching the second — the
+  // three ran strictly in sequence, and opening the edit page cost four serial
+  // round-trips (the source itself, then these) with the route's full-viewport
+  // spinner covering the nav the whole time. useSuspenseQueries issues them
+  // together and suspends once.
+  const [vhostsResponse, workersResponse, sourcesResponse] = useSuspenseQueries({
+    queries: [
+      { queryKey: ['vhosts'], queryFn: () => fetchList(`${API_BASE}/vhosts`) },
+      { queryKey: ['workers'], queryFn: () => fetchList(`${API_BASE}/workers`) },
+      { queryKey: ['sources'], queryFn: () => fetchList(`${API_BASE}/sources`) },
+    ],
   });
 
-  const { data: workersResponse } = useSuspenseQuery<any>({
-    queryKey: ['workers'],
-    queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/workers`);
-      if (res.ok) return res.json();
-      return { data: [], total: 0 };
-    }
-  });
-
-  const { data: sourcesResponse } = useSuspenseQuery<any>({
-    queryKey: ['sources'],
-    queryFn: async () => {
-      const res = await apiFetch(`${API_BASE}/sources`);
-      if (res.ok) return res.json();
-      return { data: [], total: 0 };
-    }
-  });
-
-  const vhosts = vhostsResponse?.data || [];
-  const workers = workersResponse?.data || [];
-  const allSources = sourcesResponse?.data || [];
+  const vhosts = vhostsResponse.data?.data || [];
+  const workers = workersResponse.data?.data || [];
+  const allSources = sourcesResponse.data?.data || [];
 
   const availableVHostsList: string[] = role === ADMIN_ROLE
     ? vhosts.map((v: VHost) => v.name)

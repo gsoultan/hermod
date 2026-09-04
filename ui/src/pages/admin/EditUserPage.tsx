@@ -1,4 +1,4 @@
-import { Title, Paper, Stack, Group, Box, Text, Center, Loader, Button, Modal, PasswordInput } from '@mantine/core';
+import { Title, Paper, Stack, Group, Box, Text, Button, Modal, PasswordInput } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { useState } from 'react';
 import { UserForm } from '@/components/forms/UserForm';
@@ -11,7 +11,7 @@ export function EditUserPage() {
   const [opened, { open, close }] = useDisclosure(false);
   const [newPassword, setNewPassword] = useState('');
 
-  const { data: user, isLoading } = useSuspenseQuery({
+  const { data: user } = useSuspenseQuery({
     queryKey: ['users', userId],
     queryFn: async () => {
       const res = await apiFetch(`/api/users/${userId}`);
@@ -38,14 +38,6 @@ export function EditUserPage() {
       setNewPassword('');
     }
   });
-
-  if (isLoading) {
-    return (
-      <Center h="100vh">
-        <Loader size="xl" />
-      </Center>
-    );
-  }
 
   return (
     <Box p="md">
