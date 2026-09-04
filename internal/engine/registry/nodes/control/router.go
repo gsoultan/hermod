@@ -59,3 +59,8 @@ func (n *RouterNode) parseRuleConditions(rule map[string]any) []map[string]any {
 	}
 	return ruleConditions
 }
+
+// PreviewSafeNode marks this node as runnable from the editor's Test button:
+// deciding which route matches reads the message and this node's own config,
+// and writes nothing anywhere.
+func (n *RouterNode) PreviewSafeNode() {}

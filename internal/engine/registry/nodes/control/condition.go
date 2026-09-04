@@ -46,3 +46,8 @@ func (n *ConditionNode) parseConditions(node *storage.WorkflowNode) []map[string
 	}
 	return conditions
 }
+
+// PreviewSafeNode marks this node as runnable from the editor's Test button:
+// deciding whether the condition holds reads the message and this node's own config,
+// and writes nothing anywhere.
+func (n *ConditionNode) PreviewSafeNode() {}

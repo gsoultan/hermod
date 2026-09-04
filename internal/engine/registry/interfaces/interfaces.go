@@ -86,3 +86,43 @@ func GetNodeExecutor(nodeType string) (NodeExecutor, bool) {
 	e, ok := executors[nodeType]
 	return e, ok
 }
+
+// PreviewSafe is implemented by node executors that may be run against a sample
+// message in the workflow editor.
+//
+// The editor's "Test" button needs to run a node outside a workflow, and most
+// nodes must not be run that way: a sink writes to the destination for real, an
+// approval records a request somebody has to answer, a stateful node mutates
+// state a running workflow depends on. Pressing a button in an editor is not
+// consent to any of that.
+//
+// Implementing this is a claim about the executor: given a message and its own
+// config it decides an outcome, touching no storage, no state store, no sink,
+// and broadcasting nothing. The routing nodes qualify because deciding a branch
+// is all they do.
+//
+// It is a marker rather than something inferred from the executor's behaviour,
+// for the same reason tombstone tags are listed rather than detected: a
+// property worth trusting should be declared, not guessed at from a signal that
+// happens to correlate today.
+type PreviewSafe interface {
+	NodeExecutor
+
+	// PreviewSafeNode is a marker. It does nothing and is never called.
+	PreviewSafeNode()
+}
+
+// GetPreviewSafeExecutor returns the executor registered for nodeType if it has
+// declared itself safe to run in a preview. A node that exists but has not
+// declared it returns false, which callers should report differently from a
+// node that does not exist at all -- one is a limitation, the other a typo.
+func GetPreviewSafeExecutor(nodeType string) (NodeExecutor, bool) {
+	e, ok := GetNodeExecutor(nodeType)
+	if !ok {
+		return nil, false
+	}
+	if _, safe := e.(PreviewSafe); !safe {
+		return nil, false
+	}
+	return e, true
+}

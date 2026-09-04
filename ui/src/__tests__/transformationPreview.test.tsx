@@ -118,4 +118,31 @@ describe('Transformation preview', () => {
       ).toBeInTheDocument()
     })
   })
+
+  // A routing node answers with the branch it took, not a changed message. The
+  // preview used to post these to an endpoint that only knew transformers and
+  // showed "unknown transformation type \"switch\"" for a node that runs fine
+  // in a live workflow. The panel has to render the message it is given rather
+  // than the {branch, result} envelope, or Result/Diff/Input all show the
+  // wrapper instead of the data.
+  it('unwraps a routing node branch response into the preview panel', async () => {
+    server.use(
+      http.post('/api/transformations/test', async () =>
+        HttpResponse.json({ branch: 'active-users', result: { status: 'active' } })
+      )
+    )
+    await signInAs('editor')
+    setup({ nodeType: 'switch', incoming: { status: 'active' } })
+
+    const runBtn = await screen.findByRole('button', { name: /run preview/i })
+    fireEvent.click(runBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText(/"status"/)).toBeInTheDocument()
+    })
+    // The envelope must not reach the panel: seeing "branch" or "result" here
+    // means the wrapper was rendered instead of the message inside it.
+    expect(screen.queryByText(/"branch"/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/"result"/)).not.toBeInTheDocument()
+  })
 })
