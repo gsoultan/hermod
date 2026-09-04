@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense, useMemo } from 'react';
-import { TextInput, Select, Stack, Alert, Divider, Text, Group, ActionIcon, Button, Code, List, Autocomplete, JsonInput, Badge, Grid, SimpleGrid, NumberInput, Card, ScrollArea, Box, Switch, Textarea, Modal, Loader, Tooltip as MantineTooltip } from '@mantine/core';
+import { TextInput, Select, Stack, Alert, Divider, Text, Group, ActionIcon, Button, Code, List, Autocomplete, JsonInput, Badge, Grid, SimpleGrid, NumberInput, Card, ScrollArea, Box, Switch, Textarea, Modal, Loader, UnstyledButton, Tooltip as MantineTooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
 import { usePreviewTransformation } from '../../pages/workflows/WorkflowEditor/hooks/usePreviewTransformation';
@@ -84,20 +84,12 @@ function FunctionLibrary({ onInsert }: { onInsert: (example: string) => void }) 
       <ScrollArea h={200} type="auto">
         <Stack gap="xs">
           {filtered.map((f) => (
-            <Box
+            <UnstyledButton
               key={f.name}
               p="xs"
-              role="button"
-              tabIndex={0}
               aria-label={`Insert ${f.name}`}
-              style={{ borderRadius: 4, background: 'var(--mantine-color-orange-light)', border: '1px solid var(--mantine-color-orange-light-color)', cursor: 'pointer' }}
+              style={{ borderRadius: 4, background: 'var(--mantine-color-orange-light)', border: '1px solid var(--mantine-color-orange-light-color)', cursor: 'pointer', display: 'block', width: '100%', textAlign: 'left' }}
               onClick={() => onInsert(f.example)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onInsert(f.example);
-                }
-              }}
             >
               <Group justify="space-between">
                 <Text size="xs" fw={700} c="var(--mantine-color-orange-light-color)">{f.name}</Text>
@@ -105,7 +97,7 @@ function FunctionLibrary({ onInsert }: { onInsert: (example: string) => void }) 
               </Group>
               <Text size="xs" c="dimmed">{f.desc}</Text>
               <Code mt={2} style={{ fontSize: 'var(--mantine-font-size-xs)' }}>{f.example}</Code>
-            </Box>
+            </UnstyledButton>
           ))}
           {filtered.length === 0 && (
             <Text size="xs" c="dimmed" ta="center" py="sm">No function matches “{search}”.</Text>

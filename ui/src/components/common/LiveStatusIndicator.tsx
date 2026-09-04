@@ -27,7 +27,6 @@ export function LiveStatusIndicator({ connected }: { connected: boolean }) {
         leftSection={
           connected ? <IconPlugConnected size="0.75rem" /> : <IconPlugConnectedX size="0.75rem" />
         }
-        role="status"
         aria-live="polite"
       >
         {connected ? 'Live' : 'Reconnecting'}

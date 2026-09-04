@@ -115,21 +115,23 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
       // storage for JavaScript to find, which is exactly what had to go. The
       // request is made once and shared; /api/me answers from the cookie.
       //
-      // These two gates are independent, so they go out together. Awaited in
-      // sequence they made a cold navigation two serial round-trips with nothing
-      // painted in between; the config status is cached for 30s, so pairing them
-      // costs nothing on the warm path.
+      // Start both gates together, but decide in order.
       //
-      // allSettled, not all: the decisions must still be taken in the original
-      // order. With Promise.all, a failing config-status request would reject
-      // first and send a logged-out user to the error boundary instead of to
-      // /login. ensureSession itself never throws — it answers null.
-      const [sessionOutcome, configOutcome] = await Promise.allSettled([
-        ensureSession(),
-        getCachedConfigStatus(),
-      ])
+      // Awaited one after the other these made a cold navigation two serial
+      // round-trips with nothing painted in between. Awaiting them *together* is
+      // wrong in the other direction: a logged-out user would wait on a config
+      // answer the redirect below is about to discard, and a failing config
+      // request would reach the error boundary before the login redirect fired.
+      //
+      // So issue both, then await only what each decision actually needs.
+      const sessionPromise = ensureSession()
+      const configPromise = getCachedConfigStatus()
+      // Mark the rejection handled up front: if the session gate redirects, this
+      // promise is never awaited and would otherwise surface as an unhandled
+      // rejection. Awaiting it below still rethrows.
+      configPromise.catch(() => {})
 
-      const user = sessionOutcome.status === 'fulfilled' ? sessionOutcome.value : null
+      const user = await sessionPromise
       if (!user) {
         throw redirect({
           to: '/login',
@@ -139,9 +141,7 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
         })
       }
 
-      if (configOutcome.status === 'rejected') throw configOutcome.reason
-      const data = configOutcome.value
-
+      const data = await configPromise
       if (!data.configured || !data.user_setup) {
         throw redirect({
           to: '/setup',

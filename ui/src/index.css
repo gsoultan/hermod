@@ -110,3 +110,33 @@
     transition: none;
   }
 }
+
+/*
+ * Styling that needs a selector, not an inline style.
+ *
+ * These rules lived in the Mantine theme's `components.*.styles` blocks as
+ * nested selectors — '&[data-active]' and '[data-mantine-color-scheme="dark"] &'.
+ * Mantine turns `styles` into *inline* styles, where a selector is not a rule:
+ * React rejected them as unknown style properties, logged an error on every
+ * render, and dropped them. Active nav items therefore rendered at weight 400
+ * and table headers had no background at all in either colour scheme.
+ */
+.mantine-NavLink-root[data-active] {
+  font-weight: 600;
+}
+
+.mantine-Table-thead {
+  background-color: var(--mantine-color-gray-0);
+}
+
+.mantine-Table-th {
+  border-bottom: 1px solid var(--mantine-color-gray-2);
+}
+
+[data-mantine-color-scheme='dark'] .mantine-Table-thead {
+  background-color: var(--mantine-color-dark-7);
+}
+
+[data-mantine-color-scheme='dark'] .mantine-Table-th {
+  border-bottom: 1px solid var(--mantine-color-dark-4);
+}
