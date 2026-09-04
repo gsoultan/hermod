@@ -186,7 +186,7 @@ export function SourceForm({
                   <Group gap={4}>
                     <Text size="xs" fw={600}>{wf.name}</Text>
                     <Tooltip label="View Workflow">
-                      <ActionIcon aria-label="Open in new tab" 
+                      <ActionIcon aria-label="View Workflow" 
                         variant="subtle" 
                         size="xs" 
                         onClick={() => window.open(`/workflows/${wf.id}`, '_blank')}

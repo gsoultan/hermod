@@ -188,7 +188,7 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
 
       {(hovered || selected) && (
         <Tooltip label="Remove node" position="top" withArrow>
-          <ActionIcon aria-label="Delete" 
+          <ActionIcon aria-label="Remove node" 
             variant="filled" 
             color="red" 
             size="sm" 

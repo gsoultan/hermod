@@ -1,4 +1,5 @@
 import { Fieldset, Stack, TextInput, NumberInput, Tabs, Group, PasswordInput, FileButton, Button } from '@mantine/core';
+import { FormRow } from '@/components/common/FormRow';
 import { useState } from 'react';
 import { IconCloud, IconFileImport, IconLink, IconUpload } from '@tabler/icons-react';
 
@@ -37,7 +38,7 @@ export function ExcelSourceConfig({ config, updateConfig, handleFileUpload, uplo
                 description="Directory containing Excel files on the worker machine"
                 required
               />
-              <Group grow>
+              <FormRow>
                 <TextInput 
                   label="Filename Pattern" 
                   placeholder="*.xlsx" 
@@ -45,7 +46,7 @@ export function ExcelSourceConfig({ config, updateConfig, handleFileUpload, uplo
                   onChange={(e) => updateConfig('pattern', e.target.value)}
                   description="Glob pattern relative to Base Path"
                 />
-              </Group>
+              </FormRow>
               {handleFileUpload && (
                 <Group justify="center" mt="sm">
                   <FileButton onChange={handleFileUpload} accept=".xlsx">
@@ -81,7 +82,7 @@ export function ExcelSourceConfig({ config, updateConfig, handleFileUpload, uplo
 
           <Tabs.Panel value="s3" pt="md">
             <Stack gap="sm">
-              <Group grow>
+              <FormRow>
                 <TextInput 
                   label="Region" 
                   placeholder="us-east-1" 
@@ -99,7 +100,7 @@ export function ExcelSourceConfig({ config, updateConfig, handleFileUpload, uplo
                   description="S3 bucket name"
                   mih={80}
                 />
-              </Group>
+              </FormRow>
               <TextInput 
                 label="Key Prefix / Key" 
                 placeholder="data/incoming/ or path/to/file.xlsx" 
@@ -114,7 +115,7 @@ export function ExcelSourceConfig({ config, updateConfig, handleFileUpload, uplo
                 onChange={(e) => updateConfig('s3_endpoint', e.target.value)} 
                 description="Optional: MinIO / custom S3 endpoint"
               />
-              <Group grow>
+              <FormRow>
                 <TextInput 
                   label="Access Key" 
                   value={config.s3_access_key || ''} 
@@ -129,7 +130,7 @@ export function ExcelSourceConfig({ config, updateConfig, handleFileUpload, uplo
                   description="AWS secret access key"
                   mih={80}
                 />
-              </Group>
+              </FormRow>
               <TextInput 
                 label="Filename Pattern (optional)" 
                 placeholder="*.xlsx" 

@@ -1,6 +1,6 @@
 import { useState, type ChangeEvent } from 'react';
 import { Stepper, Button, Group, Stack, Card, Text, Divider, Alert, Fieldset, TextInput, Checkbox, ActionIcon, Tooltip } from '@mantine/core';
-import { IconCheck, IconDatabase, IconActivity, IconInfoCircle, IconRefresh, IconPlayerPlay } from '@tabler/icons-react';
+import { IconCheck, IconDatabase, IconActivity, IconInfoCircle, IconRefresh, IconPlayerPlay, IconDeviceFloppy } from '@tabler/icons-react';
 import { SourceBasics } from '../workflow/Source/SourceBasics';
 import { SourceConfigFields } from '../workflow/Source/SourceConfigFields';
 import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
@@ -159,7 +159,7 @@ export function SourceWizard({
               <Group justify="flex-end">
                 {onRefreshFields && (
                   <Tooltip label="Refresh Fields">
-                    <ActionIcon aria-label="Refresh" 
+                    <ActionIcon aria-label="Refresh Fields" 
                       variant="light" 
                       onClick={onRefreshFields} 
                       loading={isRefreshing}
@@ -252,6 +252,33 @@ export function SourceWizard({
               Back
             </Button>
           )}
+          {/*
+            Editing is not a wizard.
+
+            Save used to exist only inside Stepper.Completed, so changing one
+            field on an existing source meant clicking Next through every step to
+            reach a screen whose only content was this button. The steps stay —
+            they are still the clearest way to group the fields — but an existing
+            source can be saved from wherever the user happens to be.
+          */}
+          {isEditing && (
+            <Tooltip
+              label={missing.length ? `Fix this step first: ${missing.join(', ')}` : ''}
+              disabled={missing.length === 0}
+              withArrow
+            >
+              <span>
+                <Button
+                  onClick={() => submitMutation.mutate(source)}
+                  loading={submitMutation.isPending}
+                  disabled={missing.length > 0}
+                  leftSection={<IconDeviceFloppy size="1rem" />}
+                >
+                  Update Source
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           {active < 3 && (
             <Tooltip
               label={missing.length ? `Required: ${missing.join(', ')}` : ''}
@@ -260,7 +287,11 @@ export function SourceWizard({
             >
               {/* span keeps the tooltip reachable while the button is disabled */}
               <span>
-                <Button onClick={nextStep} disabled={missing.length > 0}>
+                <Button
+                  onClick={nextStep}
+                  disabled={missing.length > 0}
+                  variant={isEditing ? 'default' : 'filled'}
+                >
                   Next Step
                 </Button>
               </span>

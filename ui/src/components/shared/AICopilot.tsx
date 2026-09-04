@@ -72,11 +72,11 @@ export function AICopilot() {
             <Badge size="xs" color="violet">{result.language || 'Lua'}</Badge>
             <Group gap={4}>
               <Tooltip label={copied ? 'Copied!' : 'Copy to clipboard'}>
-                <ActionIcon aria-label="Confirm" variant="subtle" size="sm" onClick={copyToClipboard}>
+                <ActionIcon aria-label={copied ? 'Copied to clipboard' : 'Copy generated code to clipboard'} variant="subtle" size="sm" onClick={copyToClipboard}>
                   {copied ? <IconCheck size="0.8rem" color="green" /> : <IconCopy size="0.8rem" />}
                 </ActionIcon>
               </Tooltip>
-              <ActionIcon aria-label="Delete" variant="subtle" size="sm" color="red" onClick={() => setResult(null)}>
+              <ActionIcon aria-label="Discard generated code" variant="subtle" size="sm" color="red" onClick={() => setResult(null)}>
                 <IconTrash size="0.8rem" />
               </ActionIcon>
             </Group>

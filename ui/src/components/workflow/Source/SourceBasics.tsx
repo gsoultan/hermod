@@ -72,12 +72,16 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
             />
           </SimpleGrid>
         )}
-        <Group align="flex-end" grow>
+        {/* A field beside an action, not a field row: `grow` would have given
+            the button half the width. The field takes the space; the button
+            hugs its label and both wrap onto separate lines when narrow. */}
+        <Group align="flex-end" wrap="wrap">
           {!embedded ? (
             <Select
               label="Type"
               placeholder="Select source type"
               description="System this source reads from"
+              style={{ flex: 1, minWidth: 220 }}
               data={toGroupedSelectData(sourceTypes)}
               value={source.type}
               onChange={(val) => handleSourceChange({ type: val || '' })}
@@ -93,6 +97,7 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
               value={source.type}
               readOnly
               variant="filled"
+              style={{ flex: 1, minWidth: 220 }}
               styles={{ input: { textTransform: 'uppercase', fontWeight: 600 } }}
             />
           )}

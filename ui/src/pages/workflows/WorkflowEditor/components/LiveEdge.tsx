@@ -150,7 +150,7 @@ export const LiveEdge = memo((props: EdgeProps) => {
                 </ActionIcon>
               </Tooltip>
               <Tooltip label="Remove connection" position="right" withArrow>
-                <ActionIcon aria-label="Delete" 
+                <ActionIcon aria-label="Remove connection" 
                   color="red" 
                   variant="filled" 
                   size="sm" 

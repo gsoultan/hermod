@@ -1,4 +1,5 @@
 import { TextInput, Stack, Group, Tabs, FileButton, Button, Divider, Checkbox, PasswordInput, NumberInput, Fieldset, Select } from '@mantine/core';
+import { FormRow } from '@/components/common/FormRow';
 import { useState } from 'react';
 import { IconCloud, IconFileImport, IconLink, IconServer, IconUpload } from '@tabler/icons-react';
 interface FileSourceConfigProps {
@@ -37,7 +38,7 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
                 description="Absolute path to a file or a folder on the worker machine."
                 required 
               />
-              <Group grow>
+              <FormRow>
                 <TextInput 
                   label="Filename Pattern" 
                   placeholder="*.csv, *.pdf, data-*.json" 
@@ -54,7 +55,7 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
                   mih={80}
                   mt="xl"
                 />
-              </Group>
+              </FormRow>
               {handleFileUpload && (
                 <Group justify="center" mt="sm">
                   <FileButton onChange={handleFileUpload} accept="*/*">
@@ -94,7 +95,7 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
         <Tabs.Panel value="s3" pt="md">
           <Fieldset legend="S3 Storage Settings">
             <Stack gap="sm">
-              <Group grow>
+              <FormRow>
                 <TextInput 
                   label="Region" 
                   placeholder="us-east-1" 
@@ -112,7 +113,7 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
                   description="S3 bucket name"
                   mih={80}
                 />
-              </Group>
+              </FormRow>
               <TextInput 
                 label="Key Prefix" 
                 placeholder="data/incoming/" 
@@ -127,7 +128,7 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
                 onChange={(e) => updateConfig('s3_endpoint', e.target.value)} 
                 description="Optional: Custom endpoint for MinIO, DigitalOcean Spaces, etc."
               />
-              <Group grow>
+              <FormRow>
                 <TextInput 
                   label="Access Key" 
                   value={config.s3_access_key || ''} 
@@ -142,7 +143,7 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
                   description="AWS secret access key"
                   mih={80}
                 />
-              </Group>
+              </FormRow>
             </Stack>
           </Fieldset>
         </Tabs.Panel>
@@ -150,7 +151,7 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
         <Tabs.Panel value="ftp" pt="md">
           <Fieldset legend="FTP / SFTP Settings">
             <Stack gap="sm">
-              <Group grow>
+              <FormRow>
                 <TextInput 
                   label="Host" 
                   placeholder="ftp.example.com" 
@@ -168,8 +169,8 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
                   description="FTP server port"
                   mih={80}
                 />
-              </Group>
-              <Group grow>
+              </FormRow>
+              <FormRow>
                 <TextInput 
                   label="Username" 
                   placeholder="ftpuser" 
@@ -185,7 +186,7 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
                   description="Login password"
                   mih={80}
                 />
-              </Group>
+              </FormRow>
               <TextInput 
                 label="Remote Directory" 
                 placeholder="/uploads" 
@@ -212,32 +213,32 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
 
       <Divider label="Ingestion & Format" labelPosition="center" />
       
-      <Group grow align="flex-start">
-        <Stack gap="xs" mih={80}>
-          <Select 
-            label="Data Format" 
-            data={[
-              { value: 'raw', label: 'Raw Bytes (Single message per file)' },
-              { value: 'csv', label: 'CSV (Row-by-row streaming)' }
-            ]} 
-            value={config.format || 'raw'} 
-            onChange={(val: string | null) => updateConfig('format', val || 'raw')} 
-            description="Input file format"
-          />
-        </Stack>
+      {/* The Select used to be wrapped in a Stack with mih={80}, and the
+          TextInput carried the same mih — hand-alignment for two descriptions of
+          different height. FormRow bottom-aligns the row, so neither is needed. */}
+      <FormRow>
+        <Select 
+          label="Data Format" 
+          data={[
+            { value: 'raw', label: 'Raw Bytes (Single message per file)' },
+            { value: 'csv', label: 'CSV (Row-by-row streaming)' }
+          ]} 
+          value={config.format || 'raw'} 
+          onChange={(val: string | null) => updateConfig('format', val || 'raw')} 
+          description="Input file format"
+        />
         <TextInput 
           label="Poll Interval" 
           placeholder="5m" 
           value={config.poll_interval || ''} 
           onChange={(e) => updateConfig('poll_interval', e.target.value)} 
           description="E.g. 30s, 5m, 1h"
-          mih={80}
         />
-      </Group>
+      </FormRow>
 
       {config.format === 'csv' && (
         <Fieldset legend="CSV Parsing Options">
-          <Group grow>
+          <FormRow>
             <TextInput 
               label="Delimiter" 
               placeholder="," 
@@ -251,7 +252,7 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
               onChange={(e) => updateConfig('has_header', e.target.checked ? 'true' : 'false')} 
               mt="xl"
             />
-          </Group>
+          </FormRow>
         </Fieldset>
       )}
     </Stack>

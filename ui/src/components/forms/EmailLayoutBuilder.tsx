@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { FormRow } from '@/components/common/FormRow';
 import { 
   Modal, Button, Stack, TextInput, Textarea, Group, 
   ColorInput, Text, Paper, Box, 
@@ -241,7 +242,7 @@ function SortableBlock({
                 <ActionIcon aria-label="Copy" size="sm" variant="subtle" color="blue" onClick={(e) => { e.stopPropagation(); onDuplicate(block.id); }}>
                     <IconCopy size="0.8rem" />
                 </ActionIcon>
-                <ActionIcon aria-label="Delete" size="sm" variant="subtle" color="red" onClick={(e) => { e.stopPropagation(); onDelete(block.id); }}>
+                <ActionIcon aria-label={`Delete ${block.type} block`} size="sm" variant="subtle" color="red" onClick={(e) => { e.stopPropagation(); onDelete(block.id); }}>
                     <IconTrash size="0.8rem" />
                 </ActionIcon>
              </Stack>
@@ -544,7 +545,7 @@ export function EmailLayoutBuilder({ opened, onClose, onApply, outlookCompatible
       <Stack p="md">
         <Group justify="space-between">
           <Text fw={700} size="sm" style={{ textTransform: 'capitalize' }}>{selectedBlock.type} Properties</Text>
-          <ActionIcon aria-label="Delete" color="red" variant="subtle" onClick={() => deleteBlock(selectedBlock.id)}>
+          <ActionIcon aria-label={`Delete ${selectedBlock.type} block`} color="red" variant="subtle" onClick={() => deleteBlock(selectedBlock.id)}>
             <IconTrash size="1.2rem" />
           </ActionIcon>
         </Group>
@@ -563,7 +564,7 @@ export function EmailLayoutBuilder({ opened, onClose, onApply, outlookCompatible
         {selectedBlock.type === 'text' && (
           <>
             <Textarea label="Content" minRows={5} value={selectedBlock.content} onChange={(e) => updateBlock(selectedBlock.id, { content: e.target.value })} />
-            <Group grow>
+            <FormRow>
                 <Select 
                     label="Alignment" 
                     value={selectedBlock.align} 
@@ -571,7 +572,7 @@ export function EmailLayoutBuilder({ opened, onClose, onApply, outlookCompatible
                     data={[{value: 'left', label: 'Left'}, {value: 'center', label: 'Center'}, {value: 'right', label: 'Right'}]}
                 />
                 <NumberInput label="Font Size" value={selectedBlock.fontSize} onChange={(val) => updateBlock(selectedBlock.id, { fontSize: Number(val) })} />
-            </Group>
+            </FormRow>
             <ColorInput label="Color" value={selectedBlock.color} onChange={(val) => updateBlock(selectedBlock.id, { color: val })} />
           </>
         )}
@@ -580,11 +581,11 @@ export function EmailLayoutBuilder({ opened, onClose, onApply, outlookCompatible
           <>
             <TextInput label="Label" value={selectedBlock.text} onChange={(e) => updateBlock(selectedBlock.id, { text: e.target.value })} />
             <TextInput label="URL" value={selectedBlock.url} onChange={(e) => updateBlock(selectedBlock.id, { url: e.target.value })} />
-            <Group grow>
+            <FormRow>
                 <ColorInput label="BG Color" value={selectedBlock.color} onChange={(val) => updateBlock(selectedBlock.id, { color: val })} />
                 <ColorInput label="Text Color" value={selectedBlock.textColor} onChange={(val) => updateBlock(selectedBlock.id, { textColor: val })} />
-            </Group>
-            <Group grow>
+            </FormRow>
+            <FormRow>
                 <Select 
                     label="Alignment" 
                     value={selectedBlock.align} 
@@ -592,7 +593,7 @@ export function EmailLayoutBuilder({ opened, onClose, onApply, outlookCompatible
                     data={[{value: 'left', label: 'Left'}, {value: 'center', label: 'Center'}, {value: 'right', label: 'Right'}]}
                 />
                 <NumberInput label="Radius" value={selectedBlock.borderRadius} onChange={(val) => updateBlock(selectedBlock.id, { borderRadius: Number(val) })} />
-            </Group>
+            </FormRow>
           </>
         )}
 
@@ -601,7 +602,7 @@ export function EmailLayoutBuilder({ opened, onClose, onApply, outlookCompatible
             <TextInput label="Image URL" value={selectedBlock.url} onChange={(e) => updateBlock(selectedBlock.id, { url: e.target.value })} />
             <TextInput label="Alt Text" value={selectedBlock.alt} onChange={(e) => updateBlock(selectedBlock.id, { alt: e.target.value })} />
             <TextInput label="Link URL" value={selectedBlock.link || ''} onChange={(e) => updateBlock(selectedBlock.id, { link: e.target.value })} />
-            <Group grow>
+            <FormRow>
                 <TextInput label="Width (px or %)" value={selectedBlock.width} onChange={(e) => updateBlock(selectedBlock.id, { width: e.target.value })} />
                 <Select 
                     label="Alignment" 
@@ -609,7 +610,7 @@ export function EmailLayoutBuilder({ opened, onClose, onApply, outlookCompatible
                     onChange={(val) => updateBlock(selectedBlock.id, { align: val as any })}
                     data={[{value: 'left', label: 'Left'}, {value: 'center', label: 'Center'}, {value: 'right', label: 'Right'}]}
                 />
-            </Group>
+            </FormRow>
           </>
         )}
 

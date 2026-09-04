@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense, useMemo } from 'react';
+import { FormRow } from '@/components/common/FormRow';
 import { TextInput, Select, Stack, Alert, Divider, Text, Group, ActionIcon, Button, Code, List, Autocomplete, JsonInput, Badge, Grid, SimpleGrid, NumberInput, Card, ScrollArea, Box, Switch, Textarea, Modal, Loader, UnstyledButton, Tooltip as MantineTooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
@@ -427,7 +428,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                 <Text size="xs" fw={700}>AVAILABLE FIELDS</Text>
                 {onRefreshFields && (
                   <MantineTooltip label="Refresh sample data and fields" position="right">
-                    <ActionIcon aria-label="Refresh" variant="subtle" size="xs" onClick={() => { onRefreshFields(); refetchTarget(); }} color="blue" loading={isRefreshing}>
+                    <ActionIcon aria-label="Refresh sample data and fields" variant="subtle" size="xs" onClick={() => { onRefreshFields(); refetchTarget(); }} color="blue" loading={isRefreshing}>
                       <IconRefresh size="0.8rem" />
                     </ActionIcon>
                   </MantineTooltip>
@@ -537,7 +538,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
             <Divider />
 
-            <Group gap="xs" grow>
+            <FormRow>
               <TextInput 
                 label="Node Label" 
                 placeholder="Display name in editor" 
@@ -554,7 +555,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                 onChange={(e) => setConfigSearch(e.target.value)}
                 flex={1}
               />
-            </Group>
+            </FormRow>
 
             <Box flex={1} style={{ overflow: 'hidden' }}>
               <ScrollArea h="100%" offsetScrollbars>
@@ -707,7 +708,7 @@ end`}
                 onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.target.value, outputField: e.target.value })} 
               />
               <Divider label="Windowing" labelPosition="center" />
-              <Group grow>
+              <FormRow>
                 <Select
                   label="Window Type"
                   data={[
@@ -723,7 +724,7 @@ end`}
                   value={selectedNode.data.window || ''}
                   onChange={(e) => updateNodeConfig(selectedNode.id, { window: e.target.value })}
                 />
-              </Group>
+              </FormRow>
               <Switch
                 label="Persistent State (Saves across restarts)"
                 checked={!!selectedNode.data.persistent}

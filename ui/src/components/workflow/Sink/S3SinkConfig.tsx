@@ -1,4 +1,5 @@
-import { Group, Stack, TextInput } from '@mantine/core'
+import { Stack, TextInput } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow';
 
 interface S3SinkConfigProps {
   config: any
@@ -8,7 +9,7 @@ interface S3SinkConfigProps {
 export default function S3SinkConfig({ config, updateConfig }: S3SinkConfigProps) {
   return (
     <Stack gap="xs">
-      <Group grow>
+      <FormRow>
         <TextInput 
           label="Region" 
           placeholder="us-east-1" 
@@ -25,10 +26,10 @@ export default function S3SinkConfig({ config, updateConfig }: S3SinkConfigProps
           description="S3 bucket name"
           mih={80}
         />
-      </Group>
+      </FormRow>
       <TextInput label="Key (Path)" placeholder="emails/welcome.html" value={config.s3_key || ''} onChange={(e) => updateConfig('s3_key', e.target.value)} />
       <TextInput label="Endpoint" placeholder="Optional (for S3 compatible storage)" value={config.s3_endpoint || ''} onChange={(e) => updateConfig('s3_endpoint', e.target.value)} />
-      <Group grow>
+      <FormRow>
         <TextInput 
           label="Access Key" 
           value={config.s3_access_key || ''} 
@@ -44,7 +45,7 @@ export default function S3SinkConfig({ config, updateConfig }: S3SinkConfigProps
           description="AWS secret access key"
           mih={80}
         />
-      </Group>
+      </FormRow>
     </Stack>
   )
 }

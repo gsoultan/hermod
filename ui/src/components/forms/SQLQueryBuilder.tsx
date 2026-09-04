@@ -490,7 +490,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
                                 </Text>
                               </Stack>
                               <Tooltip label={`Insert as CAST(.. AS ${jsToSqlType(f.type, sourceType)})`}>
-                                <ActionIcon aria-label="Add" 
+                                <ActionIcon aria-label={`Insert ${f.path} as a CAST expression`} 
                                   size="xs" 
                                   variant="subtle" 
                                   color="orange"
@@ -556,7 +556,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
                   <IconTable size={18} color="var(--mantine-color-blue-filled)" />
                   <Text size="xs" fw={700} c="dimmed">DATABASE EXPLORER</Text>
                 </Group>
-                <ActionIcon aria-label="Refresh" variant="subtle" size="sm" onClick={fetchTables} loading={fetchingTables}>
+                <ActionIcon aria-label="Reload table list" variant="subtle" size="sm" onClick={fetchTables} loading={fetchingTables}>
                   <IconRefresh size={14} />
                 </ActionIcon>
               </Group>
@@ -599,7 +599,7 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
                             {t}
                           </Text>
                           <Tooltip label="Insert table name">
-                            <ActionIcon aria-label="Add" size="xs" variant="subtle" onClick={() => insertText(t)}>
+                            <ActionIcon aria-label="Insert table name" size="xs" variant="subtle" onClick={() => insertText(t)}>
                               <IconPlus size={10} />
                             </ActionIcon>
                           </Tooltip>

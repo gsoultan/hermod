@@ -1,4 +1,5 @@
-import { TextInput, Group, Text } from '@mantine/core';
+import { TextInput, Text } from '@mantine/core';
+import { FormRow } from '@/components/common/FormRow';
 
 interface S3SinkTypeConfigProps {
   config: any;
@@ -8,7 +9,7 @@ interface S3SinkTypeConfigProps {
 export function S3SinkTypeConfig({ config, updateConfig }: S3SinkTypeConfigProps) {
   return (
     <>
-      <Group grow>
+      <FormRow>
         <TextInput 
           label="Region" 
           placeholder="us-east-1" 
@@ -27,10 +28,10 @@ export function S3SinkTypeConfig({ config, updateConfig }: S3SinkTypeConfigProps
           description="S3 bucket name"
           mih={80}
         />
-      </Group>
+      </FormRow>
       <TextInput label="Key Prefix" placeholder="events/" value={config.key_prefix || ''} onChange={(e) => updateConfig('key_prefix', e.target.value)} />
       <TextInput label="Endpoint (S3-compatible)" placeholder="e.g. http://localhost:9000" value={config.endpoint || ''} onChange={(e) => updateConfig('endpoint', e.target.value)} />
-      <Group grow>
+      <FormRow>
         <TextInput 
           label="Access Key" 
           placeholder="Optional" 
@@ -48,8 +49,8 @@ export function S3SinkTypeConfig({ config, updateConfig }: S3SinkTypeConfigProps
           description="AWS secret key"
           mih={80}
         />
-      </Group>
-      <Group grow>
+      </FormRow>
+      <FormRow>
         <TextInput 
           label="File Extension"
           placeholder=".json or .csv"
@@ -66,7 +67,7 @@ export function S3SinkTypeConfig({ config, updateConfig }: S3SinkTypeConfigProps
           description="S3 content-type"
           mih={80}
         />
-      </Group>
+      </FormRow>
       <Text size="sm" c="dimmed">
         Tip: To upload CSV bytes as-is, leave Format empty (pass-through) in the Advanced section and set File Extension to .csv.
       </Text>

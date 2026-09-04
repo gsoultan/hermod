@@ -1,4 +1,5 @@
 import { TextInput, Group, Select, Divider, Text, Code, Button, Checkbox } from '@mantine/core';
+import { FormRow } from '@/components/common/FormRow';
 
 interface FTPSinkConfigProps {
   config: any;
@@ -8,7 +9,7 @@ interface FTPSinkConfigProps {
 export function FTPSinkConfig({ config, updateConfig }: FTPSinkConfigProps) {
   return (
     <>
-      <Group grow>
+      <FormRow>
         <TextInput 
           label="Host" 
           placeholder="ftp.example.com" 
@@ -27,8 +28,8 @@ export function FTPSinkConfig({ config, updateConfig }: FTPSinkConfigProps) {
           description="FTP server port"
           mih={80}
         />
-      </Group>
-      <Group grow>
+      </FormRow>
+      <FormRow>
         <TextInput 
           label="Username" 
           placeholder="user" 
@@ -46,8 +47,8 @@ export function FTPSinkConfig({ config, updateConfig }: FTPSinkConfigProps) {
           description="Login password"
           mih={80}
         />
-      </Group>
-      <Group grow>
+      </FormRow>
+      <FormRow>
         <Select 
           label="TLS"
           placeholder="Use TLS (FTPS)"
@@ -65,16 +66,16 @@ export function FTPSinkConfig({ config, updateConfig }: FTPSinkConfigProps) {
           description="Connection timeout"
           mih={80}
         />
-      </Group>
+      </FormRow>
       <Divider my="sm" />
       <Text size="sm" c="dimmed">
         Destination path configuration (supports Go templates like <Code>{'{{.table}}'}</Code>, <Code>{'{{.id}}'}</Code>, <Code>{'{{.metadata.key}}'}</Code>)
       </Text>
-      <Group grow>
+      <FormRow>
         <TextInput label="Root Directory" placeholder="/uploads" value={config.root_dir || ''} onChange={(e) => updateConfig('root_dir', e.target.value)} />
         <TextInput label="Path Template" placeholder="{{.schema}}/{{.table}}" value={config.path_template || ''} onChange={(e) => updateConfig('path_template', e.target.value)} />
-      </Group>
-      <Group grow>
+      </FormRow>
+      <FormRow>
         <TextInput label="Filename Template" placeholder="{{.table}}-{{.id}}.json" value={config.filename_template || ''} onChange={(e) => updateConfig('filename_template', e.target.value)} required />
         <Select 
           label="Write Mode"
@@ -83,7 +84,7 @@ export function FTPSinkConfig({ config, updateConfig }: FTPSinkConfigProps) {
           value={config.write_mode || 'overwrite'}
           onChange={(val) => updateConfig('write_mode', val || 'overwrite')}
         />
-      </Group>
+      </FormRow>
       <Group>
         <Button
           variant="light"

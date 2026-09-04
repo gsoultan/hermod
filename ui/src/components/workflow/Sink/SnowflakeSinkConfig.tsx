@@ -1,4 +1,5 @@
 import { TextInput, Stack, Group, Text, Code, Alert, Switch, Divider, Autocomplete, Select, Button } from '@mantine/core';
+import { FormRow } from '@/components/common/FormRow';
 import { IconInfoCircle } from '@tabler/icons-react';
 import { useState, type FC } from 'react';
 import { ColumnMappingEditor, type ColumnMapping } from './ColumnMappingEditor';
@@ -134,7 +135,7 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
         onChange={(e) => updateConfig('connection_string', e.target.value)}
       />
 
-      <Group grow>
+      <FormRow>
         <TextInput
           label="Database (Override)"
           placeholder="MY_DB"
@@ -151,9 +152,9 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
           description="Target schema name"
           mih={80}
         />
-      </Group>
+      </FormRow>
 
-      <Group grow>
+      <FormRow>
         <TextInput
           label="Warehouse"
           placeholder="COMPUTE_WH"
@@ -170,7 +171,7 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
           description="Snowflake access role"
           mih={80}
         />
-      </Group>
+      </FormRow>
 
       <Autocomplete 
         label="Target Table" 
@@ -188,7 +189,7 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
         onChange={(e) => updateConfig('use_existing_table', e.currentTarget.checked ? 'true' : 'false')} 
       />
 
-      <Group grow>
+      <FormRow>
         <Switch 
           label="Truncate Table (on start)" 
           description="Truncate table on startup"
@@ -203,7 +204,7 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
           onChange={(e) => updateConfig('sync_columns', e.currentTarget.checked ? 'true' : 'false')} 
           mih={60}
         />
-      </Group>
+      </FormRow>
 
       <Group>
         <Button
@@ -283,7 +284,7 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
               onChange={(val) => updateConfig('delete_strategy', val || 'hard_delete')}
             />
             {config.delete_strategy === 'soft_delete' && (
-              <Group grow>
+              <FormRow>
                 <TextInput
                   label="Soft Delete Column"
                   placeholder="is_deleted"
@@ -300,7 +301,7 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
                   description="Value to set on delete"
                   mih={80}
                 />
-              </Group>
+              </FormRow>
             )}
           </Stack>
         </>
