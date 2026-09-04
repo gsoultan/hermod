@@ -992,6 +992,40 @@ func (h *WorkflowHandler) TestTransformation(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	// A routing node is not a transformation, and the editor offers Test for
+	// both. switch, condition and router are registered as node executors, so
+	// running them through the transformer registry answered "unknown
+	// transformation type" for nodes that work in a live workflow. Their result
+	// is the branch taken, not a changed message, so it is reported separately.
+	if h.Registry.IsBranchPreviewable(transType) {
+		out, branch, err := h.Registry.PreviewBranch(r.Context(), transType, req.Transformation.Config, msg)
+		if err != nil {
+			h.JsonError(w, "Failed to test transformation: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		result := map[string]any{}
+		if len(out) > 0 && out[0] != nil {
+			result = out[0].ToMap()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"branch": branch, "result": result})
+		return
+	}
+
+	// A node that is not a transformer and cannot be previewed gets told so.
+	// Falling through would run it against the transformer registry and answer
+	// "no transformer is registered under that name", which describes a typo --
+	// and "stateful" is not a typo, it is a node whose whole job is to mutate
+	// state a preview must not touch.
+	if !h.Registry.CanTransform(transType) && h.Registry.IsWorkflowNode(transType) {
+		h.JsonError(w,
+			fmt.Sprintf("%q is a workflow node, not a transformation. It runs when the "+
+				"workflow runs; there is nothing to preview here because previewing it "+
+				"would have effects beyond this panel.", transType),
+			http.StatusBadRequest)
+		return
+	}
+
 	res, err := h.Registry.TestTransformationPipeline(r.Context(), []storage.Transformation{{
 		Type:   transType,
 		Config: req.Transformation.Config,

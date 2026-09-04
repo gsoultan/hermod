@@ -65,3 +65,8 @@ func (n *SwitchNode) parseCaseConditions(c map[string]any) []map[string]any {
 	}
 	return caseConditions
 }
+
+// PreviewSafeNode marks this node as runnable from the editor's Test button:
+// deciding which case matches reads the message and this node's own config,
+// and writes nothing anywhere.
+func (n *SwitchNode) PreviewSafeNode() {}

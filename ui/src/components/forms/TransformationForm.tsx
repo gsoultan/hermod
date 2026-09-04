@@ -120,6 +120,12 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
         onSuccess: (data: any) => {
           if (data?.error) {
             setPreviewError(data.error);
+          } else if (typeof data?.branch === 'string') {
+            // A routing node answers with the branch it took and the message
+            // untouched. The panel's Result/Diff/Input tabs all expect a
+            // message, so hand it the message; the branch is what the Test
+            // button reports.
+            setPreviewResult(data.result ?? {});
           } else {
             setPreviewResult(data);
           }
@@ -195,6 +201,15 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       const data = await res.json();
       if (data.error) {
         notifications.show({ title: 'Test Failed', message: data.error, color: 'orange' });
+      } else if (typeof data.branch === 'string') {
+        // Routing nodes — switch, condition, router — do not change the
+        // message, so there is no target field to report. What the user is
+        // testing is which way the message goes.
+        notifications.show({
+          title: 'Test Success',
+          message: `Branch taken: "${data.branch}"`,
+          color: 'green',
+        });
       } else {
         const result = preparePayload(data);
         const targetField = selectedNode.data.targetField || selectedNode.data.target_field;
