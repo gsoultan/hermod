@@ -1,4 +1,5 @@
-import { TextInput, Group, Checkbox } from '@mantine/core';
+import { TextInput, Checkbox } from '@mantine/core';
+import { FormRow } from '@/components/common/FormRow';
 
 interface QueueSinkConfigProps {
   type: string;
@@ -13,7 +14,7 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
         <>
           <TextInput label="Broker URL" placeholder="tcp://localhost:1883" value={config.broker_url || config.url || ''} onChange={(e) => { updateConfig('broker_url', e.target.value); updateConfig('url', e.target.value); }} required />
           <TextInput label="Topic" placeholder="hermod/topic" value={config.topic || ''} onChange={(e) => updateConfig('topic', e.target.value)} required />
-          <Group grow>
+          <FormRow>
             <TextInput 
               label="Client ID" 
               placeholder="Optional" 
@@ -30,8 +31,8 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
               description="Quality of Service"
               mih={80}
             />
-          </Group>
-          <Group grow>
+          </FormRow>
+          <FormRow>
             <TextInput 
               label="Username" 
               placeholder="Optional" 
@@ -49,8 +50,8 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
               description="Broker password"
               mih={80}
             />
-          </Group>
-          <Group grow>
+          </FormRow>
+          <FormRow>
             <TextInput 
               label="Clean Session" 
               placeholder="true | false" 
@@ -67,8 +68,8 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
               description="Heartbeat interval"
               mih={80}
             />
-          </Group>
-          <Group grow>
+          </FormRow>
+          <FormRow>
             <TextInput 
               label="Retain" 
               placeholder="false" 
@@ -85,7 +86,7 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
               description="Skip SSL verification"
               mih={80}
             />
-          </Group>
+          </FormRow>
         </>
       );
     case 'nats':
@@ -93,7 +94,7 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
         <>
           <TextInput label="URL" placeholder="nats://localhost:4222" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} required />
           <TextInput label="Subject" placeholder="hermod.data" value={config.subject || ''} onChange={(e) => updateConfig('subject', e.target.value)} required />
-          <Group grow>
+          <FormRow>
             <TextInput 
               label="Username" 
               placeholder="Optional" 
@@ -111,7 +112,7 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
               description="Broker password"
               mih={80}
             />
-          </Group>
+          </FormRow>
           <TextInput label="Token" placeholder="Optional" value={config.token || ''} onChange={(e) => updateConfig('token', e.target.value)} />
         </>
       );
@@ -121,7 +122,7 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
           {!config.host && (
             <TextInput label="RabbitMQ URL (Legacy)" placeholder="rabbitmq-stream://guest:guest@localhost:5552" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} />
           )}
-          <Group grow>
+          <FormRow>
             <TextInput 
               label="Host" 
               placeholder="localhost" 
@@ -139,8 +140,8 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
               description="RabbitMQ port"
               mih={80}
             />
-          </Group>
-          <Group grow>
+          </FormRow>
+          <FormRow cols={3}>
             <TextInput 
               label="Username" 
               placeholder="guest" 
@@ -166,7 +167,7 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
               description="RabbitMQ vhost"
               mih={80}
             />
-          </Group>
+          </FormRow>
           <TextInput label="Stream Name" placeholder="hermod-stream" value={config.stream_name || ''} onChange={(e) => updateConfig('stream_name', e.target.value)} required />
           <Checkbox label="Use SSL/TLS" checked={config.use_ssl === 'true'} onChange={(e) => updateConfig('use_ssl', e.currentTarget.checked ? 'true' : 'false')} mt="xs" />
         </>
@@ -177,7 +178,7 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
           {!config.host && (
             <TextInput label="RabbitMQ URL (Legacy)" placeholder="amqp://guest:guest@localhost:5672" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} />
           )}
-          <Group grow>
+          <FormRow>
             <TextInput 
               label="Host" 
               placeholder="localhost" 
@@ -195,8 +196,8 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
               description="RabbitMQ port"
               mih={80}
             />
-          </Group>
-          <Group grow>
+          </FormRow>
+          <FormRow cols={3}>
             <TextInput 
               label="Username" 
               placeholder="guest" 
@@ -222,7 +223,7 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
               description="RabbitMQ vhost"
               mih={80}
             />
-          </Group>
+          </FormRow>
           <TextInput label="Queue Name" placeholder="hermod-queue" value={config.queue_name || ''} onChange={(e) => updateConfig('queue_name', e.target.value)} required />
           <Checkbox label="Use SSL/TLS" checked={config.use_ssl === 'true'} onChange={(e) => updateConfig('use_ssl', e.currentTarget.checked ? 'true' : 'false')} mt="xs" />
         </>
@@ -240,10 +241,10 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
         <>
           <TextInput label="Brokers" placeholder="localhost:9092,localhost:9093" value={config.brokers || ''} onChange={(e) => updateConfig('brokers', e.target.value)} required />
           <TextInput label="Topic" placeholder="hermod-topic" value={config.topic || ''} onChange={(e) => updateConfig('topic', e.target.value)} required />
-          <Group grow>
+          <FormRow>
             <TextInput label="Username (SASL)" placeholder="Optional" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
             <TextInput label="Password (SASL)" type="password" placeholder="Optional" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
-          </Group>
+          </FormRow>
         </>
       );
     case 'pulsar':
@@ -259,10 +260,10 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
         <>
           <TextInput label="Region" placeholder="us-east-1" value={config.region || ''} onChange={(e) => updateConfig('region', e.target.value)} required />
           <TextInput label="Stream Name" placeholder="hermod-stream" value={config.stream_name || ''} onChange={(e) => updateConfig('stream_name', e.target.value)} required />
-          <Group grow>
+          <FormRow>
             <TextInput label="Access Key" placeholder="Optional" value={config.access_key || ''} onChange={(e) => updateConfig('access_key', e.target.value)} />
             <TextInput label="Secret Key" type="password" placeholder="Optional" value={config.secret_key || ''} onChange={(e) => updateConfig('secret_key', e.target.value)} />
-          </Group>
+          </FormRow>
         </>
       );
     case 'pubsub':

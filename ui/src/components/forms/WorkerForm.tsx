@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { FormRow } from '@/components/common/FormRow';
 import { Button, Group, TextInput, Stack, Textarea, NumberInput, Alert, Text, Code, Paper } from '@mantine/core';
 import { useMutation } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
@@ -155,7 +156,7 @@ export function WorkerForm({ initialData, isEditing = false }: WorkerFormProps) 
         </Paper>
       )}
 
-      <Group grow>
+      <FormRow>
         <TextInput
           label="Host"
           description="Hostname or IP where the worker process runs"
@@ -170,7 +171,7 @@ export function WorkerForm({ initialData, isEditing = false }: WorkerFormProps) 
           value={worker.port}
           onChange={(val) => setWorker({ ...worker, port: Number(val) })}
         />
-      </Group>
+      </FormRow>
       <Textarea
         label="Description"
         description="Optional note to help identify this worker later"

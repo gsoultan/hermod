@@ -1,4 +1,5 @@
-import { Group, TextInput, PasswordInput } from '@mantine/core'
+import { TextInput, PasswordInput } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow';
 import type { FC } from 'react'
 
 export type SapSourceConfigProps = {
@@ -16,7 +17,7 @@ export const SapSourceConfig: FC<SapSourceConfigProps> = ({ config, updateConfig
         onChange={(e) => updateConfig('host', e.target.value)}
         required
       />
-      <Group grow>
+      <FormRow>
         <TextInput
           label="SAP Client"
           placeholder="100"
@@ -33,8 +34,8 @@ export const SapSourceConfig: FC<SapSourceConfigProps> = ({ config, updateConfig
           description="Delay between polls"
           mih={80}
         />
-      </Group>
-      <Group grow>
+      </FormRow>
+      <FormRow>
         <TextInput
           label="Username"
           value={config.username || ''}
@@ -49,7 +50,7 @@ export const SapSourceConfig: FC<SapSourceConfigProps> = ({ config, updateConfig
           description="SAP password"
           mih={80}
         />
-      </Group>
+      </FormRow>
       <TextInput
         label="OData Service"
         placeholder="API_PURCHASEORDER_PROCESS_SRV"

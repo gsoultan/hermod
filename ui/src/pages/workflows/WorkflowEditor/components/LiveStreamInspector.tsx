@@ -109,7 +109,7 @@ export function LiveStreamInspector({ opened, onClose, workflowId }: {
           </Group>
           <Group gap="xs">
             <Tooltip label="Clear stream">
-              <ActionIcon aria-label="Delete" variant="subtle" color="gray" onClick={() => setMessages([])}>
+              <ActionIcon aria-label="Clear stream" variant="subtle" color="gray" onClick={() => setMessages([])}>
                 <IconTrash size="1rem" />
               </ActionIcon>
             </Tooltip>

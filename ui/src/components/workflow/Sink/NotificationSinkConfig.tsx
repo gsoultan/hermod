@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { FormRow } from '@/components/common/FormRow';
 import { TextInput, Group, Select, Textarea, Button, Stack, Switch, Text } from '@mantine/core';
 import { EmailLayoutBuilder } from '../../forms/EmailLayoutBuilder';
 import { IconAt, IconBrush } from '@tabler/icons-react';
@@ -44,7 +45,7 @@ export function NotificationSinkConfig({
             onApply={(html) => updateConfig('template', html)}
             outlookCompatible={config.outlook_compatible === 'true'}
           />
-          <Group grow>
+          <FormRow>
             <TextInput 
               label="SMTP Host" 
               placeholder="smtp.gmail.com" 
@@ -63,8 +64,8 @@ export function NotificationSinkConfig({
               description="SMTP server port"
               mih={80}
             />
-          </Group>
-          <Group grow>
+          </FormRow>
+          <FormRow>
             <TextInput 
               label="Username" 
               placeholder="user@gmail.com" 
@@ -82,8 +83,8 @@ export function NotificationSinkConfig({
               description="Login password"
               mih={80}
             />
-          </Group>
-          <Group grow>
+          </FormRow>
+          <FormRow>
             <TextInput 
               label="From" 
               placeholder="noreply@hermod.com" 
@@ -109,7 +110,7 @@ export function NotificationSinkConfig({
                 )
               }
             />
-          </Group>
+          </FormRow>
           <TextInput label="Subject Template" placeholder="New order: {{.id}}" value={config.subject || ''} onChange={(e) => updateConfig('subject', e.target.value)} required />
           <Select 
             label="Template Source" 

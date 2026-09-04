@@ -21,14 +21,23 @@
 }
 
 /*
- * Keep fields inside multi-column rows (SimpleGrid / grown Group) visually
- * aligned by reserving a consistent minimum height for their descriptions.
- * This ensures every field in a row that holds more than one field has some
- * height even when its short description is empty or wraps differently.
+ * Form rows.
+ *
+ * Fields in a row are bottom-aligned, so their inputs line up no matter how tall
+ * each field's label and description turn out to be. That replaces a global
+ * `min-height: 1.2em` on every description in the app — a patch that reserved
+ * exactly one line, so it aligned the empty-vs-one-line case and did nothing for
+ * the two-line one. Alignment is structural now, not a reserved magic height.
+ *
+ * See components/common/FormRow.tsx for the width grammar this pairs with.
  */
-.mantine-SimpleGrid-root .mantine-InputWrapper-description,
-[data-grow] .mantine-InputWrapper-description {
-  min-height: 1.2em;
+.hermod-form-row {
+  align-items: end;
+}
+
+/* A field that is not the tallest in its row should still fill the row's width. */
+.hermod-form-row > * {
+  min-width: 0;
 }
 
 /*

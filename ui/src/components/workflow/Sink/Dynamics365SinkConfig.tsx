@@ -1,4 +1,5 @@
-import { Group, TextInput, PasswordInput, Select, Stack } from '@mantine/core'
+import { TextInput, PasswordInput, Select, Stack } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow';
 import type { FC } from 'react'
 
 export type Dynamics365SinkConfigProps = {
@@ -24,7 +25,7 @@ export const Dynamics365SinkConfig: FC<Dynamics365SinkConfigProps> = ({ config, 
         onChange={(e) => updateConfig('tenant_id', e.target.value)}
         required
       />
-      <Group grow>
+      <FormRow>
         <TextInput
           label="Client ID"
           placeholder="App Registration Client ID"
@@ -43,8 +44,8 @@ export const Dynamics365SinkConfig: FC<Dynamics365SinkConfigProps> = ({ config, 
           description="Entra Client Secret"
           mih={80}
         />
-      </Group>
-      <Group grow>
+      </FormRow>
+      <FormRow>
         <TextInput
           label="Entity Set Name"
           placeholder="accounts"
@@ -69,7 +70,7 @@ export const Dynamics365SinkConfig: FC<Dynamics365SinkConfigProps> = ({ config, 
           description="Sink action mode"
           mih={80}
         />
-      </Group>
+      </FormRow>
       <TextInput
         label="External ID Field / Primary Key"
         placeholder="accountid"

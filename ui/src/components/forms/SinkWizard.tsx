@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Stepper, Button, Group, Stack, TextInput, Card, Text, Divider, Alert, Fieldset } from '@mantine/core';
-import { IconCheck, IconDatabase, IconActivity, IconInfoCircle } from '@tabler/icons-react';
+import { Stepper, Button, Group, Stack, TextInput, Card, Text, Divider, Alert, Fieldset, Tooltip } from '@mantine/core';
+import { IconCheck, IconDatabase, IconActivity, IconInfoCircle, IconDeviceFloppy } from '@tabler/icons-react';
 import { SinkBasics } from '../workflow/Sink/SinkBasics';
 import { RetryPolicyFields } from '../workflow/Sink/RetryPolicyFields';
 import { Suspense } from 'react';
@@ -219,10 +219,30 @@ export function SinkWizard({
               Back
             </Button>
           )}
+          {/* See SourceWizard: an existing sink is edited, not walked through. */}
+          {isEditing && (
+            <Tooltip
+              label={missing.length ? `Fix this step first: ${missing.join(', ')}` : ''}
+              disabled={missing.length === 0}
+              withArrow
+            >
+              <span>
+                <Button
+                  onClick={() => submitMutation.mutate(sink)}
+                  loading={submitMutation.isPending}
+                  disabled={missing.length > 0}
+                  leftSection={<IconDeviceFloppy size="1rem" />}
+                >
+                  Update Sink
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           {active < 3 && (
             <Button 
               onClick={nextStep} 
               disabled={missing.length > 0}
+              variant={isEditing ? 'default' : 'filled'}
             >
               Next Step
             </Button>

@@ -136,7 +136,7 @@ export function UnitTestForm({ workflowId, nodeId, tests = [], onChange }: UnitT
                         {result.passed ? 'Passed' : 'Failed'}
                       </Badge>
                     )}
-                    <ActionIcon aria-label="Delete" color="red" variant="subtle" size="sm" onClick={() => removeTest(index)}>
+                    <ActionIcon aria-label={`Remove test ${index + 1}`} color="red" variant="subtle" size="sm" onClick={() => removeTest(index)}>
                       <IconTrash size={14} />
                     </ActionIcon>
                   </Group>

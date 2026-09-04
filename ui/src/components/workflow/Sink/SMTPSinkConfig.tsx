@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { FormRow } from '@/components/common/FormRow';
 import { TextInput, Group, Select, Checkbox, Textarea, Button, Stack, Tabs, ActionIcon, Tooltip, Divider, Text } from '@mantine/core';
 
 import { EmailLayoutBuilder } from '../../forms/EmailLayoutBuilder';
@@ -25,7 +26,7 @@ export function SMTPSinkConfig({
         onApply={(html) => updateConfig('template', html)}
         outlookCompatible={config.outlook_compatible === 'true'}
       />
-      <Group grow>
+      <FormRow>
         <TextInput 
           label="Host" 
           placeholder="smtp.example.com" 
@@ -44,8 +45,8 @@ export function SMTPSinkConfig({
           description="SMTP server port"
           mih={80}
         />
-      </Group>
-      <Group grow>
+      </FormRow>
+      <FormRow>
         <TextInput 
           label="Username" 
           placeholder="user@example.com" 
@@ -65,7 +66,7 @@ export function SMTPSinkConfig({
           description="Login password"
           mih={80}
         />
-      </Group>
+      </FormRow>
       <Select 
           label="SSL" 
           placeholder="Select SSL" 
@@ -134,7 +135,7 @@ export function SMTPSinkConfig({
             />
             {config.enable_pool === 'true' && (
               <>
-                <Group grow>
+                <FormRow>
                   <TextInput 
                     label="Max Idle" 
                     placeholder="2" 
@@ -151,7 +152,7 @@ export function SMTPSinkConfig({
                     description="Maximum total connections" 
                     mih={80}
                   />
-                </Group>
+                </FormRow>
                 <TextInput 
                   label="Idle Timeout" 
                   placeholder="5m" 
@@ -166,14 +167,14 @@ export function SMTPSinkConfig({
 
         <Tabs.Panel value="retry">
            <Stack gap="xs">
-              <Group grow>
+              <FormRow>
                 <TextInput label="Max Retries" placeholder="3" value={config.retry_max || ''} onChange={(e) => updateConfig('retry_max', e.target.value)} />
                 <TextInput label="Multiplier" placeholder="2.0" value={config.retry_multiplier || ''} onChange={(e) => updateConfig('retry_multiplier', e.target.value)} />
-              </Group>
-              <Group grow>
+              </FormRow>
+              <FormRow>
                 <TextInput label="Initial Interval" placeholder="1s" value={config.retry_initial_interval || ''} onChange={(e) => updateConfig('retry_initial_interval', e.target.value)} />
                 <TextInput label="Max Interval" placeholder="30s" value={config.retry_max_interval || ''} onChange={(e) => updateConfig('retry_max_interval', e.target.value)} />
-              </Group>
+              </FormRow>
            </Stack>
         </Tabs.Panel>
 
@@ -272,15 +273,15 @@ export function SMTPSinkConfig({
 
         <Tabs.Panel value="s3" pt="md">
           <Stack gap="xs">
-            <Group grow>
+            <FormRow>
               <TextInput label="S3 Region" placeholder="us-east-1" value={config.template_s3_region || ''} onChange={(e) => updateConfig('template_s3_region', e.target.value)} />
               <TextInput label="S3 Bucket" placeholder="my-templates" value={config.template_s3_bucket || ''} onChange={(e) => updateConfig('template_s3_bucket', e.target.value)} />
-            </Group>
+            </FormRow>
             <TextInput label="S3 Key" placeholder="path/to/email.html" value={config.template_s3_key || ''} onChange={(e) => updateConfig('template_s3_key', e.target.value)} />
-            <Group grow>
+            <FormRow>
               <TextInput label="Access Key" value={config.template_s3_access_key || ''} onChange={(e) => updateConfig('template_s3_access_key', e.target.value)} />
               <TextInput label="Secret Key" type="password" value={config.template_s3_secret_key || ''} onChange={(e) => updateConfig('template_s3_secret_key', e.target.value)} />
-            </Group>
+            </FormRow>
           </Stack>
         </Tabs.Panel>
       </Tabs>

@@ -1,4 +1,5 @@
-import { Group, Select, TextInput, PasswordInput } from '@mantine/core'
+import { Select, TextInput, PasswordInput } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow';
 import type { FC } from 'react'
 
 export type MainframeSourceConfigProps = {
@@ -16,7 +17,7 @@ export const MainframeSourceConfig: FC<MainframeSourceConfigProps> = ({ config, 
         onChange={(e) => updateConfig('host', e.target.value)}
         required
       />
-      <Group grow>
+      <FormRow>
         <TextInput
           label="Port"
           placeholder="50000"
@@ -36,8 +37,8 @@ export const MainframeSourceConfig: FC<MainframeSourceConfigProps> = ({ config, 
           description="Mainframe storage type"
           mih={80}
         />
-      </Group>
-      <Group grow>
+      </FormRow>
+      <FormRow>
         <TextInput
           label="Username"
           value={config.user || ''}
@@ -52,8 +53,8 @@ export const MainframeSourceConfig: FC<MainframeSourceConfigProps> = ({ config, 
           description="Mainframe password"
           mih={80}
         />
-      </Group>
-      <Group grow>
+      </FormRow>
+      <FormRow>
         <TextInput
           label="Database"
           placeholder="DB2P"
@@ -70,7 +71,7 @@ export const MainframeSourceConfig: FC<MainframeSourceConfigProps> = ({ config, 
           description="Target schema name"
           mih={80}
         />
-      </Group>
+      </FormRow>
       <TextInput
         label="Table / Entity"
         placeholder="USER_TABLE"

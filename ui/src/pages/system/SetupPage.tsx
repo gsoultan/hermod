@@ -502,7 +502,7 @@ export function SetupPage({ onConfigured }: SetupPageProps) {
                     rightSection={
                       <Group gap={0} mr={5}>
                         <Tooltip label="Generate Key">
-                          <ActionIcon aria-label="Refresh" variant="subtle" color="gray" onClick={() => setCryptoMasterKey(generateStrongPassword(32))}>
+                          <ActionIcon aria-label="Generate Key" variant="subtle" color="gray" onClick={() => setCryptoMasterKey(generateStrongPassword(32))}>
                             <IconRefresh size={16} />
                           </ActionIcon>
                         </Tooltip>
@@ -660,7 +660,7 @@ export function SetupPage({ onConfigured }: SetupPageProps) {
                     rightSection={
                       <Group gap={0} mr={5}>
                         <Tooltip label="Generate Password">
-                          <ActionIcon aria-label="Refresh" variant="subtle" color="gray" onClick={() => setPassword(generateStrongPassword())}>
+                          <ActionIcon aria-label="Generate Password" variant="subtle" color="gray" onClick={() => setPassword(generateStrongPassword())}>
                             <IconRefresh size={16} />
                           </ActionIcon>
                         </Tooltip>

@@ -1,4 +1,5 @@
-import { Group, TextInput, PasswordInput, Stack } from '@mantine/core'
+import { TextInput, PasswordInput, Stack } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow';
 import type { FC } from 'react'
 
 export type Dynamics365SourceConfigProps = {
@@ -24,7 +25,7 @@ export const Dynamics365SourceConfig: FC<Dynamics365SourceConfigProps> = ({ conf
         onChange={(e) => updateConfig('tenant_id', e.target.value)}
         required
       />
-      <Group grow>
+      <FormRow>
         <TextInput
           label="Client ID"
           placeholder="App Registration Client ID"
@@ -43,8 +44,8 @@ export const Dynamics365SourceConfig: FC<Dynamics365SourceConfigProps> = ({ conf
           description="Entra Client Secret"
           mih={80}
         />
-      </Group>
-      <Group grow>
+      </FormRow>
+      <FormRow>
         <TextInput
           label="Entity Set Name"
           placeholder="accounts"
@@ -62,8 +63,8 @@ export const Dynamics365SourceConfig: FC<Dynamics365SourceConfigProps> = ({ conf
           description="Delay between polls"
           mih={80}
         />
-      </Group>
-      <Group grow>
+      </FormRow>
+      <FormRow>
         <TextInput
           label="ID Field"
           placeholder="modifiedon"
@@ -80,7 +81,7 @@ export const Dynamics365SourceConfig: FC<Dynamics365SourceConfigProps> = ({ conf
           description="OData filter expression"
           mih={80}
         />
-      </Group>
+      </FormRow>
     </Stack>
   )
 }

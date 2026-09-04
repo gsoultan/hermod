@@ -1,4 +1,6 @@
 import { IconRefresh } from '@tabler/icons-react';
+import { useDebouncedValue } from '@mantine/hooks';
+import { FormRow } from '@/components/common/FormRow';
 import { ActionIcon, Autocomplete, Group, TextInput, Switch, Stack, Divider, Select, Button, Loader, Checkbox } from '@mantine/core'
 import { useState, type FC, useEffect } from 'react'
 import { ColumnMappingEditor, type ColumnMapping } from './ColumnMappingEditor'
@@ -139,16 +141,26 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
     }
   };
 
+  // Target Table is an Autocomplete the user types into, and discovery is a live
+  // query against the sink's database. Keyed directly off config.table, typing
+  // "orders" issued six of them — one per character — because a partial name is
+  // not a table, so each failed and the mappings.length guard never engaged.
+  const [debouncedTable] = useDebouncedValue(config.table || '', 400);
+
   // Auto-discover columns when use_existing_table is enabled
   useEffect(() => {
-    if (config.use_existing_table === 'true' && config.table && mappings.length === 0) {
+    if (debouncedTable && config.use_existing_table === 'true' && mappings.length === 0) {
       handleSmartMap();
     }
-  }, [config.use_existing_table, config.table]);
+    // handleSmartMap and mappings are read fresh on each run; adding them to the
+    // deps would re-fire discovery whenever a mapping changes, which is the
+    // opposite of what the mappings.length guard is for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.use_existing_table, debouncedTable]);
 
   return (
     <Stack gap="sm">
-      <Group grow>
+      <FormRow>
         <TextInput 
           label="Host" 
           placeholder="localhost" 
@@ -167,8 +179,8 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
           description="Postgres server port"
           mih={80}
         />
-      </Group>
-      <Group grow>
+      </FormRow>
+      <FormRow>
         <TextInput 
           label="User" 
           placeholder="user" 
@@ -188,7 +200,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
           description="Database password"
           mih={80}
         />
-      </Group>
+      </FormRow>
       <Group align="flex-end" gap="xs">
         <Autocomplete
           label="Database"
@@ -229,7 +241,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
         onChange={(e) => updateConfig('use_existing_table', e.currentTarget.checked ? 'true' : 'false')} 
       />
 
-      <Group grow>
+      <FormRow>
         <Switch 
           label="Truncate Table (on start)" 
           description="Truncate table on startup"
@@ -244,7 +256,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
           onChange={(e) => updateConfig('sync_columns', e.currentTarget.checked ? 'true' : 'false')} 
           mih={60}
         />
-      </Group>
+      </FormRow>
 
       <Group>
         <Button
@@ -308,7 +320,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
       />
 
       {(type === 'postgres' || type === 'yugabyte') && (
-        <Group grow>
+        <FormRow>
           <TextInput label="SSL Mode" placeholder="disable" value={config.sslmode || ''} onChange={(e) => updateConfig('sslmode', e.target.value)} />
           <Checkbox
             mt="xl"
@@ -317,7 +329,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
             checked={config.pgbouncer === 'true'}
             onChange={(e) => updateConfig('pgbouncer', e.target.checked ? 'true' : 'false')}
           />
-        </Group>
+        </FormRow>
       )}
       <TextInput
         label="OR Connection String"
@@ -349,7 +361,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
               onChange={(val) => updateConfig('delete_strategy', val || 'hard_delete')}
             />
             {config.delete_strategy === 'soft_delete' && (
-              <Group grow>
+              <FormRow>
                 <TextInput
                   label="Soft Delete Column"
                   placeholder="is_deleted"
@@ -366,7 +378,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
                   description="Value to set on delete"
                   mih={80}
                 />
-              </Group>
+              </FormRow>
             )}
           </Stack>
         </>

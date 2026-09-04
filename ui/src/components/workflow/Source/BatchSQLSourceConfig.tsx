@@ -83,7 +83,7 @@ export function BatchSQLSourceConfig({ config, updateConfig, allSources }: Batch
               <Paper key={i} withBorder p="xs" radius="sm">
                 <Group justify="space-between" align="flex-start" wrap="nowrap">
                   <Text size="xs" style={{ fontFamily: 'monospace', wordBreak: 'break-all', flex: 1 }}>{q}</Text>
-                  <ActionIcon aria-label="Delete" color="red" variant="subtle" size="sm" onClick={() => removeQuery(i)}>
+                  <ActionIcon aria-label={`Remove query ${i + 1}`} color="red" variant="subtle" size="sm" onClick={() => removeQuery(i)}>
                     <IconTrash size={14} />
                   </ActionIcon>
                 </Group>

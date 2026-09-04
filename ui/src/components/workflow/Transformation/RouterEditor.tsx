@@ -102,7 +102,7 @@ export function RouterEditor({
                   )}
                 </Group>
                 <Tooltip label="Delete branch">
-                  <ActionIcon aria-label="Delete" color="red" variant="subtle" onClick={() => removeRule(idx)}>
+                  <ActionIcon aria-label="Delete branch" color="red" variant="subtle" onClick={() => removeRule(idx)}>
                     <IconTrash size={rem(18)} />
                   </ActionIcon>
                 </Tooltip>

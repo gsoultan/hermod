@@ -1,4 +1,5 @@
 import { useState, useMemo, type ReactNode } from 'react';
+import { FormRow } from '@/components/common/FormRow';
 import { 
   Modal, Button, Stack, TextInput, Textarea, Group, 
   Text, Paper, Box, 
@@ -202,7 +203,7 @@ function SortableFieldItem({
           {!isOverlay && (
             <Group gap={4}>
               <Tooltip label="Remove Field">
-                <ActionIcon aria-label="Delete" 
+                <ActionIcon aria-label="Remove Field" 
                   variant="subtle" 
                   size="sm" 
                   onClick={(e) => { e.stopPropagation(); onRemove?.(); }} 
@@ -631,7 +632,7 @@ export function FormLayoutBuilder({
                                     }}
                                   />
                                 )}
-                                <ActionIcon aria-label="Delete" color="red" variant="light" onClick={() => {
+                                <ActionIcon aria-label="Remove column" color="red" variant="light" onClick={() => {
                                   const cols = (selectedField.table?.columns || []).filter((_, i) => i !== idx);
                                   updateField(selectedField.id, { table: { bordered: selectedField.table?.bordered, columns: cols } });
                                 }}>
@@ -674,7 +675,7 @@ export function FormLayoutBuilder({
 
                       {selectedField.type === 'scale' && (
                         <Stack gap="xs">
-                          <Group grow>
+                          <FormRow>
                             <NumberInput 
                               label="Min Value" 
                               value={selectedField.min} 
@@ -685,7 +686,7 @@ export function FormLayoutBuilder({
                               value={selectedField.max} 
                               onChange={(val) => updateField(selectedField.id, { max: Number(val) })} 
                             />
-                          </Group>
+                          </FormRow>
                           <NumberInput 
                             label="Step" 
                             value={selectedField.step} 
@@ -714,7 +715,7 @@ export function FormLayoutBuilder({
                             onChange={(val) => updateField(selectedField.id, { dependsOn: (val as string) || undefined })}
                             clearable
                           />
-                          <Group grow>
+                          <FormRow>
                             <Select 
                               label="Operator"
                               data={[
@@ -733,7 +734,7 @@ export function FormLayoutBuilder({
                               value={selectedField.value as any || ''}
                               onChange={(e) => updateField(selectedField.id, { value: e.target.value })}
                             />
-                          </Group>
+                          </FormRow>
                         </>
                       )}
                     </Stack>
@@ -895,10 +896,10 @@ export function FormPreview({ opened, onClose, fields, title, description }: { o
         content = (
           <Stack gap="xs">
             <Text size="sm" fw={500}>{f.label || f.name}{f.required && <Text span c="red"> *</Text>}</Text>
-            <Group grow>
+            <FormRow>
               <TextInput label={f.start_label || 'Start'} type="date" />
               <TextInput label={f.end_label || 'End'} type="date" />
-            </Group>
+            </FormRow>
             {f.help && <Text size="xs" c="dimmed">{f.help}</Text>}
           </Stack>
         );
@@ -1054,7 +1055,7 @@ export function FormPreview({ opened, onClose, fields, title, description }: { o
                         </Table.Td>
                       ))}
                       <Table.Td>
-                        <ActionIcon aria-label="Delete" color="red" variant="subtle" onClick={() => removeRow(rIdx)}>
+                        <ActionIcon aria-label={`Remove row ${rIdx + 1}`} color="red" variant="subtle" onClick={() => removeRow(rIdx)}>
                           <IconTrash size="1rem" />
                         </ActionIcon>
                       </Table.Td>

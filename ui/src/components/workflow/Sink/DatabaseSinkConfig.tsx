@@ -1,4 +1,5 @@
 import { TextInput, Group, ActionIcon, Title, Stack, Badge, Autocomplete, Switch, Divider, SimpleGrid, Select, Button, Loader } from '@mantine/core';
+import { FormRow } from '@/components/common/FormRow';
 import { IconRefresh } from '@tabler/icons-react';
 import { useState, type FC } from 'react';
 import { ColumnMappingEditor, type ColumnMapping } from './ColumnMappingEditor';
@@ -287,7 +288,7 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
           error={tablesError}
         />
         {discoverTables && (
-          <ActionIcon aria-label="Refresh" variant="light" size="lg" onClick={() => discoverTables(true)} loading={loadingTables}>
+          <ActionIcon aria-label="Rediscover tables" variant="light" size="lg" onClick={() => discoverTables(true)} loading={loadingTables}>
             <IconRefresh size="1.2rem" />
           </ActionIcon>
         )}
@@ -397,7 +398,7 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
                   onChange={(val) => updateConfig('delete_strategy', val || 'hard_delete')}
                 />
                 {config.delete_strategy === 'soft_delete' && (
-                  <Group grow>
+                  <FormRow>
                     <TextInput
                       label="Soft Delete Column"
                       placeholder="is_deleted"
@@ -414,7 +415,7 @@ export const DatabaseSinkConfig: FC<DatabaseSinkConfigProps> = ({
                       description="Value to set on delete"
                       mih={80}
                     />
-                  </Group>
+                  </FormRow>
                 )}
               </Stack>
             </>

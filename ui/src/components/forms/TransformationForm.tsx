@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense, useMemo } from 'react';
+import { FormRow } from '@/components/common/FormRow';
 import { TextInput, Select, Stack, Alert, Divider, Text, Group, ActionIcon, Button, Code, List, Autocomplete, JsonInput, Badge, Grid, SimpleGrid, NumberInput, Card, ScrollArea, Box, Switch, Textarea, Modal, Loader, UnstyledButton, Tooltip as MantineTooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
@@ -28,6 +29,7 @@ const HelpContent = lazy(() => import('../workflow/Transformation/HelpContent'))
 import { IconArrowRight, IconCode, IconDatabase, IconFunction, IconHelpCircle, IconInfoCircle, IconList, IconPlus, IconPuzzle, IconRefresh, IconSearch, IconSettings, IconVariable } from '@tabler/icons-react';
 import { preparePayload, getValByPath } from '@/utils/transformationUtils';
 import { guideFor } from '@/lib/transformationGuide';
+import { JsonObjectInput } from '@/components/common/JsonObjectInput';
 
 // How long to wait after the last edit before previewing. Short enough to feel
 // live, long enough that a burst of keystrokes costs one request.
@@ -129,6 +131,28 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
   const fieldPaths = useMemo(() => 
     (availableFields || []).map(f => typeof f === 'string' ? f : f.path),
     [availableFields]
+  );
+
+  // The `column.*` subset of the node config, which is what the raw-JSON panes
+  // edit. Derived once rather than re-serialised inside each pane's `value`.
+  const columnFields = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(selectedNode?.data ?? {}).filter(([k]) => k.startsWith('column.'))
+      ) as Record<string, unknown>,
+    [selectedNode?.data]
+  );
+
+  // Replaces every column.* key with what the editor parsed, leaving the rest of
+  // the node config untouched.
+  const replaceColumnFields = useCallback(
+    (next: Record<string, unknown>) => {
+      const rest = Object.fromEntries(
+        Object.entries(selectedNode?.data ?? {}).filter(([k]) => !k.startsWith('column.'))
+      );
+      updateNodeConfig(selectedNode.id, { ...rest, ...next }, true);
+    },
+    [selectedNode, updateNodeConfig]
   );
 
   const [previewResult, setPreviewResult] = useState<any>(null);
@@ -427,7 +451,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                 <Text size="xs" fw={700}>AVAILABLE FIELDS</Text>
                 {onRefreshFields && (
                   <MantineTooltip label="Refresh sample data and fields" position="right">
-                    <ActionIcon aria-label="Refresh" variant="subtle" size="xs" onClick={() => { onRefreshFields(); refetchTarget(); }} color="blue" loading={isRefreshing}>
+                    <ActionIcon aria-label="Refresh sample data and fields" variant="subtle" size="xs" onClick={() => { onRefreshFields(); refetchTarget(); }} color="blue" loading={isRefreshing}>
                       <IconRefresh size="0.8rem" />
                     </ActionIcon>
                   </MantineTooltip>
@@ -537,7 +561,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
             <Divider />
 
-            <Group gap="xs" grow>
+            <FormRow>
               <TextInput 
                 label="Node Label" 
                 placeholder="Display name in editor" 
@@ -554,7 +578,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                 onChange={(e) => setConfigSearch(e.target.value)}
                 flex={1}
               />
-            </Group>
+            </FormRow>
 
             <Box flex={1} style={{ overflow: 'hidden' }}>
               <ScrollArea h="100%" offsetScrollbars>
@@ -707,7 +731,7 @@ end`}
                 onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.target.value, outputField: e.target.value })} 
               />
               <Divider label="Windowing" labelPosition="center" />
-              <Group grow>
+              <FormRow>
                 <Select
                   label="Window Type"
                   data={[
@@ -723,7 +747,7 @@ end`}
                   value={selectedNode.data.window || ''}
                   onChange={(e) => updateNodeConfig(selectedNode.id, { window: e.target.value })}
                 />
-              </Group>
+              </FormRow>
               <Switch
                 label="Persistent State (Saves across restarts)"
                 checked={!!selectedNode.data.persistent}
@@ -763,22 +787,13 @@ end`}
                 />
               </Suspense>
               <Divider label="Raw JSON" labelPosition="center" mt="md" />
-              <JsonInput 
-                label="Fields (JSON)" 
-                placeholder='{"column.user.role": "admin", "column.status": 1}' 
-                value={JSON.stringify(Object.fromEntries(Object.entries(selectedNode.data).filter(([k]) => k.startsWith('column.'))), null, 2)} 
-                onChange={(val) => {
-                   try {
-                      const parsed = JSON.parse(val);
-                      const baseData = Object.fromEntries(Object.entries(selectedNode.data).filter(([k]) => !k.startsWith('column.')));
-                      updateNodeConfig(selectedNode.id, { ...baseData, ...parsed }, true);
-                   } catch(e) {}
-                }} 
-                formatOnBlur
+              <JsonObjectInput
+                label="Fields (JSON)"
+                placeholder='{"column.user.role": "admin", "column.status": 1}'
+                value={columnFields}
+                onChange={replaceColumnFields}
                 minRows={10}
-                styles={{ 
-                  input: { fontFamily: 'monospace', fontSize: '11px' } 
-                }}
+                styles={{ input: { fontFamily: 'monospace', fontSize: '11px' } }}
                 description="Specify fields to set using 'column.path' format."
               />
             </>
@@ -826,22 +841,13 @@ end`}
                 />
               </Suspense>
               <Divider label="Raw JSON" labelPosition="center" mt="md" />
-              <JsonInput 
-                label="Config (JSON)" 
-                placeholder='{"column.user.name": "lower(source.user.name)"}' 
-                value={JSON.stringify(Object.fromEntries(Object.entries(selectedNode.data || {}).filter(([k]) => k.startsWith('column.'))), null, 2)} 
-                onChange={(val) => {
-                   try {
-                      const parsed = JSON.parse(val);
-                      const baseData = Object.fromEntries(Object.entries(selectedNode.data || {}).filter(([k]) => !k.startsWith('column.')));
-                      updateNodeConfig(selectedNode.id, { ...baseData, ...parsed }, true);
-                   } catch(e) {}
-                }} 
-                formatOnBlur
+              <JsonObjectInput
+                label="Config (JSON)"
+                placeholder='{"column.user.name": "lower(source.user.name)"}'
+                value={columnFields}
+                onChange={replaceColumnFields}
                 minRows={10}
-                styles={{ 
-                  input: { fontFamily: 'monospace', fontSize: '11px' } 
-                }}
+                styles={{ input: { fontFamily: 'monospace', fontSize: '11px' } }}
               />
               <Alert color="blue" py="xs" mt="md">
                 <Text size="xs" fw={700}>Supported operations:</Text>

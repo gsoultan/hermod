@@ -241,7 +241,7 @@ const NoteNodeImpl = ({ id, data, selected }: any) => {
       style={{ position: 'relative' }}
     >
       {(hovered || selected) && (
-        <ActionIcon aria-label="Delete" 
+        <ActionIcon aria-label={`Delete note ${data.label ? `"${data.label}"` : ""}`.trim()} 
           variant="filled" 
           color="red" 
           size="xs" 

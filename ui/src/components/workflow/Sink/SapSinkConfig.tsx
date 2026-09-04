@@ -1,4 +1,5 @@
-import { Group, Select, TextInput, PasswordInput } from '@mantine/core'
+import { Select, TextInput, PasswordInput } from '@mantine/core'
+import { FormRow } from '@/components/common/FormRow';
 import type { FC } from 'react'
 
 export type SapSinkConfigProps = {
@@ -16,7 +17,7 @@ export const SapSinkConfig: FC<SapSinkConfigProps> = ({ config, updateConfig }) 
         onChange={(e) => updateConfig('host', e.target.value)}
         required
       />
-      <Group grow>
+      <FormRow>
         <TextInput
           label="SAP Client"
           placeholder="100"
@@ -38,8 +39,8 @@ export const SapSinkConfig: FC<SapSinkConfigProps> = ({ config, updateConfig }) 
           description="Connection protocol"
           mih={80}
         />
-      </Group>
-      <Group grow>
+      </FormRow>
+      <FormRow>
         <TextInput
           label="Username"
           value={config.username || ''}
@@ -54,7 +55,7 @@ export const SapSinkConfig: FC<SapSinkConfigProps> = ({ config, updateConfig }) 
           description="SAP password"
           mih={80}
         />
-      </Group>
+      </FormRow>
       <TextInput
         label="Service (OData)"
         placeholder="API_PURCHASEORDER_PROCESS_SRV"

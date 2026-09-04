@@ -168,7 +168,7 @@ export const ColumnMappingEditor: FC<ColumnMappingEditorProps> = ({
                   />
                 </Table.Td>
                 <Table.Td>
-                  <ActionIcon aria-label="Delete" color="red" variant="subtle" onClick={() => removeMapping(index)}>
+                  <ActionIcon aria-label={`Remove mapping ${index + 1}`} color="red" variant="subtle" onClick={() => removeMapping(index)}>
                     <IconTrash size={16} />
                   </ActionIcon>
                 </Table.Td>
