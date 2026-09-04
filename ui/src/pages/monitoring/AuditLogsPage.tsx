@@ -1,5 +1,5 @@
 import { Title, Table, Group, Stack, Badge, Paper, Text, Box, ActionIcon, Tooltip, TextInput, Pagination, Modal, ScrollArea, Code, Divider, Button } from '@mantine/core';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
 import { useState } from 'react';
 import { useDisclosure } from '@mantine/hooks';
@@ -19,6 +19,8 @@ export function AuditLogsPage() {
 
   const { data: auditResponse, isFetching } = useQuery({
     queryKey: ['audit-logs', activePage, action, entityType],
+    // Keep the current page rendered while the next one loads.
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       let url = `${API_BASE}/audit-logs?page=${activePage}&limit=${itemsPerPage}`;
       if (action) url += `&action=${action}`;

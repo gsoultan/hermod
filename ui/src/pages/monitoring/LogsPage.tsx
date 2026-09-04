@@ -1,8 +1,8 @@
 import { Title, Table, Group, Stack, Badge, Paper, Text, Box, ActionIcon, Tooltip, Select, TextInput, Pagination, Modal, ScrollArea, Code, Divider, Button } from '@mantine/core';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
 import { useState, useEffect } from 'react';
-import { useDisclosure } from '@mantine/hooks';
+import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import { useSearch } from '@tanstack/react-router';
 
 import { formatDateTime } from '@/utils/dateUtils';
@@ -20,6 +20,12 @@ export function LogsPage() {
   const [search, setSearch] = useState('');
   const [activePage, setPage] = useState(1);
   const itemsPerPage = 30;
+  // Debounced so a burst of keystrokes costs one request, and used as the query
+  // key so the key changes once per search rather than once per character. Logs
+  // also poll every 5s, so an undebounced key meant a new cache entry per
+  // character, each of which then kept polling.
+  const [debouncedSearch] = useDebouncedValue(search, 300);
+  const [debouncedWorkflowId] = useDebouncedValue(workflowId, 300);
   const [selectedLog, setSelectedLog] = useState<any>(null);
   const [opened, { open, close }] = useDisclosure(false);
 
@@ -33,10 +39,10 @@ export function LogsPage() {
   };
 
   const { data: logsResponse, isFetching } = useQuery({
-    queryKey: ['logs', workflowId, level, action, search, activePage],
+    queryKey: ['logs', debouncedWorkflowId, level, action, debouncedSearch, activePage],
     queryFn: async () => {
-      let url = `${API_BASE}/logs?page=${activePage}&limit=${itemsPerPage}&search=${search}`;
-      if (workflowId) url += `&workflow_id=${workflowId}`;
+      let url = `${API_BASE}/logs?page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(debouncedSearch)}`;
+      if (debouncedWorkflowId) url += `&workflow_id=${encodeURIComponent(debouncedWorkflowId)}`;
       if (level) url += `&level=${level}`;
       if (action) url += `&action=${action}`;
       const res = await apiFetch(url);
@@ -44,6 +50,10 @@ export function LogsPage() {
       return res.json();
     },
     refetchInterval: 5000, // Refresh every 5 seconds
+    // Hold the previous page/search on screen while the next one loads, instead
+    // of dropping to undefined and blanking the table — which, with a 5s poll,
+    // otherwise strobes the whole list.
+    placeholderData: keepPreviousData,
   });
 
   const logs = (logsResponse as any)?.data || [];

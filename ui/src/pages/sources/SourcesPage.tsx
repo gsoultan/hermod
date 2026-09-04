@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, Modal, List, ThemeIcon, TextInput, Pagination } from '@mantine/core';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
 import { getSessionRole } from '@/auth/session';
 import { useVHost } from '@/context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
-import { useDisclosure } from '@mantine/hooks';
+import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import type { Source, Workflow, Worker } from '@/types';
 import { IconActivity, IconAlertCircle, IconDatabaseImport, IconEdit, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
 const API_BASE = '/api';
@@ -19,6 +19,9 @@ export function SourcesPage() {
   const [opened, { open, close }] = useDisclosure(false);
   const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null);
   const [search, setSearch] = useState('');
+  // Debounced so a burst of keystrokes costs one request, and used as the query
+  // key so the key changes once per search rather than once per character.
+  const [debouncedSearch] = useDebouncedValue(search, 300);
   const [activePage, setPage] = useState(1);
   const itemsPerPage = 30;
 
@@ -45,10 +48,13 @@ export function SourcesPage() {
   }, []);
 
   const { data: sourcesResponse } = useQuery({
-    queryKey: ['sources', activePage, search, selectedVHost],
+    queryKey: ['sources', activePage, debouncedSearch, selectedVHost],
+        // Hold the previous page/search on screen while the next one loads,
+        // instead of dropping to undefined and blanking the table.
+        placeholderData: keepPreviousData,
     queryFn: async () => {
       const vhostParam = selectedVHost !== 'all' ? `&vhost=${selectedVHost}` : '';
-      const res = await apiFetch(`${API_BASE}/sources?page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(search)}${vhostParam}`);
+      const res = await apiFetch(`${API_BASE}/sources?page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(debouncedSearch)}${vhostParam}`);
       if (!res.ok) throw new Error('Failed to fetch sources');
       return res.json();
     },

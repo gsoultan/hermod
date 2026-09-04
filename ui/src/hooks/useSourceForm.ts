@@ -347,30 +347,48 @@ export function useSourceForm({
 
   const lastInitialDataId = useRef<string | null>(null);
 
+  // Hydrate once per source, not once per keystroke.
+  //
+  // This effect used to depend on `source` — every form value — and re-parsed
+  // `initialData.sample` unconditionally on each run. Editing any connection
+  // field therefore did two wrong things at once: it re-parsed the whole sample
+  // (garbage on every keypress), and it put back the sample that `updateConfig`
+  // had just cleared on purpose. The user changed the host and the field
+  // explorer went on showing columns from the old one.
+  //
+  // `initialData` is the only real input here. The form's current values are
+  // read through the ref-stable `form` handle inside the branch instead.
   useEffect(() => {
-    if (initialData) {
-      if (lastInitialDataId.current !== (initialData.id || 'new')) {
-        const newValues = {
-          ...source,
-          ...initialData,
-          config: {
-            ...(source.config || {}),
-            ...(initialData.config || {}),
-            reconnect_intervals: initialData.config?.reconnect_intervals || initialData.config?.reconnect_interval || source.config?.reconnect_intervals || '30s',
-          }
-        };
-        form.reset(newValues);
-        lastInitialDataId.current = initialData.id || 'new';
-      }
-      if (initialData.sample) {
-        try {
-          setSampleData(JSON.parse(initialData.sample));
-        } catch (e) {
-          console.error("Failed to parse sample data", e);
-        }
+    if (!initialData) return;
+
+    const incomingId = initialData.id || 'new';
+    if (lastInitialDataId.current === incomingId) return;
+    lastInitialDataId.current = incomingId;
+
+    const current = form.state.values;
+    form.reset({
+      ...current,
+      ...initialData,
+      config: {
+        ...(current.config || {}),
+        ...(initialData.config || {}),
+        reconnect_intervals:
+          initialData.config?.reconnect_intervals ||
+          initialData.config?.reconnect_interval ||
+          current.config?.reconnect_intervals ||
+          '30s',
+      },
+    } as any);
+
+    if (initialData.sample) {
+      try {
+        setSampleData(JSON.parse(initialData.sample));
+      } catch (e) {
+        console.error('Failed to parse sample data', e);
+        setSampleData(null);
       }
     }
-  }, [initialData, form, source]);
+  }, [initialData, form]);
 
   useEffect(() => {
     if (embedded) {

@@ -3,13 +3,13 @@ import {
   Container, Title, Button, Group, Table, ActionIcon, Text, Badge, Paper, 
   Stack, TextInput, Pagination, Tooltip, Modal, JsonInput, Select, Menu, Checkbox
 } from '@mantine/core';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { lazy, Suspense } from 'react'
 import { Link } from '@tanstack/react-router';
 import type { Workflow, Worker, Workspace } from '@/types';
 import { apiFetch } from '@/api';
 import { notifications } from '@mantine/notifications';
-import { useDisclosure } from '@mantine/hooks';
+import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import { useVHost } from '@/context/VHostContext';
 import { IconActivity, IconChevronDown, IconCopy, IconDownload, IconEdit, IconFolder, IconGitBranch, IconHierarchy, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconTrash, IconUpload } from '@tabler/icons-react';
 import { useConfirm } from '@/components/common/ConfirmProvider';
@@ -22,6 +22,9 @@ export default function WorkflowsPage() {
   const queryClient = useQueryClient();
   const { selectedVHost, availableVHosts } = useVHost();
   const [search, setSearch] = useState('');
+  // Debounced so a burst of keystrokes costs one request, and used as the query
+  // key so the key changes once per search rather than once per character.
+  const [debouncedSearch] = useDebouncedValue(search, 300);
   const [activePage, setPage] = useState(1);
   const itemsPerPage = 30;
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>('all');
@@ -39,9 +42,12 @@ export default function WorkflowsPage() {
   });
 
   const { data: workflowsResponse, isLoading } = useQuery<{ data: Workflow[], total: number }>({
-    queryKey: ['workflows', activePage, search, selectedVHost, selectedWorkspace],
+    queryKey: ['workflows', activePage, debouncedSearch, selectedVHost, selectedWorkspace],
+        // Hold the previous page/search on screen while the next one loads,
+        // instead of dropping to undefined and blanking the table.
+        placeholderData: keepPreviousData,
     queryFn: async () => {
-      let url = `${API_BASE}/workflows?page=${activePage}&limit=${itemsPerPage}&search=${search}&vhost=${selectedVHost}`;
+      let url = `${API_BASE}/workflows?page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(debouncedSearch)}&vhost=${selectedVHost}`;
       if (selectedWorkspace !== 'all') {
         url += `&workspace_id=${selectedWorkspace}`;
       }
@@ -61,7 +67,11 @@ export default function WorkflowsPage() {
   const workflows = workflowsResponse?.data || [];
   const totalItems = workflowsResponse?.total || 0;
   const workers = workersResponse?.data || [];
-  const workspaces = workspacesResponse || [];
+  // /api/workspaces answers with a bare array, but an error envelope or a future
+  // {data,total} shape would land here too and take the page down with an
+  // uncaught "workspaces.map is not a function". A workspace filter is not worth
+  // a blank screen.
+  const workspaces = Array.isArray(workspacesResponse) ? workspacesResponse : [];
 
   const workspaceOptions = [
     { value: 'all', label: 'All Workspaces' },

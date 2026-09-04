@@ -1,7 +1,8 @@
 import { IconEdit, IconSearch, IconShieldLock, IconShieldOff, IconTrash, IconUserPlus, IconUsers } from '@tabler/icons-react';
+import { useDebouncedValue } from '@mantine/hooks';
 import { useState } from 'react'
 import { Title, Table, Button, Group, ActionIcon, Box, Paper, Text, Stack, TextInput, Pagination, Badge } from '@mantine/core'
-import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api'
 import { useNavigate } from '@tanstack/react-router'
 import type { User } from '@/types'
@@ -12,13 +13,24 @@ export function UsersPage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
+  // Debounced so a burst of keystrokes costs one request, and used as the query
+  // key so the key changes once per search rather than once per character.
+  const [debouncedSearch] = useDebouncedValue(search, 300);
   const [activePage, setPage] = useState(1)
   const itemsPerPage = 30
 
-  const { data: usersResponse } = useSuspenseQuery<any>({
-    queryKey: ['users', activePage, search],
+  // `useQuery`, not `useSuspenseQuery`.
+  //
+  // A suspense query re-suspends whenever its key changes, so paging or
+  // searching threw the whole route back to the router's full-viewport spinner —
+  // header, search box and nav all gone — and suspense queries cannot take
+  // `placeholderData`. Reading it as a normal query lets the shell stay put and
+  // the previous rows stay on screen while the next page loads.
+  const { data: usersResponse, isPending } = useQuery<any>({
+    queryKey: ['users', activePage, debouncedSearch],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
-      const res = await apiFetch(`/api/users?page=${activePage}&limit=${itemsPerPage}&search=${search}`)
+      const res = await apiFetch(`/api/users?page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(debouncedSearch)}`)
       if (!res.ok) throw new Error('Failed to fetch users')
       return res.json()
     }
@@ -128,7 +140,13 @@ export function UsersPage() {
               {users.length === 0 && (
                 <Table.Tr>
                   <Table.Td colSpan={7} py="xl">
-                    <Text c="dimmed" ta="center">{search ? 'No users match your search' : 'No users found'}</Text>
+                    <Text c="dimmed" ta="center">
+                      {isPending
+                        ? 'Loading users…'
+                        : search
+                          ? 'No users match your search'
+                          : 'No users found'}
+                    </Text>
                   </Table.Td>
                 </Table.Tr>
               )}
