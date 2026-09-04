@@ -23,7 +23,7 @@ export function FormScriptSnippet({ path }: FormScriptSnippetProps) {
           Add this script to your website to capture form submissions automatically. 
           Ensure your form has <Code>{`data-hermod-form="${publicPath}"`}</Code> or <Code>{`id="hermod-${publicPath?.replace(/\//g, '-')}"`}</Code>.
         </Text>
-        <Code block style={{ fontSize: '11px' }}>{scriptTag}</Code>
+        <Code block style={{ fontSize: 'var(--mantine-font-size-xs)' }}>{scriptTag}</Code>
         <Button 
           variant="light" 
           size="xs" 

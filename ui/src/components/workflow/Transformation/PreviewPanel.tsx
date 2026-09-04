@@ -162,7 +162,7 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
               <Code
                 block
                 style={{
-                  fontSize: '11px',
+                  fontSize: 'var(--mantine-font-size-xs)',
                   background: 'transparent',
                   // Dim rather than blank: the reader keeps their place and the
                   // pane keeps its height while the next result arrives.
