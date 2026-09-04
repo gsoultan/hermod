@@ -793,7 +793,7 @@ end`}
                 value={columnFields}
                 onChange={replaceColumnFields}
                 minRows={10}
-                styles={{ input: { fontFamily: 'monospace', fontSize: '11px' } }}
+                styles={{ input: { fontFamily: 'monospace', fontSize: 'var(--mantine-font-size-xs)' } }}
                 description="Specify fields to set using 'column.path' format."
               />
             </>
@@ -812,7 +812,7 @@ end`}
                 styles={{ 
                   root: { flex: 1, display: 'flex', flexDirection: 'column' },
                   wrapper: { flex: 1, display: 'flex', flexDirection: 'column' },
-                  input: { flex: 1, fontFamily: 'monospace', fontSize: '11px' } 
+                  input: { flex: 1, fontFamily: 'monospace', fontSize: 'var(--mantine-font-size-xs)' } 
                 }}
                 description="List of transformation steps to execute in order."
               />
@@ -847,7 +847,7 @@ end`}
                 value={columnFields}
                 onChange={replaceColumnFields}
                 minRows={10}
-                styles={{ input: { fontFamily: 'monospace', fontSize: '11px' } }}
+                styles={{ input: { fontFamily: 'monospace', fontSize: 'var(--mantine-font-size-xs)' } }}
               />
               <Alert color="blue" py="xs" mt="md">
                 <Text size="xs" fw={700}>Supported operations:</Text>

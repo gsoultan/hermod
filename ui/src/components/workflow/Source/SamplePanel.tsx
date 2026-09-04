@@ -211,7 +211,7 @@ export const SamplePanel: FC<SamplePanelProps> = ({
               styles={{
                 root: { flex: 1, display: 'flex', flexDirection: 'column' },
                 wrapper: { flex: 1, display: 'flex', flexDirection: 'column' },
-                input: { flex: 1, fontFamily: 'monospace', fontSize: '11px', backgroundColor: 'var(--mantine-color-body)' }
+                input: { flex: 1, fontFamily: 'monospace', fontSize: 'var(--mantine-font-size-xs)', backgroundColor: 'var(--mantine-color-body)' }
               }}
             />
           </Stack>

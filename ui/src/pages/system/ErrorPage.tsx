@@ -57,7 +57,7 @@ export function ErrorPage({ error, reset }: ErrorPageProps) {
                 <Code block color="red.0" c="red.9" p="md" style={{ border: '1px solid var(--mantine-color-red-2)', borderRadius: 'var(--mantine-radius-md)' }}>
                   {error.name}: {error.message || 'Unknown error'}
                   {error.stack && (
-                    <Box mt="md" pt="md" style={{ borderTop: '1px solid var(--mantine-color-red-1)', opacity: 0.7, fontSize: '11px' }}>
+                    <Box mt="md" pt="md" style={{ borderTop: '1px solid var(--mantine-color-red-1)', opacity: 0.7, fontSize: 'var(--mantine-font-size-xs)' }}>
                       {error.stack.split('\n').slice(0, 5).join('\n')}
                     </Box>
                   )}

@@ -20,7 +20,7 @@ export function PipelineConfig({ config, updateNodeConfig, nodeId }: PipelineCon
         styles={{ 
           root: { flex: 1, display: 'flex', flexDirection: 'column' },
           wrapper: { flex: 1, display: 'flex', flexDirection: 'column' },
-          input: { flex: 1, fontFamily: 'monospace', fontSize: '11px' } 
+          input: { flex: 1, fontFamily: 'monospace', fontSize: 'var(--mantine-font-size-xs)' } 
         }}
         description="List of transformation steps to execute in order."
       />

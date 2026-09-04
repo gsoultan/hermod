@@ -83,7 +83,7 @@ export function AICopilot() {
           </Group>
           
           <ScrollArea h={200}>
-            <Code block style={{ fontSize: '11px', whiteSpace: 'pre-wrap' }}>
+            <Code block style={{ fontSize: 'var(--mantine-font-size-xs)', whiteSpace: 'pre-wrap' }}>
               {result.code}
             </Code>
           </ScrollArea>

@@ -631,7 +631,7 @@ export function SidebarDrawer({
                                   height: '150px',
                                   padding: '8px',
                                   fontFamily: 'monospace',
-                                  fontSize: '11px',
+                                  fontSize: 'var(--mantine-font-size-xs)',
                                   border: 'none',
                                   outline: 'none',
                                   resize: 'vertical',

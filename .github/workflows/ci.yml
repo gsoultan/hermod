@@ -260,6 +260,12 @@ jobs:
         run: bun run test
       - name: Build
         run: bun run build
+      # Fails if the login route's critical path outgrows its budget. The
+      # measured figure is ~754kB; one eager import of a page-only library or
+      # one manualChunks entry puts it back over 1MB, and nothing else here
+      # would notice. See ui/scripts/check-bundle-budget.mjs.
+      - name: Bundle budget
+        run: bun run budget
 
   e2e:
     name: E2E + layout audit
@@ -313,7 +319,8 @@ jobs:
             ui/__tests__/required_select_e2e.spec.ts \
             ui/__tests__/worker_e2e.spec.ts \
             ui/__tests__/no_token_in_storage_e2e.spec.ts \
-            ui/__tests__/stream_auth_e2e.spec.ts
+            ui/__tests__/stream_auth_e2e.spec.ts \
+            ui/__tests__/perf_guards_e2e.spec.ts
       - name: Stop Hermod
         if: always()
         run: ./scripts/dev.sh --stop

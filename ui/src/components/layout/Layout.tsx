@@ -184,40 +184,47 @@ export function Layout({ children }: LayoutProps) {
 
   const { selectedVHost, setSelectedVHost, availableVHosts, setAvailableVHosts } = useVHost();
 
-  useEffect(() => {
-    const fetchVHosts = async () => {
-      try {
-        const res = await apiFetch('/api/vhosts');
-        if (res.ok) {
-          const vhostsResponse = await res.json();
-          const vhosts = (vhostsResponse && Array.isArray(vhostsResponse.data)) ? vhostsResponse.data : [];
-          setAvailableVHosts(vhosts.map((v: any) => v.name).sort());
-        } else {
-            // Fallback to extraction if vhosts API fails or not allowed
-            const [sourcesRes, sinksRes] = await Promise.all([
-              apiFetch('/api/sources'),
-              apiFetch('/api/sinks')
-            ]);
-            const sourcesResponse = await sourcesRes.json();
-            const sinksResponse = await sinksRes.json();
-            const sources = sourcesResponse?.data || [];
-            const sinks = sinksResponse?.data || [];
-            
-            const vhosts = new Set<string>();
-            sources.forEach((s: any) => { if (s.vhost) vhosts.add(s.vhost) });
-            sinks.forEach((s: any) => { if (s.vhost) vhosts.add(s.vhost) });
-            
-            setAvailableVHosts(Array.from(vhosts).sort());
-        }
-      } catch (error) {
-        console.error('Failed to fetch vhosts', error);
+  // The vhost list behind the header picker, read through React Query.
+  //
+  // This was a bare async function inside an effect: no cancellation, so a
+  // route change mid-request threw "Failed to fetch" into the console and then
+  // set context state from a page the user had already left; and no cache, so
+  // every navigation refetched it. The query is cancelled with the route,
+  // cached for a minute, and deduped across renders.
+  const isPublicRoute = activePage === '/login' || activePage === '/setup' || activePage === '/forgot-password';
+  //
+  // Keyed under the ['vhosts'] family on purpose: VHostForm and VHostsPage
+  // invalidate ['vhosts'] after a create or delete, and invalidation matches by
+  // prefix, so this list refreshes with them. A key of its own would have left
+  // the header picker a minute behind a vhost the user had just created.
+  const { data: vhostNames } = useQuery({
+    queryKey: ['vhosts', 'names'],
+    enabled: !isPublicRoute,
+    staleTime: 60_000,
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch('/api/vhosts', { signal });
+      if (res.ok) {
+        const body = await res.json();
+        const list = body && Array.isArray(body.data) ? body.data : [];
+        return list.map((v: any) => String(v.name)).sort();
       }
-    };
+      // Not permitted to list vhosts: derive them from what this user can see.
+      const [sourcesRes, sinksRes] = await Promise.all([
+        apiFetch('/api/sources', { signal }),
+        apiFetch('/api/sinks', { signal }),
+      ]);
+      const sources = (await sourcesRes.json())?.data || [];
+      const sinks = (await sinksRes.json())?.data || [];
+      const names = new Set<string>();
+      for (const s of sources) if (s.vhost) names.add(s.vhost);
+      for (const s of sinks) if (s.vhost) names.add(s.vhost);
+      return Array.from(names).sort();
+    },
+  });
 
-    if (activePage !== '/login' && activePage !== '/setup' && activePage !== '/forgot-password') {
-      fetchVHosts();
-    }
-  }, [activePage, setAvailableVHosts]);
+  useEffect(() => {
+    if (vhostNames) setAvailableVHosts(vhostNames);
+  }, [vhostNames, setAvailableVHosts]);
 
   if (activePage === '/setup' || activePage === '/login' || activePage === '/forgot-password') {
     return <main>{children}</main>;
