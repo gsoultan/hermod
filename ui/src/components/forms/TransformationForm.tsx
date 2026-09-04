@@ -217,12 +217,12 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
   // Helper for Validator Rules
 
   const renderPathHelp = () => (
-    <Card withBorder padding="xs" radius="md">
-      <Group gap="xs" mb={4}>
+    <Card withBorder padding="md" radius="md">
+      <Group gap="xs" mb="sm">
         <IconInfoCircle size="1rem" color="var(--mantine-color-blue-filled)" />
         <Text size="xs" fw={700}>Data Access Guide</Text>
       </Group>
-      <Stack gap={4}>
+      <Stack gap="xs">
         <Text size="xs">• Nested: <Code>user.profile.name</Code></Text>
         <Text size="xs">• Arrays: <Code>items.0.id</Code></Text>
         <Text size="xs">• Reference: prefix with <Code>source.</Code></Text>
@@ -251,8 +251,8 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     const filtered = functions.filter(f => f.name.toLowerCase().includes(search.toLowerCase()) || f.desc.toLowerCase().includes(search.toLowerCase()));
 
     return (
-      <Card withBorder padding="xs" radius="md">
-        <Group gap="xs" mb="xs">
+      <Card withBorder padding="md" radius="md">
+        <Group gap="xs" mb="sm">
           <IconFunction size="1rem" color="var(--mantine-color-orange-6)" />
           <Text size="xs" fw={700}>FUNCTION LIBRARY</Text>
         </Group>
@@ -265,9 +265,9 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
           onChange={(e) => setSearch(e.target.value)}
         />
         <ScrollArea h={200} type="auto">
-          <Stack gap={4}>
+          <Stack gap="xs">
             {filtered.map(f => (
-              <Box key={f.name} p={6} style={{ borderRadius: 4, background: 'var(--mantine-color-orange-light)', border: '1px solid var(--mantine-color-orange-light-color)', cursor: 'pointer' }} onClick={() => onInsertExample(f.example)}>
+              <Box key={f.name} p="xs" style={{ borderRadius: 4, background: 'var(--mantine-color-orange-light)', border: '1px solid var(--mantine-color-orange-light-color)', cursor: 'pointer' }} onClick={() => onInsertExample(f.example)}>
                 <Group justify="space-between">
                   <Text size="xs" fw={700} c="var(--mantine-color-orange-light-color)">{f.name}</Text>
                   <ActionIcon size="xs" variant="subtle" color="orange">
@@ -335,7 +335,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     <Grid gap="lg" style={{ minHeight: 'calc(100vh - 180px)' }}>
       {/* Column 1: Source Data */}
       <Grid.Col span={{ base: 12, md: 4, lg: 3 }}>
-        <Stack gap="md" h="100%">
+        <Stack gap="lg" h="100%">
           <Group justify="space-between" px="xs">
             <Group gap="xs">
                <IconDatabase size="1.2rem" color="var(--mantine-color-blue-6)" />
@@ -346,8 +346,8 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
           
           {renderPathHelp()}
 
-          <Card withBorder padding="xs" radius="md">
-            <Group justify="space-between" mb="xs">
+          <Card withBorder padding="md" radius="md">
+            <Group justify="space-between" mb="sm">
               <Group gap="xs">
                 <IconList size="1rem" color="var(--mantine-color-gray-6)" />
                 <Text size="xs" fw={700}>AVAILABLE FIELDS</Text>
@@ -370,8 +370,8 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             </Suspense>
           </Card>
 
-          <Card withBorder padding="xs" radius="md">
-            <Group justify="space-between" mb="xs">
+          <Card withBorder padding="md" radius="md">
+            <Group justify="space-between" mb="sm">
               <Group gap="xs">
                 <IconDatabase size="1rem" color="var(--mantine-color-green-6)" />
                 <Text size="xs" fw={700}>TARGET COLUMNS</Text>
@@ -404,8 +404,8 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
           {transType === 'advanced' && <FunctionLibrary />}
 
-          <Card withBorder padding="xs" radius="md" bg="var(--mantine-color-body)">
-             <Group gap="xs" mb={4}>
+          <Card withBorder padding="md" radius="md" bg="var(--mantine-color-body)">
+             <Group gap="xs" mb="sm">
                 <IconCode size="1rem" color="dimmed" />
                 <Text size="xs" fw={700} c="dimmed">RAW PAYLOAD</Text>
              </Group>
@@ -421,7 +421,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       {/* Column 2: Configuration */}
       <Grid.Col span={{ base: 12, md: 8, lg: 5 }}>
         <Card withBorder shadow="md" radius="md" p="md" h="100%" style={{ display: 'flex', flexDirection: 'column' }}>
-          <Stack gap="md" h="100%">
+          <Stack gap="lg" h="100%">
             <Group justify="space-between" px="xs">
               <Group gap="xs">
                 <IconSettings size="1.2rem" color="var(--mantine-color-blue-6)" />
@@ -484,7 +484,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
             <Box flex={1} style={{ overflow: 'hidden' }}>
               <ScrollArea h="100%" offsetScrollbars>
-                <Stack gap="md" py="xs">
+                <Stack gap="lg" py="md">
                   <Suspense fallback={null}>
                     <QuickActions onApplyTemplate={handleApplyTemplate} />
                   </Suspense>
@@ -670,7 +670,7 @@ end`}
           {transType === 'set' && (
             <>
               <Alert icon={<IconInfoCircle size="1rem" />} color="blue" variant="light" mb="sm">
-                <Stack gap={4}>
+                <Stack gap="xs">
                   <Text size="xs" fw={700}>How to fill from source:</Text>
                   <Text size="xs">1. Use the <Badge size="xs" variant="light">+ field</Badge> badges above for one-click field copying.</Text>
                   <Text size="xs">2. Or type <Code>source.path</Code> in the value field (e.g. <Code>source.id</Code>).</Text>
@@ -733,7 +733,7 @@ end`}
           {transType === 'advanced' && (
             <>
               <Alert icon={<IconInfoCircle size="1rem" />} color="blue" variant="light" mb="sm">
-                <Stack gap={4}>
+                <Stack gap="xs">
                   <Text size="xs" fw={700}>How to use advanced expressions:</Text>
                   <Text size="xs">1. Use format: <Code>operation(source.field)</Code> or <Code>operation("literal")</Code></Text>
                   <Text size="xs">2. Support nesting: <Code>upper(trim(source.name))</Code></Text>
