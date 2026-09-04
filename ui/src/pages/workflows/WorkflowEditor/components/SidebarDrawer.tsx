@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react';
 import { 
   Tabs, Stack, Group, Paper, Text, ScrollArea, Box, ThemeIcon, UnstyledButton, rem, Title, useMantineColorScheme,
   Select, Checkbox, NumberInput, TextInput, Alert, TagsInput, Divider, ActionIcon, SimpleGrid
@@ -11,10 +12,11 @@ import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWork
 import { CronInput } from '../../../../components/shared/CronInput';
 import { AICopilot } from '../../../../components/shared/AICopilot';
 import { NODE_CATEGORIES } from '../constants/nodeCategories';
+import { filterCategories, matchesQuery, countMatches } from '../utils/paletteSearch';
 import { 
   IconDatabase, IconTable, IconX, IconPlus,
   IconCloudUpload, IconRobot, IconPuzzle, IconSettingsAutomation, IconAdjustments, IconShieldLock,
-  IconInfoCircle, IconRefresh, IconFilter, IconTags
+  IconInfoCircle, IconRefresh, IconFilter, IconTags, IconSearch
 } from '@tabler/icons-react';
 interface SidebarDrawerProps {
   onDragStart: (event: any, nodeType: string, refId: string, label: string, subType: string, extraData?: any) => void;
@@ -77,6 +79,21 @@ export function SidebarDrawer({
 
   const nodeCategories = NODE_CATEGORIES;
 
+  // Palette search. Applies to the three tabs that list things to drag onto the
+  // canvas; the AI and Settings tabs have nothing to filter.
+  const [paletteSearch, setPaletteSearch] = useState('');
+  const isPaletteTab = (tab: string) => tab === 'sources' || tab === 'sinks' || tab === 'transformations';
+  const searchActive = paletteSearch.trim().length > 0;
+
+
+  // Saved sources and sinks are searched by the same rules as the built-in
+  // catalogue: a connection named "billing-prod" should be findable by name,
+  // and by the kind of thing it is.
+  const filterExisting = (rows: any[], kind: string) =>
+    (Array.isArray(rows) ? rows : []).filter((r) =>
+      matchesQuery({ label: r.name, subType: r.type, type: kind }, paletteSearch)
+    );
+
   const { colorScheme } = useMantineColorScheme();
   const isDark = colorScheme === 'dark';
 
@@ -97,6 +114,66 @@ export function SidebarDrawer({
       return allPlugins.filter((p: any) => p.installed);
     }
   });
+
+  // Counted across the whole tab, not just the built-in catalogue: a query
+  // matching only a saved connection must not report the tab as empty.
+  const matchCounts = useMemo(() => {
+    const base = countMatches(NODE_CATEGORIES, paletteSearch);
+    const matchingPlugins = (Array.isArray(plugins) ? plugins : []).filter((pl: any) =>
+      matchesQuery({ label: pl.name, description: pl.description, subType: pl.type }, paletteSearch)
+    ).length;
+    const named = (rows: any[], kind: string) =>
+      (Array.isArray(rows) ? rows : []).filter((r) =>
+        matchesQuery({ label: r.name, subType: r.type, type: kind }, paletteSearch)
+      ).length;
+    return {
+      transformations: base.transformations + matchingPlugins,
+      sources: base.sources + named(sources, 'source'),
+      sinks: base.sinks + named(sinks, 'sink'),
+    };
+  }, [paletteSearch, plugins, sources, sinks]);
+
+  const TAB_LABELS: Record<string, string> = {
+    sources: 'Sources', transformations: 'Transformations', sinks: 'Sinks',
+  };
+
+  // A tabbed palette hides matches by design. Showing nothing when the thing
+  // exists one tab over is the failure this avoids.
+  const renderNoMatches = (tab: 'sources' | 'sinks' | 'transformations') => {
+    // Mantine keeps every panel mounted, so without this the message renders
+    // three times over -- invisible in the inactive tabs, but really in the
+    // document, where a screen reader and a test both find it.
+    if (coercedTab !== tab) return null;
+    if (!searchActive || matchCounts[tab] > 0) return null;
+    const elsewhere = (['sources', 'transformations', 'sinks'] as const).filter(
+      (t) => t !== tab && matchCounts[t] > 0
+    );
+    return (
+      <Stack gap="xs" align="center" py="xl" px="md">
+        <Text size="sm" c="dimmed" ta="center">
+          Nothing here matches &ldquo;{paletteSearch}&rdquo;.
+        </Text>
+        {elsewhere.map((t) => {
+          // Transformations and Sinks stay locked until the workflow has a
+          // source, and switching to a locked tab silently bounces back here.
+          // Offering it as a link would be a button that does nothing; saying
+          // why is the answer the user actually needs.
+          const locked = t !== 'sources' && !hasSource;
+          return locked ? (
+            <Text key={t} size="xs" c="dimmed" ta="center">
+              {matchCounts[t]} in {TAB_LABELS[t]} &mdash; add a source first
+            </Text>
+          ) : (
+            <UnstyledButton key={t} onClick={() => setDrawerTab(t)}>
+              <Text size="xs" c="blue.5" fw={600}>
+                {matchCounts[t]} in {TAB_LABELS[t]} &rarr;
+              </Text>
+            </UnstyledButton>
+          );
+        })}
+      </Stack>
+    );
+  };
 
   const selectedDLQSink = (sinks || []).find(s => s.id === deadLetterSinkID);
   const dlqSupportsRecovery = selectedDLQSink && ['postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'mongodb', 'cassandra', 'sqlite', 'clickhouse', 'yugabyte', 'kafka', 'nats', 'rabbitmq', 'rabbitmq_queue', 'redis', 'pubsub', 'kinesis', 'pulsar', 'elasticsearch', 'discord', 'slack', 'twitter', 'facebook', 'instagram', 'linkedin', 'tiktok'].includes(selectedDLQSink.type);
@@ -207,18 +284,50 @@ export function SidebarDrawer({
             <Tabs.Tab value="settings" leftSection={<IconSettingsAutomation size="1rem" />} px="xs">Settings</Tabs.Tab>
           </Tabs.List>
 
+          {/* One box for whichever palette tab is open. It is not shown on AI
+              or Settings, which list nothing to filter. */}
+          {isPaletteTab(coercedTab) && (
+            <TextInput
+              mb="sm"
+              size="xs"
+              placeholder="Search sources, transformations and sinks..."
+              aria-label="Search the node palette"
+              leftSection={<IconSearch size="0.9rem" />}
+              value={paletteSearch}
+              onChange={(e) => setPaletteSearch(e.currentTarget.value)}
+              rightSection={
+                searchActive ? (
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    aria-label="Clear search"
+                    onClick={() => setPaletteSearch('')}
+                  >
+                    <IconX size="0.8rem" />
+                  </ActionIcon>
+                ) : null
+              }
+            />
+          )}
+
           <Box style={{ flex: 1, overflow: 'hidden' }}>
             <Tabs.Panel value="transformations" h="100%">
               <ScrollArea h="100%" offsetScrollbars type="always" px="xs">
                 <Stack gap="lg" py="xs">
-                  {plugins && plugins.length > 0 && (
+                  {renderNoMatches('transformations')}
+                  {plugins && plugins.length > 0 && (Array.isArray(plugins) ? plugins : [])
+                    .filter(pl => matchesQuery({ label: pl.name, description: pl.description, subType: pl.type }, paletteSearch))
+                    .length > 0 && (
                     <Paper withBorder p="xs" radius="md" bg={isDark ? 'dark.8' : 'indigo.0'}>
                       <Group gap="xs" px="xs" mb="xs">
                         <IconPuzzle size="1rem" color="var(--mantine-color-indigo-6)" />
                         <Text size="xs" fw={800} c="indigo.7" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Installed Plugins</Text>
                       </Group>
                       <Stack gap={2}>
-                        {(Array.isArray(plugins) ? plugins : []).map(plugin => renderDraggableItem({
+                        {(Array.isArray(plugins) ? plugins : [])
+                          .filter(pl => matchesQuery({ label: pl.name, description: pl.description, subType: pl.type }, paletteSearch))
+                          .map(plugin => renderDraggableItem({
                           type: plugin.type.toLowerCase() === 'connector' ? 'sink' : 'transformation',
                           refId: 'new',
                           label: plugin.name,
@@ -232,7 +341,7 @@ export function SidebarDrawer({
                     </Paper>
                   )}
 
-                  {nodeCategories.map((cat) => (
+                  {filterCategories(nodeCategories, paletteSearch).map((cat) => (
                     <Paper key={cat.title} withBorder p="xs" radius="md" bg="var(--mantine-color-body)">
                       <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>{cat.title}</Text>
                       <Stack gap={2}>
@@ -247,7 +356,8 @@ export function SidebarDrawer({
             <Tabs.Panel value="sources" h="100%">
               <ScrollArea h="100%" offsetScrollbars type="always" px="xs">
                 <Stack gap="lg" py="xs">
-                  {NODE_CATEGORIES.filter(cat => cat.group === 'sources').map((cat) => {
+                  {renderNoMatches('sources')}
+                  {filterCategories(NODE_CATEGORIES.filter(cat => cat.group === 'sources'), paletteSearch).map((cat) => {
                     const FirstIcon = cat.items[0]?.icon;
                     return (
                       <Paper key={cat.title} withBorder p="xs" radius="md" bg={isDark ? 'dark.7' : 'blue.0'}>
@@ -262,10 +372,14 @@ export function SidebarDrawer({
                     );
                   })}
                   
+                  {/* A heading with nothing under it reads as a broken list. When a
+                      search is running and none of the saved connections match, the
+                      whole block goes rather than leaving the label stranded. */}
+                  {(!searchActive || filterExisting(sources, 'source').length > 0) && (
                   <Box>
                     <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Existing Sources</Text>
                     <Stack gap={2}>
-                      {(Array.isArray(sources) ? sources : []).map(s => renderDraggableItem({
+                      {filterExisting(sources, 'source').map(s => renderDraggableItem({
                         type: 'source',
                         refId: s.id,
                         label: s.name,
@@ -275,6 +389,7 @@ export function SidebarDrawer({
                       }))}
                     </Stack>
                   </Box>
+                  )}
                 </Stack>
               </ScrollArea>
             </Tabs.Panel>
@@ -282,7 +397,8 @@ export function SidebarDrawer({
             <Tabs.Panel value="sinks" h="100%">
               <ScrollArea h="100%" offsetScrollbars type="always" px="xs">
                 <Stack gap="lg" py="xs">
-                  {NODE_CATEGORIES.filter(cat => cat.group === 'sinks').map((cat) => {
+                  {renderNoMatches('sinks')}
+                  {filterCategories(NODE_CATEGORIES.filter(cat => cat.group === 'sinks'), paletteSearch).map((cat) => {
                     const FirstIcon = cat.items[0]?.icon;
                     return (
                       <Paper key={cat.title} withBorder p="xs" radius="md" bg={isDark ? 'dark.7' : 'green.0'}>
@@ -297,10 +413,14 @@ export function SidebarDrawer({
                     );
                   })}
 
+                  {/* A heading with nothing under it reads as a broken list. When a
+                      search is running and none of the saved connections match, the
+                      whole block goes rather than leaving the label stranded. */}
+                  {(!searchActive || filterExisting(sinks, 'sink').length > 0) && (
                   <Box>
                     <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>Existing Sinks</Text>
                     <Stack gap={2}>
-                      {(Array.isArray(sinks) ? sinks : []).map(s => renderDraggableItem({
+                      {filterExisting(sinks, 'sink').map(s => renderDraggableItem({
                         type: 'sink',
                         refId: s.id,
                         label: s.name,
@@ -310,6 +430,7 @@ export function SidebarDrawer({
                       }))}
                     </Stack>
                   </Box>
+                  )}
                 </Stack>
               </ScrollArea>
             </Tabs.Panel>

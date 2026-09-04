@@ -306,6 +306,7 @@ jobs:
             ui/__tests__/canvas_area_e2e.spec.ts \
             ui/__tests__/form_audit.spec.ts \
             ui/__tests__/transform_drawer_audit.spec.ts \
+            ui/__tests__/palette_search_e2e.spec.ts \
             ui/__tests__/core_scenarios_e2e.spec.ts \
             ui/__tests__/multi_pipeline_editor_e2e.spec.ts \
             ui/__tests__/workflow_surface_e2e.spec.ts \
