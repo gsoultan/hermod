@@ -96,14 +96,27 @@ export function useSettingsController() {
     () => ({ dbType, dbConn, logDbType, logDbConn, secretType, vaultAddr, vaultToken, vaultMount, baoAddr, baoToken, baoMount, awsRegion, azureUrl, envPrefix, cryptoKey, stateType, statePath, stateAddr, statePass, stateDB, statePrefix, otlpEndpoint, otlpServiceName, otlpInsecure, fileStorageType, localDir, maxWorkflows, maxCPU, maxMemory, maxThroughput, notifSettings }),
     [dbType, dbConn, logDbType, logDbConn, secretType, vaultAddr, vaultToken, vaultMount, baoAddr, baoToken, baoMount, awsRegion, azureUrl, envPrefix, cryptoKey, stateType, statePath, stateAddr, statePass, stateDB, statePrefix, otlpEndpoint, otlpServiceName, otlpInsecure, fileStorageType, localDir, maxWorkflows, maxCPU, maxMemory, maxThroughput, notifSettings],
   );
+  // Latest snapshot for the save handlers' onSuccess callbacks, which run after
+  // commit — so assigning in an effect is current by the time they read it.
+  // Assigning during render, as this used to, is unsafe under concurrent
+  // rendering: a render React discards would still have mutated the ref.
   const formSnapshotRef = useRef(formSnapshot);
-  formSnapshotRef.current = formSnapshot;
-  const savedSnapshot = useRef<string | null>(null);
+  useEffect(() => {
+    formSnapshotRef.current = formSnapshot;
+  }, [formSnapshot]);
+
+  // The saved baseline is state, not a ref: it is read during render to decide
+  // whether to warn on navigation, and a ref read in render does not re-render
+  // when it changes — this only worked because typing happened to re-render.
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
   useEffect(() => {
     // Establish the baseline once the loaded config has populated the fields.
-    if (savedSnapshot.current === null) savedSnapshot.current = JSON.stringify(formSnapshot);
+    setSavedSnapshot((prev) => prev ?? JSON.stringify(formSnapshot));
   }, [formSnapshot]);
-  const hasUnsavedChanges = savedSnapshot.current !== null && isDirty(formSnapshot, JSON.parse(savedSnapshot.current));
+  const hasUnsavedChanges = useMemo(
+    () => savedSnapshot !== null && isDirty(formSnapshot, JSON.parse(savedSnapshot)),
+    [formSnapshot, savedSnapshot],
+  );
   useUnsavedChanges(hasUnsavedChanges);
 
   const { data: workspaces } = useQuery<any[]>({
@@ -132,7 +145,7 @@ export function useSettingsController() {
       return res.json()
     },
     onSuccess: () => {
-      savedSnapshot.current = JSON.stringify(formSnapshotRef.current);
+      setSavedSnapshot(JSON.stringify(formSnapshotRef.current));
       queryClient.invalidateQueries({ queryKey: ['workspaces'] })
       notifications.show({ id: 'ws-created', title: 'Success', message: 'Workspace created', color: 'green' })
       closeWSModal()
@@ -154,7 +167,7 @@ export function useSettingsController() {
       if (!res.ok) throw new Error('Failed to delete workspace')
     },
     onSuccess: () => {
-      savedSnapshot.current = JSON.stringify(formSnapshotRef.current);
+      setSavedSnapshot(JSON.stringify(formSnapshotRef.current));
       queryClient.invalidateQueries({ queryKey: ['workspaces'] })
       notifications.show({ id: 'ws-deleted', title: 'Success', message: 'Workspace deleted', color: 'green' })
     },
@@ -207,7 +220,7 @@ export function useSettingsController() {
       if (!res.ok) throw new Error('Failed to update file storage config')
     },
     onSuccess: () => {
-      savedSnapshot.current = JSON.stringify(formSnapshotRef.current);
+      setSavedSnapshot(JSON.stringify(formSnapshotRef.current));
       notifications.show({ id: 'storage-saved', title: 'Success', message: 'File storage configuration updated', color: 'green' })
       queryClient.invalidateQueries({ queryKey: ['file-storage-config'] })
     },
@@ -233,7 +246,7 @@ export function useSettingsController() {
       return response.json()
     },
     onSuccess: () => {
-      savedSnapshot.current = JSON.stringify(formSnapshotRef.current);
+      setSavedSnapshot(JSON.stringify(formSnapshotRef.current));
       setMessage({ type: 'success', text: 'Configuration saved. Please restart the application for changes to take effect.' })
     },
     onError: (err) => {
@@ -252,7 +265,7 @@ export function useSettingsController() {
       if (!response.ok) throw new Error('Failed to save secret manager configuration')
     },
     onSuccess: () => {
-      savedSnapshot.current = JSON.stringify(formSnapshotRef.current);
+      setSavedSnapshot(JSON.stringify(formSnapshotRef.current));
       notifications.show({ id: 'secrets-saved', title: 'Success', message: 'Secret Manager configuration updated', color: 'green' })
     },
     onError: (err) => {
@@ -274,7 +287,7 @@ export function useSettingsController() {
       }
     },
     onSuccess: () => {
-      savedSnapshot.current = JSON.stringify(formSnapshotRef.current);
+      setSavedSnapshot(JSON.stringify(formSnapshotRef.current));
       notifications.show({ id: 'crypto-saved', title: 'Success', message: 'Encryption key updated and rotated in-memory', color: 'green' })
       setCryptoKey('')
     },
@@ -294,7 +307,7 @@ export function useSettingsController() {
       if (!response.ok) throw new Error('Failed to save state store configuration')
     },
     onSuccess: () => {
-      savedSnapshot.current = JSON.stringify(formSnapshotRef.current);
+      setSavedSnapshot(JSON.stringify(formSnapshotRef.current));
       notifications.show({ id: 'state-store-saved', title: 'Success', message: 'Global State Store configuration updated', color: 'green' })
     },
     onError: (err) => {
@@ -313,7 +326,7 @@ export function useSettingsController() {
       if (!response.ok) throw new Error('Failed to save OTLP configuration')
     },
     onSuccess: () => {
-      savedSnapshot.current = JSON.stringify(formSnapshotRef.current);
+      setSavedSnapshot(JSON.stringify(formSnapshotRef.current));
       notifications.show({ id: 'otlp-saved', title: 'Success', message: 'OTLP configuration updated. Please restart Hermod for changes to take effect.', color: 'green' })
     },
     onError: (err) => {
@@ -332,7 +345,7 @@ export function useSettingsController() {
       if (!res.ok) throw new Error('Failed to save notification settings')
     },
     onSuccess: () => {
-      savedSnapshot.current = JSON.stringify(formSnapshotRef.current);
+      setSavedSnapshot(JSON.stringify(formSnapshotRef.current));
       notifications.show({ id: 'notif-settings-saved', title: 'Success', message: 'Notification settings updated', color: 'green' })
     },
     onError: (err) => {
@@ -446,7 +459,7 @@ export function useSettingsController() {
         if (typeof data.conn === 'string') setDbConn(data.conn)
         if (data.log_type) setLogDbType(data.log_type)
         if (typeof data.log_conn === 'string') setLogDbConn(data.log_conn)
-      } catch (_) {
+      } catch {
         // ignore
       }
     })()
@@ -472,7 +485,7 @@ export function useSettingsController() {
         if (data.aws) setAwsRegion(data.aws.region || '')
         if (data.azure) setAzureUrl(data.azure.vault_url || '')
         if (data.env) setEnvPrefix(data.env.prefix || '')
-      } catch (_) {
+      } catch {
         // ignore
       }
     })()
@@ -490,7 +503,7 @@ export function useSettingsController() {
         if (data.password) setStatePass(data.password)
         if (data.db) setStateDB(data.db)
         if (data.prefix) setStatePrefix(data.prefix)
-      } catch (_) {
+      } catch {
         // ignore
       }
     })()
@@ -507,7 +520,7 @@ export function useSettingsController() {
           setOtlpServiceName(data.otlp.service_name || 'hermod')
           setOtlpInsecure(!!data.otlp.insecure)
         }
-      } catch (_) {
+      } catch {
         // ignore
       }
     })()
@@ -520,7 +533,7 @@ export function useSettingsController() {
         const data = await res.json()
         if (aborted) return
         setNotifSettings(prev => ({ ...prev, ...data }))
-      } catch (_) {
+      } catch {
         // ignore
       }
     })()
@@ -539,7 +552,7 @@ export function useSettingsController() {
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
-    } catch (err) {
+    } catch {
       notifications.show({ title: 'Export Failed', message: 'Failed to download backup', color: 'red' });
     }
   };
@@ -562,7 +575,7 @@ export function useSettingsController() {
         } else {
           throw new Error('Import failed');
         }
-      } catch (err) {
+      } catch {
         notifications.show({ title: 'Import Failed', message: 'Failed to upload or parse backup', color: 'red' });
       }
     };

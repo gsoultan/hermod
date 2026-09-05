@@ -1,6 +1,8 @@
-import { Stack, Alert, Text } from '@mantine/core';
+import { Stack, Alert, Text, Divider } from '@mantine/core';
 import { IconInfoCircle } from '@tabler/icons-react';
 import { Suspense, lazy } from 'react';
+import { JsonObjectInput } from '@/components/common/JsonObjectInput';
+import { useColumnFields } from '@/components/common/useColumnFields';
 
 const SetFieldEditor = lazy(() =>
   import('../../SetFieldEditor').then((m) => ({ default: m.SetFieldEditor }))
@@ -18,6 +20,7 @@ interface AdvancedConfigProps {
 }
 
 export function AdvancedConfig({ config, updateNodeConfig, nodeId, availableFields, incomingPayload, transType, onAddFromSource, addField }: AdvancedConfigProps) {
+  const { columnFields, replaceColumnFields } = useColumnFields(config, nodeId, updateNodeConfig);
   return (
     <Stack gap="md">
       <Alert icon={<IconInfoCircle size="1rem" />} color="blue">
@@ -34,6 +37,17 @@ export function AdvancedConfig({ config, updateNodeConfig, nodeId, availableFiel
           addField={addField}
         />
       </Suspense>
+      {/* Moved here from TransformationForm's inline block when the duplicate
+          config panes were removed; this is the only raw-JSON editor now. */}
+      <Divider label="Raw JSON" labelPosition="center" />
+      <JsonObjectInput
+        label="Config (JSON)"
+        placeholder='{"column.user.name": "lower(source.user.name)"}'
+        value={columnFields}
+        onChange={replaceColumnFields}
+        minRows={8}
+        styles={{ input: { fontFamily: 'monospace', fontSize: 'var(--mantine-font-size-xs)' } }}
+      />
     </Stack>
   );
 }

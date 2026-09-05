@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { 
   Modal, Button, Stack, Text, Group, ThemeIcon, 
   Paper, Loader, Alert
-} from '@mantine/core';import { notifications } from '@mantine/notifications';
-import { apiFetch } from '../../../../api';import { IconCheck, IconSettings, IconSparkles } from '@tabler/icons-react';
+} from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import { apiFetch } from '../../../../api';
+import { IconCheck, IconSettings, IconSparkles } from '@tabler/icons-react';
 export function AIFixModal({ data, opened, onClose }: { 
   data: any, 
   opened: boolean, 
@@ -28,7 +30,7 @@ export function AIFixModal({ data, opened, onClose }: {
       if (res.ok) {
         setSuggestion(await res.json());
       }
-    } catch (e) {}
+    } catch {}
     finally {
       setLoading(false);
     }

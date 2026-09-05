@@ -149,7 +149,7 @@ export function UnitTestForm({ workflowId, nodeId, tests = [], onChange }: UnitT
                       placeholder="{}" 
                       value={typeof test.input === 'string' ? test.input : JSON.stringify(test.input, null, 2)}
                       onChange={(val) => {
-                        try { updateTest(index, 'input', JSON.parse(val)) } catch(e) { updateTest(index, 'input', val) }
+                        try { updateTest(index, 'input', JSON.parse(val)) } catch { updateTest(index, 'input', val) }
                       }}
                       minRows={4}
                       size="xs"
@@ -160,7 +160,7 @@ export function UnitTestForm({ workflowId, nodeId, tests = [], onChange }: UnitT
                       placeholder="{}" 
                       value={typeof test.expected_output === 'string' ? test.expected_output : JSON.stringify(test.expected_output, null, 2)}
                       onChange={(val) => {
-                        try { updateTest(index, 'expected_output', JSON.parse(val)) } catch(e) { updateTest(index, 'expected_output', val) }
+                        try { updateTest(index, 'expected_output', JSON.parse(val)) } catch { updateTest(index, 'expected_output', val) }
                       }}
                       minRows={4}
                       size="xs"

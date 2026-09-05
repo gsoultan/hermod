@@ -86,7 +86,7 @@ export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: b
             return { logs: [log, ...state.logs].slice(0, 100) };
           }
         });
-      } catch (e) {
+      } catch {
         // Ignore malformed log frames.
       }
     };
@@ -171,7 +171,7 @@ export function useWorkflowWebSockets(id: string, active: boolean, logsPaused: b
             }
           }
         });
-      } catch (e) {
+      } catch {
         // Ignore malformed status frames.
       }
     };

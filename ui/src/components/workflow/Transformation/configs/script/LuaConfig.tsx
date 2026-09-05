@@ -31,6 +31,7 @@ export function LuaConfig({ config, updateNodeConfig, nodeId }: LuaConfigProps) 
             </Group>
          </Box>
          <Textarea
+            label="Lua Script"
             placeholder="function transform(msg) ... end"
             value={config.script || ''}
             onChange={(e: any) => updateNodeConfig(nodeId, { script: e.target.value })}

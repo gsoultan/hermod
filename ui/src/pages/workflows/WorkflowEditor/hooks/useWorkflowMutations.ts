@@ -30,7 +30,7 @@ export function useWorkflowMutations(
       if (!msg) {
         try {
           msg = JSON.parse(s.testInput);
-        } catch (e) {
+        } catch {
           throw new Error('Invalid JSON in Input Message');
         }
       }
@@ -224,7 +224,7 @@ export function useWorkflowMutations(
     if (!input && selectedNode?.type === 'source') {
       const sourceData = sourcesData?.find((s: any) => s.id === selectedNode?.data.ref_id);
       if (sourceData?.sample) {
-        try { input = JSON.parse(sourceData.sample); } catch(e) {}
+        try { input = JSON.parse(sourceData.sample); } catch {}
       }
     }
     
@@ -233,13 +233,13 @@ export function useWorkflowMutations(
       if (firstSource) {
         const sourceData = sourcesData?.find((s: any) => s.id === firstSource.data.ref_id);
         if (sourceData?.sample) {
-          try { input = JSON.parse(sourceData.sample); } catch(e) {}
+          try { input = JSON.parse(sourceData.sample); } catch {}
         }
       }
     }
     
     if (!input && testInput && testInput !== '{\n  "payload": "test"\n}') {
-      try { input = JSON.parse(testInput); } catch(e) {}
+      try { input = JSON.parse(testInput); } catch {}
     }
 
     if (input) {
@@ -286,10 +286,10 @@ export function useWorkflowMutations(
             const sampleMsg = await res.json();
             if (sampleMsg && typeof sampleMsg === 'object') {
               if (typeof sampleMsg.after === 'string') {
-                try { sampleMsg.after = JSON.parse(sampleMsg.after); } catch (_) {}
+                try { sampleMsg.after = JSON.parse(sampleMsg.after); } catch {}
               }
               if (typeof sampleMsg.before === 'string') {
-                try { sampleMsg.before = JSON.parse(sampleMsg.before); } catch (_) {}
+                try { sampleMsg.before = JSON.parse(sampleMsg.before); } catch {}
               }
             }
 
@@ -310,7 +310,7 @@ export function useWorkflowMutations(
               autoClose: 2000
             });
           }
-        } catch (e: any) {
+        } catch {
           notifications.update({ 
             id: 'refresh-fields', 
             title: 'Refresh Partial', 

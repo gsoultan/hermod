@@ -20,7 +20,7 @@ export function BatchSQLSourceConfig({ config, updateConfig, allSources }: Batch
     try {
       const q = typeof config.queries === 'string' ? JSON.parse(config.queries) : config.queries;
       return Array.isArray(q) ? q : [config.queries].filter(Boolean);
-    } catch (e) {
+    } catch {
       return [config.queries].filter(Boolean);
     }
   })();

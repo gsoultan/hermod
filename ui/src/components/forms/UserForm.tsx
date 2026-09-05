@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button, Group, TextInput, Stack, PasswordInput, Select, MultiSelect, Switch, Paper, Text } from '@mantine/core';
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
@@ -36,8 +36,16 @@ export function UserForm({ initialData, isEditing = false }: UserFormProps) {
     two_factor_enabled: false
   });
 
+  // Hydrate once per record, keyed on its id rather than the object's identity.
+  // React Query hands the edit page a fresh object whenever the record
+  // refetches — after this form's own save, or when the list is invalidated —
+  // and an effect keyed on the object overwrote whatever had been typed since.
+  const hydratedFor = useRef<string | null>(null);
   useEffect(() => {
     if (initialData) {
+      const key = initialData.id || 'new';
+      if (hydratedFor.current === key) return;
+      hydratedFor.current = key;
       setUser({
         ...initialData,
         username: initialData.username || '',

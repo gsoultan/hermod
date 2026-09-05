@@ -80,7 +80,7 @@ const SwitchNodeImpl = ({ id, data, selected }: any) => {
   let cases: any[] = [];
   try {
     cases = typeof data.cases === 'string' ? JSON.parse(data.cases || '[]') : (data.cases || []);
-  } catch(e) {}
+  } catch {}
 
   return (
     <BaseNode id={id} type="Switch" color="orange" icon={IconGitBranch} data={data} selected={selected}>
@@ -120,7 +120,7 @@ const RouterNodeImpl = ({ id, data, selected }: any) => {
   let rules: any[] = [];
   try {
     rules = typeof data.rules === 'string' ? JSON.parse(data.rules || '[]') : (data.rules || []);
-  } catch(e) {}
+  } catch {}
 
   return (
     <BaseNode id={id} type="Router" color="indigo" icon={IconArrowsSplit} data={data} selected={selected}>
