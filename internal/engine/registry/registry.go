@@ -345,7 +345,15 @@ func (r *Registry) runStatusFlusher() {
 }
 
 func (r *Registry) flushStatsToStorage() {
-	if r.storage == nil {
+	// Read the field through the accessor, which holds the lock.
+	//
+	// This runs on a ticker, so it is concurrent with any request that swaps
+	// storage — changing the database from Settings, or completing first-run
+	// setup. Reading r.storage directly here was a data race against
+	// SetStorage, and taking the value once also means the whole flush uses one
+	// consistent store rather than possibly straddling a swap.
+	store := r.GetStorage()
+	if store == nil {
 		return
 	}
 
@@ -368,12 +376,12 @@ func (r *Registry) flushStatsToStorage() {
 		}
 
 		// Update stats in DB (fast path)
-		_ = r.storage.UpdateWorkflowStats(r.ctx, ae.workflow.ID, processed, errors, lag)
+		_ = store.UpdateWorkflowStats(r.ctx, ae.workflow.ID, processed, errors, lag)
 
 		// Also update status if it changed significantly (e.g. to/from error)
 		// We'll let the synchronous callback handle immediate status changes for notifications,
 		// but we ensure the DB is synced here too.
-		_ = r.storage.UpdateWorkflowStatus(r.ctx, ae.workflow.ID, status.EngineStatus)
+		_ = store.UpdateWorkflowStatus(r.ctx, ae.workflow.ID, status.EngineStatus)
 	}
 }
 
@@ -400,12 +408,17 @@ func (r *Registry) runRetentionPurge() {
 }
 
 func (r *Registry) purgeRetention() {
-	if r.storage == nil {
+	// Hourly ticker, so concurrent with any storage swap — see
+	// flushStatsToStorage. Both fields are read once, through their locking
+	// accessors.
+	store := r.GetStorage()
+	if store == nil {
 		return
 	}
+	logStore := r.GetLogStorage()
 
 	ctx := context.Background()
-	workflows, _, err := r.storage.ListWorkflows(ctx, storage.CommonFilter{Limit: 1000})
+	workflows, _, err := store.ListWorkflows(ctx, storage.CommonFilter{Limit: 1000})
 	if err != nil {
 		return
 	}
@@ -416,8 +429,8 @@ func (r *Registry) purgeRetention() {
 			duration, err := time.ParseDuration(wf.TraceRetention)
 			if err == nil {
 				before := time.Now().Add(-duration)
-				if r.logStorage != nil {
-					_ = r.logStorage.PurgeMessageTraces(ctx, before)
+				if logStore != nil {
+					_ = logStore.PurgeMessageTraces(ctx, before)
 				}
 			}
 		}
@@ -428,8 +441,8 @@ func (r *Registry) purgeRetention() {
 			duration, err := time.ParseDuration(wf.AuditRetention)
 			if err == nil {
 				before := time.Now().Add(-duration)
-				if r.logStorage != nil {
-					_ = r.logStorage.PurgeAuditLogs(ctx, before)
+				if logStore != nil {
+					_ = logStore.PurgeAuditLogs(ctx, before)
 				}
 			}
 		}
@@ -441,8 +454,8 @@ func (r *Registry) purgeRetention() {
 		}
 		if retentionDays > 0 {
 			before := time.Now().AddDate(0, 0, -retentionDays)
-			if r.logStorage != nil {
-				_ = r.logStorage.DeleteLogs(ctx, storage.LogFilter{
+			if logStore != nil {
+				_ = logStore.DeleteLogs(ctx, storage.LogFilter{
 					Until:      before,
 					WorkflowID: wf.ID,
 				})
@@ -451,8 +464,8 @@ func (r *Registry) purgeRetention() {
 	}
 
 	// Global purge for logs without workflow (system logs)
-	if r.logStorage != nil {
-		_ = r.logStorage.DeleteLogs(ctx, storage.LogFilter{
+	if logStore != nil {
+		_ = logStore.DeleteLogs(ctx, storage.LogFilter{
 			Until:           time.Now().AddDate(0, 0, -30),
 			WithoutWorkflow: true,
 		})
