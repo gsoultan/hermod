@@ -315,26 +315,21 @@ trap on_exit EXIT INT TERM
 
 # --- run ----------------------------------------------------------------------
 
-start_api() {
-  # HERMOD_ENV stays unset (development): the backend then serves from disk and
-  # does not try to use the embedded production bundle.
-  "$BIN" --mode=standalone --port="$API_PORT" --db-type="$DB_TYPE" --db-conn="$DB_CONN" \
-    >> "$LOG_DIR/backend.log" 2>&1 < /dev/null &
-  API_PID=$!
-
-  for _ in $(seq 1 60); do
-    curl -sf -o /dev/null "http://localhost:$API_PORT/livez" 2>/dev/null && break
-    curl -sf -o /dev/null "http://localhost:$API_PORT/setup" 2>/dev/null && break
-    kill -0 "$API_PID" 2>/dev/null || die "backend exited early — see $LOG_DIR/backend.log"
-    sleep 1
-  done
-  kill -0 "$API_PID" 2>/dev/null || die "backend exited early — see $LOG_DIR/backend.log"
-  ok "API up (pid $API_PID)"
-}
-
 say "Starting API + worker on :$API_PORT"
-: > "$LOG_DIR/backend.log"
-start_api
+# HERMOD_ENV stays unset (development): the backend then serves from disk and
+# does not try to use the embedded production bundle.
+"$BIN" --mode=standalone --port="$API_PORT" --db-type="$DB_TYPE" --db-conn="$DB_CONN" \
+  > "$LOG_DIR/backend.log" 2>&1 < /dev/null &
+API_PID=$!
+
+for _ in $(seq 1 60); do
+  curl -sf -o /dev/null "http://localhost:$API_PORT/livez" 2>/dev/null && break
+  curl -sf -o /dev/null "http://localhost:$API_PORT/setup" 2>/dev/null && break
+  kill -0 "$API_PID" 2>/dev/null || die "backend exited early — see $LOG_DIR/backend.log"
+  sleep 1
+done
+kill -0 "$API_PID" 2>/dev/null || die "backend exited early — see $LOG_DIR/backend.log"
+ok "API up (pid $API_PID)"
 
 # --- first-run setup ----------------------------------------------------------
 
@@ -348,17 +343,7 @@ SETUP_CODE="$(curl -s -o "$LOG_DIR/setup.json" -w '%{http_code}' \
   2>/dev/null || echo 000)"
 
 case "$SETUP_CODE" in
-  200) ok "created admin user '$ADMIN_USER'"
-       # The binary decides at startup whether to run the workflow engine
-       # (cmd/hermod/worker_util.go: shouldStartWorker needs configured &&
-       # userSetup), and completing setup over the API does not revisit that.
-       # Left as is, a freshly reset stack accepts workflows but cannot start
-       # any of them — every toggle fails with "registry storage is not
-       # initialized". Restart once so the engine actually comes up.
-       say "Restarting API so the workflow engine starts (first run only)"
-       kill "$API_PID" 2>/dev/null || true
-       wait "$API_PID" 2>/dev/null || true
-       start_api ;;
+  200) ok "created admin user '$ADMIN_USER'" ;;
   401) ok "already configured — existing admin kept" ;;
   *)   warn "setup returned HTTP $SETUP_CODE — see $LOG_DIR/setup.json"
        warn "you may need to finish setup at http://localhost:$UI_PORT/setup" ;;

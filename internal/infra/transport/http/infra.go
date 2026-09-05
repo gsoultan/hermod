@@ -1048,6 +1048,25 @@ func (h *InfraHandler) FinalizeInitialSetup(w http.ResponseWriter, r *http.Reque
 	h.LogStorage = newStore
 	h.StoreMu.Unlock()
 
+	// Hand the new storage to the engine as well as to the handler.
+	//
+	// A first run has no database, so main.go builds the registry with nil
+	// storage and does not start a worker (shouldStartWorker requires the
+	// install to be complete at process start). Swapping only h.Storage above
+	// left the registry holding nil: the install looked finished, the UI listed
+	// workflows, and every attempt to start one failed with "registry storage is
+	// not initialized" until somebody restarted the process. Nothing said so.
+	//
+	// The worker is nil on a first run — it is set here for the case where setup
+	// is re-run against an instance that already has one, and so that a future
+	// in-process worker start needs no change here.
+	if h.Registry != nil {
+		h.Registry.SetStorage(newStore)
+	}
+	if h.Worker != nil {
+		h.Worker.SetStorage(newStore)
+	}
+
 	// 3) Create first admin user
 	{
 		hashed, _ := bcrypt.GenerateFromPassword([]byte(req.Admin.Password), bcrypt.DefaultCost)
