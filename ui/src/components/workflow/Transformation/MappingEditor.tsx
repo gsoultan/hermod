@@ -51,7 +51,7 @@ export function MappingEditor({
     let mapping: Record<string, string> = {};
     try {
       mapping = JSON.parse(selectedNode.data.mapping || '{}');
-    } catch (e) {
+    } catch {
       return (
         <Text size="xs" c="red" fw={500}>
           Invalid JSON mapping. Use the raw editor below to fix.

@@ -21,7 +21,7 @@ self.onmessage = (e: MessageEvent<DiffRequest>) => {
     const result = getDiff(original as any, transformed as any);
     // eslint-disable-next-line no-restricted-globals
     (self as unknown as Worker).postMessage({ id, result } as DiffResponse);
-  } catch (err) {
+  } catch {
     // Fallback: just return the transformed value on any error
     // eslint-disable-next-line no-restricted-globals
     (self as unknown as Worker).postMessage({ id, result: transformed } as DiffResponse);

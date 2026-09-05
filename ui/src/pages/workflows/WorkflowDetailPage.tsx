@@ -794,7 +794,7 @@ export function WorkflowDetailPage() {
                       if (selectedLog.message.trim().startsWith('{') || selectedLog.message.trim().startsWith('[')) {
                         return JSON.stringify(JSON.parse(selectedLog.message), null, 2);
                       }
-                    } catch (e) {}
+                    } catch {}
                     return selectedLog.message;
                   })()}
                 </Code>

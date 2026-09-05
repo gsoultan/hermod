@@ -25,7 +25,7 @@ export const SnowflakeSinkConfig: FC<SnowflakeSinkConfigProps> = ({
   const mappings: ColumnMapping[] = (() => {
     try {
       return config.column_mappings ? JSON.parse(config.column_mappings) : [];
-    } catch (e) {
+    } catch {
       return [];
     }
   })();

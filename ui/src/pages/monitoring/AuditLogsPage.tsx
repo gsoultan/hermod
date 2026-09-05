@@ -218,7 +218,7 @@ export function AuditLogsPage() {
                       {(() => {
                         try {
                           return JSON.stringify(JSON.parse(selectedLog.payload), null, 2);
-                        } catch (e) {
+                        } catch {
                           return selectedLog.payload;
                         }
                       })()}

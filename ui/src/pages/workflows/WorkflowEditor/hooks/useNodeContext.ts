@@ -62,7 +62,7 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
               const sample = typeof rawSample === 'string' ? JSON.parse(rawSample) : rawSample;
               incomingPayload = preparePayload(sample);
               availableFields = getAllFieldsWithTypes(incomingPayload);
-            } catch (e) {}
+            } catch {}
           }
         }
       } else {
@@ -87,7 +87,7 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
               try {
                 const sample = typeof rawSample === 'string' ? JSON.parse(rawSample) : rawSample;
                 return preparePayload(sample);
-              } catch (e) {
+              } catch {
                 return null;
               }
             }
@@ -178,7 +178,7 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
             let steps = [];
             try {
               steps = typeof config.steps === 'string' ? JSON.parse(config.steps) : config.steps;
-            } catch (e) {}
+            } catch {}
             if (Array.isArray(steps)) {
               steps.forEach((s: any) => {
                 if (s.targetField) {

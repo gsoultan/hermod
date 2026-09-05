@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense, useMemo } from 'react';
 import { FormRow } from '@/components/common/FormRow';
-import { TextInput, Select, Stack, Alert, Divider, Text, Group, ActionIcon, Button, Code, List, Autocomplete, JsonInput, Badge, Grid, SimpleGrid, NumberInput, Card, ScrollArea, Box, Switch, Textarea, Modal, Loader, UnstyledButton, Tooltip as MantineTooltip } from '@mantine/core';
+import { TextInput, Select, Stack, Alert, Divider, Text, Group, ActionIcon, Button, Code, Badge, Grid, SimpleGrid, Card, ScrollArea, Box, Modal, Loader, UnstyledButton, Tooltip as MantineTooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
 import { usePreviewTransformation } from '../../pages/workflows/WorkflowEditor/hooks/usePreviewTransformation';
@@ -16,9 +16,6 @@ const FieldExplorer = lazy(() =>
 const TargetExplorer = lazy(() =>
   import('../workflow/Transformation/TargetExplorer').then((m) => ({ default: m.TargetExplorer }))
 );
-const SetFieldEditor = lazy(() =>
-  import('../workflow/Transformation/SetFieldEditor').then((m) => ({ default: m.SetFieldEditor }))
-);
 const QuickActions = lazy(() =>
   import('../workflow/Transformation/QuickActions').then((m) => ({ default: m.QuickActions }))
 );
@@ -26,10 +23,9 @@ const QuickActions = lazy(() =>
 // new component type every render, so React unmounts and remounts whatever it
 // wraps — here, the whole help modal, on every keystroke.
 const HelpContent = lazy(() => import('../workflow/Transformation/HelpContent'));
-import { IconArrowRight, IconCode, IconDatabase, IconFunction, IconHelpCircle, IconInfoCircle, IconList, IconPlus, IconPuzzle, IconRefresh, IconSearch, IconSettings, IconVariable } from '@tabler/icons-react';
+import { IconCode, IconDatabase, IconFunction, IconHelpCircle, IconInfoCircle, IconList, IconPlus, IconRefresh, IconSearch, IconSettings, IconVariable } from '@tabler/icons-react';
 import { preparePayload, getValByPath } from '@/utils/transformationUtils';
 import { guideFor } from '@/lib/transformationGuide';
-import { JsonObjectInput } from '@/components/common/JsonObjectInput';
 
 // How long to wait after the last edit before previewing. Short enough to feel
 // live, long enough that a burst of keystrokes costs one request.
@@ -133,28 +129,6 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
     [availableFields]
   );
 
-  // The `column.*` subset of the node config, which is what the raw-JSON panes
-  // edit. Derived once rather than re-serialised inside each pane's `value`.
-  const columnFields = useMemo(
-    () =>
-      Object.fromEntries(
-        Object.entries(selectedNode?.data ?? {}).filter(([k]) => k.startsWith('column.'))
-      ) as Record<string, unknown>,
-    [selectedNode?.data]
-  );
-
-  // Replaces every column.* key with what the editor parsed, leaving the rest of
-  // the node config untouched.
-  const replaceColumnFields = useCallback(
-    (next: Record<string, unknown>) => {
-      const rest = Object.fromEntries(
-        Object.entries(selectedNode?.data ?? {}).filter(([k]) => !k.startsWith('column.'))
-      );
-      updateNodeConfig(selectedNode.id, { ...rest, ...next }, true);
-    },
-    [selectedNode, updateNodeConfig]
-  );
-
   const [previewResult, setPreviewResult] = useState<any>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -205,8 +179,6 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
   const previewMutation = usePreviewTransformation();
 
   const transType = selectedNode?.data?.transType || selectedNode?.type || '';
-  const isForeach = transType === 'foreach' || transType === 'fanout';
-  const isAggregate = transType === 'aggregate' || transType === 'stateful';
 
   const { run: runPreviewRequest } = previewMutation;
 
@@ -303,7 +275,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
         conditions = typeof selectedNode.data.conditions === 'string' 
           ? JSON.parse(selectedNode.data.conditions || '[]')
           : (selectedNode.data.conditions || []);
-      } catch (e) { conditions = []; }
+      } catch { conditions = []; }
       
       const next = [...conditions, { field: path, operator: '=', value: '' }];
       updateNodeConfig(selectedNode.id, { conditions: JSON.stringify(next) });
@@ -593,293 +565,14 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                   <Divider label="Advanced" labelPosition="center" mt="xl" />
 
 
-          {isForeach && (
-            <>
-              <Autocomplete
-                label="Array Path"
-                placeholder="e.g. items"
-                data={fieldPaths || []}
-                value={selectedNode.data.arrayPath || ''}
-                onChange={(val) => updateNodeConfig(selectedNode.id, { arrayPath: val })}
-                description="Path to the array you want to fan out."
-              />
-              <TextInput
-                label="Result Field"
-                placeholder="_fanout"
-                value={selectedNode.data.resultField ?? '_fanout'}
-                onChange={(e) => updateNodeConfig(selectedNode.id, { resultField: e.target.value || '_fanout' })}
-                description="Where to store the expanded array on the message."
-              />
-              <TextInput
-                label="Item Path (optional)"
-                placeholder="e.g. product.id"
-                value={selectedNode.data.itemPath || ''}
-                onChange={(e) => updateNodeConfig(selectedNode.id, { itemPath: e.target.value })}
-                description="If items are objects, select a nested value for each item."
-              />
-              <TextInput
-                label="Index Field (optional)"
-                placeholder="e.g. _index"
-                value={selectedNode.data.indexField || ''}
-                onChange={(e) => updateNodeConfig(selectedNode.id, { indexField: e.target.value })}
-                description="If items are objects, also write their index to this field."
-              />
-              <NumberInput
-                label="Limit (optional)"
-                placeholder="0 (no limit)"
-                min={0}
-                value={Number.isFinite(Number(selectedNode.data.limit)) ? Number(selectedNode.data.limit) : 0}
-                onChange={(val) => updateNodeConfig(selectedNode.id, { limit: String(val ?? 0) })}
-              />
-              <Switch
-                label="Drop when empty"
-                checked={!!selectedNode.data.dropEmpty}
-                onChange={(e) => updateNodeConfig(selectedNode.id, { dropEmpty: e.currentTarget.checked })}
-              />
-              <Alert icon={<IconInfoCircle size="1rem" />} color="violet" py="xs">
-                <Text size="xs">Foreach/Fanout collects items from the given array and stores them under the Result Field. The preview shows this array directly.</Text>
-              </Alert>
-            </>
-          )}
-
-          {transType === 'lua' && (
-            <>
-              <Code block mb="xs">
-{`-- Lua Script Example
-function transform(msg)
-  msg.data["new_field"] = "from lua"
-  return msg
-end`}
-              </Code>
-              <Textarea 
-                label="Lua Script" 
-                placeholder="function transform(msg) ... end" 
-                value={selectedNode.data.script || ''} 
-                onChange={(e: any) => updateNodeConfig(selectedNode.id, { script: e.target.value })} 
-                minRows={15}
-                autosize
-                styles={{ input: { fontFamily: 'monospace' } }}
-              />
-              <Alert icon={<IconInfoCircle size="1rem" />} color="blue" py="xs">
-                <Text size="xs">Lua scripts must define a `transform(msg)` function that returns the modified message.</Text>
-              </Alert>
-            </>
-          )}
-
-          {transType === 'wasm' && (
-            <>
-              {selectedNode.data.pluginID && (
-                <Alert icon={<IconPuzzle size="1rem" />} color="indigo" mb="sm">
-                  <Text size="sm" fw={700}>Marketplace Plugin: {selectedNode.data.label}</Text>
-                  <Text size="xs">Using installed WASM binary for plugin <code>{selectedNode.data.pluginID}</code>. No manual upload or URL needed.</Text>
-                </Alert>
-              )}
-              <TextInput
-                label="WASM Function Name"
-                placeholder="transform"
-                value={selectedNode.data.function || 'transform'}
-                onChange={(e) => updateNodeConfig(selectedNode.id, { function: e.target.value })}
-                mb="sm"
-              />
-              {!selectedNode.data.pluginID && (
-                <Textarea
-                  label="WASM Binary (Base64 or URL)"
-                  placeholder="AGFzbQEAAAAB..."
-                  value={selectedNode.data.wasmBytes || ''}
-                  onChange={(e) => updateNodeConfig(selectedNode.id, { wasmBytes: e.target.value })}
-                  minRows={10}
-                  autosize
-                  styles={{ input: { fontFamily: 'monospace' } }}
-                />
-              )}
-              <Alert icon={<IconInfoCircle size="1rem" />} color="blue" py="xs">
-                <Text size="xs">WebAssembly module should use WASI for I/O (JSON via stdin/stdout) and export the specified function.</Text>
-              </Alert>
-            </>
-          )}
-
-          {isAggregate && (
-            <>
-              <Select 
-                label="Operation" 
-                data={[
-                  { label: 'Count', value: 'count' },
-                  { label: 'Sum', value: 'sum' },
-                  { label: 'Average', value: 'avg' },
-                ]} 
-                value={selectedNode.data.type || selectedNode.data.operation || 'count'} 
-                onChange={(val) => updateNodeConfig(selectedNode.id, { type: val, operation: val })} 
-              />
-              <Autocomplete 
-                label="Field to Aggregate" 
-                placeholder="e.g. amount" 
-                data={fieldPaths || []}
-                value={selectedNode.data.field || ''} 
-                onChange={(val) => updateNodeConfig(selectedNode.id, { field: val })} 
-                description="Supports nested objects and arrays."
-              />
-              <TextInput 
-                label="Group By Field" 
-                placeholder="e.g. customer_id" 
-                value={selectedNode.data.groupBy || ''} 
-                onChange={(e) => updateNodeConfig(selectedNode.id, { groupBy: e.target.value })} 
-              />
-              <TextInput 
-                label="Output Field" 
-                placeholder="e.g. total_amount" 
-                value={selectedNode.data.targetField || selectedNode.data.outputField || ''} 
-                onChange={(e) => updateNodeConfig(selectedNode.id, { targetField: e.target.value, outputField: e.target.value })} 
-              />
-              <Divider label="Windowing" labelPosition="center" />
-              <FormRow>
-                <Select
-                  label="Window Type"
-                  data={[
-                    { label: 'Session', value: 'session' },
-                    { label: 'Tumbling', value: 'tumbling' },
-                  ]}
-                  value={selectedNode.data.windowType || 'session'}
-                  onChange={(val) => updateNodeConfig(selectedNode.id, { windowType: val || 'session' })}
-                />
-                <TextInput
-                  label="Window Duration"
-                  placeholder="e.g. 5m, 1h"
-                  value={selectedNode.data.window || ''}
-                  onChange={(e) => updateNodeConfig(selectedNode.id, { window: e.target.value })}
-                />
-              </FormRow>
-              <Switch
-                label="Persistent State (Saves across restarts)"
-                checked={!!selectedNode.data.persistent}
-                onChange={(e) => updateNodeConfig(selectedNode.id, { persistent: e.currentTarget.checked })}
-                mt="xs"
-              />
-              <Alert icon={<IconInfoCircle size="1rem" />} color="cyan" py="xs" mt="md">
-                <Text size="xs">Aggregate nodes maintain internal state to summarize data over windows or groups.</Text>
-              </Alert>
-            </>
-          )}
-
-
-
-
-
-
-          {transType === 'set' && (
-            <>
-              <Alert icon={<IconInfoCircle size="1rem" />} color="blue" variant="light" mb="sm">
-                <Stack gap="xs">
-                  <Text size="xs" fw={700}>How to fill from source:</Text>
-                  <Text size="xs">1. Use the <Badge size="xs" variant="light">+ field</Badge> badges above for one-click field copying.</Text>
-                  <Text size="xs">2. Or type <Code>source.path</Code> in the value field (e.g. <Code>source.id</Code>).</Text>
-                  <Text size="xs">3. Use the <IconArrowRight size="0.8rem" /> icon in the value field to auto-fill <Code>source.path</Code>.</Text>
-                </Stack>
-              </Alert>
-              <Suspense fallback={<Text size="xs" c="dimmed">Loading field editor…</Text>}>
-                <SetFieldEditor
-                  selectedNode={selectedNode}
-                  updateNodeConfig={updateNodeConfig}
-                  availableFields={availableFields}
-                  incomingPayload={incomingPayload}
-                  transType={transType}
-                  onAddFromSource={addFromSource}
-                  addField={addField}
-                />
-              </Suspense>
-              <Divider label="Raw JSON" labelPosition="center" mt="md" />
-              <JsonObjectInput
-                label="Fields (JSON)"
-                placeholder='{"column.user.role": "admin", "column.status": 1}'
-                value={columnFields}
-                onChange={replaceColumnFields}
-                minRows={10}
-                styles={{ input: { fontFamily: 'monospace', fontSize: 'var(--mantine-font-size-xs)' } }}
-                description="Specify fields to set using 'column.path' format."
-              />
-            </>
-          )}
-
-          {transType === 'pipeline' && (
-            <Stack gap="xs" style={{ flex: 1 }}>
-              <Text size="sm" fw={500}>Steps</Text>
-              <JsonInput 
-                label="Steps (JSON Array)" 
-                placeholder='[{"transType": "mask", "field": "email", "maskType": "email"}, {"transType": "set", "column.processed": true}]' 
-                value={selectedNode.data.steps || '[]'} 
-                onChange={(val) => updateNodeConfig(selectedNode.id, { steps: val })} 
-                formatOnBlur
-                minRows={20}
-                styles={{ 
-                  root: { flex: 1, display: 'flex', flexDirection: 'column' },
-                  wrapper: { flex: 1, display: 'flex', flexDirection: 'column' },
-                  input: { flex: 1, fontFamily: 'monospace', fontSize: 'var(--mantine-font-size-xs)' } 
-                }}
-                description="List of transformation steps to execute in order."
-              />
-            </Stack>
-          )}
-
-          {transType === 'advanced' && (
-            <>
-              <Alert icon={<IconInfoCircle size="1rem" />} color="blue" variant="light" mb="sm">
-                <Stack gap="xs">
-                  <Text size="xs" fw={700}>How to use advanced expressions:</Text>
-                  <Text size="xs">1. Use format: <Code>operation(source.field)</Code> or <Code>operation("literal")</Code></Text>
-                  <Text size="xs">2. Support nesting: <Code>upper(trim(source.name))</Code></Text>
-                  <Text size="xs">3. Use <Code>source.path</Code> for input fields and quotes for strings.</Text>
-                </Stack>
-              </Alert>
-              <Suspense fallback={<Text size="xs" c="dimmed">Loading field editor…</Text>}>
-                <SetFieldEditor
-                  selectedNode={selectedNode}
-                  updateNodeConfig={updateNodeConfig}
-                  availableFields={availableFields}
-                  incomingPayload={incomingPayload}
-                  transType={transType}
-                  onAddFromSource={addFromSource}
-                  addField={addField}
-                />
-              </Suspense>
-              <Divider label="Raw JSON" labelPosition="center" mt="md" />
-              <JsonObjectInput
-                label="Config (JSON)"
-                placeholder='{"column.user.name": "lower(source.user.name)"}'
-                value={columnFields}
-                onChange={replaceColumnFields}
-                minRows={10}
-                styles={{ input: { fontFamily: 'monospace', fontSize: 'var(--mantine-font-size-xs)' } }}
-              />
-              <Alert color="blue" py="xs" mt="md">
-                <Text size="xs" fw={700}>Supported operations:</Text>
-                <Grid gap="xs">
-                  <Grid.Col span={4}>
-                    <List size="xs">
-                      <List.Item><Code>lower</Code>, <Code>upper</Code>, <Code>trim</Code></List.Item>
-                      <List.Item><Code>concat(a, b, ...)</Code></List.Item>
-                      <List.Item><Code>substring(s, start, [end])</Code></List.Item>
-                      <List.Item><Code>coalesce(a, b, ...)</Code></List.Item>
-                    </List>
-                  </Grid.Col>
-                  <Grid.Col span={4}>
-                    <List size="xs">
-                      <List.Item><Code>add</Code>, <Code>sub</Code>, <Code>mul</Code>, <Code>div</Code></List.Item>
-                      <List.Item><Code>abs(n)</Code>, <Code>round(n, [p])</Code></List.Item>
-                      <List.Item><Code>now()</Code>, <Code>hash(s, [a])</Code></List.Item>
-                      <List.Item><Code>if(cond, t, f)</Code></List.Item>
-                    </List>
-                  </Grid.Col>
-                  <Grid.Col span={4}>
-                    <List size="xs">
-                      <List.Item><Code>and</Code>, <Code>or</Code>, <Code>not</Code></List.Item>
-                      <List.Item><Code>eq</Code>, <Code>gt</Code>, <Code>lt</Code>, <Code>contains</Code></List.Item>
-                      <List.Item><Code>toInt</Code>, <Code>toFloat</Code></List.Item>
-                      <List.Item><Code>toString</Code>, <Code>toBool</Code></List.Item>
-                    </List>
-                  </Grid.Col>
-                </Grid>
-              </Alert>
-            </>
-          )}
+          {/*
+            Every transformation type configures itself through the registry
+            above (configs/registry.ts). The inline blocks that used to follow
+            here — foreach, lua, wasm, aggregate, set, pipeline, advanced — were
+            the pre-registry versions and were never deleted, so seven types
+            rendered their settings twice: once under Configuration, again under
+            Advanced, with stale labels and fewer fields the second time.
+          */}
 
           <Divider label="Error Handling" labelPosition="center" mt="xl" mb="md" />
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">

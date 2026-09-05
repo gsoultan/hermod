@@ -286,7 +286,7 @@ export function LogsPage() {
                       if (selectedLog.message.trim().startsWith('{') || selectedLog.message.trim().startsWith('[')) {
                         return JSON.stringify(JSON.parse(selectedLog.message), null, 2);
                       }
-                    } catch (e) {}
+                    } catch {}
                     return selectedLog.message;
                   })()}
                 </Code>
@@ -341,7 +341,7 @@ export function LogsPage() {
                           if (selectedLog.data.trim().startsWith('{') || selectedLog.data.trim().startsWith('[')) {
                             return JSON.stringify(JSON.parse(selectedLog.data), null, 2);
                           }
-                        } catch (e) {}
+                        } catch {}
                         return selectedLog.data;
                       })()}
                     </Code>

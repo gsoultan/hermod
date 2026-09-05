@@ -57,7 +57,7 @@ export function useWorkflowLayout() {
         nodes: nodes.map((n) => ({ id: n.id })),
         edges: edges.map((e) => ({ source: e.source, target: e.target })),
       });
-    } catch (_err) {
+    } catch {
       // Fallback: simple horizontal layout to avoid blocking
       const layoutedNodes = nodes.map((n, i) => ({
         ...n,

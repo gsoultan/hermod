@@ -44,7 +44,7 @@ export const PostgresSinkConfig: FC<PostgresSinkConfigProps> = ({
   const mappings: ColumnMapping[] = (() => {
     try {
       return config.column_mappings ? JSON.parse(config.column_mappings) : [];
-    } catch (e) {
+    } catch {
       return [];
     }
   })();

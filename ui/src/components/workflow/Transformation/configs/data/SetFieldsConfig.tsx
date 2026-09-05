@@ -1,6 +1,8 @@
-import { Stack, Alert, Text, rem } from '@mantine/core';
+import { Stack, Alert, Text, Divider, rem } from '@mantine/core';
 import { IconInfoCircle } from '@tabler/icons-react';
 import { Suspense, lazy } from 'react';
+import { JsonObjectInput } from '@/components/common/JsonObjectInput';
+import { useColumnFields } from '@/components/common/useColumnFields';
 
 const SetFieldEditor = lazy(() =>
   import('../../SetFieldEditor').then((m) => ({ default: m.SetFieldEditor }))
@@ -25,6 +27,7 @@ export function SetFieldsConfig({
   onAddFromSource,
   addField,
 }: SetFieldsConfigProps) {
+  const { columnFields, replaceColumnFields } = useColumnFields(config, nodeId, updateNodeConfig);
   return (
     <Stack gap="md">
       <Alert
@@ -50,6 +53,18 @@ export function SetFieldsConfig({
           addField={addField}
         />
       </Suspense>
+      {/* Moved here from TransformationForm's inline block when the duplicate
+          config panes were removed; this is the only raw-JSON editor now. */}
+      <Divider label="Raw JSON" labelPosition="center" />
+      <JsonObjectInput
+        label="Fields (JSON)"
+        placeholder='{"column.user.role": "admin", "column.status": 1}'
+        value={columnFields}
+        onChange={replaceColumnFields}
+        minRows={8}
+        styles={{ input: { fontFamily: 'monospace', fontSize: 'var(--mantine-font-size-xs)' } }}
+        description="Specify fields to set using 'column.path' format."
+      />
     </Stack>
   );
 }

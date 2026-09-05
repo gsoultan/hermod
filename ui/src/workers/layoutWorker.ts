@@ -46,7 +46,7 @@ self.onmessage = (e: MessageEvent<LayoutRequest>) => {
 
     // eslint-disable-next-line no-restricted-globals
     (self as unknown as Worker).postMessage(result);
-  } catch (_err) {
+  } catch {
     // On error, just return zero positions so caller can fallback
     // eslint-disable-next-line no-restricted-globals
     (self as unknown as Worker).postMessage({ id, nodes: nodes.map((n) => ({ id: n.id, x: 0, y: 0 })) } as LayoutResponse);

@@ -44,7 +44,7 @@ const login = async (page: Page) => {
 };
 
 /** Everything measured inside one page, in a single evaluate for speed. */
-const auditPage = (route: string) => `(() => {
+const auditPage = () => `(() => {
   const out = { overflowX: null, escapees: [], unlabelled: [], tinyText: [],
                 fieldWidths: [], domNodes: document.querySelectorAll('*').length,
                 emptyRoot: false, crashed: false };
@@ -148,7 +148,7 @@ test.describe('Hermod layout audit', () => {
         await page.waitForTimeout(400);
         const ms = Date.now() - t0;
 
-        const r: any = await page.evaluate(auditPage(route));
+        const r: any = await page.evaluate(auditPage());
         if (vp.name === 'laptop') timings.push({ route, ms, domNodes: r.domNodes });
 
         // A page ballooning past ~1800 nodes usually means an unpaginated list.

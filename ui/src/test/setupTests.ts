@@ -109,3 +109,25 @@ afterEach(() => {
   useSessionStore.setState({ user: null, status: 'unknown' })
 })
 afterAll(() => server.close())
+
+
+// Mantine's autosize <Textarea> is a port of react-textarea-autosize, whose
+// fonts-loaded listener calls `document.fonts.addEventListener`. jsdom has no
+// `document.fonts`, so any lazy config component containing an autosize
+// textarea (Lua, WASM, the advanced field editor) threw during render and
+// simply never appeared — which read, in a test, as "the Lua editor does not
+// exist". Stubbing it keeps autosize in the product and makes those components
+// renderable here. ResizeObserver is stubbed alongside for the same reason.
+if (!(document as any).fonts) {
+  Object.defineProperty(document, 'fonts', {
+    configurable: true,
+    value: { ready: Promise.resolve(), addEventListener() {}, removeEventListener() {}, check: () => true },
+  })
+}
+if (typeof (globalThis as any).ResizeObserver === 'undefined') {
+  ;(globalThis as any).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+}

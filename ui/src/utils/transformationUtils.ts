@@ -42,7 +42,7 @@ export const getValByPath = (obj: any, path: string) => {
       if (acc && typeof acc === 'string' && (acc.startsWith('{') || acc.startsWith('['))) {
         try {
           acc = JSON.parse(acc);
-        } catch (e) {}
+        } catch {}
       }
       return acc && acc[part];
     }, obj);
@@ -236,7 +236,7 @@ const callFunction = (name: string, args: any[]): any => {
         const d = new Date(dateStr);
         if (isNaN(d.getTime())) return dateStr;
         return d.toISOString().split('T')[0]; // Simple fallback for preview
-      } catch (e) { return dateStr; }
+      } catch { return dateStr; }
     }
     case 'coalesce': return args.find(a => a !== null && a !== undefined && a !== '');
     case 'now': return new Date().toISOString();
@@ -358,7 +358,7 @@ export const simulateTransformation = (transType: string, data: any, inputPayloa
        const val = String(fieldValRaw || '');
        let mapping = data.mapping;
        if (typeof mapping === 'string') {
-         try { mapping = JSON.parse(mapping); } catch(e) { mapping = {}; }
+         try { mapping = JSON.parse(mapping); } catch { mapping = {}; }
        }
        
        const mappingType = data.mappingType || 'exact';
@@ -389,7 +389,7 @@ export const simulateTransformation = (transType: string, data: any, inputPayloa
                setValByPath(result.output, data.field, v);
                break;
              }
-           } catch(e) {}
+           } catch {}
          }
        } else {
          if (mapping && mapping[val] !== undefined) {
@@ -401,7 +401,7 @@ export const simulateTransformation = (transType: string, data: any, inputPayloa
        if (data.conditions) {
          try {
            conditions = typeof data.conditions === 'string' ? JSON.parse(data.conditions) : data.conditions;
-         } catch(e) { conditions = []; }
+         } catch { conditions = []; }
        }
        
        if (conditions.length === 0 && data.field) {
@@ -460,7 +460,7 @@ export const simulateTransformation = (transType: string, data: any, inputPayloa
     } else if (transType === 'pipeline') {
        let steps = data.steps;
        if (typeof steps === 'string') {
-          try { steps = JSON.parse(steps); } catch(e) { steps = []; }
+          try { steps = JSON.parse(steps); } catch { steps = []; }
        }
        if (Array.isArray(steps)) {
           steps.forEach(step => {
@@ -476,7 +476,7 @@ export const simulateTransformation = (transType: string, data: any, inputPayloa
       let cases: any[] = [];
       try {
         cases = typeof data.cases === 'string' ? JSON.parse(data.cases) : (data.cases || []);
-      } catch(e) {}
+      } catch {}
 
       let matchedLabel = "default";
       for (const c of cases) {
@@ -511,7 +511,7 @@ export const simulateTransformation = (transType: string, data: any, inputPayloa
           setValByPath(result.output, data.targetField, data.defaultValue ? `[API Lookup Result (or ${data.defaultValue})]` : `[API Lookup Result]`);
        }
     }
-  } catch (e) {
+  } catch {
     // Ignore simulation errors
   }
   return result;
@@ -529,7 +529,7 @@ export const preparePayload = (payload: any) => {
         try {
           nested = JSON.parse(val);
           result[key] = nested;
-        } catch (e) {}
+        } catch {}
       } else if (val && typeof val === 'object' && !Array.isArray(val)) {
         nested = val;
       }

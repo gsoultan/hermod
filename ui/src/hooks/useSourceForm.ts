@@ -143,10 +143,10 @@ export function useSourceForm({
     // Parse CDC envelopes if they are strings for better UX in field explorer
     if (data && typeof data === 'object') {
       if (typeof data.after === 'string') {
-        try { data.after = JSON.parse(data.after); } catch (_) {}
+        try { data.after = JSON.parse(data.after); } catch {}
       }
       if (typeof data.before === 'string') {
-        try { data.before = JSON.parse(data.before); } catch (_) {}
+        try { data.before = JSON.parse(data.before); } catch {}
       }
     }
 
@@ -179,7 +179,7 @@ export function useSourceForm({
           queryClient.invalidateQueries({ queryKey: ['sources'] }).catch(() => {});
         }
       }
-    } catch (_) {
+    } catch {
       // Non-fatal: editor still uses local lastSample below
     }
 
@@ -188,7 +188,7 @@ export function useSourceForm({
       if (selectedNode && selectedNode.type === 'source') {
         updateNodeConfig(selectedNode.id, { lastSample: data });
       }
-    } catch (_) {
+    } catch {
       // ignore
     }
   };
@@ -204,7 +204,7 @@ export function useSourceForm({
         const data = JSON.parse(testInput);
         await onSampleReady(data);
         return;
-      } catch (e) {}
+      } catch {}
     }
 
     setIsFetchingSample(true);
@@ -270,7 +270,7 @@ export function useSourceForm({
                     }
                   }
                 }
-              } catch (_) {
+              } catch {
                 // ignore; region/endpoint can be filled manually if needed
               }
             } else {
@@ -404,7 +404,7 @@ export function useSourceForm({
   const testMutation = useMutation({
     mutationFn: async (s: any) => {
       const cleanConfig = Object.fromEntries(
-        Object.entries(s.config).filter(([_, v]) => v !== '')
+        Object.entries(s.config).filter(([, v]) => v !== '')
       );
       const res = await apiFetch(`${API_BASE}/sources/test`, {
         method: 'POST',
@@ -436,7 +436,7 @@ export function useSourceForm({
   const submitMutation = useMutation({
     mutationFn: async (s: any) => {
       const cleanConfig = Object.fromEntries(
-        Object.entries(s.config).filter(([_, v]) => v !== '')
+        Object.entries(s.config).filter(([, v]) => v !== '')
       );
       
       const id = s.id || initialData?.id;
@@ -457,7 +457,7 @@ export function useSourceForm({
       // Ensure sources lists refresh immediately (handles vhost changes too)
       try {
         queryClient.invalidateQueries({ queryKey: ['sources'] });
-      } catch (_) {
+      } catch {
         // ignore
       }
       if (embedded && onSave) {

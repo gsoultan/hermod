@@ -99,6 +99,9 @@ export default function WorkflowsPage() {
 
   const cloneMutation = useMutation({
     mutationFn: async (wf: Workflow) => {
+      // Strip the identity and runtime fields; the three names exist only to be
+      // omitted from `clone`.
+      // eslint-disable-next-line no-unused-vars
       const { id, status, active, ...clone } = wf;
       clone.name = `${clone.name} (Copy)`;
       await apiFetch(`${API_BASE}/workflows`, {
@@ -146,7 +149,7 @@ export default function WorkflowsPage() {
       let data;
       try {
         data = JSON.parse(json);
-      } catch (e) {
+      } catch {
         throw new Error("Invalid JSON");
       }
 

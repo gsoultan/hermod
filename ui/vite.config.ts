@@ -86,6 +86,25 @@ export default defineConfig({
           { src: '/pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
           { src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
         ],
+        // Real captures of a running instance (ui/scripts/visual-sweep.mjs),
+        // one per form factor. Without these Chrome shows its minimal install
+        // prompt instead of the richer dialog.
+        screenshots: [
+          {
+            src: '/screenshots/editor-wide.png',
+            sizes: '1280x800',
+            type: 'image/png',
+            form_factor: 'wide',
+            label: 'Workflow editor with a running pipeline',
+          },
+          {
+            src: '/screenshots/workflows-narrow.png',
+            sizes: '390x844',
+            type: 'image/png',
+            form_factor: 'narrow',
+            label: 'Workflows list on a phone',
+          },
+        ],
       },
       devOptions: {
         // Off in dev: a service worker intercepting HMR is a debugging trap.

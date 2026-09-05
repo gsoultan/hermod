@@ -41,7 +41,7 @@ export function RouterEditor({
       typeof selectedNode.data.rules === 'string'
         ? JSON.parse(selectedNode.data.rules || '[]')
         : selectedNode.data.rules || [];
-  } catch (e) {
+  } catch {
     rules = [];
   }
 

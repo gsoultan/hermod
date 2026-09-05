@@ -66,13 +66,21 @@ export function EditorToolbar({
 
   return (
     <Paper withBorder p="xs" radius="md" mb="md" shadow="xs">
-      <Flex justify="space-between" align="center" gap="md">
-        <Group gap="sm" style={{ flex: 1, maxWidth: 900 }}>
+      {/*
+        Two rows on a phone, one on a desktop. This Flex did not wrap, so at
+        390px both groups were forced onto one line: the name input truncated
+        to "Workflow Nam", and the five action buttons wrapped into the
+        search-and-zoom cluster. The identity group can shrink and the action
+        group drops below it; the vhost/worker selects and the zoom cluster
+        are desktop conveniences and hide below `sm`.
+      */}
+      <Flex justify="space-between" align="center" gap="md" wrap="wrap">
+        <Group gap="sm" wrap="nowrap" style={{ flex: '1 1 240px', maxWidth: 900, minWidth: 0 }}>
           <TextInput
             placeholder="Workflow Name"
             value={name}
             onChange={(e) => setName(e.currentTarget.value)}
-            style={{ flex: 1 }}
+            style={{ flex: '1 1 140px', minWidth: 0 }}
             size="sm"
           />
           {!isNew && workflowStatus && (
@@ -90,6 +98,7 @@ export function EditorToolbar({
             onChange={(val) => setVHost(val || 'default')}
             size="sm"
             style={{ width: 120 }}
+            visibleFrom="sm"
           />
           <Select
             placeholder="Worker"
@@ -98,6 +107,7 @@ export function EditorToolbar({
             onChange={(val) => setWorkerID(val || '')}
             size="sm"
             style={{ width: 120 }}
+            visibleFrom="sm"
           />
         </Group>
 
@@ -108,14 +118,14 @@ export function EditorToolbar({
             </ActionIcon>
           </Tooltip>
 
-          <Group gap={4} mr="xs">
+          <Group gap={4} mr="xs" visibleFrom="sm">
              <ActionIcon aria-label="Zoom out" variant="subtle" size="sm" onClick={zoomOut}><IconZoomOut size="1rem" /></ActionIcon>
              <Text size="xs" fw={700} w={35} ta="center">{Math.round(zoom * 100)}%</Text>
              <ActionIcon aria-label="Zoom in" variant="subtle" size="sm" onClick={zoomIn}><IconZoomIn size="1rem" /></ActionIcon>
              <ActionIcon aria-label="Fit to view" variant="subtle" size="sm" onClick={fitView}><IconFocus2 size="1rem" /></ActionIcon>
           </Group>
 
-          <Divider orientation="vertical" />
+          <Divider orientation="vertical" visibleFrom="sm" />
 
           <Menu position="bottom-end" withArrow shadow="md">
             <Menu.Target>

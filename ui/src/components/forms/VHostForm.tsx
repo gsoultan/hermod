@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button, Group, TextInput, Stack, Textarea } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
@@ -20,8 +20,16 @@ export function VHostForm({ initialData, isEditing = false }: VHostFormProps) {
   const queryClient = useQueryClient();
   const [vhost, setVHost] = useState<VHost>({ name: '', description: '' });
 
+  // Hydrate once per record, keyed on its id rather than the object's identity.
+  // React Query hands the edit page a fresh object whenever the record
+  // refetches — after this form's own save, or when the list is invalidated —
+  // and an effect keyed on the object overwrote whatever had been typed since.
+  const hydratedFor = useRef<string | null>(null);
   useEffect(() => {
     if (initialData) {
+      const key = initialData.id || 'new';
+      if (hydratedFor.current === key) return;
+      hydratedFor.current = key;
       setVHost(initialData);
     }
   }, [initialData]);
@@ -42,7 +50,7 @@ export function VHostForm({ initialData, isEditing = false }: VHostFormProps) {
     onSuccess: () => {
       try {
         queryClient.invalidateQueries({ queryKey: ['vhosts'] });
-      } catch (_) {
+      } catch {
         // ignore
       }
       navigate({ to: '/vhosts' });
