@@ -135,7 +135,7 @@ func NewServer(registry *registry.Registry, store storage.Storage, cfg *config.C
 
 // SetWorker sets the worker updater for the handler.
 func (s *Server) SetWorker(w handlers.WorkerUpdater) {
-	s.Handler.Worker = w
+	s.Handler.SetWorker(w)
 }
 
 func (s *Server) Routes() http.Handler {
@@ -407,4 +407,11 @@ func (s *Server) Stop() {
 	if s.GrpcServer != nil {
 		s.GrpcServer.GracefulStop()
 	}
+}
+
+// SetOnSetupComplete registers a callback invoked once first-run setup has
+// opened the database. See Handler.OnSetupComplete for why this is a callback
+// rather than something the handler does itself.
+func (s *Server) SetOnSetupComplete(fn func(storage.Storage)) {
+	s.Handler.OnSetupComplete = fn
 }

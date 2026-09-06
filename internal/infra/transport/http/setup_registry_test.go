@@ -115,3 +115,79 @@ func (w *workerStorageSpy) SetStorage(s storage.Storage) {
 }
 
 func (w *workerStorageSpy) RequestShutdown(string) {}
+
+// A first run starts with no worker at all: there was no database when the
+// process booted, so main.go had nothing to build one from. Setup is the moment
+// that changes, and it has to say so — otherwise the install runs without the
+// component that picks up workflows assigned to a worker until someone
+// restarts it, which is the last piece of the first-run gap.
+//
+// main supplies the callback because starting a worker needs the process
+// context and cancel func, which live there and have no business in a handler.
+func TestFinalizeInitialSetupAnnouncesTheNewStorage(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HERMOD_CONFIG_DIR", dir)
+
+	var got storage.Storage
+	calls := 0
+	h := NewInfraHandler(&handlers.Handler{
+		Registry:   registry.NewRegistry(nil),
+		ConfigPath: filepath.Join(dir, "config.yaml"),
+		OnSetupComplete: func(s storage.Storage) {
+			calls++
+			got = s
+		},
+	})
+
+	body, _ := json.Marshal(map[string]any{
+		"db": map[string]string{
+			"type":              "sqlite",
+			"conn":              filepath.Join(dir, "hermod.db"),
+			"crypto_master_key": "0123456789abcdef0123456789abcdef",
+		},
+		"admin": map[string]string{"username": "admin", "password": "admin-password"},
+	})
+
+	rec := httptest.NewRecorder()
+	h.FinalizeInitialSetup(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/config/setup", bytes.NewReader(body)))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup returned %d, body: %s", rec.Code, rec.Body.String())
+	}
+	if calls != 1 {
+		t.Fatalf("OnSetupComplete called %d times, want exactly 1", calls)
+	}
+	if got == nil {
+		t.Fatal("OnSetupComplete was called without the storage setup had just opened")
+	}
+}
+
+// Setup must not fire the callback when it fails — a half-configured install
+// starting a worker is worse than one that starts nothing.
+func TestFinalizeInitialSetupDoesNotAnnounceOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HERMOD_CONFIG_DIR", dir)
+
+	calls := 0
+	h := NewInfraHandler(&handlers.Handler{
+		Registry:        registry.NewRegistry(nil),
+		ConfigPath:      filepath.Join(dir, "config.yaml"),
+		OnSetupComplete: func(storage.Storage) { calls++ },
+	})
+
+	// Too short a master key: rejected before any storage is opened.
+	body, _ := json.Marshal(map[string]any{
+		"db":    map[string]string{"type": "sqlite", "conn": filepath.Join(dir, "h.db"), "crypto_master_key": "short"},
+		"admin": map[string]string{"username": "admin", "password": "admin-password"},
+	})
+
+	rec := httptest.NewRecorder()
+	h.FinalizeInitialSetup(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/config/setup", bytes.NewReader(body)))
+
+	if rec.Code == http.StatusOK {
+		t.Fatalf("expected setup to be rejected, got %d", rec.Code)
+	}
+	if calls != 0 {
+		t.Fatalf("OnSetupComplete fired %d times on a failed setup, want 0", calls)
+	}
+}
