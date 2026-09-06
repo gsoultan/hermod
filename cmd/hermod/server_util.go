@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gsoultan/hermod"
@@ -18,9 +19,9 @@ import (
 	"github.com/gsoultan/hermod/internal/storage"
 )
 
-func runServer(ctx context.Context, o *Options, reg *registry.Registry, store, logStore storage.Storage, cfg *config.Config, wrk *worker.Worker, logger hermod.Logger, configured, userSetup bool) error {
+func runServer(ctx context.Context, o *Options, reg *registry.Registry, store, logStore storage.Storage, cfg *config.Config, wrk *worker.Worker, startWorker workerStarter, logger hermod.Logger, configured, userSetup bool) error {
 	if o.mode == "api" || o.mode == "standalone" {
-		return startAPI(ctx, o, reg, store, logStore, cfg, wrk, logger, configured, userSetup)
+		return startAPI(ctx, o, reg, store, logStore, cfg, wrk, startWorker, logger, configured, userSetup)
 	}
 	runWorkerOnly(ctx, logger, configured, userSetup)
 	return nil
@@ -47,12 +48,10 @@ const (
 	maxHeaderValueCount = http.DefaultMaxHeaderValueCount
 )
 
-func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, logStore storage.Storage, cfg *config.Config, wrk *worker.Worker, logger hermod.Logger, configured, userSetup bool) error {
+func startAPI(ctx context.Context, o *Options, reg *registry.Registry, store, logStore storage.Storage, cfg *config.Config, wrk *worker.Worker, startWorker workerStarter, logger hermod.Logger, configured, userSetup bool) error {
 	aiSvc := ai.NewSelfHealingService(logger)
 	server := api.NewServer(reg, store, cfg, o.configPath, aiSvc, logStore)
-	if wrk != nil {
-		server.SetWorker(wrk)
-	}
+	attachWorker(server, wrk, startWorker, logger)
 
 	stopAutoscaler := startAutoscaler(o, store, configured, userSetup)
 	defer stopAutoscaler()
@@ -162,4 +161,34 @@ func runWorkerOnly(ctx context.Context, logger hermod.Logger, configured, userSe
 		logger.Error("Hermod is not configured yet. Please run API mode to complete setup. Exiting.")
 		log.Fatal("Not configured")
 	}
+}
+
+// attachWorker installs the worker the process started with, or — on a first
+// run, where there was no database to build one from — arranges for one to be
+// started the moment setup provides a database. Without this an install runs
+// with no engine until somebody restarts it, and nothing on screen says so.
+func attachWorker(server *api.Server, wrk *worker.Worker, startWorker workerStarter, logger hermod.Logger) {
+	if wrk != nil {
+		server.SetWorker(wrk)
+		return
+	}
+	if startWorker == nil {
+		return
+	}
+
+	// Once because setup is guarded by IsFirstRun and cannot legitimately run
+	// twice; this makes a second call harmless rather than a second worker
+	// competing for the same workflows.
+	var once sync.Once
+	server.SetOnSetupComplete(func(s storage.Storage) {
+		once.Do(func() {
+			w := startWorker(s)
+			if w == nil {
+				logger.Warn("Setup finished but no worker could be started; workflows assigned to a worker will not run until restart")
+				return
+			}
+			server.SetWorker(w)
+			logger.Info("Workflow engine started after first-run setup")
+		})
+	})
 }

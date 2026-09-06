@@ -26,6 +26,11 @@ type workerIdentity struct {
 	Description string `yaml:"description"`
 }
 
+// workerStarter builds and starts a worker for a database that did not exist
+// when the process booted. main supplies one so the API layer never has to know
+// about the process context or cancel func.
+type workerStarter func(storage.Storage) *worker.Worker
+
 func setupWorker(ctx context.Context, cancel context.CancelFunc, o *Options, reg *registry.Registry, store storage.Storage, configured, userSetup bool) *worker.Worker {
 	if !shouldStartWorker(o, configured, userSetup) {
 		return nil
