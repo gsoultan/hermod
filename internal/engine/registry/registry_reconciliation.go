@@ -28,10 +28,10 @@ func (r *Registry) startReconciliationLoop(ctx context.Context) {
 }
 
 func (r *Registry) reconcileSuspendedMessages(ctx context.Context) {
-	if r.storage == nil {
+	if r.store() == nil {
 		return
 	}
-	msgs, err := r.storage.ListSuspendedMessages(ctx, "", time.Now())
+	msgs, err := r.store().ListSuspendedMessages(ctx, "", time.Now())
 	if err != nil {
 		return
 	}
@@ -90,8 +90,8 @@ func (r *Registry) resumeSuspendedMessage(ctx context.Context, sm storage.Suspen
 
 	// AE has the needed maps
 	r.resumeFromNode(sm.WorkflowID, sm.NodeID, m, ae.workflow, ae.nodeMap, ae.adj, ae.sinks, ae.sinkNodeToIndex, "")
-	if r.storage != nil {
-		_ = r.storage.DeleteSuspendedMessage(ctx, sm.ID)
+	if s := r.store(); s != nil {
+		_ = s.DeleteSuspendedMessage(ctx, sm.ID)
 	}
 	message.ReleaseMessage(m)
 }
