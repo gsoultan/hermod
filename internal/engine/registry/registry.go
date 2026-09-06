@@ -84,11 +84,25 @@ type PIIStats struct {
 }
 
 type Registry struct {
-	engines    map[string]*activeEngine
-	mu         sync.RWMutex
+	engines map[string]*activeEngine
+	mu      sync.RWMutex
+
+	// storeMu guards storage and logStorage, and nothing else.
+	//
+	// These two are swapped while the process runs — by the change-database
+	// endpoint and by first-run setup — so every read of them has to be
+	// synchronised. They get their own mutex rather than sharing r.mu because
+	// several methods read storage while already holding r.mu (StartWorkflow
+	// calls ValidateWorkflow under it), and sync.RWMutex is not reentrant:
+	// guarding these fields with r.mu would trade a data race for a deadlock.
+	//
+	// Read them through store() and logStore(); never touch the fields directly
+	// outside the accessors and setters below.
+	storeMu    sync.RWMutex
 	storage    interfaces.RegistryStorage
 	logStorage interfaces.RegistryStorage
-	config     config.Config
+
+	config config.Config
 
 	sourceFactory SourceFactory
 	sinkFactory   SinkFactory
@@ -553,19 +567,30 @@ func (r *Registry) GetMeshManager() *mesh.Manager {
 	return r.meshManager
 }
 
+// store returns the current primary storage. Use it for every read; the field
+// is swapped at runtime. See the storeMu comment on the struct.
+func (r *Registry) store() interfaces.RegistryStorage {
+	r.storeMu.RLock()
+	defer r.storeMu.RUnlock()
+	return r.storage
+}
+
+// logStore returns the current log storage, on the same terms as store().
+func (r *Registry) logStore() interfaces.RegistryStorage {
+	r.storeMu.RLock()
+	defer r.storeMu.RUnlock()
+	return r.logStorage
+}
+
 func (r *Registry) GetStorage() storage.Storage {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if s, ok := r.storage.(storage.Storage); ok {
+	if s, ok := r.store().(storage.Storage); ok {
 		return s
 	}
 	return nil
 }
 
 func (r *Registry) GetLogStorage() storage.Storage {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if s, ok := r.logStorage.(storage.Storage); ok {
+	if s, ok := r.logStore().(storage.Storage); ok {
 		return s
 	}
 	return nil
@@ -578,9 +603,15 @@ func (r *Registry) SetLogger(logger hermod.Logger) {
 }
 
 func (r *Registry) SetStorage(s storage.Storage) {
+	r.storeMu.Lock()
+	r.storage = s
+	r.storeMu.Unlock()
+
+	// notificationService and schemaRegistry live under r.mu, so they are
+	// updated separately — holding both mutexes at once is what the split is
+	// there to avoid.
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.storage = s
 	if r.notificationService != nil {
 		r.notificationService.SetStorage(s)
 	}
@@ -592,9 +623,12 @@ func (r *Registry) SetStorage(s storage.Storage) {
 }
 
 func (r *Registry) SetLogStorage(s storage.Storage) {
+	r.storeMu.Lock()
+	r.logStorage = s
+	r.storeMu.Unlock()
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.logStorage = s
 	if dl, ok := r.logger.(*DatabaseLogger); ok {
 		dl.UpdateStorage(s)
 	}
@@ -753,7 +787,7 @@ func (r *Registry) createSource(ctx context.Context, cfg factory.SourceConfig) (
 		}
 		src = batchsql.NewBatchSQLSource(r, batchCfg)
 	} else if cfg.Type == "form" {
-		src = sourceform.NewFormSource(cfg.Config["path"], &formStorageAdapter{storage: r.storage})
+		src = sourceform.NewFormSource(cfg.Config["path"], &formStorageAdapter{storage: r.store()})
 	} else if srcFactory != nil {
 		src, err = srcFactory(cfg)
 	} else {
@@ -784,7 +818,7 @@ func (r *Registry) createSourceInternal(ctx context.Context, cfg factory.SourceC
 		}
 		src = batchsql.NewBatchSQLSource(r, batchCfg)
 	} else if cfg.Type == "form" {
-		src = sourceform.NewFormSource(cfg.Config["path"], &formStorageAdapter{storage: r.storage})
+		src = sourceform.NewFormSource(cfg.Config["path"], &formStorageAdapter{storage: r.store()})
 	} else if r.sourceFactory != nil {
 		src, err = r.sourceFactory(cfg)
 	} else {
@@ -883,7 +917,7 @@ func (r *Registry) createSinkInternal(ctx context.Context, cfg factory.SinkConfi
 // The type is checked here as well, so an ineligible member is named plainly
 // rather than reported as a missing interface.
 func (r *Registry) resolveAndCreateTxGroupMember(ctx context.Context, id string) (hermod.Sink, error) {
-	if r.storage == nil {
+	if r.store() == nil {
 		return nil, errors.New("registry storage is not available")
 	}
 	dbSnk, err := r.GetSinkConfig(ctx, id)
@@ -903,7 +937,7 @@ func (r *Registry) resolveAndCreateTxGroupMember(ctx context.Context, id string)
 }
 
 func (r *Registry) resolveAndCreateSink(ctx context.Context, id string) (hermod.Sink, error) {
-	if r.storage == nil {
+	if r.store() == nil {
 		return nil, errors.New("registry storage is not available")
 	}
 	dbSnk, err := r.GetSinkConfig(ctx, id)
@@ -1014,7 +1048,7 @@ func (r *Registry) GetDB(ctx context.Context, typeName string, config map[string
 }
 
 func (r *Registry) GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, string, error) {
-	if r.storage == nil {
+	if r.store() == nil {
 		return nil, "", errors.New("registry storage is not initialized")
 	}
 	src, err := r.GetSourceConfig(ctx, id)
@@ -1026,7 +1060,7 @@ func (r *Registry) GetOrOpenDBByID(ctx context.Context, id string) (*sql.DB, str
 }
 
 func (r *Registry) GetSourceConfig(ctx context.Context, id string) (storage.Source, error) {
-	if r.storage == nil {
+	if r.store() == nil {
 		return storage.Source{}, errors.New("registry storage is not initialized")
 	}
 
@@ -1039,7 +1073,7 @@ func (r *Registry) GetSourceConfig(ctx context.Context, id string) (storage.Sour
 
 	// Use singleflight to avoid redundant DB hits
 	v, err, _ := r.sf.Do("source:"+id, func() (any, error) {
-		src, err := r.storage.GetSource(ctx, id)
+		src, err := r.store().GetSource(ctx, id)
 		if err != nil {
 			return storage.Source{}, err
 		}
@@ -1056,7 +1090,7 @@ func (r *Registry) GetSourceConfig(ctx context.Context, id string) (storage.Sour
 }
 
 func (r *Registry) GetSinkConfig(ctx context.Context, id string) (storage.Sink, error) {
-	if r.storage == nil {
+	if r.store() == nil {
 		return storage.Sink{}, errors.New("registry storage is not initialized")
 	}
 
@@ -1068,7 +1102,7 @@ func (r *Registry) GetSinkConfig(ctx context.Context, id string) (storage.Sink, 
 	r.sourceCacheMu.RUnlock()
 
 	v, err, _ := r.sf.Do("sink:"+id, func() (any, error) {
-		snk, err := r.storage.GetSink(ctx, id)
+		snk, err := r.store().GetSink(ctx, id)
 		if err != nil {
 			return storage.Sink{}, err
 		}
@@ -1085,7 +1119,7 @@ func (r *Registry) GetSinkConfig(ctx context.Context, id string) (storage.Sink, 
 }
 
 func (r *Registry) UpdateSource(ctx context.Context, src storage.Source) error {
-	if err := r.storage.UpdateSource(ctx, src); err != nil {
+	if err := r.store().UpdateSource(ctx, src); err != nil {
 		return err
 	}
 	r.sourceCacheMu.Lock()
@@ -1095,7 +1129,7 @@ func (r *Registry) UpdateSource(ctx context.Context, src storage.Source) error {
 }
 
 func (r *Registry) UpdateSink(ctx context.Context, snk storage.Sink) error {
-	if err := r.storage.UpdateSink(ctx, snk); err != nil {
+	if err := r.store().UpdateSink(ctx, snk); err != nil {
 		return err
 	}
 	r.sourceCacheMu.Lock()
@@ -1105,7 +1139,7 @@ func (r *Registry) UpdateSink(ctx context.Context, snk storage.Sink) error {
 }
 
 func (r *Registry) UpdateSourceStatus(ctx context.Context, id string, status string) error {
-	if err := r.storage.UpdateSourceStatus(ctx, id, status); err != nil {
+	if err := r.store().UpdateSourceStatus(ctx, id, status); err != nil {
 		return err
 	}
 	r.sourceCacheMu.Lock()
@@ -1115,7 +1149,7 @@ func (r *Registry) UpdateSourceStatus(ctx context.Context, id string, status str
 }
 
 func (r *Registry) UpdateSinkStatus(ctx context.Context, id string, status string) error {
-	if err := r.storage.UpdateSinkStatus(ctx, id, status); err != nil {
+	if err := r.store().UpdateSinkStatus(ctx, id, status); err != nil {
 		return err
 	}
 	r.sourceCacheMu.Lock()
@@ -1515,13 +1549,13 @@ func (r *Registry) GetWorkflowStatus(id string) (telemetry.StatusUpdate, bool) {
 }
 
 func (r *Registry) GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error) {
-	if r.storage == nil {
+	if r.store() == nil {
 		return storage.DashboardStats{
 			Uptime: int64(time.Since(r.startTime).Seconds()),
 		}, nil
 	}
 
-	stats, err := r.storage.GetDashboardStats(ctx, vhost)
+	stats, err := r.store().GetDashboardStats(ctx, vhost)
 	if err != nil {
 		return stats, err
 	}
@@ -1597,7 +1631,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 			if node.RefID == "" || node.RefID == "new" {
 				return fmt.Errorf("source node %s is not configured", r.getNodeName(node))
 			}
-			if r.storage != nil {
+			if s := r.store(); s != nil {
 				if _, err := r.GetSourceConfig(ctx, node.RefID); err != nil {
 					return fmt.Errorf("source node %s refers to missing source %s: %w", r.getNodeName(node), node.RefID, err)
 				}
@@ -1606,7 +1640,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 			if node.RefID == "" || node.RefID == "new" {
 				return fmt.Errorf("sink node %s is not configured", r.getNodeName(node))
 			}
-			if r.storage != nil {
+			if s := r.store(); s != nil {
 				if _, err := r.GetSinkConfig(ctx, node.RefID); err != nil {
 					return fmt.Errorf("sink node %s refers to missing sink %s: %w", r.getNodeName(node), node.RefID, err)
 				}
@@ -1698,7 +1732,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 		if wf.DeadLetterSinkID == "" {
 			return errors.New("PrioritizeDLQ is enabled but no Dead Letter Sink is configured")
 		}
-		if r.storage != nil {
+		if s := r.store(); s != nil {
 			dlqSink, err := r.GetSinkConfig(ctx, wf.DeadLetterSinkID)
 			if err != nil {
 				return fmt.Errorf("dead letter sink %s not found: %w", wf.DeadLetterSinkID, err)
@@ -1719,7 +1753,7 @@ func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) er
 		}
 
 		// Check for idempotency on sinks
-		if r.storage != nil {
+		if s := r.store(); s != nil {
 			for _, node := range wf.Nodes {
 				if node.Type == "sink" {
 					snk, err := r.GetSinkConfig(ctx, node.RefID)
@@ -1857,11 +1891,11 @@ func (r *Registry) IsResourceInUse(ctx context.Context, resourceID string, exclu
 	r.mu.Unlock()
 
 	// 2. Fallback to Storage (to see if other workers are using it)
-	if r.storage == nil {
+	if r.store() == nil {
 		return false
 	}
 	active := true
-	wfs, _, err := r.storage.ListWorkflows(ctx, storage.CommonFilter{Active: &active})
+	wfs, _, err := r.store().ListWorkflows(ctx, storage.CommonFilter{Active: &active})
 	if err != nil {
 		// FAIL-SAFE: If we can't reach storage, assume it is in use.
 		// This prevents the health checker from disrupting potentially active workflows.

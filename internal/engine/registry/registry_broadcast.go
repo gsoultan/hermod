@@ -321,7 +321,7 @@ func (r *Registry) BroadcastLog(engineID, level, msg, data string) {
 
 func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {
 	r.mu.RLock()
-	ls := r.logStorage
+	ls := r.logStore()
 	r.mu.RUnlock()
 
 	if ls != nil {
@@ -355,7 +355,7 @@ func (r *Registry) CreateLog(ctx context.Context, l storage.Log) error {
 
 func (r *Registry) CreateLogs(ctx context.Context, logs []storage.Log) error {
 	r.mu.RLock()
-	ls := r.logStorage
+	ls := r.logStore()
 	r.mu.RUnlock()
 
 	if ls != nil {
@@ -391,7 +391,7 @@ func (r *Registry) CreateLogs(ctx context.Context, logs []storage.Log) error {
 
 func (r *Registry) PurgeLogs(ctx context.Context, before time.Time) error {
 	r.mu.RLock()
-	ls := r.logStorage
+	ls := r.logStore()
 	r.mu.RUnlock()
 
 	if ls != nil {
@@ -402,7 +402,7 @@ func (r *Registry) PurgeLogs(ctx context.Context, before time.Time) error {
 
 func (r *Registry) DeleteLogs(ctx context.Context, filter storage.LogFilter) error {
 	r.mu.RLock()
-	ls := r.logStorage
+	ls := r.logStore()
 	r.mu.RUnlock()
 
 	if ls != nil {
@@ -519,7 +519,7 @@ func (r *Registry) PauseForDebugger(workflowID, nodeID string, msg hermod.Messag
 
 func (r *Registry) RecordStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) {
 	r.mu.RLock()
-	ls := r.logStorage
+	ls := r.logStore()
 	r.mu.RUnlock()
 
 	if ls != nil {
@@ -560,5 +560,5 @@ func (r *Registry) recordSourceIngestTrace(ctx context.Context, workflowID, sour
 func (r *Registry) hasLogStorage() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.logStorage != nil
+	return r.logStore() != nil
 }
