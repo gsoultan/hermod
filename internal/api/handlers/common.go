@@ -35,14 +35,32 @@ type WorkerUpdater interface {
 }
 
 type Handler struct {
-	Storage     storage.Storage
-	LogStorage  storage.Storage
-	Registry    *registry.Registry
-	Worker      WorkerUpdater
+	Storage    storage.Storage
+	LogStorage storage.Storage
+	Registry   *registry.Registry
+
+	// Worker is set once at construction and again, on a first run, when setup
+	// finally provides a database. Assign it directly only before the server is
+	// serving; afterwards go through SetWorker/CurrentWorker, which hold
+	// workerMu — the second assignment happens on a request goroutine while
+	// other handlers are reading.
+	workerMu sync.RWMutex
+	Worker   WorkerUpdater
+
 	AI          *ai.SelfHealingService
 	Config      *config.Config
 	ConfigPath  string
 	FileStorage filestorage.Storage
+
+	// OnSetupComplete, if set, is called once first-run setup has opened the
+	// database, with the storage it opened.
+	//
+	// A first run has no database, so the process starts with no worker —
+	// shouldStartWorker requires the install to be complete at process start.
+	// Rather than teach a handler how to build one (it would need the process
+	// context and cancel func), main supplies this callback and keeps ownership
+	// of the lifecycle. Setup only announces that a database now exists.
+	OnSetupComplete func(storage.Storage)
 
 	// StoreMu guards concurrent reads/writes to storage during hot-swap.
 	StoreMu sync.RWMutex
@@ -1173,4 +1191,21 @@ func verifyFormTiming(r *http.Request, payload map[string]any, minMs int) error 
 		return errors.New("submitted too quickly")
 	}
 	return nil
+}
+
+// SetWorker installs the worker. Safe to call while the server is serving: on a
+// first run the worker does not exist until setup provides a database, and that
+// happens on a request goroutine.
+func (h *Handler) SetWorker(w WorkerUpdater) {
+	h.workerMu.Lock()
+	defer h.workerMu.Unlock()
+	h.Worker = w
+}
+
+// CurrentWorker returns the worker, or nil if none is running. Read through
+// this rather than the field: it can be installed after startup.
+func (h *Handler) CurrentWorker() WorkerUpdater {
+	h.workerMu.RLock()
+	defer h.workerMu.RUnlock()
+	return h.Worker
 }

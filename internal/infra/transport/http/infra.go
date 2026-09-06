@@ -659,8 +659,8 @@ func (h *InfraHandler) SaveDBConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update Worker to use new storage
-	if h.Worker != nil {
-		h.Worker.SetStorage(newStore)
+	if wrk := h.CurrentWorker(); wrk != nil {
+		wrk.SetStorage(newStore)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1063,8 +1063,8 @@ func (h *InfraHandler) FinalizeInitialSetup(w http.ResponseWriter, r *http.Reque
 	if h.Registry != nil {
 		h.Registry.SetStorage(newStore)
 	}
-	if h.Worker != nil {
-		h.Worker.SetStorage(newStore)
+	if wrk := h.CurrentWorker(); wrk != nil {
+		wrk.SetStorage(newStore)
 	}
 
 	// 3) Create first admin user
@@ -1136,6 +1136,13 @@ func (h *InfraHandler) FinalizeInitialSetup(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	log.Printf("Platform configuration saved to %s", h.ConfigPath)
+
+	// Announce the database last, once every step above has succeeded. A
+	// half-configured install starting a worker is worse than one that starts
+	// nothing, and every failure path above returns before reaching here.
+	if h.OnSetupComplete != nil {
+		h.OnSetupComplete(newStore)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

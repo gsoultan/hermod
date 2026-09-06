@@ -21,6 +21,7 @@ import (
 	"github.com/joho/godotenv"
 
 	_ "github.com/gsoultan/hermod/internal/engine/registry/nodes"
+	"github.com/gsoultan/hermod/internal/engine/worker"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/advanced"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/ai"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/core"
@@ -132,7 +133,15 @@ func runApp(svcCtx context.Context, o *Options) int {
 	logSetupStatus(logger, configured, userSetup, o.port)
 
 	wrk := setupWorker(ctx, cancel, o, reg, store, configured, userSetup)
-	err := runServer(ctx, o, reg, store, logStore, cfg, wrk, logger, configured, userSetup)
+
+	// If the install was already complete, wrk is running and this is unused.
+	// On a first run it is how the API asks for a worker once setup has opened
+	// a database — configured and userSetup are true by then, by definition.
+	startWorker := func(s storage.Storage) *worker.Worker {
+		return setupWorker(ctx, cancel, o, reg, s, true, true)
+	}
+
+	err := runServer(ctx, o, reg, store, logStore, cfg, wrk, startWorker, logger, configured, userSetup)
 
 	logger.Info("Hermod shutdown complete")
 	if err != nil {

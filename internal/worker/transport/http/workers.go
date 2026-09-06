@@ -200,8 +200,8 @@ func (h *WorkerHandler) ShutdownWorker(w http.ResponseWriter, r *http.Request) {
 	h.MarkWorkerDraining(id)
 	// Best-effort fast path for an in-process (standalone) worker, which talks to
 	// storage directly and would not otherwise see the API-surfaced flag.
-	if h.Worker != nil {
-		h.Worker.RequestShutdown(id)
+	if wrk := h.CurrentWorker(); wrk != nil {
+		wrk.RequestShutdown(id)
 	}
 
 	h.RecordAuditLog(r, "info", "Requested graceful shutdown of worker "+worker.Name, "STOP", "", "", "", map[string]any{"worker_id": worker.ID})
