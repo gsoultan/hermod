@@ -346,7 +346,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	}
 
 	ctx := context.Background()
-	if r.storage == nil {
+	if r.store() == nil {
 		return fmt.Errorf("registry storage is not initialized, cannot start workflow %s", id)
 	}
 	if err := r.ValidateWorkflow(ctx, wf); err != nil {
@@ -354,7 +354,7 @@ func (r *Registry) StartWorkflow(id string, wf storage.Workflow) error {
 	}
 
 	// Load node states for stateful transformations
-	nodeStates, err := r.storage.GetNodeStates(ctx, id)
+	nodeStates, err := r.store().GetNodeStates(ctx, id)
 	if err == nil {
 		r.nodeStatesMu.Lock()
 		for nodeID, state := range nodeStates {
@@ -641,7 +641,7 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 	eng.SetOnStall(func(reason string) { r.superviseStall(id, wf, reason) })
 
 	var dbLogger *DatabaseLogger
-	if r.storage != nil {
+	if r.store() != nil {
 		dbLogger = NewDatabaseLogger(context.Background(), r, id, r.logger)
 		eng.SetLogger(dbLogger)
 		eng.SetOnStatusChange(func(update telemetry.StatusUpdate) {
@@ -654,12 +654,12 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 			// Synchronously update status in storage as they change rarely and are
 			// critical for visibility.
 			dbCtx := context.Background()
-			_ = r.storage.UpdateWorkflowStatus(dbCtx, id, update.EngineStatus)
+			_ = r.store().UpdateWorkflowStatus(dbCtx, id, update.EngineStatus)
 			if update.SourceID != "" {
-				_ = r.storage.UpdateSourceStatus(dbCtx, update.SourceID, update.SourceStatus)
+				_ = r.store().UpdateSourceStatus(dbCtx, update.SourceID, update.SourceStatus)
 			}
 			for sinkID, status := range update.SinkStatuses {
-				_ = r.storage.UpdateSinkStatus(dbCtx, sinkID, status)
+				_ = r.store().UpdateSinkStatus(dbCtx, sinkID, status)
 			}
 
 			// Immediate state changes (Errors, Circuit Breaker) trigger notifications
@@ -670,7 +670,7 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 			if isError && r.notificationService != nil {
 				// We still fetch the workflow for the latest metadata (name) to
 				// ensure notifications are accurate.
-				if workflow, err := r.storage.GetWorkflow(dbCtx, id); err == nil {
+				if workflow, err := r.store().GetWorkflow(dbCtx, id); err == nil {
 					if strings.Contains(strings.ToLower(update.EngineStatus), "error") {
 						r.notificationService.Notify(dbCtx, "Workflow Error",
 							fmt.Sprintf("Workflow '%s' (ID: %s) entered error state: %s",
@@ -711,7 +711,7 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 					if len(perSourceState) == 0 {
 						continue
 					}
-					if err := r.storage.UpdateSourceState(ctx, node.RefID, perSourceState); err != nil {
+					if err := r.store().UpdateSourceState(ctx, node.RefID, perSourceState); err != nil {
 						r.broadcastLog(id, "ERROR", fmt.Sprintf("Failed to persist source state: %v", err))
 					} else if r.logger != nil {
 						r.logger.Info("Persisted source state during checkpoint", "workflow_id", id, "source_id", node.RefID, "state", perSourceState)
@@ -728,7 +728,7 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 			for key, state := range r.nodeStates {
 				if after, ok := strings.CutPrefix(key, prefix); ok {
 					nodeID := after
-					if err := r.storage.UpdateNodeState(ctx, id, nodeID, state); err != nil {
+					if err := r.store().UpdateNodeState(ctx, id, nodeID, state); err != nil {
 						return err
 					}
 				}
@@ -752,12 +752,12 @@ func (r *Registry) runWorkflowEngine(eng *pkgengine.Engine, ctx context.Context,
 			// so the worker's reconciliation loop restarts it on the next sync.
 			r.logger.Error("Workflow engine panicked", "workflow_id", id, "panic", rec, "stack", string(debug.Stack()))
 			r.broadcastLog(id, "ERROR", fmt.Sprintf("Workflow panicked: %v", rec))
-			if r.storage != nil {
+			if s := r.store(); s != nil {
 				dbCtx := context.Background()
-				if workflow, errGet := r.storage.GetWorkflow(dbCtx, id); errGet == nil {
+				if workflow, errGet := s.GetWorkflow(dbCtx, id); errGet == nil {
 					workflow.Status = fmt.Sprintf("Error: panic: %v", rec)
 					// Keep Active = true so reconciliation restarts it.
-					_ = r.storage.UpdateWorkflow(dbCtx, workflow)
+					_ = s.UpdateWorkflow(dbCtx, workflow)
 				}
 			}
 		}
@@ -798,9 +798,9 @@ func (r *Registry) runWorkflowEngine(eng *pkgengine.Engine, ctx context.Context,
 		r.broadcastLog(id, "INFO", "Workflow stopped naturally")
 	}
 
-	if r.storage != nil {
+	if s := r.store(); s != nil {
 		dbCtx := context.Background()
-		if workflow, errGet := r.storage.GetWorkflow(dbCtx, id); errGet == nil {
+		if workflow, errGet := s.GetWorkflow(dbCtx, id); errGet == nil {
 			if err != nil {
 				workflow.Status = "Error: " + err.Error()
 				// Keep Active = true so reconciliation restarts it
@@ -818,16 +818,16 @@ func (r *Registry) runWorkflowEngine(eng *pkgengine.Engine, ctx context.Context,
 					switch node.Type {
 					case "source":
 						if !r.IsResourceInUse(dbCtx, node.RefID, id, true) {
-							_ = r.storage.UpdateSourceStatus(dbCtx, node.RefID, "")
+							_ = s.UpdateSourceStatus(dbCtx, node.RefID, "")
 						}
 					case "sink":
 						if !r.IsResourceInUse(dbCtx, node.RefID, id, false) {
-							_ = r.storage.UpdateSinkStatus(dbCtx, node.RefID, "")
+							_ = s.UpdateSinkStatus(dbCtx, node.RefID, "")
 						}
 					}
 				}
 			}
-			_ = r.storage.UpdateWorkflow(dbCtx, workflow)
+			_ = s.UpdateWorkflow(dbCtx, workflow)
 		}
 	}
 	// Source and sink cleanup happens in the deferred function above so that it
@@ -939,19 +939,19 @@ func (r *Registry) stopEngine(ctx context.Context, id string, updateStorage bool
 		}
 	}
 
-	if updateStorage && r.storage != nil {
-		if workflow, err := r.storage.GetWorkflow(ctx, id); err == nil {
+	if s := r.store(); updateStorage && s != nil {
+		if workflow, err := s.GetWorkflow(ctx, id); err == nil {
 			workflow.Active = false
 			workflow.Status = ""
-			_ = r.storage.UpdateWorkflow(ctx, workflow)
+			_ = s.UpdateWorkflow(ctx, workflow)
 
 			// Update source and sinks
 			for _, node := range workflow.Nodes {
 				switch node.Type {
 				case "source":
-					_ = r.storage.UpdateSourceStatus(ctx, node.RefID, "")
+					_ = s.UpdateSourceStatus(ctx, node.RefID, "")
 				case "sink":
-					_ = r.storage.UpdateSinkStatus(ctx, node.RefID, "")
+					_ = s.UpdateSinkStatus(ctx, node.RefID, "")
 				}
 			}
 		}
@@ -963,10 +963,10 @@ func (r *Registry) stopEngine(ctx context.Context, id string, updateStorage bool
 // --- Rebuild & Resume ---
 
 func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromOffset int64) error {
-	if r.storage == nil {
+	if r.store() == nil {
 		return fmt.Errorf("registry storage is not initialized, cannot rebuild workflow %s", workflowID)
 	}
-	wf, err := r.storage.GetWorkflow(ctx, workflowID)
+	wf, err := r.store().GetWorkflow(ctx, workflowID)
 	if err != nil {
 		return err
 	}
@@ -1150,10 +1150,10 @@ func (r *Registry) resumeFromNode(workflowID, startNodeID string, msg hermod.Mes
 
 // ResumeApproval resumes a halted workflow at an approval node with the specified decision branch ("approved" or "rejected").
 func (r *Registry) ResumeApproval(ctx context.Context, app storage.Approval, branch string) error {
-	if r.storage == nil {
+	if r.store() == nil {
 		return errors.New("registry storage not available")
 	}
-	wf, err := r.storage.GetWorkflow(ctx, app.WorkflowID)
+	wf, err := r.store().GetWorkflow(ctx, app.WorkflowID)
 	if err != nil {
 		return err
 	}
@@ -1444,7 +1444,7 @@ func (r *Registry) prepareWorkflowNodes(ctx context.Context, nodes []storage.Wor
 			// Bounded: this runs on the workflow-start path, and an unresponsive
 			// metadata store must not hang startup indefinitely.
 			lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			snk, err := r.storage.GetSink(lookupCtx, node.RefID)
+			snk, err := r.store().GetSink(lookupCtx, node.RefID)
 			cancel()
 			if err == nil {
 				resolveSinkNodeSequential(node, snk.Config)

@@ -29,7 +29,7 @@ func (r *Registry) EvaluateConditions(msg hermod.Message, conditions []map[strin
 }
 
 func (r *Registry) Storage() interfaces.RegistryStorage {
-	return r.storage
+	return r.store()
 }
 
 func (r *Registry) StateStore() hermod.StateStore {
@@ -61,17 +61,17 @@ func (r *Registry) SetNodeState(key string, val any) {
 }
 
 func (r *Registry) UpdateNodeState(ctx context.Context, workflowID, nodeID string, state any) error {
-	if r.storage == nil {
+	if r.store() == nil {
 		return nil
 	}
-	return r.storage.UpdateNodeState(ctx, workflowID, nodeID, state)
+	return r.store().UpdateNodeState(ctx, workflowID, nodeID, state)
 }
 
 func (r *Registry) GetNodeStates(ctx context.Context, workflowID string) (map[string]any, error) {
-	if r.storage == nil {
+	if r.store() == nil {
 		return make(map[string]any), nil
 	}
-	return r.storage.GetNodeStates(ctx, workflowID)
+	return r.store().GetNodeStates(ctx, workflowID)
 }
 
 func (r *Registry) GetSink(workflowID, nodeID string) (hermod.Sink, bool) {
