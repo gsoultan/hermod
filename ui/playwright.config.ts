@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { uiBaseURL } from '../scripts/dev-ports.mjs';
 
 export default defineConfig({
   testDir: './__tests__',
@@ -8,10 +9,12 @@ export default defineConfig({
   workers: 1,
   reporter: 'list',
   use: {
-    // Must match vite.config.ts's pinned `server.port` (5175). Pointing at 5173
-    // meant every spec using a relative goto() hit a closed port, so the layout
-    // and form audits CI runs on each push were failing against nothing.
-    baseURL: process.env.AUDIT_BASE_URL || 'http://localhost:5175',
+    // Must match the port vite actually bound, which is 5175 only when 5175 was
+    // free — scripts/dev.sh steps up when it is not. Pointing at a port nothing
+    // is serving does not fail loudly: every spec using a relative goto() just
+    // hits a closed port, and the layout and form audits CI runs on each push
+    // silently pass against nothing.
+    baseURL: process.env.AUDIT_BASE_URL || uiBaseURL(),
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
