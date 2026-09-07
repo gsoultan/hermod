@@ -20,10 +20,23 @@ go 1.27.0
 // pre-release sorts below its release, so v1.0.0-rc.1 and v1.0.0-rc.2 are both
 // outside [v1.0.0, v1.8.0] while still carrying it.
 //
-// The corollary is a trap worth stating plainly: retraction is by version
-// string, so tagging v1.0.0 would retract itself the moment it was published,
-// and so would anything up to v1.8.0. Those numbers are spent. The first
-// version above the range, v1.8.1, is the lowest usable GA.
+// GA is v1.0.0 by decision, and the range is deliberately left covering it.
+//
+// v1.0.0 is spent *for Go consumers* and cannot be reclaimed by editing this
+// block: proxy.golang.org permanently maps v1.0.0 to the February commit that
+// carried the tag, under `module github.com/user/hermod`, so a new v1.0.0 tag
+// is never what `go get` hands back. Nothing here changes that.
+//
+// It is not spent anywhere else. The image, the chart, the binaries and the
+// git tag all had v1.0.0 free, and those are how Hermod is consumed -- `go get`
+// is already documented as unsupported at this version (CHANGELOG.md, "`go get`
+// does not work at this version, by choice").
+//
+// So the range keeps v1.0.0 rather than narrowing to v1.0.1. Narrowing would
+// un-retract the February v1.0.0 without making the new one reachable, and
+// plain `go get`, which currently resolves cleanly to the newest candidate,
+// would start selecting a commit that fails on a module path mismatch. Leaving
+// it costs the GA tag nothing it had not already lost.
 
 retract (
 	[v1.0.0, v1.8.0] // Withdrawn; the module proxy serves these against commits that no longer exist here.
