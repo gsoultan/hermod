@@ -7,7 +7,8 @@
 # withdrawal it was cut to protect.
 #
 # One tag per line, exact match, `#` comments ignored. The release workflow
-# reads this file at the tag being released.
+# reads this file at the tag being released. An empty list is valid and means
+# every tag publishes normally.
 #
 # This used to be inferred: the workflow asked whether a tag retracted its own
 # version, on the reasoning that nothing else would. That stopped being true the
@@ -16,16 +17,7 @@
 # under the old rule it would have published nothing at all. Being listed is a
 # decision; retracting yourself is now just a fact about go.mod.
 #
-# Nothing here is a live tombstone as of 2026-09-07. Both tags below were
-# deleted once the retract block moved onto the release tags themselves: it
-# lives in go.mod on main, so every tag cut from main carries it, and no tag
-# has to exist purely to hold it. See the comment above `retract` in go.mod.
-#
-# They stay listed anyway. The entries cost nothing while the tags do not
-# exist, and if either is ever pushed again -- restoring a tombstone is the
-# obvious reason -- publishing an image and a release for a withdrawn version
-# is exactly the mistake this file exists to prevent. Delete a line only when
-# you have decided that tag may publish.
-
-v1.7.4
-v1.8.0
+# The list is empty as of 2026-09-07. It held v1.7.4 and v1.8.0; both tags were
+# deleted once the retract block moved onto the release tags themselves, so
+# neither named anything that existed. See the comment above `retract` in
+# go.mod. Re-list a tag here before pushing one that must publish nothing.
