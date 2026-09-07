@@ -457,7 +457,7 @@ func (r *Runner) checkHealth(interval time.Duration) {
 	}
 
 	srcStatus, _, engStatus, _, _, _, _, _ := r.engine.statusTracker.GetStatus()
-	if allSinksOk && srcStatus == "running" && engStatus != "stalled" {
+	if allSinksOk && srcStatus == "running" {
 		// Not while stalled. The stall watchdog owns that status: it sets it
 		// when nothing completes while work is outstanding, and clears it again
 		// when it sees progress resume (see watchForStalls).
@@ -467,10 +467,17 @@ func (r *Runner) checkHealth(interval time.Duration) {
 		// true here, and this used to overwrite "stalled" with "running" on the
 		// next tick. The stall was real, the supervisor had already been told,
 		// and the status the UI reads said the workflow was fine.
+		//
+		// The exclusion has to be applied by the write, not by an `if` around
+		// it. engStatus above is a separate, earlier read: the watchdog sets
+		// "stalled" in the gap often enough that CI saw it, and a guard testing
+		// a stale value let the write through anyway.
 		if engStatus != "running" && strings.HasPrefix(engStatus, "reconnecting") {
 			r.engine.logger.Info("System reconnected successfully", "workflow_id", r.engine.workflowID, "action", "reconnect")
 		}
-		r.engine.setStatus("running")
+		if r.engine.statusTracker.SetEngineStatusUnless("running", "stalled") {
+			r.engine.notifyStatusChange()
+		}
 	}
 }
 

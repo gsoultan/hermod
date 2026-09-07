@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -46,5 +47,38 @@ func TestHealthCheckDoesNotClearAStall(t *testing.T) {
 		t.Errorf("engine status = %q after a health check, want %q: the health pass "+
 			"overwrote a stall the watchdog had already reported, so the UI shows a "+
 			"wedged workflow as healthy", got, "stalled")
+	}
+}
+
+// The sequential case above was fixed with an `if engStatus != "stalled"`
+// around the write, testing a value read earlier in checkHealth. That closes
+// the tick-after-the-stall ordering but not the one inside a single tick: the
+// read and the write are separate lock acquisitions, so a watchdog that sets
+// "stalled" between them is overwritten by a guard that already decided the
+// pipeline was fine. It is a narrow window, which is why the CI failure it
+// caused survived the first fix and kept appearing at the same assertion.
+//
+// Enforcing the exclusion in the write itself is what actually closes it.
+func TestHealthCheckLosingTheRaceStillDoesNotClearAStall(t *testing.T) {
+	for i := range 300 {
+		eng := NewEngine(idleSource{}, []hermod.Sink{&mockSink{}}, buffer.NewRingBuffer(8))
+		eng.SetConfig(stallTestConfig(50 * time.Millisecond))
+		r := &Runner{engine: eng, ctx: t.Context()}
+		eng.setStatus("running")
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); eng.setStatus("stalled") }()
+		go func() { defer wg.Done(); r.checkHealth(time.Millisecond) }()
+		wg.Wait()
+
+		// Either order is legal. The health pass may publish "running" first
+		// and have the watchdog overwrite it; what must not happen is the
+		// health pass landing last and clearing a stall already reported to the
+		// supervisor.
+		if got := eng.GetStatus().EngineStatus; got != "stalled" {
+			t.Fatalf("iteration %d: engine status = %q, want %q: a health pass cleared "+
+				"a stall the watchdog had already reported", i, got, "stalled")
+		}
 	}
 }
