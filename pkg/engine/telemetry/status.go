@@ -203,3 +203,28 @@ func (s *StatusTracker) GetEdgeMetrics() map[string]uint64 {
 func (s *StatusTracker) UpdateNodeSample(nodeID string, sample any) {
 	s.nodeSamples.Store(nodeID, sample)
 }
+
+// SetEngineStatusUnless publishes status unless the engine is already in one of
+// the excluded states, and reports whether it wrote. The decision and the write
+// happen under one lock, which is the entire point: callers that read the
+// status, decide, and then write it back hold no lock across the gap, and
+// anything that writes in between is silently overwritten.
+//
+// The background health check is exactly that caller (see runner.go). A wedged
+// sink still answers Ping, so the check concludes the pipeline is fine and
+// publishes "running" -- and if the stall watchdog set "stalled" after the
+// check read the status but before it wrote, the stall the supervisor had
+// already been told about disappeared from the status the UI reads. Narrow
+// enough that only a loaded machine hit it, which is how it reached CI as an
+// occasional failure of stall_watchdog_test.go rather than a reproducible one.
+func (s *StatusTracker) SetEngineStatusUnless(status string, unless ...string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, u := range unless {
+		if s.engineStatus == u {
+			return false
+		}
+	}
+	s.engineStatus = status
+	return true
+}
