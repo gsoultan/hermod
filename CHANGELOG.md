@@ -5,6 +5,150 @@ Notable changes to Hermod, newest first. Dates are ISO-8601.
 This file starts at 1.0.0. Everything published before it was withdrawn — see
 [The releases before this one are gone](#the-releases-before-this-one-are-gone).
 
+## [1.0.0-rc.2] — 2026-09-07
+
+The second release candidate. Almost all of it is the editor UI: a measured pass
+over rendering, navigation and forms, plus the first-run defect that made a
+fresh install unable to start a workflow without a restart. No dependency
+changed, so nothing here carries a security fix; `1.0.0-rc.1`'s advisory
+remains the current one.
+
+### Fixed — a fresh install could not run anything until you restarted it
+
+A first run has no database, so `shouldStartWorker`
+(`cmd/hermod/worker_util.go`) was false at process start and `main` built no
+worker. Setup then opened the database the admin chose but left the registry
+holding `nil`, so every toggle failed with `registry storage is not
+initialized`, with nothing on screen to say a restart was needed. Every
+`dev.sh --reset` stack and CI's E2E job ran in that state.
+
+Setup now announces the database it opened and `main` answers by starting a
+worker — last, after every setup step has succeeded, and behind a `sync.Once`
+so a second call cannot put two workers on the same workflows.
+
+Two data races surfaced alongside it, both on state that is now swapped while
+the process runs. `Registry.SetStorage` took `r.mu`, but 57 of the 70 reads of
+`r.storage`/`r.logStorage` took nothing, on request paths and on the stats and
+retention tickers. `r.mu` could not be the fix — `StartWorkflow` holds it and
+calls `ValidateWorkflow`, which reads storage, and `sync.RWMutex` is not
+reentrant — so the two fields moved to their own `storeMu` behind `store()` and
+`logStore()`. `Handler.Worker` gained the same treatment.
+
+### Fixed — the editor did work on every keystroke and every render
+
+- **Preview ran once a second while idle.** `usePreviewTransformation` spread a
+  mutation result into a fresh object each render, so the effect debouncing it
+  re-armed its timer every render and the 1s debounce behaved as a 1s poll.
+  Measured at 4 requests in 5.6s with no user input.
+- **Column discovery queried the sink's own database on every keystroke of a
+  table name.** The `mappings.length === 0` guard only closes once a discovery
+  succeeds, and a partial table name is not a table, so typing `orders` issued
+  six live queries.
+- **Raw-JSON panes discarded what you were typing.** They were controlled off
+  the node config, so half-typed JSON failed to parse, committed nothing, said
+  nothing, and the next unrelated re-render replaced the text with the last
+  serialised config. A keystroke that did parse came back reformatted, moving
+  the caret to the end.
+- **Lists blanked between keystrokes.** No query set `placeholderData` and only
+  `WorkflowDetailPage` debounced, so each character minted a query key, data
+  dropped to `undefined`, and the table emptied and refilled. Logs did this
+  while polling every 5s. Now debounced at 300ms with the previous result held,
+  across Workflows, Sources, Sinks, Users, Logs and Audit Logs.
+- **`FlowCanvas` merged edges with `JSON.parse(JSON.stringify(...))`.** It read
+  as a deep-equality guard and did the opposite: a new object per edge per
+  change, so React Flow's memoisation never held and every edge re-rendered
+  whenever any one did — several times a second under live telemetry. It also
+  silently mangled anything JSON cannot carry.
+- **`SinkForm` fetched workers with a bare `useEffect`** — no cache, no dedupe,
+  no abort, a request per mount, and a `setState` after unmount if the form
+  closed mid-flight. `SourceForm` already read the same list through React
+  Query, so one resource had two mechanisms.
+- **Seven transformation types rendered their configuration twice.** Config
+  moved to a registry but the inline blocks it replaced were never deleted, so
+  set, advanced, pipeline, lua, wasm, foreach and aggregate showed their
+  settings under both Configuration and Advanced, with stale labels the second
+  time. 288 inline lines removed.
+- **Forms hydrated over your edits.** `useSourceForm` re-parsed `initialData`
+  on every keystroke, restoring a sample `updateConfig` had just cleared;
+  `UserForm` and `VHostForm` re-hydrated on every `initialData` identity, so a
+  refetch after their own save overwrote in-progress edits.
+- Routing nodes previewed the `{branch, result}` envelope instead of the
+  message, and `WorkflowsPage` crashed on a non-array `/api/workspaces`
+  response.
+
+### Changed — navigation, first paint and layout
+
+- **Cold loads no longer flash white.** The app renders dark by default but the
+  theme was applied only after hydration, and `index.html` set no background.
+  It now inlines Mantine's own `ColorSchemeScript` algorithm, a `color-scheme`
+  meta and matching `theme-color`, and `#root` holds a shell placeholder. First
+  paint measured at `rgb(26,27,30)`.
+- **Navigation stopped paying a fixed cost.** Router `defaultPreload: 'intent'`
+  warms a route's lazy chunk on hover instead of fetching chunk then data in
+  series; `defaultPendingMinMs` drops 500 → 0 and `defaultPendingMs` rises
+  0 → 300, so a warm route that paints in 20ms no longer costs a pinned 500ms
+  full-viewport spinner.
+- **The manual chunk buckets are gone**, measured rather than assumed. The
+  `reactflow` rule matched a package renamed to `@xyflow/react` long ago, so it
+  only ever caught dagre and d3 — and fixing the name made it worse, promoting
+  the graph library and drag-and-drop kit onto the login screen's critical path
+  at 1.45MB. Rolldown's own splitting tracks the eager/lazy boundary properly.
+- **One width grammar for every form.** A measured audit found five different
+  grammars across six forms. `<Group grow>` was the broken one — a flex row
+  that never wraps, squeezing host/port/user/password to ~80px on a narrow
+  viewport instead of stacking. 72 of these became `FormRow`, a `SimpleGrid`
+  that does collapse and bottom-aligns, replacing a global `min-height: 1.2em`
+  that only ever reserved one line.
+- The editor toolbar at 390px was a non-wrapping flex row; it wraps now.
+- Two theme blocks were silently dead: Mantine `styles` become inline styles,
+  so nested selectors in them were not CSS rules — React rejected them and
+  logged an error every render. Active nav links rendered at weight 400 instead
+  of 600 and table headers had no background in either scheme.
+
+### Added
+
+- **Search in the workflow palette.** It lists well over a hundred sources,
+  sinks and transformations across three tabs and a dozen categories, and the
+  only way to find one was to scroll. Labels, sub-types and descriptions are
+  all searched — so "drop records" finds Filter — ignoring spaces, underscores
+  and slashes, because the catalogue is not consistent about them. A tabbed
+  palette hides matches by design, so an empty tab reports where they are, and
+  says so rather than offering a link when the target tab is locked.
+- **The PWA is finished**: an explicit manifest `id` (it was derived from
+  `start_url`, so changing that later would have orphaned every install),
+  192/512 PNG icons, a maskable icon inside the inner 80% safe zone, and an
+  `apple-touch-icon`, which iOS needs because it ignores the manifest for Add
+  to Home Screen.
+- **Accessible names that describe the right action.** A bulk find-and-replace
+  had given icon buttons the wrong ones: copy-to-clipboard announced "Confirm",
+  generate-password announced "Refresh", clear-stream announced "Delete", and
+  ten delete buttons in a table all announced "Delete" with nothing to say
+  which row. 26 corrected.
+- **A bundle budget in CI.** `check-bundle-budget.mjs` sums every script and
+  stylesheet `index.html` references and fails past 781kB; measured 736kB. One
+  eager import of a page-only library puts it back to the 1,092kB it was before
+  the buckets came out, with nothing else in CI noticing.
+- Editor measurement scripts (`measure-editor.mjs`, `profile-editor-cpu.mjs`,
+  `visual-sweep.mjs`) used to settle the memory and worker-offload questions
+  rather than argue them. The apparent +17MB peak on the new code was GC sample
+  timing: 4.55 vs 4.35MB sampled over 30s, identical composition.
+
+### Developer experience
+
+- `scripts/dev.sh` chooses its ports rather than assuming they are free. It
+  prefers 4005 (API), 50051 (gRPC) and 5175 (UI) and steps up when one is
+  taken, so a second stack no longer fails with `address already in use`. The
+  gRPC port was previously unmanaged, and a failed bind on it is fatal for the
+  whole process.
+
+### Known gaps
+
+- Everything listed under Known gaps in `1.0.0-rc.1` still applies; none of it
+  was addressed here.
+- The 239kB stylesheet costs 36.8kB over the wire with FCP at 44ms on the
+  production build. Splitting it was measured and judged not worth the work,
+  and is recorded rather than done.
+
 ## [1.0.0-rc.1] — 2026-09-03
 
 A release candidate, not a final release. Everything below is tested and the
@@ -196,4 +340,5 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.0.0-rc.2]: https://github.com/gsoultan/hermod/releases/tag/v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/gsoultan/hermod/releases/tag/v1.0.0-rc.1
