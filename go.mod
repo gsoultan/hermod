@@ -9,11 +9,21 @@ go 1.27.0
 // and permanently, so `go get github.com/gsoultan/hermod` still resolved to
 // v1.7.3 and failed with a path mismatch instead of finding v1.0.0-rc.1.
 //
-// v1.7.4 exists only to carry this block. It is a tombstone: it retracts
-// itself, so nothing selects it, and the release workflow publishes no
-// artifacts for it. The range deliberately starts at v1.0.0 rather than lower,
-// which leaves v1.0.0-rc.1 outside it -- a pre-release sorts below its release,
-// so v1.0.0-rc.1 < v1.0.0 -- making it the highest version left standing.
+// No tombstone tag carries this block any more. It used to need one -- Go reads
+// retractions from the highest version, so retracting a withdrawn release meant
+// publishing a tag above it, which was v1.7.4 and then v1.8.0. Both are deleted.
+// The block now rides on the release tags themselves: it lives here on main, so
+// every tag cut from main carries it, and v1.0.0-rc.2 is the highest version
+// standing.
+//
+// That works only because the release line restarted below the range. A
+// pre-release sorts below its release, so v1.0.0-rc.1 and v1.0.0-rc.2 are both
+// outside [v1.0.0, v1.8.0] while still carrying it.
+//
+// The corollary is a trap worth stating plainly: retraction is by version
+// string, so tagging v1.0.0 would retract itself the moment it was published,
+// and so would anything up to v1.8.0. Those numbers are spent. The first
+// version above the range, v1.8.1, is the lowest usable GA.
 
 retract (
 	[v1.0.0, v1.8.0] // Withdrawn; the module proxy serves these against commits that no longer exist here.

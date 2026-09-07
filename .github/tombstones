@@ -15,6 +15,17 @@
 # shipping an image, a chart and binaries -- v1.0.0-rc.1 is exactly that, and
 # under the old rule it would have published nothing at all. Being listed is a
 # decision; retracting yourself is now just a fact about go.mod.
+#
+# Nothing here is a live tombstone as of 2026-09-07. Both tags below were
+# deleted once the retract block moved onto the release tags themselves: it
+# lives in go.mod on main, so every tag cut from main carries it, and no tag
+# has to exist purely to hold it. See the comment above `retract` in go.mod.
+#
+# They stay listed anyway. The entries cost nothing while the tags do not
+# exist, and if either is ever pushed again -- restoring a tombstone is the
+# obvious reason -- publishing an image and a release for a withdrawn version
+# is exactly the mistake this file exists to prevent. Delete a line only when
+# you have decided that tag may publish.
 
 v1.7.4
 v1.8.0
