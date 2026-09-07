@@ -5,6 +5,60 @@ Notable changes to Hermod, newest first. Dates are ISO-8601.
 This file starts at 1.0.0. Everything published before it was withdrawn — see
 [The releases before this one are gone](#the-releases-before-this-one-are-gone).
 
+## [1.0.0] — 2026-09-07
+
+The first generally available release. It is `1.0.0-rc.2` plus one concurrency
+fix; no dependency changed, so it carries no security fix of its own and
+`1.0.0-rc.1`'s advisory remains the current one.
+
+### Fixed — a health pass could clear a stall it raced
+
+`checkHealth` publishes `"running"` whenever the source is up and every sink
+answers `Ping`, and a wedged sink does answer `Ping`: it accepts the connection
+and never completes a write. So the stall watchdog and the health pass both
+write the engine status, and the watchdog has to win.
+
+An earlier fix guarded the write with `engStatus != "stalled"`, which closed the
+case of a health tick arriving *after* a stall. It could not close the case
+inside a single tick: `engStatus` came from an earlier `GetStatus`, and the
+write was a separate lock acquisition, so a watchdog setting `"stalled"` between
+the two was overwritten by a guard that had already decided the pipeline was
+fine. A supervisor was told the workflow had stalled while the status the UI
+reads said it was healthy.
+
+The exclusion moved into the write. `StatusTracker.SetEngineStatusUnless`
+decides and publishes under one lock and reports whether it wrote.
+
+The window was only as wide as the gap between the two calls, so it never
+reproduced on a developer machine and surfaced instead as an intermittent CI
+failure. Both halves of the fix now have a test that fails without it: the
+tracker races 2000 pairs of writers, and the engine-level test races the
+watchdog against `checkHealth` 300 times.
+
+### The version number, and what it does not buy you
+
+`1.0.0` is the release you can run: the container image, the Helm chart, the
+binaries and the git tag were all free at this number.
+
+It is **not** installable with `go get`, and no future release can make it so.
+`proxy.golang.org` is immutable and permanently maps `v1.0.0` to the February
+commit that carried that tag, under `module github.com/user/hermod` — a path
+matching no repository. That is unchanged from
+[`go get` does not work at this version, by choice](#go-get-does-not-work-at-this-version-by-choice),
+and the `retract` block in `go.mod` deliberately still covers `v1.0.0`:
+narrowing it would un-retract the February commit without making this one
+reachable, and would break the plain `go get` that currently resolves cleanly to
+the newest candidate.
+
+Consume this release as an image, a chart or a binary.
+
+### Known gaps
+
+Everything listed under Known gaps in `1.0.0-rc.1` still applies; none of it was
+addressed here. The five social connectors that advance their cursor on read —
+Twitter/X, LinkedIn, Facebook, Instagram and TikTok — remain the most
+significant: treat a restart as potentially lossy for those.
+
 ## [1.0.0-rc.2] — 2026-09-07
 
 The second release candidate. Almost all of it is the editor UI: a measured pass
@@ -340,5 +394,6 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.0.0]: https://github.com/gsoultan/hermod/releases/tag/v1.0.0
 [1.0.0-rc.2]: https://github.com/gsoultan/hermod/releases/tag/v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/gsoultan/hermod/releases/tag/v1.0.0-rc.1
