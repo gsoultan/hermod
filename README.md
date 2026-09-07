@@ -271,6 +271,13 @@ via hot reload — no restart needed. Port 4005 also serves a UI, but that is th
 `internal/api/static`; it will **not** show your edits until you run `--build-ui`. It exists for
 checking what production actually ships.
 
+**Ports are chosen, not assumed.** The stack prefers 4005 (API), 50051 (gRPC) and 5175 (UI), and
+steps up to the next free number for any of them already taken — so a second stack, or an unrelated
+service, never produces `address already in use`. The banner prints the numbers it settled on, and
+`./scripts/dev.sh --print-ports` shows them without starting anything. Note that 50051 is the
+conventional gRPC port and therefore the likeliest to collide, even when both documented ports are
+free; a failed bind on it takes the whole backend down.
+
 Notes:
 
 - **PostgreSQL is created for you.** On first run the script builds a `postgres-dev` container with
@@ -282,7 +289,9 @@ Notes:
   `HERMOD_CONFIG_DIR`, not `~/.hermod`, so it cannot overwrite another Hermod instance's setup.
 - Logs stream to the terminal and are kept in `.dev/logs/{backend,ui}.log`.
 - Overridable: `HERMOD_DEV_ADMIN_USER`, `HERMOD_DEV_ADMIN_PASS`, `HERMOD_DEV_API_PORT`,
-  `HERMOD_DEV_UI_PORT`, `HERMOD_DEV_PG_CONTAINER`, `HERMOD_DEV_PG_PORT`.
+  `HERMOD_DEV_GRPC_PORT`, `HERMOD_DEV_UI_PORT`, `HERMOD_DEV_PG_CONTAINER`, `HERMOD_DEV_PG_PORT`.
+  A port set explicitly is used as given — if it is busy the run fails and names the holder, rather
+  than silently moving to another port you did not ask for.
 
 #### Managing the database container
 
