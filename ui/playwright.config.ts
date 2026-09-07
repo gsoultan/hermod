@@ -1,5 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-import { uiBaseURL } from '../scripts/dev-ports.mjs';
+import { uiBaseURL } from '../scripts/dev-ports';
 
 export default defineConfig({
   testDir: './__tests__',

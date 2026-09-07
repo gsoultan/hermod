@@ -17,6 +17,14 @@
 // error that takes the whole config — and therefore every spec — with it. The
 // repo root is found by walking up for go.mod instead, which also lets this be
 // imported from `ui/` as well as the root.
+//
+// Deliberately `.ts`, not `.mjs`, for the same reason from the other side. The
+// root package.json declares no `type`, so the repo root is CommonJS, but
+// ui/package.json sets `"type": "module"`, so specs under ui/ load as native
+// ESM. A `.mjs` here was transpiled to CommonJS for the config and then failed
+// every spec that imported it with "does not provide an export named
+// apiBaseURL" — the config resolved it and the specs did not. Playwright
+// compiles .ts the same way on both sides of that boundary.
 import fs from 'node:fs'
 import path from 'node:path'
 

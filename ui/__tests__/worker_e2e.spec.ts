@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { spawn, execSync } from 'child_process';
 import { existsSync } from 'fs';
-import { apiBaseURL } from '../../scripts/dev-ports.mjs';
+import { apiBaseURL } from '../../scripts/dev-ports';
 
 // Resolve the hermod binary rather than assuming one is lying in the repo root.
 //
