@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { spawn, execSync } from 'child_process';
 import { existsSync } from 'fs';
+import { apiBaseURL } from '../../scripts/dev-ports';
 
 // Resolve the hermod binary rather than assuming one is lying in the repo root.
 //
@@ -143,8 +144,9 @@ test.describe('Worker Agent Installation and Setup', () => {
     // 7. Verify with hermodctl (Worker Setup Verification)
     console.log('Verifying with hermodctl...');
     try {
-        // We use port 4005 directly for API calls from CLI
-        const ctlOutput = execSync(`./hermodctl status --url http://127.0.0.1:4005`).toString();
+        // The CLI talks to the API directly, bypassing the UI's proxy, so it
+        // needs the API port — which is 4005 only when 4005 was free.
+        const ctlOutput = execSync(`./hermodctl status --url ${apiBaseURL()}`).toString();
         console.log('hermodctl output:', ctlOutput);
         // The status output should contain the worker's GUID if it's correctly registered and online
         if (ctlOutput.includes(workerGUID)) {

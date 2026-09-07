@@ -8,6 +8,14 @@
 #   ./scripts/dev.sh --build-ui  refresh the UI bundle the API serves, then start
 #   ./scripts/dev.sh --detach    start, print the banner, then exit (for CI)
 #   ./scripts/dev.sh --stop      stop a running stack and exit
+#   ./scripts/dev.sh --print-ports  show the ports this run would use, then exit
+#
+# Ports are chosen, not assumed. It prefers 4005 (API), 50051 (gRPC) and 5175
+# (UI), and steps up to the next free number for any of them that is taken, so
+# a second stack or an unrelated service never produces "address already in
+# use". Watch the banner for the numbers it settled on. Pin one with the
+# environment variables below and it is used as given, or the run fails saying
+# who holds it — a port you asked for by name is never silently swapped.
 #
 # The script completes Hermod's first-run wizard for you, so the only thing left
 # to do is type a username and password on the login page.
@@ -25,6 +33,9 @@
 # runtime available? Use --sqlite, which needs nothing.
 #
 # Environment overrides:
+#   HERMOD_DEV_API_PORT      pin the API port     (default: 4005, else next free)
+#   HERMOD_DEV_GRPC_PORT     pin the gRPC port    (default: 50051, else next free)
+#   HERMOD_DEV_UI_PORT       pin the UI port      (default: 5175, else next free)
 #   HERMOD_DEV_PG_CONTAINER  container name (default: postgres-dev)
 #   HERMOD_DEV_PG_PORT       host port for Postgres (default: auto-detected)
 
@@ -35,8 +46,32 @@ DEV_DIR="$REPO_ROOT/.dev"
 LOG_DIR="$DEV_DIR/logs"
 BIN="$DEV_DIR/hermod"
 
-API_PORT="${HERMOD_DEV_API_PORT:-4005}"
-UI_PORT="${HERMOD_DEV_UI_PORT:-5175}"
+# Preferred ports. These are only a starting point: whichever of them is busy
+# gets stepped over at startup (see resolve_ports), so a second stack — or an
+# unrelated service — never turns into "address already in use".
+#
+# The gRPC port matters more than it looks. 50051 is *the* conventional gRPC
+# port, so it is the one most likely to be taken by something else on the
+# machine, and a failed bind on it is fatal for the whole process
+# (cmd/hermod/server_util.go:88) even though the API and UI ports were free.
+API_PORT_PREF="${HERMOD_DEV_API_PORT:-4005}"
+GRPC_PORT_PREF="${HERMOD_DEV_GRPC_PORT:-50051}"
+UI_PORT_PREF="${HERMOD_DEV_UI_PORT:-5175}"
+
+# A port named explicitly is a request, not a hint: pinning one and silently
+# getting another is worse than being told it is taken.
+API_PORT_PINNED="${HERMOD_DEV_API_PORT:+1}"
+GRPC_PORT_PINNED="${HERMOD_DEV_GRPC_PORT:+1}"
+UI_PORT_PINNED="${HERMOD_DEV_UI_PORT:+1}"
+
+API_PORT="$API_PORT_PREF"
+GRPC_PORT="$GRPC_PORT_PREF"
+UI_PORT="$UI_PORT_PREF"
+
+# The ports a running stack actually chose. --stop is a separate invocation and
+# cannot re-derive them (they are free again only *after* the stack dies), so
+# they are recorded here for it to sweep.
+PORTS_FILE="$DEV_DIR/.ports"
 
 ADMIN_USER="${HERMOD_DEV_ADMIN_USER:-admin}"
 ADMIN_PASS="${HERMOD_DEV_ADMIN_PASS:-admin}"
@@ -59,6 +94,7 @@ DO_RESET=0
 DO_STOP=0
 DO_BUILD_UI=0
 DO_DETACH=0
+DO_PRINT_PORTS=0
 for arg in "$@"; do
   case "$arg" in
     --sqlite) USE_SQLITE=1 ;;
@@ -66,6 +102,7 @@ for arg in "$@"; do
     --stop)     DO_STOP=1 ;;
     --build-ui) DO_BUILD_UI=1 ;;
     --detach)   DO_DETACH=1 ;;
+    --print-ports) DO_PRINT_PORTS=1 ;;
     -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
@@ -80,6 +117,60 @@ say()  { echo "${BOLD}▸${RESET} $*"; }
 ok()   { echo "  ${GREEN}✓${RESET} $*"; }
 warn() { echo "  ${YELLOW}!${RESET} $*"; }
 die()  { echo "  ${RED}✗${RESET} $*" >&2; exit 1; }
+
+# --- port selection ------------------------------------------------------------
+
+port_in_use() {
+  local port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 && return 0
+  fi
+  # Fallback for a machine without lsof. A refused connection means free.
+  (echo >"/dev/tcp/127.0.0.1/$port") >/dev/null 2>&1 && return 0
+  return 1
+}
+
+port_holder() {
+  local port="$1"
+  command -v lsof >/dev/null 2>&1 || { echo "another process"; return; }
+  local who
+  who="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1" (pid "$2")"}')"
+  echo "${who:-another process}"
+}
+
+# First free port at or above the preferred one. Scanning upward keeps the
+# result predictable — a busy 4005 becomes 4006, not a random high port — which
+# matters because the number ends up in a URL a human has to type.
+pick_free_port() {
+  local preferred="$1" label="$2" pinned="${3:-}"
+  if ! port_in_use "$preferred"; then
+    echo "$preferred"; return
+  fi
+  if [[ -n "$pinned" ]]; then
+    die "$label port $preferred is pinned but already in use by $(port_holder "$preferred"). Free it, or unset the override to auto-select."
+  fi
+  local port
+  for port in $(seq $((preferred + 1)) $((preferred + 50))); do
+    port_in_use "$port" || { echo "$port"; return; }
+  done
+  die "no free $label port found in ${preferred}-$((preferred + 50))"
+}
+
+# `die` inside the command substitution above exits only the subshell, so its
+# failure must be propagated here explicitly — without the `|| exit`, a rejected
+# port would leave the variable empty and the stack would start on nothing.
+resolve_ports() {
+  API_PORT="$(pick_free_port "$API_PORT_PREF" API "$API_PORT_PINNED")"   || exit 1
+  GRPC_PORT="$(pick_free_port "$GRPC_PORT_PREF" gRPC "$GRPC_PORT_PINNED")" || exit 1
+  UI_PORT="$(pick_free_port "$UI_PORT_PREF" UI "$UI_PORT_PINNED")"       || exit 1
+
+  # Vite reads these, not the HERMOD_DEV_* names. Without the export the UI kept
+  # binding its own hardcoded 5175 with strictPort — so setting HERMOD_DEV_UI_PORT
+  # moved every check in this script but not the server it was checking, and the
+  # override could never actually resolve a conflict.
+  export HERMOD_UI_PORT="$UI_PORT"
+  export HERMOD_API_TARGET="http://localhost:$API_PORT"
+}
 
 # --- container runtime (Apple container) ---------------------------------------
 #
@@ -164,7 +255,7 @@ stop_stack() {
   for pid in "$API_PID" "$UI_PID" "$TAIL_PID"; do
     [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
   done
-  for port in "$API_PORT" "$UI_PORT"; do
+  for port in "$API_PORT" "$GRPC_PORT" "$UI_PORT"; do
     local stale
     stale="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
     [[ -n "$stale" ]] && kill $stale 2>/dev/null || true
@@ -187,8 +278,24 @@ on_exit() {
 
 if [[ "$DO_STOP" == "1" ]]; then
   say "Stopping any running dev stack"
+  # Sweep the ports the stack actually chose, which are not the preferred ones
+  # if it had to step over a conflict. The signature sweep would still reach the
+  # processes; this just keeps the port sweep honest.
+  if [[ -f "$PORTS_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$PORTS_FILE" 2>/dev/null || true
+  fi
   stop_stack
+  rm -f "$PORTS_FILE" 2>/dev/null || true
   ok "done"
+  exit 0
+fi
+
+if [[ "$DO_PRINT_PORTS" == "1" ]]; then
+  resolve_ports
+  echo "api=$API_PORT"
+  echo "grpc=$GRPC_PORT"
+  echo "ui=$UI_PORT"
   exit 0
 fi
 
@@ -201,6 +308,18 @@ command -v curl >/dev/null || die "curl not found on PATH"
 ok "go $(go env GOVERSION), bun $(bun --version)"
 
 mkdir -p "$DEV_DIR" "$LOG_DIR" "$HERMOD_CONFIG_DIR"
+
+say "Selecting ports"
+resolve_ports
+for _spec in "API:$API_PORT:$API_PORT_PREF" "gRPC:$GRPC_PORT:$GRPC_PORT_PREF" "UI:$UI_PORT:$UI_PORT_PREF"; do
+  IFS=: read -r _label _got _want <<<"$_spec"
+  if [[ "$_got" == "$_want" ]]; then
+    ok "$_label :$_got"
+  else
+    warn "$_label :$_want was taken by $(port_holder "$_want") — using :$_got instead"
+  fi
+done
+printf 'API_PORT=%s\nGRPC_PORT=%s\nUI_PORT=%s\n' "$API_PORT" "$GRPC_PORT" "$UI_PORT" > "$PORTS_FILE"
 
 if [[ "$DO_RESET" == "1" ]]; then
   say "Resetting dev state"
@@ -315,10 +434,15 @@ trap on_exit EXIT INT TERM
 
 # --- run ----------------------------------------------------------------------
 
-say "Starting API + worker on :$API_PORT"
+say "Starting API + worker on :$API_PORT (gRPC :$GRPC_PORT)"
 # HERMOD_ENV stays unset (development): the backend then serves from disk and
 # does not try to use the embedded production bundle.
-"$BIN" --mode=standalone --port="$API_PORT" --db-type="$DB_TYPE" --db-conn="$DB_CONN" \
+#
+# --grpc-port is not optional here. The backend binds gRPC as well as HTTP, and
+# a failed bind on either one takes the whole process down; left at its default
+# it would keep dying on 50051 no matter which API port was chosen.
+"$BIN" --mode=standalone --port="$API_PORT" --grpc-port="$GRPC_PORT" \
+  --db-type="$DB_TYPE" --db-conn="$DB_CONN" \
   > "$LOG_DIR/backend.log" 2>&1 < /dev/null &
 API_PID=$!
 
@@ -371,6 +495,7 @@ cat <<BANNER
     ${BOLD}Open this${RESET}  ${BOLD}http://localhost:$UI_PORT${RESET}  ${DIM}← UI, hot-reloads your edits${RESET}
     API        http://localhost:$API_PORT  ${DIM}← API only. It also serves a
                pre-built UI bundle that does NOT reflect your edits; use $UI_PORT.${RESET}
+    gRPC       localhost:$GRPC_PORT
     Database   $DB_TYPE
 
     ${BOLD}Log in with${RESET}
