@@ -17,11 +17,24 @@
 export interface RequiredField {
   /** Config key, as the factory reads it. */
   key: string;
+  /**
+   * Other keys that satisfy this requirement. A connector whose form offers
+   * both discrete host fields and a pasted URL has one requirement, not two:
+   * BuildConnectionString takes whichever is present.
+   */
+  aliases?: string[];
   /** Human name shown in "Required: …" messages. */
   label: string;
   /** Real-looking example shown as the field placeholder. */
   example: string;
 }
+
+/**
+ * The keys BuildConnectionString accepts as a whole connection string, in its
+ * own precedence order (internal/factory/factory.go:1193). Any one of them
+ * makes the discrete host/port fields unnecessary.
+ */
+const URL_KEYS = ['connection_string', 'uri', 'url'];
 
 const hostPort = (port: string): RequiredField[] => [
   { key: 'host', label: 'Host', example: 'db.example.com' },
@@ -46,13 +59,19 @@ const SOURCE_REQUIREMENTS: Record<string, RequiredField[]> = {
   ],
   kafka: [{ key: 'brokers', label: 'Brokers', example: 'broker1:9092, broker2:9092' }],
   nats: [{ key: 'url', label: 'Server URL', example: 'nats://nats.example.com:4222' }],
-  rabbitmq: [{ key: 'url', label: 'Server URL', example: 'amqp://user:pass@rabbit.example.com:5672/' }],
+  rabbitmq: [
+    { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'rabbit.example.com' },
+    { key: 'stream_name', label: 'Stream name', example: 'orders' },
+  ],
   rabbitmq_queue: [
-    { key: 'url', label: 'Server URL', example: 'amqp://user:pass@rabbit.example.com:5672/' },
-    { key: 'queue', label: 'Queue', example: 'orders' },
+    { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'rabbit.example.com' },
+    { key: 'queue_name', label: 'Queue name', example: 'orders' },
   ],
   redis: [{ key: 'addr', label: 'Address', example: 'redis.example.com:6379' }],
-  mqtt: [{ key: 'broker', label: 'Broker URL', example: 'tcp://mqtt.example.com:1883' }],
+  mqtt: [
+    { key: 'broker_url', aliases: ['url'], label: 'Broker URL', example: 'tcp://mqtt.example.com:1883' },
+    { key: 'topics', aliases: ['topic'], label: 'Topics', example: 'sensors/+/temp, devices/+/status' },
+  ],
   websocket: [{ key: 'url', label: 'WebSocket URL', example: 'wss://feed.example.com/stream' }],
   http: [{ key: 'url', label: 'URL to poll', example: 'https://api.example.com/changes' }],
   graphql: [{ key: 'url', label: 'GraphQL endpoint', example: 'https://api.example.com/graphql' }],
@@ -85,7 +104,14 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
     { key: 'topic', label: 'Topic', example: 'hermod.events' },
   ],
   redis: [{ key: 'addr', label: 'Address', example: 'redis.example.com:6379' }],
-  rabbitmq: [{ key: 'url', label: 'Server URL', example: 'amqp://user:pass@rabbit.example.com:5672/' }],
+  rabbitmq: [
+    { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'rabbit.example.com' },
+    { key: 'stream_name', label: 'Stream name', example: 'hermod-stream' },
+  ],
+  rabbitmq_queue: [
+    { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'rabbit.example.com' },
+    { key: 'queue_name', label: 'Queue name', example: 'hermod-queue' },
+  ],
   elasticsearch: [{ key: 'url', label: 'Server URL', example: 'https://es.example.com:9200' }],
   http: [{ key: 'url', label: 'Destination URL', example: 'https://api.example.com/ingest' }],
   websocket: [{ key: 'url', label: 'WebSocket URL', example: 'wss://receiver.example.com/in' }],
@@ -101,7 +127,7 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
     { key: 'host', label: 'SMTP host', example: 'smtp.example.com' },
     { key: 'to', label: 'Recipient', example: 'ops@example.com' },
   ],
-  snowflake: [{ key: 'dsn', label: 'DSN', example: 'user:pass@account/db/schema?warehouse=wh' }],
+  snowflake: [{ key: 'connection_string', label: 'Connection String', example: 'user:pass@account/db/schema?warehouse=wh' }],
 };
 
 /**
@@ -115,11 +141,12 @@ export function missingConnectionFields(
 ): string[] {
   const reqs = (kind === 'source' ? SOURCE_REQUIREMENTS : SINK_REQUIREMENTS)[type] ?? [];
   const cfg = config ?? {};
+  const blank = (key: string) => {
+    const v = cfg[key];
+    return v === undefined || v === null || String(v).trim() === '';
+  };
   return reqs
-    .filter((f) => {
-      const v = cfg[f.key];
-      return v === undefined || v === null || String(v).trim() === '';
-    })
+    .filter((f) => blank(f.key) && (f.aliases ?? []).every(blank))
     .map((f) => f.label);
 }
 
