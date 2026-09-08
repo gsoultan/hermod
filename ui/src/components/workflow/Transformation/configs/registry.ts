@@ -46,6 +46,9 @@ import { JoinFieldsConfig } from './logic/JoinFieldsConfig'
 import { LuaConfig } from './script/LuaConfig'
 import { WasmConfig } from './script/WasmConfig'
 
+// security
+import { EncryptConfig } from './security/EncryptConfig'
+
 // util / quality
 import { DeduplicateConfig } from './util/DeduplicateConfig'
 import { StatValidatorConfig } from './quality/StatValidatorConfig'
@@ -70,6 +73,8 @@ export interface TransformConfigProps {
   addField?: (...args: any[]) => void
   onAddFromSource?: (...args: any[]) => void
   testLookup?: () => void
+  /** The resolved `transType`, for editors that serve more than one. */
+  transType?: string
 }
 
 // Components accept a subset of TransformConfigProps, so the registry stores
@@ -96,6 +101,8 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   set: SetFieldsConfig,
   aggregate: AggregateConfig,
   mask: MaskConfig,
+  encrypt: EncryptConfig,
+  decrypt: EncryptConfig,
   pii_masking: MaskConfig,
   mask_emails: MaskConfig,
   advanced: AdvancedConfig,

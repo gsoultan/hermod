@@ -35,6 +35,9 @@ find a claim that outruns the code, fix the claim.
   reachable from JavaScript; streams authenticate by cookie; logout is real.
 - [Postgres sink and polling](postgres_sink_and_polling_updates.md) — singleflight
   connection dedup, non-CDC polling, PgBouncer compatibility.
+- [Field encryption transformations](field_encryption_transformations.md) —
+  `encrypt`/`decrypt`, the `enc:v1:` tag that makes re-runs idempotent, why
+  validation cannot live in `Prepare`, and the inline-key risk.
 - [Reachability tests](reachability_tests.md) — a feature configured through storage
   needs one test that starts from storage; three shipped bugs had full unit and
   integration coverage of the parts and none of the assembly.

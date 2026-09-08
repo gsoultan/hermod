@@ -5,6 +5,49 @@ Notable changes to Hermod, newest first. Dates are ISO-8601.
 This file starts at 1.0.0. Everything published before it was withdrawn — see
 [The releases before this one are gone](#the-releases-before-this-one-are-gone).
 
+## [Unreleased]
+
+### Added — field-level encryption and decryption
+
+Two transformations, `encrypt` and `decrypt`, seal and unseal named fields with
+AES-256-GCM. The configured key is hashed to 256 bits, so any length works, and
+encrypt and decrypt nodes must be given the same one.
+
+Three decisions are worth stating, because each one closes a failure that the
+obvious implementation leaves open:
+
+- **Ciphertext is tagged `enc:v1:`.** Without a marker the two transformations
+  cannot tell ciphertext from plaintext. Re-running a workflow would encrypt an
+  already-encrypted column a second time, and decrypt could not distinguish
+  "never encrypted" from "corrupt". With it, encrypt skips sealed values and
+  decrypt passes untagged ones through — which is also what a column holds
+  midway through a rollout. The version segment leaves room for a second scheme
+  that does not strand data written under this one.
+- **Every value gets a fresh random nonce.** Identical plaintexts therefore
+  encrypt differently, which is the safe default and the reason an encrypted
+  field cannot be used as a join or lookup key downstream.
+- **Both fail closed.** A missing key or an empty field list is an error rather
+  than a silent pass-through: a step asked to encrypt that quietly forwards
+  plaintext is the whole failure. Decryption failures — a wrong key or an
+  altered ciphertext, which GCM reports identically — fail the message by
+  default; `onError` can relax that to `skip` or `null`.
+
+There is deliberately no `*` wildcard. Mask has one, but masking every field
+degrades a message where encrypting every field destroys it, keys and routing
+columns included. Only scalar values can be encrypted: rendering a map with `%v`
+gives Go syntax, and decrypt would hand that literal string back in place of the
+object, so a field naming an object is refused rather than silently mangled.
+
+Two operational limits worth knowing. The nonce is 96 random bits, and NIST
+SP 800-38D caps a key used that way at 2^32 encryptions — reachable on a busy
+pipeline, and rotation is what resets it. Values are read through the same JSON
+path every other node uses, so a `[]byte` field is already its base64 form by
+the time it is encrypted, and round-trips as base64.
+
+The key is set on the node, so it is stored with the workflow definition and is
+readable by anyone who can read or export that workflow. Rotating it does not
+re-encrypt data already written under the old key.
+
 ## [1.0.0] — 2026-09-07
 
 The first generally available release. It is `1.0.0-rc.2` plus one concurrency
