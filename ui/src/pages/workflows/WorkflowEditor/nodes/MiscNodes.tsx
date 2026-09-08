@@ -5,7 +5,7 @@ import {
 import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
 import { useState, memo } from 'react';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
-import { IconArrowsSplit, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconEye, IconFilter, IconGitBranch, IconGitMerge, IconList, IconNote, IconPlaylist, IconSearch, IconShieldLock, IconTerminal2, IconTrash, IconVariable } from '@tabler/icons-react';
+import { IconArrowsSplit, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconEye, IconFilter, IconGitBranch, IconGitMerge, IconList, IconLock, IconLockOpen, IconNote, IconPlaylist, IconSearch, IconShieldLock, IconTerminal2, IconTrash, IconVariable } from '@tabler/icons-react';
 const ValidatorNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Validator" color="orange" icon={IconChecklist} data={data} selected={selected}>
@@ -21,6 +21,8 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'set': return IconVariable;
       case 'filter_data': return IconEye;
       case 'mask': return IconShieldLock;
+      case 'encrypt': return IconLock;
+      case 'decrypt': return IconLockOpen;
       case 'db_lookup': return IconSearch;
       case 'api_lookup': return IconCloud;
       case 'fuzzy_lookup': return IconSearch;
@@ -47,6 +49,8 @@ const TransformationNodeImpl = ({ id, data, selected }: any) => {
       case 'set': return 'Set Fields';
       case 'filter_data': return 'Filter';
       case 'mask': return 'Mask';
+      case 'encrypt': return 'Encrypt';
+      case 'decrypt': return 'Decrypt';
       case 'db_lookup': return 'DB Lookup';
       case 'api_lookup': return 'API Lookup';
       case 'fuzzy_lookup': return 'Fuzzy Lookup';

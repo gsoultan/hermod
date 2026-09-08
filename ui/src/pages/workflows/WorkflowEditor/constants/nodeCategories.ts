@@ -5,7 +5,7 @@ import {
   IconTerminal2, IconVariable, IconWorld, IconCircleCheck, IconChartBar, IconCode, 
   IconTable, IconBroadcast, IconRefresh, IconLetterCase, IconPercentage, IconTableExport, IconNumbers,
   IconDatabaseExport, IconNote, IconTag, IconBrandDiscord, IconBrandSlack, IconBrandTwitter, 
-  IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock
+  IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock, IconLockOpen
 } from '@tabler/icons-react';
 
 export const NODE_CATEGORIES = [
@@ -22,6 +22,8 @@ export const NODE_CATEGORIES = [
       { type: 'transformation', refId: 'new', label: 'Statistical Validation', subType: 'stat_validator', icon: IconChecklist, color: 'orange', description: 'Detect anomalies using drift detection' },
       { type: 'validator', refId: 'new', label: 'Validator', subType: 'validator', icon: IconChecklist, color: 'orange', description: 'Validate required fields and formats' },
       { type: 'transformation', refId: 'new', label: 'Mask Data', subType: 'mask', icon: IconShieldLock, color: 'violet', description: 'Mask or hash sensitive values' },
+      { type: 'transformation', refId: 'new', label: 'Encrypt Fields', subType: 'encrypt', icon: IconLock, color: 'violet', description: 'Encrypt named fields with AES-256-GCM' },
+      { type: 'transformation', refId: 'new', label: 'Decrypt Fields', subType: 'decrypt', icon: IconLockOpen, color: 'violet', description: 'Decrypt fields encrypted by an encrypt node' },
       { type: 'transformation', refId: 'new', label: 'Rate Limit', subType: 'rate_limit', icon: IconAdjustments, color: 'violet', description: 'Throttle message flow' },
     ]
   },
