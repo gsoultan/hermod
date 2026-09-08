@@ -240,3 +240,18 @@ export const NODE_CATEGORIES = [
     ]
   }
 ];
+
+/**
+ * The React key for a category card in the node palette.
+ *
+ * Titles are only unique within a group: "Databases", "Messaging & Streams" and
+ * "Social Media" each name both a source group and a sink group. The palette's
+ * combined tab renders every category in one list, so keying by title alone
+ * produced three pairs of colliding keys — React then may reuse or drop the
+ * wrong child, rendering one category's contents under another's heading.
+ *
+ * Pairing the group with the title is unique across the whole array and, unlike
+ * an array index, stays stable when categories are reordered or filtered.
+ */
+export const categoryKey = (cat: { group: string; title: string }): string =>
+  `${cat.group}:${cat.title}`;
