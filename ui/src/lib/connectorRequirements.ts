@@ -37,8 +37,8 @@ export interface RequiredField {
 const URL_KEYS = ['connection_string', 'uri', 'url'];
 
 const hostPort = (port: string): RequiredField[] => [
-  { key: 'host', label: 'Host', example: 'db.example.com' },
-  { key: 'port', label: 'Port', example: port },
+  { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'db.example.com' },
+  { key: 'port', aliases: URL_KEYS, label: 'Port', example: port },
 ];
 
 const SOURCE_REQUIREMENTS: Record<string, RequiredField[]> = {
@@ -133,6 +133,11 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
 /**
  * The connection-step fields still missing for a connector, in the user's
  * words. Empty means the step may be left.
+ *
+ * A pasted connection string satisfies the host-shaped fields it replaces and
+ * nothing else. It used to satisfy every requirement the connector had: one
+ * `uri` opened the gate for a MongoDB source with no database or collection,
+ * which the factory reads from their own keys and cannot derive.
  */
 export function missingConnectionFields(
   kind: 'source' | 'sink',
@@ -148,22 +153,6 @@ export function missingConnectionFields(
   return reqs
     .filter((f) => blank(f.key) && (f.aliases ?? []).every(blank))
     .map((f) => f.label);
-}
-
-/**
- * MongoDB's full URI substitutes for its individual fields; a database-family
- * URL paste fills host/port. Either way, a config that carries a `uri` or a
- * recognised `connection_string` satisfies host-shaped requirements.
- */
-export function missingConnectionFieldsWithUri(
-  kind: 'source' | 'sink',
-  type: string,
-  config: Record<string, unknown> | undefined,
-): string[] {
-  const cfg = config ?? {};
-  const uri = String(cfg.uri ?? cfg.connection_string ?? '').trim();
-  if (uri !== '') return [];
-  return missingConnectionFields(kind, type, cfg);
 }
 
 /** The example placeholder for a required field, for use by the form. */

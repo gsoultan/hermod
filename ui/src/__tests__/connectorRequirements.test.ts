@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  missingConnectionFields,
-  missingConnectionFieldsWithUri,
-} from '../lib/connectorRequirements';
+import { missingConnectionFields } from '../lib/connectorRequirements';
 
 describe('missingConnectionFields', () => {
   it('names what a blank postgres connection still needs, in user words', () => {
@@ -28,14 +25,33 @@ describe('missingConnectionFields', () => {
   });
 });
 
-describe('missingConnectionFieldsWithUri', () => {
-  it('lets a full URI stand in for individual fields', () => {
+describe('a pasted whole connection string', () => {
+  it('stands in for the host fields it actually replaces', () => {
     expect(
-      missingConnectionFieldsWithUri('source', 'mongodb', { uri: 'mongodb://u:p@h/app' }),
+      missingConnectionFields('source', 'postgres', { uri: 'postgres://u:p@h:5432/db' }),
     ).toEqual([]);
-    expect(missingConnectionFieldsWithUri('source', 'mongodb', {})).toEqual([
+    expect(
+      missingConnectionFields('source', 'postgres', { connection_string: 'host=h port=5432' }),
+    ).toEqual([]);
+  });
+
+  // BuildConnectionString substitutes a whole string for host/port only. The
+  // factory still reads database and collection from their own keys, so a uri
+  // that opened this gate let a user past a step they had not filled in.
+  it('does not stand in for fields the factory reads separately', () => {
+    expect(
+      missingConnectionFields('source', 'mongodb', { uri: 'mongodb://u:p@h/app' }),
+    ).toEqual(['Database', 'Collection']);
+    expect(missingConnectionFields('source', 'mongodb', {})).toEqual([
       'Database',
       'Collection',
+    ]);
+  });
+
+  it('does not open an unrelated gate — kafka brokers are not a host field', () => {
+    expect(missingConnectionFields('sink', 'kafka', { uri: 'anything' })).toEqual([
+      'Brokers',
+      'Topic',
     ]);
   });
 });
@@ -46,7 +62,7 @@ describe('rabbitmq', () => {
   // the host fields) while Next stayed disabled on fields that do not exist.
   it('lets a host-filled queue source through, the way the form fills it', () => {
     expect(
-      missingConnectionFieldsWithUri('source', 'rabbitmq_queue', {
+      missingConnectionFields('source', 'rabbitmq_queue', {
         host: 'localhost',
         port: '5672',
         username: 'guest',
@@ -59,7 +75,7 @@ describe('rabbitmq', () => {
 
   it('takes a pasted URL in place of the host fields', () => {
     expect(
-      missingConnectionFieldsWithUri('source', 'rabbitmq_queue', {
+      missingConnectionFields('source', 'rabbitmq_queue', {
         url: 'amqp://guest:guest@localhost:5672/',
         queue_name: 'orders',
       }),
@@ -68,22 +84,22 @@ describe('rabbitmq', () => {
 
   it('still asks for the queue name — the factory reads it apart from the URL', () => {
     expect(
-      missingConnectionFieldsWithUri('source', 'rabbitmq_queue', { host: 'localhost' }),
+      missingConnectionFields('source', 'rabbitmq_queue', { host: 'localhost' }),
     ).toEqual(['Queue name']);
     expect(
-      missingConnectionFieldsWithUri('source', 'rabbitmq_queue', {
+      missingConnectionFields('source', 'rabbitmq_queue', {
         url: 'amqp://guest:guest@localhost:5672/',
       }),
     ).toEqual(['Queue name']);
   });
 
   it('asks the stream flavour for a stream name, not a queue', () => {
-    expect(missingConnectionFieldsWithUri('source', 'rabbitmq', {})).toEqual([
+    expect(missingConnectionFields('source', 'rabbitmq', {})).toEqual([
       'Host',
       'Stream name',
     ]);
     expect(
-      missingConnectionFieldsWithUri('source', 'rabbitmq', {
+      missingConnectionFields('source', 'rabbitmq', {
         host: 'localhost',
         stream_name: 'events',
       }),
@@ -92,18 +108,18 @@ describe('rabbitmq', () => {
 
   it('gates both sink flavours on the same fields the sink form writes', () => {
     expect(
-      missingConnectionFieldsWithUri('sink', 'rabbitmq', {
+      missingConnectionFields('sink', 'rabbitmq', {
         host: 'localhost',
         stream_name: 'events',
       }),
     ).toEqual([]);
     expect(
-      missingConnectionFieldsWithUri('sink', 'rabbitmq_queue', {
+      missingConnectionFields('sink', 'rabbitmq_queue', {
         host: 'localhost',
         queue_name: 'orders',
       }),
     ).toEqual([]);
-    expect(missingConnectionFieldsWithUri('sink', 'rabbitmq_queue', {})).toEqual([
+    expect(missingConnectionFields('sink', 'rabbitmq_queue', {})).toEqual([
       'Host',
       'Queue name',
     ]);
@@ -116,13 +132,13 @@ describe('other connectors whose gate had drifted from the form', () => {
   // broker_url then url, and refuses to start without a topic.
   it('gates an mqtt source on the broker and topic keys the form writes', () => {
     expect(
-      missingConnectionFieldsWithUri('source', 'mqtt', {
+      missingConnectionFields('source', 'mqtt', {
         broker_url: 'tcp://localhost:1883',
         url: 'tcp://localhost:1883',
         topics: 'sensors/+/temp',
       }),
     ).toEqual([]);
-    expect(missingConnectionFieldsWithUri('source', 'mqtt', {})).toEqual([
+    expect(missingConnectionFields('source', 'mqtt', {})).toEqual([
       'Broker URL',
       'Topics',
     ]);
@@ -130,7 +146,7 @@ describe('other connectors whose gate had drifted from the form', () => {
 
   it('accepts the legacy single-topic key', () => {
     expect(
-      missingConnectionFieldsWithUri('source', 'mqtt', {
+      missingConnectionFields('source', 'mqtt', {
         url: 'tcp://localhost:1883',
         topic: 'sensors/temp',
       }),
@@ -138,7 +154,7 @@ describe('other connectors whose gate had drifted from the form', () => {
   });
 
   it('asks a snowflake sink for the field its form actually shows', () => {
-    expect(missingConnectionFieldsWithUri('sink', 'snowflake', {})).toEqual([
+    expect(missingConnectionFields('sink', 'snowflake', {})).toEqual([
       'Connection String',
     ]);
   });
