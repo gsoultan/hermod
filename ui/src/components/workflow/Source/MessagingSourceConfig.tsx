@@ -132,8 +132,8 @@ export function MessagingSourceConfig({ type, config, updateConfig }: MessagingS
   if (type.startsWith('rabbitmq')) {
     return (
       <Stack gap="md">
-        {!config.host && (
-           <TextInput label="RabbitMQ URL (Legacy)" placeholder="amqp://guest:guest@localhost:5672/" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} />
+        {(!config.host || config.url) && (
+           <TextInput label="RabbitMQ URL (Legacy — overrides the fields below)" placeholder="amqp://guest:guest@localhost:5672/" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} />
         )}
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <TextInput 

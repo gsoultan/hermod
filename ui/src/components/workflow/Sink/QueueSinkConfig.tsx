@@ -119,8 +119,8 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
     case 'rabbitmq':
       return (
         <>
-          {!config.host && (
-            <TextInput label="RabbitMQ URL (Legacy)" placeholder="rabbitmq-stream://guest:guest@localhost:5552" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} />
+          {(!config.host || config.url) && (
+            <TextInput label="RabbitMQ URL (Legacy — overrides the fields below)" placeholder="rabbitmq-stream://guest:guest@localhost:5552" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} />
           )}
           <FormRow>
             <TextInput 
@@ -175,8 +175,8 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
     case 'rabbitmq_queue':
       return (
         <>
-          {!config.host && (
-            <TextInput label="RabbitMQ URL (Legacy)" placeholder="amqp://guest:guest@localhost:5672" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} />
+          {(!config.host || config.url) && (
+            <TextInput label="RabbitMQ URL (Legacy — overrides the fields below)" placeholder="amqp://guest:guest@localhost:5672" value={config.url || ''} onChange={(e) => updateConfig('url', e.target.value)} />
           )}
           <FormRow>
             <TextInput 
