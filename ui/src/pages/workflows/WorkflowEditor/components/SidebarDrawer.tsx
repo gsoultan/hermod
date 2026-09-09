@@ -11,7 +11,7 @@ import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWork
 // Node configuration forms are presented in a modal (popup) from the editor page
 import { CronInput } from '../../../../components/shared/CronInput';
 import { AICopilot } from '../../../../components/shared/AICopilot';
-import { NODE_CATEGORIES } from '../constants/nodeCategories';
+import { NODE_CATEGORIES, categoryKey } from '../constants/nodeCategories';
 import { filterCategories, matchesQuery, countMatches } from '../utils/paletteSearch';
 import { 
   IconDatabase, IconTable, IconX, IconPlus,
@@ -342,7 +342,7 @@ export function SidebarDrawer({
                   )}
 
                   {filterCategories(nodeCategories, paletteSearch).map((cat) => (
-                    <Paper key={cat.title} withBorder p="xs" radius="md" bg="var(--mantine-color-body)">
+                    <Paper key={categoryKey(cat)} withBorder p="xs" radius="md" bg="var(--mantine-color-body)">
                       <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>{cat.title}</Text>
                       <Stack gap={2}>
                         {cat.items.map(renderDraggableItem)}
@@ -360,7 +360,7 @@ export function SidebarDrawer({
                   {filterCategories(NODE_CATEGORIES.filter(cat => cat.group === 'sources'), paletteSearch).map((cat) => {
                     const FirstIcon = cat.items[0]?.icon;
                     return (
-                      <Paper key={cat.title} withBorder p="xs" radius="md" bg={isDark ? 'dark.7' : 'blue.0'}>
+                      <Paper key={categoryKey(cat)} withBorder p="xs" radius="md" bg={isDark ? 'dark.7' : 'blue.0'}>
                         <Group gap="xs" px="xs" mb="xs">
                           {FirstIcon && <FirstIcon size="1rem" color={`var(--mantine-color-${cat.items[0].color}-6)`} />}
                           <Text size="xs" fw={800} c={`${cat.items[0]?.color || 'blue'}.7`} style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>{cat.title}</Text>
@@ -401,7 +401,7 @@ export function SidebarDrawer({
                   {filterCategories(NODE_CATEGORIES.filter(cat => cat.group === 'sinks'), paletteSearch).map((cat) => {
                     const FirstIcon = cat.items[0]?.icon;
                     return (
-                      <Paper key={cat.title} withBorder p="xs" radius="md" bg={isDark ? 'dark.7' : 'green.0'}>
+                      <Paper key={categoryKey(cat)} withBorder p="xs" radius="md" bg={isDark ? 'dark.7' : 'green.0'}>
                         <Group gap="xs" px="xs" mb="xs">
                           {FirstIcon && <FirstIcon size="1rem" color={`var(--mantine-color-${cat.items[0].color}-6)`} />}
                           <Text size="xs" fw={800} c={`${cat.items[0]?.color || 'green'}.7`} style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>{cat.title}</Text>
