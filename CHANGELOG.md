@@ -7,6 +7,11 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-09-09
+
+One new capability and a set of connector-wizard fixes. Nothing in the public Go
+API changed, and no dependency moved, so this carries no security fix of its own.
+
 ### Added — field-level encryption and decryption
 
 Two transformations, `encrypt` and `decrypt`, seal and unseal named fields with
@@ -47,6 +52,55 @@ the time it is encrypted, and round-trips as base64.
 The key is set on the node, so it is stored with the workflow definition and is
 readable by anyone who can read or export that workflow. Rotating it does not
 re-encrypt data already written under the old key.
+
+### Fixed — connector wizards could not be completed
+
+The connection step's **Next** button read config keys that nothing produced.
+For a `rabbitmq_queue` source the gate required `url` and `queue`, while the
+form writes `host`, `port`, `username`, `password`, `dbname` and `queue_name`
+and hides the URL input once a host is set. Neither key was reachable, so the
+button was dead for every RabbitMQ queue source and sink.
+
+Test Connection succeeded at the same moment, which is what made it baffling:
+`BuildConnectionString` assembles the AMQP URL from the host fields and the
+factory reads `queue_name` separately, so the step genuinely worked while the
+gate that guarded it asked for fields the user could not fill.
+
+Two connectors had drifted the same way. `mqtt` required `broker` where the form
+writes `broker_url`, giving the same dead button; it now also requires a topic,
+because the source refuses to start without one. The `snowflake` sink required
+`dsn` where both the form and the factory use `connection_string`, so its
+"Required:" message named a field the form does not show.
+
+Requirements gained an alias list, so "a server" is one requirement satisfied by
+a host *or* a whole connection string, mirroring `BuildConnectionString`'s own
+precedence instead of keeping a second copy of it that can drift.
+
+Two further gaps in the same area closed with it:
+
+- **A pasted connection string satisfied every requirement, not just the ones it
+  replaces.** Any `uri` or `connection_string` cleared the whole step, so a
+  MongoDB source with a URI but no database or collection advanced and failed
+  later — at a screen that no longer showed the fields, which is the failure the
+  gate exists to prevent. A pasted string now satisfies the host-shaped fields
+  only; the factory reads database and collection from their own keys and cannot
+  derive either.
+- **A connection URL could override the host fields while invisible.**
+  `BuildConnectionString` prefers `url` over host and port, but the RabbitMQ
+  forms rendered that input only while the host was empty. A URL entered first
+  kept winning from behind a field that had disappeared, so editing the host
+  changed nothing and Test Connection reported on whichever server the hidden
+  URL named. It now stays on screen whenever it holds a value, and its label
+  says that it overrides.
+
+### Fixed — palette categories could render under the wrong heading
+
+Category titles are unique only within a group: "Databases", "Messaging &
+Streams" and "Social Media" each name both a source and a sink group. The
+palette's combined tab keyed one list by title, so three pairs collided and
+React warned twelve times per render of the workflow panel. Duplicate keys let
+React reuse or drop the wrong child, meaning a category's contents could appear
+under another category's heading. Keys now pair the group with the title.
 
 ## [1.0.0] — 2026-09-07
 
@@ -437,6 +491,7 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.1.0]: https://github.com/gsoultan/hermod/releases/tag/v1.1.0
 [1.0.0]: https://github.com/gsoultan/hermod/releases/tag/v1.0.0
 [1.0.0-rc.2]: https://github.com/gsoultan/hermod/releases/tag/v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/gsoultan/hermod/releases/tag/v1.0.0-rc.1
