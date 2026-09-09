@@ -4,7 +4,7 @@ import { IconCheck, IconDatabase, IconActivity, IconInfoCircle, IconRefresh, Ico
 import { SourceBasics } from '../workflow/Source/SourceBasics';
 import { SourceConfigFields } from '../workflow/Source/SourceConfigFields';
 import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
-import { missingConnectionFieldsWithUri } from '@/lib/connectorRequirements';
+import { missingConnectionFields } from '@/lib/connectorRequirements';
 
 interface SourceWizardProps {
   source: any;
@@ -83,7 +83,7 @@ export function SourceWizard({
       // connector minimally needs, named in the user's words, before Next
       // works. One module holds the per-type answer, so the tooltip and the
       // gate cannot disagree.
-      return missingConnectionFieldsWithUri('source', source.type, source.config);
+      return missingConnectionFields('source', source.type, source.config);
     }
     return [];
   };

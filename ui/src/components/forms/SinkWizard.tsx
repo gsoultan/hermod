@@ -5,7 +5,7 @@ import { SinkBasics } from '../workflow/Sink/SinkBasics';
 import { RetryPolicyFields } from '../workflow/Sink/RetryPolicyFields';
 import { Suspense } from 'react';
 import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
-import { missingConnectionFieldsWithUri } from '@/lib/connectorRequirements';
+import { missingConnectionFields } from '@/lib/connectorRequirements';
 
 interface SinkWizardProps {
   sink: any;
@@ -61,7 +61,7 @@ export function SinkWizard({
     if (step === 1) {
       // The connection step, gated the same way Basics is: what this sink
       // minimally needs, named in the user's words.
-      return missingConnectionFieldsWithUri('sink', sink.type, sink.config);
+      return missingConnectionFields('sink', sink.type, sink.config);
     }
     return [];
   };
