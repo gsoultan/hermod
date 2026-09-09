@@ -119,26 +119,23 @@ Hermod works by reading data from a `Source`, buffering it in a high-performance
 
 ## Install
 
-The current release is **`v1.0.0-rc.1`** — a release candidate. It is tested and
-the gates are green, but it has not yet run in a production deployment. See
-[CHANGELOG.md](CHANGELOG.md) for what changed, what breaks, and the known gaps.
+The current release is **`v1.1.0`**. See [CHANGELOG.md](CHANGELOG.md) for what
+changed, what breaks, and the known gaps.
 
-Two things follow from it being a candidate, and both bite if you assume
-otherwise:
-
-- **There is no `:latest` image.** It is withheld from any pre-release, so
-  `docker pull ghcr.io/gsoultan/hermod:latest` returns a 404 rather than
-  quietly giving you something older.
-- **Helm needs an explicit `--version`.** Without one it reports
-  `could not locate a version matching provided version string`, because a
-  pre-release is not what a bare pull resolves to.
+- **Pin an explicit version** for both the image and the chart. It is what makes
+  a deployment reproducible, and it is what the examples below do.
+- **Go consumers are still unserved.** `v1.1.0` falls inside the retracted range
+  `[v1.0.0, v1.8.0]`, exactly as `v1.0.0` does, so `go get` will not select it.
+  See [`go get` does not work, and is not expected
+  to](#go-get-does-not-work-and-is-not-expected-to) — nothing changed here, the
+  release line simply continues below the range.
 
 ### Container image
 
 ```bash
-docker pull ghcr.io/gsoultan/hermod:1.0.0-rc.1
-docker run --rm ghcr.io/gsoultan/hermod:1.0.0-rc.1 -version
-# hermod v1.0.0-rc.1 (Enterprise Edition)
+docker pull ghcr.io/gsoultan/hermod:1.1.0
+docker run --rm ghcr.io/gsoultan/hermod:1.1.0 -version
+# hermod v1.1.0 (Enterprise Edition)
 ```
 
 `linux/amd64` and `linux/arm64` are both published under that one tag.
@@ -147,7 +144,7 @@ docker run --rm ghcr.io/gsoultan/hermod:1.0.0-rc.1 -version
 
 ```bash
 helm install hermod oci://ghcr.io/gsoultan/charts/hermod \
-  --version 1.0.0-rc.1 \
+  --version 1.1.0 \
   --set existingSecret=hermod-master-key
 ```
 
@@ -172,8 +169,10 @@ Go 1.27 or later is required.
 > Use the image, the chart, a packaged binary, or a checkout.
 >
 > Every version the Go module proxy can serve for this path is withdrawn and
-> retracted — the range `[v1.0.0, v1.8.0]` plus `v1.0.0-rc.1` by name, carried
-> by the `v1.8.0` tombstone tag. The proxy is immutable, so the releases deleted in this reset still
+> retracted — the range `[v1.0.0, v1.8.0]` plus `v1.0.0-rc.1` by name. No
+> tombstone tag carries that block any more; it lives in `go.mod` on main, so
+> every release tag cut from main carries it. The proxy is immutable, so the
+> releases deleted in this reset still
 > answer there — and `v1.0.0` in particular is permanently bound to a commit
 > from February whose `go.mod` declared `github.com/user/hermod`, a path
 > matching no repository. Re-tagging cannot displace it.
@@ -1167,7 +1166,7 @@ A container image and a Helm chart ship with each release:
 
 ```bash
 helm install hermod oci://ghcr.io/gsoultan/charts/hermod \
-  --version 1.0.0-rc.1 \
+  --version 1.1.0 \
   --set existingSecret=hermod-master-key \
   --set metrics.prometheusRule.enabled=true
 ```
