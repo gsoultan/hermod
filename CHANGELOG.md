@@ -35,6 +35,14 @@ Three consequences of the same root cause are fixed together:
   write rather than losing the body quietly. The `before`/`after` envelope now
   wraps such bytes instead of rejecting them.
 
+The S3 Parquet sink needed a matching change. It refused a record it could not
+build a row from by testing `Data()` for emptiness, which is exactly the
+invariant that moved: a non-object payload now decodes to one synthetic field,
+so the check passed the record through to the writer and the batch failed in
+`WriteStop` with `interface conversion: interface {} is nil, not string` --
+naming neither the record nor the reason. The guard now measures a record
+against the schema's own columns, which is what it always meant.
+
 The fix is in the message layer, so every source benefits without connector
 changes. JSON object payloads serialise exactly as before. Array payloads were
 already exposed under `payload`, which is why that name was widened to cover
