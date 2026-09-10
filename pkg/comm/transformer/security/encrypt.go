@@ -2,18 +2,11 @@ package security
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 	"strings"
-	"sync"
-	"sync/atomic"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
@@ -25,116 +18,20 @@ func init() {
 	transformer.Register("decrypt", &DecryptTransformer{})
 }
 
-// envelopePrefix marks a value produced by EncryptTransformer.
-//
-// Without a marker the two transformers cannot tell ciphertext from plaintext,
-// and both directions break in the same way: re-running a workflow encrypts an
-// already-encrypted column a second time, and decrypt cannot distinguish "this
-// was never encrypted" from "this is corrupt". The version segment is what lets
-// a future scheme be introduced without stranding data written under this one.
-const envelopePrefix = "enc:v1:"
-
-// aeadCacheLimit bounds the derived-key cache. Keys come from workflow config,
-// so the realistic ceiling is small; the limit exists so a workflow that
-// rewrites its key on every deploy cannot grow the map without end. Past the
-// limit derivation still succeeds, it just stops being cached.
-const aeadCacheLimit = 256
-
-var (
-	aeadCache  sync.Map // [32]byte (SHA-256 of the key) -> cipher.AEAD
-	aeadCached atomic.Int64
-)
-
 var (
 	errNoKey    = errors.New("no encryption key configured: set \"key\" on the node")
 	errNoFields = errors.New("no fields configured: set \"field\" or \"fields\" on the node")
 )
 
-// aeadFor derives an AES-256-GCM AEAD from an arbitrary-length configured key.
+// plaintextFor renders a field value as the text to encrypt.
 //
-// The key is hashed rather than truncated or zero-padded. Truncating means two
-// keys sharing a 32-character prefix encrypt identically — an operator rotating
-// between them would see success and get no rotation — and padding a short key
-// leaves the remaining bytes known to an attacker.
-func aeadFor(key string) (cipher.AEAD, error) {
-	if key == "" {
-		return nil, errNoKey
-	}
-
-	sum := sha256.Sum256([]byte(key))
-	if v, ok := aeadCache.Load(sum); ok {
-		if cached, ok := v.(cipher.AEAD); ok {
-			return cached, nil
-		}
-	}
-
-	// sum is always 32 bytes, so AES-256 cannot reject it and GCM cannot reject
-	// the resulting block size; the errors are wrapped rather than dropped so a
-	// future change to the derivation cannot fail silently.
-	block, err := aes.NewCipher(sum[:])
-	if err != nil {
-		return nil, fmt.Errorf("derive cipher: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("derive AEAD: %w", err)
-	}
-
-	if aeadCached.Load() < aeadCacheLimit {
-		if _, loaded := aeadCache.LoadOrStore(sum, gcm); !loaded {
-			aeadCached.Add(1)
-		}
-	}
-	return gcm, nil
-}
-
-// seal encrypts plaintext under aead and wraps it in the versioned envelope.
-//
-// The nonce is 96 random bits. NIST SP 800-38D caps a key used this way at 2^32
-// encryptions before collision probability stops being negligible, which a busy
-// CDC pipeline can reach; rotating the key resets that budget, at the cost of
-// leaving data written under the old key unreadable.
-func seal(aead cipher.AEAD, plaintext string) (string, error) {
-	nonce := make([]byte, aead.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", fmt.Errorf("read nonce: %w", err)
-	}
-	sealed := aead.Seal(nonce, nonce, []byte(plaintext), nil)
-	return envelopePrefix + base64.StdEncoding.EncodeToString(sealed), nil
-}
-
-// open reverses seal. The caller must have checked the envelope prefix.
-//
-// GCM authenticates before it decrypts, so a wrong key and a tampered value are
-// the same error here by design: the returned message deliberately says nothing
-// about which, and never includes the value or the key.
-func open(aead cipher.AEAD, envelope string) (string, error) {
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(envelope, envelopePrefix))
-	if err != nil {
-		return "", errors.New("ciphertext is not valid base64")
-	}
-
-	nonceSize := aead.NonceSize()
-	if len(raw) < nonceSize {
-		return "", errors.New("ciphertext is too short to contain a nonce")
-	}
-
-	plaintext, err := aead.Open(nil, raw[:nonceSize], raw[nonceSize:], nil)
-	if err != nil {
-		return "", errors.New("authentication failed: wrong key or altered ciphertext")
-	}
-	return string(plaintext), nil
-}
-
-// scalarText renders a field value as the text to encrypt, refusing composite
-// values.
-//
-// Rendering a map with %v yields Go syntax ("map[email:a@b.com]"), and decrypt
-// would hand that literal string back in place of the object — a lossy round
-// trip that reports success. Refusing is the only honest answer: encrypting a
-// subtree needs an envelope that records the value's type, which enc:v1 does
-// not have. Name the leaf fields instead.
-func scalarText(val any) (string, error) {
+// Composite values are refused unless serializeJSON is set. Rendering a map
+// with %v yields Go syntax ("map[email:a@b.com]"), and decrypt would hand that
+// literal string back in place of the object — a lossy round trip that reports
+// success. JSON is the encoding that survives, so with the opt-in the subtree is
+// marshalled and sealed as one document; decrypt's parseJson turns it back into
+// an object. Without it, name the leaf fields instead.
+func plaintextFor(val any, serializeJSON bool) (string, error) {
 	switch v := val.(type) {
 	case string:
 		return v, nil
@@ -144,19 +41,105 @@ func scalarText(val any) (string, error) {
 
 	switch reflect.ValueOf(val).Kind() {
 	case reflect.Map, reflect.Slice, reflect.Array:
-		return "", fmt.Errorf("value is a %T; only scalar values can be encrypted", val)
+		if !serializeJSON {
+			return "", fmt.Errorf(
+				"value is a %T; only scalar values can be encrypted. "+
+					"Set \"serializeJson\" to seal it as one JSON document, or name the leaf fields",
+				val)
+		}
+		raw, err := json.Marshal(val)
+		if err != nil {
+			return "", fmt.Errorf("value is a %T and cannot be encoded as JSON: %w", val, err)
+		}
+		return string(raw), nil
 	}
 	return fmt.Sprintf("%v", val), nil
 }
 
-// configuredKey reads the inline key from the node config.
+// parseJSONMode says what decrypt does with a plaintext that contains JSON.
 //
-// It is read straight from config on every call and never cached, copied into
-// the prepared config, or logged: with inline keys the config map is the only
-// place key material is meant to live.
-func configuredKey(config map[string]any) string {
-	key, _ := config["key"].(string)
-	return key
+// A decrypted value is a string. When the column holds a whole JSON document
+// that string is not what the rest of the pipeline wants: no downstream node can
+// address into it, and the live preview renders it as one escaped line instead
+// of a tree. Parsing is opt-in because it changes a field's type, and doing that
+// silently would reshape every message flowing through an existing node.
+type parseJSONMode string
+
+const (
+	// parseJSONOff leaves the decrypted string alone. The default.
+	parseJSONOff parseJSONMode = "off"
+	// parseJSONObjects parses only values that are a JSON object or array, and
+	// leaves anything else — including bare numbers and booleans, which are
+	// valid JSON — as the string it decrypted to. A value that looks like JSON
+	// but does not parse is also left alone.
+	parseJSONObjects parseJSONMode = "objects"
+	// parseJSONStrict treats the whole value as a JSON document: scalars are
+	// parsed too, and a value that will not parse takes the onError policy.
+	parseJSONStrict parseJSONMode = "strict"
+)
+
+func configuredParseJSON(config map[string]any) (parseJSONMode, error) {
+	raw, _ := config["parseJson"].(string)
+	switch mode := parseJSONMode(strings.ToLower(strings.TrimSpace(raw))); mode {
+	case "", parseJSONOff:
+		return parseJSONOff, nil
+	case parseJSONObjects, parseJSONStrict:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("unknown parseJson %q: use off, objects or strict", raw)
+	}
+}
+
+// configuredSerializeJSON reads the encrypt-side opt-in, which arrives as a Go
+// bool from a workflow config and as a JSON bool or a form string otherwise.
+func configuredSerializeJSON(config map[string]any) bool {
+	switch v := config["serializeJson"].(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+	return false
+}
+
+// looksLikeJSONDocument reports whether the text begins an object or array.
+//
+// This is what keeps "objects" mode from changing the type of a scalar: a
+// decrypted "12345" parses as JSON perfectly well, and turning it into a number
+// would be a schema change downstream that nobody asked for.
+func looksLikeJSONDocument(s string) bool {
+	trimmed := strings.TrimLeft(s, " \t\r\n")
+	return strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
+}
+
+// decodeJSONPlaintext applies the parse mode to one decrypted value.
+//
+// The second return value reports whether the parse produced a structured
+// value; false means the caller should keep the string it already has.
+func decodeJSONPlaintext(mode parseJSONMode, plaintext string) (any, bool, error) {
+	switch mode {
+	case parseJSONObjects:
+		// Validity is checked before parsing rather than by discarding the parse
+		// error, so the only error this branch can return is a real one. A value
+		// that opens like a document but is not one is left as it is: "objects"
+		// is the lenient mode, and "strict" is how an operator asks to be told.
+		if !looksLikeJSONDocument(plaintext) || !json.Valid([]byte(plaintext)) {
+			return nil, false, nil
+		}
+		var out any
+		if err := json.Unmarshal([]byte(plaintext), &out); err != nil {
+			return nil, false, fmt.Errorf("decrypted value is not valid JSON: %w", err)
+		}
+		return out, true, nil
+
+	case parseJSONStrict:
+		var out any
+		if err := json.Unmarshal([]byte(plaintext), &out); err != nil {
+			return nil, false, errors.New("decrypted value is not valid JSON")
+		}
+		return out, true, nil
+	}
+	return nil, false, nil
 }
 
 // configuredFields resolves the target field paths, preferring the list parsed
@@ -231,6 +214,40 @@ func configuredOnError(config map[string]any) onErrorPolicy {
 	}
 }
 
+// onPlaintextPolicy governs what an *unencrypted* value does to the message,
+// in envelope format only. Raw format has no envelope, so it cannot tell
+// plaintext from ciphertext and never consults this.
+//
+// This exists because the pass-through default is the single easiest way for a
+// decrypt node to appear healthy while doing nothing at all: point it at a
+// column encrypted by another system, and every value fails the envelope check
+// and sails through untouched with no error and nothing in the logs. Operators
+// who have finished a rollout should set this to "fail" so that silence becomes
+// a stopped pipeline instead of a wrong one.
+type onPlaintextPolicy string
+
+const (
+	// onPlaintextPassthrough leaves the value alone. The default, because during
+	// a rollout a column genuinely holds a mix of encrypted and plain values.
+	onPlaintextPassthrough onPlaintextPolicy = "passthrough"
+	// onPlaintextFail aborts the message.
+	onPlaintextFail onPlaintextPolicy = "fail"
+	// onPlaintextNull replaces the value with nil.
+	onPlaintextNull onPlaintextPolicy = "null"
+)
+
+func configuredOnPlaintext(config map[string]any) onPlaintextPolicy {
+	policy, _ := config["onPlaintext"].(string)
+	switch onPlaintextPolicy(strings.ToLower(strings.TrimSpace(policy))) {
+	case onPlaintextFail:
+		return onPlaintextFail
+	case onPlaintextNull:
+		return onPlaintextNull
+	default:
+		return onPlaintextPassthrough
+	}
+}
+
 // prepareFields precomputes the field list shared by both transformers.
 //
 // Config validation does not belong here: the engine ignores the error Prepare
@@ -242,11 +259,33 @@ func prepareFields(config map[string]any) (map[string]any, error) {
 	return config, nil
 }
 
-// EncryptTransformer encrypts named fields with AES-256-GCM.
+// setup resolves the field list and the cipher for one Transform call.
 //
-// Each value gets a fresh random nonce, so encrypting the same plaintext twice
-// yields different ciphertexts. That is the safe default, and it means an
-// encrypted column cannot be used as a join or lookup key downstream.
+// Both are validated before any field is touched, so a misconfigured node fails
+// on its first message with one clear message rather than emitting a record
+// that is half transformed.
+func setup(config map[string]any) ([]string, *cipherConfig, *cipherSuite, error) {
+	fields := configuredFields(config)
+	if len(fields) == 0 {
+		return nil, nil, nil, errNoFields
+	}
+	cfg, err := parseCipherConfig(config)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	suite, err := resolveCipher(cfg)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return fields, cfg, suite, nil
+}
+
+// EncryptTransformer encrypts named fields with a configurable algorithm.
+//
+// The default is AES-256-GCM with a fresh random nonce per value, so encrypting
+// the same plaintext twice yields different ciphertexts. That is the safe
+// default, and it means an encrypted column cannot be used as a join or lookup
+// key downstream.
 type EncryptTransformer struct{}
 
 func (t *EncryptTransformer) Prepare(config map[string]any) (map[string]any, error) {
@@ -258,15 +297,11 @@ func (t *EncryptTransformer) Transform(ctx context.Context, msg hermod.Message, 
 		return nil, nil
 	}
 
-	fields := configuredFields(config)
-	if len(fields) == 0 {
-		return nil, fmt.Errorf("encrypt: %w", errNoFields)
-	}
-
-	aead, err := aeadFor(configuredKey(config))
+	fields, cfg, suite, err := setup(config)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt: %w", err)
 	}
+	serializeJSON := configuredSerializeJSON(config)
 
 	for _, field := range fields {
 		val := evaluator.GetMsgValByPath(msg, field)
@@ -276,16 +311,20 @@ func (t *EncryptTransformer) Transform(ctx context.Context, msg hermod.Message, 
 			continue
 		}
 
-		plaintext, err := scalarText(val)
+		plaintext, err := plaintextFor(val, serializeJSON)
 		if err != nil {
 			return nil, fmt.Errorf("encrypt: field %q: %w", field, err)
 		}
-		if strings.HasPrefix(plaintext, envelopePrefix) {
-			// Already encrypted, by an earlier run or an upstream node.
+
+		// Only the envelope formats can recognise their own output. In raw
+		// format there is no marker, so re-running the node over a column it
+		// already encrypted will encrypt it a second time; that trade-off is the
+		// reason envelope is the default and is called out in the editor.
+		if cfg.format == formatEnvelope && hasEnvelope(plaintext) {
 			continue
 		}
 
-		sealed, err := seal(aead, plaintext)
+		sealed, err := sealValue(cfg, suite, plaintext)
 		if err != nil {
 			return nil, fmt.Errorf("encrypt: field %q: %w", field, err)
 		}
@@ -295,7 +334,8 @@ func (t *EncryptTransformer) Transform(ctx context.Context, msg hermod.Message, 
 	return msg, nil
 }
 
-// DecryptTransformer reverses EncryptTransformer for named fields.
+// DecryptTransformer reverses EncryptTransformer for named fields, and in raw
+// format reads ciphertext written by systems other than Hermod.
 type DecryptTransformer struct{}
 
 func (t *DecryptTransformer) Prepare(config map[string]any) (map[string]any, error) {
@@ -307,17 +347,21 @@ func (t *DecryptTransformer) Transform(ctx context.Context, msg hermod.Message, 
 		return nil, nil
 	}
 
-	fields := configuredFields(config)
-	if len(fields) == 0 {
-		return nil, fmt.Errorf("decrypt: %w", errNoFields)
-	}
-
-	aead, err := aeadFor(configuredKey(config))
+	fields, cfg, suite, err := setup(config)
 	if err != nil {
 		return nil, fmt.Errorf("decrypt: %w", err)
 	}
 
 	onError := configuredOnError(config)
+	onPlaintext := configuredOnPlaintext(config)
+
+	// Validated before the walk starts: a typo in parseJson must stop the node
+	// rather than quietly mean "off" and hand a string to a downstream node that
+	// is addressing into an object.
+	parseJSON, err := configuredParseJSON(config)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt: %w", err)
+	}
 
 	for _, field := range fields {
 		val := evaluator.GetMsgValByPath(msg, field)
@@ -325,15 +369,35 @@ func (t *DecryptTransformer) Transform(ctx context.Context, msg hermod.Message, 
 			continue
 		}
 
-		envelope, ok := val.(string)
-		if !ok || !strings.HasPrefix(envelope, envelopePrefix) {
-			// Not something this package wrote. During a rollout a column holds
-			// a mix of both, so an unencrypted value is passed through rather
-			// than treated as a failure.
+		text, ok := val.(string)
+		if !ok {
+			if b, isBytes := val.([]byte); isBytes {
+				text, ok = string(b), true
+			}
+		}
+		if !ok {
+			// A number or a bool cannot be ciphertext under any of the supported
+			// encodings, so this is a field list pointing at the wrong column
+			// rather than a decryption failure.
+			if err := applyPlaintextPolicy(msg, field, onPlaintext, "value is a %T, not encrypted text", val); err != nil {
+				return nil, err
+			}
 			continue
 		}
 
-		plaintext, err := open(aead, envelope)
+		// In envelope format an unmarked value was not written by this package.
+		// During a rollout a column holds a mix of both, so the default passes it
+		// through — but that default is also how a decrypt node pointed at
+		// foreign ciphertext stays silent, which is why the policy is settable
+		// and why raw format skips this check entirely.
+		if cfg.format == formatEnvelope && !hasEnvelope(text) {
+			if err := applyPlaintextPolicy(msg, field, onPlaintext, "value has no enc:v1:/enc:v2: envelope, so it was not encrypted by an encrypt node; if it was encrypted elsewhere, set format to \"raw\" and describe the scheme"); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		plaintext, err := openValue(cfg, suite, text)
 		if err != nil {
 			switch onError {
 			case onErrorSkip:
@@ -345,8 +409,45 @@ func (t *DecryptTransformer) Transform(ctx context.Context, msg hermod.Message, 
 				return nil, fmt.Errorf("decrypt: field %q: %w", field, err)
 			}
 		}
+
+		// A decrypted document becomes a value the rest of the pipeline can
+		// address into, when the node asks for it. A parse failure is a
+		// per-value failure like a decryption failure, so it takes the same
+		// policy rather than inventing a second one.
+		decoded, ok, err := decodeJSONPlaintext(parseJSON, plaintext)
+		if err != nil {
+			switch onError {
+			case onErrorSkip:
+				msg.SetData(field, plaintext)
+				continue
+			case onErrorNull:
+				msg.SetData(field, nil)
+				continue
+			default:
+				return nil, fmt.Errorf("decrypt: field %q: %w", field, err)
+			}
+		}
+		if ok {
+			msg.SetData(field, decoded)
+			continue
+		}
 		msg.SetData(field, plaintext)
 	}
 
 	return msg, nil
+}
+
+// applyPlaintextPolicy handles a value that is not this package's ciphertext.
+// It returns an error only when the policy is "fail"; the message is named in
+// that error so an operator can see which field is not what they expected.
+func applyPlaintextPolicy(msg hermod.Message, field string, policy onPlaintextPolicy, format string, args ...any) error {
+	switch policy {
+	case onPlaintextFail:
+		return fmt.Errorf("decrypt: field %q: %s", field, fmt.Sprintf(format, args...))
+	case onPlaintextNull:
+		msg.SetData(field, nil)
+		return nil
+	default:
+		return nil
+	}
 }
