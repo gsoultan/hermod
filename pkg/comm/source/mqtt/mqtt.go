@@ -363,7 +363,8 @@ func (s *Source) Sample(ctx context.Context, table string) (hermod.Message, erro
 
 // buildSampleMessage converts a received MQTT message into a hermod.Message,
 // decoding JSON payloads into top-level fields so the workflow editor can list
-// them as available fields; non-JSON payloads are preserved under "after".
+// them as available fields; a payload that is not a JSON object is preserved
+// under message.NonObjectPayloadKey.
 func buildSampleMessage(m paho.Message) hermod.Message {
 	payload := bytes.Clone(m.Payload())
 	msg := message.AcquireMessage()
