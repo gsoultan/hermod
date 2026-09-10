@@ -1260,7 +1260,8 @@ application's scheme exactly:
 | `scryptN`, `scryptR`, `scryptP` | scrypt parameters |
 | `encoding` | `base64`, `base64url` or `hex` — how the column is written |
 | `ivPlacement` | `prefix` when the IV/nonce is prepended to the ciphertext, `fixed` when it is a constant |
-| `aad` | Additional authenticated data, for the GCM and Poly1305 modes only |
+| `aadMode` | `none` *(default)*, `value` (use `aad`), or `key` (the encryption key doubles as the AAD) |
+| `aad` | The AAD string, when `aadMode` is `value`. GCM and Poly1305 modes only |
 
 A worked example — a column written by `openssl enc -aes-256-cbc` with the IV prepended and the
 whole thing base64-encoded:
@@ -1316,6 +1317,41 @@ encode the subtree as JSON and seal it as one document:
 
 With that pair, `payload` survives a full round trip as an object, and a later node can mask or map
 `payload.contact.email` directly.
+
+### When decryption fails and you cannot tell why
+
+An authenticated algorithm reports a wrong key, a wrong AAD and a tampered ciphertext *identically*.
+That is correct — GCM genuinely cannot distinguish them — and unhelpful when you are configuring a
+node against a system you do not control, because the one error covers every setting on the node.
+
+Set **`diagnose`** on the decrypt node. On failure it decrypts once without checking the tag and
+reports which half is wrong:
+
+- *"the key is correct … but the authentication tag does not match, so this value was encrypted with
+  additional authenticated data"* — the key, key format, algorithm, encoding and IV placement are all
+  right. Set `aadMode`.
+- *"a trial decryption did not produce plausible plaintext"* — the AAD is not the problem; check
+  `key`, `keyFormat`, `algorithm`, `encoding` and `ivPlacement`.
+
+Two limits. The trial result is **never** returned or logged — only the classification — because
+handing back unauthenticated plaintext is precisely what the tag exists to prevent. And the check
+decides "plausible" by looking for well-formed text, so a genuinely binary plaintext reads as
+"key wrong" even when the key is right; the message says so.
+
+Leave it off in production. It is a debugging aid, and reporting whether forged input decrypts to
+something plausible is a small oracle to expose on a hot path.
+
+#### AAD, and systems that pass the key as AAD
+
+`aadMode` makes the choice explicit rather than inferring it from whether a text box is empty, which
+matters in both directions: an empty box could equally mean "no AAD" or "not filled in yet", and
+switching to `none` now actually drops a value left in the field instead of leaving it quietly in
+effect. Nodes written before `aadMode` existed, which set only `aad`, keep working unchanged.
+
+`aadMode: "key"` exists because some systems pass the encryption key itself as the AAD. It buys
+nothing — the key is already bound to the ciphertext by construction — but it is what their data
+requires, and without the preset there is no way to discover it: the failure is identical to a wrong
+key.
 
 ### Backup and restore
 

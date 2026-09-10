@@ -159,3 +159,23 @@ export const PARSE_JSON_OPTIONS = [
       'The whole value must be a JSON document, including bare numbers and booleans. A parse failure takes the failure policy above.',
   },
 ]
+
+export const AAD_MODE_OPTIONS = [
+  {
+    value: 'none',
+    label: 'None (default)',
+    description: 'No additional authenticated data is sent.',
+  },
+  {
+    value: 'value',
+    label: 'A fixed value',
+    description:
+      'A string both sides agree on — a tenant or schema id. Encrypt and decrypt must match it byte for byte.',
+  },
+  {
+    value: 'key',
+    label: 'The encryption key',
+    description:
+      'Some systems pass the key itself. It adds nothing cryptographically, but matching it is the only way to open their data.',
+  },
+]

@@ -18,6 +18,7 @@ import (
 	"crypto/sha512"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -28,7 +29,10 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode"
+	"unicode/utf8"
 
+	"golang.org/x/crypto/chacha20"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/scrypt"
 )
@@ -441,7 +445,13 @@ type cipherConfig struct {
 	format      outputFormat
 	ivPlacement ivPlacement
 	fixedIV     []byte
-	aad         []byte
+
+	aadSource aadSource
+	aad       []byte
+
+	// diagnose turns an authentication failure into an explanation of which
+	// input is wrong. Off by default; see explainAEADFailure for why.
+	diagnose bool
 }
 
 // legacyShaped reports whether these settings describe exactly what the
@@ -454,6 +464,114 @@ func (c *cipherConfig) legacyShaped() bool {
 		c.encoding == encodingBase64 &&
 		c.ivPlacement == ivPrefix &&
 		len(c.aad) == 0
+}
+
+// aeadKeystream reproduces the payload keystream of an authenticated
+// construction without checking the tag.
+//
+// It exists only to answer "is the key right?" when authentication fails. The
+// result is never returned to a caller as plaintext — see explainAEADFailure.
+// A nil result means the construction's keystream is not reproducible here, and
+// the caller falls back to the generic message.
+func aeadKeystream(suite *cipherSuite, iv, ciphertext []byte) []byte {
+	switch {
+	case strings.HasPrefix(suite.spec.name, "aes-") && len(iv) == 12 && suite.block != nil:
+		// GCM derives J0 as nonce||0x00000001 for a 96-bit nonce and starts the
+		// payload counter one above it. Other nonce sizes need GHASH, which is
+		// not worth reimplementing for a diagnostic.
+		var j0 [16]byte
+		copy(j0[:12], iv)
+		binary.BigEndian.PutUint32(j0[12:], 2)
+		out := make([]byte, len(ciphertext))
+		cipher.NewCTR(suite.block, j0[:]).XORKeyStream(out, ciphertext)
+		return out
+
+	case strings.HasSuffix(suite.spec.name, "poly1305"):
+		// ChaCha20-Poly1305 spends block 0 on the Poly1305 key, so the payload
+		// starts at block 1. NewUnauthenticatedCipher handles the 24-byte
+		// (XChaCha) nonce by deriving a subkey internally.
+		ch, err := chacha20.NewUnauthenticatedCipher(suite.key, iv)
+		if err != nil {
+			return nil
+		}
+		ch.SetCounter(1)
+		out := make([]byte, len(ciphertext))
+		ch.XORKeyStream(out, ciphertext)
+		return out
+	}
+	return nil
+}
+
+// plausiblePlaintext reports whether bytes look like something a person or a
+// serialiser produced, rather than the noise a wrong key yields.
+func plausiblePlaintext(b []byte) bool {
+	if len(b) == 0 || !utf8.Valid(b) {
+		return false
+	}
+	var printable int
+	total := utf8.RuneCount(b)
+	for _, r := range string(b) {
+		if unicode.IsPrint(r) || r == '\n' || r == '\t' || r == '\r' {
+			printable++
+		}
+	}
+	return float64(printable)/float64(total) > 0.9
+}
+
+// explainAEADFailure turns "authentication failed" into something actionable.
+//
+// GCM and Poly1305 report a wrong key, a wrong AAD and a tampered ciphertext
+// identically, which is correct — the construction genuinely cannot tell them
+// apart — and useless when an operator is trying to configure a node against an
+// existing system. The check here decrypts without verifying the tag: if that
+// produces well-formed text, the key, nonce and framing are all right and the
+// only remaining difference is the AAD.
+//
+// It is off by default because the trial decryption is exactly the operation
+// authentication exists to prevent, and because reporting whether forged input
+// decrypts to something plausible is a small oracle. Only the classification is
+// ever returned; the recovered bytes never leave this function.
+func (c *cipherConfig) explainAEADFailure(suite *cipherSuite, iv, body []byte) error {
+	generic := errors.New(
+		"authentication failed: the key, the additional authenticated data (aad), " +
+			"or the ciphertext itself does not match. " +
+			"Set \"diagnose\" on this node to find out which")
+
+	if !c.diagnose {
+		return generic
+	}
+
+	overhead := suite.aead.Overhead()
+	if len(body) < overhead {
+		return generic
+	}
+	trial := aeadKeystream(suite, iv, body[:len(body)-overhead])
+	if trial == nil {
+		return generic
+	}
+
+	if plausiblePlaintext(trial) {
+		switch c.aadSource {
+		case aadNone:
+			return errors.New(
+				"the key is correct — a trial decryption produced well-formed plaintext — " +
+					"but the authentication tag does not match, so this value was encrypted " +
+					"with additional authenticated data. Set aadMode to \"value\" (and aad to " +
+					"the string the encrypting system uses) or to \"key\" if it passes the key itself")
+		default:
+			return errors.New(
+				"the key is correct — a trial decryption produced well-formed plaintext — " +
+					"but the authentication tag does not match, so the configured aad is not " +
+					"the one this value was encrypted with. Check aadMode and aad against the " +
+					"encrypting system, byte for byte")
+		}
+	}
+
+	return errors.New(
+		"a trial decryption did not produce plausible plaintext, so the key or the framing " +
+			"is wrong rather than the aad: check key, keyFormat, algorithm, encoding and " +
+			"ivPlacement. (If the plaintext is binary rather than text this check cannot tell, " +
+			"and the key may still be correct)")
 }
 
 func configString(config map[string]any, key string) string {
@@ -545,8 +663,21 @@ func parseCipherConfig(config map[string]any) (*cipherConfig, error) {
 	if err = c.parseFixedIV(config); err != nil {
 		return nil, err
 	}
+	c.diagnose = configBool(config, "diagnose")
 
 	return c, nil
+}
+
+// configBool reads a flag that may arrive as a Go bool, a JSON bool, or the
+// string a form control writes.
+func configBool(config map[string]any, key string) bool {
+	switch v := config[key].(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+	return false
 }
 
 // parseKDFParams reads the salt and cost settings.
@@ -577,20 +708,69 @@ func (c *cipherConfig) parseKDFParams(config map[string]any) error {
 	return nil
 }
 
-// parseAAD reads the additional authenticated data, rejecting it for algorithms
-// that have no way to authenticate it. Accepting it silently would suggest the
-// value was bound to the ciphertext when nothing had been bound at all.
+// aadSource says where the additional authenticated data comes from.
+//
+// This is a mode rather than "whatever is in the text box" because an empty box
+// is ambiguous: it could mean "no AAD" or "I have not filled this in yet", and
+// the two produce ciphertext that cannot be told apart until it fails to open.
+// Making "none" an explicit selection also means switching to it actually
+// removes the AAD, instead of leaving a stale value quietly in effect.
+type aadSource string
+
+const (
+	// aadNone sends no additional authenticated data. The default.
+	aadNone aadSource = "none"
+	// aadValue sends the configured "aad" string.
+	aadValue aadSource = "value"
+	// aadKey sends the encryption key itself.
+	//
+	// It buys nothing — the key is already bound by construction — but real
+	// systems do it, and without a preset an operator has to work out that the
+	// key is doubling as the AAD before anything decrypts at all. GCM reports a
+	// wrong key and a wrong AAD identically, so there is no clue to work from.
+	aadKey aadSource = "key"
+)
+
+// parseAAD resolves the additional authenticated data.
+//
+// It is rejected for algorithms that have no way to authenticate it: accepting
+// it silently would suggest the value was bound to the ciphertext when nothing
+// had been bound at all.
 func (c *cipherConfig) parseAAD(config map[string]any) error {
-	aad := configString(config, "aad")
-	if aad == "" {
-		return nil
+	raw := configString(config, "aad")
+
+	var source aadSource
+	switch mode := aadSource(strings.ToLower(strings.TrimSpace(configString(config, "aadMode")))); mode {
+	case "":
+		// Written before the mode control existed, where a non-empty "aad" was
+		// the only way to ask for one.
+		source = aadNone
+		if raw != "" {
+			source = aadValue
+		}
+	case aadNone, aadValue, aadKey:
+		source = mode
+	default:
+		return fmt.Errorf("unknown aadMode %q: use none, value or key",
+			configString(config, "aadMode"))
 	}
-	if !c.spec.authenticated() {
+
+	var aad []byte
+	switch source {
+	case aadValue:
+		aad = []byte(raw)
+	case aadKey:
+		aad = []byte(c.key)
+	}
+
+	if len(aad) > 0 && !c.spec.authenticated() {
 		return fmt.Errorf(
 			"aad is set but %s is not an authenticated algorithm; "+
 				"additional authenticated data only exists for gcm and poly1305 modes", c.spec.name)
 	}
-	c.aad = []byte(aad)
+
+	c.aadSource = source
+	c.aad = aad
 	return nil
 }
 
@@ -688,6 +868,13 @@ func resolveCipher(c *cipherConfig) (*cipherSuite, error) {
 	if c.spec.mode == modeAEAD {
 		if suite.aead, err = c.spec.aead(key); err != nil {
 			return nil, err
+		}
+		// Kept for explainAEADFailure, which reproduces the GCM keystream to
+		// tell a wrong key from a wrong AAD. cipher.Block is safe to share.
+		if strings.HasPrefix(c.spec.name, "aes-") {
+			if suite.block, err = aes.NewCipher(key); err != nil {
+				return nil, fmt.Errorf("derive cipher: %w", err)
+			}
 		}
 	} else {
 		if suite.block, err = aes.NewCipher(key); err != nil {
@@ -828,7 +1015,7 @@ func openWith(c *cipherConfig, suite *cipherSuite, payload []byte) ([]byte, erro
 	case modeAEAD:
 		out, err := suite.aead.Open(nil, iv, body, c.aad)
 		if err != nil {
-			return nil, errors.New("authentication failed: wrong key, wrong aad, or altered ciphertext")
+			return nil, c.explainAEADFailure(suite, iv, body)
 		}
 		return out, nil
 

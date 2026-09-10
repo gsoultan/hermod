@@ -363,3 +363,70 @@ func TestPreview_TransTypeFallback(t *testing.T) {
 		t.Fatalf("got %#v", obj)
 	}
 }
+
+// TestPreview_AADModeKeyOverHTTP covers the shape that prompted this: a system
+// that passes the encryption key itself as AAD. Without a matching aadMode the
+// node fails with an authentication error that says nothing useful, which is
+// what "the decrypt node cannot decrypt it" looks like from the editor.
+func TestPreview_AADModeKeyOverHTTP(t *testing.T) {
+	const key = "0123456789abcdef0123456789abcdef"
+	base := map[string]any{
+		"fields": []string{"payload"}, "key": key, "keyFormat": "raw",
+		"algorithm": "aes-256-gcm", "format": "raw", "encoding": "base64",
+	}
+	with := func(extra map[string]any) map[string]any {
+		out := map[string]any{}
+		for k, v := range base {
+			out[k] = v
+		}
+		for k, v := range extra {
+			out[k] = v
+		}
+		return out
+	}
+
+	resp := postTransformation(t,
+		with(map[string]any{"transType": "encrypt", "aadMode": "key"}),
+		"encrypt", map[string]any{"payload": `{"id":"42"}`})
+	sealed, _ := previewedField(t, resp, "payload").(string)
+	if sealed == "" || sealed == `{"id":"42"}` {
+		t.Fatalf("encrypt preview did not encrypt: %q", sealed)
+	}
+
+	// Matching aadMode reads it.
+	back := postTransformation(t,
+		with(map[string]any{"transType": "decrypt", "aadMode": "key", "parseJson": "objects"}),
+		"decrypt", map[string]any{"payload": sealed})
+	obj, ok := previewedField(t, back, "payload").(map[string]any)
+	if !ok || obj["id"] != "42" {
+		t.Fatalf("aadMode=key did not round trip: %#v", previewedField(t, back, "payload"))
+	}
+
+	// Without it the preview must fail, and with diagnose on it must say the key
+	// is fine and point at the AAD.
+	h := &WorkflowHandler{Handler: &handlers.Handler{Registry: &registry.Registry{}}}
+	body, err := json.Marshal(map[string]any{
+		"transformation": map[string]any{"type": "decrypt",
+			"config": with(map[string]any{"transType": "decrypt", "aadMode": "none", "diagnose": true})},
+		"message": map[string]any{"payload": sealed},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/transformations/test", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.TestTransformation(rec, req)
+
+	if rec.Code == http.StatusOK {
+		t.Fatal("decrypting without the AAD succeeded")
+	}
+	msg := strings.ToLower(rec.Body.String())
+	if !strings.Contains(msg, "aad") || !strings.Contains(msg, "key is correct") {
+		t.Errorf("the preview error should diagnose the AAD, got: %s", rec.Body.String())
+	}
+	// The trial decryption must not reach the operator as data.
+	if strings.Contains(rec.Body.String(), `"42"`) {
+		t.Errorf("preview error leaked trial plaintext: %s", rec.Body.String())
+	}
+	t.Logf("preview reports: %s", rec.Body.String())
+}
