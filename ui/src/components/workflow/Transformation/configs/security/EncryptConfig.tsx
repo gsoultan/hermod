@@ -25,6 +25,7 @@ import {
   IconShieldOff,
 } from '@tabler/icons-react'
 import {
+  AAD_MODE_OPTIONS,
   ALGORITHM_SELECT_DATA,
   DEFAULT_ALGORITHM,
   ENCODING_OPTIONS,
@@ -82,6 +83,10 @@ export function EncryptConfig({
   const encoding: string = config.encoding || 'base64'
   const ivPlacement: string = config.ivPlacement || 'prefix'
   const parseJson: string = config.parseJson || 'off'
+  // Nodes saved before this control existed carry only `aad`, where a
+  // non-empty value was the only way to ask for one. Infer the mode so such a
+  // node shows what it is actually doing instead of reading as "None".
+  const aadMode: string = config.aadMode || (config.aad ? 'value' : 'none')
 
   const authenticated = isAuthenticated(algorithm)
   const usesKDF = KDF_FORMATS.includes(keyFormat)
@@ -297,9 +302,17 @@ export function EncryptConfig({
               Format &amp; interoperability
             </Text>
             <Text size="xs" c="dimmed">
-              {rawFormat
-                ? `Raw ${encoding} ciphertext, IV ${ivPlacement === 'fixed' ? 'fixed' : 'prepended'}`
-                : 'Hermod envelope — leave these alone unless another system owns this column'}
+              {[
+                rawFormat
+                  ? `Raw ${encoding} ciphertext, IV ${ivPlacement === 'fixed' ? 'fixed' : 'prepended'}`
+                  : 'Hermod envelope',
+                authenticated && aadMode !== 'none'
+                  ? `AAD: ${aadMode === 'key' ? 'the encryption key' : 'a fixed value'}`
+                  : null,
+                decrypting && config.diagnose ? 'explaining failures' : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </Text>
           </Accordion.Control>
           <Accordion.Panel>
@@ -368,13 +381,36 @@ export function EncryptConfig({
               )}
 
               {authenticated && (
-                <TextInput
-                  label="Additional authenticated data (optional)"
-                  value={config.aad || ''}
-                  onChange={(e) => set({ aad: e.currentTarget.value })}
-                  placeholder="e.g. a tenant id"
+                <>
+                  <Select
+                    label="Additional authenticated data"
+                    data={AAD_MODE_OPTIONS.map(({ value, label }) => ({ value, label }))}
+                    value={aadMode}
+                    onChange={(val) => set({ aadMode: val || 'none' })}
+                    size="sm"
+                    allowDeselect={false}
+                    description={describe(AAD_MODE_OPTIONS, aadMode)}
+                  />
+                  {aadMode === 'value' && (
+                    <TextInput
+                      label="AAD value"
+                      value={config.aad || ''}
+                      onChange={(e) => set({ aad: e.currentTarget.value })}
+                      placeholder="e.g. a tenant id"
+                      size="sm"
+                      description="Not encrypted, but bound to the ciphertext: a value sealed under one AAD will not open under another."
+                    />
+                  )}
+                </>
+              )}
+
+              {decrypting && (
+                <Switch
+                  label="Explain authentication failures"
+                  checked={!!config.diagnose}
+                  onChange={(e) => set({ diagnose: e.currentTarget.checked })}
                   size="sm"
-                  description="Not encrypted, but bound to the ciphertext: a value sealed under one AAD will not open under another. Encrypt and decrypt must agree."
+                  description="A wrong key and a wrong AAD fail identically, which is correct but unhelpful while you are matching an external system. This runs a trial decryption on failure to say which one is wrong. It never returns the trial result. Leave it off in production."
                 />
               )}
 

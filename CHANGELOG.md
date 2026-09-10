@@ -99,6 +99,39 @@ and a later node can mask or map `payload.contact.email` directly. Without it th
 refusal stands, and the error now names the option that lifts it.
 
 
+### Added — an explicit AAD mode, and a diagnosis for authentication failures
+
+An authenticated algorithm reports a wrong key, a wrong AAD and a tampered
+ciphertext identically. That is correct — GCM cannot distinguish them — and it
+means one opaque error covers every setting on the node. Configuring a decrypt
+node against a system you do not control turns into guesswork, and the guess
+people reach for first is "the key must be wrong", which it usually is not.
+
+`diagnose` on the decrypt node decrypts once **without** checking the tag and
+reports which half is wrong: either the key and framing are right and the AAD is
+the difference, or the trial produced nothing sensible and the AAD is not worth
+looking at. The trial result is never returned or logged — only the
+classification — because handing back unauthenticated plaintext is exactly what
+the tag exists to prevent. It is off by default, both for that reason and
+because reporting whether forged input decrypts to something plausible is a
+small oracle to expose on a hot path. The check reads "plausible" as well-formed
+text, so a binary plaintext reads as "key wrong" even when the key is right; the
+message says so rather than overstating what it knows.
+
+Alongside it, **`aadMode`** makes the AAD an explicit choice — `none` (the
+default), `value`, or `key` — instead of inferring it from whether a text box is
+empty. An empty box could equally mean "no AAD" or "not filled in yet", and the
+two produce ciphertext that cannot be told apart until it fails to open;
+selecting `none` now also genuinely drops a value left behind in the field
+rather than leaving it quietly in effect. Nodes that set only `aad`, from before
+the mode existed, keep working unchanged.
+
+`aadMode: "key"` covers systems that pass the encryption key itself as the AAD.
+It buys nothing — the key is already bound to the ciphertext by construction —
+but it is what their data requires, and without the preset there is nothing to
+discover it from, because the failure is identical to a wrong key.
+
+
 ## [1.1.0] — 2026-09-09
 
 One new capability and a set of connector-wizard fixes. Nothing in the public Go
