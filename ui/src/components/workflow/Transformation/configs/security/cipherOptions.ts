@@ -179,3 +179,27 @@ export const AAD_MODE_OPTIONS = [
       'Some systems pass the key itself. It adds nothing cryptographically, but matching it is the only way to open their data.',
   },
 ]
+
+export const TAG_PLACEMENT_OPTIONS = [
+  {
+    value: 'suffix',
+    label: 'After the ciphertext (default)',
+    description: 'What Go, OpenSSL and most formats write.',
+  },
+  {
+    value: 'prefix',
+    label: 'Before the ciphertext',
+    description:
+      'Node, Java and .NET hand the tag back separately, so some systems store it in front. Nothing in the bytes reveals which — both fail authentication the same way.',
+  },
+]
+
+/**
+ * Whether the algorithm lets the nonce length be chosen.
+ *
+ * Only GCM does. The Poly1305 constructions fix it at 12 or 24 bytes as part of
+ * the construction, and the block modes take a full 16-byte IV.
+ */
+export function supportsCustomNonce(algorithm?: string): boolean {
+  return (algorithm || DEFAULT_ALGORITHM).endsWith('-gcm')
+}
