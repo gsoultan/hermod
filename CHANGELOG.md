@@ -7,10 +7,18 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-09-10
+
 The `encrypt` and `decrypt` transformations added in 1.1.0 gain an algorithm
 picker, and `decrypt` stops silently doing nothing on data Hermod did not write.
 `enc:v1:` values written by 1.1.0 keep decrypting unchanged under the default
 configuration; a regression test pins that literal wire format.
+
+Nothing in the public Go API changed and no dependency moved, so this carries no
+security fix of its own — but the bug it fixes is a security-relevant one: a
+decrypt node pointed at data another system encrypted reported success while
+forwarding ciphertext to the sink. If you run one, check that it is actually
+decrypting rather than passing values through.
 
 ### Fixed — `decrypt` silently did nothing on data Hermod had not encrypted
 
