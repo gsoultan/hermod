@@ -1112,9 +1112,17 @@ func sealWith(c *cipherConfig, suite *cipherSuite, plaintext []byte) ([]byte, er
 
 	case modeCFB:
 		out := make([]byte, len(plaintext))
-		// CFB is deprecated in crypto/cipher and is here only to read and write
-		// data belonging to systems that already chose it.
-		cipher.NewCFBEncrypter(suite.block, iv).XORKeyStream(out, plaintext) //nolint:staticcheck // interoperability with existing data
+		// CFB is deprecated in crypto/cipher, for good reasons that all apply: it
+		// is unauthenticated, unoptimised, and outside the FIPS 140-3 module. It
+		// is here only so that data belonging to systems which already chose it
+		// can be read and written at all, never as a suggestion.
+		//
+		// Both suppressions are needed, which looks redundant and is not: CI runs
+		// `staticcheck ./...` standalone, which honours //lint:ignore and not
+		// //nolint, and also golangci-lint, which honours //nolint and not
+		// //lint:ignore. Dropping either one turns a gate red.
+		//lint:ignore SA1019 CFB is offered solely to interoperate with data that already exists in it
+		cipher.NewCFBEncrypter(suite.block, iv).XORKeyStream(out, plaintext) //nolint:staticcheck // see the //lint:ignore above
 		return append(prefix, out...), nil
 	}
 	return nil, fmt.Errorf("algorithm %q has no encryption mode", suite.spec.name)
@@ -1168,7 +1176,8 @@ func openWith(c *cipherConfig, suite *cipherSuite, payload []byte) ([]byte, erro
 
 	case modeCFB:
 		out := make([]byte, len(body))
-		cipher.NewCFBDecrypter(suite.block, iv).XORKeyStream(out, body) //nolint:staticcheck // interoperability with existing data
+		//lint:ignore SA1019 CFB is offered solely to interoperate with data that already exists in it
+		cipher.NewCFBDecrypter(suite.block, iv).XORKeyStream(out, body) //nolint:staticcheck // see the //lint:ignore above
 		return out, nil
 	}
 	return nil, fmt.Errorf("algorithm %q has no decryption mode", suite.spec.name)
