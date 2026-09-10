@@ -2,9 +2,12 @@ package rabbitmq
 
 import (
 	"os"
+	"reflect"
 	"testing"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 func TestRabbitMQQueueSource_SampleFromLastConsumed(t *testing.T) {
@@ -31,10 +34,23 @@ func TestRabbitMQQueueSource_SampleFromLastConsumed(t *testing.T) {
 			wantValue:   "data",
 		},
 		{
-			name:        "non-json payload preserved as payload",
+			// A queue carrying plain strings rather than JSON objects still has
+			// to surface a field the workflow editor can map, otherwise the
+			// body is invisible to every transformation and sink.
+			name:        "non-json payload exposed under the payload field",
 			stored:      true,
 			body:        []byte("plain text"),
 			wantPayload: "plain text",
+			wantField:   message.NonObjectPayloadKey,
+			wantValue:   "plain text",
+		},
+		{
+			name:        "json array exposed under the payload field",
+			stored:      true,
+			body:        []byte(`["a","b"]`),
+			wantPayload: `["a","b"]`,
+			wantField:   message.NonObjectPayloadKey,
+			wantValue:   []any{"a", "b"},
 		},
 	}
 
@@ -62,8 +78,8 @@ func TestRabbitMQQueueSource_SampleFromLastConsumed(t *testing.T) {
 				t.Errorf("payload = %q; want %q", got, tc.wantPayload)
 			}
 			if tc.wantField != "" {
-				if got := msg.Data()[tc.wantField]; got != tc.wantValue {
-					t.Errorf("data[%q] = %v; want %v", tc.wantField, got, tc.wantValue)
+				if got := msg.Data()[tc.wantField]; !reflect.DeepEqual(got, tc.wantValue) {
+					t.Errorf("data[%q] = %#v; want %#v", tc.wantField, got, tc.wantValue)
 				}
 			}
 		})

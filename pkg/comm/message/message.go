@@ -221,20 +221,75 @@ func (m *DefaultMessage) DataRef() map[string]any {
 	return m.data
 }
 
-func (m *DefaultMessage) unmarshalPayloadLocked() {
-	if err := json.Unmarshal(m.payload, &m.data); err != nil {
-		// Try lenient approach
-		if fixed := TryFixJSON(m.payload); fixed != nil {
-			if err := json.Unmarshal(fixed, &m.data); err == nil {
-				return
-			}
-		}
-		// If still not a map, try as a slice
-		var slice []any
-		if err := json.Unmarshal(m.payload, &slice); err == nil {
-			m.data["payload"] = slice
+// NonObjectPayloadKey is where a payload that is not a JSON object is exposed.
+//
+// Sources are free to emit a bare string, a scalar, an array, or bytes that are
+// not JSON at all. Such a payload has no field names to merge into the message
+// root, so it is preserved under this single key instead. That keeps it
+// addressable by transformations and, crucially, keeps it in the serialised
+// output: previously only objects survived and everything else was silently
+// dropped.
+//
+// The name is deliberately "payload": array payloads have always been exposed
+// this way, and it is the template variable the UI advertises for notification
+// sinks ({{.payload}}). Widening the existing key to cover strings and scalars
+// keeps every working template working, where a new name would not.
+const NonObjectPayloadKey = "payload"
+
+// decodePayloadFields returns the fields a payload contributes to a message's
+// data map. A JSON object contributes its own fields; anything else is returned
+// as a single NonObjectPayloadKey entry holding the decoded JSON value, or the
+// literal text when the payload is not JSON at all.
+//
+// Both the lazy Data() path and MarshalJSON go through here so that a message
+// serialises identically whether or not something read it first.
+func decodePayloadFields(payload []byte) map[string]any {
+	if len(payload) == 0 {
+		return nil
+	}
+
+	var obj map[string]any
+	if err := json.Unmarshal(payload, &obj); err == nil {
+		return obj
+	}
+	// Tolerate the usual hand-written JSON slips (trailing commas) before
+	// concluding this is not an object.
+	if fixed := TryFixJSON(payload); fixed != nil {
+		if err := json.Unmarshal(fixed, &obj); err == nil {
+			return obj
 		}
 	}
+
+	// Valid JSON, just not an object: keep the decoded value so consumers see
+	// [1,2,3] as an array and 42 as a number rather than as text. Arrays have
+	// always landed here, so existing templates keep resolving.
+	var value any
+	if err := json.Unmarshal(payload, &value); err == nil {
+		return map[string]any{NonObjectPayloadKey: value}
+	}
+
+	// Not JSON at all — a plain string, a CSV line, an opaque blob.
+	return map[string]any{NonObjectPayloadKey: string(payload)}
+}
+
+// jsonRawOrWrapped prepares bytes destined for a CDC envelope field.
+//
+// json.RawMessage is emitted verbatim and rejects bytes that are not valid
+// JSON, so a non-JSON before/after image failed the entire marshal — and with
+// it the sink write. Such bytes are wrapped under NonObjectPayloadKey
+// instead, the same way the non-CDC path preserves them.
+func jsonRawOrWrapped(b []byte) any {
+	if json.Valid(b) {
+		return json.RawMessage(b)
+	}
+	return map[string]any{NonObjectPayloadKey: string(b)}
+}
+
+func (m *DefaultMessage) unmarshalPayloadLocked() {
+	if m.data == nil {
+		m.data = make(map[string]any)
+	}
+	maps.Copy(m.data, decodePayloadFields(m.payload))
 }
 
 func (m *DefaultMessage) Clone() hermod.Message {
@@ -288,9 +343,12 @@ func (m *DefaultMessage) ToMap() map[string]any {
 	if m.operation == "" {
 		maps.Copy(res, m.data)
 
-		// 2. If data is empty but payload is not, unmarshal payload into root
+		// 2. If data is empty but payload is not, decode the payload into the
+		// root. A payload that is not a JSON object lands under
+		// NonObjectPayloadKey instead of being dropped: this used to ignore the
+		// unmarshal error, silently discarding every string and scalar body.
 		if len(m.data) == 0 && len(m.payload) > 0 {
-			json.Unmarshal(m.payload, &res)
+			maps.Copy(res, decodePayloadFields(m.payload))
 		}
 	}
 
@@ -309,7 +367,7 @@ func (m *DefaultMessage) ToMap() map[string]any {
 	if m.operation != "" {
 		res["operation"] = m.operation
 		if len(m.before) > 0 {
-			res["before"] = json.RawMessage(m.before)
+			res["before"] = jsonRawOrWrapped(m.before)
 		}
 		after := m.payload
 		if len(after) == 0 && len(m.data) > 0 {
@@ -320,7 +378,7 @@ func (m *DefaultMessage) ToMap() map[string]any {
 			}
 		}
 		if len(after) > 0 {
-			res["after"] = json.RawMessage(after)
+			res["after"] = jsonRawOrWrapped(after)
 		}
 	}
 
@@ -344,9 +402,12 @@ func (m *DefaultMessage) MarshalJSON() ([]byte, error) {
 	if m.operation == "" {
 		maps.Copy(res, m.data)
 
-		// 2. If data is empty but payload is not, unmarshal payload into root
+		// 2. If data is empty but payload is not, decode the payload into the
+		// root. A payload that is not a JSON object lands under
+		// NonObjectPayloadKey instead of being dropped: this used to ignore the
+		// unmarshal error, silently discarding every string and scalar body.
 		if len(m.data) == 0 && len(m.payload) > 0 {
-			json.Unmarshal(m.payload, &res)
+			maps.Copy(res, decodePayloadFields(m.payload))
 		}
 	}
 
@@ -367,14 +428,14 @@ func (m *DefaultMessage) MarshalJSON() ([]byte, error) {
 	if m.operation != "" {
 		res["operation"] = m.operation
 		if len(m.before) > 0 {
-			res["before"] = json.RawMessage(m.before)
+			res["before"] = jsonRawOrWrapped(m.before)
 		}
 		after := m.payload
 		if len(after) == 0 && len(m.data) > 0 {
 			after, _ = json.Marshal(m.data)
 		}
 		if len(after) > 0 {
-			res["after"] = json.RawMessage(after)
+			res["after"] = jsonRawOrWrapped(after)
 		}
 	}
 
