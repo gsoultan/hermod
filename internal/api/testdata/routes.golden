@@ -140,6 +140,7 @@ POST /api/sources/sample
 POST /api/sources/test
 POST /api/sources/upload
 POST /api/sources/{id}/snapshot
+POST /api/transformations/detect-decryption
 POST /api/transformations/test
 POST /api/users
 POST /api/utils/token
