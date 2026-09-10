@@ -50,3 +50,22 @@ drives `run() -> Read() -> Formatter` against a live broker
 (`HERMOD_INTEGRATION=1` + `RABBITMQ_URL`); declare test queues **durable** to
 match the source or the broker rejects the second declare with
 `PRECONDITION_FAILED`.
+
+## Changing this has blast radius into sinks
+
+A schema'd sink cannot tell "undecodable" from "decoded to something my schema
+has no column for", and at least one used `len(Data()) == 0` as the proxy. The
+S3 Parquet sink refused a record it could not build a row from that way; once a
+non-object payload decoded to one synthetic field, the check passed the record
+through to the writer and `WriteStop` failed the whole batch with
+`interface conversion: interface {} is nil, not string` — naming neither the
+record nor the reason, and failing identically on every retry.
+
+Its guard now counts how many of the schema's own columns a record can fill
+(`writableFieldCount`). If you touch payload decoding again, grep for
+`len(data) == 0` on the sink side before assuming nothing depends on emptiness.
+
+The failing test — `TestAnUndecodableMessageIsNotSilentlyDropped` — is behind
+the `integration` build tag, so `go test ./...` never compiles it and only CI
+caught this. The `schema_guard_test.go` beside it needs no S3 and runs in the
+default suite; prefer that shape for guards worth protecting.
