@@ -7,6 +7,40 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — detect decryption settings from a sample value
+
+The decrypt node's settings interact: the key format decides the key bytes, the
+encoding decides the payload bytes, the nonce length decides where the
+ciphertext starts, the tag position decides which end the tag is on, and the AAD
+decides whether authentication can succeed at all. One wrong setting is
+indistinguishable from all of them wrong, so matching an external system meant
+searching that space by hand with nothing to search by. 1.2.0 made every
+combination expressible; it did not make the right one findable.
+
+**Detect settings** in the decrypt editor takes one encrypted value and the key
+and reports the configurations that actually read it, each with a truncated
+preview and an Apply button. `POST /api/transformations/detect-decryption` is
+the same thing for scripting.
+
+Confidence is load-bearing rather than decorative. `certain` means an
+authenticated algorithm verified its tag, so the configuration is not a guess —
+nothing else could have produced that value. `likely` means an unauthenticated
+mode produced plausible-looking text, which on a short value can be coincidence,
+and the UI says so at the point of applying it. Ranking puts proven candidates
+first, and candidates differing only between the base64 and base64url alphabets
+are collapsed, since offering a choice that is not a choice is noise.
+
+Two things are deliberately not searched, and the failure reason says so instead
+of leaving them to be discovered. PBKDF2 and scrypt take a salt and cost
+parameters that are inputs rather than properties of the ciphertext — guessing a
+salt is a dictionary attack, not a search. A fixed IV has nothing in the payload
+to recover it from.
+
+The endpoint is editor-only and grants no capability its caller lacked: it needs
+the key, so anyone able to call it could already decrypt. It never echoes the key
+back, sends `Cache-Control: no-store`, and truncates the preview so it cannot be
+used to drain a column.
+
 ### Fixed — a source payload that was not a JSON object was silently dropped
 
 Sources are free to deliver a bare string, a number, or bytes that are not JSON
