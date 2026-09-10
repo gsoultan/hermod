@@ -7,6 +7,98 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+The `encrypt` and `decrypt` transformations added in 1.1.0 gain an algorithm
+picker, and `decrypt` stops silently doing nothing on data Hermod did not write.
+`enc:v1:` values written by 1.1.0 keep decrypting unchanged under the default
+configuration; a regression test pins that literal wire format.
+
+### Fixed — `decrypt` silently did nothing on data Hermod had not encrypted
+
+In 1.1.0 the node only touched values carrying its own `enc:v1:` prefix and
+passed everything else through. That is right midway through a rollout, when a
+column holds a mix of sealed and plain values — and it meant that pointing the
+node at a column encrypted by *another* application matched nothing, changed
+nothing, and reported success, with no error and nothing in the logs. The
+pipeline looked healthy while forwarding ciphertext to the destination, which is
+the same class of failure as an unknown transformation type resolving to a no-op.
+
+Setting `format` to `raw` now drops the envelope: every listed field is
+decrypted, and a value that will not decrypt is an error rather than a
+pass-through. Together with `ivPlacement`, `encoding` and the key formats below,
+that is enough to describe what an external system actually wrote — verified in
+both directions against `openssl enc -aes-256-cbc`. For operators staying on the
+envelope format, the new `onPlaintext` policy (`passthrough`, the default,
+`fail`, or `null`) turns the silence into a stopped pipeline once a rollout is
+complete.
+
+### Added — an algorithm, key-derivation and encoding picker
+
+- **Fourteen algorithms.** AES-128/192/256 in GCM, CBC, CTR and CFB, plus
+  ChaCha20-Poly1305 and XChaCha20-Poly1305. AES-256-GCM stays the default. GCM
+  and Poly1305 are authenticated and detect a modified ciphertext; CBC, CTR and
+  CFB cannot, and are offered so that data another system already wrote in them
+  can be read at all. The editor says which is which at the point of choosing,
+  and a Go test fails the build if the two lists ever drift apart.
+- **Key derivation is selectable.** `passphrase` (SHA-256 of the text — 1.1.0's
+  behaviour, and still the default), `raw`, `hex` and `base64` for key material
+  of exactly the algorithm's length, and `pbkdf2` or `scrypt` for a human-chosen
+  password. A raw key of the wrong length is an error rather than padded or
+  truncated: padding leaves the remaining bytes known to an attacker, and
+  truncating means two keys sharing a prefix encrypt identically, so an operator
+  rotating between them would see success and get no rotation. PBKDF2 and scrypt
+  require a salt and have no default for it.
+- **Payload encoding is selectable** — `base64`, `base64url` or `hex` — and
+  decoding accepts either base64 alphabet with or without padding, because
+  external systems disagree about both and the difference otherwise looks
+  exactly like a wrong key.
+- **`enc:v2:` names its algorithm.** A value can then be read without the node
+  being told how it was written, and a node explicitly configured for a
+  different algorithm reports the conflict instead of failing with a generic
+  authentication error. A node configured the way 1.1.0 behaved still emits
+  `enc:v1:`, so a mixed-version fleet keeps working during a rollout.
+- **Optional `aad`** binds additional authenticated data to the ciphertext for
+  the GCM and Poly1305 modes. It is rejected for the unauthenticated modes
+  rather than accepted and dropped, which would suggest a binding that does not
+  exist.
+
+Three limits are worth knowing before leaving the defaults. In `raw` format
+nothing marks a value as encrypted, so encrypting into it is not idempotent —
+running the same workflow twice encrypts the column twice. The optional fixed IV
+exists only to match external systems that use one: it makes identical inputs
+produce identical ciphertext, and under GCM or CTR reusing an IV with one key
+exposes the XOR of the two plaintexts and, for GCM, the authentication key. And
+CBC, CTR and CFB cannot detect tampering at all — a wrong key yields plausible
+garbage rather than an error, except where CBC's padding check happens to catch
+it.
+
+### Added — decrypted JSON can become an object
+
+A column often holds one JSON document rather than a scalar, and decrypting it
+returned a *string* that happened to contain JSON. That is not the same as an
+object: no downstream node could address into it with a dotted path, and the live
+preview rendered it as a single escaped line instead of a tree.
+
+`decrypt` now takes **`parseJson`** — `off` (the default), `objects`, or
+`strict`. `objects` parses a value that starts with `{` or `[` and leaves
+everything else as text; `strict` treats the whole value as a JSON document,
+scalars included, and routes a parse failure through the existing `onError`
+policy. Parsing is opt-in because it changes a field's type, and doing that
+silently would reshape every message flowing through an existing node.
+
+The split between the two modes is deliberate. A decrypted `"12345"` is valid
+JSON, so a single "parse if you can" mode would quietly turn an account number
+into a float — a schema change downstream that nobody asked for. `objects` never
+does that; `strict` is how an operator asks for it, and is also what complains
+when a column declared to be JSON is not.
+
+`encrypt` gained the inverse, **`serializeJson`**. It previously refused a field
+holding an object, because rendering a map with `%v` produces Go syntax that
+decrypt would hand back as a literal string. With the opt-in the subtree is
+marshalled and sealed as one document, so an object survives a full round trip
+and a later node can mask or map `payload.contact.email` directly. Without it the
+refusal stands, and the error now names the option that lifts it.
+
+
 ## [1.1.0] — 2026-09-09
 
 One new capability and a set of connector-wizard fixes. Nothing in the public Go
