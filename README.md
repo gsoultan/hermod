@@ -119,12 +119,12 @@ Hermod works by reading data from a `Source`, buffering it in a high-performance
 
 ## Install
 
-The current release is **`v1.1.0`**. See [CHANGELOG.md](CHANGELOG.md) for what
+The current release is **`v1.2.0`**. See [CHANGELOG.md](CHANGELOG.md) for what
 changed, what breaks, and the known gaps.
 
 - **Pin an explicit version** for both the image and the chart. It is what makes
   a deployment reproducible, and it is what the examples below do.
-- **Go consumers are still unserved.** `v1.1.0` falls inside the retracted range
+- **Go consumers are still unserved.** `v1.2.0` falls inside the retracted range
   `[v1.0.0, v1.8.0]`, exactly as `v1.0.0` does, so `go get` will not select it.
   See [`go get` does not work, and is not expected
   to](#go-get-does-not-work-and-is-not-expected-to) — nothing changed here, the
@@ -133,9 +133,9 @@ changed, what breaks, and the known gaps.
 ### Container image
 
 ```bash
-docker pull ghcr.io/gsoultan/hermod:1.1.0
-docker run --rm ghcr.io/gsoultan/hermod:1.1.0 -version
-# hermod v1.1.0 (Enterprise Edition)
+docker pull ghcr.io/gsoultan/hermod:1.2.0
+docker run --rm ghcr.io/gsoultan/hermod:1.2.0 -version
+# hermod v1.2.0 (Enterprise Edition)
 ```
 
 `linux/amd64` and `linux/arm64` are both published under that one tag.
@@ -144,7 +144,7 @@ docker run --rm ghcr.io/gsoultan/hermod:1.1.0 -version
 
 ```bash
 helm install hermod oci://ghcr.io/gsoultan/charts/hermod \
-  --version 1.1.0 \
+  --version 1.2.0 \
   --set existingSecret=hermod-master-key
 ```
 
@@ -1166,7 +1166,7 @@ A container image and a Helm chart ship with each release:
 
 ```bash
 helm install hermod oci://ghcr.io/gsoultan/charts/hermod \
-  --version 1.1.0 \
+  --version 1.2.0 \
   --set existingSecret=hermod-master-key \
   --set metrics.prometheusRule.enabled=true
 ```
