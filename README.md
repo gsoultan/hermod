@@ -81,7 +81,7 @@ Hermod is built for mission-critical enterprise data workloads, providing robust
 - **Pipeline Health Heatmaps**: Real-time visualization of throughput and error rates directly on the workflow canvas.
 - **WebAssembly (WASM) Transformations**: Run custom business logic written in Go, Rust, or C++ at near-native speed within the pipeline.
 - **Automated PII Scanning**: Built-in `mask` transformation detects and redacts sensitive data (PII/PHI) using a sophisticated regex-based discovery engine.
-- **Field-Level Encryption**: `encrypt` and `decrypt` transformations seal named fields with AES-256-GCM, so sensitive columns stay unreadable in the sink and are recovered only where a downstream pipeline is configured with the same key. Each value gets a fresh random nonce, so an encrypted field cannot be used as a join key; values are written as `enc:v1:…` and already-encrypted values are left alone, making a re-run idempotent. Decryption failures fail the message by default (`onError` can relax this to `skip` or `null`). The key is configured on the node, which means it is stored with the workflow definition.
+- **Field-Level Encryption**: `encrypt` and `decrypt` transformations seal named fields, so sensitive columns stay unreadable in the sink and are recovered only where a downstream pipeline is configured with the same key. Fourteen algorithms are selectable — AES-128/192/256 in GCM, CBC, CTR and CFB, plus ChaCha20-Poly1305 and XChaCha20-Poly1305 — with AES-256-GCM the default. Keys can be a hashed passphrase (the default), raw/hex/base64 bytes, or derived with PBKDF2 or scrypt, and the payload written as base64, base64url or hex. Each value gets a fresh random nonce, so an encrypted field cannot be used as a join key; in the default envelope format values are written as `enc:v1:…`/`enc:v2:…` and already-encrypted values are left alone, making a re-run idempotent. A `raw` format drops the envelope so a column encrypted by **another system** can be read and written — see [Decrypting data Hermod did not encrypt](#decrypting-data-hermod-did-not-encrypt). Decryption failures fail the message by default (`onError` can relax this to `skip` or `null`). The key is configured on the node, which means it is stored with the workflow definition.
 - **Audit Logging**: Complete history of administrative changes and system events for security and compliance audits.
 - **At-least-once delivery with exactly-once *effects* at the sink**: Messages are acknowledged only after successful delivery, using the **Transactional Outbox** pattern for SQL sources. Combined with sink-side idempotency keys (see [Idempotency and Exactly-Once Effects](#idempotency-and-exactly-once-effects-sink-side)), a duplicate delivery does not produce a duplicate row. This is *not* end-to-end exactly-once delivery: the transport is at-least-once and duplicates are suppressed where they land, which is the same guarantee most of this category actually ships.
 - **Sequential Control Flow**: Explicitly chain sinks and transformations sequentially. Supports "Sinks as Transformers" by returning data from a sink back into the workflow pipeline.
@@ -1235,6 +1235,155 @@ key mistake into unexplained authentication failures against the *destination* d
 
 Upgrades are safe: key derivation changed from truncate-and-zero-pad to SHA-256, and `Decrypt` falls
 back to the old derivation, so existing data still opens and moves forward as it is rewritten.
+
+### Decrypting data Hermod did not encrypt
+
+The `decrypt` node has two formats, and picking the wrong one is the single most common way it
+appears to do nothing.
+
+**Envelope** (the default) only touches values an `encrypt` node wrote — the ones tagged `enc:v1:`
+or `enc:v2:`. Anything untagged is passed through untouched, because midway through a rollout a
+column genuinely holds a mix of sealed and plain values. The cost of that default is that a node
+pointed at a column *another* system encrypted matches nothing, changes nothing, and still reports
+success. Set `onPlaintext` to `fail` once a rollout is finished and that silence becomes a stopped
+pipeline instead of a wrong one.
+
+**Raw** has no envelope, so every listed field is decrypted and a value that will not decrypt is an
+error. This is the format for a column owned by another application, and it requires describing that
+application's scheme exactly:
+
+| Setting | What it must match |
+| :--- | :--- |
+| `algorithm` | `aes-128/192/256-gcm\|cbc\|ctr\|cfb`, `chacha20-poly1305`, `xchacha20-poly1305` |
+| `keyFormat` | `passphrase` (SHA-256 of the text), `raw`, `hex`, `base64`, `pbkdf2`, `scrypt` |
+| `kdfSalt`, `kdfIterations`, `kdfHash` | PBKDF2 parameters — the salt is required and has no default |
+| `scryptN`, `scryptR`, `scryptP` | scrypt parameters |
+| `encoding` | `base64`, `base64url` or `hex` — how the column is written |
+| `ivPlacement` | `prefix` when the IV/nonce is prepended to the ciphertext, `fixed` when it is a constant |
+| `nonceSize` | GCM nonce length in bytes. 12 is standard; set it only to match a system using another |
+| `tagPlacement` | `suffix` *(default)* when the auth tag follows the ciphertext, `prefix` when it sits between the nonce and the ciphertext |
+| `aadMode` | `none` *(default)*, `value` (use `aad`), or `key` (the encryption key doubles as the AAD) |
+| `aad` | The AAD string, when `aadMode` is `value`. GCM and Poly1305 modes only |
+
+A worked example — a column written by `openssl enc -aes-256-cbc` with the IV prepended and the
+whole thing base64-encoded:
+
+```json
+{
+  "transType": "decrypt",
+  "fields": ["ssn"],
+  "algorithm": "aes-256-cbc",
+  "format": "raw",
+  "encoding": "base64",
+  "keyFormat": "raw",
+  "key": "0123456789abcdef0123456789abcdef",
+  "ivPlacement": "prefix"
+}
+```
+
+Two things to know before choosing raw. Encrypting into it is not idempotent — nothing marks the
+value, so running the workflow twice encrypts the column twice. And CBC, CTR and CFB are
+**unauthenticated**: they cannot tell an altered ciphertext from a genuine one, and a wrong key
+yields plausible garbage rather than an error. Only the GCM and Poly1305 modes detect tampering.
+Prefer them for data Hermod owns, and reach for the rest only to interoperate.
+
+### Encrypting a whole JSON document
+
+A column often holds one JSON document rather than a scalar. Decrypting it gives back a *string*
+that happens to contain JSON, which is not the same as an object: no downstream node can address
+into it with a dotted path, and the live preview renders it as a single escaped line instead of a
+tree.
+
+`decrypt` takes a **`parseJson`** mode:
+
+| Mode | Behaviour |
+| :--- | :--- |
+| `off` *(default)* | The decrypted value stays a string, whatever it contains. |
+| `objects` | A value starting with `{` or `[` that parses becomes a real object. Scalars and unparseable values are left as text. |
+| `strict` | The whole value must be a JSON document, scalars included. A parse failure takes the `onError` policy. |
+
+Parsing is opt-in because it changes a field's type, and doing that silently would reshape every
+message flowing through an existing node. `objects` deliberately leaves scalars alone — a decrypted
+`"12345"` is valid JSON, and turning it into a number is a schema change downstream that nobody
+asked for. `strict` is the mode that *does* parse it, and the mode that complains when a column you
+declared to be JSON is not.
+
+Going the other way, `encrypt` refuses a field holding an object, because rendering a map with `%v`
+produces Go syntax that decrypt would hand back as a literal string. Set **`serializeJson`** to
+encode the subtree as JSON and seal it as one document:
+
+```json
+{ "transType": "encrypt", "fields": ["payload"], "key": "…", "serializeJson": true }
+{ "transType": "decrypt", "fields": ["payload"], "key": "…", "parseJson": "objects" }
+```
+
+With that pair, `payload` survives a full round trip as an object, and a later node can mask or map
+`payload.contact.email` directly.
+
+### When decryption fails and you cannot tell why
+
+An authenticated algorithm reports a wrong key, a wrong AAD and a tampered ciphertext *identically*.
+That is correct — GCM genuinely cannot distinguish them — and unhelpful when you are configuring a
+node against a system you do not control, because the one error covers every setting on the node.
+
+Set **`diagnose`** on the decrypt node. On failure it decrypts once without checking the tag and
+reports which half is wrong:
+
+- *"the key is correct … but the authentication tag does not match, so this value was encrypted with
+  additional authenticated data"* — the key, key format, algorithm, encoding and IV placement are all
+  right. Set `aadMode`.
+- *"a trial decryption did not produce plausible plaintext"* — the AAD is not the problem; check
+  `key`, `keyFormat`, `algorithm`, `encoding` and `ivPlacement`.
+
+Two limits. The trial result is **never** returned or logged — only the classification — because
+handing back unauthenticated plaintext is precisely what the tag exists to prevent. And the check
+decides "plausible" by looking for well-formed text, so a genuinely binary plaintext reads as
+"key wrong" even when the key is right; the message says so.
+
+Leave it off in production. It is a debugging aid, and reporting whether forged input decrypts to
+something plausible is a small oracle to expose on a hot path.
+
+#### AAD, and systems that pass the key as AAD
+
+`aadMode` makes the choice explicit rather than inferring it from whether a text box is empty, which
+matters in both directions: an empty box could equally mean "no AAD" or "not filled in yet", and
+switching to `none` now actually drops a value left in the field instead of leaving it quietly in
+effect. Nodes written before `aadMode` existed, which set only `aad`, keep working unchanged.
+
+`aadMode: "key"` exists because some systems pass the encryption key itself as the AAD. It buys
+nothing — the key is already bound to the ciphertext by construction — but it is what their data
+requires, and without the preset there is no way to discover it: the failure is identical to a wrong
+key.
+
+#### Where the tag sits, and how long the nonce is
+
+Go's `gcm.Seal` appends the authentication tag, so a Go-written value is
+`nonce ‖ ciphertext ‖ tag` with a 12-byte nonce. Node's `crypto`, Java's `Cipher` and .NET's
+`AesGcm` all return the tag *separately* from `getAuthTag()`, which leaves whoever wrote the storage
+code to decide where it goes — and putting it in front of the ciphertext is a common choice. The
+same accident produces 16-byte nonces: nothing stopped them.
+
+Neither is detectable from the bytes. Both layouts are the same length, and both fail authentication
+identically, so `tagPlacement` and `nonceSize` have to be told rather than guessed:
+
+```json
+{
+  "transType": "decrypt",
+  "fields": ["payload"],
+  "algorithm": "aes-256-gcm",
+  "format": "raw",
+  "encoding": "base64",
+  "keyFormat": "raw",
+  "key": "…",
+  "tagPlacement": "prefix",
+  "nonceSize": 12
+}
+```
+
+`nonceSize` applies to GCM only — the Poly1305 constructions fix their nonce as part of the
+construction, and the block modes take a full 16-byte IV — and is rejected rather than ignored
+elsewhere. Both settings work for writing as well as reading, so Hermod can produce data a partner
+system consumes rather than only consuming theirs.
 
 ### Backup and restore
 

@@ -7,6 +7,159 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+The `encrypt` and `decrypt` transformations added in 1.1.0 gain an algorithm
+picker, and `decrypt` stops silently doing nothing on data Hermod did not write.
+`enc:v1:` values written by 1.1.0 keep decrypting unchanged under the default
+configuration; a regression test pins that literal wire format.
+
+### Fixed — `decrypt` silently did nothing on data Hermod had not encrypted
+
+In 1.1.0 the node only touched values carrying its own `enc:v1:` prefix and
+passed everything else through. That is right midway through a rollout, when a
+column holds a mix of sealed and plain values — and it meant that pointing the
+node at a column encrypted by *another* application matched nothing, changed
+nothing, and reported success, with no error and nothing in the logs. The
+pipeline looked healthy while forwarding ciphertext to the destination, which is
+the same class of failure as an unknown transformation type resolving to a no-op.
+
+Setting `format` to `raw` now drops the envelope: every listed field is
+decrypted, and a value that will not decrypt is an error rather than a
+pass-through. Together with `ivPlacement`, `encoding` and the key formats below,
+that is enough to describe what an external system actually wrote — verified in
+both directions against `openssl enc -aes-256-cbc`. For operators staying on the
+envelope format, the new `onPlaintext` policy (`passthrough`, the default,
+`fail`, or `null`) turns the silence into a stopped pipeline once a rollout is
+complete.
+
+### Added — an algorithm, key-derivation and encoding picker
+
+- **Fourteen algorithms.** AES-128/192/256 in GCM, CBC, CTR and CFB, plus
+  ChaCha20-Poly1305 and XChaCha20-Poly1305. AES-256-GCM stays the default. GCM
+  and Poly1305 are authenticated and detect a modified ciphertext; CBC, CTR and
+  CFB cannot, and are offered so that data another system already wrote in them
+  can be read at all. The editor says which is which at the point of choosing,
+  and a Go test fails the build if the two lists ever drift apart.
+- **Key derivation is selectable.** `passphrase` (SHA-256 of the text — 1.1.0's
+  behaviour, and still the default), `raw`, `hex` and `base64` for key material
+  of exactly the algorithm's length, and `pbkdf2` or `scrypt` for a human-chosen
+  password. A raw key of the wrong length is an error rather than padded or
+  truncated: padding leaves the remaining bytes known to an attacker, and
+  truncating means two keys sharing a prefix encrypt identically, so an operator
+  rotating between them would see success and get no rotation. PBKDF2 and scrypt
+  require a salt and have no default for it.
+- **Payload encoding is selectable** — `base64`, `base64url` or `hex` — and
+  decoding accepts either base64 alphabet with or without padding, because
+  external systems disagree about both and the difference otherwise looks
+  exactly like a wrong key.
+- **`enc:v2:` names its algorithm.** A value can then be read without the node
+  being told how it was written, and a node explicitly configured for a
+  different algorithm reports the conflict instead of failing with a generic
+  authentication error. A node configured the way 1.1.0 behaved still emits
+  `enc:v1:`, so a mixed-version fleet keeps working during a rollout.
+- **Optional `aad`** binds additional authenticated data to the ciphertext for
+  the GCM and Poly1305 modes. It is rejected for the unauthenticated modes
+  rather than accepted and dropped, which would suggest a binding that does not
+  exist.
+
+Three limits are worth knowing before leaving the defaults. In `raw` format
+nothing marks a value as encrypted, so encrypting into it is not idempotent —
+running the same workflow twice encrypts the column twice. The optional fixed IV
+exists only to match external systems that use one: it makes identical inputs
+produce identical ciphertext, and under GCM or CTR reusing an IV with one key
+exposes the XOR of the two plaintexts and, for GCM, the authentication key. And
+CBC, CTR and CFB cannot detect tampering at all — a wrong key yields plausible
+garbage rather than an error, except where CBC's padding check happens to catch
+it.
+
+### Added — decrypted JSON can become an object
+
+A column often holds one JSON document rather than a scalar, and decrypting it
+returned a *string* that happened to contain JSON. That is not the same as an
+object: no downstream node could address into it with a dotted path, and the live
+preview rendered it as a single escaped line instead of a tree.
+
+`decrypt` now takes **`parseJson`** — `off` (the default), `objects`, or
+`strict`. `objects` parses a value that starts with `{` or `[` and leaves
+everything else as text; `strict` treats the whole value as a JSON document,
+scalars included, and routes a parse failure through the existing `onError`
+policy. Parsing is opt-in because it changes a field's type, and doing that
+silently would reshape every message flowing through an existing node.
+
+The split between the two modes is deliberate. A decrypted `"12345"` is valid
+JSON, so a single "parse if you can" mode would quietly turn an account number
+into a float — a schema change downstream that nobody asked for. `objects` never
+does that; `strict` is how an operator asks for it, and is also what complains
+when a column declared to be JSON is not.
+
+`encrypt` gained the inverse, **`serializeJson`**. It previously refused a field
+holding an object, because rendering a map with `%v` produces Go syntax that
+decrypt would hand back as a literal string. With the opt-in the subtree is
+marshalled and sealed as one document, so an object survives a full round trip
+and a later node can mask or map `payload.contact.email` directly. Without it the
+refusal stands, and the error now names the option that lifts it.
+
+
+### Added — an explicit AAD mode, and a diagnosis for authentication failures
+
+An authenticated algorithm reports a wrong key, a wrong AAD and a tampered
+ciphertext identically. That is correct — GCM cannot distinguish them — and it
+means one opaque error covers every setting on the node. Configuring a decrypt
+node against a system you do not control turns into guesswork, and the guess
+people reach for first is "the key must be wrong", which it usually is not.
+
+`diagnose` on the decrypt node decrypts once **without** checking the tag and
+reports which half is wrong: either the key and framing are right and the AAD is
+the difference, or the trial produced nothing sensible and the AAD is not worth
+looking at. The trial result is never returned or logged — only the
+classification — because handing back unauthenticated plaintext is exactly what
+the tag exists to prevent. It is off by default, both for that reason and
+because reporting whether forged input decrypts to something plausible is a
+small oracle to expose on a hot path. The check reads "plausible" as well-formed
+text, so a binary plaintext reads as "key wrong" even when the key is right; the
+message says so rather than overstating what it knows.
+
+Alongside it, **`aadMode`** makes the AAD an explicit choice — `none` (the
+default), `value`, or `key` — instead of inferring it from whether a text box is
+empty. An empty box could equally mean "no AAD" or "not filled in yet", and the
+two produce ciphertext that cannot be told apart until it fails to open;
+selecting `none` now also genuinely drops a value left behind in the field
+rather than leaving it quietly in effect. Nodes that set only `aad`, from before
+the mode existed, keep working unchanged.
+
+`aadMode: "key"` covers systems that pass the encryption key itself as the AAD.
+It buys nothing — the key is already bound to the ciphertext by construction —
+but it is what their data requires, and without the preset there is nothing to
+discover it from, because the failure is identical to a wrong key.
+
+
+### Added — tag placement and nonce length for AES-GCM
+
+The last two ways an external AES-GCM value can be framed differently from Go's.
+`gcm.Seal` appends the authentication tag, so a Go-written value is
+nonce||ciphertext||tag with a 12-byte nonce. Node's crypto, Java's Cipher and
+.NET's AesGcm all return the tag *separately*, which leaves whoever wrote the
+storage code to choose where it goes — and putting it in front of the ciphertext
+is a common choice. 16-byte nonces appear for the same reason: nothing stopped
+them.
+
+Neither is recoverable from the bytes. Both layouts are the same length and both
+fail authentication in the same way, so `tagPlacement` (`suffix`, the default,
+or `prefix`) and `nonceSize` have to be told rather than inferred. Both work for
+writing as well as reading, so a pipeline can produce data a partner system
+consumes instead of only consuming theirs.
+
+`nonceSize` is GCM-only: the Poly1305 constructions fix their nonce as part of
+the construction and the block modes take a full 16-byte IV, so setting it there
+is rejected rather than silently ignored. It is also read by presence rather
+than by value — an explicit `nonceSize: 0` is a configuration error, and a
+sentinel of 0 would have quietly accepted it as "unset". The nonce length is
+part of the derived-cipher cache key, because it changes the constructed AEAD
+and two nodes sharing a passphrase must not share an entry across it.
+
+Fixtures for both come from Node's crypto module rather than from this package,
+so they test interoperability instead of self-consistency.
+
+
 ## [1.1.0] — 2026-09-09
 
 One new capability and a set of connector-wizard fixes. Nothing in the public Go
