@@ -1385,6 +1385,45 @@ construction, and the block modes take a full 16-byte IV — and is rejected rat
 elsewhere. Both settings work for writing as well as reading, so Hermod can produce data a partner
 system consumes rather than only consuming theirs.
 
+#### Detecting the settings instead of guessing them
+
+All of the above interacts: the key format decides the key bytes, the encoding decides the payload
+bytes, the nonce length decides where the ciphertext starts, the tag position decides which end the
+tag is on, and the AAD decides whether authentication can succeed at all. One wrong setting is
+indistinguishable from all of them wrong, which makes matching an external system a search with no
+signal to search by.
+
+The decrypt node editor has a **Detect settings** panel. Paste one encrypted value, with the key
+already filled in, and it tries the plausible configurations and reports the ones that actually read
+it, each with a truncated preview and an **Apply** button:
+
+```
+certain   aes-256-gcm, base64 payload, raw key, 12-byte nonce, key used as AAD
+          Decrypts to: {"user_id":"01a0411f-fd3…
+```
+
+Confidence is not decoration. **`certain`** means an authenticated algorithm verified its tag —
+nothing else could have produced that value. **`likely`** means an unauthenticated algorithm (CBC,
+CTR, CFB) produced something that looks like text, which on a short value can be coincidence; check
+the preview really is your data before applying it.
+
+The same thing is available over HTTP for scripting:
+
+```bash
+curl -sX POST localhost:8080/api/transformations/detect-decryption \
+  -H 'Content-Type: application/json' \
+  -d '{"sample":"<one encrypted value>","key":"<the key>"}'
+```
+
+Two limits, both stated in the failure reason rather than left to be discovered. **PBKDF2 and
+scrypt are not searched** — their salt and cost parameters are inputs, not properties of the
+ciphertext, and guessing a salt is a dictionary attack rather than a search, so set those by hand.
+And **a fixed IV is not detectable**, because there is nothing in the payload to recover it from.
+
+The endpoint is editor-only and grants no capability the caller lacked: it needs the key, so anyone
+who can call it could already decrypt. It never echoes the key back, sends `Cache-Control:
+no-store`, and truncates the preview so it cannot be used to drain a column.
+
 ### Backup and restore
 
 `GET /api/backup/export` and `POST /api/backup/import` (both Admin only) carry sources, sinks,

@@ -41,6 +41,7 @@ import {
   isAuthenticated,
   supportsCustomNonce,
 } from './cipherOptions'
+import { DetectSettings } from './DetectSettings'
 
 interface EncryptConfigProps {
   config: any
@@ -297,6 +298,17 @@ export function EncryptConfig({
               : ' Strict mode parses scalars too, so a decrypted "12345" becomes the number 12345.'}
           </Text>
         </Alert>
+      )}
+
+      {decrypting && (
+        <DetectSettings
+          encryptionKey={config.key || ''}
+          onApply={(detected) =>
+            // The detected settings replace only what they describe; the field
+            // list, key and failure policies the operator already chose stay.
+            set({ ...detected })
+          }
+        />
       )}
 
       <Accordion variant="contained" radius="md">

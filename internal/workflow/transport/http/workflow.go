@@ -18,6 +18,7 @@ import (
 	"github.com/gsoultan/hermod/internal/governance"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/comm/transformer/security"
 
 	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
@@ -54,6 +55,7 @@ func (h *WorkflowHandler) RegisterWorkflowRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/workflows/{id}/test", h.EditorOnly(http.HandlerFunc(h.TestWorkflowByID)))
 	mux.Handle("POST /api/workflows/test", h.EditorOnly(http.HandlerFunc(h.TestWorkflow)))
 	mux.Handle("POST /api/transformations/test", h.EditorOnly(http.HandlerFunc(h.TestTransformation)))
+	mux.Handle("POST /api/transformations/detect-decryption", h.EditorOnly(http.HandlerFunc(h.DetectDecryptionSettings)))
 	mux.HandleFunc("GET /api/workflows/{id}/traces/", h.GetMessageTrace)
 	mux.HandleFunc("GET /api/workflows/{id}/traces", h.ListMessageTraces)
 	mux.HandleFunc("GET /api/workflows/{id}/versions", h.ListWorkflowVersions)
@@ -1518,4 +1520,37 @@ func (h *WorkflowHandler) ImportWorkflow(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(bundle.Workflow)
 
 	h.RecordAuditLog(r, "INFO", "Imported workflow "+bundle.Workflow.Name, "IMPORT", bundle.Workflow.ID, "", "", nil)
+}
+
+// DetectDecryptionSettings answers "how was this value encrypted?" for the
+// decrypt node editor.
+//
+// The settings on that node interact — key format decides the key bytes,
+// encoding decides the payload bytes, nonce length decides where the ciphertext
+// starts, tag placement decides which end the tag is on, AAD decides whether
+// authentication can succeed — so one wrong setting is indistinguishable from
+// all of them wrong. Without this an operator matching an external system has
+// to search by hand, which is how the node earned a reputation for not working.
+//
+// Editor-only, like the preview it sits beside. It grants no new capability:
+// the caller supplies the key, so it could already decrypt anything this
+// returns. The response carries the settings and a truncated preview, never the
+// key and never a full plaintext.
+func (h *WorkflowHandler) DetectDecryptionSettings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Sample string `json:"sample"`
+		Key    string `json:"key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.JsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	result := security.DetectDecryption(req.Sample, req.Key)
+
+	w.Header().Set("Content-Type", "application/json")
+	// The sample is a secret the caller already holds, but a cached copy of this
+	// response in a proxy or a browser is a copy nobody asked for.
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(result)
 }
