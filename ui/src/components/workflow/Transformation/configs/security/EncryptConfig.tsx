@@ -37,7 +37,9 @@ import {
   ON_ERROR_OPTIONS,
   ON_PLAINTEXT_OPTIONS,
   PARSE_JSON_OPTIONS,
+  TAG_PLACEMENT_OPTIONS,
   isAuthenticated,
+  supportsCustomNonce,
 } from './cipherOptions'
 
 interface EncryptConfigProps {
@@ -87,10 +89,12 @@ export function EncryptConfig({
   // non-empty value was the only way to ask for one. Infer the mode so such a
   // node shows what it is actually doing instead of reading as "None".
   const aadMode: string = config.aadMode || (config.aad ? 'value' : 'none')
+  const tagPlacement: string = config.tagPlacement || 'suffix'
 
   const authenticated = isAuthenticated(algorithm)
   const usesKDF = KDF_FORMATS.includes(keyFormat)
   const rawFormat = format === 'raw'
+  const customNonce = supportsCustomNonce(algorithm)
 
   const fieldPaths = useMemo(
     () => (availableFields || []).map((f) => (typeof f === 'string' ? f : f.path)).filter(Boolean),
@@ -309,6 +313,10 @@ export function EncryptConfig({
                 authenticated && aadMode !== 'none'
                   ? `AAD: ${aadMode === 'key' ? 'the encryption key' : 'a fixed value'}`
                   : null,
+                authenticated && tagPlacement !== 'suffix' ? 'tag before ciphertext' : null,
+                authenticated && customNonce && config.nonceSize && config.nonceSize !== 12
+                  ? `${config.nonceSize}-byte nonce`
+                  : null,
                 decrypting && config.diagnose ? 'explaining failures' : null,
               ]
                 .filter(Boolean)
@@ -378,6 +386,30 @@ export function EncryptConfig({
                     </Text>
                   </Alert>
                 </>
+              )}
+
+              {authenticated && customNonce && (
+                <NumberInput
+                  label="Nonce length (bytes)"
+                  value={config.nonceSize ?? 12}
+                  onChange={(val) => set({ nonceSize: val })}
+                  min={1}
+                  max={64}
+                  size="sm"
+                  description="12 is standard for GCM and what almost everything writes. Change it only to match a system that does not."
+                />
+              )}
+
+              {authenticated && (
+                <Select
+                  label="Authentication tag position"
+                  data={TAG_PLACEMENT_OPTIONS.map(({ value, label }) => ({ value, label }))}
+                  value={tagPlacement}
+                  onChange={(val) => set({ tagPlacement: val || 'suffix' })}
+                  size="sm"
+                  allowDeselect={false}
+                  description={describe(TAG_PLACEMENT_OPTIONS, tagPlacement)}
+                />
               )}
 
               {authenticated && (

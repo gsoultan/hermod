@@ -430,3 +430,29 @@ func TestPreview_AADModeKeyOverHTTP(t *testing.T) {
 	}
 	t.Logf("preview reports: %s", rec.Body.String())
 }
+
+// TestPreview_LayoutSettingsOverHTTP drives the two byte-layout settings through
+// the editor's Test button, where nonceSize arrives as a JSON float rather than
+// an int.
+func TestPreview_LayoutSettingsOverHTTP(t *testing.T) {
+	// Produced by Node's crypto, stored as iv || tag || ciphertext with a
+	// 12-byte nonce — the layout Node encourages by returning the tag separately.
+	const foreign = "MTIzNDU2Nzg5MDEyTXznIPMObKiKgT1lxHCn//J4oJeEQhJqYb0tx2OCYvr6yNNQS5N19SgzYbVPFcYcfd1IvsWL1KId"
+
+	resp := postTransformation(t, map[string]any{
+		"transType": "decrypt", "fields": []string{"payload"},
+		"key": "0123456789abcdef0123456789abcdef", "keyFormat": "raw",
+		"algorithm": "aes-256-gcm", "format": "raw", "encoding": "base64",
+		"tagPlacement": "prefix", "nonceSize": 12,
+		"parseJson": "objects",
+	}, "decrypt", map[string]any{"payload": foreign})
+
+	obj, ok := previewedField(t, resp, "payload").(map[string]any)
+	if !ok {
+		t.Fatalf("expected an object, got %T: %#v",
+			previewedField(t, resp, "payload"), previewedField(t, resp, "payload"))
+	}
+	if obj["id"] != "42" {
+		t.Fatalf("got %#v", obj)
+	}
+}

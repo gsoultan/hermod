@@ -1260,6 +1260,8 @@ application's scheme exactly:
 | `scryptN`, `scryptR`, `scryptP` | scrypt parameters |
 | `encoding` | `base64`, `base64url` or `hex` — how the column is written |
 | `ivPlacement` | `prefix` when the IV/nonce is prepended to the ciphertext, `fixed` when it is a constant |
+| `nonceSize` | GCM nonce length in bytes. 12 is standard; set it only to match a system using another |
+| `tagPlacement` | `suffix` *(default)* when the auth tag follows the ciphertext, `prefix` when it sits between the nonce and the ciphertext |
 | `aadMode` | `none` *(default)*, `value` (use `aad`), or `key` (the encryption key doubles as the AAD) |
 | `aad` | The AAD string, when `aadMode` is `value`. GCM and Poly1305 modes only |
 
@@ -1352,6 +1354,36 @@ effect. Nodes written before `aadMode` existed, which set only `aad`, keep worki
 nothing — the key is already bound to the ciphertext by construction — but it is what their data
 requires, and without the preset there is no way to discover it: the failure is identical to a wrong
 key.
+
+#### Where the tag sits, and how long the nonce is
+
+Go's `gcm.Seal` appends the authentication tag, so a Go-written value is
+`nonce ‖ ciphertext ‖ tag` with a 12-byte nonce. Node's `crypto`, Java's `Cipher` and .NET's
+`AesGcm` all return the tag *separately* from `getAuthTag()`, which leaves whoever wrote the storage
+code to decide where it goes — and putting it in front of the ciphertext is a common choice. The
+same accident produces 16-byte nonces: nothing stopped them.
+
+Neither is detectable from the bytes. Both layouts are the same length, and both fail authentication
+identically, so `tagPlacement` and `nonceSize` have to be told rather than guessed:
+
+```json
+{
+  "transType": "decrypt",
+  "fields": ["payload"],
+  "algorithm": "aes-256-gcm",
+  "format": "raw",
+  "encoding": "base64",
+  "keyFormat": "raw",
+  "key": "…",
+  "tagPlacement": "prefix",
+  "nonceSize": 12
+}
+```
+
+`nonceSize` applies to GCM only — the Poly1305 constructions fix their nonce as part of the
+construction, and the block modes take a full 16-byte IV — and is rejected rather than ignored
+elsewhere. Both settings work for writing as well as reading, so Hermod can produce data a partner
+system consumes rather than only consuming theirs.
 
 ### Backup and restore
 

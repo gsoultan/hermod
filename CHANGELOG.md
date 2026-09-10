@@ -132,6 +132,34 @@ but it is what their data requires, and without the preset there is nothing to
 discover it from, because the failure is identical to a wrong key.
 
 
+### Added — tag placement and nonce length for AES-GCM
+
+The last two ways an external AES-GCM value can be framed differently from Go's.
+`gcm.Seal` appends the authentication tag, so a Go-written value is
+nonce||ciphertext||tag with a 12-byte nonce. Node's crypto, Java's Cipher and
+.NET's AesGcm all return the tag *separately*, which leaves whoever wrote the
+storage code to choose where it goes — and putting it in front of the ciphertext
+is a common choice. 16-byte nonces appear for the same reason: nothing stopped
+them.
+
+Neither is recoverable from the bytes. Both layouts are the same length and both
+fail authentication in the same way, so `tagPlacement` (`suffix`, the default,
+or `prefix`) and `nonceSize` have to be told rather than inferred. Both work for
+writing as well as reading, so a pipeline can produce data a partner system
+consumes instead of only consuming theirs.
+
+`nonceSize` is GCM-only: the Poly1305 constructions fix their nonce as part of
+the construction and the block modes take a full 16-byte IV, so setting it there
+is rejected rather than silently ignored. It is also read by presence rather
+than by value — an explicit `nonceSize: 0` is a configuration error, and a
+sentinel of 0 would have quietly accepted it as "unset". The nonce length is
+part of the derived-cipher cache key, because it changes the constructed AEAD
+and two nodes sharing a passphrase must not share an entry across it.
+
+Fixtures for both come from Node's crypto module rather than from this package,
+so they test interoperability instead of self-consistency.
+
+
 ## [1.1.0] — 2026-09-09
 
 One new capability and a set of connector-wizard fixes. Nothing in the public Go

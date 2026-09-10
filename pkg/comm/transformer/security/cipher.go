@@ -67,8 +67,14 @@ type algorithmSpec struct {
 	mode    blockMode
 
 	// aead is set for modeAEAD only. Constructing it is the expensive part for
-	// AES, so a resolved suite keeps the result.
-	aead func(key []byte) (cipher.AEAD, error)
+	// AES, so a resolved suite keeps the result. nonceSize is the effective one,
+	// which for GCM may differ from ivSize; the Poly1305 constructions reject
+	// anything but their own.
+	aead func(key []byte, nonceSize int) (cipher.AEAD, error)
+
+	// fixedNonce marks algorithms whose nonce length is part of the
+	// construction and cannot be configured.
+	fixedNonce bool
 }
 
 // authenticated reports whether the algorithm detects tampering.
@@ -79,17 +85,22 @@ type algorithmSpec struct {
 // plaintext and report success. The UI says so at the point of choosing.
 func (s algorithmSpec) authenticated() bool { return s.mode == modeAEAD }
 
-func aesAEAD(key []byte) (cipher.AEAD, error) {
+func aesAEAD(key []byte, nonceSize int) (cipher.AEAD, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("derive cipher: %w", err)
 	}
-	gcm, err := cipher.NewGCM(block)
+	// NewGCMWithNonceSize at 12 returns the same construction as NewGCM; the
+	// standard size is not special-cased so there is one path to test.
+	gcm, err := cipher.NewGCMWithNonceSize(block, nonceSize)
 	if err != nil {
 		return nil, fmt.Errorf("derive AEAD: %w", err)
 	}
 	return gcm, nil
 }
+
+func chachaAEAD(key []byte, _ int) (cipher.AEAD, error)  { return chacha20poly1305.New(key) }
+func xchachaAEAD(key []byte, _ int) (cipher.AEAD, error) { return chacha20poly1305.NewX(key) }
 
 // algorithms is the full picker. Names are lowercase and hyphenated, matching
 // the strings the UI writes and the OpenSSL-style spelling operators expect to
@@ -99,8 +110,8 @@ var algorithms = map[string]algorithmSpec{
 	"aes-192-gcm": {name: "aes-192-gcm", keySize: 24, ivSize: 12, mode: modeAEAD, aead: aesAEAD},
 	"aes-256-gcm": {name: "aes-256-gcm", keySize: 32, ivSize: 12, mode: modeAEAD, aead: aesAEAD},
 
-	"chacha20-poly1305":  {name: "chacha20-poly1305", keySize: 32, ivSize: chacha20poly1305.NonceSize, mode: modeAEAD, aead: chacha20poly1305.New},
-	"xchacha20-poly1305": {name: "xchacha20-poly1305", keySize: 32, ivSize: chacha20poly1305.NonceSizeX, mode: modeAEAD, aead: chacha20poly1305.NewX},
+	"chacha20-poly1305":  {name: "chacha20-poly1305", keySize: 32, ivSize: chacha20poly1305.NonceSize, mode: modeAEAD, aead: chachaAEAD, fixedNonce: true},
+	"xchacha20-poly1305": {name: "xchacha20-poly1305", keySize: 32, ivSize: chacha20poly1305.NonceSizeX, mode: modeAEAD, aead: xchachaAEAD, fixedNonce: true},
 
 	"aes-128-cbc": {name: "aes-128-cbc", keySize: 16, ivSize: aes.BlockSize, mode: modeCBC},
 	"aes-192-cbc": {name: "aes-192-cbc", keySize: 24, ivSize: aes.BlockSize, mode: modeCBC},
@@ -403,6 +414,35 @@ func parseFormat(s string) (outputFormat, error) {
 	}
 }
 
+// tagPlacement says where an AEAD's authentication tag sits relative to the
+// ciphertext.
+//
+// Go's gcm.Seal appends it, so a Go-written value is nonce||ciphertext||tag.
+// Node's crypto, Java's Cipher and .NET's AesGcm return the tag separately,
+// which leaves whoever wrote the storage code to choose — and putting it in
+// front of the ciphertext is a common choice. There is no way to detect which
+// from the bytes: both are the same length and both fail authentication the
+// same way.
+type tagPlacement string
+
+const (
+	// tagSuffix appends the tag, matching Go and the majority of formats.
+	tagSuffix tagPlacement = "suffix"
+	// tagPrefix puts the tag immediately after the nonce, before the ciphertext.
+	tagPrefix tagPlacement = "prefix"
+)
+
+func parseTagPlacement(s string) (tagPlacement, error) {
+	switch tagPlacement(strings.ToLower(strings.TrimSpace(s))) {
+	case "", tagSuffix:
+		return tagSuffix, nil
+	case tagPrefix:
+		return tagPrefix, nil
+	default:
+		return "", fmt.Errorf("unknown tagPlacement %q: use suffix or prefix", s)
+	}
+}
+
 // ivPlacement says where the per-value IV/nonce lives.
 type ivPlacement string
 
@@ -446,6 +486,12 @@ type cipherConfig struct {
 	ivPlacement ivPlacement
 	fixedIV     []byte
 
+	// nonceSize is the effective IV/nonce length. It defaults to the
+	// algorithm's own and is only configurable for GCM.
+	nonceSize         int
+	nonceSizeExplicit bool
+	tagPlacement      tagPlacement
+
 	aadSource aadSource
 	aad       []byte
 
@@ -463,6 +509,8 @@ func (c *cipherConfig) legacyShaped() bool {
 		c.keyFormat == keyPassphrase &&
 		c.encoding == encodingBase64 &&
 		c.ivPlacement == ivPrefix &&
+		c.tagPlacement == tagSuffix &&
+		c.nonceSize == c.spec.ivSize &&
 		len(c.aad) == 0
 }
 
@@ -653,6 +701,9 @@ func parseCipherConfig(config map[string]any) (*cipherConfig, error) {
 	if c.ivPlacement, err = parseIVPlacement(configString(config, "ivPlacement")); err != nil {
 		return nil, err
 	}
+	if err = c.parseLayout(config); err != nil {
+		return nil, err
+	}
 
 	if err = c.parseKDFParams(config); err != nil {
 		return nil, err
@@ -666,6 +717,22 @@ func parseCipherConfig(config map[string]any) (*cipherConfig, error) {
 	c.diagnose = configBool(config, "diagnose")
 
 	return c, nil
+}
+
+// configPresent reports whether a setting was actually supplied.
+//
+// A cleared form control writes an empty string rather than removing the key,
+// so that counts as absent; anything else counts as a choice the operator made
+// and is validated rather than defaulted.
+func configPresent(config map[string]any, key string) bool {
+	v, ok := config[key]
+	if !ok || v == nil {
+		return false
+	}
+	if s, isStr := v.(string); isStr && strings.TrimSpace(s) == "" {
+		return false
+	}
+	return true
 }
 
 // configBool reads a flag that may arrive as a Go bool, a JSON bool, or the
@@ -731,6 +798,54 @@ const (
 	aadKey aadSource = "key"
 )
 
+// maxNonceSize bounds the configurable nonce. GCM accepts any positive length,
+// deriving J0 through GHASH for anything but 96 bits, but a value outside this
+// range is a typo rather than a format anyone uses.
+const maxNonceSize = 64
+
+// parseLayout reads the two settings that describe how an external system
+// arranges the bytes inside an AEAD payload.
+func (c *cipherConfig) parseLayout(config map[string]any) error {
+	c.nonceSize = c.spec.ivSize
+
+	tp, err := parseTagPlacement(configString(config, "tagPlacement"))
+	if err != nil {
+		return err
+	}
+	if tp != tagSuffix && !c.spec.authenticated() {
+		return fmt.Errorf(
+			"tagPlacement is set but %s is not an authenticated algorithm; "+
+				"there is no tag to place", c.spec.name)
+	}
+	c.tagPlacement = tp
+
+	// Presence decides whether it was configured, not the value: using 0 as a
+	// sentinel would silently accept an explicit nonceSize of 0 as "unset".
+	if !configPresent(config, "nonceSize") {
+		return nil // the algorithm's own length stands
+	}
+	ns, err := configInt(config, "nonceSize", 0)
+	if err != nil {
+		return err
+	}
+	if !c.spec.authenticated() {
+		return fmt.Errorf(
+			"nonceSize is set but %s takes a fixed %d-byte iv; use ivPlacement to say where it lives",
+			c.spec.name, c.spec.ivSize)
+	}
+	if c.spec.fixedNonce {
+		return fmt.Errorf(
+			"nonceSize is set but %s has a fixed %d-byte nonce that is part of the construction",
+			c.spec.name, c.spec.ivSize)
+	}
+	if ns < 1 || ns > maxNonceSize {
+		return fmt.Errorf("nonceSize must be between 1 and %d, got %d", maxNonceSize, ns)
+	}
+	c.nonceSize = ns
+	c.nonceSizeExplicit = true
+	return nil
+}
+
 // parseAAD resolves the additional authenticated data.
 //
 // It is rejected for algorithms that have no way to authenticate it: accepting
@@ -788,9 +903,9 @@ func (c *cipherConfig) parseFixedIV(config map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("iv: %w", err)
 	}
-	if len(raw) != c.spec.ivSize {
+	if len(raw) != c.nonceSize {
 		return fmt.Errorf("iv is %d bytes but %s needs exactly %d",
-			len(raw), c.spec.name, c.spec.ivSize)
+			len(raw), c.spec.name, c.nonceSize)
 	}
 	c.fixedIV = raw
 	return nil
@@ -821,6 +936,9 @@ func (c *cipherConfig) cacheKey() [32]byte {
 	write(strconv.Itoa(c.scryptN))
 	write(strconv.Itoa(c.scryptR))
 	write(strconv.Itoa(c.scryptP))
+	// The nonce length changes the constructed AEAD, so two nodes sharing a
+	// passphrase but not a nonce size must not share a cache entry.
+	write(strconv.Itoa(c.nonceSize))
 	return sha256.Sum256([]byte(b.String()))
 }
 
@@ -866,7 +984,7 @@ func resolveCipher(c *cipherConfig) (*cipherSuite, error) {
 
 	suite := &cipherSuite{spec: c.spec, key: key}
 	if c.spec.mode == modeAEAD {
-		if suite.aead, err = c.spec.aead(key); err != nil {
+		if suite.aead, err = c.spec.aead(key, c.nonceSize); err != nil {
 			return nil, err
 		}
 		// Kept for explainAEADFailure, which reproduces the GCM keystream to
@@ -958,7 +1076,7 @@ func pkcs7Unpad(b []byte, blockSize int) ([]byte, error) {
 // iv||ciphertext when the IV travels with the value and ciphertext alone when
 // it is fixed.
 func sealWith(c *cipherConfig, suite *cipherSuite, plaintext []byte) ([]byte, error) {
-	iv, err := newIV(c, suite.spec.ivSize)
+	iv, err := newIV(c, c.nonceSize)
 	if err != nil {
 		return nil, err
 	}
@@ -972,7 +1090,14 @@ func sealWith(c *cipherConfig, suite *cipherSuite, plaintext []byte) ([]byte, er
 
 	switch suite.spec.mode {
 	case modeAEAD:
-		return suite.aead.Seal(prefix, iv, plaintext, c.aad), nil
+		sealed := suite.aead.Seal(nil, iv, plaintext, c.aad)
+		if c.tagPlacement == tagPrefix {
+			// Seal produced ciphertext||tag; move the tag in front of it.
+			tag := sealed[len(sealed)-suite.aead.Overhead():]
+			body := sealed[:len(sealed)-suite.aead.Overhead()]
+			sealed = append(append([]byte{}, tag...), body...)
+		}
+		return append(prefix, sealed...), nil
 
 	case modeCBC:
 		padded := pkcs7Pad(plaintext, aes.BlockSize)
@@ -1004,15 +1129,24 @@ func openWith(c *cipherConfig, suite *cipherSuite, payload []byte) ([]byte, erro
 	iv := c.fixedIV
 	body := payload
 	if c.ivPlacement == ivPrefix {
-		if len(payload) < suite.spec.ivSize {
+		if len(payload) < c.nonceSize {
 			return nil, fmt.Errorf("ciphertext is too short to contain the %d-byte iv %s expects",
-				suite.spec.ivSize, suite.spec.name)
+				c.nonceSize, suite.spec.name)
 		}
-		iv, body = payload[:suite.spec.ivSize], payload[suite.spec.ivSize:]
+		iv, body = payload[:c.nonceSize], payload[c.nonceSize:]
 	}
 
 	switch suite.spec.mode {
 	case modeAEAD:
+		if c.tagPlacement == tagPrefix {
+			// Restore the ciphertext||tag order Open expects.
+			overhead := suite.aead.Overhead()
+			if len(body) < overhead {
+				return nil, fmt.Errorf("ciphertext is too short to contain the %d-byte tag %s expects",
+					overhead, suite.spec.name)
+			}
+			body = append(append([]byte{}, body[overhead:]...), body[:overhead]...)
+		}
 		out, err := suite.aead.Open(nil, iv, body, c.aad)
 		if err != nil {
 			return nil, c.explainAEADFailure(suite, iv, body)
@@ -1135,6 +1269,8 @@ func (c *cipherConfig) asLegacyV1() (*cipherConfig, *cipherSuite, error) {
 	clone.ivPlacement = ivPrefix
 	clone.fixedIV = nil
 	clone.aad = nil
+	clone.nonceSize = algorithms[defaultAlgorithm].ivSize
+	clone.tagPlacement = tagSuffix
 
 	suite, err := resolveCipher(&clone)
 	if err != nil {
@@ -1153,6 +1289,12 @@ func (c *cipherConfig) withAlgorithm(name string) (*cipherConfig, *cipherSuite, 
 	}
 	clone := *c
 	clone.spec = spec
+	if !clone.nonceSizeExplicit {
+		clone.nonceSize = spec.ivSize
+	} else if spec.fixedNonce {
+		return nil, nil, fmt.Errorf(
+			"value was encrypted with %s, whose nonce length is fixed, but this node sets nonceSize", name)
+	}
 	if clone.ivPlacement == ivFixed && len(clone.fixedIV) != spec.ivSize {
 		return nil, nil, fmt.Errorf(
 			"value was encrypted with %s, which needs a %d-byte iv, but the configured iv is %d bytes",
