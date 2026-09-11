@@ -92,9 +92,12 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 			missError(table, keyField, nil))
 	}
 
-	cacheKey := fmt.Sprintf("db:%s:%s:%s:%s:%v:%s:%s:%s", sourceID, table, keyColumn, valueColumn, keyVal, whereClause, queryTemplate, mode)
+	// %T as well as %v: without it the string "1" and the number 1 produce the
+	// same key, so two lookups keyed on the same id in different types serve
+	// each other's rows.
+	cacheKey := fmt.Sprintf("db:%s:%s:%s:%s:%T:%v:%s:%s:%s", sourceID, table, keyColumn, valueColumn, keyVal, keyVal, whereClause, queryTemplate, mode)
 	if cached, found := registry.GetLookupCache(cacheKey); found {
-		msg.SetData(targetField, cached)
+		applyLookupResult(msg, targetField, flattenInto, cached)
 		return msg, nil
 	}
 
@@ -174,19 +177,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 			ttl, _ = time.ParseDuration(ttlStr)
 		}
 		registry.SetLookupCache(cacheKey, resultVal, ttl)
-		msg.SetData(targetField, resultVal)
-		// Optional flattening of results into top-level or prefixed fields
-		if flattenInto != "" {
-			if m, ok := resultVal.(map[string]any); ok {
-				for k, v := range m {
-					if flattenInto == "." {
-						msg.SetData(k, v)
-					} else {
-						msg.SetData(strings.TrimSuffix(flattenInto, ".")+"."+k, v)
-					}
-				}
-			}
-		}
+		applyLookupResult(msg, targetField, flattenInto, resultVal)
 	} else {
 		// The query ran and produced nothing. Same decision as the paths above.
 		return msg, applyMissPolicy(msg, onMiss, targetField, defaultValue,
@@ -194,6 +185,35 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	}
 
 	return msg, nil
+}
+
+// applyLookupResult writes a found value into the message: at targetField, and
+// -- when the value is a row rather than a single column and flattenInto is set
+// -- as individual fields as well.
+//
+// Both the fresh-lookup path and the cache-hit path go through here. They used
+// to differ: the cached path wrote targetField and returned, so flattenInto
+// applied to the first message with a given key and to no message after it. In
+// the editor, where the live preview re-runs on a debounce and nothing sets a
+// TTL by default, that meant the flattened fields appeared once and then
+// disappeared for good.
+func applyLookupResult(msg hermod.Message, targetField, flattenInto string, value any) {
+	msg.SetData(targetField, value)
+	if flattenInto == "" {
+		return
+	}
+	row, ok := value.(map[string]any)
+	if !ok {
+		return
+	}
+	prefix := strings.TrimSuffix(flattenInto, ".")
+	for k, v := range row {
+		if flattenInto == "." || prefix == "" {
+			msg.SetData(k, v)
+		} else {
+			msg.SetData(prefix+"."+k, v)
+		}
+	}
 }
 
 func (t *DBLookupTransformer) lookupMongoDB(ctx context.Context, src storage.Source, table, keyColumn string, keyVal any, whereClause, valueColumn, defaultValue string, data map[string]any) (any, error) {

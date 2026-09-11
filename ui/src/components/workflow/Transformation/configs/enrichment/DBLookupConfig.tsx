@@ -82,6 +82,46 @@ export function DBLookupConfig({
 
   const lookupMode = config.mode || (config.queryTemplate ? 'query' : 'table');
 
+  // Mirrors resolveMissPolicy in pkg/comm/transformer/lookup/onmiss.go, inference
+  // included: an unset onMiss means "default" when a defaultValue is configured
+  // and "passthrough" otherwise, and an unrecognised value falls back rather
+  // than erroring. Showing anything else would name a policy the pipeline is not
+  // actually running.
+  const hasDefaultValue = String(config.defaultValue || '') !== '';
+  const missPolicy = useMemo(() => {
+    const chosen = String(config.onMiss || '').trim().toLowerCase();
+    if (chosen === 'fail' || chosen === 'default' || chosen === 'passthrough') return chosen;
+    return hasDefaultValue ? 'default' : 'passthrough';
+  }, [config.onMiss, hasDefaultValue]);
+
+  // Value Column(s), Target Field and Flatten Result combine into four different
+  // output shapes, and which one you get is not obvious from the three inputs.
+  // Naming the resulting paths here is the difference between "the lookup did
+  // nothing" and "the columns are one level down from where I looked".
+  const outputShape = useMemo(() => {
+    const target = String(config.targetField || '').trim() || 'result';
+    const columns = String(config.valueColumn || '')
+      .split(',')
+      .map((c: string) => c.trim())
+      .filter(Boolean);
+    const wholeRow = columns.length === 0 || (columns.length === 1 && columns[0] === '*');
+    const single = !wholeRow && columns.length === 1;
+
+    const flattenInto = String(config.flattenInto || '').trim();
+    const prefix = flattenInto === '.' ? '' : flattenInto.replace(/\.$/, '');
+
+    return {
+      target,
+      columns,
+      wholeRow,
+      single,
+      flattening: flattenInto !== '',
+      nestedPaths: columns.map((c: string) => `${target}.${c}`).join(', '),
+      flatPaths: columns.map((c: string) => (prefix ? `${prefix}.${c}` : c)).join(', '),
+      flatPrefix: prefix,
+    };
+  }, [config.targetField, config.valueColumn, config.flattenInto]);
+
   return (
     <Stack gap="md">
       <Alert
@@ -313,17 +353,86 @@ export function DBLookupConfig({
               )}
             </Box>
             
-            <Alert color="indigo" variant="light">
-              <Text size="xs">
-                <b>Pro Tip:</b> If you select multiple columns or use <code>*</code>, 
-                the result will be an object. Use <b>Flatten Result</b> to easily access these fields in subsequent steps.
+            <Alert color="indigo" variant="light" data-testid="lookup-output-shape">
+              <Text size="xs" fw={700} mb={4}>
+                What the next node will see
               </Text>
+              <Stack gap={2}>
+                {outputShape.single && (
+                  <Text size="xs">
+                    A single value from <code>{outputShape.columns[0]}</code>, at{' '}
+                    <code>{outputShape.target}</code>.
+                  </Text>
+                )}
+                {outputShape.wholeRow && (
+                  <Text size="xs">
+                    An object holding every column of the matched row, at{' '}
+                    <code>{outputShape.target}</code> — address one column as{' '}
+                    <code>{outputShape.target}.&lt;column&gt;</code>.
+                  </Text>
+                )}
+                {!outputShape.single && !outputShape.wholeRow && (
+                  <Text size="xs">
+                    An object at <code>{outputShape.target}</code>:{' '}
+                    <code>{outputShape.nestedPaths}</code>.
+                  </Text>
+                )}
+
+                {outputShape.flattening && outputShape.single && (
+                  <Text size="xs" c="orange">
+                    Flatten Result does nothing here: it splits a row into fields, and a single
+                    column is already one value.
+                  </Text>
+                )}
+                {outputShape.flattening && outputShape.wholeRow && (
+                  <Text size="xs">
+                    Also written as one field per column{' '}
+                    {outputShape.flatPrefix
+                      ? <>under <code>{outputShape.flatPrefix}</code></>
+                      : 'at the top level of the message'}
+                    .
+                  </Text>
+                )}
+                {outputShape.flattening && !outputShape.single && !outputShape.wholeRow && (
+                  <Text size="xs">Flattened to: <code>{outputShape.flatPaths}</code>.</Text>
+                )}
+              </Stack>
             </Alert>
           </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="advanced">
           <Stack gap="sm">
+            <Select
+              label="When no row matches"
+              description="A miss is not automatically a bug, but it should be a decision — without one, an enriched message and an un-enriched one reach the sink looking identical."
+              data={[
+                { value: 'passthrough', label: 'Pass the message through unchanged' },
+                { value: 'default', label: 'Write the default value' },
+                { value: 'fail', label: 'Fail the message' },
+              ]}
+              value={missPolicy}
+              onChange={(val) => updateNodeConfig(nodeId, { onMiss: val || 'passthrough' })}
+              allowDeselect={false}
+              size="sm"
+            />
+
+            {missPolicy === 'default' && !hasDefaultValue && (
+              <Alert color="orange" variant="light" data-testid="lookup-miss-warning">
+                <Text size="xs">
+                  Nothing will be written on a miss: this policy needs a <b>Default Value</b>.
+                  Without one it behaves exactly like passing the message through.
+                </Text>
+              </Alert>
+            )}
+            {missPolicy === 'fail' && (
+              <Text size="xs" c="dimmed">
+                The message follows the normal retry and dead-letter path.{' '}
+                <b>On Error</b>, below the configuration, decides whether that fails the
+                workflow, continues, or drops the message.
+              </Text>
+            )}
+
             <Group grow>
               <TextInput
                 label="Default Value"
@@ -331,7 +440,11 @@ export function DBLookupConfig({
                 value={config.defaultValue || ''}
                 onChange={(e) => updateNodeConfig(nodeId, { defaultValue: e.currentTarget.value })}
                 size="sm"
-                description="JSON or string to use as fallback."
+                description={
+                  missPolicy === 'default'
+                    ? 'JSON or string written to the target field on a miss.'
+                    : 'JSON or string to use as fallback. Only used by the "Write the default value" policy.'
+                }
               />
               <TextInput
                 label="Cache TTL"
@@ -339,7 +452,7 @@ export function DBLookupConfig({
                 value={config.ttl || ''}
                 onChange={(e) => updateNodeConfig(nodeId, { ttl: e.currentTarget.value })}
                 size="sm"
-                description="How long to cache results in memory."
+                description="How long to cache results in memory. Empty means results are cached for the lifetime of the process."
               />
             </Group>
 

@@ -7,6 +7,63 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — `db_lookup` stopped flattening after the first message with a given key
+
+`flattenInto` ("Flatten Result") was applied only on the path that actually
+queried the database. Every lookup is cached, and with no Cache TTL configured
+it is cached forever, so the second message carrying a given key took the
+cache-hit path — which wrote the target field and returned, skipping flattening
+entirely. One configuration therefore produced two different message shapes:
+message one had the columns as fields, every message after it did not.
+
+The editor made this look like the feature simply did nothing. The live preview
+re-runs on a debounce, so by the time an operator turned Flatten Result on and
+pressed **Run Preview**, the lookup was already cached and the flattened fields
+never appeared.
+
+Both paths now go through one function, so what is written into the message no
+longer depends on whether the row came from the database or the cache.
+
+The cache key also interpolated the key value with `%v` alone, so the string
+`"1"` and the number `1` hashed to the same entry and two lookups keyed on the
+same id in different types served each other's rows. The key now includes the
+type.
+
+### Added — the preview panel states what happened to the target field
+
+A lookup that matches no row passes the message through unchanged and without an
+error (`onMiss` defaults to passthrough), so a miss and a working lookup rendered
+as identical JSON. For a CDC sample the enriched field also lands nested inside
+`after`, while every field picker in the editor shows the hoisted root path — so
+an operator looking for `user_details` saw `after`.
+
+The panel now reports the node's target field above the JSON: its value when the
+field was produced, and **Not produced** with the reason when it was not. The
+path is resolved the same way the rest of the editor resolves it, so the panel
+and the field pickers agree.
+
+### Added — `db_lookup` lets you choose what a miss does
+
+`onMiss` has been in the transformer since miss policies were introduced, and
+its whole purpose is that a lookup finding no row should be an explicit,
+auditable choice rather than a silent passthrough. The editor never offered the
+choice, so every workflow ran on whichever policy was inferred from whether
+Default Value happened to be filled in.
+
+The Advanced tab now has **When no row matches**: pass the message through, write
+the default value, or fail the message. It mirrors the backend's inference, so
+an unset policy displays the one actually in force rather than a blank field,
+and it warns when "write the default value" is selected with no default value —
+a combination that writes nothing and behaves exactly like passthrough.
+
+### Added — `db_lookup` names the paths its output will have
+
+Value Column(s), Target Field and Flatten Result combine into four different
+output shapes, and nothing said which one the current settings produce. The
+Output Mapping tab now spells out the paths the next node can address — a single
+value, an object at the target field, every column of the row, or the flattened
+per-column paths — instead of a general tip about objects.
+
 ### Added — detect decryption settings from a sample value
 
 The decrypt node's settings interact: the key format decides the key bytes, the
