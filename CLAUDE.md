@@ -165,9 +165,18 @@ project policy and must be preserved.
    integration-test DSNs are in [`AGENTS.md`](./AGENTS.md).
 4. **TDD is mandatory** — RED (watch it fail for the right reason) → GREEN (minimum code) →
    REFACTOR. No production line before a failing test; every bug fix starts with a failing
-   reproduction. Gates: `rtk go test -race ./...`, `rtk golangci-lint run ./...`,
-   `rtk govulncheck ./...`, `rtk buf lint` + `rtk buf breaking`, `rtk bun run typecheck`,
-   `rtk bun run lint`, `rtk bunx vitest run`, `rtk playwright test`.
+   reproduction. Gates: `rtk go test -race -short ./...` **plus** the load suite
+   (`rtk go test -count=1 -timeout 20m -run 'HeavySyncLoad|FailbackUnderLoad|RestartCycles|DoesNotLeakGoroutines|SurvivesControlPlaneOutage|TestHeavyLoad|AcrossRandomTopologies' ./internal/engine/worker/ ./internal/engine/registry/`),
+   `rtk golangci-lint run ./...`, `rtk govulncheck ./...`, `rtk buf lint` + `rtk buf breaking`,
+   `rtk bun run typecheck`, `rtk bun run lint`, `rtk bunx vitest run`, `rtk playwright test`.
+
+   Do not run a plain `go test -race ./...`: the load tests stand up ~120 concurrent
+   engines and the race detector's shadow memory takes `internal/engine/worker` alone to
+   8.99 GB, so the package is OOM-killed and reports `signal: killed` with no test name —
+   which looks like a flaky test. Measured: 1.86 GB without `-race`, 8.99 GB with, for
+   that one package; the two documented passes peak at 4.94 GB and 1.93 GB. The load
+   tests are guarded by `testing.Short()`, so the first command skips them and the
+   second is what runs them — neither is optional.
 
 5. **No AI co-authors on commits.** Never add a `Co-Authored-By:` trailer naming Claude, Claude Code
    or any AI assistant, and never append "Generated with Claude Code" or a similar footer — in commit
