@@ -81,6 +81,14 @@ class NoopResizeObserver {
 }
 ;(globalThis as any).ResizeObserver = NoopResizeObserver as any
 
+// jsdom does not implement scrollIntoView. Mantine's Combobox calls it when it
+// opens a dropdown, so without this any test that opens a Select, Autocomplete
+// or MultiSelect fails with "items[index]?.scrollIntoView is not a function" --
+// an environment gap that reads like a component bug.
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = function scrollIntoView() {}
+}
+
 // Stub WebSocket to avoid real connections during tests
 class NoopWebSocket {
   url: string

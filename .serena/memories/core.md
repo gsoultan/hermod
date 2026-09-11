@@ -45,6 +45,9 @@ find a claim that outruns the code, fix the claim.
 - [Reachability tests](reachability_tests.md) — a feature configured through storage
   needs one test that starts from storage; three shipped bugs had full unit and
   integration coverage of the parts and none of the assembly.
+- [The lookup cache is a second write path](lookup_cache_fast_path.md) — a
+  cache hit skipped `flattenInto`, and with no TTL set that meant every message
+  after the first; the test fake that "caches" nothing could never catch it.
 
 ### Gates
 

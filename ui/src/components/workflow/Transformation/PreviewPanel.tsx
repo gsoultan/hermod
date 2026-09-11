@@ -1,6 +1,7 @@
 import { Alert, Badge, Button, Card, Code, Divider, Group, ScrollArea, Stack, Text, SegmentedControl, ActionIcon, Tooltip as MantineTooltip, Box } from '@mantine/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { IconAlertCircle, IconCheck, IconCopy, IconEye, IconGitCompare, IconPlayerPlay } from '@tabler/icons-react';
+import { getValByPath, preparePayload } from '../../../utils/transformationUtils';
 
 interface PreviewPanelProps {
   title?: string;
@@ -9,6 +10,25 @@ interface PreviewPanelProps {
   result?: unknown;
   original?: unknown;
   onRun?: () => void;
+  /**
+   * The field this node writes its output to, when it has one. The panel states
+   * what happened to it, because the raw JSON does not: an enrichment that found
+   * no row passes the message through unchanged and without an error, so a miss
+   * and a working lookup render identically.
+   */
+  targetField?: string;
+}
+
+/** Short enough to sit on one line; the full value is in the JSON below. */
+function summarise(value: unknown): string {
+  let text: string;
+  try {
+    text = typeof value === 'string' ? value : JSON.stringify(value);
+  } catch {
+    return '(unserialisable)';
+  }
+  if (text === undefined) return String(value);
+  return text.length > 120 ? text.slice(0, 120) + '…' : text;
 }
 
 type ViewMode = 'transformed' | 'original' | 'diff';
@@ -24,7 +44,7 @@ function simpleDiff(orig: any, trans: any): any {
   return d;
 }
 
-export function PreviewPanel({ title = 'Preview', loading, error, result, original, onRun }: PreviewPanelProps) {
+export function PreviewPanel({ title = 'Preview', loading, error, result, original, onRun, targetField }: PreviewPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('transformed');
   const [copied, setCopied] = useState(false);
 
@@ -97,6 +117,18 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
     }
   }, [displayData]);
 
+  // Resolve the target field the same way the rest of the editor does: through
+  // preparePayload, which hoists a CDC "after" image to the root. Without that
+  // the panel would report "not produced" for a field that is plainly there,
+  // just one level down from where every field picker says it lives.
+  const targetOutcome = useMemo(() => {
+    const path = (targetField || '').replace(/^\$\./, '');
+    if (!path || result === undefined || result === null) return null;
+    const message = Array.isArray(result) ? result[0] : result;
+    const value = getValByPath(preparePayload(message), path);
+    return { path, value, found: value !== undefined };
+  }, [targetField, result]);
+
   const busy = !!loading || diffLoading;
   const body = serialised ?? (busy ? '// Loading…' : '// No preview yet');
   const showsStaleWhileBusy = busy && serialised !== null;
@@ -151,6 +183,26 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
             </ActionIcon>
           </MantineTooltip>
         </Group>
+
+        {targetOutcome && !error && (
+          <Stack gap={2} data-testid="preview-target-field">
+            <Group gap={6} wrap="nowrap">
+              <Badge size="xs" variant="light" color={targetOutcome.found ? 'teal' : 'orange'}>
+                {targetOutcome.found ? 'Target field' : 'Not produced'}
+              </Badge>
+              <Text size="xs" fw={600} truncate>{targetOutcome.path}</Text>
+            </Group>
+            {/* Its own line, wrapping rather than truncating. Inline beside the
+                path, the panel's width cut the miss explanation down to
+                "nothing at t…" — which is the one line a confused operator
+                most needs to read. */}
+            <Text size="xs" c="dimmed" lineClamp={2}>
+              {targetOutcome.found
+                ? summarise(targetOutcome.value)
+                : 'nothing at this path — the lookup matched no row, or the key path resolved to nothing'}
+            </Text>
+          </Stack>
+        )}
 
         {error ? (
           <Alert color="red" icon={<IconAlertCircle size="1rem" />} p="xs">
