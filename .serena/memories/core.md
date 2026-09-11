@@ -51,6 +51,9 @@ find a claim that outruns the code, fix the claim.
 - [Retention sweeps and trace growth](retention_sweep_and_trace_growth.md) —
   `time.ParseDuration` cannot read the UI's default `7d`, so the trace purge
   silently never ran and PostgreSQL grew 50 GB in hours.
+- [The lookup cache is a second write path](lookup_cache_fast_path.md) — a
+  cache hit skipped `flattenInto`, and with no TTL set that meant every message
+  after the first; the test fake that "caches" nothing could never catch it.
 
 ### Gates
 

@@ -1294,8 +1294,42 @@ func (h *WorkflowHandler) RollbackWorkflow(w http.ResponseWriter, r *http.Reques
 	_ = json.NewEncoder(w).Encode(wf)
 }
 
+// sampleIsCDC reports whether ToMap will serialise this sample as a CDC event,
+// which is what decides whether the data map doubles as the after-image. It
+// mirrors the one condition ToMap uses: a non-empty operation.
+func sampleIsCDC(data map[string]any) bool {
+	for _, key := range []string{"operation", "Operation", "op", "Op"} {
+		if v, ok := data[key]; ok && v != nil && fmt.Sprintf("%v", v) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func populateMessageFromMap(msg hermod.Message, data map[string]any) {
 	dm, isDefault := msg.(*message.DefaultMessage)
+
+	// A sample carrying an operation becomes a CDC message, and ToMap serialises
+	// one by marshalling the whole data map as the after-image. Copying the
+	// envelope's own fields into that map therefore did two bad things: every
+	// system field appeared twice in the previewed message -- once at the root,
+	// once inside "after" -- and the copy raced the after-image itself, because
+	// both write the same key and Go randomises map iteration order. A row with a
+	// column called "table", "id", "operation" or "schema" kept the envelope's
+	// value in roughly three previews out of four, so the operator mapped
+	// downstream nodes against a value the row does not have.
+	//
+	// The copy was never needed. evaluator.GetMsgValByPath exposes operation, op,
+	// table, schema and id as virtual fields resolved from the message itself,
+	// and deliberately lets a real data column of the same name outrank them.
+	// Leaving these out of the data map is what gives that rule something to
+	// resolve against.
+	//
+	// Non-CDC samples are untouched: ToMap merges their data into the root, there
+	// is no after-image to duplicate into, and dropping the copy would change the
+	// previewed type of a field like id from a number to a string.
+	keepSystemFieldsInData := !sampleIsCDC(data)
+
 	for k, v := range data {
 		if v == nil {
 			continue
@@ -1309,7 +1343,9 @@ func populateMessageFromMap(msg hermod.Message, data map[string]any) {
 				if isDefault {
 					dm.SetID(idStr)
 				}
-				msg.SetData("id", v) // Keep in data for convenience in transformations
+				if keepSystemFieldsInData {
+					msg.SetData("id", v)
+				}
 			}
 			continue
 		case "operation", "op":
@@ -1318,7 +1354,9 @@ func populateMessageFromMap(msg hermod.Message, data map[string]any) {
 				if isDefault {
 					dm.SetOperation(hermod.Operation(opStr))
 				}
-				msg.SetData(k, v)
+				if keepSystemFieldsInData {
+					msg.SetData(k, v)
+				}
 			}
 			continue
 		case "table":
@@ -1327,7 +1365,9 @@ func populateMessageFromMap(msg hermod.Message, data map[string]any) {
 				if isDefault {
 					dm.SetTable(tStr)
 				}
-				msg.SetData(k, v)
+				if keepSystemFieldsInData {
+					msg.SetData(k, v)
+				}
 			}
 			continue
 		case "schema":
@@ -1336,7 +1376,9 @@ func populateMessageFromMap(msg hermod.Message, data map[string]any) {
 				if isDefault {
 					dm.SetSchema(sStr)
 				}
-				msg.SetData(k, v)
+				if keepSystemFieldsInData {
+					msg.SetData(k, v)
+				}
 			}
 			continue
 		case "metadata":
