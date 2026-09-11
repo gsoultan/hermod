@@ -201,7 +201,12 @@ func TestRecordTraceStep_DeterministicSampling(t *testing.T) {
 	}
 }
 
-func TestRecordTraceStep_Default(t *testing.T) {
+// Tracing is off in DefaultConfig, so an engine that never had a per-workflow
+// rate applied records nothing. It used to default to 1.0, which meant any such
+// path wrote the full payload for every message into message_trace_steps — a
+// row per node per message, and the table that filled a production PostgreSQL
+// by 50 GB in a couple of hours.
+func TestRecordTraceStep_DefaultConfigRecordsNothing(t *testing.T) {
 	recorder := &mockTraceRecorder{}
 	e := NewEngine(nil, nil, nil)
 	e.traceRecorder = recorder
@@ -209,11 +214,31 @@ func TestRecordTraceStep_Default(t *testing.T) {
 	e.config = DefaultConfig()
 
 	msgID := "test-msg"
-	msg := &mockMessage{id: msgID}
+	e.RecordTraceStep(t.Context(), &mockMessage{id: msgID}, "node-1", time.Now(), nil, nil)
 
-	e.RecordTraceStep(t.Context(), msg, "node-1", time.Now(), nil, nil)
+	// Give the async path the same budget the positive case gets, so this is
+	// "never recorded" rather than "had not recorded yet".
+	for range 50 {
+		if len(recorder.GetSteps(msgID)) > 0 {
+			t.Fatal("traced with DefaultConfig; an engine that was never given a " +
+				"per-workflow sample rate must not write payloads to disk")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
 
-	// Wait for async processing
+// The counterpart: an explicit rate is what turns tracing on, and it works.
+func TestRecordTraceStep_RecordsWhenSamplingIsEnabled(t *testing.T) {
+	recorder := &mockTraceRecorder{}
+	e := NewEngine(nil, nil, nil)
+	e.traceRecorder = recorder
+	e.workflowID = "test-workflow"
+	e.config = DefaultConfig()
+	e.config.TraceSampleRate = 1.0
+
+	msgID := "test-msg"
+	e.RecordTraceStep(t.Context(), &mockMessage{id: msgID}, "node-1", time.Now(), nil, nil)
+
 	var steps []hermod.TraceStep
 	for range 50 {
 		steps = recorder.GetSteps(msgID)

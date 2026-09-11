@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -1723,12 +1724,23 @@ func (s *mongoStorage) GetMessageTrace(ctx context.Context, workflowID, messageI
 	return tr, err
 }
 
-func (s *mongoStorage) ListMessageTraces(ctx context.Context, workflowID string, limit, offset int) ([]storage.MessageTrace, error) {
+func (s *mongoStorage) ListMessageTraces(ctx context.Context, workflowID string, f storage.TraceFilter) ([]storage.MessageTrace, error) {
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+
 	coll := s.db.Collection("message_traces")
 	filter := bson.M{"workflow_id": workflowID}
+	// Keyset before skip: a cursor is an index seek, where Skip reads and
+	// discards everything ahead of it. Offset stays for callers that page by
+	// number.
+	if !f.Before.IsZero() {
+		filter["created_at"] = bson.M{"$lt": f.Before.UTC()}
+	}
 	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(int64(limit))
-	if offset > 0 {
-		opts.SetSkip(int64(offset))
+	if f.Offset > 0 {
+		opts.SetSkip(int64(f.Offset))
 	}
 	cursor, err := coll.Find(ctx, filter, opts)
 	if err != nil {
@@ -1983,4 +1995,98 @@ func (s *mongoStorage) GetDashboardStats(ctx context.Context, vhost string) (sto
 	stats.ActiveWorkers = int(count)
 
 	return stats, nil
+}
+
+// dashboardSampleDoc is the stored shape of a history point.
+//
+// The counters are int64 rather than uint64 because BSON has no unsigned
+// 64-bit type; the driver would reject a uint64 outright. They are converted
+// back at the boundary.
+//
+// No _id is set, so the driver assigns an ObjectId: 12 bytes and ascending,
+// against 36 bytes of random hex for a UUID string. On a collection written
+// every five seconds and never read by id, that is both the smaller document
+// and the cheaper mandatory index — a random key scatters inserts across the
+// whole _id index instead of appending to the end of it.
+type dashboardSampleDoc struct {
+	VHost           string    `bson:"vhost"`
+	Timestamp       time.Time `bson:"timestamp"`
+	Throughput      float64   `bson:"throughput"`
+	TotalProcessed  int64     `bson:"total_processed"`
+	TotalErrors     int64     `bson:"total_errors"`
+	TotalLag        int64     `bson:"total_lag"`
+	ErrorRate       float64   `bson:"error_rate"`
+	AvgLatencyMs    float64   `bson:"avg_latency_ms"`
+	ActiveWorkflows int       `bson:"active_workflows"`
+	ActiveWorkers   int       `bson:"active_workers"`
+}
+
+func (s *mongoStorage) RecordDashboardSample(ctx context.Context, sample storage.DashboardSample) error {
+	if sample.Timestamp.IsZero() {
+		sample.Timestamp = time.Now().UTC()
+	}
+	_, err := s.db.Collection("dashboard_history").InsertOne(ctx, dashboardSampleDoc{
+		VHost: storage.NormalizeVHost(sample.VHost),
+		// Truncated to the second to match the SQL backends; the sampler ticks
+		// every five, so finer precision is noise either way.
+		Timestamp:       sample.Timestamp.UTC().Truncate(time.Second),
+		Throughput:      sample.Throughput,
+		TotalProcessed:  int64(sample.TotalProcessed),
+		TotalErrors:     int64(sample.TotalErrors),
+		TotalLag:        int64(sample.TotalLag),
+		ErrorRate:       sample.ErrorRate,
+		AvgLatencyMs:    sample.AvgLatencyMs,
+		ActiveWorkflows: sample.ActiveWorkflows,
+		ActiveWorkers:   sample.ActiveWorkers,
+	})
+	return err
+}
+
+func (s *mongoStorage) GetDashboardHistory(ctx context.Context, vhost string, since time.Time, limit int) ([]storage.DashboardSample, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+
+	filter := bson.M{"vhost": storage.NormalizeVHost(vhost)}
+	if !since.IsZero() {
+		filter["timestamp"] = bson.M{"$gte": since.UTC()}
+	}
+
+	// Newest-first so the limit keeps the recent end of the series; reversed
+	// below into the oldest-first order the chart plots.
+	opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: -1}}).SetLimit(int64(limit))
+	cursor, err := s.db.Collection("dashboard_history").Find(ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = cursor.Close(ctx) }()
+
+	var docs []dashboardSampleDoc
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, err
+	}
+
+	results := make([]storage.DashboardSample, 0, len(docs))
+	for _, d := range docs {
+		results = append(results, storage.DashboardSample{
+			Timestamp:       d.Timestamp,
+			VHost:           d.VHost,
+			Throughput:      d.Throughput,
+			TotalProcessed:  uint64(d.TotalProcessed),
+			TotalErrors:     uint64(d.TotalErrors),
+			TotalLag:        uint64(d.TotalLag),
+			ErrorRate:       d.ErrorRate,
+			AvgLatencyMs:    d.AvgLatencyMs,
+			ActiveWorkflows: d.ActiveWorkflows,
+			ActiveWorkers:   d.ActiveWorkers,
+		})
+	}
+	slices.Reverse(results)
+	return results, nil
+}
+
+func (s *mongoStorage) PurgeDashboardHistory(ctx context.Context, before time.Time) error {
+	_, err := s.db.Collection("dashboard_history").DeleteMany(ctx,
+		bson.M{"timestamp": bson.M{"$lt": before.UTC()}})
+	return err
 }

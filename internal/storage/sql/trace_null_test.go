@@ -28,9 +28,10 @@ func TestGetMessageTrace_NullValues(t *testing.T) {
 	traceID := uuid.New().String()
 
 	// Insert a trace step with NULL values for before_data, after_data, and error
-	_, err = db.Exec(`INSERT INTO message_trace_steps (id, message_id, workflow_id, node_id, timestamp, duration_ms, before_data, after_data, error)
-		VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
-		traceID, messageID, workflowID, "node-1", time.Now(), 100)
+	_, err = db.ExecContext(ctx, `INSERT INTO message_trace_steps (message_id, workflow_id, node_id, timestamp, duration_ms, after_data, error)
+		VALUES (?, ?, ?, ?, ?, NULL, NULL)`,
+		messageID, workflowID, "node-1", time.Now(), 100)
+	_ = traceID
 	if err != nil {
 		t.Fatalf("failed to insert trace step: %v", err)
 	}

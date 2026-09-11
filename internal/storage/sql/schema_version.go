@@ -67,7 +67,7 @@ const (
 // requires. Do not bump it for a change an older binary can ignore, such as an
 // added index. This exists to block dangerous rollbacks, and a number that
 // moves for harmless reasons blocks safe ones.
-const currentSchemaVersion = 1
+const currentSchemaVersion = 2
 
 // ErrSchemaFromTheFuture is returned when the database was migrated by a
 // release newer than this binary.

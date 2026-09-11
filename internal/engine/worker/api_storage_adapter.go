@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/gsoultan/hermod"
@@ -206,7 +207,7 @@ func (a *apiStorage) RecordTraceStep(ctx context.Context, workflowID, messageID 
 func (a *apiStorage) GetMessageTrace(ctx context.Context, workflowID, messageID string) (storage.MessageTrace, error) {
 	return storage.MessageTrace{}, storage.ErrNotFound
 }
-func (a *apiStorage) ListMessageTraces(ctx context.Context, workflowID string, limit, offset int) ([]storage.MessageTrace, error) {
+func (a *apiStorage) ListMessageTraces(ctx context.Context, workflowID string, f storage.TraceFilter) ([]storage.MessageTrace, error) {
 	return nil, nil
 }
 
@@ -275,6 +276,25 @@ func (a *apiStorage) ListSuspendedMessages(ctx context.Context, workflowID strin
 func (a *apiStorage) DeleteSuspendedMessage(ctx context.Context, id string) error { return nil }
 func (a *apiStorage) GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error) {
 	return storage.DashboardStats{}, nil
+}
+
+// Dashboard history belongs to the control plane, which owns the database the
+// samples live in. A worker running this adapter has neither.
+//
+// The write paths wrap hermod.ErrNotSupported rather than returning nil. nil
+// would claim the sample was stored, so the registry's sampler — which ticks
+// on every node, including this one — would keep handing samples to a sink
+// that drops them, every five seconds for the life of the worker. The sentinel
+// says "this node will never keep history" precisely enough for the sampler to
+// latch it and stop after one tick, which is quieter than either alternative.
+func (a *apiStorage) RecordDashboardSample(ctx context.Context, sample storage.DashboardSample) error {
+	return fmt.Errorf("%w: a worker does not keep dashboard history", hermod.ErrNotSupported)
+}
+func (a *apiStorage) GetDashboardHistory(ctx context.Context, vhost string, since time.Time, limit int) ([]storage.DashboardSample, error) {
+	return nil, nil
+}
+func (a *apiStorage) PurgeDashboardHistory(ctx context.Context, before time.Time) error {
+	return fmt.Errorf("%w: a worker does not keep dashboard history", hermod.ErrNotSupported)
 }
 
 // ReEncryptSecrets is refused here by design. This adapter is what a worker

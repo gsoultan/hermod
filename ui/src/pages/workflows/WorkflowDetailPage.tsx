@@ -35,14 +35,21 @@ export function WorkflowDetailPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string | null>('graph');
   const [selectedTraceID, setSelectedTraceID] = useState<string | null>(null);
-  const [tracePage, setTracePage] = useState(1);
+  // Paging by cursor rather than by offset. The server reads traces newest
+  // first, so "the next page" is "older than the last row I saw" — one index
+  // seek, whatever page you are on. An offset has to read and discard
+  // everything ahead of it, which is what made deep pages slow. One entry per
+  // page visited, so Previous is a pop rather than another query shape.
+  const [traceCursors, setTraceCursors] = useState<string[]>([]);
+  const traceCursor = traceCursors.length > 0 ? traceCursors[traceCursors.length - 1] : null;
   const TRACES_PER_PAGE = 50;
 
   const { data: traces, isLoading: isTracesLoading } = useQuery({
-    queryKey: ['traces', id, tracePage],
+    queryKey: ['traces', id, traceCursor],
     queryFn: async () => {
-      const offset = (tracePage - 1) * TRACES_PER_PAGE;
-      const res = await apiFetch(`/api/workflows/${id}/traces?limit=${TRACES_PER_PAGE}&offset=${offset}`);
+      const params = new URLSearchParams({ limit: String(TRACES_PER_PAGE) });
+      if (traceCursor) params.set('before', traceCursor);
+      const res = await apiFetch(`/api/workflows/${id}/traces?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch traces');
       return res.json();
     },
@@ -449,18 +456,22 @@ export function WorkflowDetailPage() {
                         size="xs"
                         variant="default"
                         leftSection={<IconArrowLeft size="0.9rem" />}
-                        disabled={tracePage <= 1 || isTracesLoading}
-                        onClick={() => setTracePage((p) => Math.max(1, p - 1))}
+                        disabled={traceCursors.length === 0 || isTracesLoading}
+                        onClick={() => setTraceCursors((c) => c.slice(0, -1))}
                       >
                         Previous
                       </Button>
-                      <Text size="xs" c="dimmed">Page {tracePage}</Text>
+                      <Text size="xs" c="dimmed">Page {traceCursors.length + 1}</Text>
                       <Button
                         size="xs"
                         variant="default"
                         rightSection={<IconChevronRight size="0.9rem" />}
                         disabled={!Array.isArray(traces) || (traces as any[]).length < TRACES_PER_PAGE || isTracesLoading}
-                        onClick={() => setTracePage((p) => p + 1)}
+                        onClick={() => {
+                          const page = traces as any[];
+                          const last = page[page.length - 1]?.created_at;
+                          if (last) setTraceCursors((c) => [...c, last]);
+                        }}
                       >
                         Next
                       </Button>

@@ -151,9 +151,8 @@ const (
 	QueryCreateSchema    = "CreateSchema"
 
 	// Tracing
-	QueryRecordTraceStep   = "RecordTraceStep"
-	QueryGetMessageTrace   = "GetMessageTrace"
-	QueryListMessageTraces = "ListMessageTraces"
+	QueryRecordTraceStep = "RecordTraceStep"
+	QueryGetMessageTrace = "GetMessageTrace"
 
 	// Workflow Versioning
 	QueryCreateWorkflowVersion = "CreateWorkflowVersion"
@@ -186,6 +185,18 @@ const (
 	QueryCreateSuspendedMessage     = "CreateSuspendedMessage"
 	QueryListSuspendedMessages      = "ListSuspendedMessages"
 	QueryDeleteSuspendedMessage     = "DeleteSuspendedMessage"
+
+	QueryInitMessageTracesTable   = "InitMessageTracesTable"
+	QueryUpsertMessageTrace       = "UpsertMessageTrace"
+	QueryListMessageTracesKeyset  = "ListMessageTracesKeyset"
+	QueryListMessageTracesOffset  = "ListMessageTracesOffset"
+	QueryPurgeMessageTraceParents = "PurgeMessageTraceParents"
+	QueryRecordTraceStepLegacyID  = "RecordTraceStepLegacyID"
+
+	QueryInitDashboardHistoryTable = "InitDashboardHistoryTable"
+	QueryRecordDashboardSample     = "RecordDashboardSample"
+	QueryGetDashboardHistory       = "GetDashboardHistory"
+	QueryPurgeDashboardHistory     = "PurgeDashboardHistory"
 )
 
 var commonQueries = map[string]string{
@@ -334,16 +345,47 @@ var commonQueries = map[string]string{
 			created_at TIMESTAMP NOT NULL,
 			UNIQUE(name, version)
 		)`,
+	// No surrogate key and no before_data.
+	//
+	// The id was a UUID written on every step and selected by nothing — the
+	// same write-only column dashboard_history had. before_data held the
+	// payload entering a node, which is by definition the after_data of the
+	// node before it, so the whole payload chain was stored twice; it is
+	// reconstructed on read instead. Measured on PostgreSQL 17 with realistic
+	// incompressible payloads, 250k rows: 262 MB -> 123 MB.
+	//
+	// Rows are never addressed individually — reads are
+	// (workflow_id, message_id) and deletes are a timestamp range — so nothing
+	// is lost by having no key. See the dashboard_history DDL for the one
+	// consequence (PostgreSQL logical replication and replica identity).
 	QueryInitMessageTraceStepsTable: `CREATE TABLE IF NOT EXISTS message_trace_steps (
-			id TEXT PRIMARY KEY,
 			message_id TEXT NOT NULL,
 			workflow_id TEXT NOT NULL,
 			node_id TEXT NOT NULL,
 			timestamp TIMESTAMP NOT NULL,
 			duration_ms INTEGER,
-			before_data TEXT,
 			after_data TEXT,
 			error TEXT
+		)`,
+
+	// One row per traced message, written alongside the steps.
+	//
+	// Listing traces used to be
+	//   SELECT DISTINCT message_id, MIN(timestamp) ... GROUP BY message_id
+	// over the step table, which no index can satisfy: every step the workflow
+	// ever produced had to be aggregated before the first 25 rows could be
+	// returned. Measured on PostgreSQL 17 at 250k steps that was a sequential
+	// scan, ~390 MB of I/O and 58.5 ms, growing linearly with the table. The
+	// same page off this table is an index scan at 0.071 ms, and stays there.
+	QueryInitMessageTracesTable: `CREATE TABLE IF NOT EXISTS message_traces (
+			workflow_id TEXT NOT NULL,
+			message_id TEXT NOT NULL,
+			started_at TIMESTAMP NOT NULL,
+			last_step_at TIMESTAMP NOT NULL,
+			duration_ms BIGINT NOT NULL DEFAULT 0,
+			step_count INTEGER NOT NULL DEFAULT 0,
+			error_count INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (workflow_id, message_id)
 		)`,
 	QueryInitWorkflowVersionsTable: `CREATE TABLE IF NOT EXISTS workflow_versions (
 			id TEXT PRIMARY KEY,
@@ -416,6 +458,38 @@ var commonQueries = map[string]string{
 			data TEXT,
 			resume_at TIMESTAMP NOT NULL,
 			created_at TIMESTAMP NOT NULL
+		)`,
+	// One row per sampling interval per vhost. vhost is NOT NULL with a ''
+	// default rather than nullable: '' is the global aggregate here, and a
+	// NULL would make `WHERE vhost = ''` skip exactly the rows the unfiltered
+	// dashboard asks for.
+	// Deliberately no surrogate primary key. Rows here are never addressed
+	// individually — every read is a range scan over (vhost, timestamp) and
+	// every delete is a range sweep — so an id column would be written on
+	// every tick and selected by nothing. Measured on a week of samples for
+	// one vhost in SQLite, a UUID primary key was 9.6 MB of a 21 MB table:
+	// 46% of the disk, for an identifier no query uses.
+	//
+	// (vhost, timestamp) is not promoted to a primary key in its place: the
+	// timestamp is truncated to the second, and nothing guarantees one writer
+	// — there is no leader election, so two control-plane nodes sharing a
+	// metadata database both sample — so a natural key would turn a duplicate
+	// into a failed insert. The one consequence of having no key at all is
+	// that PostgreSQL logical replication refuses to publish DELETEs from a
+	// table with no replica identity; an operator who adds this table to a
+	// publication needs REPLICA IDENTITY FULL, or to leave it out, which is
+	// the better answer for a metrics table nobody replicates.
+	QueryInitDashboardHistoryTable: `CREATE TABLE IF NOT EXISTS dashboard_history (
+			vhost TEXT NOT NULL DEFAULT '',
+			timestamp TIMESTAMP NOT NULL,
+			throughput REAL NOT NULL DEFAULT 0,
+			total_processed BIGINT NOT NULL DEFAULT 0,
+			total_errors BIGINT NOT NULL DEFAULT 0,
+			total_lag BIGINT NOT NULL DEFAULT 0,
+			error_rate REAL NOT NULL DEFAULT 0,
+			avg_latency_ms REAL NOT NULL DEFAULT 0,
+			active_workflows INTEGER NOT NULL DEFAULT 0,
+			active_workers INTEGER NOT NULL DEFAULT 0
 		)`,
 
 	QueryUpdateNodeState: "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES (?, ?, ?) ON CONFLICT(workflow_id, node_id) DO UPDATE SET state = excluded.state",
@@ -512,9 +586,21 @@ var commonQueries = map[string]string{
 	QueryGetLatestSchema: "SELECT id, name, version, type, content, created_at FROM schemas WHERE name = ? ORDER BY version DESC LIMIT 1",
 	QueryCreateSchema:    "INSERT INTO schemas (id, name, version, type, content, created_at) VALUES (?, ?, ?, ?, ?, ?)",
 
-	QueryRecordTraceStep:   "INSERT INTO message_trace_steps (id, message_id, workflow_id, node_id, timestamp, duration_ms, before_data, after_data, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryGetMessageTrace:   "SELECT node_id, timestamp, duration_ms, before_data, after_data, error FROM message_trace_steps WHERE workflow_id = ? AND message_id = ? ORDER BY timestamp ASC",
-	QueryListMessageTraces: "SELECT DISTINCT message_id, MIN(timestamp) as start_time FROM message_trace_steps WHERE workflow_id = ? GROUP BY message_id ORDER BY start_time DESC LIMIT ? OFFSET ?",
+	QueryRecordTraceStep: "INSERT INTO message_trace_steps (message_id, workflow_id, node_id, timestamp, duration_ms, after_data, error) VALUES (?, ?, ?, ?, ?, ?, ?)",
+	// Used only where the id column survives because the database predates the
+	// narrowing and could not be altered (SQLite cannot drop a primary key).
+	// It is NOT NULL there, so omitting it would fail every trace write.
+	QueryRecordTraceStepLegacyID: "INSERT INTO message_trace_steps (id, message_id, workflow_id, node_id, timestamp, duration_ms, after_data, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+
+	QueryUpsertMessageTrace: "INSERT INTO message_traces (workflow_id, message_id, started_at, last_step_at, duration_ms, step_count, error_count) VALUES (?, ?, ?, ?, ?, 1, ?) ON CONFLICT(workflow_id, message_id) DO UPDATE SET last_step_at = excluded.last_step_at, duration_ms = message_traces.duration_ms + excluded.duration_ms, step_count = message_traces.step_count + 1, error_count = message_traces.error_count + excluded.error_count",
+
+	// Newest-first with a keyset cursor; the caller passes the CreatedAt of the
+	// last row it saw, so page 200 costs what page 1 does.
+	QueryListMessageTracesKeyset: "SELECT message_id, started_at, duration_ms, step_count, error_count FROM message_traces WHERE workflow_id = ? AND started_at < ? ORDER BY started_at DESC LIMIT ?",
+	QueryListMessageTracesOffset: "SELECT message_id, started_at, duration_ms, step_count, error_count FROM message_traces WHERE workflow_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?",
+
+	QueryPurgeMessageTraceParents: "DELETE FROM message_traces WHERE started_at < ?",
+	QueryGetMessageTrace:          "SELECT node_id, timestamp, duration_ms, after_data, error FROM message_trace_steps WHERE workflow_id = ? AND message_id = ? ORDER BY timestamp ASC",
 
 	QueryCreateWorkflowVersion: "INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, config, created_at, created_by, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryListWorkflowVersions:  "SELECT id, workflow_id, version, created_at, created_by, message FROM workflow_versions WHERE workflow_id = ? ORDER BY version DESC",
@@ -541,22 +627,31 @@ var commonQueries = map[string]string{
 	QueryCreateSuspendedMessage: "INSERT INTO suspended_messages (id, workflow_id, node_id, payload, metadata, data, resume_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryListSuspendedMessages:  "SELECT id, workflow_id, node_id, payload, metadata, data, resume_at, created_at FROM suspended_messages WHERE resume_at <= ?",
 	QueryDeleteSuspendedMessage: "DELETE FROM suspended_messages WHERE id = ?",
+
+	QueryRecordDashboardSample: "INSERT INTO dashboard_history (vhost, timestamp, throughput, total_processed, total_errors, total_lag, error_rate, avg_latency_ms, active_workflows, active_workers) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	// Ordered newest-first so LIMIT keeps the recent end of the series; the
+	// caller reverses into the oldest-first order the chart plots.
+	QueryGetDashboardHistory:   "SELECT timestamp, vhost, throughput, total_processed, total_errors, total_lag, error_rate, avg_latency_ms, active_workflows, active_workers FROM dashboard_history WHERE vhost = ? AND timestamp >= ? ORDER BY timestamp DESC LIMIT ?",
+	QueryPurgeDashboardHistory: "DELETE FROM dashboard_history WHERE timestamp < ?",
 }
 
 var driverOverrides = map[string]map[string]string{
 	"mysql": {
-		QueryUpdateNodeState: "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE state = VALUES(state)",
-		QuerySaveSetting:     "INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)",
+		QueryUpsertMessageTrace: "INSERT INTO message_traces (workflow_id, message_id, started_at, last_step_at, duration_ms, step_count, error_count) VALUES (?, ?, ?, ?, ?, 1, ?) ON DUPLICATE KEY UPDATE last_step_at = VALUES(last_step_at), duration_ms = duration_ms + VALUES(duration_ms), step_count = step_count + 1, error_count = error_count + VALUES(error_count)",
+		QueryUpdateNodeState:    "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE state = VALUES(state)",
+		QuerySaveSetting:        "INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)",
 	},
 	"mariadb": {
-		QueryUpdateNodeState: "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE state = VALUES(state)",
-		QuerySaveSetting:     "INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)",
+		QueryUpsertMessageTrace: "INSERT INTO message_traces (workflow_id, message_id, started_at, last_step_at, duration_ms, step_count, error_count) VALUES (?, ?, ?, ?, ?, 1, ?) ON DUPLICATE KEY UPDATE last_step_at = VALUES(last_step_at), duration_ms = duration_ms + VALUES(duration_ms), step_count = step_count + 1, error_count = error_count + VALUES(error_count)",
+		QueryUpdateNodeState:    "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE state = VALUES(state)",
+		QuerySaveSetting:        "INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)",
 	},
 	"pgx": {
 		QueryUpdateNodeState: "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES ($1, $2, $3) ON CONFLICT(workflow_id, node_id) DO UPDATE SET state = excluded.state",
 		QuerySaveSetting:     "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
 	},
 	"sqlserver": {
-		QuerySaveSetting: "MERGE settings WITH (HOLDLOCK) AS t USING (SELECT @p1 AS [key], @p2 AS value) AS s ON t.[key] = s.[key] WHEN MATCHED THEN UPDATE SET value = s.value WHEN NOT MATCHED THEN INSERT([key], value) VALUES(s.[key], s.value);",
+		QueryUpsertMessageTrace: "MERGE message_traces WITH (HOLDLOCK) AS t USING (SELECT @p1 AS workflow_id, @p2 AS message_id, @p3 AS started_at, @p4 AS last_step_at, @p5 AS duration_ms, @p6 AS error_count) AS s ON t.workflow_id = s.workflow_id AND t.message_id = s.message_id WHEN MATCHED THEN UPDATE SET last_step_at = s.last_step_at, duration_ms = t.duration_ms + s.duration_ms, step_count = t.step_count + 1, error_count = t.error_count + s.error_count WHEN NOT MATCHED THEN INSERT (workflow_id, message_id, started_at, last_step_at, duration_ms, step_count, error_count) VALUES (s.workflow_id, s.message_id, s.started_at, s.last_step_at, s.duration_ms, 1, s.error_count);",
+		QuerySaveSetting:        "MERGE settings WITH (HOLDLOCK) AS t USING (SELECT @p1 AS [key], @p2 AS value) AS s ON t.[key] = s.[key] WHEN MATCHED THEN UPDATE SET value = s.value WHEN NOT MATCHED THEN INSERT([key], value) VALUES(s.[key], s.value);",
 	},
 }

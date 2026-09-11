@@ -1144,7 +1144,19 @@ func (h *WorkflowHandler) ListMessageTraces(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	traces, err := h.LogStorage.ListMessageTraces(r.Context(), id, limit, offset)
+	// A `before` cursor is the fast path: it turns the next page into an index
+	// seek instead of reading and discarding everything ahead of it. limit and
+	// offset stay supported so existing clients and bookmarked URLs keep
+	// working.
+	filter := storage.TraceFilter{Limit: limit, Offset: offset}
+	if b := r.URL.Query().Get("before"); b != "" {
+		if ts, err := time.Parse(time.RFC3339Nano, b); err == nil {
+			filter.Before = ts
+			filter.Offset = 0
+		}
+	}
+
+	traces, err := h.LogStorage.ListMessageTraces(r.Context(), id, filter)
 	if err != nil {
 		h.JsonError(w, "Failed to list message traces: "+err.Error(), http.StatusInternalServerError)
 		return
