@@ -5,7 +5,17 @@ Notable changes to Hermod, newest first. Dates are ISO-8601.
 This file starts at 1.0.0. Everything published before it was withdrawn — see
 [The releases before this one are gone](#the-releases-before-this-one-are-gone).
 
-## [Unreleased]
+## [1.3.0] — 2026-09-11
+
+The trace tables are the headline: listing traces was a sequential scan and
+`message_trace_steps` stored every payload twice. Both are fixed, and
+`currentSchemaVersion` moves to 2 as a result — **read the upgrade note below
+before deploying**, because an older binary is refused rather than left failing
+every trace write. The dashboard gains persisted history and panels for latency,
+error rate, backpressure and circuit breakers. `db_lookup` gets a correctness
+fix that made "Flatten Result" appear to do nothing, and the transformation
+preview stops hiding what it did — including a CDC row that could lose its own
+`table` or `id` column.
 
 ### Changed — message traces: half the disk, and a list that stops scanning the table
 
