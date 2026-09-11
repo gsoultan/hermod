@@ -939,6 +939,22 @@ Hermod is designed to minimize data loss during operation and shutdown:
 
 **Important Note**: Since the default `RingBuffer` is in-memory, sudden process termination (e.g., `SIGKILL` or power failure) can result in the loss of messages currently held in the buffer. For use cases requiring absolute durability, consider implementing a persistent `Producer`/`Consumer` (buffer) interface (e.g., using a file-backed queue or a dedicated message broker).
 
+### Payloads that are not JSON objects
+
+A source is free to deliver something other than a JSON object — a RabbitMQ queue carrying plain text, a Kafka topic of CSV lines, a file read in `raw` mode, a bare number. Only a JSON *object* has field names to merge into the message root, so anything else is preserved under a single **`payload`** field rather than dropped:
+
+| Source body | Resulting message fields |
+| --- | --- |
+| `{"id":7,"name":"ada"}` | `id` and `name` at the root, as before |
+| `hello world` | `payload` = `"hello world"` |
+| `id,name,qty` | `payload` = `"id,name,qty"` |
+| `42` | `payload` = `42`, still a number |
+| `["a","b"]` | `payload` = `["a","b"]`, still an array |
+
+Valid JSON keeps its decoded type; bytes that are not JSON at all are kept as text. The field is addressable wherever a mapped field is — JSONPath in transformations, `{{.payload}}` in sink templates — and the workflow editor lists it among the transformation panel's available fields and in the live preview.
+
+This matters for sinks that serialise the whole message, meaning any sink configured with `format: json` or `format: cdc`. A sink with no `format` set publishes the raw payload bytes directly and is unaffected either way.
+
 ### Dead Letter Sink (DLQ) Prioritization
 
 In high-reliability scenarios, some messages might fail to be written to the primary sink even after all retry attempts. Hermod can redirect these messages to a **Dead Letter Sink**.
