@@ -122,7 +122,15 @@ type Registry struct {
 	debugChans          map[string]chan string
 	debugChansMu        sync.Mutex
 	lastDashboardUpdate time.Time
-	startTime           time.Time
+
+	// historyUnsupported latches once a backend reports ErrNotSupported from
+	// RecordDashboardSample, so the sampler stops asking. Pebble will never
+	// store history; at a five-second tick, retrying costs a failed write and
+	// a logged error 17,280 times a day, forever — which would make the
+	// backend that stores no history the one that writes the most disk.
+	historyUnsupported atomic.Bool
+
+	startTime time.Time
 
 	notificationService *notification.Service
 	nodeStates          map[string]any
@@ -323,6 +331,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 	go reg.startReconciliationLoop(ctx)
 	go reg.optimizer.Start(reg.ctx)
 	go reg.runStatusFlusher()
+	go reg.runDashboardSampler(dashboardSampleInterval())
 	return reg
 }
 
@@ -432,19 +441,49 @@ func (r *Registry) purgeRetention() {
 	logStore := r.GetLogStorage()
 
 	ctx := context.Background()
+
+	// Dashboard history is append-only on a five-second tick, so it is the one
+	// table here that grows without anyone doing anything. A retention of zero
+	// means "keep none", and the same expression sweeps the table clean —
+	// including rows written before somebody turned history off.
+	//
+	// A backend that does not store history has nothing to purge, so its
+	// ErrNotSupported is not an operator-visible failure; logging it hourly
+	// would be noise that never changes.
+	if err := store.PurgeDashboardHistory(ctx, time.Now().Add(-dashboardHistoryRetention())); err != nil &&
+		!errors.Is(err, hermod.ErrNotSupported) {
+		r.logger.Error("Registry: purging dashboard history failed", "error", err)
+	}
+
 	workflows, _, err := store.ListWorkflows(ctx, storage.CommonFilter{Limit: 1000})
 	if err != nil {
 		return
 	}
 
 	for _, wf := range workflows {
-		// Purge Traces
+		// parseDuration, not time.ParseDuration: these windows are written by
+		// the workflow editor, which defaults the field to "7d", and Go's
+		// parser has no "d" unit. Using it here meant the parse failed on the
+		// default value and — because the call site only acted when err was
+		// nil — the sweep was skipped silently, on every workflow, forever.
+		// message_trace_steps stores before_data and after_data, so that is
+		// the whole payload twice per node per message with nothing deleting
+		// it. Found on a deployment whose PostgreSQL grew 50 GB in hours.
+		//
+		// A failed parse is now logged rather than swallowed. The window is
+		// operator-supplied and there is no safe fallback — defaulting to a
+		// short one would delete traces nobody asked to lose, and defaulting
+		// to none restores exactly this bug — so the only honest move is to
+		// keep the data and say why.
 		if wf.TraceRetention != "" && wf.TraceRetention != "0" {
-			duration, err := time.ParseDuration(wf.TraceRetention)
-			if err == nil {
-				before := time.Now().Add(-duration)
-				if logStore != nil {
-					_ = logStore.PurgeMessageTraces(ctx, before)
+			if duration, err := parseDuration(wf.TraceRetention); err != nil {
+				r.logger.Error("Registry: trace retention is not a duration, so traces "+
+					"are never purged and message_trace_steps grows without bound",
+					"workflow_id", wf.ID, "trace_retention", wf.TraceRetention, "error", err)
+			} else if logStore != nil {
+				if err := logStore.PurgeMessageTraces(ctx, time.Now().Add(-duration)); err != nil {
+					r.logger.Error("Registry: purging message traces failed",
+						"workflow_id", wf.ID, "error", err)
 				}
 			}
 		}
@@ -452,11 +491,14 @@ func (r *Registry) purgeRetention() {
 		// Purge Audit Logs (if we decide to per-workflow, but usually it's global or per-workflow entity)
 		// For now, let's use global if per-workflow is not specified, or just per-workflow if set.
 		if wf.AuditRetention != "" && wf.AuditRetention != "0" {
-			duration, err := time.ParseDuration(wf.AuditRetention)
-			if err == nil {
-				before := time.Now().Add(-duration)
-				if logStore != nil {
-					_ = logStore.PurgeAuditLogs(ctx, before)
+			if duration, err := parseDuration(wf.AuditRetention); err != nil {
+				r.logger.Error("Registry: audit retention is not a duration, so audit "+
+					"logs are never purged",
+					"workflow_id", wf.ID, "audit_retention", wf.AuditRetention, "error", err)
+			} else if logStore != nil {
+				if err := logStore.PurgeAuditLogs(ctx, time.Now().Add(-duration)); err != nil {
+					r.logger.Error("Registry: purging audit logs failed",
+						"workflow_id", wf.ID, "error", err)
 				}
 			}
 		}
@@ -1563,25 +1605,19 @@ func (r *Registry) GetDashboardStats(ctx context.Context, vhost string) (storage
 	// Enrich with local uptime and real-time throughput
 	stats.Uptime = int64(time.Since(r.startTime).Seconds())
 
-	r.mu.RLock()
-	for _, ae := range r.engines {
-		if vhost != "" && vhost != "all" && ae.workflow.VHost != vhost {
-			continue
-		}
-		status := ae.engine.GetStatus()
-		stats.Throughput += status.Throughput
+	live := aggregateEngineTelemetry(r.engineStatuses(vhost))
+	stats.Throughput += live.Throughput
+	stats.AvgLatencyMs = live.AvgLatencyMs
+	stats.Backpressure = live.Backpressure
+	stats.CircuitBreakersOpen = live.CircuitBreakersOpen
 
-		// For TotalLag, if it's 0 in DB (not supported yet by all workers),
-		// we fall back to local engines to at least show something.
-		if stats.TotalLag == 0 {
-			if lag, ok := status.NodeMetrics["source_lag"]; ok {
-				stats.TotalLag += lag
-			} else if lag, ok := status.NodeMetrics["lag"]; ok {
-				stats.TotalLag += lag
-			}
-		}
+	// For TotalLag, if it's 0 in DB (not supported yet by all workers),
+	// we fall back to local engines to at least show something.
+	if stats.TotalLag == 0 {
+		stats.TotalLag = live.Lag
 	}
-	r.mu.RUnlock()
+
+	stats.ErrorRate = deriveErrorRate(stats.TotalProcessed, stats.TotalErrors)
 
 	return stats, nil
 }

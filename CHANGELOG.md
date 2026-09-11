@@ -7,6 +7,220 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — message traces: half the disk, and a list that stops scanning the table
+
+Two separate problems, one table. `message_trace_steps` is the largest thing
+Hermod writes — a row per node per message — and it was both storing more than
+it needed and being read in the worst possible way.
+
+**Listing traces was a sequential scan.** The list query was
+`SELECT DISTINCT message_id, MIN(timestamp) ... GROUP BY message_id`, which no
+index can satisfy: every step a workflow had ever produced had to be aggregated
+before the first 25 rows could come back. Measured on PostgreSQL 17 at 250k
+steps — a Seq Scan, ~390 MB of buffer I/O and 58.5 ms to return 25 rows, growing
+linearly with the table. A new `message_traces` table holds one row per traced
+message, written alongside the steps, so the same page is an index scan:
+**0.071 ms, and flat as the table grows.**
+
+**Half the table was storing the payload twice.** `before_data` held what
+entered a node, which is by definition the `after_data` of the node before it;
+it is reconstructed on read instead. The `id` was a UUID written on every step
+and selected by nothing — the same write-only column `dashboard_history` had.
+Measured with realistic incompressible payloads, 250k rows: **262 MB → 123 MB.**
+
+Also in this change:
+
+- **Paging is by cursor.** `GET /api/workflows/{id}/traces` accepts `before`
+  (RFC3339), so the next page is an index seek rather than a scan-and-discard.
+  `limit`/`offset`/`page` still work; the trace viewer now uses the cursor.
+- **One step cannot write an unbounded row.** Payloads over
+  `HERMOD_TRACE_MAX_PAYLOAD_BYTES` (default 32 KiB) are replaced by a marker
+  that is itself valid JSON, so the viewer still renders it.
+- **Retention on PostgreSQL drops partitions instead of deleting rows.** New
+  PostgreSQL tables are `PARTITION BY RANGE (timestamp)` with a day per
+  partition, a DEFAULT partition so a lagging maintenance run can never fail an
+  insert, and a week of lookahead so attaching one never waits on a DEFAULT
+  scan. Expired days go by `DROP TABLE`: a catalogue change and an unlink, with
+  no row-level WAL and the space returned immediately. Opt out with
+  `HERMOD_TRACE_PARTITIONING=off`. Existing tables are left alone — a table
+  cannot be altered into a partitioned one, and rebuilding one is an operator's
+  decision to make in a window, not something to do unattended at start-up.
+- **Tracing is off in `DefaultConfig`.** It defaulted to `TraceSampleRate: 1.0`,
+  so any engine that did not apply the per-workflow rate traced every message.
+  The registry does apply it, which meant the default only governed the paths
+  that forgot — the ones nobody is watching. Off is fixable by configuration; a
+  full disk is not.
+
+**`currentSchemaVersion` is now 2.** This is the rollback the version exists to
+block: the previous release inserts `id` and `before_data` by name and selects
+`before_data`, and both columns are gone after this migration. An older binary
+would fail every trace write and every trace read, so it is refused instead.
+
+**Upgrading.** The columns are dropped in place where the engine allows it
+(PostgreSQL, MySQL). SQLite cannot drop a primary key, so the `id` survives
+there and the insert keeps supplying one — no saving on those databases, but no
+breakage either. Two things worth doing deliberately:
+
+- If the table is already huge, truncate or copy-and-swap **before** deploying.
+  Nothing here bulk-deletes, but the first retention sweep after the parse fix
+  above will.
+- Traces recorded before this upgrade have no parent row and so will not appear
+  in the list until backfilled. This is not run automatically because on a large
+  table it is a long aggregate that would block start-up:
+
+  ```sql
+  INSERT INTO message_traces (workflow_id, message_id, started_at, last_step_at, duration_ms, step_count, error_count)
+  SELECT workflow_id, message_id, MIN(timestamp), MAX(timestamp), COALESCE(SUM(duration_ms),0), COUNT(*),
+         COUNT(*) FILTER (WHERE error IS NOT NULL AND error <> '')
+  FROM message_trace_steps GROUP BY workflow_id, message_id
+  ON CONFLICT DO NOTHING;
+  ```
+
+### Fixed — trace retention never ran, and `message_trace_steps` grew without bound
+
+`purgeRetention` parsed each workflow's `trace_retention` and `audit_retention`
+with `time.ParseDuration`, which has no `d` unit. The workflow editor defaults
+the field to `7d`. So the parse failed **on the default value**, the call site
+only acted when the error was nil, and the sweep was skipped — silently, for
+every workflow, forever.
+
+Nothing else bounds that table. `message_trace_steps` stores `before_data` and
+`after_data`: the entire message payload, twice, per node, per message. The bug
+was found on a deployment whose PostgreSQL grew **50 GB in a couple of hours**.
+
+A day-aware `parseDuration` already existed in the same file, 1,400 lines below
+the call site. Both call sites now use it, so `7d`, `30d` and `365d` work as the
+field has always been documented. An unparseable value is now **logged as an
+error** naming the workflow and the value, instead of being swallowed: there is
+no safe fallback — defaulting to a short window would delete traces nobody asked
+to lose, and defaulting to none restores exactly this bug — so the sweep keeps
+the data and says why.
+
+`message_trace_steps` also gained `idx_trace_ts` on `timestamp`. The purge
+filters on that column alone and the only existing index was
+`(workflow_id, message_id)`, so a sweep that now actually runs would otherwise
+sequentially scan the largest table Hermod owns, hourly, once per workflow.
+`audit_logs` has had `idx_audit_ts` for this reason all along.
+
+**Upgrading with a table that is already huge:** truncate or copy-and-swap
+*before* deploying this. The first successful sweep issues a single
+`DELETE ... WHERE timestamp < ?` against everything past the window, which on a
+50 GB table means tens of GB of WAL and a table still holding its dead tuples
+until `VACUUM FULL`. `CREATE INDEX` on that table will also block startup until
+it completes. Both are instant against an empty table.
+
+**Still open — per-workflow trace retention is not per-workflow.**
+`PurgeMessageTraces` executes `DELETE FROM message_trace_steps WHERE timestamp
+< ?` with no `workflow_id` predicate, but the caller loops over workflows and
+computes the cutoff from each one's own setting. A workflow with `7d` therefore
+deletes the traces of a workflow configured for `365d`, and the sweep repeats
+the same global delete once per workflow every hour. Fixing it needs a decision
+about traces belonging to deleted workflows, so it is reported rather than
+quietly changed.
+
+### Fixed — the dashboard stopped updating when nothing was happening
+
+The only thing that ever pushed dashboard statistics was `BroadcastStatus`, and
+that is wired to an engine's status-change callback. With no workflow running
+there is no engine, so nothing fired: the WebSocket delivered one snapshot when
+the page loaded and then went silent. Measured against a running server, that
+was one message in fifteen seconds — uptime, worker count and health frozen at
+whatever they happened to be when the page opened.
+
+This is the worst possible failure for a monitoring screen, because a dashboard
+that has stopped updating looks exactly like a system with nothing wrong. The
+registry now samples on a five-second tick regardless of engine activity, which
+is the floor rather than the only source: `BroadcastStatus` still pushes on
+engine activity so a busy pipeline stays responsive.
+
+Two related gaps closed with it. The socket was opened once with no `onclose`
+or `onerror`, so a dropped connection was never re-established and never
+surfaced; it now reconnects with jittered backoff and the header says plainly
+whether what you are reading is **Live** or **Reconnecting**. And every fetch
+ended in `.catch(console.error)`, so an API returning 500 rendered as a tidy
+dashboard full of zeros — which reads as "healthy and idle". Failures are now
+shown.
+
+### Removed — the dashboard's invented trend badge
+
+The throughput card rendered a green "+5%" whenever throughput was above zero.
+It was a literal `5` in the source, with no previous value behind it and no
+period it referred to. A fabricated number on the one screen whose entire job
+is to be believed costs more than the decoration was worth.
+
+### Added — latency, error rate, backpressure and circuit breakers on the dashboard
+
+The engines already computed all of this per workflow and it had nowhere to go:
+`telemetry.StatusUpdate` carried average latency, sink buffer fill and per-sink
+circuit-breaker state, and the dashboard read throughput and lag from it and
+dropped the rest. It is now aggregated across running engines, each with the
+combining rule the quantity actually calls for — throughput sums, latency
+averages over engines that report one, and backpressure takes the *worst* sink
+rather than the mean, because one jammed sink among nine idle ones is a stalled
+pipeline and averaging it to 10% is the reading least likely to get anyone to
+look.
+
+Error rate is derived from the persisted counters as the dead-lettered share of
+everything attempted. There is deliberately no separate dead-letter count:
+`total_errors` already is that number, and showing one value twice under two
+names is how a dashboard loses the reader's trust.
+
+The page also now shows the six figures the API had been returning all along
+and the UI discarded — lag, failed workflows, uptime, and the running-against-
+configured counts for sources and sinks.
+
+### Added — persisted dashboard history
+
+The throughput chart lived entirely in React state, so every reload threw the
+trend away and restarted from a flat line, making a page refresh
+indistinguishable from an outage. Samples are now written to a new
+`dashboard_history` table on the same five-second tick and the chart is seeded
+from `GET /api/dashboard/history` on load.
+
+The global series is always kept, because history exists to answer questions
+asked after the fact and a series that only accrues while someone has the page
+open is missing for exactly the outage nobody was watching. Per-tenant series
+accrue while that tenant's dashboard is open. The table is swept on the
+existing hourly retention pass with a seven-day window, and both the window and
+the row limit on the endpoint are clamped, since both come off the query string.
+
+`currentSchemaVersion` is deliberately unchanged. The previous release never
+reads or writes `dashboard_history`, nothing existing changed shape, and no
+foreign key points at it, so a rollback leaves the table unpopulated rather
+than misread — and bumping the version would have refused start-up during
+exactly the rollback it was meant to make safe.
+
+**What it costs, and how to spend less.** This is the only append-only table in
+the metadata database — a row every five seconds per watched vhost, whether or
+not anyone is looking — so its footprint is a feature of the product, not an
+implementation detail. Measured in SQLite over one week of one series it is
+**14.08 MB**, down from 21 MB as first written:
+
+- the surrogate UUID primary key is gone. Rows here are never addressed
+  individually — every read is a range scan over `(vhost, timestamp)` and every
+  delete a range sweep — so the id was written on every tick and selected by
+  nothing. It was 9.6 MB of a 21 MB table, 46% of the disk, and on MongoDB a
+  36-byte random `_id` has been replaced by the driver's 12-byte ascending
+  ObjectId;
+- timestamps are truncated to the second. A five-second sample never had
+  microsecond precision, and the SQLite driver stores a `time.Time` as text, so
+  those digits were bytes in the row and again in the covering index.
+
+Two new environment variables make the rest adjustable, because the right
+answer depends on the box: `HERMOD_DASHBOARD_SAMPLE_INTERVAL` (default `5s`)
+and `HERMOD_DASHBOARD_HISTORY_RETENTION` (default `168h`). They multiply —
+`30s` at `24h` is roughly 1/42 of the default footprint. Setting retention to
+`0` turns history off entirely and sweeps what is already there: the dashboard
+stays live, the chart just shows what the open page has collected. A malformed
+value falls back to the default rather than to zero, so a typo cannot silently
+delete the series.
+
+Backends that cannot store history — Pebble, and any worker node, which reaches
+the control plane over HTTP and owns no database — now say so with
+`hermod.ErrNotSupported` instead of a bare error or a silent `nil`. The sampler
+latches that and stops asking. Previously Pebble logged a failure every five
+seconds forever, which made the backend that stores no history the one that
+wrote the most to disk.
 ### Fixed — `db_lookup` stopped flattening after the first message with a given key
 
 `flattenInto` ("Flatten Result") was applied only on the path that actually

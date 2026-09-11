@@ -300,6 +300,29 @@ type MessageTrace struct {
 	WorkflowID string             `json:"workflow_id"`
 	Steps      []hermod.TraceStep `json:"steps"`
 	CreatedAt  time.Time          `json:"created_at"`
+
+	// Summary fields, carried on the parent row so the trace list never has to
+	// touch the step table. Listing used to aggregate every step a workflow had
+	// ever produced — measured on PostgreSQL 17, a sequential scan of 250k rows
+	// and ~390 MB of I/O to return 25 of them — because "when did this message
+	// start" was only derivable as MIN(timestamp) over its steps. It is now
+	// written once, when the steps are.
+	StepCount  int   `json:"step_count"`
+	ErrorCount int   `json:"error_count"`
+	DurationMs int64 `json:"duration_ms"`
+}
+
+// TraceFilter selects a page of message traces.
+//
+// Before is a keyset cursor: pass the CreatedAt of the last row you saw and the
+// next page is an index seek, not a scan-and-discard. Offset remains for
+// callers that page by number, and is cheap now that it walks one row per
+// message rather than one per step — but it still reads and throws away
+// everything it skips, so Before is the one to reach for.
+type TraceFilter struct {
+	Before time.Time
+	Limit  int
+	Offset int
 }
 
 type WorkflowVersion struct {
@@ -377,6 +400,74 @@ type DashboardStats struct {
 	TotalSources    int     `json:"total_sources"`
 	TotalSinks      int     `json:"total_sinks"`
 	Throughput      float64 `json:"throughput"` // Messages per second
+
+	// Health signals. These answer "is the data moving well?", which the
+	// counters above cannot: a pipeline with a rising TotalProcessed and a
+	// wedged sink looks identical to a healthy one until someone reads the
+	// logs.
+	//
+	// There is deliberately no DeadLetterCount here. TotalErrors is already
+	// exactly that — flushStatsToStorage persists baseErrors +
+	// StatusUpdate.DeadLetterCount into total_errors — and showing the same
+	// number twice under two names is how a dashboard loses the reader's
+	// trust.
+	//
+	// ErrorRate is derived from the persisted counters and so is cumulative
+	// over the workflow's life. The other three are point-in-time readings of
+	// engines running on this node, so they reset when an engine restarts and
+	// read zero when nothing is running.
+	ErrorRate           float64 `json:"error_rate"`     // Dead-lettered share of attempted messages, 0..1
+	AvgLatencyMs        float64 `json:"avg_latency_ms"` // Mean end-to-end latency across running engines
+	Backpressure        float64 `json:"backpressure"`   // Worst sink buffer fill, 0..1
+	CircuitBreakersOpen int     `json:"circuit_breakers_open"`
+
+	// A pending-approvals count is deliberately absent. The approvals table
+	// has no vhost column and ListApprovals filters only on workflow and
+	// status, so the only count available here is the global one — and vhost
+	// is an authorization boundary (users carry a vhosts list), so showing it
+	// on a single-tenant dashboard would tell one tenant about another's
+	// queue. Adding it means a vhost-aware count on every backend.
+}
+
+// DashboardSample is one point of dashboard history.
+//
+// The throughput chart used to be built entirely in the browser: the page held
+// the last thirty WebSocket readings in React state and threw them away on
+// reload. That makes a reload indistinguishable from an outage — the chart
+// restarts at zero either way — and means nobody can answer "was it like this
+// an hour ago?". Persisting a sample per interval is what turns that sliver
+// into a series the chart can be rebuilt from.
+//
+// It is deliberately a narrow projection of DashboardStats rather than the
+// whole struct: configuration counts (TotalSources, TotalWorkflows) describe
+// what exists rather than what happened, and storing them once per interval
+// would be a lot of rows to say nothing. Only the fields that move over time
+// are kept, and none of them are message payloads, so no customer data enters
+// this table.
+type DashboardSample struct {
+	Timestamp       time.Time `json:"timestamp"`
+	VHost           string    `json:"vhost"`
+	Throughput      float64   `json:"throughput"`
+	TotalProcessed  uint64    `json:"total_processed"`
+	TotalErrors     uint64    `json:"total_errors"`
+	TotalLag        uint64    `json:"total_lag"`
+	ErrorRate       float64   `json:"error_rate"`
+	AvgLatencyMs    float64   `json:"avg_latency_ms"`
+	ActiveWorkflows int       `json:"active_workflows"`
+	ActiveWorkers   int       `json:"active_workers"`
+}
+
+// NormalizeVHost maps the two spellings of "no vhost filter" onto one.
+//
+// The UI sends vhost=all for the unfiltered view while GetDashboardStats
+// treats an empty string the same way. Storing history under both spellings
+// would split one series into two, so every read and write of a sample goes
+// through here.
+func NormalizeVHost(vhost string) string {
+	if vhost == "all" {
+		return ""
+	}
+	return vhost
 }
 
 type Storage interface {
@@ -488,7 +579,7 @@ type Storage interface {
 	// Message Tracing
 	RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error
 	GetMessageTrace(ctx context.Context, workflowID, messageID string) (MessageTrace, error)
-	ListMessageTraces(ctx context.Context, workflowID string, limit, offset int) ([]MessageTrace, error)
+	ListMessageTraces(ctx context.Context, workflowID string, filter TraceFilter) ([]MessageTrace, error)
 
 	// Workflow Versioning
 	CreateWorkflowVersion(ctx context.Context, version WorkflowVersion) error
@@ -524,4 +615,10 @@ type Storage interface {
 
 	// Aggregated Dashboard Stats
 	GetDashboardStats(ctx context.Context, vhost string) (DashboardStats, error)
+
+	// Dashboard history. Samples are appended on an interval so the dashboard
+	// chart survives a page reload; PurgeDashboardHistory bounds the table.
+	RecordDashboardSample(ctx context.Context, sample DashboardSample) error
+	GetDashboardHistory(ctx context.Context, vhost string, since time.Time, limit int) ([]DashboardSample, error)
+	PurgeDashboardHistory(ctx context.Context, before time.Time) error
 }

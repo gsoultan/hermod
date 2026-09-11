@@ -420,7 +420,8 @@ func (s *pebbleStorage) GetMessageTrace(ctx context.Context, workflowID, message
 	return trace, nil
 }
 
-func (s *pebbleStorage) ListMessageTraces(ctx context.Context, workflowID string, limit, offset int) ([]storage.MessageTrace, error) {
+func (s *pebbleStorage) ListMessageTraces(ctx context.Context, workflowID string, f storage.TraceFilter) ([]storage.MessageTrace, error) {
+	limit, offset := f.Limit, f.Offset
 	var traces []storage.MessageTrace
 	prefix := []byte(fmt.Sprintf("t:%s:", workflowID))
 	iter, err := s.db.NewIter(&pebble.IterOptions{
@@ -712,6 +713,33 @@ func (s *pebbleStorage) UninstallPlugin(ctx context.Context, id string) error {
 
 func (s *pebbleStorage) GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error) {
 	return storage.DashboardStats{}, errors.New("not implemented")
+}
+
+// Dashboard history is not implemented on this backend, consistent with
+// GetDashboardStats above.
+//
+// The write paths report that honestly rather than returning nil: a recorder
+// that silently succeeds without storing anything would leave the caller
+// believing it has history it cannot read back. The read returns an empty
+// series instead of an error, the way ListSuspendedMessages does, so a
+// dashboard pointed at this backend renders an empty chart rather than
+// gaining a new failing request.
+//
+// They wrap hermod.ErrNotSupported rather than returning a bare error so the
+// caller can tell "this backend will never do this" from "this write failed".
+// The registry samples every five seconds on every node: without that
+// distinction it retries forever and logs each failure, and the backend that
+// stores no history at all becomes the one that writes the most to disk.
+func (s *pebbleStorage) RecordDashboardSample(ctx context.Context, sample storage.DashboardSample) error {
+	return fmt.Errorf("%w: pebble does not store dashboard history", hermod.ErrNotSupported)
+}
+
+func (s *pebbleStorage) GetDashboardHistory(ctx context.Context, vhost string, since time.Time, limit int) ([]storage.DashboardSample, error) {
+	return nil, nil
+}
+
+func (s *pebbleStorage) PurgeDashboardHistory(ctx context.Context, before time.Time) error {
+	return fmt.Errorf("%w: pebble does not store dashboard history", hermod.ErrNotSupported)
 }
 func (s *pebbleStorage) ListApprovals(ctx context.Context, filter storage.ApprovalFilter) ([]storage.Approval, int, error) {
 	return nil, 0, errors.New("not implemented")

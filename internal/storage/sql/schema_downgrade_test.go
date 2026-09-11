@@ -29,7 +29,28 @@ import (
 // nobody remembers to change is a gate that never fires; here the fingerprint
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
-const knownSchemaFingerprint = "b9e4b728280820b7eb2da0fd3467e671295f0c8cb0ee35fb5820ada9af9f1290"
+//
+// Last moved by: narrowing message_trace_steps (dropping the write-only id and
+// the duplicated before_data) and adding the message_traces parent table.
+// currentSchemaVersion was bumped to 2 for this one, unlike the changes below.
+//
+// This is the dangerous direction the version exists to block. The previous
+// release's RecordTraceStep inserts id and before_data by name, and its
+// GetMessageTrace selects before_data. Both columns are gone after this
+// migration, so an older binary rolled back onto this database would fail
+// every trace write and every trace read — not degrade, fail. Refusing to
+// start is the correct outcome.
+//
+// The earlier note, still true of the change it describes: adding the
+// dashboard_history table, then narrowing it to drop the surrogate id column
+// before it shipped, left currentSchemaVersion alone deliberately. The question this gate asks is whether the previous
+// release would *misread* the result, and it would not: dashboard_history is a
+// standalone table no earlier code path reads or writes, nothing existing
+// changed shape, and no foreign key points at it. A rollback leaves the table
+// unpopulated — a gap in a chart that fills itself in when the newer binary
+// returns — so bumping the version would buy nothing and cost a refused
+// start-up during exactly the rollback it was supposed to make safe.
+const knownSchemaFingerprint = "4e5b02f04a3d812f3bb3b5ec22aaecd6ab0ade849d3b4f132b959478fac51df6"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

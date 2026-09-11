@@ -7,6 +7,7 @@ import (
 
 func (h *DashboardHandler) RegisterDashboardRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/dashboard/stats", h.GetDashboardStats)
+	mux.HandleFunc("GET /api/dashboard/history", h.GetDashboardHistory)
 }
 
 func (h *DashboardHandler) GetDashboardStats(w http.ResponseWriter, r *http.Request) {
