@@ -607,6 +607,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             result={previewResult || (previewMutation as any)?.data}
             original={incomingPayload}
             onRun={runPreview}
+            targetField={selectedNode.data.targetField || selectedNode.data.target_field}
           />
         </Suspense>
       </Grid.Col>
