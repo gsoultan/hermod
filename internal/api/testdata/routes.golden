@@ -28,6 +28,7 @@ GET /api/config/secrets
 GET /api/config/state
 GET /api/config/status
 GET /api/config/storage
+GET /api/dashboard/history
 GET /api/dashboard/stats
 GET /api/forms/{path...}
 GET /api/infra/lineage

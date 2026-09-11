@@ -3,7 +3,9 @@ package worker
 import (
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
 )
 
@@ -64,4 +66,33 @@ func TestAPIStorage_SafeDefaults(t *testing.T) {
 			t.Errorf("SaveSetting() = %v; want nil", err)
 		}
 	})
+}
+
+// A worker's registry runs the same five-second dashboard sampler as the
+// control plane, but this adapter holds no database — the samples belong to
+// the node that owns one. Returning nil made every tick look like a successful
+// write, so the sampler kept calling across the network forever; returning a
+// bare error would have filled worker logs at the same rate. Wrapping
+// hermod.ErrNotSupported lets the sampler latch after one tick and stop.
+func TestDashboardHistoryOnAWorkerIsUnsupportedNotSilent(t *testing.T) {
+	s := NewAPIStorage(&WorkerAPIClient{})
+
+	for _, tc := range []struct {
+		name string
+		call func() error
+	}{
+		{"RecordDashboardSample", func() error {
+			return s.RecordDashboardSample(t.Context(), storage.DashboardSample{})
+		}},
+		{"PurgeDashboardHistory", func() error {
+			return s.PurgeDashboardHistory(t.Context(), time.Now())
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.call(); !errors.Is(err, hermod.ErrNotSupported) {
+				t.Errorf("returned %v; the sampler cannot tell that this node will "+
+					"never store history, so it keeps asking every five seconds", err)
+			}
+		})
+	}
 }

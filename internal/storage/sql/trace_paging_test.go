@@ -6,8 +6,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
+// Paging now walks message_traces — one row per traced message — rather than
+// aggregating message_trace_steps, so this goes through RecordTraceStep to get
+// the parent rows written the way production writes them.
 func TestListMessageTraces_Paging(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -23,22 +28,23 @@ func TestListMessageTraces_Paging(t *testing.T) {
 	}
 
 	workflowID := uuid.New().String()
-	base := time.Now()
+	base := time.Now().UTC()
 
-	// Insert 5 distinct message traces with strictly increasing timestamps so
-	// the newest message (msg-4) is returned first (ORDER BY start_time DESC).
+	// Five messages with strictly increasing timestamps, so the newest is
+	// returned first.
 	messageIDs := make([]string, 5)
 	for i := range messageIDs {
 		messageIDs[i] = uuid.New().String()
-		_, err := db.Exec(`INSERT INTO message_trace_steps (id, message_id, workflow_id, node_id, timestamp, duration_ms, before_data, after_data, error)
-			VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`,
-			uuid.New().String(), messageIDs[i], workflowID, "node-1", base.Add(time.Duration(i)*time.Minute), 10)
+		err := s.RecordTraceStep(ctx, workflowID, messageIDs[i], hermod.TraceStep{
+			NodeID:    "node-1",
+			Timestamp: base.Add(time.Duration(i) * time.Minute),
+			Duration:  10 * time.Millisecond,
+		})
 		if err != nil {
-			t.Fatalf("failed to insert trace step: %v", err)
+			t.Fatalf("failed to record trace step: %v", err)
 		}
 	}
 
-	// Expected DESC order by start_time: newest (index 4) first.
 	descOrder := []string{messageIDs[4], messageIDs[3], messageIDs[2], messageIDs[1], messageIDs[0]}
 
 	tests := []struct {
@@ -56,7 +62,9 @@ func TestListMessageTraces_Paging(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			traces, err := s.ListMessageTraces(ctx, workflowID, tc.limit, tc.offset)
+			traces, err := s.ListMessageTraces(ctx, workflowID, storage.TraceFilter{
+				Limit: tc.limit, Offset: tc.offset,
+			})
 			if err != nil {
 				t.Fatalf("ListMessageTraces failed: %v", err)
 			}

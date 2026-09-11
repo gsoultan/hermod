@@ -45,6 +45,12 @@ find a claim that outruns the code, fix the claim.
 - [Reachability tests](reachability_tests.md) — a feature configured through storage
   needs one test that starts from storage; three shipped bugs had full unit and
   integration coverage of the parts and none of the assembly.
+- [dashboard_history footprint](dashboard_history_footprint.md) — the only
+  append-only table; measured 21 -> 14.08 MB/week/series, the env knobs that
+  shrink it, and why ErrNotSupported is a storage decision.
+- [Retention sweeps and trace growth](retention_sweep_and_trace_growth.md) —
+  `time.ParseDuration` cannot read the UI's default `7d`, so the trace purge
+  silently never ran and PostgreSQL grew 50 GB in hours.
 
 ### Gates
 

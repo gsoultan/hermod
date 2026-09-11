@@ -86,11 +86,17 @@ func DefaultConfig() Config {
 		StatusInterval:      5 * time.Second,
 		CheckpointInterval:  1 * time.Minute,
 		OutboxRelayInterval: 1 * time.Minute,
-		TraceSampleRate:     1.0,
-		MaxInflight:         128,
-		DrainTimeout:        10 * time.Second,
-		StallThreshold:      envDuration("HERMOD_STALL_THRESHOLD", 60*time.Second),
-		LagWarnBytes:        envBytes("HERMOD_LAG_WARN_BYTES", 256<<20),
+		// Off by default. Tracing writes the payload into message_trace_steps
+		// — a row per node per message — so a default of 1.0 meant any engine
+		// that did not set the per-workflow rate traced everything. The
+		// registry does set it (registry_workflow.go), so this governs only
+		// the paths that forget, which are the ones nobody is watching. Off is
+		// fixable by configuration; a full disk is not.
+		TraceSampleRate: 0,
+		MaxInflight:     128,
+		DrainTimeout:    10 * time.Second,
+		StallThreshold:  envDuration("HERMOD_STALL_THRESHOLD", 60*time.Second),
+		LagWarnBytes:    envBytes("HERMOD_LAG_WARN_BYTES", 256<<20),
 		// Postgres keepalives arrive every wal_sender_timeout/2 (30s at the
 		// 60s default), so a 10s sample notices silence promptly without
 		// polling the source pointlessly often.

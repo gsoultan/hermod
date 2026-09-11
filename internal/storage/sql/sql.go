@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,13 @@ type sqlStorage struct {
 	db      *sql.DB
 	driver  string
 	queries *queryRegistry
+
+	// traceStepsKeepsLegacyID records that message_trace_steps still carries
+	// the surrogate id this version no longer writes, because the database
+	// predates the narrowing and the column could not be dropped (SQLite
+	// cannot drop a primary key). It is NOT NULL there, so the insert has to
+	// keep supplying one. Set once during Init and read-only afterwards.
+	traceStepsKeepsLegacyID bool
 }
 
 func NewSQLStorage(db *sql.DB, driver string) storage.Storage {
@@ -161,7 +169,7 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		s.queries.get(QueryInitSettingsTable),
 		s.queries.get(QueryInitAuditLogsTable),
 		s.queries.get(QueryInitSchemasTable),
-		s.queries.get(QueryInitMessageTraceStepsTable),
+		s.traceStepsDDL(),
 		s.queries.get(QueryInitWorkflowVersionsTable),
 		s.queries.get(QueryInitOutboxTable),
 		s.queries.get(QueryInitWorkspacesTable),
@@ -173,6 +181,8 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		// discarded, and the message was gone. A wait longer than thirty seconds
 		// destroyed everything that passed through it.
 		s.queries.get(QueryInitSuspendedMessagesTable),
+		s.queries.get(QueryInitDashboardHistoryTable),
+		s.queries.get(QueryInitMessageTracesTable),
 	}
 
 	for _, q := range initQueries {
@@ -201,6 +211,17 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 	// upgrade, while they are still watching.
 	if err := s.autoMigrate(ctx); err != nil {
 		return err
+	}
+
+	// Best-effort, and deliberately after autoMigrate: the columns it drops are
+	// no longer in the DDL, so autoMigrate will not put them back.
+	s.narrowTraceSteps(ctx)
+
+	// A partitioned table with no partitions rejects every insert, so this runs
+	// before anything can write. It is a no-op on every engine but PostgreSQL,
+	// and on tables that predate partitioning being enabled.
+	if err := s.ensureTracePartitions(ctx, time.Now().UTC()); err != nil {
+		return fmt.Errorf("creating message_trace_steps partitions: %w", err)
 	}
 
 	// Record what was applied, now that everything succeeded. A failed migration
@@ -254,6 +275,14 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_sinks_name ON sinks(name)",
 		// Workers
 		"CREATE INDEX IF NOT EXISTS idx_workers_last_seen ON workers(last_seen)",
+		// Dashboard history. Every read is "this vhost, newer than X, newest
+		// first", so the composite covers the filter and the sort together and
+		// the purge sweep can range-scan the same index.
+		"CREATE INDEX IF NOT EXISTS idx_dashboard_history_vhost_ts ON dashboard_history(vhost, timestamp DESC)",
+		// The trace list is "this workflow, newest first, first N": the
+		// composite covers the filter and the sort, so the page is an index
+		// scan whose cost is the page size rather than the table size.
+		"CREATE INDEX IF NOT EXISTS idx_message_traces_wf_started ON message_traces(workflow_id, started_at DESC)",
 	}
 
 	for _, q := range indexQueries {
@@ -265,6 +294,12 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id)"))
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id)"))
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_trace_msg ON message_trace_steps(workflow_id, message_id)"))
+	// The retention sweep filters on timestamp alone, and idx_trace_msg does not
+	// cover it. Without this the hourly purge sequentially scans what is usually
+	// the largest table Hermod owns — it stores before_data and after_data, the
+	// whole payload twice per node per message. audit_logs has idx_audit_ts for
+	// the same reason.
+	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_trace_ts ON message_trace_steps(timestamp)"))
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_workflow_versions_id ON workflow_versions(workflow_id, version)"))
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox(status, created_at)"))
 
@@ -456,6 +491,60 @@ func (s *sqlStorage) alterableType(colType string) string {
 		colType = colType[:idx]
 	}
 	return colType
+}
+
+// narrowTraceSteps drops the two columns message_trace_steps no longer writes.
+//
+// autoMigrate only ever adds columns, which is the right default — but these
+// two are the difference between 262 MB and 123 MB per 250k rows, and leaving
+// them costs that forever on the largest table Hermod owns. The id is also
+// NOT NULL, so the narrowed insert cannot run while it survives.
+//
+// Every step is best-effort. SQLite cannot drop a primary key at all, and a
+// database that refuses either drop is not broken — it just keeps paying for
+// the columns, and keeps working, which is the only acceptable outcome for a
+// migration that runs unattended at start-up against a table that may be
+// enormous. What must not happen is a start-up that fails, or an insert that
+// does.
+func (s *sqlStorage) narrowTraceSteps(ctx context.Context) {
+	// Fixed statements rather than a column name interpolated into DDL. There
+	// are exactly two, they are never caller-supplied, and spelling them out
+	// keeps that obvious to a reader and to the analyser.
+	for _, q := range []string{
+		"ALTER TABLE message_trace_steps DROP COLUMN before_data",
+		"ALTER TABLE message_trace_steps DROP COLUMN id",
+	} {
+		_, _ = s.db.ExecContext(ctx, s.prepareQuery(q))
+	}
+	s.traceStepsKeepsLegacyID = s.traceStepsHasLegacyID(ctx)
+}
+
+// traceStepsHasLegacyID and traceStepsHasBeforeData ask the database rather
+// than assuming the drops above worked, because each engine refuses for its own
+// reasons — SQLite cannot drop a primary key at all.
+//
+// A zero-row projection is the one probe every dialect answers the same way: it
+// parses, so the column resolves, and it reads nothing, so it costs nothing on
+// a table with millions of rows. Each spells its query out in full rather than
+// taking a column name, so no identifier is ever interpolated into SQL.
+func (s *sqlStorage) traceStepsHasLegacyID(ctx context.Context) bool {
+	return probeSucceeded(s.db.QueryContext(ctx,
+		"SELECT id FROM message_trace_steps WHERE 1 = 0"))
+}
+
+func (s *sqlStorage) traceStepsHasBeforeData(ctx context.Context) bool {
+	return probeSucceeded(s.db.QueryContext(ctx,
+		"SELECT before_data FROM message_trace_steps WHERE 1 = 0"))
+}
+
+// probeSucceeded takes the two results of a Query directly so the call above
+// reads as one expression.
+func probeSucceeded(rows *sql.Rows, err error) bool {
+	if err != nil {
+		return false
+	}
+	defer func() { _ = rows.Close() }()
+	return rows.Err() == nil
 }
 
 // addColumn adds one column, treating "it is already there" as success. That is
@@ -2019,8 +2108,31 @@ func (s *sqlStorage) PurgeAuditLogs(ctx context.Context, before time.Time) error
 }
 
 func (s *sqlStorage) PurgeMessageTraces(ctx context.Context, before time.Time) error {
+	// Keep the window stocked while we are here. This is the only hourly hook
+	// the storage layer gets, and a partition that does not exist by the time
+	// its day arrives sends rows to DEFAULT.
+	if err := s.ensureTracePartitions(ctx, time.Now().UTC()); err != nil {
+		return err
+	}
+
+	// Whole expired days go by DROP TABLE: a catalogue change and an unlink,
+	// rather than a range delete that rewrites every row into WAL and leaves
+	// the space behind until VACUUM FULL. The delete below still runs, and on
+	// a partitioned table it only has to trim the day the cutoff falls inside
+	// plus anything that landed in DEFAULT.
+	if _, err := s.dropTracePartitionsBefore(ctx, before); err != nil {
+		return err
+	}
+
 	exec := func() error {
-		_, err := s.exec(ctx, s.queries.get(QueryPurgeMessageTraces), before)
+		// Steps first, then the parent rows that index them. In the other
+		// order a crash between the two would leave the list advertising
+		// traces whose steps are already gone, which reads as data loss
+		// rather than as retention.
+		if _, err := s.exec(ctx, s.queries.get(QueryPurgeMessageTraces), before); err != nil {
+			return err
+		}
+		_, err := s.exec(ctx, s.queries.get(QueryPurgeMessageTraceParents), before)
 		return err
 	}
 	return s.execWithRetry(ctx, exec)
@@ -2367,9 +2479,38 @@ func (s *sqlStorage) CreateSchema(ctx context.Context, sc storage.Schema) error 
 	return s.execWithRetry(ctx, exec)
 }
 
-func (s *sqlStorage) RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error {
-	id := uuid.New().String()
+// defaultTraceMaxPayloadBytes bounds what one step may store.
+//
+// A trace is a diagnostic, not an archive, and without a ceiling a single
+// oversized message writes an unbounded row into the largest table Hermod
+// owns. Override with HERMOD_TRACE_MAX_PAYLOAD_BYTES.
+const defaultTraceMaxPayloadBytes = 32 * 1024
 
+func traceMaxPayloadBytes() int {
+	if v := os.Getenv("HERMOD_TRACE_MAX_PAYLOAD_BYTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultTraceMaxPayloadBytes
+}
+
+// capTracePayload replaces an oversized payload with a marker.
+//
+// The marker is itself valid JSON rather than a truncated prefix: the viewer
+// unmarshals this column, and half a JSON document is not something it can
+// render or a reader can interpret. Saying "there was 4 MB here" is more
+// useful than 32 KB of a value with its closing brace missing.
+func capTracePayload(b []byte) []byte {
+	limit := traceMaxPayloadBytes()
+	if len(b) <= limit {
+		return b
+	}
+	return []byte(fmt.Sprintf(
+		`{"_hermod_truncated":true,"_original_bytes":%d,"_limit_bytes":%d}`, len(b), limit))
+}
+
+func (s *sqlStorage) RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error {
 	// Safety check: ensure we don't panic on invalid data during marshaling
 	safeMarshal := func(v any) []byte {
 		if v == nil {
@@ -2387,12 +2528,36 @@ func (s *sqlStorage) RecordTraceStep(ctx context.Context, workflowID, messageID 
 		return b
 	}
 
-	beforeBytes := safeMarshal(step.Before)
-	afterBytes := safeMarshal(step.After)
+	// Only After is stored. Before is the previous step's After, and keeping
+	// both put the whole payload chain in the table twice.
+	afterBytes := capTracePayload(safeMarshal(step.After))
+
+	errCount := 0
+	if step.Error != "" {
+		errCount = 1
+	}
 
 	exec := func() error {
-		_, err := s.exec(ctx, s.queries.get(QueryRecordTraceStep),
-			id, messageID, workflowID, step.NodeID, step.Timestamp, step.Duration.Milliseconds(), string(beforeBytes), string(afterBytes), step.Error)
+		if s.traceStepsKeepsLegacyID {
+			// The column survived the narrowing and is NOT NULL, so it still
+			// needs a value; nothing reads it.
+			if _, err := s.exec(ctx, s.queries.get(QueryRecordTraceStepLegacyID),
+				uuid.New().String(), messageID, workflowID, step.NodeID, step.Timestamp,
+				step.Duration.Milliseconds(), string(afterBytes), step.Error); err != nil {
+				return err
+			}
+		} else if _, err := s.exec(ctx, s.queries.get(QueryRecordTraceStep),
+			messageID, workflowID, step.NodeID, step.Timestamp,
+			step.Duration.Milliseconds(), string(afterBytes), step.Error); err != nil {
+			return err
+		}
+
+		// The parent row is what the trace list reads. Written here rather than
+		// derived later, because deriving it is the sequential scan this change
+		// exists to remove.
+		_, err := s.exec(ctx, s.queries.get(QueryUpsertMessageTrace),
+			workflowID, messageID, step.Timestamp, step.Timestamp,
+			step.Duration.Milliseconds(), errCount)
 		return err
 	}
 	return s.execWithRetry(ctx, exec)
@@ -2403,69 +2568,95 @@ func (s *sqlStorage) GetMessageTrace(ctx context.Context, workflowID, messageID 
 	if err != nil {
 		return storage.MessageTrace{}, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
-	var tr storage.MessageTrace
-	tr.WorkflowID = workflowID
-	tr.MessageID = messageID
-
+	tr := storage.MessageTrace{MessageID: messageID, WorkflowID: workflowID}
 	for rows.Next() {
 		var step hermod.TraceStep
-		var beforeStr, afterStr, errorStr sql.NullString
+		var afterStr, errorStr sql.NullString
 		var durationMs sql.NullInt64
-		if err := rows.Scan(&step.NodeID, &step.Timestamp, &durationMs, &beforeStr, &afterStr, &errorStr); err != nil {
+		if err := rows.Scan(&step.NodeID, &step.Timestamp, &durationMs, &afterStr, &errorStr); err != nil {
 			return storage.MessageTrace{}, err
 		}
 		if durationMs.Valid {
 			step.Duration = time.Duration(durationMs.Int64) * time.Millisecond
 		}
 		step.Error = errorStr.String
-		if beforeStr.Valid && beforeStr.String != "" {
-			_ = json.Unmarshal([]byte(beforeStr.String), &step.Before)
-		}
 		if afterStr.Valid && afterStr.String != "" {
 			_ = json.Unmarshal([]byte(afterStr.String), &step.After)
 		}
+
+		// Before is not stored: what entered this node is what left the one
+		// before it. Reconstructing it here keeps the viewer's contract intact
+		// while the table holds one copy of the payload instead of two. The
+		// first step has no predecessor, so its Before stays nil — which is
+		// honest, where the old column held the source's own input.
+		if n := len(tr.Steps); n > 0 {
+			step.Before = tr.Steps[n-1].After
+		}
 		tr.Steps = append(tr.Steps, step)
+	}
+	if err := rows.Err(); err != nil {
+		return storage.MessageTrace{}, err
 	}
 
 	if len(tr.Steps) == 0 {
 		return storage.MessageTrace{}, storage.ErrNotFound
 	}
-
 	tr.CreatedAt = tr.Steps[0].Timestamp
+	tr.StepCount = len(tr.Steps)
 	return tr, nil
 }
 
-func (s *sqlStorage) ListMessageTraces(ctx context.Context, workflowID string, limit, offset int) ([]storage.MessageTrace, error) {
-	if offset < 0 {
-		offset = 0
+// endOfTime stands in for "no cursor yet", the way beginningOfTime does for a
+// zero `since`. A far-future bound keeps one query shape for the first page and
+// every page after it.
+var endOfTime = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+
+func (s *sqlStorage) ListMessageTraces(ctx context.Context, workflowID string, filter storage.TraceFilter) ([]storage.MessageTrace, error) {
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 50
 	}
-	// This is a bit tricky with individual steps. We want unique message_ids.
-	rows, err := s.query(ctx, s.queries.get(QueryListMessageTraces), workflowID, limit, offset)
+
+	// Keyset unless the caller insists on an offset. Both read one row per
+	// message from message_traces rather than aggregating every step, which is
+	// the whole point; the cursor additionally makes page 200 cost what page 1
+	// does instead of reading and discarding everything before it.
+	var rows *sql.Rows
+	var err error
+	if filter.Offset > 0 {
+		rows, err = s.query(ctx, s.queries.get(QueryListMessageTracesOffset),
+			workflowID, limit, filter.Offset)
+	} else {
+		before := filter.Before
+		if before.IsZero() {
+			before = endOfTime
+		}
+		rows, err = s.query(ctx, s.queries.get(QueryListMessageTracesKeyset),
+			workflowID, before.UTC(), limit)
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	traces := []storage.MessageTrace{}
 	for rows.Next() {
-		var tr storage.MessageTrace
-		tr.WorkflowID = workflowID
-		// start_time comes from MIN(timestamp); aggregate columns can lose their
-		// type affinity (e.g. SQLite returns a string), so coerce it safely.
-		var startTime any
-		if err := rows.Scan(&tr.MessageID, &startTime); err != nil {
+		tr := storage.MessageTrace{WorkflowID: workflowID}
+		var startedAt any
+		if err := rows.Scan(&tr.MessageID, &startedAt, &tr.DurationMs, &tr.StepCount, &tr.ErrorCount); err != nil {
 			return nil, err
 		}
-		tr.CreatedAt = coerceTime(startTime)
+		tr.CreatedAt = coerceTime(startedAt)
 		traces = append(traces, tr)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return traces, nil
 }
 
-// coerceTime converts a scanned database value into a time.Time, tolerating the
-// time.Time, string and []byte representations returned by different drivers.
 func coerceTime(v any) time.Time {
 	switch t := v.(type) {
 	case time.Time:
@@ -2999,4 +3190,83 @@ func (s *sqlStorage) GetDashboardStats(ctx context.Context, vhost string) (stora
 	}
 
 	return stats, nil
+}
+
+// beginningOfTime stands in for a zero `since`, which means "no lower bound".
+//
+// Passing time.Time{} straight through works on SQLite but is a year-1
+// timestamp, which PostgreSQL accepts and MySQL's DATETIME rejects outright
+// (its range starts at 1000-01-01). Substituting a concrete floor keeps one
+// query shape across all three drivers instead of branching the SQL.
+var beginningOfTime = time.Unix(0, 0).UTC()
+
+func (s *sqlStorage) RecordDashboardSample(ctx context.Context, sample storage.DashboardSample) error {
+	if sample.Timestamp.IsZero() {
+		sample.Timestamp = time.Now().UTC()
+	}
+	// Truncated to the second: the sampler ticks every five, so anything finer
+	// is noise that costs bytes in the row and again in the (vhost, timestamp)
+	// index that covers every read. Measured over a week of one series in
+	// SQLite, where the driver encodes a time.Time as text, dropping it is
+	// 15.71 MB -> 14.08 MB.
+	_, err := s.exec(ctx, s.queries.get(QueryRecordDashboardSample),
+		storage.NormalizeVHost(sample.VHost),
+		sample.Timestamp.UTC().Truncate(time.Second),
+		sample.Throughput,
+		int64(sample.TotalProcessed),
+		int64(sample.TotalErrors),
+		int64(sample.TotalLag),
+		sample.ErrorRate,
+		sample.AvgLatencyMs,
+		sample.ActiveWorkflows,
+		sample.ActiveWorkers,
+	)
+	return err
+}
+
+func (s *sqlStorage) GetDashboardHistory(ctx context.Context, vhost string, since time.Time, limit int) ([]storage.DashboardSample, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	if since.IsZero() {
+		since = beginningOfTime
+	}
+
+	rows, err := s.query(ctx, s.queries.get(QueryGetDashboardHistory),
+		storage.NormalizeVHost(vhost), since.UTC(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	// Read newest-first (so LIMIT keeps the recent end) then reverse, because
+	// the chart plots left-to-right in time order.
+	var results []storage.DashboardSample
+	for rows.Next() {
+		var smp storage.DashboardSample
+		var processed, errCount, lag int64
+		if err := rows.Scan(
+			&smp.Timestamp, &smp.VHost, &smp.Throughput,
+			&processed, &errCount, &lag,
+			&smp.ErrorRate, &smp.AvgLatencyMs,
+			&smp.ActiveWorkflows, &smp.ActiveWorkers,
+		); err != nil {
+			return nil, err
+		}
+		smp.TotalProcessed = uint64(processed)
+		smp.TotalErrors = uint64(errCount)
+		smp.TotalLag = uint64(lag)
+		results = append(results, smp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	slices.Reverse(results)
+	return results, nil
+}
+
+func (s *sqlStorage) PurgeDashboardHistory(ctx context.Context, before time.Time) error {
+	_, err := s.exec(ctx, s.queries.get(QueryPurgeDashboardHistory), before.UTC())
+	return err
 }

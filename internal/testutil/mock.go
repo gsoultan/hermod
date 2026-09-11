@@ -199,6 +199,15 @@ func (m *BaseMockStorage) DeleteApproval(ctx context.Context, id string) error {
 func (m *BaseMockStorage) GetDashboardStats(ctx context.Context, vhost string) (storage.DashboardStats, error) {
 	return storage.DashboardStats{}, nil
 }
+func (m *BaseMockStorage) RecordDashboardSample(ctx context.Context, sample storage.DashboardSample) error {
+	return nil
+}
+func (m *BaseMockStorage) GetDashboardHistory(ctx context.Context, vhost string, since time.Time, limit int) ([]storage.DashboardSample, error) {
+	return nil, nil
+}
+func (m *BaseMockStorage) PurgeDashboardHistory(ctx context.Context, before time.Time) error {
+	return nil
+}
 
 func (m *BaseMockStorage) ListSuspendedMessages(ctx context.Context, workflowID string, before time.Time) ([]storage.SuspendedMessage, error) {
 	return nil, nil
@@ -211,7 +220,7 @@ func (m *BaseMockStorage) RecordTraceStep(ctx context.Context, workflowID, messa
 func (m *BaseMockStorage) GetMessageTrace(ctx context.Context, workflowID, messageID string) (storage.MessageTrace, error) {
 	return storage.MessageTrace{}, storage.ErrNotFound
 }
-func (m *BaseMockStorage) ListMessageTraces(ctx context.Context, workflowID string, limit, offset int) ([]storage.MessageTrace, error) {
+func (m *BaseMockStorage) ListMessageTraces(ctx context.Context, workflowID string, f storage.TraceFilter) ([]storage.MessageTrace, error) {
 	return nil, nil
 }
 
