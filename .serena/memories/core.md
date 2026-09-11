@@ -38,6 +38,10 @@ find a claim that outruns the code, fix the claim.
 - [Field encryption transformations](field_encryption_transformations.md) —
   `encrypt`/`decrypt`, the `enc:v1:` tag that makes re-runs idempotent, why
   validation cannot live in `Prepare`, and the inline-key risk.
+- [Message payload decoding](message_payload_decoding.md) — a body that is not a
+  JSON object is exposed under `payload`; `SetAfter` is a no-op alias for
+  `SetPayload`, and the real data loss was an ignored unmarshal error in both
+  `MarshalJSON` and `ToMap`.
 - [Reachability tests](reachability_tests.md) — a feature configured through storage
   needs one test that starts from storage; three shipped bugs had full unit and
   integration coverage of the parts and none of the assembly.

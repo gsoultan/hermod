@@ -41,6 +41,49 @@ the key, so anyone able to call it could already decrypt. It never echoes the ke
 back, sends `Cache-Control: no-store`, and truncates the preview so it cannot be
 used to drain a column.
 
+### Fixed — a source payload that was not a JSON object was silently dropped
+
+Sources are free to deliver a bare string, a number, or bytes that are not JSON
+at all: a RabbitMQ queue carrying plain text, a Kafka topic of CSV lines, a file
+read in `raw` mode. Only JSON *objects* survived. Anything else reached the sink
+as `{"id":"…","metadata":{…}}` — the body gone, no error logged, nothing in the
+trace. `MarshalJSON` unmarshalled the payload into the output map and discarded
+the error, so a payload with no fields to merge simply left nothing behind.
+
+A payload that is not a JSON object is now preserved under a `payload` field,
+holding the decoded JSON value where there is one (`42` stays a number, `[1,2]`
+stays an array) and the literal text otherwise. It is addressable by
+transformations and by sink templates as `{{.payload}}`.
+
+Three consequences of the same root cause are fixed together:
+
+- **Bodies reaching the sink.** Any sink configured with `format: json` or
+  `format: cdc` now emits the body. Sinks with no `format` set were never
+  affected — they publish `Payload()` bytes directly and always passed strings
+  through untouched.
+- **The workflow editor and message traces.** `ToMap` carried the same ignored
+  error, so a string payload rendered as an empty body in the test/preview panel
+  and in traces. It now agrees with `MarshalJSON`, and a test pins them together.
+- **CDC messages whose payload was not JSON.** These failed to marshal at all
+  (`invalid character 'h' looking for beginning of value`), failing the sink
+  write rather than losing the body quietly. The `before`/`after` envelope now
+  wraps such bytes instead of rejecting them.
+
+The S3 Parquet sink needed a matching change. It refused a record it could not
+build a row from by testing `Data()` for emptiness, which is exactly the
+invariant that moved: a non-object payload now decodes to one synthetic field,
+so the check passed the record through to the writer and the batch failed in
+`WriteStop` with `interface conversion: interface {} is nil, not string` --
+naming neither the record nor the reason. The guard now measures a record
+against the schema's own columns, which is what it always meant.
+
+The fix is in the message layer, so every source benefits without connector
+changes. JSON object payloads serialise exactly as before. Array payloads were
+already exposed under `payload`, which is why that name was widened to cover
+strings and scalars rather than a new one introduced: existing `{{.payload}}`
+templates keep resolving. Arrays also gain determinism — whether an array
+survived used to depend on whether a transformation had read the message first.
+
 ## [1.2.0] — 2026-09-10
 
 The `encrypt` and `decrypt` transformations added in 1.1.0 gain an algorithm
