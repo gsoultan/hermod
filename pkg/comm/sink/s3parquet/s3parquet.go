@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -24,6 +25,7 @@ type S3ParquetSink struct {
 	secretKey    string
 	endpoint     string
 	schema       string
+	schemaFields map[string]struct{}
 	parallelizer int64
 }
 
@@ -39,8 +41,60 @@ func NewS3ParquetSink(ctx context.Context, region, bucket, keyPrefix, accessKey,
 		secretKey:    secretKey,
 		endpoint:     endpoint,
 		schema:       schema,
+		schemaFields: schemaFieldNames(schema),
 		parallelizer: parallelizer,
 	}, nil
+}
+
+// schemaFieldNames pulls the top-level column names out of a parquet-go JSON
+// schema, whose fields carry them inside a comma-separated Tag: "name=id,
+// type=BYTE_ARRAY, ...".
+//
+// It returns nil when the schema cannot be parsed, which callers treat as "no
+// opinion" rather than "no columns" — refusing every record because the schema
+// string is in a shape not recognised here would be worse than the write error
+// the parquet writer would raise anyway.
+func schemaFieldNames(schema string) map[string]struct{} {
+	var parsed struct {
+		Fields []struct {
+			Tag string `json:"Tag"`
+		} `json:"Fields"`
+	}
+	if err := json.Unmarshal([]byte(schema), &parsed); err != nil {
+		return nil
+	}
+	names := make(map[string]struct{}, len(parsed.Fields))
+	for _, f := range parsed.Fields {
+		for part := range strings.SplitSeq(f.Tag, ",") {
+			if rest, ok := strings.CutPrefix(strings.TrimSpace(part), "name="); ok {
+				if name := strings.TrimSpace(rest); name != "" {
+					names[name] = struct{}{}
+				}
+				break
+			}
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return names
+}
+
+// writableFieldCount reports how many of the schema's columns this record can
+// actually fill. Zero means the parquet writer would be handed a row with none
+// of its required fields.
+func writableFieldCount(data map[string]any, schemaFields map[string]struct{}) int {
+	if len(schemaFields) == 0 {
+		// Schema shape unknown; fall back to "does it carry anything at all".
+		return len(data)
+	}
+	n := 0
+	for k := range data {
+		if _, ok := schemaFields[k]; ok {
+			n++
+		}
+	}
+	return n
 }
 
 func (s *S3ParquetSink) getS3Client(ctx context.Context) (*s3.Client, error) {
@@ -108,8 +162,13 @@ func (s *S3ParquetSink) WriteBatch(ctx context.Context, msgs []hermod.Message) e
 		// This used to fall back to unmarshalling the payload when Data() was
 		// nil and `continue` past a record it could not decode — silently, with
 		// the batch still reporting success. That fallback was also dead:
-		// Data() unmarshals the payload itself, so it returns an empty map
-		// rather than nil and the skip never ran.
+		// Data() unmarshals the payload itself, so the skip never ran.
+		//
+		// The check is against the schema's columns rather than against Data()
+		// being empty, because a payload that is not a JSON object now decodes
+		// to a single synthetic "payload" field. That is a real field, so an
+		// emptiness test passes it straight through to the writer — which is
+		// the very failure described below.
 		//
 		// What actually happened was worse than the silent drop it looked like.
 		// An empty map marshals to "{}", the parquet writer accepts a row with
@@ -123,9 +182,10 @@ func (s *S3ParquetSink) WriteBatch(ctx context.Context, msgs []hermod.Message) e
 		// error names the record, and a batch that keeps failing goes to the
 		// dead-letter sink rather than wedging the pipeline.
 		data := msg.Data()
-		if len(data) == 0 {
-			return fmt.Errorf("message %s carries no data the parquet schema can be "+
-				"built from: Data() is empty and the payload is not JSON (%.60q)",
+		if writableFieldCount(data, s.schemaFields) == 0 {
+			return fmt.Errorf("message %s carries no field the parquet schema can be "+
+				"built from: none of its keys match a schema column and the payload "+
+				"is not a JSON object (%.60q)",
 				msg.ID(), string(msg.Payload()))
 		}
 
