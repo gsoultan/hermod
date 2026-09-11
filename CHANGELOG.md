@@ -63,6 +63,32 @@ output shapes, and nothing said which one the current settings produce. The
 Output Mapping tab now spells out the paths the next node can address — a single
 value, an object at the target field, every column of the row, or the flattened
 per-column paths — instead of a general tip about objects.
+### Fixed — a previewed CDC row lost its own `table`, `id` or `operation` column
+
+`populateMessageFromMap` copied the message envelope's system fields into the
+data map "for convenience in transformations". `ToMap` serialises a CDC message
+by marshalling that same data map as the after-image, so two things followed.
+
+Every system field appeared twice in a previewed message — once at the root,
+once inside `after` — which is most of why the preview panel was hard to read.
+
+Worse, the copy raced the after-image. Both write the same key and Go randomises
+map iteration order, so a row with a column called `table`, `id`, `operation`,
+`op` or `schema` kept the envelope's value instead of its own in roughly three
+previews out of four. The operator then mapped downstream nodes against a value
+the row does not have. Measured before the fix: 15 of 20 runs lost the column;
+after, 20 of 20 keep it.
+
+The copy was never needed. `evaluator.GetMsgValByPath` already exposes
+`operation`, `op`, `table`, `schema` and `id` as virtual fields resolved from the
+message itself, and deliberately lets a real data column of the same name
+outrank them — leaving these out of the data map is what gives that rule
+something to resolve against.
+
+Only the preview is affected: a live CDC source sets the after-image as the
+payload (`SetAfter`), so `ToMap` never falls back to the data map for it.
+Non-CDC samples are untouched, because there is no after-image to duplicate into
+and dropping the copy would change the previewed type of a field like `id`.
 
 ### Added — detect decryption settings from a sample value
 
