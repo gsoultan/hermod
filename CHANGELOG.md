@@ -43,6 +43,38 @@ it ran.
 
 A test now fails if any type offered in the picker relies on that fall-through.
 
+### Added — panmail sink
+
+A new `panmail` sink sends each message as an email through a
+[panmail](https://github.com/gsoultan/panmail) gateway's API, using
+`github.com/gsoultan/panmail-sdk`. It sits beside the SMTP sink, which can reach
+the same gateway through its SMTP door; what the API buys is the message id every
+send returns — the handle delivery events and webhooks are keyed by — and
+refusals that say which refusal they are.
+
+Recipients, subject and both bodies are Go templates over the message, as in the
+SMTP sink. A stored gateway template can be used instead.
+
+**On retries and duplicate mail.** Sending is not idempotent and the gateway has
+no de-duplication key, so a retry after a timeout may deliver a second copy. The
+SDK refuses to make that call for you and never repeats a send whose outcome it
+does not know; Hermod's `RetrySink` has no such discrimination and retries every
+error alike. The sink resolves this with the idempotency claim:
+
+- a refusal the gateway **stated** (rate limit, full backlog, bad key, bad
+  argument) means the message was definitively not accepted, so the claim is
+  released and a retry is free to take it;
+- an **unknown** outcome keeps the claim, so the retry that follows finds the key
+  taken and does nothing instead of mailing the recipient again.
+
+With idempotency off there is nothing to hold the claim; the error says that,
+rather than looking like any other failure. Turning it on is worth more for this
+sink than for most.
+
+The SMTP sink's idempotency-store wiring moved into
+`internal/factory/idempotency.go` and is shared, with the sink name as the table
+prefix so two sinks over one database cannot suppress each other's sends.
+
 ## [1.3.0] — 2026-09-11
 
 The trace tables are the headline: listing traces was a sequential scan and

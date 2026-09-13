@@ -41,6 +41,7 @@ import (
 	sinkmysql "github.com/gsoultan/hermod/pkg/comm/sink/mysql"
 	sinknats "github.com/gsoultan/hermod/pkg/comm/sink/nats"
 	sinkoracle "github.com/gsoultan/hermod/pkg/comm/sink/oracle"
+	sinkpanmail "github.com/gsoultan/hermod/pkg/comm/sink/panmail"
 	"github.com/gsoultan/hermod/pkg/comm/sink/pgvector"
 	sinkpostgres "github.com/gsoultan/hermod/pkg/comm/sink/postgres"
 	"github.com/gsoultan/hermod/pkg/comm/sink/pubsub"
@@ -1093,6 +1094,57 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 			startIdempotencyTTLSweep(store, cfg.Config["idempotency_ttl"])
 		}
 
+		return s, nil
+	case "panmail":
+		split := func(key string) []string {
+			raw := strings.TrimSpace(cfg.Config[key])
+			if raw == "" {
+				return nil
+			}
+			out := make([]string, 0, 2)
+			for part := range strings.SplitSeq(raw, ",") {
+				if trimmed := strings.TrimSpace(part); trimmed != "" {
+					out = append(out, trimmed)
+				}
+			}
+			return out
+		}
+
+		retries, _ := strconv.Atoi(cfg.Config["rate_limit_retries"])
+		timeout, _ := time.ParseDuration(cfg.Config["timeout"])
+
+		s, err := sinkpanmail.New(sinkpanmail.Config{
+			BaseURL:          cfg.Config["base_url"],
+			APIKey:           cfg.Config["api_key"],
+			ProviderID:       cfg.Config["provider_id"],
+			From:             cfg.Config["from"],
+			To:               split("to"),
+			Cc:               split("cc"),
+			Bcc:              split("bcc"),
+			Subject:          cfg.Config["subject"],
+			HTML:             cfg.Config["html"],
+			Text:             cfg.Config["text"],
+			TemplateID:       cfg.Config["template_id"],
+			RateLimitRetries: retries,
+			Timeout:          timeout,
+		}, fmttr)
+		if err != nil {
+			return nil, err
+		}
+
+		// Worth turning on for this sink more than most: a send whose outcome is
+		// unknown is the one case the sink cannot make safe on its own, and the
+		// claim is what stops Hermod's retry mailing the recipient twice.
+		if cfg.Config["enable_idempotency"] == "true" {
+			store, err := newSinkIdempotencyStore(cfg.Config, "panmail_idempotency")
+			if err != nil {
+				return nil, err
+			}
+			s.EnableIdempotency(true)
+			s.SetIdempotencyStore(sinkIdemAdapter{s: store})
+			s.SetIdempotencyKeyTemplate(cfg.Config["idempotency_key_template"])
+			startIdempotencyTTLSweep(store, cfg.Config["idempotency_ttl"])
+		}
 		return s, nil
 	case "telegram":
 		return telegram.NewTelegramSink(cfg.Config["token"], cfg.Config["chat_id"], fmttr), nil
