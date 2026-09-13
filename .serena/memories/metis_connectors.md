@@ -5,23 +5,33 @@ BPMN 2.0 workflow engine (the `gobpm` repo, module `github.com/gsoultan/metis`)
 through `github.com/gsoultan/metis-sdk` — a stdlib-only client, same shape as
 `panmail-sdk`.
 
-## The dependency is a local `replace`, and that is a blocker to ship
+## The dependency was a local `replace`, and it reached CI
 
-`go.mod` carries:
+`go.mod` carried:
 
 ```
 github.com/gsoultan/metis-sdk v0.0.0-00010101000000-000000000000
 replace github.com/gsoultan/metis-sdk => /Users/gsoultan/projects/metis-sdk
 ```
 
-because **the SDK's code is not pushed**: `origin/main` is still at the initial
-commit `f5f2bc8`, and the commit that actually contains the SDK (`bbf8cc0`) is
-local-only. There are no tags either. The replace is machine-specific and will
-break CI and every other checkout.
+A filesystem path on one machine. It is invisible to every local gate — `go
+build`, `go test -race`, `golangci-lint` and `govulncheck` all pass, because the
+path resolves here — and it fails on any other checkout. It took down five of
+six CI jobs on PRs #100 and #101 at once, each with the same line:
 
-Closing this is two steps outside this repo: push and tag `metis-sdk`, then
-replace both lines with a real `require` (which will also want a `go.sum` entry —
-a filesystem `replace` needs none, so there is no metis line in `go.sum` today).
+```
+metis-sdk@v0.0.0-00010101000000-000000000000 (replaced by /Users/.../metis-sdk):
+  open /Users/.../metis-sdk/go.mod: no such file or directory
+```
+
+Resolved: the SDK is public and tagged `v0.1.0` (at `32a9ece`, the same commit
+the local path was serving), so the replace is gone and `go.mod` requires
+`v0.1.0` with a real `go.sum` entry — a filesystem replace needs none, which is
+why there was no metis line in `go.sum` before.
+
+**A local-path `replace` is the one defect class this repo's local gates cannot
+see.** If one is added again, `grep -n '=> /' go.mod` is the check; nothing else
+will tell you before CI does.
 
 ## The sink: a 5xx is an unknown outcome, not a refusal
 
