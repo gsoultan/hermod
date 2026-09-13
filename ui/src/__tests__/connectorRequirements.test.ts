@@ -159,3 +159,40 @@ describe('other connectors whose gate had drifted from the form', () => {
     ]);
   });
 });
+
+describe('the metis sink, whose requirements follow its action', () => {
+  const connected = { base_url: 'https://bpm.example.com', project_id: 'proj-1', token: 'tok' };
+
+  it('asks for a definition key by default — starting a process is the default action', () => {
+    expect(missingConnectionFields('sink', 'metis', connected)).toEqual(['Definition key']);
+  });
+
+  it('asks for a message name instead when the action sends a message', () => {
+    expect(
+      missingConnectionFields('sink', 'metis', { ...connected, action: 'send_message' }),
+    ).toEqual(['Message name']);
+  });
+
+  it('asks for a signal name instead when the action broadcasts', () => {
+    expect(
+      missingConnectionFields('sink', 'metis', { ...connected, action: 'broadcast_signal' }),
+    ).toEqual(['Signal name']);
+  });
+
+  it('does not demand the other actions\' names — that would disable Next for every valid config', () => {
+    expect(
+      missingConnectionFields('sink', 'metis', { ...connected, action: 'send_message', message_name: 'paid' }),
+    ).toEqual([]);
+  });
+
+  it('takes a username in place of a token: either authenticates', () => {
+    const withPassword = { base_url: 'https://bpm.example.com', project_id: 'p', username: 'svc', definition_key: 'k' };
+    expect(missingConnectionFields('sink', 'metis', withPassword)).toEqual([]);
+  });
+
+  it('still needs a project — the engine refuses an empty one', () => {
+    expect(
+      missingConnectionFields('source', 'metis', { base_url: 'https://bpm.example.com', token: 'tok' }),
+    ).toEqual(['Project ID']);
+  });
+});

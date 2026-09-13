@@ -5,7 +5,7 @@ import {
   IconTerminal2, IconVariable, IconWorld, IconCircleCheck, IconChartBar, IconCode, 
   IconTable, IconBroadcast, IconRefresh, IconLetterCase, IconPercentage, IconTableExport, IconNumbers,
   IconDatabaseExport, IconNote, IconTag, IconBrandDiscord, IconBrandSlack, IconBrandTwitter, 
-  IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock, IconLockOpen
+  IconBrandFacebook, IconBrandInstagram, IconBrandLinkedin, IconBrandTiktok, IconExternalLink, IconLock, IconLockOpen, IconSitemap
 } from '@tabler/icons-react';
 
 export const NODE_CATEGORIES = [
@@ -143,6 +143,7 @@ export const NODE_CATEGORIES = [
       { type: 'source', refId: 'new', label: 'Google Analytics', subType: 'googleanalytics', icon: IconChartBar, color: 'cyan', description: 'Fetch reports from GA4' },
       { type: 'source', refId: 'new', label: 'Firebase', subType: 'firebase', icon: IconDatabase, color: 'cyan', description: 'Poll Firestore collections' },
       { type: 'source', refId: 'new', label: 'HTTP Polling', subType: 'http', icon: IconCloud, color: 'cyan', description: 'Poll REST/OData APIs' },
+      { type: 'source', refId: 'new', label: 'Metis (BPMN)', subType: 'metis', icon: IconSitemap, color: 'cyan', description: 'Read process instances, tasks or incidents' },
       { type: 'source', refId: 'new', label: 'GraphQL', subType: 'graphql', icon: IconWorld, color: 'cyan', description: 'Receive GraphQL queries/mutations' },
       { type: 'source', refId: 'new', label: 'gRPC', subType: 'grpc', icon: IconTerminal2, color: 'cyan', description: 'Receive gRPC Publish calls' },
       { type: 'source', refId: 'new', label: 'WebSocket (Server)', subType: 'webhook', icon: IconBroadcast, color: 'cyan', description: 'Accept WS frames at /api/ws/in/{path}' },
@@ -199,6 +200,8 @@ export const NODE_CATEGORIES = [
     items: [
       { type: 'sink', refId: 'new', label: 'API / Webhook', subType: 'http', icon: IconCloudUpload, color: 'lime', description: 'POST events to HTTP endpoints' },
       { type: 'sink', refId: 'new', label: 'SMTP (Email)', subType: 'smtp', icon: IconMail, color: 'lime', description: 'Send messages via email' },
+      { type: 'sink', refId: 'new', label: 'Panmail', subType: 'panmail', icon: IconMail, color: 'lime', description: 'Send email through a panmail gateway' },
+      { type: 'sink', refId: 'new', label: 'Metis (BPMN)', subType: 'metis', icon: IconSitemap, color: 'lime', description: 'Start or advance a BPMN process' },
       { type: 'sink', refId: 'new', label: 'Telegram', subType: 'telegram', icon: IconMessage, color: 'lime', description: 'Send messages to Telegram' },
       { type: 'sink', refId: 'new', label: 'Firebase (FCM)', subType: 'fcm', icon: IconMessage, color: 'lime', description: 'Push notifications via FCM' },
       { type: 'sink', refId: 'new', label: 'File', subType: 'file', icon: IconDeviceFloppy, color: 'lime', description: 'Append to a local file' },

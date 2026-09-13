@@ -73,6 +73,12 @@ export function SinkWizard({
   };
   const prevStep = () => setActive((current) => (current > 0 ? current - 1 : current));
 
+  // A last resort for a stored sink whose type is not offered in SINK_TYPES.
+  // It is not a safety net for the offered ones: falling through to the
+  // *database* form is how "API / Webhook" came to ask for a host and a table,
+  // and because that form never writes a `url`, the Next button it gates could
+  // never enable. sinkConfigCoverage.test.tsx fails if an offered type relies
+  // on this line.
   const SelectedConfig = configComponents[sink.type] || configComponents['database'];
 
   return (

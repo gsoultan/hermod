@@ -5,6 +5,44 @@ Notable changes to Hermod, newest first. Dates are ISO-8601.
 This file starts at 1.0.0. Everything published before it was withdrawn — see
 [The releases before this one are gone](#the-releases-before-this-one-are-gone).
 
+## [Unreleased]
+
+### Fixed — twelve sink types were rendering the database form
+
+Picking **API / Webhook** in the sink wizard showed host, port, database and
+table fields. It was not a missing-field bug: `SinkWizard` resolved a type's
+form as `configComponents[type] || configComponents['database']`, and twelve
+types had no entry in that map, so they silently fell through to the database
+form.
+
+For `http` and `websocket` that made the sink unreachable rather than awkward.
+The database form never writes a `url`, both types require one, and the wizard
+disables Next *and* Save while a requirement is unmet — so there was no way to
+create or edit one from any of the four entry points (Add Sink, Edit Sink, the
+editor's node modal, the node drawer). Only the REST API could.
+
+All twelve now have a form matched to the keys the factory actually reads:
+
+- **API / Webhook** (`http`) — URL and headers, plus **compression** and
+  **timeout**, which `createSinkBase` has always read and which had no input
+  anywhere in the UI.
+- **WebSocket** — URL, headers, subprotocols, the three timeouts, acknowledgement
+  and the four TLS keys `buildWSTLSConfig` reads.
+- **MQTT** — broker URL, topic, client id, credentials, QoS, retain, keepalive,
+  clean session.
+- **File**, **Stdout**, **Event Store**, and the five social sinks
+  (Twitter/X, Facebook, Instagram, LinkedIn, TikTok).
+- **MongoDB** and **Cassandra** keep the database form, now listed explicitly so
+  it is a decision rather than a fall-through.
+
+`MiscSinkConfig.tsx` held the correct `http` form all along but had been
+imported by nothing since `ce5d533`; it is deleted. MQTT, File and Event Store
+gained requirement gates, because their factory cases return an error rather
+than degrading — saving one without them produced a sink that failed only when
+it ran.
+
+A test now fails if any type offered in the picker relies on that fall-through.
+
 ## [1.3.0] — 2026-09-11
 
 The trace tables are the headline: listing traces was a sequential scan and
