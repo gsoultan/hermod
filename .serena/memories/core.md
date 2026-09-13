@@ -7,7 +7,7 @@ backend, React 19 UI, single binary. Its defensible position is real-time
 Postgres CDC with a visual DAG editor, self-hosted, no JVM and no Kafka cluster
 required — not connector count. README.md leads with that.
 
-**Maturity is tiered, and the tiers are load-bearing.** 41 source and 45 sink
+**Maturity is tiered, and the tiers are load-bearing.** 42 source and 46 sink
 connectors are *not* equally deep. README.md's connector table assigns GA / Beta /
 Experimental on evidence (GA requires a test against live infrastructure). Moving
 a connector up means adding the evidence, not editing the table. Before
@@ -51,6 +51,13 @@ find a claim that outruns the code, fix the claim.
 - [Retention sweeps and trace growth](retention_sweep_and_trace_growth.md) —
   `time.ParseDuration` cannot read the UI's default `7d`, so the trace purge
   silently never ran and PostgreSQL grew 50 GB in hours.
+- [The metis connectors](metis_connectors.md) — a BPMN engine source and sink;
+  why a 5xx is an *unknown* outcome here but a refusal in panmail, the
+  time-plus-ties cursor, and the unpushed SDK the `go.mod` replace depends on.
+- [Sink form fall-through, and the panmail sink](sink_form_fallthrough_and_panmail.md)
+  — `configComponents[type] || 'database'` silently rendered the database form
+  for twelve sink types, making two of them unconfigurable; and why the panmail
+  sink keeps its idempotency claim when a send's outcome is unknown.
 - [The lookup cache is a second write path](lookup_cache_fast_path.md) — a
   cache hit skipped `flattenInto`, and with no TTL set that meant every message
   after the first; the test fake that "caches" nothing could never catch it.

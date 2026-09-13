@@ -35,6 +35,7 @@ import (
 	sinkkafka "github.com/gsoultan/hermod/pkg/comm/sink/kafka"
 	"github.com/gsoultan/hermod/pkg/comm/sink/kinesis"
 	"github.com/gsoultan/hermod/pkg/comm/sink/linkedin"
+	sinkmetis "github.com/gsoultan/hermod/pkg/comm/sink/metis"
 	sinkmongodb "github.com/gsoultan/hermod/pkg/comm/sink/mongodb"
 	sinkmqtt "github.com/gsoultan/hermod/pkg/comm/sink/mqtt"
 	sinkmssql "github.com/gsoultan/hermod/pkg/comm/sink/mssql"
@@ -85,6 +86,7 @@ import (
 	sourcelinkedin "github.com/gsoultan/hermod/pkg/comm/source/linkedin"
 	sourcemainframe "github.com/gsoultan/hermod/pkg/comm/source/mainframe"
 	"github.com/gsoultan/hermod/pkg/comm/source/mariadb"
+	sourcemetis "github.com/gsoultan/hermod/pkg/comm/source/metis"
 	sourcemongodb "github.com/gsoultan/hermod/pkg/comm/source/mongodb"
 	sourcemqtt "github.com/gsoultan/hermod/pkg/comm/source/mqtt"
 	"github.com/gsoultan/hermod/pkg/comm/source/mssql"
@@ -510,6 +512,23 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 			cfg.Config["credentials_json"],
 			pollInterval,
 		)
+	case "metis":
+		pageSize, _ := strconv.Atoi(cfg.Config["page_size"])
+		scanPages, _ := strconv.Atoi(cfg.Config["scan_pages"])
+		metisTimeout, _ := time.ParseDuration(cfg.Config["timeout"])
+		src, err = sourcemetis.New(sourcemetis.Config{
+			BaseURL:        cfg.Config["base_url"],
+			Token:          cfg.Config["token"],
+			Username:       cfg.Config["username"],
+			Password:       cfg.Config["password"],
+			OrganizationID: cfg.Config["organization_id"],
+			ProjectID:      cfg.Config["project_id"],
+			Stream:         sourcemetis.Stream(cfg.Config["stream"]),
+			PollInterval:   pollInterval,
+			PageSize:       pageSize,
+			ScanPages:      scanPages,
+			Timeout:        metisTimeout,
+		})
 	case "discord":
 		src = sourcediscord.NewDiscordSource(
 			cfg.Config["token"],
@@ -1137,6 +1156,50 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		// claim is what stops Hermod's retry mailing the recipient twice.
 		if cfg.Config["enable_idempotency"] == "true" {
 			store, err := newSinkIdempotencyStore(cfg.Config, "panmail_idempotency")
+			if err != nil {
+				return nil, err
+			}
+			s.EnableIdempotency(true)
+			s.SetIdempotencyStore(sinkIdemAdapter{s: store})
+			s.SetIdempotencyKeyTemplate(cfg.Config["idempotency_key_template"])
+			startIdempotencyTTLSweep(store, cfg.Config["idempotency_ttl"])
+		}
+		return s, nil
+	case "metis":
+		metisTimeout, _ := time.ParseDuration(cfg.Config["timeout"])
+		var variableFields []string
+		if raw := strings.TrimSpace(cfg.Config["variable_fields"]); raw != "" {
+			for part := range strings.SplitSeq(raw, ",") {
+				if trimmed := strings.TrimSpace(part); trimmed != "" {
+					variableFields = append(variableFields, trimmed)
+				}
+			}
+		}
+
+		s, err := sinkmetis.New(sinkmetis.Config{
+			BaseURL:        cfg.Config["base_url"],
+			Token:          cfg.Config["token"],
+			Username:       cfg.Config["username"],
+			Password:       cfg.Config["password"],
+			OrganizationID: cfg.Config["organization_id"],
+			ProjectID:      cfg.Config["project_id"],
+			Action:         sinkmetis.Action(cfg.Config["action"]),
+			DefinitionKey:  cfg.Config["definition_key"],
+			MessageName:    cfg.Config["message_name"],
+			CorrelationKey: cfg.Config["correlation_key"],
+			SignalName:     cfg.Config["signal_name"],
+			VariableFields: variableFields,
+			Timeout:        metisTimeout,
+		}, fmttr)
+		if err != nil {
+			return nil, err
+		}
+
+		// Worth turning on here for the same reason as panmail: starting a
+		// process is not idempotent, and a retry after a timeout is a second
+		// instance of somebody's business process. The claim is what stops it.
+		if cfg.Config["enable_idempotency"] == "true" {
+			store, err := newSinkIdempotencyStore(cfg.Config, "metis_idempotency")
 			if err != nil {
 				return nil, err
 			}
