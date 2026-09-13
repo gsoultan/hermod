@@ -74,14 +74,16 @@ jobs:
       # The suite was previously absent from CI entirely, so a red test could
       # merge unnoticed. Race detection is on because the engine is concurrent.
       #
-      # -short excludes four load tests in internal/engine/worker that stand up
-      # 120 concurrent workflows apiece. Under Go 1.27 the race detector's
-      # shadow memory for those went from 3.10 GB to 8.73 GB — measured — and
-      # the package was killed outright on a 7GB runner, with nothing in the
-      # log naming memory. They are not dropped; they run below without the
-      # detector, where the same 120 workflows cost 1.98 GB. That split keeps
-      # both properties honestly: every concurrent path is still race-checked,
-      # and the load path is still exercised at full scale.
+      # -short excludes five load tests in internal/engine/worker. Only the
+      # largest stands up 120 concurrent workflows; the other four run 8, 6, 20
+      # and 25. Under Go 1.27 the race detector's shadow memory for the package
+      # went from 3.10 GB to 8.73 GB — measured — and it was killed outright on
+      # the 7GB runner of the day, with nothing in the log naming memory. They
+      # are not dropped. They run twice below: once at full scale without the
+      # detector, where the whole package costs 1.98 GB, and once under -race
+      # with one test per process, which caps the peak at 6.07 GB. That keeps
+      # both properties honestly: every concurrent path is race-checked, the
+      # load path included, and the load path is still exercised at full scale.
       - name: Test (race)
         run: go test -race -short ./...
       # Everything -short skips above, at full scale. No -race: the detector is
@@ -91,7 +93,7 @@ jobs:
       # stopped compiling unnoticed once.
       #
       # This is every test in the tree guarded by testing.Short(), not just the
-      # four worker ones that forced the split: the registry's heavy-load test
+      # five worker ones that forced the split: the registry's heavy-load test
       # and both property tests over random pipeline topologies are guarded too,
       # and dropping those would trade a memory problem for a coverage one.
       - name: Test (load and property, no race detector)
@@ -99,6 +101,27 @@ jobs:
           go test -count=1 -timeout 20m \
             -run 'HeavySyncLoad|FailbackUnderLoad|RestartCycles|DoesNotLeakGoroutines|SurvivesControlPlaneOutage|TestHeavyLoad|AcrossRandomTopologies' \
             ./internal/engine/worker/ ./internal/engine/registry/
+      # The step above cannot turn the detector on: all five worker load tests
+      # in one process is the 8.73 GB that killed the runner. One test per
+      # process can. Measured peaks, /usr/bin/time -l, one process each:
+      # 2.02, 2.11, 2.52, 4.25 and 6.07 GB, against a runner that now reports
+      # 15Gi total and 14Gi available — so even the 120-workflow test clears it
+      # with room, and no swapfile is needed the way the security-gates job
+      # needs one. Without this step the load path is the one part of a
+      # concurrent engine that never meets the race detector, which is exactly
+      # where a data race would be worth finding. Sequential on purpose: run
+      # concurrently these sum back to the number that failed.
+      - name: Test (load, race detector, one test per process)
+        run: |
+          for t in TestWorkerStartStopRestartCycles \
+                   TestWorkerSurvivesControlPlaneOutage \
+                   TestWorkerFailoverThenFailbackUnderLoad \
+                   TestWorkerRepeatedSyncDoesNotLeakGoroutines \
+                   TestWorkerStaysOnlineUnderHeavySyncLoad; do
+            echo "::group::$t"
+            go test -race -count=1 -timeout 8m -run "^${t}$" ./internal/engine/worker/
+            echo "::endgroup::"
+          done
       # Gates new code only (see issues.new-from-merge-base in .golangci.yml).
       # The pre-existing backlog is reported by the nightly lint-debt job rather
       # than blocking every change.
@@ -745,11 +768,23 @@ jobs:
       # set below is: its entrypoint needs a `server` argument and a service
       # container has no way to pass one. Started on 9500 so it cannot collide
       # with ClickHouse's native port.
+      #
+      # From quay.io, not Docker Hub: docker.io/minio/minio stopped serving
+      # anonymous pulls and now answers every request with "pull access denied
+      # ... repository does not exist or may require 'docker login'". Nothing
+      # in this repository changed — the job went red on main between the runs
+      # of 11 and 12 September. quay.io/minio/minio is MinIO's own second
+      # registry and still serves the same images anonymously.
+      #
+      # Pinned, because an unpinned tag from a third-party registry is what
+      # made this a surprise rather than a decision. Moving it is a deliberate
+      # edit; the S3 API these tests use has been stable for years, so there is
+      # nothing to chase.
       - name: Start MinIO for the S3 sink
         run: |
           docker run -d --name minio -p 9500:9000 \
             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:latest server /data
+            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:9500/minio/health/live >/dev/null 2>&1; then
               echo "minio ready after ${i}s"; break
@@ -875,12 +910,14 @@ jobs:
         # The timeout goes up with it: -race costs roughly 2-5x in wall clock,
         # and a suite that starts timing out is a suite that gets its gate
         # removed.
-        # -short for the same reason as the unit job: the four worker load
-        # tests stand up 120 concurrent workflows each, and under Go 1.27 the
-        # race detector's shadow memory for them is 8.73 GB against a 7GB
-        # runner. This job runs every package too, so it hits the same wall —
-        # it did, with the same "runner has received a shutdown signal" and no
-        # mention of memory. They run un-raced in the unit job's load step.
+        # -short for the same reason as the unit job: of the five worker load
+        # tests one stands up 120 concurrent workflows, and under Go 1.27 the
+        # race detector's shadow memory for the package is 8.73 GB against the
+        # 7GB runner of the day. This job runs every package too, so it hits
+        # the same wall — it did, with the same "runner has received a shutdown
+        # signal" and no mention of memory. The unit job runs them un-raced at
+        # full scale, and raced one test per process, which is what keeps the
+        # peak affordable.
         run: go test -tags=integration -race -short -count=1 -timeout 30m ./...
 
   # The browser E2E job that used to live here is gone, and so is the last spec
