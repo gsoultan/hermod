@@ -768,11 +768,23 @@ jobs:
       # set below is: its entrypoint needs a `server` argument and a service
       # container has no way to pass one. Started on 9500 so it cannot collide
       # with ClickHouse's native port.
+      #
+      # From quay.io, not Docker Hub: docker.io/minio/minio stopped serving
+      # anonymous pulls and now answers every request with "pull access denied
+      # ... repository does not exist or may require 'docker login'". Nothing
+      # in this repository changed — the job went red on main between the runs
+      # of 11 and 12 September. quay.io/minio/minio is MinIO's own second
+      # registry and still serves the same images anonymously.
+      #
+      # Pinned, because an unpinned tag from a third-party registry is what
+      # made this a surprise rather than a decision. Moving it is a deliberate
+      # edit; the S3 API these tests use has been stable for years, so there is
+      # nothing to chase.
       - name: Start MinIO for the S3 sink
         run: |
           docker run -d --name minio -p 9500:9000 \
             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:latest server /data
+            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:9500/minio/health/live >/dev/null 2>&1; then
               echo "minio ready after ${i}s"; break
