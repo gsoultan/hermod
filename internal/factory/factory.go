@@ -105,21 +105,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
 	"github.com/gsoultan/hermod/pkg/infra/compression"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
-	"github.com/gsoultan/hermod/pkg/security/idempotency"
 )
-
-// smtpIdemAdapter adapts the SQLite idempotency store to the SMTP sink interface.
-type smtpIdemAdapter struct{ s *idempotency.SQLiteStore }
-
-func (a smtpIdemAdapter) Claim(ctx context.Context, key string) (bool, error) {
-	return a.s.Claim(ctx, key)
-}
-func (a smtpIdemAdapter) Release(ctx context.Context, key string) error {
-	return a.s.Release(ctx, key)
-}
-func (a smtpIdemAdapter) MarkSent(ctx context.Context, key string) error {
-	return a.s.MarkSent(ctx, key)
-}
 
 type wasmSinkAdapter struct {
 	transformer transformer.Transformer
@@ -1097,48 +1083,14 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 
 		// Wire idempotency settings if enabled
 		if cfg.Config["enable_idempotency"] == "true" {
-			// default to local hermod.db if not provided
-			dsn := cfg.Config["idempotency_dsn"]
-			if dsn == "" {
-				dsn = config.GetConfigPath("hermod.db")
-			}
-			// optional namespace -> table suffix
-			table := "smtp_idempotency"
-			if ns := cfg.Config["idempotency_namespace"]; ns != "" {
-				// sanitize namespace to alnum/underscore
-				sanitized := make([]rune, 0, len(ns))
-				for _, r := range ns {
-					if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
-						sanitized = append(sanitized, r)
-					}
-				}
-				if len(sanitized) > 0 {
-					table = "smtp_idempotency_" + string(sanitized)
-				}
-			}
-			store, err := idempotency.NewSQLiteStoreWithTable(dsn, table)
+			store, err := newSinkIdempotencyStore(cfg.Config, "smtp_idempotency")
 			if err != nil {
-				return nil, fmt.Errorf("init idempotency store: %w", err)
+				return nil, err
 			}
 			s.EnableIdempotency(true)
-			s.SetIdempotencyStore(smtpIdemAdapter{s: store})
+			s.SetIdempotencyStore(sinkIdemAdapter{s: store})
 			s.SetIdempotencyKeyTemplate(cfg.Config["idempotency_key_template"])
-
-			// optional TTL cleanup in background
-			if ttlStr := cfg.Config["idempotency_ttl"]; ttlStr != "" {
-				if ttl, err := time.ParseDuration(ttlStr); err == nil && ttl > 0 {
-					go func() {
-						ticker := time.NewTicker(1 * time.Hour)
-						defer ticker.Stop()
-						ctx := context.Background()
-						// initial cleanup
-						_ = store.CleanupTTL(ctx, ttl)
-						for range ticker.C {
-							_ = store.CleanupTTL(ctx, ttl)
-						}
-					}()
-				}
-			}
+			startIdempotencyTTLSweep(store, cfg.Config["idempotency_ttl"])
 		}
 
 		return s, nil
