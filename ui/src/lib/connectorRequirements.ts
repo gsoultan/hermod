@@ -197,6 +197,39 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
     },
   ],
   snowflake: [{ key: 'connection_string', label: 'Connection String', example: 'user:pass@account/db/schema?warehouse=wh' }],
+  // fcm.New refuses a sink with no credentials rather than falling through to
+  // the machine's ambient Google credentials, which is how a developer laptop
+  // would have pushed to whatever project gcloud happened to default to. The
+  // ambient path is still reachable, but it has to name its project.
+  fcm: [
+    {
+      key: 'credentials_json',
+      label: 'Service account JSON',
+      example: '{"type":"service_account","project_id":"…"}',
+      when: (c) => c.use_default_credentials !== 'true',
+    },
+    {
+      key: 'project_id',
+      label: 'Project ID',
+      example: 'my-firebase-project',
+      when: (c) => c.use_default_credentials === 'true',
+    },
+    // The subscribe actions move named devices onto a named topic, and
+    // fcm.New refuses either one missing. Sending needs neither: a message may
+    // carry its own destination in fcm_token/fcm_topic/fcm_condition metadata.
+    {
+      key: 'device_token',
+      label: 'Device tokens',
+      example: '{{.fcm_token}}',
+      when: (c) => c.action === 'subscribe' || c.action === 'unsubscribe',
+    },
+    {
+      key: 'topic',
+      label: 'Topic',
+      example: 'orders-{{.region}}',
+      when: (c) => c.action === 'subscribe' || c.action === 'unsubscribe',
+    },
+  ],
 };
 
 /**
