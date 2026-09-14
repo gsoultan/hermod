@@ -31,6 +31,29 @@ function summarise(value: unknown): string {
   return text.length > 120 ? text.slice(0, 120) + '…' : text;
 }
 
+// stableJson serialises with sorted keys so two equal messages compare equal
+// regardless of the order their fields happened to arrive in.
+const stableJson = (v: unknown): string => {
+  const seen = new WeakSet<object>();
+  const walk = (x: any): any => {
+    if (x === null || typeof x !== 'object') return x;
+    if (seen.has(x)) return '[circular]';
+    seen.add(x);
+    if (Array.isArray(x)) return x.map(walk);
+    return Object.keys(x)
+      .sort()
+      .reduce((acc: Record<string, any>, k) => {
+        acc[k] = walk(x[k]);
+        return acc;
+      }, {});
+  };
+  try {
+    return JSON.stringify(walk(v));
+  } catch {
+    return '';
+  }
+};
+
 type ViewMode = 'transformed' | 'original' | 'diff';
 
 /** Shallow-ish diff used when the worker is unavailable. Mirrors diffWorker. */
@@ -135,6 +158,22 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
   const diffIsEmpty =
     viewMode === 'diff' && !busy && !!diffData && typeof diffData === 'object' && Object.keys(diffData).length === 0;
 
+  // A node that returns its input unchanged is reported in every view, not only
+  // in Diff.
+  //
+  // "No changes detected" already existed, but only once the reader thought to
+  // open the Diff tab — so the default view showed a node quietly doing nothing
+  // and looking exactly like a node that had worked. That is the shape of a
+  // decrypt node pointed at a field it cannot read: the value comes back
+  // identical, with no error anywhere to say why.
+  const madeNoChange = useMemo(() => {
+    if (busy || error || result === undefined || result === null || original === undefined || original === null) {
+      return false;
+    }
+    const a = stableJson(original);
+    return a !== '' && a === stableJson(result);
+  }, [busy, error, original, result]);
+
   const copyToClipboard = () => {
     navigator.clipboard.writeText(body);
     setCopied(true);
@@ -202,6 +241,17 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
                 : 'nothing at this path — the lookup matched no row, or the key path resolved to nothing'}
             </Text>
           </Stack>
+        )}
+
+        {madeNoChange && (
+          <Alert color="yellow" icon={<IconAlertCircle size="1rem" />} p="xs">
+            <Text size="xs">
+              This node returned the message unchanged. If you expected it to
+              change something, the configuration is not matching your data —
+              check that the field names exist on the message, and that any
+              format or encoding settings describe how the value was written.
+            </Text>
+          </Alert>
         )}
 
         {error ? (
