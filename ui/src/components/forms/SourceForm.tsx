@@ -53,6 +53,7 @@ const SOURCE_TYPES = [
   { value: 'dynamics365', label: 'Dynamics 365' , group: 'Enterprise' },
   { value: 'mainframe', label: 'Mainframe' , group: 'Enterprise' },
   { value: 'webhook', label: 'Webhook' , group: 'APIs & Triggers' },
+  { value: 'metis', label: 'Metis (BPMN Workflow)' , group: 'APIs & Triggers' },
   { value: 'form', label: 'Form Submission' , group: 'APIs & Triggers' },
   { value: 'cron', label: 'Cron / Schedule' , group: 'APIs & Triggers' },
   { value: 'file', label: 'File / FTP / S3' , group: 'Files & Storage' },

@@ -35,12 +35,14 @@ import (
 	sinkkafka "github.com/gsoultan/hermod/pkg/comm/sink/kafka"
 	"github.com/gsoultan/hermod/pkg/comm/sink/kinesis"
 	"github.com/gsoultan/hermod/pkg/comm/sink/linkedin"
+	sinkmetis "github.com/gsoultan/hermod/pkg/comm/sink/metis"
 	sinkmongodb "github.com/gsoultan/hermod/pkg/comm/sink/mongodb"
 	sinkmqtt "github.com/gsoultan/hermod/pkg/comm/sink/mqtt"
 	sinkmssql "github.com/gsoultan/hermod/pkg/comm/sink/mssql"
 	sinkmysql "github.com/gsoultan/hermod/pkg/comm/sink/mysql"
 	sinknats "github.com/gsoultan/hermod/pkg/comm/sink/nats"
 	sinkoracle "github.com/gsoultan/hermod/pkg/comm/sink/oracle"
+	sinkpanmail "github.com/gsoultan/hermod/pkg/comm/sink/panmail"
 	"github.com/gsoultan/hermod/pkg/comm/sink/pgvector"
 	sinkpostgres "github.com/gsoultan/hermod/pkg/comm/sink/postgres"
 	"github.com/gsoultan/hermod/pkg/comm/sink/pubsub"
@@ -84,6 +86,7 @@ import (
 	sourcelinkedin "github.com/gsoultan/hermod/pkg/comm/source/linkedin"
 	sourcemainframe "github.com/gsoultan/hermod/pkg/comm/source/mainframe"
 	"github.com/gsoultan/hermod/pkg/comm/source/mariadb"
+	sourcemetis "github.com/gsoultan/hermod/pkg/comm/source/metis"
 	sourcemongodb "github.com/gsoultan/hermod/pkg/comm/source/mongodb"
 	sourcemqtt "github.com/gsoultan/hermod/pkg/comm/source/mqtt"
 	"github.com/gsoultan/hermod/pkg/comm/source/mssql"
@@ -105,21 +108,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
 	"github.com/gsoultan/hermod/pkg/infra/compression"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
-	"github.com/gsoultan/hermod/pkg/security/idempotency"
 )
-
-// smtpIdemAdapter adapts the SQLite idempotency store to the SMTP sink interface.
-type smtpIdemAdapter struct{ s *idempotency.SQLiteStore }
-
-func (a smtpIdemAdapter) Claim(ctx context.Context, key string) (bool, error) {
-	return a.s.Claim(ctx, key)
-}
-func (a smtpIdemAdapter) Release(ctx context.Context, key string) error {
-	return a.s.Release(ctx, key)
-}
-func (a smtpIdemAdapter) MarkSent(ctx context.Context, key string) error {
-	return a.s.MarkSent(ctx, key)
-}
 
 type wasmSinkAdapter struct {
 	transformer transformer.Transformer
@@ -523,6 +512,23 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 			cfg.Config["credentials_json"],
 			pollInterval,
 		)
+	case "metis":
+		pageSize, _ := strconv.Atoi(cfg.Config["page_size"])
+		scanPages, _ := strconv.Atoi(cfg.Config["scan_pages"])
+		metisTimeout, _ := time.ParseDuration(cfg.Config["timeout"])
+		src, err = sourcemetis.New(sourcemetis.Config{
+			BaseURL:        cfg.Config["base_url"],
+			Token:          cfg.Config["token"],
+			Username:       cfg.Config["username"],
+			Password:       cfg.Config["password"],
+			OrganizationID: cfg.Config["organization_id"],
+			ProjectID:      cfg.Config["project_id"],
+			Stream:         sourcemetis.Stream(cfg.Config["stream"]),
+			PollInterval:   pollInterval,
+			PageSize:       pageSize,
+			ScanPages:      scanPages,
+			Timeout:        metisTimeout,
+		})
 	case "discord":
 		src = sourcediscord.NewDiscordSource(
 			cfg.Config["token"],
@@ -1097,50 +1103,111 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 
 		// Wire idempotency settings if enabled
 		if cfg.Config["enable_idempotency"] == "true" {
-			// default to local hermod.db if not provided
-			dsn := cfg.Config["idempotency_dsn"]
-			if dsn == "" {
-				dsn = config.GetConfigPath("hermod.db")
-			}
-			// optional namespace -> table suffix
-			table := "smtp_idempotency"
-			if ns := cfg.Config["idempotency_namespace"]; ns != "" {
-				// sanitize namespace to alnum/underscore
-				sanitized := make([]rune, 0, len(ns))
-				for _, r := range ns {
-					if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
-						sanitized = append(sanitized, r)
-					}
-				}
-				if len(sanitized) > 0 {
-					table = "smtp_idempotency_" + string(sanitized)
-				}
-			}
-			store, err := idempotency.NewSQLiteStoreWithTable(dsn, table)
+			store, err := newSinkIdempotencyStore(cfg.Config, "smtp_idempotency")
 			if err != nil {
-				return nil, fmt.Errorf("init idempotency store: %w", err)
+				return nil, err
 			}
 			s.EnableIdempotency(true)
-			s.SetIdempotencyStore(smtpIdemAdapter{s: store})
+			s.SetIdempotencyStore(sinkIdemAdapter{s: store})
 			s.SetIdempotencyKeyTemplate(cfg.Config["idempotency_key_template"])
+			startIdempotencyTTLSweep(store, cfg.Config["idempotency_ttl"])
+		}
 
-			// optional TTL cleanup in background
-			if ttlStr := cfg.Config["idempotency_ttl"]; ttlStr != "" {
-				if ttl, err := time.ParseDuration(ttlStr); err == nil && ttl > 0 {
-					go func() {
-						ticker := time.NewTicker(1 * time.Hour)
-						defer ticker.Stop()
-						ctx := context.Background()
-						// initial cleanup
-						_ = store.CleanupTTL(ctx, ttl)
-						for range ticker.C {
-							_ = store.CleanupTTL(ctx, ttl)
-						}
-					}()
+		return s, nil
+	case "panmail":
+		split := func(key string) []string {
+			raw := strings.TrimSpace(cfg.Config[key])
+			if raw == "" {
+				return nil
+			}
+			out := make([]string, 0, 2)
+			for part := range strings.SplitSeq(raw, ",") {
+				if trimmed := strings.TrimSpace(part); trimmed != "" {
+					out = append(out, trimmed)
+				}
+			}
+			return out
+		}
+
+		retries, _ := strconv.Atoi(cfg.Config["rate_limit_retries"])
+		timeout, _ := time.ParseDuration(cfg.Config["timeout"])
+
+		s, err := sinkpanmail.New(sinkpanmail.Config{
+			BaseURL:          cfg.Config["base_url"],
+			APIKey:           cfg.Config["api_key"],
+			ProviderID:       cfg.Config["provider_id"],
+			From:             cfg.Config["from"],
+			To:               split("to"),
+			Cc:               split("cc"),
+			Bcc:              split("bcc"),
+			Subject:          cfg.Config["subject"],
+			HTML:             cfg.Config["html"],
+			Text:             cfg.Config["text"],
+			TemplateID:       cfg.Config["template_id"],
+			RateLimitRetries: retries,
+			Timeout:          timeout,
+		}, fmttr)
+		if err != nil {
+			return nil, err
+		}
+
+		// Worth turning on for this sink more than most: a send whose outcome is
+		// unknown is the one case the sink cannot make safe on its own, and the
+		// claim is what stops Hermod's retry mailing the recipient twice.
+		if cfg.Config["enable_idempotency"] == "true" {
+			store, err := newSinkIdempotencyStore(cfg.Config, "panmail_idempotency")
+			if err != nil {
+				return nil, err
+			}
+			s.EnableIdempotency(true)
+			s.SetIdempotencyStore(sinkIdemAdapter{s: store})
+			s.SetIdempotencyKeyTemplate(cfg.Config["idempotency_key_template"])
+			startIdempotencyTTLSweep(store, cfg.Config["idempotency_ttl"])
+		}
+		return s, nil
+	case "metis":
+		metisTimeout, _ := time.ParseDuration(cfg.Config["timeout"])
+		var variableFields []string
+		if raw := strings.TrimSpace(cfg.Config["variable_fields"]); raw != "" {
+			for part := range strings.SplitSeq(raw, ",") {
+				if trimmed := strings.TrimSpace(part); trimmed != "" {
+					variableFields = append(variableFields, trimmed)
 				}
 			}
 		}
 
+		s, err := sinkmetis.New(sinkmetis.Config{
+			BaseURL:        cfg.Config["base_url"],
+			Token:          cfg.Config["token"],
+			Username:       cfg.Config["username"],
+			Password:       cfg.Config["password"],
+			OrganizationID: cfg.Config["organization_id"],
+			ProjectID:      cfg.Config["project_id"],
+			Action:         sinkmetis.Action(cfg.Config["action"]),
+			DefinitionKey:  cfg.Config["definition_key"],
+			MessageName:    cfg.Config["message_name"],
+			CorrelationKey: cfg.Config["correlation_key"],
+			SignalName:     cfg.Config["signal_name"],
+			VariableFields: variableFields,
+			Timeout:        metisTimeout,
+		}, fmttr)
+		if err != nil {
+			return nil, err
+		}
+
+		// Worth turning on here for the same reason as panmail: starting a
+		// process is not idempotent, and a retry after a timeout is a second
+		// instance of somebody's business process. The claim is what stops it.
+		if cfg.Config["enable_idempotency"] == "true" {
+			store, err := newSinkIdempotencyStore(cfg.Config, "metis_idempotency")
+			if err != nil {
+				return nil, err
+			}
+			s.EnableIdempotency(true)
+			s.SetIdempotencyStore(sinkIdemAdapter{s: store})
+			s.SetIdempotencyKeyTemplate(cfg.Config["idempotency_key_template"])
+			startIdempotencyTTLSweep(store, cfg.Config["idempotency_ttl"])
+		}
 		return s, nil
 	case "telegram":
 		return telegram.NewTelegramSink(cfg.Config["token"], cfg.Config["chat_id"], fmttr), nil

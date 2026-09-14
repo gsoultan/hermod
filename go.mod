@@ -69,6 +69,8 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/gsoultan/gsmail v0.4.0
+	github.com/gsoultan/metis-sdk v0.1.0
+	github.com/gsoultan/panmail-sdk v0.1.0-rc.1
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/hashicorp/terraform-plugin-sdk/v2 v2.33.0
 	github.com/hashicorp/vault/api v1.13.0

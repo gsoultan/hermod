@@ -29,6 +29,7 @@ import (
 	sinkkafka "github.com/gsoultan/hermod/pkg/comm/sink/kafka"
 	sinkkinesis "github.com/gsoultan/hermod/pkg/comm/sink/kinesis"
 	sinklinkedin "github.com/gsoultan/hermod/pkg/comm/sink/linkedin"
+	sinkmetis "github.com/gsoultan/hermod/pkg/comm/sink/metis"
 	sinkmilvus "github.com/gsoultan/hermod/pkg/comm/sink/milvus"
 	sinkmongodb "github.com/gsoultan/hermod/pkg/comm/sink/mongodb"
 	sinkmqtt "github.com/gsoultan/hermod/pkg/comm/sink/mqtt"
@@ -82,6 +83,7 @@ import (
 	srclinkedin "github.com/gsoultan/hermod/pkg/comm/source/linkedin"
 	srcmainframe "github.com/gsoultan/hermod/pkg/comm/source/mainframe"
 	srcmariadb "github.com/gsoultan/hermod/pkg/comm/source/mariadb"
+	srcmetis "github.com/gsoultan/hermod/pkg/comm/source/metis"
 	srcmongodb "github.com/gsoultan/hermod/pkg/comm/source/mongodb"
 	srcmqtt "github.com/gsoultan/hermod/pkg/comm/source/mqtt"
 	srcmssql "github.com/gsoultan/hermod/pkg/comm/source/mssql"
@@ -275,6 +277,17 @@ func TestSinkConformance(t *testing.T) {
 	// is covered: give pinecone (and any connector that hardcodes a hostname) an
 	// optional base-URL override and it can join the registry. Until then it is
 	// Experimental and untested, which is what README.md says.
+	// The base URL is injected, so this stays offline: the sink dials the dead
+	// address and every operation has to come back inside its deadline.
+	sinkOrSkip(t, "metis", func() (hermod.Sink, error) {
+		return sinkmetis.New(sinkmetis.Config{
+			BaseURL:       deadURL,
+			Token:         "tok",
+			ProjectID:     "proj",
+			Action:        sinkmetis.ActionStartProcess,
+			DefinitionKey: "proc",
+		}, fmtr())
+	})
 	conformance.RunSinkSuite(t, "servicenow", func() hermod.Sink {
 		return sinkservicenow.NewSink(sinkservicenow.Config{InstanceURL: deadURL, Table: "t"})
 	})
@@ -381,6 +394,15 @@ func TestSourceConformance(t *testing.T) {
 	const poll = 50 * time.Millisecond
 	tables := []string{"t"}
 
+	sourceOrSkip(t, "metis", func() (hermod.Source, error) {
+		return srcmetis.New(srcmetis.Config{
+			BaseURL:      deadURL,
+			Token:        "tok",
+			ProjectID:    "proj",
+			Stream:       srcmetis.StreamInstances,
+			PollInterval: time.Millisecond,
+		})
+	})
 	conformance.RunSourceSuite(t, "postgres", func() hermod.Source {
 		return srcpostgres.NewPostgresSource("postgres://u:p@"+deadAddr+"/d", "slot", "pub", tables, true, "", poll)
 	})

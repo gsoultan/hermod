@@ -681,6 +681,10 @@ github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 h1:HWRh5R2+9EifMyIHV7ZV+MIZqgz
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0/go.mod h1:JfhWUomR1baixubs02l85lZYYOm7LV6om4ceouMv45c=
 github.com/gsoultan/gsmail v0.4.0 h1:lLYBXWWALzLrwIrccui54E665O+OXe/Cu3VLC1AqRVo=
 github.com/gsoultan/gsmail v0.4.0/go.mod h1:COW0DPV278W/Ja056UdY+4Z0QsuIDWnXFEAqXjADicE=
+github.com/gsoultan/metis-sdk v0.1.0 h1:OPbzSdMYnwZ6ApTZxAzWURE5hr3/j97H8h9axVqQhQE=
+github.com/gsoultan/metis-sdk v0.1.0/go.mod h1:blJgEfZJHZheZvrUUt0VAWd5kWjHakizAsDAWmsRR+M=
+github.com/gsoultan/panmail-sdk v0.1.0-rc.1 h1:XTgdJTKKPsaWZ4zI/UJzo657TzWDSD8kPyQCyKKGgww=
+github.com/gsoultan/panmail-sdk v0.1.0-rc.1/go.mod h1:oBh2/B+aZOVEDxUxJ2b1TadS/HtXTCIVOb6VnQ4/uHg=
 github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c h1:6rhixN/i8ZofjG1Y75iExal34USq5p+wiN1tpie8IrU=
 github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c/go.mod h1:NMPJylDgVpX0MLRlPy15sqSwOFv/U1GZ2m21JhFfek0=
 github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed h1:5upAirOpQc1Q53c0bnx2ufif5kANL7bfZWcc6VJWJd8=

@@ -707,7 +707,7 @@ for transactions this coordinator never created.
 
 ## Connector maturity tiers
 
-Hermod ships 41 source and 45 sink connectors. They are **not equally mature**, and a
+Hermod ships 42 source and 47 sink connectors. They are **not equally mature**, and a
 list that presents a 2,500-line integration-tested Postgres CDC reader next to an
 87-line HTTP poller as equals is not telling you anything useful.
 
@@ -767,8 +767,8 @@ which is why they were untested; anything new in that shape should provide it to
 
 Substantial and unit-tested, but unproven against live infrastructure in CI:
 
-**Sources** — MSSQL, gRPC, WebSocket, HTTP, BatchSQL, Excel.
-**Sinks** — Snowflake, HTTP, WebSocket, Failover.
+**Sources** — MSSQL, gRPC, WebSocket, HTTP, BatchSQL, Excel, Metis.
+**Sinks** — Snowflake, HTTP, WebSocket, Failover, Panmail, Metis.
 
 The MSSQL **source** is genuinely a CDC source — it reads `CHANGETABLE` and emits
 updates and deletes — so what it lacks is coverage, not capability. The polling
@@ -781,6 +781,47 @@ is the only one in this repository never watched failing against a real server.
 It has tests that run without one — they cover the refusal rather than the
 resulting SQL. Oracle used to sit here too; standing a real server up moved it to
 GA and found a total-failure bug on the way (see its row above).
+
+**Panmail** is unit-tested against an in-process gateway that speaks the real
+wire contract, including the two refusals that matter — a rate limit, which is
+safe to repeat, and a full backlog, which is not — but no panmail gateway is
+reachable from CI. Its one novel decision is covered by a test that fails when
+the decision is inverted: a send whose outcome is *unknown* keeps its
+idempotency claim, so Hermod's retry cannot mail a recipient twice, while a
+refusal the gateway *stated* releases it. With idempotency off, that protection
+does not exist and the sink says so in the error rather than looking routine.
+
+**Metis** is the pair of connectors for a [Metis](https://github.com/gsoultan/metis)
+BPMN 2.0 workflow engine, over the stdlib-only
+[metis-sdk](https://github.com/gsoultan/metis-sdk). The **sink** turns a message
+into one act on the engine — start a process instance, correlate a message into
+an instance already waiting, or broadcast a signal — so a committed database
+transaction is what begins the business process that answers it. The **source**
+polls a project for process instances, human tasks or incidents, which is how
+process history reaches a warehouse.
+
+Both are unit-tested against an in-process engine speaking the real wire
+contract; no engine is reachable from CI, which is what keeps them out of GA.
+Two decisions are each covered by a test that fails when the decision is
+inverted:
+
+- The sink treats a **5xx as an unknown outcome, not a refusal**. Starting a
+  process is not idempotent, and a 500 is an answer that says the engine broke —
+  not that it broke *before* committing the instance. So the idempotency claim
+  is kept and the retry suppressed, where a stated refusal (400, 401, 403, 404)
+  releases it. This is where it differs from the panmail sink, whose refusals are
+  all stated. With idempotency off, a retry may start a second instance of
+  somebody's process, and the error says so.
+- The source advances its persisted cursor on **Ack, not on Read** — the defect
+  this repository has fixed in ten other polling sources. Reading moves a
+  separate in-process position, which stops a running poll re-reading what it
+  just handed out and is deliberately not persisted.
+
+The incidents stream has a limitation worth knowing before you rely on it: the
+engine lists incidents per instance rather than per project, so the source finds
+failed instances first and asks each one. That costs a request per failed
+instance per poll, and it only sees instances still inside the configured scan
+window.
 
 **Kafka is GA for its data path but at-least-once only**, and that ceiling is not
 a coverage gap. There is no transactional producer — `segmentio/kafka-go` exposes
