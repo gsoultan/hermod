@@ -7,6 +7,25 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-09-14
+
+The FCM sink is the headline. It could address a device, a topic or a condition
+and set a title and body, all of them only from message metadata; everything
+else Firebase offers had no representation at all. It is now a full client, with
+every field a Go template over the message. Two connectors arrive beside it —
+the `panmail` sink, and `metis` as both source and sink for a BPMN workflow
+engine — and twelve sink types stop rendering the database form instead of their
+own fields, a wizard fallthrough rather than a missing-field bug.
+
+**If you run an `encrypt` or `decrypt` node, read the first entry before
+deploying.** A field list that matches nothing on the message now fails that
+message instead of forwarding it untouched. That is the intent — a decrypt node
+that silently passes ciphertext to a sink is the failure the node exists to
+prevent — but a stream where some messages legitimately carry none of the named
+fields needs `onMissingField: "skip"` to keep working. A partial match is
+unaffected: one field present and another absent is an optional column, not a
+misconfiguration.
+
 ### Changed — `encrypt` and `decrypt` report a field list that matches nothing
 
 A security node whose configured fields are all absent from the message used to
