@@ -126,6 +126,21 @@ export const ON_ERROR_OPTIONS = [
   { value: 'null', label: 'Null — clear the value' },
 ]
 
+export const ON_MISSING_FIELD_OPTIONS = [
+  {
+    value: 'fail',
+    label: 'Fail the message (recommended)',
+    description:
+      'A field list that matches nothing means the node ran and changed nothing. Failing says so instead of forwarding the value untouched.',
+  },
+  {
+    value: 'skip',
+    label: 'Skip — forward the message untouched',
+    description:
+      'Right when some messages in the stream genuinely carry none of the named fields.',
+  },
+]
+
 export const ON_PLAINTEXT_OPTIONS = [
   {
     value: 'passthrough',
