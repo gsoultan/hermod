@@ -380,7 +380,16 @@ func TestSinkConformance(t *testing.T) {
 	}
 
 	sinkOrSkip(t, "fcm", func() (hermod.Sink, error) {
-		return sinkfcm.NewFCMSink("{}", fmtr())
+		// A service account shaped like the real thing but for a project that
+		// does not exist, pointed at an address nothing answers on. The sink
+		// connects lazily, so this constructs and every write fails at the
+		// transport — which is what the contract suite wants to watch.
+		return sinkfcm.New(sinkfcm.Config{
+			CredentialsJSON: `{"type":"service_account","project_id":"hermod-conformance"}`,
+			Topic:           "conformance",
+			Endpoint:        deadURL,
+			Formatter:       fmtr(),
+		})
 	})
 	sinkOrSkip(t, "s3", func() (hermod.Sink, error) {
 		return sinks3.NewS3Sink(context.Background(), "us-east-1", "b", "p/", "ak", "sk", deadURL, fmtr(), ".json", "application/json", false)

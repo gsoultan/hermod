@@ -40,6 +40,7 @@ const EventStoreSinkConfig = lazy(() => import('../workflow/Sink/EventStoreSinkC
 const SocialSinkConfig = lazy(() => import('../workflow/Sink/SocialSinkConfig').then(m => ({ default: m.SocialSinkConfig })));
 const PanmailSinkConfig = lazy(() => import('../workflow/Sink/PanmailSinkConfig').then(m => ({ default: m.PanmailSinkConfig })));
 const MetisSinkConfig = lazy(() => import('../workflow/Sink/MetisSinkConfig').then(m => ({ default: m.MetisSinkConfig })));
+const FcmSinkConfig = lazy(() => import('../workflow/Sink/FcmSinkConfig').then(m => ({ default: m.FcmSinkConfig })));
 
 export const SINK_TYPES = [
   { value: 'postgres', label: 'PostgreSQL' , group: 'Databases' },
@@ -130,7 +131,7 @@ export const configComponents: Record<string, any> = {
   s3: S3SinkConfig,
   's3-parquet': S3SinkConfig,
   telegram: NotificationSinkConfig,
-  fcm: NotificationSinkConfig,
+  fcm: FcmSinkConfig,
   discord: NotificationSinkConfig,
   slack: NotificationSinkConfig,
   http: HttpSinkConfig,
