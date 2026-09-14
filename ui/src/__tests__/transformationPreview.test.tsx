@@ -5,6 +5,7 @@ import { VHostProvider } from '@/context/VHostContext'
 import { server } from '../test/setupTests'
 import { http, HttpResponse, delay } from 'msw'
 import { TransformationForm } from '@/components/forms/TransformationForm'
+import { PreviewPanel } from '@/components/workflow/Transformation/PreviewPanel'
 import { vi } from 'vitest'
 import { signInAs } from '@/test/setupTests'
 
@@ -144,5 +145,70 @@ describe('Transformation preview', () => {
     // means the wrapper was rendered instead of the message inside it.
     expect(screen.queryByText(/"branch"/)).not.toBeInTheDocument()
     expect(screen.queryByText(/"result"/)).not.toBeInTheDocument()
+  })
+})
+
+// A node that returns its input unchanged used to look identical to a node that
+// had worked: the default view showed the message, and the only hint lived
+// behind the Diff tab, which an operator has no reason to open when they
+// believe the node is doing something.
+//
+// That is exactly how a decrypt node pointed at a field it cannot read
+// presents: the ciphertext comes back byte-for-byte, with no error anywhere.
+const renderPanel = (props: Record<string, unknown>) =>
+  render(
+    <MantineProvider>
+      <PreviewPanel title="LIVE PREVIEW" onRun={() => {}} {...props} />
+    </MantineProvider>,
+  )
+
+const NOTE = /returned the message unchanged/i
+
+describe('preview reports a node that changed nothing', () => {
+  it('says so when the result matches the input', () => {
+    const message = { payload: 'HLDFGvyxVbG5/WdxqYSk3=' }
+    renderPanel({ original: message, result: { ...message } })
+    expect(screen.getByText(NOTE)).toBeInTheDocument()
+  })
+
+  it('ignores key order, which carries no meaning', () => {
+    renderPanel({
+      original: { a: 1, b: 2 },
+      result: { b: 2, a: 1 },
+    })
+    expect(screen.getByText(NOTE)).toBeInTheDocument()
+  })
+
+  it('stays quiet when the node changed a value', () => {
+    renderPanel({
+      original: { payload: 'HLDFGvyxVbG5/WdxqYSk3=' },
+      result: { payload: '{"user_id":"01a0411f"}' },
+    })
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument()
+  })
+
+  it('stays quiet when the node added a field', () => {
+    renderPanel({
+      original: { id: '1' },
+      result: { id: '1', enriched: 'value' },
+    })
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument()
+  })
+
+  it('stays quiet while a preview is still running', () => {
+    const message = { payload: 'x' }
+    renderPanel({ original: message, result: { ...message }, loading: true })
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument()
+  })
+
+  it('stays quiet when the preview errored, which already says its own thing', () => {
+    const message = { payload: 'x' }
+    renderPanel({ original: message, result: { ...message }, error: 'decrypt: no fields configured' })
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument()
+  })
+
+  it('stays quiet with nothing to compare against', () => {
+    renderPanel({ result: { payload: 'x' } })
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument()
   })
 })
