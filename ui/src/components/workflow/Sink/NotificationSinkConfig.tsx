@@ -19,23 +19,6 @@ export function NotificationSinkConfig({
   const [builderOpened, setBuilderOpened] = useState(false);
 
   switch (type) {
-    case 'fcm':
-      return (
-        <>
-          <Textarea 
-            label="Credentials JSON" 
-            placeholder="Paste Firebase service account JSON"
-            minRows={6}
-            value={config.credentials_json || ''}
-            onChange={(e) => updateConfig('credentials_json', e.target.value)}
-            required 
-          />
-          <Text size="xs" c="dimmed">Provide a default destination or set fcm_* metadata per message.</Text>
-          <TextInput label="Default Device Token" placeholder="Optional device token" value={config.device_token || ''} onChange={(e) => updateConfig('device_token', e.target.value)} />
-          <TextInput label="Default Topic" placeholder="/topics/news" value={config.topic || ''} onChange={(e) => updateConfig('topic', e.target.value)} />
-          <TextInput label="Default Condition" placeholder="'topicA' in topics && !('topicB' in topics)" value={config.condition || ''} onChange={(e) => updateConfig('condition', e.target.value)} />
-        </>
-      );
     case 'smtp':
       return (
         <>
