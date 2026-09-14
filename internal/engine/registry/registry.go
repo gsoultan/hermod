@@ -2,7 +2,9 @@ package registry
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -137,7 +139,7 @@ type Registry struct {
 	nodeStatesMu        sync.Mutex
 	lookupCache         map[string]lookupCacheEntry
 	lookupCacheMu       sync.RWMutex
-	dbPool              map[string]*sql.DB
+	dbPool              map[string]pooledDB
 	dbPoolMu            sync.RWMutex
 	logger              hermod.Logger
 	// supervisor tracks automatic restart attempts for stalled workflows.
@@ -286,7 +288,7 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		nodeStates:          make(map[string]any),
 		lookupCache:         make(map[string]lookupCacheEntry),
 		supervisor:          newSupervisorState(),
-		dbPool:              make(map[string]*sql.DB),
+		dbPool:              make(map[string]pooledDB),
 		logger:              telemetry.NewDefaultLogger(),
 		idleMonitorStop:     make(chan struct{}),
 		startTime:           time.Now(),
@@ -340,11 +342,11 @@ func (r *Registry) Close() {
 
 	r.dbPoolMu.Lock()
 	defer r.dbPoolMu.Unlock()
-	for id, db := range r.dbPool {
-		r.logger.Info("Closing database connection pool", "source_id", id)
-		_ = db.Close()
+	for _, entry := range r.dbPool {
+		r.logger.Info("Closing database connection pool", "source_id", entry.sourceID)
+		_ = entry.db.Close()
 	}
-	r.dbPool = make(map[string]*sql.DB)
+	r.dbPool = make(map[string]pooledDB)
 }
 
 func (r *Registry) runStatusFlusher() {
@@ -715,33 +717,82 @@ func openSQLDB(driverName, connStr string) (*sql.DB, error) {
 	return sql.Open(driverName, connStr)
 }
 
+// pooledDB is a cached connection pool together with the source it was opened
+// for, so a source's older pools can be identified and closed when its
+// connection details change.
+type pooledDB struct {
+	sourceID string
+	db       *sql.DB
+}
+
+// dbPoolKey identifies a pooled connection by both the source it belongs to and
+// the connection details it was opened with.
+//
+// The ID alone is not enough. The discovery paths — the SQL query builder, table
+// sampling, schema discovery — reach GetOrOpenDB through GetDB, which supplies an
+// ad-hoc config and no ID at all, so every one of those calls collides on the
+// empty key and is served whichever database happened to be opened first. The
+// user sees their query fail with "relation ... does not exist" for a table that
+// does exist, because it ran against a different database than the one they
+// picked. Folding the config in also means editing a stored source's host,
+// database or credentials reopens the pool instead of handing back a connection
+// to the old server for as long as it still pings.
+func dbPoolKey(src storage.Source) string {
+	h := sha256.New()
+	// Length-prefix every field: without it a separator shifted into a value
+	// would let two different configs hash to the same digest.
+	write := func(s string) {
+		h.Write([]byte(strconv.Itoa(len(s))))
+		h.Write([]byte{':'})
+		h.Write([]byte(s))
+	}
+	write(src.Type)
+	for _, k := range slices.Sorted(maps.Keys(src.Config)) {
+		write(k)
+		write(src.Config[k])
+	}
+	return src.ID + "|" + hex.EncodeToString(h.Sum(nil))
+}
+
+// pingCtx is the context used for pool liveness checks. It falls back to a
+// background context because a Registry built as a zero value (as several tests
+// do) has no lifecycle context, and a nil one panics inside PingContext.
+func (r *Registry) pingCtx() context.Context {
+	if r.ctx == nil {
+		return context.Background()
+	}
+	return r.ctx
+}
+
 func (r *Registry) GetOrOpenDB(src storage.Source) (*sql.DB, error) {
+	poolKey := dbPoolKey(src)
+
 	// 1. Fast path: check existing pool with RLock (no bottleneck for active pools)
 	r.dbPoolMu.RLock()
-	db, ok := r.dbPool[src.ID]
+	entry, ok := r.dbPool[poolKey]
 	r.dbPoolMu.RUnlock()
 
 	if ok {
 		// Ping outside the lock to avoid blocking other sources during network I/O
-		if err := db.Ping(); err == nil {
-			return db, nil
+		if err := entry.db.PingContext(r.pingCtx()); err == nil {
+			return entry.db, nil
 		}
 	}
 
 	// 2. Slow path: open or reopen the pool using singleflight to prevent
 	// redundant connection attempts (thundering herd) during heavy startup.
-	val, err, _ := r.sf.Do("db:"+src.ID, func() (any, error) {
+	val, err, _ := r.sf.Do("db:"+poolKey, func() (any, error) {
 		// Re-check existing pool under RLock after acquiring singleflight
 		r.dbPoolMu.RLock()
-		db, ok := r.dbPool[src.ID]
+		entry, ok := r.dbPool[poolKey]
 		r.dbPoolMu.RUnlock()
 
 		if ok {
-			if err := db.Ping(); err == nil {
-				return db, nil
+			if err := entry.db.PingContext(r.pingCtx()); err == nil {
+				return entry.db, nil
 			}
 			// Ping failed: close the stale pool and prepare to reopen
-			db.Close()
+			_ = entry.db.Close()
 		}
 
 		sourceType := src.Type
@@ -778,7 +829,16 @@ func (r *Registry) GetOrOpenDB(src storage.Source) (*sql.DB, error) {
 		newDB.SetConnMaxIdleTime(60 * time.Second)
 
 		r.dbPoolMu.Lock()
-		r.dbPool[src.ID] = newDB
+		// A source holds at most one pool. Pools opened for its previous
+		// connection details can never be asked for again, so close them here
+		// instead of letting an edited source leak one pool per edit.
+		for key, stale := range r.dbPool {
+			if key != poolKey && stale.sourceID == src.ID {
+				_ = stale.db.Close()
+				delete(r.dbPool, key)
+			}
+		}
+		r.dbPool[poolKey] = pooledDB{sourceID: src.ID, db: newDB}
 		r.dbPoolMu.Unlock()
 
 		return newDB, nil
