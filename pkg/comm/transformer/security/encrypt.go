@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/gsoultan/hermod"
@@ -236,6 +238,56 @@ const (
 	onPlaintextNull onPlaintextPolicy = "null"
 )
 
+// onMissingFieldPolicy governs a field list that matches *nothing* on the
+// message.
+//
+// This is a level above onPlaintext and onError, which are value-level: both
+// need the value in hand, and neither can see a field that was never reached.
+// A node whose whole field list misses runs, touches nothing, and reports
+// success — encrypt forwards plaintext, decrypt forwards ciphertext, and
+// nothing anywhere says so. It is the same silent-success failure onPlaintext
+// exists to prevent, and the one operators hit when a source begins delivering
+// a body that is not a JSON object: the list still names the old column while
+// the body now arrives under "payload".
+//
+// A *partial* miss is deliberately not covered. One field present and another
+// absent is an optional column, not a misconfiguration, and failing it would
+// break every heterogeneous stream.
+type onMissingFieldPolicy string
+
+const (
+	// onMissingFieldFail aborts the message. The default: a security node that
+	// did nothing at all is a configuration error, and inheriting the silence
+	// is how ciphertext reaches a sink unnoticed.
+	onMissingFieldFail onMissingFieldPolicy = "fail"
+	// onMissingFieldSkip forwards the message untouched, for a stream where
+	// some messages genuinely carry none of the named fields.
+	onMissingFieldSkip onMissingFieldPolicy = "skip"
+)
+
+func configuredOnMissingField(config map[string]any) onMissingFieldPolicy {
+	policy, _ := config["onMissingField"].(string)
+	if onMissingFieldPolicy(strings.ToLower(strings.TrimSpace(policy))) == onMissingFieldSkip {
+		return onMissingFieldSkip
+	}
+	return onMissingFieldFail
+}
+
+// errNoFieldMatched reports a field list that addressed nothing, naming both
+// what was asked for and what the message actually carries — the two facts
+// needed to fix it without a debugger.
+func errNoFieldMatched(node string, fields []string, msg hermod.Message) error {
+	available := slices.Sorted(maps.Keys(msg.Data()))
+	if len(available) == 0 {
+		return fmt.Errorf("%s: none of the configured fields %v are present on the message, "+
+			"which carries no fields at all; the node made no change", node, fields)
+	}
+	return fmt.Errorf("%s: none of the configured fields %v are present on the message, "+
+		"which carries %v; the node made no change. Set the field list to a field that "+
+		"exists, or onMissingField to \"skip\" if some messages legitimately carry none",
+		node, fields, available)
+}
+
 func configuredOnPlaintext(config map[string]any) onPlaintextPolicy {
 	policy, _ := config["onPlaintext"].(string)
 	switch onPlaintextPolicy(strings.ToLower(strings.TrimSpace(policy))) {
@@ -303,6 +355,7 @@ func (t *EncryptTransformer) Transform(ctx context.Context, msg hermod.Message, 
 	}
 	serializeJSON := configuredSerializeJSON(config)
 
+	matched := 0
 	for _, field := range fields {
 		val := evaluator.GetMsgValByPath(msg, field)
 		if val == nil {
@@ -310,6 +363,7 @@ func (t *EncryptTransformer) Transform(ctx context.Context, msg hermod.Message, 
 			// inventing one, so leave the message shaped as it arrived.
 			continue
 		}
+		matched++
 
 		plaintext, err := plaintextFor(val, serializeJSON)
 		if err != nil {
@@ -329,6 +383,10 @@ func (t *EncryptTransformer) Transform(ctx context.Context, msg hermod.Message, 
 			return nil, fmt.Errorf("encrypt: field %q: %w", field, err)
 		}
 		msg.SetData(field, sealed)
+	}
+
+	if matched == 0 && configuredOnMissingField(config) == onMissingFieldFail {
+		return nil, errNoFieldMatched("encrypt", fields, msg)
 	}
 
 	return msg, nil
@@ -363,11 +421,13 @@ func (t *DecryptTransformer) Transform(ctx context.Context, msg hermod.Message, 
 		return nil, fmt.Errorf("decrypt: %w", err)
 	}
 
+	matched := 0
 	for _, field := range fields {
 		val := evaluator.GetMsgValByPath(msg, field)
 		if val == nil {
 			continue
 		}
+		matched++
 
 		text, ok := val.(string)
 		if !ok {
@@ -432,6 +492,10 @@ func (t *DecryptTransformer) Transform(ctx context.Context, msg hermod.Message, 
 			continue
 		}
 		msg.SetData(field, plaintext)
+	}
+
+	if matched == 0 && configuredOnMissingField(config) == onMissingFieldFail {
+		return nil, errNoFieldMatched("decrypt", fields, msg)
 	}
 
 	return msg, nil

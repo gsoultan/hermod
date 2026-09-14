@@ -35,6 +35,7 @@ import {
   KDF_HASH_OPTIONS,
   KEY_FORMAT_OPTIONS,
   ON_ERROR_OPTIONS,
+  ON_MISSING_FIELD_OPTIONS,
   ON_PLAINTEXT_OPTIONS,
   PARSE_JSON_OPTIONS,
   TAG_PLACEMENT_OPTIONS,
@@ -264,6 +265,16 @@ export function EncryptConfig({
               description="Applies when a value cannot be decrypted — a wrong key, a wrong algorithm, or an altered ciphertext."
             />
           )}
+
+          <Select
+            label="When no field matches"
+            data={ON_MISSING_FIELD_OPTIONS.map(({ value, label }) => ({ value, label }))}
+            value={config.onMissingField || 'fail'}
+            onChange={(val) => set({ onMissingField: val || 'fail' })}
+            size="sm"
+            allowDeselect={false}
+            description={describe(ON_MISSING_FIELD_OPTIONS, config.onMissingField || 'fail')}
+          />
 
           {decrypting ? (
             <Select

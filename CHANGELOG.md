@@ -7,6 +7,31 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — `encrypt` and `decrypt` report a field list that matches nothing
+
+A security node whose configured fields are all absent from the message used to
+run, touch nothing, and report success: encrypt forwarded plaintext, decrypt
+forwarded ciphertext, and nothing anywhere said so. Both now fail the message
+instead, naming the fields asked for and the fields the message actually
+carries.
+
+This is the misconfiguration operators hit when a source starts delivering a
+body that is not a JSON object — the field list still names the old column while
+the body now arrives under `payload`. The node looked healthy and the sink
+quietly received ciphertext.
+
+It sits one level above the existing `onError` and `onPlaintext` policies, which
+are value-level: both need the value in hand, and neither can see a field that
+was never reached.
+
+A **partial** miss is deliberately unaffected. One field present and another
+absent is an optional column, not a misconfiguration, and failing it would break
+every heterogeneous stream.
+
+**If a stream legitimately carries messages with none of the named fields**, set
+`onMissingField` to `skip` to restore the previous behaviour. The editor exposes
+it as *When no field matches*, next to the other failure policies.
+
 ### Added — the FCM sink is a real Firebase client
 
 The Firebase Cloud Messaging sink could address a device, a topic or a
