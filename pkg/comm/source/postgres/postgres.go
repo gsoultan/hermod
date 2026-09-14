@@ -1204,20 +1204,10 @@ func (p *PostgresSource) handleInsert(lsn pglogrepl.LSN, lm *pglogrepl.InsertMes
 	if ok && lm.Tuple != nil {
 		res.SetTable(rel.RelationName)
 		res.SetSchema(rel.Namespace)
-		data := make(map[string]any)
-		for i, col := range lm.Tuple.Columns {
-			if i < len(rel.Columns) {
-				name := rel.Columns[i].Name
-				switch col.DataType {
-				case 'n': // Null
-					data[name] = nil
-				case 't': // Text
-					data[name] = string(col.Data)
-				case 'b': // Binary
-					data[name] = col.Data
-				}
-			}
-		}
+		// An INSERT writes every column, so there is no before-image to borrow
+		// an unchanged TOASTed value from -- and no need for one.
+		data, unavailable := decodeTuple(rel, lm.Tuple, nil)
+		noteUnavailableColumns(res, unavailable)
 		jsonBytes, err := json.Marshal(data)
 		if err == nil {
 			res.SetAfter(jsonBytes)
@@ -1243,40 +1233,18 @@ func (p *PostgresSource) handleUpdate(lsn pglogrepl.LSN, lm *pglogrepl.UpdateMes
 		res.SetTable(rel.RelationName)
 		res.SetSchema(rel.Namespace)
 		if lm.OldTuple != nil {
-			beforeData := make(map[string]any)
-			for i, col := range lm.OldTuple.Columns {
-				if i < len(rel.Columns) {
-					name := rel.Columns[i].Name
-					switch col.DataType {
-					case 'n': // Null
-						beforeData[name] = nil
-					case 't': // Text
-						beforeData[name] = string(col.Data)
-					case 'b': // Binary
-						beforeData[name] = col.Data
-					}
-				}
-			}
+			beforeData, _ := decodeTuple(rel, lm.OldTuple, nil)
 			beforeBytes, err := json.Marshal(beforeData)
 			if err == nil {
 				res.SetBefore(beforeBytes)
 			}
 		}
 		if lm.NewTuple != nil {
-			data := make(map[string]any)
-			for i, col := range lm.NewTuple.Columns {
-				if i < len(rel.Columns) {
-					name := rel.Columns[i].Name
-					switch col.DataType {
-					case 'n': // Null
-						data[name] = nil
-					case 't': // Text
-						data[name] = string(col.Data)
-					case 'b': // Binary
-						data[name] = col.Data
-					}
-				}
-			}
+			// The before-image is the fallback: under REPLICA IDENTITY FULL it
+			// carries the full value of a TOASTed column the UPDATE did not
+			// touch, which the new tuple reports only as "unchanged".
+			data, unavailable := decodeTuple(rel, lm.NewTuple, lm.OldTuple)
+			noteUnavailableColumns(res, unavailable)
 			jsonBytes, err := json.Marshal(data)
 			if err == nil {
 				res.SetAfter(jsonBytes)
@@ -1303,20 +1271,8 @@ func (p *PostgresSource) handleDelete(lsn pglogrepl.LSN, lm *pglogrepl.DeleteMes
 		res.SetTable(rel.RelationName)
 		res.SetSchema(rel.Namespace)
 		if lm.OldTuple != nil {
-			beforeData := make(map[string]any)
-			for i, col := range lm.OldTuple.Columns {
-				if i < len(rel.Columns) {
-					name := rel.Columns[i].Name
-					switch col.DataType {
-					case 'n': // Null
-						beforeData[name] = nil
-					case 't': // Text
-						beforeData[name] = string(col.Data)
-					case 'b': // Binary
-						beforeData[name] = col.Data
-					}
-				}
-			}
+			beforeData, unavailable := decodeTuple(rel, lm.OldTuple, nil)
+			noteUnavailableColumns(res, unavailable)
 			beforeBytes, err := json.Marshal(beforeData)
 			if err == nil {
 				res.SetBefore(beforeBytes)

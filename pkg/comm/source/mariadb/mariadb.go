@@ -174,6 +174,7 @@ func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 
 			if rows.Next() {
 				cols, _ := rows.Columns()
+				typeNames := sqlutil.ColumnTypeNames(rows)
 				values := make([]any, len(cols))
 				ptr := make([]any, len(cols))
 				for i := range values {
@@ -186,18 +187,8 @@ func (m *MariaDBSource) Read(ctx context.Context) (hermod.Message, error) {
 				}
 				rows.Close()
 
-				record := make(map[string]any)
-				var currentID any
-				for i, col := range cols {
-					val := values[i]
-					if b, ok := val.([]byte); ok {
-						val = string(b)
-					}
-					record[col] = val
-					if col == m.idField {
-						currentID = val
-					}
-				}
+				record := sqlutil.RecordFromValues(cols, typeNames, values)
+				currentID := record[m.idField]
 
 				if currentID != nil {
 					m.mu.Lock()
@@ -279,6 +270,7 @@ func (m *MariaDBSource) snapshotTable(ctx context.Context, table string) error {
 	if err != nil {
 		return err
 	}
+	typeNames := sqlutil.ColumnTypeNames(rows)
 
 	for rows.Next() {
 		values := make([]any, len(columns))
@@ -291,15 +283,7 @@ func (m *MariaDBSource) snapshotTable(ctx context.Context, table string) error {
 			return err
 		}
 
-		record := make(map[string]any)
-		for i, colName := range columns {
-			val := values[i]
-			if b, ok := val.([]byte); ok {
-				record[colName] = string(b)
-			} else {
-				record[colName] = val
-			}
-		}
+		record := sqlutil.RecordFromValues(columns, typeNames, values)
 
 		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
 
@@ -506,15 +490,7 @@ func (m *MariaDBSource) Sample(ctx context.Context, table string) (hermod.Messag
 		return nil, err
 	}
 
-	record := make(map[string]any)
-	for i, colName := range cols {
-		val := columns[i]
-		if b, ok := val.([]byte); ok {
-			record[colName] = string(b)
-		} else {
-			record[colName] = val
-		}
-	}
+	record := sqlutil.RecordFromValues(cols, sqlutil.ColumnTypeNames(rows), columns)
 
 	afterJSON, _ := json.Marshal(message.SanitizeMap(record))
 

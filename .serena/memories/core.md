@@ -61,6 +61,10 @@ find a claim that outruns the code, fix the claim.
 - [The FCM sink](fcm_sink.md) — FCM's one-destination and 4096-byte rules, why
   batching is opt-in when there is no idempotency key, and the `option.WithEndpoint`
   seam that makes the wire format assertable.
+- [A jsonb column has two shapes](jsonb_shape_differs_by_path.md) — pgx decodes
+  it to an object on the snapshot path, pgoutput hands it over as a string on the
+  CDC path, and an unchanged TOASTed one is dropped from the UPDATE image
+  entirely.
 - [The lookup cache is a second write path](lookup_cache_fast_path.md) — a
   cache hit skipped `flattenInto`, and with no TTL set that meant every message
   after the first; the test fake that "caches" nothing could never catch it.
