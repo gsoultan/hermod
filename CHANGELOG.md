@@ -7,6 +7,52 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — a `jsonb` column arrived as a string on the CDC path, and vanished when it was TOASTed
+
+A PostgreSQL `jsonb` column had two different shapes depending on how the row
+reached the pipeline, and the workflow editor showed you the one that does not
+run in production.
+
+The snapshot, polling and `Sample` paths read rows through pgx, whose registered
+codec unmarshals `jsonb` into a map — so those messages carried a real nested
+object. The live CDC path decodes pgoutput tuples by hand, and pgoutput sends
+every column as text, so the same column arrived as a string that happened to
+contain JSON. The editor builds its *available fields* list from the source's
+stored sample, which comes from the first path. It therefore offered
+`meta.addr.city`, and on a running CDC pipeline that path resolved to nothing.
+Both paths now produce the object.
+
+The second half is worse and is the reason to read this entry. PostgreSQL stores
+a `jsonb` value larger than about 2 KB out of line, and an `UPDATE` that does not
+touch such a column does not send it — it marks it *unchanged* instead. That
+marker was not a case in the tuple decoder at all, so the column was dropped from
+the after-image and a sink writing that image lost the document. Every update to
+a row with a document of any size, silently. Where the table is `REPLICA IDENTITY
+FULL` the before-image does carry the value and the after-image is now completed
+from it. Where it is not — `REPLICA IDENTITY DEFAULT` sends no before-image at
+all — nothing in the WAL record holds those bytes, so the column stays out of the
+row image rather than being invented, and the message now carries
+`unchanged_toast_columns` naming it. **If you stream a table with large `jsonb`
+or `text` columns, `ALTER TABLE ... REPLICA IDENTITY FULL` is what makes updates
+complete.**
+
+MySQL had the same shape problem on its own `JSON` type, on both the binlog and
+the query paths, and is fixed the same way.
+
+Only columns the database itself types as JSON are decoded, never columns that
+merely contain it: a `VARCHAR` holding `{"a":1}` is still a string. MariaDB is
+therefore unchanged — its `JSON` is an alias for `LONGTEXT` and the driver
+reports it as `TEXT`, indistinguishable from any other long text column, so
+there is nothing to key on and guessing from content would reshape far more than
+it fixed.
+
+**This changes the shape of messages from `json`/`jsonb`/`JSON` columns on the
+CDC path.** A transformation or sink template that treated such a column as a
+string — parsing it itself, or passing it through as text — now receives an
+object. Templates that reached into it with gjson's `@fromstr` modifier keep
+working, since that modifier is a no-op on a value that is already an object.
+
+
 ## [1.4.0] — 2026-09-14
 
 The FCM sink is the headline. It could address a device, a topic or a condition

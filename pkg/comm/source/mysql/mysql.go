@@ -357,15 +357,7 @@ func (h *mysqlEventHandler) OnRow(e *canal.RowsEvent) error {
 
 	for _, row := range rows {
 		msg := message.AcquireMessage()
-		data := make(map[string]any)
-		for i, col := range e.Table.Columns {
-			val := row[i]
-			// Handle []byte values from go-mysql
-			if b, ok := val.([]byte); ok {
-				val = string(b)
-			}
-			data[col.Name] = val
-		}
+		data := binlogRowToData(e.Table.Columns, row)
 
 		msg.SetData("_action", action)
 		msg.SetData("_table", e.Table.Name)
@@ -805,15 +797,7 @@ func (m *MySQLSource) Sample(ctx context.Context, table string) (hermod.Message,
 		return nil, err
 	}
 
-	record := make(map[string]any)
-	for i, colName := range cols {
-		val := columns[i]
-		if b, ok := val.([]byte); ok {
-			record[colName] = string(b)
-		} else {
-			record[colName] = val
-		}
-	}
+	record := sqlutil.RecordFromValues(cols, sqlutil.ColumnTypeNames(rows), columns)
 
 	afterJSON, _ := json.Marshal(message.SanitizeMap(record))
 
@@ -941,6 +925,7 @@ func (m *MySQLSource) processSnapshotRows(ctx context.Context, rows *sql.Rows, t
 	if err != nil {
 		return 0, err
 	}
+	typeNames := sqlutil.ColumnTypeNames(rows)
 
 	count := 0
 	for rows.Next() {
@@ -954,15 +939,7 @@ func (m *MySQLSource) processSnapshotRows(ctx context.Context, rows *sql.Rows, t
 			return count, err
 		}
 
-		record := make(map[string]any, len(columns))
-		for i, colName := range columns {
-			val := values[i]
-			if b, ok := val.([]byte); ok {
-				record[colName] = string(b)
-			} else {
-				record[colName] = val
-			}
-		}
+		record := sqlutil.RecordFromValues(columns, typeNames, values)
 
 		if err := m.emitSnapshotRecord(ctx, table, record, pkCols); err != nil {
 			return count, err
