@@ -58,6 +58,14 @@ type cdcFixture struct {
 	msgs   chan hermod.Message
 	cancel context.CancelFunc
 
+	// readerDone closes when the reader goroutine has returned. stop() waits on
+	// it before clearing source, because the reader dereferences that field on
+	// every iteration: nilling it from the test goroutine while the reader was
+	// still running is a data race, and -race failed the whole package on it
+	// intermittently — passing on one run and failing the next from the same
+	// commit.
+	readerDone chan struct{}
+
 	// lastErr is the most recent Read error. A test that fails with "no message
 	// arrived" is much harder to act on than one that can say why the read was
 	// failing — "replication slot is active for PID ..." points straight at a
@@ -161,7 +169,11 @@ func (f *cdcFixture) start(t *testing.T, ctx context.Context, persistent bool) {
 	readCtx, cancel := context.WithCancel(ctx)
 	f.cancel = cancel
 
+	done := make(chan struct{})
+	f.readerDone = done
+
 	go func() {
+		defer close(done)
 		for {
 			msg, err := f.source.Read(readCtx)
 			if readCtx.Err() != nil {
@@ -214,8 +226,22 @@ func (f *cdcFixture) stop() {
 	}
 	if f.source != nil {
 		_ = f.source.Close()
-		f.source = nil
 	}
+
+	// Wait for the reader to return before clearing the field it reads. The
+	// wait is bounded so a reader wedged inside Read surfaces as a slow stop
+	// rather than hanging the package until the test binary's own deadline,
+	// which reports nothing about which fixture was stuck.
+	if f.readerDone != nil {
+		select {
+		case <-f.readerDone:
+		case <-time.After(30 * time.Second):
+		}
+		f.readerDone = nil
+	}
+
+	f.source = nil
+	f.cancel = nil
 }
 
 // collect takes up to n messages the reader has already pulled off the stream.
