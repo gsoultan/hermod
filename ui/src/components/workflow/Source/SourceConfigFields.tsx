@@ -9,6 +9,7 @@ import { Dynamics365SourceConfig } from './Dynamics365SourceConfig';
 import { MainframeSourceConfig } from './MainframeSourceConfig';
 import { BatchSQLSourceConfig } from './BatchSQLSourceConfig';
 import { OtherSourceConfig } from './OtherSourceConfig';
+import { MetisSourceConfig } from './MetisSourceConfig';
 import { ExcelSourceConfig } from './ExcelSourceConfig';
 import type { FC } from 'react';
 import type { Source } from '@/types';
@@ -133,6 +134,13 @@ export const SourceConfigFields: FC<SourceConfigFieldsProps> = ({
         uploading={uploading}
       />
     );
+  }
+
+  // Explicit rather than left to OtherSourceConfig: the metis source needs its
+  // own project, stream and auth fields, and the fall-through form writes none
+  // of them.
+  if (source.type === 'metis') {
+    return <MetisSourceConfig config={source.config} updateConfig={updateConfig} />;
   }
 
   if (source.type === 'sap') {

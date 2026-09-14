@@ -92,6 +92,13 @@ export function validateSourceForSampling(source: Source): SampleValidation {
     if (!firstNonEmpty(config, ['url', 'endpoint', 'address', 'addr'])) {
       issues.push('Provide the endpoint URL.');
     }
+  } else if (type === 'metis') {
+    if (!firstNonEmpty(config, ['base_url'])) {
+      issues.push('Provide the engine URL.');
+    }
+    if (!firstNonEmpty(config, ['project_id'])) {
+      issues.push('Provide the project ID — the engine refuses an empty one rather than listing the whole organization.');
+    }
   } else if (type === 'batch_sql') {
     if (!firstNonEmpty(config, ['source_id', 'connection_string', 'host'])) {
       issues.push('Select the database connection to query.');

@@ -31,8 +31,17 @@ const SapSinkConfig = lazy(() => import('../workflow/Sink/SapSinkConfig').then(m
 const Dynamics365SinkConfig = lazy(() => import('../workflow/Sink/Dynamics365SinkConfig').then(m => ({ default: m.Dynamics365SinkConfig })));
 const S3SinkConfig = lazy(() => import('../workflow/Sink/S3SinkConfig'));
 const NotificationSinkConfig = lazy(() => import('../workflow/Sink/NotificationSinkConfig').then(m => ({ default: m.NotificationSinkConfig })));
+const HttpSinkConfig = lazy(() => import('../workflow/Sink/HttpSinkConfig').then(m => ({ default: m.HttpSinkConfig })));
+const WebSocketSinkConfig = lazy(() => import('../workflow/Sink/WebSocketSinkConfig').then(m => ({ default: m.WebSocketSinkConfig })));
+const MqttSinkConfig = lazy(() => import('../workflow/Sink/MqttSinkConfig').then(m => ({ default: m.MqttSinkConfig })));
+const FileSinkConfig = lazy(() => import('../workflow/Sink/FileSinkConfig').then(m => ({ default: m.FileSinkConfig })));
+const StdoutSinkConfig = lazy(() => import('../workflow/Sink/StdoutSinkConfig').then(m => ({ default: m.StdoutSinkConfig })));
+const EventStoreSinkConfig = lazy(() => import('../workflow/Sink/EventStoreSinkConfig').then(m => ({ default: m.EventStoreSinkConfig })));
+const SocialSinkConfig = lazy(() => import('../workflow/Sink/SocialSinkConfig').then(m => ({ default: m.SocialSinkConfig })));
+const PanmailSinkConfig = lazy(() => import('../workflow/Sink/PanmailSinkConfig').then(m => ({ default: m.PanmailSinkConfig })));
+const MetisSinkConfig = lazy(() => import('../workflow/Sink/MetisSinkConfig').then(m => ({ default: m.MetisSinkConfig })));
 
-const SINK_TYPES = [
+export const SINK_TYPES = [
   { value: 'postgres', label: 'PostgreSQL' , group: 'Databases' },
   { value: 'mysql', label: 'MySQL' , group: 'Databases' },
   { value: 'mariadb', label: 'MariaDB' , group: 'Databases' },
@@ -63,6 +72,8 @@ const SINK_TYPES = [
   { value: 'pulsar', label: 'Apache Pulsar' , group: 'Messaging & Streams' },
   { value: 'http', label: 'API / Webhook' , group: 'APIs & Triggers' },
   { value: 'smtp', label: 'SMTP (Email)' , group: 'APIs & Triggers' },
+  { value: 'panmail', label: 'Panmail (Email Gateway)' , group: 'APIs & Triggers' },
+  { value: 'metis', label: 'Metis (BPMN Workflow)' , group: 'APIs & Triggers' },
   { value: 'telegram', label: 'Telegram' , group: 'Social Media' },
   { value: 'fcm', label: 'Firebase (FCM)' , group: 'APIs & Triggers' },
   { value: 'file', label: 'File' , group: 'Files & Storage' },
@@ -84,7 +95,7 @@ const SINK_TYPES = [
   { value: 'txgroup', label: 'Transactional Group (2PC)' , group: 'APIs & Triggers' },
 ];
 
-const configComponents: Record<string, any> = {
+export const configComponents: Record<string, any> = {
   postgres: PostgresSinkConfig,
   mysql: DatabaseSinkConfig,
   mariadb: DatabaseSinkConfig,
@@ -122,6 +133,27 @@ const configComponents: Record<string, any> = {
   fcm: NotificationSinkConfig,
   discord: NotificationSinkConfig,
   slack: NotificationSinkConfig,
+  http: HttpSinkConfig,
+  panmail: PanmailSinkConfig,
+  metis: MetisSinkConfig,
+  websocket: WebSocketSinkConfig,
+  mqtt: MqttSinkConfig,
+  file: FileSinkConfig,
+  stdout: StdoutSinkConfig,
+  eventstore: EventStoreSinkConfig,
+  // DatabaseSinkConfig writes uri/database/table and the column mappings,
+  // which is exactly what the factory reads for MongoDB. Listed explicitly so
+  // it is a decision rather than the fall-through it used to be.
+  mongodb: DatabaseSinkConfig,
+  // Not offered in SINK_TYPES, but createSinkBase builds it and a sink of this
+  // type can exist from the REST API. DatabaseSinkConfig writes hosts/keyspace/
+  // table, which is what the factory reads for it.
+  cassandra: DatabaseSinkConfig,
+  twitter: SocialSinkConfig,
+  facebook: SocialSinkConfig,
+  instagram: SocialSinkConfig,
+  linkedin: SocialSinkConfig,
+  tiktok: SocialSinkConfig,
   database: DatabaseSinkConfig,
 };
 

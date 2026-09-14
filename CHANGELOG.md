@@ -5,6 +5,144 @@ Notable changes to Hermod, newest first. Dates are ISO-8601.
 This file starts at 1.0.0. Everything published before it was withdrawn — see
 [The releases before this one are gone](#the-releases-before-this-one-are-gone).
 
+## [Unreleased]
+
+### Fixed — twelve sink types were rendering the database form
+
+Picking **API / Webhook** in the sink wizard showed host, port, database and
+table fields. It was not a missing-field bug: `SinkWizard` resolved a type's
+form as `configComponents[type] || configComponents['database']`, and twelve
+types had no entry in that map, so they silently fell through to the database
+form.
+
+For `http` and `websocket` that made the sink unreachable rather than awkward.
+The database form never writes a `url`, both types require one, and the wizard
+disables Next *and* Save while a requirement is unmet — so there was no way to
+create or edit one from any of the four entry points (Add Sink, Edit Sink, the
+editor's node modal, the node drawer). Only the REST API could.
+
+All twelve now have a form matched to the keys the factory actually reads:
+
+- **API / Webhook** (`http`) — URL and headers, plus **compression** and
+  **timeout**, which `createSinkBase` has always read and which had no input
+  anywhere in the UI.
+- **WebSocket** — URL, headers, subprotocols, the three timeouts, acknowledgement
+  and the four TLS keys `buildWSTLSConfig` reads.
+- **MQTT** — broker URL, topic, client id, credentials, QoS, retain, keepalive,
+  clean session.
+- **File**, **Stdout**, **Event Store**, and the five social sinks
+  (Twitter/X, Facebook, Instagram, LinkedIn, TikTok).
+- **MongoDB** and **Cassandra** keep the database form, now listed explicitly so
+  it is a decision rather than a fall-through.
+
+`MiscSinkConfig.tsx` held the correct `http` form all along but had been
+imported by nothing since `ce5d533`; it is deleted. MQTT, File and Event Store
+gained requirement gates, because their factory cases return an error rather
+than degrading — saving one without them produced a sink that failed only when
+it ran.
+
+A test now fails if any type offered in the picker relies on that fall-through.
+
+### Added — panmail sink
+
+A new `panmail` sink sends each message as an email through a
+[panmail](https://github.com/gsoultan/panmail) gateway's API, using
+`github.com/gsoultan/panmail-sdk`. It sits beside the SMTP sink, which can reach
+the same gateway through its SMTP door; what the API buys is the message id every
+send returns — the handle delivery events and webhooks are keyed by — and
+refusals that say which refusal they are.
+
+Recipients, subject and both bodies are Go templates over the message, as in the
+SMTP sink. A stored gateway template can be used instead.
+
+**On retries and duplicate mail.** Sending is not idempotent and the gateway has
+no de-duplication key, so a retry after a timeout may deliver a second copy. The
+SDK refuses to make that call for you and never repeats a send whose outcome it
+does not know; Hermod's `RetrySink` has no such discrimination and retries every
+error alike. The sink resolves this with the idempotency claim:
+
+- a refusal the gateway **stated** (rate limit, full backlog, bad key, bad
+  argument) means the message was definitively not accepted, so the claim is
+  released and a retry is free to take it;
+- an **unknown** outcome keeps the claim, so the retry that follows finds the key
+  taken and does nothing instead of mailing the recipient again.
+
+With idempotency off there is nothing to hold the claim; the error says that,
+rather than looking like any other failure. Turning it on is worth more for this
+sink than for most.
+
+The SMTP sink's idempotency-store wiring moved into
+`internal/factory/idempotency.go` and is shared, with the sink name as the table
+prefix so two sinks over one database cannot suppress each other's sends.
+
+### Added — metis source and sink, for a BPMN workflow engine
+
+Two new connectors reach a [Metis](https://github.com/gsoultan/metis) BPMN 2.0
+workflow engine through `github.com/gsoultan/metis-sdk`, a client that depends on
+nothing outside the standard library.
+
+The **`metis` sink** turns each message into one act on the engine, chosen by its
+`action` setting:
+
+- `start_process` — start an instance of a deployed definition, so a committed
+  database transaction is what begins the business process that answers it;
+- `send_message` — correlate a message into whichever instance is already waiting
+  on it, selected by a correlation key;
+- `broadcast_signal` — reach every instance in the project listening for it.
+
+The message's data map becomes the process variables, with the envelope (`id`,
+`operation`, `table`, `schema`) written underneath it so a CDC row's own column
+named `table` still wins. `variable_fields` narrows that to a named subset. The
+definition key, message name, signal name and correlation key are Go templates
+over the message.
+
+**On retries and duplicate process instances.** Starting a process is not
+idempotent and the engine has no de-duplication key, so this uses the same
+idempotency claim as the panmail sink — but draws the line in a different place,
+because the engine's failures are not the gateway's:
+
+- a **stated** refusal (400, 401, 403, 404) means the request was rejected before
+  anything was written, so the claim is released and a corrected retry may take
+  it;
+- an **unknown** outcome keeps the claim. That covers a transport failure *and a
+  5xx*: a 500 is an answer that says the engine broke, not that it broke before
+  committing the instance. Treating it as a refusal is what would start somebody's
+  order-fulfilment process twice.
+
+`TestWrite_ServerErrorKeepsTheClaim` fails when that classification is inverted,
+so the distinction is verified rather than asserted.
+
+The **`metis` source** polls a project and emits one message per row of a chosen
+stream — `instances`, `tasks` or `incidents` — which is how process history
+reaches a warehouse. Its listings are newest-first with no "since" filter, so the
+source keeps the watermark itself: the `created_at` of the last row the pipeline
+**acknowledged**, plus the ids of any rows sharing that exact instant, so a tie
+is neither re-delivered nor dropped.
+
+Only `Ack` moves it. Reading moves a second, in-process position that stops a
+running poll re-reading what it just handed out, and that one is deliberately not
+persisted — advancing the *persisted* cursor on read is the defect this
+repository has fixed in ten other polling sources, and
+`TestAck_AdvancesTheCursorAndReadDoesNot` fails when it is reintroduced.
+
+The incidents stream carries a limitation the engine's API imposes: incidents are
+listed per instance, not per project, so the source finds failed instances first
+and asks each one. That is a request per failed instance per poll, and an
+instance that fails after ageing out of `scan_pages` of the instance listing is
+never asked.
+
+Both connectors refuse plaintext `http` to a non-loopback host, because the
+bearer token travels in a header; both take either a token or a username and
+password, and prefer the password for a long-running pipeline, since only that
+can log in again when the token expires. `Ping` lists projects rather than
+writing, so a health check never starts somebody's process. Both are registered
+in the `pkg/comm/conformance` contract suite.
+
+`connectorRequirements` gained an optional `when` predicate on a required field,
+because the metis sink's required name field follows its action: demanding a
+definition key, a message name *and* a signal name at once would disable Next for
+every configuration that is actually valid.
+
 ## [1.3.0] — 2026-09-11
 
 The trace tables are the headline: listing traces was a sequential scan and
