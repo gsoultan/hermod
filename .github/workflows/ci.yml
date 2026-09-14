@@ -22,6 +22,16 @@ concurrency:
 permissions:
   contents: read
 
+# Two jobs install golangci-lint, and for a while they installed different
+# versions: this one pinned, the security-gates one on @latest, under a comment
+# claiming they matched. They did not — @latest resolved a minor version ahead,
+# so the gate that guards SECURITY.md ran a linter nobody had pinned, and
+# re-resolving its whole dependency tree through sum.golang.org failed a build
+# on a checksum-server error that had nothing to do with the change. One value,
+# used by both.
+env:
+  GOLANGCI_LINT_VERSION: v2.13.1
+
 jobs:
   quick-verify:
     name: Verify (Go)
@@ -140,7 +150,7 @@ jobs:
       # unrelated pull request red.
       - name: Lint (golangci-lint)
         run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${{ env.GOLANGCI_LINT_VERSION }}
           golangci-lint run --timeout=10m ./...
       - name: Staticcheck
         run: |
@@ -241,9 +251,10 @@ jobs:
           ./scripts/govulncheck.sh
       # security-check.sh shells out to golangci-lint by name (its static-
       # analysis step), and this job no longer inherits the binary from the
-      # lint action next door. Same pinned version as Verify (Go) uses.
+      # lint action next door. GOLANGCI_LINT_VERSION is the same value Verify
+      # (Go) installs, so the two cannot report on different linters.
       - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${{ env.GOLANGCI_LINT_VERSION }}
       # One command that runs every check backing a claim in SECURITY.md, so the
       # posture is verified per build rather than remembered. It re-runs a few
       # tests the main suite already covers; that is the point — the value is in
@@ -983,6 +994,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # Deliberately @latest, unlike the two gates, which share
+      # GOLANGCI_LINT_VERSION. This job reports debt rather than blocking
+      # anything — it is nightly, continue-on-error and ends in `|| true` — so a
+      # newer linter finding more is the point, and it cannot turn a pull
+      # request red the way an unpinned gate can.
       - name: Full lint report
         run: |
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
