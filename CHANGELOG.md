@@ -7,6 +7,73 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — the FCM sink is a real Firebase client
+
+The Firebase Cloud Messaging sink could address a device, a topic or a
+condition and set a notification title and body, all of them only from message
+metadata. Everything else FCM offers — Android channels and collapse keys,
+APNs badges and background pushes, Web Push links, analytics labels, dry runs,
+topic subscription — had no representation at all, and the editor's form
+offered four fields: the credentials and three destination defaults.
+
+It is now a full client. Every destination and notification field is a Go
+template over the message, so a device token or a deep link comes from a column
+rather than needing a transformer to copy it into metadata first. A token field
+that renders a comma-separated list fans out as a multicast. Android, APNs and
+Web Push each have their own block, because "high priority" and "expire this
+after ten minutes" mean different things on each. `subscribe` and `unsubscribe`
+actions turn a device-registration table into an FCM audience, so a topic is
+addressable without the pipeline holding a token list of its own.
+
+The data payload gained a choice: the envelope it has always sent (the
+formatted row under `payload`), the row's own columns as top-level keys, or
+nothing at all for a notification-only push.
+
+### Fixed — six ways the FCM sink misbehaved
+
+- **Two defaults produced a message FCM refuses.** Configuring both a default
+  device token and a default topic set `Token`, `Topic` *and* `Condition` on
+  every message. FCM accepts exactly one, so every send failed with "exactly
+  one of token, topic or condition must be specified". The sink now refuses
+  that configuration when it is saved.
+- **A blank `fcm_token` was treated as a destination.** The check was for the
+  key's presence, not its value, so a transformer copying a nullable column
+  produced a message addressed to the empty string instead of falling back to
+  the configured default.
+- **`Ping` sent a real message.** The connection test called `Send` with a
+  made-up token, which cost send quota and, with a token that happened to be
+  live, would have notified a real device. It now uses `SendDryRun`, and it
+  distinguishes a refusal about the message — which proves the round trip
+  worked — from one about the credentials, which is the failure it exists to
+  find.
+- **An empty credentials field silently used the machine's Google
+  credentials.** On any host with `gcloud` logged in, that meant pushing to
+  whatever project that account defaulted to. Using ambient credentials is now
+  an explicit opt-in that has to name its project.
+- **A payload over FCM's 4096-byte limit burned the whole retry budget.** FCM
+  refuses an oversized message and it will not be smaller next time. The sink
+  now checks before sending and reports it as permanent, with `truncate` and
+  `drop` available for workflows that would rather deliver something.
+- **The column a push was addressed by travelled inside the push.** A
+  registration token is a capability — whoever holds it can push to that
+  device. Under the new `fields` data mode every column became a data key, so a
+  message addressed by `{{.device_token}}` carried that token back to the
+  device it was addressed to, and a multicast, whose field holds *every*
+  recipient's token, handed each device the whole list. The columns the
+  destination templates read are now withheld from the payload; naming one
+  under `data_json` puts it back for anyone who wants it.
+
+Refusals FCM calls permanent — a dead registration token, the wrong project,
+an invalid argument — are now wrapped in `ErrPermanent`, and a dead token
+arrives as an `UnregisteredTokenError` naming the token so the registration can
+be pruned. Batching is available through `NewBatching` but off by default: FCM
+has no idempotency key, so retrying a partly-delivered batch notifies the
+devices that already received it a second time.
+
+The editor's form covers every key, and a Go test reads the form and fails if
+it writes a key the sink does not read, or if the sink reads one no field
+writes.
+
 ### Fixed — twelve sink types were rendering the database form
 
 Picking **API / Webhook** in the sink wizard showed host, port, database and

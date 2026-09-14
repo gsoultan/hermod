@@ -196,3 +196,48 @@ describe('the metis sink, whose requirements follow its action', () => {
     ).toEqual(['Project ID']);
   });
 });
+
+// The FCM sink refuses a credential-less configuration rather than falling
+// through to the machine's ambient Google credentials, and the subscribe
+// actions need both a device field and a topic. The gate has to follow the
+// action, or it disables Next for every configuration that is actually valid.
+describe('the fcm sink', () => {
+  it('asks for a service account when one is not being borrowed from the host', () => {
+    expect(missingConnectionFields('sink', 'fcm', {})).toEqual(['Service account JSON']);
+    expect(
+      missingConnectionFields('sink', 'fcm', { credentials_json: '{"project_id":"p"}' }),
+    ).toEqual([]);
+  });
+
+  it('asks for the project instead when the ambient credentials are opted into', () => {
+    expect(
+      missingConnectionFields('sink', 'fcm', { use_default_credentials: 'true' }),
+    ).toEqual(['Project ID']);
+    expect(
+      missingConnectionFields('sink', 'fcm', {
+        use_default_credentials: 'true',
+        project_id: 'my-project',
+      }),
+    ).toEqual([]);
+  });
+
+  it('needs no destination to send — a message may carry its own in metadata', () => {
+    expect(
+      missingConnectionFields('sink', 'fcm', { credentials_json: '{}', action: 'send' }),
+    ).toEqual([]);
+  });
+
+  it('needs both devices and a topic to subscribe', () => {
+    expect(
+      missingConnectionFields('sink', 'fcm', { credentials_json: '{}', action: 'subscribe' }),
+    ).toEqual(['Device tokens', 'Topic']);
+    expect(
+      missingConnectionFields('sink', 'fcm', {
+        credentials_json: '{}',
+        action: 'unsubscribe',
+        device_token: '{{.token}}',
+        topic: 'orders',
+      }),
+    ).toEqual([]);
+  });
+});

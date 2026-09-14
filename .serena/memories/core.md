@@ -58,6 +58,9 @@ find a claim that outruns the code, fix the claim.
   — `configComponents[type] || 'database'` silently rendered the database form
   for twelve sink types, making two of them unconfigurable; and why the panmail
   sink keeps its idempotency claim when a send's outcome is unknown.
+- [The FCM sink](fcm_sink.md) — FCM's one-destination and 4096-byte rules, why
+  batching is opt-in when there is no idempotency key, and the `option.WithEndpoint`
+  seam that makes the wire format assertable.
 - [The lookup cache is a second write path](lookup_cache_fast_path.md) — a
   cache hit skipped `flattenInto`, and with no TTL set that meant every message
   after the first; the test fake that "caches" nothing could never catch it.

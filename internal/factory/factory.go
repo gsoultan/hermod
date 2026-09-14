@@ -1236,13 +1236,18 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 	case "tiktok":
 		return sinktiktok.NewTikTokSink(cfg.Config["access_token"], fmttr), nil
 	case "fcm":
-		return sinkfcm.NewFCMSinkWithDefaults(
-			cfg.Config["credentials_json"],
-			cfg.Config["device_token"],
-			cfg.Config["topic"],
-			cfg.Config["condition"],
-			fmttr,
-		)
+		fcmCfg, err := sinkfcm.FromMap(cfg.Config)
+		if err != nil {
+			return nil, err
+		}
+		fcmCfg.Formatter = fmttr
+		// Batching costs a duplicate notification whenever a batch fails after
+		// some of it was delivered — FCM has no idempotency key — so it is the
+		// operator's call, not the default.
+		if strings.EqualFold(strings.TrimSpace(cfg.Config["batch"]), "true") {
+			return sinkfcm.NewBatching(fcmCfg)
+		}
+		return sinkfcm.New(fcmCfg)
 	case "googlesheets":
 		return sinkgooglesheets.NewGoogleSheetsSink(
 			cfg.Config["spreadsheet_id"],
