@@ -154,13 +154,17 @@ func runFlow(t *testing.T, sequential bool) {
 	time.Sleep(1500 * time.Millisecond)
 	mustExec(t, srcDB, `INSERT INTO flow_orders (id,customer_id,amount,qty) VALUES ('O-2','C-2','99.99','7')`)
 
-	// Bulk, so WAL retention is measurable rather than lost in rounding. CI runs
-	// this raced and -short, where a smaller batch proves the same thing for a
-	// fraction of the wall clock.
-	bulk := 200
-	if testing.Short() {
-		bulk = 40
-	}
+	// Bulk, so WAL retention is measurable rather than lost in rounding: an
+	// unacknowledged run has to sit well clear of drainBound below for the
+	// assertion to mean anything.
+	//
+	// Deliberately one count everywhere, rather than a smaller one in short
+	// mode. TestEveryShortGuardedTestIsRunSomewhere reads any test that consults
+	// the short flag as one that skips in CI and therefore runs nowhere, and it
+	// is right to: a size knob and a skip are indistinguishable from outside the
+	// function. Keeping a single count also means CI exercises the same volume
+	// these numbers were measured at.
+	const bulk = 120
 	mustExec(t, srcDB, `INSERT INTO flow_orders (id,customer_id,amount,qty)
 		SELECT 'B-'||g, 'C-1', '1.25', '2' FROM generate_series(1,$1) g`, bulk)
 
