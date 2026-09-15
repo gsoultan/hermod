@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -38,28 +37,11 @@ func TestFlowNodeByNode(t *testing.T) {
 }
 
 func runFlow(t *testing.T, sequential bool) {
-	srcDSN := os.Getenv("FLOW_SOURCE_DSN")
-	sinkDSN := os.Getenv("FLOW_SINK_DSN")
-	if os.Getenv("HERMOD_INTEGRATION") != "1" || srcDSN == "" || sinkDSN == "" {
-		t.Skip("integration: set HERMOD_INTEGRATION=1, FLOW_SOURCE_DSN, FLOW_SINK_DSN")
-	}
-
-	srcDB, err := sql.Open("pgx", srcDSN)
-	if err != nil {
-		t.Fatalf("open source: %v", err)
-	}
-	t.Cleanup(func() { _ = srcDB.Close() })
-	sinkDB, err := sql.Open("pgx", sinkDSN)
-	if err != nil {
-		t.Fatalf("open sink: %v", err)
-	}
-	t.Cleanup(func() { _ = sinkDB.Close() })
-
-	for _, db := range []*sql.DB{srcDB, sinkDB} {
-		if err := db.PingContext(t.Context()); err != nil {
-			t.Fatalf("database not reachable: %v", err)
-		}
-	}
+	srcDSN, sinkDSN := flowDSNs(t)
+	srcDB := openFlowDB(t, srcDSN)
+	sinkDB := openFlowDB(t, sinkDSN)
+	provisionFlowFixtures(t, srcDB, sinkDB)
+	var err error
 
 	slot := fmt.Sprintf("flow_slot_%v", sequential)
 	wfID := fmt.Sprintf("flow-wf-%v", sequential)
@@ -172,8 +154,13 @@ func runFlow(t *testing.T, sequential bool) {
 	time.Sleep(1500 * time.Millisecond)
 	mustExec(t, srcDB, `INSERT INTO flow_orders (id,customer_id,amount,qty) VALUES ('O-2','C-2','99.99','7')`)
 
-	// Bulk, so WAL retention is measurable rather than lost in rounding.
-	const bulk = 200
+	// Bulk, so WAL retention is measurable rather than lost in rounding. CI runs
+	// this raced and -short, where a smaller batch proves the same thing for a
+	// fraction of the wall clock.
+	bulk := 200
+	if testing.Short() {
+		bulk = 40
+	}
 	mustExec(t, srcDB, `INSERT INTO flow_orders (id,customer_id,amount,qty)
 		SELECT 'B-'||g, 'C-1', '1.25', '2' FROM generate_series(1,$1) g`, bulk)
 

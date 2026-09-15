@@ -5,9 +5,7 @@ package registry
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -28,22 +26,10 @@ import (
 //
 // Every row should carry the looked-up customer name.
 func TestFlowLookupCacheReachesTheSink(t *testing.T) {
-	srcDSN := os.Getenv("FLOW_SOURCE_DSN")
-	sinkDSN := os.Getenv("FLOW_SINK_DSN")
-	if os.Getenv("HERMOD_INTEGRATION") != "1" || srcDSN == "" || sinkDSN == "" {
-		t.Skip("integration: set HERMOD_INTEGRATION=1, FLOW_SOURCE_DSN, FLOW_SINK_DSN")
-	}
-
-	srcDB, err := sql.Open("pgx", srcDSN)
-	if err != nil {
-		t.Fatalf("open source: %v", err)
-	}
-	t.Cleanup(func() { _ = srcDB.Close() })
-	sinkDB, err := sql.Open("pgx", sinkDSN)
-	if err != nil {
-		t.Fatalf("open sink: %v", err)
-	}
-	t.Cleanup(func() { _ = sinkDB.Close() })
+	srcDSN, sinkDSN := flowDSNs(t)
+	srcDB := openFlowDB(t, srcDSN)
+	sinkDB := openFlowDB(t, sinkDSN)
+	provisionFlowFixtures(t, srcDB, sinkDB)
 
 	const slot = "flow_slot_cache"
 	dropSlot := func() {
