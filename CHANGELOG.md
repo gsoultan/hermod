@@ -7,6 +7,69 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — a sink set to "Sequential Execution" never acknowledged anything it delivered
+
+A sink node with Sequential Execution switched on writes the message itself, so
+it deliberately hands the engine no routing targets. The engine read that empty
+list as "this workflow has sinks and resolved none of them" — its data-loss
+case — and took the branch that refuses to acknowledge, on every message, of a
+workflow that was delivering all of them correctly.
+
+Measured on a 202-row PostgreSQL CDC run: every row reached the destination,
+all 202 were counted in `hermod_engine_messages_dropped_no_target_total` (a
+metric documented as "any non-zero value is an incident"), an ERROR said the
+data had gone nowhere, and the replication slot stopped advancing — 108 KB of
+WAL retained and never released, growing for the life of the workflow, with the
+whole backlog replayed on the next start. With the flag off, the same run
+retained nothing.
+
+A sink that writes inline now says so, and the engine acknowledges it. A sink
+whose inline write *failed* still does not, so it is redelivered rather than
+lost — and with several inline sinks, one failing keeps the message
+unacknowledged even if another succeeded.
+
+
+### Fixed — an enriched CDC message could reach the sink without its enrichment
+
+What a message serialised to depended on whether anything had read it before the
+first write. `SetData` hydrated a lazily-decoded payload differently from
+`Data()`/`DataRef()`: on a CDC message it buried the row under a nested `after`
+key and left the newly written field at the root, where `Payload()` — which
+serialises only `data["after"]` — no longer included it. The same message then
+came out four different ways, with `MarshalJSON` nesting it twice as
+`after.after`.
+
+`db_lookup` is how this reached a destination. In query mode there is no key
+field, so nothing reads the message before the result is written, and the Cache
+TTL box is empty by default — where `ttl <= 0` means never expire. The first
+message took the query path, which happens to read; every message after it was
+served from cache and silently lost its looked-up value. Measured live: 1 of 5
+rows carried the enrichment. It is rate-dependent, which is what made it hard to
+see — a burst is processed concurrently, races past the cold cache, and looks
+fine.
+
+Both paths now hydrate through the same helper, so the shape no longer depends
+on access order, and `ToMap`/`MarshalJSON` share one after-image. The same
+change stops `SetData` destroying a payload that is not a JSON object: the
+unmarshal failed, nothing was stored, and the payload bytes were cleared at the
+end of the call, so the first write threw away a plain-text body.
+
+
+### Fixed — Data Conversion reported success when the field did not exist
+
+A field name that resolved to nothing returned the message unchanged with no
+error: a green node, untouched data, and nothing anywhere to say the conversion
+had not run. A misspelling is the usual way to get there, and the editor offers
+field names from the source's stored Sample, which is known to drift from the
+names a live CDC stream carries.
+
+An unresolvable field is now a conversion failure and follows the node's Error
+Behaviour like any other — which the editor already defaults to "fail", so the
+setting an operator is looking at is now the one that applies. Pipelines where
+the field is genuinely optional set "keep" to pass the message through
+untouched, or "null" to write an explicit null.
+
+
 ### Fixed — a `jsonb` column arrived as a string on the CDC path, and vanished when it was TOASTed
 
 A PostgreSQL `jsonb` column had two different shapes depending on how the row
