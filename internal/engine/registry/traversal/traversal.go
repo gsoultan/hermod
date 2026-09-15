@@ -46,6 +46,18 @@ type WorkflowTraversal struct {
 	Routed   []pkgengine.RoutedMessage
 	RoutedMu sync.Mutex
 	Wg       sync.WaitGroup
+
+	// InlineDelivered records that at least one sink node wrote this message
+	// itself. Such a node routes nothing on purpose, so without this the engine
+	// cannot tell a delivered message from an undeliverable one and refuses to
+	// acknowledge data it has in fact written.
+	//
+	// InlineFailed records that one did not. With several inline sinks, one
+	// succeeding does not make the message safe to acknowledge: the failed sink
+	// still needs the redelivery that leaving it unacknowledged buys. Only
+	// delivered-and-nothing-failed is an acknowledgement.
+	InlineDelivered atomic.Bool
+	InlineFailed    atomic.Bool
 }
 
 var TraversalPool = sync.Pool{
@@ -103,6 +115,8 @@ func Acquire(
 	}
 
 	t.Routed = t.Routed[:0]
+	t.InlineDelivered.Store(false)
+	t.InlineFailed.Store(false)
 	return t
 }
 
@@ -241,6 +255,18 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	// message, for the life of the workflow. Worse on the failing path, where
 	// the executor returns the message with the error branch and the writer then
 	// retried a write the workflow had already been told had failed.
+	if currNode.Type == "sink" && nodeWritesInline(currNode) {
+		// Delivered, by this node, already. Nothing is routed — recording it is
+		// the only thing that stops the engine treating the message as
+		// undeliverable and leaving the source unacknowledged. A write that
+		// failed records the opposite, and wins.
+		if err == nil {
+			t.InlineDelivered.Store(true)
+		} else {
+			t.InlineFailed.Store(true)
+		}
+	}
+
 	if currNode.Type == "sink" && !nodeWritesInline(currNode) {
 		t.RoutedMu.Lock()
 		if sinkIdx, ok := t.SinkNodeToIndex[currID]; ok {

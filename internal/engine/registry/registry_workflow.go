@@ -606,6 +606,12 @@ func (r *Registry) setupWorkflowRouter(
 		// clears the slice while a writer is still iterating over it.
 		routed := make([]pkgengine.RoutedMessage, len(t.Routed))
 		copy(routed, t.Routed)
+		// A sink node that writes inline routes nothing, so an empty target list
+		// here does not mean the message went nowhere. Mark it so the engine
+		// acknowledges the source instead of pinning it.
+		if t.InlineDelivered.Load() && !t.InlineFailed.Load() {
+			msg.SetMetadata(pkgengine.MetaDeliveredInline, "true")
+		}
 		traversal.Release(t)
 
 		return routed, nil

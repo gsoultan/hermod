@@ -838,6 +838,15 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 			return
 		}
 
+		// A sink node configured to write inline delivers the message itself and
+		// routes nothing, so it arrives here looking exactly like a message no
+		// sink resolved for. It is the opposite: it is already written.
+		// Acknowledging it is what lets a replication slot advance.
+		if m != nil && m.Metadata()[MetaDeliveredInline] == "true" {
+			ack()
+			return
+		}
+
 		// The workflow HAS sinks and resolved none of them. This used to be
 		// acknowledged and discarded exactly like a filtered message — the two
 		// were indistinguishable — which during a sink outage acknowledged 1996
