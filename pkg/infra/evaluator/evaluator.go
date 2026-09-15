@@ -453,6 +453,27 @@ func GetMsgValByPath(msg hermod.Message, path string) any {
 			return string(op)
 		}
 	case "id":
+		// A row's own id column wins over the message's synthetic id, the same
+		// way the data map above wins over every virtual field.
+		//
+		// The data map covers that for an insert or an update, because it
+		// hydrates from the after-image. A delete has no after-image
+		// (pkg/comm/source/postgres/postgres.go:1259-1284) -- the row's columns
+		// exist only in the before-image, which is consulted further down, after
+		// this block. So a delete resolved "id" to msg.ID(), and for a CDC
+		// message that is the LSN. A sink mapping keyed on id therefore issued
+		// DELETE ... WHERE key = '<LSN>' and removed nothing: the row stayed in
+		// the destination for ever, and the write reported success.
+		//
+		// Only the before-image is checked here. The after-image already reaches
+		// the data map, and the other virtual fields are left alone: table,
+		// schema and operation are unlikely column names whose virtual values
+		// are the useful answer, whereas "id" collides with one of the most
+		// common columns there is and its virtual value is never the row's
+		// identity.
+		if v := getValueFromRaw(msg.Before(), "id"); v != nil {
+			return v
+		}
 		if id := msg.ID(); id != "" {
 			return id
 		}
