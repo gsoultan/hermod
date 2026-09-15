@@ -34,37 +34,54 @@ func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Me
 	errorBehavior, _ := config["errorBehavior"].(string) // "fail", "null", "keep"
 
 	valRaw := evaluator.EvaluateField(msg, field)
-	if valRaw == nil {
-		return msg, nil
-	}
 
 	var converted any
 	var err error
 
-	switch strings.ToLower(targetType) {
-	case "int", "integer":
-		converted, err = t.toInt(valRaw)
-	case "float", "decimal", "double":
-		converted, err = t.toFloat(valRaw)
-	case "bool", "boolean":
-		converted, err = t.toBool(valRaw)
-	case "string":
-		converted = fmt.Sprintf("%v", valRaw)
-	case "date", "datetime", "time":
-		converted, err = t.toDate(valRaw, format)
-	default:
-		return msg, fmt.Errorf("unsupported target type: %s", targetType)
+	if valRaw == nil {
+		// A field that resolves to nothing is a conversion failure, and follows
+		// the configured error behaviour like any other.
+		//
+		// It used to return the message unchanged with no error: a green node,
+		// untouched data, and nothing anywhere to say the conversion never ran.
+		// A misspelled field name is the common way to get here, and the editor
+		// offers field names from the source's stored Sample, which is known to
+		// drift from the names a live CDC stream actually carries. The editor
+		// also defaults Error Behaviour to "fail", so staying silent contradicted
+		// the setting the operator was looking at.
+		//
+		// Pipelines where the field is genuinely optional set "keep" (leave the
+		// message alone) or "null" (write an explicit null).
+		err = fmt.Errorf("field %q resolved to nothing on this message", field)
+	} else {
+		switch strings.ToLower(targetType) {
+		case "int", "integer":
+			converted, err = t.toInt(valRaw)
+		case "float", "decimal", "double":
+			converted, err = t.toFloat(valRaw)
+		case "bool", "boolean":
+			converted, err = t.toBool(valRaw)
+		case "string":
+			converted = fmt.Sprintf("%v", valRaw)
+		case "date", "datetime", "time":
+			converted, err = t.toDate(valRaw, format)
+		default:
+			return msg, fmt.Errorf("unsupported target type: %s", targetType)
+		}
 	}
 
 	if err != nil {
 		switch strings.ToLower(errorBehavior) {
-		case "fail":
-			return nil, err
 		case "null":
 			converted = nil
 		case "keep":
+			if valRaw == nil {
+				// Nothing to keep. Writing the target field as null here would
+				// invent a field the message never had.
+				return msg, nil
+			}
 			converted = valRaw
-		default:
+		default: // "fail", and unset — the editor's default is "fail"
 			return nil, err
 		}
 	}

@@ -285,6 +285,31 @@ func jsonRawOrWrapped(b []byte) any {
 	return map[string]any{NonObjectPayloadKey: string(b)}
 }
 
+// afterImageLocked returns the bytes of a CDC message's after-image.
+//
+// ToMap and MarshalJSON both need this and each had its own copy, which drifted:
+// ToMap unwrapped an explicit data["after"] and MarshalJSON did not, so the same
+// message serialised as {"after":{...}} through one and {"after":{"after":{...}}}
+// through the other. The two are compared against each other by
+// nonobject_payload_test.go precisely because they have drifted before; keep
+// them sharing this.
+//
+// Callers must hold m.mu.
+func (m *DefaultMessage) afterImageLocked() []byte {
+	if len(m.payload) > 0 {
+		return m.payload
+	}
+	if len(m.data) == 0 {
+		return nil
+	}
+	if a, ok := m.data["after"]; ok {
+		b, _ := json.Marshal(a)
+		return b
+	}
+	b, _ := json.Marshal(m.data)
+	return b
+}
+
 func (m *DefaultMessage) unmarshalPayloadLocked() {
 	if m.data == nil {
 		m.data = make(map[string]any)
@@ -369,14 +394,7 @@ func (m *DefaultMessage) ToMap() map[string]any {
 		if len(m.before) > 0 {
 			res["before"] = jsonRawOrWrapped(m.before)
 		}
-		after := m.payload
-		if len(after) == 0 && len(m.data) > 0 {
-			if a, ok := m.data["after"]; ok {
-				after, _ = json.Marshal(a)
-			} else {
-				after, _ = json.Marshal(m.data)
-			}
-		}
+		after := m.afterImageLocked()
 		if len(after) > 0 {
 			res["after"] = jsonRawOrWrapped(after)
 		}
@@ -430,10 +448,7 @@ func (m *DefaultMessage) MarshalJSON() ([]byte, error) {
 		if len(m.before) > 0 {
 			res["before"] = jsonRawOrWrapped(m.before)
 		}
-		after := m.payload
-		if len(after) == 0 && len(m.data) > 0 {
-			after, _ = json.Marshal(m.data)
-		}
+		after := m.afterImageLocked()
 		if len(after) > 0 {
 			res["after"] = jsonRawOrWrapped(after)
 		}
@@ -613,28 +628,27 @@ func (m *DefaultMessage) SetData(key string, value any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// If data is empty but payload is not, try to unmarshal payload first
+	// If data is empty but payload is not, materialise the payload first —
+	// through the same helper the read side uses.
+	//
+	// This used to be a second, hand-written hydration that disagreed with
+	// Data()/DataRef() in two ways, and the shape a message ended up with
+	// depended on whether anything had read it before the first write.
+	//
+	// On a CDC message (operation set) it buried the row under a nested "after"
+	// key and left the newly written field at the root, where Payload() — which
+	// serialises only data["after"] — no longer included it. A transformation
+	// that enriched such a message reported success and the enrichment never
+	// reached the sink. db_lookup's cache-hit path is exactly this: it writes
+	// without reading, so with the Cache TTL field empty every message after the
+	// first silently lost its looked-up value.
+	//
+	// It also dropped any payload that is not a JSON object outright: the
+	// unmarshal failed, nothing was stored, and the payload bytes are cleared at
+	// the end of this function — so a plain-text or scalar body was destroyed by
+	// the first SetData. decodePayloadFields keeps it under NonObjectPayloadKey.
 	if len(m.data) == 0 && len(m.payload) > 0 {
-		var d map[string]any
-		payloadToUnmarshal := m.payload
-		if err := json.Unmarshal(payloadToUnmarshal, &d); err == nil {
-			if m.operation != "" {
-				m.data["after"] = d
-			} else {
-				m.data = d
-			}
-		} else {
-			// Try lenient approach
-			if fixed := TryFixJSON(payloadToUnmarshal); fixed != nil {
-				if err := json.Unmarshal(fixed, &d); err == nil {
-					if m.operation != "" {
-						m.data["after"] = d
-					} else {
-						m.data = d
-					}
-				}
-			}
-		}
+		m.unmarshalPayloadLocked()
 	}
 
 	// "$" is the JSONPath document root, not a field. The read side
