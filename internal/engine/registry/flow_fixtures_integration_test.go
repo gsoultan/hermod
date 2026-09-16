@@ -91,6 +91,10 @@ func provisionFlowFixtures(t *testing.T, srcDB, sinkDB *sql.DB) {
 		customer_id TEXT NOT NULL,
 		amount      TEXT NOT NULL,
 		qty         TEXT NOT NULL)`)
+	// A timestamp the source carries as text, which is what CDC delivers: every
+	// column arrives as text unless it is json/jsonb.
+	mustExec(t, srcDB, `ALTER TABLE flow_orders
+		ADD COLUMN IF NOT EXISTS placed_at TEXT`)
 	// FULL so an UPDATE carries a before-image; the after-image is repaired from
 	// it when a TOASTed column is unchanged.
 	mustExec(t, srcDB, `ALTER TABLE flow_orders REPLICA IDENTITY FULL`)
@@ -119,6 +123,9 @@ func provisionFlowFixtures(t *testing.T, srcDB, sinkDB *sql.DB) {
 		customer_name TEXT,
 		amount        NUMERIC,
 		qty           INTEGER)`)
+	// Added separately so an existing fixture from an older run gains it.
+	mustExec(t, sinkDB, `ALTER TABLE flow_orders_enriched
+		ADD COLUMN IF NOT EXISTS placed_at TIMESTAMPTZ`)
 	// No column mappings on the sink that writes here: it stores msg.Payload().
 	mustExec(t, sinkDB, `CREATE TABLE IF NOT EXISTS flow_orders_raw (
 		id   TEXT PRIMARY KEY,
