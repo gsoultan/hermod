@@ -303,7 +303,7 @@ func (s *Sink) ensureConnected(ctx context.Context) (client, error) {
 		// on top would have the SDK mint tokens nothing is going to check.
 		opts = append(opts, option.WithHTTPClient(s.cfg.HTTPClient))
 	} else if creds := strings.TrimSpace(s.cfg.CredentialsJSON); creds != "" {
-		opts = append(opts, option.WithCredentialsJSON([]byte(creds)))
+		opts = append(opts, option.WithAuthCredentialsJSON(option.ServiceAccount, []byte(creds)))
 	}
 	if s.cfg.Endpoint != "" {
 		opts = append(opts, option.WithEndpoint(s.cfg.Endpoint))

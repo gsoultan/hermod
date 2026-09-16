@@ -44,7 +44,7 @@ func (s *GoogleSheetsSource) init(ctx context.Context) error {
 		return nil
 	}
 
-	svc, err := sheets.NewService(ctx, option.WithCredentialsJSON([]byte(s.credentialsJSON)), option.WithScopes(sheets.SpreadsheetsReadonlyScope))
+	svc, err := sheets.NewService(ctx, option.WithAuthCredentialsJSON(option.ServiceAccount, []byte(s.credentialsJSON)), option.WithScopes(sheets.SpreadsheetsReadonlyScope))
 	if err != nil {
 		return fmt.Errorf("failed to create sheets service: %w", err)
 	}
