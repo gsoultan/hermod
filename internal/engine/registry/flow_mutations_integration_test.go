@@ -43,19 +43,20 @@ func TestFlowMutationsReachTheSink(t *testing.T) {
 		{
 			name: "unmapped sink", table: "flow_orders_raw", mappings: false,
 			countSQL: `SELECT count(*) FROM flow_orders_raw WHERE data->>'id' = $1`,
-			// Characterised, not endorsed: an unmapped sink keys rows on
-			// msg.ID(), which for a CDC message is the LSN, and every event for
-			// one row carries a different one. So an UPDATE appends a second row
-			// instead of replacing the first, and a DELETE issues
-			// "DELETE ... WHERE id = '<the delete event's LSN>'", which matches
-			// nothing and reports success.
+			// Inherent to the mode, and no longer silent. Without a mapping the
+			// sink keys rows on msg.ID(); whether that identifies a row depends on
+			// the source, and PostgreSQL CDC uses an LSN that differs for every
+			// event touching one row. So an UPDATE appends rather than replacing,
+			// and a DELETE matches nothing.
 			//
-			// Fixing it is a design decision rather than a patch: without a
-			// mapping the sink is not told which column identifies a row, so
-			// either the source has to propagate its key columns, or this mode
-			// has to say out loud that it is an append-only event log and stop
-			// pretending to delete. These numbers keep the current behaviour
-			// pinned so that whichever is chosen, this test fails and says so.
+			// The delete is still issued -- sources whose id is stable per row,
+			// such as MySQL CDC, do delete correctly and must keep working -- but
+			// a miss now increments hermod_sink_delete_matched_nothing_total and
+			// logs once per table instead of reporting success. See
+			// TestADeleteThatMatchedNothingIsReported and its control.
+			//
+			// Map the source's primary key to get a destination that mirrors,
+			// which the mapped case above asserts.
 			afterUpdate: 2, afterDelete: 2,
 		},
 	}
