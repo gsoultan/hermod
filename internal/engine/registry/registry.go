@@ -868,6 +868,37 @@ func (r *Registry) resolveSecrets(ctx context.Context, config map[string]string)
 	return resolved
 }
 
+// requireNonCDCDelegate rejects a batch_sql source whose `source_id` names a
+// CDC source. A batch_sql source holds no connection of its own -- it borrows
+// the delegate's (see GetOrOpenDB) -- and what it runs over that connection is
+// a whole query on a cron, which is the one thing a database already serving
+// logical replication should not also be asked for. Where the delegate is a
+// source node in the same workflow, it is worse than load: every row arrives
+// twice, once streamed and once batched.
+//
+// The rule is hermod.SourceAllowsDirectQueries, shared with db_lookup.
+//
+// A delegate that cannot be resolved fails the source rather than waving it
+// through. Treating a failed lookup as "no objection" would mean a transient
+// storage error during a restart silently builds the CDC source this exists to
+// refuse -- and a batch_sql whose delegate is gone has no connection to run
+// against either way, so the only thing the old behaviour bought was a later,
+// quieter failure once per cron tick.
+func (r *Registry) requireNonCDCDelegate(ctx context.Context, cfg factory.SourceConfig) error {
+	delegateID := cfg.Config["source_id"]
+	if delegateID == "" {
+		return nil
+	}
+	delegate, err := r.GetSourceConfig(ctx, delegateID)
+	if err != nil {
+		return fmt.Errorf("batch_sql source_id '%s' could not be resolved: %w", delegateID, err)
+	}
+	if hermod.SourceAllowsDirectQueries(delegate.Type, delegate.Config) {
+		return nil
+	}
+	return fmt.Errorf("batch_sql requires a non-CDC source; disable CDC on source '%s' or point source_id at a non-CDC source (allowed exception: SQL Server)", delegate.Name)
+}
+
 func (r *Registry) createSource(ctx context.Context, cfg factory.SourceConfig) (hermod.Source, error) {
 	// Resolve secrets in config
 	cfg.Config = r.resolveSecrets(ctx, cfg.Config)
@@ -881,6 +912,9 @@ func (r *Registry) createSource(ctx context.Context, cfg factory.SourceConfig) (
 	var err error
 
 	if cfg.Type == "batch_sql" {
+		if err := r.requireNonCDCDelegate(ctx, cfg); err != nil {
+			return nil, err
+		}
 		batchCfg := batchsql.Config{
 			SourceID:          cfg.Config["source_id"],
 			Cron:              cfg.Config["cron"],
@@ -912,6 +946,9 @@ func (r *Registry) createSourceInternal(ctx context.Context, cfg factory.SourceC
 	var err error
 
 	if cfg.Type == "batch_sql" {
+		if err := r.requireNonCDCDelegate(ctx, cfg); err != nil {
+			return nil, err
+		}
 		batchCfg := batchsql.Config{
 			SourceID:          cfg.Config["source_id"],
 			Cron:              cfg.Config["cron"],

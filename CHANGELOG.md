@@ -7,6 +7,72 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — queries that borrow a source's database could still land on a CDC one
+
+Two node types run SQL against a source they merely name rather than stream
+from: `db_lookup`, once per message, and the `batch_sql` source, which holds no
+connection of its own and runs whole queries on a cron against the source in its
+`source_id`. Neither belongs on a database already paying for logical
+replication — and where a `batch_sql` delegate is also a CDC source node, the
+same rows arrive twice, once streamed and once batched.
+
+`db_lookup` had carried that rule since it was written, with two holes. It only
+fired when the source had an explicit `use_cdc` key, but the factory that builds
+a source reads the flag as opt-out — `useCDC := cfg.Config["use_cdc"] !=
+"false"` — so a source with no key runs as a CDC source and passed the check
+anyway. And it sat inside one arm of the batching branch, so a node with Batch
+Lookups switched on skipped it outright, cached the row it was not allowed to
+fetch, and served every later message from that cache. `batch_sql` had no rule
+at all.
+
+There is now one definition — `hermod.SourceAllowsDirectQueries` — read by the
+factory, the lookup transformer and the registry, so the three cannot drift.
+`db_lookup` checks once, ahead of both branches. The registry refuses to build a
+`batch_sql` source on a CDC delegate, on both of its constructors. SQL Server
+stays the documented exception: its CDC is read back through ordinary queries
+against change tables.
+
+Two smaller decisions fell out of it. The lookup's refusal deliberately does not
+go through `onMiss` — a misconfigured source is not a lookup that found no row,
+and a passthrough policy must not turn it into silence. And a `batch_sql`
+delegate that cannot be resolved now fails the source naming that delegate,
+rather than being waved through: treating a failed lookup as "no objection"
+would let a transient storage error during a restart build the very source the
+check exists to refuse.
+
+Both editors apply the same rule from one place (`ui/src/lib/sourceCdc.ts`). A
+CDC source is listed but not selectable, labelled with the reason rather than
+filtered out, so an absent entry never reads as a missing source. A node or
+source already pointing at one keeps the value it was configured with and says
+why it will not run.
+
+**Behaviour change:** a query target with no `use_cdc` key is now refused. That
+is the reading the rest of Hermod already uses, so such a source was being built
+as a CDC source regardless — set `use_cdc` to `false` on it, which is what a
+lookup or batch target is meant to be.
+
+Validation knows the rule too. `GET /api/workflows/{id}/validate` and every
+save now report a `db_lookup` or `batch_sql` node aimed at a CDC source, as a
+warning — an error would turn saving the fix into a 400. That is the only
+notice a workflow created through the API or restored from a bundle ever gets,
+since it never passes through the editor's pickers.
+
+And switching CDC *on* for a source a running workflow queries is now refused.
+`checkActiveWorkflows` guarded only sources held in a source node's `ref_id`,
+which is one of the ways a workflow names one: a `db_lookup` holds its source in
+the node config, and a `batch_sql` source holds its database in `source_id`. A
+source reached only those ways could be edited out from under a running
+workflow, and after this release that edit breaks it on the next message.
+`storage.WorkflowQueriesSource` answers the reference question in one place.
+
+`execute_sql` is deliberately not blocked, because it is not the same hazard.
+It writes — `ExecContext`, with nothing to hand back but a row count — so the
+risk is not query load on a replicating database but a **feedback loop**: a
+write into a published table produces a change event that comes back round the
+pipeline. That is scoped to the table while `use_cdc` is scoped to the source,
+so refusing the source would break the ordinary case of writing an audit or
+status row nobody streams. Its editor names the real risk and leaves the choice.
+
 ### Fixed — a sink set to "Sequential Execution" never acknowledged anything it delivered
 
 A sink node with Sequential Execution switched on writes the message itself, so
