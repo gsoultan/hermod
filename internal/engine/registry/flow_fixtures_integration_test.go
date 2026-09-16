@@ -25,7 +25,17 @@ func flowDSNs(t *testing.T) (srcDSN, sinkDSN string) {
 	srcDSN = firstNonEmpty(os.Getenv("FLOW_SOURCE_DSN"), shared)
 	sinkDSN = firstNonEmpty(os.Getenv("FLOW_SINK_DSN"), shared)
 	if srcDSN == "" || sinkDSN == "" {
-		t.Skip("integration: set POSTGRES_DSN, or FLOW_SOURCE_DSN and FLOW_SINK_DSN")
+		// A failure, not a skip. HERMOD_INTEGRATION=1 is the statement that
+		// integration tests should run here, so a missing DSN is a broken
+		// environment rather than a reason to report success.
+		//
+		// This matters more than it looks: skips are invisible without -v, and CI
+		// does not pass -v. These two tests guard regressions that a green build
+		// would otherwise hide -- an unacknowledged replication slot and an
+		// enrichment dropped before the write -- so a silent skip is the exact
+		// failure mode they exist to prevent, applied to themselves.
+		t.Fatal("integration: HERMOD_INTEGRATION=1 is set but no DSN is: " +
+			"export POSTGRES_DSN, or FLOW_SOURCE_DSN and FLOW_SINK_DSN")
 	}
 	return srcDSN, sinkDSN
 }
@@ -70,7 +80,10 @@ func provisionFlowFixtures(t *testing.T, srcDB, sinkDB *sql.DB) {
 		t.Fatalf("read wal_level: %v", err)
 	}
 	if walLevel != "logical" {
-		t.Skipf("integration: source PostgreSQL has wal_level=%q, CDC needs \"logical\"", walLevel)
+		// Also a failure rather than a skip, for the reason in flowDSNs: this is
+		// a CDC test pointed at a server that cannot do CDC.
+		t.Fatalf("integration: source PostgreSQL has wal_level=%q, CDC needs \"logical\"; "+
+			"start it with -c wal_level=logical (scripts/create-postgres.sh does)", walLevel)
 	}
 
 	mustExec(t, srcDB, `CREATE TABLE IF NOT EXISTS flow_orders (
