@@ -66,6 +66,10 @@ type PostgresSink struct {
 	// schema change is one line and one counter increment rather than a flood
 	// at message rate.
 	reportedUnmapped sync.Map
+
+	// reportedUnsupportedDelete remembers which tables have already had a
+	// skipped-delete warning, for the same reason as reportedUnmapped.
+	reportedUnsupportedDelete sync.Map
 }
 
 func NewPostgresSink(connString string, tableName string, mappings []sqlutil.ColumnMapping, useExistingTable bool, deleteStrategy string, softDeleteColumn string, softDeleteValue string, operationMode string, autoTruncate bool, autoSync bool) *PostgresSink {
@@ -347,12 +351,50 @@ func (s *PostgresSink) applyDelete(ctx context.Context, executor pgExecutor, tab
 	if len(s.mappings) > 0 {
 		return s.deleteMapped(ctx, executor, table, msg)
 	}
+	// Without a mapping this sink writes (id, data) keyed on the message's own
+	// id, so a delete can only find the row if that id is stable across every
+	// event touching it. Whether it is depends on the source, not on this sink:
+	// the MySQL CDC source derives the id from the row's primary key
+	// (pkg/comm/source/mysql/mysql.go:407) and deletes match, while the
+	// PostgreSQL and SQL Server sources use a position in the log -- an LSN, a
+	// sequence number -- which differs per event, so the delete matches nothing.
+	//
+	// So the answer is not to skip deletes (that would break the combinations
+	// that work) nor to issue them blindly (which is what hid this): issue it and
+	// stop reading "no rows affected" as success. A delete that matched nothing
+	// means the destination still holds a row the source removed.
 	quoted, err := quoteTable(table)
 	if err != nil {
 		return fmt.Errorf("invalid table name: %w", err)
 	}
-	_, err = executor.Exec(ctx, fmt.Sprintf(commonQueries[QueryDelete], quoted), msg.ID())
-	return err
+	tag, err := executor.Exec(ctx, fmt.Sprintf(commonQueries[QueryDelete], quoted), msg.ID())
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		s.reportDeleteMatchedNothing(table)
+	}
+	return nil
+}
+
+// reportDeleteMatchedNothing says so when a delete found no row to remove.
+//
+// It is not an error: a replayed delete legitimately finds nothing, and
+// at-least-once delivery makes that normal. What is not normal is every delete
+// finding nothing, which is what an unmapped sink does when its source keys
+// messages by log position -- the destination keeps rows the source deleted while
+// the write reports success. Counted always so the rate is visible, logged once
+// per table because it is a standing property of the configuration rather than
+// an event per row.
+func (s *PostgresSink) reportDeleteMatchedNothing(table string) {
+	telemetry.SinkDeleteMatchedNothing.WithLabelValues(table).Inc()
+	if _, seen := s.reportedUnsupportedDelete.LoadOrStore(table, struct{}{}); seen {
+		return
+	}
+	s.log("WARN", "A delete matched no row. If this is every delete, the sink has no column "+
+		"mappings and its source identifies messages by log position, so there is nothing "+
+		"stable to match on: map the source's primary key to get a destination that mirrors",
+		"table", table)
 }
 
 // init lazily creates the connection pool. It is safe for concurrent use and
@@ -793,9 +835,18 @@ func (s *PostgresSink) deleteMapped(ctx context.Context, executor pgExecutor, ta
 	}
 
 	if len(pks) == 0 {
-		// Fallback to the synthetic id column when no primary key is mapped.
-		_, err := executor.Exec(ctx, fmt.Sprintf(commonQueries[QueryDelete], quoted), msg.ID())
-		return err
+		// Fallback to the synthetic id column when no primary key is mapped. It
+		// carries the same caveat as the unmapped path in applyDelete: whether
+		// the message id identifies a row depends on the source, so a miss is
+		// counted rather than read as success.
+		tag, err := executor.Exec(ctx, fmt.Sprintf(commonQueries[QueryDelete], quoted), msg.ID())
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			s.reportDeleteMatchedNothing(table)
+		}
+		return nil
 	}
 
 	if s.deleteStrategy == "soft_delete" && s.softDeleteColumn != "" {

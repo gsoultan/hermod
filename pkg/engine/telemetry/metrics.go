@@ -112,6 +112,23 @@ var (
 		Help: "Message fields with no column mapping, which are not written to the destination",
 	}, []string{"table", "field"})
 
+	// SinkDeleteMatchedNothing counts deletes that found no row to remove.
+	//
+	// One is unremarkable: delivery is at-least-once, so a replayed delete
+	// legitimately finds the row already gone. All of them is a broken
+	// destination. A sink with no column mappings keys rows on the message's own
+	// id, and whether that identifies a row depends on the source -- MySQL CDC
+	// derives it from the primary key, while PostgreSQL and SQL Server use a
+	// position in the log that differs for every event touching one row. In the
+	// latter case every delete matches nothing, the write reports success, and
+	// the destination silently keeps rows the source removed.
+	//
+	// Alert on the ratio to deletes attempted, not on the absolute count.
+	SinkDeleteMatchedNothing = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "hermod_sink_delete_matched_nothing_total",
+		Help: "Deletes that affected no row, meaning the destination may still hold it",
+	}, []string{"table"})
+
 	ActiveEngines = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "hermod_engine_active_total",
 		Help: "The total number of active engines",

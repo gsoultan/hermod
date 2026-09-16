@@ -626,6 +626,18 @@ jobs:
         ports:
           - 9000:9000
           - 8123:8123
+      # The Pub/Sub emulator, so the sink's publish path is proven rather than
+      # assumed. That package had no tests at all when it was migrated to the v2
+      # client, which replaced Topic with Publisher and rebuilt Ping on the admin
+      # API -- both compiled, and nothing executed either.
+      #
+      # The client reaches it through PUBSUB_EMULATOR_HOST and needs no
+      # credentials, so no secret is involved. The tests create the topic and
+      # subscription they use, which is why no project is seeded here.
+      pubsub:
+        image: thekevjames/gcloud-pubsub-emulator:latest
+        ports:
+          - 8681:8681
       # Elasticsearch, so the bulk path is proven rather than assumed. Security
       # off and a small heap: this is a single-node cluster for one test file,
       # not a deployment.
@@ -891,6 +903,7 @@ jobs:
           ETCD_ENDPOINTS: 127.0.0.1:2379
           MONGODB_RS_URI: mongodb://127.0.0.1:27018/?directConnection=true
           RABBITMQ_URL: amqp://guest:guest@127.0.0.1:5672/
+          PUBSUB_EMULATOR_HOST: 127.0.0.1:8681
           SMTP_HOST: 127.0.0.1
           SMTP_PORT: "1025"
           SMTP_FROM: hermod@example.com
