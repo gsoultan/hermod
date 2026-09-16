@@ -54,7 +54,7 @@ func (s *FirebaseSource) init(ctx context.Context) error {
 
 	var opts []option.ClientOption
 	if s.credentialsJSON != "" {
-		opts = append(opts, option.WithCredentialsJSON([]byte(s.credentialsJSON)))
+		opts = append(opts, option.WithAuthCredentialsJSON(option.ServiceAccount, []byte(s.credentialsJSON)))
 	}
 
 	app, err := firebase.NewApp(ctx, &firebase.Config{ProjectID: s.projectID}, opts...)
