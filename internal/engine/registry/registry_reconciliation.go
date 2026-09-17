@@ -89,9 +89,14 @@ func (r *Registry) resumeSuspendedMessage(ctx context.Context, sm storage.Suspen
 	r.BroadcastLog(sm.WorkflowID, "INFO", "Resuming suspended message at node "+sm.NodeID, m.ID())
 
 	// AE has the needed maps
-	r.resumeFromNode(sm.WorkflowID, sm.NodeID, m, ae.workflow, ae.nodeMap, ae.adj, ae.sinks, ae.sinkNodeToIndex, "")
+	r.resumeFromNode(sm.WorkflowID, sm.NodeID, m, ae.engine, ae.workflow, ae.nodeMap, ae.adj, ae.sinks, ae.sinkNodeToIndex, "")
 	if s := r.store(); s != nil {
 		_ = s.DeleteSuspendedMessage(ctx, sm.ID)
 	}
-	message.ReleaseMessage(m)
+	// Release, not ReleaseMessage: the latter resets and pools the message
+	// unconditionally. If anything downstream still holds a reference, that hands a
+	// live message to the next Acquire and the two owners then read each other's
+	// data. Nothing retains it on this path today; the refcount is what keeps that
+	// true if the path changes.
+	m.Release()
 }

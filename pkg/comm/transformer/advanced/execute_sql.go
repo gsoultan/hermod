@@ -44,7 +44,11 @@ func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Messag
 		return msg, fmt.Errorf("failed to get database for execute_sql: %w", err)
 	}
 
-	sqlText, args := core.ParameterizeTemplate(driver, queryTemplate, msg.Data())
+	b := core.ParameterizeTemplateEx(driver, queryTemplate, msg.Data())
+	if b.Err != nil {
+		return msg, b.Err
+	}
+	sqlText, args := b.SQL, b.Args
 	if strings.TrimSpace(sqlText) == "" {
 		return msg, errors.New("empty queryTemplate after processing")
 	}

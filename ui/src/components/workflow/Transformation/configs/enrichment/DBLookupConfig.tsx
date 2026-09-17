@@ -488,7 +488,13 @@ export function DBLookupConfig({
                 value={config.ttl || ''}
                 onChange={(e) => updateNodeConfig(nodeId, { ttl: e.currentTarget.value })}
                 size="sm"
-                description="How long to cache results in memory. Empty means results are cached for the lifetime of the process."
+                description={
+                  <span data-testid="db-lookup-ttl-description">
+                    How long to cache results in memory. Needs a unit — <b>5</b> is rejected, <b>5m</b> is
+                    five minutes. Empty means results are cached for the lifetime of the process;
+                    set <b>0</b> to disable caching.
+                  </span>
+                }
               />
             </Group>
 

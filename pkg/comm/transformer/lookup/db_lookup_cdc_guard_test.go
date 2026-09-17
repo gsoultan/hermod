@@ -9,7 +9,6 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/message"
-	"github.com/gsoultan/hermod/pkg/infra/batcher"
 	_ "modernc.org/sqlite"
 )
 
@@ -46,7 +45,7 @@ func newCDCGuardFixture(t *testing.T, src storage.Source) (*DBLookupTransformer,
 		t.Fatalf("insert: %v", err)
 	}
 
-	tr := &DBLookupTransformer{batchers: make(map[string]*batcher.Batcher[any, any])}
+	tr := &DBLookupTransformer{}
 	return tr, &cachingFakeRegistry{db: db, source: src, cache: map[string]any{}}
 }
 

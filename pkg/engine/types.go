@@ -46,5 +46,20 @@ type RoutedMessage struct {
 // path and is redelivered.
 const MetaDeliveredInline = "_hermod_delivered_inline"
 
+// MetaDeadLettered marks a message the workflow already parked in the
+// dead-letter sink.
+//
+// A node that fails is dead-lettered where it failed, and the traversal then
+// resolves no sink for that message. It reaches the engine as an empty target
+// list — the same shape as a message nothing ever handled — so the engine parked
+// it a second time. One failed node produced two identical rows in the queue,
+// differing only in which metadata the second pass overwrote, and whoever
+// drained the queue had to work out they were the same event.
+//
+// The marker says the message is already preserved: acknowledge the source and
+// do not park it again. It is set only after a park that succeeded, so a refused
+// park still takes the un-acknowledged path and is redelivered.
+const MetaDeadLettered = "_hermod_dead_lettered"
+
 // RouterFunc is a function that routes a message to one or more sinks.
 type RouterFunc func(ctx context.Context, msg hermod.Message) ([]RoutedMessage, error)

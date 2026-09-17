@@ -1,64 +1,64 @@
-# Graph Report - Hermod  (2026-09-13)
+# Graph Report - Hermod  (2026-09-17)
 
 ## Corpus Check
-- 1151 files · ~861,528 words
+- 1250 files · ~976,501 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 9643 nodes · 24498 edges · 504 communities (341 shown, 101 thin omitted)
-- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 1327 edges (avg confidence: 0.85)
+- 10541 nodes · 26929 edges · 547 communities (378 shown, 107 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 1558 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `1ccc1db0`
+- Built from commit: `918e4b3f`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - mongoStorage
-- MessageTrace
-- NewEngine
+- Log
+- AcquireMessage
 - router.tsx
 - GenericFileSource
 - context.Context
-- net/http.Request
+- net/http.ResponseWriter
 - RetrySink
-- SQLiteStore
+- Transformer
 - .HandleWebhook
-- AcquireMessage
-- InfraHandler
+- ReleaseMessage
+- net/http.Request
 - Engine
 - Handler
 - SSESink
-- GetMsgValByPath
+- evaluator.go
 - dashboard_stats_test.go
 - MSSQLSource
 - New
 - sqlStorage
 - source/metis/metis_test.go
-- newMsg
-- StringMap
-- Log
-- NewHttpSink
+- aad_test.go
+- lookup_cache_invalidation_test.go
+- workflowStore
+- common.go
 - Coordinator
 - database/sql.DB
 - SQLStore
 - NewRegistry
 - Worker
-- TransformationForm.tsx
-- DatabaseLogger
 - WorkflowEditorPage.tsx
-- storage/storage.go
+- DatabaseLogger
+- FlowCanvas.tsx
+- CommonFilter
 - AuthHandler
 - SmtpSink
 - devDependencies
 - Registry
 - Sink
-- sync/atomic.Int64
-- pgxutil.go
+- runMutations
+- ParsePoolConfig
 - sink/metis/metis_test.go
 - DefaultMessage
-- dependencies
+- rel
 - cipher.go
 - MySQLSource
 - SinkForm.tsx
@@ -66,80 +66,81 @@
 - fullSource
 - database/sql.Tx
 - sinkWriter
-- transformationUtils.ts
+- TransformationForm.tsx
 - GenericProtoSource
 - source_grpc.pb.go
 - StatusTracker
 - IndexedStore
-- Registry
+- multiSource
 - compilerOptions
 - registry/txgroup_test.go
-- CSVSource
+- ui/package.json
 - Storage
 - priorityMockMessage
-- FailoverSink
-- NewPostgresSource
+- NewFailoverSink
+- PostgresSource
+- newCDCFixture
 - SQLiteSource
-- Worker
+- cdc_flip_guard_test.go
 - sync.Mutex
 - ColumnInfo
 - NewSQLStorage
 - MySQLSink
 - OracleSource
-- PostgresSource
+- mockReconStorage
 - @tabler/icons-react
 - Sink
 - github.com/jackc/pgx/v5/pgxpool.Pool
-- Config
+- GetMsgValByPath
 - @mantine/core
 - New
-- NewMySQLSource
+- NewPostgresSource
 - MongoDBSource
-- SanitizeMap
+- ClickHouseSource
 - testing.T
-- Sink
+- apiLookupErr
 - Manager
-- MariaDBSource
+- binlogRowToData
 - coordinator_test.go
 - Sink
 - Dispatch
-- testing.B
+- sync/atomic.Int64
 - countingMessage
 - .Publish
 - Runner
 - sql/dashboard_history_test.go
-- WebhookRequest
+- SinkHandler
 - testMessage
 - Dispatch
 - compilerOptions
 - scheduled_backup_test.go
-- Algorithm
-- DB2Source
+- NewCompressor
+- SanitizeMap
 - SourceForm.tsx
-- .Close
+- New
 - Sink
 - YugabyteSource
-- template.go
+- fcm/template.go
 - WasmTransformer
 - FirebaseSource
 - CassandraSink
 - Message
 - MetricsSource
 - GoogleAnalyticsSource
-- mockMessage
+- Operation
 - Revoker
 - resources.go
-- tracePartitionName
-- Source
-- OpenBaoManager
-- Layout.tsx
+- importBundle.ts
+- Sink
+- Config
+- WorkerAPIClient
 - NewS3Sink
 - CassandraSource
 - NewSQLiteSource
 - createSinkBase
 - Autoscaler
-- CombinedBuffer
-- ScyllaDBSource
+- Registry
+- createSourceBase
 - NewFormSource
 - orderedParticipant
 - mockMessage
@@ -155,12 +156,12 @@
 - FormSubmission
 - CircuitBreakerSink
 - mockMessage
-- react
+- SourceConfigFields.tsx
 - fromMap
 - RabbitMQQueueSource
 - Source
 - ElasticsearchSink
-- statefulSource
+- newRecoveryHarness
 - Source
 - BloomFilter
 - GoogleSheetsSink
@@ -172,38 +173,38 @@
 - SalesforceSink
 - Sink
 - echoServer
-- startAPI
+- Logger
 - AITransformer
-- DiscordSource
+- net/http.Client
 - FacebookSource
-- observingParticipant
+- NodeContext
 - newTraceStorage
-- PublishRequest
+- ParameterizeTemplate
 - Source
 - ForgetWorkflow
 - parallelMockMessage
-- Sink
-- TestSoakWorkflowChurnDoesNotLeak
+- main
+- GetConfigPath
 - SlackSource
 - newHardenedWorker
-- time.Duration
-- PublishResponse
+- .watchForStalls
+- SQLiteSink
 - SidebarDrawer.tsx
 - hermod/storage.go
 - LuaTransformer
 - scripts
-- NewStateStore
-- DiscordSink
+- StateStore
+- NewMySQLSource
 - idempNoopLogger
 - Batcher
-- .handler
-- [1.0.0-rc.2] — 2026-09-07
-- multisource_isolation_test.go
+- retainingIdleSource
+- mockMessage
+- tallySink
 - [1.3.0] — 2026-09-11
-- StartScavenger
+- hermod.go
 - LinkedInSource
-- Hub
-- RedisSink
+- dependencies
+- Source
 - SlackSink
 - ClickHouseSink
 - Source
@@ -213,210 +214,252 @@
 - GoogleSheetsSource
 - Registry
 - Worker
-- BuildIncrementalQuery
+- Optimizer
 - Engine
 - EnsureIdempotencyID
 - registry_testsink_test.go
 - Sink
 - ResolveSecret
-- Logger
+- runApp
 - Manage
-- FacebookSink
+- toTime
 - FTPSink
 - HTTPSource
 - Hermod operations runbook
-- InstagramSink
-- context.CancelFunc
+- startAPI
+- DefaultConfig
 - metricFormat.ts
-- pipeSource
+- WorkerHandler
 - LinkedInSink
-- NatsJetStreamSink
+- PublishRequest
 - TikTokSink
 - TwitterSink
-- PollingSource
+- NewJSONFormatter
 - compilerOptions
 - firebase.google.com/go/v4/messaging.Message
-- ParsePoolConfig
+- cachingFakeRegistry
 - Changelog
 - .GetDashboardHistory
 - LoadDBConfig
-- common.go
+- loginAttemptKey
 - FileBuffer
-- blockingDiscoverSink
+- mockMessage
 - joinCtx
-- sync/atomic.Bool
-- fullFakeRegistry
-- User
+- txSink
+- silentStreamSource
+- AuditLog
 - PrioritySource
 - RabbitMQStreamSource
 - NewServer
 - NewRevoker
-- StateStore
-- silentStreamSource
-- NewOracleSink
-- HttpSink
+- Registry
+- ScyllaDBSource
+- OracleSink
+- NewHttpSink
 - InstagramSource
 - Sink
 - Sink
 - .writeBatchCopy
 - .stop
-- DefaultLogger
-- Operation
+- NewDefaultLogger
+- RabbitMQQueueSink
 - TwitterSource
 - net/http.ServeMux
-- LiveStreamInspector.tsx
-- sync.RWMutex
-- fakeMessage
-- TestSinkConformance
-- github.com/jackc/pglogrepl.LSN
+- [1.5.0] — 2026-09-17
+- runKeyed
+- MariaDBSource
+- TestSourceConformance
+- .handleDelete
 - EncryptConfig.tsx
 - OracleConnector
-- NewInfraHandler
+- template_test.go
 - Formatter
 - RabbitMQStreamSink
-- TwoPhaseCapableSinkTypes
+- EtcdStateStore
 - .Transform
-- runFailingNode
+- timeNS
 - WorkflowDetailPage.tsx
-- TestAGroupBuiltFromStoredConfigurationWrites
-- mockMessage
+- PublishResponse
+- auth.ts
 - countingSink
-- CronSource
+- mockRegistry
 - DB2Connector
 - reachability_tests.md
 - FormSubmission
-- .Transform
+- DataConversionTransformer
 - discarded_writes_test.go
 - kvLogger
-- .Transform
-- heavyMockSink
+- sqlutil/template.go
+- StatusUpdate
 - Approval
 - recordDeliveredSample
 - SetMasterKey
 - Extract
-- SinkWizard.tsx
+- react
 - newSimRegistry
 - NewStorage
-- refusingDLQ
+- NewWorkerAPIClient
 - newBackupHandler
 - guarded
-- KafkaSink
-- NewPostgresSink
-- useDashboardStream.ts
-- Source
-- net/http.Client
+- Validate
+- TestBulkCopyMatchesOrderedPath
+- TestAGroupBuiltFromStoredConfigurationWrites
+- conversion_array_test.go
+- Sink
 - CheckpointManager
 - Source
-- .HandleValidateWorkflow
+- ValidationIssue
 - mockOutboxStorage
-- submit
-- .Transform
-- FileSink
+- workflow_export_completeness_test.go
+- silentLaggingSource
+- RunSinkSuite
 - TestDefaultLogger_ErrorHandling
 - PostgresSink
-- newESMsg
+- Hub
 - fix-tabler-icons.js
 - rules
 - Hermod Platform
 - PubSubSink
-- headersFor
-- NewCassandraSink
-- NewMariaDBSource
-- .ServeFormPage
-- WorkflowNode
-- NewDB2Source
+- dev-ports.ts
+- FailoverSink
+- RegistryStorage
+- .OnRow
+- RegisterNodeExecutor
+- NewPebbleStorage
 - .HandleReadiness
 - Message payload decoding: what happens to a body that is not a JSON object
 - time.Time
 - transformationGuide.ts
-- SetupPage.tsx
+- fakeMessage
 - ui/package.json
-- source/postgres/postgres.go
+- .Close
 - dev.sh
-- NewMySQLSink
+- audit_conversion/main.go
 - Engine
 - root.go
 - TestMain
-- NewGenericFileSource
-- NewDiscoveryService
+- NewBatchSQLSource
+- arrayFixture
 - NewWorker
-- RegistryStorage
-- TestNodeExecutorsHonourOwnershipContract
+- SinkConfig
+- wsWriteJSON
 - NoopWebSocket
-- newFailbackWorker
-- Sink
-- EtcdStateStore
+- BuildIncrementalQuery
+- FacebookSink
+- NewInfraHandler
 - rbac_test.go
 - .Transform
 - TikTokSource
 - TestVerifyEmailExists
-- NewManager
-- BatchBufferSink
-- decodeMessage
+- .handleCollection
+- KafkaSource
+- TestPrioritySourceForwardsOptionalInterfaces
 - newStore
-- Backup and restore
+- smtp/template.go
 - .Transform
-- .HandleApprovalDecision
-- Router
+- LiveStreamInspector.tsx
+- sync.RWMutex
 - The FCM sink
-- [1.2.0] — 2026-09-10
-- Crypto master key
-- .StartScheduledBackups
-- .Transform
-- mongoStore
+- PulsarSink
+- MeshSink
 - newSinkDeliveryFixture
+- .Transform
+- paramSource
+- detect_endpoint_test.go
 - DefaultGenerator
 - TestATestThatFailsWithoutInfrastructureIsBehindTheIntegrationTag
-- TestSecretResolutionInGetOrOpenDB
-- WorkflowExportBundle
-- NewGrpcSource
+- workflow_validation_cdc_test.go
+- @playwright/test
+- NewOracleSource
 - readMsg
 - dashboard_history — the only append-only table, and what it costs
 - Field-level encryption transformations
 - The metis connectors, and where they differ from panmail
-- Retention sweeps, and why message_trace_steps ate 50 GB
+- PollingSource
 - NoopResizeObserver
 - FakeSocket
-- .resumeSuspendedMessage
-- NewService
+- mockSender
+- newBatchSQLRegistry
 - seed.go
 - commands.ts
-- NewCompressor
-- source.pb.go
-- stubSink
+- .Execute
+- DecodeJSONColumn
+- Source
 - WorkflowTraversal
-- setupRegistry
-- statusMockSink
-- testLogger
-- NewAWSSecretsManager
-- AzureKeyVaultManager
+- recordingLogger
+- SMTP templates: dates, zones, and the two shapes a column arrives in
+- useEntityBasicsForm.ts
+- headersFor
+- newDiscoveryFixture
 - NewS3ParquetSink
-- waitForStatusSubscribers
-- GrpcSource
-- TestPrioritySourceForwardsOptionalInterfaces
+- layout_audit.spec.ts
+- [1.4.0] — 2026-09-14
+- mockSink
 - Workflow
 - recordingLogStorage
-- InitOTLP
-- memStore
-- drainSlowSink
+- Sink
+- BatchBufferSink
+- recordingExecutor
 - UnregisteredTokenError
-- golang.org/x/sync/singleflight.Group
+- TestNodeExecutorsHonourOwnershipContract
 - Hermod Benchmarks
-- GetConfigPath
-- Handler
+- SQLiteStore
+- Worker
 - Shutdown
-- TestLdflagsPathMatchesModulePath
-- mockNotificationProvider
-- mockSink
+- .createTxGroupSink
+- cdc_shape_consistency_test.go
+- newESMsg
+- TelegramSink
+- `use_cdc` is opt-out, and everything that queries a source must read it that way
 - core.md
+- NewMSSQLSource
+- workflowExport.ts
 - stop_engine_cleanup_test.go
 - profile-editor-cpu.mjs
+- WorkflowNode
+- .Execute
+- .Execute
+- [1.0.0-rc.2] — 2026-09-07
+- newTestHub
+- package.json
 - workflowStatus.ts
 - diffWorker.ts
-- newDiscoveryFixture
+- .ServeSSE
+- .Transform
+- NewSink
+- [Unreleased]
 - hermod binary
+- mongoStore
+- ZonedTimestamp
+- NewGrpcSource
+- Backup and restore
+- memStore
+- dev_pg_host_test.sh
+- source.pb.go
+- panmail: templating a connection field, and what it costs
+- available_fields_auto_sample_e2e.spec.ts
 - profile-editor-allocations.mjs
+- RingBuffer
+- .runOutboxRelay
+- idleSource
+- referencing_workflows_test.go
+- How the editor captures a source sample, and what reads it
+- GrpcSource
+- sourceCdc.ts
+- dataMessage
 - create-postgres.sh
+- mockSource
+- sqlStorage
+- evolutionPool
+- registeredInSource
+- noopLogger
+- drainSlowSink
+- .Execute
+- time.Duration
+- TestSecretResolutionInGetOrOpenDB
+- TestLdflagsPathMatchesModulePath
+- .Execute
+- mockSink
 - measure-editor.mjs
 - routes_contract_test.go
 - check-bundle-budget.mjs
@@ -430,7 +473,7 @@
 - install_hermod.sh
 - install-service.sh
 - update-version.sh
-- .lookupSQL
+- .Transform
 - connectorRequirements.ts
 - dev_cleanup_test.sh
 - txgroup.ts
@@ -445,13 +488,13 @@
 - SSE Sink Example Client
 - govulncheck.sh
 - postTransformation
-- sqlStorage
 - security-check.sh
 - connectionUrl.ts
 - extract-prometheus-rules.sh
 - measure-login-route.mjs
 - actionIconLabels.test.ts
 - github.com/gsoultan/hermod
+- carryRuntimeColumns
 - Qodana Go Analysis
 - Two-Phase Commit (2PC)
 - UI Root Element
@@ -459,16 +502,16 @@
 - @playwright/test
 
 ## God Nodes (most connected - your core abstractions)
-1. `Message` - 731 edges
-2. `AcquireMessage()` - 355 edges
-3. `@mantine/core` - 226 edges
-4. `@tabler/icons-react` - 161 edges
-5. `react` - 146 edges
-6. `Registry` - 124 edges
-7. `BaseMockStorage` - 123 edges
-8. `ReleaseMessage()` - 122 edges
-9. `sqlStorage` - 117 edges
-10. `Workflow` - 114 edges
+1. `Message` - 758 edges
+2. `AcquireMessage()` - 388 edges
+3. `@mantine/core` - 238 edges
+4. `@tabler/icons-react` - 163 edges
+5. `react` - 152 edges
+6. `Workflow` - 134 edges
+7. `Registry` - 127 edges
+8. `BaseMockStorage` - 127 edges
+9. `ReleaseMessage()` - 123 edges
+10. `sqlStorage` - 118 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `main()` --calls--> `IsUIEmbedded()`  [EXTRACTED]
@@ -489,103 +532,107 @@
 - **Core Platform Documentation** — readme_hermod, agents_agent_skills, roadmap_hermod_edge [INFERRED 0.85]
 - **CI/CD Pipeline** — github_workflows_ci_quick_verify, github_workflows_release_goreleaser, goreleaser_hermod [INFERRED 0.95]
 
-## Communities (504 total, 101 thin omitted)
+## Communities (547 total, 107 thin omitted)
 
 ### Community 0 - "mongoStorage"
 Cohesion: 0.04
-Nodes (11): go.mongodb.org/mongo-driver/v2/mongo.Database, Decrypt(), Encrypt(), TestDecryptDoesNotHandBackCiphertext(), TestEncryptDecryptRoundTrips(), TestNonSecretConfigKeysAreLeftAlone(), TestSecretBearingConfigKeysAreEncrypted(), mongoStorage (+3 more)
+Nodes (7): go.mongodb.org/mongo-driver/v2/mongo.Database, Decrypt(), mongoStorage, searchAcross(), WebhookRequest, WebhookRequestFilter, dashboardSampleDoc
 
-### Community 1 - "MessageTrace"
-Cohesion: 0.13
-Nodes (4): mockTraceRecorder, TraceStep, MessageTrace, TraceFilter
+### Community 1 - "Log"
+Cohesion: 0.05
+Nodes (12): mockTraceRecorder, TraceStep, LineageEdge, Log, LogFilter, MessageTrace, TraceFilter, discardingLogCreator (+4 more)
 
-### Community 2 - "NewEngine"
-Cohesion: 0.06
-Nodes (55): RingBuffer, failPingSink, go.opentelemetry.io/otel/sdk/trace/tracetest.SpanRecorder, TestEngineStatusFlickering(), TestEngineStatusWhenReadHangs(), NewRingBuffer(), TestBackpressureDropOldest_ReleasesEvictedMessageOnce(), TestCircuitBreakerStateChangeDoesNotDeadlock() (+47 more)
+### Community 2 - "AcquireMessage"
+Cohesion: 0.03
+Nodes (119): RoutedMessage, go.opentelemetry.io/otel/sdk/trace/tracetest.SpanRecorder, TestHeavyLoad(), resumeFixture(), TestAResumedMessageTheSinkAcceptsIsNotDeadLettered(), TestAResumedMessageTheSinkRefusesIsDeadLettered(), TestResumeWithNoEngineDoesNotPanic(), runBreakerWorkflow() (+111 more)
 
 ### Community 3 - "router.tsx"
 Cohesion: 0.02
-Nodes (100): @mantine/hooks, qrcode, @tanstack/react-router, zustand, ensureSession(), fetchMe(), getSessionRole(), getSessionUser() (+92 more)
+Nodes (111): @mantine/hooks, @mantine/spotlight, qrcode, @tanstack/react-router, zustand, ensureSession(), fetchMe(), getSessionRole() (+103 more)
 
 ### Community 4 - "GenericFileSource"
-Cohesion: 0.12
-Nodes (13): Backend, fileRef, Format, ftpReadCloser, GenericConfig, GenericFileSource, sftpReadCloser, github.com/jlaffaye/ftp.ServerConn (+5 more)
+Cohesion: 0.06
+Nodes (32): Backend, CSVSource, fileRef, Format, ftpReadCloser, GenericConfig, GenericFileSource, sftpReadCloser (+24 more)
 
 ### Community 5 - "context.Context"
 Cohesion: 0.02
-Nodes (22): rejectingStateStore, silentLaggingSource, OutboxTransactionalSource, context.Context, github.com/cockroachdb/pebble.DB, github.com/gsoultan/hermod/internal/storage.OutboxItem, LogFilter, Plugin (+14 more)
+Nodes (27): rejectingStateStore, OutboxTransactionalSource, context.Context, github.com/cockroachdb/pebble.DB, github.com/gsoultan/hermod/internal/storage.OutboxItem, fakeUserLister, adminActionStore, Plugin (+19 more)
 
-### Community 6 - "net/http.Request"
-Cohesion: 0.05
-Nodes (15): net/http.Request, net/http.ResponseWriter, UnitTestResult, FormHandler, InfraHandler, LogHandler, SchemaHandler, getString() (+7 more)
+### Community 6 - "net/http.ResponseWriter"
+Cohesion: 0.07
+Nodes (11): net/http.ResponseWriter, exportRef, SourceHandler, collectWorkflowRefs(), exportFilename(), WorkflowHandler, populateMessageFromMap(), sampleIsCDC() (+3 more)
 
 ### Community 7 - "RetrySink"
 Cohesion: 0.10
 Nodes (10): NewRetrySink(), NewTracingSink(), TestDecorators_Discovery(), TestCircuitBreakerSink_WriteBatchOpensAndRejects(), TestRetrySink_WriteDoesNotSleepAfterFinalAttempt(), TestRetrySink_WriteSucceedsAfterRetries(), fakeBatchSink, mockSink (+2 more)
 
-### Community 8 - "SQLiteStore"
-Cohesion: 0.06
-Nodes (25): sinkIdemAdapter, wasmSinkAdapter, idempotencyTableSuffix(), newSinkIdempotencyStore(), startIdempotencyTTLSweep(), TestIdempotencyTableSuffix(), TestSinkIdempotencyTablesDoNotCollide(), KafkaSource (+17 more)
+### Community 8 - "Transformer"
+Cohesion: 0.24
+Nodes (7): wasmSinkAdapter, Get(), Transformer, NewRegistry(), Register(), PreparedTransformer, Registry
 
 ### Community 9 - ".HandleWebhook"
-Cohesion: 0.12
-Nodes (10): ConstantTimeCompare(), IsSafeWasmURL(), TestVerifyWebhookSignature(), ValidatePluginID(), VerifyWebhookSignature(), MarketplaceHandler, collectHeaders(), WebhookHandler (+2 more)
+Cohesion: 0.08
+Nodes (15): FormField, ConstantTimeCompare(), IsSafeWasmURL(), IsValidFormPath(), TestIsSafeWasmURL(), TestIsValidFormPath(), TestVerifyWebhookSignature(), ValidatePluginID() (+7 more)
 
-### Community 10 - "AcquireMessage"
-Cohesion: 0.04
-Nodes (79): storageRoundTrip(), TestEngineDispatch_ConfigSurvivesStorageRoundTrip(), TestEngineDispatch_DecryptedJSONIsAddressableDownstream(), TestEngineDispatch_DecryptWrongKeyStopsMessage(), TestEngineDispatch_EncryptDecrypt(), TestEngineDispatch_PrepareThenTransform(), TestForeach_Execute_MissingArrayPath(), TestForeach_Execute_NonArray() (+71 more)
+### Community 10 - "ReleaseMessage"
+Cohesion: 0.03
+Nodes (78): failingSuspendStorage, storageRoundTrip(), TestEngineDispatch_ConfigSurvivesStorageRoundTrip(), TestEngineDispatch_DecryptedJSONIsAddressableDownstream(), TestEngineDispatch_DecryptWrongKeyStopsMessage(), TestEngineDispatch_EncryptDecrypt(), TestEngineDispatch_PrepareThenTransform(), TestForeach_Execute_MissingArrayPath() (+70 more)
 
-### Community 11 - "InfraHandler"
+### Community 11 - "net/http.Request"
 Cohesion: 0.06
-Nodes (12): BackupData, ErrExportTooLarge, SanitizeDBError(), TestSaveConfigRoundTrips(), TestSaveConfigWritesSecretsWithRestrictedPermissions(), SaveConfig(), TestAnAbsentConfigFileReadsAsEmptyRatherThanFailing(), TestAnExistingConfigFileIsStillRead() (+4 more)
+Nodes (18): net/http.Request, BackupData, ErrExportTooLarge, SanitizeDBError(), verifyFormTiming(), TestSaveConfigRoundTrips(), TestSaveConfigWritesSecretsWithRestrictedPermissions(), SaveConfig() (+10 more)
 
 ### Community 12 - "Engine"
-Cohesion: 0.04
-Nodes (17): RouterFunc, sync/atomic.Pointer, TraceRecorder, NewAIOptimizer(), NewSelfCorrectionGate(), Optimizer, NewOptimizer(), AIOptimizer (+9 more)
+Cohesion: 0.06
+Nodes (6): RouterFunc, sync/atomic.Pointer, TraceRecorder, SourceConfig, Engine, Runner
 
 ### Community 13 - "Handler"
 Cohesion: 0.04
-Nodes (43): google.golang.org/grpc.Server, net/http.Handler, net/http.HandlerFunc, FileHandler, cacheControlForPath(), TestCacheControlForPath(), allowedCORSOrigins(), Handler (+35 more)
+Nodes (42): google.golang.org/grpc.Server, net/http.Handler, net/http.HandlerFunc, FileHandler, cacheControlForPath(), TestCacheControlForPath(), allowedCORSOrigins(), Handler (+34 more)
 
 ### Community 14 - "SSESink"
 Cohesion: 0.22
 Nodes (5): GetDataHub(), NewSSESink(), TestSSESink_PublishAndReceive(), TestSSESink_WithSecurity(), SSESink
 
-### Community 15 - "GetMsgValByPath"
-Cohesion: 0.03
-Nodes (30): AdvancedTransformer, columnConfig, DQScorerTransformer, PivotTransformer, RateLimitTransformer, SamplingTransformer, UnpivotTransformer, TermExtractionTransformer (+22 more)
+### Community 15 - "evaluator.go"
+Cohesion: 0.04
+Nodes (24): AdvancedTransformer, columnConfig, PivotTransformer, RateLimitTransformer, SamplingTransformer, UnpivotTransformer, TermExtractionTransformer, FilterTransformer (+16 more)
 
 ### Community 16 - "dashboard_stats_test.go"
 Cohesion: 0.12
-Nodes (26): aggregateEngineTelemetry(), dashboardHistoryRetention(), dashboardSampleInterval(), deriveErrorRate(), durationFromEnv(), Registry, newSamplerRegistry(), TestAggregateEngineTelemetry_AveragesLatency() (+18 more)
+Nodes (24): aggregateEngineTelemetry(), dashboardHistoryRetention(), deriveErrorRate(), Registry, newSamplerRegistry(), TestAggregateEngineTelemetry_AveragesLatency(), TestAggregateEngineTelemetry_BackpressureIsTheWorstSink(), TestAggregateEngineTelemetry_CountsOnlyOpenCircuitBreakers() (+16 more)
 
 ### Community 17 - "MSSQLSource"
-Cohesion: 0.11
-Nodes (10): database/sql.Rows, MSSQLSource, tableInfo, NewMSSQLSource(), normalizeTableName(), parseTableParts(), TestMSSQLSource_MapToMessage(), TestMSSQLSource_MatchTable() (+2 more)
+Cohesion: 0.13
+Nodes (4): database/sql.Rows, MSSQLSource, tableInfo, parseTableParts()
 
 ### Community 18 - "New"
-Cohesion: 0.16
-Nodes (24): TestReapingPublishesTheInDoubtCount(), TestTheInDoubtGaugeReflectsOutstandingTransactions(), New(), Sink, msg(), newGroup(), newMemStore(), TestEmptyBatchIsANoop() (+16 more)
+Cohesion: 0.17
+Nodes (23): TestReapingPublishesTheInDoubtCount(), TestTheInDoubtGaugeReflectsOutstandingTransactions(), New(), Sink, msg(), newGroup(), newMemStore(), TestEmptyBatchIsANoop() (+15 more)
 
 ### Community 19 - "sqlStorage"
-Cohesion: 0.06
-Nodes (9): database/sql.Result, capTracePayload(), queryRegistry, sqlStorage, parseColumnDef(), parseCreateTable(), probeSucceeded(), splitColumnDefs() (+1 more)
+Cohesion: 0.05
+Nodes (17): database/sql.Result, Encrypt(), TestDecryptDoesNotHandBackCiphertext(), TestEncryptDecryptRoundTrips(), TestNonSecretConfigKeysAreLeftAlone(), TestSecretBearingConfigKeysAreEncrypted(), capTracePayload(), coerceTime() (+9 more)
 
 ### Community 20 - "source/metis/metis_test.go"
 Cohesion: 0.06
-Nodes (45): github.com/gsoultan/metis-sdk.Incident, github.com/gsoultan/metis-sdk.Instance, cursor, row, Source, Stream, strippedMessage, formatTime() (+37 more)
+Nodes (46): github.com/gsoultan/metis-sdk.Client, github.com/gsoultan/metis-sdk.Incident, github.com/gsoultan/metis-sdk.Instance, cursor, row, Source, Stream, strippedMessage (+38 more)
 
-### Community 21 - "newMsg"
-Cohesion: 0.06
-Nodes (67): openWithAAD(), sealWithAAD(), TestAADModeKey(), TestAADModeNoneIgnoresAStaleValue(), TestAADModeNoneIsExplicit(), TestAADModeValue(), TestAADRejectedForUnauthenticatedAlgorithms(), TestDiagnoseAcrossAEADs() (+59 more)
+### Community 21 - "aad_test.go"
+Cohesion: 0.38
+Nodes (12): openWithAAD(), sealWithAAD(), TestAADModeKey(), TestAADModeNoneIgnoresAStaleValue(), TestAADModeNoneIsExplicit(), TestAADModeValue(), TestDiagnoseIdentifiesAWrongAAD(), TestDiagnoseIdentifiesAWrongKey() (+4 more)
 
-### Community 23 - "Log"
-Cohesion: 0.11
-Nodes (5): lockoutMockStorage, Log, discardingLogCreator, failingLogCreator, slowLogCreator
+### Community 22 - "lookup_cache_invalidation_test.go"
+Cohesion: 0.44
+Nodes (8): cachedUnder(), Registry, seedLookupCache(), TestUpdateSourceDoesNotDropASourceWhoseIDIsAPrefix(), TestUpdateSourceDropsTheRowsCachedFromIt(), TestUpdateSourceKeepsTheCacheWhenTheWriteFails(), failingUpdateStorage, LookupCacheKeyPrefix()
 
-### Community 24 - "NewHttpSink"
-Cohesion: 0.29
-Nodes (9): TestHttpSinkCompression(), NewHttpSink(), TestANon2xxResponseIsAnError(), TestAServerThatNeverRespondsDoesNotHangWrite(), TestAUserSuppliedContentTypeIsKept(), TestHttpSink_Ping(), TestHttpSink_Write(), TestTheDefaultClientHasATimeout() (+1 more)
+### Community 23 - "workflowStore"
+Cohesion: 0.10
+Nodes (41): checkAdminSearch(), TestAdminListsAndSearchOnPostgres(), TestAuditLogSearchIgnoresCaseInEveryColumnItSearches(), TestCreateStampsTheCreationTimeForUsersVHostsAndWorkers(), TestInitBackfillsAdminTablesWithNoCreationTime(), TestListPluginsReturnsNewestFirst(), TestListUsersReturnsNewestFirst(), TestListVHostsReturnsNewestFirst() (+33 more)
+
+### Community 24 - "common.go"
+Cohesion: 0.10
+Nodes (20): contextKey, LoginAttempt, authenticatedByCookie(), extractSessionToken(), SessionClaims, hostMatches(), isUIStreamPath(), parseSessionClaims() (+12 more)
 
 ### Community 25 - "Coordinator"
 Cohesion: 0.21
@@ -593,43 +640,43 @@ Nodes (8): TwoPhaseCommit, Coordinator, Coordinator, Options, Participant, recor
 
 ### Community 26 - "database/sql.DB"
 Cohesion: 0.09
-Nodes (30): SCDRegistry, SCDTransformer, mockDBProvider, deadDBProvider, database/sql.DB, fakeRegistry, GetConfigString(), GetConfigStringSlice() (+22 more)
+Nodes (27): SCDRegistry, SCDTransformer, mockDBProvider, deadDBProvider, database/sql.DB, fakeRegistry, fullFakeRegistry, GetConfigString() (+19 more)
 
 ### Community 27 - "SQLStore"
 Cohesion: 0.08
 Nodes (11): Event, EventStoreSource, queryRegistry, SQLStore, main(), queryRegistry, NewEventStoreSource(), NewSQLStore() (+3 more)
 
 ### Community 28 - "NewRegistry"
-Cohesion: 0.08
-Nodes (26): TestLookupCache_SetGet(), TestLookupCache_SizeBound(), TestLookupCache_TTLExpiry(), TestTestSource_NilSourceGuard(), TestTestSource_PanicContained(), NewRegistry(), TestEnhancedTransformations(), TestErrorPolicies() (+18 more)
+Cohesion: 0.06
+Nodes (36): seedSQLite(), TestGetDBDoesNotShareAPoolBetweenDifferentConfigs(), TestGetOrOpenDBReopensAfterTheSourceConfigChanges(), TestLookupCache_SetGet(), TestLookupCache_SizeBound(), TestLookupCache_TTLExpiry(), newBlockingDiscoverSink(), TestDiscoverSinkTables_RespectsContextDeadline() (+28 more)
 
 ### Community 29 - "Worker"
 Cohesion: 0.09
-Nodes (3): Worker, isWorkerStale(), leaseRenewalOutcome
+Nodes (4): context.CancelFunc, Worker, isWorkerStale(), leaseRenewalOutcome
 
-### Community 30 - "TransformationForm.tsx"
-Cohesion: 0.07
-Nodes (26): apiFetch(), apiJson(), csrfToken(), isStateChanging(), clearSession(), EXPRESSION_FUNCTIONS, HelpContent, QuickActions (+18 more)
+### Community 30 - "WorkflowEditorPage.tsx"
+Cohesion: 0.05
+Nodes (54): @mantine/notifications, @xyflow/react, apiFetch(), csrfToken(), isStateChanging(), clearSession(), FormScriptSnippetProps, PublicFormLinkProps (+46 more)
 
 ### Community 31 - "DatabaseLogger"
 Cohesion: 0.07
 Nodes (22): TestDatabaseLoggerBoundsItsBuffer(), TestDatabaseLoggerDoesNotBlockTheCallerOnAFullBuffer(), TestDatabaseLoggerKeepsTeeingWhileStorageIsDown(), hasKey(), NewDatabaseLogger(), TestDatabaseLoggerAlwaysReachesTheProcessLog(), Registry, newSupervisorHarness() (+14 more)
 
-### Community 32 - "WorkflowEditorPage.tsx"
-Cohesion: 0.04
-Nodes (62): @mantine/notifications, @xyflow/react, FormScriptSnippetProps, PublicFormLinkProps, ConnectionLine, EditorToolbar(), EditorToolbarProps, FlowCanvas() (+54 more)
+### Community 32 - "FlowCanvas.tsx"
+Cohesion: 0.07
+Nodes (26): ConnectionLine, FlowCanvasProps, formatPreview(), LiveEdge, useStyledFlow(), ApprovalNode, BaseNode(), PlusHandle() (+18 more)
 
-### Community 33 - "storage/storage.go"
-Cohesion: 0.06
-Nodes (8): database/sql.Row, likeContains(), AuditFilter, AuditLog, WorkflowVersion, UnitTest, WorkflowEdge, WorkflowTier
+### Community 33 - "CommonFilter"
+Cohesion: 0.05
+Nodes (9): mockStorage, KubernetesWorkerManager, database/sql.Row, rbacStorage, TestFullServerVHostsRouting(), caseInsensitiveSearch(), CommonFilter, VHost (+1 more)
 
 ### Community 34 - "AuthHandler"
-Cohesion: 0.14
-Nodes (5): github.com/coreos/go-oidc/v3/oidc.Provider, AuthHandler, oidcProvider(), requestIsHTTPS(), sameVHosts()
+Cohesion: 0.10
+Nodes (13): github.com/coreos/go-oidc/v3/oidc.Provider, net/http.Cookie, net/http.SameSite, SameSiteFromEnv(), ClearCSRFToken(), IssueCSRFToken(), SessionCookie(), SessionCookieMaxAge() (+5 more)
 
 ### Community 35 - "SmtpSink"
-Cohesion: 0.08
-Nodes (15): github.com/gsoultan/gsmail.Email, github.com/gsoultan/gsmail.RetryConfig, github.com/gsoultan/gsmail.S3Config, github.com/gsoultan/gsmail.Sender, github.com/gsoultan/gsmail/smtp.PoolConfig, TryFixJSON(), computeIdempotencyKey(), IdempotencyStore (+7 more)
+Cohesion: 0.12
+Nodes (14): github.com/gsoultan/gsmail.Email, github.com/gsoultan/gsmail.Sender, github.com/gsoultan/gsmail/smtp.PoolConfig, addRowImages(), addSystemFields(), computeIdempotencyKey(), IdempotencyStore, mergePayload() (+6 more)
 
 ### Community 36 - "devDependencies"
 Cohesion: 0.09
@@ -640,40 +687,40 @@ Cohesion: 0.11
 Nodes (3): Registry, LiveMessage, DebuggerEvent
 
 ### Community 38 - "Sink"
-Cohesion: 0.06
-Nodes (26): github.com/gsoultan/panmail-sdk.Client, github.com/gsoultan/panmail-sdk.Message, github.com/gsoultan/panmail-sdk.Result, Config, IdempotencyStore, memStore, mockMessage, Sink (+18 more)
+Cohesion: 0.10
+Nodes (16): container/list.Element, container/list.List, github.com/gsoultan/panmail-sdk.Client, github.com/gsoultan/panmail-sdk.Message, github.com/gsoultan/panmail-sdk.Option, github.com/gsoultan/panmail-sdk.Result, cachedClient, Config (+8 more)
 
-### Community 39 - "sync/atomic.Int64"
-Cohesion: 0.12
-Nodes (22): sync/atomic.Int64, redactDSN(), requireIntegrationDB(), requireIntegrationInfra(), seedTestData(), TestE2E_CDC_PgBouncer_Failure(), TestE2E_PgBouncer_Real(), TestE2EPostgresConnectionTest_NoBlock() (+14 more)
+### Community 39 - "runMutations"
+Cohesion: 0.18
+Nodes (17): TestFlowDateConversionReachesATimestampColumn(), firstNonEmpty(), flowDSNs(), openFlowDB(), provisionFlowFixtures(), TestFlowLookupCacheReachesTheSink(), runMutations(), sanitizeSlot() (+9 more)
 
-### Community 40 - "pgxutil.go"
-Cohesion: 0.14
-Nodes (20): TestConnectionPoolResponsiveness(), openSQLDB(), TestOpenSQLDBPgBouncerMarkers(), pgx.ConnConfig, Pooler, ApplyPoolerSafety(), IsPooledConnString(), NewPooler() (+12 more)
+### Community 40 - "ParsePoolConfig"
+Cohesion: 0.10
+Nodes (29): github.com/jackc/pgx/v5/pgxpool.Config, golang.org/x/sync/singleflight.Group, TestConnectionPoolResponsiveness(), pgx.ConnConfig, Pooler, ApplyPoolerSafety(), hasExplicitPoolSize(), IsPooledConnString() (+21 more)
 
 ### Community 41 - "sink/metis/metis_test.go"
 Cohesion: 0.09
-Nodes (44): github.com/gsoultan/metis-sdk.Client, github.com/gsoultan/metis-sdk.Variables, Action, call, IdempotencyStore, memStore, Sink, Actions() (+36 more)
+Nodes (43): github.com/gsoultan/metis-sdk.Variables, Action, call, IdempotencyStore, memStore, Sink, Actions(), Config (+35 more)
 
 ### Community 42 - "DefaultMessage"
-Cohesion: 0.08
-Nodes (5): decodePayloadFields(), DefaultMessage, jsonRawOrWrapped(), SanitizeValue(), TestSanitizeValue()
+Cohesion: 0.07
+Nodes (8): BenchmarkSanitizeValue(), decodePayloadFields(), deepCopyValue(), DefaultMessage, jsonRawOrWrapped(), SanitizeValue(), TestSanitizeValue(), TryFixJSON()
 
-### Community 43 - "dependencies"
-Cohesion: 0.10
-Nodes (21): dependencies, baseline-browser-mapping, caniuse-lite, clsx, dagre, @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities (+13 more)
+### Community 43 - "rel"
+Cohesion: 0.18
+Nodes (36): github.com/jackc/pglogrepl.RelationMessage, github.com/jackc/pglogrepl.RelationMessageColumn, github.com/jackc/pglogrepl.TupleData, github.com/jackc/pglogrepl.TupleDataColumn, BuildOrderingKey(), OrderingKey(), keyCol(), TestCDCHandlersStampTheOrderingKey() (+28 more)
 
 ### Community 44 - "cipher.go"
 Cohesion: 0.05
-Nodes (72): keyState, crypto/cipher.AEAD, crypto/cipher.Block, hash.Hash, aeadKeystream(), aesAEAD(), AlgorithmIsAuthenticated(), chachaAEAD() (+64 more)
+Nodes (75): keyState, crypto/cipher.AEAD, crypto/cipher.Block, hash.Hash, aeadKeystream(), aesAEAD(), AlgorithmIsAuthenticated(), chachaAEAD() (+67 more)
 
 ### Community 45 - "MySQLSource"
-Cohesion: 0.11
-Nodes (9): github.com/go-mysql-org/go-mysql/canal.Canal, github.com/go-mysql-org/go-mysql/canal.DummyEventHandler, github.com/go-mysql-org/go-mysql/canal.RowsEvent, github.com/go-mysql-org/go-mysql/mysql.Position, github.com/go-mysql-org/go-mysql/replication.EventHeader, github.com/go-mysql-org/go-mysql/replication.RotateEvent, mysqlEventHandler, MySQLSource (+1 more)
+Cohesion: 0.14
+Nodes (5): github.com/go-mysql-org/go-mysql/canal.Canal, github.com/go-mysql-org/go-mysql/mysql.Position, MySQLSource, ScanRows(), TestScanRows()
 
 ### Community 46 - "SinkForm.tsx"
 Cohesion: 0.02
-Nodes (67): EmailLayoutBuilder(), configComponents, DatabaseSinkConfig, Dynamics365SinkConfig, ElasticsearchSinkConfig, EventStoreSinkConfig, FailoverSinkConfig, FcmSinkConfig (+59 more)
+Nodes (66): configComponents, DatabaseSinkConfig, Dynamics365SinkConfig, ElasticsearchSinkConfig, EventStoreSinkConfig, FailoverSinkConfig, FcmSinkConfig, FileSinkConfig (+58 more)
 
 ### Community 47 - "detect_test.go"
 Cohesion: 0.21
@@ -684,36 +731,36 @@ Cohesion: 0.14
 Nodes (3): TestSourceWrappersForwardOptionalInterfaces(), fullSource, inertSource
 
 ### Community 49 - "database/sql.Tx"
-Cohesion: 0.09
-Nodes (7): database/sql.Tx, MSSQLSink, OracleSink, qcol(), qcol(), NewSQLiteSink(), SQLiteSink
+Cohesion: 0.17
+Nodes (8): database/sql.Tx, MSSQLSink, msg(), requireMSSQL(), TestAnUnquotableColumnNameIsRefusedByName(), TestMSSQLMappedInsertUpsertAndDelete(), NewMSSQLSink(), qcol()
 
 ### Community 50 - "sinkWriter"
-Cohesion: 0.14
-Nodes (13): pendingMessage, sinkWriter, allowPendingOverReleases(), TestReleasePendingMessageConcurrentOverRelease(), TestReleasePendingMessageDoesNotLeaveNegativeRefCount(), TestReleasePendingMessageNeverDoublePools(), TestSignalDoneDeliversToWaiter(), TestSignalDoneNeverBlocks() (+5 more)
+Cohesion: 0.18
+Nodes (9): pendingMessage, sinkWriter, TestSignalDoneDeliversToWaiter(), TestSignalDoneNeverBlocks(), drainBudget(), drainWriteContext(), Engine, releasePendingMessage() (+1 more)
 
-### Community 51 - "transformationUtils.ts"
-Cohesion: 0.10
-Nodes (30): FieldExplorer, PreviewPanel, MappingConfig(), MappingConfigProps, MappingEditor, FieldExplorer(), FieldExplorerProps, MappingEditor() (+22 more)
+### Community 51 - "TransformationForm.tsx"
+Cohesion: 0.06
+Nodes (44): apiJson(), EXPRESSION_FUNCTIONS, FieldExplorer, HelpContent, PreviewPanel, QuickActions, TargetExplorer, TransformationForm() (+36 more)
 
 ### Community 52 - "GenericProtoSource"
 Cohesion: 0.06
-Nodes (22): avro.Schema, github.com/jhump/protoreflect/desc.MessageDescriptor, github.com/jhump/protoreflect/dynamic.Message, github.com/xeipuuv/gojsonschema.Schema, GenericProtoSource, NewGenericProtoSource(), TestAvroValidatorRejectsAHostileSchemaWithoutHanging(), TestSchemaPackageNeverDecodesAvro() (+14 more)
+Nodes (23): avro.Schema, alwaysInvalid, github.com/jhump/protoreflect/desc.MessageDescriptor, github.com/jhump/protoreflect/dynamic.Message, github.com/xeipuuv/gojsonschema.Schema, GenericProtoSource, NewGenericProtoSource(), TestAvroValidatorRejectsAHostileSchemaWithoutHanging() (+15 more)
 
 ### Community 53 - "source_grpc.pb.go"
-Cohesion: 0.17
+Cohesion: 0.19
 Nodes (10): google.golang.org/grpc.ClientConnInterface, google.golang.org/grpc.ServiceRegistrar, google.golang.org/grpc.UnaryServerInterceptor, SourceServiceClient, UnimplementedSourceServiceServer, NewSourceServiceClient(), RegisterSourceServiceServer(), _SourceService_Publish_Handler() (+2 more)
 
 ### Community 54 - "StatusTracker"
-Cohesion: 0.05
-Nodes (9): AggregateTransformer, aggState, retainingIdleSource, unknownPendingSource, sync/atomic.Uint64, sync.Map, StatusTracker, NewStatusTracker() (+1 more)
+Cohesion: 0.07
+Nodes (7): AggregateTransformer, aggState, sync/atomic.Uint64, sync.Map, StatusTracker, NewStatusTracker(), TestSetEngineStatusUnless()
 
 ### Community 55 - "IndexedStore"
 Cohesion: 0.21
 Nodes (9): NewIndexedStore(), newPlainStore(), TestCoordinatorWorksOverAPlainStateStore(), TestIndexedStoreForgetsDeletedRecords(), TestIndexedStoreListsWhatItStored(), TestIndexedStorePrunesEntriesWhoseRecordVanished(), TestIndexedStoreSurvivesConcurrentWriters(), IndexedStore (+1 more)
 
-### Community 56 - "Registry"
-Cohesion: 0.07
-Nodes (19): Producer, parseDuration(), findNodeByID(), getValByPath(), retryDelay(), setValByPath(), TestPathSafeImplementation(), TestRegistryDurationParsing() (+11 more)
+### Community 56 - "multiSource"
+Cohesion: 0.08
+Nodes (10): findNodeByID(), getValByPath(), Registry, retryDelay(), setValByPath(), TestPathSafeImplementation(), SetValByPath(), multiSource (+2 more)
 
 ### Community 57 - "compilerOptions"
 Cohesion: 0.09
@@ -723,113 +770,117 @@ Nodes (21): compilerOptions, allowImportingTsExtensions, jsx, lib, module, modul
 Cohesion: 0.21
 Nodes (11): Registry, newFakeStateStore(), postgresSink(), registryWithSinks(), TestTxGroupBuildsMembersThatCanActuallyPrepare(), TestTxGroupNamesAnIneligibleMember(), TestTxGroupNeedsAtLeastTwoMembers(), TestTxGroupRefusesWithoutADurableStore() (+3 more)
 
-### Community 59 - "CSVSource"
-Cohesion: 0.17
-Nodes (12): CSVSource, SourceType, encoding/csv.Reader, io.ReadCloser, NewCSVSource(), NewCSVSourceFromReadCloser(), NewHTTPCSVSource(), NewS3CSVSource() (+4 more)
+### Community 59 - "ui/package.json"
+Cohesion: 0.05
+Nodes (33): baseline-browser-mapping, caniuse-lite, clsx, cypress, jsdom, oxlint, postcss, postcss-preset-mantine (+25 more)
 
 ### Community 60 - "Storage"
-Cohesion: 0.08
-Nodes (17): Service, NewDiscordNotificationProvider(), NewEmailNotificationProvider(), NewGenericWebhookProvider(), NewSlackNotificationProvider(), NewTelegramNotificationProvider(), NewUINotificationProvider(), Storage (+9 more)
+Cohesion: 0.07
+Nodes (21): workerStorageSpy, Service, NewDiscordNotificationProvider(), NewEmailNotificationProvider(), NewGenericWebhookProvider(), NewSlackNotificationProvider(), NewTelegramNotificationProvider(), NewUINotificationProvider() (+13 more)
 
 ### Community 61 - "priorityMockMessage"
-Cohesion: 0.10
+Cohesion: 0.09
 Nodes (3): TestPrioritySource(), priorityMockMessage, priorityMockSource
 
-### Community 62 - "FailoverSink"
-Cohesion: 0.14
-Nodes (13): batchSink, FailoverSink, mockSink, NewFailoverSink(), NewFailoverSinkWithStrategy(), batchOf(), TestABatchFailsOverWhole(), TestAnExhaustedGroupNamesTheCauses() (+5 more)
+### Community 62 - "NewFailoverSink"
+Cohesion: 0.27
+Nodes (11): batchSink, mockSink, NewFailoverSink(), batchOf(), TestABatchFailsOverWhole(), TestAnExhaustedGroupNamesTheCauses(), TestAPartialPrimaryBatchDivergesAndTheFallbackGetsEverything(), TestFailoverSink_Close() (+3 more)
 
-### Community 64 - "NewPostgresSource"
-Cohesion: 0.08
-Nodes (39): decode(), cdcFixture, mustExec(), newCDCFixture(), scalar(), TestCDCCapturesInsertUpdateDelete(), TestCDCOnlyCapturesPublishedTables(), TestCDCPublicationTracksTableListChanges() (+31 more)
+### Community 63 - "PostgresSource"
+Cohesion: 0.10
+Nodes (5): github.com/jackc/pglogrepl.LSN, github.com/jackc/pgx/v5/pgproto3.BackendMessage, github.com/jackc/pgx/v5/pgtype.Map, pgx.Conn, PostgresSource
 
-### Community 66 - "Worker"
-Cohesion: 0.17
-Nodes (6): Worker, jsonEqual(), sinkConfigsChanged(), sourceConfigsChanged(), stripInternalFields(), SyncContext
+### Community 64 - "newCDCFixture"
+Cohesion: 0.19
+Nodes (20): decode(), cdcFixture, mustExec(), newCDCFixture(), scalar(), TestCDCCapturesInsertUpdateDelete(), TestCDCOnlyCapturesPublishedTables(), TestCDCPublicationTracksTableListChanges() (+12 more)
+
+### Community 66 - "cdc_flip_guard_test.go"
+Cohesion: 0.54
+Nodes (7): cdcFlipHandler(), cfg(), lookupWorkflow(), TestUpdateSourceAllowsCDCOnAnUnreferencedSource(), TestUpdateSourceRefusesTurningCDCOnForABatchSQLDelegate(), TestUpdateSourceRefusesTurningCDCOnForALookupTarget(), SourceHandler
 
 ### Community 67 - "sync.Mutex"
-Cohesion: 0.04
-Nodes (13): ackTrackingSource, counterSink, mockReadySource, mockSourceWithLimit, orderSink, panicSource, parallelMockSink, slowSink (+5 more)
+Cohesion: 0.03
+Nodes (18): ackTrackingSource, counterSink, mockReadySource, mockSourceWithLimit, oneShotSource, orderSink, panicSource, parallelMockSink (+10 more)
 
 ### Community 68 - "ColumnInfo"
-Cohesion: 0.11
-Nodes (11): ColumnInfo, PublicationInfo, ReplicationSlotInfo, discoveryValue(), DiscoveryService, T, RunWithContext(), Registry (+3 more)
+Cohesion: 0.08
+Nodes (16): ColumnInfo, PublicationInfo, ReplicationSlotInfo, discoveryValue(), DiscoveryService, T, NewDiscoveryService(), RunWithContext() (+8 more)
 
 ### Community 69 - "NewSQLStorage"
-Cohesion: 0.06
-Nodes (51): dispatchUntilAccepted(), mustExecDB(), TestMultiWorkflowLoadDeliversEveryRowExactlyOnce(), TestCreateLogsWritesThroughOnPostgres(), TestCreateLogsWritesThroughOnSQLite(), probeWithRow(), TestAFailedMigrationIsReported(), TestAnAddableColumnStillGetsAdded() (+43 more)
+Cohesion: 0.05
+Nodes (56): Registry, newPoolFixture(), TestExecuteSQLRunsOnTheSelectedDatabase(), TestExecuteSQLStillReportsAGenuinelyMissingRelation(), TestCreateLogsWritesThroughOnPostgres(), TestCreateLogsWritesThroughOnSQLite(), probeWithRow(), TestAFailedMigrationIsReported() (+48 more)
 
-### Community 71 - "OracleSource"
-Cohesion: 0.16
-Nodes (8): OracleSource, insertRow(), requireOracle(), TestARestartResumesFromTheAcknowledgedRow(), TestOracleSourceReadsFromAConventionallyNamedTable(), TestTheCursorDoesNotAdvancePastUnacknowledgedRows(), NewOracleSource(), TestOracleSource_Ping()
+### Community 70 - "MySQLSink"
+Cohesion: 0.18
+Nodes (7): MySQLSink, mappedMsg(), requireMappedMySQL(), TestAMappedColumnNameCannotBreakOutOfItsQuoting(), TestMappedColumnsInsertUpsertAndDelete(), NewMySQLSink(), qcol()
 
-### Community 72 - "PostgresSource"
-Cohesion: 0.15
-Nodes (5): github.com/jackc/pglogrepl.RelationMessage, github.com/jackc/pgx/v5/pgproto3.BackendMessage, github.com/jackc/pgx/v5/pgtype.Map, pgx.Conn, PostgresSource
+### Community 72 - "mockReconStorage"
+Cohesion: 0.05
+Nodes (13): TestReconnectAfterRegistryRestart(), TestResourceAwareSharding_Distribution(), TestResourceAwareSharding_Hysteresis(), TestResourceAwareSharding_LoadBalance(), TestWorker_ReleaseAllLeases(), TestWorkerIsAssigned_StabilityAndDistribution(), TestWorkflowAutoDeactivation(), failingSource (+5 more)
 
 ### Community 73 - "@tabler/icons-react"
 Cohesion: 0.02
-Nodes (114): @tabler/icons-react, CommonProps, TemplateField(), TemplateFieldProps, AdvancedConfig(), AdvancedConfigProps, SetFieldEditor, AggregateConfig() (+106 more)
-
-### Community 74 - "Sink"
-Cohesion: 0.17
-Nodes (5): closeMembers(), splitMemberIDs(), TestSplitMemberIDs(), Member, Sink
+Nodes (112): @tabler/icons-react, CommonProps, TemplateField(), TemplateFieldProps, AdvancedConfig(), AdvancedConfigProps, SetFieldEditor, AggregateConfig() (+104 more)
 
 ### Community 75 - "github.com/jackc/pgx/v5/pgxpool.Pool"
 Cohesion: 0.38
 Nodes (15): github.com/jackc/pgx/v5/pgxpool.Pool, itDSN(), makeTable(), msg(), newMemStore(), newSink(), pool(), preparedCount() (+7 more)
 
-### Community 76 - "Config"
-Cohesion: 0.27
-Nodes (13): AuthConfig, BackupConfig, BufferConfig, EngineConfig, ObservabilityConfig, OIDCConfig, S3Config, StateStoreConfig (+5 more)
+### Community 76 - "GetMsgValByPath"
+Cohesion: 0.08
+Nodes (5): DQScorerTransformer, CharMapTransformer, mockMessage, JoinTransformer, GetMsgValByPath()
 
 ### Community 77 - "@mantine/core"
-Cohesion: 0.04
-Nodes (30): @mantine/core, msw, @tanstack/react-query, @testing-library/react, @testing-library/user-event, vitest, LineageEdge, WorkflowHistoryModalProps (+22 more)
+Cohesion: 0.03
+Nodes (33): @mantine/core, msw, @tanstack/react-query, @testing-library/react, @testing-library/user-event, vitest, LineageEdge, WorkflowHistoryModalProps (+25 more)
 
 ### Community 78 - "New"
-Cohesion: 0.15
-Nodes (17): topicManager, FromMap(), TestFromMap(), TestFromMapRefusesUnparseableValues(), TestNewRefusesBrokenTemplate(), TestNewRefusesCredentiallessSinkWithoutExplicitOptIn(), TestNewRefusesMoreThanOneDefaultTarget(), chunks() (+9 more)
+Cohesion: 0.31
+Nodes (9): topicManager, chunks(), countSet(), destinationFields(), Config, T, New(), NewBatching() (+1 more)
 
-### Community 79 - "NewMySQLSource"
-Cohesion: 0.38
-Nodes (12): NewMySQLSource(), mustExec(), TestMySQLSource_Read(), insertRow(), readOurRows(), requireMySQL(), TestABurstLargerThanTheBufferIsNotDropped(), TestBinlogPositionAdvancesOnAckNotOnRead() (+4 more)
+### Community 79 - "NewPostgresSource"
+Cohesion: 0.13
+Nodes (22): TestCloseDoesNotRaceMetadataReaders(), TestFlushPositionAgreesWithPendingWork(), TestFlushPositionNeverOutrunsUnacknowledgedWork(), TestPendingWorkTracksDeliveredButUnacknowledgedChanges(), buildReplicationAppName(), hostnameOrUnknown(), NewPostgresSource(), buildKeepalive() (+14 more)
 
 ### Community 80 - "MongoDBSource"
-Cohesion: 0.06
-Nodes (31): go.mongodb.org/mongo-driver/v2/bson.M, go.mongodb.org/mongo-driver/v2/bson.Raw, go.mongodb.org/mongo-driver/v2/bson.Timestamp, go.mongodb.org/mongo-driver/v2/mongo.ChangeStream, go.mongodb.org/mongo-driver/v2/mongo.Client, TestMongo_WorkflowLease_AcquireRenewRelease(), NewMongoStorage(), MongoDBSink (+23 more)
+Cohesion: 0.07
+Nodes (29): go.mongodb.org/mongo-driver/v2/bson.M, go.mongodb.org/mongo-driver/v2/bson.Raw, go.mongodb.org/mongo-driver/v2/bson.Timestamp, go.mongodb.org/mongo-driver/v2/mongo.ChangeStream, go.mongodb.org/mongo-driver/v2/mongo.Client, MongoDBSink, MongoDBSource, mongoFixture (+21 more)
 
-### Community 81 - "SanitizeMap"
-Cohesion: 0.20
-Nodes (5): ClickHouseSource, github.com/ClickHouse/clickhouse-go/v2/lib/driver.Rows, SanitizeMap(), clickhouse.Conn, scanRow()
+### Community 81 - "ClickHouseSource"
+Cohesion: 0.16
+Nodes (9): ClickHouseSource, github.com/ClickHouse/clickhouse-go/v2/lib/driver.Rows, clickhouse.Conn, NewClickHouseSource(), scanRow(), chDSN(), requireCH(), TestStateDoesNotAdvancePastUnacknowledgedRows() (+1 more)
 
 ### Community 82 - "testing.T"
 Cohesion: 0.02
-Nodes (130): slowlorisServer(), TestAClientThatDribblesHeadersIsDisconnected(), TestANormalRequestIsUnaffected(), TestTheLimitsAreSet(), registeredInSource(), TestEveryTransformerIsLinkedIntoTheBinary(), TestTransformerScanFindsTheKnownPackages(), testing.T (+122 more)
+Nodes (187): slowlorisServer(), TestAClientThatDribblesHeadersIsDisconnected(), TestANormalRequestIsUnaffected(), TestTheLimitsAreSet(), testing.T, TestConcurrentStreamsAreBounded(), TestIdleConnectionsAreReclaimedButStreamsAreNot(), TestReceiveSizeIsBounded() (+179 more)
 
-### Community 83 - "Sink"
-Cohesion: 0.04
-Nodes (32): Connector, nilMsgSink, reproMockSink, reproMockSource, Browser, ColumnDiscoverer, Consumer, contextKey (+24 more)
+### Community 83 - "apiLookupErr"
+Cohesion: 0.19
+Nodes (22): apiLookupErr(), TestAPILookupDoesNotCacheForeverByDefault(), TestAPILookupErrorHandlingWithoutAnExplicitPolicyIsUnchanged(), TestAPILookupHonoursOnMissFailForIncompleteConfig(), TestAPILookupHonoursOnMissFailWhenTheResponsePathIsEmpty(), TestAPILookupOnMissFailOverridesTheDefaultValueOnAnHTTPError(), TestAPILookupReachesAPrivateAddress(), TestAPILookupRejectsAnUnparseableTTL() (+14 more)
 
 ### Community 84 - "Manager"
-Cohesion: 0.14
-Nodes (7): Manager, NewManager(), NewMeshSink(), Cluster, MeshClient, MeshManager, MeshSink
+Cohesion: 0.25
+Nodes (4): Manager, NewManager(), Cluster, MeshManager
+
+### Community 85 - "binlogRowToData"
+Cohesion: 0.28
+Nodes (7): github.com/go-mysql-org/go-mysql/schema.TableColumn, binlogRowToData(), TestBinlogRowJSONColumnBecomesAnObject(), TestBinlogRowJSONNullAndInvalid(), TestBinlogRowShorterThanColumns(), TestQueryRowJSONColumnBecomesAnObject(), TestQueryRowWithoutTypeMetadata()
 
 ### Community 86 - "coordinator_test.go"
-Cohesion: 0.19
-Nodes (20): Coordinator, newMemStore(), newTestCoordinator(), TestBeginFailureTouchesNothing(), TestCommitsEveryParticipant(), TestOnePrepareFailureAbortsEveryone(), TestOpensATransactionBeforeWriting(), TestReapLeavesFreshTransactionsAlone() (+12 more)
+Cohesion: 0.18
+Nodes (21): Coordinator, newMemStore(), newTestCoordinator(), TestBeginFailureTouchesNothing(), TestCommitsEveryParticipant(), TestOnePrepareFailureAbortsEveryone(), TestOpensATransactionBeforeWriting(), TestReapLeavesFreshTransactionsAlone() (+13 more)
 
 ### Community 87 - "Sink"
 Cohesion: 0.10
 Nodes (20): target, firebase.google.com/go/v4/messaging.AndroidConfig, firebase.google.com/go/v4/messaging.AndroidNotification, firebase.google.com/go/v4/messaging.AndroidNotificationPriority, firebase.google.com/go/v4/messaging.APNSConfig, firebase.google.com/go/v4/messaging.Aps, firebase.google.com/go/v4/messaging.FCMOptions, firebase.google.com/go/v4/messaging.Notification (+12 more)
 
 ### Community 88 - "Dispatch"
-Cohesion: 0.15
-Nodes (11): GraphQLSource, mockMessage, Dispatch(), NewGraphQLSource(), Register(), TestGraphQLSourceRead(), Unregister(), TestAClosedSourceDoesNotTakeOverAnotherOne() (+3 more)
+Cohesion: 0.21
+Nodes (10): mockMessage, Dispatch(), NewGraphQLSource(), Register(), TestGraphQLSourceRead(), Unregister(), TestAClosedSourceDoesNotTakeOverAnotherOne(), TestClosingTheSourceReleasesItsPath() (+2 more)
 
-### Community 89 - "testing.B"
-Cohesion: 0.09
-Nodes (21): benchLogger, benchSource, nullBatchSink, nullSink, testing.B, BenchmarkMessagePayload(), BenchmarkMessageSetData(), BenchmarkSanitizeValue() (+13 more)
+### Community 89 - "sync/atomic.Int64"
+Cohesion: 0.05
+Nodes (30): countingSink, benchLogger, benchSource, blockingSink, nullBatchSink, nullSink, sync/atomic.Bool, sync/atomic.Int64 (+22 more)
 
 ### Community 91 - ".Publish"
 Cohesion: 0.30
@@ -837,43 +888,51 @@ Nodes (9): Server, Dispatch(), Register(), TestPublishAuthentication(), Unregist
 
 ### Community 92 - "Runner"
 Cohesion: 0.14
-Nodes (8): lagState, sync.WaitGroup, effectiveBatchSize(), TestEffectiveBatchSize(), drainAbandonGrace(), Engine, Runner, NewRunner()
+Nodes (9): lagState, sync.WaitGroup, effectiveBatchSize(), TestEffectiveBatchSize(), drainAbandonGrace(), Engine, Runner, keyedWorkerFor() (+1 more)
 
 ### Community 93 - "sql/dashboard_history_test.go"
 Cohesion: 0.28
 Nodes (12): newDashboardHistoryStorage(), readBackColumns(), storedColumns(), TestDashboardHistoryStoresNoColumnItNeverReadsBack(), TestGetDashboardHistory_AllIsTheGlobalAggregate(), TestGetDashboardHistory_FiltersByVHost(), TestGetDashboardHistory_LimitKeepsNewest(), TestGetDashboardHistory_RespectsSince() (+4 more)
 
+### Community 94 - "SinkHandler"
+Cohesion: 0.11
+Nodes (4): emailRenderer, exampleRow(), getString(), SinkHandler
+
 ### Community 95 - "testMessage"
-Cohesion: 0.36
-Nodes (8): countingSink, sinkNode(), TestAFailedSequentialSinkTakesTheErrorBranch(), TestAMissingSinkIsAnError(), TestAPassThroughSinkDoesNotWriteInline(), TestASequentialSinkWritesExactlyOnce(), testMessage(), TestTheFailureIsLogged()
+Cohesion: 0.61
+Nodes (7): sinkNode(), TestAFailedSequentialSinkTakesTheErrorBranch(), TestAMissingSinkIsAnError(), TestAPassThroughSinkDoesNotWriteInline(), TestASequentialSinkWritesExactlyOnce(), testMessage(), TestTheFailureIsLogged()
 
 ### Community 96 - "Dispatch"
-Cohesion: 0.20
-Nodes (11): awaitRows(), TestTwoWorkerLeaseFailover(), Dispatch(), NewWebhookSource(), Register(), TestAClosedSourceDoesNotTakeOverAnotherOne(), TestClosingTheSourceReleasesItsPath(), TestTeardownDoesNotRemoveASupersedingRegistration() (+3 more)
+Cohesion: 0.18
+Nodes (13): dispatchUntilAccepted(), mustExecDB(), TestMultiWorkflowLoadDeliversEveryRowExactlyOnce(), awaitRows(), TestTwoWorkerLeaseFailover(), Dispatch(), NewWebhookSource(), Register() (+5 more)
 
 ### Community 97 - "compilerOptions"
 Cohesion: 0.11
 Nodes (18): compilerOptions, allowImportingTsExtensions, lib, module, moduleDetection, moduleResolution, noEmit, noFallthroughCasesInSwitch (+10 more)
 
 ### Community 98 - "scheduled_backup_test.go"
-Cohesion: 0.23
-Nodes (14): checkDestination(), pruneBackups(), secureDir(), TestADirectoryOthersCanReadIsRefused(), TestAGroupReadableDirectoryIsRefused(), TestAMisconfiguredScheduleDoesNotStart(), TestAMissingDirectoryIsRefused(), TestAScheduleWithNoDirectoryStartsNothing() (+6 more)
+Cohesion: 0.17
+Nodes (16): BackupSchedule, checkDestination(), InfraHandler, pruneBackups(), secureDir(), TestADirectoryOthersCanReadIsRefused(), TestAGroupReadableDirectoryIsRefused(), TestAMisconfiguredScheduleDoesNotStart() (+8 more)
 
-### Community 99 - "Algorithm"
-Cohesion: 0.14
-Nodes (5): lz4Compressor, noneCompressor, snappyCompressor, zstdCompressor, Algorithm
+### Community 99 - "NewCompressor"
+Cohesion: 0.10
+Nodes (14): lz4Compressor, noneCompressor, snappyCompressor, zstdCompressor, io.Writer, algoToByte(), byteToAlgo(), decodeFromBytes() (+6 more)
 
 ### Community 101 - "SourceForm.tsx"
-Cohesion: 0.17
-Nodes (11): ADMIN_ROLE, fetchList(), SOURCE_TYPES, SourceForm(), SourceFormProps, CDCReuseModal(), CDCReuseModalProps, SnapshotModal() (+3 more)
+Cohesion: 0.12
+Nodes (15): ADMIN_ROLE, fetchList(), SOURCE_TYPES, SourceForm(), SourceFormProps, SourceWizard(), SourceWizardProps, CDCReuseModal() (+7 more)
+
+### Community 102 - "New"
+Cohesion: 0.23
+Nodes (32): New(), accepted(), baseConfig(), gateway(), Config, newMemStore(), TestIdempotencyKey_AStaticGatewayIsNotPartOfTheIdentity(), TestIdempotencyKey_ATemplatedGatewayIsPartOfTheIdentity() (+24 more)
 
 ### Community 103 - "Sink"
 Cohesion: 0.25
 Nodes (5): Sink, formatFloat32(), formatFloat64(), formatVector(), ident()
 
-### Community 105 - "template.go"
+### Community 105 - "fcm/template.go"
 Cohesion: 0.18
-Nodes (13): tmpl, text/template/parse.BranchNode, text/template/parse.CommandNode, text/template/parse.Node, text/template/parse.PipeNode, text/template.Template, collectBranch(), collectCommand() (+5 more)
+Nodes (14): tmpl, text/template/parse.BranchNode, text/template/parse.CommandNode, text/template/parse.Node, text/template/parse.PipeNode, text/template.Template, collectBranch(), collectCommand() (+6 more)
 
 ### Community 106 - "WasmTransformer"
 Cohesion: 0.20
@@ -883,40 +942,48 @@ Nodes (6): readerWrapper, wasmBuffer, WasmTransformer, github.com/tetratelabs/wa
 Cohesion: 0.16
 Nodes (6): FirebaseSource, cloud.google.com/go/firestore.Client, firebase.google.com/go/v4.App, NewFirebaseSource(), TestFirebaseSource_State(), TestNewFirebaseSource()
 
+### Community 108 - "CassandraSink"
+Cohesion: 0.20
+Nodes (7): CassandraSink, github.com/gocql/gocql.Batch, cMsg(), requireCassandra(), TestAnUnsafeTableNameFromAMessageIsRefused(), TestARowLandsAndIsDeleted(), NewCassandraSink()
+
 ### Community 109 - "Message"
 Cohesion: 0.02
-Nodes (30): ackMockSource, drainSource, exampleSource, idleSource, mockBatchSink, mockBuffer, mockSink, mockSource (+22 more)
+Nodes (35): CronSource, cron.EntryID, ackMockSource, closeTrackingSource, drainSource, exampleSource, mockBatchSink, mockBuffer (+27 more)
 
 ### Community 111 - "GoogleAnalyticsSource"
 Cohesion: 0.15
 Nodes (6): google.golang.org/api/analyticsdata/v1beta.Row, google.golang.org/api/analyticsdata/v1beta.Service, GoogleAnalyticsSource, NewGoogleAnalyticsSource(), TestGoogleAnalyticsSource_State(), TestNewGoogleAnalyticsSource()
 
+### Community 113 - "Revoker"
+Cohesion: 0.17
+Nodes (3): Revoker, Handler, maxSessionAge()
+
 ### Community 114 - "resources.go"
 Cohesion: 0.20
 Nodes (21): github.com/hashicorp/terraform-plugin-sdk/v2/diag.Diagnostics, github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema.Provider, github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema.Resource, github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema.ResourceData, Provider(), providerConfigure(), dataSourceWorkspace(), dataSourceWorkspaceRead() (+13 more)
 
-### Community 115 - "tracePartitionName"
-Cohesion: 0.22
-Nodes (8): sqlStorage, TestTracePartitionDay_RefusesAnythingButADatedPartition(), TestTracePartitionExpiry_KeepsTheDayTheCutoffFallsInside(), TestTracePartitioningEnabled(), TestTracePartitionName_IsOneUTCDay(), tracePartitionDay(), tracePartitioningEnabled(), tracePartitionName()
+### Community 115 - "importBundle.ts"
+Cohesion: 0.08
+Nodes (27): applyConflictDecisions(), collectReviewNodes(), Conflict, ConflictDecision, CREDENTIAL_SUFFIXES, detectConflicts(), ENDPOINT_KEYS, Existing (+19 more)
 
-### Community 116 - "Source"
+### Community 116 - "Sink"
+Cohesion: 0.21
+Nodes (7): crypto/tls.Config, github.com/gorilla/websocket.Dialer, New(), TestAMissedAckDoesNotPoisonTheConnection(), TestWebSocketSink_Write_WithAck(), TestZeroTimeoutsMeanDefaultsNotADeadSink(), Sink
+
+### Community 117 - "Config"
+Cohesion: 0.06
+Nodes (38): applyEngineConfig(), Options, initRegistryComponents(), setupRegistry(), AuthConfig, BackupConfig, BufferConfig, EngineConfig (+30 more)
+
+### Community 118 - "WorkerAPIClient"
 Cohesion: 0.13
-Nodes (10): crypto/tls.Config, encoding/json.RawMessage, github.com/gorilla/websocket.Dialer, New(), TestAMissedAckDoesNotPoisonTheConnection(), TestWebSocketSink_Write_WithAck(), TestZeroTimeoutsMeanDefaultsNotADeadSink(), envelope (+2 more)
-
-### Community 117 - "OpenBaoManager"
-Cohesion: 0.28
-Nodes (5): github.com/hashicorp/vault/api.Client, NewOpenBaoManager(), NewVaultManager(), OpenBaoManager, VaultManager
-
-### Community 118 - "Layout.tsx"
-Cohesion: 0.12
-Nodes (10): @mantine/spotlight, ErrorBoundary, Props, State, LayoutProps, SideLinkProps, ErrorPage(), ErrorPageProps (+2 more)
+Nodes (4): net/http.Response, net/url.URL, Fetch(), WorkerAPIClient
 
 ### Community 119 - "NewS3Sink"
 Cohesion: 0.32
 Nodes (10): listKeys(), newS3Msg(), rawClient(), requireS3(), TestAnObjectIsPut(), TestARedeliveredMessageDoesNotLeaveASecondObject(), TestDistinctMessagesLandSeparately(), TestTheDefaultKeyKeepsEveryDelivery() (+2 more)
 
 ### Community 120 - "CassandraSource"
-Cohesion: 0.22
+Cohesion: 0.24
 Nodes (4): CassandraSource, github.com/gocql/gocql.ClusterConfig, github.com/gocql/gocql.Session, ConnectGocql()
 
 ### Community 121 - "NewSQLiteSource"
@@ -924,16 +991,20 @@ Cohesion: 0.33
 Nodes (10): numberedDB(), TestAckOfNilDoesNotPanic(), TestAnUnparseableWatermarkLeavesTheCursorAlone(), TestARestartResumesFromTheAcknowledgedRow(), TestEveryRowArrivesOnceInOrder(), TestTheCursorDoesNotAdvancePastUnacknowledgedRows(), NewSQLiteSource(), TestSQLiteSource_Ping() (+2 more)
 
 ### Community 122 - "createSinkBase"
-Cohesion: 0.16
-Nodes (15): Worker, TestBuildConnectionString_RabbitMQ_SSL(), BuildConnectionString(), buildWSTLSConfig(), CreateSink(), createSinkBase(), CreateSinkForTransactionGroup(), CreateSource() (+7 more)
+Cohesion: 0.05
+Nodes (38): sinkCtx, nilMsgSink, reproMockSink, github.com/gsoultan/gsmail.S3Config, BatchSink, Sink, ValidatingSink, buildWSTLSConfig() (+30 more)
 
 ### Community 123 - "Autoscaler"
 Cohesion: 0.29
 Nodes (4): Autoscaler, WorkerManager, countOnlineWorkers(), NewAutoscaler()
 
-### Community 124 - "CombinedBuffer"
-Cohesion: 0.32
-Nodes (4): CombinedBuffer, CombinedOptions, NewCombinedBuffer(), TestCombinedBuffer_ProduceConsume()
+### Community 124 - "Registry"
+Cohesion: 0.12
+Nodes (9): parseDuration(), TestRegistryDurationParsing(), Registry, resolveSinkNodeSequential(), TestResolveSinkNodeSequential(), ReachableInDegree(), ReachableInDegreeByEntry(), sortedKeys() (+1 more)
+
+### Community 125 - "createSourceBase"
+Cohesion: 0.09
+Nodes (17): Connector, reproMockSource, Source, TestBuildConnectionString_RabbitMQ_SSL(), BuildConnectionString(), CreateSource(), createSourceBase(), rabbitEnvConfig() (+9 more)
 
 ### Community 126 - "NewFormSource"
 Cohesion: 0.21
@@ -948,24 +1019,24 @@ Cohesion: 0.18
 Nodes (3): TestOptimizer_Heuristics(), mockLogger, mockSink
 
 ### Community 132 - "RedisSource"
-Cohesion: 0.24
-Nodes (6): applyStreamValues(), redis.Client, NewRedisSource(), streamDataBytes(), TestApplyStreamValues(), RedisSource
+Cohesion: 0.29
+Nodes (5): applyStreamValues(), redis.Client, NewRedisSource(), streamDataBytes(), RedisSource
 
 ### Community 133 - "SamplePanel.tsx"
 Cohesion: 0.15
-Nodes (14): formatRelativeTime(), SamplePanel(), SamplePanelProps, StepDef, StepState, DATABASE_TYPES, ERROR_RULES, ErrorRule (+6 more)
+Nodes (15): formatRelativeTime(), SamplePanel(), SamplePanelProps, StepDef, StepState, DATABASE_TYPES, ERROR_RULES, ErrorRule (+7 more)
 
 ### Community 134 - "SelfHealingService"
-Cohesion: 0.26
-Nodes (6): CopilotResult, FixSuggestion, PerformanceRecommendation, SchemaImpact, SelfHealingService, NewSelfHealingService()
+Cohesion: 0.27
+Nodes (5): CopilotResult, FixSuggestion, PerformanceRecommendation, SchemaImpact, SelfHealingService
 
 ### Community 135 - "BatchSQLSource"
-Cohesion: 0.13
-Nodes (14): BatchSQLSource, Config, DBProvider, cron.Cron, maxWatermark(), NewBatchSQLSource(), TestBatchSQLSource(), TestBatchSQLSource_Sample() (+6 more)
+Cohesion: 0.21
+Nodes (3): BatchSQLSource, cron.Cron, resolveLastValue()
 
 ### Community 136 - "BaseMockStorage"
 Cohesion: 0.03
-Nodes (12): mockWorkerManager, workerStartMockStorage, TestWorkerStartRecoversFromPanic(), TestWorker_SelfRegister(), Worker, BaseMockStorage, mockCheckpointStorage, drainMockStorage (+4 more)
+Nodes (11): mockWorkerManager, workerStartMockStorage, TestWorker_SelfRegister(), Worker, BaseMockStorage, mockCheckpointStorage, drainMockStorage, hardeningStorage (+3 more)
 
 ### Community 137 - "cbCtx"
 Cohesion: 0.22
@@ -979,25 +1050,29 @@ Nodes (3): FormSubmission, FormSubmissionFilter, mockSamplingStorage
 Cohesion: 0.40
 Nodes (3): NewCircuitBreakerSink(), CircuitBreakerSink, state
 
-### Community 141 - "react"
-Cohesion: 0.03
-Nodes (58): react, App(), ConfirmContext, ConfirmOptions, ConfirmProvider(), Resolver, EmptyStateProps, SourceWizard() (+50 more)
+### Community 141 - "SourceConfigFields.tsx"
+Cohesion: 0.05
+Nodes (38): ConnectionUrlPaste(), ConnectionUrlPasteProps, DEFAULT_KEYS, ImportNodeCard(), ImportNodeCardProps, REASON_LABEL, ImportResourceCard(), ImportResourceCardProps (+30 more)
 
 ### Community 142 - "fromMap"
-Cohesion: 0.18
-Nodes (14): Action, AndroidConfig, APNSConfig, Config, DataMode, OversizePolicy, parser, WebpushConfig (+6 more)
+Cohesion: 0.13
+Nodes (20): Action, AndroidConfig, APNSConfig, Config, DataMode, OversizePolicy, parser, WebpushConfig (+12 more)
 
 ### Community 143 - "RabbitMQQueueSource"
-Cohesion: 0.08
-Nodes (25): github.com/rabbitmq/amqp091-go.Channel, github.com/rabbitmq/amqp091-go.Connection, github.com/rabbitmq/amqp091-go.Delivery, JSONFormatter, JSONMode, NewJSONFormatter(), TestJSONFormatter(), TestJSONFormatter_NilMessage() (+17 more)
-
-### Community 144 - "Source"
-Cohesion: 0.20
-Nodes (7): Source, SourceConfig, TestAckMovesThePersistedCursor(), TestAckOfNilDoesNotPanic(), TestAckWithoutAWatermarkLeavesTheCursorAlone(), TestGetStateIsEmptyUntilSomethingIsAcknowledged(), NewSource()
+Cohesion: 0.21
+Nodes (9): buildSampleMessage(), lastConsumedKey(), loadLastConsumed(), NewRabbitMQQueueSource(), storeLastConsumed(), TestRabbitMQQueueSource_NonObjectPayload_ReachesSink(), TestRabbitMQQueueSource_Sample(), TestRabbitMQQueueSource_SampleFromLastConsumed() (+1 more)
 
 ### Community 145 - "ElasticsearchSink"
 Cohesion: 0.24
 Nodes (5): elasticsearch.Client, ElasticsearchSink, bytes.Buffer, prepareTemplateData(), writeBulkAction()
+
+### Community 146 - "newRecoveryHarness"
+Cohesion: 0.12
+Nodes (21): redactDSN(), requireIntegrationDB(), requireIntegrationInfra(), seedTestData(), TestE2E_CDC_PgBouncer_Failure(), TestE2E_PgBouncer_Real(), TestE2EPostgresConnectionTest_NoBlock(), TestE2EScenario_FullWorkflow() (+13 more)
+
+### Community 147 - "Source"
+Cohesion: 0.17
+Nodes (9): Source, New(), normalizeHeaders(), Source, readOne(), TestEveryRowIsEmittedOnceInOrder(), TestRowsCarryAnOperationSinksUnderstand(), TestTheNamedSheetIsTheOneThatIsRead() (+1 more)
 
 ### Community 148 - "BloomFilter"
 Cohesion: 0.22
@@ -1012,11 +1087,11 @@ Cohesion: 0.20
 Nodes (10): [1.0.0-rc.1] — 2026-09-03, Added, Breaking, Changed behaviour you will notice in production, `go get` does not work at this version, by choice, Hardening, Known gaps, Security (+2 more)
 
 ### Community 151 - "fcm_test.go"
-Cohesion: 0.25
-Nodes (26): fcmServer, errorBody(), Config, Sink, newFCMServer(), newTestSink(), pointAt(), TestDataModes() (+18 more)
+Cohesion: 0.24
+Nodes (27): fcmServer, errorBody(), Config, Sink, newFCMServer(), newTestSink(), pointAt(), TestBatchSinkIsOptIn() (+19 more)
 
 ### Community 152 - "idempotency_retry_test.go"
-Cohesion: 0.24
+Cohesion: 0.22
 Nodes (9): IdempotencyStore, newCountingStore(), sinkUnderTest(), TestAGenuineDuplicateIsStillSuppressed(), TestARetryAfterAFailedSendIsDelivered(), testMessage(), TestRepeatedFailuresKeepRetrying(), countingStore (+1 more)
 
 ### Community 153 - "Scorer"
@@ -1032,28 +1107,36 @@ Cohesion: 0.35
 Nodes (3): NewSalesforceSink(), authResponse, SalesforceSink
 
 ### Community 156 - "Sink"
-Cohesion: 0.26
+Cohesion: 0.24
 Nodes (7): snowflakeMsg(), TestAnUnquotableColumnNameIsRefused(), TestAnUnsafeTableNameFromAMessageIsRefused(), TestOrdinaryNamesArePassedThrough(), NewSink(), qcol(), Sink
 
 ### Community 157 - "echoServer"
-Cohesion: 0.30
-Nodes (10): echoServer(), Source, newTestSource(), TestCloseIsIdempotent(), TestCloseRacesRead(), TestCloseStopsTheLoop(), TestReadDoesNotStartALoopPerCall(), New() (+2 more)
+Cohesion: 0.54
+Nodes (7): echoServer(), Source, newTestSource(), TestCloseIsIdempotent(), TestCloseRacesRead(), TestCloseStopsTheLoop(), TestReadDoesNotStartALoopPerCall()
 
-### Community 158 - "startAPI"
-Cohesion: 0.29
-Nodes (11): attachWorker(), Options, runServer(), runWorkerOnly(), startAPI(), startAutoscaler(), startServersAsync(), TestStartServersAsyncIgnoresGracefulClose() (+3 more)
+### Community 158 - "Logger"
+Cohesion: 0.13
+Nodes (7): Logger, NewSelfHealingService(), NewSelfCorrectionGate(), NewOptimizer(), ClusterNode, Router, NewRouter()
 
 ### Community 159 - "AITransformer"
 Cohesion: 0.23
 Nodes (3): AIMapper, AIMapperTransformer, AITransformer
 
-### Community 162 - "observingParticipant"
-Cohesion: 0.15
-Nodes (3): memStore, observingParticipant, renamingParticipant
+### Community 160 - "net/http.Client"
+Cohesion: 0.14
+Nodes (9): DiscordSource, net/http.Client, net.IP, syscall.RawConn, NewDiscordSource(), IsIPPrivate(), NewDataClient(), NewSecureClient() (+1 more)
+
+### Community 162 - "NodeContext"
+Cohesion: 0.26
+Nodes (5): WaitNode, TransformationNode, NodeContext, cbState, CircuitBreakerExecutor
 
 ### Community 163 - "newTraceStorage"
 Cohesion: 0.29
 Nodes (12): newTraceStorage(), recordSteps(), TestGetMessageTrace_ReconstructsBeforeFromThePreviousStep(), TestListMessageTraces_FiltersByWorkflow(), TestListMessageTraces_NewestFirstAndKeysetPaged(), TestMessageTraceStepsStoresNoColumnItNeverReadsBack(), TestPurgeMessageTraces_RemovesTheParentRowsToo(), TestRecordTraceStep_CapsAnOversizedPayload() (+4 more)
+
+### Community 164 - "ParameterizeTemplate"
+Cohesion: 0.12
+Nodes (14): ExecuteSQLTransformer, TestParameterizeTemplateAllowsExactlyTheCap(), TestParameterizeTemplateBoundsListExpansion(), TestParameterizeTemplateEmptyINListMatchesNothingOnSQLite(), TestParameterizeTemplateExpandsSliceInINList(), TestParameterizeTemplateExQuotedLiteralIsNotUnresolved(), TestParameterizeTemplateExReportsUnresolvedTokens(), TestParameterizeTemplateINListRunsOnSQLite() (+6 more)
 
 ### Community 165 - "Source"
 Cohesion: 0.24
@@ -1063,33 +1146,29 @@ Nodes (3): Config, Source, NewSource()
 Cohesion: 0.33
 Nodes (8): ForgetWorkflow(), forgetListNames(), seriesFor(), TestForgetWorkflowCoversEveryWorkflowLabelledMetric(), TestForgetWorkflowIgnoresEmptyID(), TestForgetWorkflowRemovesEverySeries(), workflowLabelled(), labelDeleter
 
-### Community 168 - "Sink"
-Cohesion: 0.32
-Nodes (3): NewSink(), Config, Sink
+### Community 168 - "main"
+Cohesion: 0.18
+Nodes (17): initStorage(), main(), parseFlags(), runReconciliationLoop(), setupContext(), setupRegistry(), Apply(), applyGCPercent() (+9 more)
 
-### Community 169 - "TestSoakWorkflowChurnDoesNotLeak"
-Cohesion: 0.47
-Nodes (9): reportSoak(), requireSoak(), sampleResources(), soakDuration(), soakGoroutineSlack(), soakTopology(), TestSoakSustainedThroughputDoesNotLeak(), TestSoakWorkflowChurnDoesNotLeak() (+1 more)
+### Community 169 - "GetConfigPath"
+Cohesion: 0.22
+Nodes (8): parseOptions(), Options, EnsureConfigDir(), GetConfigDir(), GetConfigPath(), TestEnsureConfigDir(), TestGetConfigDir(), TestGetConfigPathUsesOverride()
 
 ### Community 171 - "newHardenedWorker"
-Cohesion: 0.18
+Cohesion: 0.16
 Nodes (25): envFloat(), counterValue(), TestAdmissionRejectionIsCounted(), TestAdmissionThresholdsAreConfigurable(), TestAWorkerCanOverrideTheAdmissionThresholds(), TestEnvFloatFallsBackOnGarbage(), Worker, newHardenedWorker() (+17 more)
 
-### Community 172 - "time.Duration"
-Cohesion: 0.09
-Nodes (11): stallState, time.Duration, AuthHandler, WorkflowHealth, Sink, Engine, Runner, newStallState() (+3 more)
-
-### Community 173 - "PublishResponse"
-Cohesion: 0.17
-Nodes (5): google.golang.org/protobuf/reflect/protoreflect.Message, google.golang.org/protobuf/runtime/protoimpl.MessageState, google.golang.org/protobuf/runtime/protoimpl.SizeCache, google.golang.org/protobuf/runtime/protoimpl.UnknownFields, PublishResponse
+### Community 172 - ".watchForStalls"
+Cohesion: 0.15
+Nodes (7): stallState, Engine, Runner, newStallState(), TestStreamSilenceIsAWedge(), streamSilenceWedge(), TestStallStateDistinguishesIdleFromWedged()
 
 ### Community 174 - "SidebarDrawer.tsx"
-Cohesion: 0.09
-Nodes (28): formatSQL(), jsToSqlType(), NEWLINE_KEYWORDS, normalizeRows(), QUICK_KEYWORDS, renderCellValue(), SQLQueryBuilder(), SQLQueryBuilderProps (+20 more)
+Cohesion: 0.08
+Nodes (31): formatSQL(), jsToSqlType(), NEWLINE_KEYWORDS, normalizeRows(), QUICK_KEYWORDS, renderCellValue(), SQLQueryBuilder(), SQLQueryBuilderProps (+23 more)
 
 ### Community 175 - "hermod/storage.go"
-Cohesion: 0.12
-Nodes (18): TestComputeSetupStatus(), TestPebbleIsRefusedAsAMetadataStore(), computeSetupStatus(), configureSQLDB(), getSQLDriverAndConn(), initNoSQLStorage(), initSQLStorage(), initStorage() (+10 more)
+Cohesion: 0.17
+Nodes (12): TestComputeSetupStatus(), TestPebbleIsRefusedAsAMetadataStore(), computeSetupStatus(), configureSQLDB(), getSQLDriverAndConn(), initNoSQLStorage(), initSQLStorage(), initStorage() (+4 more)
 
 ### Community 176 - "LuaTransformer"
 Cohesion: 0.26
@@ -1099,85 +1178,69 @@ Nodes (5): LuaTransformer, github.com/yuin/gopher-lua.FunctionProto, github.com/
 Cohesion: 0.14
 Nodes (14): scripts, budget, build, cypress:open, cypress:run, dev, fix:icons, lint (+6 more)
 
-### Community 178 - "NewStateStore"
-Cohesion: 0.16
-Nodes (8): TestAggregateTransformer_Persistence(), NewMemoryStore(), NewStateStore(), splitEndpoints(), NewRedisStateStore(), NewSQLiteStateStore(), Config, SQLiteStateStore
+### Community 178 - "StateStore"
+Cohesion: 0.10
+Nodes (14): Migrator, StateMigrator, StateStore, NewStateMigrator(), RunStoreContract(), TestSQLiteStateStoreContract(), NewMemoryStore(), NewStateStore() (+6 more)
 
-### Community 179 - "DiscordSink"
-Cohesion: 0.29
-Nodes (4): DiscordSink, NewDiscordSink(), TestDiscordSink_Write_Bot(), TestDiscordSink_Write_Webhook()
-
-### Community 180 - "idempNoopLogger"
-Cohesion: 0.17
-Nodes (3): idempNoopLogger, reporterSink, TestWriteToSink_EmitsIdempotencyMetrics()
+### Community 179 - "NewMySQLSource"
+Cohesion: 0.32
+Nodes (13): TestMySQLJSONColumnIsAnObjectOnBothPaths(), NewMySQLSource(), mustExec(), TestMySQLSource_Read(), insertRow(), readOurRows(), requireMySQL(), TestABurstLargerThanTheBufferIsNotDropped() (+5 more)
 
 ### Community 181 - "Batcher"
 Cohesion: 0.23
 Nodes (10): Batcher[K, V], Result, time.Timer, K, Batcher, V, NewBatcher(), TestBatcher() (+2 more)
 
-### Community 182 - ".handler"
-Cohesion: 0.18
-Nodes (8): os.File, Handler, TestWorkerShipsLogBatchesToThePlatform(), Source, newTestSource(), TestABurstLargerThanTheBufferKeepsEveryMessage(), TestAMessageArrivingAfterCloseDoesNotPanic(), logSink
-
-### Community 183 - "[1.0.0-rc.2] — 2026-09-07"
-Cohesion: 0.29
-Nodes (7): [1.0.0-rc.2] — 2026-09-07, Added, Changed — navigation, first paint and layout, Developer experience, Fixed — a fresh install could not run anything until you restarted it, Fixed — the editor did work on every keystroke and every render, Known gaps
-
-### Community 184 - "multisource_isolation_test.go"
-Cohesion: 0.39
-Nodes (7): newIsoMultiSource(), TestMultiSourceBrokenPeerDoesNotHotSpin(), TestMultiSourceHealthySiblingsKeepDeliveringWhileOnePeerIsDown(), TestMultiSourceReaderExitsOnCancel(), TestMultiSourceRecoveredPeerResumes(), TestMultiSourceReportsErrorWhenEverySourceIsDown(), idleSource
+### Community 184 - "tallySink"
+Cohesion: 0.23
+Nodes (9): tallySink, Engine, newTallySink(), runOneMessage(), TestANodeFailureParksExactlyOneCopyInTheDeadLetterQueue(), TestAValidationFailureAcknowledgesTheSourceAfterParking(), Engine, runUntilSinkWrite() (+1 more)
 
 ### Community 185 - "[1.3.0] — 2026-09-11"
 Cohesion: 0.14
 Nodes (14): [1.3.0] — 2026-09-11, Added — `db_lookup` lets you choose what a miss does, Added — `db_lookup` names the paths its output will have, Added — detect decryption settings from a sample value, Added — latency, error rate, backpressure and circuit breakers on the dashboard, Added — persisted dashboard history, Added — the preview panel states what happened to the target field, Changed — message traces: half the disk, and a list that stops scanning the table (+6 more)
 
-### Community 186 - "StartScavenger"
-Cohesion: 0.27
-Nodes (11): Apply(), applyGCPercent(), applyMemoryLimit(), scavengeIntervalFromEnv(), scavengeLoop(), StartScavenger(), TestApply_RespectsGOMEMLIMIT(), TestApply_SetsMemoryLimitAndGC() (+3 more)
+### Community 186 - "hermod.go"
+Cohesion: 0.10
+Nodes (19): Browser, ColumnDiscoverer, Consumer, contextKey, Discoverer, IdempotencyReporter, LagReporter, Loggable (+11 more)
 
-### Community 188 - "Hub"
-Cohesion: 0.30
-Nodes (4): GetInternalHub(), Hub, Event, StreamConfig
+### Community 188 - "dependencies"
+Cohesion: 0.10
+Nodes (21): dependencies, baseline-browser-mapping, caniuse-lite, clsx, dagre, @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities (+13 more)
 
-### Community 189 - "RedisSink"
-Cohesion: 0.25
-Nodes (4): redis.Client, NewRedisSink(), TestRedisSink_Write(), RedisSink
+### Community 189 - "Source"
+Cohesion: 0.21
+Nodes (6): encoding/json.RawMessage, New(), TestWebSocketSource_Read(), TestZeroTimeoutsMeanDefaultsNotADeadSource(), envelope, Source
 
 ### Community 190 - "SlackSink"
 Cohesion: 0.29
 Nodes (4): NewSlackSink(), TestSlackSink_Write_Bot(), TestSlackSink_Write_Webhook(), SlackSink
 
 ### Community 191 - "ClickHouseSink"
-Cohesion: 0.14
-Nodes (13): ClickHouseSink, clickhouse.Conn, qcol(), MustBeSafe(), Quote(), quotePart(), TestQuotedOutputCannotEscapeItsQuotes(), TestQuotePerDialect() (+5 more)
-
-### Community 192 - "Source"
-Cohesion: 0.19
-Nodes (7): TestAckMovesThePersistedCursor(), TestAckOfNilDoesNotPanic(), TestAckWithoutAWatermarkLeavesTheCursorAlone(), TestGetStateIsEmptyUntilSomethingIsAcknowledged(), NewSource(), Source, SourceConfig
+Cohesion: 0.28
+Nodes (3): ClickHouseSink, clickhouse.Conn, qcol()
 
 ### Community 193 - "NewClickHouseSink"
-Cohesion: 0.26
-Nodes (16): github.com/ClickHouse/clickhouse-go/v2/lib/driver.Conn, newMsg(), requireClickHouse(), rowCount(), TestADeleteInAMixedBatchDoesNotComeBack(), TestAMappedColumnNameCannotBreakOutOfItsQuoting(), TestAnInsertLands(), TestAnUnsafeTableNameFromAMessageIsRefused() (+8 more)
+Cohesion: 0.44
+Nodes (11): github.com/ClickHouse/clickhouse-go/v2/lib/driver.Conn, newMsg(), requireClickHouse(), rowCount(), TestADeleteInAMixedBatchDoesNotComeBack(), TestAMappedColumnNameCannotBreakOutOfItsQuoting(), TestAnInsertLands(), TestAnUnsafeTableNameFromAMessageIsRefused() (+3 more)
 
 ### Community 194 - "Sink"
 Cohesion: 0.44
 Nodes (3): Config, Sink, NewSink()
 
 ### Community 195 - "setupWorker"
-Cohesion: 0.16
-Nodes (18): createWorkerIdentity(), getWorkerName(), getWorkerStore(), Options, handleWorkerIdentity(), loadWorkerIdentity(), saveWorkerIdentity(), setupWorker() (+10 more)
+Cohesion: 0.38
+Nodes (11): createWorkerIdentity(), getWorkerName(), getWorkerStore(), Options, handleWorkerIdentity(), loadWorkerIdentity(), saveWorkerIdentity(), setupWorker() (+3 more)
 
 ### Community 196 - "GoogleSheetsSource"
 Cohesion: 0.21
 Nodes (3): GoogleSheetsSource, sheets.Service, NewGoogleSheetsSource()
 
 ### Community 197 - "Registry"
-Cohesion: 0.06
-Nodes (10): getConfigString(), Registry, Transformation, PIIEngine(), activeEngine, LiveMessage, lookupCacheEntry, PIIStats (+2 more)
+Cohesion: 0.05
+Nodes (21): dbPoolKey(), getConfigString(), Registry, openSQLDB(), TestOpenSQLDBPgBouncerMarkers(), assertNoDoubleRun(), Worker, newFailbackStore() (+13 more)
 
-### Community 199 - "BuildIncrementalQuery"
-Cohesion: 0.29
-Nodes (10): BuildFirstRowQuery(), BuildIncrementalQuery(), limitStyleFor(), TestBuildFirstRowQuery_OracleRownumIsSafeWithoutOrdering(), TestBuildFirstRowQuery_PerDialect(), TestBuildIncrementalQuery_PerDialect(), TestBuildIncrementalQuery_RejectsBadIdentifiers(), TestBuildIncrementalQuery_RejectsUnknownDriver() (+2 more)
+### Community 199 - "Optimizer"
+Cohesion: 0.16
+Nodes (6): Optimizer, AIOptimizer, CorrectionAction, FailurePattern, OptimizerConfig, SelfCorrectionGate
 
 ### Community 200 - "Engine"
 Cohesion: 0.21
@@ -1199,17 +1262,17 @@ Nodes (6): BatchingSink, client, classify(), permanent(), reachedFCM(), Sink
 Cohesion: 0.36
 Nodes (4): Manager, ResolveSecret(), CombinedManager, EnvManager
 
-### Community 205 - "Logger"
-Cohesion: 0.15
-Nodes (21): buildUIAndExit(), closeStorage(), filterServiceArgs(), getStorageConfig(), Options, initLogStorage(), initMasterKey(), initPrimaryStorage() (+13 more)
+### Community 205 - "runApp"
+Cohesion: 0.18
+Nodes (20): buildUIAndExit(), closeStorage(), filterServiceArgs(), getStorageConfig(), Options, initLogStorage(), initMasterKey(), initPrimaryStorage() (+12 more)
 
 ### Community 206 - "Manage"
 Cohesion: 0.23
 Nodes (8): github.com/kardianos/service.Logger, github.com/kardianos/service.Service, GetDefaultLogger(), Manage(), TestManageContextStaysLiveWhileRunning(), TestManageReturnsWhenRunFuncReturns(), Config, program
 
-### Community 207 - "FacebookSink"
-Cohesion: 0.27
-Nodes (4): FacebookSink, NewFacebookSink(), TestFacebookSink_Ping(), TestFacebookSink_Write()
+### Community 207 - "toTime"
+Cohesion: 0.26
+Nodes (5): formatDate(), formatDateInZone(), toTime(), Timestamp, TimeValue
 
 ### Community 208 - "FTPSink"
 Cohesion: 0.36
@@ -1220,16 +1283,16 @@ Cohesion: 0.29
 Nodes (3): HTTPSource, NewHTTPSource(), TestHTTPSource_Read()
 
 ### Community 210 - "Hermod operations runbook"
-Cohesion: 0.12
-Nodes (15): A CDC workflow stopped delivering, A workflow is not running anywhere, After a restart, Alerts, and what to do about them, Delivery guarantees, stated plainly, Hermod operations runbook, `HermodMessageOverRelease` — page, `HermodMessagesDroppedNoTarget` — page (+7 more)
+Cohesion: 0.10
+Nodes (20): A CDC workflow stopped delivering, A workflow is not running anywhere, After a restart, Alerts, and what to do about them, Crypto master key, Delivery guarantees, stated plainly, Hermod operations runbook, `HermodMessageOverRelease` — page (+12 more)
 
-### Community 211 - "InstagramSink"
-Cohesion: 0.27
-Nodes (4): InstagramSink, NewInstagramSink(), TestInstagramSink_Ping(), TestInstagramSink_Write()
+### Community 211 - "startAPI"
+Cohesion: 0.29
+Nodes (11): attachWorker(), Options, runServer(), runWorkerOnly(), startAPI(), startAutoscaler(), startServersAsync(), TestStartServersAsyncIgnoresGracefulClose() (+3 more)
 
-### Community 212 - "context.CancelFunc"
-Cohesion: 0.14
-Nodes (15): recordingSink, context.CancelFunc, DefaultConfig(), TestDefaultConfigReadsRecoveryThresholdsFromEnv(), envBytes(), envDuration(), Config, TestDefaultConfig_DoesNotTraceEveryMessage() (+7 more)
+### Community 212 - "DefaultConfig"
+Cohesion: 0.17
+Nodes (14): recordingSink, DefaultConfig(), TestDefaultConfigReadsRecoveryThresholdsFromEnv(), envBytes(), envDuration(), Config, TestDefaultConfig_DoesNotTraceEveryMessage(), startDrainEngine() (+6 more)
 
 ### Community 213 - "metricFormat.ts"
 Cohesion: 0.48
@@ -1239,10 +1302,6 @@ Nodes (6): formatCount(), formatLatency(), formatPercent(), formatUptime(), isRe
 Cohesion: 0.27
 Nodes (4): LinkedInSink, NewLinkedInSink(), TestLinkedInSink_Ping(), TestLinkedInSink_Write()
 
-### Community 216 - "NatsJetStreamSink"
-Cohesion: 0.29
-Nodes (5): NatsJetStreamSink, nats.Conn, nats.JetStreamContext, nats.Option, NewNatsJetStreamSink()
-
 ### Community 217 - "TikTokSink"
 Cohesion: 0.27
 Nodes (4): NewTikTokSink(), TestTikTokSink_Ping(), TestTikTokSink_Write(), TikTokSink
@@ -1250,6 +1309,10 @@ Nodes (4): NewTikTokSink(), TestTikTokSink_Ping(), TestTikTokSink_Write(), TikTo
 ### Community 218 - "TwitterSink"
 Cohesion: 0.27
 Nodes (4): NewTwitterSink(), TestTwitterSink_Ping(), TestTwitterSink_Write(), TwitterSink
+
+### Community 219 - "NewJSONFormatter"
+Cohesion: 0.36
+Nodes (4): JSONFormatter, JSONMode, NewJSONFormatter(), TestJSONFormatter_NilMessage()
 
 ### Community 220 - "compilerOptions"
 Cohesion: 0.33
@@ -1259,49 +1322,37 @@ Nodes (5): compilerOptions, lib, target, types, include
 Cohesion: 0.27
 Nodes (5): noSendClient, recordingTopicClient, firebase.google.com/go/v4/messaging.BatchResponse, firebase.google.com/go/v4/messaging.Message, firebase.google.com/go/v4/messaging.TopicManagementResponse
 
-### Community 222 - "ParsePoolConfig"
-Cohesion: 0.31
-Nodes (10): github.com/jackc/pgx/v5/pgxpool.Config, hasExplicitPoolSize(), ParsePoolConfig(), dsnFor(), itoa(), TestDefaultPoolSizeAppliesWhenUnspecified(), TestExplicitPoolSizeIsRespected(), TestExplicitPoolSizeIsRespectedInKeywordDSN() (+2 more)
+### Community 222 - "cachingFakeRegistry"
+Cohesion: 0.10
+Nodes (30): github.com/rabbitmq/amqp091-go.Delivery, cachingFakeRegistry, newCDCOrder(), TestCDCLookupSurvivesTheCacheHit(), TestNonCDCLookupSurvivesTheCacheHit(), batchingConfig(), newUsersDB(), runBatched() (+22 more)
 
 ### Community 223 - "Changelog"
 Cohesion: 0.12
-Nodes (15): [1.0.0] — 2026-09-07, [1.1.0] — 2026-09-09, Added — field-level encryption and decryption, Added — metis source and sink, for a BPMN workflow engine, Added — panmail sink, Added — the FCM sink is a real Firebase client, Changelog, Fixed — a health pass could clear a stall it raced (+7 more)
+Nodes (15): [1.0.0] — 2026-09-07, [1.1.0] — 2026-09-09, [1.2.0] — 2026-09-10, Added — an algorithm, key-derivation and encoding picker, Added — an explicit AAD mode, and a diagnosis for authentication failures, Added — decrypted JSON can become an object, Added — field-level encryption and decryption, Added — tag placement and nonce length for AES-GCM (+7 more)
 
 ### Community 224 - ".GetDashboardHistory"
 Cohesion: 0.33
 Nodes (3): DashboardHandler, parseHistoryWindow(), TestParseHistoryWindow()
 
 ### Community 225 - "LoadDBConfig"
-Cohesion: 0.16
-Nodes (18): dbConfigEntry, configDir(), TestAMissingFileStillErrors(), TestAnEditIsPickedUp(), TestAnInterpolatedVariableIsPickedUp(), TestAnOverrideIsPickedUp(), TestCallersCannotCorruptWhatIsCached(), TestTheFileIsNotReparsedWhenNothingChanged() (+10 more)
+Cohesion: 0.23
+Nodes (16): dbConfigEntry, configDir(), TestAMissingFileStillErrors(), TestAnEditIsPickedUp(), TestAnInterpolatedVariableIsPickedUp(), TestAnOverrideIsPickedUp(), TestCallersCannotCorruptWhatIsCached(), TestTheFileIsNotReparsedWhenNothingChanged() (+8 more)
 
-### Community 226 - "common.go"
-Cohesion: 0.07
-Nodes (32): net/http.Cookie, net/http.SameSite, contextKey, authenticatedByCookie(), extractSessionToken(), SessionClaims, hostMatches(), isUIStreamPath() (+24 more)
+### Community 226 - "loginAttemptKey"
+Cohesion: 0.28
+Nodes (6): clientIP(), loginAttemptKey(), TestLoginAttemptKeyScoping(), TestLoginLockoutAfterMaxAttempts(), TestLoginLockoutHTTP(), TestSanitizeDBError()
 
 ### Community 227 - "FileBuffer"
-Cohesion: 0.22
-Nodes (8): FileBuffer, bufio.Writer, NewFileBuffer(), NewFileBufferWithCompressor(), TestProduceDropsItsOwnReferenceNotTheObject(), TestProduceOnASoleReferenceStillPools(), TestFileBuffer(), TestFileBuffer_Persistence()
-
-### Community 228 - "blockingDiscoverSink"
-Cohesion: 0.22
-Nodes (4): newBlockingDiscoverSink(), TestDiscoverSinkTables_RespectsContextDeadline(), TestDiscoverSinkTables_ReturnsResult(), blockingDiscoverSink
+Cohesion: 0.12
+Nodes (14): CombinedBuffer, CombinedOptions, FileBuffer, bufio.Writer, os.File, Handler, NewCombinedBuffer(), TestFileBufferWithCompression() (+6 more)
 
 ### Community 229 - "joinCtx"
 Cohesion: 0.22
 Nodes (8): joinCtx, joinMessage(), joinNode(), newJoinCtx(), TestAnUnexpectedStateShapeDoesNotPanic(), TestASecondJoinOnTheSameKeyDoesNotPanic(), TestAWaitingJoinHoldsExactlyOneReference(), TestJoinRequiresAKeyPath()
 
-### Community 230 - "sync/atomic.Bool"
+### Community 232 - "AuditLog"
 Cohesion: 0.12
-Nodes (4): blockingSink, closeTrackingSource, sync/atomic.Bool, isoSource
-
-### Community 231 - "fullFakeRegistry"
-Cohesion: 0.18
-Nodes (6): fullFakeRegistry, TestDBLookup_ModePrioritization(), TestDBLookup_SQL_BatchIN(), TestDBLookup_SQL_ByKeyColumn(), TestDBLookup_SQL_WithWhereClause(), TestParameterizeTemplate_SQLite()
-
-### Community 232 - "User"
-Cohesion: 0.07
-Nodes (11): rbacStorage, fakeUserLister, adminActionStore, twoFAMockStorage, newTwoFAMockStorage(), TestAuthMiddleware_AllowsPreAuth2FAEndpoints(), TestLogin2FAFlow_SuccessAndFailure(), TestPendingEnrollmentFlow_DuringLogin() (+3 more)
+Nodes (10): lockoutMockStorage, twoFAMockStorage, newTwoFAMockStorage(), TestAuthMiddleware_AllowsPreAuth2FAEndpoints(), TestLogin2FAFlow_SuccessAndFailure(), TestPendingEnrollmentFlow_DuringLogin(), TestSetupVerifyDisable2FA(), withDBConfig() (+2 more)
 
 ### Community 233 - "PrioritySource"
 Cohesion: 0.14
@@ -1319,13 +1370,13 @@ Nodes (8): TestAConfiguredDirectoryStartsASchedule(), TestAMalformedIntervalDoes
 Cohesion: 0.13
 Nodes (23): memStateStore, NewRevoker(), newMemStateStore(), TestExpiredEntriesArePruned(), TestExpiredRevocationsLeaveTheStore(), TestIsRevokedDoesNoIO(), TestRefreshDoesNotRereadWhatItAlreadyHolds(), TestRefresherHasAnExplicitLifecycle() (+15 more)
 
-### Community 237 - "StateStore"
-Cohesion: 0.05
-Nodes (9): storeCtx, stubCtx, switchStubCtx, sinkCtx, Migrator, StateMigrator, StateStore, NewStateMigrator() (+1 more)
+### Community 239 - "OracleSink"
+Cohesion: 0.16
+Nodes (12): OracleSink, oracleMsg(), TestAnUnquotableColumnNameIsRefused(), TestAnUnsafeTableNameFromAMessageIsRefused(), TestOrdinaryNamesArePassedThrough(), omsg(), requireOracle(), TestAnUnsafeTableNameFromAMessageIsRefusedLive() (+4 more)
 
-### Community 239 - "NewOracleSink"
-Cohesion: 0.31
-Nodes (10): oracleMsg(), TestAnUnquotableColumnNameIsRefused(), TestAnUnsafeTableNameFromAMessageIsRefused(), TestOrdinaryNamesArePassedThrough(), omsg(), requireOracle(), TestAnUnsafeTableNameFromAMessageIsRefusedLive(), TestOracleMappedInsertUpsertAndDelete() (+2 more)
+### Community 240 - "NewHttpSink"
+Cohesion: 0.15
+Nodes (11): HttpSink, mockFormatter, NewHttpSink(), TestANon2xxResponseIsAnError(), TestAServerThatNeverRespondsDoesNotHangWrite(), TestAUserSuppliedContentTypeIsKept(), TestHttpSink_Ping(), TestHttpSink_Write() (+3 more)
 
 ### Community 242 - "Sink"
 Cohesion: 0.33
@@ -1336,96 +1387,108 @@ Cohesion: 0.33
 Nodes (3): Config, Sink, NewSink()
 
 ### Community 244 - ".writeBatchCopy"
-Cohesion: 0.24
-Nodes (6): TestDedupeByKeyLastWins(), dedupeByKeyLastWins(), pgx.Tx, PostgresSink, primaryKeyIndexes(), bulkMode
+Cohesion: 0.19
+Nodes (10): batchOf(), bulkTestMappings(), msgWithOp(), TestClassifyBatch(), TestDedupeByKeyLastWins(), dedupeByKeyLastWins(), pgx.Tx, PostgresSink (+2 more)
 
 ### Community 245 - ".stop"
+Cohesion: 0.14
+Nodes (27): Registry, multiPipelineWorkflow(), newPipeStorage(), startMultiPipeline(), TestMultiPipelineOneSinkDownDoesNotStarveHealthySinks(), TestMultiPipelineSourceReadErrorsDoNotKillThePipeline(), TestMultiPipelineStopIsCleanAndIdempotent(), TestMultiPipelineTransientSinkFailuresAreRetried() (+19 more)
+
+### Community 246 - "NewDefaultLogger"
+Cohesion: 0.19
+Nodes (10): github.com/rs/zerolog.Event, github.com/rs/zerolog.Logger, github.com/rs/zerolog.Sampler, numberedSource(), TestARestartResumesFromTheAcknowledgedRow(), TestRowsCarryTheirWatermark(), TestTheCursorDoesNotAdvancePastUnacknowledgedRows(), TestTheWatermarkIsNumericNotLexicographic() (+2 more)
+
+### Community 247 - "RabbitMQQueueSink"
 Cohesion: 0.24
-Nodes (17): Registry, multiPipelineWorkflow(), newPipeStorage(), startMultiPipeline(), TestMultiPipelineOneSinkDownDoesNotStarveHealthySinks(), TestMultiPipelineSourceReadErrorsDoNotKillThePipeline(), TestMultiPipelineStopIsCleanAndIdempotent(), TestMultiPipelineTransientSinkFailuresAreRetried() (+9 more)
-
-### Community 246 - "DefaultLogger"
-Cohesion: 0.29
-Nodes (4): github.com/rs/zerolog.Event, github.com/rs/zerolog.Logger, github.com/rs/zerolog.Sampler, DefaultLogger
-
-### Community 247 - "Operation"
-Cohesion: 0.22
-Nodes (5): Operation, batchOf(), bulkTestMappings(), msgWithOp(), TestClassifyBatch()
+Nodes (10): github.com/rabbitmq/amqp091-go.Channel, github.com/rabbitmq/amqp091-go.Connection, newRabbitSinkFixture(), rabbitMessage(), TestAPublishedMessageIsRetrievable(), TestEveryMessageInARunArrives(), TestWritingAfterCloseFails(), NewRabbitMQQueueSink() (+2 more)
 
 ### Community 249 - "net/http.ServeMux"
+Cohesion: 0.08
+Nodes (5): net/http.ServeMux, ApprovalHandler, DashboardHandler, LogHandler, SchemaHandler
+
+### Community 250 - "[1.5.0] — 2026-09-17"
 Cohesion: 0.11
-Nodes (9): github.com/gorilla/websocket.Conn, net/http.ServeMux, DashboardHandler, SSEHandler, splitLines(), WSHandler, startWSReadPump(), wsWriteJSON() (+1 more)
+Nodes (18): [1.5.0] — 2026-09-17, Added — a date column can be formatted where the email uses it, Added — every panmail field is a template, and a gateway allowlist to bound the two that matter, Added — importing a workflow is a wizard, not a textarea, Fixed — a `jsonb` column arrived as a string on the CDC path, and vanished when it was TOASTed, Fixed — a sink set to "Sequential Execution" never acknowledged anything it delivered, Fixed — an enriched CDC message could reach the sink without its enrichment, Fixed — an exported workflow did not carry every source it uses, and importing one could overwrite a live connection (+10 more)
 
-### Community 250 - "LiveStreamInspector.tsx"
-Cohesion: 0.25
-Nodes (5): useDataWorker(), LiveMessage, LiveStreamInspector(), DataRequest, DataResponse
+### Community 251 - "runKeyed"
+Cohesion: 0.21
+Nodes (8): arrivalSink, keyedSource, newArrivalSink(), runKeyed(), sequential(), TestChangesToOneRowKeepTheirOrderEndToEnd(), TestDifferentRowsStillRunInParallel(), TestUnkeyedMessagesAreNotSerialised()
 
-### Community 251 - "sync.RWMutex"
-Cohesion: 0.33
-Nodes (3): rollingStats, StatValidatorTransformer, sync.RWMutex
+### Community 252 - "MariaDBSource"
+Cohesion: 0.19
+Nodes (5): MariaDBSource, TestMariaDBHasNoDistinctJSONColumnType(), ColumnTypeNames(), IsJSONColumnType(), RecordFromValues()
 
-### Community 253 - "TestSinkConformance"
+### Community 253 - "TestSourceConformance"
 Cohesion: 0.06
-Nodes (50): Options, sqlSinkCtor, io.Closer, assertReturnsWithin(), boundedCtx(), closeBounded(), firstOpt(), guardPanic() (+42 more)
+Nodes (38): sourceOrSkip(), TestSourceConformance(), TestAckMovesThePersistedCursor(), TestAckOfNilDoesNotPanic(), TestAckWithoutAWatermarkLeavesTheCursorAlone(), TestGetStateIsEmptyUntilSomethingIsAcknowledged(), NewCassandraSource(), TestAckMovesThePersistedCursor() (+30 more)
 
-### Community 254 - "github.com/jackc/pglogrepl.LSN"
-Cohesion: 0.29
-Nodes (4): github.com/jackc/pglogrepl.DeleteMessage, github.com/jackc/pglogrepl.InsertMessage, github.com/jackc/pglogrepl.LSN, github.com/jackc/pglogrepl.UpdateMessage
+### Community 254 - ".handleDelete"
+Cohesion: 0.22
+Nodes (8): github.com/jackc/pglogrepl.DeleteMessage, github.com/jackc/pglogrepl.InsertMessage, github.com/jackc/pglogrepl.UpdateMessage, decodeColumnText(), decodeTupleColumn(), noteUnavailableColumns(), setOrderingKey(), splitQualifiedTable()
 
 ### Community 255 - "EncryptConfig.tsx"
-Cohesion: 0.13
-Nodes (24): AAD_MODE_OPTIONS, ALGORITHM_OPTIONS, ALGORITHM_SELECT_DATA, AlgorithmOption, DEFAULT_ALGORITHM, ENCODING_OPTIONS, FORMAT_OPTIONS, isAuthenticated() (+16 more)
+Cohesion: 0.12
+Nodes (25): AAD_MODE_OPTIONS, ALGORITHM_OPTIONS, ALGORITHM_SELECT_DATA, AlgorithmOption, DEFAULT_ALGORITHM, ENCODING_OPTIONS, FORMAT_OPTIONS, isAuthenticated() (+17 more)
 
-### Community 257 - "NewInfraHandler"
-Cohesion: 0.25
-Nodes (7): workerStorageSpy, InfraHandler, NewInfraHandler(), TestFinalizeInitialSetupAnnouncesTheNewStorage(), TestFinalizeInitialSetupDoesNotAnnounceOnFailure(), TestFinalizeInitialSetupGivesTheRegistryItsStorage(), TestFinalizeInitialSetupUpdatesTheWorkerWhenPresent()
+### Community 257 - "template_test.go"
+Cohesion: 0.20
+Nodes (17): mustRenderInline(), renderInline(), TestTemplate_DateFunctionsAcceptEveryValueShape(), TestTemplate_DriverTimeAndTextBehaveAlike(), TestTemplate_EveryAdvertisedHelper(), TestTemplate_HTMLBodyStillEscapesValues(), TestTemplate_NestedRowDataIsNotRewrittenInPlace(), TestTemplate_NonTimeValuesAreLeftAlone() (+9 more)
 
 ### Community 258 - "Formatter"
-Cohesion: 0.09
-Nodes (12): github.com/apache/pulsar-client-go/pulsar.Client, github.com/apache/pulsar-client-go/pulsar.Producer, github.com/aws/aws-sdk-go-v2/service/kinesis.Client, Formatter, KinesisSink, NewKinesisSink(), NewPulsarSink(), NewStdoutSink() (+4 more)
+Cohesion: 0.04
+Nodes (33): sqlSinkCtor, DiscordSink, FileSink, github.com/aws/aws-sdk-go-v2/service/kinesis.Client, Formatter, InstagramSink, KafkaSink, kafka.Writer (+25 more)
 
 ### Community 259 - "RabbitMQStreamSink"
 Cohesion: 0.39
 Nodes (3): github.com/rabbitmq/rabbitmq-stream-go-client/pkg/stream.Producer, NewRabbitMQStreamSink(), RabbitMQStreamSink
 
-### Community 260 - "TwoPhaseCapableSinkTypes"
-Cohesion: 0.31
-Nodes (8): SupportsTwoPhaseCommit(), SinkConfig, minimalConfig(), TestListedTypesReallySupportTwoPhaseCommit(), TestTheListHasNoDuplicatesOrBlanks(), TestTheListIsACopy(), TestUnlistedTypesDoNotSupportTwoPhaseCommit(), TwoPhaseCapableSinkTypes()
+### Community 260 - "EtcdStateStore"
+Cohesion: 0.20
+Nodes (6): go.etcd.io/etcd/client/v3.Client, etcdEndpoints(), TestEtcdIsConfigurableWithMoreThanOneEndpoint(), TestEtcdStateStoreContract(), NewEtcdStateStore(), EtcdStateStore
 
-### Community 262 - "runFailingNode"
-Cohesion: 0.29
-Nodes (6): runFailingNode(), TestAFailedNodeDeadLettersItsMessage(), TestASucceedingNodeIsNotDeadLettered(), TestNoDeadLetterSinkIsStillSafe(), TestTheDeadLetteredMessageCarriesTheCause(), capturingSink
+### Community 262 - "timeNS"
+Cohesion: 0.19
+Nodes (4): time.Location, epochSeconds(), toFloat(), timeNS
 
 ### Community 263 - "WorkflowDetailPage.tsx"
 Cohesion: 0.09
 Nodes (14): dagre, getLayoutedElements(), LineageEdge, LineagePage(), nodeTypes, DebugEvent, WorkflowDebugger(), DetailFlowCanvas() (+6 more)
 
-### Community 264 - "TestAGroupBuiltFromStoredConfigurationWrites"
-Cohesion: 0.47
-Nodes (10): makeReachabilityTable(), reachabilityDSN(), reachabilityMessage(), reachabilityPool(), reachabilityPreparedCount(), reachabilityRowCount(), requirePrepared(), storedPostgresSink() (+2 more)
+### Community 264 - "PublishResponse"
+Cohesion: 0.17
+Nodes (5): google.golang.org/protobuf/reflect/protoreflect.Message, google.golang.org/protobuf/runtime/protoimpl.MessageState, google.golang.org/protobuf/runtime/protoimpl.SizeCache, google.golang.org/protobuf/runtime/protoimpl.UnknownFields, PublishResponse
 
-### Community 265 - "mockMessage"
-Cohesion: 0.10
-Nodes (9): mockMessage, RoutedMessage, safeModeMockSink, TestRecordTraceStep_DefaultConfigRecordsNothing(), TestRecordTraceStep_DeterministicSampling(), TestRecordTraceStep_RecordsWhenSamplingIsEnabled(), TestSafeModeDivertsToDLQ(), DefaultConfig() (+1 more)
+### Community 265 - "auth.ts"
+Cohesion: 0.20
+Nodes (10): createdSinks, createdSources, createdWorkflows, post(), createdWorkflows, createWorkflow(), apiRequest(), login() (+2 more)
 
 ### Community 266 - "countingSink"
 Cohesion: 0.18
 Nodes (3): countingSink, countingSource, TestASuccessfulWriteDoesNotLogPerMessageAtInfo()
 
-### Community 267 - "CronSource"
-Cohesion: 0.25
-Nodes (4): CronSource, cron.EntryID, cron.Cron, NewCronSource()
-
 ### Community 269 - "reachability_tests.md"
-Cohesion: 0.28
+Cohesion: 0.29
 Nodes (5): Connector conformance suite — the contract every source and sink must pass, Reachability tests — cover the assembly, not just the parts, A default that hid twelve broken forms, The panmail sink and the retry it must not allow, The sink form fall-through, and the panmail sink
 
 ### Community 270 - "FormSubmission"
 Cohesion: 0.23
 Nodes (5): noopFormStorage, FormSubmission, FormSubmissionFilter, Storage, formStorageAdapter
 
+### Community 271 - "DataConversionTransformer"
+Cohesion: 0.19
+Nodes (7): DataConversionTransformer, scalarToString(), splitAndTrim(), TestAsSliceCoversAnySliceKindButNotBytesOrStrings(), AsSlice(), asSlice(), AsSlice()
+
 ### Community 272 - "discarded_writes_test.go"
 Cohesion: 0.42
 Nodes (7): controlMessage(), fanoutMessage(), TestApprovalDoesNotLoseAMessageItCannotRecord(), TestApprovalStillHaltsWhenRecorded(), TestCollectDoesNotLoseAnItemItCannotStore(), TestCollectReportsAFailedCleanup(), TestStatefulReportsAFailedSave()
+
+### Community 274 - "sqlutil/template.go"
+Cohesion: 0.18
+Nodes (12): strings.Builder, GetFromMapPath(), GetFromMapPath(), isTokenStart(), isWordChar(), isWordLetter(), ParameterizeTemplateEx(), prevWord() (+4 more)
+
+### Community 275 - "StatusUpdate"
+Cohesion: 0.18
+Nodes (3): NewAIOptimizer(), DefaultAIOptimizer, StatusUpdate
 
 ### Community 276 - "Approval"
 Cohesion: 0.10
@@ -1440,12 +1503,12 @@ Cohesion: 0.10
 Nodes (30): IsEncrypted(), IsSensitive(), ReEncrypt(), mongoStorage, sqlStorage, reEncryptRows(), newRotationStorage(), TestReEncryptRefusesWhenAValueIsUnreadable() (+22 more)
 
 ### Community 279 - "Extract"
-Cohesion: 0.15
-Nodes (12): go.opentelemetry.io/otel/trace.Span, BatchSink, Engine, Extract(), Inject(), startSpan(), TestAReleasedMessageDoesNotCarryItsTraceIntoTheNextUser(), TestExtractFromAnUnstampedMessageIsNotAnError() (+4 more)
+Cohesion: 0.17
+Nodes (11): go.opentelemetry.io/otel/trace.Span, Engine, Extract(), Inject(), startSpan(), TestAReleasedMessageDoesNotCarryItsTraceIntoTheNextUser(), TestExtractFromAnUnstampedMessageIsNotAnError(), TestInjectAndExtractToleranceOfNilMessages() (+3 more)
 
-### Community 280 - "SinkWizard.tsx"
-Cohesion: 0.28
-Nodes (6): SinkWizard(), SinkWizardProps, RetryPolicyFields(), RetryPolicyFieldsProps, SinkBasics(), SinkBasicsProps
+### Community 280 - "react"
+Cohesion: 0.03
+Nodes (44): react, App(), ConfirmContext, ConfirmOptions, ConfirmProvider(), Resolver, EmptyStateProps, SinkWizard() (+36 more)
 
 ### Community 281 - "newSimRegistry"
 Cohesion: 0.13
@@ -1455,9 +1518,9 @@ Nodes (24): TestBranchNodesArePreviewable(), TestPreviewRefusesNodesWithSideEffe
 Cohesion: 0.12
 Nodes (8): countingReader, LocalStorage, S3Storage, io.Reader, Storage, NewStorage(), NewLocalStorage(), NewS3Storage()
 
-### Community 283 - "refusingDLQ"
-Cohesion: 0.25
-Nodes (4): refusingDLQ, TestAFailedDeadLetterParkIsReportedAsAFailure(), TestASuccessfulDeadLetterParkReportsSuccess(), TestNoDeadLetterSinkIsNotAnError()
+### Community 283 - "NewWorkerAPIClient"
+Cohesion: 0.19
+Nodes (9): NewAPIStorage(), TestAPIStorage_SafeDefaults(), TestDashboardHistoryOnAWorkerIsUnsupportedNotSilent(), TestNewAPIStorage_SatisfiesStorage(), TestWorkerShipsLogBatchesToThePlatform(), NewWorkerAPIClient(), TestWorkerAPIClientDoRequestNilBody(), TestWorkerAPIClientPing() (+1 more)
 
 ### Community 284 - "newBackupHandler"
 Cohesion: 0.50
@@ -1467,53 +1530,57 @@ Nodes (8): InfraHandler, adminRequest(), newBackupHandler(), TestExportFailsLoud
 Cohesion: 0.15
 Nodes (38): Handler, csrfRequest(), TestCookieAuthStateChangeRequiresAMatchingToken(), TestHeaderAuthIsExempt(), TestIssueCSRFTokenSetsAReadableCookie(), TestIssuedTokensAreUnique(), TestPublicEndpointsAreNotProtected(), TestReadsAreNotProtected() (+30 more)
 
-### Community 286 - "KafkaSink"
-Cohesion: 0.28
-Nodes (4): KafkaSink, kafka.Writer, kafka.Transport, NewKafkaSink()
+### Community 286 - "Validate"
+Cohesion: 0.27
+Nodes (10): MustBeSafe(), Quote(), quotePart(), TestQuotedOutputCannotEscapeItsQuotes(), TestQuotePerDialect(), TestValidateAcceptsRealTableNames(), TestValidateRejectsInjection(), Validate() (+2 more)
 
-### Community 287 - "NewPostgresSink"
-Cohesion: 0.14
-Nodes (18): bulkITDSN(), bulkITMappings(), bulkITMsg(), dropTable(), dumpTable(), TestBulkCopyMatchesOrderedPath(), TestMixedOperationBatchStaysOrdered(), NewPostgresSink() (+10 more)
+### Community 287 - "TestBulkCopyMatchesOrderedPath"
+Cohesion: 0.53
+Nodes (8): bulkITDSN(), bulkITMappings(), bulkITMsg(), dropTable(), dumpTable(), TestBulkCopyMatchesOrderedPath(), TestMixedOperationBatchStaysOrdered(), bulkRow
 
-### Community 288 - "useDashboardStream.ts"
-Cohesion: 0.13
-Nodes (14): BACKOFF_MS, DashboardSample, DashboardStats, EMPTY_STATS, MAX_CHART_POINTS, StreamState, RFC-6455, basicsValidators (+6 more)
+### Community 288 - "TestAGroupBuiltFromStoredConfigurationWrites"
+Cohesion: 0.47
+Nodes (10): makeReachabilityTable(), reachabilityDSN(), reachabilityMessage(), reachabilityPool(), reachabilityPreparedCount(), reachabilityRowCount(), requirePrepared(), storedPostgresSink() (+2 more)
 
-### Community 289 - "Source"
-Cohesion: 0.29
-Nodes (3): CDCPayload, Source, NewSource()
+### Community 289 - "conversion_array_test.go"
+Cohesion: 0.26
+Nodes (12): convert(), TestDataConversion_ArrayToString(), TestDataConversion_RoundTripStringArrayString(), TestDataConversion_ToArray(), TestDataConversion_ToArray_ElementCoercionFailureIsAnError(), TestDataConversion_ToArray_ElementCoercionRespectsErrorBehavior(), TestDataConversion_toArray_ExactTypes(), TestDataConversion_toString_ExactTypes() (+4 more)
 
-### Community 290 - "net/http.Client"
-Cohesion: 0.16
-Nodes (12): net/http.Client, net/http.Response, net.IP, syscall.RawConn, NewSink(), Fetch(), IsIPPrivate(), NewDataClient() (+4 more)
+### Community 290 - "Sink"
+Cohesion: 0.46
+Nodes (3): NewSink(), Config, Sink
 
 ### Community 291 - "CheckpointManager"
 Cohesion: 0.47
 Nodes (3): CheckpointManager, Engine, NewCheckpointManager()
 
 ### Community 292 - "Source"
-Cohesion: 0.21
-Nodes (8): github.com/eclipse/paho.mqtt.golang.ClientOptions, github.com/eclipse/paho.mqtt.golang.Message, sync.Once, Source, buildClientOptions(), buildSampleMessage(), NewSource(), parseCSV()
+Cohesion: 0.20
+Nodes (8): github.com/eclipse/paho.mqtt.golang.Client, github.com/eclipse/paho.mqtt.golang.Message, sync.Once, Source, buildClientOptions(), buildSampleMessage(), NewSource(), parseCSV()
+
+### Community 293 - "ValidationIssue"
+Cohesion: 0.32
+Nodes (11): sourceReader, ValidationIssue, batchDelegateIssues(), cdcQueryTargetIssue(), edgeIssues(), effectiveNodeType(), WorkflowHandler, lookupTargetIssues() (+3 more)
 
 ### Community 294 - "mockOutboxStorage"
 Cohesion: 0.39
 Nodes (3): mockOutboxStorage, OutboxItem, TestEngine_OutboxRelay()
 
-### Community 295 - "submit"
-Cohesion: 0.50
-Nodes (7): FormHandler, net/http/httptest.ResponseRecorder, formHandlerWith(), submit(), TestAMalformedFieldListDoesNotDisableValidation(), TestAnEmptyFieldListStillAccepts(), TestARequiredFieldIsEnforced()
+### Community 295 - "workflow_export_completeness_test.go"
+Cohesion: 0.10
+Nodes (37): FormHandler, net/http/httptest.ResponseRecorder, previewResponse, formHandlerWith(), submit(), TestAMalformedFieldListDoesNotDisableValidation(), TestAnEmptyFieldListStillAccepts(), TestARequiredFieldIsEnforced() (+29 more)
 
-### Community 297 - "FileSink"
-Cohesion: 0.31
-Nodes (3): FileSink, NewFileSink(), TestFileSink()
+### Community 297 - "RunSinkSuite"
+Cohesion: 0.49
+Nodes (10): Options, io.Closer, assertReturnsWithin(), boundedCtx(), closeBounded(), firstOpt(), guardPanic(), runBatchSinkSuite() (+2 more)
 
 ### Community 299 - "PostgresSink"
-Cohesion: 0.06
-Nodes (37): alterColumnType(), baseDataType(), buildColumnDefinition(), TestBuildColumnDefinition(), TestBuildUpsertQuery(), TestFilterNilMessages(), TestIsEmptyIdentity(), TestQuoteColumn() (+29 more)
+Cohesion: 0.07
+Nodes (28): alterColumnType(), baseDataType(), buildColumnDefinition(), buildUpsertQuery(), coerceStringValue(), filterNilMessages(), pgx.Tx, PostgresSink (+20 more)
 
-### Community 300 - "newESMsg"
-Cohesion: 0.50
-Nodes (7): esCount(), esIndexExists(), newESMsg(), requireES(), TestADocumentIDCannotInjectBulkActions(), TestADocumentIsIndexedAndDeleted(), NewElasticsearchSink()
+### Community 300 - "Hub"
+Cohesion: 0.30
+Nodes (4): GetInternalHub(), Hub, Event, StreamConfig
 
 ### Community 302 - "fix-tabler-icons.js"
 Cohesion: 0.31
@@ -1528,160 +1595,168 @@ Cohesion: 0.25
 Nodes (7): Layered Architecture Pattern, Rust Token Killer (RTK), UI Build, Change Data Capture (CDC), Hermod Platform, Authentication Strategy, Drag-and-Drop Workflow Editor
 
 ### Community 305 - "PubSubSink"
-Cohesion: 0.33
-Nodes (4): cloud.google.com/go/pubsub.Client, cloud.google.com/go/pubsub.Topic, NewPubSubSink(), PubSubSink
+Cohesion: 0.20
+Nodes (7): TestPingReportsAMissingTopic(), TestPubSubSinkPublishesAndPingsAgainstTheEmulator(), NewPubSubSink(), TestPingSeparatesAMissingTopicFromAnUnreachableServer(), pubsub.Client, pubsub.Publisher, PubSubSink
 
-### Community 306 - "headersFor"
-Cohesion: 0.43
-Nodes (7): net/http.Header, headersFor(), TestCSPAllowsWebSockets(), TestCSPIsOverridable(), TestDefaultCSPRestrictsSourcesToSelf(), TestProductionCSPDropsInlineStyles(), TestSecurityHeadersAreSet()
-
-### Community 307 - "NewCassandraSink"
-Cohesion: 0.48
-Nodes (5): cMsg(), requireCassandra(), TestAnUnsafeTableNameFromAMessageIsRefused(), TestARowLandsAndIsDeleted(), NewCassandraSink()
-
-### Community 308 - "NewMariaDBSource"
-Cohesion: 0.31
-Nodes (6): TestAckMovesThePersistedCursor(), TestAckOfNilDoesNotPanic(), TestAckWithoutAWatermarkLeavesTheCursorAlone(), TestGetStateIsEmptyUntilSomethingIsAcknowledged(), NewMariaDBSource(), TestMariaDBSource_Ping()
-
-### Community 309 - ".ServeFormPage"
+### Community 306 - "dev-ports.ts"
 Cohesion: 0.28
-Nodes (3): FormField, IsValidFormPath(), FormHandler
+Nodes (9): apiBaseURL(), apiPort(), DEFAULT_API_PORT, DEFAULT_UI_PORT, recordedPorts(), repoRoot(), uiBaseURL(), uiPort() (+1 more)
 
-### Community 310 - "WorkflowNode"
-Cohesion: 0.03
-Nodes (44): ApprovalNode, CollectNode, ConditionNode, ForeachNode, RouterNode, StatefulNode, SwitchNode, WaitNode (+36 more)
+### Community 308 - "RegistryStorage"
+Cohesion: 0.10
+Nodes (5): storeCtx, stubCtx, suspendCtx, switchStubCtx, RegistryStorage
 
-### Community 311 - "NewDB2Source"
-Cohesion: 0.43
-Nodes (5): TestAckMovesThePersistedCursor(), TestAckOfNilDoesNotPanic(), TestAckWithoutAWatermarkLeavesTheCursorAlone(), TestGetStateIsEmptyUntilSomethingIsAcknowledged(), NewDB2Source()
+### Community 309 - ".OnRow"
+Cohesion: 0.22
+Nodes (6): github.com/go-mysql-org/go-mysql/canal.DummyEventHandler, github.com/go-mysql-org/go-mysql/canal.RowsEvent, github.com/go-mysql-org/go-mysql/replication.EventHeader, github.com/go-mysql-org/go-mysql/replication.RotateEvent, mysqlEventHandler, mysqlActionToOperation()
+
+### Community 310 - "RegisterNodeExecutor"
+Cohesion: 0.09
+Nodes (16): SinkExecutor, ValidatorNode, NodeExecutor, PreviewSafe, Registry, GetNodeExecutor(), GetPreviewSafeExecutor(), RegisterNodeExecutor() (+8 more)
+
+### Community 311 - "NewPebbleStorage"
+Cohesion: 0.21
+Nodes (8): github.com/cockroachdb/pebble.Cache, github.com/cockroachdb/pebble.Options, TestDashboardHistoryIsUnsupportedNotFailing(), cacheBytesFromEnv(), newPebbleOptions(), NewPebbleStorage(), TestCacheBytesFromEnv(), TestNewPebbleOptions_Bounds()
 
 ### Community 312 - ".HandleReadiness"
 Cohesion: 0.47
 Nodes (3): InfraHandler, recordReadiness(), statusFromBool()
 
 ### Community 313 - "Message payload decoding: what happens to a body that is not a JSON object"
-Cohesion: 0.25
-Nodes (6): The lookup cache is a second write path, and it drifted, Changing this has blast radius into sinks, Message payload decoding: what happens to a body that is not a JSON object, `SetAfter` is an alias for `SetPayload` — it is a trap, Testing it, The real defect was an ignored error, in two places
+Cohesion: 0.40
+Nodes (5): Changing this has blast radius into sinks, Message payload decoding: what happens to a body that is not a JSON object, `SetAfter` is an alias for `SetPayload` — it is a trap, Testing it, The real defect was an ignored error, in two places
 
 ### Community 314 - "time.Time"
 Cohesion: 0.04
-Nodes (16): failingSuspendStorage, time.Time, Registry, Registry, newRetentionRegistry(), TestPurgeRetention_HonoursDayUnitsTheUIWrites(), TestPurgeRetention_UnsetOrZeroKeepsEverything(), coerceTime() (+8 more)
+Nodes (22): time.Time, Registry, Registry, Registry, newRetentionRegistry(), TestPurgeRetention_HonoursDayUnitsTheUIWrites(), TestPurgeRetention_UnsetOrZeroKeepsEverything(), sqlStorage (+14 more)
 
 ### Community 315 - "transformationGuide.ts"
 Cohesion: 0.40
 Nodes (4): guideFor(), GUIDES, TransformationGuide, REGISTRY_KEYS
 
-### Community 316 - "SetupPage.tsx"
-Cohesion: 0.32
-Nodes (5): buildConnForFetch(), defaultPort(), handleFetchDatabases(), SetupPageProps, SetupPage
-
 ### Community 317 - "ui/package.json"
-Cohesion: 0.03
-Nodes (60): baseline-browser-mapping, caniuse-lite, clsx, cypress, @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities, jsdom (+52 more)
+Cohesion: 0.05
+Nodes (33): @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities, BaseBlock, Block, BlockType, ButtonBlock, DividerBlock (+25 more)
 
-### Community 318 - "source/postgres/postgres.go"
-Cohesion: 0.10
-Nodes (9): pgx.Tx, isPIDAlive(), isSlotActiveError(), isSyntaxError(), quoteLiteral(), TestIsSlotActiveError(), validSlotName(), waitTimeout() (+1 more)
+### Community 318 - ".Close"
+Cohesion: 0.09
+Nodes (10): classifyReplicationError(), pgx.Tx, isPIDAlive(), isSlotActiveError(), isSyntaxError(), quoteLiteral(), TestIsSlotActiveError(), validSlotName() (+2 more)
 
 ### Community 319 - "dev.sh"
-Cohesion: 0.18
-Nodes (19): die(), HERMOD_CONFIG_DIR, HERMOD_JWT_SECRET, ok(), on_exit(), pick_free_port(), port_in_use(), require_container_cli() (+11 more)
+Cohesion: 0.16
+Nodes (22): die(), HERMOD_CONFIG_DIR, HERMOD_JWT_SECRET, ok(), on_exit(), pick_free_port(), port_in_use(), require_container_cli() (+14 more)
 
-### Community 320 - "NewMySQLSink"
-Cohesion: 0.36
-Nodes (6): mappedMsg(), requireMappedMySQL(), TestAMappedColumnNameCannotBreakOutOfItsQuoting(), TestMappedColumnsInsertUpsertAndDelete(), TestMySQLSink_IdempotentUpsert(), NewMySQLSink()
+### Community 320 - "audit_conversion/main.go"
+Cohesion: 0.38
+Nodes (10): finding, node, assess(), auditNodes(), auditWorkflows(), flatten(), knownFields(), main() (+2 more)
 
 ### Community 323 - "TestMain"
 Cohesion: 0.33
 Nodes (5): testing.M, TestMain(), ResetOverReleaseCount(), TestMain(), PendingOverReleaseCount()
 
-### Community 324 - "NewGenericFileSource"
-Cohesion: 0.31
-Nodes (7): NewGenericFileSource(), TestGenericFileSource_PingHonorsContext(), TestGenericFileSource_PingS3NoSilentSuccess(), TestCSVSourceSampleCustomNoPanic(), TestGenericFileSourceSampleCSV(), TestGenericFileSourceSampleNoFiles(), TestGenericFileSourceSampleRaw()
+### Community 324 - "NewBatchSQLSource"
+Cohesion: 0.23
+Nodes (10): Config, DBProvider, maxWatermark(), NewBatchSQLSource(), TestBatchSQLSource(), TestBatchSQLSource_Sample(), openSampleDB(), TestSampleStillHonoursAnExplicitTable() (+2 more)
 
-### Community 325 - "NewDiscoveryService"
-Cohesion: 0.60
-Nodes (4): NewDiscoveryService(), TestABrowseFailureIsNotReportedAsAMissingFeature(), TestSamplingAnEmptyTableDoesNotPanic(), TestTestingANilSinkIsRefusedNotDereferenced()
+### Community 325 - "arrayFixture"
+Cohesion: 0.38
+Nodes (11): arrayFixture(), strings2(), TestDBLookup_ArrayFromDataConversionFeedsINList(), TestDBLookup_ArrayWithElementTypeIntFeedsINList(), TestDBLookup_KeyColumn_ByteSliceStaysScalar(), TestDBLookup_KeyColumn_ExpandsAnySliceKind(), TestDBLookup_QueryTemplate_INListWithArray(), TestDBLookup_QueryTemplate_OversizedListIsRejected() (+3 more)
 
 ### Community 326 - "NewWorker"
-Cohesion: 0.17
-Nodes (9): TestWorkerPollShutdownRequest(), TestWorkerRequestShutdown(), TestWorkerTriggerShutdown(), WorkerStorage, TestJSONEqual(), TestRenewLeaseOnce(), TestWorkerAPIClient_LeaseAlwaysOwned(), NewWorker() (+1 more)
+Cohesion: 0.13
+Nodes (11): TestWorkerFailover(), TestWorkerPollShutdownRequest(), TestWorkerRequestShutdown(), TestWorkerTriggerShutdown(), WorkerStorage, TestJSONEqual(), TestRenewLeaseOnce(), TestWorkerAPIClient_LeaseAlwaysOwned() (+3 more)
 
-### Community 328 - "TestNodeExecutorsHonourOwnershipContract"
-Cohesion: 0.52
-Nodes (6): ownershipCases(), refCount(), TestNilMessageIntoExecutorsIsSafe(), TestNodeExecutorsHonourOwnershipContract(), TestRunWorkflowNodePassthroughRetains(), ownershipCase
-
-### Community 330 - "newFailbackWorker"
-Cohesion: 0.46
-Nodes (7): assertNoDoubleRun(), Worker, newFailbackStore(), newFailbackWorker(), runningCount(), setWorkerLoad(), TestWorkerFailback()
-
-### Community 331 - "Sink"
-Cohesion: 0.36
-Nodes (3): github.com/eclipse/paho.mqtt.golang.Client, Sink, New()
-
-### Community 332 - "EtcdStateStore"
+### Community 327 - "SinkConfig"
 Cohesion: 0.25
-Nodes (3): go.etcd.io/etcd/client/v3.Client, NewEtcdStateStore(), EtcdStateStore
+Nodes (7): Producer, buildSinkEngineConfigs(), createWorkflowBuffer(), parseSinkEngineConfig(), ringBufferCap(), BackpressureStrategy, SinkConfig
+
+### Community 328 - "wsWriteJSON"
+Cohesion: 0.39
+Nodes (5): github.com/gorilla/websocket.Conn, WSHandler, startWSReadPump(), wsWriteJSON(), wsWritePing()
+
+### Community 330 - "BuildIncrementalQuery"
+Cohesion: 0.27
+Nodes (10): BuildFirstRowQuery(), BuildIncrementalQuery(), limitStyleFor(), TestBuildFirstRowQuery_OracleRownumIsSafeWithoutOrdering(), TestBuildFirstRowQuery_PerDialect(), TestBuildIncrementalQuery_PerDialect(), TestBuildIncrementalQuery_RejectsBadIdentifiers(), TestBuildIncrementalQuery_RejectsUnknownDriver() (+2 more)
+
+### Community 331 - "FacebookSink"
+Cohesion: 0.27
+Nodes (4): FacebookSink, NewFacebookSink(), TestFacebookSink_Ping(), TestFacebookSink_Write()
+
+### Community 332 - "NewInfraHandler"
+Cohesion: 0.39
+Nodes (6): InfraHandler, NewInfraHandler(), TestFinalizeInitialSetupAnnouncesTheNewStorage(), TestFinalizeInitialSetupDoesNotAnnounceOnFailure(), TestFinalizeInitialSetupGivesTheRegistryItsStorage(), TestFinalizeInitialSetupUpdatesTheWorkerWhenPresent()
 
 ### Community 333 - "rbac_test.go"
 Cohesion: 0.42
 Nodes (8): configuredSystem(), TestAdminOnlyIsStricterThanEditorOnly(), TestFirstRunBypassNeedsNoConfigFile(), TestRbacFirstRunBypassIsNarrow(), TestRbacMiddlewareDecisions(), TestRbacRejectsAMalformedIdentity(), unconfiguredSystem(), withUser()
 
-### Community 337 - "NewManager"
-Cohesion: 0.43
-Nodes (7): Manager, Config, NewManager(), AWSConfig, AzureConfig, EnvConfig, VaultConfig
+### Community 338 - "KafkaSource"
+Cohesion: 0.21
+Nodes (9): KafkaSource, kafka.Reader, kafka.Transport, produce(), requireKafka(), TestAcknowledgedRecordsAreNotRedeliveredToTheSameGroup(), TestARecordWrittenBySinkComesBackOutOfTheSource(), waitForTopic() (+1 more)
 
-### Community 339 - "decodeMessage"
-Cohesion: 0.43
-Nodes (6): io.Writer, algoToByte(), byteToAlgo(), decodeFromBytes(), decodeMessage(), encodeMessage()
+### Community 339 - "TestPrioritySourceForwardsOptionalInterfaces"
+Cohesion: 0.24
+Nodes (3): TestPrioritySourceForwardsOptionalInterfaces(), discardLogger, lagAwareSource
 
 ### Community 340 - "newStore"
-Cohesion: 0.16
-Nodes (16): RunStoreContract(), TestSQLiteStateStoreContract(), etcdEndpoints(), TestEtcdIsConfigurableWithMoreThanOneEndpoint(), TestEtcdStateStoreContract(), TestRedisStateStoreContract(), newStore(), TestAReleasedClaimCanBeRetaken() (+8 more)
+Cohesion: 0.33
+Nodes (10): newStore(), TestAReleasedClaimCanBeRetaken(), TestASecondClaimIsRefused(), TestCleanupRemovesOldEntriesOnly(), TestCleanupWithNoTTLDoesNothing(), TestMarkSentOnAnUnclaimedKeyIsNotAnError(), TestReleasingAfterMarkSentKeepsTheSuppression(), TestReleasingSomethingUnclaimedIsHarmless() (+2 more)
 
-### Community 341 - "Backup and restore"
-Cohesion: 0.29
-Nodes (7): Backup and restore, Restoring, Scheduling one, Taking one, The export file is a secret, Verifying one, What is *not* backed up
+### Community 341 - "smtp/template.go"
+Cohesion: 0.33
+Nodes (9): looksLikeTimestamp(), parseTimestamp(), renderHTMLTemplate(), renderTextTemplate(), setInlineBody(), withTimestamps(), wrapMap(), wrapSlice() (+1 more)
 
-### Community 344 - "Router"
-Cohesion: 0.38
-Nodes (3): ClusterNode, Router, NewRouter()
+### Community 343 - "LiveStreamInspector.tsx"
+Cohesion: 0.25
+Nodes (5): useDataWorker(), LiveMessage, LiveStreamInspector(), DataRequest, DataResponse
+
+### Community 344 - "sync.RWMutex"
+Cohesion: 0.33
+Nodes (3): rollingStats, StatValidatorTransformer, sync.RWMutex
 
 ### Community 345 - "The FCM sink"
 Cohesion: 0.25
 Nodes (7): Config keys and the UI, Error classification, Templating, Testing against a stand-in FCM, The destination column does not travel in the payload, The FCM sink, The rules FCM itself imposes
 
-### Community 346 - "[1.2.0] — 2026-09-10"
+### Community 346 - "PulsarSink"
 Cohesion: 0.33
-Nodes (6): [1.2.0] — 2026-09-10, Added — an algorithm, key-derivation and encoding picker, Added — an explicit AAD mode, and a diagnosis for authentication failures, Added — decrypted JSON can become an object, Added — tag placement and nonce length for AES-GCM, Fixed — `decrypt` silently did nothing on data Hermod had not encrypted
+Nodes (4): github.com/apache/pulsar-client-go/pulsar.Client, github.com/apache/pulsar-client-go/pulsar.Producer, NewPulsarSink(), PulsarSink
 
-### Community 347 - "Crypto master key"
-Cohesion: 0.40
-Nodes (5): Crypto master key, If the master key is lost, If you rotated by editing the file instead, Rotating it, Upgrades
+### Community 347 - "MeshSink"
+Cohesion: 0.28
+Nodes (3): NewMeshSink(), MeshClient, MeshSink
 
-### Community 350 - "mongoStore"
-Cohesion: 0.53
-Nodes (5): mongoStore(), TestAnUnbalancedBracketIsNotAServerError(), TestASearchForRegexSyntaxFindsItLiterally(), TestSearchTreatsMetacharactersAsText(), mongoStorage
-
-### Community 351 - "newSinkDeliveryFixture"
+### Community 348 - "newSinkDeliveryFixture"
 Cohesion: 0.47
 Nodes (4): Registry, newSinkDeliveryFixture(), rowIn(), TestSequentialAndParallelSinksBothDeliver()
 
-### Community 355 - "WorkflowExportBundle"
-Cohesion: 0.40
-Nodes (4): Sink, Source, WorkflowExportBundle, Workflow
+### Community 350 - "paramSource"
+Cohesion: 0.36
+Nodes (9): Config, paramSource(), TestBatchSQL_RunAndSampleAgreeOnParameters(), TestPrepareQuery_BindsConfiguredParameters(), TestPrepareQuery_MalformedParametersDoesNotDegradeToNoFilter(), TestPrepareQuery_MalformedParametersJSONIsAnError(), TestPrepareQuery_OversizedListIsRejected(), TestPrepareQuery_ParametersAcceptAJSONArrayOfStrings() (+1 more)
 
-### Community 356 - "NewGrpcSource"
-Cohesion: 0.62
-Nodes (6): NewGrpcSource(), TestAnAnonymousPublishGetsAnID(), TestARecordSurvivesTheWire(), TestAStorageErrorDoesNotDisableTheAPIKeyCheck(), TestTheAPIKeyIsActuallyChecked(), wireServer()
+### Community 351 - "detect_endpoint_test.go"
+Cohesion: 0.39
+Nodes (8): newDetectMsg(), postDetect(), sealRawSample(), TestDetectEndpointExplainsFailure(), TestDetectEndpointFindsTheSettings(), TestDetectEndpointIsNotCached(), TestDetectEndpointNeverEchoesTheKey(), TestDetectEndpointRejectsBadJSON()
+
+### Community 354 - "workflow_validation_cdc_test.go"
+Cohesion: 0.50
+Nodes (8): cdcIssues(), cdcValidationHandler(), lookupWorkflow(), TestValidateWorkflowFlagsACDCBatchSQLDelegate(), TestValidateWorkflowFlagsACDCLookupSource(), TestValidateWorkflowLeavesExecuteSQLAlone(), TestValidateWorkflowWithoutStorageRaisesNoCDCIssue(), WorkflowHandler
+
+### Community 355 - "@playwright/test"
+Cohesion: 0.33
+Nodes (3): @playwright/test, acceptConfirm(), createdWorkflows
+
+### Community 356 - "NewOracleSource"
+Cohesion: 0.38
+Nodes (7): insertRow(), requireOracle(), TestARestartResumesFromTheAcknowledgedRow(), TestOracleSourceReadsFromAConventionallyNamedTable(), TestTheCursorDoesNotAdvancePastUnacknowledgedRows(), NewOracleSource(), TestOracleSource_Ping()
 
 ### Community 357 - "readMsg"
 Cohesion: 0.57
 Nodes (6): Source, publish(), readMsg(), requireBroker(), TestABurstArrivesWhole(), TestAPublishedMessageComesOutOfRead()
 
 ### Community 358 - "dashboard_history — the only append-only table, and what it costs"
-Cohesion: 0.40
-Nodes (5): dashboard_history — the only append-only table, and what it costs, ErrNotSupported is a storage decision, Still open, The knobs, What was removed, and what it was worth
+Cohesion: 0.14
+Nodes (11): dashboard_history — the only append-only table, and what it costs, ErrNotSupported is a storage decision, Still open, The knobs, What was removed, and what it was worth, Related traps, Retention sweeps, and why message_trace_steps ate 50 GB, Still open (+3 more)
 
 ### Community 359 - "Field-level encryption transformations"
 Cohesion: 0.40
@@ -1689,83 +1764,123 @@ Nodes (4): Decisions that are load-bearing, Field-level encryption transformatio
 
 ### Community 360 - "The metis connectors, and where they differ from panmail"
 Cohesion: 0.40
-Nodes (5): The dependency is a local `replace`, and that is a blocker to ship, The metis connectors, and where they differ from panmail, The sink: a 5xx is an unknown outcome, not a refusal, The source: the cursor is time-plus-ties, and only `Ack` moves it, The UI gate needed a predicate
+Nodes (5): The dependency was a local `replace`, and it reached CI, The metis connectors, and where they differ from panmail, The sink: a 5xx is an unknown outcome, not a refusal, The source: the cursor is time-plus-ties, and only `Ack` moves it, The UI gate needed a predicate
 
-### Community 361 - "Retention sweeps, and why message_trace_steps ate 50 GB"
-Cohesion: 0.40
-Nodes (5): Related traps, Retention sweeps, and why message_trace_steps ate 50 GB, Still open, The bug, The redesign (measured on PostgreSQL 17, 250k step rows)
-
-### Community 365 - "NewService"
-Cohesion: 0.47
-Nodes (4): TestAlertingOnStatusChange(), TestDLQThresholdAlerting(), NewService(), mockAlertingStorage
+### Community 365 - "newBatchSQLRegistry"
+Cohesion: 0.57
+Nodes (7): batchSQLConfig(), Registry, isCDCDelegateRefusal(), newBatchSQLRegistry(), TestBatchSQLMissingDelegateFailsAsItself(), TestBatchSQLRejectsACDCDelegate(), TestBatchSQLRejectsACDCDelegateOnBothConstructors()
 
 ### Community 366 - "seed.go"
 Cohesion: 0.70
 Nodes (4): main(), setupDB2(), setupDB3(), setupHermodDB()
 
-### Community 368 - "NewCompressor"
-Cohesion: 0.40
-Nodes (4): TestFileBufferWithCompression(), NewCompressor(), TestCompressors(), TestEmptyData()
+### Community 368 - ".Execute"
+Cohesion: 0.36
+Nodes (3): init(), Filter, DeduplicateNode
 
-### Community 369 - "source.pb.go"
-Cohesion: 0.40
-Nodes (3): file_pkg_source_grpc_proto_source_proto_init(), file_pkg_source_grpc_proto_source_proto_rawDescGZIP(), init()
+### Community 369 - "DecodeJSONColumn"
+Cohesion: 0.33
+Nodes (8): DecodeJSONColumn(), DecodeValue(), TestDecodeJSONColumn(), TestDecodeJSONColumnDoesNotAliasTheBuffer(), TestDecodeJSONColumnKeepsInvalidTextIndependentOfTheBuffer(), TestDecodeValueHandlesBothStringAndBytes(), TestDecodeValueLeavesNonJSONAlone(), TestIsJSONColumnType()
+
+### Community 370 - "Source"
+Cohesion: 0.29
+Nodes (3): CDCPayload, Source, NewSource()
 
 ### Community 371 - "WorkflowTraversal"
-Cohesion: 0.13
-Nodes (17): runBreakerWorkflow(), TestAFailureDownstreamCountsAgainstTheBreaker(), TestASucceedingWorkflowLeavesTheBreakerAlone(), ReachableInDegree(), ReachableInDegreeByEntry(), sortedKeys(), TestWorkflowTraversal_MultipleSourcesConvergingOnOneNode(), TestWorkflowTraversal_SwitchJoinStillBarriers() (+9 more)
+Cohesion: 0.35
+Nodes (4): nodeWritesInline(), Release(), Registry, WorkflowTraversal
 
-### Community 372 - "setupRegistry"
-Cohesion: 0.60
-Nodes (4): applyEngineConfig(), Options, initRegistryComponents(), setupRegistry()
+### Community 373 - "SMTP templates: dates, zones, and the two shapes a column arrives in"
+Cohesion: 0.25
+Nodes (7): Rendering: why the body no longer goes through gsmail, SMTP templates: dates, zones, and the two shapes a column arrives in, The preview renders through the sink, not beside it, The S3 template keys, The shape problem is the reason it is two types, The sink forms around it, and what was wrong with them, Two traps when verifying this live
 
-### Community 375 - "NewAWSSecretsManager"
-Cohesion: 0.50
-Nodes (3): github.com/aws/aws-sdk-go-v2/service/secretsmanager.Client, NewAWSSecretsManager(), AWSSecretsManager
+### Community 374 - "useEntityBasicsForm.ts"
+Cohesion: 0.36
+Nodes (7): basicsValidators, EntityBasics, useEntityBasicsForm(), UseEntityBasicsFormArgs, validateName(), validateType(), validateVHost()
 
-### Community 376 - "AzureKeyVaultManager"
-Cohesion: 0.50
-Nodes (3): github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets.Client, NewAzureKeyVaultManager(), AzureKeyVaultManager
+### Community 375 - "headersFor"
+Cohesion: 0.43
+Nodes (7): net/http.Header, headersFor(), TestCSPAllowsWebSockets(), TestCSPIsOverridable(), TestDefaultCSPRestrictsSourcesToSelf(), TestProductionCSPDropsInlineStyles(), TestSecurityHeadersAreSet()
+
+### Community 376 - "newDiscoveryFixture"
+Cohesion: 0.43
+Nodes (7): Registry, newDiscoveryFixture(), TestDiscoverColumnsReturnsNamesAndTypes(), TestDiscoverTablesFindsARealTable(), TestExecuteSQLReportsAnErrorRatherThanEmptyResults(), TestExecuteSQLReturnsRows(), discoveryFixture
 
 ### Community 377 - "NewS3ParquetSink"
 Cohesion: 0.16
 Nodes (15): github.com/aws/aws-sdk-go-v2/service/s3.Client, objectCount(), pqMsg(), requireS3P(), TestABatchBecomesAParquetObject(), TestAnUndecodableMessageIsNotSilentlyDropped(), NewS3ParquetSink(), schemaFieldNames() (+7 more)
 
-### Community 380 - "TestPrioritySourceForwardsOptionalInterfaces"
-Cohesion: 0.24
-Nodes (3): TestPrioritySourceForwardsOptionalInterfaces(), discardLogger, lagAwareSource
+### Community 378 - "layout_audit.spec.ts"
+Cohesion: 0.25
+Nodes (5): Finding, findings, ROUTES, timings, VIEWPORTS
+
+### Community 379 - "[1.4.0] — 2026-09-14"
+Cohesion: 0.29
+Nodes (7): [1.4.0] — 2026-09-14, Added — metis source and sink, for a BPMN workflow engine, Added — panmail sink, Added — the FCM sink is a real Firebase client, Changed — `encrypt` and `decrypt` report a field list that matches nothing, Fixed — six ways the FCM sink misbehaved, Fixed — twelve sink types were rendering the database form
+
+### Community 380 - "mockSink"
+Cohesion: 0.25
+Nodes (3): failPingSink, mockSink, validatingMockSink
 
 ### Community 381 - "Workflow"
 Cohesion: 0.02
-Nodes (31): mockRegistry, mockStorage, KubernetesWorkerManager, mockStorage, net/url.URL, failingStorage, keyedStorage, mockStorage (+23 more)
+Nodes (34): mockRegistry, mockStorage, failingStorage, keyedStorage, mockStorage, backupStorage, bundleStore, cdcFlipStorage (+26 more)
 
 ### Community 382 - "recordingLogStorage"
 Cohesion: 0.39
 Nodes (5): net/http/httptest.Server, recordingLogStorage, newBatchTestServer(), postBatch(), TestCreateLogsBatchEndpoint()
 
-### Community 384 - "InitOTLP"
-Cohesion: 0.50
-Nodes (3): InitOTLP(), TestInitOTLP_Basic(), TestInitOTLP_HTTP()
+### Community 384 - "Sink"
+Cohesion: 0.36
+Nodes (3): github.com/eclipse/paho.mqtt.golang.ClientOptions, Sink, New()
+
+### Community 386 - "recordingExecutor"
+Cohesion: 0.29
+Nodes (4): github.com/jackc/pgx/v5/pgconn.CommandTag, pgx.Row, pgx.Rows, recordingExecutor
+
+### Community 388 - "TestNodeExecutorsHonourOwnershipContract"
+Cohesion: 0.52
+Nodes (6): ownershipCases(), refCount(), TestNilMessageIntoExecutorsIsSafe(), TestNodeExecutorsHonourOwnershipContract(), TestRunWorkflowNodePassthroughRetains(), ownershipCase
 
 ### Community 389 - "Hermod Benchmarks"
 Cohesion: 0.18
 Nodes (11): Batching, By in-flight cap, By payload size, Engine throughput, Hermod Benchmarks, Host, Message pooling, Not yet measured (+3 more)
 
-### Community 390 - "GetConfigPath"
-Cohesion: 0.16
-Nodes (14): initStorage(), main(), parseFlags(), runReconciliationLoop(), setupContext(), setupRegistry(), parseOptions(), Options (+6 more)
+### Community 390 - "SQLiteStore"
+Cohesion: 0.15
+Nodes (9): sinkIdemAdapter, idempotencyTableSuffix(), newSinkIdempotencyStore(), startIdempotencyTTLSweep(), TestIdempotencyTableSuffix(), TestSinkIdempotencyTablesDoNotCollide(), SQLiteStore, NewSQLiteStore() (+1 more)
 
 ### Community 392 - "Shutdown"
 Cohesion: 0.33
 Nodes (7): ShutdownBudget, budgetFrom(), Shutdown(), TestClampDrainKeepsPerSinkSettingsInsideTheBudget(), TestShutdownBudgetStagesNest(), TestShutdownDefaultFitsKubernetesGracePeriod(), TestShutdownHonoursTheEnvironmentOverride()
 
-### Community 393 - "TestLdflagsPathMatchesModulePath"
-Cohesion: 0.83
-Nodes (3): modulePathFrom(), repoRoot(), TestLdflagsPathMatchesModulePath()
+### Community 393 - ".createTxGroupSink"
+Cohesion: 0.38
+Nodes (4): closeMembers(), Registry, splitMemberIDs(), TestSplitMemberIDs()
+
+### Community 394 - "cdc_shape_consistency_test.go"
+Cohesion: 0.52
+Nodes (6): afterOf(), jsonHas(), mustJSON(), newCDCMsg(), TestCDCMessageShapeDoesNotDependOnAccessOrder(), TestSetDataKeepsANonObjectPayload()
+
+### Community 395 - "newESMsg"
+Cohesion: 0.50
+Nodes (7): esCount(), esIndexExists(), newESMsg(), requireES(), TestADocumentIDCannotInjectBulkActions(), TestADocumentIsIndexedAndDeleted(), NewElasticsearchSink()
+
+### Community 397 - "`use_cdc` is opt-out, and everything that queries a source must read it that way"
+Cohesion: 0.29
+Nodes (7): Closed since, Consequences for fixtures, execute_sql is deliberately exempt, One definition, three readers, `use_cdc` is opt-out, and everything that queries a source must read it that way, What the two fixes were, Who must not query a CDC source
 
 ### Community 398 - "core.md"
-Cohesion: 0.20
-Nodes (6): Gates, Hermod — memory index, Memories, Postgres Sink & Polling Infrastructure Improvements, Session auth is cookie-only — the token is not reachable from JavaScript, sqlutil owns SQL dialect differences — do not hand-write them in a connector
+Cohesion: 0.12
+Nodes (11): Gates, Hermod — memory index, Memories, Testing it, The lookup cache is a second write path, and it drifted, Postgres Sink & Polling Infrastructure Improvements, Session auth is cookie-only — the token is not reachable from JavaScript, List variables in SQL templates (+3 more)
+
+### Community 399 - "NewMSSQLSource"
+Cohesion: 0.36
+Nodes (6): NewMSSQLSource(), normalizeTableName(), TestMSSQLSource_MapToMessage(), TestMSSQLSource_MatchTable(), TestMSSQLSource_New(), TestNormalizeTableName()
+
+### Community 400 - "workflowExport.ts"
+Cohesion: 0.48
+Nodes (5): describeMissingRefs(), downloadWorkflowExport(), exportFilename(), ExportResult, MissingRef
 
 ### Community 401 - "stop_engine_cleanup_test.go"
 Cohesion: 0.27
@@ -1775,25 +1890,97 @@ Nodes (7): Registry, newTestRegistry(), registeredEngine(), TestStopEngineClears
 Cohesion: 0.15
 Nodes (8): byFile, byFn, byId, edges, nodes, pump, SECONDS, selfUs
 
+### Community 403 - "WorkflowNode"
+Cohesion: 0.16
+Nodes (7): ApprovalNode, ConditionNode, StatefulNode, init(), replayTargets(), WorkflowNode, UnitTest
+
+### Community 406 - "[1.0.0-rc.2] — 2026-09-07"
+Cohesion: 0.29
+Nodes (7): [1.0.0-rc.2] — 2026-09-07, Added, Changed — navigation, first paint and layout, Developer experience, Fixed — a fresh install could not run anything until you restarted it, Fixed — the editor did work on every keystroke and every render, Known gaps
+
+### Community 407 - "newTestHub"
+Cohesion: 0.60
+Nodes (5): newTestHub(), TestConcurrentShutdownAndUnsub(), TestDoubleUnsubNoPanic(), TestPublishAfterUnsubNoSendOnClosed(), TestShutdownThenUnsubNoDoubleClose()
+
+### Community 408 - "package.json"
+Cohesion: 0.33
+Nodes (5): dependencies, devDependencies, @playwright/test, @types/node, @types/node
+
 ### Community 410 - "diffWorker.ts"
 Cohesion: 0.67
 Nodes (3): DiffRequest, DiffResponse, getDiff()
 
-### Community 412 - "newDiscoveryFixture"
-Cohesion: 0.43
-Nodes (7): Registry, newDiscoveryFixture(), TestDiscoverColumnsReturnsNamesAndTypes(), TestDiscoverTablesFindsARealTable(), TestExecuteSQLReportsAnErrorRatherThanEmptyResults(), TestExecuteSQLReturnsRows(), discoveryFixture
+### Community 413 - "NewSink"
+Cohesion: 0.52
+Nodes (6): countRows(), newVecMsg(), requirePgvector(), TestAnIdentifierNeedingQuotesIsQuoted(), TestAVectorIsStoredUpsertedAndDeleted(), NewSink()
+
+### Community 415 - "[Unreleased]"
+Cohesion: 0.17
+Nodes (12): Added — a `batch_sql` source can define query parameters, Added — a list variable works in a SQL `IN (...)` clause, Added — `data_conversion` converts to a list, to a UUID, and back, Added — per-row ordering, end to end, Fixed — a batched `db_lookup` filtered every message by the first message's values, Fixed — `api_lookup`'s silent failures, Fixed — `api_lookup` served one caller's response to another, Fixed — `db_lookup` bound a list with `=` on the WHERE-clause path (+4 more)
 
 ### Community 416 - "hermod binary"
 Cohesion: 0.67
 Nodes (3): GoReleaser Job, hermod binary, Hermod Edge Orchestration
 
+### Community 417 - "mongoStore"
+Cohesion: 0.53
+Nodes (5): mongoStore(), TestAnUnbalancedBracketIsNotAServerError(), TestASearchForRegexSyntaxFindsItLiterally(), TestSearchTreatsMetacharactersAsText(), mongoStorage
+
+### Community 419 - "NewGrpcSource"
+Cohesion: 0.62
+Nodes (6): NewGrpcSource(), TestAnAnonymousPublishGetsAnID(), TestARecordSurvivesTheWire(), TestAStorageErrorDoesNotDisableTheAPIKeyCheck(), TestTheAPIKeyIsActuallyChecked(), wireServer()
+
+### Community 420 - "Backup and restore"
+Cohesion: 0.29
+Nodes (7): Backup and restore, Restoring, Scheduling one, Taking one, The export file is a secret, Verifying one, What is *not* backed up
+
+### Community 422 - "dev_pg_host_test.sh"
+Cohesion: 0.53
+Nodes (5): fail(), pass(), PGCONNECT_TIMEOUT, dev_pg_host_test.sh script, skip()
+
+### Community 423 - "source.pb.go"
+Cohesion: 0.40
+Nodes (3): file_pkg_source_grpc_proto_source_proto_init(), file_pkg_source_grpc_proto_source_proto_rawDescGZIP(), init()
+
+### Community 424 - "panmail: templating a connection field, and what it costs"
+Cohesion: 0.40
+Nodes (5): Idempotency: templated gateway in, static gateway out, panmail: templating a connection field, and what it costs, The allowlist is the security bound, and it is mandatory, The two classes are not the same change, Where the keys are mirrored
+
+### Community 425 - "available_fields_auto_sample_e2e.spec.ts"
+Cohesion: 0.40
+Nodes (5): createdSinks, createdSources, createdWorkflows, post(), stdoutSink()
+
 ### Community 426 - "profile-editor-allocations.mjs"
 Cohesion: 0.18
 Nodes (8): byFile, byFn, edges, nodes, pump, SECONDS, total, walk()
 
+### Community 431 - "referencing_workflows_test.go"
+Cohesion: 0.83
+Nodes (3): asAdministrator(), TestListWorkflowsReferencingSink(), TestListWorkflowsReferencingSink_UnknownSink()
+
+### Community 432 - "How the editor captures a source sample, and what reads it"
+Cohesion: 0.50
+Nodes (4): Driving it in a test, How the editor captures a source sample, and what reads it, The chain, in order, Traps
+
 ### Community 436 - "create-postgres.sh"
 Cohesion: 0.36
 Nodes (8): die(), ls_all(), ls_running(), ok(), port_in_use(), say(), create-postgres.sh script, warn()
+
+### Community 439 - "evolutionPool"
+Cohesion: 0.70
+Nodes (4): evolutionPool(), TestANewSourceFieldIsReportedWhenColumnMappingsDropIt(), TestANewSourceFieldSurvivesWithoutColumnMappings(), TestTheUnmappedFieldReportIsNotPerMessage()
+
+### Community 440 - "registeredInSource"
+Cohesion: 0.83
+Nodes (3): registeredInSource(), TestEveryTransformerIsLinkedIntoTheBinary(), TestTransformerScanFindsTheKnownPackages()
+
+### Community 444 - "time.Duration"
+Cohesion: 0.11
+Nodes (10): time.Duration, UnitTestResult, AuthHandler, dashboardSampleInterval(), durationFromEnv(), WorkflowHealth, TestHandleStatusWS_ReleasesSubscriberOnClientDisconnect(), waitForStatusSubscribers() (+2 more)
+
+### Community 446 - "TestLdflagsPathMatchesModulePath"
+Cohesion: 0.83
+Nodes (3): modulePathFrom(), repoRoot(), TestLdflagsPathMatchesModulePath()
 
 ### Community 451 - "measure-editor.mjs"
 Cohesion: 0.18
@@ -1811,12 +1998,12 @@ Nodes (8): dist, here, html, indexPath, refs, report, rows, unique
 Cohesion: 0.60
 Nodes (5): engine_pid(), psql_sink(), psql_src(), say(), e2e_load.sh script
 
-### Community 514 - ".lookupSQL"
+### Community 514 - ".Transform"
 Cohesion: 0.08
-Nodes (21): cachingFakeRegistry, DBLookupTransformer, missPolicy, RegistryProvider, applyLookupResult(), asSlice(), buildLookupQuery(), flattenConfig() (+13 more)
+Nodes (31): APILookupTransformer, batcherEntry, DBLookupTransformer, lookupTTL, missPolicy, RegistryProvider, SplitSQLConditions(), apiErrorPolicy() (+23 more)
 
 ### Community 517 - "connectorRequirements.ts"
-Cohesion: 0.22
+Cohesion: 0.20
 Nodes (6): metisConnection, missingConnectionFields(), RequiredField, SINK_REQUIREMENTS, SOURCE_REQUIREMENTS, URL_KEYS
 
 ### Community 520 - "dev_cleanup_test.sh"
@@ -1851,29 +2038,33 @@ Nodes (5): note(), PATH, run(), security-check.sh script, step()
 Cohesion: 0.53
 Nodes (4): KNOWN_SCHEMES, looksLikeConnectionUrl(), parseConnectionUrl(), ParsedConnection
 
+### Community 671 - "carryRuntimeColumns"
+Cohesion: 0.52
+Nodes (5): carryRuntimeColumns(), decodeSourceBody(), TestUpdateSourceKeepsTheCursorAnUpdateDidNotMention(), TestUpdateSourceLeavesAnAbsentCursorAbsent(), TestUpdateSourceStillAppliesTheConfigurationItWasGiven()
+
 ### Community 706 - "@playwright/test"
-Cohesion: 0.05
-Nodes (31): dependencies, devDependencies, @playwright/test, @types/node, @types/node, @playwright/test, apiBaseURL(), apiPort() (+23 more)
+Cohesion: 0.13
+Nodes (5): FORM_ROUTES, SocketRecord, RFC-6455, E2E_PASS, E2E_USER
 
 ## Knowledge Gaps
-- **664 isolated node(s):** `uvx`, `postgres-mcp`, `workerIdentity`, `github.com/gsoultan/hermod`, `SinkOperationMode` (+659 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1885 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **101 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **758 isolated node(s):** `uvx`, `postgres-mcp`, `workerIdentity`, `github.com/gsoultan/hermod`, `SinkOperationMode` (+753 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 2028 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **107 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Message` connect `Message` to `NewEngine`, `.lookupSQL`, `GenericFileSource`, `context.Context`, `net/http.Request`, `RetrySink`, `SQLiteStore`, `.HandleWebhook`, `AcquireMessage`, `SSESink`, `GetMsgValByPath`, `MSSQLSource`, `New`, `source/metis/metis_test.go`, `database/sql.DB`, `SQLStore`, `NewRegistry`, `SmtpSink`, `Registry`, `Sink`, `sync/atomic.Int64`, `sink/metis/metis_test.go`, `DefaultMessage`, `cipher.go`, `MySQLSource`, `fullSource`, `database/sql.Tx`, `sinkWriter`, `GenericProtoSource`, `StatusTracker`, `Registry`, `CSVSource`, `priorityMockMessage`, `FailoverSink`, `.log`, `NewPostgresSource`, `SQLiteSource`, `sync.Mutex`, `ColumnInfo`, `MySQLSink`, `OracleSource`, `PostgresSource`, `Sink`, `github.com/jackc/pgx/v5/pgxpool.Pool`, `MongoDBSource`, `SanitizeMap`, `Sink`, `Manager`, `MariaDBSource`, `Sink`, `Dispatch`, `testing.B`, `countingMessage`, `.Publish`, `testMessage`, `Dispatch`, `DB2Source`, `.Close`, `Sink`, `YugabyteSource`, `template.go`, `WasmTransformer`, `FirebaseSource`, `CassandraSink`, `MetricsSource`, `GoogleAnalyticsSource`, `mockMessage`, `Source`, `NewS3Sink`, `CassandraSource`, `CombinedBuffer`, `ScyllaDBSource`, `NewFormSource`, `mockMessage`, `mockLogger`, `mockMessage`, `RedisSource`, `BatchSQLSource`, `cbCtx`, `CircuitBreakerSink`, `mockMessage`, `RabbitMQQueueSource`, `Source`, `ElasticsearchSink`, `statefulSource`, `Source`, `GoogleSheetsSink`, `idempotency_retry_test.go`, `Scorer`, `NatsJetStreamSource`, `SalesforceSink`, `Sink`, `AITransformer`, `DiscordSource`, `FacebookSource`, `observingParticipant`, `Source`, `parallelMockMessage`, `Sink`, `SlackSource`, `time.Duration`, `LuaTransformer`, `DiscordSink`, `idempNoopLogger`, `multisource_isolation_test.go`, `LinkedInSource`, `RedisSink`, `SlackSink`, `ClickHouseSink`, `Source`, `NewClickHouseSink`, `Sink`, `GoogleSheetsSource`, `Registry`, `EnsureIdempotencyID`, `registry_testsink_test.go`, `Sink`, `FacebookSink`, `FTPSink`, `HTTPSource`, `InstagramSink`, `context.CancelFunc`, `pipeSource`, `LinkedInSink`, `NatsJetStreamSink`, `TikTokSink`, `TwitterSink`, `PollingSource`, `FileBuffer`, `blockingDiscoverSink`, `joinCtx`, `sync/atomic.Bool`, `PrioritySource`, `RabbitMQStreamSource`, `StateStore`, `silentStreamSource`, `NewOracleSink`, `HttpSink`, `InstagramSource`, `Sink`, `Sink`, `.writeBatchCopy`, `.stop`, `Operation`, `TwitterSource`, `sync.RWMutex`, `TestSinkConformance`, `github.com/jackc/pglogrepl.LSN`, `OracleConnector`, `Formatter`, `RabbitMQStreamSink`, `.Transform`, `runFailingNode`, `TestAGroupBuiltFromStoredConfigurationWrites`, `mockMessage`, `countingSink`, `CronSource`, `DB2Connector`, `.Transform`, `discarded_writes_test.go`, `.Transform`, `heavyMockSink`, `recordDeliveredSample`, `Extract`, `refusingDLQ`, `KafkaSink`, `NewPostgresSink`, `Source`, `net/http.Client`, `Source`, `.Transform`, `FileSink`, `PostgresSink`, `newESMsg`, `PubSubSink`, `NewCassandraSink`, `WorkflowNode`, `NewMySQLSink`, `Engine`, `TestNodeExecutorsHonourOwnershipContract`, `Sink`, `.Transform`, `TikTokSource`, `BatchBufferSink`, `decodeMessage`, `.Transform`, `Router`, `.Transform`, `stubSink`, `WorkflowTraversal`, `NewS3ParquetSink`, `GrpcSource`, `drainSlowSink`, `mockSink`?**
-  _High betweenness centrality (0.118) - this node is a cross-community bridge._
-- **Why does `AcquireMessage()` connect `AcquireMessage` to `.lookupSQL`, `NewEngine`, `GenericFileSource`, `net/http.Request`, `SQLiteStore`, `.HandleWebhook`, `SSESink`, `MSSQLSource`, `New`, `source/metis/metis_test.go`, `newMsg`, `NewHttpSink`, `SQLStore`, `NewRegistry`, `sync/atomic.Int64`, `DefaultMessage`, `MySQLSource`, `database/sql.Tx`, `sinkWriter`, `Registry`, `CSVSource`, `FailoverSink`, `SQLiteSource`, `sync.Mutex`, `ColumnInfo`, `NewSQLStorage`, `MySQLSink`, `OracleSource`, `github.com/jackc/pgx/v5/pgxpool.Pool`, `MongoDBSource`, `SanitizeMap`, `testing.T`, `Sink`, `MariaDBSource`, `Dispatch`, `testing.B`, `.Publish`, `testMessage`, `Dispatch`, `DB2Source`, `.Close`, `YugabyteSource`, `FirebaseSource`, `GoogleAnalyticsSource`, `Source`, `NewS3Sink`, `CassandraSource`, `NewSQLiteSource`, `CombinedBuffer`, `ScyllaDBSource`, `NewFormSource`, `RedisSource`, `BatchSQLSource`, `cbCtx`, `RabbitMQQueueSource`, `Source`, `ElasticsearchSink`, `Source`, `idempotency_retry_test.go`, `NatsJetStreamSource`, `Sink`, `DiscordSource`, `FacebookSource`, `Source`, `SlackSource`, `NewStateStore`, `DiscordSink`, `idempNoopLogger`, `LinkedInSource`, `RedisSink`, `SlackSink`, `Source`, `NewClickHouseSink`, `GoogleSheetsSource`, `EnsureIdempotencyID`, `FacebookSink`, `HTTPSource`, `InstagramSink`, `context.CancelFunc`, `pipeSource`, `LinkedInSink`, `TikTokSink`, `TwitterSink`, `FileBuffer`, `joinCtx`, `sync/atomic.Bool`, `fullFakeRegistry`, `RabbitMQStreamSource`, `NewOracleSink`, `InstagramSource`, `Operation`, `TwitterSource`, `TestSinkConformance`, `github.com/jackc/pglogrepl.LSN`, `runFailingNode`, `TestAGroupBuiltFromStoredConfigurationWrites`, `mockMessage`, `countingSink`, `CronSource`, `discarded_writes_test.go`, `kvLogger`, `heavyMockSink`, `recordDeliveredSample`, `Extract`, `newSimRegistry`, `refusingDLQ`, `NewPostgresSink`, `Source`, `FileSink`, `PostgresSink`, `newESMsg`, `NewCassandraSink`, `NewMariaDBSource`, `NewDB2Source`, `source/postgres/postgres.go`, `NewMySQLSink`, `TestNodeExecutorsHonourOwnershipContract`, `TikTokSource`, `decodeMessage`, `newSinkDeliveryFixture`, `.resumeSuspendedMessage`, `NewCompressor`, `WorkflowTraversal`, `NewS3ParquetSink`?**
-  _High betweenness centrality (0.042) - this node is a cross-community bridge._
-- **Why does `Registry` connect `Registry` to `golang.org/x/sync/singleflight.Group`, `context.Context`, `GetConfigPath`, `Engine`, `Handler`, `GetMsgValByPath`, `Log`, `Scorer`, `database/sql.DB`, `NewRegistry`, `Worker`, `startAPI`, `DatabaseLogger`, `Registry`, `newHardenedWorker`, `time.Duration`, `GenericProtoSource`, `time.Time`, `Storage`, `setupWorker`, `sync.Mutex`, `ColumnInfo`, `NewWorker`, `RegistryStorage`, `newFailbackWorker`, `ResolveSecret`, `Logger`, `context.CancelFunc`, `Manager`, `countingMessage`, `sync/atomic.Bool`, `NewServer`, `StateStore`, `setupRegistry`, `waitForStatusSubscribers`, `sync.RWMutex`, `Workflow`?**
-  _High betweenness centrality (0.026) - this node is a cross-community bridge._
-- **Are the 21 inferred relationships involving `AcquireMessage()` (e.g. with `TestCloneAfterPoolReuseDoesNotDeadlock()` and `TestCloneIsIndependent()`) actually correct?**
-  _`AcquireMessage()` has 21 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `Message` connect `Message` to `AcquireMessage`, `.Transform`, `GenericFileSource`, `context.Context`, `net/http.ResponseWriter`, `RetrySink`, `Transformer`, `.HandleWebhook`, `ReleaseMessage`, `SSESink`, `evaluator.go`, `MSSQLSource`, `New`, `source/metis/metis_test.go`, `database/sql.DB`, `SQLStore`, `NewRegistry`, `SmtpSink`, `Registry`, `Sink`, `sink/metis/metis_test.go`, `DefaultMessage`, `rel`, `cipher.go`, `MySQLSource`, `fullSource`, `database/sql.Tx`, `sinkWriter`, `GenericProtoSource`, `multiSource`, `priorityMockMessage`, `NewFailoverSink`, `PostgresSource`, `newCDCFixture`, `SQLiteSource`, `sync.Mutex`, `ColumnInfo`, `MySQLSink`, `OracleSource`, `mockReconStorage`, `Sink`, `github.com/jackc/pgx/v5/pgxpool.Pool`, `GetMsgValByPath`, `MongoDBSource`, `ClickHouseSource`, `testing.T`, `Sink`, `Dispatch`, `sync/atomic.Int64`, `countingMessage`, `.Publish`, `Runner`, `testMessage`, `Dispatch`, `NewCompressor`, `SanitizeMap`, `Sink`, `YugabyteSource`, `fcm/template.go`, `WasmTransformer`, `FirebaseSource`, `CassandraSink`, `MetricsSource`, `GoogleAnalyticsSource`, `Operation`, `Sink`, `NewS3Sink`, `CassandraSource`, `createSinkBase`, `Registry`, `createSourceBase`, `NewFormSource`, `mockMessage`, `mockLogger`, `mockMessage`, `RedisSource`, `BatchSQLSource`, `cbCtx`, `CircuitBreakerSink`, `mockMessage`, `RabbitMQQueueSource`, `Source`, `ElasticsearchSink`, `newRecoveryHarness`, `Source`, `GoogleSheetsSink`, `idempotency_retry_test.go`, `Scorer`, `NatsJetStreamSource`, `SalesforceSink`, `Sink`, `Logger`, `AITransformer`, `net/http.Client`, `FacebookSource`, `NodeContext`, `ParameterizeTemplate`, `Source`, `parallelMockMessage`, `SlackSource`, `.watchForStalls`, `SQLiteSink`, `LuaTransformer`, `idempNoopLogger`, `retainingIdleSource`, `mockMessage`, `tallySink`, `hermod.go`, `LinkedInSource`, `Source`, `SlackSink`, `ClickHouseSink`, `Source`, `NewClickHouseSink`, `Sink`, `GoogleSheetsSource`, `Registry`, `EnsureIdempotencyID`, `registry_testsink_test.go`, `Sink`, `FTPSink`, `HTTPSource`, `DefaultConfig`, `LinkedInSink`, `TikTokSink`, `TwitterSink`, `NewJSONFormatter`, `cachingFakeRegistry`, `FileBuffer`, `mockMessage`, `joinCtx`, `txSink`, `silentStreamSource`, `PrioritySource`, `RabbitMQStreamSource`, `Registry`, `ScyllaDBSource`, `OracleSink`, `NewHttpSink`, `InstagramSource`, `Sink`, `Sink`, `.writeBatchCopy`, `.stop`, `RabbitMQQueueSink`, `TwitterSource`, `runKeyed`, `MariaDBSource`, `.handleDelete`, `OracleConnector`, `Formatter`, `RabbitMQStreamSink`, `.Transform`, `countingSink`, `mockRegistry`, `DB2Connector`, `DataConversionTransformer`, `discarded_writes_test.go`, `recordDeliveredSample`, `Extract`, `Validate`, `TestBulkCopyMatchesOrderedPath`, `TestAGroupBuiltFromStoredConfigurationWrites`, `Sink`, `Source`, `silentLaggingSource`, `PostgresSink`, `PubSubSink`, `FailoverSink`, `RegistryStorage`, `RegisterNodeExecutor`, `.Close`, `Engine`, `NewBatchSQLSource`, `BuildIncrementalQuery`, `FacebookSink`, `.Transform`, `TikTokSource`, `.handleCollection`, `KafkaSource`, `.Transform`, `sync.RWMutex`, `PulsarSink`, `MeshSink`, `.Transform`, `PollingSource`, `.Execute`, `Source`, `WorkflowTraversal`, `NewS3ParquetSink`, `mockSink`, `Sink`, `BatchBufferSink`, `TestNodeExecutorsHonourOwnershipContract`, `newESMsg`, `TelegramSink`, `WorkflowNode`, `.Execute`, `.Execute`, `.Transform`, `NewSink`, `RingBuffer`, `idleSource`, `GrpcSource`, `mockSource`, `drainSlowSink`, `.Execute`, `.Execute`, `mockSink`?**
+  _High betweenness centrality (0.126) - this node is a cross-community bridge._
+- **Why does `AcquireMessage()` connect `AcquireMessage` to `GenericFileSource`, `net/http.ResponseWriter`, `.HandleWebhook`, `ReleaseMessage`, `net/http.Request`, `SSESink`, `MSSQLSource`, `New`, `source/metis/metis_test.go`, `SQLStore`, `NewRegistry`, `DefaultMessage`, `MySQLSource`, `database/sql.Tx`, `NewFailoverSink`, `PostgresSource`, `SQLiteSource`, `sync.Mutex`, `ColumnInfo`, `MySQLSink`, `OracleSource`, `github.com/jackc/pgx/v5/pgxpool.Pool`, `MongoDBSource`, `ClickHouseSource`, `testing.T`, `apiLookupErr`, `Dispatch`, `sync/atomic.Int64`, `.Publish`, `SinkHandler`, `testMessage`, `Dispatch`, `NewCompressor`, `SanitizeMap`, `YugabyteSource`, `FirebaseSource`, `CassandraSink`, `Message`, `GoogleAnalyticsSource`, `NewS3Sink`, `CassandraSource`, `NewSQLiteSource`, `createSinkBase`, `NewFormSource`, `RedisSource`, `BatchSQLSource`, `cbCtx`, `RabbitMQQueueSource`, `Source`, `ElasticsearchSink`, `newRecoveryHarness`, `Source`, `idempotency_retry_test.go`, `NatsJetStreamSource`, `Sink`, `net/http.Client`, `FacebookSource`, `Source`, `SlackSource`, `SQLiteSink`, `LinkedInSource`, `Source`, `SlackSink`, `Source`, `NewClickHouseSink`, `GoogleSheetsSource`, `EnsureIdempotencyID`, `HTTPSource`, `DefaultConfig`, `LinkedInSink`, `TikTokSink`, `TwitterSink`, `cachingFakeRegistry`, `FileBuffer`, `joinCtx`, `RabbitMQStreamSource`, `ScyllaDBSource`, `OracleSink`, `InstagramSource`, `.writeBatchCopy`, `.stop`, `RabbitMQQueueSink`, `TwitterSource`, `runKeyed`, `MariaDBSource`, `TestSourceConformance`, `.handleDelete`, `Formatter`, `countingSink`, `discarded_writes_test.go`, `recordDeliveredSample`, `Extract`, `newSimRegistry`, `TestBulkCopyMatchesOrderedPath`, `TestAGroupBuiltFromStoredConfigurationWrites`, `conversion_array_test.go`, `Source`, `PostgresSink`, `PubSubSink`, `.OnRow`, `time.Time`, `.Close`, `arrayFixture`, `BuildIncrementalQuery`, `FacebookSink`, `TikTokSource`, `KafkaSource`, `newSinkDeliveryFixture`, `detect_endpoint_test.go`, `NewS3ParquetSink`, `TestNodeExecutorsHonourOwnershipContract`, `cdc_shape_consistency_test.go`, `newESMsg`, `WorkflowNode`, `NewSink`, `.runOutboxRelay`, `evolutionPool`?**
+  _High betweenness centrality (0.027) - this node is a cross-community bridge._
+- **Why does `DefaultMessage` connect `DefaultMessage` to `AcquireMessage`, `NewCompressor`, `RedisSource`, `cdc_shape_consistency_test.go`, `Operation`, `MSSQLSource`, `testing.T`, `sync.RWMutex`, `countingMessage`, `detect_endpoint_test.go`?**
+  _High betweenness centrality (0.019) - this node is a cross-community bridge._
+- **Are the 25 inferred relationships involving `AcquireMessage()` (e.g. with `newCDCMsg()` and `TestSetDataKeepsANonObjectPayload()`) actually correct?**
+  _`AcquireMessage()` has 25 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `uvx`, `postgres-mcp`, `workerIdentity` to the rest of the system?**
-  _664 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _758 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `mongoStorage` be split into smaller, more focused modules?**
-  _Cohesion score 0.04371584699453552 - nodes in this community are weakly interconnected._
-- **Should `MessageTrace` be split into smaller, more focused modules?**
-  _Cohesion score 0.12631578947368421 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.0386946386946387 - nodes in this community are weakly interconnected._
+- **Should `Log` be split into smaller, more focused modules?**
+  _Cohesion score 0.04781144781144781 - nodes in this community are weakly interconnected._

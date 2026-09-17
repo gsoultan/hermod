@@ -20,6 +20,10 @@ type cachingFakeRegistry struct {
 	source storage.Source
 	cache  map[string]any
 	sets   int
+	// lastTTL records what the transformer asked for, which is the only way to
+	// see the difference between "cached briefly" and "cached forever" without
+	// waiting for a clock: SetLookupCache turns ttl <= 0 into no expiry at all.
+	lastTTL time.Duration
 }
 
 func (f *cachingFakeRegistry) GetSourceConfig(ctx context.Context, id string) (storage.Source, error) {
@@ -35,6 +39,7 @@ func (f *cachingFakeRegistry) GetLookupCache(key string) (any, bool) {
 
 func (f *cachingFakeRegistry) SetLookupCache(key string, value any, ttl time.Duration) {
 	f.sets++
+	f.lastTTL = ttl
 	f.cache[key] = value
 }
 

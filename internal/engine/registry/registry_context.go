@@ -7,6 +7,7 @@ import (
 	"github.com/gsoultan/hermod/internal/engine/registry/nodes/reliability"
 
 	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
+	pkgengine "github.com/gsoultan/hermod/pkg/engine"
 )
 
 func (r *Registry) BroadcastLiveMessage(workflowID, nodeID string, msg hermod.Message, isError bool, errMsg string) {
@@ -106,4 +107,16 @@ func (r *Registry) RecordCircuitBreakerFailure(workflowID, breakerNodeID string)
 	(&reliability.CircuitBreakerExecutor{}).RecordFailure(r, breakerNodeID)
 	r.BroadcastLog(workflowID, "WARN",
 		"Circuit breaker "+breakerNodeID+" recorded a downstream failure", "")
+}
+
+// liveEngine returns the running engine for a workflow, or nil when it is not
+// running on this worker. The resume paths use it to reach the dead-letter sink;
+// nil is an ordinary outcome, not an error.
+func (r *Registry) liveEngine(workflowID string) *pkgengine.Engine {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if ae, ok := r.engines[workflowID]; ok && ae != nil {
+		return ae.engine
+	}
+	return nil
 }

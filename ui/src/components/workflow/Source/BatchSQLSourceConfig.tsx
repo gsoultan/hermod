@@ -1,4 +1,4 @@
-import { TextInput, Stack, Select, Text, Divider, Button, ActionIcon, Group, Paper, Badge, Modal, Alert } from '@mantine/core';
+import { TextInput, Textarea, Stack, Select, Text, Divider, Button, ActionIcon, Group, Paper, Badge, Modal, Alert } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { CronInput } from '../../shared/CronInput';
 import { SQLQueryBuilder } from '../../forms/SQLQueryBuilder';
@@ -52,6 +52,24 @@ export function BatchSQLSourceConfig({ config, updateConfig, allSources }: Batch
   // cannot drift from the backend's reading of use_cdc.
   const delegateIsCDC = !!selectedSource && !sourceAllowsDirectQueries(selectedSource);
 
+  // The backend refuses to run a query whose parameters blob will not decode,
+  // rather than reading it as "no parameters" and dropping every filter
+  // (batchsql.parameters). Saying so here is cheaper than finding out on the
+  // next cron tick.
+  const parametersError = (() => {
+    const raw = (config.parameters || '').trim();
+    if (!raw) return undefined;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return 'Parameters must be a valid JSON object of name/value pairs.';
+      }
+    } catch {
+      return 'Parameters must be a valid JSON object of name/value pairs.';
+    }
+    return undefined;
+  })();
+
   return (
     <Stack gap="md">
       <Select
@@ -98,14 +116,28 @@ export function BatchSQLSourceConfig({ config, updateConfig, allSources }: Batch
         required
         description="Standard cron expression (e.g. */5 * * * * for every 5 minutes)"
       />
-      <TextInput 
-        label="Incremental Column" 
-        placeholder="id or created_at" 
-        value={config.incremental_column} 
-        onChange={(e) => updateConfig('incremental_column', e.target.value)} 
+      <TextInput
+        label="Incremental Column"
+        placeholder="id or created_at"
+        value={config.incremental_column}
+        onChange={(e) => updateConfig('incremental_column', e.target.value)}
         description="Column used to track progress between runs"
       />
-      
+
+      <Textarea
+        label="Query Parameters"
+        placeholder={'{"ids": ["a1", "b2"], "status": "active"}'}
+        value={config.parameters || ''}
+        onChange={(e) => updateConfig('parameters', e.currentTarget.value)}
+        error={parametersError}
+        autosize
+        minRows={2}
+        styles={{ input: { fontFamily: 'monospace' } }}
+        description={
+          'A JSON object of named values bound into the queries above as {{.name}}. A batch source has no inbound message, so this is where its variables come from. A list expands inside an IN list: id IN ({{.ids}}). {{.last_value}} is the incremental watermark and needs no entry here.'
+        }
+      />
+
       <Divider label="Query Management" labelPosition="center" />
       
       <Stack gap="xs">

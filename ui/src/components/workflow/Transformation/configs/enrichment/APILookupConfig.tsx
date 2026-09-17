@@ -1,4 +1,5 @@
-import { Button, Group, JsonInput, NumberInput, PasswordInput, Select, Stack, Tabs, TextInput } from '@mantine/core';
+import { useMemo } from 'react';
+import { Alert, Button, Group, JsonInput, NumberInput, PasswordInput, Select, Stack, Tabs, Text, TextInput } from '@mantine/core';
 import { IconCloud, IconCode, IconPlayerPlay, IconSettings } from '@tabler/icons-react';
 
 interface APILookupConfigProps {
@@ -10,6 +11,17 @@ interface APILookupConfigProps {
 }
 
 export function APILookupConfig({ config, updateNodeConfig, nodeId, testLookup, testing }: APILookupConfigProps) {
+  // Mirrors resolveMissPolicy in pkg/comm/transformer/lookup/onmiss.go, inference
+  // included: an unset onMiss means "default" when a defaultValue is configured
+  // and "passthrough" otherwise. Showing anything else would name a policy the
+  // pipeline is not running.
+  const hasDefaultValue = String(config.defaultValue || '') !== '';
+  const missPolicy = useMemo(() => {
+    const chosen = String(config.onMiss || '').trim().toLowerCase();
+    if (chosen === 'fail' || chosen === 'default' || chosen === 'passthrough') return chosen;
+    return hasDefaultValue ? 'default' : 'passthrough';
+  }, [config.onMiss, hasDefaultValue]);
+
   return (
 
     <Tabs defaultValue="endpoint">
@@ -141,6 +153,11 @@ export function APILookupConfig({ config, updateNodeConfig, nodeId, testLookup, 
                placeholder="e.g. 5m, 1h"
                value={config.ttl || ''}
                onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateNodeConfig(nodeId, { ttl: e.target.value })}
+               description={
+                 <span data-testid="api-lookup-ttl-description">
+                   Needs a unit. Leave empty for the 5m default, or set 0 to disable caching.
+                 </span>
+               }
             />
             <NumberInput
               label="Max Retries"
@@ -154,6 +171,34 @@ export function APILookupConfig({ config, updateNodeConfig, nodeId, testLookup, 
             value={config.retryDelay || ''}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateNodeConfig(nodeId, { retryDelay: e.target.value })}
           />
+
+          <Select
+            label="When the lookup returns nothing"
+            description="A miss is not automatically a bug, but it should be a decision — without one, an enriched message and an un-enriched one reach the sink looking identical."
+            data={[
+              { value: 'passthrough', label: 'Pass the message through unchanged' },
+              { value: 'default', label: 'Write the default value' },
+              { value: 'fail', label: 'Fail the message' },
+            ]}
+            value={missPolicy}
+            onChange={(val) => updateNodeConfig(nodeId, { onMiss: val || 'passthrough' })}
+            allowDeselect={false}
+            size="sm"
+          />
+
+          {missPolicy === 'default' && !hasDefaultValue && (
+            <Alert color="orange" variant="light" data-testid="api-lookup-miss-warning">
+              <Text size="xs">
+                Nothing will be written on a miss: this policy needs a <b>Default Value</b>.
+                Without one it behaves exactly like passing the message through.
+              </Text>
+            </Alert>
+          )}
+          <Text size="xs" c="dimmed">
+            This covers a call that succeeded and returned nothing at the response path. A request
+            that <i>failed</i> — a timeout, or a non-2xx status — fails the message unless a Default
+            Value is set, and the <b>Fail</b> policy above overrides that.
+          </Text>
         </Stack>
       </Tabs.Panel>
     </Tabs>
