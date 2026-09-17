@@ -7,6 +7,277 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — every message got the first message's `db_lookup` row
+
+A `db_lookup` in query mode enriched message one correctly and then handed
+message one's row to every message after it, however different its key. The
+lookup cache was keyed on the *unresolved* `queryTemplate` and `whereClause`
+text, so for a node like
+
+```json
+{"mode":"query","targetField":"User",
+ "queryTemplate":"SELECT * FROM iam.users WHERE id = {{.UserId}}"}
+```
+
+every message in the workflow produced a byte-identical cache key — the
+per-message input lives entirely inside the `{{ }}` token, and such a node has
+no `keyField`, so the key's one message-derived component was `nil` as well.
+An unset `ttl` means the entry never expires, so the first row was served for
+the lifetime of the engine.
+
+The key now carries a digest of the values the template actually binds,
+produced by the same walk that builds the statement (`sqlutil.TemplateArgs`),
+so the two cannot drift. A lookup with no `{{ }}` token keys and costs exactly
+what it did before.
+
+This is also why the SQL query builder and the node preview disagreed on the
+same variable: the builder runs its query directly and never consults the
+lookup cache, so it returned the right row while the pipeline returned the
+cached one.
+
+### Fixed — `api_lookup` served one caller's response to another
+
+`api_lookup` resolved its URL and body before keying on them, so it never had
+the total key collapse above. Three inputs were applied *after* the key was
+built and so never reached it:
+
+- **templated headers** — two tenants sharing an endpoint, distinguished only
+  by `{"X-Tenant-Id":"{{.tenant}}"}`, shared one cache entry;
+- **the templated credential** — a per-message `{{.userToken}}` returned
+  whatever the *first* token had fetched. A cache that ignores who asked is a
+  disclosure, not just a staleness bug;
+- **`responsePath`** — it decides what is extracted and therefore what is
+  stored, so two nodes reading different fields of one endpoint collided.
+
+Because the cache key is also the singleflight key, a concurrent pair of
+messages also shared one HTTP request, so the second was answered with the
+first's response even on a cold cache.
+
+Headers and credentials are now resolved once, before the key, and folded into
+it as a SHA-256 digest — never in the clear, since the lookup cache is an
+in-memory map whose keys are walked during eviction. Requests that really are
+identical still share an entry. Resolving once also stops the retry loop
+re-parsing the header JSON on every attempt.
+
+### Fixed — a batched `db_lookup` filtered every message by the first message's values
+
+`getOrCreateBatcher` built its closure once per node id and then handed the same
+one back forever, so whatever the first message supplied was frozen into it:
+
+- **A templated `whereClause` was resolved once.** Every later batch was
+  filtered by the first message's values — `tenant = {{ .tenant }}` meant every
+  message in the workflow was looked up in the first message's tenant. Batching
+  coalesces many messages into one query and a per-message WHERE cannot be
+  coalesced, so such a node is no longer batched at all; it takes the
+  per-message path, which resolves its templates for the message in hand.
+- **The source was frozen too.** Repointing the node at another database, or
+  rotating its credentials, left the batching path querying the old one until
+  the process restarted — defeating the cache invalidation the registry
+  performs on a source edit for exactly this reason. Batchers are now keyed by
+  a fingerprint of everything the closure captures, so a reconfigured node gets
+  a fresh one. The superseded batcher is dropped rather than closed: closing it
+  would make a concurrent `Execute` fail, turning a reconfiguration into failed
+  messages.
+- **`batchSize` ignored a JSON number.** It was read with an `.(int)` assertion
+  and a string fallback, neither of which matches the `float64` that JSON
+  decodes to, so a configured size silently fell back to the default of 100.
+
+`db_lookup`'s Cache TTL also gained the parsing `api_lookup` did: a value with
+no unit is an error naming the field instead of silently meaning "cache
+forever", and an explicit `0` disables the cache. Unlike `api_lookup`, an unset
+TTL still means no expiry — a lookup table is routinely static reference data,
+and changing that default would add a query per message to every existing
+workflow.
+
+### Fixed — `api_lookup`'s silent failures
+
+Everything `db_lookup` was given and `api_lookup` was not:
+
+- **A miss is now a decision.** A call that returned 2xx with nothing at the
+  response path, and a node too incomplete to make a request, both returned the
+  message unchanged with a nil error — so the sink could not tell an enriched
+  message from an un-enriched one. Both now go through the `onMiss` policy
+  (`passthrough` / `default` / `fail`), which the API Lookup editor now offers.
+  A *failed* request keeps its existing behaviour by default — reported when
+  there is no Default Value, substituted when there is — but `fail` now
+  overrides a Default Value, so "fill in empty responses, yet still fail the
+  message on a 500" is expressible for the first time.
+- **Cache TTL is bounded and parsed.** The parse error was discarded, so `5` or
+  `300` — what people type into a box labelled Cache TTL — left the zero value
+  behind, which `SetLookupCache` reads as *never expires*: the field whose only
+  purpose is bounding staleness silently unbounded it. An unparseable value is
+  now an error naming the field, an unset TTL means 5 minutes rather than
+  forever, and `0` disables the cache, which was previously inexpressible.
+- **Malformed `headers` or `queryParams` JSON is reported.** A typo used to
+  drop them and send the request anyway — unauthenticated, or unfiltered,
+  against a real endpoint, reported nowhere.
+- **Max Retries works.** The editor's control is a `NumberInput`, so it saves a
+  JSON number, and every reader went through `GetConfigString`, which returns
+  `""` for a non-string. A retry count set in the editor produced exactly one
+  attempt. Numbers and strings are both accepted now.
+- **Requests use `httpclient.DataClient`** rather than `http.DefaultClient`,
+  which brings the project's connection pooling and dial timeouts. `DataClient`
+  is the right one here: it performs no SSRF check, because an `api_lookup`
+  pointed at an internal address is an ordinary thing to configure.
+
+### Fixed — the `router` trace step showed the pipeline's output before the pipeline ran
+
+For a node-graph workflow the engine's router *is* the traversal — the whole
+DAG runs inside it — so the `router` trace step captured its payload after the
+last node while carrying the timestamp routing began. Message traces order
+steps by timestamp and rebuild each step's "before" from the previous step's
+"after", so the finished payload appeared between the message arriving and the
+source node emitting it, and the source node then looked as though it had
+deleted every field the pipeline added. The step now records the message the
+router was handed. Its duration still covers the traversal.
+
+### Added — a list variable works in a SQL `IN (...)` clause
+
+`id IN ({{.ids}})` had no working form. Every `{{ }}` token became exactly one
+bound parameter, so a list was handed to the driver whole and rejected there:
+`database/sql` answers `unsupported type []interface {}, a slice of interface`,
+and pgx answers `cannot find encode plan for ... into binary format for uuid
+(OID 2950)`. It failed the same way for uuid, integer and text columns, on the
+first message, every time.
+
+A token that sits directly in an `IN (...)` list now expands to one placeholder
+per element, so `id IN ({{.ids}})` becomes `id IN ($1, $2, $3)` with the elements
+bound individually. An empty list binds a single NULL — valid SQL in every
+dialect and matching nothing, which is what an empty set means. `IN ()` is a
+syntax error everywhere, so there was no other choice available.
+
+The expansion is deliberately confined to `IN` lists. `= ANY({{.ids}})` is the
+native PostgreSQL array form and already worked by binding the slice whole;
+expanding it would produce `= ANY($1, $2)`, a syntax error. A token inside a
+subquery — `IN (SELECT ... WHERE k = {{.k}})` — is left alone for the same
+reason. Quoted string literals no longer affect the detection either, so a
+stray `'in ('` inside a literal cannot open a list.
+
+One token expands to at most 65535 placeholders — PostgreSQL's wire-protocol
+limit, and below it SQL Server's own limit of 2100 — and a longer list fails the
+node instead. The element count comes from message data, which nothing upstream
+bounds, and each element costs a placeholder in the statement text as well as an
+argument in the bind list; without the cap a pathological array is built in the
+worker's memory before any server gets the chance to reject it.
+
+One function does this for every SQL template path, so all of them gain it at
+once: the `db_lookup` node in query mode, the `execute_sql` node, and the
+editor's query preview. It also moved from `pkg/comm/transformer/core` down to
+`pkg/infra/sqlutil`, next to the placeholder and identifier-quoting rules it
+depends on, so sources and sinks can use it without importing a transformer
+package. The old `core.ParameterizeTemplate` name still works.
+
+### Added — `data_conversion` converts to a list, to a UUID, and back
+
+The node accepted `int`, `float`, `bool`, `string` and `date` and rejected
+everything else with `unsupported target type`. There was no way to build a list
+anywhere in Hermod — not through this node, and not through the expression
+evaluator, which has no `split`, no `join` and no array constructor — so the new
+`IN` expansion above had nothing to feed it except a list that already arrived
+as one.
+
+**Array.** Splits text on a separator (default `,`, elements trimmed), reads a
+JSON array as a list when the value looks like one, treats a JSON object as a
+single element rather than a list of its fields, passes an existing list
+through, and wraps a scalar as a one-element list — a lookup keyed on one id is
+the degenerate case of a lookup keyed on several. An **Element Type**
+(`string`, `int`, `float`, `bool`, `uuid`) coerces every element; it is needed
+whenever the column is typed, because splitting text yields strings and a string
+does not match an integer or uuid column.
+
+**UUID.** Validates and normalises to lower-case hyphenated form. Accepts
+hyphenated, bare hex, braced and `urn:uuid:` forms, and the raw 16 bytes a uuid
+column decodes to. There was no UUID conversion at all before — the evaluator's
+`uuid` function *generates* one, which is a different thing.
+
+**Back again.** Converting a list to `string` now joins on the separator.
+It used to render Go's `%v` form, so a list became the literal text `[a b c]` —
+a value no database or downstream system accepts, and the reason a list could
+not be converted back to a scalar at all. Two narrower consequences of the same
+fix: a `[]byte` value converts to its text rather than to `[97 98]`, and a
+nested map or list inside a joined list renders as JSON rather than as `%v`.
+
+### Added — a `batch_sql` source can define query parameters
+
+`{{.last_value}}` was the only variable a scheduled query understood. Any other
+token passed through into the SQL as literal text and failed at the server,
+because the query was executed with no arguments at all.
+
+A source now carries a **Query Parameters** JSON object, and every token other
+than `{{.last_value}}` is bound from it — including a list, which expands inside
+an `IN (...)` list like anywhere else. A batch source has no inbound message, so
+this is the only place its variables can come from.
+
+Two failure modes are loud rather than silent. A token with no matching
+parameter fails the query and names the token, instead of binding NULL and
+returning an empty result set that reads as an empty table. A parameters blob
+that will not decode is an error rather than an empty map, which would have
+dropped every filter the operator configured while leaving the query running.
+The editor flags both before the next cron tick.
+
+`{{.last_value}}` keeps its existing textual substitution: operators write it
+inside their own quoting (`id > '{{.last_value}}'`), and binding it would break
+every query that does. The scheduled run and the editor's sample preview now
+resolve queries through the same function, so a query that previews cleanly runs
+the same way on the cron.
+
+### Fixed — `db_lookup` bound a list with `=` on the WHERE-clause path
+
+The `keyColumn` path expanded a list into `IN (...)`; the `whereClause` path did
+not. A list value there produced `col = $1` — the wrong operator and an argument
+no driver can encode. It now builds an `IN (...)` list, and an empty list
+resolves to no match instead of an error.
+
+The same path also recognised only `[]any`, `[]string`, `[]int`, `[]int64` and
+`[]float64` as lists, so a list arriving as any other slice kind (`[]int32`, for
+one) was bound whole and rejected by the driver. Recognition is now by kind, with
+`[]byte` and `json.RawMessage` still treated as the scalar blob and JSON values
+they are.
+
+### Added — per-row ordering, end to end
+
+Changes to one row now reach the sink in the order the source produced them,
+while different rows still run fully in parallel.
+
+Nothing enforced this before. `processMessage` ran on `max_inflight` (128)
+workers pulling from one shared queue with no key affinity, so two changes to
+the same row raced and the later one could be written first. Measured, ten
+changes to one row arrived at the sink as `010 005 006 007 004 002 001 003 008
+009` — for CDC that is an older UPDATE landing after a newer one, and the row
+keeps the wrong value. The sink writer's per-key shards did preserve order, but
+they sit downstream of the reordering and their only test enqueued straight into
+the writer, so the gap was invisible.
+
+A source that knows its row identity now stamps `_hermod_order_key`. For
+PostgreSQL that is `schema.table` plus the replica-identity columns, on both the
+initial load and the CDC stream, so the backfill row and the first change to it
+are ordered against each other at the handover instead of racing. The engine
+pins a key to one worker and one sink shard.
+
+Messages with no ordering key — a queue message, a cron tick, a batch row — have
+no row order to keep and continue to use the shared queue, so they lose no
+throughput to affinity they do not need. A table with no primary key or
+`REPLICA IDENTITY NOTHING` cannot identify a row, so its changes carry no key
+and are not ordered against each other; set a replica identity if you need that.
+
+Cost, measured with `benchstat` over ten paired runs: -2.1% geomean throughput,
+with no individually significant regression at any payload size (64 B, 1 KiB,
+16 KiB; p ≥ 0.05 each), and allocations unchanged.
+
+### Fixed — `shard_count` scattered the rows it was meant to keep together
+
+With `shard_count` set and no `shard_key_meta`, the sink writer sharded on the
+message ID. A CDC message's ID is its LSN, which is unique per change, so every
+change to one row hashed to a different shard: turning sharding on scattered
+exactly the messages the shards exist to keep in order, and the per-key ordering
+the feature promised was never delivered for the source that needs it most.
+
+`shard_key_meta` now defaults to the row key when sharding is enabled. The
+README's claim that sharding "guarantees per-key ordering" has been corrected to
+describe what it does and what it costs — sharding splits a sink's queue, so
+each shard batches independently.
+
+
 ## [1.5.0] — 2026-09-17
 
 This release is mostly the editor telling the truth. A cluster of surfaces

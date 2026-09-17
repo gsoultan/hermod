@@ -60,3 +60,39 @@ func TestCloneIsIndependent(t *testing.T) {
 		t.Errorf("clone did not take its own value: got %v; want \"mutated\"", got)
 	}
 }
+
+// Independence has to hold for nested values too, and that is the case that
+// actually occurs: a jsonb column decodes to a map[string]any, and the traversal
+// clones a message once per branch whenever a node fans out. maps.Copy copies
+// the top level only, so both branches hold the *same* nested map — a
+// transformation writing into it on one branch is visible on the other, and the
+// two branches deliver each other's data.
+func TestCloneIsIndependentForNestedValues(t *testing.T) {
+	orig := AcquireMessage()
+	defer orig.Release()
+	orig.SetID("orig")
+	orig.SetData("doc", map[string]any{"status": "original"})
+	orig.SetData("tags", []any{"a"})
+
+	clone := orig.Clone()
+	defer clone.Release()
+
+	// What a transformation on the cloned branch does.
+	if doc, ok := clone.Data()["doc"].(map[string]any); ok {
+		doc["status"] = "mutated"
+	}
+	if tags, ok := clone.Data()["tags"].([]any); ok && len(tags) > 0 {
+		tags[0] = "b"
+	}
+
+	origDoc, _ := orig.Data()["doc"].(map[string]any)
+	if origDoc == nil || origDoc["status"] != "original" {
+		t.Errorf("a branch mutating a nested map wrote through to the other branch: "+
+			"got %v, want status \"original\"", origDoc)
+	}
+	origTags, _ := orig.Data()["tags"].([]any)
+	if len(origTags) == 0 || origTags[0] != "a" {
+		t.Errorf("a branch mutating a nested slice wrote through to the other branch: "+
+			"got %v, want [a]", origTags)
+	}
+}

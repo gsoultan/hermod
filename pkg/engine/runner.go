@@ -688,24 +688,52 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 			numWorkers = 128
 		}
 
-		msgChan := make(chan hermod.Message, numWorkers)
+		// Two paths, because the two kinds of message want opposite things.
+		//
+		// A message with an ordering key has to go to the *same* worker every
+		// time, or two changes to one row race and the later one can be written
+		// first. It gets a private queue, and the order it was read in survives
+		// to the sink.
+		//
+		// A message without one has no order to keep, and pinning it would only
+		// cost throughput: a shared queue lets whichever worker is free take the
+		// next message, which a fixed assignment cannot do — one slow message
+		// would hold up everything behind it on that worker while others idle.
+		// Measured, routing unkeyed traffic round-robin instead of sharing cost
+		// ~40% (165k -> 97k msgs/s), so unkeyed traffic keeps the shared queue.
+		shared := make(chan hermod.Message, numWorkers)
+		keyed := make([]chan hermod.Message, numWorkers)
+		for i := range keyed {
+			keyed[i] = make(chan hermod.Message, keyedQueueDepth)
+		}
 
 		// Start persistent worker pool for message processing
-		for range numWorkers {
+		for i := range numWorkers {
+			own := keyed[i]
 			r.wg.Go(func() {
-				for {
+				mine, pool := own, shared
+				for mine != nil || pool != nil {
+					var m hermod.Message
+					var ok bool
 					select {
 					case <-ctx.Done():
 						return
-					case m, ok := <-msgChan:
+					case m, ok = <-mine:
 						if !ok {
-							return
+							// A closed channel is always ready; nil never is.
+							mine = nil
+							continue
 						}
-						r.processMessage(ctx, m)
-						// Slot released inside processMessage or by Done()
-						r.engine.inFlightWg.Done()
-						<-r.engine.inFlightSem
+					case m, ok = <-pool:
+						if !ok {
+							pool = nil
+							continue
+						}
 					}
+					r.processMessage(ctx, m)
+					// Slot released inside processMessage or by Done()
+					r.engine.inFlightWg.Done()
+					<-r.engine.inFlightSem
 				}
 			})
 		}
@@ -718,9 +746,14 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 				return drainCtx.Err()
 			}
 
+			queue := shared
+			if idx := keyedWorkerFor(m, numWorkers); idx >= 0 {
+				queue = keyed[idx]
+			}
+
 			r.engine.inFlightWg.Add(1)
 			select {
-			case msgChan <- m:
+			case queue <- m:
 				return nil
 			case <-drainCtx.Done():
 				r.engine.inFlightWg.Done()
@@ -728,7 +761,10 @@ func (r *Runner) runBufferToSink(ctx context.Context, sinkWg *sync.WaitGroup) {
 				return drainCtx.Err()
 			}
 		})
-		close(msgChan)
+		close(shared)
+		for _, q := range keyed {
+			close(q)
+		}
 
 		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			r.engine.logger.Error("Buffer-to-Sink consumer error", "workflow_id", r.engine.workflowID, "error", err)
@@ -779,11 +815,30 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 			r.engine.UpdateNodeErrorMetric("validator", 1)
 			r.engine.RecordTraceStep(ctx, m, "validator", vstart, nil, err)
 
+			// A message that fails validation fails it every time, so the only
+			// two dispositions are "parked in the dead-letter queue" and "kept on
+			// the source". Parking it and then not acknowledging is neither: the
+			// source replays it forever, it can never pass, and every run parks
+			// another copy — a queue that grows without bound behind a
+			// replication slot that never advances. Acknowledge only what the
+			// park actually preserved, the same rule the no-target branch below
+			// already follows.
 			if r.engine.deadLetterSink != nil {
 				m.SetMetadata("_hermod_validation_failed", "true")
 				m.SetMetadata("_hermod_last_error", err.Error())
-				_ = r.engine.deadLetterSink.Write(ctx, m)
+				if werr := r.engine.deadLetterSink.Write(ctx, m); werr != nil {
+					r.engine.logger.Error("Dead-letter sink refused a message that failed validation; "+
+						"leaving it unacknowledged so it is redelivered rather than lost",
+						"workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", werr)
+					return
+				}
 				r.engine.statusTracker.IncDeadLetter()
+				if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
+					_ = r.engine.outboxStore.DeleteOutboxItem(ctx, outboxID)
+				} else if aerr := r.engine.source.Ack(ctx, m); aerr != nil {
+					r.engine.logger.Error("Source acknowledgement failed after parking an invalid message",
+						"workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", aerr)
+				}
 			}
 			return
 		}
@@ -794,15 +849,25 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 	// Routing
 	var targets []RoutedMessage
 	if r.engine.router != nil {
+		// Snapshot before routing, not after. For a node-graph workflow the
+		// router runs the entire traversal, so by the time it returns every
+		// node has already rewritten the message -- and the step is timestamped
+		// here, ahead of all of them. Recording the message the router was
+		// handed keeps the step's payload and its position in the trace
+		// describing the same moment.
+		var routed map[string]any
+		if r.engine.WillTrace(m) {
+			routed = m.ToMap()
+		}
 		rstart := time.Now()
 		t, err := r.engine.router(ctx, m)
 		if err != nil {
 			r.engine.logger.Error("Routing failed", "workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", err)
-			r.engine.RecordTraceStep(ctx, m, "router", rstart, nil, err)
+			r.engine.RecordTraceStepSnapshot(ctx, m, "router", rstart, nil, routed, err)
 			return
 		}
 		targets = t
-		r.engine.RecordTraceStep(ctx, m, "router", rstart, nil, nil)
+		r.engine.RecordTraceStepSnapshot(ctx, m, "router", rstart, nil, routed, nil)
 	} else {
 		// Default: route to all sinks
 		targets = make([]RoutedMessage, len(r.engine.sinks))
@@ -843,6 +908,16 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		// sink resolved for. It is the opposite: it is already written.
 		// Acknowledging it is what lets a replication slot advance.
 		if m != nil && m.Metadata()[MetaDeliveredInline] == "true" {
+			ack()
+			return
+		}
+
+		// A node that failed was already parked in the dead-letter sink where it
+		// failed, and routes nothing afterwards — so it arrives here looking like
+		// a message nothing handled. It is already preserved: acknowledging it is
+		// correct, and parking it again just puts a second copy of one event in
+		// the queue.
+		if m != nil && m.Metadata()[MetaDeadLettered] == "true" {
 			ack()
 			return
 		}
@@ -971,3 +1046,42 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 // destination into a stuck deploy. Derived from the shared budget so it cannot
 // push the total past the orchestrator's grace period.
 func drainAbandonGrace() time.Duration { return config.Shutdown().Grace }
+
+// keyedQueueDepth is how many messages one worker's private queue holds.
+//
+// It only has to cover the gap between the producer handing over a message and
+// the worker picking it up; anything deeper just moves the queue, because the
+// inflight semaphore already bounds total work in flight. Small keeps a hot row
+// from hoarding buffer that other rows need.
+const keyedQueueDepth = 8
+
+// keyedWorkerFor returns the worker that owns a message's ordering key, or -1
+// when the message has none and any worker will do.
+//
+// Hashing the key is what makes the order survive: every change to one row lands
+// on one worker and is processed in the order it was read. The key must identify
+// the row rather than the change — a CDC message's ID is its LSN, unique per
+// change, so hashing that would scatter a row across every worker and guarantee
+// exactly the reordering this exists to prevent.
+func keyedWorkerFor(m hermod.Message, numWorkers int) int {
+	key := hermod.OrderingKey(m)
+	if key == "" {
+		return -1
+	}
+	if numWorkers <= 1 {
+		return 0
+	}
+	// FNV-1a inline: this runs once per message, and the hash is four lines.
+	// Going through a sync.Pool for it costs a Get/Put round trip and an
+	// interface assertion to save nothing — there is no allocation to avoid.
+	const (
+		offset32 = 2166136261
+		prime32  = 16777619
+	)
+	sum := uint32(offset32)
+	for i := range len(key) {
+		sum ^= uint32(key[i])
+		sum *= prime32
+	}
+	return int(sum % uint32(numWorkers))
+}

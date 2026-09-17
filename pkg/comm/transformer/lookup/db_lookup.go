@@ -2,7 +2,9 @@ package lookup
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,12 +29,12 @@ import (
 
 func init() {
 	transformer.Register("db_lookup", &DBLookupTransformer{
-		batchers: make(map[string]*batcher.Batcher[any, any]),
+		batchers: make(map[string]*batcherEntry),
 	})
 }
 
 type DBLookupTransformer struct {
-	batchers   map[string]*batcher.Batcher[any, any]
+	batchers   map[string]*batcherEntry
 	batchersMu sync.RWMutex
 }
 
@@ -109,10 +111,23 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 			missError(table, keyField, nil))
 	}
 
-	// %T as well as %v: without it the string "1" and the number 1 produce the
-	// same key, so two lookups keyed on the same id in different types serve
-	// each other's rows.
-	cacheKey := hermod.LookupCacheKeyPrefix(sourceID) + fmt.Sprintf("%s:%s:%s:%T:%v:%s:%s:%s", table, keyColumn, valueColumn, keyVal, keyVal, whereClause, queryTemplate, mode)
+	// Parsed before the query, not after it: a ttl that cannot be parsed is a
+	// cache that never expires, and finding that out only once the row is in
+	// hand means the bad entry is already stored. Unset keeps meaning "no
+	// expiry" here -- unlike api_lookup, where a remote response has no claim to
+	// permanence, a lookup table is routinely static reference data and changing
+	// that default would add a query per message to every existing workflow.
+	ttl, err := resolveLookupTTL(ttlStr, 0)
+	if err != nil {
+		return msg, fmt.Errorf("db_lookup: %w", err)
+	}
+
+	// Snapshot the message once. Every query path below resolves its templates
+	// against this same map, and so does the cache key, so the key cannot
+	// describe a different query from the one that runs.
+	data := msg.Data()
+
+	cacheKey := lookupCacheKey(sourceID, table, keyColumn, valueColumn, keyVal, whereClause, queryTemplate, mode, data)
 	if cached, found := registry.GetLookupCache(cacheKey); found {
 		applyLookupResult(msg, targetField, flattenInto, cached)
 		return msg, nil
@@ -143,13 +158,16 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	}
 	nodeID, _ := ctx.Value(hermod.NodeIDKey).(string)
 
-	if useBatching && nodeID != "" && mode != "query" && queryTemplate == "" && src.Type != "mongodb" {
-		batchSize, _ := config["batchSize"].(int)
-		if batchSize <= 0 {
-			if s, ok := config["batchSize"].(string); ok {
-				batchSize, _ = strconv.Atoi(s)
-			}
-		}
+	// A templated whereClause is deliberately excluded. Batching coalesces many
+	// messages into one query, and a WHERE that varies per message cannot be
+	// coalesced: the batcher resolved it once, against whichever message created
+	// it, and then filtered every later batch by that first message's values.
+	// There is no version of this that both batches and filters correctly, so
+	// such a node takes the per-message path below, which already resolves its
+	// templates for the message in hand.
+	if useBatching && nodeID != "" && mode != "query" && queryTemplate == "" &&
+		src.Type != "mongodb" && !strings.Contains(whereClause, "{{") {
+		batchSize := configInt(config, "batchSize")
 		if batchSize <= 0 {
 			batchSize = 100
 		}
@@ -159,7 +177,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 			batchWait = d
 		}
 
-		b := t.getOrCreateBatcher(nodeID, registry, src, table, keyColumn, valueColumn, whereClause, defaultValue, msg.Data(), batchSize, batchWait)
+		b := t.getOrCreateBatcher(nodeID, registry, src, table, keyColumn, valueColumn, whereClause, defaultValue, batchSize, batchWait)
 		resultVal, err = b.Execute(ctx, keyVal)
 		if err != nil {
 			return msg, err
@@ -167,7 +185,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	} else {
 		if src.Type == "mongodb" {
 			// queryTemplate not supported for Mongo; use whereClause
-			resultVal, err = t.lookupMongoDB(ctx, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, msg.Data())
+			resultVal, err = t.lookupMongoDB(ctx, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, data)
 		} else {
 			// If mode is explicit, follow it. Otherwise fallback to queryTemplate presence.
 			useTemplate := false
@@ -180,9 +198,9 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 			}
 
 			if useTemplate {
-				resultVal, err = t.lookupSQLWithTemplate(ctx, registry, src, queryTemplate, valueColumn, msg.Data())
+				resultVal, err = t.lookupSQLWithTemplate(ctx, registry, src, queryTemplate, valueColumn, data)
 			} else {
-				resultVal, err = t.lookupSQL(ctx, registry, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, msg.Data())
+				resultVal, err = t.lookupSQL(ctx, registry, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, data)
 			}
 		}
 	}
@@ -192,11 +210,9 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	}
 
 	if resultVal != nil {
-		var ttl time.Duration
-		if ttlStr != "" {
-			ttl, _ = time.ParseDuration(ttlStr)
+		if ttl.cache {
+			registry.SetLookupCache(cacheKey, resultVal, ttl.duration)
 		}
-		registry.SetLookupCache(cacheKey, resultVal, ttl)
 		applyLookupResult(msg, targetField, flattenInto, resultVal)
 	} else {
 		// The query ran and produced nothing. Same decision as the paths above.
@@ -205,6 +221,66 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	}
 
 	return msg, nil
+}
+
+// lookupCacheKey identifies the row a lookup is about to fetch.
+//
+// Everything that selects that row has to be in the key, and for a templated
+// lookup most of it is not in the configuration: queryTemplate and whereClause
+// carry {{ ... }} tokens whose values come from the message. Keying on the raw
+// template text made the key byte-identical for every message in a workflow --
+// and since an unset ttl caches forever (SetLookupCache treats ttl <= 0 as no
+// expiry), the first message's row was then served to every message after it.
+// The shape that hits it hardest is the one the editor produces by default:
+// mode "query", a queryTemplate, and no keyField, so keyVal is nil as well.
+//
+// Only the resolved values are appended, not the resolved statement: they are
+// what varies per message, and they go in as a digest because their size is
+// bounded by nothing -- a templated blob field would otherwise become a
+// megabyte-long map key.
+//
+// %T as well as %v throughout: without it the string "1" and the number 1
+// produce the same key, so two lookups keyed on the same id in different types
+// serve each other's rows.
+func lookupCacheKey(sourceID, table, keyColumn, valueColumn string, keyVal any,
+	whereClause, queryTemplate, mode string, data map[string]any,
+) string {
+	key := hermod.LookupCacheKeyPrefix(sourceID) + fmt.Sprintf("%s:%s:%s:%T:%v:%s:%s:%s",
+		table, keyColumn, valueColumn, keyVal, keyVal, whereClause, queryTemplate, mode)
+
+	binding := bindingDigest(whereClause, queryTemplate, data)
+	if binding == "" {
+		return key
+	}
+	return key + ":" + binding
+}
+
+// bindingDigest hashes the per-message values a lookup's templates resolve to,
+// returning "" when neither clause is templated -- which keeps the key, and the
+// cost, exactly what it was for a plain table lookup.
+func bindingDigest(whereClause, queryTemplate string, data map[string]any) string {
+	hasQuery := strings.Contains(queryTemplate, "{{")
+	hasWhere := strings.Contains(whereClause, "{{")
+	if !hasQuery && !hasWhere {
+		return ""
+	}
+
+	h := sha256.New()
+	if hasQuery {
+		// The same walk that binds the arguments, so the digest and the
+		// statement can never disagree about what the template depends on.
+		for i, arg := range sqlutil.TemplateArgs(queryTemplate, data) {
+			_, _ = fmt.Fprintf(h, "q%d\x00%T\x00%v\x00", i, arg, arg)
+		}
+	}
+	if hasWhere {
+		// lookupSQL parses whereClause itself, with its own AND-splitting and
+		// its own per-fragment template handling, so there is no argument list
+		// to reuse. Rendering the whole clause is the faithful stand-in: it is
+		// a pure function of (clause, data), which is all a key needs.
+		_, _ = fmt.Fprintf(h, "w\x00%s\x00", evaluator.ResolveTemplate(whereClause, data))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // applyLookupResult writes a found value into the message: at targetField, and
@@ -383,6 +459,23 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 					val = rhs
 				}
 			}
+			// A list value means membership, not equality. Binding it to a
+			// single "=" placeholder was both the wrong operator and an
+			// argument no driver can encode.
+			if arr, ok := asSlice(val); ok {
+				if len(arr) == 0 {
+					return nil, nil
+				}
+				phs := make([]string, 0, len(arr))
+				for range arr {
+					phs = append(phs, sqlutil.Placeholder(driver, nextIdx))
+					nextIdx++
+				}
+				whereParts = append(whereParts, fmt.Sprintf("%s IN (%s)", qcol, strings.Join(phs, ", ")))
+				args = append(args, arr...)
+				batchMode = true
+				continue
+			}
 			ph := sqlutil.Placeholder(driver, nextIdx)
 			nextIdx++
 			whereParts = append(whereParts, fmt.Sprintf("%s = %s", qcol, ph))
@@ -472,18 +565,77 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 	return rowsOut, nil
 }
 
-func (t *DBLookupTransformer) getOrCreateBatcher(nodeID string, registry any, src storage.Source, table, keyColumn, valueColumn, whereClause, defaultValue string, data map[string]any, batchSize int, batchWait time.Duration) *batcher.Batcher[any, any] {
+// batcherEntry pairs a batcher with a description of what its closure captured,
+// so the next message can tell whether that is still the right one.
+type batcherEntry struct {
+	fingerprint string
+	batcher     *batcher.Batcher[any, any]
+}
+
+// batcherFingerprint covers everything getOrCreateBatcher's closure holds on to.
+//
+// Digested rather than concatenated because a source's config is arbitrary
+// length, and this string is a value in a map that lives for the life of the
+// process.
+func batcherFingerprint(src storage.Source, table, keyColumn, valueColumn, whereClause, defaultValue string, batchSize int, batchWait time.Duration) string {
+	h := sha256.New()
+	// fmt sorts map keys, so a config map prints the same way every time.
+	_, _ = fmt.Fprintf(h, "%s\x00%s\x00%v\x00%s\x00%s\x00%s\x00%s\x00%s\x00%d\x00%d",
+		src.ID, src.Type, src.Config,
+		table, keyColumn, valueColumn, whereClause, defaultValue,
+		batchSize, batchWait)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// getOrCreateBatcher returns the batcher for a node, building a new one when
+// the node has none or when what it captured no longer matches the request.
+//
+// It used to return the first batcher it ever built for a node id and never
+// look again, which froze the source alongside it: repointing the node at
+// another database, or rotating its credentials, left the batching path
+// querying the old one until the process restarted. The registry drops that
+// source's cache entries on an edit for exactly this reason
+// (Registry.invalidateLookupCacheForSource), and this defeated it.
+//
+// The superseded batcher is dropped rather than closed. Close makes a
+// concurrent Execute fail with context.Canceled, which would turn a
+// reconfiguration into failed messages; an abandoned batcher instead flushes
+// whatever it already had -- its timer is a one-shot AfterFunc -- and is then
+// garbage.
+func (t *DBLookupTransformer) getOrCreateBatcher(nodeID string, registry any, src storage.Source, table, keyColumn, valueColumn, whereClause, defaultValue string, batchSize int, batchWait time.Duration) *batcher.Batcher[any, any] {
+	fingerprint := batcherFingerprint(src, table, keyColumn, valueColumn, whereClause, defaultValue, batchSize, batchWait)
+
+	t.batchersMu.RLock()
+	entry, ok := t.batchers[nodeID]
+	t.batchersMu.RUnlock()
+	if ok && entry.fingerprint == fingerprint {
+		return entry.batcher
+	}
+
 	t.batchersMu.Lock()
 	defer t.batchersMu.Unlock()
-	if b, ok := t.batchers[nodeID]; ok {
-		return b
+	// Re-check: another message may have rebuilt it while the lock was released.
+	if entry, ok := t.batchers[nodeID]; ok && entry.fingerprint == fingerprint {
+		return entry.batcher
 	}
+
 	b := batcher.NewBatcher(batchSize, batchWait, func(ctx context.Context, keys []any) (map[any]any, error) {
+		// nil, not the creating message's data: the caller only reaches this
+		// path when whereClause carries no {{ }} token, so there is nothing for
+		// lookupSQL to resolve against. Passing the data through is how a single
+		// message's values came to filter every batch after it.
 		return t.lookupSQLBatch(ctx, registry.(interface {
 			GetOrOpenDB(src storage.Source) (*sql.DB, error)
-		}), src, table, keyColumn, keys, whereClause, valueColumn, defaultValue, data)
+		}), src, table, keyColumn, keys, whereClause, valueColumn, defaultValue, nil)
 	})
-	t.batchers[nodeID] = b
+
+	if t.batchers == nil {
+		// A transformer built without the constructor -- init() supplies the map,
+		// but a zero value is otherwise perfectly usable, and assigning into a nil
+		// map panics.
+		t.batchers = make(map[string]*batcherEntry)
+	}
+	t.batchers[nodeID] = &batcherEntry{fingerprint: fingerprint, batcher: b}
 	return b
 }
 
@@ -573,7 +725,11 @@ func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registr
 		driver = "mssql"
 	}
 
-	sqlText, args := core.ParameterizeTemplate(driver, queryTemplate, data)
+	b := core.ParameterizeTemplateEx(driver, queryTemplate, data)
+	if b.Err != nil {
+		return nil, b.Err
+	}
+	sqlText, args := b.SQL, b.Args
 	if strings.TrimSpace(sqlText) == "" {
 		return nil, errors.New("empty queryTemplate after processing")
 	}
@@ -664,37 +820,14 @@ func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registr
 }
 
 // asSlice tries to coerce v into a slice of any for batch IN processing.
+//
+// It delegates to core.AsSlice so the lookup paths and the query-template path
+// agree on what counts as a list. The hand-written type switch this replaced
+// covered []any, []string, []int, []int64 and []float64 only, so a list that
+// arrived as any other slice kind was bound whole to one placeholder and the
+// driver rejected it.
 func asSlice(v any) ([]any, bool) {
-	switch arr := v.(type) {
-	case []any:
-		return arr, true
-	case []string:
-		out := make([]any, len(arr))
-		for i, s := range arr {
-			out[i] = s
-		}
-		return out, true
-	case []int:
-		out := make([]any, len(arr))
-		for i, s := range arr {
-			out[i] = s
-		}
-		return out, true
-	case []int64:
-		out := make([]any, len(arr))
-		for i, s := range arr {
-			out[i] = s
-		}
-		return out, true
-	case []float64:
-		out := make([]any, len(arr))
-		for i, s := range arr {
-			out[i] = s
-		}
-		return out, true
-	default:
-		return nil, false
-	}
+	return core.AsSlice(v)
 }
 
 func buildLookupQuery(driver, selectList, quotedTable string, whereParts []string, batchMode bool) string {

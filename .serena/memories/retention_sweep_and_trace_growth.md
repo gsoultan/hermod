@@ -1,9 +1,16 @@
 # Retention sweeps, and why message_trace_steps ate 50 GB
 
-`message_trace_steps` is the fastest-growing table Hermod owns. It stores
-`before_data` **and** `after_data` — the whole message payload, twice, per node,
-per message (`internal/storage/sql/queries.go`, `QueryInitMessageTraceStepsTable`).
-Nothing bounds it except `Registry.purgeRetention`.
+`message_trace_steps` is the fastest-growing table Hermod owns: the whole message
+payload, per node, per message. Nothing bounds it except `Registry.purgeRetention`.
+
+> **Corrected 2026-09-17.** This used to say the table stores `before_data` *and*
+> `after_data` — the payload twice. It no longer does. There is no `before_data`
+> column (`QueryInitMessageTraceStepsTable` in `internal/storage/sql/queries.go`);
+> only `after_data` is written, and `GetMessageTrace` reconstructs each step's
+> `Before` from the previous step's `After`. That reconstruction has a
+> consequence worth knowing before reading a trace — see
+> [`message_trace_shape.md`](message_trace_shape.md). A single payload is also
+> capped at 32 KB by `capTracePayload` (`HERMOD_TRACE_MAX_PAYLOAD_BYTES`).
 
 ## The bug
 

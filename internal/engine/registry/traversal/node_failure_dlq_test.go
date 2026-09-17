@@ -163,3 +163,53 @@ func TestASucceedingNodeIsNotDeadLettered(t *testing.T) {
 		t.Errorf("a workflow that succeeded dead-lettered %d message(s)", len(got))
 	}
 }
+
+// TestTheDeadLetterMarkerSurvivesAFanOutClone.
+//
+// A node past a fan-out receives a *clone* of the message, so the marker the
+// engine stamps on the message it parked is stamped on the clone and thrown
+// away with it. The original — the one the engine then decides to acknowledge
+// or keep — carries nothing, so the engine treats an already-parked message as
+// one nothing handled and parks a second copy of the same event.
+//
+// The traversal carries the fact instead, which is what survives the clone.
+func TestTheDeadLetterMarkerSurvivesAFanOutClone(t *testing.T) {
+	dlq := &capturingSink{}
+
+	reg := &mockRegistry{
+		RunWorkflowNodeFn: func(_ string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+			if node.ID == "B" {
+				return nil, "", errors.New("node B could not parse the payload")
+			}
+			return []hermod.Message{msg}, "", nil
+		},
+	}
+	eng := pkgengine.NewEngine(nil, nil, nil)
+	eng.SetDeadLetterSink(dlq)
+
+	// S fans out to A and B, so both receive clones. B fails.
+	nodeMap := map[string]*storage.WorkflowNode{
+		"S": {ID: "S", Type: "source"},
+		"A": {ID: "A", Type: "transformation"},
+		"B": {ID: "B", Type: "transformation"},
+	}
+	adj := map[string][]string{"S": {"A", "B"}}
+	inDegree := map[string]int{"A": 1, "B": 1}
+	nodeIndex := map[string]int{"S": 0, "A": 1, "B": 2}
+
+	srcMsg := message.AcquireMessage()
+	srcMsg.SetID("m-fanout")
+
+	tr := traversal.Acquire(reg, eng, "wf-fanout", nodeMap, adj, nodeIndex, nil, nil, inDegree, nil)
+	srcMsg.Retain()
+	tr.CurrentMessages[nodeIndex["S"]] = srcMsg
+	tr.Traverse(t.Context(), "S")
+
+	if len(dlq.written()) != 1 {
+		t.Fatalf("the failing node dead-lettered %d message(s), want 1", len(dlq.written()))
+	}
+	if !tr.DeadLettered.Load() {
+		t.Error("the traversal does not report that it dead-lettered the message, so the " +
+			"engine cannot tell it is already preserved and parks a second copy")
+	}
+}

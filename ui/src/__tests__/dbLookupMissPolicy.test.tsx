@@ -77,4 +77,15 @@ describe('db_lookup miss policy', () => {
     await renderAdvanced({ sourceId: 's1', onMiss: 'default', defaultValue: 'unknown' })
     expect(screen.queryByTestId('lookup-miss-warning')).toBeNull()
   })
+
+  // resolveLookupTTL rejects a value with no unit rather than discarding the
+  // parse error, and an explicit 0 now turns the cache off. Both are invisible
+  // from a field whose only guidance is a placeholder, and "5" is exactly what
+  // someone types into a box labelled Cache TTL.
+  it('states that the TTL needs a unit and that 0 disables the cache', async () => {
+    await renderAdvanced({ sourceId: 's1' })
+    const ttl = screen.getByTestId('db-lookup-ttl-description')
+    expect(ttl).toHaveTextContent(/unit/i)
+    expect(ttl).toHaveTextContent(/0/)
+  })
 })

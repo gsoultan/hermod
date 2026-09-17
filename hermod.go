@@ -3,6 +3,7 @@ package hermod
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -362,3 +363,62 @@ const (
 
 // Handler is a function type for processing received messages.
 type Handler func(ctx context.Context, msg Message) error
+
+// MetaOrderingKey names the row a message changes.
+//
+// It is the unit of ordering: two messages carrying the same key are delivered
+// in the order the source produced them, and messages carrying different keys
+// are free to run in parallel. The engine pins a key to one worker and one sink
+// shard, so the guarantee holds end to end rather than only inside the writer.
+//
+// It must identify a *row*, not a change. A CDC message's ID is its LSN, which
+// is unique per change — hashing on that scatters every change to one row across
+// every worker, which is the opposite of what is wanted. Sources that know their
+// row identity set this to schema.table plus the primary-key values; the format
+// is opaque, only equality matters.
+//
+// Empty means "no order to keep" — a queue message, a cron tick, a batch row —
+// and those are spread across workers exactly as before.
+const MetaOrderingKey = "_hermod_order_key"
+
+// OrderingKey returns the message's ordering key, or "" when it has none.
+//
+// It reads the metadata by reference rather than through Metadata(), which
+// clones the map: this runs once per message on the dispatch path, and cloning
+// there cost about a third of the engine's throughput (165k -> 108k msgs/s
+// measured) for a single map lookup. The read is safe because the caller owns
+// the message at that point — it has been taken off the buffer and not yet
+// handed to a worker.
+func OrderingKey(msg Message) string {
+	if msg == nil {
+		return ""
+	}
+	md := msg.MetadataRef()
+	if md == nil {
+		return ""
+	}
+	return md[MetaOrderingKey]
+}
+
+// BuildOrderingKey composes an ordering key from a table and its key values.
+// It returns "" when there are no key values, because a row that cannot be
+// identified cannot be ordered against itself.
+func BuildOrderingKey(schema, table string, keyValues []string) string {
+	if len(keyValues) == 0 || table == "" {
+		return ""
+	}
+	var b strings.Builder
+	if schema != "" {
+		b.WriteString(schema)
+		b.WriteByte('.')
+	}
+	b.WriteString(table)
+	b.WriteByte(':')
+	for i, v := range keyValues {
+		if i > 0 {
+			b.WriteByte('|')
+		}
+		b.WriteString(v)
+	}
+	return b.String()
+}

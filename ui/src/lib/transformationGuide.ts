@@ -141,7 +141,7 @@ const GUIDES: Record<string, TransformationGuide> = {
   },
   data_conversion: {
     title: 'Convert types',
-    what: 'Changes field types — text to number, number to date, and so on.',
+    what: 'Changes field types — text to number, number to date, text to a list and back.',
     firstStep: 'Pick a field and the type it should become.',
   },
   sampling: {

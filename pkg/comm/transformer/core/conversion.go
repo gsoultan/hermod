@@ -2,10 +2,15 @@ package core
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
@@ -29,9 +34,11 @@ func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Me
 		return msg, nil
 	}
 
-	targetType, _ := config["targetType"].(string)       // "int", "float", "bool", "string", "date"
+	targetType, _ := config["targetType"].(string)       // "int", "float", "bool", "string", "date", "uuid", "array"
 	format, _ := config["format"].(string)               // used for date
 	errorBehavior, _ := config["errorBehavior"].(string) // "fail", "null", "keep"
+	separator, _ := config["separator"].(string)         // used for array <-> string, default ","
+	elementType, _ := config["elementType"].(string)     // used for array: coerce each element
 
 	valRaw := evaluator.EvaluateField(msg, field)
 
@@ -55,18 +62,15 @@ func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Me
 		err = fmt.Errorf("field %q resolved to nothing on this message", field)
 	} else {
 		switch strings.ToLower(targetType) {
-		case "int", "integer":
-			converted, err = t.toInt(valRaw)
-		case "float", "decimal", "double":
-			converted, err = t.toFloat(valRaw)
-		case "bool", "boolean":
-			converted, err = t.toBool(valRaw)
-		case "string":
-			converted = fmt.Sprintf("%v", valRaw)
-		case "date", "datetime", "time":
-			converted, err = t.toDate(valRaw, format)
+		case "array", "list":
+			converted, err = t.toArray(valRaw, separator, elementType)
 		default:
-			return msg, fmt.Errorf("unsupported target type: %s", targetType)
+			converted, err = t.convertScalar(valRaw, targetType, format, separator)
+			if err != nil && errors.Is(err, errUnsupportedTargetType) {
+				// An unknown target type is a configuration fault, not a value
+				// fault, so it is not subject to errorBehavior.
+				return msg, err
+			}
 		}
 	}
 
@@ -93,6 +97,171 @@ func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Me
 
 	msg.SetData(targetField, converted)
 	return msg, nil
+}
+
+// errUnsupportedTargetType marks a configuration fault rather than a value
+// that would not convert, so errorBehavior does not swallow it.
+var errUnsupportedTargetType = errors.New("unsupported target type")
+
+// convertScalar converts a single value. It is shared by the node's own
+// targetType and by the per-element coercion an "array" conversion applies.
+func (t *DataConversionTransformer) convertScalar(val any, targetType, format, separator string) (any, error) {
+	switch strings.ToLower(targetType) {
+	case "int", "integer":
+		return t.toInt(val)
+	case "float", "decimal", "double":
+		return t.toFloat(val)
+	case "bool", "boolean":
+		return t.toBool(val)
+	case "string":
+		return t.toString(val, separator), nil
+	case "uuid":
+		return t.toUUID(val)
+	case "date", "datetime", "time":
+		return t.toDate(val, format)
+	default:
+		return nil, fmt.Errorf("%w: %s", errUnsupportedTargetType, targetType)
+	}
+}
+
+// toArray turns a value into a list so it can be used where a list is needed --
+// most directly as `IN ({{.field}})` in a SQL template, which expands a list
+// into one placeholder per element.
+//
+// A string is read as JSON when it looks like JSON, because that is the shape a
+// jsonb or document column arrives in, and split on separator otherwise. A
+// scalar becomes a one-element list rather than an error: a lookup keyed on one
+// id is the degenerate case of a lookup keyed on several.
+func (t *DataConversionTransformer) toArray(val any, separator, elementType string) (any, error) {
+	if separator == "" {
+		separator = ","
+	}
+
+	var raw []any
+	switch v := val.(type) {
+	case string:
+		trimmed := strings.TrimSpace(v)
+		switch {
+		case trimmed == "":
+			raw = []any{}
+		case strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]"):
+			var parsed []any
+			if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil {
+				raw = parsed
+				break
+			}
+			raw = splitAndTrim(v, separator)
+		case strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}"):
+			// A JSON object is one value, not a list of its fields.
+			var obj map[string]any
+			if err := json.Unmarshal([]byte(trimmed), &obj); err == nil {
+				raw = []any{obj}
+				break
+			}
+			raw = splitAndTrim(v, separator)
+		default:
+			raw = splitAndTrim(v, separator)
+		}
+	default:
+		if arr, ok := AsSlice(val); ok {
+			raw = arr
+		} else {
+			raw = []any{val}
+		}
+	}
+
+	if elementType == "" {
+		return raw, nil
+	}
+	out := make([]any, len(raw))
+	for i, el := range raw {
+		conv, err := t.convertScalar(el, elementType, "", separator)
+		if err != nil {
+			return nil, fmt.Errorf("element %d (%v): %w", i, el, err)
+		}
+		out[i] = conv
+	}
+	return out, nil
+}
+
+func splitAndTrim(s, separator string) []any {
+	parts := strings.Split(s, separator)
+	out := make([]any, len(parts))
+	for i, p := range parts {
+		out[i] = strings.TrimSpace(p)
+	}
+	return out
+}
+
+// toString renders a value as text. A list joins on separator instead of
+// rendering Go's %v form, which produced "[a b c]" -- a value no database or
+// downstream system accepts, and the reason an array could not be converted
+// back to a scalar at all.
+func (t *DataConversionTransformer) toString(val any, separator string) string {
+	if separator == "" {
+		separator = ","
+	}
+	if arr, ok := AsSlice(val); ok {
+		parts := make([]string, len(arr))
+		for i, el := range arr {
+			parts[i] = scalarToString(el)
+		}
+		return strings.Join(parts, separator)
+	}
+	return scalarToString(val)
+}
+
+func scalarToString(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case []byte:
+		return string(x)
+	}
+	// Composite values render as JSON; everything else keeps the %v form it has
+	// always had, so dates and numbers are unaffected.
+	switch reflect.ValueOf(v).Kind() {
+	case reflect.Map, reflect.Slice, reflect.Array:
+		if b, err := json.Marshal(v); err == nil {
+			return string(b)
+		}
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+// toUUID validates and canonicalizes a UUID: lower case, hyphenated. It accepts
+// the forms a database driver or an API can hand over -- hyphenated, bare hex,
+// braced, urn-prefixed, and the raw 16 bytes a uuid column decodes to.
+func (t *DataConversionTransformer) toUUID(val any) (any, error) {
+	switch v := val.(type) {
+	case uuid.UUID:
+		return v.String(), nil
+	case [16]byte:
+		return uuid.UUID(v).String(), nil
+	case []byte:
+		if len(v) == 16 {
+			u, err := uuid.FromBytes(v)
+			if err != nil {
+				return nil, fmt.Errorf("not a uuid: %w", err)
+			}
+			return u.String(), nil
+		}
+		u, err := uuid.Parse(strings.TrimSpace(string(v)))
+		if err != nil {
+			return nil, fmt.Errorf("not a uuid: %w", err)
+		}
+		return u.String(), nil
+	case string:
+		u, err := uuid.Parse(strings.TrimSpace(v))
+		if err != nil {
+			return nil, fmt.Errorf("not a uuid: %w", err)
+		}
+		return u.String(), nil
+	default:
+		return nil, fmt.Errorf("cannot convert %T to uuid", val)
+	}
 }
 
 func (t *DataConversionTransformer) toInt(val any) (any, error) {

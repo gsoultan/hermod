@@ -71,3 +71,44 @@ func BenchmarkMessageSetData(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkMessageClone measures the two shapes Clone actually sees: a flat row
+// of scalars (most CDC rows) and a row carrying a nested jsonb document. Clone
+// runs once per extra branch on every fan-out, so the flat case is the one that
+// must not regress.
+func BenchmarkMessageClone(b *testing.B) {
+	b.Run("flat scalars", func(b *testing.B) {
+		m := AcquireMessage()
+		defer ReleaseMessage(m)
+		m.SetID("row-1")
+		m.SetData("id", 1)
+		m.SetData("name", "value")
+		m.SetData("active", true)
+		m.SetMetadata("_hermod_workflow_id", "wf-1")
+
+		b.ReportAllocs()
+		for b.Loop() {
+			c := m.Clone()
+			c.Release()
+		}
+	})
+
+	b.Run("nested document", func(b *testing.B) {
+		m := AcquireMessage()
+		defer ReleaseMessage(m)
+		m.SetID("row-2")
+		m.SetData("id", 2)
+		m.SetData("doc", map[string]any{
+			"status": "open",
+			"labels": []any{"a", "b", "c"},
+			"nested": map[string]any{"k": "v"},
+		})
+		m.SetMetadata("_hermod_workflow_id", "wf-1")
+
+		b.ReportAllocs()
+		for b.Loop() {
+			c := m.Clone()
+			c.Release()
+		}
+	})
+}

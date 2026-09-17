@@ -353,9 +353,48 @@ func (m *DefaultMessage) Clone() hermod.Message {
 	clear(clone.metadata)
 	clear(clone.data)
 
+	// Metadata values are strings, so copying the map is enough.
 	maps.Copy(clone.metadata, m.metadata)
-	maps.Copy(clone.data, m.data)
+
+	// Data values are not. A jsonb column decodes to a map[string]any, and the
+	// traversal clones a message once per branch on every fan-out — so with a
+	// top-level copy both branches held the *same* nested map. A transformation
+	// writing into it on one branch was visible on the other, and the two
+	// branches delivered each other's data with nothing logged.
+	for k, v := range m.data {
+		clone.data[k] = deepCopyValue(v)
+	}
 	return clone
+}
+
+// deepCopyValue returns a copy of v sharing no mutable state with it.
+//
+// Only the container kinds a decoded message can actually hold are copied;
+// everything else is returned as-is, so a row of scalars — the common case —
+// costs one type switch per field and allocates nothing.
+func deepCopyValue(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, vv := range t {
+			out[k] = deepCopyValue(vv)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, vv := range t {
+			out[i] = deepCopyValue(vv)
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]string, len(t))
+		maps.Copy(out, t)
+		return out
+	case []byte:
+		return append([]byte(nil), t...)
+	default:
+		return v
+	}
 }
 
 func (m *DefaultMessage) ToMap() map[string]any {

@@ -29,5 +29,69 @@ class of bug. `cachingFakeRegistry` exists for that.
 The cache key had a second defect: it interpolated the key value with `%v`
 alone, so `"1"` and `1` collided. It now includes `%T`.
 
+## The key itself was the worse bug
+
+`%T` fixed a collision. What the key *omitted* was total collapse: it was built
+from the **unresolved** `queryTemplate` and `whereClause` text. In query mode the
+per-message input lives entirely inside the `{{ }}` token, and such a node has no
+`keyField`, so `keyVal` is `nil` as well — every message in the workflow produced
+a byte-identical key, and with no TTL the first row was served for the life of
+the engine. Reported as "every RabbitMQ message gets the same `db_lookup`
+result", and visible directly in `message_trace_steps`: the enriched block was
+identical across messages while the input field differed.
+
+Keys now append a digest of the values the template actually binds, via
+`sqlutil.TemplateArgs`, which is the same walk that builds the statement — so the
+key cannot describe a different query from the one that runs.
+
+**The tell that it is a cache bug and not a query bug:** the SQL query builder and
+the node preview disagree on the same variable. `DiscoveryService.ExecuteSQL` is
+singleflight-only and never cached, so the builder is always right while the
+pipeline is always stale. See
+[`editor_sample_capture_path.md`](editor_sample_capture_path.md).
+
+## The same class in two more places
+
+- **`api_lookup`** keyed on the resolved URL and body — but headers, the auth
+  credential and `responsePath` were applied *after* the key was built. A
+  per-message `{{.userToken}}` returned whatever the first token had fetched.
+  Its cache key is also its singleflight key, so a concurrent pair shared one
+  HTTP request and the disclosure did not need a warm cache. Credentials go into
+  the digest only, never into the key in the clear — the cache is an in-memory
+  map whose keys are walked during eviction.
+- **`getOrCreateBatcher`** is the same bug in closure form: built once per node
+  id and returned forever, freezing the first message's `data` *and* the source.
+  A templated `whereClause` filtered every later batch by message one's values,
+  and repointing a node at another database kept querying the old one, defeating
+  `invalidateLookupCacheForSource`. A templated `whereClause` is no longer
+  batched at all — a per-message WHERE cannot be coalesced into one query — and
+  batchers are keyed by a fingerprint of everything the closure captures. Drop
+  the superseded batcher rather than `Close()` it: `Close` makes a concurrent
+  `Execute` return `context.Canceled`, turning a reconfiguration into failed
+  messages.
+
+**When auditing any cache key here, list every input applied *below* the line
+where the key is built.** That ordering is the whole bug, three times over.
+
+## TTL
+
+Both lookups now go through `resolveLookupTTL` (`pkg/comm/transformer/lookup/ttl.go`):
+
+- a value with no unit is an error naming the field, not a discarded parse error
+  leaving `0` behind — `5` and `300` are what people type into a box labelled
+  Cache TTL, and both used to mean *forever*;
+- an explicit `0` disables the cache, which was previously inexpressible;
+- unset differs on purpose: 5m for `api_lookup`, no expiry for `db_lookup`. A
+  lookup table is routinely static reference data, and bounding it by default
+  would add a query per message to every existing workflow. **That default is
+  still open** — it is a load decision, not a correctness one.
+
+Tests: `db_lookup_cache_key_test.go`, `db_lookup_batching_test.go`,
+`api_lookup_cache_key_test.go`, `api_lookup_behavior_test.go`, and
+`db_lookup_query_mode_integration_test.go` (build tag `integration`), which
+reproduces the reported config against real PostgreSQL.
+
 Related: [`message_payload_decoding.md`](message_payload_decoding.md) — the other
 place where two representations of the same message disagreed.
+[`sqlutil_owns_dialect_differences.md`](sqlutil_owns_dialect_differences.md) —
+where `TemplateArgs` lives and why.

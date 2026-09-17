@@ -920,6 +920,7 @@ func (r *Registry) createSource(ctx context.Context, cfg factory.SourceConfig) (
 			Cron:              cfg.Config["cron"],
 			Queries:           cfg.Config["queries"],
 			IncrementalColumn: cfg.Config["incremental_column"],
+			Parameters:        cfg.Config["parameters"],
 		}
 		src = batchsql.NewBatchSQLSource(r, batchCfg)
 	} else if cfg.Type == "form" {
@@ -954,6 +955,7 @@ func (r *Registry) createSourceInternal(ctx context.Context, cfg factory.SourceC
 			Cron:              cfg.Config["cron"],
 			Queries:           cfg.Config["queries"],
 			IncrementalColumn: cfg.Config["incremental_column"],
+			Parameters:        cfg.Config["parameters"],
 		}
 		src = batchsql.NewBatchSQLSource(r, batchCfg)
 	} else if cfg.Type == "form" {
