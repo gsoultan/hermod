@@ -30,16 +30,25 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: narrowing message_trace_steps (dropping the write-only id and
-// the duplicated before_data) and adding the message_traces parent table.
-// currentSchemaVersion was bumped to 2 for this one, unlike the changes below.
+// Last moved by: adding created_at to workflows, sources, sinks, users, vhosts,
+// workers and plugins — the key each of those lists sorts and pages on.
+// currentSchemaVersion was left alone deliberately. The previous release names
+// its columns in both directions on all seven tables — every Create inserts a
+// fixed list that does not include created_at, and the matching List and Get
+// queries select a fixed list that does not read it — so it writes rows with a
+// NULL there and is otherwise unaffected. Nothing existing changed shape, and
+// autoMigrate only ever adds columns, so the columns survive the rollback and
+// this release's Init backfills the NULLs the older one left when it returns. A
+// bump here would refuse exactly the rollback it is meant to keep safe.
 //
-// This is the dangerous direction the version exists to block. The previous
-// release's RecordTraceStep inserts id and before_data by name, and its
-// GetMessageTrace selects before_data. Both columns are gone after this
-// migration, so an older binary rolled back onto this database would fail
-// every trace write and every trace read — not degrade, fail. Refusing to
-// start is the correct outcome.
+// The note before that: narrowing message_trace_steps (dropping the write-only
+// id and the duplicated before_data) and adding the message_traces parent
+// table. currentSchemaVersion was bumped to 2 for that one, because it is the
+// dangerous direction the version exists to block. That release's
+// RecordTraceStep inserts id and before_data by name, and its GetMessageTrace
+// selects before_data. Both columns are gone after that migration, so an older
+// binary rolled back onto the database would fail every trace write and every
+// trace read — not degrade, fail. Refusing to start is the correct outcome.
 //
 // The earlier note, still true of the change it describes: adding the
 // dashboard_history table, then narrowing it to drop the surrogate id column
@@ -50,7 +59,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "4e5b02f04a3d812f3bb3b5ec22aaecd6ab0ade849d3b4f132b959478fac51df6"
+const knownSchemaFingerprint = "a46bd655faa179742992fe9cff12c2021982b35bad89a927723e23fe638f3562"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

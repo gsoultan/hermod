@@ -63,6 +63,10 @@ type Source struct {
 	Config      hermod.StringMap  `json:"config"`
 	Sample      string            `json:"sample,omitempty"`
 	State       map[string]string `json:"state" omitzero:"true"`
+	// CreatedAt is the sort key the source list pages on. Storage stamps it
+	// when a caller leaves it zero and never rewrites it on update, so it stays
+	// the creation time rather than the last-touched time. See Workflow.CreatedAt.
+	CreatedAt time.Time `json:"created_at" bson:"created_at"`
 }
 
 type Sink struct {
@@ -75,6 +79,10 @@ type Sink struct {
 	WorkerID    string           `json:"worker_id"`
 	WorkspaceID string           `json:"workspace_id,omitempty"`
 	Config      hermod.StringMap `json:"config"`
+	// CreatedAt is the sort key the sink list pages on. Storage stamps it
+	// when a caller leaves it zero and never rewrites it on update, so it stays
+	// the creation time rather than the last-touched time. See Workflow.CreatedAt.
+	CreatedAt time.Time `json:"created_at" bson:"created_at"`
 }
 
 type Transformation struct {
@@ -152,6 +160,11 @@ type Workflow struct {
 	TotalProcessed    uint64   `json:"total_processed,omitempty"`
 	TotalErrors       uint64   `json:"total_errors,omitempty"`
 	TotalLag          uint64   `json:"total_lag,omitempty"`
+	// CreatedAt is the sort key the workflow list pages on. Storage stamps it
+	// when a caller leaves it zero and never rewrites it on update, so it stays
+	// the creation time rather than the last-touched time. The bson tag is here
+	// because the mongo backend writes snake_case keys explicitly.
+	CreatedAt time.Time `json:"created_at" bson:"created_at"`
 }
 
 type WorkflowHealth struct {
@@ -191,6 +204,9 @@ type Worker struct {
 	// worker that the platform has requested a graceful shutdown. It is set on
 	// API responses by the platform when an administrator triggers a shutdown.
 	Draining bool `json:"draining,omitempty"`
+	// CreatedAt is the sort key the worker list pages on. Storage stamps it when a
+	// caller leaves it zero and never rewrites it on update. See Workflow.CreatedAt.
+	CreatedAt time.Time `json:"created_at" bson:"created_at"`
 }
 
 type Role string
@@ -211,12 +227,18 @@ type User struct {
 	VHosts           []string `json:"vhosts"`
 	TwoFactorEnabled bool     `json:"two_factor_enabled"`
 	TwoFactorSecret  string   `json:"two_factor_secret,omitempty"`
+	// CreatedAt is the sort key the user list pages on. Storage stamps it when a
+	// caller leaves it zero and never rewrites it on update. See Workflow.CreatedAt.
+	CreatedAt time.Time `json:"created_at" bson:"created_at"`
 }
 
 type VHost struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// CreatedAt is the sort key the vhost list pages on. Storage stamps it when a
+	// caller leaves it zero and never rewrites it on update. See Workflow.CreatedAt.
+	CreatedAt time.Time `json:"created_at" bson:"created_at"`
 }
 
 type AuditLog struct {
@@ -290,6 +312,9 @@ type Plugin struct {
 	WasmURL     string     `json:"wasm_url,omitempty"`
 	Installed   bool       `json:"installed"`
 	InstalledAt *time.Time `json:"installed_at" omitzero:"true"`
+	// CreatedAt is the sort key the plugin list pages on. Storage stamps it when a
+	// caller leaves it zero and never rewrites it on update. See Workflow.CreatedAt.
+	CreatedAt time.Time `json:"created_at" bson:"created_at"`
 }
 
 type TraceStep = hermod.TraceStep

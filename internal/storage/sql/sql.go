@@ -63,6 +63,34 @@ func likeContains(search string) string {
 	return "%" + r.Replace(search) + "%"
 }
 
+// caseInsensitiveSearch builds a parenthesised "the text appears in any of
+// these columns" clause, plus the one argument repeated once per column. The
+// page query and the count query share the result, so they cannot answer
+// differently.
+//
+// The case folding has to be in the SQL rather than done to the argument on the
+// way in: it is the stored value that has to be folded too. LIKE compares the
+// column as written, and only some engines fold it first — sqlite and MySQL do
+// for ASCII, PostgreSQL does not — so the same search box returned different
+// rows depending on which backend was deployed. LOWER on both sides is the one
+// spelling every dialect here agrees on. It costs no index: a leading-wildcard
+// LIKE could not use one anyway.
+//
+// Columns are named by callers from fixed literals, never from anything a user
+// supplied; the search text itself is bound, and escaped by likeContains so the
+// LIKE wildcards an operator types stay text.
+
+func caseInsensitiveSearch(search string, columns ...string) (string, []any) {
+	terms := make([]string, 0, len(columns))
+	args := make([]any, 0, len(columns))
+	pattern := likeContains(search)
+	for _, col := range columns {
+		terms = append(terms, "LOWER("+col+") LIKE LOWER(?) ESCAPE '!'")
+		args = append(args, pattern)
+	}
+	return "(" + strings.Join(terms, " OR ") + ")", args
+}
+
 // prepareQuery rewrites parameter placeholders and types to match the current driver.
 func (s *sqlStorage) prepareQuery(query string) string {
 	q := s.preparePlaceholders(query)
@@ -240,6 +268,28 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery(
 		"UPDATE vhosts SET id = name WHERE (id IS NULL OR id = '') AND name IS NOT NULL AND name <> ''"))
 
+	// Give every row that predates created_at a value, so each list has one
+	// order rather than one per engine: NULL sorts ahead of every real timestamp
+	// in a PostgreSQL DESC and behind every one of them in sqlite's and MySQL's.
+	// They all land on the same instant and the id breaks the tie, which is the
+	// honest answer — the creation time was never recorded. Also idempotent:
+	// after the first run there is nothing left matching.
+	//
+	// Fixed statements rather than a table name interpolated into SQL: there are
+	// exactly seven, and none of them is caller-supplied.
+	backfilledAt := time.Now()
+	for _, q := range []string{
+		"UPDATE workflows SET created_at = ? WHERE created_at IS NULL",
+		"UPDATE sources SET created_at = ? WHERE created_at IS NULL",
+		"UPDATE sinks SET created_at = ? WHERE created_at IS NULL",
+		"UPDATE users SET created_at = ? WHERE created_at IS NULL",
+		"UPDATE vhosts SET created_at = ? WHERE created_at IS NULL",
+		"UPDATE workers SET created_at = ? WHERE created_at IS NULL",
+		"UPDATE plugins SET created_at = ? WHERE created_at IS NULL",
+	} {
+		_, _ = s.db.ExecContext(ctx, s.prepareQuery(q), backfilledAt)
+	}
+
 	// 3. Initialize indexes and other tables
 	indexQueries := []string{
 		// Logs
@@ -263,15 +313,26 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_workflows_vhost ON workflows(vhost)",
 		"CREATE INDEX IF NOT EXISTS idx_workflows_worker_active ON workflows(worker_id, active)",
 		"CREATE INDEX IF NOT EXISTS idx_workflows_workspace ON workflows(workspace_id)",
+		// The order every page of the workflow list is sorted by.
+		"CREATE INDEX IF NOT EXISTS idx_workflows_created_at ON workflows(created_at DESC, id DESC)",
 		// Sources
 		"CREATE INDEX IF NOT EXISTS idx_sources_vhost ON sources(vhost)",
 		"CREATE INDEX IF NOT EXISTS idx_sources_worker_active ON sources(worker_id, active)",
 		"CREATE INDEX IF NOT EXISTS idx_sources_workspace ON sources(workspace_id)",
+		// The order every page of the source list is sorted by.
+		"CREATE INDEX IF NOT EXISTS idx_sources_created_at ON sources(created_at DESC, id DESC)",
 		"CREATE INDEX IF NOT EXISTS idx_sources_name ON sources(name)",
 		// Sinks
 		"CREATE INDEX IF NOT EXISTS idx_sinks_vhost ON sinks(vhost)",
 		"CREATE INDEX IF NOT EXISTS idx_sinks_worker_active ON sinks(worker_id, active)",
 		"CREATE INDEX IF NOT EXISTS idx_sinks_workspace ON sinks(workspace_id)",
+		// The order every page of the sink list is sorted by.
+		"CREATE INDEX IF NOT EXISTS idx_sinks_created_at ON sinks(created_at DESC, id DESC)",
+		// The order every page of the admin lists is sorted by.
+		"CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at DESC, id DESC)",
+		"CREATE INDEX IF NOT EXISTS idx_vhosts_created_at ON vhosts(created_at DESC, id DESC)",
+		"CREATE INDEX IF NOT EXISTS idx_workers_created_at ON workers(created_at DESC, id DESC)",
+		"CREATE INDEX IF NOT EXISTS idx_plugins_created_at ON plugins(created_at DESC, id DESC)",
 		"CREATE INDEX IF NOT EXISTS idx_sinks_name ON sinks(name)",
 		// Workers
 		"CREATE INDEX IF NOT EXISTS idx_workers_last_seen ON workers(last_seen)",
@@ -349,10 +410,12 @@ func (s *sqlStorage) seedPlugins(ctx context.Context) {
 		},
 	}
 
+	// The catalogue list sorts on created_at, so the seeds need one too.
+	seededAt := time.Now()
 	for _, p := range initialPlugins {
 		_ = s.execWithRetry(ctx, func() error {
 			_, e := s.exec(ctx, s.queries.get(QueryCreatePlugin),
-				p.ID, p.Name, p.Description, p.Author, p.Stars, p.Category, p.Certified, p.Type, p.WasmURL, p.Installed, p.InstalledAt)
+				p.ID, p.Name, p.Description, p.Author, p.Stars, p.Category, p.Certified, p.Type, p.WasmURL, p.Installed, p.InstalledAt, seededAt)
 			return e
 		})
 	}
@@ -571,9 +634,9 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 	var where []string
 
 	if filter.Search != "" {
-		search := likeContains(filter.Search)
-		where = append(where, "(id LIKE ? ESCAPE '!' OR name LIKE ? ESCAPE '!' OR type LIKE ? ESCAPE '!' OR vhost LIKE ? ESCAPE '!')")
-		args = append(args, search, search, search, search)
+		clause, searchArgs := caseInsensitiveSearch(filter.Search, storage.ConnectorSearchFields...)
+		where = append(where, clause)
+		args = append(args, searchArgs...)
 	}
 
 	if filter.VHost != "" && filter.VHost != "all" {
@@ -606,6 +669,10 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 		return nil, 0, err
 	}
 
+	// Newest first, and id to break ties, because LIMIT/OFFSET below slices
+	// whatever order this produces. See ListWorkflows.
+	baseQuery += " ORDER BY created_at DESC, id DESC"
+
 	if filter.Limit > 0 {
 		baseQuery += " LIMIT ?"
 		args = append(args, filter.Limit)
@@ -625,7 +692,10 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 	for rows.Next() {
 		var src storage.Source
 		var status, workerID, workspaceID, configStr, sample, stateStr sql.NullString
-		if err := rows.Scan(&src.ID, &src.Name, &src.Type, &src.VHost, &src.Active, &status, &workerID, &workspaceID, &configStr, &sample, &stateStr); err != nil {
+		// NULL for any row written before the column existed and not yet
+		// reached by the Init backfill.
+		var createdAt sql.NullTime
+		if err := rows.Scan(&src.ID, &src.Name, &src.Type, &src.VHost, &src.Active, &status, &workerID, &workspaceID, &configStr, &sample, &stateStr, &createdAt); err != nil {
 			return nil, 0, err
 		}
 		if status.Valid {
@@ -636,6 +706,9 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 		}
 		if workspaceID.Valid {
 			src.WorkspaceID = workspaceID.String
+		}
+		if createdAt.Valid {
+			src.CreatedAt = createdAt.Time
 		}
 		if sample.Valid {
 			src.Sample = sample.String
@@ -665,9 +738,14 @@ func (s *sqlStorage) CreateSource(ctx context.Context, src storage.Source) error
 		return err
 	}
 	stateBytes, _ := json.Marshal(src.State)
+	// The list sorts on this, so every row needs one; a caller that supplies one
+	// — a backup being restored — keeps it. See CreateWorkflow.
+	if src.CreatedAt.IsZero() {
+		src.CreatedAt = time.Now()
+	}
 	exec := func() error {
 		_, e := s.exec(ctx, s.queries.get(QueryCreateSource),
-			src.ID, src.Name, src.Type, src.VHost, src.Active, src.Status, src.WorkerID, src.WorkspaceID, string(configBytes), src.Sample, string(stateBytes))
+			src.ID, src.Name, src.Type, src.VHost, src.Active, src.Status, src.WorkerID, src.WorkspaceID, string(configBytes), src.Sample, string(stateBytes), src.CreatedAt)
 		return e
 	}
 	return s.execWithRetry(ctx, exec)
@@ -730,8 +808,11 @@ func (s *sqlStorage) DeleteSource(ctx context.Context, id string) error {
 func (s *sqlStorage) GetSource(ctx context.Context, id string) (storage.Source, error) {
 	var src storage.Source
 	var status, workerID, workspaceID, configStr, sample, stateStr sql.NullString
+	// NULL for any row written before the column existed and not yet
+	// reached by the Init backfill.
+	var createdAt sql.NullTime
 	err := s.queryRow(ctx, s.queries.get(QueryGetSource), id).
-		Scan(&src.ID, &src.Name, &src.Type, &src.VHost, &src.Active, &status, &workerID, &workspaceID, &configStr, &sample, &stateStr)
+		Scan(&src.ID, &src.Name, &src.Type, &src.VHost, &src.Active, &status, &workerID, &workspaceID, &configStr, &sample, &stateStr, &createdAt)
 	if err == sql.ErrNoRows {
 		return storage.Source{}, storage.ErrNotFound
 	}
@@ -746,6 +827,9 @@ func (s *sqlStorage) GetSource(ctx context.Context, id string) (storage.Source, 
 	}
 	if workspaceID.Valid {
 		src.WorkspaceID = workspaceID.String
+	}
+	if createdAt.Valid {
+		src.CreatedAt = createdAt.Time
 	}
 	if sample.Valid {
 		src.Sample = sample.String
@@ -771,9 +855,9 @@ func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter)
 	var where []string
 
 	if filter.Search != "" {
-		search := likeContains(filter.Search)
-		where = append(where, "(id LIKE ? ESCAPE '!' OR name LIKE ? ESCAPE '!' OR type LIKE ? ESCAPE '!' OR vhost LIKE ? ESCAPE '!')")
-		args = append(args, search, search, search, search)
+		clause, searchArgs := caseInsensitiveSearch(filter.Search, storage.ConnectorSearchFields...)
+		where = append(where, clause)
+		args = append(args, searchArgs...)
 	}
 
 	if filter.VHost != "" && filter.VHost != "all" {
@@ -806,6 +890,10 @@ func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter)
 		return nil, 0, err
 	}
 
+	// Newest first, and id to break ties, because LIMIT/OFFSET below slices
+	// whatever order this produces. See ListWorkflows.
+	baseQuery += " ORDER BY created_at DESC, id DESC"
+
 	if filter.Limit > 0 {
 		baseQuery += " LIMIT ?"
 		args = append(args, filter.Limit)
@@ -825,7 +913,10 @@ func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter)
 	for rows.Next() {
 		var snk storage.Sink
 		var status, workerID, workspaceID, configStr sql.NullString
-		if err := rows.Scan(&snk.ID, &snk.Name, &snk.Type, &snk.VHost, &snk.Active, &status, &workerID, &workspaceID, &configStr); err != nil {
+		// NULL for any row written before the column existed and not yet
+		// reached by the Init backfill.
+		var createdAt sql.NullTime
+		if err := rows.Scan(&snk.ID, &snk.Name, &snk.Type, &snk.VHost, &snk.Active, &status, &workerID, &workspaceID, &configStr, &createdAt); err != nil {
 			return nil, 0, err
 		}
 		if status.Valid {
@@ -836,6 +927,9 @@ func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter)
 		}
 		if workspaceID.Valid {
 			snk.WorkspaceID = workspaceID.String
+		}
+		if createdAt.Valid {
+			snk.CreatedAt = createdAt.Time
 		}
 		if configStr.Valid {
 			if err := json.Unmarshal([]byte(configStr.String), &snk.Config); err != nil {
@@ -856,9 +950,14 @@ func (s *sqlStorage) CreateSink(ctx context.Context, snk storage.Sink) error {
 	if err != nil {
 		return err
 	}
+	// The list sorts on this, so every row needs one; a caller that supplies one
+	// — a backup being restored — keeps it. See CreateWorkflow.
+	if snk.CreatedAt.IsZero() {
+		snk.CreatedAt = time.Now()
+	}
 	exec := func() error {
 		_, e := s.exec(ctx, s.queries.get(QueryCreateSink),
-			snk.ID, snk.Name, snk.Type, snk.VHost, snk.Active, snk.Status, snk.WorkerID, snk.WorkspaceID, string(configBytes))
+			snk.ID, snk.Name, snk.Type, snk.VHost, snk.Active, snk.Status, snk.WorkerID, snk.WorkspaceID, string(configBytes), snk.CreatedAt)
 		return e
 	}
 	return s.execWithRetry(ctx, exec)
@@ -896,8 +995,11 @@ func (s *sqlStorage) DeleteSink(ctx context.Context, id string) error {
 func (s *sqlStorage) GetSink(ctx context.Context, id string) (storage.Sink, error) {
 	var snk storage.Sink
 	var status, workerID, workspaceID, configStr sql.NullString
+	// NULL for any row written before the column existed and not yet
+	// reached by the Init backfill.
+	var createdAt sql.NullTime
 	err := s.queryRow(ctx, s.queries.get(QueryGetSink), id).
-		Scan(&snk.ID, &snk.Name, &snk.Type, &snk.VHost, &snk.Active, &status, &workerID, &workspaceID, &configStr)
+		Scan(&snk.ID, &snk.Name, &snk.Type, &snk.VHost, &snk.Active, &status, &workerID, &workspaceID, &configStr, &createdAt)
 	if err == sql.ErrNoRows {
 		return storage.Sink{}, storage.ErrNotFound
 	}
@@ -912,6 +1014,9 @@ func (s *sqlStorage) GetSink(ctx context.Context, id string) (storage.Sink, erro
 	}
 	if workspaceID.Valid {
 		snk.WorkspaceID = workspaceID.String
+	}
+	if createdAt.Valid {
+		snk.CreatedAt = createdAt.Time
 	}
 	if configStr.Valid {
 		if err := json.Unmarshal([]byte(configStr.String), &snk.Config); err != nil {
@@ -981,9 +1086,9 @@ func (s *sqlStorage) ListUsers(ctx context.Context, filter storage.CommonFilter)
 	var where []string
 
 	if filter.Search != "" {
-		search := likeContains(filter.Search)
-		where = append(where, "(id LIKE ? ESCAPE '!' OR username LIKE ? ESCAPE '!' OR full_name LIKE ? ESCAPE '!' OR email LIKE ? ESCAPE '!' OR role LIKE ? ESCAPE '!')")
-		args = append(args, search, search, search, search, search)
+		clause, searchArgs := caseInsensitiveSearch(filter.Search, storage.UserSearchFields...)
+		where = append(where, clause)
+		args = append(args, searchArgs...)
 	}
 
 	if len(where) > 0 {
@@ -995,6 +1100,10 @@ func (s *sqlStorage) ListUsers(ctx context.Context, filter storage.CommonFilter)
 	if err := s.queryRow(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
+
+	// Newest first, and id to break ties, because LIMIT/OFFSET below slices
+	// whatever order this produces. See ListWorkflows.
+	baseQuery += " ORDER BY created_at DESC, id DESC"
 
 	if filter.Limit > 0 {
 		baseQuery += " LIMIT ?"
@@ -1015,10 +1124,16 @@ func (s *sqlStorage) ListUsers(ctx context.Context, filter storage.CommonFilter)
 	for rows.Next() {
 		var user storage.User
 		var vhostsStr, fullName, email sql.NullString
-		if err := rows.Scan(&user.ID, &user.Username, &fullName, &email, &user.Role, &vhostsStr, &user.TwoFactorEnabled); err != nil {
+		// NULL for any row written before the column existed and not yet
+		// reached by the Init backfill.
+		var createdAt sql.NullTime
+		if err := rows.Scan(&user.ID, &user.Username, &fullName, &email, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &createdAt); err != nil {
 			return nil, 0, err
 		}
 		user.FullName = fullName.String
+		if createdAt.Valid {
+			user.CreatedAt = createdAt.Time
+		}
 		user.Email = email.String
 		if vhostsStr.Valid && vhostsStr.String != "" {
 			if err := json.Unmarshal([]byte(vhostsStr.String), &user.VHosts); err != nil {
@@ -1038,8 +1153,13 @@ func (s *sqlStorage) CreateUser(ctx context.Context, user storage.User) error {
 	if err != nil {
 		return err
 	}
+	// The list sorts on this, so every row needs one; a caller that supplies one
+	// — a backup being restored — keeps it. See CreateWorkflow.
+	if user.CreatedAt.IsZero() {
+		user.CreatedAt = time.Now()
+	}
 	_, err = s.exec(ctx, s.queries.get(QueryCreateUser),
-		user.ID, user.Username, user.Password, user.FullName, user.Email, user.Role, string(vhostsBytes), user.TwoFactorEnabled, user.TwoFactorSecret)
+		user.ID, user.Username, user.Password, user.FullName, user.Email, user.Role, string(vhostsBytes), user.TwoFactorEnabled, user.TwoFactorSecret, user.CreatedAt)
 	return err
 }
 
@@ -1066,8 +1186,11 @@ func (s *sqlStorage) DeleteUser(ctx context.Context, id string) error {
 func (s *sqlStorage) GetUser(ctx context.Context, id string) (storage.User, error) {
 	var user storage.User
 	var vhostsStr, fullName, email, secret sql.NullString
+	// NULL for any row written before the column existed and not yet
+	// reached by the Init backfill.
+	var createdAt sql.NullTime
 	err := s.queryRow(ctx, s.queries.get(QueryGetUser), id).
-		Scan(&user.ID, &user.Username, &user.Password, &fullName, &email, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &secret)
+		Scan(&user.ID, &user.Username, &user.Password, &fullName, &email, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &secret, &createdAt)
 	if err == sql.ErrNoRows {
 		return storage.User{}, storage.ErrNotFound
 	}
@@ -1075,6 +1198,9 @@ func (s *sqlStorage) GetUser(ctx context.Context, id string) (storage.User, erro
 		return storage.User{}, err
 	}
 	user.FullName = fullName.String
+	if createdAt.Valid {
+		user.CreatedAt = createdAt.Time
+	}
 	user.Email = email.String
 	user.TwoFactorSecret = secret.String
 	if vhostsStr.Valid && vhostsStr.String != "" {
@@ -1088,8 +1214,11 @@ func (s *sqlStorage) GetUser(ctx context.Context, id string) (storage.User, erro
 func (s *sqlStorage) GetUserByUsername(ctx context.Context, username string) (storage.User, error) {
 	var user storage.User
 	var vhostsStr, fullName, email, secret sql.NullString
+	// NULL for any row written before the column existed and not yet
+	// reached by the Init backfill.
+	var createdAt sql.NullTime
 	err := s.queryRow(ctx, s.queries.get(QueryGetUserByUsername), username).
-		Scan(&user.ID, &user.Username, &user.Password, &fullName, &email, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &secret)
+		Scan(&user.ID, &user.Username, &user.Password, &fullName, &email, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &secret, &createdAt)
 	if err == sql.ErrNoRows {
 		return storage.User{}, storage.ErrNotFound
 	}
@@ -1097,6 +1226,9 @@ func (s *sqlStorage) GetUserByUsername(ctx context.Context, username string) (st
 		return storage.User{}, err
 	}
 	user.FullName = fullName.String
+	if createdAt.Valid {
+		user.CreatedAt = createdAt.Time
+	}
 	user.Email = email.String
 	user.TwoFactorSecret = secret.String
 	if vhostsStr.Valid && vhostsStr.String != "" {
@@ -1110,8 +1242,11 @@ func (s *sqlStorage) GetUserByUsername(ctx context.Context, username string) (st
 func (s *sqlStorage) GetUserByEmail(ctx context.Context, email string) (storage.User, error) {
 	var user storage.User
 	var vhostsStr, fullName, emailStr, secret sql.NullString
+	// NULL for any row written before the column existed and not yet
+	// reached by the Init backfill.
+	var createdAt sql.NullTime
 	err := s.queryRow(ctx, s.queries.get(QueryGetUserByEmail), email).
-		Scan(&user.ID, &user.Username, &user.Password, &fullName, &emailStr, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &secret)
+		Scan(&user.ID, &user.Username, &user.Password, &fullName, &emailStr, &user.Role, &vhostsStr, &user.TwoFactorEnabled, &secret, &createdAt)
 	if err == sql.ErrNoRows {
 		return storage.User{}, storage.ErrNotFound
 	}
@@ -1119,6 +1254,9 @@ func (s *sqlStorage) GetUserByEmail(ctx context.Context, email string) (storage.
 		return storage.User{}, err
 	}
 	user.FullName = fullName.String
+	if createdAt.Valid {
+		user.CreatedAt = createdAt.Time
+	}
 	user.Email = emailStr.String
 	user.TwoFactorSecret = secret.String
 	if vhostsStr.Valid && vhostsStr.String != "" {
@@ -1193,9 +1331,9 @@ func (s *sqlStorage) ListVHosts(ctx context.Context, filter storage.CommonFilter
 	var where []string
 
 	if filter.Search != "" {
-		search := likeContains(filter.Search)
-		where = append(where, "(id LIKE ? ESCAPE '!' OR name LIKE ? ESCAPE '!' OR description LIKE ? ESCAPE '!')")
-		args = append(args, search, search, search)
+		clause, searchArgs := caseInsensitiveSearch(filter.Search, storage.VHostSearchFields...)
+		where = append(where, clause)
+		args = append(args, searchArgs...)
 	}
 
 	if len(where) > 0 {
@@ -1207,6 +1345,10 @@ func (s *sqlStorage) ListVHosts(ctx context.Context, filter storage.CommonFilter
 	if err := s.queryRow(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
+
+	// Newest first, and id to break ties, because LIMIT/OFFSET below slices
+	// whatever order this produces. See ListWorkflows.
+	baseQuery += " ORDER BY created_at DESC, id DESC"
 
 	if filter.Limit > 0 {
 		baseQuery += " LIMIT ?"
@@ -1227,10 +1369,16 @@ func (s *sqlStorage) ListVHosts(ctx context.Context, filter storage.CommonFilter
 	for rows.Next() {
 		var vhost storage.VHost
 		var desc sql.NullString
-		if err := rows.Scan(&vhost.ID, &vhost.Name, &desc); err != nil {
+		// NULL for any row written before the column existed and not yet
+		// reached by the Init backfill.
+		var createdAt sql.NullTime
+		if err := rows.Scan(&vhost.ID, &vhost.Name, &desc, &createdAt); err != nil {
 			return nil, 0, err
 		}
 		vhost.Description = desc.String
+		if createdAt.Valid {
+			vhost.CreatedAt = createdAt.Time
+		}
 		vhosts = append(vhosts, vhost)
 	}
 	return vhosts, total, nil
@@ -1242,8 +1390,13 @@ func (s *sqlStorage) CreateVHost(ctx context.Context, vhost storage.VHost) error
 	if vhost.ID == "" {
 		vhost.ID = vhost.Name
 	}
+	// The list sorts on this, so every row needs one; a caller that supplies one
+	// — a backup being restored — keeps it. See CreateWorkflow.
+	if vhost.CreatedAt.IsZero() {
+		vhost.CreatedAt = time.Now()
+	}
 	_, err := s.exec(ctx, s.queries.get(QueryCreateVHost),
-		vhost.ID, vhost.Name, vhost.Description)
+		vhost.ID, vhost.Name, vhost.Description, vhost.CreatedAt)
 	return err
 }
 
@@ -1261,8 +1414,11 @@ func (s *sqlStorage) DeleteVHost(ctx context.Context, id string) error {
 func (s *sqlStorage) GetVHost(ctx context.Context, id string) (storage.VHost, error) {
 	var vhost storage.VHost
 	var desc sql.NullString
+	// NULL for any row written before the column existed and not yet
+	// reached by the Init backfill.
+	var createdAt sql.NullTime
 	err := s.queryRow(ctx, s.queries.get(QueryGetVHost), id).
-		Scan(&vhost.ID, &vhost.Name, &desc)
+		Scan(&vhost.ID, &vhost.Name, &desc, &createdAt)
 	if err == sql.ErrNoRows {
 		return storage.VHost{}, storage.ErrNotFound
 	}
@@ -1270,6 +1426,9 @@ func (s *sqlStorage) GetVHost(ctx context.Context, id string) (storage.VHost, er
 		return storage.VHost{}, err
 	}
 	vhost.Description = desc.String
+	if createdAt.Valid {
+		vhost.CreatedAt = createdAt.Time
+	}
 	return vhost, nil
 }
 
@@ -1288,8 +1447,9 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 	}
 
 	if filter.Search != "" {
-		query += " AND name LIKE ? ESCAPE '!'"
-		args = append(args, likeContains(filter.Search))
+		clause, searchArgs := caseInsensitiveSearch(filter.Search, storage.WorkflowSearchFields...)
+		query += " AND " + clause
+		args = append(args, searchArgs...)
 	}
 
 	if filter.WorkspaceID != "" {
@@ -1336,13 +1496,20 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		countArgs = append(countArgs, *filter.Active)
 	}
 	if filter.Search != "" {
-		countQuery += " AND name LIKE ? ESCAPE '!'"
-		countArgs = append(countArgs, likeContains(filter.Search))
+		clause, searchArgs := caseInsensitiveSearch(filter.Search, storage.WorkflowSearchFields...)
+		countQuery += " AND " + clause
+		countArgs = append(countArgs, searchArgs...)
 	}
 
 	if err := s.queryRow(ctx, countQuery, countArgs...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
+
+	// Newest first, and id to break ties, because LIMIT/OFFSET below slices
+	// whatever order this produces. Without a total order two workflows created
+	// in the same instant can swap places between two queries, which shows up as
+	// one of them appearing on both pages and the other on neither.
+	query += " ORDER BY created_at DESC, id DESC"
 
 	if filter.Limit > 0 {
 		query += " LIMIT ?"
@@ -1372,7 +1539,10 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		var traceSampleRate sql.NullFloat64
 		var cpuReq, memReq sql.NullFloat64
 		var throughputReq, totalProcessed, totalErrors, totalLag sql.NullInt64
-		if err := rows.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag); err != nil {
+		// NULL for any workflow written before the column existed and not yet
+		// reached by the Init backfill.
+		var createdAt sql.NullTime
+		if err := rows.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag, &createdAt); err != nil {
 			return nil, 0, err
 		}
 		if cpuReq.Valid {
@@ -1392,6 +1562,9 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		}
 		if totalLag.Valid {
 			wf.TotalLag = uint64(totalLag.Int64)
+		}
+		if createdAt.Valid {
+			wf.CreatedAt = createdAt.Time
 		}
 		if traceRetention.Valid {
 			wf.TraceRetention = traceRetention.String
@@ -1473,10 +1646,16 @@ func (s *sqlStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) er
 	if wf.ID == "" {
 		wf.ID = uuid.New().String()
 	}
+	// The list sorts on this, so every row needs one. Stamping it here rather
+	// than at the four handlers that create workflows means a fifth cannot
+	// forget; a caller that supplies one — a backup being restored — keeps it.
+	if wf.CreatedAt.IsZero() {
+		wf.CreatedAt = time.Now()
+	}
 	exec := func() error {
 		_, e := s.exec(ctx,
 			s.queries.get(QueryCreateWorkflow),
-			wf.ID, wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.TotalLag,
+			wf.ID, wf.Name, wf.VHost, wf.Active, wf.Status, wf.WorkerID, string(nodesJSON), string(edgesJSON), wf.DeadLetterSinkID, wf.PrioritizeDLQ, wf.MaxRetries, wf.RetryInterval, wf.ReconnectInterval, wf.DryRun, wf.SchemaType, wf.Schema, wf.RetentionDays, wf.Cron, wf.IdleTimeout, string(wf.Tier), wf.TraceSampleRate, wf.DLQThreshold, string(tagsJSON), wf.WorkspaceID, wf.TraceRetention, wf.AuditRetention, wf.CPURequest, wf.MemoryRequest, wf.ThroughputRequest, wf.TotalProcessed, wf.TotalErrors, wf.TotalLag, wf.CreatedAt,
 		)
 		return e
 	}
@@ -1535,7 +1714,10 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	var traceSampleRate sql.NullFloat64
 	var cpuReq, memReq sql.NullFloat64
 	var throughputReq, totalProcessed, totalErrors, totalLag sql.NullInt64
-	if err := row.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag); err != nil {
+	// NULL for any workflow written before the column existed and not yet
+	// reached by the Init backfill.
+	var createdAt sql.NullTime
+	if err := row.Scan(&wf.ID, &wf.Name, &wf.VHost, &wf.Active, &wf.Status, &wf.WorkerID, &ownerID, &leaseUntil, &nodesJSON, &edgesJSON, &dlqSinkID, &prioritizeDLQ, &maxRetries, &retryInterval, &reconnectInterval, &dryRun, &schemaType, &schema, &retentionDays, &cron, &idleTimeout, &tier, &traceSampleRate, &dlqThreshold, &tagsJSON, &workspaceID, &traceRetention, &auditRetention, &cpuReq, &memReq, &throughputReq, &totalProcessed, &totalErrors, &totalLag, &createdAt); err != nil {
 		if err == sql.ErrNoRows {
 			return storage.Workflow{}, storage.ErrNotFound
 		}
@@ -1558,6 +1740,9 @@ func (s *sqlStorage) GetWorkflow(ctx context.Context, id string) (storage.Workfl
 	}
 	if totalLag.Valid {
 		wf.TotalLag = uint64(totalLag.Int64)
+	}
+	if createdAt.Valid {
+		wf.CreatedAt = createdAt.Time
 	}
 	if traceRetention.Valid {
 		wf.TraceRetention = traceRetention.String
@@ -1696,9 +1881,9 @@ func (s *sqlStorage) ListWorkers(ctx context.Context, filter storage.CommonFilte
 	var where []string
 
 	if filter.Search != "" {
-		search := likeContains(filter.Search)
-		where = append(where, "(id LIKE ? ESCAPE '!' OR name LIKE ? ESCAPE '!' OR host LIKE ? ESCAPE '!' OR description LIKE ? ESCAPE '!')")
-		args = append(args, search, search, search, search)
+		clause, searchArgs := caseInsensitiveSearch(filter.Search, storage.WorkerSearchFields...)
+		where = append(where, clause)
+		args = append(args, searchArgs...)
 	}
 
 	if len(where) > 0 {
@@ -1710,6 +1895,10 @@ func (s *sqlStorage) ListWorkers(ctx context.Context, filter storage.CommonFilte
 	if err := s.queryRow(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
+
+	// Newest first, and id to break ties, because LIMIT/OFFSET below slices
+	// whatever order this produces. See ListWorkflows.
+	baseQuery += " ORDER BY created_at DESC, id DESC"
 
 	if filter.Limit > 0 {
 		baseQuery += " LIMIT ?"
@@ -1732,7 +1921,10 @@ func (s *sqlStorage) ListWorkers(ctx context.Context, filter storage.CommonFilte
 		var token sql.NullString
 		var lastSeen sql.NullTime
 		var cpu, mem sql.NullFloat64
-		if err := rows.Scan(&w.ID, &w.Name, &w.Host, &w.Port, &w.Description, &token, &lastSeen, &cpu, &mem); err != nil {
+		// NULL for any row written before the column existed and not yet
+		// reached by the Init backfill.
+		var createdAt sql.NullTime
+		if err := rows.Scan(&w.ID, &w.Name, &w.Host, &w.Port, &w.Description, &token, &lastSeen, &cpu, &mem, &createdAt); err != nil {
 			return nil, 0, err
 		}
 		if token.Valid {
@@ -1747,6 +1939,9 @@ func (s *sqlStorage) ListWorkers(ctx context.Context, filter storage.CommonFilte
 		if mem.Valid {
 			w.MemoryUsage = mem.Float64
 		}
+		if createdAt.Valid {
+			w.CreatedAt = createdAt.Time
+		}
 		workers = append(workers, w)
 	}
 	return workers, total, nil
@@ -1760,8 +1955,13 @@ func (s *sqlStorage) CreateWorker(ctx context.Context, worker storage.Worker) er
 	if worker.Token == "" {
 		worker.Token = uuid.New().String()
 	}
+	// The list sorts on this, so every row needs one; a caller that supplies one
+	// — a backup being restored — keeps it. See CreateWorkflow.
+	if worker.CreatedAt.IsZero() {
+		worker.CreatedAt = time.Now()
+	}
 	_, err := s.exec(ctx, s.queries.get(QueryCreateWorker),
-		worker.ID, worker.Name, worker.Host, worker.Port, worker.Description, worker.Token, worker.LastSeen, worker.CPUUsage, worker.MemoryUsage)
+		worker.ID, worker.Name, worker.Host, worker.Port, worker.Description, worker.Token, worker.LastSeen, worker.CPUUsage, worker.MemoryUsage, worker.CreatedAt)
 	return err
 }
 
@@ -1786,8 +1986,11 @@ func (s *sqlStorage) GetWorker(ctx context.Context, id string) (storage.Worker, 
 	var token sql.NullString
 	var lastSeen sql.NullTime
 	var cpu, mem sql.NullFloat64
+	// NULL for any row written before the column existed and not yet
+	// reached by the Init backfill.
+	var createdAt sql.NullTime
 	err := s.queryRow(ctx, s.queries.get(QueryGetWorker), id).
-		Scan(&w.ID, &w.Name, &w.Host, &w.Port, &w.Description, &token, &lastSeen, &cpu, &mem)
+		Scan(&w.ID, &w.Name, &w.Host, &w.Port, &w.Description, &token, &lastSeen, &cpu, &mem, &createdAt)
 	if err == sql.ErrNoRows {
 		return storage.Worker{}, storage.ErrNotFound
 	}
@@ -1805,6 +2008,9 @@ func (s *sqlStorage) GetWorker(ctx context.Context, id string) (storage.Worker, 
 	}
 	if mem.Valid {
 		w.MemoryUsage = mem.Float64
+	}
+	if createdAt.Valid {
+		w.CreatedAt = createdAt.Time
 	}
 	return w, nil
 }
@@ -1847,11 +2053,10 @@ func (s *sqlStorage) ListLogs(ctx context.Context, filter storage.LogFilter) ([]
 		args = append(args, filter.Action)
 	}
 	if filter.Search != "" {
-		search := likeContains(filter.Search)
-		// Avoid scanning large 'data' payloads for LIKE to improve performance.
-		// Search in message and identifiers only.
-		where += " AND (message LIKE ? ESCAPE '!' OR action LIKE ? ESCAPE '!' OR source_id LIKE ? ESCAPE '!' OR sink_id LIKE ? ESCAPE '!' OR workflow_id LIKE ? ESCAPE '!')"
-		args = append(args, search, search, search, search, search)
+		// storage.LogSearchFields omits the data payload on purpose; see there.
+		clause, searchArgs := caseInsensitiveSearch(filter.Search, storage.LogSearchFields...)
+		where += " AND " + clause
+		args = append(args, searchArgs...)
 	}
 
 	var total int
@@ -2347,9 +2552,9 @@ func (s *sqlStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilt
 	var where []string
 
 	if filter.Search != "" {
-		search := likeContains(filter.Search)
-		where = append(where, "(id LIKE ? ESCAPE '!' OR username LIKE ? ESCAPE '!' OR action LIKE ? ESCAPE '!' OR entity_id LIKE ? ESCAPE '!' OR payload LIKE ? ESCAPE '!')")
-		args = append(args, search, search, search, search, search)
+		clause, searchArgs := caseInsensitiveSearch(filter.Search, storage.AuditLogSearchFields...)
+		where = append(where, clause)
+		args = append(args, searchArgs...)
 	}
 	if filter.UserID != "" {
 		where = append(where, "user_id = ?")
@@ -2882,11 +3087,17 @@ func (s *sqlStorage) ListPlugins(ctx context.Context) ([]storage.Plugin, error) 
 	for rows.Next() {
 		var p storage.Plugin
 		var installedAt sql.NullTime
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Author, &p.Stars, &p.Category, &p.Certified, &p.Type, &p.WasmURL, &p.Installed, &installedAt); err != nil {
+		// NULL for any row written before the column existed and not yet
+		// reached by the Init backfill.
+		var createdAt sql.NullTime
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Author, &p.Stars, &p.Category, &p.Certified, &p.Type, &p.WasmURL, &p.Installed, &installedAt, &createdAt); err != nil {
 			return nil, err
 		}
 		if installedAt.Valid {
 			p.InstalledAt = &installedAt.Time
+		}
+		if createdAt.Valid {
+			p.CreatedAt = createdAt.Time
 		}
 		plugins = append(plugins, p)
 	}
@@ -2896,12 +3107,18 @@ func (s *sqlStorage) ListPlugins(ctx context.Context) ([]storage.Plugin, error) 
 func (s *sqlStorage) GetPlugin(ctx context.Context, id string) (storage.Plugin, error) {
 	var p storage.Plugin
 	var installedAt sql.NullTime
-	err := s.queryRow(ctx, s.queries.get(QueryGetPlugin), id).Scan(&p.ID, &p.Name, &p.Description, &p.Author, &p.Stars, &p.Category, &p.Certified, &p.Type, &p.WasmURL, &p.Installed, &installedAt)
+	// NULL for any row written before the column existed and not yet
+	// reached by the Init backfill.
+	var createdAt sql.NullTime
+	err := s.queryRow(ctx, s.queries.get(QueryGetPlugin), id).Scan(&p.ID, &p.Name, &p.Description, &p.Author, &p.Stars, &p.Category, &p.Certified, &p.Type, &p.WasmURL, &p.Installed, &installedAt, &createdAt)
 	if err != nil {
 		return p, err
 	}
 	if installedAt.Valid {
 		p.InstalledAt = &installedAt.Time
+	}
+	if createdAt.Valid {
+		p.CreatedAt = createdAt.Time
 	}
 	return p, nil
 }
