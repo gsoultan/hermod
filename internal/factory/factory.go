@@ -657,6 +657,19 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 	return src, nil
 }
 
+// chatBotToken reads a bot token from either name it is stored under.
+//
+// The Telegram form writes bot_token and this read token, so the token typed
+// into the form reached the sink as "" and every message went to a bot URL with
+// no bot in it. The bare name is still read: it is what an imported bundle and
+// the Discord and Slack forms carry.
+func chatBotToken(cfg hermod.StringMap) string {
+	if v := cfg["bot_token"]; v != "" {
+		return v
+	}
+	return cfg["token"]
+}
+
 func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 	snk, err := createSinkBase(cfg)
 	if err != nil {
@@ -1210,7 +1223,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		}
 		return s, nil
 	case "telegram":
-		return telegram.NewTelegramSink(cfg.Config["token"], cfg.Config["chat_id"], fmttr), nil
+		return telegram.NewTelegramSink(chatBotToken(cfg.Config), cfg.Config["chat_id"], fmttr), nil
 	case "discord":
 		return discord.NewDiscordSink(
 			cfg.Config["webhook_url"],

@@ -213,6 +213,32 @@ sink node pointing at that id, filtered by the caller's vhost access. A source
 node that happens to carry the same id is not one of them.
 
 
+### Fixed — the Discord and Slack sink forms were blank, and Telegram's token went nowhere
+
+Both types are offered in the sink picker and both are routed to the chat sink
+form, which had a branch for Telegram and `default: return null`. Picking either
+one showed an empty step. Nothing stopped the save either — neither type has a
+required key in the wizard's gate — so the sink stored empty and failed on its
+first message with `not configured: missing webhook_url or token/channel_id`.
+
+They have forms now, asking for what the sink actually reads: a webhook URL on
+its own, or a bot token with a channel id, with the either/or said out loud
+because the sink accepts both shapes and demands one.
+
+The same form's Telegram branch wrote `bot_token` while the factory read
+`token`, so the token typed into it reached the sink as `""` and every message
+went to `https://api.telegram.org/bot/sendMessage` — a 404 about a bot nobody
+has. The factory reads either name now, preferring the form's.
+
+Two things went with it. The chat form carried a second copy of the SMTP form
+that nothing could reach (`SinkForm` maps `smtp` to `SMTPSinkConfig`) and that
+had drifted from the one that is reached — deleted. And the silent `default` is
+now a visible "no form for this sink type", because rendering nothing is what
+hid this for as long as it was hidden: the coverage test derives its type list
+from the routing map, so a fourth type pointed at that form fails until it has a
+branch.
+
+
 ### Fixed — a `jsonb` column arrived as a string on the CDC path, and vanished when it was TOASTed
 
 A PostgreSQL `jsonb` column had two different shapes depending on how the row

@@ -22,6 +22,8 @@ interface SinkWizardProps {
   handleSinkChange: (field: string, value: any) => void;
   onCancel: () => void;
   configComponents: Record<string, any>;
+  /** The row the editor says reaches this sink; a sink form may preview with it. */
+  incomingPayload?: any;
   availableFields?: any[];
   upstreamSource?: any;
 }
@@ -41,6 +43,7 @@ export function SinkWizard({
   handleSinkChange,
   onCancel,
   configComponents,
+  incomingPayload,
   availableFields,
   upstreamSource
 }: SinkWizardProps) {
@@ -144,6 +147,7 @@ export function SinkWizard({
                     updateConfig={updateConfig} 
                     handleSinkChange={handleSinkChange}
                     availableFields={availableFields}
+                    incomingPayload={incomingPayload}
                     upstreamSource={upstreamSource}
                   />
                 )}

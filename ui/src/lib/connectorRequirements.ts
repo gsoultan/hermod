@@ -46,6 +46,14 @@ export interface RequiredField {
  */
 const URL_KEYS = ['connection_string', 'uri', 'url'];
 
+/**
+ * Whether a configured value is a Go template rather than a literal. The same
+ * test the sinks make (`templated` in pkg/comm/sink/panmail/panmail.go), so the
+ * form and the factory cannot disagree about which values are rendered.
+ */
+const isTemplated = (value: unknown): boolean =>
+  typeof value === 'string' && value.includes('{{');
+
 const hostPort = (port: string): RequiredField[] => [
   { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'db.example.com' },
   { key: 'port', aliases: URL_KEYS, label: 'Port', example: port },
@@ -171,6 +179,16 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
     { key: 'provider_id', label: 'Provider ID', example: '0f8b1c2d-…' },
     { key: 'from', label: 'From address', example: 'noreply@example.com' },
     { key: 'to', label: 'Recipient', example: '{{.email}}' },
+    // panmail.New refuses to start without this once either of the two is
+    // templated, because between them they decide where a tenant-wide api key
+    // is sent and a row would be deciding it. Asking here means the wizard says
+    // so, rather than the sink failing the first time it runs.
+    {
+      key: 'allowed_hosts',
+      label: 'Allowed gateway hosts',
+      example: '*.mail.example.com',
+      when: (config) => isTemplated(config.base_url) || isTemplated(config.api_key),
+    },
   ],
   // The name field follows the action: the factory's metis case returns an
   // error rather than defaulting, so without these you could save a sink that
