@@ -500,6 +500,9 @@ func (s *pebbleStorage) UpdateSourceStatus(ctx context.Context, id string, statu
 func (s *pebbleStorage) UpdateSourceState(ctx context.Context, id string, state map[string]string) error {
 	return errors.New("not implemented")
 }
+func (s *pebbleStorage) UpdateSourceSample(ctx context.Context, id string, sample string) error {
+	return errors.New("not implemented")
+}
 func (s *pebbleStorage) DeleteSource(ctx context.Context, id string) error {
 	return errors.New("not implemented")
 }

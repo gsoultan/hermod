@@ -29,6 +29,7 @@ func (h *SourceHandler) RegisterSourceRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/sources/discover/columns", h.EditorOnly(h.DiscoverSourceColumns))
 	mux.Handle("POST /api/sources/discover/replication", h.EditorOnly(h.DiscoverReplication))
 	mux.Handle("POST /api/sources/sample", h.EditorOnly(h.SampleSourceTable))
+	mux.Handle("PUT /api/sources/{id}/sample", h.EditorOnly(h.StoreSourceSample))
 	mux.Handle("POST /api/sources/query", h.EditorOnly(h.QuerySource))
 	mux.Handle("POST /api/sources/upload", h.EditorOnly(h.UploadFile))
 	mux.Handle("POST /api/proxy/fetch", h.EditorOnly(h.ProxyFetch))
@@ -155,6 +156,7 @@ func (h *SourceHandler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	src.ID = id
+	src = carryRuntimeColumns(src, oldSrc)
 
 	role, vhosts := h.GetRoleAndVHosts(r)
 	if role != storage.RoleAdministrator {
@@ -199,6 +201,83 @@ func (h *SourceHandler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(src)
+}
+
+// StoreSourceSample records the payload last previewed from a source, which is
+// what the editor builds a downstream node's field list from.
+//
+// Separate from UpdateSource because storing a sample is not an edit. The editor
+// captures one as a side effect of opening a node, and routing that through the
+// full update sent the browser's cached copy of every other column back with it,
+// reverting a config change made since that copy was fetched.
+//
+// It also deliberately skips checkActiveWorkflows. That guard exists so a
+// source's configuration cannot change under a running pipeline, and the sample
+// column is not configuration — nothing in the engine reads it, only the editor
+// does. Refusing to store a preview while a workflow runs meant the field list
+// stayed empty on exactly the workflows an operator was most likely to be
+// looking at.
+func (h *SourceHandler) StoreSourceSample(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var req struct {
+		Sample string `json:"sample"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Read the source first: the vhost it belongs to is what RBAC is checked
+	// against, and a caller must not learn whether an id exists in a vhost it
+	// cannot see by watching which error comes back.
+	src, err := h.Storage.GetSource(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			h.JsonError(w, "Source not found", http.StatusNotFound)
+		} else {
+			h.JsonError(w, "Failed to get source: "+err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	role, vhosts := h.GetRoleAndVHosts(r)
+	if role != storage.RoleAdministrator && !h.HasVHostAccess(src.VHost, vhosts) {
+		h.JsonError(w, "Forbidden: you don't have access to this vhost", http.StatusForbidden)
+		return
+	}
+
+	if err := h.Storage.UpdateSourceSample(r.Context(), id, req.Sample); err != nil {
+		h.JsonError(w, "Failed to store sample: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// carryRuntimeColumns copies the runtime columns an update did not mention from
+// the stored row onto the incoming one.
+//
+// State describes how far a source has read — a batch_sql `last_value`
+// watermark, a Postgres CDC cursor — and storage.UpdateSource writes it on
+// every update, so a body that never mentioned it used to overwrite the column
+// with null. The clients that do this are not editing the cursor and have no
+// business resetting it: useSourceForm.onSampleReady fires on every Test
+// Connection, and the wizard's own save carries `sample` across but never
+// `state`. The next scheduled run then replayed everything the source had
+// already delivered, with nothing in the request or the response to say why.
+// The bundle-import path in internal/workflow/transport/http/workflow.go has
+// restored the stored State for this reason for a while; this is the same rule
+// on the path the editor actually writes through.
+//
+// A nil map means the field was absent (or explicitly null, which decodes the
+// same way and reads the same: "I am not telling you about state"). An empty
+// object is how a caller says it means it, and clears the cursor.
+func carryRuntimeColumns(src, oldSrc storage.Source) storage.Source {
+	if src.State == nil {
+		src.State = oldSrc.State
+	}
+	return src
 }
 
 func (h *SourceHandler) DeleteSource(w http.ResponseWriter, r *http.Request) {

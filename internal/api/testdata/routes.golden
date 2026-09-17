@@ -175,6 +175,7 @@ PUT /api/me
 PUT /api/settings
 PUT /api/sinks/{id}
 PUT /api/sources/{id}
+PUT /api/sources/{id}/sample
 PUT /api/users/{id}
 PUT /api/users/{id}/password
 PUT /api/vhosts/{id}

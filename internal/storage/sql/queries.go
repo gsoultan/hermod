@@ -52,6 +52,7 @@ const (
 	QueryUpdateSource       = "UpdateSource"
 	QueryUpdateSourceStatus = "UpdateSourceStatus"
 	QueryUpdateSourceState  = "UpdateSourceState"
+	QueryUpdateSourceSample = "UpdateSourceSample"
 	QueryDeleteSource       = "DeleteSource"
 	QueryGetSource          = "GetSource"
 
@@ -501,6 +502,7 @@ var commonQueries = map[string]string{
 	QueryUpdateSource:       "UPDATE sources SET name = ?, type = ?, vhost = ?, active = ?, status = ?, worker_id = ?, workspace_id = ?, config = ?, sample = ?, state = ? WHERE id = ?",
 	QueryUpdateSourceStatus: "UPDATE sources SET status = ? WHERE id = ?",
 	QueryUpdateSourceState:  "UPDATE sources SET state = ? WHERE id = ?",
+	QueryUpdateSourceSample: "UPDATE sources SET sample = ? WHERE id = ?",
 	QueryDeleteSource:       "DELETE FROM sources WHERE id = ?",
 	QueryGetSource:          "SELECT id, name, type, vhost, active, status, worker_id, workspace_id, config, sample, state FROM sources WHERE id = ?",
 

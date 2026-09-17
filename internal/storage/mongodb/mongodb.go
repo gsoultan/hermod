@@ -423,6 +423,12 @@ func (s *mongoStorage) UpdateSourceState(ctx context.Context, id string, state m
 	return err
 }
 
+func (s *mongoStorage) UpdateSourceSample(ctx context.Context, id string, sample string) error {
+	coll := s.db.Collection("sources")
+	_, err := coll.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"sample": sample}})
+	return err
+}
+
 func (s *mongoStorage) UpdateSourceStatus(ctx context.Context, id string, status string) error {
 	coll := s.db.Collection("sources")
 	_, err := coll.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{"status": status}})
