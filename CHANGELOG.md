@@ -393,6 +393,100 @@ Two smaller consequences, both deliberate:
   matching — an orphaned claim is a message mailed twice.
 
 
+### Added — importing a workflow is a wizard, not a textarea
+
+Import was a box to paste JSON into and a button. Whatever the file said was
+written verbatim, which is fine for a bundle produced by the same instance and
+wrong for every other case: a bundle from staging arrives carrying staging's
+hostnames, staging's passwords, staging's encryption key, and ids that may
+already name something in production.
+
+**Import JSON** now opens a wizard that reads the file first and shows what is
+in it, step by step:
+
+- **Bundle** — paste or upload, with a summary of what was found and the
+  export's `missing_refs` spelled out rather than discovered later.
+- **Workflow** — its name and the vhost it lands in.
+- **Sources** and **Sinks** — every one in the bundle, with its real
+  configuration form (the same components the Add Source and Add Sink screens
+  use) and a **Test connection** button that works before anything is written.
+- **Nodes** — the nodes holding something environment-specific: a `db_lookup` or
+  enrichment SQL node's source, an `api_lookup`'s address, an `encrypt` or
+  `decrypt` node's key. Each is edited with the editor the canvas would use for
+  it, so a lookup's source picker offers this instance's sources too and can be
+  repointed at one. A node is listed when its config holds a source reference, a
+  credential (decided by key shape, the way `configsecrets` decides on the
+  server) or an endpoint — so a connector added next year is covered without
+  anyone adding it to a list. Mapping and filter nodes describe a shape, travel
+  unchanged, and stay out of the way.
+- **Review** — a table of exactly what will be created and what will be
+  replaced, then one request.
+
+**Id collisions are now a choice.** When a bundle's source, sink or workflow id
+already names something here, the wizard says so, names the record it would
+replace, and offers to import it as a separate copy instead. Choosing a copy
+generates a new id and repoints every reference to it — a source node's
+`ref_id`, a `db_lookup`'s `sourceId`, a `batch_sql`'s `source_id`, the
+dead-letter sink. That rewriting is pure and unit-tested against all four
+reference sites; missing one would produce a workflow that imports cleanly and
+then cannot start.
+
+`sources.name` and `sinks.name` are `NOT NULL UNIQUE`, so a copy cannot keep the
+original's name: the wizard suggests the nearest free one, and puts it back if
+you change your mind. A name already held by a different record is reported on
+the field and blocks the import, instead of surfacing as
+`constraint failed: UNIQUE constraint failed: sources.name (2067)`.
+
+### Fixed — an exported workflow did not carry every source it uses, and importing one could overwrite a live connection
+
+Export collected a workflow's dependencies by walking its nodes and taking the
+`ref_id` of the ones typed `source` or `sink`. That is not the only way a
+workflow names a source. A `db_lookup` node holds one in its config under
+`sourceId`, the enrichment SQL node holds one under `sourceId` or `sourceID`,
+and a `batch_sql` source delegates its connection to a second source through
+`config.source_id`. None of those travelled with the bundle, so an export of an
+enriched pipeline described a workflow that started on the destination instance
+and then failed every message with `failed to get source for lookup`. The
+bundle now collects all of them, following the `batch_sql` hop transitively.
+
+A dependency that could not be read was dropped from the bundle in silence,
+which is how an export looked complete and was not. A reference that no longer
+exists is now listed in the bundle's `missing_refs` and shown in the export
+notification; a *storage failure* while reading one is no longer treated as the
+same thing, and fails the export rather than quietly shipping a bundle with a
+hole in it.
+
+On the way back in, the source and sink upserts ran as
+`_ = h.Storage.CreateSource(...)`. An import whose dependencies all failed to
+save still answered `201 Created`, and left a workflow pointing at connections
+that were never written — the same swallowed-error shape that was fixed for the
+workflow row itself one release ago. Every save now reports its failure, and
+dependencies are written before the workflow so a failure stops short of
+creating one that cannot run.
+
+Two things in an import were not checked at all:
+
+- **Permissions.** The vhost check only looked at the workflow. The bundle's
+  sources and sinks carry their own vhost and are upserted by ID, so an editor
+  confined to one vhost could hand in a bundle that overwrote a connection —
+  host, credentials and all — belonging to a vhost they cannot even read. Every
+  bundled resource is now checked.
+- **Runtime state.** A bundle is a description of a workflow, not of a running
+  one, but the exported JSON carried the origin's runtime columns and the import
+  wrote them straight through. Re-importing over an existing source therefore
+  replaced its CDC cursor with a position from another database, silently losing
+  or replaying everything in between, and reassigned the workflow to a worker
+  that does not exist on this instance. Export no longer writes those columns,
+  and import preserves this instance's own.
+
+Also fixed: a workflow name went into the `Content-Disposition` filename raw, so
+a name containing a quote produced a malformed header and one containing a slash
+proposed a path; and in the import modal, pressing **Import Workflow** straight
+after pasting a bundle did nothing. The JSON field reformats itself on blur, and
+the export writes the bundle on a single line, so pressing the button blurred the
+field, rewrote its value and re-rendered the modal between mousedown and mouseup
+— no click event was ever produced and it took a second press.
+
 ### Fixed — a `jsonb` column arrived as a string on the CDC path, and vanished when it was TOASTed
 
 A PostgreSQL `jsonb` column had two different shapes depending on how the row
