@@ -1,21 +1,27 @@
 import { useState } from 'react';
 import { 
   Container, Title, Button, Group, Table, ActionIcon, Text, Badge, Paper, 
-  Stack, TextInput, Pagination, Tooltip, Modal, JsonInput, Select, Menu, Checkbox
+  Stack, TextInput, Pagination, Tooltip, Modal, Select, Menu, Checkbox
 } from '@mantine/core';
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { lazy, Suspense } from 'react'
 import { Link } from '@tanstack/react-router';
 import type { Workflow, Worker, Workspace } from '@/types';
 import { apiFetch } from '@/api';
+import { downloadWorkflowExport } from '@/utils/workflowExport';
 import { notifications } from '@mantine/notifications';
 import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import { useVHost } from '@/context/VHostContext';
-import { IconActivity, IconChevronDown, IconCopy, IconDownload, IconEdit, IconFolder, IconGitBranch, IconHierarchy, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconTrash, IconUpload } from '@tabler/icons-react';
+import { IconActivity, IconChevronDown, IconCopy, IconDownload, IconEdit, IconFolder, IconGitBranch, IconHierarchy, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
 import { useConfirm } from '@/components/common/ConfirmProvider';
 const API_BASE = '/api';
 
 const TemplatesModal = lazy(() => import('./WorkflowsPage_TemplatesModal'))
+// The wizard reaches every source, sink and transformation config form.
+// Loading that with the workflow list would pay for it on every visit.
+const ImportWizard = lazy(() =>
+  import('@/components/workflow/Import/ImportWizard').then((m) => ({ default: m.ImportWizard })),
+)
 
 export default function WorkflowsPage() {
   const confirm = useConfirm();
@@ -31,7 +37,6 @@ export default function WorkflowsPage() {
   const [selectedIDs, setSelectedIDs] = useState<string[]>([]);
   const [importOpened, { open: openImport, close: closeImport }] = useDisclosure(false);
   const [templatesOpened, { open: openTemplates, close: closeTemplates }] = useDisclosure(false);
-  const [importJson, setImportJson] = useState('');
 
   const { data: workspacesResponse } = useQuery<Workspace[]>({
     queryKey: ['workspaces'],
@@ -88,6 +93,12 @@ export default function WorkflowsPage() {
     return worker ? worker.name : id;
   };
 
+  // 'all' is a view, not a place to put something. When it is selected the
+  // first real vhost stands in for it, which is what the import path has
+  // always done.
+  const importTargetVHost =
+    selectedVHost === 'all' ? (availableVHosts[0] || 'default') : (selectedVHost || 'default');
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiFetch(`${API_BASE}/workflows/${id}`, { method: 'DELETE' });
@@ -117,34 +128,19 @@ export default function WorkflowsPage() {
   const handleExport = async (wf: Workflow) => {
     try {
       const res = await apiFetch(`${API_BASE}/workflows/${wf.id}/export`);
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `workflow-${wf.name}.json`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      notifications.show({ title: 'Success', message: 'Workflow exported successfully', color: 'green' });
+      const { warning } = await downloadWorkflowExport(res, wf.name);
+      if (warning) {
+        notifications.show({ title: 'Exported with missing dependencies', message: warning, color: 'yellow', autoClose: false });
+      } else {
+        notifications.show({ title: 'Success', message: 'Workflow exported successfully', color: 'green' });
+      }
     } catch (err: any) {
       notifications.show({ title: 'Export Failed', message: err.message, color: 'red' });
     }
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const content = e.target?.result as string;
-        setImportJson(content);
-      };
-      reader.readAsText(file);
-    }
-  };
 
-  const importMutation = useMutation({
+  const templateImportMutation = useMutation({
     mutationFn: async (json: string) => {
       let data;
       try {
@@ -155,8 +151,18 @@ export default function WorkflowsPage() {
 
       // Support patching vhost if missing from the workflow in the bundle or the single workflow
       const workflow = data.workflow || data;
-      if (!workflow.vhost && selectedVHost) {
-        workflow.vhost = selectedVHost === 'all' ? (availableVHosts[0] || 'default') : selectedVHost;
+      const targetVHost = importTargetVHost;
+      if (!workflow.vhost && targetVHost) {
+        workflow.vhost = targetVHost;
+      }
+      // The bundle's sources and sinks carry their own vhost, and the server
+      // refuses any the caller cannot write to. One without a vhost belongs in
+      // the same place as the workflow it came with — the server would
+      // otherwise file it under "default" while the workflow went elsewhere.
+      if (targetVHost) {
+        for (const resource of [...(data.sources ?? []), ...(data.sinks ?? [])]) {
+          if (!resource.vhost) resource.vhost = targetVHost;
+        }
       }
 
       const res = await apiFetch(`${API_BASE}/workflows/import`, {
@@ -169,12 +175,10 @@ export default function WorkflowsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
       notifications.show({ title: 'Success', message: 'Workflow imported successfully', color: 'green' });
-      closeImport();
-      setImportJson('');
     },
     onError: (err: any) => {
       notifications.show({ 
-        id: 'workflow-import-error',
+        id: 'workflow-template-import-error',
         title: 'Import Failed', 
         message: err.message, 
         color: 'red' 
@@ -287,39 +291,33 @@ export default function WorkflowsPage() {
           <Suspense fallback={<Text size="sm">Loading templates…</Text>}>
             <TemplatesModal 
               onUseTemplate={(data) => {
-                importMutation.mutate(JSON.stringify(data))
+                templateImportMutation.mutate(JSON.stringify(data))
                 closeTemplates()
               }}
             />
           </Suspense>
         </Modal>
 
-        <Modal opened={importOpened} onClose={closeImport} title="Import Workflow from JSON" size="lg">
-          <Stack>
-            <Group justify="space-between">
-              <Text size="sm">Paste the Workflow JSON configuration below or upload a file.</Text>
-              <Button variant="subtle" component="label" size="xs" leftSection={<IconUpload size="1rem" />}>
-                Upload File
-                <input type="file" hidden accept=".json" onChange={handleFileUpload} />
-              </Button>
-            </Group>
-            <JsonInput 
-              placeholder='{ "name": "Imported Workflow", ... }' 
-              validationError="Invalid JSON" 
-              formatOnBlur 
-              autosize 
-              minRows={18} 
-              maxRows={40}
-              value={importJson}
-              onChange={setImportJson}
+        <Modal
+          opened={importOpened}
+          onClose={closeImport}
+          title="Import Workflow"
+          size="xl"
+          closeOnClickOutside={false}
+        >
+          <Suspense fallback={<Text size="sm">Loading the import wizard…</Text>}>
+            <ImportWizard
+              defaultVHost={importTargetVHost}
+              availableVHosts={availableVHosts.length > 0 ? availableVHosts : ['default']}
+              onCancel={closeImport}
+              onImported={(name) => {
+                queryClient.invalidateQueries({ queryKey: ['workflows'] });
+                queryClient.invalidateQueries({ queryKey: ['import-existing'] });
+                notifications.show({ title: 'Imported', message: `${name} is ready. It arrives stopped.`, color: 'green' });
+                closeImport();
+              }}
             />
-            <Group justify="flex-end">
-              <Button variant="outline" color="gray" onClick={closeImport}>Cancel</Button>
-              <Button onClick={() => importMutation.mutate(importJson)} loading={importMutation.isPending} disabled={!importJson}>
-                Import Workflow
-              </Button>
-            </Group>
-          </Stack>
+          </Suspense>
         </Modal>
 
         <Paper p="md" withBorder radius="md" bg="var(--mantine-color-body)">

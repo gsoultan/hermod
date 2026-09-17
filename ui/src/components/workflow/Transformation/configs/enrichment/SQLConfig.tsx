@@ -1,5 +1,6 @@
 import { Suspense, lazy } from 'react';
 import { Stack, Select, Text, Box, Card, Group, rem, ThemeIcon, Alert } from '@mantine/core';
+import { sourceAllowsDirectQueries } from '@/lib/sourceCdc';
 import { IconDatabase, IconInfoCircle, IconSearch } from '@tabler/icons-react';
 
 const SQLQueryBuilder = lazy(() =>
@@ -36,6 +37,17 @@ export function SQLConfig({ config, updateNodeConfig, nodeId, sources, available
   const selectedSource = (Array.isArray(sources) ? sources : []).find(
     (s) => s.id === (config.sourceId || config.sourceID)
   );
+
+  // Unlike db_lookup and batch_sql, a CDC source is not refused here. Those two
+  // read, and the rule keeps query load off a database already paying for
+  // logical replication. execute_sql only writes -- it runs ExecContext and can
+  // hand back nothing but a row count -- so its hazard is a feedback loop
+  // instead: a write into a published table produces a change event that comes
+  // back round the pipeline. That is scoped to the table while use_cdc is
+  // scoped to the source, so blocking the source would break the ordinary case
+  // of writing an audit or status row nobody streams. Name the risk and leave
+  // the choice.
+  const targetIsCDC = !!selectedSource && !sourceAllowsDirectQueries(selectedSource);
 
   return (
     <Stack gap="md">
@@ -79,6 +91,24 @@ export function SQLConfig({ config, updateNodeConfig, nodeId, sources, available
             size="sm"
             description="Choose the database to query for enrichment."
           />
+
+          {targetIsCDC && (
+            <Alert
+              data-testid="execute-sql-cdc-warning"
+              icon={<IconInfoCircle size={rem(18)} />}
+              color="yellow"
+              variant="light"
+              radius="md"
+            >
+              <Text size="sm">
+                <strong>{selectedSource?.name}</strong> has CDC enabled. This node writes, so any
+                statement touching a table in that source's publication produces a change event
+                that comes back into the pipeline — a loop that feeds itself. Writing to a table
+                nobody streams is fine; check which tables are published before pointing this at
+                one that is.
+              </Text>
+            </Alert>
+          )}
         </Stack>
       </Card>
 

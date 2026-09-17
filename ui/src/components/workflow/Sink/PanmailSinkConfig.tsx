@@ -24,8 +24,16 @@ interface PanmailSinkConfigProps {
  *
  * Keys match `createSinkBase` case "panmail" and `pkg/comm/sink/panmail`.
  */
+/** The same test the sinks make: a value holding `{{` is rendered, not literal. */
+const isTemplated = (value: unknown): boolean =>
+  typeof value === 'string' && value.includes('{{');
+
 export function PanmailSinkConfig({ config, updateConfig }: PanmailSinkConfigProps) {
   const idempotent = config.enable_idempotency === 'true';
+  // Between them these two decide where a tenant-wide API key is sent. Template
+  // either and a row is making that decision, which is what the allowlist bounds
+  // — `panmail.New` refuses to start without one.
+  const routed = isTemplated(config.base_url) || isTemplated(config.api_key);
 
   return (
     <Stack gap="md">
@@ -35,7 +43,7 @@ export function PanmailSinkConfig({ config, updateConfig }: PanmailSinkConfigPro
           placeholder="https://mail.example.com"
           value={config.base_url || ''}
           onChange={(e) => updateConfig('base_url', e.currentTarget.value)}
-          description="The gateway's origin, not a path. Plaintext http is refused unless the host is loopback — the API key travels in a header."
+          description="The gateway's origin, not a path. Plaintext http is refused unless the host is loopback — the API key travels in a header. Templated, but see Allowed gateway hosts."
           leftSection={<IconMail size="1rem" />}
           required
         />
@@ -44,10 +52,30 @@ export function PanmailSinkConfig({ config, updateConfig }: PanmailSinkConfigPro
           placeholder="Paste the key"
           value={config.api_key || ''}
           onChange={(e) => updateConfig('api_key', e.currentTarget.value)}
-          description="Created under Settings → API Keys, with the email:send scope. It carries the tenant."
+          description="Created under Settings → API Keys, with the email:send scope. It carries the tenant. Templated, so one sink can send for many tenants."
           required
         />
       </FormRow>
+
+      {routed && (
+        <>
+          <Alert icon={<IconAlertTriangle size="1rem" />} color="orange" variant="light">
+            The gateway URL or API key is a template, so the row decides where a tenant-wide
+            credential is sent. List the hosts that are legitimate — a message naming anything else
+            is refused before the key leaves this process.
+          </Alert>
+          <FormRow cols={1}>
+            <TextInput
+              label="Allowed gateway hosts"
+              placeholder="*.mail.example.com, mail.example.com"
+              value={config.allowed_hosts || ''}
+              onChange={(e) => updateConfig('allowed_hosts', e.currentTarget.value)}
+              description="Comma-separated hostnames. A leading *. covers subdomains of a domain with at least two labels — *.com is refused, it bounds nothing."
+              required
+            />
+          </FormRow>
+        </>
+      )}
 
       <FormRow cols={2}>
         <TextInput
@@ -55,7 +83,7 @@ export function PanmailSinkConfig({ config, updateConfig }: PanmailSinkConfigPro
           placeholder="0f8b…"
           value={config.provider_id || ''}
           onChange={(e) => updateConfig('provider_id', e.currentTarget.value)}
-          description="From the Email Providers page. Required — the gateway will not guess, because the wrong guess sends from the wrong domain."
+          description="From the Email Providers page. Required — the gateway will not guess, because the wrong guess sends from the wrong domain. Templated; a rendering that is empty is refused, not sent."
           required
         />
         <TextInput
@@ -69,10 +97,11 @@ export function PanmailSinkConfig({ config, updateConfig }: PanmailSinkConfigPro
       </FormRow>
 
       <Text size="xs" c="dimmed">
-        Recipients, subject and bodies are Go templates over the message:{' '}
-        <Code>{'{{.id}}'}</Code>, <Code>{'{{.table}}'}</Code>, <Code>{'{{.operation}}'}</Code> and
-        any field of the row. A rendered recipient containing commas expands into several
-        addresses.
+        Every text field above and below is a Go template over the message:{' '}
+        <Code>{'{{.id}}'}</Code>, <Code>{'{{.operation}}'}</Code>, <Code>{'{{.table}}'}</Code>,{' '}
+        <Code>{'{{.schema}}'}</Code>, <Code>{'{{.metadata.x}}'}</Code> and any field of the row —
+        which wins over the envelope when the names collide. A rendered recipient containing commas
+        expands into several addresses.
       </Text>
 
       <FormRow cols={1}>
@@ -119,7 +148,7 @@ export function PanmailSinkConfig({ config, updateConfig }: PanmailSinkConfigPro
           placeholder="Leave blank to use the bodies below"
           value={config.template_id || ''}
           onChange={(e) => updateConfig('template_id', e.currentTarget.value)}
-          description="Renders a template stored in the gateway, with the message as its data. The subject comes from the template unless you set one above."
+          description="Renders a template stored in the gateway, with the message as its data. The subject comes from the template unless you set one above. Templated — {{.kind}} picks the template per row; a rendering that is empty is refused rather than falling back to the bodies."
         />
       </FormRow>
 

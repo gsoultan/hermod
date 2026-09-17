@@ -19,6 +19,7 @@ import { apiFetch } from '@/api';
 import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import { formatDateTime } from '@/utils/dateUtils';
 import { normalizeWorkflowStatus } from '@/utils/workflowStatus';
+import { downloadWorkflowExport } from '@/utils/workflowExport';
 import { 
   IconArrowLeft, IconArrowsExchange, IconChartBar, IconChevronRight, IconCircleCheck, IconCircleX, IconClock, IconEye, IconHistory, IconInfoCircle, IconRefresh, IconRotateDot, IconSearch, IconTerminal2, IconTimeline,
   IconBug, IconBrain, IconActivity,
@@ -86,16 +87,12 @@ export function WorkflowDetailPage() {
     if (!workflow) return;
     try {
       const res = await apiFetch(`${API_BASE}/workflows/${id}/export`);
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `workflow-${workflow.name}.json`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      notifications.show({ title: 'Success', message: 'Workflow exported successfully', color: 'green' });
+      const { warning } = await downloadWorkflowExport(res, workflow.name);
+      if (warning) {
+        notifications.show({ title: 'Exported with missing dependencies', message: warning, color: 'yellow', autoClose: false });
+      } else {
+        notifications.show({ title: 'Success', message: 'Workflow exported successfully', color: 'green' });
+      }
     } catch (err: any) {
       notifications.show({ title: 'Export Failed', message: err.message, color: 'red' });
     }

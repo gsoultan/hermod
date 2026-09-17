@@ -72,7 +72,7 @@ func TestValidateWorkflow(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			issues := h.ValidateWorkflow(tc.wf)
+			issues := h.ValidateWorkflow(t.Context(), tc.wf)
 			if len(issues) != tc.expectedIssues {
 				t.Errorf("expected %d issues, got %d", tc.expectedIssues, len(issues))
 				for _, issue := range issues {
@@ -80,7 +80,7 @@ func TestValidateWorkflow(t *testing.T) {
 				}
 			}
 
-			err := h.validateWorkflow(tc.wf)
+			err := h.validateWorkflow(t.Context(), tc.wf)
 			if tc.expectError && err == nil {
 				t.Error("expected error, got nil")
 			}
@@ -94,6 +94,14 @@ func TestValidateWorkflow(t *testing.T) {
 type mockStorageForValidation struct {
 	storage.Storage
 	wf *storage.Workflow
+}
+
+// Validation reads the sources a node queries, so a mock that answers only
+// GetWorkflow leaves a nil embedded interface in the path. That does not panic
+// here -- it hangs -- so the method has to exist even when it has nothing to
+// say.
+func (m *mockStorageForValidation) GetSource(ctx context.Context, id string) (storage.Source, error) {
+	return storage.Source{}, storage.ErrNotFound
 }
 
 func (m *mockStorageForValidation) GetWorkflow(ctx context.Context, id string) (storage.Workflow, error) {

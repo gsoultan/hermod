@@ -1264,7 +1264,32 @@ func (r *Registry) UpdateSource(ctx context.Context, src storage.Source) error {
 	r.sourceCacheMu.Lock()
 	delete(r.sourceCache, src.ID)
 	r.sourceCacheMu.Unlock()
+
+	// The rows a lookup cached from this source were read under the old
+	// configuration. SetLookupCache treats ttl <= 0 as "never expires" and the
+	// editor leaves Cache TTL empty by default, so without this an edit is
+	// invisible to every lookup already holding a row -- including the edit
+	// that switches CDC on, which is meant to stop the lookup entirely.
+	r.invalidateLookupCacheForSource(src.ID)
 	return nil
+}
+
+// invalidateLookupCacheForSource drops every lookup row cached from one source
+// and leaves the rest alone: those were read from sources nobody edited, and
+// dropping them would make an unrelated edit a throughput cliff.
+func (r *Registry) invalidateLookupCacheForSource(sourceID string) {
+	if sourceID == "" {
+		return
+	}
+	prefix := hermod.LookupCacheKeyPrefix(sourceID)
+
+	r.lookupCacheMu.Lock()
+	defer r.lookupCacheMu.Unlock()
+	for k := range r.lookupCache {
+		if strings.HasPrefix(k, prefix) {
+			delete(r.lookupCache, k)
+		}
+	}
 }
 
 func (r *Registry) UpdateSink(ctx context.Context, snk storage.Sink) error {

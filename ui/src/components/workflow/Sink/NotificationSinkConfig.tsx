@@ -1,159 +1,99 @@
-import { useState } from 'react';
-import { FormRow } from '@/components/common/FormRow';
-import { TextInput, Group, Select, Textarea, Button, Stack, Switch, Text } from '@mantine/core';
-import { EmailLayoutBuilder } from '../../forms/EmailLayoutBuilder';
-import { IconAt, IconBrush } from '@tabler/icons-react';
+import { Alert, TextInput, Textarea } from '@mantine/core';
+
 interface NotificationSinkConfigProps {
   type: string;
   config: any;
   updateConfig: (key: string, value: string) => void;
-  validateEmailLoading?: boolean;
-  validateEmail?: (email: string) => void;
-  handlePreview?: () => void;
-  previewLoading?: boolean;
 }
 
-export function NotificationSinkConfig({ 
-  type, config, updateConfig, validateEmailLoading, validateEmail, handlePreview, previewLoading 
-}: NotificationSinkConfigProps) {
-  const [builderOpened, setBuilderOpened] = useState(false);
-
+/**
+ * The form for the chat sinks: Telegram, Discord and Slack.
+ *
+ * It used to carry a second copy of the SMTP form as well, which nothing could
+ * reach — SinkForm maps `smtp` to SMTPSinkConfig — and which had drifted from
+ * the one that is reached. The three types below are what the sink picker sends
+ * here.
+ */
+export function NotificationSinkConfig({ type, config, updateConfig }: NotificationSinkConfigProps) {
   switch (type) {
-    case 'smtp':
-      return (
-        <>
-          <EmailLayoutBuilder 
-            opened={builderOpened} 
-            onClose={() => setBuilderOpened(false)} 
-            onApply={(html) => updateConfig('template', html)}
-            outlookCompatible={config.outlook_compatible === 'true'}
-          />
-          <FormRow>
-            <TextInput 
-              label="SMTP Host" 
-              placeholder="smtp.gmail.com" 
-              value={config.host || ''} 
-              onChange={(e) => updateConfig('host', e.target.value)} 
-              required 
-              description="SMTP server host"
-              mih={80}
-            />
-            <TextInput 
-              label="SMTP Port" 
-              placeholder="587" 
-              value={config.port || ''} 
-              onChange={(e) => updateConfig('port', e.target.value)} 
-              required 
-              description="SMTP server port"
-              mih={80}
-            />
-          </FormRow>
-          <FormRow>
-            <TextInput 
-              label="Username" 
-              placeholder="user@gmail.com" 
-              value={config.username || ''} 
-              onChange={(e) => updateConfig('username', e.target.value)} 
-              description="Login username"
-              mih={80}
-            />
-            <TextInput 
-              label="Password" 
-              type="password" 
-              placeholder="App password" 
-              value={config.password || ''} 
-              onChange={(e) => updateConfig('password', e.target.value)} 
-              description="Login password"
-              mih={80}
-            />
-          </FormRow>
-          <FormRow>
-            <TextInput 
-              label="From" 
-              placeholder="noreply@hermod.com" 
-              value={config.from || ''} 
-              onChange={(e) => updateConfig('from', e.target.value)} 
-              required 
-              description="Sender email address"
-              mih={80}
-            />
-            <TextInput 
-              label="To (Dynamic Template)" 
-              placeholder="{{.customer_email}}" 
-              value={config.to || ''} 
-              onChange={(e) => updateConfig('to', e.target.value)} 
-              required 
-              description="Recipient email template"
-              mih={80}
-              rightSection={
-                validateEmail && (
-                  <Button variant="subtle" size="xs" loading={validateEmailLoading} onClick={() => validateEmail(config.to)}>
-                    <IconAt size="1rem" />
-                  </Button>
-                )
-              }
-            />
-          </FormRow>
-          <TextInput label="Subject Template" placeholder="New order: {{.id}}" value={config.subject || ''} onChange={(e) => updateConfig('subject', e.target.value)} required />
-          <Select 
-            label="Template Source" 
-            data={[
-              { label: 'Inline Content', value: 'inline' },
-              { label: 'External URL (GET)', value: 'url' },
-              { label: 'Local File', value: 'file' }
-            ]} 
-            value={config.template_source || 'inline'} 
-            onChange={(val) => updateConfig('template_source', val || 'inline')} 
-          />
-          {config.template_source === 'inline' && (
-            <Stack gap={4}>
-              <Group justify="space-between" align="center">
-                <Text size="sm" fw={500}>Email Body Template</Text>
-                <Button 
-                  variant="subtle" 
-                  size="compact-xs" 
-                  leftSection={<IconBrush size="0.8rem" />}
-                  onClick={() => setBuilderOpened(true)}
-                >
-                  Launch Layout Builder
-                </Button>
-              </Group>
-              <Textarea 
-                placeholder="Hello {{.name}}, your order #{{.id}} has been received!" 
-                minRows={6} 
-                value={config.template || ''} 
-                onChange={(e) => updateConfig('template', e.target.value)} 
-                description="Supports Go template syntax: {{.field}}, {{range .items}} etc."
-              />
-              <Group justify="flex-end">
-                <Button size="xs" variant="light" loading={previewLoading} onClick={handlePreview}>Preview Template</Button>
-              </Group>
-            </Stack>
-          )}
-          {config.template_source === 'url' && (
-            <TextInput label="Template URL" placeholder="https://cdn.com/templates/order.html" value={config.template_url || ''} onChange={(e) => updateConfig('template_url', e.target.value)} />
-          )}
-          {config.template_source === 'file' && (
-            <TextInput label="Template Path" placeholder="/etc/hermod/templates/email.html" value={config.template_path || ''} onChange={(e) => updateConfig('template_path', e.target.value)} />
-          )}
-          <Switch 
-            label="Outlook Compatible (Inlined CSS)" 
-            checked={config.outlook_compatible === 'true'} 
-            onChange={(e) => updateConfig('outlook_compatible', e.currentTarget.checked ? 'true' : 'false')} 
-          />
-        </>
-      );
     case 'telegram':
       return (
         <>
-          <TextInput label="Bot Token" placeholder="123456:ABC-DEF..." value={config.bot_token || ''} onChange={(e) => updateConfig('bot_token', e.target.value)} required />
-          <TextInput label="Chat ID" placeholder="-100123456789" value={config.chat_id || ''} onChange={(e) => updateConfig('chat_id', e.target.value)} required />
-          <TextInput label="Template" placeholder="Message: {{.payload}}" value={config.template || ''} onChange={(e) => updateConfig('template', e.target.value)} />
+          <TextInput
+            label="Bot Token"
+            placeholder="123456:ABC-DEF..."
+            value={config.bot_token || ''}
+            onChange={(e) => updateConfig('bot_token', e.target.value)}
+            required
+            description="From @BotFather."
+          />
+          <TextInput
+            label="Chat ID"
+            placeholder="-100123456789"
+            value={config.chat_id || ''}
+            onChange={(e) => updateConfig('chat_id', e.target.value)}
+            required
+            description="The chat, channel or group the bot posts to."
+          />
+          <Textarea
+            label="Template"
+            placeholder="Order {{.id}} on {{.table}}"
+            value={config.template || ''}
+            onChange={(e) => updateConfig('template', e.target.value)}
+            description="Go template over the message. Leave empty to send the formatted message."
+          />
         </>
       );
+    case 'discord':
+    case 'slack':
+      return <WebhookOrBotForm type={type} config={config} updateConfig={updateConfig} />;
     default:
-      return null;
+      // Silence is what hid Discord and Slack: both were mapped here, neither
+      // had a branch, and the form rendered nothing at all.
+      return (
+        <Alert color="orange" title="No form for this sink type">
+          {`"${type}" is routed to the chat sink form, which has no fields for it. Configure it through the API, or add its form here.`}
+        </Alert>
+      );
   }
 }
 
-
+/**
+ * Discord and Slack take the same two shapes of credential: a webhook URL, or a
+ * bot token with a channel. Either is enough, and the sink says exactly that
+ * when it has neither, so the form asks for both and says which it needs.
+ */
+function WebhookOrBotForm({ type, config, updateConfig }: NotificationSinkConfigProps) {
+  const service = type === 'discord' ? 'Discord' : 'Slack';
+  const placeholder = type === 'discord'
+    ? 'https://discord.com/api/webhooks/…'
+    : 'https://hooks.slack.com/services/…';
+  return (
+    <>
+      <Alert color="blue" variant="light">
+        {`Either a webhook URL on its own, or a bot token with a channel id. ${service} refuses the message when it has neither.`}
+      </Alert>
+      <TextInput
+        label="Webhook URL"
+        placeholder={placeholder}
+        value={config.webhook_url || ''}
+        onChange={(e) => updateConfig('webhook_url', e.target.value)}
+        description="The simplest route: no token, no channel id."
+      />
+      <TextInput
+        label="Bot Token"
+        placeholder={type === 'discord' ? 'Bot token' : 'xoxb-…'}
+        value={config.token || ''}
+        onChange={(e) => updateConfig('token', e.target.value)}
+        description="Used with the channel id when there is no webhook URL."
+      />
+      <TextInput
+        label="Channel ID"
+        placeholder={type === 'discord' ? '123456789012345678' : 'C0123456789'}
+        value={config.channel_id || ''}
+        onChange={(e) => updateConfig('channel_id', e.target.value)}
+        description="The channel the bot posts to."
+      />
+    </>
+  );
+}

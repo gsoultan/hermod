@@ -62,6 +62,11 @@ find a claim that outruns the code, fix the claim.
   — `configComponents[type] || 'database'` silently rendered the database form
   for twelve sink types, making two of them unconfigurable; and why the panmail
   sink keeps its idempotency claim when a send's outcome is unknown.
+- [panmail: templated routing fields](panmail_templated_routing_fields.md) — why
+  templating `base_url`/`api_key` turns the SDK client into a per-message
+  resource and its cache into a map keyed by row data, the mandatory
+  `allowed_hosts` bound, and why a *static* gateway must stay out of the derived
+  idempotency key.
 - [The FCM sink](fcm_sink.md) — FCM's one-destination and 4096-byte rules, why
   batching is opt-in when there is no idempotency key, and the `option.WithEndpoint`
   seam that makes the wire format assertable.
@@ -72,6 +77,16 @@ find a claim that outruns the code, fix the claim.
 - [The lookup cache is a second write path](lookup_cache_fast_path.md) — a
   cache hit skipped `flattenInto`, and with no TTL set that meant every message
   after the first; the test fake that "caches" nothing could never catch it.
+- [Workflow dependency references](workflow_dependency_references.md) — a
+  workflow names its sources in four places, not one; walking nodes for
+  `type == "source"` is the wrong answer, and the source delete guard still
+  gives it.
+- [SMTP template time helpers](smtp_template_time_helpers.md) — `.Format` and
+  `.In "Asia/Jakarta"` on a column, and the two shapes (CDC text vs pgx
+  `time.Time`) both of them have to read.
+- [`use_cdc` is opt-out](use_cdc_is_opt_out.md) — a source with no key is a CDC
+  source; one definition (`hermod.SourceAllowsDirectQueries`) now gates both
+  `db_lookup`'s `sourceId` and a `batch_sql` source's `source_id` delegate.
 
 ### Gates
 

@@ -112,7 +112,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	// %T as well as %v: without it the string "1" and the number 1 produce the
 	// same key, so two lookups keyed on the same id in different types serve
 	// each other's rows.
-	cacheKey := fmt.Sprintf("db:%s:%s:%s:%s:%T:%v:%s:%s:%s", sourceID, table, keyColumn, valueColumn, keyVal, keyVal, whereClause, queryTemplate, mode)
+	cacheKey := hermod.LookupCacheKeyPrefix(sourceID) + fmt.Sprintf("%s:%s:%s:%T:%v:%s:%s:%s", table, keyColumn, valueColumn, keyVal, keyVal, whereClause, queryTemplate, mode)
 	if cached, found := registry.GetLookupCache(cacheKey); found {
 		applyLookupResult(msg, targetField, flattenInto, cached)
 		return msg, nil

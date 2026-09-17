@@ -6,6 +6,22 @@
 // keyed by — and refusals that say which refusal they are, rather than an SMTP
 // reply code that has to be guessed at.
 //
+// # Templates
+//
+// Every string setting is a Go template over the message — see renderData for
+// what is in scope. That includes the four that decide where a message goes:
+// the gateway url, the api key, the provider id and the stored template id.
+//
+// The provider id and the template id are refused when they render empty rather
+// than sent: an empty provider sends from whatever the gateway picks, and an
+// empty template id would fall through to the body fallback, so a typo in a
+// field name would mail the wrong thing rather than fail.
+//
+// The gateway url and the api key are a security decision, because between them
+// they choose where a tenant-wide credential is sent — and templated, a row
+// chooses it. Config.AllowedHosts is therefore required when either is
+// templated, and New refuses to start without it.
+//
 // # Retries and duplicate mail
 //
 // Sending is not idempotent and the gateway has no de-duplication key, so a
@@ -31,6 +47,7 @@ package panmail
 
 import (
 	"bytes"
+	"container/list"
 	"context"
 	"errors"
 	"fmt"
@@ -53,15 +70,32 @@ type Config struct {
 	// BaseURL is the gateway's origin, e.g. https://mail.example.com. Not a
 	// path to a procedure. Plaintext http is refused unless the host is
 	// loopback, because the api key travels in a header.
+	//
+	// Templated, and the one templated field that is a security decision: it
+	// chooses where the api key is sent, so a row is choosing that. AllowedHosts
+	// is required when it is templated, and bounds the choice to hosts you name.
 	BaseURL string
 
-	// APIKey carries the tenant and needs the email:send scope.
+	// APIKey carries the tenant and needs the email:send scope. Templated, so
+	// one sink can send on behalf of many tenants; AllowedHosts is required when
+	// it is, for the same reason as BaseURL.
 	APIKey string
 
 	// ProviderID is the configured sending provider. Required: the gateway
 	// will not guess which of a tenant's providers a message goes out through,
-	// because the wrong guess is mail sent from the wrong domain.
+	// because the wrong guess is mail sent from the wrong domain. Templated —
+	// a rendering that is empty is refused rather than sent unrouted.
 	ProviderID string
+
+	// AllowedHosts bounds the hosts a templated BaseURL may resolve to. Each
+	// entry is a hostname, or a single leading "*." wildcard over a domain with
+	// at least two labels ("*.mail.example.com"). A rendered host that matches
+	// none of them is refused before anything is sent.
+	//
+	// Required when BaseURL or APIKey is templated, and ignored otherwise.
+	// Without it, any row that reaches this sink could name its own gateway and
+	// be handed the api key.
+	AllowedHosts []string
 
 	// From must be an address the provider is authorised to send as. Templated.
 	From string
@@ -82,7 +116,9 @@ type Config struct {
 	Text string
 
 	// TemplateID renders a template stored in the gateway instead of the bodies
-	// above. The message's data map is passed as the template data.
+	// above. The message's data map is passed as the template data. Templated,
+	// so one stream can pick "welcome" or "receipt" per row; a rendering that is
+	// empty is refused rather than quietly falling back to a body.
 	TemplateID string
 
 	// RateLimitRetries waits out up to n rate-limit refusals inside a single
@@ -112,17 +148,77 @@ type IdempotencyStore interface {
 // Sink writes each message to a panmail gateway as one email.
 type Sink struct {
 	cfg       Config
-	client    *sdk.Client
 	formatter hermod.Formatter
+
+	// opts rebuilds a client for a gateway the first message names. Kept because
+	// a templated BaseURL or APIKey has no client until a message supplies one.
+	opts    []sdk.Option
+	allowed []hostRule
+	// routed is true when BaseURL or APIKey is templated, which is what turns on
+	// the allowlist check and puts the gateway into the idempotency key.
+	routed bool
 
 	idemStore         IdempotencyStore
 	enableIdempotency bool
 	idemKeyTemplate   string
 
-	mu                sync.Mutex
+	mu sync.Mutex
+	// clients is keyed by values a message rendered, so with a wildcard
+	// allowlist the row chooses how many entries there are. Bounded and evicted
+	// least-recently-used for that reason — see maxCachedClients.
+	clients           map[string]*list.Element
+	lru               *list.List
 	lastMessageID     string
 	lastWriteDedup    bool
 	lastWriteConflict bool
+}
+
+// hostRule is one entry of Config.AllowedHosts.
+type hostRule struct {
+	// host is the hostname to match, or for a wildcard the suffix under it,
+	// without the leading dot. Always lowercase.
+	host     string
+	wildcard bool
+}
+
+func (r hostRule) matches(host string) bool {
+	if r.wildcard {
+		// "example.com" itself is not under "*.example.com": a wildcard covers
+		// the subdomains you delegate, not the apex you may not control.
+		return strings.HasSuffix(host, "."+r.host)
+	}
+	return host == r.host
+}
+
+// parseAllowedHosts turns the configured entries into rules, refusing the ones
+// that would not bound anything.
+func parseAllowedHosts(entries []string) ([]hostRule, error) {
+	rules := make([]hostRule, 0, len(entries))
+	for _, raw := range entries {
+		entry := strings.ToLower(strings.TrimSpace(raw))
+		if entry == "" {
+			continue
+		}
+		if suffix, ok := strings.CutPrefix(entry, "*."); ok {
+			// "*.com" would allow every gateway on the internet under .com,
+			// which is not a bound.
+			if !strings.Contains(suffix, ".") {
+				return nil, fmt.Errorf("panmail sink: allowed host %q is too broad; a wildcard "+
+					"needs at least two labels under it, e.g. *.mail.example.com", raw)
+			}
+			rules = append(rules, hostRule{host: suffix, wildcard: true})
+			continue
+		}
+		if strings.Contains(entry, "*") {
+			return nil, fmt.Errorf("panmail sink: allowed host %q may only use a wildcard as a "+
+				"leading \"*.\" label", raw)
+		}
+		rules = append(rules, hostRule{host: entry})
+	}
+	if len(rules) == 0 {
+		return nil, errors.New("panmail sink: the allowed hosts list has no usable entries")
+	}
+	return rules, nil
 }
 
 var (
@@ -165,13 +261,189 @@ func New(cfg Config, formatter hermod.Formatter) (*Sink, error) {
 		opts = append(opts, sdk.WithTimeout(cfg.Timeout))
 	}
 
-	client, err := sdk.New(cfg.BaseURL, cfg.APIKey, opts...)
+	s := &Sink{
+		cfg:       cfg,
+		formatter: formatter,
+		opts:      opts,
+		routed:    templated(cfg.BaseURL) || templated(cfg.APIKey),
+		clients:   map[string]*list.Element{},
+		lru:       list.New(),
+	}
+
+	if !s.routed {
+		// The gateway is fixed, so its mistakes are configuration mistakes and
+		// belong here rather than on the first message. This is also where the
+		// SDK refuses plaintext off loopback.
+		client, err := sdk.New(cfg.BaseURL, cfg.APIKey, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("panmail sink: %w", err)
+		}
+		s.cacheClient(clientKey(cfg.BaseURL, cfg.APIKey), client)
+		return s, nil
+	}
+
+	// A templated gateway or key means a row decides where a tenant-wide
+	// credential is sent. Refusing to start without an allowlist is what keeps
+	// that from being an accident.
+	if len(cfg.AllowedHosts) == 0 {
+		return nil, errors.New("panmail sink: a templated gateway url or api key needs an allowed " +
+			"hosts list; without one, any row reaching this sink could name its own gateway and be " +
+			"handed the api key")
+	}
+	allowed, err := parseAllowedHosts(cfg.AllowedHosts)
+	if err != nil {
+		return nil, err
+	}
+	s.allowed = allowed
+	return s, nil
+}
+
+// templated reports whether a configured value is a template rather than a
+// literal. It is the same test render makes, so the two cannot disagree about
+// which fields are rendered.
+func templated(v string) bool { return strings.Contains(v, "{{") }
+
+// clientKey identifies a gateway-and-tenant pair in the client cache. The api
+// key is part of the identity — two tenants on one gateway are two clients —
+// but never part of anything that is returned or logged.
+func clientKey(baseURL, apiKey string) string { return baseURL + "\x00" + apiKey }
+
+// maxCachedClients bounds the client cache.
+//
+// The allowlist bounds which hosts are reachable, not how many: one "*." rule
+// admits every subdomain under it, and nothing bounds the api key at all. Both
+// halves of the key are rendered from the message, so an upstream table decides
+// how many entries exist — which is the definition of a map that needs a bound
+// and an eviction.
+//
+// A client is an endpoint, a key and an http.Client, so the cost of the bound
+// is a cold connection pool for whatever falls out of it. Generous enough that
+// a real fleet of gateways stays hot, small enough that a hostile table cannot
+// grow this without limit.
+const maxCachedClients = 32
+
+// cachedClient is one entry, holding its own key so eviction can find it.
+type cachedClient struct {
+	key    string
+	client *sdk.Client
+}
+
+// lookupClient returns a cached client, promoting it to most-recently-used.
+// Callers hold s.mu.
+func (s *Sink) lookupClient(key string) (*sdk.Client, bool) {
+	el, ok := s.clients[key]
+	if !ok {
+		return nil, false
+	}
+	entry, ok := el.Value.(*cachedClient)
+	if !ok {
+		return nil, false
+	}
+	s.lru.MoveToFront(el)
+	return entry.client, true
+}
+
+// cacheClient stores a client, evicting the least recently used one when the
+// cache is full. Callers hold s.mu.
+func (s *Sink) cacheClient(key string, client *sdk.Client) {
+	if s.lru == nil {
+		s.lru = list.New()
+	}
+	s.clients[key] = s.lru.PushFront(&cachedClient{key: key, client: client})
+	for s.lru.Len() > maxCachedClients {
+		oldest := s.lru.Back()
+		if oldest == nil {
+			return
+		}
+		s.lru.Remove(oldest)
+		if entry, ok := oldest.Value.(*cachedClient); ok {
+			delete(s.clients, entry.key)
+		}
+	}
+}
+
+// clientFor resolves the gateway this message goes to, building and caching a
+// client the first time each one is named.
+//
+// A client per message would be correct and would also leak a connection pool
+// per message, so they are kept. The cache is bounded by the allowlist: a
+// rendered host that matches no rule never reaches it.
+func (s *Sink) clientFor(msg hermod.Message) (*sdk.Client, error) {
+	if !s.routed {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		client, _ := s.lookupClient(clientKey(s.cfg.BaseURL, s.cfg.APIKey))
+		return client, nil
+	}
+
+	data := renderData(msg)
+	baseURL, err := s.renderRequired("gateway url", s.cfg.BaseURL, data)
+	if err != nil {
+		return nil, err
+	}
+	apiKey, err := s.renderRequired("api key", s.cfg.APIKey, data)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checkHost(baseURL); err != nil {
+		return nil, err
+	}
+
+	key := clientKey(baseURL, apiKey)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if client, ok := s.lookupClient(key); ok {
+		return client, nil
+	}
+	// sdk.New is what refuses a missing scheme, credentials in the url, and
+	// plaintext off loopback — the checks a static gateway gets in New.
+	client, err := sdk.New(baseURL, apiKey, s.opts...)
 	if err != nil {
 		return nil, fmt.Errorf("panmail sink: %w", err)
 	}
-
-	return &Sink{cfg: cfg, client: client, formatter: formatter}, nil
+	s.cacheClient(key, client)
+	return client, nil
 }
+
+// checkHost is the bound on a templated gateway url.
+func (s *Sink) checkHost(baseURL string) error {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("panmail sink: the gateway url rendered to something that is not a url: %w", err)
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "" {
+		return fmt.Errorf("panmail sink: the gateway url rendered to %q, which has no host", baseURL)
+	}
+	for _, rule := range s.allowed {
+		if rule.matches(host) {
+			return nil
+		}
+	}
+	// Names the host and nothing else: this error is logged, and the api key
+	// that would have gone to that host must not travel with it.
+	return fmt.Errorf("panmail sink: the gateway url rendered to host %q, which is not on the "+
+		"allowlist, so the send was refused rather than sending the api key there", host)
+}
+
+// renderRequired renders a field that cannot be empty, treating text/template's
+// "<no value>" — what a missing key renders as — as empty rather than as a
+// value, because sending it is worse than refusing.
+func (s *Sink) renderRequired(field, tmpl string, data map[string]any) (string, error) {
+	rendered, err := s.render(field, tmpl, data)
+	if err != nil {
+		return "", err
+	}
+	trimmed := strings.TrimSpace(rendered)
+	if trimmed == "" || trimmed == noValue {
+		return "", fmt.Errorf("panmail sink: the %s template %q rendered empty for this message, "+
+			"so there is nothing to send with", field, tmpl)
+	}
+	return trimmed, nil
+}
+
+// noValue is what text/template writes for a key the message does not have.
+const noValue = "<no value>"
 
 // EnableIdempotency turns the duplicate guard on. It needs a store to be of any
 // use; without one the sink cannot suppress a repeat.
@@ -225,8 +497,16 @@ func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 		return err
 	}
 
+	// Resolved before the claim is taken: a message that names a gateway it is
+	// not allowed to reach must be refused outright, not left holding a claim
+	// that suppresses the retry of a send that never happened.
+	client, err := s.clientFor(msg)
+	if err != nil {
+		return err
+	}
+
 	if !s.enableIdempotency || s.idemStore == nil {
-		result, err := s.client.Send(ctx, mail)
+		result, err := client.Send(ctx, mail)
 		if err != nil {
 			return s.unguardedError(err)
 		}
@@ -238,13 +518,13 @@ func (s *Sink) Write(ctx context.Context, msg hermod.Message) error {
 	if err != nil {
 		return err
 	}
-	return s.writeGuarded(ctx, key, mail)
+	return s.writeGuarded(ctx, client, key, mail)
 }
 
 // writeGuarded sends under an idempotency claim, and decides what the claim
 // means afterwards. That decision is the whole reason this sink exists rather
 // than a bare SDK call — see the package documentation.
-func (s *Sink) writeGuarded(ctx context.Context, key string, mail sdk.Message) error {
+func (s *Sink) writeGuarded(ctx context.Context, client *sdk.Client, key string, mail sdk.Message) error {
 	claimed, err := s.idemStore.Claim(ctx, key)
 	if err != nil {
 		return fmt.Errorf("panmail sink: claim idempotency key: %w", err)
@@ -258,7 +538,7 @@ func (s *Sink) writeGuarded(ctx context.Context, key string, mail sdk.Message) e
 		return nil
 	}
 
-	result, sendErr := s.client.Send(ctx, mail)
+	result, sendErr := client.Send(ctx, mail)
 	if sendErr != nil {
 		if !stated(sendErr) {
 			// The outcome is unknown. Keeping the claim is what stops the retry
@@ -308,7 +588,47 @@ func (s *Sink) WriteBatch(ctx context.Context, msgs []hermod.Message) error {
 // successful ping therefore says the gateway is reachable, not that the api key
 // or the provider id are good — those are only learned from a real send.
 func (s *Sink) Ping(ctx context.Context) error {
-	parsed, err := url.Parse(s.cfg.BaseURL)
+	if s.routed {
+		return s.pingAllowed(ctx)
+	}
+	return s.dial(ctx, s.cfg.BaseURL)
+}
+
+// pingAllowed is the health check for a templated gateway, which has no one
+// host to dial until a message names it. The allowlist is the nearest thing to
+// a list of gateways this sink talks to, so the concrete entries are what gets
+// dialled; one answering is enough to call the estate reachable.
+//
+// An allowlist of nothing but wildcards leaves nothing to dial, and says so
+// rather than passing — a health check that cannot check anything reporting
+// healthy is how an unreachable gateway stays unnoticed.
+func (s *Sink) pingAllowed(ctx context.Context) error {
+	scheme := "https://"
+	if parsed, err := url.Parse(s.cfg.BaseURL); err == nil && parsed.Scheme == "http" {
+		scheme = "http://"
+	}
+
+	var errs []error
+	for _, rule := range s.allowed {
+		if rule.wildcard {
+			continue
+		}
+		err := s.dial(ctx, scheme+rule.host)
+		if err == nil {
+			return nil
+		}
+		errs = append(errs, err)
+	}
+	if len(errs) == 0 {
+		return errors.New("panmail sink: the gateway url is templated and every allowed host is a " +
+			"wildcard, so there is no host to check; add one concrete host to allowed_hosts")
+	}
+	return errors.Join(errs...)
+}
+
+// dial reports whether something is listening where a gateway url points.
+func (s *Sink) dial(ctx context.Context, baseURL string) error {
+	parsed, err := url.Parse(baseURL)
 	if err != nil {
 		return fmt.Errorf("panmail sink: base url is not a url: %w", err)
 	}
@@ -366,12 +686,28 @@ func (s *Sink) compose(msg hermod.Message) (sdk.Message, error) {
 		return sdk.Message{}, err
 	}
 
-	if text, err = s.bodyFallback(msg, html, text); err != nil {
+	// The two routing fields are rendered through renderRequired rather than
+	// field: an unroutable message is refused, not sent. A provider that
+	// rendered empty would send from whatever the gateway picked, and a template
+	// id that rendered empty would fall through to the body below — both are
+	// mail a recipient receives and nobody meant to send.
+	providerID, err := s.renderRequired("provider id", s.cfg.ProviderID, data)
+	if err != nil {
+		return sdk.Message{}, err
+	}
+	templateID := ""
+	if s.cfg.TemplateID != "" {
+		if templateID, err = s.renderRequired("template id", s.cfg.TemplateID, data); err != nil {
+			return sdk.Message{}, err
+		}
+	}
+
+	if text, err = s.bodyFallback(msg, html, text, templateID); err != nil {
 		return sdk.Message{}, err
 	}
 
 	mail := sdk.Message{
-		ProviderID: s.cfg.ProviderID,
+		ProviderID: providerID,
 		From:       from,
 		To:         to,
 		Cc:         cc,
@@ -379,9 +715,9 @@ func (s *Sink) compose(msg hermod.Message) (sdk.Message, error) {
 		Subject:    subject,
 		HTML:       html,
 		Text:       text,
-		TemplateID: s.cfg.TemplateID,
+		TemplateID: templateID,
 	}
-	if s.cfg.TemplateID != "" {
+	if templateID != "" {
 		mail.TemplateData = data
 	}
 	return mail, nil
@@ -390,8 +726,10 @@ func (s *Sink) compose(msg hermod.Message) (sdk.Message, error) {
 // bodyFallback fills the text part from the formatter when nothing else says
 // what the mail contains. New refuses the combination where neither a body, a
 // template id nor a formatter exists, so this cannot leave the mail empty.
-func (s *Sink) bodyFallback(msg hermod.Message, html, text string) (string, error) {
-	if html != "" || text != "" || s.cfg.TemplateID != "" || s.formatter == nil {
+// The template id it takes is the rendered one, not the configured template:
+// "the message has a stored template" is a fact about this message.
+func (s *Sink) bodyFallback(msg hermod.Message, html, text, templateID string) (string, error) {
+	if html != "" || text != "" || templateID != "" || s.formatter == nil {
 		return text, nil
 	}
 	formatted, err := s.formatter.Format(msg)
@@ -468,7 +806,7 @@ func (s *Sink) idempotencyKey(msg hermod.Message, mail sdk.Message) (string, err
 		// "<no value>" is what text/template writes for a field the message did
 		// not have. Treating it as a key would collapse every such message into
 		// one, and suppress all but the first.
-		if key := strings.TrimSpace(rendered); key != "" && key != "<no value>" {
+		if key := strings.TrimSpace(rendered); key != "" && key != noValue {
 			return key, nil
 		}
 	}
@@ -477,6 +815,21 @@ func (s *Sink) idempotencyKey(msg hermod.Message, mail sdk.Message) (string, err
 	write := func(s string) {
 		_, _ = h.Write([]byte(s))
 		_, _ = h.Write([]byte{0})
+	}
+	// Only when the gateway is templated: the same mail sent to two gateways is
+	// two sends, and hashing them alike would suppress the second. A static
+	// gateway is deliberately left out — folding it in would change every key
+	// already derived, orphaning the claims in the store, and a message whose
+	// claim went missing is a message that gets mailed a second time.
+	//
+	// The api key is not hashed even when templated. It is a credential, and
+	// this digest is written to a database.
+	if s.routed {
+		gateway, err := s.render("gateway url", s.cfg.BaseURL, renderData(msg))
+		if err != nil {
+			return "", err
+		}
+		write(strings.TrimSpace(gateway))
 	}
 	write(msg.ID())
 	write(strings.ToLower(mail.From))

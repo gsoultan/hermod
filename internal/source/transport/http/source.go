@@ -185,6 +185,11 @@ func (h *SourceHandler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := h.checkCDCFlipForQueryTargets(r.Context(), oldSrc, src); err != nil {
+		h.JsonError(w, "Cannot update source: "+err.Error(), http.StatusConflict)
+		return
+	}
+
 	if err := h.Registry.UpdateSource(r.Context(), src); err != nil {
 		h.JsonError(w, "Failed to update source: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -648,6 +653,60 @@ dispatched:
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "dispatched", "id": msg.ID()})
+}
+
+// checkCDCFlipForQueryTargets refuses an update that switches CDC on for a
+// source a running workflow queries rather than streams.
+//
+// checkActiveWorkflows above protects a source held in a source node's RefID.
+// That is only one of the ways a workflow names one: a db_lookup holds its
+// source in the node config under sourceId, and a batch_sql source holds its
+// database in source_id. Both of those are query targets, and the engine
+// refuses to query a CDC source -- so switching the flag on breaks the workflow
+// on its next message, from an edit that looks unrelated to it.
+//
+// Only active workflows. Nothing is running against a stopped one, and the
+// validation panel will report it before it starts again.
+func (h *SourceHandler) checkCDCFlipForQueryTargets(ctx context.Context, oldSrc, newSrc storage.Source) error {
+	// Only a transition into CDC is a new break. Leaving it on, or turning it
+	// off, cannot take away something that was working.
+	if !hermod.SourceUsesCDC(newSrc.Config) || hermod.SourceUsesCDC(oldSrc.Config) {
+		return nil
+	}
+	if hermod.SourceAllowsDirectQueries(newSrc.Type, newSrc.Config) {
+		return nil
+	}
+
+	wfs, _, err := h.Storage.ListWorkflows(ctx, storage.CommonFilter{})
+	if err != nil {
+		return err
+	}
+
+	// Resolves a source node's ref to the database a batch_sql source borrows.
+	// Memoised: every workflow is walked, and installs share sources between
+	// them, so the uncached form is a read per source node per workflow.
+	delegates := map[string]string{}
+	delegateOf := func(id string) string {
+		if d, ok := delegates[id]; ok {
+			return d
+		}
+		delegate := ""
+		if src, err := h.Storage.GetSource(ctx, id); err == nil && src.Type == "batch_sql" {
+			delegate = src.Config["source_id"]
+		}
+		delegates[id] = delegate
+		return delegate
+	}
+
+	for _, wf := range wfs {
+		if !wf.Active {
+			continue
+		}
+		if storage.WorkflowQueriesSource(wf, newSrc.ID, delegateOf) {
+			return fmt.Errorf("workflow %q runs queries against this source, which needs CDC off; stop that workflow or point it at a different source first", wf.Name)
+		}
+	}
+	return nil
 }
 
 func (h *SourceHandler) checkActiveWorkflows(ctx context.Context, sourceID string) error {

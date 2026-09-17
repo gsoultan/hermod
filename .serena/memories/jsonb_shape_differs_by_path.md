@@ -1,6 +1,6 @@
-**Fixed on branch `fix/cdc-typed-column-decode`.** Kept because the shape of the
-bug explains the shape of the fix, and because the constraint at the bottom --
-what REPLICA IDENTITY buys you -- is permanent.
+**Fixed and merged to main** as `bf729d2` (PR #107, 2026-09-14). Kept because
+the shape of the bug explains the shape of the fix, and because the constraint at
+the bottom -- what REPLICA IDENTITY buys you -- is permanent.
 
 A `jsonb` column used to have two shapes, depending on how the row entered the
 pipeline.
