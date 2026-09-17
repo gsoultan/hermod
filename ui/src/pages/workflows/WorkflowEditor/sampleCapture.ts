@@ -106,9 +106,10 @@ export function sampleTableFor(config: Record<string, any> | undefined): string 
  * entirely once a sample exists — a stored sample is what the field list reads,
  * and re-fetching it would add a request per node opened for no new fields.
  *
- * A source that has already advanced a cursor is fair game: captureSample omits
- * `state` from the write and UpdateSource keeps the row's own value, so storing
- * a sample cannot rewind a watermark however stale this copy of the source is.
+ * A source that has already advanced a cursor is fair game: captureSample writes
+ * through the sample endpoint, which touches that column and nothing else, so
+ * storing a preview cannot rewind a watermark or revert a config edit however
+ * stale this copy of the source is.
  */
 export function shouldAutoSample(source: any | null | undefined): boolean {
   if (!source?.type) return false;

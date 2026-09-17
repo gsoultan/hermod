@@ -154,25 +154,23 @@ export function useSourceForm({
     setSampleError(null);
     setLastSampledAt(Date.now());
 
-    // 1) Persist to server (Source.sample) when editing an existing source
+    // 1) Persist to server (Source.sample) when editing an existing source.
+    //
+    // Through the sample endpoint, which writes that column and nothing else.
+    // This used to rebuild a whole storage.Source and PUT it back, which sent
+    // every other column along from whatever copy of the source this form was
+    // holding: the body never mentioned `state`, so a batch_sql watermark or a
+    // CDC cursor was reset by a Test Connection, and a config edit made
+    // elsewhere since the form loaded was reverted by it.
     try {
       const srcId = (source as any)?.id;
       if (srcId) {
-        // Build payload matching storage.Source JSON schema
-        const payload: any = {
-          id: srcId,
-          name: (source as any)?.name || '',
-          type: (source as any)?.type || '',
-          vhost: (source as any)?.vhost || '',
-          worker_id: (source as any)?.worker_id || '',
-          active: (source as any)?.active ?? true,
-          config: (source as any)?.config || {},
-          sample: typeof data === 'string' ? data : JSON.stringify(data),
-        };
-        const res = await apiFetch(`${API_BASE}/sources/${srcId}`, {
+        const res = await apiFetch(`${API_BASE}/sources/${srcId}/sample`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            sample: typeof data === 'string' ? data : JSON.stringify(data),
+          }),
         });
         if (res.ok) {
           // Refresh sources cache so downstream fallbacks see the latest sample

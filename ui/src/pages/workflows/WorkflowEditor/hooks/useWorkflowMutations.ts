@@ -279,17 +279,17 @@ export function useWorkflowMutations(
       }
     }
 
-    // `state` is left out rather than echoed back. It holds how far the source
-    // has read — a batch_sql watermark, a CDC cursor — and the object being
-    // spread here came from a cached list, so echoing it writes back whatever
-    // was true when that list was fetched and rewinds the cursor if the engine
-    // has moved on since. Omitting it tells UpdateSource to keep the row's
-    // current value, which is always fresher than this copy.
-    const { state: _runtimeState, ...stored } = source;
-    await apiFetch(`${API_BASE}/sources/${source.id}`, {
+    // Sent to the sample endpoint rather than PUT back through the source, so
+    // the only column that travels is the one being captured. Storing this
+    // through the full update meant spreading `source` — a copy taken from a
+    // cached list — over the row, which reverted any config edit made since
+    // that copy was fetched and rewound the cursor if the engine had moved on.
+    // The endpoint also does not refuse while a workflow is running: a preview
+    // payload is editor state, not configuration.
+    await apiFetch(`${API_BASE}/sources/${source.id}/sample`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...stored, sample: JSON.stringify(sampleMsg) }),
+      body: JSON.stringify({ sample: JSON.stringify(sampleMsg) }),
       silent: opts.silent,
     });
 

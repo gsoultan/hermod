@@ -482,6 +482,10 @@ type Storage interface {
 	UpdateSource(ctx context.Context, src Source) error
 	UpdateSourceStatus(ctx context.Context, id string, status string) error
 	UpdateSourceState(ctx context.Context, id string, state map[string]string) error
+	// UpdateSourceSample writes only the stored preview payload. Storing a
+	// sample through UpdateSource carried every other column along with it,
+	// from whatever copy of the source the caller happened to hold.
+	UpdateSourceSample(ctx context.Context, id string, sample string) error
 	DeleteSource(ctx context.Context, id string) error
 	GetSource(ctx context.Context, id string) (Source, error)
 
