@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { spawn, execSync } from 'child_process';
 import { existsSync } from 'fs';
-import { apiBaseURL } from '../../scripts/dev-ports';
+import path from 'node:path';
+import { apiBaseURL, repoRoot } from '../../scripts/dev-ports';
 
 // Resolve the hermod binary rather than assuming one is lying in the repo root.
 //
@@ -9,11 +10,17 @@ import { apiBaseURL } from '../../scripts/dev-ports';
 // where someone once built there by hand. This spec spawned './hermod'
 // directly, so it passed locally off a months-old stale binary and failed in CI
 // with "spawn ./hermod ENOENT".
+//
+// The candidates are anchored to the repo root, not to the cwd. Playwright runs
+// from ui/, where a relative '.dev/hermod' is ui/.dev/hermod -- a path that has
+// never existed, so this spec reported "no hermod binary found" with the binary
+// sitting built one directory up.
 function hermodBinary(): string {
+  const root = repoRoot();
   const candidates = [
     process.env.HERMOD_BIN,
-    '.dev/hermod',
-    './hermod',
+    path.join(root, '.dev', 'hermod'),
+    path.join(root, 'hermod'),
   ].filter((p): p is string => Boolean(p));
 
   const found = candidates.find(p => existsSync(p));
