@@ -670,6 +670,30 @@ func chatBotToken(cfg hermod.StringMap) string {
 	return cfg["token"]
 }
 
+// smtpTemplateS3Config reads the S3 location of an SMTP sink's body template.
+//
+// The form writes template_s3_* (SMTPSinkConfig.tsx) and this read s3_*, so a
+// template location typed into the S3 tab arrived here as an empty config: the
+// sink then asked S3 for bucket "" and key "", and the tab looked broken for
+// no stated reason. The bare names are still read, because a bundle imported
+// or a sink posted against them is a config that exists.
+func smtpTemplateS3Config(cfg hermod.StringMap) gsmail.S3Config {
+	pick := func(name string) string {
+		if v := cfg["template_"+name]; v != "" {
+			return v
+		}
+		return cfg[name]
+	}
+	return gsmail.S3Config{
+		Region:    pick("s3_region"),
+		Bucket:    pick("s3_bucket"),
+		Key:       pick("s3_key"),
+		Endpoint:  pick("s3_endpoint"),
+		AccessKey: pick("s3_access_key"),
+		SecretKey: pick("s3_secret_key"),
+	}
+}
+
 func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 	snk, err := createSinkBase(cfg)
 	if err != nil {
@@ -699,6 +723,14 @@ func CreateSink(cfg SinkConfig) (hermod.Sink, error) {
 // rolls every participant back together. A member that quietly retried
 // underneath it would be making that decision on its own.
 func CreateSinkForTransactionGroup(cfg SinkConfig) (hermod.Sink, error) {
+	return createSinkBase(cfg)
+}
+
+// CreateSinkForPreview builds a sink without the tracing and retry decorators,
+// for a caller that renders a sink's templates rather than writes through it.
+// The decorators wrap the sink in a type the caller cannot look inside, and a
+// preview never sends, so neither of them is wanted.
+func CreateSinkForPreview(cfg SinkConfig) (hermod.Sink, error) {
 	return createSinkBase(cfg)
 }
 
@@ -1038,14 +1070,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 		port, _ := strconv.Atoi(cfg.Config["port"])
 		ssl := cfg.Config["ssl"] == "true"
 		to := strings.Split(cfg.Config["to"], ",")
-		s3Config := gsmail.S3Config{
-			Region:    cfg.Config["s3_region"],
-			Bucket:    cfg.Config["s3_bucket"],
-			Key:       cfg.Config["s3_key"],
-			Endpoint:  cfg.Config["s3_endpoint"],
-			AccessKey: cfg.Config["s3_access_key"],
-			SecretKey: cfg.Config["s3_secret_key"],
-		}
+		s3Config := smtpTemplateS3Config(cfg.Config)
 		s := smtp.NewSmtpSink(
 			cfg.Config["host"],
 			port,

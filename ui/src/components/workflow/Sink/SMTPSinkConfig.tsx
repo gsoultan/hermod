@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { FormRow } from '@/components/common/FormRow';
-import { TextInput, Group, Select, Checkbox, Textarea, Button, Stack, Tabs, ActionIcon, Tooltip, Divider, Text } from '@mantine/core';
+import { TextInput, Group, Select, Checkbox, Textarea, Button, Stack, Tabs, ActionIcon, Tooltip, Divider, Text, Code, List, Modal, Alert } from '@mantine/core';
+import { apiFetch } from '@/api';
 
 import { EmailLayoutBuilder } from '../../forms/EmailLayoutBuilder';
 import { IconAt, IconBrush, IconCloud, IconLink, IconPlayerPlay, IconTemplate, IconArrowsJoin, IconRefresh, IconShieldLock } from '@tabler/icons-react';
@@ -9,14 +10,86 @@ interface SMTPSinkConfigProps {
   updateConfig: (key: string, value: string) => void;
   validateEmailLoading?: boolean;
   handleValidateEmail?: (email: string) => void;
-  handlePreview?: () => void;
-  previewLoading?: boolean;
+  /**
+   * The row the editor says reaches this sink — the same sample its field
+   * picker is built from. The preview renders against it, rather than against
+   * an example of a row nobody has.
+   */
+  incomingPayload?: any;
+}
+
+/** What POST /api/sinks/smtp/preview answers with. */
+interface SmtpPreview {
+  subject: string;
+  from: string;
+  to: string[];
+  body: string;
+  html: boolean;
+  sample: Record<string, unknown>;
+}
+
+/** A row the preview can render against: an object, not a list or a scalar. */
+function asSampleRow(value: any): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  return JSON.stringify(value, null, 2);
 }
 
 export function SMTPSinkConfig({ 
-  config, updateConfig, validateEmailLoading, handleValidateEmail, handlePreview, previewLoading 
+  config, updateConfig, validateEmailLoading, handleValidateEmail, incomingPayload 
 }: SMTPSinkConfigProps) {
   const [builderOpened, setBuilderOpened] = useState(false);
+  const [previewOpened, setPreviewOpened] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<SmtpPreview | null>(null);
+  // The row the template renders against. Empty means "whatever the server
+  // uses as an example", and the first response fills it in so it can be edited
+  // into the operator's own row.
+  const [sampleText, setSampleText] = useState('');
+
+  // Seeded when the preview opens rather than in useState: the editor's sample
+  // often arrives after this form has mounted.
+  const openPreview = () => {
+    const row = sampleText.trim() ? sampleText : asSampleRow(incomingPayload);
+    if (row !== sampleText) setSampleText(row);
+    setPreviewOpened(true);
+    void runPreview(row);
+  };
+
+  const runPreview = async (sample: string) => {
+    let row: unknown;
+    if (sample.trim()) {
+      try {
+        row = JSON.parse(sample);
+      } catch {
+        setPreview(null);
+        setPreviewError('The sample row is not valid JSON.');
+        return;
+      }
+    }
+    setPreviewBusy(true);
+    setPreviewError(null);
+    try {
+      // silent: the failure belongs in the modal next to the template that
+      // caused it, not in a toast that outlives the question.
+      const res = await apiFetch('/api/sinks/smtp/preview', {
+        method: 'POST',
+        silent: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'smtp', config, sample: row }),
+      });
+      const data: SmtpPreview = await res.json();
+      setPreview(data);
+      if (!sample.trim() && data.sample) {
+        setSampleText(JSON.stringify(data.sample, null, 2));
+      }
+    } catch (err: any) {
+      setPreview(null);
+      setPreviewError(err?.data?.error || err?.message || 'The preview failed.');
+    } finally {
+      setPreviewBusy(false);
+    }
+  };
 
   return (
     <>
@@ -26,6 +99,48 @@ export function SMTPSinkConfig({
         onApply={(html) => updateConfig('template', html)}
         outlookCompatible={config.outlook_compatible === 'true'}
       />
+      <Modal
+        opened={previewOpened}
+        onClose={() => setPreviewOpened(false)}
+        title="Template preview"
+        size="xl"
+      >
+        <Stack gap="sm">
+          <Textarea
+            label="Sample row"
+            description="The message the template is rendered against. Edit it to see your own row."
+            value={sampleText}
+            onChange={(e) => setSampleText(e.target.value)}
+            autosize
+            minRows={4}
+            maxRows={10}
+            styles={{ input: { fontFamily: 'monospace', fontSize: 'var(--mantine-font-size-xs)' } }}
+          />
+          <Group justify="flex-end">
+            <Button size="xs" variant="light" loading={previewBusy} onClick={() => void runPreview(sampleText)}>
+              Render
+            </Button>
+          </Group>
+          {previewError && (
+            <Alert color="red" title="The template did not render">{previewError}</Alert>
+          )}
+          {preview && !previewError && (
+            <Stack gap={6}>
+              <Text size="sm"><Text span fw={600}>Subject: </Text>{preview.subject}</Text>
+              <Text size="sm"><Text span fw={600}>To: </Text>{(preview.to || []).join(', ')}</Text>
+              {preview.html ? (
+                <iframe
+                  title="Rendered email"
+                  srcDoc={preview.body}
+                  style={{ width: '100%', height: 360, border: '1px solid var(--mantine-color-gray-3)', borderRadius: 8, background: '#fff' }}
+                />
+              ) : (
+                <Code block>{preview.body}</Code>
+              )}
+            </Stack>
+          )}
+        </Stack>
+      </Modal>
       <FormRow>
         <TextInput 
           label="Host" 
@@ -97,7 +212,7 @@ export function SMTPSinkConfig({
         value={config.to || ''} 
         onChange={(e) => updateConfig('to', e.target.value)} 
         required 
-        description="Comma-separated list of recipients. Supports {{.field}} variables."
+        description="Comma-separated list of recipients. Supports {{.field}} variables and the date helpers below."
       />
       <TextInput 
         label="Subject" 
@@ -105,7 +220,7 @@ export function SMTPSinkConfig({
         value={config.subject || ''} 
         onChange={(e) => updateConfig('subject', e.target.value)} 
         required 
-        description="Supports {{.field}} variables."
+        description="Supports {{.field}} variables and the date helpers below."
       />
       
       <Checkbox 
@@ -248,16 +363,15 @@ export function SMTPSinkConfig({
               }}
               description="Supports Go template syntax. You can use standard Go template functions and range over arrays (e.g., {{range .items}})."
             />
-            {handlePreview && (
-              <Button 
-                variant="light" 
-                leftSection={<IconPlayerPlay size="1rem" />} 
-                onClick={handlePreview} 
-                loading={previewLoading}
-              >
-                Preview Template
-              </Button>
-            )}
+            <TemplateDateHelp />
+            <Button 
+              variant="light" 
+              leftSection={<IconPlayerPlay size="1rem" />} 
+              onClick={openPreview} 
+              loading={previewBusy}
+            >
+              Preview Template
+            </Button>
           </Stack>
         </Tabs.Panel>
 
@@ -278,6 +392,13 @@ export function SMTPSinkConfig({
               <TextInput label="S3 Bucket" placeholder="my-templates" value={config.template_s3_bucket || ''} onChange={(e) => updateConfig('template_s3_bucket', e.target.value)} />
             </FormRow>
             <TextInput label="S3 Key" placeholder="path/to/email.html" value={config.template_s3_key || ''} onChange={(e) => updateConfig('template_s3_key', e.target.value)} />
+            <TextInput
+              label="Endpoint"
+              placeholder="https://minio.example.com"
+              value={config.template_s3_endpoint || ''}
+              onChange={(e) => updateConfig('template_s3_endpoint', e.target.value)}
+              description="Only for S3-compatible storage. Leave empty for Amazon S3."
+            />
             <FormRow>
               <TextInput label="Access Key" value={config.template_s3_access_key || ''} onChange={(e) => updateConfig('template_s3_access_key', e.target.value)} />
               <TextInput label="Secret Key" type="password" value={config.template_s3_secret_key || ''} onChange={(e) => updateConfig('template_s3_secret_key', e.target.value)} />
@@ -290,3 +411,39 @@ export function SMTPSinkConfig({
 }
 
 
+/**
+ * TemplateDateHelp documents the date and time helpers a template is rendered
+ * with, next to the box they are typed into. Go's reference layout is the part
+ * nobody guesses right, so it is spelled out rather than linked.
+ */
+function TemplateDateHelp() {
+  return (
+    <Stack gap={4} mt="xs">
+      <Text size="xs" fw={500} c="dimmed">Dates and time zones</Text>
+      <List size="xs" c="dimmed" spacing={2} withPadding>
+        <List.Item>
+          <Code>{'{{.created_at.Format "2006-01-02"}}'}</Code> — format a date or timestamp column.
+          The layout is a date written out: <Code>2006</Code> year, <Code>01</Code> month,
+          <Code>02</Code> day, <Code>15:04:05</Code> time.
+        </List.Item>
+        <List.Item>
+          <Code>{'{{.start_at.In "Asia/Jakarta"}}'}</Code> — move a timestamp to another zone.
+          <Code>{'{{.start_at.In (time.LoadLocation "Asia/Jakarta")}}'}</Code> does the same.
+          Both read a column whether it arrives as text or as a database timestamp.
+        </List.Item>
+        <List.Item>
+          <Code>{'{{date "02 Jan 2006" .created_at}}'}</Code> and{' '}
+          <Code>{'{{dateInZone "2006-01-02 15:04" "Asia/Jakarta" .created_at}}'}</Code> — the same
+          as functions, which also read epoch numbers. <Code>{'{{now.Format "15:04"}}'}</Code> is
+          the send time.
+        </List.Item>
+      </List>
+      <Text size="xs" c="dimmed">
+        Column methods work in every template. The <Code>time</Code>, <Code>now</Code>,{' '}
+        <Code>date</Code> and <Code>dateInZone</Code> functions are available in Subject, To, the
+        idempotency key and this inline template — a template fetched from URL or S3 is rendered
+        without them.
+      </Text>
+    </Stack>
+  );
+}

@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/gsmail"
+	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/factory"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 )
 
@@ -573,8 +576,110 @@ func (h *SinkHandler) ListWorkflowsReferencingSink(w http.ResponseWriter, r *htt
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"data": referencing})
 }
+
+// emailRenderer is a sink that can render the email it would send without
+// sending it. The SMTP sink satisfies it, and a preview needs nothing else.
+type emailRenderer interface {
+	BuildEmail(ctx context.Context, msg hermod.Message) (gsmail.Email, error)
+}
+
+// PreviewSmtpTemplate renders an email sink's templates over a sample row and
+// answers with what it would send, without sending it.
+//
+// It renders through the sink's own BuildEmail, which is the same call the
+// worker makes. A preview with a renderer of its own agrees with the send right
+// up until the day it matters; this one cannot disagree, because it is the same
+// code reading the same config.
 func (h *SinkHandler) PreviewSmtpTemplate(w http.ResponseWriter, r *http.Request) {
-	// Full implementation would go here, moved from server.go
+	var req struct {
+		Type   string            `json:"type"`
+		Config map[string]string `json:"config"`
+		Sample map[string]any    `json:"sample"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// The type is checked before anything is built: an SMTP sink connects to
+	// nothing until it sends, where a database sink opens a pool as it is
+	// created, and a preview should not.
+	if req.Type != "smtp" {
+		h.JsonError(w, "preview is only available for SMTP sinks", http.StatusBadRequest)
+		return
+	}
+	// A URL or S3 template is fetched by the server and a preview hands back
+	// what came out of it, which would make anyone who can edit a sink a reader
+	// of any address the worker can reach. Only the inline template — the one
+	// the layout builder writes — is rendered here.
+	if source := req.Config["template_source"]; source != "" && source != "inline" {
+		h.JsonError(w, "only an inline template can be previewed; a URL or S3 template is fetched when the workflow runs",
+			http.StatusBadRequest)
+		return
+	}
+
+	snk, err := factory.CreateSinkForPreview(factory.SinkConfig{Type: req.Type, Config: req.Config})
+	if err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer func() { _ = snk.Close() }()
+
+	renderer, ok := snk.(emailRenderer)
+	if !ok {
+		h.JsonError(w, "this sink does not render an email", http.StatusBadRequest)
+		return
+	}
+
+	sample := req.Sample
+	if len(sample) == 0 {
+		sample = exampleRow()
+	}
+	msg := message.AcquireMessage()
+	defer message.ReleaseMessage(msg)
+	msg.SetID("preview")
+	msg.SetOperation(hermod.OpCreate)
+	msg.SetTable("orders")
+	msg.SetSchema("public")
+	for k, v := range sample {
+		msg.SetData(k, v)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	email, err := renderer.BuildEmail(ctx, msg)
+	if err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"subject": email.Subject,
+		"from":    email.From,
+		"to":      email.To,
+		"body":    string(email.Body),
+		"html":    gsmail.IsHTML(email.Body),
+		"sample":  sample,
+	})
+}
+
+// exampleRow is what a preview renders against when the editor has no sample of
+// its own: enough of a row to show a subject, a recipient and a date, so that
+// pressing the button on a fresh template shows a rendered email rather than a
+// page of <no value>.
+func exampleRow() map[string]any {
+	now := time.Now().UTC()
+	return map[string]any{
+		"id":         "1042",
+		"name":       "Ada Lovelace",
+		"email":      "ada@example.com",
+		"amount":     149.95,
+		"status":     "paid",
+		"created_at": now.Format(time.RFC3339),
+		"start_at":   now.Add(72 * time.Hour).Format(time.RFC3339),
+	}
 }
 
 func (h *SinkHandler) ValidateEmail(w http.ResponseWriter, r *http.Request) {

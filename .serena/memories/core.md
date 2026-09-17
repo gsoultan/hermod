@@ -76,6 +76,9 @@ find a claim that outruns the code, fix the claim.
   workflow names its sources in four places, not one; walking nodes for
   `type == "source"` is the wrong answer, and the source delete guard still
   gives it.
+- [SMTP template time helpers](smtp_template_time_helpers.md) — `.Format` and
+  `.In "Asia/Jakarta"` on a column, and the two shapes (CDC text vs pgx
+  `time.Time`) both of them have to read.
 - [`use_cdc` is opt-out](use_cdc_is_opt_out.md) — a source with no key is a CDC
   source; one definition (`hermod.SourceAllowsDirectQueries`) now gates both
   `db_lookup`'s `sourceId` and a `batch_sql` source's `source_id` delegate.
