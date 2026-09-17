@@ -239,6 +239,114 @@ from the routing map, so a fourth type pointed at that form fails until it has a
 branch.
 
 
+### Fixed — the template preview rendered against a row nobody has
+
+`SinkForm` declared an `incomingPayload` prop and never destructured it, so the
+row the editor had already fetched — the one its field picker is built from —
+stopped at the form's own signature and never reached the sink forms inside it.
+
+The SMTP preview now opens on that row when the editor has one, and falls back
+to the example row only when it does not. The sample box is still editable, so
+the fallback is a starting point rather than the only thing on offer.
+
+
+### Fixed — "Preview Template" never rendered anything
+
+The button was gated on a prop nothing passed, so it never appeared; the route
+behind it, `POST /api/sinks/smtp/preview`, was a handler with a comment where
+its body should be, answering 200 and an empty response. Writing an email
+template meant activating the workflow and mailing someone to find out whether
+it worked.
+
+The endpoint renders through the sink's own `BuildEmail` — the same call the
+worker makes, reading the same config through the same factory. A preview with a
+renderer of its own agrees with the send right up until the day it matters; this
+one cannot disagree, because it is the same code. `Write` is now that call plus
+the idempotency claim and the send.
+
+The modal shows the subject, the resolved recipients and the body, rendered in
+an iframe when the template is HTML. It renders against an example row so a
+fresh template shows an email rather than a page of `<no value>`, and the row
+comes back in an editable box so it can be replaced with a real one. A template
+that does not parse puts its error next to the template, not in a toast.
+
+**Inline templates only.** A URL or S3 template is fetched by the server and a
+preview hands back what came out of it, so previewing one would make anyone who
+can edit a sink a reader of any address the worker can reach. The request is
+refused with that stated, rather than quietly rendering nothing.
+
+
+### Fixed — the SMTP sink's S3 template tab was inert
+
+The form writes `template_s3_region`, `template_s3_bucket`, `template_s3_key`,
+`template_s3_access_key` and `template_s3_secret_key`; the factory read
+`s3_region`, `s3_bucket`, and so on. Every field typed into that tab reached the
+sink as an empty `S3Config`, so the sink asked S3 for bucket `""` and key `""`,
+and the only symptom was a send failing over a bucket nobody had configured.
+
+The factory reads the form's names now, and still reads the bare ones, because a
+bundle imported or a sink posted against them is a config that exists. The tab
+also gained the **Endpoint** field the factory has always read and the form
+never offered, which is what an S3-compatible store needs to be addressable.
+
+The test that covers it fetches the template from a stand-in for S3 and checks
+the path that was asked for, because a test that only checks the mapping cannot
+tell whether the sink uses it.
+
+
+### Added — a date column can be formatted where the email uses it
+
+An SMTP template could print `created_at` and little else: the column reaches a
+sink as text, and text has no `.Format`. Anyone who wanted `01 Dec 2026`, or a
+row's timestamp in the reader's own zone, had to add a transformation upstream
+of the sink to get it.
+
+Values that read as a date or a timestamp are now recognised on the way into the
+template and carry the time methods:
+
+```
+{{ .created_at.Format "2006-01-02" }}                   2026-12-01
+{{ .start_at.In "Asia/Jakarta" }}                       2026-12-01T16:30:00+07:00
+{{ .start_at.In (time.LoadLocation "Asia/Jakarta") }}   the same
+{{ .created_at.Time.Year }}                             2026
+```
+
+alongside a function set — `time.LoadLocation`, `time.Now`, `time.Parse`,
+`time.Unix`, `time.UnixMilli`, `time.UTC`, `time.Local`, and `now`, `date`,
+`dateInZone`, `toDate`:
+
+```
+{{ date "02 Jan 2006" .created_at }}
+{{ dateInZone "2006-01-02 15:04" "Asia/Jakarta" .created_at }}
+{{ (time.Unix .epoch_seconds).Format "15:04" }}
+```
+
+A recognised value is still a string, holding the exact text the row carried, so
+`{{.created_at}}`, `eq`, `len`, `slice` and `printf "%s"` render what they
+rendered before this change. Recognition is by layout, and only for text that
+starts with a `YYYY-MM-DD` date: RFC 3339, the PostgreSQL and MySQL timestamp
+forms, Go's own, and a bare date. Anything else — an id that happens to be
+digits, `2026-13-45` — is left as it was.
+
+The same column arrives in two shapes, and one template has to read both: the
+PostgreSQL CDC path sends every column as text, while a query path hands over
+the driver's `time.Time`. A driver time now takes a zone by name as well
+(`{{ .start_at.In "Asia/Jakarta" }}` used to be a type error on it and worked
+on the text column beside it), it still prints exactly as Go prints a time, and
+`Sub`, `Before`, `After` and `Equal` read across the two:
+`{{ .ended_at.Sub .started_at }}` no longer cares which path each of them came
+from.
+
+The methods travel with the message, so they work in the subject, in each
+recipient, in the idempotency key and in an inline body. The functions need
+Hermod's own renderer: a body fetched from a URL or from S3 is rendered by
+gsmail, which parses with no function map, and a `time.` call there is a parse
+error that names the function.
+
+The zone database is compiled into the binary (`time/tzdata`), so
+`Asia/Jakarta` resolves on an image that ships no `/usr/share/zoneinfo`.
+
+
 ### Fixed — a `jsonb` column arrived as a string on the CDC path, and vanished when it was TOASTed
 
 A PostgreSQL `jsonb` column had two different shapes depending on how the row
