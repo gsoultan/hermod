@@ -212,7 +212,8 @@ var commonQueries = map[string]string{
             workspace_id TEXT,
             config TEXT,
             state TEXT,
-            sample TEXT
+            sample TEXT,
+            created_at TIMESTAMP
         )`,
 	QueryInitSinksTable: `CREATE TABLE IF NOT EXISTS sinks (
             id TEXT PRIMARY KEY,
@@ -223,7 +224,8 @@ var commonQueries = map[string]string{
             status TEXT,
             worker_id TEXT,
             workspace_id TEXT,
-            config TEXT
+            config TEXT,
+            created_at TIMESTAMP
         )`,
 	QueryInitUsersTable: `CREATE TABLE IF NOT EXISTS users (
 			id TEXT PRIMARY KEY,
@@ -234,12 +236,14 @@ var commonQueries = map[string]string{
 			role TEXT,
 			vhosts TEXT,
 			two_factor_enabled BOOLEAN DEFAULT FALSE,
-			two_factor_secret TEXT
+			two_factor_secret TEXT,
+			created_at TIMESTAMP
 		)`,
 	QueryInitVHostsTable: `CREATE TABLE IF NOT EXISTS vhosts (
 			id TEXT PRIMARY KEY,
 			name TEXT UNIQUE,
-			description TEXT
+			description TEXT,
+			created_at TIMESTAMP
 		)`,
 	QueryInitWorkersTable: `CREATE TABLE IF NOT EXISTS workers (
 			id TEXT PRIMARY KEY,
@@ -250,7 +254,8 @@ var commonQueries = map[string]string{
 			token TEXT,
 			last_seen TIMESTAMP,
 			cpu_usage REAL,
-			memory_usage REAL
+			memory_usage REAL,
+			created_at TIMESTAMP
 		)`,
 	QueryInitLogsTable: `CREATE TABLE IF NOT EXISTS logs (
 			id TEXT PRIMARY KEY,
@@ -299,7 +304,8 @@ var commonQueries = map[string]string{
             throughput_request INTEGER DEFAULT 0,
             total_processed BIGINT DEFAULT 0,
             total_errors BIGINT DEFAULT 0,
-            total_lag BIGINT DEFAULT 0
+            total_lag BIGINT DEFAULT 0,
+            created_at TIMESTAMP
         )`,
 	QueryInitWorkflowNodeStatesTable: `CREATE TABLE IF NOT EXISTS workflow_node_states (
 			workflow_id TEXT,
@@ -432,7 +438,8 @@ var commonQueries = map[string]string{
             type TEXT,
             wasm_url TEXT,
             installed BOOLEAN DEFAULT FALSE,
-            installed_at TIMESTAMP
+            installed_at TIMESTAMP,
+            created_at TIMESTAMP
         )`,
 	QueryInitApprovalsTable: `CREATE TABLE IF NOT EXISTS approvals (
             id TEXT PRIMARY KEY,
@@ -496,49 +503,49 @@ var commonQueries = map[string]string{
 	QueryUpdateNodeState: "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES (?, ?, ?) ON CONFLICT(workflow_id, node_id) DO UPDATE SET state = excluded.state",
 	QuerySaveSetting:     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
 
-	QueryListSources:        "SELECT id, name, type, vhost, active, status, worker_id, workspace_id, config, sample, state FROM sources",
+	QueryListSources:        "SELECT id, name, type, vhost, active, status, worker_id, workspace_id, config, sample, state, created_at FROM sources",
 	QueryCountSources:       "SELECT COUNT(*) FROM sources",
-	QueryCreateSource:       "INSERT INTO sources (id, name, type, vhost, active, status, worker_id, workspace_id, config, sample, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryCreateSource:       "INSERT INTO sources (id, name, type, vhost, active, status, worker_id, workspace_id, config, sample, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryUpdateSource:       "UPDATE sources SET name = ?, type = ?, vhost = ?, active = ?, status = ?, worker_id = ?, workspace_id = ?, config = ?, sample = ?, state = ? WHERE id = ?",
 	QueryUpdateSourceStatus: "UPDATE sources SET status = ? WHERE id = ?",
 	QueryUpdateSourceState:  "UPDATE sources SET state = ? WHERE id = ?",
 	QueryUpdateSourceSample: "UPDATE sources SET sample = ? WHERE id = ?",
 	QueryDeleteSource:       "DELETE FROM sources WHERE id = ?",
-	QueryGetSource:          "SELECT id, name, type, vhost, active, status, worker_id, workspace_id, config, sample, state FROM sources WHERE id = ?",
+	QueryGetSource:          "SELECT id, name, type, vhost, active, status, worker_id, workspace_id, config, sample, state, created_at FROM sources WHERE id = ?",
 
-	QueryListSinks:        "SELECT id, name, type, vhost, active, status, worker_id, workspace_id, config FROM sinks",
+	QueryListSinks:        "SELECT id, name, type, vhost, active, status, worker_id, workspace_id, config, created_at FROM sinks",
 	QueryCountSinks:       "SELECT COUNT(*) FROM sinks",
-	QueryCreateSink:       "INSERT INTO sinks (id, name, type, vhost, active, status, worker_id, workspace_id, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryCreateSink:       "INSERT INTO sinks (id, name, type, vhost, active, status, worker_id, workspace_id, config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryUpdateSink:       "UPDATE sinks SET name = ?, type = ?, vhost = ?, active = ?, status = ?, worker_id = ?, workspace_id = ?, config = ? WHERE id = ?",
 	QueryUpdateSinkStatus: "UPDATE sinks SET status = ? WHERE id = ?",
 	QueryDeleteSink:       "DELETE FROM sinks WHERE id = ?",
-	QueryGetSink:          "SELECT id, name, type, vhost, active, status, worker_id, workspace_id, config FROM sinks WHERE id = ?",
+	QueryGetSink:          "SELECT id, name, type, vhost, active, status, worker_id, workspace_id, config, created_at FROM sinks WHERE id = ?",
 
-	QueryListUsers:            "SELECT id, username, full_name, email, role, vhosts, two_factor_enabled FROM users",
+	QueryListUsers:            "SELECT id, username, full_name, email, role, vhosts, two_factor_enabled, created_at FROM users",
 	QueryCountUsers:           "SELECT COUNT(*) FROM users",
-	QueryCreateUser:           "INSERT INTO users (id, username, password, full_name, email, role, vhosts, two_factor_enabled, two_factor_secret) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryCreateUser:           "INSERT INTO users (id, username, password, full_name, email, role, vhosts, two_factor_enabled, two_factor_secret, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryUpdateUser:           "UPDATE users SET username = ?, password = ?, full_name = ?, email = ?, role = ?, vhosts = ?, two_factor_enabled = ?, two_factor_secret = ? WHERE id = ?",
 	QueryUpdateUserNoPassword: "UPDATE users SET username = ?, full_name = ?, email = ?, role = ?, vhosts = ?, two_factor_enabled = ?, two_factor_secret = ? WHERE id = ?",
 	QueryDeleteUser:           "DELETE FROM users WHERE id = ?",
-	QueryGetUser:              "SELECT id, username, password, full_name, email, role, vhosts, two_factor_enabled, two_factor_secret FROM users WHERE id = ?",
-	QueryGetUserByUsername:    "SELECT id, username, password, full_name, email, role, vhosts, two_factor_enabled, two_factor_secret FROM users WHERE username = ?",
-	QueryGetUserByEmail:       "SELECT id, username, password, full_name, email, role, vhosts, two_factor_enabled, two_factor_secret FROM users WHERE email = ?",
+	QueryGetUser:              "SELECT id, username, password, full_name, email, role, vhosts, two_factor_enabled, two_factor_secret, created_at FROM users WHERE id = ?",
+	QueryGetUserByUsername:    "SELECT id, username, password, full_name, email, role, vhosts, two_factor_enabled, two_factor_secret, created_at FROM users WHERE username = ?",
+	QueryGetUserByEmail:       "SELECT id, username, password, full_name, email, role, vhosts, two_factor_enabled, two_factor_secret, created_at FROM users WHERE email = ?",
 
-	QueryListVHosts:  "SELECT id, name, description FROM vhosts",
+	QueryListVHosts:  "SELECT id, name, description, created_at FROM vhosts",
 	QueryCountVHosts: "SELECT COUNT(*) FROM vhosts",
-	QueryCreateVHost: "INSERT INTO vhosts (id, name, description) VALUES (?, ?, ?)",
+	QueryCreateVHost: "INSERT INTO vhosts (id, name, description, created_at) VALUES (?, ?, ?, ?)",
 	QueryUpdateVHost: "UPDATE vhosts SET name = ?, description = ? WHERE id = ?",
 	QueryDeleteVHost: "DELETE FROM vhosts WHERE id = ?",
-	QueryGetVHost:    "SELECT id, name, description FROM vhosts WHERE id = ?",
+	QueryGetVHost:    "SELECT id, name, description, created_at FROM vhosts WHERE id = ?",
 
-	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag FROM workflows",
+	QueryListWorkflows:        "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at FROM workflows",
 	QueryCountWorkflows:       "SELECT COUNT(*) FROM workflows",
-	QueryCreateWorkflow:       "INSERT INTO workflows (id, name, vhost, active, status, worker_id, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryCreateWorkflow:       "INSERT INTO workflows (id, name, vhost, active, status, worker_id, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryUpdateWorkflow:       "UPDATE workflows SET name = ?, vhost = ?, active = ?, status = ?, worker_id = ?, nodes = ?, edges = ?, dead_letter_sink_id = ?, prioritize_dlq = ?, max_retries = ?, retry_interval = ?, reconnect_interval = ?, dry_run = ?, schema_type = ?, schema = ?, retention_days = ?, cron = ?, idle_timeout = ?, tier = ?, trace_sample_rate = ?, dlq_threshold = ?, tags = ?, workspace_id = ?, trace_retention = ?, audit_retention = ?, cpu_request = ?, memory_request = ?, throughput_request = ?, total_processed = ?, total_errors = ?, total_lag = ? WHERE id = ?",
 	QueryUpdateWorkflowStatus: "UPDATE workflows SET status = ? WHERE id = ?",
 	QueryUpdateWorkflowStats:  "UPDATE workflows SET total_processed = ?, total_errors = ?, total_lag = ? WHERE id = ?",
 	QueryDeleteWorkflow:       "DELETE FROM workflows WHERE id = ?",
-	QueryGetWorkflow:          "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag FROM workflows WHERE id = ?",
+	QueryGetWorkflow:          "SELECT id, name, vhost, active, status, worker_id, owner_id, lease_until, nodes, edges, dead_letter_sink_id, prioritize_dlq, max_retries, retry_interval, reconnect_interval, dry_run, schema_type, schema, retention_days, cron, idle_timeout, tier, trace_sample_rate, dlq_threshold, tags, workspace_id, trace_retention, audit_retention, cpu_request, memory_request, throughput_request, total_processed, total_errors, total_lag, created_at FROM workflows WHERE id = ?",
 	QueryAcquireLease:         "UPDATE workflows SET owner_id = ?, lease_until = ? WHERE id = ? AND (owner_id IS NULL OR lease_until IS NULL OR lease_until < ? OR owner_id = ?)",
 	QueryRenewLease:           "UPDATE workflows SET lease_until = ? WHERE id = ? AND owner_id = ? AND lease_until IS NOT NULL AND lease_until >= ?",
 	QueryReleaseLease:         "UPDATE workflows SET owner_id = NULL, lease_until = NULL WHERE id = ? AND owner_id = ?",
@@ -548,13 +555,13 @@ var commonQueries = map[string]string{
 	QueryDeleteWorkspace: "DELETE FROM workspaces WHERE id = ?",
 	QueryGetWorkspace:    "SELECT id, name, description, max_workflows, max_cpu, max_memory, max_throughput, created_at FROM workspaces WHERE id = ?",
 
-	QueryListWorkers:     "SELECT id, name, host, port, description, token, last_seen, cpu_usage, memory_usage FROM workers",
+	QueryListWorkers:     "SELECT id, name, host, port, description, token, last_seen, cpu_usage, memory_usage, created_at FROM workers",
 	QueryCountWorkers:    "SELECT COUNT(*) FROM workers",
-	QueryCreateWorker:    "INSERT INTO workers (id, name, host, port, description, token, last_seen, cpu_usage, memory_usage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryCreateWorker:    "INSERT INTO workers (id, name, host, port, description, token, last_seen, cpu_usage, memory_usage, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryUpdateWorker:    "UPDATE workers SET name = ?, host = ?, port = ?, description = ?, token = ?, last_seen = ?, cpu_usage = ?, memory_usage = ? WHERE id = ?",
 	QueryUpdateHeartbeat: "UPDATE workers SET last_seen = ?, cpu_usage = ?, memory_usage = ? WHERE id = ?",
 	QueryDeleteWorker:    "DELETE FROM workers WHERE id = ?",
-	QueryGetWorker:       "SELECT id, name, host, port, description, token, last_seen, cpu_usage, memory_usage FROM workers WHERE id = ?",
+	QueryGetWorker:       "SELECT id, name, host, port, description, token, last_seen, cpu_usage, memory_usage, created_at FROM workers WHERE id = ?",
 
 	QueryListLogs:   "SELECT id, timestamp, level, message, action, source_id, sink_id, workflow_id, user_id, username, data FROM logs",
 	QueryCountLogs:  "SELECT COUNT(*) FROM logs",
@@ -612,9 +619,9 @@ var commonQueries = map[string]string{
 	QueryListOutboxItems:  "SELECT id, workflow_id, sink_id, payload, metadata, created_at, attempts, last_error, status FROM outbox WHERE status = ? ORDER BY created_at ASC LIMIT ?",
 	QueryDeleteOutboxItem: "DELETE FROM outbox WHERE id = ?",
 	QueryUpdateOutboxItem: "UPDATE outbox SET attempts = ?, last_error = ?, status = ? WHERE id = ?",
-	QueryListPlugins:      "SELECT id, name, description, author, stars, category, certified, type, wasm_url, installed, installed_at FROM plugins",
-	QueryGetPlugin:        "SELECT id, name, description, author, stars, category, certified, type, wasm_url, installed, installed_at FROM plugins WHERE id = ?",
-	QueryCreatePlugin:     "INSERT INTO plugins (id, name, description, author, stars, category, certified, type, wasm_url, installed, installed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryListPlugins:      "SELECT id, name, description, author, stars, category, certified, type, wasm_url, installed, installed_at, created_at FROM plugins ORDER BY created_at DESC, id DESC",
+	QueryGetPlugin:        "SELECT id, name, description, author, stars, category, certified, type, wasm_url, installed, installed_at, created_at FROM plugins WHERE id = ?",
+	QueryCreatePlugin:     "INSERT INTO plugins (id, name, description, author, stars, category, certified, type, wasm_url, installed, installed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryUpdatePlugin:     "UPDATE plugins SET name = ?, description = ?, author = ?, stars = ?, category = ?, certified = ?, type = ?, wasm_url = ?, installed = ?, installed_at = ? WHERE id = ?",
 	QueryInstallPlugin:    "UPDATE plugins SET installed = TRUE, installed_at = ? WHERE id = ?",
 	QueryUninstallPlugin:  "UPDATE plugins SET installed = FALSE, installed_at = NULL WHERE id = ?",

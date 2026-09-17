@@ -48,10 +48,18 @@ func NewMongoStorage(client *mongo.Client, dbName string) storage.Storage {
 // The SQL backend binds the same string as a parameter to LIKE, where it is
 // text. QuoteMeta makes this backend agree, and makes a name that genuinely
 // contains regex syntax findable by typing it.
+//
+// Fields are the shared storage.*SearchFields lists, named as the SQL column.
+// Every collection here stores the identity field as _id, so the rename happens
+// on the way past rather than at each of the eight call sites — one of which
+// would eventually be the one that forgets.
 func searchAcross(search string, fields ...string) []bson.M {
 	pattern := bson.M{"$regex": regexp.QuoteMeta(search), "$options": "i"}
 	or := make([]bson.M, 0, len(fields))
 	for _, f := range fields {
+		if f == "id" {
+			f = "_id"
+		}
 		or = append(or, bson.M{f: pattern})
 	}
 	return or
@@ -335,7 +343,7 @@ func (s *mongoStorage) ListSources(ctx context.Context, filter storage.CommonFil
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = searchAcross(filter.Search, "_id", "name", "type", "vhost")
+		query["$or"] = searchAcross(filter.Search, storage.ConnectorSearchFields...)
 	}
 
 	if filter.VHost != "" {
@@ -347,7 +355,9 @@ func (s *mongoStorage) ListSources(ctx context.Context, filter storage.CommonFil
 		return nil, 0, err
 	}
 
-	opts := options.Find()
+	// Newest first, with _id to break ties, because Skip/Limit below slices
+	// whatever order this produces. Matches the SQL backend.
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}, {Key: "_id", Value: -1}})
 	if filter.Limit > 0 {
 		opts.SetLimit(int64(filter.Limit))
 		if filter.Page > 0 {
@@ -383,19 +393,25 @@ func (s *mongoStorage) CreateSource(ctx context.Context, src storage.Source) err
 		src.ID = uuid.New().String()
 	}
 	src.Config = configsecrets.Encrypt(src.Config)
+	// The list sorts on this, so every row needs one; a caller that supplies one
+	// — a backup being restored — keeps it. Matches the SQL backend.
+	if src.CreatedAt.IsZero() {
+		src.CreatedAt = time.Now()
+	}
 
 	coll := s.db.Collection("sources")
 	_, err := coll.InsertOne(ctx, bson.M{
-		"_id":       src.ID,
-		"name":      src.Name,
-		"type":      src.Type,
-		"vhost":     src.VHost,
-		"active":    src.Active,
-		"status":    src.Status,
-		"worker_id": src.WorkerID,
-		"config":    src.Config,
-		"sample":    src.Sample,
-		"state":     src.State,
+		"_id":        src.ID,
+		"created_at": src.CreatedAt,
+		"name":       src.Name,
+		"type":       src.Type,
+		"vhost":      src.VHost,
+		"active":     src.Active,
+		"status":     src.Status,
+		"worker_id":  src.WorkerID,
+		"config":     src.Config,
+		"sample":     src.Sample,
+		"state":      src.State,
 	})
 	return err
 }
@@ -464,7 +480,7 @@ func (s *mongoStorage) ListSinks(ctx context.Context, filter storage.CommonFilte
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = searchAcross(filter.Search, "_id", "name", "type", "vhost")
+		query["$or"] = searchAcross(filter.Search, storage.ConnectorSearchFields...)
 	}
 
 	if filter.VHost != "" {
@@ -476,7 +492,9 @@ func (s *mongoStorage) ListSinks(ctx context.Context, filter storage.CommonFilte
 		return nil, 0, err
 	}
 
-	opts := options.Find()
+	// Newest first, with _id to break ties, because Skip/Limit below slices
+	// whatever order this produces. Matches the SQL backend.
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}, {Key: "_id", Value: -1}})
 	if filter.Limit > 0 {
 		opts.SetLimit(int64(filter.Limit))
 		if filter.Page > 0 {
@@ -512,17 +530,23 @@ func (s *mongoStorage) CreateSink(ctx context.Context, snk storage.Sink) error {
 		snk.ID = uuid.New().String()
 	}
 	snk.Config = configsecrets.Encrypt(snk.Config)
+	// The list sorts on this, so every row needs one; a caller that supplies one
+	// — a backup being restored — keeps it. Matches the SQL backend.
+	if snk.CreatedAt.IsZero() {
+		snk.CreatedAt = time.Now()
+	}
 
 	coll := s.db.Collection("sinks")
 	_, err := coll.InsertOne(ctx, bson.M{
-		"_id":       snk.ID,
-		"name":      snk.Name,
-		"type":      snk.Type,
-		"vhost":     snk.VHost,
-		"active":    snk.Active,
-		"status":    snk.Status,
-		"worker_id": snk.WorkerID,
-		"config":    snk.Config,
+		"_id":        snk.ID,
+		"created_at": snk.CreatedAt,
+		"name":       snk.Name,
+		"type":       snk.Type,
+		"vhost":      snk.VHost,
+		"active":     snk.Active,
+		"status":     snk.Status,
+		"worker_id":  snk.WorkerID,
+		"config":     snk.Config,
 	})
 	return err
 }
@@ -577,7 +601,7 @@ func (s *mongoStorage) ListUsers(ctx context.Context, filter storage.CommonFilte
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = searchAcross(filter.Search, "_id", "username", "full_name", "email")
+		query["$or"] = searchAcross(filter.Search, storage.UserSearchFields...)
 	}
 
 	total, err := coll.CountDocuments(ctx, query)
@@ -585,7 +609,9 @@ func (s *mongoStorage) ListUsers(ctx context.Context, filter storage.CommonFilte
 		return nil, 0, err
 	}
 
-	opts := options.Find()
+	// Newest first, with _id to break ties, because Skip/Limit below slices
+	// whatever order this produces. Matches the SQL backend.
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}, {Key: "_id", Value: -1}})
 	if filter.Limit > 0 {
 		opts.SetLimit(int64(filter.Limit))
 		if filter.Page > 0 {
@@ -620,9 +646,15 @@ func (s *mongoStorage) CreateUser(ctx context.Context, user storage.User) error 
 	if user.ID == "" {
 		user.ID = uuid.New().String()
 	}
+	// The list sorts on this, so every row needs one; a caller that supplies one
+	// — a backup being restored — keeps it. Matches the SQL backend.
+	if user.CreatedAt.IsZero() {
+		user.CreatedAt = time.Now()
+	}
 	coll := s.db.Collection("users")
 	_, err := coll.InsertOne(ctx, bson.M{
 		"_id":                user.ID,
+		"created_at":         user.CreatedAt,
 		"username":           user.Username,
 		"password":           user.Password,
 		"full_name":          user.FullName,
@@ -715,7 +747,7 @@ func (s *mongoStorage) ListVHosts(ctx context.Context, filter storage.CommonFilt
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = searchAcross(filter.Search, "_id", "name", "description")
+		query["$or"] = searchAcross(filter.Search, storage.VHostSearchFields...)
 	}
 
 	total, err := coll.CountDocuments(ctx, query)
@@ -723,7 +755,9 @@ func (s *mongoStorage) ListVHosts(ctx context.Context, filter storage.CommonFilt
 		return nil, 0, err
 	}
 
-	opts := options.Find()
+	// Newest first, with _id to break ties, because Skip/Limit below slices
+	// whatever order this produces. Matches the SQL backend.
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}, {Key: "_id", Value: -1}})
 	if filter.Limit > 0 {
 		opts.SetLimit(int64(filter.Limit))
 		if filter.Page > 0 {
@@ -757,9 +791,15 @@ func (s *mongoStorage) CreateVHost(ctx context.Context, vhost storage.VHost) err
 	if vhost.ID == "" {
 		vhost.ID = uuid.New().String()
 	}
+	// The list sorts on this, so every row needs one; a caller that supplies one
+	// — a backup being restored — keeps it. Matches the SQL backend.
+	if vhost.CreatedAt.IsZero() {
+		vhost.CreatedAt = time.Now()
+	}
 	coll := s.db.Collection("vhosts")
 	_, err := coll.InsertOne(ctx, bson.M{
 		"_id":         vhost.ID,
+		"created_at":  vhost.CreatedAt,
 		"name":        vhost.Name,
 		"description": vhost.Description,
 	})
@@ -805,7 +845,7 @@ func (s *mongoStorage) ListWorkflows(ctx context.Context, filter storage.CommonF
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = searchAcross(filter.Search, "_id", "name", "vhost")
+		query["$or"] = searchAcross(filter.Search, storage.WorkflowSearchFields...)
 	}
 
 	if filter.VHost != "" {
@@ -821,7 +861,10 @@ func (s *mongoStorage) ListWorkflows(ctx context.Context, filter storage.CommonF
 		return nil, 0, err
 	}
 
-	opts := options.Find()
+	// Newest first, with _id to break ties, because Skip/Limit below slices
+	// whatever order this produces — an unordered one can put the same workflow
+	// on two pages and leave another off both. Matches the SQL backend.
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}, {Key: "_id", Value: -1}})
 	if filter.Limit > 0 {
 		opts.SetLimit(int64(filter.Limit))
 		if filter.Page > 0 {
@@ -897,9 +940,15 @@ func (s *mongoStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) 
 	if wf.ID == "" {
 		wf.ID = uuid.New().String()
 	}
+	// The list sorts on this, so every row needs one; a caller that supplies one
+	// — a backup being restored — keeps it. Matches the SQL backend.
+	if wf.CreatedAt.IsZero() {
+		wf.CreatedAt = time.Now()
+	}
 	coll := s.db.Collection("workflows")
 	_, err := coll.InsertOne(ctx, bson.M{
 		"_id":                 wf.ID,
+		"created_at":          wf.CreatedAt,
 		"name":                wf.Name,
 		"vhost":               wf.VHost,
 		"active":              wf.Active,
@@ -1011,7 +1060,7 @@ func (s *mongoStorage) ListWorkers(ctx context.Context, filter storage.CommonFil
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = searchAcross(filter.Search, "_id", "name", "host")
+		query["$or"] = searchAcross(filter.Search, storage.WorkerSearchFields...)
 	}
 
 	total, err := coll.CountDocuments(ctx, query)
@@ -1019,7 +1068,9 @@ func (s *mongoStorage) ListWorkers(ctx context.Context, filter storage.CommonFil
 		return nil, 0, err
 	}
 
-	opts := options.Find()
+	// Newest first, with _id to break ties, because Skip/Limit below slices
+	// whatever order this produces. Matches the SQL backend.
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}, {Key: "_id", Value: -1}})
 	if filter.Limit > 0 {
 		opts.SetLimit(int64(filter.Limit))
 		if filter.Page > 0 {
@@ -1056,9 +1107,15 @@ func (s *mongoStorage) CreateWorker(ctx context.Context, worker storage.Worker) 
 	if worker.Token == "" {
 		worker.Token = uuid.New().String()
 	}
+	// The list sorts on this, so every row needs one; a caller that supplies one
+	// — a backup being restored — keeps it. Matches the SQL backend.
+	if worker.CreatedAt.IsZero() {
+		worker.CreatedAt = time.Now()
+	}
 	coll := s.db.Collection("workers")
 	_, err := coll.InsertOne(ctx, bson.M{
 		"_id":          worker.ID,
+		"created_at":   worker.CreatedAt,
 		"name":         worker.Name,
 		"host":         worker.Host,
 		"port":         worker.Port,
@@ -1151,7 +1208,7 @@ func (s *mongoStorage) ListLogs(ctx context.Context, filter storage.LogFilter) (
 		query["action"] = filter.Action
 	}
 	if filter.Search != "" {
-		query["$or"] = searchAcross(filter.Search, "message", "data", "source_id", "sink_id", "workflow_id", "user_id", "username")
+		query["$or"] = searchAcross(filter.Search, storage.LogSearchFields...)
 	}
 
 	total, err := coll.CountDocuments(ctx, query)
@@ -1523,7 +1580,7 @@ func (s *mongoStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFi
 	query := bson.M{}
 
 	if filter.Search != "" {
-		query["$or"] = searchAcross(filter.Search, "_id", "username", "action", "entity_id", "payload")
+		query["$or"] = searchAcross(filter.Search, storage.AuditLogSearchFields...)
 	}
 	if filter.UserID != "" {
 		query["user_id"] = filter.UserID

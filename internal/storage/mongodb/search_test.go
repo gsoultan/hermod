@@ -1,10 +1,13 @@
 package mongodb
 
 import (
+	"fmt"
 	"regexp"
 	"testing"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
+
+	"github.com/gsoultan/hermod/internal/storage"
 )
 
 // The behaviour these assert is proved end-to-end against a real server in
@@ -81,6 +84,42 @@ func TestEveryNamedFieldIsSearched(t *testing.T) {
 	for i, f := range fields {
 		if _, ok := or[i][f]; !ok {
 			t.Errorf("clause %d does not search %q: %v", i, f, or[i])
+		}
+	}
+}
+
+// The two backends have to search the same fields, or which one is deployed
+// changes what an operator finds. The lists live in the storage package for
+// that reason; this backend's only remaining job is the rename every collection
+// needs, because it stores the identity field as _id and SQL calls it id.
+func TestSearchAcrossRenamesTheIdentityField(t *testing.T) {
+	or := searchAcross("x", storage.UserSearchFields...)
+	if len(or) != len(storage.UserSearchFields) {
+		t.Fatalf("searchAcross returned %d clauses for %d fields", len(or), len(storage.UserSearchFields))
+	}
+
+	got := make([]string, 0, len(or))
+	for _, clause := range or {
+		for field := range clause {
+			got = append(got, field)
+		}
+	}
+	want := []string{"_id", "username", "full_name", "email", "role"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("searchAcross built clauses for %v, want %v\n"+
+			"every collection stores the identity field as _id, so a list naming it "+
+			"\"id\" matches nothing", got, want)
+	}
+}
+
+// The one decision in these lists that is easy to undo by accident, and
+// expensive: data is the largest column on the largest table, and a LIKE over
+// it cannot use an index.
+func TestLogSearchDoesNotScanThePayload(t *testing.T) {
+	for _, f := range storage.LogSearchFields {
+		if f == "data" {
+			t.Error("LogSearchFields includes data; a log search that scans every " +
+				"payload is one nobody waits for. If this is deliberate, say why here")
 		}
 	}
 }
