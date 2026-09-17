@@ -347,6 +347,52 @@ The zone database is compiled into the binary (`time/tzdata`), so
 `Asia/Jakarta` resolves on an image that ships no `/usr/share/zoneinfo`.
 
 
+### Added — every panmail field is a template, and a gateway allowlist to bound the two that matter
+
+The panmail sink rendered seven of its settings as Go templates over the message
+— from, to, cc, bcc, subject and the two bodies — and passed the rest through
+verbatim. The four it passed through are the ones that decide *where* a message
+goes: the gateway url, the api key, the provider id and the stored template id.
+All four are now templated, so one sink can serve many tenants and pick the
+stored template per row (`{{.kind}}`) instead of needing a sink per case.
+
+In scope for every one of them: `{{.id}}`, `{{.operation}}`, `{{.table}}`,
+`{{.schema}}`, `{{.metadata.x}}`, and any field of the row — which wins over the
+envelope when the names collide.
+
+The provider id and the template id are refused when they render empty rather
+than sent. An empty provider sends from whatever the gateway picks, and an empty
+template id used to fall through to the body fallback, so a typo in a field name
+mailed the wrong thing to a real person instead of failing.
+
+The gateway url and the api key are a different kind of field, because between
+them they decide where a tenant-wide credential is sent — and with them
+templated, a row decides it. A row reading
+`gateway_url = https://attacker.example/` would hand over the key. So templating
+either one now requires `allowed_hosts`, and the sink refuses to start without
+it:
+
+```
+allowed_hosts = *.mail.example.com, mail.example.com
+```
+
+Hosts are matched exactly, or by a single leading `*.` over a domain with at
+least two labels — `*.com` is refused, it bounds nothing. A rendered host that
+matches no rule is refused before the client is built, and the error names the
+host without the key. The UI asks for the list as soon as either field contains
+`{{`, and the wizard's Next stays disabled until it is filled in.
+
+Two smaller consequences, both deliberate:
+
+- The client cache is keyed on the rendered gateway and key, which a wildcard
+  rule lets the upstream table grow without limit. It is bounded at 32 entries
+  and evicted least-recently-used.
+- A templated gateway joins the derived idempotency key: the same mail to two
+  gateways is two sends, and hashing them alike would suppress the second. A
+  *static* gateway is deliberately left out, so keys already in the store keep
+  matching — an orphaned claim is a message mailed twice.
+
+
 ### Fixed — a `jsonb` column arrived as a string on the CDC path, and vanished when it was TOASTed
 
 A PostgreSQL `jsonb` column had two different shapes depending on how the row

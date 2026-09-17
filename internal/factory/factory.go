@@ -1182,6 +1182,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 			HTML:             cfg.Config["html"],
 			Text:             cfg.Config["text"],
 			TemplateID:       cfg.Config["template_id"],
+			AllowedHosts:     split("allowed_hosts"),
 			RateLimitRetries: retries,
 			Timeout:          timeout,
 		}, fmttr)
