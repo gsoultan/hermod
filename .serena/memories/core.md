@@ -72,6 +72,10 @@ find a claim that outruns the code, fix the claim.
 - [The lookup cache is a second write path](lookup_cache_fast_path.md) — a
   cache hit skipped `flattenInto`, and with no TTL set that meant every message
   after the first; the test fake that "caches" nothing could never catch it.
+- [Workflow dependency references](workflow_dependency_references.md) — a
+  workflow names its sources in four places, not one; walking nodes for
+  `type == "source"` is the wrong answer, and the source delete guard still
+  gives it.
 
 ### Gates
 
