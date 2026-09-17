@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react';
-import { Stack, Select, Text, Box, Card, Group, rem, ThemeIcon, Alert } from '@mantine/core';
+import { Stack, Select, Text, TextInput, Box, Card, Group, rem, ThemeIcon, Alert } from '@mantine/core';
 import { sourceAllowsDirectQueries } from '@/lib/sourceCdc';
 import { IconDatabase, IconInfoCircle, IconSearch } from '@tabler/icons-react';
 
@@ -90,6 +90,15 @@ export function SQLConfig({ config, updateNodeConfig, nodeId, sources, available
             required
             size="sm"
             description="Choose the database to query for enrichment."
+          />
+
+          <TextInput
+            label="Affected Rows Field"
+            placeholder="e.g. rows_written (optional)"
+            description="Writes the statement's affected-row count into the message under this name. Without it, a node that changed nothing looks exactly like one that changed a thousand rows."
+            value={config.affectedRowsField || ''}
+            onChange={(e) => updateNodeConfig(nodeId, { affectedRowsField: e.currentTarget.value })}
+            size="sm"
           />
 
           <Select

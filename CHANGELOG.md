@@ -23,6 +23,11 @@ both ways it could quietly write nothing were open:
   forever. The default is unchanged — NULL is the fail-safe direction — but a
   node can now set `onUnresolved: "fail"` to reject it instead, and the editor
   offers the choice.
+- **`affectedRowsField` was unreachable from the editor.** The transformer has
+  always written the statement's affected-row count into a message field when
+  that option is set, and it is the only signal a write node can give about what
+  it did — without it, a node that changed nothing looks exactly like one that
+  changed a thousand rows. The panel now offers it.
 
 `execute_sql` still does **not** refuse a CDC source, unlike `db_lookup` and
 `batch_sql`. That stays deliberate: their guard is about read load, which applies

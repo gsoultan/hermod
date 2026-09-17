@@ -70,6 +70,31 @@ describe('execute_sql against a CDC target', () => {
     expect(updateNodeConfig).toHaveBeenCalledWith('n1', { onUnresolved: 'fail' })
   })
 
+  // The transformer writes res.RowsAffected() into a message field when
+  // affectedRowsField is set, and that is the only signal a node can give about
+  // what it actually wrote — an execute_sql that affected 0 rows is otherwise
+  // indistinguishable from one that affected 1000. The editor never offered it.
+  it('offers the affected-rows field so a write can report what it did', async () => {
+    const updateNodeConfig = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <MantineProvider>
+        <SQLConfig
+          config={{ sourceId: 'ops' }}
+          updateNodeConfig={updateNodeConfig}
+          nodeId="n1"
+          sources={[nonCDC, cdc]}
+          availableFields={[]}
+        />
+      </MantineProvider>
+    )
+
+    const input = screen.getByLabelText(/affected rows/i)
+    await user.type(input, 'w')
+
+    expect(updateNodeConfig).toHaveBeenCalledWith('n1', { affectedRowsField: 'w' })
+  })
+
   it('does not warn when the target is a non-CDC source', () => {
     renderConfig({ sourceId: 'ops' })
     expect(screen.queryByTestId('execute-sql-cdc-warning')).toBeNull()
