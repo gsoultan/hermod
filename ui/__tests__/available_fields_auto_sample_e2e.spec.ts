@@ -93,7 +93,7 @@ test.describe('Available Fields on a never-sampled source', () => {
       name: `autofields-wf-${stamp}`, vhost: 'default', active: false,
       nodes: [
         { id: 'n-src', type: 'source', ref_id: batch.id, x: 100, y: 100 },
-        { id: 'n-tr', type: 'transformation', config: { transType: 'field_mapping' }, x: 340, y: 100 },
+        { id: 'n-tr', type: 'transformation', config: { transType: 'mapping' }, x: 340, y: 100 },
         { id: 'n-snk', type: 'sink', ref_id: sinkID, x: 580, y: 100 },
       ],
       edges: [
@@ -155,7 +155,7 @@ test.describe('Available Fields on a never-sampled source', () => {
       name: `autofields-q-wf-${stamp}`, vhost: 'default', active: false,
       nodes: [
         { id: 'n-src', type: 'source', ref_id: queue.id, x: 100, y: 100 },
-        { id: 'n-tr', type: 'transformation', config: { transType: 'field_mapping' }, x: 340, y: 100 },
+        { id: 'n-tr', type: 'transformation', config: { transType: 'mapping' }, x: 340, y: 100 },
         { id: 'n-snk', type: 'sink', ref_id: sinkID, x: 580, y: 100 },
       ],
       edges: [
