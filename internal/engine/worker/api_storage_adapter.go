@@ -47,6 +47,9 @@ func (a *apiStorage) UpdateSourceStatus(ctx context.Context, id, status string) 
 func (a *apiStorage) UpdateSourceState(ctx context.Context, id string, state map[string]string) error {
 	return nil
 }
+func (a *apiStorage) UpdateSourceSample(ctx context.Context, id string, sample string) error {
+	return nil
+}
 func (a *apiStorage) DeleteSource(ctx context.Context, id string) error { return nil }
 
 // --- Sinks (unsupported mutations) ---

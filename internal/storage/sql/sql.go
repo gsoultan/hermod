@@ -707,6 +707,18 @@ func (s *sqlStorage) UpdateSourceState(ctx context.Context, id string, state map
 	return s.execWithRetry(ctx, exec)
 }
 
+// UpdateSourceSample writes the preview payload and nothing else. The editor
+// captures a sample as a side effect of opening a node, and routing that through
+// UpdateSource meant the browser's cached copy of every other column was written
+// back with it -- reverting a config edit made since that copy was fetched.
+func (s *sqlStorage) UpdateSourceSample(ctx context.Context, id string, sample string) error {
+	exec := func() error {
+		_, e := s.exec(ctx, s.queries.get(QueryUpdateSourceSample), sample, id)
+		return e
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
 func (s *sqlStorage) DeleteSource(ctx context.Context, id string) error {
 	exec := func() error {
 		_, e := s.exec(ctx, s.queries.get(QueryDeleteSource), id)

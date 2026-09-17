@@ -5,6 +5,7 @@ import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import type { Source, Sink } from '@/types';
+import { resolveSampleSource, sampleTableFor } from '../sampleCapture';
 
 const API_BASE = '/api';
 
@@ -249,82 +250,100 @@ export function useWorkflowMutations(
     }
   }, [sourcesData, testInput, testMutation, setTestModalOpened]);
 
+  // Fetch a source's sample and store it, so AVAILABLE FIELDS has something to
+  // read. Shared by the refresh icon and by the automatic capture that runs
+  // when a node opens with no fields; the icon additionally re-runs the
+  // preview, which the automatic path deliberately does not.
+  //
+  // `silent` suppresses apiFetch's own error toast: a failure the operator
+  // asked for should say so loudly, one they never asked for should not throw a
+  // red banner over the canvas.
+  const captureSample = useCallback(async (source: any, opts: { silent?: boolean } = {}) => {
+    const res = await apiFetch(`${API_BASE}/sources/sample`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: { type: source.type, config: source.config },
+        table: sampleTableFor(source.config),
+      }),
+      silent: opts.silent,
+    });
+
+    const sampleMsg = await res.json();
+    if (sampleMsg && typeof sampleMsg === 'object') {
+      if (typeof sampleMsg.after === 'string') {
+        try { sampleMsg.after = JSON.parse(sampleMsg.after); } catch {}
+      }
+      if (typeof sampleMsg.before === 'string') {
+        try { sampleMsg.before = JSON.parse(sampleMsg.before); } catch {}
+      }
+    }
+
+    // Sent to the sample endpoint rather than PUT back through the source, so
+    // the only column that travels is the one being captured. Storing this
+    // through the full update meant spreading `source` — a copy taken from a
+    // cached list — over the row, which reverted any config edit made since
+    // that copy was fetched and rewound the cursor if the engine had moved on.
+    // The endpoint also does not refuse while a workflow is running: a preview
+    // payload is editor state, not configuration.
+    await apiFetch(`${API_BASE}/sources/${source.id}/sample`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sample: JSON.stringify(sampleMsg) }),
+      silent: opts.silent,
+    });
+
+    await queryClient.invalidateQueries({ queryKey: ['sources'] });
+    return sampleMsg;
+  }, [queryClient]);
+
   const handleRefreshFields = useCallback(async () => {
     let input = null;
-    const s = useWorkflowStore.getState();
-    const { nodes, selectedNode } = s;
+    const { nodes, edges, selectedNode } = useWorkflowStore.getState();
 
-    const sourceNode = selectedNode?.type === 'source' ? selectedNode : nodes.find(n => n.type === 'source');
-    
-    if (sourceNode) {
-      const sourceData = sourcesData?.find((s: any) => s.id === sourceNode.data.ref_id);
-      if (sourceData) {
-        try {
-          notifications.show({ 
-            id: 'refresh-fields', 
-            title: 'Refreshing Fields', 
-            message: `Fetching fresh sample from ${sourceData.name || sourceNode.id}...`, 
-            loading: true,
-            autoClose: false,
-            withCloseButton: false
-          });
-          
-          let table = sourceData.config.table || sourceData.config.collection || '';
-          if (!table && sourceData.config.tables) {
-            table = sourceData.config.tables.split(',')[0].trim();
-          }
+    // The source on the selected node's own branch. This used to be
+    // `nodes.find(n => n.type === 'source')` — the first source anywhere in the
+    // workflow — so refreshing a node on the second branch of a two-source
+    // workflow pulled the first branch's columns.
+    const sourceData = selectedNode
+      ? resolveSampleSource(selectedNode.id, nodes, edges, sourcesData)
+      : null;
 
-          const res = await apiFetch(`${API_BASE}/sources/sample`, {
-            method: 'POST',
-            body: JSON.stringify({
-              source: { type: sourceData.type, config: sourceData.config },
-              table: table
-            })
-          });
-          
-          if (res.ok) {
-            const sampleMsg = await res.json();
-            if (sampleMsg && typeof sampleMsg === 'object') {
-              if (typeof sampleMsg.after === 'string') {
-                try { sampleMsg.after = JSON.parse(sampleMsg.after); } catch {}
-              }
-              if (typeof sampleMsg.before === 'string') {
-                try { sampleMsg.before = JSON.parse(sampleMsg.before); } catch {}
-              }
-            }
+    if (sourceData) {
+      try {
+        notifications.show({
+          id: 'refresh-fields',
+          title: 'Refreshing Fields',
+          message: `Fetching fresh sample from ${sourceData.name || sourceData.id}...`,
+          loading: true,
+          autoClose: false,
+          withCloseButton: false
+        });
 
-            input = sampleMsg;
-            
-            await apiFetch(`${API_BASE}/sources/${sourceData.id}`, {
-              method: 'PUT',
-              body: JSON.stringify({ ...sourceData, sample: JSON.stringify(sampleMsg) })
-            });
-            
-            queryClient.invalidateQueries({ queryKey: ['sources'] });
-            notifications.update({ 
-              id: 'refresh-fields', 
-              title: 'Refresh Complete', 
-              message: 'Fresh sample fetched and saved.', 
-              color: 'green', 
-              loading: false,
-              autoClose: 2000
-            });
-          }
-        } catch {
-          notifications.update({ 
-            id: 'refresh-fields', 
-            title: 'Refresh Partial', 
-            message: 'Could not fetch fresh sample from source. Re-simulating with existing data.', 
-            color: 'orange', 
-            loading: false,
-            autoClose: 3000
-          });
-        }
+        input = await captureSample(sourceData);
+
+        notifications.update({
+          id: 'refresh-fields',
+          title: 'Refresh Complete',
+          message: 'Fresh sample fetched and saved.',
+          color: 'green',
+          loading: false,
+          autoClose: 2000
+        });
+      } catch {
+        notifications.update({
+          id: 'refresh-fields',
+          title: 'Refresh Partial',
+          message: 'Could not fetch fresh sample from source. Re-simulating with existing data.',
+          color: 'orange',
+          loading: false,
+          autoClose: 3000
+        });
       }
     }
 
     handleTest(input, true);
-  }, [sourcesData, handleTest, queryClient]);
+  }, [sourcesData, handleTest, captureSample]);
 
   const handleSave = useCallback(() => {
     if (!isNew && active) {
@@ -364,6 +383,7 @@ export function useWorkflowMutations(
     toggleMutation,
     rebuildMutation,
     handleTest,
+    captureSample,
     handleRefreshFields,
     handleSave,
     handleInlineSave
