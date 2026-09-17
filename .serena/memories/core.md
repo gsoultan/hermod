@@ -80,6 +80,14 @@ find a claim that outruns the code, fix the claim.
 - [The lookup cache is a second write path](lookup_cache_fast_path.md) — a
   cache hit skipped `flattenInto`, and with no TTL set that meant every message
   after the first; the test fake that "caches" nothing could never catch it.
+  The key itself was worse: built from *unresolved* template text, so in query
+  mode every message in a workflow shared one entry. Same class in `api_lookup`
+  (headers and the credential applied after the key) and in the batcher closure.
+  When auditing a cache key, list every input applied *below* where it is built.
+- [Reading a message trace](message_trace_shape.md) — `workflow_start` and
+  `router` are engine pseudo-nodes, the `router` *is* the whole traversal, and
+  `before_data` is not stored but reconstructed from the previous step's
+  `after`. Query `message_trace_steps` before theorising about stale data.
 - [Workflow dependency references](workflow_dependency_references.md) — a
   workflow names its sources in four places, not one; walking nodes for
   `type == "source"` is the wrong answer, and the source delete guard still
