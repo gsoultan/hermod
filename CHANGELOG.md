@@ -7,6 +7,24 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-09-17
+
+This release is mostly about caches that kept serving an answer which was right
+once. One bug shape in three places — a key built from the *template* rather
+than from the values it resolves to — meant a `db_lookup` handed the first
+message's row to every message after it, an `api_lookup` handed one caller's
+response, and one caller's credential, to another, and a batched lookup filtered
+every message by the first message's values. Neither lookup's Cache TTL was
+honest either: a value with no unit was discarded, leaving a cache that never
+expired.
+
+Beside those, SQL templates learn list variables so `IN ({{.ids}})` finally has a
+working form, `data_conversion` converts to and from lists and UUIDs, `batch_sql`
+sources take query parameters, sharding keeps the rows it was meant to keep
+together, and seven list endpoints stop paging without an `ORDER BY` — which
+could repeat a row on one page and skip it on the next.
+
+
 ### Changed — a `db_lookup` with no Cache TTL now expires after an hour
 
 It used to never expire. `SetLookupCache` reads a ttl of zero as "no expiry" and
@@ -297,6 +315,45 @@ the feature promised was never delivered for the source that needs it most.
 README's claim that sharding "guarantees per-key ordering" has been corrected to
 describe what it does and what it costs — sharding splits a sink's queue, so
 each shard batches independently.
+
+
+### Fixed — list pages could repeat a row and skip another
+
+Seven list endpoints paged with `LIMIT`/`OFFSET` over no `ORDER BY` at all, so
+the engine was free to return the same row on two pages and another on neither.
+There was also nothing to order by: `workflows`, `sources`, `sinks`, `users`,
+`vhosts`, `workers` and `plugins` had no `created_at` column. Each gained one —
+stamped in storage rather than at the call sites, never rewritten by an `UPDATE`,
+and backfilled by `Init` for rows that predate it. Lists sort newest first, with
+`id` to break ties.
+
+Searching those lists matched with `LIKE` against the raw column. sqlite and
+MySQL fold ASCII case on their own, so this looked correct in development;
+**PostgreSQL does not**, so on the driver Hermod actually deploys with, typing
+`Order` found nothing named `order ingest`. Both sides are now folded in SQL.
+
+The SQL and mongo backends also searched *different fields*, so which one was
+deployed changed what the search box found. Both now read one list from
+`internal/storage/search.go`.
+
+### Fixed — Available Fields was empty on a source that had never been sampled
+
+A transformation wired to a fully configured source offered no fields, and
+nothing was failing anywhere: the list is derived from the upstream source's
+*stored* sample, and that sample was only ever written by Test Connection or the
+refresh icon. A source created through the API, restored from a bundle, or saved
+from the wizard without pressing Test Connection had no sample at all. The editor
+now captures one when a transformation is opened.
+
+Closing that gap surfaced two defects in how the editor already wrote to a
+source:
+
+- `storage.UpdateSource` wrote `State` on every update, so a `PUT` body with no
+  `state` key overwrote the column with null — resetting a `batch_sql`
+  `last_value` watermark or a Postgres CDC cursor as a side effect of an
+  unrelated save, surfacing only on the next run as already-delivered rows
+  arriving again. Absent or null now keeps the stored cursor; `{}` clears it.
+- Storing a sample rewrote the rest of the source along with it.
 
 
 ## [1.5.0] — 2026-09-17
