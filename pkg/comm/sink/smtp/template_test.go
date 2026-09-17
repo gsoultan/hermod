@@ -247,6 +247,15 @@ func TestTemplate_DriverTimeAndTextBehaveAlike(t *testing.T) {
 		{`{{ .cdc_ts.Format "2006-01-02 15:04" }}`, "2026-12-01 09:30"},
 		{`{{ (.driver_ts.In "Asia/Jakarta").Format "15:04 MST" }}`, "16:30 WIB"},
 		{`{{ (.cdc_ts.In "Asia/Jakarta").Format "15:04 MST" }}`, "16:30 WIB"},
+		// A second zone, on a different offset, deliberately. The text path
+		// used to render .In back to a string and re-parse it, and time.Parse
+		// recovers a named zone from a bare offset only when that offset
+		// matches the host's own -- so this suite passed on a machine set to
+		// Jakarta and printed "+0700" on every other one, CI included. Two
+		// zones cannot both match one host, so neither can hide the next
+		// regression.
+		{`{{ (.driver_ts.In "Asia/Kolkata").Format "15:04 MST" }}`, "15:00 IST"},
+		{`{{ (.cdc_ts.In "Asia/Kolkata").Format "15:04 MST" }}`, "15:00 IST"},
 		{`{{ .driver_ts.In (time.LoadLocation "Asia/Jakarta") }}`, "2026-12-01 16:30:00 +0700 WIB"},
 		// Printing a driver time is unchanged: Go's own rendering.
 		{`{{ .driver_ts }}`, "2026-12-01 09:30:00 +0000 UTC"},
