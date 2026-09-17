@@ -7,6 +7,31 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — `execute_sql` could do nothing and report success
+
+It has no cache and cannot serve a stale answer — it re-resolves its template
+against the current message every call and keeps no state between them — but
+both ways it could quietly write nothing were open:
+
+- **A node missing `sourceId` or `queryTemplate` returned the message unchanged
+  with a nil error.** On the one transformer that exists to *write* rows, that
+  leaves the pipeline green and the table empty. It is now an error naming the
+  field at fault.
+- **A `{{ }}` token that resolved to nothing was bound as NULL and the statement
+  ran.** That is correct for an optional field and indistinguishable from a
+  typo, and on a write it means a statement that changes nothing, silently,
+  forever. The default is unchanged — NULL is the fail-safe direction — but a
+  node can now set `onUnresolved: "fail"` to reject it instead, and the editor
+  offers the choice.
+
+`execute_sql` still does **not** refuse a CDC source, unlike `db_lookup` and
+`batch_sql`. That stays deliberate: their guard is about read load, which applies
+whatever table is read, while the risk here depends on whether the *target* table
+is in the publication — something the node config cannot know. Writing an audit
+row nobody streams is legitimate. The editor already warns and names the loop
+risk, which is the right layer for a judgement call.
+
+
 ## [1.6.0] — 2026-09-17
 
 This release is mostly about caches that kept serving an answer which was right

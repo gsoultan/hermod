@@ -40,6 +40,36 @@ describe('execute_sql against a CDC target', () => {
     expect(warning).toHaveTextContent(/back into the pipeline|feedback/i)
   })
 
+  // An unresolved {{ }} token binds NULL, which is right for an optional field
+  // and indistinguishable from a typo. On a write that means a statement that
+  // changes nothing, silently, forever — so the node has to be able to choose.
+  it('offers a choice for a template variable that resolves to nothing', async () => {
+    const updateNodeConfig = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <MantineProvider>
+        <SQLConfig
+          config={{ sourceId: 'ops' }}
+          updateNodeConfig={updateNodeConfig}
+          nodeId="n1"
+          sources={[nonCDC, cdc]}
+          availableFields={[]}
+        />
+      </MantineProvider>
+    )
+
+    const input = screen.getByRole('combobox', {
+      name: /when a variable resolves to nothing/i,
+    }) as HTMLInputElement
+    expect(input.value).toMatch(/null/i)
+
+    await user.click(input)
+    expect(input).toHaveAttribute('aria-expanded', 'true')
+    await user.click(screen.getByText('Fail the message'))
+
+    expect(updateNodeConfig).toHaveBeenCalledWith('n1', { onUnresolved: 'fail' })
+  })
+
   it('does not warn when the target is a non-CDC source', () => {
     renderConfig({ sourceId: 'ops' })
     expect(screen.queryByTestId('execute-sql-cdc-warning')).toBeNull()

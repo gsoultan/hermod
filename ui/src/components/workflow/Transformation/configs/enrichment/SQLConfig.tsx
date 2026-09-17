@@ -92,6 +92,19 @@ export function SQLConfig({ config, updateNodeConfig, nodeId, sources, available
             description="Choose the database to query for enrichment."
           />
 
+          <Select
+            label="When a variable resolves to nothing"
+            description="A {{ }} token with no matching field is bound as NULL. That is right for an optional field and identical to a typo — and on a write, a NULL variable is a statement that changes nothing, silently."
+            data={[
+              { value: 'null', label: 'Bind NULL and run the statement' },
+              { value: 'fail', label: 'Fail the message' },
+            ]}
+            value={String(config.onUnresolved || '').toLowerCase() === 'fail' ? 'fail' : 'null'}
+            onChange={(val) => updateNodeConfig(nodeId, { onUnresolved: val || 'null' })}
+            allowDeselect={false}
+            size="sm"
+          />
+
           {targetIsCDC && (
             <Alert
               data-testid="execute-sql-cdc-warning"
