@@ -32,6 +32,7 @@ import { NodeConfigDrawer } from './WorkflowEditor/components/NodeConfigDrawer';
 import { WorkflowContext } from './WorkflowEditor/nodes/BaseNode';
 import { useWorkflowLayout } from './WorkflowEditor/hooks/useWorkflowLayout';
 import { useNodeContext } from './WorkflowEditor/hooks/useNodeContext';
+import { useAutoSampleUpstream } from './WorkflowEditor/hooks/useAutoSampleUpstream';
 import { useWorkflowInitialization } from './WorkflowEditor/hooks/useWorkflowInitialization';
 import { useWorkflowWebSockets } from './WorkflowEditor/hooks/useWorkflowWebSockets';
 import { useWorkflowMutations } from './WorkflowEditor/hooks/useWorkflowMutations';
@@ -133,7 +134,7 @@ function EditorInner() {
 
   const {
     testMutation, saveMutation, toggleMutation, rebuildMutation,
-    handleTest, handleRefreshFields, handleSave, handleInlineSave
+    handleTest, captureSample, handleRefreshFields, handleSave, handleInlineSave
   } = useWorkflowMutations(id, isNew, sources?.data, setSaveConfirmOpened);
 
   const {
@@ -154,6 +155,24 @@ function EditorInner() {
     sources?.data || [],
     sinks?.data || []
   );
+
+  // A node opened with an empty field list means the upstream source has never
+  // been sampled. Pull one now rather than leaving the operator to discover the
+  // refresh icon the empty-state alert points at.
+  const { graphNodes, graphEdges } = useWorkflowStore(useShallow(state => ({
+    graphNodes: state.nodes,
+    graphEdges: state.edges,
+  })));
+
+  useAutoSampleUpstream({
+    enabled: settingsOpened || configModalOpen,
+    selectedNode,
+    nodes: graphNodes,
+    edges: graphEdges,
+    sources: sources?.data,
+    fieldCount: availableFields?.length || 0,
+    capture: captureSample,
+  });
 
   const spotlightActions = useMemo(() => {
     const actions: any[] = [];
