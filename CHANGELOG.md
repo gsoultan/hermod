@@ -60,6 +60,16 @@ not become a cache stampede. The key prefix both sides match on lives in
 `hermod.LookupCacheKeyPrefix`, trailing separator included: without it,
 invalidating source `cust` would also drop everything cached from `customers`.
 
+### Fixed — the worker registration end-to-end test could never run
+
+`worker_e2e.spec.ts` resolved the binary through cwd-relative candidates
+(`.dev/hermod`, `./hermod`). Playwright runs from `ui/`, where those are
+`ui/.dev/hermod` and `ui/hermod` — paths that have never existed. The spec
+failed with "no hermod binary found" while the binary sat built one directory
+up, and `HERMOD_BIN` was set nowhere in the repo or in CI. The candidates are
+now anchored to the repo root through the `repoRoot()` helper the port
+resolution already used.
+
 ### Fixed — queries that borrow a source's database could still land on a CDC one
 
 Two node types run SQL against a source they merely name rather than stream

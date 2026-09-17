@@ -31,7 +31,7 @@ import path from 'node:path'
 export const DEFAULT_UI_PORT = 5175
 export const DEFAULT_API_PORT = 4005
 
-function repoRoot() {
+export function repoRoot() {
   let dir = process.cwd()
   for (let i = 0; i < 10; i++) {
     if (fs.existsSync(path.join(dir, 'go.mod'))) return dir
