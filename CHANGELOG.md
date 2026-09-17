@@ -7,6 +7,27 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Changed — a `db_lookup` with no Cache TTL now expires after an hour
+
+It used to never expire. `SetLookupCache` reads a ttl of zero as "no expiry" and
+the editor's Cache TTL field is empty by default, so once the cache-key defect
+below was fixed a workflow served the *right* row — and then went on serving it
+after the row had been edited, for as long as the process lived. An enrichment
+lookup that can never observe a change to the table it enriches from is a
+snapshot, not a cache.
+
+An hour rather than `api_lookup`'s five minutes: a remote HTTP response is
+volatile and the call is somebody else's cost, while a lookup table is usually
+slow-moving reference data and the query lands on your own database. The point
+is turning "never correct again" into "correct within the hour", not minimising
+staleness.
+
+The extra query load is bounded from both sides — the cache holds at most 10000
+entries, so a workflow with more distinct keys than that is already re-querying
+through eviction, and one with fewer costs at most 10000 re-queries an hour.
+**If you were relying on the old behaviour, set a long duration** (`87600h`);
+`0` still means "do not cache", and the editor now states all three.
+
 ### Fixed — every message got the first message's `db_lookup` row
 
 A `db_lookup` in query mode enriched message one correctly and then handed

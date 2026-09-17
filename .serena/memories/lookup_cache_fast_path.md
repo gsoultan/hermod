@@ -81,10 +81,14 @@ Both lookups now go through `resolveLookupTTL` (`pkg/comm/transformer/lookup/ttl
   leaving `0` behind — `5` and `300` are what people type into a box labelled
   Cache TTL, and both used to mean *forever*;
 - an explicit `0` disables the cache, which was previously inexpressible;
-- unset differs on purpose: 5m for `api_lookup`, no expiry for `db_lookup`. A
-  lookup table is routinely static reference data, and bounding it by default
-  would add a query per message to every existing workflow. **That default is
-  still open** — it is a load decision, not a correctness one.
+- unset differs on purpose: 5m for `api_lookup`, 1h for `db_lookup`. A remote
+  HTTP response is volatile and the call is somebody else's cost; a lookup table
+  is slow-moving reference data queried against the operator's own database.
+  Neither is "forever" any more — `db_lookup` was, and once the key was fixed
+  that meant serving the *right* row indefinitely after the table had changed.
+  The load is bounded from both sides by `MaxLookupCacheSize` (10000): more
+  distinct keys than that and eviction is already re-querying; fewer and the
+  ceiling is 10000 re-queries an hour. `87600h` restores the old behaviour.
 
 Tests: `db_lookup_cache_key_test.go`, `db_lookup_batching_test.go`,
 `api_lookup_cache_key_test.go`, `api_lookup_behavior_test.go`, and
