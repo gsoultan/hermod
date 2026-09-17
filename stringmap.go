@@ -81,3 +81,16 @@ func SourceUsesCDC(config map[string]string) bool {
 func SourceAllowsDirectQueries(sourceType string, config map[string]string) bool {
 	return sourceType == "mssql" || !SourceUsesCDC(config)
 }
+
+// LookupCacheKeyPrefix is the prefix a db_lookup's cache entry carries for the
+// source it queried. The key continues past it with the table, columns, key
+// value and mode, so the trailing separator is load-bearing: without it,
+// invalidating source "cust" would also drop everything cached from
+// "customers".
+//
+// It lives here because two packages need to agree on it and neither imports
+// the other -- pkg/comm/transformer/lookup builds the key, and
+// internal/engine/registry drops entries by it when the source is edited.
+func LookupCacheKeyPrefix(sourceID string) string {
+	return "db:" + sourceID + ":"
+}

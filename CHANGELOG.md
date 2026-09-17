@@ -39,6 +39,37 @@ Separately, `validateSourceForSampling` asked a batch_sql config for `query` or
 latent — `SamplePanel` is its only consumer and nothing renders it today — but it
 is fixed rather than left to be rediscovered if the panel is wired back up.
 
+### Fixed — editing a source did not reach the rows already cached from it
+
+`db_lookup` caches what it reads, and `SetLookupCache` treats `ttl <= 0` as
+"never expires" — which is the default, because the editor's Cache TTL box is
+empty until somebody fills it in. Nothing dropped those entries when the source
+they came from was edited, so "until something evicts it" meant "for the life of
+the process": a corrected connection string, a changed table, a rotated
+credential all left the old rows being served.
+
+The CDC rule makes it sharper. Switching `use_cdc` on is precisely the edit that
+has to stop a lookup working, and it was the one edit a stale cache would serve
+straight past.
+
+`Registry.UpdateSource` now drops the lookup rows cached from that source and
+only that source — the rest were read from sources nobody edited, and dropping
+them would turn every unrelated edit into a throughput cliff. A failed write
+keeps the cache, since the source is still what it was and a storage blip should
+not become a cache stampede. The key prefix both sides match on lives in
+`hermod.LookupCacheKeyPrefix`, trailing separator included: without it,
+invalidating source `cust` would also drop everything cached from `customers`.
+
+### Fixed — the worker registration end-to-end test could never run
+
+`worker_e2e.spec.ts` resolved the binary through cwd-relative candidates
+(`.dev/hermod`, `./hermod`). Playwright runs from `ui/`, where those are
+`ui/.dev/hermod` and `ui/hermod` — paths that have never existed. The spec
+failed with "no hermod binary found" while the binary sat built one directory
+up, and `HERMOD_BIN` was set nowhere in the repo or in CI. The candidates are
+now anchored to the repo root through the `repoRoot()` helper the port
+resolution already used.
+
 ### Fixed — queries that borrow a source's database could still land on a CDC one
 
 Two node types run SQL against a source they merely name rather than stream
@@ -167,6 +198,294 @@ setting an operator is looking at is now the one that applies. Pipelines where
 the field is genuinely optional set "keep" to pass the message through
 untouched, or "null" to write an explicit null.
 
+
+### Fixed — the "sink in use" warning could never appear
+
+The sink form asks which workflows use a sink before letting anyone edit it, and
+warns "stop these first" when any of them is running. It asked
+`GET /api/sinks/{id}/workflows`, which was never registered: every sink edit
+page raised a "Request Failed — Not Found" toast, the list came back empty, and
+the warning stayed hidden however many live workflows were writing through the
+sink. The source side has had the route all along.
+
+It is registered now, and answers the same shape: the running workflows with a
+sink node pointing at that id, filtered by the caller's vhost access. A source
+node that happens to carry the same id is not one of them.
+
+
+### Fixed — the Discord and Slack sink forms were blank, and Telegram's token went nowhere
+
+Both types are offered in the sink picker and both are routed to the chat sink
+form, which had a branch for Telegram and `default: return null`. Picking either
+one showed an empty step. Nothing stopped the save either — neither type has a
+required key in the wizard's gate — so the sink stored empty and failed on its
+first message with `not configured: missing webhook_url or token/channel_id`.
+
+They have forms now, asking for what the sink actually reads: a webhook URL on
+its own, or a bot token with a channel id, with the either/or said out loud
+because the sink accepts both shapes and demands one.
+
+The same form's Telegram branch wrote `bot_token` while the factory read
+`token`, so the token typed into it reached the sink as `""` and every message
+went to `https://api.telegram.org/bot/sendMessage` — a 404 about a bot nobody
+has. The factory reads either name now, preferring the form's.
+
+Two things went with it. The chat form carried a second copy of the SMTP form
+that nothing could reach (`SinkForm` maps `smtp` to `SMTPSinkConfig`) and that
+had drifted from the one that is reached — deleted. And the silent `default` is
+now a visible "no form for this sink type", because rendering nothing is what
+hid this for as long as it was hidden: the coverage test derives its type list
+from the routing map, so a fourth type pointed at that form fails until it has a
+branch.
+
+
+### Fixed — the template preview rendered against a row nobody has
+
+`SinkForm` declared an `incomingPayload` prop and never destructured it, so the
+row the editor had already fetched — the one its field picker is built from —
+stopped at the form's own signature and never reached the sink forms inside it.
+
+The SMTP preview now opens on that row when the editor has one, and falls back
+to the example row only when it does not. The sample box is still editable, so
+the fallback is a starting point rather than the only thing on offer.
+
+
+### Fixed — "Preview Template" never rendered anything
+
+The button was gated on a prop nothing passed, so it never appeared; the route
+behind it, `POST /api/sinks/smtp/preview`, was a handler with a comment where
+its body should be, answering 200 and an empty response. Writing an email
+template meant activating the workflow and mailing someone to find out whether
+it worked.
+
+The endpoint renders through the sink's own `BuildEmail` — the same call the
+worker makes, reading the same config through the same factory. A preview with a
+renderer of its own agrees with the send right up until the day it matters; this
+one cannot disagree, because it is the same code. `Write` is now that call plus
+the idempotency claim and the send.
+
+The modal shows the subject, the resolved recipients and the body, rendered in
+an iframe when the template is HTML. It renders against an example row so a
+fresh template shows an email rather than a page of `<no value>`, and the row
+comes back in an editable box so it can be replaced with a real one. A template
+that does not parse puts its error next to the template, not in a toast.
+
+**Inline templates only.** A URL or S3 template is fetched by the server and a
+preview hands back what came out of it, so previewing one would make anyone who
+can edit a sink a reader of any address the worker can reach. The request is
+refused with that stated, rather than quietly rendering nothing.
+
+
+### Fixed — the SMTP sink's S3 template tab was inert
+
+The form writes `template_s3_region`, `template_s3_bucket`, `template_s3_key`,
+`template_s3_access_key` and `template_s3_secret_key`; the factory read
+`s3_region`, `s3_bucket`, and so on. Every field typed into that tab reached the
+sink as an empty `S3Config`, so the sink asked S3 for bucket `""` and key `""`,
+and the only symptom was a send failing over a bucket nobody had configured.
+
+The factory reads the form's names now, and still reads the bare ones, because a
+bundle imported or a sink posted against them is a config that exists. The tab
+also gained the **Endpoint** field the factory has always read and the form
+never offered, which is what an S3-compatible store needs to be addressable.
+
+The test that covers it fetches the template from a stand-in for S3 and checks
+the path that was asked for, because a test that only checks the mapping cannot
+tell whether the sink uses it.
+
+
+### Added — a date column can be formatted where the email uses it
+
+An SMTP template could print `created_at` and little else: the column reaches a
+sink as text, and text has no `.Format`. Anyone who wanted `01 Dec 2026`, or a
+row's timestamp in the reader's own zone, had to add a transformation upstream
+of the sink to get it.
+
+Values that read as a date or a timestamp are now recognised on the way into the
+template and carry the time methods:
+
+```
+{{ .created_at.Format "2006-01-02" }}                   2026-12-01
+{{ .start_at.In "Asia/Jakarta" }}                       2026-12-01T16:30:00+07:00
+{{ .start_at.In (time.LoadLocation "Asia/Jakarta") }}   the same
+{{ .created_at.Time.Year }}                             2026
+```
+
+alongside a function set — `time.LoadLocation`, `time.Now`, `time.Parse`,
+`time.Unix`, `time.UnixMilli`, `time.UTC`, `time.Local`, and `now`, `date`,
+`dateInZone`, `toDate`:
+
+```
+{{ date "02 Jan 2006" .created_at }}
+{{ dateInZone "2006-01-02 15:04" "Asia/Jakarta" .created_at }}
+{{ (time.Unix .epoch_seconds).Format "15:04" }}
+```
+
+A recognised value is still a string, holding the exact text the row carried, so
+`{{.created_at}}`, `eq`, `len`, `slice` and `printf "%s"` render what they
+rendered before this change. Recognition is by layout, and only for text that
+starts with a `YYYY-MM-DD` date: RFC 3339, the PostgreSQL and MySQL timestamp
+forms, Go's own, and a bare date. Anything else — an id that happens to be
+digits, `2026-13-45` — is left as it was.
+
+The same column arrives in two shapes, and one template has to read both: the
+PostgreSQL CDC path sends every column as text, while a query path hands over
+the driver's `time.Time`. A driver time now takes a zone by name as well
+(`{{ .start_at.In "Asia/Jakarta" }}` used to be a type error on it and worked
+on the text column beside it), it still prints exactly as Go prints a time, and
+`Sub`, `Before`, `After` and `Equal` read across the two:
+`{{ .ended_at.Sub .started_at }}` no longer cares which path each of them came
+from.
+
+The methods travel with the message, so they work in the subject, in each
+recipient, in the idempotency key and in an inline body. The functions need
+Hermod's own renderer: a body fetched from a URL or from S3 is rendered by
+gsmail, which parses with no function map, and a `time.` call there is a parse
+error that names the function.
+
+The zone database is compiled into the binary (`time/tzdata`), so
+`Asia/Jakarta` resolves on an image that ships no `/usr/share/zoneinfo`.
+
+
+### Added — every panmail field is a template, and a gateway allowlist to bound the two that matter
+
+The panmail sink rendered seven of its settings as Go templates over the message
+— from, to, cc, bcc, subject and the two bodies — and passed the rest through
+verbatim. The four it passed through are the ones that decide *where* a message
+goes: the gateway url, the api key, the provider id and the stored template id.
+All four are now templated, so one sink can serve many tenants and pick the
+stored template per row (`{{.kind}}`) instead of needing a sink per case.
+
+In scope for every one of them: `{{.id}}`, `{{.operation}}`, `{{.table}}`,
+`{{.schema}}`, `{{.metadata.x}}`, and any field of the row — which wins over the
+envelope when the names collide.
+
+The provider id and the template id are refused when they render empty rather
+than sent. An empty provider sends from whatever the gateway picks, and an empty
+template id used to fall through to the body fallback, so a typo in a field name
+mailed the wrong thing to a real person instead of failing.
+
+The gateway url and the api key are a different kind of field, because between
+them they decide where a tenant-wide credential is sent — and with them
+templated, a row decides it. A row reading
+`gateway_url = https://attacker.example/` would hand over the key. So templating
+either one now requires `allowed_hosts`, and the sink refuses to start without
+it:
+
+```
+allowed_hosts = *.mail.example.com, mail.example.com
+```
+
+Hosts are matched exactly, or by a single leading `*.` over a domain with at
+least two labels — `*.com` is refused, it bounds nothing. A rendered host that
+matches no rule is refused before the client is built, and the error names the
+host without the key. The UI asks for the list as soon as either field contains
+`{{`, and the wizard's Next stays disabled until it is filled in.
+
+Two smaller consequences, both deliberate:
+
+- The client cache is keyed on the rendered gateway and key, which a wildcard
+  rule lets the upstream table grow without limit. It is bounded at 32 entries
+  and evicted least-recently-used.
+- A templated gateway joins the derived idempotency key: the same mail to two
+  gateways is two sends, and hashing them alike would suppress the second. A
+  *static* gateway is deliberately left out, so keys already in the store keep
+  matching — an orphaned claim is a message mailed twice.
+
+
+### Added — importing a workflow is a wizard, not a textarea
+
+Import was a box to paste JSON into and a button. Whatever the file said was
+written verbatim, which is fine for a bundle produced by the same instance and
+wrong for every other case: a bundle from staging arrives carrying staging's
+hostnames, staging's passwords, staging's encryption key, and ids that may
+already name something in production.
+
+**Import JSON** now opens a wizard that reads the file first and shows what is
+in it, step by step:
+
+- **Bundle** — paste or upload, with a summary of what was found and the
+  export's `missing_refs` spelled out rather than discovered later.
+- **Workflow** — its name and the vhost it lands in.
+- **Sources** and **Sinks** — every one in the bundle, with its real
+  configuration form (the same components the Add Source and Add Sink screens
+  use) and a **Test connection** button that works before anything is written.
+- **Nodes** — the nodes holding something environment-specific: a `db_lookup` or
+  enrichment SQL node's source, an `api_lookup`'s address, an `encrypt` or
+  `decrypt` node's key. Each is edited with the editor the canvas would use for
+  it, so a lookup's source picker offers this instance's sources too and can be
+  repointed at one. A node is listed when its config holds a source reference, a
+  credential (decided by key shape, the way `configsecrets` decides on the
+  server) or an endpoint — so a connector added next year is covered without
+  anyone adding it to a list. Mapping and filter nodes describe a shape, travel
+  unchanged, and stay out of the way.
+- **Review** — a table of exactly what will be created and what will be
+  replaced, then one request.
+
+**Id collisions are now a choice.** When a bundle's source, sink or workflow id
+already names something here, the wizard says so, names the record it would
+replace, and offers to import it as a separate copy instead. Choosing a copy
+generates a new id and repoints every reference to it — a source node's
+`ref_id`, a `db_lookup`'s `sourceId`, a `batch_sql`'s `source_id`, the
+dead-letter sink. That rewriting is pure and unit-tested against all four
+reference sites; missing one would produce a workflow that imports cleanly and
+then cannot start.
+
+`sources.name` and `sinks.name` are `NOT NULL UNIQUE`, so a copy cannot keep the
+original's name: the wizard suggests the nearest free one, and puts it back if
+you change your mind. A name already held by a different record is reported on
+the field and blocks the import, instead of surfacing as
+`constraint failed: UNIQUE constraint failed: sources.name (2067)`.
+
+### Fixed — an exported workflow did not carry every source it uses, and importing one could overwrite a live connection
+
+Export collected a workflow's dependencies by walking its nodes and taking the
+`ref_id` of the ones typed `source` or `sink`. That is not the only way a
+workflow names a source. A `db_lookup` node holds one in its config under
+`sourceId`, the enrichment SQL node holds one under `sourceId` or `sourceID`,
+and a `batch_sql` source delegates its connection to a second source through
+`config.source_id`. None of those travelled with the bundle, so an export of an
+enriched pipeline described a workflow that started on the destination instance
+and then failed every message with `failed to get source for lookup`. The
+bundle now collects all of them, following the `batch_sql` hop transitively.
+
+A dependency that could not be read was dropped from the bundle in silence,
+which is how an export looked complete and was not. A reference that no longer
+exists is now listed in the bundle's `missing_refs` and shown in the export
+notification; a *storage failure* while reading one is no longer treated as the
+same thing, and fails the export rather than quietly shipping a bundle with a
+hole in it.
+
+On the way back in, the source and sink upserts ran as
+`_ = h.Storage.CreateSource(...)`. An import whose dependencies all failed to
+save still answered `201 Created`, and left a workflow pointing at connections
+that were never written — the same swallowed-error shape that was fixed for the
+workflow row itself one release ago. Every save now reports its failure, and
+dependencies are written before the workflow so a failure stops short of
+creating one that cannot run.
+
+Two things in an import were not checked at all:
+
+- **Permissions.** The vhost check only looked at the workflow. The bundle's
+  sources and sinks carry their own vhost and are upserted by ID, so an editor
+  confined to one vhost could hand in a bundle that overwrote a connection —
+  host, credentials and all — belonging to a vhost they cannot even read. Every
+  bundled resource is now checked.
+- **Runtime state.** A bundle is a description of a workflow, not of a running
+  one, but the exported JSON carried the origin's runtime columns and the import
+  wrote them straight through. Re-importing over an existing source therefore
+  replaced its CDC cursor with a position from another database, silently losing
+  or replaying everything in between, and reassigned the workflow to a worker
+  that does not exist on this instance. Export no longer writes those columns,
+  and import preserves this instance's own.
+
+Also fixed: a workflow name went into the `Content-Disposition` filename raw, so
+a name containing a quote produced a malformed header and one containing a slash
+proposed a path; and in the import modal, pressing **Import Workflow** straight
+after pasting a bundle did nothing. The JSON field reformats itself on blur, and
+the export writes the bundle on a single line, so pressing the button blurred the
+field, rewrote its value and re-rendered the modal between mousedown and mouseup
+— no click event was ever produced and it took a second press.
 
 ### Fixed — a `jsonb` column arrived as a string on the CDC path, and vanished when it was TOASTed
 

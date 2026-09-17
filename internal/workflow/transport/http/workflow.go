@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -25,8 +26,8 @@ import (
 
 // validateWorkflow performs lightweight server-side validation for workflow configuration.
 // Keeps UX-first by failing fast with clear messages.
-func (h *WorkflowHandler) validateWorkflow(wf storage.Workflow) error {
-	issues := h.ValidateWorkflow(wf)
+func (h *WorkflowHandler) validateWorkflow(ctx context.Context, wf storage.Workflow) error {
+	issues := h.ValidateWorkflow(ctx, wf)
 	for _, issue := range issues {
 		if issue.Severity == "error" {
 			return fmt.Errorf("%s (Recommendation: %s)", issue.Message, issue.Recommendation)
@@ -697,7 +698,7 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	if err := h.validateWorkflow(wf); err != nil {
+	if err := h.validateWorkflow(r.Context(), wf); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -734,7 +735,7 @@ func (h *WorkflowHandler) UpdateWorkflow(w http.ResponseWriter, r *http.Request)
 		nextVersion = versions[0].Version + 1
 	}
 
-	if err := h.validateWorkflow(wf); err != nil {
+	if err := h.validateWorkflow(r.Context(), wf); err != nil {
 		h.JsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -816,7 +817,7 @@ func (h *WorkflowHandler) ToggleWorkflow(w http.ResponseWriter, r *http.Request)
 		_ = h.Registry.StopEngine(r.Context(), id)
 	} else {
 		// Validation check before starting
-		if err := h.validateWorkflow(wf); err != nil {
+		if err := h.validateWorkflow(r.Context(), wf); err != nil {
 			h.JsonError(w, "Cannot start invalid workflow: "+err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -1427,6 +1428,103 @@ func populateMessageFromMap(msg hermod.Message, data map[string]any) {
 	}
 }
 
+// exportRef is one dependency an export has to resolve, remembered together
+// with the node that named it so a missing one can be reported usefully.
+type exportRef struct {
+	id     string
+	nodeID string
+}
+
+// collectWorkflowRefs answers which sources and sinks a workflow depends on.
+//
+// A node's RefID is only one of the ways to name one. Scanning for `type ==
+// "source"` alone missed every source a transformation looks up (db_lookup,
+// execute_sql), and those exports imported into a workflow that started and
+// then failed every message on a source that was not there. Order is the node
+// order so that exporting the same workflow twice produces the same file.
+func collectWorkflowRefs(wf storage.Workflow) (sources, sinks []exportRef) {
+	seenSrc := map[string]bool{}
+	seenSnk := map[string]bool{}
+
+	addSource := func(id, nodeID string) {
+		if id == "" || seenSrc[id] {
+			return
+		}
+		seenSrc[id] = true
+		sources = append(sources, exportRef{id: id, nodeID: nodeID})
+	}
+	addSink := func(id, nodeID string) {
+		if id == "" || seenSnk[id] {
+			return
+		}
+		seenSnk[id] = true
+		sinks = append(sinks, exportRef{id: id, nodeID: nodeID})
+	}
+
+	for _, node := range wf.Nodes {
+		switch node.Type {
+		case "source":
+			addSource(node.RefID, node.ID)
+		case "sink":
+			addSink(node.RefID, node.ID)
+		}
+		for _, key := range storage.NodeConfigSourceKeys {
+			if id, ok := node.Config[key].(string); ok {
+				addSource(id, node.ID)
+			}
+		}
+	}
+
+	addSink(wf.DeadLetterSinkID, "")
+	return sources, sinks
+}
+
+// stripSourceRuntime removes the columns that describe a source's execution on
+// *this* instance rather than its configuration: which worker holds it, what it
+// is doing, the CDC cursor it has reached and the payload last sampled from it.
+// A bundle is a description of a workflow, not of a running one.
+func stripSourceRuntime(src storage.Source) storage.Source {
+	src.Status = ""
+	src.WorkerID = ""
+	src.State = nil
+	src.Sample = ""
+	return src
+}
+
+func stripSinkRuntime(snk storage.Sink) storage.Sink {
+	snk.Status = ""
+	snk.WorkerID = ""
+	return snk
+}
+
+func stripWorkflowRuntime(wf storage.Workflow) storage.Workflow {
+	wf.Status = ""
+	wf.WorkerID = ""
+	wf.OwnerID = ""
+	wf.LeaseUntil = nil
+	wf.TotalProcessed = 0
+	wf.TotalErrors = 0
+	wf.TotalLag = 0
+	return wf
+}
+
+// exportFilenamePattern keeps a workflow name usable inside a
+// Content-Disposition filename. Anything else — quotes, slashes, control bytes —
+// becomes an underscore rather than a malformed header.
+var exportFilenamePattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+
+func exportFilename(name string) string {
+	safe := exportFilenamePattern.ReplaceAllString(name, "_")
+	safe = strings.Trim(safe, "._-")
+	if safe == "" {
+		safe = "workflow"
+	}
+	if len(safe) > 100 {
+		safe = safe[:100]
+	}
+	return safe
+}
+
 func (h *WorkflowHandler) ExportWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("export_id")
 	if id == "" {
@@ -1454,41 +1552,56 @@ func (h *WorkflowHandler) ExportWorkflow(w http.ResponseWriter, r *http.Request)
 	}
 
 	bundle := storage.WorkflowExportBundle{
-		Workflow: wf,
+		Workflow: stripWorkflowRuntime(wf),
 	}
 
-	// Find all referenced sources and sinks
-	sourceIDs := make(map[string]bool)
-	sinkIDs := make(map[string]bool)
+	sourceRefs, sinkRefs := collectWorkflowRefs(wf)
 
-	for _, node := range wf.Nodes {
-		if node.Type == "source" && node.RefID != "" {
-			sourceIDs[node.RefID] = true
-		} else if node.Type == "sink" && node.RefID != "" {
-			sinkIDs[node.RefID] = true
+	// A batch_sql source delegates its connection to another source, so the
+	// queue grows while it is walked. seen guards against a self-reference.
+	seen := map[string]bool{}
+	for i := 0; i < len(sourceRefs); i++ {
+		ref := sourceRefs[i]
+		if seen[ref.id] {
+			continue
+		}
+		seen[ref.id] = true
+
+		src, err := h.Storage.GetSource(r.Context(), ref.id)
+		if errors.Is(err, storage.ErrNotFound) {
+			bundle.MissingRefs = append(bundle.MissingRefs, storage.MissingRef{Kind: "source", ID: ref.id, NodeID: ref.nodeID})
+			continue
+		}
+		if err != nil {
+			// Not the same thing as a missing reference: the instance may well
+			// have this source and the bundle would silently lose it.
+			h.JsonError(w, "Failed to read source "+ref.id+" for export: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		bundle.Sources = append(bundle.Sources, stripSourceRuntime(src))
+		if src.Type == "batch_sql" {
+			if underlying := src.Config["source_id"]; underlying != "" && !seen[underlying] {
+				sourceRefs = append(sourceRefs, exportRef{id: underlying, nodeID: ref.nodeID})
+			}
 		}
 	}
 
-	if wf.DeadLetterSinkID != "" {
-		sinkIDs[wf.DeadLetterSinkID] = true
-	}
-
-	for sid := range sourceIDs {
-		src, err := h.Storage.GetSource(r.Context(), sid)
-		if err == nil {
-			bundle.Sources = append(bundle.Sources, src)
+	for _, ref := range sinkRefs {
+		snk, err := h.Storage.GetSink(r.Context(), ref.id)
+		if errors.Is(err, storage.ErrNotFound) {
+			bundle.MissingRefs = append(bundle.MissingRefs, storage.MissingRef{Kind: "sink", ID: ref.id, NodeID: ref.nodeID})
+			continue
 		}
-	}
-
-	for sid := range sinkIDs {
-		snk, err := h.Storage.GetSink(r.Context(), sid)
-		if err == nil {
-			bundle.Sinks = append(bundle.Sinks, snk)
+		if err != nil {
+			h.JsonError(w, "Failed to read sink "+ref.id+" for export: "+err.Error(), http.StatusInternalServerError)
+			return
 		}
+		bundle.Sinks = append(bundle.Sinks, stripSinkRuntime(snk))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"workflow-%s.json\"", wf.Name))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", "workflow-"+exportFilename(wf.Name)+".json"))
 	_ = json.NewEncoder(w).Encode(bundle)
 }
 
@@ -1513,7 +1626,10 @@ func (h *WorkflowHandler) ImportWorkflow(w http.ResponseWriter, r *http.Request)
 	ctx := r.Context()
 	role, vhosts := h.GetRoleAndVHosts(r)
 
-	// Permission check for the workflow's VHost
+	// Permission check. The workflow's vhost is not the only one in play: the
+	// bundle's sources and sinks carry their own and are upserted by ID, so
+	// checking only the workflow let an editor confined to one vhost hand in a
+	// bundle that overwrote a connection belonging to another.
 	if role != "" && role != storage.RoleAdministrator {
 		vhost := bundle.Workflow.VHost
 		if vhost == "" {
@@ -1523,23 +1639,64 @@ func (h *WorkflowHandler) ImportWorkflow(w http.ResponseWriter, r *http.Request)
 			h.JsonError(w, "Forbidden: you do not have access to vhost "+vhost, http.StatusForbidden)
 			return
 		}
+		for _, src := range bundle.Sources {
+			if !h.HasVHostAccess(src.VHost, vhosts) {
+				h.JsonError(w, "Forbidden: the bundle contains source "+src.ID+" in vhost "+src.VHost, http.StatusForbidden)
+				return
+			}
+		}
+		for _, snk := range bundle.Sinks {
+			if !h.HasVHostAccess(snk.VHost, vhosts) {
+				h.JsonError(w, "Forbidden: the bundle contains sink "+snk.ID+" in vhost "+snk.VHost, http.StatusForbidden)
+				return
+			}
+		}
 	}
 
-	// 1. Upsert Sources
+	// 1. Upsert Sources.
+	//
+	// Every save below reports its failure. They used to run as
+	// `_ = h.Storage.CreateSource(...)`, so an import whose dependencies all
+	// failed still answered 201 Created and left a workflow pointing at
+	// sources that were never written. Dependencies are saved before the
+	// workflow so that a failure here stops short of writing one.
 	for _, src := range bundle.Sources {
-		if _, err := h.Storage.GetSource(ctx, src.ID); err == nil {
-			_ = h.Storage.UpdateSource(ctx, src)
-		} else {
-			_ = h.Storage.CreateSource(ctx, src)
+		existing, getErr := h.Storage.GetSource(ctx, src.ID)
+		if getErr == nil {
+			// Keep this instance's runtime columns. Writing the bundle's State
+			// over an existing source rewinds or fast-forwards a live CDC
+			// cursor, which loses or replays everything in between.
+			src.Status = existing.Status
+			src.WorkerID = existing.WorkerID
+			src.State = existing.State
+			src.Sample = existing.Sample
+			if err := h.Storage.UpdateSource(ctx, src); err != nil {
+				h.JsonError(w, "Failed to save source "+src.ID+": "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			continue
+		}
+		if err := h.Storage.CreateSource(ctx, stripSourceRuntime(src)); err != nil {
+			h.JsonError(w, "Failed to save source "+src.ID+": "+err.Error(), http.StatusInternalServerError)
+			return
 		}
 	}
 
 	// 2. Upsert Sinks
 	for _, snk := range bundle.Sinks {
-		if _, err := h.Storage.GetSink(ctx, snk.ID); err == nil {
-			_ = h.Storage.UpdateSink(ctx, snk)
-		} else {
-			_ = h.Storage.CreateSink(ctx, snk)
+		existing, getErr := h.Storage.GetSink(ctx, snk.ID)
+		if getErr == nil {
+			snk.Status = existing.Status
+			snk.WorkerID = existing.WorkerID
+			if err := h.Storage.UpdateSink(ctx, snk); err != nil {
+				h.JsonError(w, "Failed to save sink "+snk.ID+": "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			continue
+		}
+		if err := h.Storage.CreateSink(ctx, stripSinkRuntime(snk)); err != nil {
+			h.JsonError(w, "Failed to save sink "+snk.ID+": "+err.Error(), http.StatusInternalServerError)
+			return
 		}
 	}
 
@@ -1552,12 +1709,24 @@ func (h *WorkflowHandler) ImportWorkflow(w http.ResponseWriter, r *http.Request)
 	// the caller as imported successfully.
 	var isUpdate bool
 	var saveErr error
-	if _, getErr := h.Storage.GetWorkflow(ctx, bundle.Workflow.ID); getErr == nil {
-		saveErr = h.Storage.UpdateWorkflow(ctx, bundle.Workflow)
+	wf := bundle.Workflow
+	if existing, getErr := h.Storage.GetWorkflow(ctx, wf.ID); getErr == nil {
+		// Same rule as the sources: the lease, the owning worker and the
+		// counters describe this instance's run, not the bundle's.
+		wf.Status = existing.Status
+		wf.WorkerID = existing.WorkerID
+		wf.OwnerID = existing.OwnerID
+		wf.LeaseUntil = existing.LeaseUntil
+		wf.TotalProcessed = existing.TotalProcessed
+		wf.TotalErrors = existing.TotalErrors
+		wf.TotalLag = existing.TotalLag
+		saveErr = h.Storage.UpdateWorkflow(ctx, wf)
 		isUpdate = true
 	} else {
-		saveErr = h.Storage.CreateWorkflow(ctx, bundle.Workflow)
+		wf = stripWorkflowRuntime(wf)
+		saveErr = h.Storage.CreateWorkflow(ctx, wf)
 	}
+	bundle.Workflow = wf
 
 	if err := saveErr; err != nil {
 		h.JsonError(w, "Failed to save workflow: "+err.Error(), http.StatusInternalServerError)
