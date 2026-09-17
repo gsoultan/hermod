@@ -58,20 +58,66 @@ func (t Timestamp) Format(layout string) (string, error) {
 // The result prints in the layout the column arrived in, so a row that reads
 // 2026-12-01T09:30:00Z reads 2026-12-01T16:30:00+07:00; chain .Format to
 // choose a different one.
-func (t Timestamp) In(zone any) (Timestamp, error) {
+func (t Timestamp) In(zone any) (ZonedTimestamp, error) {
 	loc, err := toLocation(zone)
 	if err != nil {
-		return "", err
+		return ZonedTimestamp{}, err
 	}
 	parsed, layout, ok := parseTimestamp(string(t))
 	if !ok {
-		return "", fmt.Errorf("%q is not a date or time this sink can read", string(t))
+		return ZonedTimestamp{}, fmt.Errorf("%q is not a date or time this sink can read", string(t))
 	}
-	return Timestamp(parsed.In(loc).Format(layout)), nil
+	return ZonedTimestamp{Time: parsed.In(loc), layout: layout}, nil
 }
 
 // UTC is In "UTC".
-func (t Timestamp) UTC() (Timestamp, error) { return t.In(time.UTC) }
+func (t Timestamp) UTC() (ZonedTimestamp, error) { return t.In(time.UTC) }
+
+// ZonedTimestamp is a CDC text timestamp that has been moved to another zone.
+//
+// In used to hand back a re-rendered Timestamp, and a column's layout carries
+// only a numeric offset -- so the zone's identity was dropped and whatever came
+// next in the chain had to recover it by parsing the string again. time.Parse
+// attaches Local when the offset happens to match Local and an anonymous fixed
+// zone when it does not, so
+//
+//	{{ (.ts.In "Asia/Jakarta").Format "15:04 MST" }}
+//
+// printed WIB on a machine set to Jakarta and +0700 everywhere else. Holding
+// the time.Time keeps the zone; holding the layout keeps the printed form, so
+// what In renders is unchanged.
+type ZonedTimestamp struct {
+	time.Time
+	layout string
+}
+
+// String prints in the layout the column arrived in, which is what In has
+// always rendered. Format, Unix and the comparisons come from the embedded
+// time.Time and so read the real zone.
+// Format here is the embedded time.Time's, not shadowed the way In, UTC and
+// Local are -- those must say z.Time explicitly or they call themselves.
+func (z ZonedTimestamp) String() string { return z.Format(z.layout) }
+
+// In moves it again, keeping the column's layout.
+func (z ZonedTimestamp) In(zone any) (ZonedTimestamp, error) {
+	loc, err := toLocation(zone)
+	if err != nil {
+		return ZonedTimestamp{}, err
+	}
+	return ZonedTimestamp{Time: z.Time.In(loc), layout: z.layout}, nil
+}
+
+// UTC is In time.UTC. Defined rather than inherited because the embedded
+// time.Time's UTC returns a time.Time, which prints Go's own rendering instead
+// of the column's.
+func (z ZonedTimestamp) UTC() ZonedTimestamp {
+	return ZonedTimestamp{Time: z.Time.UTC(), layout: z.layout}
+}
+
+// Local is In time.Local, for the same reason UTC is defined.
+func (z ZonedTimestamp) Local() ZonedTimestamp {
+	return ZonedTimestamp{Time: z.Time.Local(), layout: z.layout}
+}
 
 // Unix is the timestamp in seconds since the epoch.
 func (t Timestamp) Unix() (int64, error) {
@@ -391,6 +437,8 @@ func toTime(v any) (time.Time, error) {
 	case Timestamp:
 		return val.Time()
 	case TimeValue:
+		return val.Time, nil
+	case ZonedTimestamp:
 		return val.Time, nil
 	case time.Time:
 		return val, nil
