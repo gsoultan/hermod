@@ -45,6 +45,7 @@ GET /api/settings
 GET /api/sinks
 GET /api/sinks/capabilities/two-phase
 GET /api/sinks/{id}
+GET /api/sinks/{id}/workflows
 GET /api/sources
 GET /api/sources/{id}
 GET /api/sources/{id}/workflows

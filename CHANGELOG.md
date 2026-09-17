@@ -199,6 +199,20 @@ the field is genuinely optional set "keep" to pass the message through
 untouched, or "null" to write an explicit null.
 
 
+### Fixed — the "sink in use" warning could never appear
+
+The sink form asks which workflows use a sink before letting anyone edit it, and
+warns "stop these first" when any of them is running. It asked
+`GET /api/sinks/{id}/workflows`, which was never registered: every sink edit
+page raised a "Request Failed — Not Found" toast, the list came back empty, and
+the warning stayed hidden however many live workflows were writing through the
+sink. The source side has had the route all along.
+
+It is registered now, and answers the same shape: the running workflows with a
+sink node pointing at that id, filtered by the caller's vhost access. A source
+node that happens to carry the same id is not one of them.
+
+
 ### Fixed — a `jsonb` column arrived as a string on the CDC path, and vanished when it was TOASTed
 
 A PostgreSQL `jsonb` column had two different shapes depending on how the row

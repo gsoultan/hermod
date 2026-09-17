@@ -29,6 +29,7 @@ func (h *SinkHandler) RegisterSinkRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/sinks/query", h.EditorOnly(h.QuerySink))
 	mux.Handle("POST /api/sinks/truncate", h.EditorOnly(h.TruncateSinkTable))
 	mux.HandleFunc("GET /api/sinks/capabilities/two-phase", h.ListTwoPhaseCapableSinkTypes)
+	mux.HandleFunc("GET /api/sinks/{id}/workflows", h.ListWorkflowsReferencingSink)
 	mux.Handle("POST /api/sinks/smtp/preview", h.EditorOnly(h.PreviewSmtpTemplate))
 	mux.Handle("POST /api/sinks/smtp/validate", h.EditorOnly(h.ValidateEmail))
 	mux.Handle("DELETE /api/sinks/{id}", h.EditorOnly(h.DeleteSink))
@@ -511,6 +512,67 @@ func getString(m map[string]string, key string) string {
 	return ""
 }
 
+// ListWorkflowsReferencingSink names the running workflows that use a sink.
+//
+// The sink form asks before letting anyone edit one, and warns "stop these
+// first" when the list is not empty. The route was never registered, so the
+// request 404'd on every sink edit page: the UI raised "Request Failed — Not
+// Found", the list came back empty, and the warning could not appear however
+// many live workflows were writing through the sink. The source side has had
+// this all along; this is the same answer for the other end of the pipeline.
+func (h *SinkHandler) ListWorkflowsReferencingSink(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ctx := r.Context()
+
+	snk, err := h.Storage.GetSink(ctx, id)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			h.JsonError(w, "Sink not found", http.StatusNotFound)
+		} else {
+			h.JsonError(w, "Failed to get sink: "+err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	role, vhosts := h.GetRoleAndVHosts(r)
+	if role != storage.RoleAdministrator && !h.HasVHostAccess(snk.VHost, vhosts) {
+		h.JsonError(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	wfs, _, err := h.Storage.ListWorkflows(ctx, storage.CommonFilter{})
+	if err != nil {
+		h.JsonError(w, "Failed to list workflows: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	type wfRef struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Active bool   `json:"active"`
+		Status string `json:"status"`
+	}
+
+	referencing := make([]wfRef, 0)
+	for _, wf := range wfs {
+		// Only a running workflow is a reason to stop before editing.
+		if !wf.Active {
+			continue
+		}
+		if role != storage.RoleAdministrator && !h.HasVHostAccess(wf.VHost, vhosts) {
+			continue
+		}
+		for _, node := range wf.Nodes {
+			if node.Type == "sink" && node.RefID == id {
+				referencing = append(referencing, wfRef{ID: wf.ID, Name: wf.Name, Active: wf.Active, Status: wf.Status})
+				break
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"data": referencing})
+}
 func (h *SinkHandler) PreviewSmtpTemplate(w http.ResponseWriter, r *http.Request) {
 	// Full implementation would go here, moved from server.go
 }
