@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"strconv"
@@ -163,11 +164,7 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 		return
 	}
 
-	var queries []string
-	if err := json.Unmarshal([]byte(s.config.Queries), &queries); err != nil {
-		// Try parsing as single string if not JSON array
-		queries = []string{s.config.Queries}
-	}
+	queries := s.configuredQueries()
 
 	s.mu.Lock()
 	lastValue := s.state["last_value"]
@@ -177,7 +174,7 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 
 	for _, q := range queries {
 		// Replace template variable
-		q = strings.ReplaceAll(q, "{{.last_value}}", lastValue)
+		q = resolveLastValue(q, lastValue)
 		s.log("DEBUG", "Executing batch SQL query", "query", q)
 
 		rows, err := db.QueryContext(ctx, q)
@@ -243,6 +240,29 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 // watermarkKey is the metadata key carrying a row's incremental-column value.
 const watermarkKey = "batchsql_last_value"
 
+// configuredQueries decodes Config.Queries, which the editor writes as a JSON
+// array of whole statements but which older configurations (and hand-written
+// ones) may carry as a single bare SQL string.
+//
+// The scheduled run and the editor's preview both need this, and a preview that
+// decoded the list differently would show fields the pipeline never produces.
+func (s *BatchSQLSource) configuredQueries() []string {
+	var queries []string
+	if err := json.Unmarshal([]byte(s.config.Queries), &queries); err != nil {
+		// Try parsing as single string if not JSON array
+		return []string{s.config.Queries}
+	}
+	return queries
+}
+
+// resolveLastValue substitutes the incremental watermark into a query. A query
+// still carrying the raw token is not valid SQL, so the preview has to
+// substitute it exactly as the scheduled run does — with the empty string when
+// no run has happened yet, which is what the first scheduled run also sees.
+func resolveLastValue(query, lastValue string) string {
+	return strings.ReplaceAll(query, "{{.last_value}}", lastValue)
+}
+
 // maxWatermark returns the larger of two watermark values, numerically when
 // both sides are numbers. The maximum used to be taken on strings, where
 // "10" < "9": on a numeric column the cursor stuck at 9 forever and every
@@ -307,19 +327,47 @@ func (s *BatchSQLSource) Close() error {
 	return nil
 }
 
-// Sample fetches a single record from the specified table for preview.
+// Sample fetches a single record for preview.
+//
+// A batch_sql source is query-driven and owns no table: its config carries
+// `queries`, never `table` or `tables`. Callers that have a table name (the
+// column browser, a sink-side preview) still pass one; the workflow editor has
+// none to pass, and used to send the empty string — which built
+// "SELECT * FROM  LIMIT 1" and failed as a syntax error. Downstream nodes build
+// their Available Fields list from this sample, so the failure surfaced only as
+// an empty field list on every node wired to a batch_sql source.
+//
+// With no table name the first configured query is what the pipeline will
+// actually run, so that is what gets previewed — the same statement, with the
+// same watermark substitution, so the previewed columns are the columns the
+// scheduled run emits.
 func (s *BatchSQLSource) Sample(ctx context.Context, table string) (hermod.Message, error) {
 	db, driver, err := s.dbProvider.GetOrOpenDBByID(ctx, s.config.SourceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database for sampling: %w", err)
 	}
 
-	quoted, err := sqlutil.QuoteIdent(driver, table)
-	if err != nil {
-		quoted = table
+	var query string
+	if table != "" {
+		quoted, err := sqlutil.QuoteIdent(driver, table)
+		if err != nil {
+			quoted = table
+		}
+		query = fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted)
+	} else {
+		queries := s.configuredQueries()
+		if len(queries) == 0 || strings.TrimSpace(queries[0]) == "" {
+			return nil, errors.New("batch_sql source has no query configured to preview; add one before fetching a sample")
+		}
+		s.mu.Lock()
+		lastValue := s.state["last_value"]
+		s.mu.Unlock()
+		// Deliberately not wrapped in a LIMIT: the statement is the operator's
+		// own and the dialect is whatever the delegate speaks, so SQL Server and
+		// Oracle would reject the wrapper. Reading one row and closing aborts
+		// the query at the driver instead.
+		query = resolveLastValue(queries[0], lastValue)
 	}
-
-	query := fmt.Sprintf("SELECT * FROM %s LIMIT 1", quoted)
 	s.log("DEBUG", "Executing sample query", "query", query)
 
 	rows, err := db.QueryContext(ctx, query)
@@ -329,6 +377,9 @@ func (s *BatchSQLSource) Sample(ctx context.Context, table string) (hermod.Messa
 	defer rows.Close()
 
 	if !rows.Next() {
+		if table == "" {
+			return nil, errors.New("the configured query returned no rows to preview")
+		}
 		return nil, fmt.Errorf("no records found in table %s", table)
 	}
 
@@ -348,9 +399,15 @@ func (s *BatchSQLSource) Sample(ctx context.Context, table string) (hermod.Messa
 	}
 
 	msg := message.AcquireMessage()
-	msg.SetID(fmt.Sprintf("sample-%s-%d", table, time.Now().Unix()))
+	// The query path has no table to name, and "sample--1789554373" reads as a
+	// truncated identifier rather than an absent one.
+	if table != "" {
+		msg.SetID(fmt.Sprintf("sample-%s-%d", table, time.Now().Unix()))
+		msg.SetTable(table)
+	} else {
+		msg.SetID(fmt.Sprintf("sample-query-%d", time.Now().Unix()))
+	}
 	msg.SetOperation(hermod.OpSnapshot)
-	msg.SetTable(table)
 	msg.SetMetadata("sample", "true")
 
 	for i, colName := range cols {

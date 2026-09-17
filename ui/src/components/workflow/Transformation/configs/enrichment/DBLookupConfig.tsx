@@ -28,6 +28,7 @@ import {
   IconHelp,
 } from '@tabler/icons-react';
 import { TemplateField } from '../../../../shared/TemplateField';
+import { sourceAllowsDirectQueries } from '@/lib/sourceCdc';
 
 const SQLQueryBuilder = lazy(() =>
   import('../../../../forms/SQLQueryBuilder').then((m) => ({ default: m.SQLQueryBuilder }))
@@ -56,6 +57,13 @@ export function DBLookupConfig({
 }: DBLookupConfigProps) {
   const [sqlExplorerOpened, setSqlExplorerOpened] = useState(false);
 
+  // A lookup runs a query per message against the source it names, and the
+  // pipeline refuses to do that against a database that is also serving change
+  // data capture (requireNonCDCSource in
+  // pkg/comm/transformer/lookup/db_lookup.go). The rule lives in one place --
+  // see lib/sourceCdc -- so the picker cannot drift from it.
+  const isCDCSource = (s: any) => !sourceAllowsDirectQueries(s);
+
   const dbSources = (Array.isArray(sources) ? sources : [])
     .filter((s: any) =>
       [
@@ -69,11 +77,21 @@ export function DBLookupConfig({
         'clickhouse',
       ].includes(s.type)
     )
-    .map((s: any) => ({ label: s.name, value: s.id }));
+    // Disabled rather than filtered out: an entry that simply vanishes reads as
+    // a missing source, and nothing tells the operator that CDC is the reason.
+    .map((s: any) =>
+      isCDCSource(s)
+        ? { label: `${s.name} (CDC enabled — not available for lookups)`, value: s.id, disabled: true }
+        : { label: s.name, value: s.id }
+    );
 
   const selectedSource = (Array.isArray(sources) ? sources : []).find(
     (s) => s.id === config.sourceId
   );
+
+  // A node saved before the picker enforced this keeps its source and says why
+  // it will not run, rather than losing the value it was configured with.
+  const selectedSourceIsCDC = !!selectedSource && isCDCSource(selectedSource);
 
   const fieldPaths = useMemo(() => 
     (availableFields || []).map(f => typeof f === 'string' ? f : f.path),
@@ -146,7 +164,25 @@ export function DBLookupConfig({
         leftSection={<IconDatabase size={rem(16)} />}
         required
         size="sm"
+        error={selectedSourceIsCDC ? 'CDC is enabled on this source.' : undefined}
       />
+
+      {selectedSourceIsCDC && (
+        <Alert
+          data-testid="lookup-source-cdc-error"
+          icon={<IconInfoCircle size={rem(18)} />}
+          color="red"
+          variant="light"
+          radius="md"
+        >
+          <Text size="sm">
+            <strong>{selectedSource?.name}</strong> has CDC enabled, so this lookup will fail on
+            every message: a lookup query has to run against a non-CDC source. Turn CDC off on that
+            source, or register a second, non-CDC source for the same database and point this node
+            at it.
+          </Text>
+        </Alert>
+      )}
 
       <Tabs defaultValue="config" variant="outline" radius="md">
         <Tabs.List mb="md">

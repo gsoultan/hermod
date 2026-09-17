@@ -81,9 +81,13 @@ func newDBLookupFixture(t *testing.T) (*Registry, string) {
 	if err := store.Init(t.Context()); err != nil {
 		t.Fatalf("init metadata store: %v", err)
 	}
+	// use_cdc is opt-out everywhere it is read, so a lookup source has to say so
+	// explicitly: db_lookup refuses a source the factory would run as a
+	// replication client (requireNonCDCSource in
+	// pkg/comm/transformer/lookup/db_lookup.go).
 	if err := store.CreateSource(t.Context(), storage.Source{
 		ID: "lookup-src", Name: "lookup source", Type: "postgres",
-		Config: map[string]string{"connection_string": dsn},
+		Config: map[string]string{"connection_string": dsn, "use_cdc": "false"},
 	}); err != nil {
 		t.Fatalf("create lookup source: %v", err)
 	}

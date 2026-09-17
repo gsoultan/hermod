@@ -56,8 +56,11 @@ func newFlattenFixture(t *testing.T) (*DBLookupTransformer, *cachingFakeRegistry
 	}
 
 	return &DBLookupTransformer{}, &cachingFakeRegistry{
-		db:     db,
-		source: storage.Source{ID: "src1", Type: "sqlite"},
+		db: db,
+		// use_cdc is opt-out everywhere it is read, so a lookup source has to
+		// say so: this is a plain table being queried, not a replication
+		// stream. See requireNonCDCSource in db_lookup.go.
+		source: storage.Source{ID: "src1", Type: "sqlite", Config: hermod.StringMap{"use_cdc": "false"}},
 		cache:  map[string]any{},
 	}
 }
