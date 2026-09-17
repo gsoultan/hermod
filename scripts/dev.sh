@@ -9,6 +9,7 @@
 #   ./scripts/dev.sh --detach    start, print the banner, then exit (for CI)
 #   ./scripts/dev.sh --stop      stop a running stack and exit
 #   ./scripts/dev.sh --print-ports  show the ports this run would use, then exit
+#   ./scripts/dev.sh --print-dsn    show the database DSN this run would use, then exit
 #
 # Ports are chosen, not assumed. It prefers 4005 (API), 50051 (gRPC) and 5175
 # (UI), and steps up to the next free number for any of them that is taken, so
@@ -37,6 +38,7 @@
 #   HERMOD_DEV_GRPC_PORT     pin the gRPC port    (default: 50051, else next free)
 #   HERMOD_DEV_UI_PORT       pin the UI port      (default: 5175, else next free)
 #   HERMOD_DEV_PG_CONTAINER  container name (default: postgres-dev)
+#   HERMOD_DEV_PG_HOST       host for Postgres    (default: the container's IP)
 #   HERMOD_DEV_PG_PORT       host port for Postgres (default: auto-detected)
 
 set -euo pipefail
@@ -95,6 +97,7 @@ DO_STOP=0
 DO_BUILD_UI=0
 DO_DETACH=0
 DO_PRINT_PORTS=0
+DO_PRINT_DSN=0
 for arg in "$@"; do
   case "$arg" in
     --sqlite) USE_SQLITE=1 ;;
@@ -103,6 +106,7 @@ for arg in "$@"; do
     --build-ui) DO_BUILD_UI=1 ;;
     --detach)   DO_DETACH=1 ;;
     --print-ports) DO_PRINT_PORTS=1 ;;
+    --print-dsn) DO_PRINT_DSN=1 ;;
     -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
@@ -217,6 +221,102 @@ except Exception:
   echo 5432
 }
 
+# Address at which the *host* can reach this container's Postgres.
+#
+# Not necessarily localhost. Apple container publishes to *:5432, and anything
+# already bound to 127.0.0.1 — a Homebrew postgresql@N, another project's
+# container — wins that address. The loss is silent: the connection still
+# succeeds, it just lands on a different server, which then fails much later
+# with something that reads like a Hermod bug. Going straight to the
+# container's own IP has no such contest, so the published port is only a
+# fallback for when the IP cannot be read.
+rt_pg_host() {
+  local name="$1"
+  if [[ -n "${HERMOD_DEV_PG_HOST:-}" ]]; then
+    echo "$HERMOD_DEV_PG_HOST"; return
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    local ip
+    ip="$(container inspect "$name" 2>/dev/null | python3 -c '
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    c=d[0] if isinstance(d,list) else d
+    for net in c.get("status",{}).get("networks",[]) or []:
+        addr=net.get("ipv4Address","")
+        if addr:
+            print(addr.split("/")[0]); break
+except Exception:
+    pass' 2>/dev/null)"
+    [[ -n "$ip" ]] && { echo "$ip"; return; }
+  fi
+  echo localhost
+}
+
+# Set PG_HOST, PG_PORT and PG_DSN to the address the host uses to reach this
+# container's Postgres. Only meaningful once the container is running, since
+# both the IP and the published port are read back from it.
+resolve_pg_dsn() {
+  PG_HOST="$(rt_pg_host "$PG_CONTAINER")"
+  if [[ "$PG_HOST" == "localhost" ]]; then
+    # Going through the port forward, so the *published* port is the one.
+    PG_PORT="$(rt_pg_host_port "$PG_CONTAINER")"
+  else
+    # Straight to the container, where Postgres listens on its own 5432
+    # regardless of what the forward publishes.
+    PG_PORT="${HERMOD_DEV_PG_PORT:-5432}"
+  fi
+  PG_DSN="postgres://postgres:postgres@${PG_HOST}:${PG_PORT}/hermod_metadata?sslmode=disable"
+}
+
+# Whoever is listening on a port, named for a human. Used to turn "could not
+# connect" into "and here is what took the address".
+pg_port_holders() {
+  local holders=""
+  holders="$(lsof -nP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null \
+    | awk 'NR>1 {print $1" (pid "$2")"}' | sort -u | paste -sd',' - | sed 's/,/, /g')" || true
+  echo "${holders:-nothing}"
+}
+
+# Prove from the host that $PG_DSN reaches $PG_CONTAINER and not a bystander.
+#
+# `pg_isready` cannot do this: it runs inside the container, so it answers for
+# a server the backend may never reach. The system identifier is generated at
+# initdb and is unique per cluster, which makes it an identity check rather
+# than a reachability one — a different Postgres that happens to own the port,
+# and happens to have a 'postgres' role, still fails it.
+verify_pg_dsn() {
+  if ! command -v psql >/dev/null 2>&1; then
+    warn "no psql on PATH — cannot confirm $PG_HOST:$PG_PORT reaches '$PG_CONTAINER'"
+    return 0
+  fi
+  local want got raw
+  want="$(rt_exec "$PG_CONTAINER" psql -U postgres -tAc \
+    'SELECT system_identifier FROM pg_control_system()' 2>/dev/null | tr -d '[:space:]')"
+  if [[ -z "$want" ]]; then
+    warn "could not read the container's system identifier — skipping the DSN check"
+    return 0
+  fi
+  # Keep psql's message intact for the human, and strip whitespace only for the
+  # comparison — squeezing the spaces out of an error is how it stops being read.
+  if ! raw="$(PGCONNECT_TIMEOUT=5 psql "$PG_DSN" -tAc \
+      'SELECT system_identifier FROM pg_control_system()' 2>&1)"; then
+    die "cannot reach Postgres at $PG_HOST:$PG_PORT from this machine.
+    $raw
+    listening on :$PG_PORT — $(pg_port_holders "$PG_PORT")
+    Pin the address with HERMOD_DEV_PG_HOST / HERMOD_DEV_PG_PORT, or use --sqlite."
+  fi
+  got="$(printf '%s' "$raw" | tr -d '[:space:]')"
+  if [[ "$got" != "$want" ]]; then
+    die "$PG_HOST:$PG_PORT answers, but it is not container '$PG_CONTAINER'.
+    Its database is a different Postgres cluster ($got, want $want), so the
+    stack would run against the wrong data.
+    listening on :$PG_PORT — $(pg_port_holders "$PG_PORT")
+    Pin the address with HERMOD_DEV_PG_HOST / HERMOD_DEV_PG_PORT, or use --sqlite."
+  fi
+  ok "DSN reaches '$PG_CONTAINER' at $PG_HOST:$PG_PORT"
+}
+
 # --- shutdown -----------------------------------------------------------------
 
 API_PID=""
@@ -299,6 +399,21 @@ if [[ "$DO_PRINT_PORTS" == "1" ]]; then
   exit 0
 fi
 
+# The DSN the backend would be handed. Exposed so a test can check it reaches
+# the database we think it does, without starting a stack to find out.
+if [[ "$DO_PRINT_DSN" == "1" ]]; then
+  if [[ "$USE_SQLITE" == "1" ]]; then
+    echo "$SQLITE_PATH"
+  else
+    require_container_cli
+    rt_ls_running | grep -qx "$PG_CONTAINER" \
+      || die "container '$PG_CONTAINER' is not running — start the stack first"
+    resolve_pg_dsn
+    echo "$PG_DSN"
+  fi
+  exit 0
+fi
+
 # --- preflight ----------------------------------------------------------------
 
 say "Checking prerequisites"
@@ -356,8 +471,7 @@ else
 
   # Resolve the DSN only once the container is up, so the published port can be
   # read from it.
-  PG_PORT="$(rt_pg_host_port "$PG_CONTAINER")"
-  PG_DSN="postgres://postgres:postgres@localhost:${PG_PORT}/hermod_metadata?sslmode=disable"
+  resolve_pg_dsn
   DB_CONN="$PG_DSN"
   [[ "$PG_PORT" != "5432" ]] && ok "Postgres published on host port $PG_PORT"
 
@@ -387,6 +501,10 @@ else
     rt_exec "$PG_CONTAINER" createdb -U postgres hermod_metadata
     ok "recreated hermod_metadata"
   fi
+
+  # Everything above this line was asked of the container directly. This is the
+  # first and only check of the address the *backend* will use.
+  verify_pg_dsn
 fi
 
 # Hermod persists its chosen database to db_config.yaml and prefers that over
@@ -397,6 +515,30 @@ DB_STAMP="$DEV_DIR/.db-type"
 if [[ -f "$DB_STAMP" && "$(cat "$DB_STAMP")" != "$DB_TYPE" ]]; then
   warn "database type changed ($(cat "$DB_STAMP") → $DB_TYPE); resetting stored config"
   rm -f "$HERMOD_CONFIG_DIR/db_config.yaml" "$HERMOD_CONFIG_DIR/config.yaml" 2>/dev/null || true
+fi
+
+# Hermod persists the DSN too, and prefers the stored one over --db-conn on
+# later starts. A container's IP is not stable across restarts, so a stored DSN
+# outlives the address it names: refresh it here rather than let the next run
+# connect to whatever now answers there. Rewriting the one line keeps the
+# generated jwt_secret, so sessions opened before this survive.
+DB_CONFIG_FILE="$HERMOD_CONFIG_DIR/db_config.yaml"
+if [[ -f "$DB_CONFIG_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+  if STALE="$(DB_CONFIG_FILE="$DB_CONFIG_FILE" DB_CONN="$DB_CONN" python3 -c '
+import io,os,sys
+path=os.environ["DB_CONFIG_FILE"]; want=os.environ["DB_CONN"]
+lines=io.open(path,encoding="utf-8").read().splitlines(True)
+old=""
+for i,l in enumerate(lines):
+    if l.startswith("conn: "):
+        old=l[len("conn: "):].strip()
+        if old==want: sys.exit(1)
+        lines[i]="conn: %s\n" % want
+        io.open(path,"w",encoding="utf-8").write("".join(lines))
+        print(old); sys.exit(0)
+sys.exit(1)' 2>/dev/null)"; then
+    warn "stored DSN pointed at $STALE — repointed to $DB_CONN"
+  fi
 fi
 echo "$DB_TYPE" > "$DB_STAMP"
 
@@ -469,8 +611,10 @@ SETUP_CODE="$(curl -s -o "$LOG_DIR/setup.json" -w '%{http_code}' \
 case "$SETUP_CODE" in
   200) ok "created admin user '$ADMIN_USER'" ;;
   401) ok "already configured — existing admin kept" ;;
-  *)   warn "setup returned HTTP $SETUP_CODE — see $LOG_DIR/setup.json"
-       warn "you may need to finish setup at http://localhost:$UI_PORT/setup" ;;
+  *)   die "first-run setup failed (HTTP $SETUP_CODE).
+    $(cat "$LOG_DIR/setup.json" 2>/dev/null)
+    No admin user exists, so the login page would reject every password —
+    which is why this stops here instead of printing a ready banner." ;;
 esac
 
 # --- ui -----------------------------------------------------------------------

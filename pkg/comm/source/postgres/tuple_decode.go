@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/gsoultan/hermod"
@@ -126,4 +127,64 @@ func noteUnavailableColumns(msg hermod.Message, cols []string) {
 		return
 	}
 	msg.SetMetadata(unavailableColumnsMetadataKey, strings.Join(cols, ","))
+}
+
+// relationOrderingKey builds the ordering key for a CDC row.
+//
+// A CDC message's ID is its LSN, which is unique per change, so anything that
+// hashes on the ID scatters the changes to one row across every worker. The
+// relation already carries the answer: pgoutput sets Flags == 1 on the columns
+// that make up the replica identity, which is exactly the row's identity.
+//
+// A relation with no key columns (REPLICA IDENTITY NOTHING, or a table with no
+// primary key) cannot identify a row at all. That returns no key rather than
+// falling back to a table-wide one: a table-wide key would quietly serialise
+// every change to the table, turning a missing replica identity into a
+// throughput collapse with nothing to point at.
+func relationOrderingKey(rel *pglogrepl.RelationMessage, t *pglogrepl.TupleData) string {
+	if rel == nil || t == nil {
+		return ""
+	}
+
+	var keyValues []string
+	for i, c := range t.Columns {
+		if i >= len(rel.Columns) || c == nil || rel.Columns[i] == nil {
+			continue
+		}
+		if rel.Columns[i].Flags != 1 {
+			continue
+		}
+		v, ok := decodeTupleColumn(rel.Columns[i].DataType, c)
+		if !ok {
+			// A key column the stream could not give us (TOASTed, unchanged)
+			// means this row cannot be identified reliably. Better no key than
+			// one that aliases two different rows onto the same worker.
+			return ""
+		}
+		keyValues = append(keyValues, fmt.Sprintf("%v", v))
+	}
+
+	return hermod.BuildOrderingKey(rel.Namespace, rel.RelationName, keyValues)
+}
+
+// setOrderingKey stamps a non-empty ordering key onto a message. An empty key
+// means the row could not be identified, and stamping "" would be
+// indistinguishable from a message that never had one.
+func setOrderingKey(msg hermod.Message, key string) {
+	if msg == nil || key == "" {
+		return
+	}
+	msg.SetMetadata(hermod.MetaOrderingKey, key)
+}
+
+// splitQualifiedTable splits "schema.table" into its parts. An unqualified name
+// is reported as being in "public": that is what the search_path resolves it to,
+// and therefore what the replication stream's relation message will call it. The
+// two have to agree or the backfill and the CDC stream key the same row
+// differently.
+func splitQualifiedTable(qualified string) (schema, table string) {
+	if i := strings.LastIndex(qualified, "."); i >= 0 {
+		return qualified[:i], qualified[i+1:]
+	}
+	return "public", qualified
 }

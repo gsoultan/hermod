@@ -31,6 +31,10 @@ type Config struct {
 	Cron              string `json:"cron"`
 	Queries           string `json:"queries"`
 	IncrementalColumn string `json:"incremental_column"`
+	// Parameters is a JSON object of named values bound into the queries. A
+	// batch_sql source has no inbound message, so a {{ }} token other than
+	// {{.last_value}} can only come from here.
+	Parameters string `json:"parameters"`
 }
 
 // BatchSQLSource implements the hermod.Source interface for scheduled SQL queries.
@@ -148,19 +152,25 @@ func (s *BatchSQLSource) Read(ctx context.Context) (hermod.Message, error) {
 	}
 }
 
+// emitError publishes a non-fatal error without blocking the cron goroutine
+// when nothing is draining the channel.
+func (s *BatchSQLSource) emitError(err error) {
+	select {
+	case s.errCh <- err:
+	default:
+	}
+}
+
 func (s *BatchSQLSource) runBatch(ctx context.Context) {
 	s.log("INFO", "Starting scheduled batch SQL job", "source_id", s.config.SourceID)
 
-	db, _, err := s.dbProvider.GetOrOpenDBByID(ctx, s.config.SourceID)
+	db, driver, err := s.dbProvider.GetOrOpenDBByID(ctx, s.config.SourceID)
 	if err != nil || db == nil {
 		if err == nil {
 			err = fmt.Errorf("database not found for source id: %s", s.config.SourceID)
 		}
 		s.log("ERROR", "Failed to get database for batch job", "error", err)
-		select {
-		case s.errCh <- err:
-		default:
-		}
+		s.emitError(err)
 		return
 	}
 
@@ -173,11 +183,15 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 	count := 0
 
 	for _, q := range queries {
-		// Replace template variable
-		q = resolveLastValue(q, lastValue)
-		s.log("DEBUG", "Executing batch SQL query", "query", q)
+		q, args, err := s.prepareQuery(driver, q, lastValue)
+		if err != nil {
+			s.log("ERROR", "Failed to prepare batch SQL query", "query", q, "error", err)
+			s.emitError(err)
+			continue
+		}
+		s.log("DEBUG", "Executing batch SQL query", "query", q, "args", len(args))
 
-		rows, err := db.QueryContext(ctx, q)
+		rows, err := db.QueryContext(ctx, q, args...)
 		if err != nil {
 			s.log("ERROR", "Failed to execute batch SQL query", "query", q, "error", err)
 			continue
@@ -231,6 +245,12 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 				return
 			}
 		}
+		// A query that fails part-way through leaves a partial batch behind.
+		// Saying so is what keeps the run from looking like a short table.
+		if err := rows.Err(); err != nil {
+			s.log("ERROR", "Batch SQL query failed while reading rows", "query", q, "error", err)
+			s.emitError(err)
+		}
 		rows.Close()
 	}
 
@@ -253,6 +273,55 @@ func (s *BatchSQLSource) configuredQueries() []string {
 		return []string{s.config.Queries}
 	}
 	return queries
+}
+
+// parameters decodes the configured parameter object.
+//
+// A malformed blob is an error rather than an empty map: reading it as "no
+// parameters" would drop every filter the operator configured and leave a query
+// that still runs.
+func (s *BatchSQLSource) parameters() (map[string]any, error) {
+	raw := strings.TrimSpace(s.config.Parameters)
+	if raw == "" {
+		return nil, nil
+	}
+	var params map[string]any
+	if err := json.Unmarshal([]byte(raw), &params); err != nil {
+		return nil, fmt.Errorf("batch_sql parameters must be a JSON object: %w", err)
+	}
+	return params, nil
+}
+
+// prepareQuery turns a configured query into an executable statement.
+//
+// The incremental watermark is spliced in as text because operators write it
+// inside their own quoting (`id > '{{.last_value}}'`), and that predates this
+// function. Every other token is bound as a parameter, so a list variable can
+// expand into an IN list -- `id IN ({{.ids}})` -- instead of being pasted into
+// the SQL.
+//
+// An undefined token is an error. Binding it as NULL would turn a typo into a
+// query that runs and matches nothing, which reads as an empty source rather
+// than as a misconfiguration.
+func (s *BatchSQLSource) prepareQuery(driver, query, lastValue string) (string, []any, error) {
+	query = resolveLastValue(query, lastValue)
+	if !strings.Contains(query, "{{") {
+		return query, nil, nil
+	}
+	params, err := s.parameters()
+	if err != nil {
+		return "", nil, err
+	}
+	b := sqlutil.ParameterizeTemplateEx(driver, query, params)
+	if b.Err != nil {
+		return "", nil, b.Err
+	}
+	if len(b.Unresolved) > 0 {
+		return "", nil, fmt.Errorf(
+			"query references undefined parameter(s): %s -- define them in the source's Parameters, or remove the token",
+			strings.Join(b.Unresolved, ", "))
+	}
+	return b.SQL, b.Args, nil
 }
 
 // resolveLastValue substitutes the incremental watermark into a query. A query
@@ -348,6 +417,7 @@ func (s *BatchSQLSource) Sample(ctx context.Context, table string) (hermod.Messa
 	}
 
 	var query string
+	var args []any
 	if table != "" {
 		quoted, err := sqlutil.QuoteIdent(driver, table)
 		if err != nil {
@@ -366,17 +436,26 @@ func (s *BatchSQLSource) Sample(ctx context.Context, table string) (hermod.Messa
 		// own and the dialect is whatever the delegate speaks, so SQL Server and
 		// Oracle would reject the wrapper. Reading one row and closing aborts
 		// the query at the driver instead.
-		query = resolveLastValue(queries[0], lastValue)
+		query, args, err = s.prepareQuery(driver, queries[0], lastValue)
+		if err != nil {
+			return nil, err
+		}
 	}
 	s.log("DEBUG", "Executing sample query", "query", query)
 
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sample record: %w", err)
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
+		// A query that errored on the first row is not an empty result, and
+		// reporting it as one sends the operator looking at their data instead
+		// of at their SQL.
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("failed to read sample record: %w", err)
+		}
 		if table == "" {
 			return nil, errors.New("the configured query returned no rows to preview")
 		}

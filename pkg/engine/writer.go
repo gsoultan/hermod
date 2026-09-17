@@ -212,6 +212,9 @@ func (e *Engine) DeadLetterNodeFailure(ctx context.Context, nodeID string, msg h
 			"workflow_id", e.workflowID, "node_id", nodeID, "message_id", msg.ID(), "error", err)
 		return false
 	}
+	// The message is preserved. Say so on the message itself, so the engine's
+	// no-target branch acknowledges it rather than parking a second copy.
+	msg.SetMetadata(MetaDeadLettered, "true")
 	return true
 }
 
@@ -1221,17 +1224,29 @@ func (w *sinkWriter) pickShard(msg hermod.Message) chan *pendingMessage {
 	if !w.useShards || w.shardCount <= 1 || len(w.shards) != w.shardCount {
 		return w.ch
 	}
-	// Choose key from metadata or message ID
+	// Shard key precedence: an operator-named metadata field, then the message's
+	// ordering key.
+	//
+	// The message ID used to be the fallback, and for a CDC message that ID is
+	// its LSN — unique per change — so every change to one row hashed to a
+	// different shard. Sharding was scattering exactly the messages it was meant
+	// to keep together, and the per-key ordering the shards exist to provide was
+	// never actually delivered for the source that needs it most.
+	//
+	// A message with no key of either sort has no order to keep, and goes to a
+	// random shard so unkeyed traffic still spreads.
 	var key string
 	if w.shardKeyMeta != "" && msg != nil {
-		if md := msg.Metadata(); md != nil {
+		// MetadataRef, not Metadata: the latter clones the map, and this runs
+		// once per message per sink.
+		if md := msg.MetadataRef(); md != nil {
 			if v, ok := md[w.shardKeyMeta]; ok && v != "" {
 				key = v
 			}
 		}
 	}
-	if key == "" && msg != nil {
-		key = msg.ID()
+	if key == "" {
+		key = hermod.OrderingKey(msg)
 	}
 	if key == "" {
 		// fallback to random shard

@@ -1569,11 +1569,30 @@ Sink batching and backpressure (per sink):
   - `backpressure_strategy`: `block` | `drop_oldest` | `drop_newest` | `sampling` | `spill_to_disk`
   - Prefer `block` (default) unless you need lossy behavior under overload.
 
-Ordered concurrency via sharding (per sink):
+#### Ordering
 
-- `shard_count`: number of internal worker shards per sink writer (e.g., 4–16)
-- `shard_key_meta`: metadata key used to shard (falls back to `Message.ID()`)
-  - Guarantees per‑key ordering while parallelizing independent keys.
+Hermod orders messages **per row**, end to end. A source that knows its row
+identity stamps `_hermod_order_key` (for PostgreSQL CDC: `schema.table` plus the
+replica-identity columns, on both the initial load and the stream). The engine
+pins a key to one processing worker and one sink shard, so two changes to the
+same row reach the sink in the order the source produced them, while different
+rows run fully in parallel.
+
+Messages with no ordering key — a queue message, a cron tick, a batch row — have
+no row order to keep and are spread across workers as before.
+
+A table with no primary key or `REPLICA IDENTITY NOTHING` cannot identify a row,
+so its changes carry no key and are not ordered against each other. Set a replica
+identity if you need that ordering.
+
+- `shard_count`: number of internal worker shards per sink writer (e.g., 4–16).
+  Off by default. Sharding splits the sink's queue, so each shard batches
+  independently — a `batch_size` of 100 across 8 shards forms batches of ~12 or
+  waits out `batch_timeout`. Turn it on for sink parallelism, not for ordering:
+  ordering already holds without it.
+- `shard_key_meta`: metadata key used to shard. Defaults to the row key
+  (`_hermod_order_key`) when sharding is enabled; name your own only for a source
+  that carries a different notion of "same entity".
 
 #### High Availability and Failover
 Hermod workers are designed for high availability. When a worker is gracefully shut down:

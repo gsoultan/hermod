@@ -9,31 +9,57 @@ import (
 	"github.com/gsoultan/hermod"
 )
 
+// WillTrace reports whether a step recorded for this message would be kept.
+//
+// Callers that have to build a payload snapshot *before* the work they are
+// tracing need this: without it they pay a ToMap() per message on a workflow
+// whose tracing is off, which is the common case.
+func (e *Engine) WillTrace(msg hermod.Message) bool {
+	if e.traceRecorder == nil || e.config.TraceSampleRate <= 0 || msg == nil {
+		return false
+	}
+	if e.config.TraceSampleRate >= 1.0 {
+		return true
+	}
+	// Deterministic sampling based on message ID: a sampled message is traced
+	// at every step or at none, never half a trace.
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(msg.ID()))
+	return float64(h.Sum32())/float64(0xFFFFFFFF) <= e.config.TraceSampleRate
+}
+
 func (e *Engine) RecordTraceStep(ctx context.Context, msg hermod.Message, nodeID string, start time.Time, before map[string]any, err error) {
-	if e.traceRecorder == nil || e.config.TraceSampleRate <= 0 {
+	e.recordTraceStep(ctx, msg, nodeID, start, before, nil, err)
+}
+
+// RecordTraceStepSnapshot records a step whose payload was captured earlier,
+// for a caller whose work mutates the message it is tracing.
+//
+// The router is why this exists. For a node-graph workflow the engine's router
+// *is* the traversal — setupWorkflowRouter walks the whole DAG inside it — so a
+// snapshot taken when it returns is the pipeline's output, while the step's
+// timestamp is when routing began. The viewer orders steps by timestamp and
+// rebuilds each "before" from the previous "after", so the two together put the
+// final payload between the message arriving and the first node running.
+//
+// Pass the snapshot taken before the work started and the halves agree. Guard
+// the capture with WillTrace so an untraced workflow pays nothing.
+func (e *Engine) RecordTraceStepSnapshot(ctx context.Context, msg hermod.Message, nodeID string, start time.Time, before, after map[string]any, err error) {
+	e.recordTraceStep(ctx, msg, nodeID, start, before, after, err)
+}
+
+func (e *Engine) recordTraceStep(ctx context.Context, msg hermod.Message, nodeID string, start time.Time, before, after map[string]any, err error) {
+	if !e.WillTrace(msg) {
 		return
 	}
 
-	if msg == nil {
-		return
-	}
-
-	// Use deterministic sampling based on Message ID
-	if e.config.TraceSampleRate < 1.0 {
-		h := fnv.New32a()
-		_, _ = h.Write([]byte(msg.ID()))
-		sampleValue := float64(h.Sum32()) / float64(0xFFFFFFFF)
-		if sampleValue > e.config.TraceSampleRate {
-			return
+	if after == nil {
+		// Optimization: use cached snapshot from context if available, otherwise ToMap()
+		if last, ok := ctx.Value(hermod.LastTraceSnapshotKey).(*map[string]any); ok && *last != nil {
+			after = *last
+		} else {
+			after = msg.ToMap()
 		}
-	}
-
-	// Optimization: use cached snapshot from context if available, otherwise ToMap()
-	var after map[string]any
-	if last, ok := ctx.Value(hermod.LastTraceSnapshotKey).(*map[string]any); ok && *last != nil {
-		after = *last
-	} else {
-		after = msg.ToMap()
 	}
 
 	// Lineage Tracking

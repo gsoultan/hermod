@@ -25,6 +25,9 @@ find a claim that outruns the code, fix the claim.
 
 ### Memories
 
+- [List variables in SQL templates](sql_template_list_variables.md) — why
+  `IN ({{.ids}})` expands but `= ANY({{.ids}})` must not, the 65535 cap, and how
+  a list gets built in the first place.
 - [sqlutil owns dialect differences](sqlutil_owns_dialect_differences.md) —
   row limits, placeholders and quoting live in one place; the Oracle `ROWNUM`
   row-skipping bug is why.

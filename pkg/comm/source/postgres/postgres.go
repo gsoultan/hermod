@@ -1208,6 +1208,7 @@ func (p *PostgresSource) handleInsert(lsn pglogrepl.LSN, lm *pglogrepl.InsertMes
 		// an unchanged TOASTed value from -- and no need for one.
 		data, unavailable := decodeTuple(rel, lm.Tuple, nil)
 		noteUnavailableColumns(res, unavailable)
+		setOrderingKey(res, relationOrderingKey(rel, lm.Tuple))
 		jsonBytes, err := json.Marshal(data)
 		if err == nil {
 			res.SetAfter(jsonBytes)
@@ -1245,6 +1246,15 @@ func (p *PostgresSource) handleUpdate(lsn pglogrepl.LSN, lm *pglogrepl.UpdateMes
 			// touch, which the new tuple reports only as "unchanged".
 			data, unavailable := decodeTuple(rel, lm.NewTuple, lm.OldTuple)
 			noteUnavailableColumns(res, unavailable)
+			// Key on the after-image, with the before-image as the fallback for
+			// a replica identity that only sends key columns in the old tuple.
+			// An UPDATE that changes the key itself is keyed by its new value,
+			// which is what the row is called from here on.
+			key := relationOrderingKey(rel, lm.NewTuple)
+			if key == "" {
+				key = relationOrderingKey(rel, lm.OldTuple)
+			}
+			setOrderingKey(res, key)
 			jsonBytes, err := json.Marshal(data)
 			if err == nil {
 				res.SetAfter(jsonBytes)
@@ -1273,6 +1283,7 @@ func (p *PostgresSource) handleDelete(lsn pglogrepl.LSN, lm *pglogrepl.DeleteMes
 		if lm.OldTuple != nil {
 			beforeData, unavailable := decodeTuple(rel, lm.OldTuple, nil)
 			noteUnavailableColumns(res, unavailable)
+			setOrderingKey(res, relationOrderingKey(rel, lm.OldTuple))
 			beforeBytes, err := json.Marshal(beforeData)
 			if err == nil {
 				res.SetBefore(beforeBytes)
@@ -2765,6 +2776,11 @@ func (p *PostgresSource) emitSnapshotRecord(ctx context.Context, table string, r
 			pkVals = append(pkVals, fmt.Sprintf("%v", record[pk]))
 		}
 		msg.SetID(fmt.Sprintf("snapshot-%s-%s", table, strings.Join(pkVals, "-")))
+		// The same key the CDC stream will produce for this row, so the backfill
+		// row and the first change to it are ordered against each other instead
+		// of racing across two workers at the handover.
+		snapSchema, snapTable := splitQualifiedTable(table)
+		setOrderingKey(msg, hermod.BuildOrderingKey(snapSchema, snapTable, pkVals))
 	} else {
 		// Fallback to non-deterministic but unique ID
 		msg.SetID(fmt.Sprintf("snapshot-%s-%d-%s", table, time.Now().UnixNano(), uuid.New().String()))

@@ -285,6 +285,15 @@ func parseSinkEngineConfig(cfg factory.SinkConfig) config.SinkConfig {
 	if val, ok := cfg.Config["shard_key_meta"]; ok && val != "" {
 		psc.ShardKeyMeta = val
 	}
+	// Sharding splits a sink's queue, so each shard has to know which messages
+	// belong together. Left unset it used to fall through to the message ID,
+	// which for CDC is the LSN -- unique per change -- so turning sharding on
+	// scattered exactly the changes it was meant to keep in order. The row key
+	// the source stamps is the right default; naming a metadata field stays
+	// available for sources that carry their own.
+	if psc.ShardCount > 1 && psc.ShardKeyMeta == "" {
+		psc.ShardKeyMeta = hermod.MetaOrderingKey
+	}
 	if val, ok := cfg.Config["circuit_threshold"]; ok && val != "" {
 		if n, err := strconv.Atoi(val); err == nil {
 			psc.CircuitBreakerThreshold = n
@@ -611,6 +620,13 @@ func (r *Registry) setupWorkflowRouter(
 		// acknowledges the source instead of pinning it.
 		if t.InlineDelivered.Load() && !t.InlineFailed.Load() {
 			msg.SetMetadata(pkgengine.MetaDeliveredInline, "true")
+		}
+		// A failing node parked this message — possibly as a clone, past a
+		// fan-out — so carry the marker back onto the original. Without it the
+		// engine sees an empty target list, cannot tell the message is already
+		// preserved, and parks a second copy of the same event.
+		if t.DeadLettered.Load() {
+			msg.SetMetadata(pkgengine.MetaDeadLettered, "true")
 		}
 		traversal.Release(t)
 
@@ -1059,7 +1075,7 @@ func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromO
 				for _, targetID := range adj[node.ID] {
 					targetNode := nodeMap[targetID]
 					if targetNode != nil {
-						r.runWorkflowNodeFromReplay(workflowID, targetNode, msg, eventStoreNode.ID, wf, nodeMap, adj, sinks, sinkNodeToIndex)
+						r.runWorkflowNodeFromReplay(workflowID, targetNode, msg, eventStoreNode.ID, r.liveEngine(workflowID), wf, nodeMap, adj, sinks, sinkNodeToIndex)
 					}
 				}
 			}
@@ -1069,7 +1085,7 @@ func (r *Registry) RebuildWorkflow(ctx context.Context, workflowID string, fromO
 	return nil
 }
 
-func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.WorkflowNode, msg hermod.Message, skipNodeID string, wf storage.Workflow, nodeMap map[string]*storage.WorkflowNode, adj map[string][]string, sinks []hermod.Sink, sinkNodeToIndex map[string]int) {
+func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.WorkflowNode, msg hermod.Message, skipNodeID string, eng *pkgengine.Engine, wf storage.Workflow, nodeMap map[string]*storage.WorkflowNode, adj map[string][]string, sinks []hermod.Sink, sinkNodeToIndex map[string]int) {
 	if node.ID == skipNodeID {
 		return
 	}
@@ -1089,6 +1105,7 @@ func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.Wo
 
 	if err != nil {
 		r.broadcastLog(workflowID, "error", fmt.Sprintf("Node %s error: %v", r.getNodeName(*node), err))
+		r.replayLost(workflowID, node, eng, m, err)
 		return
 	}
 
@@ -1098,58 +1115,82 @@ func (r *Registry) runWorkflowNodeFromReplay(workflowID string, node *storage.Wo
 
 	for _, processedMsg := range processedMsgs {
 		if node.Type == "sink" {
-			idx, ok := sinkNodeToIndex[node.ID]
-			if ok && idx < len(sinks) {
-				sinks[idx].Write(context.Background(), processedMsg)
-			}
+			r.replayWriteToSink(workflowID, node, eng, processedMsg, sinks, sinkNodeToIndex)
 			continue
 		}
 
-		// Determine next nodes based on branch
-		var targets []string
-		if branch != "" {
-			// Find edges with this label
-			for _, edge := range wf.Edges {
-				label := edge.SourceHandle
-				if l, ok := edge.Config["label"].(string); ok && l != "" {
-					label = l
-				}
-				if edge.SourceID == node.ID && label == branch {
-					targets = append(targets, edge.TargetID)
-				}
-			}
-		} else {
-			targets = adj[node.ID]
-		}
-
-		for _, targetID := range targets {
-			targetNode := nodeMap[targetID]
-			if targetNode != nil {
-				r.runWorkflowNodeFromReplay(workflowID, targetNode, processedMsg, skipNodeID, wf, nodeMap, adj, sinks, sinkNodeToIndex)
+		for _, targetID := range replayTargets(wf, adj, node.ID, branch) {
+			if targetNode := nodeMap[targetID]; targetNode != nil {
+				r.runWorkflowNodeFromReplay(workflowID, targetNode, processedMsg, skipNodeID, eng, wf, nodeMap, adj, sinks, sinkNodeToIndex)
 			}
 		}
 	}
 }
 
-// resumeFromNode continues traversal starting after startNodeID, forcing a specific branch label if provided.
-func (r *Registry) resumeFromNode(workflowID, startNodeID string, msg hermod.Message, wf storage.Workflow, nodeMap map[string]*storage.WorkflowNode, adj map[string][]string, sinks []hermod.Sink, sinkNodeToIndex map[string]int, branch string) {
-	var targets []string
-	if branch != "" {
-		for _, edge := range wf.Edges {
-			label := edge.SourceHandle
-			if l, ok := edge.Config["label"].(string); ok && l != "" {
-				label = l
-			}
-			if edge.SourceID == startNodeID && label == branch {
-				targets = append(targets, edge.TargetID)
-			}
-		}
-	} else {
-		targets = adj[startNodeID]
+// replayWriteToSink delivers a resumed message to its sink node.
+//
+// The resumed message has no source left to leave unacknowledged — the suspended
+// row is deleted as soon as the resume returns — so a discarded write error here
+// is the message gone, with nothing logged. A wait node exists to hold a message
+// until a destination is ready, which makes this the moment that destination is
+// most likely still down.
+func (r *Registry) replayWriteToSink(workflowID string, node *storage.WorkflowNode, eng *pkgengine.Engine, msg hermod.Message, sinks []hermod.Sink, sinkNodeToIndex map[string]int) {
+	idx, ok := sinkNodeToIndex[node.ID]
+	if !ok || idx >= len(sinks) {
+		return
 	}
-	for _, targetID := range targets {
+	if err := sinks[idx].Write(context.Background(), msg); err != nil {
+		r.broadcastLog(workflowID, "error", fmt.Sprintf(
+			"Node %s could not write a resumed message: %v", r.getNodeName(*node), err))
+		r.replayLost(workflowID, node, eng, msg, err)
+	}
+}
+
+// replayTargets returns the nodes a replayed message flows to from nodeID,
+// honouring a forced branch label when the node chose one.
+func replayTargets(wf storage.Workflow, adj map[string][]string, nodeID, branch string) []string {
+	if branch == "" {
+		return adj[nodeID]
+	}
+	var targets []string
+	for _, edge := range wf.Edges {
+		label := edge.SourceHandle
+		if l, ok := edge.Config["label"].(string); ok && l != "" {
+			label = l
+		}
+		if edge.SourceID == nodeID && label == branch {
+			targets = append(targets, edge.TargetID)
+		}
+	}
+	return targets
+}
+
+// replayLost handles a resumed message that could not be delivered.
+//
+// The live pipeline answers this by not acknowledging the source, so the message
+// comes back. A resumed message has no source left to hold it — the suspended row
+// is deleted as soon as the resume returns — so the dead-letter sink is the only
+// place it can survive. Where there is no engine (the approval and event-store
+// paths build their own sinks and can run with the workflow stopped) there is no
+// dead-letter sink either, and the loss is at least stated rather than silent.
+func (r *Registry) replayLost(workflowID string, node *storage.WorkflowNode, eng *pkgengine.Engine, msg hermod.Message, cause error) {
+	if eng != nil && eng.DeadLetterNodeFailure(context.Background(), node.ID, msg, cause) {
+		return
+	}
+	r.broadcastLog(workflowID, "error", fmt.Sprintf(
+		"Node %s failed on a resumed message and there is no dead-letter sink, so the message is lost: %v",
+		r.getNodeName(*node), cause))
+	if r.logger != nil {
+		r.logger.Error("Resumed message lost: no dead-letter sink",
+			"workflow_id", workflowID, "node_id", node.ID, "error", cause)
+	}
+}
+
+// resumeFromNode continues traversal starting after startNodeID, forcing a specific branch label if provided.
+func (r *Registry) resumeFromNode(workflowID, startNodeID string, msg hermod.Message, eng *pkgengine.Engine, wf storage.Workflow, nodeMap map[string]*storage.WorkflowNode, adj map[string][]string, sinks []hermod.Sink, sinkNodeToIndex map[string]int, branch string) {
+	for _, targetID := range replayTargets(wf, adj, startNodeID, branch) {
 		if tn := nodeMap[targetID]; tn != nil {
-			r.runWorkflowNodeFromReplay(workflowID, tn, msg, startNodeID, wf, nodeMap, adj, sinks, sinkNodeToIndex)
+			r.runWorkflowNodeFromReplay(workflowID, tn, msg, startNodeID, eng, wf, nodeMap, adj, sinks, sinkNodeToIndex)
 		}
 	}
 }
@@ -1224,8 +1265,10 @@ func (r *Registry) ResumeApproval(ctx context.Context, app storage.Approval, bra
 	}
 
 	// Continue traversal from the approval node with forced branch
-	r.resumeFromNode(app.WorkflowID, app.NodeID, m, wf, nodeMap, adj, sinks, sinkNodeToIndex, branch)
-	message.ReleaseMessage(m)
+	r.resumeFromNode(app.WorkflowID, app.NodeID, m, r.liveEngine(app.WorkflowID), wf, nodeMap, adj, sinks, sinkNodeToIndex, branch)
+	// See resumeSuspendedMessage: honour the refcount rather than forcing the
+	// message back into the pool under a possible second owner.
+	m.Release()
 	return nil
 }
 

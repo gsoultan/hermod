@@ -58,6 +58,14 @@ type WorkflowTraversal struct {
 	// delivered-and-nothing-failed is an acknowledgement.
 	InlineDelivered atomic.Bool
 	InlineFailed    atomic.Bool
+
+	// DeadLettered records that a failing node parked this message in the
+	// dead-letter sink. A failure past a fan-out is parked as a *clone*, so the
+	// marker the engine sets on the message it parked never reaches the original
+	// the engine is about to make an acknowledge-or-keep decision about. Carrying
+	// it on the traversal instead survives the clone, and the router stamps the
+	// original once the walk is done.
+	DeadLettered atomic.Bool
 }
 
 var TraversalPool = sync.Pool{
@@ -117,6 +125,7 @@ func Acquire(
 	t.Routed = t.Routed[:0]
 	t.InlineDelivered.Store(false)
 	t.InlineFailed.Store(false)
+	t.DeadLettered.Store(false)
 	return t
 }
 
@@ -234,7 +243,9 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	}
 
 	if err != nil && t.Eng != nil {
-		if !t.Eng.DeadLetterNodeFailure(ctx, currNode.ID, currMsg, err) {
+		if t.Eng.DeadLetterNodeFailure(ctx, currNode.ID, currMsg, err) {
+			t.DeadLettered.Store(true)
+		} else {
 			t.Registry.BroadcastLog(t.WorkflowID, "ERROR", fmt.Sprintf(
 				"Node %s failed and there is no dead-letter sink, so the message is lost: %v",
 				currNode.ID, err), currMsg.ID())
