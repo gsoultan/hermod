@@ -9,6 +9,12 @@ type CommonProps = {
   required?: boolean
   disabled?: boolean
   error?: string
+  /**
+   * Names the input when the visible heading is rendered separately -- a row in
+   * a repeated list has no label of its own, which leaves every one of them
+   * reachable only by position.
+   */
+  'aria-label'?: string
 }
 
 export interface TemplateFieldProps extends CommonProps {
@@ -44,6 +50,7 @@ export function TemplateField({
   availableFields = [],
   buildToken = defaultBuildToken,
   multiline,
+  'aria-label': ariaLabel,
 }: TemplateFieldProps) {
   const [opened, setOpened] = useState(false)
   const [q, setQ] = useState('')
@@ -139,6 +146,7 @@ export function TemplateField({
 
   const commonProps = {
     label,
+    'aria-label': ariaLabel,
     placeholder,
     description,
     required,
