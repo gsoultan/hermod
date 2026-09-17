@@ -39,6 +39,27 @@ Separately, `validateSourceForSampling` asked a batch_sql config for `query` or
 latent — `SamplePanel` is its only consumer and nothing renders it today — but it
 is fixed rather than left to be rediscovered if the panel is wired back up.
 
+### Fixed — editing a source did not reach the rows already cached from it
+
+`db_lookup` caches what it reads, and `SetLookupCache` treats `ttl <= 0` as
+"never expires" — which is the default, because the editor's Cache TTL box is
+empty until somebody fills it in. Nothing dropped those entries when the source
+they came from was edited, so "until something evicts it" meant "for the life of
+the process": a corrected connection string, a changed table, a rotated
+credential all left the old rows being served.
+
+The CDC rule makes it sharper. Switching `use_cdc` on is precisely the edit that
+has to stop a lookup working, and it was the one edit a stale cache would serve
+straight past.
+
+`Registry.UpdateSource` now drops the lookup rows cached from that source and
+only that source — the rest were read from sources nobody edited, and dropping
+them would turn every unrelated edit into a throughput cliff. A failed write
+keeps the cache, since the source is still what it was and a storage blip should
+not become a cache stampede. The key prefix both sides match on lives in
+`hermod.LookupCacheKeyPrefix`, trailing separator included: without it,
+invalidating source `cust` would also drop everything cached from `customers`.
+
 ### Fixed — queries that borrow a source's database could still land on a CDC one
 
 Two node types run SQL against a source they merely name rather than stream
