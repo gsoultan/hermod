@@ -241,3 +241,47 @@ describe('the fcm sink', () => {
     ).toEqual([]);
   });
 });
+
+describe('a templated panmail gateway', () => {
+  const base = {
+    api_key: 'key-123',
+    provider_id: 'prov-1',
+    from: 'noreply@example.com',
+    to: '{{.email}}',
+  };
+
+  it('asks for nothing extra when the gateway is a fixed url', () => {
+    expect(
+      missingConnectionFields('sink', 'panmail', { ...base, base_url: 'https://mail.example.com' }),
+    ).toEqual([]);
+  });
+
+  it('requires an allowlist once the gateway url is templated', () => {
+    expect(
+      missingConnectionFields('sink', 'panmail', {
+        ...base,
+        base_url: 'https://{{.tenant}}.mail.example.com',
+      }),
+    ).toEqual(['Allowed gateway hosts']);
+  });
+
+  it('requires one for a templated api key too — it is the same credential', () => {
+    expect(
+      missingConnectionFields('sink', 'panmail', {
+        ...base,
+        base_url: 'https://mail.example.com',
+        api_key: '{{.tenant_key}}',
+      }),
+    ).toEqual(['Allowed gateway hosts']);
+  });
+
+  it('is satisfied once the allowlist is filled in', () => {
+    expect(
+      missingConnectionFields('sink', 'panmail', {
+        ...base,
+        base_url: 'https://{{.tenant}}.mail.example.com',
+        allowed_hosts: '*.mail.example.com',
+      }),
+    ).toEqual([]);
+  });
+});

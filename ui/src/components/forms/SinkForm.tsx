@@ -189,6 +189,7 @@ export function SinkForm({
     vhost,
     workerID,
     availableFields,
+    incomingPayload,
     upstreamSource
 }: SinkFormProps) {
   const navigate = useNavigate();
@@ -301,6 +302,7 @@ export function SinkForm({
         }}
         configComponents={configComponents}
         availableFields={availableFields}
+        incomingPayload={incomingPayload}
         upstreamSource={upstreamSource}
       />
     </Stack>
