@@ -155,6 +155,7 @@ func (h *SourceHandler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	src.ID = id
+	src = carryRuntimeColumns(src, oldSrc)
 
 	role, vhosts := h.GetRoleAndVHosts(r)
 	if role != storage.RoleAdministrator {
@@ -199,6 +200,31 @@ func (h *SourceHandler) UpdateSource(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(src)
+}
+
+// carryRuntimeColumns copies the runtime columns an update did not mention from
+// the stored row onto the incoming one.
+//
+// State describes how far a source has read — a batch_sql `last_value`
+// watermark, a Postgres CDC cursor — and storage.UpdateSource writes it on
+// every update, so a body that never mentioned it used to overwrite the column
+// with null. The clients that do this are not editing the cursor and have no
+// business resetting it: useSourceForm.onSampleReady fires on every Test
+// Connection, and the wizard's own save carries `sample` across but never
+// `state`. The next scheduled run then replayed everything the source had
+// already delivered, with nothing in the request or the response to say why.
+// The bundle-import path in internal/workflow/transport/http/workflow.go has
+// restored the stored State for this reason for a while; this is the same rule
+// on the path the editor actually writes through.
+//
+// A nil map means the field was absent (or explicitly null, which decodes the
+// same way and reads the same: "I am not telling you about state"). An empty
+// object is how a caller says it means it, and clears the cursor.
+func carryRuntimeColumns(src, oldSrc storage.Source) storage.Source {
+	if src.State == nil {
+		src.State = oldSrc.State
+	}
+	return src
 }
 
 func (h *SourceHandler) DeleteSource(w http.ResponseWriter, r *http.Request) {
