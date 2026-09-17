@@ -157,7 +157,7 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 		}
 	}
 
-	useCDC := cfg.Config["use_cdc"] != "false"
+	useCDC := hermod.SourceUsesCDC(cfg.Config)
 	idField := cfg.Config["id_field"]
 	pollInterval, _ := time.ParseDuration(cfg.Config["poll_interval"])
 

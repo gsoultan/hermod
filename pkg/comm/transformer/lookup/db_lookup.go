@@ -42,6 +42,23 @@ type RegistryProvider interface {
 	GetLookupCache() (map[string]any, *sync.RWMutex) // This might need a better way
 }
 
+// requireNonCDCSource rejects a source that is configured for change data
+// capture. A lookup is a per-message query against a table, and running it
+// against a database that is also serving logical replication puts that load
+// exactly where it hurts most.
+//
+// The rule itself lives in hermod.SourceAllowsDirectQueries, shared with the
+// batch_sql source, so the two cannot drift. What matters here is that the
+// flag is opt-out: a source carrying no use_cdc key at all is a CDC source, and
+// treating a missing key as "not CDC" is how this check used to pass sources
+// the engine runs as replication clients.
+func requireNonCDCSource(src storage.Source) error {
+	if hermod.SourceAllowsDirectQueries(src.Type, src.Config) {
+		return nil
+	}
+	return fmt.Errorf("db_lookup requires a non-CDC source; disable CDC on source '%s' or use a non-CDC source (allowed exception: SQL Server)", src.Name)
+}
+
 // NOTE: Since we need Registry for storage and DB pool, we'll assume it's passed in context
 // or we need a cleaner way to provide these services.
 // For now, let's look at how we can access Registry from context as previously hinted in registry.go:893
@@ -106,6 +123,16 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 		return msg, fmt.Errorf("failed to get source for lookup (sourceId: '%s'): %w", sourceID, err)
 	}
 
+	// Ahead of the branch below, not inside one arm of it: a lookup that batches
+	// is still a query against the source, so batching used to hand out an
+	// exemption from the rule and then cache the result it was not allowed to
+	// fetch. This is also deliberately outside applyMissPolicy -- the source is
+	// misconfigured, which is not the same event as a lookup that found no row,
+	// and a passthrough policy must not turn it into silence.
+	if err := requireNonCDCSource(src); err != nil {
+		return msg, err
+	}
+
 	var resultVal any
 	// Use batching if enabled and applicable (only for SQL-based table mode)
 	useBatching, _ := config["use_batching"].(bool)
@@ -138,13 +165,6 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 			return msg, err
 		}
 	} else {
-		// Enforce: db_lookup should use non-CDC sources, except for SQL Server (mssql)
-		if v, ok := src.Config["use_cdc"]; ok {
-			if v != "false" && src.Type != "mssql" {
-				return msg, fmt.Errorf("db_lookup requires a non-CDC source; disable CDC on source '%s' or use a non-CDC source (allowed exception: SQL Server)", src.Name)
-			}
-		}
-
 		if src.Type == "mongodb" {
 			// queryTemplate not supported for Mongo; use whereClause
 			resultVal, err = t.lookupMongoDB(ctx, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, msg.Data())

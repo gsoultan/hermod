@@ -186,6 +186,8 @@ func TestDBLookup_ModePrioritization(t *testing.T) {
 		source: storage.Source{
 			ID:   "src1",
 			Type: "sqlite",
+			// Lookup sources must declare CDC off; the flag is opt-out.
+			Config: hermod.StringMap{"use_cdc": "false"},
 		},
 	}
 

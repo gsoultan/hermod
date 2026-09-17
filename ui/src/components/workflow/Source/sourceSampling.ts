@@ -41,6 +41,28 @@ function firstNonEmpty(config: Record<string, any> | undefined, keys: string[]):
   });
 }
 
+/**
+ * hasBatchQuery reports whether a batch_sql config names at least one statement.
+ *
+ * The editor stores the list as a JSON array string, so "[]" is a non-empty
+ * string naming no query at all and a bare truthiness check would pass it.
+ * Mirrors BatchSQLSource.configuredQueries, which falls back to treating the
+ * raw value as a single statement when it is not a JSON array.
+ */
+function hasBatchQuery(config: Record<string, any> | undefined): boolean {
+  const raw = config?.queries;
+  if (Array.isArray(raw)) return raw.some((q) => String(q ?? '').trim().length > 0);
+  const text = String(raw ?? '').trim();
+  if (!text) return false;
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return parsed.some((q) => String(q ?? '').trim().length > 0);
+  } catch {
+    // Not JSON: an older config holding one bare SQL statement.
+  }
+  return true;
+}
+
 export interface SampleValidation {
   /** Whether the source has enough information to attempt a sample/test. */
   valid: boolean;
@@ -103,8 +125,19 @@ export function validateSourceForSampling(source: Source): SampleValidation {
     if (!firstNonEmpty(config, ['source_id', 'connection_string', 'host'])) {
       issues.push('Select the database connection to query.');
     }
-    if (!firstNonEmpty(config, ['query', 'table'])) {
-      issues.push('Provide the SQL query or table to read.');
+    // `queries` is the only key BatchSQLSourceConfig writes and the only one
+    // registry.go's batch_sql branch reads. Asking for `query`/`table` instead
+    // reported every fully configured batch source as invalid, so SamplePanel
+    // would draw its issue list in place of "Fetch Sample Now" and no sample
+    // could be captured through it.
+    //
+    // Latent today: SamplePanel is this module's only consumer and nothing
+    // renders it — the editor captures a source's sample as a side effect of
+    // Test Connection (useSourceForm.testMutation) instead. Wiring the panel
+    // back up would surface the bug immediately, so the rule is fixed here
+    // rather than left to be rediscovered.
+    if (!hasBatchQuery(config)) {
+      issues.push('Add at least one SQL query to the batch.');
     }
   }
 
