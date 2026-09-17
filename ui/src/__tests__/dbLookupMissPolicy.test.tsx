@@ -88,4 +88,14 @@ describe('db_lookup miss policy', () => {
     expect(ttl).toHaveTextContent(/unit/i)
     expect(ttl).toHaveTextContent(/0/)
   })
+
+  // The field used to say empty meant "cached for the lifetime of the process",
+  // which was true and is no longer: resolveLookupTTL now defaults to an hour.
+  // A description that still promised forever would be worse than none.
+  it('names the one-hour default rather than promising forever', async () => {
+    await renderAdvanced({ sourceId: 's1' })
+    const ttl = screen.getByTestId('db-lookup-ttl-description')
+    expect(ttl).toHaveTextContent(/1h|one hour/i)
+    expect(ttl).not.toHaveTextContent(/lifetime of the process/i)
+  })
 })

@@ -491,8 +491,9 @@ export function DBLookupConfig({
                 description={
                   <span data-testid="db-lookup-ttl-description">
                     How long to cache results in memory. Needs a unit — <b>5</b> is rejected, <b>5m</b> is
-                    five minutes. Empty means results are cached for the lifetime of the process;
-                    set <b>0</b> to disable caching.
+                    five minutes. Empty means <b>1h</b>, so an edit to the lookup table reaches a running
+                    workflow within the hour; set <b>0</b> to disable caching, or a long duration
+                    (<b>87600h</b>) to keep a row for the life of the process.
                   </span>
                 }
               />

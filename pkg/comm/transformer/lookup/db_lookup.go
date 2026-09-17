@@ -113,11 +113,8 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 
 	// Parsed before the query, not after it: a ttl that cannot be parsed is a
 	// cache that never expires, and finding that out only once the row is in
-	// hand means the bad entry is already stored. Unset keeps meaning "no
-	// expiry" here -- unlike api_lookup, where a remote response has no claim to
-	// permanence, a lookup table is routinely static reference data and changing
-	// that default would add a query per message to every existing workflow.
-	ttl, err := resolveLookupTTL(ttlStr, 0)
+	// hand means the bad entry is already stored.
+	ttl, err := resolveLookupTTL(ttlStr, defaultDBLookupTTL)
 	if err != nil {
 		return msg, fmt.Errorf("db_lookup: %w", err)
 	}

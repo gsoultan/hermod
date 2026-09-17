@@ -288,3 +288,30 @@ func TestDBLookupBatchSizeAcceptsANumber(t *testing.T) {
 		t.Errorf("configInt(string) = %d, want 25", got)
 	}
 }
+
+// An unset Cache TTL used to mean "keep this row for the lifetime of the
+// process". Correct per key since the cache-key fix, but never refreshed: a row
+// edited in the lookup table was invisible to a running workflow forever.
+func TestDBLookupDoesNotCacheForeverByDefault(t *testing.T) {
+	tr, reg := newFlattenFixture(t)
+
+	cfg := flattenConfig()
+	delete(cfg, "ttl")
+
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	msg.SetData("user_id", "u1")
+
+	ctx := context.WithValue(t.Context(), hermod.RegistryKey, reg)
+	if _, err := tr.Transform(ctx, msg, cfg); err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+
+	if reg.sets != 1 {
+		t.Fatalf("the lookup cached %d times, want 1", reg.sets)
+	}
+	if reg.lastTTL <= 0 {
+		t.Errorf("an unset ttl stored the row with ttl=%v, which SetLookupCache treats as never "+
+			"expiring, so an edit to the lookup table never reaches a running workflow", reg.lastTTL)
+	}
+}
