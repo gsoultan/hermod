@@ -7,6 +7,38 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-09-17
+
+This release is mostly the editor telling the truth. A cluster of surfaces
+looked configured and could not work: the Discord and Slack sink forms rendered
+no fields at all, Telegram's token was written under one name and read under
+another, the "sink in use" warning had nothing to trigger it, "Preview Template"
+rendered nothing, the SMTP sink's S3 template tab pointed at keys the form never
+wrote, and the Available Fields list stayed empty for every node downstream of a
+`batch_sql` source. Beside those, the two email sinks become fully templated —
+every panmail field, plus `.Format` and `.In` helpers so a date column can be
+formatted where the email uses it — and importing a workflow becomes a wizard
+over the bundle's contents rather than a raw-JSON textarea, with export finally
+carrying every source the workflow references instead of dropping the ones it
+names outside a node's `ref_id`.
+
+**If a `db_lookup` or a `batch_sql` source in your pipelines points at a
+database that also has CDC enabled, read the fourth entry before upgrading.**
+Both run SQL against a source they only name, neither used to check whether that
+source was also serving change data capture, and both now refuse. A `batch_sql`
+source whose delegate has CDC on no longer builds, so its workflow will not
+start; a `db_lookup` pointing at a CDC source fails every message through that
+node. `use_cdc` is opt-out — a source carrying no key at all counts as a CDC
+source — so this catches configurations that never set the flag either way. SQL
+Server is the documented exception, because its CDC is read back through
+ordinary queries. The fix is to turn CDC off on that source, or to register a
+second, non-CDC source for the same database and point the node at that.
+
+One smaller upgrade note: a panmail sink that templates `base_url` or `api_key`
+now needs an `allowed_hosts` list and will not start without one, because a
+templated gateway lets a row decide where a tenant-wide credential is sent. A
+panmail sink whose gateway and key are static is unaffected.
+
 ### Fixed — nodes downstream of a batch_sql source had no available fields
 
 Opening a `db_lookup` wired to a `batch_sql` source showed an empty Available
