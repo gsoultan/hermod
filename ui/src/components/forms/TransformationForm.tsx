@@ -416,7 +416,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
           
           {renderPathHelp()}
 
-          <Card withBorder padding="md" radius="md">
+          <Card withBorder padding="md" radius="md" data-testid="available-fields-panel">
             <Group justify="space-between" mb="sm">
               <Group gap="xs">
                 <IconList size="1rem" color="var(--mantine-color-gray-6)" />

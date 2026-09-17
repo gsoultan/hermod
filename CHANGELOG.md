@@ -7,6 +7,38 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — nodes downstream of a batch_sql source had no available fields
+
+Opening a `db_lookup` wired to a `batch_sql` source showed an empty Available
+Fields list, so there was nothing to pick a key field from.
+
+Available Fields is built in the browser from the upstream source's stored
+sample (`useNodeContext`), and a source's sample is captured right after a
+successful Test Connection (`useSourceForm.testMutation` → `fetchSample`).
+`fetchSample` takes the table to sample from `config.tables`, a key a batch
+source does not have — its config carries `source_id`, `cron`,
+`incremental_column` and `queries` — so it posted the empty string.
+`BatchSQLSource.Sample` built its query as `SELECT * FROM <table> LIMIT 1`,
+which with no table is `SELECT * FROM  LIMIT 1`: a syntax error. The sample
+request 400'd, no sample was ever stored, and every node downstream of the batch
+source offered nothing.
+
+`Sample` now previews the first configured query when no table name is given,
+which is also the statement the scheduled run executes, so the columns offered
+are the columns the pipeline actually produces. `{{.last_value}}` is substituted
+the way `runBatch` substitutes it — the empty string before the first run, which
+is what that run sees too — and both paths now decode the query list through one
+helper so a preview cannot drift from the run. The query is not wrapped in a
+`LIMIT`: the statement is the operator's own and the dialect is the delegate's,
+so SQL Server and Oracle would reject the wrapper; one row is read and the rows
+closed instead. A caller that does pass a table (the column browser, the
+sink-side preview) still gets the table query.
+
+Separately, `validateSourceForSampling` asked a batch_sql config for `query` or
+`table` and so reported every configured batch source invalid. That rule is
+latent — `SamplePanel` is its only consumer and nothing renders it today — but it
+is fixed rather than left to be rediscovered if the panel is wired back up.
+
 ### Fixed — queries that borrow a source's database could still land on a CDC one
 
 Two node types run SQL against a source they merely name rather than stream
