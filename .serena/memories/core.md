@@ -62,6 +62,11 @@ find a claim that outruns the code, fix the claim.
   — `configComponents[type] || 'database'` silently rendered the database form
   for twelve sink types, making two of them unconfigurable; and why the panmail
   sink keeps its idempotency claim when a send's outcome is unknown.
+- [panmail: templated routing fields](panmail_templated_routing_fields.md) — why
+  templating `base_url`/`api_key` turns the SDK client into a per-message
+  resource and its cache into a map keyed by row data, the mandatory
+  `allowed_hosts` bound, and why a *static* gateway must stay out of the derived
+  idempotency key.
 - [The FCM sink](fcm_sink.md) — FCM's one-destination and 4096-byte rules, why
   batching is opt-in when there is no idempotency key, and the `option.WithEndpoint`
   seam that makes the wire format assertable.
