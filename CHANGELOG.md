@@ -7,6 +7,115 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — a Foreach (Fan-out) node fanned out into nothing
+
+`ForeachNode` split a message into one per array item and returned all of them.
+The traversal carried one message per node — a single slot per node id, and a
+node fires once — so it delivered the first and silently dropped the rest. A
+three-line order wrote one row and the workflow reported success.
+
+Paired with a `collect` node it was worse than partial: collect waits for
+`_fanout_total` items before it emits, and only one ever arrived, so the group
+never completed and the sink was written to **zero** times, for every message,
+with nothing in the logs.
+
+Each extra fan-out message now walks everything downstream in a traversal of its
+own, and that traversal's routed writes, inline-delivery and dead-letter
+outcomes are folded back into the original — so acknowledgement still reflects
+what happened to every item. The extras are walked one at a time rather than all
+at once: an array field is upstream-controlled, and a goroutine plus a pooled
+traversal per element turns a large array into a memory incident.
+
+`ForeachNode.Execute` had full unit coverage and the traversal had its own
+tests; nothing ran the two together, which is exactly where the messages were
+being thrown away. The tests now start at the registry and assert on what the
+sink received.
+
+### Fixed — a fan-out cost memory in proportion to the square of the array
+
+`Message.Clone` deep-copies every data value, and the foreach node cloned once
+per item — so each of the N messages carried its own copy of the whole
+N-element array it was iterating. Measured for a single message:
+
+| array items | allocated | time |
+| --- | --- | --- |
+| 100 | 3.64 MB | 1.7 ms |
+| 1,000 | 353 MB | 102 ms |
+| 4,000 | 5.64 GB | 3.6 s |
+
+Doubling the array quadrupled the memory. One 4,000-line order was enough to
+exhaust a 7 GB runner, and the node had no bound at all — the width of a fan-out
+was decided by an upstream row.
+
+The node now clones one base, removes the iterated array from it, and clones
+that per item. The N-1 items a given message never reads were the entire cost:
+4,000 items went from 5.64 GB to 8.41 MB and from 3.6 s to 4.5 ms, 671x less
+memory and 813x faster. A fanned-out message therefore no longer carries the
+source array, only its own `_item` and `_index`; **Carry the source array on
+every message** opts back in, and back into the old cost.
+
+`maxItems` bounds the width, defaulting to 10,000. Exceeding it **fails** the
+node with an error naming the actual length, the cap and the setting that raises
+it — so the message dead-letters rather than fanning out part of itself.
+Truncating would have been a partial write to every downstream sink with nothing
+to distinguish it from a short array, which is the failure this whole change set
+is about. Both settings are in the node's editor.
+
+A nested `arrayPath` is removed at its own level: dropping `order.lines` by its
+first segment would have taken `order.id` with it.
+
+### Fixed — nine node types opened a settings panel with no editor in it
+
+`WorkflowNodeSettingsModal` chose what to render from a literal list of node
+types, and the list had drifted from the config registry. `foreach`, `collect`,
+`wait`, `join`, `circuit_breaker`, `approval`, `log`, `deduplicate` and
+`multicast` all have a registered editor and none of them was on it, so clicking
+one of those nodes gave a title, a Remove button and nothing else.
+
+For foreach that made the node impossible to use: `arrayPath` is required, there
+was no field to type it into, and workflow validation then flagged the node as
+unconfigured with no way to act on it. The modal now reads the registry, so
+registering an editor is all it takes for a node type to be configurable.
+
+### Fixed — schema propagation read a config shape the editor does not store
+
+`useWorkflowInitialization` hydrates a saved node as
+`data: { ...node.config, ref_id }` — the config is spread *flat* onto `data`,
+which is why `TransformationForm` passes `config: selectedNode.data`. Schema
+propagation in `useNodeContext` read `node.data.config`, so for every workflow
+loaded from storage it read an empty object and contributed nothing: a
+`targetField` set on any upstream transformation never appeared in Available
+Fields. It now reads the flat shape, keeping the nested one as a fallback for a
+node built in memory.
+
+### Fixed — Available Fields stopped at a fan-out node
+
+Schema propagation in the editor knew about `targetField` and pipeline steps and
+nothing else, so everything downstream of a foreach node listed the source's
+columns and no way to address the item. It now offers `_item` and `_index` past
+a `foreach` node — including the element's own fields, read out of the upstream
+sample — the collected batch and `_count` past a `collect` node, and the
+materialised array past a foreach/fanout transformation. It also *removes* the
+array a foreach consumed, since the node no longer carries it: offering `lines`
+downstream of the split would offer a path that resolves to nothing at run time.
+
+These paths are deliberately not `after.`-prefixed the way a transformation's
+`targetField` is: the engine writes them with `SetData`, and
+`GetMsgValByPath` reads the data map before any CDC envelope, so `_item` is what
+resolves at run time on a CDC message too.
+
+### Fixed — one editor, two different foreach nodes, one description
+
+`ForeachConfig` serves both the `foreach` node type and the foreach/fanout
+*transformation*, and described only the first. A user who took **Foreach /
+Fanout** from Common Transformations was told downstream nodes would run once
+per item and that `_item` and `_index` would be there; that path splits nothing
+and adds neither. It now describes the node it is actually editing, points at
+the other one, and exposes the transformation's own settings — result field,
+item path, index field, limit and drop-when-empty — which were reachable only by
+hand-editing a bundle.
+
+
 ### Fixed — a Character Map node did nothing
 
 The editor's Operation select wrote the chosen operation under `op`. The node

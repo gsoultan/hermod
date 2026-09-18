@@ -75,6 +75,13 @@ export interface TransformConfigProps {
   testLookup?: () => void
   /** The resolved `transType`, for editors that serve more than one. */
   transType?: string
+  /**
+   * The node's own `type`. An editor registered in both maps below serves two
+   * different nodes — `foreach` is a transformation on one path and an
+   * execution-level fan-out on the other — and `transType` cannot tell them
+   * apart, because it falls back to the node type when no subtype is set.
+   */
+  nodeType?: string
 }
 
 // Components accept a subset of TransformConfigProps, so the registry stores

@@ -3,6 +3,7 @@ import { IconSettings, IconTrash } from '@tabler/icons-react';
 import { SourceForm } from '@/components/forms/SourceForm';
 import { SinkForm } from '@/components/forms/SinkForm';
 import { TransformationForm } from '@/components/forms/TransformationForm';
+import { rendersNodeEditor } from './nodeEditorSurfaces';
 import type { Node } from '@xyflow/react';
 import type { Source, Sink } from '@/types';
 
@@ -96,7 +97,7 @@ export function WorkflowNodeSettingsModal({
                 isRefreshing={isRefreshing}
               />
             )}
-            {selectedNode && ['transformation', 'validator', 'condition', 'switch', 'router', 'merge', 'stateful', 'note'].includes(selectedNode.type!) && (
+            {selectedNode && rendersNodeEditor(selectedNode.type) && (
               <Stack gap="sm">
                 <TransformationForm 
                   selectedNode={selectedNode}

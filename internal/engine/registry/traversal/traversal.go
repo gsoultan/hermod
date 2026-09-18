@@ -341,6 +341,21 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 		return
 	}
 
+	// A node that returns more than one message has fanned out, and each of those
+	// messages is an independent walk of everything downstream — that is the only
+	// thing that makes a foreach node write one row per array item.
+	//
+	// This traversal cannot carry them: it holds a single message slot per node
+	// and fires each node exactly once (CurrentMessages / Fired). Handing it all N
+	// delivered the first message and silently dropped the rest — the fan-out node
+	// itself was correct and unit-tested, the loss happened here. So the first
+	// message stays in this traversal and every other one is walked by a traversal
+	// of its own over the same graph, with its results merged back.
+	if len(msgs) > 1 {
+		t.forkFanout(ctx, node, msgs[1:], branch)
+		msgs = msgs[:1]
+	}
+
 	targets := t.Adj[node.ID]
 	for _, targetID := range targets {
 		taken := true
@@ -371,6 +386,68 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 			t.pruneBranch(ctx, targetID)
 		}
 	}
+}
+
+// forkFanout walks the graph below node once for each extra fan-out message.
+//
+// It runs on its own goroutine so the fan-out node's concurrency slot is not
+// held for the length of the walks below it — holding it would deadlock any
+// graph whose downstream loops back. The extras are walked one at a time rather
+// than all at once: an array field is attacker- or upstream-controlled, and a
+// goroutine and a pooled traversal per element turns a 100k-row array into a
+// memory incident. The first message is already walking in parallel with these.
+func (t *WorkflowTraversal) forkFanout(ctx context.Context, node *storage.WorkflowNode, extras []hermod.Message, branch string) {
+	// The caller releases msgs as soon as handleResults returns, so this
+	// goroutine needs references of its own.
+	owned := make([]hermod.Message, len(extras))
+	for i, m := range extras {
+		m.Retain()
+		owned[i] = m
+	}
+
+	t.Wg.Go(func() {
+		defer func() {
+			for _, m := range owned {
+				m.Release()
+			}
+		}()
+		for _, m := range owned {
+			t.walkFrom(ctx, node, m, branch)
+		}
+	})
+}
+
+// walkFrom runs one message through everything downstream of node in a
+// traversal of its own, then folds that traversal's outcome into this one.
+func (t *WorkflowTraversal) walkFrom(ctx context.Context, node *storage.WorkflowNode, msg hermod.Message, branch string) {
+	child := Acquire(t.Registry, t.Eng, t.WorkflowID, t.NodeMap, t.Adj, t.NodeIndex,
+		t.EdgeLabels, t.EdgeBreakpoints, t.InDegree, t.SinkNodeToIndex)
+
+	child.handleResults(ctx, node, []hermod.Message{msg}, branch, nil)
+	child.Wg.Wait()
+
+	// Routed messages carry a reference each; moving them hands that reference to
+	// this traversal, whose caller releases them after the writers have run.
+	t.RoutedMu.Lock()
+	child.RoutedMu.Lock()
+	t.Routed = append(t.Routed, child.Routed...)
+	child.Routed = child.Routed[:0]
+	child.RoutedMu.Unlock()
+	t.RoutedMu.Unlock()
+
+	// Acknowledgement is decided on the parent traversal, so an item delivered,
+	// failed or dead-lettered down here has to be visible there.
+	if child.InlineDelivered.Load() {
+		t.InlineDelivered.Store(true)
+	}
+	if child.InlineFailed.Load() {
+		t.InlineFailed.Store(true)
+	}
+	if child.DeadLettered.Load() {
+		t.DeadLettered.Store(true)
+	}
+
+	Release(child)
 }
 
 func (t *WorkflowTraversal) pruneBranch(ctx context.Context, targetID string) {
