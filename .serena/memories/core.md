@@ -104,6 +104,11 @@ find a claim that outruns the code, fix the claim.
   across rows), renaming onto a taken path ate a row, and ranging the Go map
   gave a different apply order per message. Blur fires *before* the click that
   caused it, so a pending edit cannot be flushed there.
+- [`data_conversion` holds a list of rows](data_conversion_row_list.md) — one node
+  now retypes several fields, each to its own target type, with `On Error` a
+  node default any row may override. The list is authoritative by *presence*,
+  not length (an empty list converts nothing), and writes are staged so a failing
+  row cannot hand a half-converted message to a sink on `onError: continue`.
 
 ### Gates
 

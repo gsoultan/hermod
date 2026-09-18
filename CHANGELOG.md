@@ -7,6 +7,31 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Added — one `data_conversion` node converts several fields
+
+A `data_conversion` node held one field and one target type. Retyping five
+columns meant five chained nodes, each with its own field name to keep in step
+and its own error setting to remember — and the editor gives no hint that
+chaining is what you are supposed to do.
+
+The node now holds a list of conversions. Each row has its own field, target
+type, date format, separator, element type and target field, so one node can
+send `amount` to Float, `qty` to Integer, `created_at` to Date and `tags` to an
+Array of UUIDs. **Add Conversion** adds a row; the bin icon removes one.
+
+**On Error** is now a node-level default that any row may override, which is the
+case chaining was really being used for: fail hard on a key column while letting
+an optional one go null. A row left on *Use node default* follows the node.
+
+Rows apply in the order shown, and each one reads the message as it arrived
+rather than as the row above it left it — so a row's result never depends on
+where it sits in the list. Nothing is written until every row has resolved: a row
+that fails under *Fail* leaves the message exactly as it came in, instead of
+handing a half-converted row to the sink on a workflow set to continue on error.
+
+Existing nodes are unchanged and keep working; the editor shows a stored
+single-field conversion as the first row and migrates it on the first edit.
+
 ### Fixed — typing a field name in a `set` node scattered it across other rows
 
 A `set` (and `advanced`) node stores its mappings as flat `column.<path>` keys,

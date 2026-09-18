@@ -24,78 +24,197 @@ func init() {
 
 type DataConversionTransformer struct{}
 
+// conversionRow is one field's conversion. A node holds a list of them, so a
+// single node retypes several fields at once, each to its own target type --
+// previously one node meant one field, and a row with five columns to retype
+// meant five chained nodes.
+type conversionRow struct {
+	field         string
+	targetType    string // "int", "float", "bool", "string", "date", "uuid", "array", "json"
+	format        string // used for date
+	separator     string // used for array <-> string, default ","
+	elementType   string // used for array: coerce each element
+	targetField   string // defaults to field
+	errorBehavior string // "fail", "null", "keep"; empty inherits the node's
+}
+
+// parseConversions reads the node's row list, falling back to the single-field
+// keys that every config stored before the list existed still uses.
+//
+// Row order is the config's order and is not re-sorted. The rows are persisted
+// as a JSON array, which keeps its order, so this node does not have the
+// problem the `set` node has: its columns live in a map, whose order is gone by
+// the time the config is read back, and had to be sorted by path to stop two
+// overlapping writes from landing differently from message to message.
+func parseConversions(config map[string]any) []conversionRow {
+	nodeBehavior, _ := config["errorBehavior"].(string)
+
+	// Presence of the row list is what makes it authoritative, not whether it
+	// has rows in it. An operator who deletes the last row means the node
+	// converts nothing; treating an empty list as "fall back to the legacy
+	// keys" would have quietly resurrected the conversion they just removed,
+	// because the editor leaves the pre-list keys in place.
+	if raw, ok := config["conversions"].([]any); ok {
+		rows := make([]conversionRow, 0, len(raw))
+		for _, entry := range raw {
+			m, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			row := conversionRow{
+				field:         rowString(m, "field"),
+				targetType:    rowString(m, "targetType"),
+				format:        rowString(m, "format"),
+				separator:     rowString(m, "separator"),
+				elementType:   rowString(m, "elementType"),
+				targetField:   rowString(m, "targetField"),
+				errorBehavior: rowString(m, "errorBehavior"),
+			}
+			if row.errorBehavior == "" {
+				// The node-level setting is the default every row starts from;
+				// a row only carries its own when it disagrees.
+				row.errorBehavior = nodeBehavior
+			}
+			rows = append(rows, row)
+		}
+		return rows
+	}
+
+	field, _ := config["field"].(string)
+	if field == "" {
+		return nil
+	}
+	return []conversionRow{{
+		field:         field,
+		targetType:    rowString(config, "targetType"),
+		format:        rowString(config, "format"),
+		separator:     rowString(config, "separator"),
+		elementType:   rowString(config, "elementType"),
+		targetField:   rowString(config, "targetField"),
+		errorBehavior: nodeBehavior,
+	}}
+}
+
+func rowString(m map[string]any, key string) string {
+	s, _ := m[key].(string)
+	return s
+}
+
+func (t *DataConversionTransformer) Prepare(config map[string]any) (map[string]any, error) {
+	if rows := parseConversions(config); len(rows) > 0 {
+		config["_parsed_conversions"] = rows
+	}
+	return config, nil
+}
+
 func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
 	}
 
-	field, _ := config["field"].(string)
-	if field == "" {
+	var rows []conversionRow
+	if cached, ok := config["_parsed_conversions"].([]conversionRow); ok {
+		rows = cached
+	} else {
+		// Fallback for non-prepared config -- the editor's preview endpoint
+		// passes the node config as stored. Shares parseConversions with
+		// Prepare so a node cannot resolve one way in the engine and another in
+		// the preview the operator is looking at.
+		rows = parseConversions(config)
+	}
+	if len(rows) == 0 {
 		return msg, nil
 	}
 
-	targetType, _ := config["targetType"].(string)       // "int", "float", "bool", "string", "date", "uuid", "array"
-	format, _ := config["format"].(string)               // used for date
-	errorBehavior, _ := config["errorBehavior"].(string) // "fail", "null", "keep"
-	separator, _ := config["separator"].(string)         // used for array <-> string, default ","
-	elementType, _ := config["elementType"].(string)     // used for array: coerce each element
+	// Writes are staged and applied only once every row has resolved.
+	//
+	// Converting in place would leave a half-converted message behind when a
+	// later row fails: applyTransformation forwards the *input* message for a
+	// workflow with onError "continue" (internal/engine/registry/registry.go),
+	// so some columns would reach the sink retyped and the failed one raw, with
+	// nothing downstream able to tell the difference. It also means every row
+	// reads the message as it arrived rather than as an earlier row left it, so
+	// two rows reading the same field agree wherever they sit in the list.
+	type pendingWrite struct {
+		field string
+		value any
+	}
+	writes := make([]pendingWrite, 0, len(rows))
 
-	valRaw := evaluator.EvaluateField(msg, field)
+	for _, row := range rows {
+		if row.field == "" {
+			// The editor adds an empty row the moment Add is clicked. A row
+			// nobody has filled in yet is not a reason to fail every message.
+			continue
+		}
 
-	var converted any
-	var err error
+		valRaw := evaluator.EvaluateField(msg, row.field)
 
-	if valRaw == nil {
-		// A field that resolves to nothing is a conversion failure, and follows
-		// the configured error behaviour like any other.
-		//
-		// It used to return the message unchanged with no error: a green node,
-		// untouched data, and nothing anywhere to say the conversion never ran.
-		// A misspelled field name is the common way to get here, and the editor
-		// offers field names from the source's stored Sample, which is known to
-		// drift from the names a live CDC stream actually carries. The editor
-		// also defaults Error Behaviour to "fail", so staying silent contradicted
-		// the setting the operator was looking at.
-		//
-		// Pipelines where the field is genuinely optional set "keep" (leave the
-		// message alone) or "null" (write an explicit null).
-		err = fmt.Errorf("field %q resolved to nothing on this message", field)
-	} else {
-		switch strings.ToLower(targetType) {
-		case "array", "list":
-			converted, err = t.toArray(valRaw, separator, elementType)
-		default:
-			converted, err = t.convertScalar(valRaw, targetType, format, separator)
-			if err != nil && errors.Is(err, errUnsupportedTargetType) {
-				// An unknown target type is a configuration fault, not a value
-				// fault, so it is not subject to errorBehavior.
-				return msg, err
+		var converted any
+		var err error
+
+		if valRaw == nil {
+			// A field that resolves to nothing is a conversion failure, and
+			// follows the configured error behaviour like any other.
+			//
+			// It used to return the message unchanged with no error: a green
+			// node, untouched data, and nothing anywhere to say the conversion
+			// never ran. A misspelled field name is the common way to get here,
+			// and the editor offers field names from the source's stored
+			// Sample, which is known to drift from the names a live CDC stream
+			// actually carries. The editor also defaults Error Behaviour to
+			// "fail", so staying silent contradicted the setting the operator
+			// was looking at.
+			//
+			// Pipelines where the field is genuinely optional set "keep" (leave
+			// the message alone) or "null" (write an explicit null).
+			err = fmt.Errorf("field %q resolved to nothing on this message", row.field)
+		} else {
+			switch strings.ToLower(row.targetType) {
+			case "array", "list":
+				converted, err = t.toArray(valRaw, row.separator, row.elementType)
+			default:
+				converted, err = t.convertScalar(valRaw, row.targetType, row.format, row.separator)
+				if err != nil && errors.Is(err, errUnsupportedTargetType) {
+					// An unknown target type is a configuration fault, not a
+					// value fault, so it is not subject to errorBehavior.
+					return msg, err
+				}
+			}
+			if err != nil {
+				// Named, because a node now holds several rows and the
+				// underlying errors do not say which value they choked on:
+				// strconv reports `parsing "abc": invalid syntax` and nothing more.
+				err = fmt.Errorf("field %q: %w", row.field, err)
 			}
 		}
-	}
 
-	if err != nil {
-		switch strings.ToLower(errorBehavior) {
-		case "null":
-			converted = nil
-		case "keep":
-			if valRaw == nil {
-				// Nothing to keep. Writing the target field as null here would
-				// invent a field the message never had.
-				return msg, nil
+		if err != nil {
+			switch strings.ToLower(row.errorBehavior) {
+			case "null":
+				converted = nil
+			case "keep":
+				if valRaw == nil {
+					// Nothing to keep. Writing the target field as null here
+					// would invent a field the message never had.
+					continue
+				}
+				converted = valRaw
+			default: // "fail", and unset — the editor's default is "fail"
+				return nil, err
 			}
-			converted = valRaw
-		default: // "fail", and unset — the editor's default is "fail"
-			return nil, err
 		}
+
+		targetField := row.targetField
+		if targetField == "" {
+			targetField = row.field
+		}
+		writes = append(writes, pendingWrite{field: targetField, value: converted})
 	}
 
-	targetField, _ := config["targetField"].(string)
-	if targetField == "" {
-		targetField = field
+	for _, w := range writes {
+		msg.SetData(w.field, w.value)
 	}
-
-	msg.SetData(targetField, converted)
 	return msg, nil
 }
 
