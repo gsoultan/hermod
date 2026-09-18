@@ -342,6 +342,12 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 			}
 			gcfg.Pattern = cfg.Config["pattern"]
 			gcfg.Recursive = cfg.Config["recursive"] == "true"
+			// Row semantics, used by the parquet format: which table the rows
+			// belong to, which column keys them, and which column carries the
+			// CDC operation.
+			gcfg.Table = cfg.Config["table"]
+			gcfg.KeyField = cfg.Config["key_field"]
+			gcfg.OpField = cfg.Config["op_field"]
 			switch backend {
 			case "local", "file":
 				gcfg.Backend = sourcefile.BackendLocal
@@ -952,6 +958,7 @@ func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 			cfg.Config["secret_key"],
 			cfg.Config["endpoint"],
 			cfg.Config["schema"],
+			cfg.Config["operation_field"],
 			parallelizer,
 		)
 	case "ftp":

@@ -221,8 +221,9 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
           label="Data Format" 
           data={[
             { value: 'raw', label: 'Raw Bytes (Single message per file)' },
-            { value: 'csv', label: 'CSV (Row-by-row streaming)' }
-          ]} 
+            { value: 'csv', label: 'CSV (Row-by-row streaming)' },
+            { value: 'parquet', label: 'Parquet (Row-by-row, with insert/update/delete)' }
+          ]}
           value={config.format || 'raw'} 
           onChange={(val: string | null) => updateConfig('format', val || 'raw')} 
           description="Input file format"
@@ -253,6 +254,36 @@ export function FileSourceConfig({ config, updateConfig, handleFileUpload, uploa
               mt="xl"
             />
           </FormRow>
+        </Fieldset>
+      )}
+
+      {config.format === 'parquet' && (
+        <Fieldset legend="Parquet Row Options">
+          <Stack gap="xs">
+            <TextInput
+              label="Target Table"
+              placeholder="customers"
+              value={config.table || ''}
+              onChange={(e) => updateConfig('table', e.target.value)}
+              description="Table these rows belong to. Sinks fall back to it when they have no table of their own."
+            />
+            <FormRow>
+              <TextInput
+                label="Key Column"
+                placeholder="id"
+                value={config.key_field || ''}
+                onChange={(e) => updateConfig('key_field', e.target.value)}
+                description="Column holding the record key. Required once the file carries updates or deletes — it is what the sink targets the row by."
+              />
+              <TextInput
+                label="Operation Column"
+                placeholder="operation"
+                value={config.op_field || ''}
+                onChange={(e) => updateConfig('op_field', e.target.value)}
+                description="Column holding create / update / delete (or c / u / d). Defaults to 'operation'; a file without it is read as all inserts. Use '-' if your file has an 'operation' column that means something else."
+              />
+            </FormRow>
+          </Stack>
         </Fieldset>
       )}
     </Stack>
