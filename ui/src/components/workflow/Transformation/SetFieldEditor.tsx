@@ -11,7 +11,7 @@ import {
   Box,
   Tooltip,
 } from '@mantine/core';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   IconBracketsContain,
   IconPlus,
@@ -20,6 +20,11 @@ import {
   IconEdit,
 } from '@tabler/icons-react';
 import { TemplateField } from '../../shared/TemplateField';
+import {
+  listColumnFields,
+  removeColumnField,
+  renameColumnField,
+} from './columnFields';
 
 interface SetFieldEditorProps {
   selectedNode: any;
@@ -45,24 +50,72 @@ export function SetFieldEditor({
     [availableFields]
   );
 
-  const fields = Object.entries(selectedNode.data)
-    .filter(([k]) => k.startsWith('column.'))
-    .map(([k, v]) => ({ fullKey: k, path: k.replace('column.', ''), value: v }));
+  const fields = listColumnFields(selectedNode.data);
+
+  /**
+   * Paths typed into a row that have not been committed to the config, keyed by
+   * the row's current config key.
+   *
+   * A row's identity *is* its `column.<path>` key, so a path another row already
+   * holds cannot be written — the object would keep one of the two and the other
+   * row, with its value, would vanish. The text stays on screen with the
+   * collision named, and commits as soon as it is unique again.
+   */
+  const [draftPaths, setDraftPaths] = useState<Record<string, string>>({});
+
+  const forgetDraft = (fullKey: string) =>
+    setDraftPaths(({ [fullKey]: _dropped, ...rest }) => rest);
+
+  /**
+   * Commits a rebuilt config, applying any held rename it has made possible.
+   *
+   * A draft only exists because its path collided, so freeing that path — by
+   * renaming or deleting the row that owned it — settles it. Doing that here,
+   * in the same update, is what keeps a blocked rename from being stranded:
+   * blur fires *before* the click that caused it, so a delete button cannot
+   * flush the draft on its way past.
+   */
+  const commit = (next: Record<string, any>) => {
+    let merged = next;
+    const settled: string[] = [];
+    for (const [fullKey, path] of Object.entries(draftPaths)) {
+      if (!(fullKey in merged)) {
+        // The row is gone, or was itself just renamed. Either way the draft has
+        // nothing left to apply to.
+        settled.push(fullKey);
+        continue;
+      }
+      const renamed = renameColumnField(merged, fullKey, path);
+      if (renamed) {
+        merged = renamed;
+        settled.push(fullKey);
+      }
+    }
+    if (settled.length > 0) {
+      setDraftPaths((d) => {
+        const rest = { ...d };
+        for (const k of settled) delete rest[k];
+        return rest;
+      });
+    }
+    updateNodeConfig(selectedNode.id, merged, true);
+  };
 
   const updateFieldPath = (oldFullKey: string, newPath: string) => {
-    const baseData = Object.fromEntries(
-      Object.entries(selectedNode.data).filter(([k]) => !k.startsWith('column.'))
-    );
-    const otherFields = Object.fromEntries(
-      Object.entries(selectedNode.data).filter(
-        ([k]) => k.startsWith('column.') && k !== oldFullKey
-      )
-    );
-    updateNodeConfig(
-      selectedNode.id,
-      { ...baseData, ...otherFields, [`column.${newPath}`]: selectedNode.data[oldFullKey] },
-      true
-    );
+    const currentPath = oldFullKey.slice('column.'.length);
+    if (newPath === currentPath) {
+      forgetDraft(oldFullKey);
+      return;
+    }
+    // Renames in place. Rebuilding as `{ ...others, [newKey]: value }` moved the
+    // edited row to the bottom of the list on every keystroke, which — with rows
+    // keyed by position — left the caret in whichever row had moved up into it.
+    const next = renameColumnField(selectedNode.data, oldFullKey, newPath);
+    if (!next) {
+      setDraftPaths((d) => ({ ...d, [oldFullKey]: newPath }));
+      return;
+    }
+    commit(next);
   };
 
   const updateFieldValue = (fullKey: string, newValue: any) => {
@@ -70,13 +123,7 @@ export function SetFieldEditor({
   };
 
   const removeField = (fullKey: string) => {
-    const baseData = Object.fromEntries(
-      Object.entries(selectedNode.data).filter(([k]) => !k.startsWith('column.'))
-    );
-    const remainingFields = Object.fromEntries(
-      Object.entries(selectedNode.data).filter(([k]) => k.startsWith('column.') && k !== fullKey)
-    );
-    updateNodeConfig(selectedNode.id, { ...baseData, ...remainingFields }, true);
+    commit(removeColumnField(selectedNode.data, fullKey));
   };
 
   const isAdvanced = transType === 'advanced';
@@ -141,7 +188,24 @@ export function SetFieldEditor({
         </Paper>
       ) : (
         <Stack gap="xs">
-          {fields.map((field, index) => (
+          {/*
+            Keyed by position, not by `field.fullKey`: the key changes on every
+            keystroke in Target Path, and React would unmount the input the user
+            is typing into. Position is stable because a rename no longer
+            reorders the list.
+          */}
+          {fields.map((field, index) => {
+            const draft = draftPaths[field.fullKey];
+            const pathValue = draft ?? field.path;
+            // Read from the config as it stands, not from the draft's mere
+            // existence: delete or rename the row that owned the path and the
+            // collision is over, so the message must not outlive it. `commit`
+            // applies the held rename in that same update.
+            const duplicate =
+              draft !== undefined && `column.${draft}` in selectedNode.data
+                ? `"${draft}" is already set by another row.`
+                : undefined;
+            return (
             <Paper key={index} withBorder p="xs" radius="md" className="hover:border-indigo-200 transition-colors">
               <Group grow gap="xs" align="flex-start">
                 <Box style={{ flex: 1.5 }}>
@@ -149,12 +213,19 @@ export function SetFieldEditor({
                     Target Path
                   </Text>
                   <Autocomplete
+                    aria-label="Target path"
                     placeholder="e.g. user.id"
                     data={fieldPaths}
                     size="xs"
                     leftSection={<IconBracketsContain size={rem(14)} />}
-                    value={field.path}
+                    value={pathValue}
+                    error={duplicate}
                     onChange={(val) => updateFieldPath(field.fullKey, val)}
+                    onBlur={() => {
+                      // Nothing is unmounted by a rename-in-place, so this
+                      // cannot eat the click that caused the blur.
+                      if (draft !== undefined) updateFieldPath(field.fullKey, draft);
+                    }}
                     styles={{ input: { fontFamily: 'monospace' } }}
                   />
                 </Box>
@@ -163,6 +234,7 @@ export function SetFieldEditor({
                     Value / Expression
                   </Text>
                   <TemplateField
+                    aria-label="Value or expression"
                     placeholder="Value or expression (e.g. source.name, lower(source.name))"
                     value={String(field.value || '')}
                     onChange={(val) => updateFieldValue(field.fullKey, val)}
@@ -188,7 +260,8 @@ export function SetFieldEditor({
                 </Box>
               </Group>
             </Paper>
-          ))}
+            );
+          })}
         </Stack>
       )}
 

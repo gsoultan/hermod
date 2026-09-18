@@ -64,7 +64,7 @@ export const NODE_CATEGORIES = [
     title: 'Data Flow (SSIS)',
     group: 'transformations',
     items: [
-      { type: 'transformation', refId: 'new', label: 'Data Conversion', subType: 'data_conversion', icon: IconRefresh, color: 'blue', description: 'Explicit type casting between types' },
+      { type: 'transformation', refId: 'new', label: 'Data Conversion', subType: 'data_conversion', icon: IconRefresh, color: 'blue', description: 'Explicit type casting, one row per field' },
       { type: 'transformation', refId: 'new', label: 'Character Map', subType: 'char_map', icon: IconLetterCase, color: 'blue', description: 'String normalization (Upper, Lower, Trim)' },
       { type: 'transformation', refId: 'new', label: 'Audit', subType: 'audit', icon: IconHistory, color: 'blue', description: 'Inject execution metadata' },
       { type: 'transformation', refId: 'new', label: 'Sampling', subType: 'sampling', icon: IconPercentage, color: 'blue', description: 'Percentage or row-based sampling' },

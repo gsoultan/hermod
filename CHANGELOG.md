@@ -7,6 +7,111 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — a Character Map node did nothing
+
+The editor's Operation select wrote the chosen operation under `op`. The node
+read `operations` and `operation`, and never `op`, so its operation list came out
+empty, the loop applied nothing, and the field was written back exactly as it
+arrived. A green node, no error, nothing in the logs — and since the editor is
+the only way to build a Character Map node, that was every one of them.
+
+The node now also reads `op`, which repairs existing nodes without touching
+them, and resolves the keys in a fixed order — `operations`, then `operation`,
+then `op` — so a config holding more than one behaves the same way every time.
+The editor writes `operation` from now on and clears the stale `op` as it goes.
+
+The node had no tests at all, which is how a selector that was wired to nothing
+survived. It has them now, including one that pins every operation the editor
+offers to one the node implements.
+
+### Added — one `data_conversion` node converts several fields
+
+A `data_conversion` node held one field and one target type. Retyping five
+columns meant five chained nodes, each with its own field name to keep in step
+and its own error setting to remember — and the editor gives no hint that
+chaining is what you are supposed to do.
+
+The node now holds a list of conversions. Each row has its own field, target
+type, date format, separator, element type and target field, so one node can
+send `amount` to Float, `qty` to Integer, `created_at` to Date and `tags` to an
+Array of UUIDs. **Add Conversion** adds a row; the bin icon removes one.
+
+**On Error** is now a node-level default that any row may override, which is the
+case chaining was really being used for: fail hard on a key column while letting
+an optional one go null. A row left on *Use node default* follows the node.
+
+Rows apply in the order shown, and each one reads the message as it arrived
+rather than as the row above it left it — so a row's result never depends on
+where it sits in the list. Nothing is written until every row has resolved: a row
+that fails under *Fail* leaves the message exactly as it came in, instead of
+handing a half-converted row to the sink on a workflow set to continue on error.
+
+Existing nodes are unchanged and keep working; the editor shows a stored
+single-field conversion as the first row and migrates it on the first edit.
+
+### Fixed — typing a field name in a `set` node scattered it across other rows
+
+A `set` (and `advanced`) node stores its mappings as flat `column.<path>` keys,
+so the row order in the editor is nothing but object key order. Renaming rebuilt
+that object as `{ ...others, ['column.' + newPath]: value }`, which dropped the
+edited key and re-appended it last. The Target Path input fires per keystroke, so
+each character sent its row to the bottom of the list — and because rows are
+keyed by position, the caret was left in whichever row had moved up into it.
+Typing `_id` into the first of three rows produced `alpha_`, `betai`, `gammad`.
+
+- **Renaming now rewrites the key in place**, so nothing moves and the caret
+  stays put.
+- **Renaming onto a path another row already holds no longer merges the two.**
+  A config object can only hold the key once, so the write silently discarded one
+  row and its value. The typed text stays on screen, the collision is named, and
+  it commits as soon as the path is unique again.
+- **"Add Field" no longer overwrites an existing row.** The generated name was
+  `new_field_<count>`; delete a middle row and the count points at a name that is
+  still taken, so the button appeared to do nothing while replacing that row's
+  value. It now picks the first free name.
+- Both inputs in a row carry an accessible name, so they are reachable without
+  relying on visual order.
+
+### Fixed — a `set` node applied its fields in a different order each message
+
+`Prepare` collected the `column.*` entries by ranging a Go map, which is
+randomised per range, and a `set` node applies them one at a time. Two columns
+touching the same path — or one whose expression reads what another just wrote —
+therefore resolved differently from message to message inside a single run, with
+nothing wrong in the config and nothing in the logs. They are now sorted by path,
+which also puts a parent path before the child that writes into it. The preview
+endpoint's unprepared-config fallback shares the same parser, so a node cannot
+resolve one way in the editor and another in the engine.
+
+An `advanced` node evaluated into a map and then ranged *that* map to write the
+results out, so fixing the evaluation order alone was not enough. `SetData` nests
+a dotted path, so overlapping paths gave two different messages from one node and
+one input — measured over 300 runs of a node with `column.a` and `column.a.b`,
+266 came out `{"a":{"b":"child"}}` and 34 came out `{"a":"parent"}`. The results
+are now written in the order they were evaluated in.
+
+The editor's row order cannot be used for this: the config is stored as JSON,
+which has no key order, so it is already gone by the time the engine sees it. A
+fixed order is what is available, and it is what makes a pipeline that works in
+test work in production.
+
+### Added — `data_conversion` converts to JSON for a `json`/`jsonb` column
+
+An object built in a `set` node, or read from a document source, had no way into
+a JSON column outside PostgreSQL: `database/sql` rejects a `map[string]any`
+outright, and the PostgreSQL sink's own marshalling only runs where it already
+knows the column type. The new **JSON / JSONB** target type renders any value as
+JSON text.
+
+Text that already holds a JSON object or array passes through unchanged, so it is
+not double-encoded into a JSON string; anything else is encoded, so `"123"` stays
+the text `"123"` rather than becoming the number `123` — converting to a number is
+what the Integer type is for. Text that *opens* like JSON but does not parse is an
+error subject to On Error, rather than being quoted and stored: a truncated
+payload is a real failure mode and storing `"{\"a\":1"` as a success is not a
+useful answer. It is available per element of an Array conversion too, for a
+`jsonb[]` column.
+
 ### Fixed — `execute_sql` could do nothing and report success
 
 It has no cache and cannot serve a stale answer — it re-resolves its template

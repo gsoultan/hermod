@@ -6,6 +6,7 @@ import { apiFetch } from '@/api';
 import { usePreviewTransformation } from '../../pages/workflows/WorkflowEditor/hooks/usePreviewTransformation';
 import { useTargetSchema } from '../../pages/workflows/WorkflowEditor/hooks/useTargetSchema';
 import { resolveConfigComponent } from '../workflow/Transformation/configs/registry';
+import { nextColumnFieldName } from '../workflow/Transformation/columnFields';
 // Lazy-load heavy UI components to reduce initial bundle size (Junie compliance)
 const PreviewPanel = lazy(() =>
   import('../workflow/Transformation/PreviewPanel').then((m) => ({ default: m.PreviewPanel }))
@@ -256,9 +257,10 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
   if (!selectedNode) return null;
 
   const addField = (path: string = '', value: string = '') => {
-    const fields = Object.entries(selectedNode.data)
-      .filter(([k]) => k.startsWith('column.'));
-    const fieldName = path || `new_field_${fields.length}`;
+    // The generated name has to be one no row holds. It used to be the row
+    // count, so deleting a middle row made the next "Add Field" land on a name
+    // that was still taken: no row appeared and that row's value was replaced.
+    const fieldName = path || nextColumnFieldName(selectedNode.data);
     updateNodeConfig(selectedNode.id, { [`column.${fieldName}`]: value });
   };
 
