@@ -99,7 +99,7 @@ func pqMsg(t *testing.T, id, name string) hermod.Message {
 func TestABatchBecomesAParquetObject(t *testing.T) {
 	endpoint, ak, sk, bucket, client := requireS3P(t)
 
-	sink, err := NewS3ParquetSink(t.Context(), "us-east-1", bucket, "pq/", ak, sk, endpoint, testSchema, 1)
+	sink, err := NewS3ParquetSink(t.Context(), "us-east-1", bucket, "pq/", ak, sk, endpoint, testSchema, "", 1)
 	if err != nil {
 		t.Fatalf("sink: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestABatchBecomesAParquetObject(t *testing.T) {
 func TestAnUndecodableMessageIsNotSilentlyDropped(t *testing.T) {
 	endpoint, ak, sk, bucket, _ := requireS3P(t)
 
-	sink, err := NewS3ParquetSink(t.Context(), "us-east-1", bucket, "pq/", ak, sk, endpoint, testSchema, 1)
+	sink, err := NewS3ParquetSink(t.Context(), "us-east-1", bucket, "pq/", ak, sk, endpoint, testSchema, "", 1)
 	if err != nil {
 		t.Fatalf("sink: %v", err)
 	}

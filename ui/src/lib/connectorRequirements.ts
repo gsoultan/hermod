@@ -142,7 +142,12 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
     { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'rabbit.example.com' },
     { key: 'queue_name', label: 'Queue name', example: 'hermod-queue' },
   ],
-  elasticsearch: [{ key: 'url', label: 'Server URL', example: 'https://es.example.com:9200' }],
+  // Gated on `addresses`, which is what ElasticsearchSinkConfig writes and what
+  // the factory splits on. It used to demand `url`, a key neither side has, so
+  // Next could never enable for an elasticsearch sink.
+  elasticsearch: [
+    { key: 'addresses', label: 'Server addresses', example: 'https://es.example.com:9200' },
+  ],
   http: [{ key: 'url', label: 'Destination URL', example: 'https://api.example.com/ingest' }],
   websocket: [{ key: 'url', label: 'WebSocket URL', example: 'wss://receiver.example.com/in' }],
   // The three below are gated because their factory case returns an error
@@ -162,9 +167,16 @@ const SINK_REQUIREMENTS: Record<string, RequiredField[]> = {
     { key: 'bucket', label: 'Bucket', example: 'my-data-lake' },
     { key: 'region', label: 'Region', example: 'us-east-1' },
   ],
-  s3parquet: [
+  's3-parquet': [
     { key: 'bucket', label: 'Bucket', example: 'my-data-lake' },
     { key: 'region', label: 'Region', example: 'us-east-1' },
+    // Without a schema the parquet writer cannot be constructed at all, so the
+    // first batch fails rather than the save.
+    {
+      key: 'schema',
+      label: 'Parquet schema',
+      example: '{"Tag":"name=parquet_go_root, repetitiontype=REQUIRED","Fields":[…]}',
+    },
   ],
   smtp: [
     { key: 'host', label: 'SMTP host', example: 'smtp.example.com' },
@@ -274,6 +286,17 @@ export function missingConnectionFields(
     .filter((f) => f.when?.(cfg) ?? true)
     .filter((f) => blank(f.key) && (f.aliases ?? []).every(blank))
     .map((f) => f.label);
+}
+
+/**
+ * The connector types this module has an opinion about.
+ *
+ * Exported so a test can prove every entry is reachable: an entry keyed by a
+ * type string no connector ever has is a gate that silently never runs, which
+ * is how the s3-parquet sink kept a requirements list keyed `s3parquet`.
+ */
+export function typesWithRequirements(kind: 'source' | 'sink'): string[] {
+  return Object.keys(kind === 'source' ? SOURCE_REQUIREMENTS : SINK_REQUIREMENTS);
 }
 
 /** The example placeholder for a required field, for use by the form. */

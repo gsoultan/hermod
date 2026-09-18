@@ -47,8 +47,9 @@ const (
 type Format string
 
 const (
-	FormatRaw Format = "raw" // emit one message per file, payload contains file bytes
-	FormatCSV Format = "csv" // emit one message per CSV record (like legacy CSVSource)
+	FormatRaw     Format = "raw"     // emit one message per file, payload contains file bytes
+	FormatCSV     Format = "csv"     // emit one message per CSV record (like legacy CSVSource)
+	FormatParquet Format = "parquet" // emit one message per parquet row, carrying its CDC operation
 )
 
 // GenericConfig contains configuration for the generic file source.
@@ -58,7 +59,24 @@ type GenericConfig struct {
 	Pattern      string // glob like *.csv (applies to local/ftp; s3 handled via prefix + filter)
 	Recursive    bool
 	PollInterval time.Duration // how often to rescan when queue is empty (0 = one-shot)
-	Format       Format        // raw or csv
+	Format       Format        // raw, csv or parquet
+
+	// Row semantics (parquet)
+	//
+	// Table is the table each row belongs to; sinks fall back to it when they
+	// have no table of their own configured.
+	//
+	// KeyField names the column holding the record's key. It becomes the message
+	// ID, which is what a sink without column mappings targets an update or a
+	// delete by — so it is required as soon as the file carries either.
+	//
+	// OpField names the column holding the CDC operation. Left empty it defaults
+	// to "operation"; a file with no such column is read as all inserts. Set it
+	// to "-" to ignore the operation column and treat every row as an insert,
+	// for a file whose "operation" column means something else.
+	Table    string
+	KeyField string
+	OpField  string
 
 	// Local
 	LocalPath string // directory or file path
@@ -104,8 +122,43 @@ type GenericFileSource struct {
 	lastMTime   time.Time // watermark by modification time
 
 	// Active reader for CSV per-file iteration
-	activeFile *fileRef
-	csvReader  *CSVSource // reuse existing csv reader for per-row mode
+	activeFile    *fileRef
+	csvReader     *CSVSource // reuse existing csv reader for per-row mode
+	parquetReader *parquetRows
+}
+
+// operationField is the column the CDC operation is read from when the
+// connector was not told to use another name.
+const operationField = "operation"
+
+// operationFieldNone disables the operation column entirely.
+const operationFieldNone = "-"
+
+// opFieldName resolves the configured operation column, or "" for none.
+//
+// "operation" is also a plausible name for a column with nothing to do with
+// CDC, and because the default applies wherever the column is present, such a
+// file read as "unrecognised operation" on its first row. Naming a column that
+// does not exist happened to sidestep that; "-" says it on purpose.
+func (s *GenericFileSource) opFieldName() string {
+	switch s.cfg.OpField {
+	case "":
+		return operationField
+	case operationFieldNone:
+		return ""
+	default:
+		return s.cfg.OpField
+	}
+}
+
+// parquetRowsFor opens the file as parquet, reading its bytes through whichever
+// backend it came from.
+func (s *GenericFileSource) parquetRowsFor(ctx context.Context, ref *fileRef) (*parquetRows, error) {
+	b, _, err := s.readFileBytes(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return newParquetRows(b, filepath.Base(ref.Name), s.cfg.Table, s.cfg.KeyField, s.opFieldName())
 }
 
 func NewGenericFileSource(cfg GenericConfig) *GenericFileSource {
@@ -226,7 +279,14 @@ func (s *GenericFileSource) Ping(ctx context.Context) error {
 	}
 }
 
-func (s *GenericFileSource) Close() error { return nil }
+func (s *GenericFileSource) Close() error {
+	if s.parquetReader != nil {
+		err := s.parquetReader.Close()
+		s.parquetReader = nil
+		return err
+	}
+	return nil
+}
 
 func (s *GenericFileSource) Ack(ctx context.Context, msg hermod.Message) error { return nil }
 
@@ -244,6 +304,21 @@ func (s *GenericFileSource) Read(ctx context.Context) (hermod.Message, error) {
 		// finished current file
 		_ = s.csvReader.Close()
 		s.csvReader = nil
+		s.activeFile = nil
+	}
+
+	// Same for parquet: drain the rows of the file already open before taking
+	// another off the queue.
+	if s.cfg.Format == FormatParquet && s.parquetReader != nil {
+		msg, err := s.parquetReader.next()
+		if err != nil {
+			return nil, err
+		}
+		if msg != nil {
+			return msg, nil
+		}
+		_ = s.parquetReader.Close()
+		s.parquetReader = nil
 		s.activeFile = nil
 	}
 
@@ -280,6 +355,26 @@ func (s *GenericFileSource) Read(ctx context.Context) (hermod.Message, error) {
 			s.csvReader = csvSrc
 			s.activeFile = ref
 			return s.csvReader.Read(ctx)
+		case FormatParquet:
+			rows, err := s.parquetRowsFor(ctx, ref)
+			if err != nil {
+				return nil, err
+			}
+			s.parquetReader = rows
+			s.activeFile = ref
+			msg, err := rows.next()
+			if err != nil {
+				return nil, err
+			}
+			if msg == nil {
+				// An empty file: nothing to emit, so move on to the next one
+				// rather than reporting end of stream for the whole source.
+				_ = rows.Close()
+				s.parquetReader = nil
+				s.activeFile = nil
+				continue
+			}
+			return msg, nil
 		default: // raw
 			b, meta, err := s.readFileBytes(ctx, ref)
 			if err != nil {
@@ -330,6 +425,24 @@ func (s *GenericFileSource) Sample(ctx context.Context, table string) (hermod.Me
 		}
 		defer csvSrc.Close()
 		return csvSrc.Read(ctx)
+	}
+
+	if s.cfg.Format == FormatParquet {
+		// A separate reader over the same file: the one the pipeline is draining
+		// keeps its position, so previewing does not skip a row.
+		rows, err := s.parquetRowsFor(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = rows.Close() }()
+		msg, err := rows.next()
+		if err != nil {
+			return nil, err
+		}
+		if msg == nil {
+			return nil, fmt.Errorf("parquet file %s has no rows to sample", ref.Name)
+		}
+		return msg, nil
 	}
 
 	b, meta, err := s.readFileBytes(ctx, ref)

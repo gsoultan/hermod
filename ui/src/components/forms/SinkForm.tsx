@@ -30,6 +30,7 @@ const TxGroupSinkConfig = lazy(() => import('../workflow/Sink/TxGroupSinkConfig'
 const SapSinkConfig = lazy(() => import('../workflow/Sink/SapSinkConfig').then(m => ({ default: m.SapSinkConfig })));
 const Dynamics365SinkConfig = lazy(() => import('../workflow/Sink/Dynamics365SinkConfig').then(m => ({ default: m.Dynamics365SinkConfig })));
 const S3SinkConfig = lazy(() => import('../workflow/Sink/S3SinkConfig'));
+const S3ParquetSinkConfig = lazy(() => import('../workflow/Sink/S3ParquetSinkConfig'));
 const NotificationSinkConfig = lazy(() => import('../workflow/Sink/NotificationSinkConfig').then(m => ({ default: m.NotificationSinkConfig })));
 const HttpSinkConfig = lazy(() => import('../workflow/Sink/HttpSinkConfig').then(m => ({ default: m.HttpSinkConfig })));
 const WebSocketSinkConfig = lazy(() => import('../workflow/Sink/WebSocketSinkConfig').then(m => ({ default: m.WebSocketSinkConfig })));
@@ -129,7 +130,7 @@ export const configComponents: Record<string, any> = {
   sap: SapSinkConfig,
   dynamics365: Dynamics365SinkConfig,
   s3: S3SinkConfig,
-  's3-parquet': S3SinkConfig,
+  's3-parquet': S3ParquetSinkConfig,
   telegram: NotificationSinkConfig,
   fcm: FcmSinkConfig,
   discord: NotificationSinkConfig,

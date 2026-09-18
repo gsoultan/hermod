@@ -6,6 +6,13 @@ interface S3SinkConfigProps {
   updateConfig: (key: string, value: any) => void
 }
 
+/**
+ * The keys here are the ones the s3 *sink* factory reads — `region`, `bucket`,
+ * `key_prefix`, `access_key`, `secret_key`, `endpoint`. They used to be the
+ * `s3_*` set, which is what the s3 *source* reads, so an S3 sink configured
+ * from the editor was built with every field empty and SinkWizard's Next button
+ * could never enable.
+ */
 export default function S3SinkConfig({ config, updateConfig }: S3SinkConfigProps) {
   return (
     <Stack gap="xs">
@@ -13,35 +20,35 @@ export default function S3SinkConfig({ config, updateConfig }: S3SinkConfigProps
         <TextInput 
           label="Region" 
           placeholder="us-east-1" 
-          value={config.s3_region || ''} 
-          onChange={(e) => updateConfig('s3_region', e.target.value)} 
+          value={config.region || ''} 
+          onChange={(e) => updateConfig('region', e.target.value)} 
           description="AWS region"
           mih={80}
         />
         <TextInput 
           label="Bucket" 
           placeholder="my-templates" 
-          value={config.s3_bucket || ''} 
-          onChange={(e) => updateConfig('s3_bucket', e.target.value)} 
+          value={config.bucket || ''} 
+          onChange={(e) => updateConfig('bucket', e.target.value)} 
           description="S3 bucket name"
           mih={80}
         />
       </FormRow>
-      <TextInput label="Key (Path)" placeholder="emails/welcome.html" value={config.s3_key || ''} onChange={(e) => updateConfig('s3_key', e.target.value)} />
-      <TextInput label="Endpoint" placeholder="Optional (for S3 compatible storage)" value={config.s3_endpoint || ''} onChange={(e) => updateConfig('s3_endpoint', e.target.value)} />
+      <TextInput label="Key Prefix" placeholder="events/orders/" value={config.key_prefix || ''} onChange={(e) => updateConfig('key_prefix', e.target.value)} />
+      <TextInput label="Endpoint" placeholder="Optional (for S3 compatible storage)" value={config.endpoint || ''} onChange={(e) => updateConfig('endpoint', e.target.value)} />
       <FormRow>
         <TextInput 
           label="Access Key" 
-          value={config.s3_access_key || ''} 
-          onChange={(e) => updateConfig('s3_access_key', e.target.value)} 
+          value={config.access_key || ''} 
+          onChange={(e) => updateConfig('access_key', e.target.value)} 
           description="AWS access key ID"
           mih={80}
         />
         <TextInput 
           label="Secret Key" 
           type="password" 
-          value={config.s3_secret_key || ''} 
-          onChange={(e) => updateConfig('s3_secret_key', e.target.value)} 
+          value={config.secret_key || ''} 
+          onChange={(e) => updateConfig('secret_key', e.target.value)} 
           description="AWS secret access key"
           mih={80}
         />

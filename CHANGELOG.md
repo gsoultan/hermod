@@ -7,6 +7,68 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+A parquet file can now drive insert, update and delete, in both directions.
+
+Parquet was write-only and operation-blind. There was no parquet source at all —
+the generic file source parsed `raw` and `csv`, so a `.parquet` object arrived as
+a block of bytes — and the `s3-parquet` sink wrote `msg.Data()` and nothing else,
+so a delete landed as a row indistinguishable from the insert of the same record.
+Replaying such a file re-created rows that had been removed upstream, and nothing
+in the log said so.
+
+The file source gains a `parquet` format. It reads column-wise in chunks of 1,024
+rows and transposes them, so the file's own schema is whatever the producer wrote
+and nothing is compiled in; it works over every backend the source already has
+(local, HTTP, S3, FTP, SFTP). `op_field` names the column carrying the CDC
+operation — spelled out or as Debezium's single letters, defaulting to
+`operation` — and `key_field` names the column that becomes the message ID, which
+is what a sink without column mappings targets the row by. A file with no
+operation column is read as all inserts, which is what a plain data file is.
+
+Two failures are refused rather than absorbed. An operation value the mapping
+does not recognise stops the read instead of falling back to "insert", because a
+misspelt `delete` that quietly becomes an insert is a row that comes back. And an
+update or delete with no `key_field` configured is refused, because the synthetic
+per-row ID it would otherwise carry produces a statement that matches nothing and
+still reports success. Nested and repeated schemas are refused too: their values
+do not line up one-per-row with the flat columns beside them, and reading them as
+if they did would shift every later column onto the wrong record.
+
+The `s3-parquet` sink writes the operation back out, into a column named by
+`operation_field`. It is materialised from the envelope only when a column was
+set aside for it, so a schema written before this keeps producing exactly the
+columns it always has; a value the pipeline computed itself is left alone; and a
+column named explicitly but absent from the schema fails at construction, while
+the operator is still looking at the form, rather than silently dropping every
+operation.
+
+### Three S3 sinks that could not be configured from the editor
+
+Found while wiring the above, all the same defect: a gate keyed to a name nothing
+writes.
+
+`S3SinkConfig` writes `s3_region`, `s3_bucket`, `s3_key` — the keys the S3
+*source* reads. Both the `s3` and `s3-parquet` sink factories read `region`,
+`bucket`, `key_prefix`, `access_key`, `secret_key` and `endpoint`, so an S3 sink
+configured from the editor was built with every field empty, and SinkWizard's
+Next button could never enable. The form now writes the keys the sink factory
+reads.
+
+The `s3-parquet` sink also had nowhere at all to put the parquet schema it cannot
+write a single row without, and its requirements entry was keyed `s3parquet`
+while every sink of that type is `s3-parquet` — so the gate that would have
+caught the mismatch never ran. It now has its own form, and the entry is keyed by
+the type sinks actually have.
+
+The elasticsearch sink was gated on a `url` key neither its form nor its factory
+has; both use `addresses`.
+
+`sinkConfigCoverage` promised a check comparing the keys each form writes against
+the keys its type is gated on, and described it in a comment, but no such check
+existed — which is how all of the above survived. It exists now, along with one
+that every requirements entry is keyed by a type some sink can actually have.
+
+
 ### Fixed — a Foreach (Fan-out) node fanned out into nothing
 
 `ForeachNode` split a message into one per array item and returned all of them.

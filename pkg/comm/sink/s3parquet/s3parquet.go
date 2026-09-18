@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -26,12 +27,22 @@ type S3ParquetSink struct {
 	endpoint     string
 	schema       string
 	schemaFields map[string]struct{}
+	opField      string
 	parallelizer int64
 }
 
-func NewS3ParquetSink(ctx context.Context, region, bucket, keyPrefix, accessKey, secretKey, endpoint, schema string, parallelizer int64) (*S3ParquetSink, error) {
+// defaultOperationField is the column the CDC operation is written to when the
+// schema declares it and the connector was not told to use another name.
+const defaultOperationField = "operation"
+
+func NewS3ParquetSink(ctx context.Context, region, bucket, keyPrefix, accessKey, secretKey, endpoint, schema, operationField string, parallelizer int64) (*S3ParquetSink, error) {
 	if parallelizer <= 0 {
 		parallelizer = 4
+	}
+	schemaFields := schemaFieldNames(schema)
+	opField, err := resolveOperationField(operationField, schemaFields)
+	if err != nil {
+		return nil, err
 	}
 	return &S3ParquetSink{
 		region:       region,
@@ -41,9 +52,69 @@ func NewS3ParquetSink(ctx context.Context, region, bucket, keyPrefix, accessKey,
 		secretKey:    secretKey,
 		endpoint:     endpoint,
 		schema:       schema,
-		schemaFields: schemaFieldNames(schema),
+		schemaFields: schemaFields,
+		opField:      opField,
 		parallelizer: parallelizer,
 	}, nil
+}
+
+// resolveOperationField decides which column carries msg.Operation(), returning
+// "" when nothing should be written for it.
+//
+// A column named explicitly but absent from the schema is a configuration
+// error, not something to shrug off. The connector was told to record the CDC
+// operation; writing files where a delete is indistinguishable from an insert
+// instead — with nothing in the log to say so — is the failure mode this whole
+// change exists to remove. Refuse at construction, while the operator is still
+// looking at the form.
+//
+// Left empty, the default column is used only when the schema declares it, so
+// schemas written before this existed keep producing exactly the columns they
+// always have.
+func resolveOperationField(configured string, schemaFields map[string]struct{}) (string, error) {
+	configured = strings.TrimSpace(configured)
+	if configured == "" {
+		if _, ok := schemaFields[defaultOperationField]; ok {
+			return defaultOperationField, nil
+		}
+		return "", nil
+	}
+	// A nil schemaFields means the schema could not be parsed, which callers
+	// treat as "no opinion" rather than "no columns" — see schemaFieldNames.
+	if len(schemaFields) > 0 {
+		if _, ok := schemaFields[configured]; !ok {
+			known := make([]string, 0, len(schemaFields))
+			for name := range schemaFields {
+				known = append(known, name)
+			}
+			sort.Strings(known)
+			return "", fmt.Errorf("operation_field %q is not a column in the parquet schema; "+
+				"add it to the schema or pick one of: %s",
+				configured, strings.Join(known, ", "))
+		}
+	}
+	return configured, nil
+}
+
+// withOperation materialises the CDC operation into the row about to be
+// written. A value already in the record was computed by the pipeline and
+// outranks the envelope's; an operation never set at all is an insert, because
+// writing "" into the column would be a value no reader can interpret.
+func (s *S3ParquetSink) withOperation(data map[string]any, op hermod.Operation) map[string]any {
+	if s.opField == "" {
+		return data
+	}
+	if data == nil {
+		data = make(map[string]any, 1)
+	}
+	if _, ok := data[s.opField]; ok {
+		return data
+	}
+	if op == "" {
+		op = hermod.OpCreate
+	}
+	data[s.opField] = string(op)
+	return data
 }
 
 // schemaFieldNames pulls the top-level column names out of a parquet-go JSON
@@ -188,6 +259,7 @@ func (s *S3ParquetSink) WriteBatch(ctx context.Context, msgs []hermod.Message) e
 				"is not a JSON object (%.60q)",
 				msg.ID(), string(msg.Payload()))
 		}
+		data = s.withOperation(data, msg.Operation())
 
 		jsonData, err := json.Marshal(data)
 		if err != nil {
