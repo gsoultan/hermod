@@ -28,8 +28,12 @@ export function CharMapConfig({ config, updateNodeConfig, nodeId, fieldPaths }: 
           { value: 'trim_left', label: 'Trim Left' },
           { value: 'trim_right', label: 'Trim Right' },
         ]}
-        value={config.op || 'uppercase'}
-        onChange={(val) => updateNodeConfig(nodeId, { op: val || 'uppercase' })}
+        // `operation` is the key the node reads. This wrote `op`, which it never
+        // read, so every Character Map node passed its field through unchanged.
+        // Stored configs still hold `op`, so it is read here and cleared on the
+        // next edit rather than left behind to contradict the new key.
+        value={config.operation || config.op || 'uppercase'}
+        onChange={(val) => updateNodeConfig(nodeId, { operation: val || 'uppercase', op: undefined })}
       />
     </Stack>
   

@@ -27,11 +27,23 @@ func (t *CharMapTransformer) Transform(ctx context.Context, msg hermod.Message, 
 		return msg, nil
 	}
 
+	// Resolved in a fixed order -- the list, then `operation`, then the `op` the
+	// editor writes -- so a config carrying more than one of them behaves the
+	// same way every time rather than depending on which key was written last.
+	//
+	// `op` is read here because the editor's Operation select has always written
+	// that key (ui/src/components/workflow/Transformation/configs/data/CharMapConfig.tsx)
+	// while this only ever looked for the other two. The operation list came out
+	// empty, the loop below did nothing, and the node wrote its field back
+	// untouched: a green node, no error and nothing in the logs. The editor is
+	// the only way to build a Character Map node, so that was every one of them.
 	ops, _ := config["operations"].([]any)
 	if len(ops) == 0 {
-		// Fallback to single operation if provided
-		if op, ok := config["operation"].(string); ok {
-			ops = append(ops, op)
+		for _, key := range []string{"operation", "op"} {
+			if s, ok := config[key].(string); ok && s != "" {
+				ops = append(ops, s)
+				break
+			}
 		}
 	}
 
