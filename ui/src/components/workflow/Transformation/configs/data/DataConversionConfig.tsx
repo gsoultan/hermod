@@ -47,6 +47,7 @@ export function DataConversionConfig({ config, updateNodeConfig, nodeId, fieldPa
           { value: 'bool', label: 'Boolean' },
           { value: 'date', label: 'Date' },
           { value: 'array', label: 'Array' },
+          { value: 'jsonb', label: 'JSON / JSONB' },
           { value: 'uuid', label: 'UUID' },
         ]}
         value={targetType}
@@ -60,6 +61,15 @@ export function DataConversionConfig({ config, updateNodeConfig, nodeId, fieldPa
           onChange={(e) => updateNodeConfig(nodeId, { format: e.currentTarget.value })}
           description="Go date format (e.g. 2006-01-02)"
         />
+      )}
+      {targetType === 'jsonb' && (
+        <Text size="xs" c="dimmed">
+          Renders the value as JSON text, ready for a <code>json</code> or <code>jsonb</code>{' '}
+          column — an object or list reaches most database drivers as an unsupported type
+          otherwise. Text that already holds a JSON object or array is passed through unchanged,
+          so it is not double-encoded; any other value becomes a JSON string. Text that opens
+          like JSON but does not parse follows On Error rather than being stored as-is.
+        </Text>
       )}
       {targetType === 'uuid' && (
         <Text size="xs" c="dimmed">

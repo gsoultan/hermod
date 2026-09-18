@@ -119,9 +119,75 @@ func (t *DataConversionTransformer) convertScalar(val any, targetType, format, s
 		return t.toUUID(val)
 	case "date", "datetime", "time":
 		return t.toDate(val, format)
+	case "json", "jsonb":
+		return t.toJSON(val)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedTargetType, targetType)
 	}
+}
+
+// toJSON renders a value as JSON text, which is what a json or jsonb column
+// needs and the only shape every SQL driver can bind -- database/sql rejects a
+// map[string]any outright. The PostgreSQL sink already does this
+// (marshalJSONValue) on the paths where it knows the column type; a node lets a
+// pipeline reach the same shape for the sinks that do not, and for an object
+// built in a `set` node or read from a document source.
+//
+// Text that is already a JSON object or array passes through untouched. Encoding
+// it again would quote it into a JSON string -- the double-encoded payload this
+// exists to avoid -- and re-parsing it would push its numbers through float64
+// and lose the precision of any integer past 2^53. Anything else is encoded, so
+// a string becomes a JSON string: "123" is text that reads as a number, not a
+// number, and converting it to one is what the int target type is for.
+//
+// Text that *opens* like an object or array must parse. toArray, a few lines
+// up, asks for a matching closing delimiter too, because when the guess is
+// wrong it still has somewhere sensible to go -- it splits on the separator.
+// Here the only other branch is "quote it", so a truncated payload would be
+// stored as "{\"a\":1" and reported as a success. Truncation is a real failure
+// mode (a TOASTed column, a byte limit, a bad substring); demanding only the
+// opening delimiter is what turns it into an error the operator can see.
+func (t *DataConversionTransformer) toJSON(val any) (any, error) {
+	switch v := val.(type) {
+	case string:
+		return jsonTextFromString(v)
+	case []byte:
+		// A driver hands JSON text over as bytes. json.Marshal would
+		// base64-encode it, which is how a jsonb column ends up holding
+		// "eyJhIjoxfQ==".
+		return jsonTextFromString(string(v))
+	case json.RawMessage:
+		return jsonTextFromString(string(v))
+	}
+
+	b, err := json.Marshal(val)
+	if err != nil {
+		return nil, fmt.Errorf("cannot convert %T to json: %w", val, err)
+	}
+	return string(b), nil
+}
+
+func jsonTextFromString(s string) (any, error) {
+	trimmed := strings.TrimSpace(s)
+	if looksLikeJSONComposite(trimmed) {
+		if !json.Valid([]byte(trimmed)) {
+			// Text that opens like an object or array but does not parse is a
+			// broken payload, not a value to quote. Quoting it would store the
+			// mangled text and report success; an error puts it under
+			// errorBehavior, where the operator's choice already lives.
+			return nil, errors.New("value looks like JSON but does not parse")
+		}
+		return trimmed, nil
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		return nil, fmt.Errorf("cannot convert to json: %w", err)
+	}
+	return string(b), nil
+}
+
+func looksLikeJSONComposite(trimmed string) bool {
+	return strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
 }
 
 // toArray turns a value into a list so it can be used where a list is needed --

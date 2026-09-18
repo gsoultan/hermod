@@ -40,13 +40,33 @@ describe('data_conversion array and uuid target types', () => {
       </MantineProvider>
     )
 
-  it('offers Array and UUID alongside the scalar types', async () => {
+  it('offers Array, JSON and UUID alongside the scalar types', async () => {
     const user = userEvent.setup()
     renderConfig({})
     const dropdown = await openDropdown(user, /target type/i)
     expect(optionLabels(dropdown)).toEqual([
-      'Integer', 'Float', 'String', 'Boolean', 'Date', 'Array', 'UUID',
+      'Integer', 'Float', 'String', 'Boolean', 'Date', 'Array', 'JSON / JSONB', 'UUID',
     ])
+  })
+
+  // A jsonb conversion takes no separator and no element type: it renders one
+  // value as JSON text, it does not split or join anything.
+  it('shows no separator or element type for a jsonb conversion', () => {
+    renderConfig({ targetType: 'jsonb' })
+    expect(screen.queryByRole('textbox', { name: /separator/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: /element type/i })).not.toBeInTheDocument()
+  })
+
+  // The value the option writes is the one convertScalar switches on.
+  it('writes jsonb as the target type', async () => {
+    const updateNodeConfig = vi.fn()
+    const user = userEvent.setup()
+    renderConfig({ targetType: 'string' }, updateNodeConfig)
+    const dropdown = await openDropdown(user, /target type/i)
+    const jsonOption = Array.from(dropdown.querySelectorAll('[role="option"]'))
+      .find((o) => o.textContent === 'JSON / JSONB') as HTMLElement
+    await user.click(jsonOption)
+    expect(updateNodeConfig).toHaveBeenCalledWith('n1', { targetType: 'jsonb' })
   })
 
   it('reveals separator and element type for an array conversion', () => {

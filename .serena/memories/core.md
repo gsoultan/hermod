@@ -98,6 +98,12 @@ find a claim that outruns the code, fix the claim.
 - [`use_cdc` is opt-out](use_cdc_is_opt_out.md) — a source with no key is a CDC
   source; one definition (`hermod.SourceAllowsDirectQueries`) now gates both
   `db_lookup`'s `sourceId` and a `batch_sql` source's `source_id` delegate.
+- [A `column.<path>` key is identity *and* order](column_map_is_identity_and_order.md)
+  — one string names the target, identifies the row and carries the list order,
+  which is three bugs: renaming re-appended (so typing scattered characters
+  across rows), renaming onto a taken path ate a row, and ranging the Go map
+  gave a different apply order per message. Blur fires *before* the click that
+  caused it, so a pending edit cannot be flushed there.
 
 ### Gates
 
