@@ -264,11 +264,36 @@ func (w *Worker) hasConfigChanged(wf storage.Workflow, sctx SyncContext) bool {
 	if !jsonEqual(curWf.Edges, wf.Edges) {
 		return true
 	}
-	// Simplified check for other fields
-	if curWf.Name != wf.Name || curWf.VHost != wf.VHost || curWf.DeadLetterSinkID != wf.DeadLetterSinkID {
+	if workflowRuntimeConfigDiffers(curWf, wf) {
 		return true
 	}
 	return w.hasResourceConfigChanged(wf.ID, sctx.SourceMap, sctx.SinkMap)
+}
+
+// workflowRuntimeConfigDiffers reports whether a saved workflow differs from
+// the running one in any field the engine reads at build time.
+//
+// This used to compare Name, VHost and DeadLetterSinkID and nothing else, so
+// every other engine setting was inert on a running workflow: the reliability
+// policy in particular. Ticking "Dry-Run Mode" and saving showed the badge in
+// the editor and changed nothing in the engine, which kept writing to the real
+// sinks until something unrelated — a node edit, a failover, a stall recovery —
+// happened to restart it.
+//
+// Keep this in step with the overrides the registry applies in
+// registry_workflow.go. Anything listed there and missing here is a setting
+// that silently does not take effect.
+func workflowRuntimeConfigDiffers(cur, next storage.Workflow) bool {
+	return cur.Name != next.Name ||
+		cur.VHost != next.VHost ||
+		cur.DeadLetterSinkID != next.DeadLetterSinkID ||
+		cur.PrioritizeDLQ != next.PrioritizeDLQ ||
+		cur.DryRun != next.DryRun ||
+		cur.DLQThreshold != next.DLQThreshold ||
+		cur.MaxRetries != next.MaxRetries ||
+		cur.RetryInterval != next.RetryInterval ||
+		cur.ReconnectInterval != next.ReconnectInterval ||
+		cur.TraceSampleRate != next.TraceSampleRate
 }
 
 func (w *Worker) startWorkflow(ctx context.Context, wf storage.Workflow, workerID string) {

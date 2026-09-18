@@ -48,6 +48,13 @@ type Engine struct {
 	unroutableCount   atomic.Int64
 	unroutableLastLog atomic.Pointer[time.Time]
 
+	// sourceMu guards source alone. DrainDLQ swaps the source for a
+	// PrioritySource while the read loop is using it, so every read of the
+	// field has to agree on a lock — see currentSource. It is deliberately not
+	// e.mu: the read loop touches the source on every message, and sharing the
+	// engine-wide lock for that would serialise the pipeline behind it.
+	sourceMu sync.RWMutex
+
 	// Internal state tracking (Facade components)
 	statusTracker *telemetry.StatusTracker
 	mu            sync.RWMutex
@@ -200,7 +207,7 @@ func (e *Engine) SetSourceConfig(cfg config.SourceConfig) {
 func (e *Engine) SetLogger(l hermod.Logger) {
 	e.logger = l
 	if l != nil {
-		if s, ok := e.source.(hermod.Loggable); ok {
+		if s, ok := e.currentSource().(hermod.Loggable); ok {
 			s.SetLogger(l)
 		}
 		for _, snk := range e.sinks {
@@ -279,9 +286,33 @@ func (e *Engine) SetDeadLetterSink(snk hermod.Sink) {
 	e.deadLetterSink = snk
 }
 
+// IsDryRun reports whether this workflow is running as a preview: reading and
+// processing normally, but writing to no sink and acknowledging nothing.
+func (e *Engine) IsDryRun() bool {
+	return e.config.DryRun
+}
+
+// currentSource returns the source the engine is reading from right now.
+//
+// The field is not stable for the engine's lifetime: DrainDLQ and the
+// PrioritizeDLQ start-up path both replace it with a PrioritySource wrapper.
+// Read it through here, never directly.
+func (e *Engine) currentSource() hermod.Source {
+	e.sourceMu.RLock()
+	defer e.sourceMu.RUnlock()
+	return e.source
+}
+
+// setSource replaces the source the engine reads from.
+func (e *Engine) setSource(s hermod.Source) {
+	e.sourceMu.Lock()
+	e.source = s
+	e.sourceMu.Unlock()
+}
+
 // GetSource returns the source configured for the engine.
 func (e *Engine) GetSource() hermod.Source {
-	return e.source
+	return e.currentSource()
 }
 
 // GetSinks returns the sinks configured for the engine.
@@ -300,8 +331,8 @@ func (e *Engine) DrainDLQ(ctx context.Context) error {
 		return errors.New("dead letter sink does not support reading")
 	}
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.sourceMu.Lock()
+	defer e.sourceMu.Unlock()
 
 	// Check if already wrapped
 	if _, ok := e.source.(*source.PrioritySource); ok {
@@ -425,8 +456,8 @@ func (e *Engine) HardStop() {
 			_ = closer.Close()
 		}
 	}
-	if e.source != nil {
-		_ = e.source.Close()
+	if src := e.currentSource(); src != nil {
+		_ = src.Close()
 	}
 	for _, snk := range e.sinks {
 		if snk != nil {

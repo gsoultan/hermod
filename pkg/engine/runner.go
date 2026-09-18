@@ -62,7 +62,7 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 	if r.engine.config.PrioritizeDLQ && r.engine.deadLetterSink != nil {
 		if dlqSource, ok := r.engine.deadLetterSink.(hermod.Source); ok {
 			r.engine.logger.Info("DLQ Priority enabled: wrapping source with PriorityMultiplexer", "workflow_id", r.engine.workflowID)
-			r.engine.source = source.NewPrioritySource(dlqSource, r.engine.source, r.engine.logger)
+			r.engine.setSource(source.NewPrioritySource(dlqSource, r.engine.currentSource(), r.engine.logger))
 		}
 	}
 
@@ -366,10 +366,11 @@ func (r *Runner) Start(ctx context.Context) (err error) {
 // silently stopped delivering data even though the worker appeared online.
 // Close is safe to call here and is idempotent with HardStop.
 func (r *Runner) closeSourceOnShutdown() {
-	if r.engine.source == nil {
+	src := r.engine.currentSource()
+	if src == nil {
 		return
 	}
-	if err := r.engine.source.Close(); err != nil {
+	if err := src.Close(); err != nil {
 		r.engine.logger.Warn("Error closing source during shutdown", "workflow_id", r.engine.workflowID, "error", err)
 	}
 }
@@ -392,10 +393,10 @@ func (r *Runner) closeSinksOnShutdown() {
 
 func (r *Runner) checkHealth(interval time.Duration) {
 	var err error
-	if readyChecker, ok := r.engine.source.(hermod.ReadyChecker); ok {
+	if readyChecker, ok := r.engine.currentSource().(hermod.ReadyChecker); ok {
 		err = readyChecker.IsReady(r.ctx)
 	} else {
-		err = r.engine.source.Ping(r.ctx)
+		err = r.engine.currentSource().Ping(r.ctx)
 	}
 
 	if err != nil {
@@ -410,7 +411,7 @@ func (r *Runner) checkHealth(interval time.Duration) {
 	} else {
 		r.engine.setSourceStatus("running")
 		// Update lag if supported
-		if lagReporter, ok := r.engine.source.(hermod.LagReporter); ok {
+		if lagReporter, ok := r.engine.currentSource().(hermod.LagReporter); ok {
 			if lag, err := lagReporter.GetLag(r.ctx); err == nil {
 				r.engine.statusTracker.SetLag(lag)
 
@@ -565,10 +566,10 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 
 		if needsPing {
 			var err error
-			if readyChecker, ok := r.engine.source.(hermod.ReadyChecker); ok {
+			if readyChecker, ok := r.engine.currentSource().(hermod.ReadyChecker); ok {
 				err = readyChecker.IsReady(ctx)
 			} else {
-				err = r.engine.source.Ping(ctx)
+				err = r.engine.currentSource().Ping(ctx)
 			}
 
 			if err != nil {
@@ -612,7 +613,7 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 			}
 			r.engine.checkpointMu.Unlock()
 
-			m, err := r.engine.source.Read(ctx)
+			m, err := r.engine.currentSource().Read(ctx)
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					return
@@ -823,7 +824,9 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 			// replication slot that never advances. Acknowledge only what the
 			// park actually preserved, the same rule the no-target branch below
 			// already follows.
-			if r.engine.deadLetterSink != nil {
+			// A dry run parks nothing and acknowledges nothing, so it takes
+			// the same exit as having no dead-letter sink at all.
+			if r.engine.deadLetterSink != nil && !r.engine.config.DryRun {
 				m.SetMetadata("_hermod_validation_failed", "true")
 				m.SetMetadata("_hermod_last_error", err.Error())
 				if werr := r.engine.deadLetterSink.Write(ctx, m); werr != nil {
@@ -832,10 +835,10 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 						"workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", werr)
 					return
 				}
-				r.engine.statusTracker.IncDeadLetter()
+				r.engine.recordDeadLetter("")
 				if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
 					_ = r.engine.outboxStore.DeleteOutboxItem(ctx, outboxID)
-				} else if aerr := r.engine.source.Ack(ctx, m); aerr != nil {
+				} else if aerr := r.engine.currentSource().Ack(ctx, m); aerr != nil {
 					r.engine.logger.Error("Source acknowledgement failed after parking an invalid message",
 						"workflow_id", r.engine.workflowID, "message_id", m.ID(), "error", aerr)
 				}
@@ -887,11 +890,22 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 
 	if len(targets) == 0 {
 		ack := func() {
+			// A dry run acknowledges nothing: acknowledging is what advances a
+			// replication slot or a polling watermark, and a preview that moves
+			// the cursor consumes the data it was only meant to show.
+			//
+			// The processed count still advances. The message really did go
+			// through the pipeline, and freezing the counter would have the
+			// stall watchdog read a working dry run as a wedge.
+			if r.engine.config.DryRun {
+				r.engine.statusTracker.IncProcessed()
+				return
+			}
 			// Even if filtered, we must acknowledge to prevent re-reading
 			if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
 				_ = r.engine.outboxStore.DeleteOutboxItem(ctx, outboxID)
 			} else {
-				_ = r.engine.source.Ack(ctx, m)
+				_ = r.engine.currentSource().Ack(ctx, m)
 			}
 			r.engine.statusTracker.IncProcessed()
 		}
@@ -1006,10 +1020,21 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 	swg.Wait()
 	close(serrCh)
 	for err := range serrCh {
-		if err != nil {
-			r.engine.logger.Error("Sink write error", "workflow_id", r.engine.workflowID, "error", err)
+		if err == nil {
+			continue
+		}
+		// A dry run skipped the write deliberately. Returning here is still
+		// correct — it is what keeps the acknowledgement below from running,
+		// and a message nothing wrote must not advance the source — but it is
+		// not an error and must not be reported as one, and the message did
+		// pass through the pipeline, so it still counts as processed.
+		if isDryRunSkip(err) {
+			telemetry.MessagesProcessed.WithLabelValues(r.engine.workflowID, r.engine.sourceID).Inc()
+			r.engine.statusTracker.IncProcessed()
 			return
 		}
+		r.engine.logger.Error("Sink write error", "workflow_id", r.engine.workflowID, "error", err)
+		return
 	}
 
 	// Acknowledge the message to the source after all successful sink writes.
@@ -1030,7 +1055,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		if err := r.engine.outboxStore.DeleteOutboxItem(ackCtx, outboxID); err != nil {
 			r.engine.logger.Error("Failed to delete outbox item", "workflow_id", r.engine.workflowID, "id", outboxID, "error", err)
 		}
-	} else if err := r.engine.source.Ack(ackCtx, m); err != nil {
+	} else if err := r.engine.currentSource().Ack(ackCtx, m); err != nil {
 		r.engine.logger.Error("Source acknowledgement failed", "workflow_id", r.engine.workflowID, "error", err)
 		return
 	}

@@ -13,6 +13,7 @@ import { CronInput } from '../../../../components/shared/CronInput';
 import { AICopilot } from '../../../../components/shared/AICopilot';
 import { NODE_CATEGORIES, categoryKey } from '../constants/nodeCategories';
 import { filterCategories, matchesQuery, countMatches } from '../utils/paletteSearch';
+import { dlqRecoverySupported } from '@/utils/dlqRecovery';
 import { 
   IconDatabase, IconTable, IconX, IconPlus,
   IconCloudUpload, IconRobot, IconPuzzle, IconSettingsAutomation, IconAdjustments, IconShieldLock,
@@ -106,6 +107,27 @@ export function SidebarDrawer({
   });
   const workspaces = workspacesResponse || [];
 
+  // Which dead-letter sinks the engine can also read back, for "Prioritize DLQ
+  // on startup" and the Drain DLQ button.
+  //
+  // This used to be a literal list of 25 sink types in this file. It had
+  // drifted both ways: it advertised four types that are not sources, so the
+  // checkbox was offered and StartWorkflow then refused the workflow, and it
+  // omitted nine that work, greying the checkbox out for them. The factory
+  // decides; the editor asks.
+  const { data: dlqRecoveryTypes } = useQuery<string[]>({
+    queryKey: ['sink-capabilities', 'dlq-recovery'],
+    queryFn: async () => {
+      // silent: a capability lookup nobody asked for should not throw a red
+      // banner over the canvas. On failure the query has no data, which
+      // dlqRecoverySupported reads as "not known yet" and answers optimistically.
+      const res = await apiFetch('/api/sinks/capabilities/dlq-recovery', { silent: true });
+      const data = await res.json();
+      return Array.isArray(data?.types) ? data.types : [];
+    },
+    staleTime: Infinity,
+  });
+
   const { data: plugins } = useQuery<any[]>({
     queryKey: ['marketplace', 'plugins', 'installed'],
     queryFn: async () => {
@@ -176,7 +198,7 @@ export function SidebarDrawer({
   };
 
   const selectedDLQSink = (sinks || []).find(s => s.id === deadLetterSinkID);
-  const dlqSupportsRecovery = selectedDLQSink && ['postgres', 'mysql', 'mariadb', 'mssql', 'oracle', 'mongodb', 'cassandra', 'sqlite', 'clickhouse', 'yugabyte', 'kafka', 'nats', 'rabbitmq', 'rabbitmq_queue', 'redis', 'pubsub', 'kinesis', 'pulsar', 'elasticsearch', 'discord', 'slack', 'twitter', 'facebook', 'instagram', 'linkedin', 'tiktok'].includes(selectedDLQSink.type);
+  const dlqSupportsRecovery = dlqRecoverySupported(selectedDLQSink, dlqRecoveryTypes);
 
   const renderDraggableItem = (item: any) => (
     <UnstyledButton
@@ -468,7 +490,7 @@ export function SidebarDrawer({
                         clearable
                         size="xs"
                         description="Sink for messages that exhaust retries"
-                        error={deadLetterSinkID && !dlqSupportsRecovery ? "Sink type might not support recovery" : null}
+                        error={deadLetterSinkID && !dlqSupportsRecovery ? "This sink type cannot be read back for recovery" : null}
                       />
                       <NumberInput
                         label="DLQ Alert Threshold"
@@ -481,7 +503,7 @@ export function SidebarDrawer({
                       />
                       {deadLetterSinkID && !dlqSupportsRecovery && (
                         <Alert color="yellow" icon={<IconInfoCircle size="0.8rem" />} py="xs" styles={{ message: { fontSize: rem(10) } }}>
-                          Requires a sink that can also act as a source for recovery.
+                          Draining the queue means reading messages back out of it, so the dead-letter sink has to be a type Hermod can also read as a source.
                         </Alert>
                       )}
                       <Stack gap="xs">

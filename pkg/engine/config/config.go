@@ -8,12 +8,18 @@ import (
 
 // Config holds configuration for the Engine.
 type Config struct {
-	MaxRetries          int           `json:"max_retries"`
-	RetryInterval       time.Duration `json:"retry_interval"`
-	ReconnectInterval   time.Duration `json:"reconnect_interval"`
-	StatusInterval      time.Duration `json:"status_interval"`
-	PrioritizeDLQ       bool          `json:"prioritize_dlq"`
-	DryRun              bool          `json:"dry_run"`
+	MaxRetries        int           `json:"max_retries"`
+	RetryInterval     time.Duration `json:"retry_interval"`
+	ReconnectInterval time.Duration `json:"reconnect_interval"`
+	StatusInterval    time.Duration `json:"status_interval"`
+	PrioritizeDLQ     bool          `json:"prioritize_dlq"`
+	DryRun            bool          `json:"dry_run"`
+	// DLQThreshold is how many messages may be dead-lettered in one engine run
+	// before the count is reported. Crossing it is an event in its own right:
+	// dead-lettering does not otherwise change any status, so a pipeline that
+	// parks every message it receives looks identical to a healthy one. Set to
+	// 0 to disable.
+	DLQThreshold        int           `json:"dlq_threshold"`
 	CheckpointInterval  time.Duration `json:"checkpoint_interval"`
 	TraceSampleRate     float64       `json:"trace_sample_rate"` // 0.0 to 1.0
 	AdaptiveThroughput  bool          `json:"adaptive_throughput"`

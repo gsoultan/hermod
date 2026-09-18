@@ -104,6 +104,12 @@ find a claim that outruns the code, fix the claim.
   across rows), renaming onto a taken path ate a row, and ranging the Go map
   gave a different apply order per message. Blur fires *before* the click that
   caused it, so a pending edit cannot be flushed there.
+- [The workflow Reliability Policy](reliability_policy.md) — dry-run means read
+  normally, write nowhere (the DLQ included) and acknowledge nothing, with a
+  resumed message the one exception; the DLQ threshold is edge-triggered from
+  the engine because dead-lettering changes no status; `hasConfigChanged` is the
+  only path a setting reaches a running engine, and `DrainDLQ` swaps the source
+  under the read loop.
 - [Fan-out, and the two foreaches](fanout_traversal_and_two_foreaches.md) — the
   traversal carried one message per node, so a foreach node delivered its first
   item and dropped the rest (and with a `collect` downstream, delivered nothing

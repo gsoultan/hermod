@@ -42,6 +42,73 @@ column named explicitly but absent from the schema fails at construction, while
 the operator is still looking at the form, rather than silently dropping every
 operation.
 
+### Fixed — the workflow's Reliability Policy mostly did not do what it said
+
+Four settings sit under Reliability Policy in the editor. The dead-letter sink
+worked. The other three did not, and one of them destroyed the data it was
+meant to protect.
+
+**Dry-Run Mode consumed the source.** The dry-run branch returned "written"
+from the sink write, so the engine acknowledged the message — which for a CDC
+source is the replication slot advancing past a row nothing had written
+anywhere. Enabling the safety feature was how you lost the data. It also sat
+*below* the safe-mode and failed-validation diverts, both of which write to the
+dead-letter sink, so a "dry" run performed real writes against a real
+destination. A dry run now writes nowhere, the DLQ included, and acknowledges
+nothing: the message stays on the source and comes back on the next read. It is
+no longer counted as a sink failure either, so a preview cannot trip a circuit
+breaker on a sink it never called, and the stall watchdog stands down for its
+duration — outstanding work that never completes is the mode working, not a
+wedge. The one exception is a resumed message, which has no source row left
+holding it; declining to park that would destroy it rather than preserve it, so
+it is parked and the log says why.
+
+**Saving the policy did not reach the running engine.** The worker decided
+whether to restart a workflow by comparing its name, vhost, dead-letter sink and
+graph — and nothing else. Dry-Run Mode, Prioritize DLQ, the DLQ threshold and
+all three retry settings were therefore inert on a running workflow: the editor
+showed the Dry-Run badge while the engine carried on writing to production, until
+something unrelated — a node edit, a failover, a stall recovery — happened to
+restart it. Every field the registry reads when it builds an engine is now part
+of that comparison, in one function that says so.
+
+**The DLQ alert threshold was never evaluated.** The check lived inside the
+engine's status-change callback, but dead-lettering a message only incremented a
+counter; it changed no status, so the callback never ran. A pipeline parking
+every message it received reported "running" and stayed silent. Crossing the
+threshold is now an event in its own right, raised once by the message that
+crosses it — once, because the count only climbs, and firing per message past
+the line would have the registry write workflow, source and sink status rows to
+storage for each one. The alert also no longer claims the queue holds N
+messages: the count is the engine's own and resets on restart, so it says
+"dead-lettered N since it started". The two tests covering this re-implemented
+the registry's logic inside the test body and asserted on themselves, so they
+could not fail when the real path broke; they now call it.
+
+**Drain DLQ raced the read loop.** The button swaps the engine's source for a
+priority wrapper under one lock while the pipeline reads and acknowledges
+through the same field under none. The source is now read through a single
+guarded accessor, on its own mutex rather than the engine-wide one, so the swap
+cannot serialise the pipeline behind it.
+
+**The editor guessed which sinks it could drain.** Whether "Prioritize DLQ on
+startup" is available depends on the dead-letter sink being a type Hermod can
+also read as a source, and the editor answered from a literal list of 25 sink
+types. It had drifted both ways: four types it advertised are not sources, so
+the checkbox was offered and the workflow then refused to start, and nine that
+work were missing, so the checkbox was disabled and the feature unreachable.
+The factory owns the list now and the editor asks it over
+`GET /api/sinks/capabilities/dlq-recovery`, the same shape as the two-phase
+capability endpoint. A test reads the case labels out of both factory switches
+and fails if either moves without the list — which is how `ftp` and `s3` were
+found missing and `scylladb`, a source that is not a sink, found in it.
+
+Finally, the editor's "Dry-run (Full Execute)" menu item sent `dry_run: true` to
+`/api/workflows/test`, a handler that decodes only `workflow` and `message` and
+a simulation that never writes to a sink regardless. It did exactly what "Run
+Simulation" does and promised an execution that never happened, so it is gone.
+Running the real pipeline without writing is Dry-Run Mode, in Settings.
+
 ### Three S3 sinks that could not be configured from the editor
 
 Found while wiring the above, all the same defect: a gate keyed to a name nothing
