@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { type Node, type Edge } from '@xyflow/react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { useShallow } from 'zustand/react/shallow';
-import { getAllFieldsWithTypes, deepMergeSim, preparePayload, type FieldInfo } from '@/utils/transformationUtils';
+import { getAllFieldsWithTypes, deepMergeSim, preparePayload, getValByPath, type FieldInfo } from '@/utils/transformationUtils';
 
 export function useNodeContext(selectedNode: Node | null, testResults: any[] | null, sources: any[], sinks: any[]) {
   const { nodes, edges, nodeSamples } = useWorkflowStore(useShallow(state => ({
@@ -157,6 +157,56 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
       const isCDC = upstreamSource?.config?.use_cdc === 'true' || upstreamSource?.config?.use_cdc === true;
       const visitedTransformations = new Set<string>();
 
+      // useWorkflowInitialization hydrates a saved node as
+      // `data: { ...node.config, ref_id }` — the config is spread *flat* onto
+      // data, which is why TransformationForm passes `config: selectedNode.data`.
+      // Reading node.data.config here found an empty object for every workflow
+      // loaded from storage, so none of the inferred fields below ever appeared
+      // on a saved workflow. The nested shape is kept as a fallback because a
+      // node built in memory can still carry one.
+      const configOf = (node: Node): any => ({
+        ...((node.data?.config as Record<string, any>) || {}),
+        ...((node.data as Record<string, any>) || {}),
+      });
+
+      const addInferred = (path: string, type = 'any (inferred)') => {
+        if (path && !availableFields.find(f => f.path === path)) {
+          availableFields.push({ path, type });
+        }
+      };
+
+      // A fan-out node rewrites what the rest of the graph sees, and none of it
+      // is a targetField, so without this everything downstream of a foreach
+      // showed the source's columns and no way to address the item.
+      //
+      // These paths are not `after.`-prefixed the way a transformation's
+      // targetField is: the engine writes them with SetData, and
+      // evaluator.GetMsgValByPath reads the data map before any CDC envelope, so
+      // `_item` is what resolves at runtime on a CDC message too.
+      const addFanoutNodeFields = (config: any) => {
+        addInferred('_index', 'number (inferred)');
+        addInferred('_item');
+        // The element shape is the only thing a downstream mapping can actually
+        // address, and the upstream sample already carries it.
+        const arrayPath = config.arrayPath || config.array_path;
+        if (arrayPath && incomingPayload) {
+          const arr = getValByPath(incomingPayload, String(arrayPath));
+          const first = Array.isArray(arr) ? arr[0] : null;
+          if (first && typeof first === 'object' && !Array.isArray(first)) {
+            getAllFieldsWithTypes(first, '_item').forEach(f => addInferred(f.path, `${f.type} (inferred)`));
+          }
+        }
+        // ForeachNode drops the array it iterated from every message it emits —
+        // carrying it onto all N is what made the fan-out cost quadratic. Listing
+        // it here would offer a path that resolves to nothing at run time.
+        if (arrayPath && config.keepSourceArray !== true && config.keepSourceArray !== 'true') {
+          const consumed = String(arrayPath);
+          availableFields = availableFields.filter(
+            f => f.path !== consumed && !f.path.startsWith(`${consumed}.`)
+          );
+        }
+      };
+
       const collectInferredFields = (nodeId: string) => {
         if (visitedTransformations.has(nodeId)) return;
         visitedTransformations.add(nodeId);
@@ -164,8 +214,28 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
         const node = nodes.find(n => n.id === nodeId);
         if (!node) return;
 
+        // Execution-level fan-out: one message per array item, each carrying
+        // _item and _index (internal/engine/registry/nodes/control/foreach.go).
+        if (node.type === 'foreach') {
+          addFanoutNodeFields(configOf(node));
+        }
+
+        // Fan-in: the collected batch and its size
+        // (internal/engine/registry/nodes/control/collect.go).
+        if (node.type === 'collect') {
+          const config = configOf(node);
+          addInferred(config.targetField || config.target_field || '_items', 'array (inferred)');
+          addInferred('_count', 'number (inferred)');
+        }
+
         if (node.type === 'transformation') {
-          const config = (node.data?.config || {}) as any;
+          const config = configOf(node);
+          // The foreach/fanout *transformation* is a different node from the
+          // foreach *node type*: it materialises the expanded array on the same
+          // message instead of splitting it (pkg/comm/transformer/logic/foreach.go).
+          if (config.transType === 'foreach' || config.transType === 'fanout') {
+            addInferred(config.resultField || config.result_field || '_fanout', 'array (inferred)');
+          }
           const targetField = config.targetField || config.target_field;
           if (targetField) {
             const path = isCDC ? `after.${targetField}` : targetField;

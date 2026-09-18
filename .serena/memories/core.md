@@ -104,6 +104,13 @@ find a claim that outruns the code, fix the claim.
   across rows), renaming onto a taken path ate a row, and ranging the Go map
   gave a different apply order per message. Blur fires *before* the click that
   caused it, so a pending edit cannot be flushed there.
+- [Fan-out, and the two foreaches](fanout_traversal_and_two_foreaches.md) — the
+  traversal carried one message per node, so a foreach node delivered its first
+  item and dropped the rest (and with a `collect` downstream, delivered nothing
+  at all). Cloning per item also copied the whole array onto each clone, so the
+  cost was O(N²): 5.64 GB for a 4000-line order, now 8.41 MB. Also: two different nodes are called foreach, `transType` cannot tell
+  them apart, and the settings modal's hand-written node-type list left nine node
+  types with no editor at all.
 - [`data_conversion` holds a list of rows](data_conversion_row_list.md) — one node
   now retypes several fields, each to its own target type, with `On Error` a
   node default any row may override. The list is authoritative by *presence*,

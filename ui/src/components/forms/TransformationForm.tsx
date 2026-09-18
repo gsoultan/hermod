@@ -382,6 +382,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             onAddFromSource={addFromSource}
             testLookup={testLookup}
             transType={transType}
+            nodeType={selectedNode.type}
           />
         </Suspense>
       );
