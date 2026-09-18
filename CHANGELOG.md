@@ -7,6 +7,23 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed — a Character Map node did nothing
+
+The editor's Operation select wrote the chosen operation under `op`. The node
+read `operations` and `operation`, and never `op`, so its operation list came out
+empty, the loop applied nothing, and the field was written back exactly as it
+arrived. A green node, no error, nothing in the logs — and since the editor is
+the only way to build a Character Map node, that was every one of them.
+
+The node now also reads `op`, which repairs existing nodes without touching
+them, and resolves the keys in a fixed order — `operations`, then `operation`,
+then `op` — so a config holding more than one behaves the same way every time.
+The editor writes `operation` from now on and clears the stale `op` as it goes.
+
+The node had no tests at all, which is how a selector that was wired to nothing
+survived. It has them now, including one that pins every operation the editor
+offers to one the node implements.
+
 ### Added — one `data_conversion` node converts several fields
 
 A `data_conversion` node held one field and one target type. Retyping five
