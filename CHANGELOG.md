@@ -7,6 +7,72 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-09-20
+
+Two themes, and they turn out to be the same one.
+
+The first is work that reported success without doing anything. Dry-Run Mode
+returned "written" from a sink it never called, so the engine acknowledged the
+message and a CDC replication slot advanced past a row nothing had written —
+enabling the safety feature was how you lost the data. A condition whose regex
+did not compile rejected every message in silence, so a typo in a filter was
+indistinguishable from "nothing matched" while the workflow stayed green and
+delivered none of its traffic. A Foreach node delivered its first item and
+dropped the rest. Three S3 sinks were built with every field empty, because
+their form wrote the keys the S3 *source* reads. `execute_sql` could do nothing
+and report success. A Character Map node did nothing at all.
+
+The second is work done for consumers that were switched off. A `Debug` line's
+arguments are evaluated whatever the level then does with them, and one of
+those arguments marshalled every message to report its size — twice over, once
+for the process logger and once for a database logger that had no notion of
+level and was persisting a row per message. The batching loop cloned every
+payload to sum a total nothing reads unless batch-by-bytes is configured, which
+it is not by default. Tracing spans built attributes for spans nobody records.
+A healthy workflow rewrote its status rows every second, saying the same thing.
+And under all of it, `GetValByPath` — the function beneath every
+transformation, router condition and sink column mapping — marshalled the
+entire row to JSON and parsed it back to read one field.
+
+Both themes are the same failure: nobody was checking whether the work arrived
+anywhere. So this release also adds the checks. An allocation budget per
+message, gated in CI and mutation-tested, because the same log-line bug landed
+twice and nothing would have caught a third. A condition's regex is validated
+in the editor before the workflow is saved. A differential test for the new
+MySQL bulk path, against a real server, because a fast path that writes
+different rows from the slow one is worse than no fast path.
+
+End to end through a real workflow: **+30% throughput, −69% bytes allocated,
+−69% allocations**, and the MySQL sink writes an insert-only batch **8× to 47×
+faster** depending on batch size. Parquet also becomes a source, and can drive
+insert, update and delete in both directions.
+
+
+### An allocation budget per message, gated in CI
+
+Twice in this release a single log line quietly cost a third of everything the
+pipeline allocated, because Go evaluates a call's arguments whatever the logger
+then does with them. Neither was visible in a test, a lint or a review — only
+in an allocation profile somebody happened to take. Nothing would have caught a
+third.
+
+`TestEngineAllocationBudget` and `TestWorkflowAllocationBudget` measure
+allocations per message against a recorded figure and fail past +25%, in their
+own CI step. They budget allocations rather than time deliberately: across
+three measurement sessions the counts held within 0–2% while throughput swung
+5–56% with machine load, so a time gate on shared CI hardware would be a flake
+generator and this is not.
+
+Both are mutation-tested — reintroducing the regression they exist for fails
+them at every payload size and row width, and restoring it passes them. A gate
+that cannot fail is decoration.
+
+`TestEveryShortGuardedTestIsRunSomewhere` read only the *first* `-run`
+expression in the workflow, so a second step running `testing.Short()`-guarded
+tests would have been reported as running nowhere. It considers every `-run`
+expression now, which is what its name already claimed — and it caught the new
+budget tests before they were committed, which is the gate working.
+
 ### A healthy workflow rewrote its status rows every second, saying the same thing
 
 The engine notifies on every status *write*, not on every status *change*.
