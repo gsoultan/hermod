@@ -659,12 +659,18 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 			// on other goroutines fed by the buffer, so it is stamped onto the
 			// message instead and picked up again at the write.
 			if !trace.SpanContextFromContext(tracing.Extract(ctx, m)).IsValid() {
-				readCtx, span := tracer.Start(ctx, "source.receive", trace.WithAttributes(
-					attribute.String("workflow_id", r.engine.workflowID),
-					attribute.String("message_id", m.ID()),
-					attribute.String("table", m.Table()),
-					attribute.String("operation", string(m.Operation())),
-				))
+				// Attributes deferred: tracing.Inject below depends on the
+				// span context, not on them, so a non-recording span still
+				// stamps the message exactly as before.
+				readCtx, span := tracer.Start(ctx, "source.receive")
+				if span.IsRecording() {
+					span.SetAttributes(
+						attribute.String("workflow_id", r.engine.workflowID),
+						attribute.String("message_id", m.ID()),
+						attribute.String("table", m.Table()),
+						attribute.String("operation", string(m.Operation())),
+					)
+				}
 				tracing.Inject(readCtx, m)
 				span.End()
 			}

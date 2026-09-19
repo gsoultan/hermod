@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -25,8 +26,13 @@ import (
 // it happened anyway within a day.
 //
 // So the pairing is checked here rather than remembered. Adding a
-// testing.Short() guard without extending the -run expression now fails the
+// testing.Short() guard without extending a -run expression now fails the
 // build, in the plain unit job, needing nothing but the source tree.
+//
+// There is more than one such step now — the load step and the allocation
+// budget step — so every -run expression in the workflow counts, not just the
+// first one found. Reading only the first would fail a test that a later step
+// does run, which is a different way of being wrong about the same thing.
 
 const ciWorkflow = ".github/workflows/ci.yml"
 
@@ -35,8 +41,9 @@ const ciWorkflow = ".github/workflows/ci.yml"
 // the same way.
 const shortGuardSelfName = "short_tests_run_test.go"
 
-// shortRunExpr is the -run expression on the load step, extracted from the
-// workflow rather than duplicated, so this cannot pass by testing a stale copy.
+// shortRunExpr matches a -run expression in the workflow. They are extracted
+// from the file rather than duplicated here, so this cannot pass by testing a
+// stale copy.
 var shortRunExpr = regexp.MustCompile(`-run '([^']+)'`)
 
 // guardedTest matches a test function whose body reaches testing.Short().
@@ -47,14 +54,24 @@ func TestEveryShortGuardedTestIsRunSomewhere(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading %s: %v", ciWorkflow, err)
 	}
-	m := shortRunExpr.FindSubmatch(wf)
-	if m == nil {
-		t.Fatalf("no -run expression found in %s; if the load step was removed, every "+
-			"testing.Short() guarded test now runs nowhere", ciWorkflow)
+	matches := shortRunExpr.FindAllSubmatch(wf, -1)
+	if len(matches) == 0 {
+		t.Fatalf("no -run expression found in %s; if the steps that run the short-guarded "+
+			"tests were removed, every testing.Short() guarded test now runs nowhere", ciWorkflow)
 	}
-	selector, err := regexp.Compile(string(m[1]))
-	if err != nil {
-		t.Fatalf("the load step's -run expression does not compile: %v", err)
+	selectors := make([]*regexp.Regexp, 0, len(matches))
+	for _, m := range matches {
+		sel, err := regexp.Compile(string(m[1]))
+		if err != nil {
+			t.Fatalf("a -run expression in %s does not compile: %q: %v", ciWorkflow, m[1], err)
+		}
+		selectors = append(selectors, sel)
+	}
+
+	runSomewhere := func(name string) bool {
+		return slices.ContainsFunc(selectors, func(sel *regexp.Regexp) bool {
+			return sel.MatchString(name)
+		})
 	}
 
 	var uncovered []string
@@ -91,7 +108,7 @@ func TestEveryShortGuardedTestIsRunSomewhere(t *testing.T) {
 			if !strings.Contains(text[start:end], "testing.Short()") {
 				continue
 			}
-			if !selector.MatchString(name) {
+			if !runSomewhere(name) {
 				uncovered = append(uncovered, name)
 			}
 		}
@@ -102,9 +119,9 @@ func TestEveryShortGuardedTestIsRunSomewhere(t *testing.T) {
 	}
 
 	if len(uncovered) > 0 {
-		t.Errorf("these tests are skipped by -short and matched by nothing in the load "+
-			"step's -run expression, so they run nowhere in CI:\n\t%s\n\n"+
-			"add them to the -run expression in %s, or drop the testing.Short() guard. "+
+		t.Errorf("these tests are skipped by -short and matched by no -run expression in "+
+			"any CI step, so they run nowhere:\n\t%s\n\n"+
+			"add them to a -run expression in %s, or drop the testing.Short() guard. "+
 			"A test that does not run cannot fail, which is why nothing else catches this.",
 			strings.Join(uncovered, "\n\t"), ciWorkflow)
 	}

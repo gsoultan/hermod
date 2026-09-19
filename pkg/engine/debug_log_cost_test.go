@@ -15,8 +15,10 @@ import (
 	"context"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gsoultan/hermod"
+	"github.com/gsoultan/hermod/pkg/comm/buffer"
 	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
@@ -175,4 +177,60 @@ func TestSinkWriteSpanStillCarriesItsAttributes(t *testing.T) {
 	if !found {
 		t.Fatal("no sink.write span was recorded")
 	}
+}
+
+// The source-read span is the other half of the trace TestSinkWriteJoinsThe-
+// TraceTheSourceReadStarted checks. Its attributes are deferred behind
+// IsRecording for the same reason the write span's are, and this is what
+// notices if that ever stops being equivalent.
+func TestSourceReceiveSpanStillCarriesItsAttributes(t *testing.T) {
+	rec := recordSpans(t)
+
+	src := &traceSource{msg: func() hermod.Message {
+		m := message.AcquireMessage()
+		m.SetID("src-1")
+		m.SetTable("orders")
+		m.SetOperation(hermod.OpCreate)
+		m.SetPayload([]byte(`{"v":1}`))
+		return m
+	}()}
+	snk := &traceSink{got: make(chan hermod.Message, 1)}
+	eng := NewEngine(src, []hermod.Sink{snk}, buffer.NewRingBuffer(10))
+	eng.workflowID = "wf-src"
+
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	go func() { _ = eng.Start(ctx) }()
+
+	select {
+	case <-snk.got:
+	case <-ctx.Done():
+		t.Fatal("the sink never received the message")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, s := range rec.Ended() {
+			if s.Name() != "source.receive" {
+				continue
+			}
+			got := map[string]string{}
+			for _, a := range s.Attributes() {
+				got[string(a.Key)] = a.Value.AsString()
+			}
+			for k, want := range map[string]string{
+				"workflow_id": "wf-src",
+				"message_id":  "src-1",
+				"table":       "orders",
+				"operation":   string(hermod.OpCreate),
+			} {
+				if got[k] != want {
+					t.Errorf("span attribute %s = %q, want %q (all: %v)", k, got[k], want, got)
+				}
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("no source.receive span was recorded")
 }

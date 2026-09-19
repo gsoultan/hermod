@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +31,10 @@ type DatabaseLogger struct {
 
 	// flushing guards against piling up flush goroutines when storage is slow.
 	flushing atomic.Bool
+
+	// debugEnabled reports whether DEBUG lines are kept. It is read-only after
+	// construction, so it needs no lock.
+	debugEnabled bool
 
 	mu           sync.Mutex
 	buffer       []storage.Log
@@ -61,13 +66,14 @@ func NewDatabaseLogger(parentCtx context.Context, s LogCreator, workflowID strin
 	}
 
 	l := &DatabaseLogger{
-		storage:    s,
-		ctx:        ctx,
-		cancel:     cancel,
-		workflowID: workflowID,
-		fallback:   fallback,
-		buffer:     make([]storage.Log, 0, 50),
-		sampleRate: sampleRate,
+		storage:      s,
+		ctx:          ctx,
+		cancel:       cancel,
+		workflowID:   workflowID,
+		fallback:     fallback,
+		buffer:       make([]storage.Log, 0, 50),
+		sampleRate:   sampleRate,
+		debugEnabled: strings.EqualFold(os.Getenv("HERMOD_LOG_LEVEL"), "debug"),
 	}
 	go l.backgroundFlush()
 	return l
@@ -164,6 +170,14 @@ func (l *DatabaseLogger) reportFlushFailure(err error, batchSize int) {
 // most likely to be down at the time.
 func (l *DatabaseLogger) log(level string, msg string, keysAndValues ...any) {
 	l.tee(level, msg, keysAndValues...)
+
+	// This had no level filter at all, so moving the per-write success line
+	// from Info to Debug silenced the process logger and changed nothing here:
+	// a healthy pipeline still wrote one row to the log table per message.
+	// Sampling was the only brake, and it is off by default.
+	if level == "DEBUG" && !l.debugEnabled {
+		return
+	}
 
 	if (level == "DEBUG" || level == "INFO") && l.sampleRate < 1.0 {
 		if rand.Float64() > l.sampleRate {
@@ -278,6 +292,15 @@ func hasKey(keysAndValues []any, key string) bool {
 	}
 	return false
 }
+
+// DebugEnabled reports whether Debug output is kept.
+//
+// It exists so a caller can skip building an argument that is about to be
+// discarded. The engine's per-write line measures the message's payload, which
+// for a data-map message means marshalling it to JSON; a logger that cannot
+// answer this is assumed to want the line, so without it that marshal ran for
+// every message written.
+func (l *DatabaseLogger) DebugEnabled() bool { return l.debugEnabled }
 
 func (l *DatabaseLogger) Debug(msg string, keysAndValues ...any) {
 	l.log("DEBUG", msg, keysAndValues...)

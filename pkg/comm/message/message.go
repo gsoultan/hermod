@@ -628,6 +628,27 @@ func (m *DefaultMessage) RefCount() int32 {
 	return m.refCount.Load()
 }
 
+// Pooling limits.
+//
+// A pooled message keeps whatever it grew to: clear() empties a map but keeps
+// its bucket array, and re-slicing a buffer to [:0] keeps its capacity. That is
+// the point — reusing the allocation is what pooling is for — but it means one
+// outlier message pins its footprint in the pool for the life of the process.
+// A single 8 MB payload, or one 10,000-column row, and the pool never gives it
+// back.
+//
+// So the common case keeps its allocation and anything grown out of proportion
+// is handed back to the collector. The thresholds are set well above any
+// ordinary row or payload, so a normal pipeline never trips them.
+const (
+	// maxPooledBufferBytes is the largest payload or before-image buffer a
+	// pooled message will hold on to.
+	maxPooledBufferBytes = 1 << 20 // 1 MiB
+	// maxPooledMapEntries is the widest data or metadata map a pooled message
+	// will hold on to.
+	maxPooledMapEntries = 512
+)
+
 // Reset clears the message state so it can be reused.
 func (m *DefaultMessage) Reset() {
 	m.mu.Lock()
@@ -638,7 +659,20 @@ func (m *DefaultMessage) Reset() {
 	m.table = ""
 	m.schema = ""
 	m.clearPayloads()
-	clear(m.metadata)
+	if len(m.metadata) > maxPooledMapEntries {
+		m.metadata = make(map[string]string)
+	} else {
+		clear(m.metadata)
+	}
+}
+
+// releaseOversizedBuffer returns b emptied, dropping the allocation when it has
+// grown past what is worth keeping.
+func releaseOversizedBuffer(b []byte) []byte {
+	if cap(b) > maxPooledBufferBytes {
+		return nil
+	}
+	return b[:0]
 }
 
 // ClearPayloads clears the data content of the message but keeps metadata/system fields.
@@ -649,9 +683,13 @@ func (m *DefaultMessage) ClearPayloads() {
 }
 
 func (m *DefaultMessage) clearPayloads() {
-	m.before = m.before[:0]
-	m.payload = m.payload[:0]
-	clear(m.data)
+	m.before = releaseOversizedBuffer(m.before)
+	m.payload = releaseOversizedBuffer(m.payload)
+	if len(m.data) > maxPooledMapEntries {
+		m.data = make(map[string]any)
+	} else {
+		clear(m.data)
+	}
 }
 
 // ClearCachedPayload clears only the marshaled payload bytes.

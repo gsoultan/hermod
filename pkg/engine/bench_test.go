@@ -28,6 +28,16 @@ import (
 type benchLogger struct{}
 
 func (benchLogger) Debug(msg string, kv ...any) {}
+
+// DebugEnabled matches the default of every logger the engine actually runs
+// with: telemetry.DefaultLogger starts at Info, and registry.DatabaseLogger
+// keeps DEBUG only when HERMOD_LOG_LEVEL says so.
+//
+// Without it the benchmark measured a configuration nothing runs in. A logger
+// that cannot report a level is assumed to want the line, so the per-write
+// debug line's payload measurement — a full JSON marshal of the message's data
+// map — ran for every message here and for no message in production.
+func (benchLogger) DebugEnabled() bool          { return false }
 func (benchLogger) Info(msg string, kv ...any)  {}
 func (benchLogger) Warn(msg string, kv ...any)  {}
 func (benchLogger) Error(msg string, kv ...any) {}
@@ -107,7 +117,7 @@ func (s *nullBatchSink) WriteBatch(ctx context.Context, msgs []hermod.Message) e
 
 // runThroughput drives count messages through an engine and reports msgs/s.
 // It returns the observed wall time for the caller to convert into a rate.
-func runThroughput(b *testing.B, count int64, payloadBytes int, cfg config.Config, sinkCfg config.SinkConfig, useBatch bool) time.Duration {
+func runThroughput(b testing.TB, count int64, payloadBytes int, cfg config.Config, sinkCfg config.SinkConfig, useBatch bool) time.Duration {
 	b.Helper()
 
 	src := newBenchSource(count, payloadBytes)

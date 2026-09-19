@@ -7,6 +7,157 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A healthy workflow rewrote its status rows every second, saying the same thing
+
+The engine notifies on every status *write*, not on every status *change*.
+`checkHealth` pings each sink once a second and calls `setSinkStatus` for every
+one of them, and `SetEngineStatusUnless` publishes "running" over "running" —
+each of which notifies. The registry's callback then writes a workflow row, a
+source row and one row per sink, **synchronously, on the health-check
+goroutine**. With two sinks that is 12 storage writes a second, per workflow,
+for the life of the workflow, and the value written is almost always the one
+already there.
+
+The callback's own comment — "update status in storage as they change rarely"
+— is the assumption it was written on, and it was not true.
+
+The notifications themselves are left alone, deliberately. `BroadcastStatus` is
+wired only to this callback and is the only thing that pushes per-workflow
+status to the UI; unlike the dashboard, which has `runDashboardSampler` as a
+floor, there is nothing behind it. Firing less often would freeze the editor's
+live node metrics whenever the status strings happened not to move, which is
+the healthy case. So the redundancy is absorbed at the storage boundary
+instead: `statusWriteGate` remembers what each row holds and skips a write that
+would store the same value.
+
+A write that fails is un-recorded so the next tick retries it. Recording a
+value storage had refused would drop that status permanently — the UI would
+show the previous one for the life of the workflow, which is the opposite of
+what a status row is for.
+
+Not changed: `SetEngineStatusUnless` returns true when it *wrote*, not when it
+*changed*. That reads like the bug, and it is what makes the engine notify on
+an unchanged status — but it is what the method documents and what its test
+pins, and the notification it produces is load-bearing for the UI. The waste
+was never the notification; it was the writes behind it.
+
+
+### Per-message tracing spans built attributes nobody read
+
+`writeToSink` already deferred its span attributes behind `IsRecording()`.
+Three more sites did not: `RunWorkflowNode` (per node, per message),
+and the two `source.receive` spans in the registry's multi-source reader and
+the engine's runner. With no TracerProvider installed — the default — that is
+four or five attribute values, a slice and an option wrapper built per message
+for a span that goes nowhere. `trace.WithAttributes` was 8.7 allocations a
+message at 32 columns and is now absent from the profile entirely.
+
+The two `source.receive` spans stamp the message with `tracing.Inject`, which
+depends on the span context rather than on its attributes, so a non-recording
+span stamps exactly as before. `TestSourceReceiveSpanStillCarriesItsAttributes`
+is the guard, alongside the existing one for the write span.
+
+`EvaluateConditions` also stopped formatting both sides of every condition
+through `fmt.Sprintf("%v", ...)` before it knew which operator it was applying,
+so a numeric comparison no longer pays for two strings it never reads: 250ns
+and 5 allocations down to 165ns and 3. `stringify` has to agree with `%v`
+exactly — a condition is a filter, so a formatting difference is a data
+difference — and is held against it over NaN, the infinities, the 1e21
+exponent threshold and float32 widening.
+
+Allocations per message through a real workflow are now 89, 101 and 149 at 8,
+32 and 128 columns, against 116, 158 and 326 before. Part of that drop is not
+a speedup: the benchmark's own source fixture was formatting column names and
+values per message — 64 `Sprintf` calls a message at 32 columns — which
+inflated every figure and buried the pipeline's costs under the harness's. It
+builds them once now, so the numbers measure what they claim to.
+
+Not done, deliberately: the single field/operator/value condition form still
+builds a slice and a map per message, about 4% of the total. Avoiding it means
+handing callers a cached slice they could mutate, and one workflow's filter
+silently rewriting another's is a worse failure than the allocation.
+
+### The MySQL sink wrote one statement per message
+
+`WriteBatch` opened a transaction and then executed one statement per message,
+so a 2,000-row batch was 2,000 round trips. An insert-only batch into a single
+table now goes as multi-row `INSERT ... VALUES (...),(...)`.
+
+Against MariaDB 11.4 in a local container: **8.1x at 100 rows, 27.5x at 500,
+46.9x at 2,000** (5,289 -> 42,579, 7,364 -> 202,567 and 6,571 -> 307,933
+rows/s). The old path plateaus around 6,000 rows/s whatever the batch size
+because it is round-trip bound rather than CPU bound — and that is measured on
+localhost, so over a real network the gap is larger, not smaller.
+
+`classifyBatch` is conservative by construction, mirroring the Postgres sink's:
+the bulk path is taken only where per-row ordering cannot be observed, and
+anything it cannot establish falls back to the ordered path. It declines a
+batch under 50 rows, without mappings, using soft delete, with an operation
+mode other than auto/insert, routed per message, or containing anything that is
+not an insert.
+
+One condition has no Postgres equivalent. `upsertMapped` drops an identity
+column whose value is empty, *per message*, so two messages in one batch can
+contribute different column lists — and emitting those as a single multi-row
+INSERT would shift values into the wrong columns, with no error. The shape is
+established from the first row and the batch is refused if any later row
+disagrees.
+
+Guarded by a differential against a real server: the same batch written both
+ways must produce identical table contents, including last-wins on a key
+repeated within one batch, and including a batch large enough to cross a chunk
+boundary.
+
+
+### A healthy pipeline wrote one database log row per message
+
+`DatabaseLogger` had no level filter at all. Moving the per-write success line
+from `Info` to `Debug` — done to stop a healthy pipeline producing an unbounded
+log stream — silenced the process logger and changed nothing here: every
+`Debug` line was still built and buffered for the `logs` table. Sampling was
+the only brake, and it is off by default.
+
+It is worse than a log-volume problem. The engine skips building a `Debug`
+line's arguments only when the logger can say the level is off, and a logger
+that cannot answer is assumed to want the line. `DatabaseLogger` could not
+answer — so the payload measurement in that line marshalled **every message's
+data map to JSON**, per message, to report a size for a row nobody reads. At 32
+columns that was 754k allocations on top of the logger's own 295k, together
+about 30% of everything a workflow allocated.
+
+`DatabaseLogger` now honours `HERMOD_LOG_LEVEL` and reports `DebugEnabled()`.
+
+Two more per-message costs went with it:
+
+- **`ParseConditions` re-parsed its JSON for every message.** A condition node
+  calls it before evaluating anything, so the same bytes were unmarshalled for
+  the life of the workflow to produce the same answer: 1,126ns and 24
+  allocations a message, now 117ns and 5. The parse is cached per distinct
+  config, bounded and evicting, and the result is copied out so one workflow's
+  filter cannot reach into another's.
+- **A pooled message kept whatever it grew to.** `clear()` empties a map but
+  keeps its bucket array, and re-slicing a buffer to `[:0]` keeps its capacity —
+  which is the point of pooling, but it meant a single 8 MB payload or one
+  10,000-column row pinned that footprint in the pool for the life of the
+  process. Ordinary messages still reuse their allocation; anything past 1 MiB
+  of buffer or 512 map entries is handed back.
+
+Cumulative, end to end through a real `source -> condition -> mapping -> sink`
+workflow, against the same baseline as the previous entry: **+30% throughput,
+-69% bytes allocated, -69% allocations** (geomean over 8-, 32- and 128-column
+rows; +71% throughput and -75% allocations at 128 columns). Throughput reads
+between +30% and +50% depending on machine load; the allocation figures are
+deterministic across runs.
+
+The traversal's goroutine-per-node model was **not** changed. An earlier
+reading of the engine profile put 75% of CPU in scheduler wait and blamed it —
+but the engine benchmark runs no workflow, so it never exercised the traversal,
+and in the workflow profile those symbols are mostly idle threads rather than
+contention. Measured properly the whole traversal is about 2% of CPU, so the
+code that owns the fan-out ownership contract was left alone. `Traverse` no
+longer spawns a goroutine only to wait for it immediately.
+
+
 Reading one field no longer costs a whole row.
 
 `evaluator.GetValByPath` — the function under every transformation, router

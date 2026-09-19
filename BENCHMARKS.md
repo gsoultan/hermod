@@ -218,6 +218,102 @@ go tool pprof -sample_index=alloc_space -list='Engine..writeToSink$' /tmp/engine
 | `tracing.messageCarrier.Get` | 2 map clones/message | cloned all metadata to read one propagation header |
 | `writer.go` span attributes | ~7.7 allocs/message | built eagerly for a span nobody records when no TracerProvider is installed |
 
+## Workflow throughput: second pass
+
+Measured 2026-09-19, same benchmark, against the same `b0703d7` baseline — so
+these are **cumulative** with the figures above, not additional to them.
+
+| | Throughput | Bytes allocated | Allocations |
+|---|---|---|---|
+| 8 columns | +10.1% | −61.3% | −61.1% |
+| 32 columns | +17.8% | −66.8% | −68.6% |
+| 128 columns | **+70.7%** | **−77.5%** | **−75.3%** |
+| **geomean** | **+30.3%** | **−69.0%** | **−68.9%** |
+
+benchstat n=7+8, p<=0.021. Throughput geomean has read between +30% and +50%
+across sessions depending on machine load; the allocation figures are
+deterministic (±0–2% across three separate runs) and are what a regression
+should be held against. 128 columns gains most because the dominant cost
+scaled with row width.
+
+### What it was
+
+| Site | Was | Cause |
+|---|---|---|
+| `DatabaseLogger.log` | 295k allocs + a DB row per message | **no level filter at all** — every `Debug` line was built and persisted |
+| `writeToSink` payload measure | 754k allocs (32/message at 32 columns) | the engine's `debugEnabled()` guard assumes "yes" for a logger that cannot report a level, so the marshal it exists to prevent ran anyway |
+| `evaluator.ParseConditions` | 1,126 ns / 24 allocs per message | re-unmarshalled the same conditions JSON for every message |
+| pooled message footprint | unbounded | `clear()` keeps a map's buckets and `[:0]` keeps a buffer's capacity, so one outlier message pinned its size in the pool for the life of the process |
+
+The first two are one bug wearing two hats. Moving the per-write success line
+from `Info` to `Debug` silenced zerolog but not the database logger, which had
+no notion of level — so a healthy pipeline still wrote one log row per message,
+*and* still marshalled each message's data map to report a size for it.
+
+### What the profile said not to do
+
+The traversal spawns a goroutine per node per message, and an earlier reading of
+the **engine** profile put 75% of CPU in `runtime.usleep` and
+`pthread_cond_wait`. That reading was wrong twice over: the engine benchmark
+runs no workflow, so it never exercised the traversal at all; and in the
+workflow profile those same symbols are mostly **idle** threads — 1.46 s of
+samples over 401 ms of wall time at 363% means ~3.6 of 15 cores busy, not
+contention.
+
+Profiled properly, `resolveEdge` is 0.68% of CPU flat and the whole traversal
+about 2%. A workflow's cost is allocation, not scheduling, so the
+goroutine-per-node model was left alone rather than restructured — that code
+owns the fan-out ownership contract and is where the expensive bugs have been.
+The one spawn removed is `Traverse`'s, which created a goroutine and
+immediately waited for it.
+
+## Allocation budgets (CI gate)
+
+`TestEngineAllocationBudget` (`pkg/engine`) and `TestWorkflowAllocationBudget`
+(`internal/engine/registry`) measure allocations per message against a recorded
+figure and fail past +25%. CI runs them in their own step.
+
+They budget **allocations, not time**. Across three measurement sessions the
+allocation counts held within 0–2% while throughput swung 5–56% with machine
+load, so a time gate on shared CI hardware would be a flake generator and this
+is not.
+
+| Budget | Recorded allocations/message |
+|---|---|
+| engine, 64 B / 1 KB / 16 KB payload | 39 / 39 / 40 |
+| workflow, 8 / 32 / 128 columns | 116 / 158 / 326 |
+
+Both are **mutation-tested**: reintroducing the regression they exist for (a
+logger that claims Debug is on, so the per-write line marshals the message)
+fails them at every payload size and row width, and restoring it passes them.
+A gate that cannot fail is decoration.
+
+They exist because the same bug class landed twice — a log line whose arguments
+are evaluated whatever the level does with them, costing 19% of engine
+allocations the first time and ~30% of workflow allocations the second.
+Invisible to a test, a lint and a review; visible only in a profile somebody
+happened to take.
+
+### The engine benchmark was measuring a configuration nothing runs in
+
+`benchLogger` did not implement `DebugEnabled()`, and a logger that cannot
+report a level is assumed to want the line. So the per-write debug line's
+payload measurement — a full JSON marshal of the message's data map — ran for
+every message in the benchmark and, since `DefaultLogger` and `DatabaseLogger`
+both report their level now, for no message in production.
+
+With the benchmark corrected to match, the engine's figures are:
+
+| Payload | Throughput | B/op (50k msgs) | allocs/op | Garbage per message |
+|---|---|---|---|---|
+| 64 B | 128,624 msgs/s | 110.0 MB | 1.934 M | 2.2 KB |
+| 1 KB | 115,510 msgs/s | 160.9 MB | 1.935 M | 3.2 KB |
+| 16 KB | 79,906 msgs/s | 1.013 GB | 1.958 M | 20.3 KB |
+
+Against the original `b0703d7` baseline that is **−44% allocations** and, at a
+16 KB payload, **92.7 KB of garbage per message down to 20.3 KB** — from 5.7x
+the payload to 1.24x.
+
 ## Field access
 
 Measured 2026-09-19, `pkg/infra/evaluator/path_bench_test.go`. Every
@@ -264,13 +360,66 @@ That matrix earns its keep: it caught **sjson and `json.Marshal` disagreeing on
 the write fast path handles only value types it has been proved equivalent for
 and hands the rest to sjson.
 
+## MySQL sink: multi-row INSERT
+
+Measured 2026-09-19 against MariaDB 11.4 in a local container, 3 columns per
+row, `BenchmarkMySQLWriteBatch` (integration-tagged).
+
+`WriteBatch` opened one transaction and then executed **one statement per
+message**. An insert-only batch into a single table now goes as multi-row
+`INSERT ... VALUES (...),(...)`, turning N round trips into one per chunk.
+
+| Batch | Ordered (one statement per message) | Multi-row | |
+|---|---|---|---|
+| 100 rows | 5,289 rows/s | 42,579 rows/s | 8.1x |
+| 500 rows | 7,364 rows/s | 202,567 rows/s | 27.5x |
+| 2,000 rows | 6,571 rows/s | 307,933 rows/s | **46.9x** |
+
+The ordered path plateaus around 6,000 rows/s whatever the batch size, because
+it is round-trip bound, not CPU bound. **This is a local container** — over a
+real network, where a round trip is milliseconds rather than microseconds, the
+gap is larger, not smaller.
+
+### What it refuses, and why
+
+`classifyBatch` is conservative by construction, mirroring the Postgres sink's:
+the bulk path is taken only when every condition for safety is positively
+established, and anything unknown falls through to the ordered path. Losing
+per-row ordering to gain throughput would trade away the guarantee that makes
+Hermod useful for CDC.
+
+It declines a batch that: is under 50 rows; has no column mappings; uses soft
+delete; has an operation mode other than auto/insert; routes per message rather
+than to one table; contains anything that is not an insert; or contains a
+message routed to a different table. `TestClassifyBatch` covers 15 cases.
+
+One condition has no Postgres equivalent and is the subtle one.
+`upsertMapped` drops an identity column whose value is empty — **per message**
+— so two messages in the same batch can contribute different column lists.
+Emitting those as one multi-row INSERT would shift values into the wrong
+columns, silently. `buildBulkRows` establishes the shape from the first row and
+refuses the batch if any later row disagrees.
+
+### Guarded by
+
+- `TestBulkMatchesOrderedPath` — differential against a real server: the same
+  batch written both ways must produce identical table contents, including
+  last-wins on keys repeated within one batch.
+- `TestBulkChunkingMatchesOrderedPath` — with the placeholder cap lowered so a
+  modest batch actually crosses a chunk boundary.
+- `TestBatchWithAnUpdateStillWritesCorrectly` — the fallback is not a failure
+  mode; a refused batch must still be written correctly by the ordered path.
+
+MSSQL (`mssql.CopyIn`) and Snowflake (`PUT` + `COPY INTO`) are still row-by-row
+and are the next two.
+
 ## Not yet measured
 
 Named explicitly so nothing here is mistaken for full coverage:
 
-- **MySQL / MSSQL / Snowflake sinks.** Only Postgres has the bulk path so far. MySQL
-  (`LOAD DATA LOCAL INFILE`), MSSQL (`mssql.CopyIn`) and Snowflake (`PUT` + `COPY INTO`) are still
-  row-by-row. Snowflake is the most costly of these — row-by-row into a warehouse is pathological.
+- **MSSQL / Snowflake sinks.** MySQL now has a multi-row INSERT path (above) and ClickHouse has
+  `PrepareBatch`. MSSQL (`mssql.CopyIn`) and Snowflake (`PUT` + `COPY INTO`) are still row-by-row.
+  Snowflake is the most costly of these — row-by-row into a warehouse is pathological.
 - **Bulk path over a real network**, where the round-trip saving should be far larger than measured
   here on localhost.
 - **Traversal cost per DAG node** — how the goroutine-per-node model scales with DAG width/depth.
