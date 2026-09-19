@@ -7,6 +7,27 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A panic below a node leaked every message it had produced
+
+`processNode` recovers from panics in everything below it, deliberately, so one
+bad node cannot take the worker with it. But the release of the messages the
+node returned was the **last statement in the function**, not a deferred one —
+so the recovery skipped it, and every message in that slice kept a reference it
+would never get back: never returned to the pool, holding its payload for the
+life of the process.
+
+It is worst exactly where it hurts most. A fan-out returns one message per
+array item, so a panic under a 4,000-item fan-out leaked 4,000 messages at
+once. The release is deferred now, and runs whether the function returns or
+panics.
+
+Found while auditing the recovery paths rather than from a report, and the test
+that proves it turned up a second thing worth knowing: `processNode`'s recover
+handler reports the panic through `Registry.BroadcastLog`, so a registry that
+panics *in* `BroadcastLog` panics again inside the deferred handler, where
+nothing recovers it. The panic path is only as robust as the registry it
+reports through.
+
 ### Spans and metadata reads that cost more than what they carried
 
 Two per-message costs, both the same shape as the rest of the 1.7.0 work —
