@@ -32,22 +32,12 @@ var propagator = propagation.TraceContext{}
 // propagator writes through.
 type messageCarrier struct{ msg hermod.Message }
 
-// metadataReader is implemented by messages that can read one metadata entry
-// without copying the map.
-type metadataReader interface {
-	MetadataValue(key string) (string, bool)
-}
-
 // Get reads one header. The propagator calls it once per key it understands,
 // and Metadata() clones the whole map each time — two full copies per message
-// on the write path, to answer two lookups. An implementation that cannot do a
-// single-key read still works, just at the old cost.
+// on the write path, to answer two lookups.
 func (c messageCarrier) Get(key string) string {
-	if r, ok := c.msg.(metadataReader); ok {
-		v, _ := r.MetadataValue(key)
-		return v
-	}
-	return c.msg.Metadata()[key]
+	v, _ := hermod.MetadataValue(c.msg, key)
+	return v
 }
 
 func (c messageCarrier) Set(key, value string) { c.msg.SetMetadata(key, value) }

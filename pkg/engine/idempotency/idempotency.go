@@ -20,8 +20,8 @@ func DetermineIdempotencyKey(msg hermod.Message) string {
 	if msg == nil {
 		return ""
 	}
-	if md := msg.Metadata(); md != nil {
-		if k := strings.TrimSpace(md[idempotencyKeyMeta]); k != "" {
+	if v, ok := hermod.MetadataValue(msg, idempotencyKeyMeta); ok {
+		if k := strings.TrimSpace(v); k != "" {
 			return k
 		}
 	}

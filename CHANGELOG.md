@@ -7,6 +7,45 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Spans and metadata reads that cost more than what they carried
+
+Two per-message costs, both the same shape as the rest of the 1.7.0 work —
+building something for a consumer that was not there.
+
+**A span was allocated for every message and every node even with no
+TracerProvider installed**, which is the default. otel has no way to ask "is
+one installed", but it hands back the same default object until someone
+replaces it, so identity answers the question: `tracing.Installed()` compares
+the global provider against the one captured at package initialisation.
+`tracing.StartSpan` returns the context untouched when nothing is installed,
+and the span it hands back is the noop one already in the context — `End`,
+`SetAttributes`, `RecordError` and `SetStatus` are all safe on it, so no caller
+needs a branch.
+
+The capture depends on nothing installing a provider from an `init()`. Nothing
+in Hermod does, and `TestGateDetectsAnInstalledProvider` fails loudly if that
+changes.
+
+**Reading one metadata entry cloned the whole map.** `Metadata()` copies under
+the read lock, and it must — handing out the live map would race with a
+concurrent `SetMetadata` — but almost every caller wants one key
+(`_outbox_id`, `_source_node_id`, `traceparent`, the delivery markers) and paid
+for a copy of every other entry to get it: 11% of everything a workflow
+allocated. `hermod.MetadataValue` does the lookup under the same lock. It lives
+beside the interface because three packages had each grown a private copy of it
+and a fourth was about to.
+
+Per message through a real workflow, against the 1.7.0 baseline: **27.6
+allocations in the engine alone** (was 50), and **60.6, 72.4 and 120.4 at 8, 32
+and 128 columns** (were 116, 158 and 326).
+
+The allocation budgets now refuse to run when a TracerProvider is installed in
+the same test binary. Span creation is gated on one being present, so a
+provider installed by an earlier test would quietly measure a configuration
+production never runs in — the kind of order-dependence that makes a gate worse
+than no gate.
+
+
 ### A healthy workflow rewrote its status rows every second, saying the same thing
 
 The engine notifies on every status *write*, not on every status *change*.

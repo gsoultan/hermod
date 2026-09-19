@@ -662,7 +662,7 @@ func (r *Runner) runSourceToBuffer(ctx context.Context) {
 				// Attributes deferred: tracing.Inject below depends on the
 				// span context, not on them, so a non-recording span still
 				// stamps the message exactly as before.
-				readCtx, span := tracer.Start(ctx, "source.receive")
+				readCtx, span := tracing.StartSpan(ctx, tracer, "source.receive")
 				if span.IsRecording() {
 					span.SetAttributes(
 						attribute.String("workflow_id", r.engine.workflowID),
@@ -842,7 +842,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 					return
 				}
 				r.engine.recordDeadLetter("")
-				if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
+				if outboxID, exists := hermod.MetadataValue(m, "_outbox_id"); exists && r.engine.outboxStore != nil {
 					_ = r.engine.outboxStore.DeleteOutboxItem(ctx, outboxID)
 				} else if aerr := r.engine.currentSource().Ack(ctx, m); aerr != nil {
 					r.engine.logger.Error("Source acknowledgement failed after parking an invalid message",
@@ -908,7 +908,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 				return
 			}
 			// Even if filtered, we must acknowledge to prevent re-reading
-			if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
+			if outboxID, exists := hermod.MetadataValue(m, "_outbox_id"); exists && r.engine.outboxStore != nil {
 				_ = r.engine.outboxStore.DeleteOutboxItem(ctx, outboxID)
 			} else {
 				_ = r.engine.currentSource().Ack(ctx, m)
@@ -927,7 +927,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		// routes nothing, so it arrives here looking exactly like a message no
 		// sink resolved for. It is the opposite: it is already written.
 		// Acknowledging it is what lets a replication slot advance.
-		if m != nil && m.Metadata()[MetaDeliveredInline] == "true" {
+		if v, _ := hermod.MetadataValue(m, MetaDeliveredInline); m != nil && v == "true" {
 			ack()
 			return
 		}
@@ -937,7 +937,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		// a message nothing handled. It is already preserved: acknowledging it is
 		// correct, and parking it again just puts a second copy of one event in
 		// the queue.
-		if m != nil && m.Metadata()[MetaDeadLettered] == "true" {
+		if v, _ := hermod.MetadataValue(m, MetaDeadLettered); m != nil && v == "true" {
 			ack()
 			return
 		}
@@ -1057,7 +1057,7 @@ func (r *Runner) processMessage(ctx context.Context, m hermod.Message) {
 		ackCtx, cancelAck = drainWriteContext(ctx, drainBudget(r.engine))
 		defer cancelAck()
 	}
-	if outboxID, exists := m.Metadata()["_outbox_id"]; exists && r.engine.outboxStore != nil {
+	if outboxID, exists := hermod.MetadataValue(m, "_outbox_id"); exists && r.engine.outboxStore != nil {
 		if err := r.engine.outboxStore.DeleteOutboxItem(ackCtx, outboxID); err != nil {
 			r.engine.logger.Error("Failed to delete outbox item", "workflow_id", r.engine.workflowID, "id", outboxID, "error", err)
 		}
