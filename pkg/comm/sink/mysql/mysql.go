@@ -98,6 +98,28 @@ func (s *MySQLSink) WriteBatch(ctx context.Context, msgs []hermod.Message) error
 	}
 	defer tx.Rollback()
 
+	// A batch that is purely inserts into one table can go as multi-row
+	// INSERTs instead of one statement per message — for a remote database
+	// that is the difference between N round trips and a handful, which
+	// dominates everything else a sink does. classifyBatch admits a batch only
+	// when ordering cannot be observed; anything else, including anything it
+	// cannot establish, falls through to the loop below unchanged.
+	if s.classifyBatch(msgs) == bulkModeMultiValues {
+		if err := s.ensureTable(ctx, tx, s.tableName); err != nil {
+			return fmt.Errorf("ensure table %s: %w", s.tableName, err)
+		}
+		done, err := s.writeBatchMultiValues(ctx, tx, s.tableName, msgs)
+		if err != nil {
+			return err
+		}
+		if done {
+			return tx.Commit()
+		}
+		// buildBulkRows declined (the batch has no single tuple shape). Fall
+		// through: the ordered path handles it, and ensureTable above is
+		// idempotent.
+	}
+
 	// Prepare statement cache per table/op for this transaction to reduce parse overhead
 	stmts := make(map[string]*sql.Stmt)
 	defer func() {

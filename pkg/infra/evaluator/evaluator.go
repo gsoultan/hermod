@@ -889,10 +889,7 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 
 		fieldValRaw := EvaluateField(msg, field)
 		// Treat missing values consistently as empty string (UI simulator behavior)
-		fieldVal := ""
-		if fieldValRaw != nil {
-			fieldVal = fmt.Sprintf("%v", fieldValRaw)
-		}
+		fieldVal := stringify(fieldValRaw)
 
 		// Resolve templates/expressions in the value if present
 		valResolved := val
@@ -907,10 +904,7 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 				valResolved = vs
 			}
 		}
-		valStr := ""
-		if valResolved != nil {
-			valStr = fmt.Sprintf("%v", valResolved)
-		}
+		valStr := stringify(valResolved)
 
 		switch op {
 		case "=", "eq":
@@ -1192,7 +1186,11 @@ func ParseConditions(config map[string]any) []map[string]any {
 	conditionsStr, _ := config["conditions"].(string)
 	var conditions []map[string]any
 	if conditionsStr != "" {
-		_ = json.Unmarshal([]byte(conditionsStr), &conditions)
+		// Parsed once per distinct config rather than once per message.
+		// ConditionNode.Execute calls this before evaluating anything, so the
+		// same bytes were unmarshalled for the life of the workflow to produce
+		// the same answer every time: 24 allocations a message.
+		conditions = cloneConditions(parseConditionList(conditionsStr))
 	}
 
 	if len(conditions) == 0 {
@@ -1331,4 +1329,101 @@ func normalizeForWrite(val any) (any, bool) {
 		return normalizeToJSONShape(val)
 	}
 	return nil, false
+}
+
+// maxCachedConditionLists bounds the parsed-conditions cache. A condition list
+// comes from node configuration rather than from message data, so its
+// cardinality is the number of distinct condition configs in the process — but
+// it is bounded and evicting anyway, for the same reason compiledPatterns is.
+const maxCachedConditionLists = 512
+
+var parsedConditionLists = struct {
+	mu sync.RWMutex
+	m  map[string][]map[string]any
+}{m: make(map[string][]map[string]any, maxCachedConditionLists)}
+
+// parseConditionList returns the parse of a conditions JSON string, reusing an
+// earlier one. The result is shared and must not be handed to a caller
+// directly — see cloneConditions.
+//
+// A string that does not parse caches its nil, so a malformed config costs one
+// failed unmarshal rather than one per message.
+func parseConditionList(raw string) []map[string]any {
+	parsedConditionLists.mu.RLock()
+	hit, ok := parsedConditionLists.m[raw]
+	parsedConditionLists.mu.RUnlock()
+	if ok {
+		return hit
+	}
+
+	var parsed []map[string]any
+	_ = json.Unmarshal([]byte(raw), &parsed)
+
+	parsedConditionLists.mu.Lock()
+	defer parsedConditionLists.mu.Unlock()
+	if len(parsedConditionLists.m) >= maxCachedConditionLists {
+		evicted := 0
+		for k := range parsedConditionLists.m {
+			delete(parsedConditionLists.m, k)
+			if evicted++; evicted >= maxCachedConditionLists/8 {
+				break
+			}
+		}
+	}
+	parsedConditionLists.m[raw] = parsed
+	return parsed
+}
+
+// cloneConditions copies a cached condition list so a caller cannot reach into
+// the cache.
+//
+// Nothing mutates the result today — EvaluateConditions and ValidateConditions
+// only read it — but handing out shared mutable state is how that stops being
+// true, and the failure would be one workflow's filter silently rewriting
+// another's. The copy is shallow: the values inside a condition are the
+// scalars the editor writes, and a caller that replaces one replaces its own
+// map entry, not the cache's.
+func cloneConditions(src []map[string]any) []map[string]any {
+	if src == nil {
+		return nil
+	}
+	out := make([]map[string]any, len(src))
+	for i, c := range src {
+		out[i] = maps.Clone(c)
+	}
+	return out
+}
+
+// stringify renders v the way fmt.Sprintf("%v", v) does, without the
+// reflection for the types a decoded message actually holds.
+//
+// EvaluateConditions formats both sides of every condition before it knows
+// which operator it is applying, so a numeric comparison paid for two strings
+// it never read — per condition, per message. The short-circuits here cover
+// what a JSON-decoded row contains (string, bool, float64) plus the integer
+// kinds a Go-built message can carry.
+//
+// It must agree with %v exactly. A condition is a filter, so a formatting
+// difference is a data difference: TestStringifyMatchesSprintf holds the two
+// together over the awkward cases (NaN, infinities, exponent thresholds,
+// float32 widening).
+func stringify(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case bool:
+		return strconv.FormatBool(t)
+	case float64:
+		// %v for a float is %g with the shortest representation that round
+		// trips, which is exactly what a precision of -1 asks for. NaN and the
+		// infinities format as "NaN", "+Inf" and "-Inf" through both.
+		return strconv.FormatFloat(t, 'g', -1, 64)
+	case int:
+		return strconv.Itoa(t)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	}
+	return fmt.Sprintf("%v", v)
 }

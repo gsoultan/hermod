@@ -144,7 +144,16 @@ func Release(t *WorkflowTraversal) {
 }
 
 func (t *WorkflowTraversal) Traverse(ctx context.Context, startNodeID string) {
-	t.Wg.Go(func() { t.processNode(ctx, startNodeID) })
+	// The start node runs on the caller's goroutine. Spawning one and then
+	// immediately waiting for it bought nothing: the caller has nothing else to
+	// do until the walk finishes, and everything downstream still gets its own
+	// goroutine through resolveEdge, which Wg.Wait below still covers.
+	//
+	// On a four-node graph that is one goroutine per message out of four, and
+	// the whole traversal is only ~0.7% of engine CPU, so this is tidiness
+	// rather than a fix — the measured cost of a workflow is allocation, not
+	// scheduling.
+	t.processNode(ctx, startNodeID)
 	t.Wg.Wait()
 }
 
