@@ -35,10 +35,16 @@ type allocBudget struct {
 }
 
 // Measured 2026-09-19 on Apple M5 Pro, go1.27.1, from BenchmarkWorkflowThroughput.
+//
+// These are lower than the figures first recorded here (116/158/326) for two
+// different reasons, and only one of them is a speedup: the source fixture
+// stopped formatting column names and values per message, which was harness
+// noise inflating every figure, and the per-message tracing spans stopped
+// building attributes for a span nobody records.
 var workflowAllocBudgets = []allocBudget{
-	{cols: 8, perMessage: 116},
-	{cols: 32, perMessage: 158},
-	{cols: 128, perMessage: 326},
+	{cols: 8, perMessage: 89},
+	{cols: 32, perMessage: 101},
+	{cols: 128, perMessage: 149},
 }
 
 func TestWorkflowAllocationBudget(t *testing.T) {

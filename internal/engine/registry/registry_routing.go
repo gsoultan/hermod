@@ -14,7 +14,6 @@ import (
 	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 	"github.com/gsoultan/hermod/pkg/infra/tracing"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // --- Multi-Source ---
@@ -146,13 +145,19 @@ func (m *multiSource) Read(ctx context.Context) (hermod.Message, error) {
 						// process this message run on other goroutines, so it
 						// travels on the message and is picked up in
 						// RunWorkflowNode.
-						readCtx, span := tracer.Start(ctx, "source.receive", trace.WithAttributes(
-							attribute.String("workflow_id", m.workflowID),
-							attribute.String("source_id", ss.sourceID),
-							attribute.String("node_id", ss.nodeID),
-							attribute.String("message_id", msg.ID()),
-							attribute.String("table", msg.Table()),
-						))
+						// Attributes deferred: tracing.Inject below depends
+						// on the span context, not on them, so a non-recording
+						// span still stamps the message exactly as before.
+						readCtx, span := tracer.Start(ctx, "source.receive")
+						if span.IsRecording() {
+							span.SetAttributes(
+								attribute.String("workflow_id", m.workflowID),
+								attribute.String("source_id", ss.sourceID),
+								attribute.String("node_id", ss.nodeID),
+								attribute.String("message_id", msg.ID()),
+								attribute.String("table", msg.Table()),
+							)
+						}
 						tracing.Inject(readCtx, msg)
 						span.End()
 
@@ -434,12 +439,21 @@ func (r *Registry) RunWorkflowNode(workflowID string, node *storage.WorkflowNode
 	// traces. The link comes off the message because the node runs on a
 	// different goroutine from the read that produced it.
 	ctx = tracing.Extract(ctx, msg)
-	ctx, span := tracer.Start(ctx, "RunWorkflowNode", trace.WithAttributes(
-		attribute.String("workflow_id", workflowID),
-		attribute.String("node_id", node.ID),
-		attribute.String("node_type", node.Type),
-		attribute.String("message_id", msg.ID()),
-	))
+	// Attributes are set after the span rather than passed to Start, so they
+	// are not built for a span nobody records — which, with no TracerProvider
+	// installed, is every span. This runs per node per message, so it was four
+	// attribute values, a slice and the option wrapper on the hottest path
+	// there is. The sampler does not read attributes (see the note at
+	// writeToSink), so the two are equivalent.
+	ctx, span := tracer.Start(ctx, "RunWorkflowNode")
+	if span.IsRecording() {
+		span.SetAttributes(
+			attribute.String("workflow_id", workflowID),
+			attribute.String("node_id", node.ID),
+			attribute.String("node_type", node.Type),
+			attribute.String("message_id", msg.ID()),
+		)
+	}
 	defer span.End()
 
 	// Broadcast live message for observability

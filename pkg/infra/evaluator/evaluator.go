@@ -889,10 +889,7 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 
 		fieldValRaw := EvaluateField(msg, field)
 		// Treat missing values consistently as empty string (UI simulator behavior)
-		fieldVal := ""
-		if fieldValRaw != nil {
-			fieldVal = fmt.Sprintf("%v", fieldValRaw)
-		}
+		fieldVal := stringify(fieldValRaw)
 
 		// Resolve templates/expressions in the value if present
 		valResolved := val
@@ -907,10 +904,7 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 				valResolved = vs
 			}
 		}
-		valStr := ""
-		if valResolved != nil {
-			valStr = fmt.Sprintf("%v", valResolved)
-		}
+		valStr := stringify(valResolved)
 
 		switch op {
 		case "=", "eq":
@@ -1398,4 +1392,38 @@ func cloneConditions(src []map[string]any) []map[string]any {
 		out[i] = maps.Clone(c)
 	}
 	return out
+}
+
+// stringify renders v the way fmt.Sprintf("%v", v) does, without the
+// reflection for the types a decoded message actually holds.
+//
+// EvaluateConditions formats both sides of every condition before it knows
+// which operator it is applying, so a numeric comparison paid for two strings
+// it never read — per condition, per message. The short-circuits here cover
+// what a JSON-decoded row contains (string, bool, float64) plus the integer
+// kinds a Go-built message can carry.
+//
+// It must agree with %v exactly. A condition is a filter, so a formatting
+// difference is a data difference: TestStringifyMatchesSprintf holds the two
+// together over the awkward cases (NaN, infinities, exponent thresholds,
+// float32 widening).
+func stringify(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case bool:
+		return strconv.FormatBool(t)
+	case float64:
+		// %v for a float is %g with the shortest representation that round
+		// trips, which is exactly what a precision of -1 asks for. NaN and the
+		// infinities format as "NaN", "+Inf" and "-Inf" through both.
+		return strconv.FormatFloat(t, 'g', -1, 64)
+	case int:
+		return strconv.Itoa(t)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	}
+	return fmt.Sprintf("%v", v)
 }

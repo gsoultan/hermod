@@ -29,10 +29,30 @@ import (
 
 // wideSource emits `count` rows of `cols` columns, the shape a CDC source
 // hands over for a table of that width.
+//
+// Column names and string values are built once, in newWideSource. Formatting
+// them per message made the fixture itself the largest single allocation site
+// in the profile — 64 Sprintf calls a message at 32 columns — which both
+// inflated the per-message budget and buried the pipeline's own costs
+// underneath the harness's.
 type wideSource struct {
 	count   int64
 	cols    int
+	names   []string
+	strVals []string
 	emitted atomic.Int64
+}
+
+func newWideSource(count int64, cols int) *wideSource {
+	s := &wideSource{count: count, cols: cols,
+		names:   make([]string, cols),
+		strVals: make([]string, cols),
+	}
+	for i := range cols {
+		s.names[i] = fmt.Sprintf("col_%d", i)
+		s.strVals[i] = fmt.Sprintf("value-%d-abcdefghijklmnop", i)
+	}
+	return s
 }
 
 func (s *wideSource) Read(ctx context.Context) (hermod.Message, error) {
@@ -44,13 +64,13 @@ func (s *wideSource) Read(ctx context.Context) (hermod.Message, error) {
 	for i := range s.cols {
 		switch i % 4 {
 		case 0:
-			m.SetData(fmt.Sprintf("col_%d", i), fmt.Sprintf("value-%d-abcdefghijklmnop", i))
+			m.SetData(s.names[i], s.strVals[i])
 		case 1:
-			m.SetData(fmt.Sprintf("col_%d", i), i)
+			m.SetData(s.names[i], i)
 		case 2:
-			m.SetData(fmt.Sprintf("col_%d", i), float64(i)*1.5)
+			m.SetData(s.names[i], float64(i)*1.5)
 		case 3:
-			m.SetData(fmt.Sprintf("col_%d", i), i%2 == 0)
+			m.SetData(s.names[i], i%2 == 0)
 		}
 	}
 	m.SetData("status", "active")
@@ -143,7 +163,7 @@ func runWorkflowOnce(b testing.TB, messages, cols, run int) time.Duration {
 	reg.SetStateStore(state.NewMemoryStore())
 
 	snk := &pipeSink{name: "out", countOnly: true}
-	src := &wideSource{count: int64(messages), cols: cols}
+	src := newWideSource(int64(messages), cols)
 	wf := benchWorkflow(fmt.Sprintf("wf-bench-%d-%d", cols, run))
 
 	start := time.Now()

@@ -7,6 +7,41 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Per-message tracing spans built attributes nobody read
+
+`writeToSink` already deferred its span attributes behind `IsRecording()`.
+Three more sites did not: `RunWorkflowNode` (per node, per message),
+and the two `source.receive` spans in the registry's multi-source reader and
+the engine's runner. With no TracerProvider installed — the default — that is
+four or five attribute values, a slice and an option wrapper built per message
+for a span that goes nowhere. `trace.WithAttributes` was 8.7 allocations a
+message at 32 columns and is now absent from the profile entirely.
+
+The two `source.receive` spans stamp the message with `tracing.Inject`, which
+depends on the span context rather than on its attributes, so a non-recording
+span stamps exactly as before. `TestSourceReceiveSpanStillCarriesItsAttributes`
+is the guard, alongside the existing one for the write span.
+
+`EvaluateConditions` also stopped formatting both sides of every condition
+through `fmt.Sprintf("%v", ...)` before it knew which operator it was applying,
+so a numeric comparison no longer pays for two strings it never reads: 250ns
+and 5 allocations down to 165ns and 3. `stringify` has to agree with `%v`
+exactly — a condition is a filter, so a formatting difference is a data
+difference — and is held against it over NaN, the infinities, the 1e21
+exponent threshold and float32 widening.
+
+Allocations per message through a real workflow are now 89, 101 and 149 at 8,
+32 and 128 columns, against 116, 158 and 326 before. Part of that drop is not
+a speedup: the benchmark's own source fixture was formatting column names and
+values per message — 64 `Sprintf` calls a message at 32 columns — which
+inflated every figure and buried the pipeline's costs under the harness's. It
+builds them once now, so the numbers measure what they claim to.
+
+Not done, deliberately: the single field/operator/value condition form still
+builds a slice and a map per message, about 4% of the total. Avoiding it means
+handing callers a cached slice they could mutate, and one workflow's filter
+silently rewriting another's is a worse failure than the allocation.
+
 ### The MySQL sink wrote one statement per message
 
 `WriteBatch` opened a transaction and then executed one statement per message,

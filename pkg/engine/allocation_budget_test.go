@@ -35,9 +35,9 @@ type engineAllocBudget struct {
 // with benchLogger reporting DebugEnabled() == false, which is what every
 // logger the engine actually runs with reports by default.
 var engineAllocBudgets = []engineAllocBudget{
-	{payloadBytes: 64, perMessage: 39},
-	{payloadBytes: 1024, perMessage: 39},
-	{payloadBytes: 16384, perMessage: 40},
+	{payloadBytes: 64, perMessage: 36},
+	{payloadBytes: 1024, perMessage: 36},
+	{payloadBytes: 16384, perMessage: 37},
 }
 
 func TestEngineAllocationBudget(t *testing.T) {
