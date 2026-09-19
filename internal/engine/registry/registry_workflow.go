@@ -672,6 +672,12 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 		// without the latch every later status change — a sink flapping, a
 		// source reconnecting — would send the same alert again.
 		var dlqAlerted atomic.Bool
+		// The engine notifies on every status write rather than on every
+		// status change, and checkHealth writes one per sink per second. The
+		// notifications have to keep coming — they are the only thing pushing
+		// per-workflow status to the UI — so the gate absorbs the redundancy
+		// at the storage boundary instead.
+		gate := newStatusWriteGate()
 		eng.SetOnStatusChange(func(update telemetry.StatusUpdate) {
 			// Ensure every broadcast carries the workflow ID so real-time UI
 			// consumers can reliably associate the update with this workflow.
@@ -679,18 +685,7 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 				update.WorkflowID = id
 			}
 
-			// Synchronously update status in storage as they change rarely and are
-			// critical for visibility.
-			dbCtx := context.Background()
-			_ = r.store().UpdateWorkflowStatus(dbCtx, id, update.EngineStatus)
-			if update.SourceID != "" {
-				_ = r.store().UpdateSourceStatus(dbCtx, update.SourceID, update.SourceStatus)
-			}
-			for sinkID, status := range update.SinkStatuses {
-				_ = r.store().UpdateSinkStatus(dbCtx, sinkID, status)
-			}
-
-			r.notifyOnStatusChange(dbCtx, id, update, &dlqAlerted)
+			r.applyStatusUpdate(context.Background(), id, gate, update, &dlqAlerted)
 
 			r.BroadcastStatus(update)
 		})

@@ -7,6 +7,41 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A healthy workflow rewrote its status rows every second, saying the same thing
+
+The engine notifies on every status *write*, not on every status *change*.
+`checkHealth` pings each sink once a second and calls `setSinkStatus` for every
+one of them, and `SetEngineStatusUnless` publishes "running" over "running" —
+each of which notifies. The registry's callback then writes a workflow row, a
+source row and one row per sink, **synchronously, on the health-check
+goroutine**. With two sinks that is 12 storage writes a second, per workflow,
+for the life of the workflow, and the value written is almost always the one
+already there.
+
+The callback's own comment — "update status in storage as they change rarely"
+— is the assumption it was written on, and it was not true.
+
+The notifications themselves are left alone, deliberately. `BroadcastStatus` is
+wired only to this callback and is the only thing that pushes per-workflow
+status to the UI; unlike the dashboard, which has `runDashboardSampler` as a
+floor, there is nothing behind it. Firing less often would freeze the editor's
+live node metrics whenever the status strings happened not to move, which is
+the healthy case. So the redundancy is absorbed at the storage boundary
+instead: `statusWriteGate` remembers what each row holds and skips a write that
+would store the same value.
+
+A write that fails is un-recorded so the next tick retries it. Recording a
+value storage had refused would drop that status permanently — the UI would
+show the previous one for the life of the workflow, which is the opposite of
+what a status row is for.
+
+Not changed: `SetEngineStatusUnless` returns true when it *wrote*, not when it
+*changed*. That reads like the bug, and it is what makes the engine notify on
+an unchanged status — but it is what the method documents and what its test
+pins, and the notification it produces is load-bearing for the UI. The waste
+was never the notification; it was the writes behind it.
+
+
 ### Per-message tracing spans built attributes nobody read
 
 `writeToSink` already deferred its span attributes behind `IsRecording()`.
