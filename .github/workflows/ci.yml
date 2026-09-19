@@ -111,6 +111,7 @@ jobs:
           go test -count=1 -timeout 20m \
             -run 'HeavySyncLoad|FailbackUnderLoad|RestartCycles|DoesNotLeakGoroutines|SurvivesControlPlaneOutage|TestHeavyLoad|AcrossRandomTopologies' \
             ./internal/engine/worker/ ./internal/engine/registry/
+
       # The step above cannot turn the detector on: all five worker load tests
       # in one process is the 8.73 GB that killed the runner. One test per
       # process can. Measured peaks, /usr/bin/time -l, one process each:
@@ -132,6 +133,27 @@ jobs:
             go test -race -count=1 -timeout 8m -run "^${t}$" ./internal/engine/worker/
             echo "::endgroup::"
           done
+
+      # Allocations per message, against a recorded budget. Twice now a single
+      # log line has quietly cost a third of everything the pipeline allocated,
+      # because Go evaluates a call's arguments whatever the logger then does
+      # with them -- invisible to a test, a lint or a review, and visible only
+      # in a profile somebody happened to take. This is what catches the third.
+      #
+      # It budgets allocations rather than time deliberately: across three
+      # measurement sessions allocation counts held within 0-2% while
+      # throughput swung 5-56% with machine load, so a time gate on shared CI
+      # hardware would be a flake generator and this is not. Both budgets are
+      # mutation-tested -- reintroducing the regression they exist for fails
+      # them at every payload size and row width.
+      #
+      # No -race and no -short: the detector's bookkeeping allocates, and both
+      # tests skip themselves under -short.
+      - name: Test (allocation budget)
+        run: |
+          go test -count=1 -timeout 10m \
+            -run 'TestEngineAllocationBudget|TestWorkflowAllocationBudget' \
+            ./pkg/engine/ ./internal/engine/registry/
       # Gates new code only (see issues.new-from-merge-base in .golangci.yml).
       # The pre-existing backlog is reported by the nightly lint-debt job rather
       # than blocking every change.

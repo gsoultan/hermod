@@ -267,6 +267,53 @@ owns the fan-out ownership contract and is where the expensive bugs have been.
 The one spawn removed is `Traverse`'s, which created a goroutine and
 immediately waited for it.
 
+## Allocation budgets (CI gate)
+
+`TestEngineAllocationBudget` (`pkg/engine`) and `TestWorkflowAllocationBudget`
+(`internal/engine/registry`) measure allocations per message against a recorded
+figure and fail past +25%. CI runs them in their own step.
+
+They budget **allocations, not time**. Across three measurement sessions the
+allocation counts held within 0–2% while throughput swung 5–56% with machine
+load, so a time gate on shared CI hardware would be a flake generator and this
+is not.
+
+| Budget | Recorded allocations/message |
+|---|---|
+| engine, 64 B / 1 KB / 16 KB payload | 39 / 39 / 40 |
+| workflow, 8 / 32 / 128 columns | 116 / 158 / 326 |
+
+Both are **mutation-tested**: reintroducing the regression they exist for (a
+logger that claims Debug is on, so the per-write line marshals the message)
+fails them at every payload size and row width, and restoring it passes them.
+A gate that cannot fail is decoration.
+
+They exist because the same bug class landed twice — a log line whose arguments
+are evaluated whatever the level does with them, costing 19% of engine
+allocations the first time and ~30% of workflow allocations the second.
+Invisible to a test, a lint and a review; visible only in a profile somebody
+happened to take.
+
+### The engine benchmark was measuring a configuration nothing runs in
+
+`benchLogger` did not implement `DebugEnabled()`, and a logger that cannot
+report a level is assumed to want the line. So the per-write debug line's
+payload measurement — a full JSON marshal of the message's data map — ran for
+every message in the benchmark and, since `DefaultLogger` and `DatabaseLogger`
+both report their level now, for no message in production.
+
+With the benchmark corrected to match, the engine's figures are:
+
+| Payload | Throughput | B/op (50k msgs) | allocs/op | Garbage per message |
+|---|---|---|---|---|
+| 64 B | 128,624 msgs/s | 110.0 MB | 1.934 M | 2.2 KB |
+| 1 KB | 115,510 msgs/s | 160.9 MB | 1.935 M | 3.2 KB |
+| 16 KB | 79,906 msgs/s | 1.013 GB | 1.958 M | 20.3 KB |
+
+Against the original `b0703d7` baseline that is **−44% allocations** and, at a
+16 KB payload, **92.7 KB of garbage per message down to 20.3 KB** — from 5.7x
+the payload to 1.24x.
+
 ## Field access
 
 Measured 2026-09-19, `pkg/infra/evaluator/path_bench_test.go`. Every

@@ -92,7 +92,7 @@ func benchWorkflow(id string) storage.Workflow {
 	}
 }
 
-func startBenchPipeline(b *testing.B, reg *Registry, wf storage.Workflow, src hermod.Source, snk *pipeSink) func() {
+func startBenchPipeline(b testing.TB, reg *Registry, wf storage.Workflow, src hermod.Source, snk *pipeSink) func() {
 	b.Helper()
 	reg.SetFactories(
 		func(cfg factory.SourceConfig) (hermod.Source, error) { return src, nil },
@@ -136,7 +136,7 @@ func BenchmarkWorkflowThroughput(b *testing.B) {
 	}
 }
 
-func runWorkflowOnce(b *testing.B, messages, cols, run int) time.Duration {
+func runWorkflowOnce(b testing.TB, messages, cols, run int) time.Duration {
 	b.Helper()
 
 	reg := NewRegistry(newPipeStorage())
