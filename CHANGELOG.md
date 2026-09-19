@@ -7,6 +7,55 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A healthy pipeline wrote one database log row per message
+
+`DatabaseLogger` had no level filter at all. Moving the per-write success line
+from `Info` to `Debug` — done to stop a healthy pipeline producing an unbounded
+log stream — silenced the process logger and changed nothing here: every
+`Debug` line was still built and buffered for the `logs` table. Sampling was
+the only brake, and it is off by default.
+
+It is worse than a log-volume problem. The engine skips building a `Debug`
+line's arguments only when the logger can say the level is off, and a logger
+that cannot answer is assumed to want the line. `DatabaseLogger` could not
+answer — so the payload measurement in that line marshalled **every message's
+data map to JSON**, per message, to report a size for a row nobody reads. At 32
+columns that was 754k allocations on top of the logger's own 295k, together
+about 30% of everything a workflow allocated.
+
+`DatabaseLogger` now honours `HERMOD_LOG_LEVEL` and reports `DebugEnabled()`.
+
+Two more per-message costs went with it:
+
+- **`ParseConditions` re-parsed its JSON for every message.** A condition node
+  calls it before evaluating anything, so the same bytes were unmarshalled for
+  the life of the workflow to produce the same answer: 1,126ns and 24
+  allocations a message, now 117ns and 5. The parse is cached per distinct
+  config, bounded and evicting, and the result is copied out so one workflow's
+  filter cannot reach into another's.
+- **A pooled message kept whatever it grew to.** `clear()` empties a map but
+  keeps its bucket array, and re-slicing a buffer to `[:0]` keeps its capacity —
+  which is the point of pooling, but it meant a single 8 MB payload or one
+  10,000-column row pinned that footprint in the pool for the life of the
+  process. Ordinary messages still reuse their allocation; anything past 1 MiB
+  of buffer or 512 map entries is handed back.
+
+Cumulative, end to end through a real `source -> condition -> mapping -> sink`
+workflow, against the same baseline as the previous entry: **+30% throughput,
+-69% bytes allocated, -69% allocations** (geomean over 8-, 32- and 128-column
+rows; +71% throughput and -75% allocations at 128 columns). Throughput reads
+between +30% and +50% depending on machine load; the allocation figures are
+deterministic across runs.
+
+The traversal's goroutine-per-node model was **not** changed. An earlier
+reading of the engine profile put 75% of CPU in scheduler wait and blamed it —
+but the engine benchmark runs no workflow, so it never exercised the traversal,
+and in the workflow profile those symbols are mostly idle threads rather than
+contention. Measured properly the whole traversal is about 2% of CPU, so the
+code that owns the fan-out ownership contract was left alone. `Traverse` no
+longer spawns a goroutine only to wait for it immediately.
+
+
 Reading one field no longer costs a whole row.
 
 `evaluator.GetValByPath` — the function under every transformation, router

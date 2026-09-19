@@ -218,6 +218,55 @@ go tool pprof -sample_index=alloc_space -list='Engine..writeToSink$' /tmp/engine
 | `tracing.messageCarrier.Get` | 2 map clones/message | cloned all metadata to read one propagation header |
 | `writer.go` span attributes | ~7.7 allocs/message | built eagerly for a span nobody records when no TracerProvider is installed |
 
+## Workflow throughput: second pass
+
+Measured 2026-09-19, same benchmark, against the same `b0703d7` baseline — so
+these are **cumulative** with the figures above, not additional to them.
+
+| | Throughput | Bytes allocated | Allocations |
+|---|---|---|---|
+| 8 columns | +10.1% | −61.3% | −61.1% |
+| 32 columns | +17.8% | −66.8% | −68.6% |
+| 128 columns | **+70.7%** | **−77.5%** | **−75.3%** |
+| **geomean** | **+30.3%** | **−69.0%** | **−68.9%** |
+
+benchstat n=7+8, p<=0.021. Throughput geomean has read between +30% and +50%
+across sessions depending on machine load; the allocation figures are
+deterministic (±0–2% across three separate runs) and are what a regression
+should be held against. 128 columns gains most because the dominant cost
+scaled with row width.
+
+### What it was
+
+| Site | Was | Cause |
+|---|---|---|
+| `DatabaseLogger.log` | 295k allocs + a DB row per message | **no level filter at all** — every `Debug` line was built and persisted |
+| `writeToSink` payload measure | 754k allocs (32/message at 32 columns) | the engine's `debugEnabled()` guard assumes "yes" for a logger that cannot report a level, so the marshal it exists to prevent ran anyway |
+| `evaluator.ParseConditions` | 1,126 ns / 24 allocs per message | re-unmarshalled the same conditions JSON for every message |
+| pooled message footprint | unbounded | `clear()` keeps a map's buckets and `[:0]` keeps a buffer's capacity, so one outlier message pinned its size in the pool for the life of the process |
+
+The first two are one bug wearing two hats. Moving the per-write success line
+from `Info` to `Debug` silenced zerolog but not the database logger, which had
+no notion of level — so a healthy pipeline still wrote one log row per message,
+*and* still marshalled each message's data map to report a size for it.
+
+### What the profile said not to do
+
+The traversal spawns a goroutine per node per message, and an earlier reading of
+the **engine** profile put 75% of CPU in `runtime.usleep` and
+`pthread_cond_wait`. That reading was wrong twice over: the engine benchmark
+runs no workflow, so it never exercised the traversal at all; and in the
+workflow profile those same symbols are mostly **idle** threads — 1.46 s of
+samples over 401 ms of wall time at 363% means ~3.6 of 15 cores busy, not
+contention.
+
+Profiled properly, `resolveEdge` is 0.68% of CPU flat and the whole traversal
+about 2%. A workflow's cost is allocation, not scheduling, so the
+goroutine-per-node model was left alone rather than restructured — that code
+owns the fan-out ownership contract and is where the expensive bugs have been.
+The one spawn removed is `Traverse`'s, which created a goroutine and
+immediately waited for it.
+
 ## Field access
 
 Measured 2026-09-19, `pkg/infra/evaluator/path_bench_test.go`. Every
