@@ -202,9 +202,31 @@ been reported as running nowhere. It reads all of them now.
    shape builds a slice and a map per message. Deliberately left: avoiding it
    means handing callers a cached slice they could mutate, and one workflow's
    filter silently rewriting another's is worse than the allocation.
-4. **`SetEngineStatusUnless` returns true on *set*, not on *change***
-   (`pkg/engine/telemetry/status.go`), so `checkHealth` calls
-   `notifyStatusChange` on every 1s tick even when nothing moved — and the
-   registry's callback writes workflow, source and sink status rows to storage.
-   Not a per-message cost, but a steady pointless write. Same shape the
-   reliability commit warned about for dead-lettering.
+4. ~~`SetEngineStatusUnless` / redundant status writes~~ — **fixed**, but not
+   where it looked. See below.
+
+## Status writes: fixed at the storage boundary, not the notification
+
+`SetEngineStatusUnless` returns true when it **wrote**, not when it
+**changed** — which is what makes `checkHealth` notify on an unchanged status
+every second. That reads like the bug. It is not: the method documents exactly
+that, `status_stall_test.go` pins it, and the notification is **load-bearing**.
+
+`BroadcastStatus` is wired only to the registry's `SetOnStatusChange` callback
+and is the only thing pushing per-workflow status to the UI. Unlike the
+dashboard — which has `runDashboardSampler` precisely because
+`BroadcastStatus` alone left it frozen — **there is no periodic floor behind
+it**. Notifying less often would freeze the editor's live node metrics whenever
+the status strings did not move, which is the healthy case.
+
+The waste was the **writes**, not the notification: with two sinks,
+`checkHealth` produced 12 synchronous storage writes a second, per workflow,
+for ever, almost always re-storing the value already there. `statusWriteGate`
+(`internal/engine/registry/status_write_gate.go`) remembers each row's value
+and skips a no-op write; a failed write is un-recorded so the next tick
+retries, because recording a value storage refused would freeze that status
+permanently.
+
+**The lesson**: when a cheap thing fires too often, check what is downstream of
+it before making it fire less. Here the frequency was load-bearing and the cost
+was one layer down.
