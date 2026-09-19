@@ -232,16 +232,37 @@ transformation, router condition and sink column mapping goes through these.
 | 6-placeholder template, 128-column | 106,110 ns / 1,763 allocs | 576 ns / 9 allocs |
 | 2-condition filter, 32-column | 8,215 ns / 158 allocs | 250 ns / 5 allocs |
 | regex condition | 1,931 ns / 69 allocs | 294 ns / 4 allocs |
+| one field **write**, 128-column row | 44,121 ns / 33,088 B / 694 allocs | 731 ns / 32 B / 2 allocs |
 
 Reading one field is now flat in row width, where it used to be linear — so a
 sink with N mapped columns over a row of W fields went from O(N x W) to O(N).
 
+The write side (`SetValByPath`) is the same shape and was slower still — it
+marshalled the map, `sjson`-set one field, unmarshalled it all back, then
+cleared the map and refilled it. It gets a narrower fast path, because the
+round trip there has a second effect: it JSON-normalises every **untouched**
+value as well. So the targeted write is taken only when the map is already
+all-JSON-native — exactly when that side effect would have been a no-op — and
+anything else still goes the long way (`BenchmarkSetValByPathRoundTrip`
+measures that path). Allocations are then flat in row width; wall time is still
+O(row), because checking the map is native is itself a scan, but ~60x lower.
+
+> Note: `SetValByPath` has **no production caller** — its only caller is a
+> test-only wrapper in `internal/engine/registry/registry_routing.go`. It is
+> exported from `pkg/`, so it was made fast and kept exactly equivalent, but
+> nothing in a running pipeline pays either cost.
+
 The JSON round trip was not pure overhead: it is what normalises `int` to
 `float64` and `[]byte` to a base64 string, and everything downstream is written
-against that shape. `TestGetValByPathMatchesJSONRoundTrip` keeps the old
-implementation verbatim as an oracle and diffs the two over a matrix of rows x
-paths; the fast path deliberately falls back to gjson for anything it cannot
-reproduce exactly.
+against that shape. `TestGetValByPathMatchesJSONRoundTrip` and
+`TestSetValByPathMatchesJSONRoundTrip` keep the old implementations verbatim as
+oracles and diff the two over a matrix of rows x paths x values; each fast path
+deliberately falls back for anything it cannot reproduce exactly.
+
+That matrix earns its keep: it caught **sjson and `json.Marshal` disagreeing on
+`[]byte`** — sjson writes the literal string, `json.Marshal` writes base64 — so
+the write fast path handles only value types it has been proved equivalent for
+and hands the rest to sjson.
 
 ## Not yet measured
 

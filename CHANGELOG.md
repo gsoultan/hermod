@@ -54,6 +54,25 @@ End to end through a real `source -> condition -> mapping -> sink` workflow:
 benchmark runs no workflow at all, so it never touched the evaluator and could
 not see any of this.
 
+The write side got the same treatment. `SetValByPath` marshalled the map,
+`sjson`-set one field, unmarshalled it all back, then cleared the map and
+refilled it: 44us and 694 allocations to write one field of a 128-column row,
+now 731ns and 2. Its fast path is narrower than the read side's, because the
+round trip there also JSON-normalises every *untouched* value in the map — so
+the targeted write is taken only when the map is already all-JSON-native,
+which is exactly when that side effect would have changed nothing. Anything
+else still goes the long way.
+
+The parity matrix for it (8 map shapes x 34 value-and-path cases) caught sjson
+and `json.Marshal` disagreeing about `[]byte`: sjson writes the literal string
+where `json.Marshal` writes base64. The fast path now handles only value types
+it has been proved equivalent for.
+
+`SetValByPath` has no production caller — its only caller is a test-only
+wrapper in `internal/engine/registry/registry_routing.go` — so nothing in a
+running pipeline was paying that cost. It is exported from `pkg/`, which is
+why it was made fast rather than deleted.
+
 ### A condition whose regex does not compile no longer drops every message in silence
 
 `EvaluateConditions` starts `match` at false and swallowed the compile error, so

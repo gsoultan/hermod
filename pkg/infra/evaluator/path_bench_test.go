@@ -6,6 +6,7 @@ package evaluator
 // coming back.
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -49,10 +50,17 @@ func BenchmarkGetValByPath(b *testing.B) {
 }
 
 // BenchmarkSetValByPath measures one field write into a row.
+//
+// The row is normalised up front, deliberately. SetValByPath's fast path only
+// applies to an already-JSON-native map, and its slow path *makes* the map
+// native as a side effect — so a benchmark starting from a raw row measures
+// the round trip once and the fast path for every iteration after, and
+// reports the average of two different things. Normalising here is what a
+// message hydrated from a payload looks like anyway.
 func BenchmarkSetValByPath(b *testing.B) {
 	for _, cols := range []int{8, 32, 128} {
 		b.Run(fmt.Sprintf("cols=%d", cols), func(b *testing.B) {
-			row := benchRow(cols)
+			row := jsonNativeRow(b, cols)
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
@@ -60,6 +68,38 @@ func BenchmarkSetValByPath(b *testing.B) {
 			}
 		})
 	}
+}
+
+// BenchmarkSetValByPathRoundTrip measures the path a non-native map still
+// takes. The row is rebuilt per iteration because the write normalises it,
+// which would otherwise hand the next iteration to the fast path; the rebuild
+// is in the measurement, so read this as an upper bound.
+func BenchmarkSetValByPathRoundTrip(b *testing.B) {
+	for _, cols := range []int{8, 32, 128} {
+		b.Run(fmt.Sprintf("cols=%d", cols), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				row := benchRow(cols) // holds ints, so never native
+				SetValByPath(row, "col_3", "updated")
+			}
+		})
+	}
+}
+
+// jsonNativeRow is benchRow put through a JSON round trip, which is the shape
+// a message decoded from a payload arrives in.
+func jsonNativeRow(b *testing.B, cols int) map[string]any {
+	b.Helper()
+	raw, err := json.Marshal(benchRow(cols))
+	if err != nil {
+		b.Fatalf("marshal: %v", err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		b.Fatalf("unmarshal: %v", err)
+	}
+	return out
 }
 
 // BenchmarkResolveTemplate is the sink-mapping path: one template string with

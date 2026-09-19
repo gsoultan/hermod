@@ -657,6 +657,28 @@ func SetValByPath(data map[string]any, path string, val any) {
 		return
 	}
 
+	// Writing one field marshalled the whole map to JSON, sjson-set the field,
+	// unmarshalled it all back and then cleared the map and refilled it: 44us
+	// and 694 allocations for one field of a 128-column row.
+	//
+	// It cannot simply be replaced by a targeted write, because the round trip
+	// has a second effect — it JSON-normalises every *untouched* value too, so
+	// an int elsewhere in the map comes back a float64 and a []byte comes back
+	// base64. The fast path is therefore taken only when the map is already
+	// all-JSON-native, which is precisely the case where the round trip would
+	// have left the other fields alone anyway. That covers a message hydrated
+	// from a payload, which is how most data arrives.
+	// TestSetValByPathMatchesJSONRoundTrip holds the two together over both
+	// kinds of map.
+	//
+	// One difference worth knowing: the round trip replaces every nested
+	// container with a freshly decoded one, while the fast path mutates them in
+	// place. A caller holding a reference to a sub-map across the call sees the
+	// update under the fast path and does not under the round trip.
+	if isJSONNativeMap(data) && setByWalk(data, path, val) {
+		return
+	}
+
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return
@@ -1186,4 +1208,127 @@ func ParseConditions(config map[string]any) []map[string]any {
 		}
 	}
 	return conditions
+}
+
+// isJSONNativeMap reports whether every value in m, recursively, is already
+// the type a JSON decode would have produced. For such a map, marshalling and
+// unmarshalling it is the identity, which is what lets SetValByPath skip it.
+func isJSONNativeMap(m map[string]any) bool {
+	for _, v := range m {
+		if !isJSONNativeValue(v) {
+			return false
+		}
+	}
+	return true
+}
+
+func isJSONNativeValue(v any) bool {
+	switch t := v.(type) {
+	case nil, string, bool:
+		return true
+	case float64:
+		// NaN and +/-Inf make json.Marshal fail, which turns the whole write
+		// into a no-op. The fast path must not quietly start succeeding.
+		return !math.IsNaN(t) && !math.IsInf(t, 0)
+	case map[string]any:
+		return isJSONNativeMap(t)
+	case []any:
+		for _, e := range t {
+			if !isJSONNativeValue(e) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// setByWalk writes val at path by walking the map, and reports whether it
+// could. False means the path uses syntax it does not implement, or leads
+// somewhere it will not go — ask sjson instead.
+//
+// It deliberately refuses anything but plain object-field writes: an array
+// index, an sjson append (`-1`), a metacharacter, or an intermediate segment
+// occupied by something that is not an object. Those are rare and sjson
+// already gets them right.
+func setByWalk(data map[string]any, path string, val any) bool {
+	if strings.ContainsAny(path, gjsonPathMeta) {
+		return false
+	}
+
+	segs := strings.Split(path, ".")
+	for _, s := range segs {
+		if s == "" || isIndexLikeSegment(s) {
+			return false
+		}
+	}
+
+	// sjson writes val into the JSON and the result is decoded back out, so
+	// what lands in the map is val's JSON form, not val.
+	norm, ok := normalizeForWrite(val)
+	if !ok {
+		return false
+	}
+
+	// Probe before mutating: a path that turns out to be unwalkable halfway
+	// down must not leave intermediate objects behind for the round trip to
+	// then disagree with.
+	cur := data
+	for _, s := range segs[:len(segs)-1] {
+		next, present := cur[s]
+		if !present {
+			break // everything below here will be created
+		}
+		m, isMap := next.(map[string]any)
+		if !isMap {
+			return false // sjson would replace it; let sjson do that
+		}
+		cur = m
+	}
+
+	cur = data
+	for _, s := range segs[:len(segs)-1] {
+		m, isMap := cur[s].(map[string]any)
+		if !isMap {
+			m = make(map[string]any)
+			cur[s] = m
+		}
+		cur = m
+	}
+	cur[segs[len(segs)-1]] = norm
+	return true
+}
+
+// isIndexLikeSegment reports whether a path segment addresses an array rather
+// than an object field — a bare index, or sjson's `-1` append.
+func isIndexLikeSegment(s string) bool {
+	if s == "-1" {
+		return true
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// normalizeForWrite returns val as sjson-plus-decode would have left it, and
+// reports whether it is a type the fast path has been proved equivalent for.
+//
+// It is an allowlist rather than a mirror of sjson's type switch, because the
+// two encoders do not agree everywhere: sjson writes a []byte as the literal
+// string where json.Marshal writes base64, which
+// TestSetValByPathMatchesJSONRoundTrip caught. Anything not listed here goes to
+// sjson, which is the only thing that definitionally matches sjson.
+func normalizeForWrite(val any) (any, bool) {
+	switch val.(type) {
+	case nil, string, bool,
+		float32, float64,
+		int, int8, int16, int32, int64,
+		uint, uint16, uint32, uint64,
+		map[string]any, []any:
+		return normalizeToJSONShape(val)
+	}
+	return nil, false
 }
