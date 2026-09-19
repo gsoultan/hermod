@@ -41,11 +41,37 @@ implementation as an oracle and diffs the two over a matrix of rows x paths.
   that row resolves to nil, and the fast path must reproduce that rather than
   quietly start working
 
-## Still outstanding
+## The write side
 
-`SetValByPath` (same file) is the write-side twin and was **not** changed:
-44us / 694 allocs for one write into a 128-column row. It marshals the map,
-`sjson.SetBytes`, unmarshals, deletes every key and copies back — so it also
-re-normalises every *untouched* field in the row as a side effect. That side
-effect may be load-bearing somewhere, which is why it needs its own parity
-oracle before being touched.
+`SetValByPath` was the same shape and worse — marshal, `sjson.SetBytes`,
+unmarshal, clear the map, refill it: 44us / 33 KB / 694 allocs for one field of
+a 128-column row, now **731ns / 32 B / 2 allocs**.
+
+Its fast path is **narrower** than the read side's, and the reason is the thing
+to remember: the round trip also JSON-normalises every *untouched* value in the
+map. A targeted write cannot reproduce that, so it is taken only when the map is
+already all-JSON-native — exactly when that side effect would have been a no-op.
+A message hydrated from a payload qualifies; one built with `SetData(k, anInt)`
+does not. `TestSetValByPathStillNormalisesNonNativeRows` guards the fallback.
+
+**sjson and `json.Marshal` do not agree on `[]byte`**: sjson writes the literal
+string, `json.Marshal` writes base64. Found by the parity matrix, not by
+reading. So the write fast path uses an allowlist of value types it has been
+proved equivalent for rather than mirroring sjson's type switch.
+
+Allocations are flat in row width; wall time is still O(row), because checking
+that the map is native is itself a scan.
+
+**`SetValByPath` has no production caller.** Its only caller is a test-only
+wrapper (`setValByPath`/`getValByPath` in
+`internal/engine/registry/registry_routing.go`), used solely by
+`registry_test.go`. It is exported from `pkg/`, so it was made fast and kept
+exactly equivalent — but nothing in a running pipeline pays either cost, and
+the dead wrapper is worth a decision. Check reachability *before* pricing a
+function: the 44us looked like a hot-path risk and was not one.
+
+**`BenchmarkSetValByPath` was self-warming** and averaged two code paths: its
+first iteration took the round trip, which normalises the row, handing every
+later iteration to the fast path. If a benchmark's subject mutates its own
+input into a cheaper shape, iteration 1 and iteration N measure different
+things.
