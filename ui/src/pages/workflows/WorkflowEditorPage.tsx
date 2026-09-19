@@ -237,7 +237,7 @@ function EditorInner() {
           isNew={isNew}
           workflowStatus={workflowStatus}
           onSave={handleSave}
-          onTest={(dry) => handleTest(null, dry)}
+          onTest={() => handleTest(null)}
           onConfigureTest={() => setTestModalOpened(true)}
           onToggle={() => {
             if (!active) {

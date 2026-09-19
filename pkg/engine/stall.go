@@ -103,7 +103,7 @@ func streamSilenceWedge(last time.Time, threshold time.Duration, now time.Time) 
 // its own terms — "the stream went quiet" points at the source, where the fault
 // is, rather than at the sinks.
 func (r *Runner) watchForStreamSilence(ctx context.Context) {
-	reporter, ok := r.engine.source.(hermod.StreamLivenessReporter)
+	reporter, ok := r.engine.currentSource().(hermod.StreamLivenessReporter)
 	if !ok {
 		return
 	}
@@ -182,6 +182,17 @@ func (r *Runner) reportSilentStream(silentFor, threshold time.Duration) {
 // stuck pipeline is visible in the UI and to an alerting rule instead of only to
 // whoever thinks to compare the sink's row count against the source's.
 func (r *Runner) watchForStalls(ctx context.Context) {
+	// A dry run deliberately never acknowledges, so the source's backlog only
+	// grows and "work outstanding that never completes" is the mode working as
+	// intended, not a wedge. Left in, the watchdog would declare a stall the
+	// moment the stream went quiet and have the supervisor restart the engine
+	// on a loop.
+	if r.engine.config.DryRun {
+		r.engine.logger.Info("Stall detection disabled for the duration of this dry run",
+			"workflow_id", r.engine.workflowID)
+		return
+	}
+
 	threshold := r.engine.config.StallThreshold
 	if threshold <= 0 {
 		threshold = DefaultStallThreshold
@@ -271,7 +282,7 @@ func (e *Engine) progressSample() (processed uint64, workPending bool) {
 	// exists to fix.
 	if !workPending {
 		pending, known := false, false
-		if pw, ok := e.source.(hermod.PendingWorkReporter); ok {
+		if pw, ok := e.currentSource().(hermod.PendingWorkReporter); ok {
 			pending, known = pw.PendingWork()
 		}
 		switch {
@@ -285,7 +296,7 @@ func (e *Engine) progressSample() (processed uint64, workPending bool) {
 		default:
 			// status.Lag is published by the periodic health check, so it is
 			// stale or absent exactly when things are going wrong. Ask directly.
-			if lr, ok := e.source.(hermod.LagReporter); ok {
+			if lr, ok := e.currentSource().(hermod.LagReporter); ok {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				lag, err := lr.GetLag(ctx)
 				cancel()

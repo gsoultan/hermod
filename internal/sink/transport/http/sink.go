@@ -32,6 +32,7 @@ func (h *SinkHandler) RegisterSinkRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/sinks/query", h.EditorOnly(h.QuerySink))
 	mux.Handle("POST /api/sinks/truncate", h.EditorOnly(h.TruncateSinkTable))
 	mux.HandleFunc("GET /api/sinks/capabilities/two-phase", h.ListTwoPhaseCapableSinkTypes)
+	mux.HandleFunc("GET /api/sinks/capabilities/dlq-recovery", h.ListDLQRecoveryCapableSinkTypes)
 	mux.HandleFunc("GET /api/sinks/{id}/workflows", h.ListWorkflowsReferencingSink)
 	mux.Handle("POST /api/sinks/smtp/preview", h.EditorOnly(h.PreviewSmtpTemplate))
 	mux.Handle("POST /api/sinks/smtp/validate", h.EditorOnly(h.ValidateEmail))
@@ -50,6 +51,21 @@ func (h *SinkHandler) ListTwoPhaseCapableSinkTypes(w http.ResponseWriter, _ *htt
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"types": factory.TwoPhaseCapableSinkTypes(),
+	})
+}
+
+// ListDLQRecoveryCapableSinkTypes reports the sink types the engine can also
+// read back, which is what "Prioritize DLQ on startup" and the Drain DLQ
+// button require of a dead-letter sink.
+//
+// Same reason as the list above: the editor kept its own copy and it drifted,
+// advertising four sink types that are not sources — so the checkbox was
+// offered and StartWorkflow then refused the workflow — while hiding nine that
+// work. The editor asks now instead of guessing.
+func (h *SinkHandler) ListDLQRecoveryCapableSinkTypes(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"types": factory.DLQRecoveryCapableSinkTypes(),
 	})
 }
 

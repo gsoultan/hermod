@@ -9,6 +9,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 )
 
 type ValidationIssue struct {
@@ -78,6 +79,20 @@ func nodeConfigIssues(wf storage.Workflow) (issues []ValidationIssue, hasSource,
 					Severity:       "error",
 					Message:        fmt.Sprintf("Node '%s' (%s) is missing the 'arrayPath' configuration.", n.ID, nodeType),
 					Recommendation: "Specify the JSON path to the array you want to iterate over (e.g., '$.items'). This tells Hermod which part of the message to split.",
+					NodeID:         n.ID,
+				})
+			}
+		case "condition", "switch":
+			// A regex that does not compile does not match nothing — it
+			// rejects everything. The engine now fails loudly on it rather
+			// than dropping traffic in silence, but by then the workflow is
+			// deployed and every message costs a dead-letter. The pattern is
+			// in the node's config, so it can be caught here instead.
+			if err := evaluator.ValidateConditions(evaluator.ParseConditions(n.Config)); err != nil {
+				issues = append(issues, ValidationIssue{
+					Severity:       "error",
+					Message:        fmt.Sprintf("Node '%s' has a condition that cannot compile and would reject every message: %v", n.ID, err),
+					Recommendation: "Fix the regular expression in this node's condition. Until it compiles, the node takes its 'false' branch for every message, so the workflow silently delivers nothing.",
 					NodeID:         n.ID,
 				})
 			}

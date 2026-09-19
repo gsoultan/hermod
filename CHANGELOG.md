@@ -7,6 +7,108 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+Reading one field no longer costs a whole row.
+
+`evaluator.GetValByPath` — the function under every transformation, router
+condition and sink column mapping — marshalled the **entire** data map to JSON
+and parsed it back with gjson to extract one field. Reading a field was
+therefore O(row), and a sink with N mapped columns was O(N x row): 17.9us and
+294 allocations for one field of a 128-column row, 106us and 1,763 allocations
+to resolve a six-placeholder template. Twelve sinks resolve their column
+mappings this way, at 44 call sites.
+
+It now walks the map and normalises only the leaf, which is flat in row width:
+32ns and one allocation, whatever the row. The round trip was not pure overhead
+— it is what turns an `int` into a `float64` and a `[]byte` into a base64
+string, and everything downstream is written against that shape — so the fast
+path is held against the old implementation, kept verbatim as an oracle, over a
+matrix of rows x paths, and falls back to gjson for anything it cannot
+reproduce exactly.
+
+Four more of the same shape, each a cheap number computed the expensive way and
+then discarded, all found by allocation profile rather than by reading:
+
+- The batching loop cloned every message's payload to add its length to
+  `batchBytes` — a total nothing reads unless `batch_bytes` is configured, which
+  is not the default. 1.86 GB of the 4.9 GB a 150k-message benchmark allocated.
+- The per-write success log is at `Debug` and the default level is `Info`, but Go
+  evaluates a call's arguments regardless, and one of them measured the payload —
+  which for a message carrying a data map means marshalling it to JSON. 0.94 GB,
+  produced and thrown away. Guarded by a level check now; `Payload()` also gained
+  a `PayloadLen()` that reports the size without copying the bytes.
+- A payload that cannot be a JSON object — a CSV line, a text body, a protobuf
+  frame, which is every message from a file or queue source — took three decode
+  attempts to establish that, one of which copied the whole body into a string to
+  look at its first character. 0.83 GB.
+- The trace propagator cloned the message's whole metadata map to read one
+  header, twice per write.
+- A regex router condition called `regexp.Compile` once per message: 1,931ns and
+  69 allocations against 294ns and 4 with the pattern cached. The cache is
+  bounded and evicts, because a condition value containing `{{ }}` is resolved
+  against the message's own data first — so the pattern can be attacker-derived.
+
+End to end through a real `source -> condition -> mapping -> sink` workflow:
+**+19.8% throughput, −56.5% bytes allocated, −48.5% allocations** (geomean over
+8-, 32- and 128-column rows, benchstat n=7, p=0.001). Numbers and method in
+`BENCHMARKS.md`, which gains a workflow-level benchmark — the existing engine
+benchmark runs no workflow at all, so it never touched the evaluator and could
+not see any of this.
+
+The write side got the same treatment. `SetValByPath` marshalled the map,
+`sjson`-set one field, unmarshalled it all back, then cleared the map and
+refilled it: 44us and 694 allocations to write one field of a 128-column row,
+now 731ns and 2. Its fast path is narrower than the read side's, because the
+round trip there also JSON-normalises every *untouched* value in the map — so
+the targeted write is taken only when the map is already all-JSON-native,
+which is exactly when that side effect would have changed nothing. Anything
+else still goes the long way.
+
+The parity matrix for it (8 map shapes x 34 value-and-path cases) caught sjson
+and `json.Marshal` disagreeing about `[]byte`: sjson writes the literal string
+where `json.Marshal` writes base64. The fast path now handles only value types
+it has been proved equivalent for.
+
+`SetValByPath` has no production caller — its only caller is a test-only
+wrapper in `internal/engine/registry/registry_routing.go` — so nothing in a
+running pipeline was paying that cost. It is exported from `pkg/`, which is
+why it was made fast rather than deleted.
+
+### A condition whose regex does not compile no longer drops every message in silence
+
+`EvaluateConditions` starts `match` at false and swallowed the compile error, so
+a pattern that does not compile is not a condition that matches nothing — it is
+one that rejects *everything*, for ever, with no error and no log. A typo in a
+router filter was indistinguishable from "nothing matched" while the workflow
+stayed green and delivered none of its traffic. Same shape as the `7d` retention
+parse that silently switched off the trace purge.
+
+It is now caught in three places: the editor's validation flags it as an error
+before the workflow is saved, the node fails loudly at run time so the engine's
+normal failure path dead-letters the message, and the condition parser is shared
+between the two so they cannot drift. A pattern containing a template token is
+left alone — it is resolved per message, so there is nothing to judge up front.
+
+### Trace recording can no longer take the process with it
+
+Recording a trace step spawned a goroutine and armed a five-second timer, per
+node, per message, with nothing bounding either. That costs nothing at the
+default `trace_sample_rate` of 0 — but tracing gets switched on precisely when a
+workflow is busy, and a five-node graph at 50k msgs/s is 250k goroutines and
+250k timers outstanding against a recorder writing to PostgreSQL. Recording now
+has a fixed number of slots and drops a step it cannot place, counted by
+`TraceStepsDroppedCount()`. `internal/engine/registry` already made this call for
+its own trace recording; the engine now matches it.
+
+### Fixed: span recording in tests only worked for the first test that asked
+
+`recordSpans` built a `TracerProvider` per test. otel's global tracer takes its
+delegate exactly once per process and the engine's tracer is package-level, so
+the first test to call the helper bound it and every later one silently recorded
+nothing — surfacing as "no source.receive span was recorded; spans seen: []",
+which reads like a defect in trace propagation rather than a broken fixture.
+Reproducible on the old helper with `-count=2` on a single test.
+
+
 A parquet file can now drive insert, update and delete, in both directions.
 
 Parquet was write-only and operation-blind. There was no parquet source at all —
@@ -67,6 +169,74 @@ has; both use `addresses`.
 the keys its type is gated on, and described it in a comment, but no such check
 existed — which is how all of the above survived. It exists now, along with one
 that every requirements entry is keyed by a type some sink can actually have.
+
+
+### Fixed — the workflow's Reliability Policy mostly did not do what it said
+
+Four settings sit under Reliability Policy in the editor. The dead-letter sink
+worked. The other three did not, and one of them destroyed the data it was
+meant to protect.
+
+**Dry-Run Mode consumed the source.** The dry-run branch returned "written"
+from the sink write, so the engine acknowledged the message — which for a CDC
+source is the replication slot advancing past a row nothing had written
+anywhere. Enabling the safety feature was how you lost the data. It also sat
+*below* the safe-mode and failed-validation diverts, both of which write to the
+dead-letter sink, so a "dry" run performed real writes against a real
+destination. A dry run now writes nowhere, the DLQ included, and acknowledges
+nothing: the message stays on the source and comes back on the next read. It is
+no longer counted as a sink failure either, so a preview cannot trip a circuit
+breaker on a sink it never called, and the stall watchdog stands down for its
+duration — outstanding work that never completes is the mode working, not a
+wedge. The one exception is a resumed message, which has no source row left
+holding it; declining to park that would destroy it rather than preserve it, so
+it is parked and the log says why.
+
+**Saving the policy did not reach the running engine.** The worker decided
+whether to restart a workflow by comparing its name, vhost, dead-letter sink and
+graph — and nothing else. Dry-Run Mode, Prioritize DLQ, the DLQ threshold and
+all three retry settings were therefore inert on a running workflow: the editor
+showed the Dry-Run badge while the engine carried on writing to production, until
+something unrelated — a node edit, a failover, a stall recovery — happened to
+restart it. Every field the registry reads when it builds an engine is now part
+of that comparison, in one function that says so.
+
+**The DLQ alert threshold was never evaluated.** The check lived inside the
+engine's status-change callback, but dead-lettering a message only incremented a
+counter; it changed no status, so the callback never ran. A pipeline parking
+every message it received reported "running" and stayed silent. Crossing the
+threshold is now an event in its own right, raised once by the message that
+crosses it — once, because the count only climbs, and firing per message past
+the line would have the registry write workflow, source and sink status rows to
+storage for each one. The alert also no longer claims the queue holds N
+messages: the count is the engine's own and resets on restart, so it says
+"dead-lettered N since it started". The two tests covering this re-implemented
+the registry's logic inside the test body and asserted on themselves, so they
+could not fail when the real path broke; they now call it.
+
+**Drain DLQ raced the read loop.** The button swaps the engine's source for a
+priority wrapper under one lock while the pipeline reads and acknowledges
+through the same field under none. The source is now read through a single
+guarded accessor, on its own mutex rather than the engine-wide one, so the swap
+cannot serialise the pipeline behind it.
+
+**The editor guessed which sinks it could drain.** Whether "Prioritize DLQ on
+startup" is available depends on the dead-letter sink being a type Hermod can
+also read as a source, and the editor answered from a literal list of 25 sink
+types. It had drifted both ways: four types it advertised are not sources, so
+the checkbox was offered and the workflow then refused to start, and nine that
+work were missing, so the checkbox was disabled and the feature unreachable.
+The factory owns the list now and the editor asks it over
+`GET /api/sinks/capabilities/dlq-recovery`, the same shape as the two-phase
+capability endpoint. A test reads the case labels out of both factory switches
+and fails if either moves without the list — which is how `ftp` and `s3` were
+found missing and `scylladb`, a source that is not a sink, found in it.
+
+Finally, the editor's "Dry-run (Full Execute)" menu item sent `dry_run: true` to
+`/api/workflows/test`, a handler that decodes only `workflow` and `message` and
+a simulation that never writes to a sink regardless. It did exactly what "Run
+Simulation" does and promised an execution that never happened, so it is gone.
+Running the real pipeline without writing is Dry-Run Mode, in Settings.
 
 
 ### Fixed — a Foreach (Fan-out) node fanned out into nothing

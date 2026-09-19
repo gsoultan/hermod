@@ -59,8 +59,12 @@ func (s *StatusTracker) IncProcessed() {
 	s.lastMsgTime.Store(time.Now().UnixNano())
 }
 
-func (s *StatusTracker) IncDeadLetter() {
-	s.deadLetterCount.Add(1)
+// IncDeadLetter records one dead-lettered message and returns the new total.
+// The caller needs the count to decide whether this message is the one that
+// crossed the alert threshold, and reading it back separately would race
+// another dead-letter and either double-report or miss the crossing.
+func (s *StatusTracker) IncDeadLetter() uint64 {
+	return s.deadLetterCount.Add(1)
 }
 
 func (s *StatusTracker) SetLag(count uint64) {

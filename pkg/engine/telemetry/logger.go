@@ -103,3 +103,15 @@ func (l *DefaultLogger) Error(msg string, keysAndValues ...any) {
 	}
 	l.log(l.logger.Error(), msg, keysAndValues...)
 }
+
+// DebugEnabled reports whether Debug output would be emitted.
+//
+// It exists so callers can skip building an argument that the level is about
+// to discard. zerolog itself is zero-allocation once an event is disabled, but
+// Go has already evaluated the call's arguments by then, and the engine's
+// per-write line measures the message's payload — which for a data-map message
+// means marshalling it to JSON. The default level is Info, so that work was
+// unconditional and always thrown away.
+func (l *DefaultLogger) DebugEnabled() bool {
+	return l.logger.GetLevel() <= zerolog.DebugLevel
+}

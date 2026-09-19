@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -405,6 +406,22 @@ func GetValByPath(data map[string]any, path string) any {
 		return nil
 	}
 
+	// Walk the map directly when the path is a plain field reference. The
+	// round trip below costs O(row) per read, so a sink mapping with N
+	// placeholders marshalled the row N times: 17.9us and 294 allocations for
+	// one field of a 128-column row, 106us and 1763 allocations to resolve a
+	// six-placeholder template. Both are now independent of row width.
+	//
+	// The round trip is not only overhead — it is what turns an int into a
+	// float64 and a []byte into a base64 string, and every transformation,
+	// condition and mapping downstream is written against that shape. So the
+	// walk normalises what it finds through the same rules, and bails out to
+	// the round trip for anything it cannot reproduce exactly.
+	// TestGetValByPathMatchesJSONRoundTrip holds the two together.
+	if v, ok := lookupByWalk(data, path); ok {
+		return v
+	}
+
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return nil
@@ -416,6 +433,89 @@ func GetValByPath(data map[string]any, path string) any {
 	}
 
 	return res.Value()
+}
+
+// gjsonPathMeta are the characters gjson gives meaning to beyond the "." path
+// separator: wildcards, array queries, modifiers and escapes. A path holding
+// any of them is handed to gjson rather than walked, because reproducing those
+// semantics here is how a fast path silently starts disagreeing with the
+// thing it is supposed to be a fast path for.
+const gjsonPathMeta = `*?#|@\[]()!<>=~`
+
+// lookupByWalk resolves a plain dotted path against the map directly.
+//
+// The bool reports whether the answer is authoritative. False means "ask
+// gjson" — either the path uses syntax this does not implement, or a value
+// along the way has a shape whose JSON form cannot be reproduced here.
+func lookupByWalk(data map[string]any, path string) (any, bool) {
+	if strings.ContainsAny(path, gjsonPathMeta) {
+		return nil, false
+	}
+
+	var cur any = data
+	for rest := path; ; {
+		seg, more, hasMore := strings.Cut(rest, ".")
+
+		switch node := cur.(type) {
+		case map[string]any:
+			v, ok := node[seg]
+			if !ok {
+				// Absent and definitively so: gjson reports the same nil for a
+				// missing key, so there is nothing to fall back for.
+				return nil, true
+			}
+			cur = v
+		case []any:
+			// gjson indexes an array with a bare number. Anything else is not
+			// an index, and gjson would not match it either.
+			i, err := strconv.Atoi(seg)
+			if err != nil || i < 0 || i >= len(node) {
+				return nil, true
+			}
+			cur = node[i]
+		default:
+			// A scalar, or a typed container such as map[string]string or
+			// []string. gjson sees those through their marshalled form and can
+			// descend into them; this cannot, so let gjson answer.
+			return nil, false
+		}
+
+		if !hasMore {
+			return normalizeToJSONShape(cur)
+		}
+		rest = more
+	}
+}
+
+// normalizeToJSONShape returns v as the JSON round trip would have returned
+// it. The bool reports whether it could do so.
+func normalizeToJSONShape(v any) (any, bool) {
+	switch t := v.(type) {
+	case nil:
+		return nil, true
+	case string:
+		return t, true
+	case bool:
+		return t, true
+	case float64:
+		return finiteFloat(t)
+	case float32:
+		return finiteFloat(float64(t))
+	}
+
+	if f, ok := integerAsFloat(v); ok {
+		return f, true
+	}
+
+	// A container or a type with its own marshalling. Marshal just this
+	// subtree: gjson would have parsed exactly these bytes out of the full
+	// row, so the value is the same and the cost is proportional to the field
+	// rather than to the row.
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, false
+	}
+	return gjson.ParseBytes(b).Value(), true
 }
 
 func GetMsgValByPath(msg hermod.Message, path string) any {
@@ -554,6 +654,28 @@ func getValueFromRaw(raw []byte, path string) any {
 
 func SetValByPath(data map[string]any, path string, val any) {
 	if path == "" {
+		return
+	}
+
+	// Writing one field marshalled the whole map to JSON, sjson-set the field,
+	// unmarshalled it all back and then cleared the map and refilled it: 44us
+	// and 694 allocations for one field of a 128-column row.
+	//
+	// It cannot simply be replaced by a targeted write, because the round trip
+	// has a second effect — it JSON-normalises every *untouched* value too, so
+	// an int elsewhere in the map comes back a float64 and a []byte comes back
+	// base64. The fast path is therefore taken only when the map is already
+	// all-JSON-native, which is precisely the case where the round trip would
+	// have left the other fields alone anyway. That covers a message hydrated
+	// from a payload, which is how most data arrives.
+	// TestSetValByPathMatchesJSONRoundTrip holds the two together over both
+	// kinds of map.
+	//
+	// One difference worth knowing: the round trip replaces every nested
+	// container with a freshly decoded one, while the fast path mutates them in
+	// place. A caller holding a reference to a sub-map across the call sees the
+	// update under the fast path and does not under the round trip.
+	if isJSONNativeMap(data) && setByWalk(data, path, val) {
 		return
 	}
 
@@ -844,12 +966,12 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 		case "not_contains":
 			match = !strings.Contains(fieldVal, valStr)
 		case "regex":
-			re, err := regexp.Compile(valStr)
+			re, err := compilePattern(valStr)
 			if err == nil {
 				match = re.MatchString(fieldVal)
 			}
 		case "not_regex":
-			re, err := regexp.Compile(valStr)
+			re, err := compilePattern(valStr)
 			if err == nil {
 				match = !re.MatchString(fieldVal)
 			}
@@ -911,3 +1033,302 @@ func (m *mockMessage) ToMap() map[string]any   { return nil }
 func (m *mockMessage) ClearPayloads()          {}
 func (m *mockMessage) Retain()                 {}
 func (m *mockMessage) Release()                {}
+
+// finiteFloat passes a float through unless it has no JSON form.
+//
+// NaN and +/-Inf make json.Marshal fail on the whole row, which resolves every
+// path in it to nil. Falling back preserves that rather than quietly making
+// one row's reads start working.
+func finiteFloat(f float64) (any, bool) {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return nil, false
+	}
+	return f, true
+}
+
+// integerAsFloat reports v as the float64 a JSON round trip turns it into.
+func integerAsFloat(v any) (float64, bool) {
+	switch t := v.(type) {
+	case int:
+		return float64(t), true
+	case int8:
+		return float64(t), true
+	case int16:
+		return float64(t), true
+	case int32:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	case uint:
+		return float64(t), true
+	case uint8:
+		return float64(t), true
+	case uint16:
+		return float64(t), true
+	case uint32:
+		return float64(t), true
+	case uint64:
+		return float64(t), true
+	}
+	return 0, false
+}
+
+// maxCachedPatterns bounds the compiled-pattern cache.
+//
+// A bound is not optional here. EvaluateConditions resolves a condition value
+// containing {{ }} against the message's own data before using it, so the
+// pattern reaching compilePattern can be derived from message content — and a
+// map keyed by that, without a cap and an eviction, is a memory leak an
+// upstream system can drive.
+const maxCachedPatterns = 512
+
+// patternEvictionBatch is how many entries are dropped when the cache is full.
+// Evicting one per insert would put an eviction on every call once full;
+// evicting a slice of them amortises it.
+const patternEvictionBatch = maxCachedPatterns / 8
+
+// compiledPattern holds a compile's outcome, failures included. A pattern that
+// does not compile is cached too: it is the cheapest way to stop a stream of
+// messages carrying the same malformed pattern from paying for the same failed
+// compile over and over.
+type compiledPattern struct {
+	re  *regexp.Regexp
+	err error
+}
+
+var compiledPatterns = struct {
+	mu sync.RWMutex
+	m  map[string]compiledPattern
+}{m: make(map[string]compiledPattern, maxCachedPatterns)}
+
+func cachedPatternCount() int {
+	compiledPatterns.mu.RLock()
+	defer compiledPatterns.mu.RUnlock()
+	return len(compiledPatterns.m)
+}
+
+// compilePattern returns the compiled form of expr, reusing an earlier compile.
+//
+// A router condition compiled its pattern once per message: 1931ns and 69
+// allocations against 208ns and 1 for a match against an already-compiled
+// pattern, which at 100k msgs/s is roughly 0.2 of a core and 600 MB/s of
+// garbage for a single filter.
+func compilePattern(expr string) (*regexp.Regexp, error) {
+	compiledPatterns.mu.RLock()
+	hit, ok := compiledPatterns.m[expr]
+	compiledPatterns.mu.RUnlock()
+	if ok {
+		return hit.re, hit.err
+	}
+
+	// Compiled outside the lock: an expensive pattern must not block every
+	// other condition being evaluated. Two goroutines racing on the same new
+	// pattern both compile it and the second overwrites the first, which costs
+	// one redundant compile and keeps the lock hold short.
+	re, err := regexp.Compile(expr)
+
+	compiledPatterns.mu.Lock()
+	defer compiledPatterns.mu.Unlock()
+	if len(compiledPatterns.m) >= maxCachedPatterns {
+		// Go randomises map iteration order, so taking the first entries the
+		// range hands back is an arbitrary eviction. That is deliberate: no
+		// ordering means nothing for a caller to steer, where an LRU would let
+		// a message stream decide what stays resident.
+		evicted := 0
+		for k := range compiledPatterns.m {
+			delete(compiledPatterns.m, k)
+			if evicted++; evicted >= patternEvictionBatch {
+				break
+			}
+		}
+	}
+	compiledPatterns.m[expr] = compiledPattern{re: re, err: err}
+	return re, err
+}
+
+// ValidateConditions reports the first condition whose regex cannot compile.
+//
+// It exists because a pattern that does not compile is not a condition that
+// matches nothing — it is a condition that *rejects everything*, silently:
+// EvaluateConditions starts `match` at false and swallows the compile error,
+// so a typo in a filter drops 100% of a workflow's traffic while the workflow
+// stays green. Call this where a human can still act on the answer — at save
+// time — and again at run time, where the failure must at least be loud.
+//
+// A pattern containing a template token is left alone. It is resolved per
+// message against that message's own data, so there is nothing to judge here
+// and rejecting it would refuse a legitimate workflow.
+func ValidateConditions(conditions []map[string]any) error {
+	for _, cond := range conditions {
+		op, _ := cond["operator"].(string)
+		if op != "regex" && op != "not_regex" {
+			continue
+		}
+		pattern, ok := cond["value"].(string)
+		if !ok {
+			continue
+		}
+		if strings.Contains(pattern, "{{") && strings.Contains(pattern, "}}") {
+			continue
+		}
+		if _, err := compilePattern(pattern); err != nil {
+			field, _ := cond["field"].(string)
+			return fmt.Errorf("condition on field %q has an invalid %s pattern %q: %w", field, op, pattern, err)
+		}
+	}
+	return nil
+}
+
+// ParseConditions reads the condition list out of a node's configuration.
+//
+// The editor writes either a JSON `conditions` array or the single
+// field/operator/value triple, and both shapes are in saved workflows. This is
+// the one definition of how to read them: it is needed by the node that
+// evaluates them at run time and by the validator that checks them at save
+// time, and a second hand-written copy in the validator would drift from this
+// one the first time the shape changed — the way the wizard's requirement list
+// and the sink form map both have.
+func ParseConditions(config map[string]any) []map[string]any {
+	conditionsStr, _ := config["conditions"].(string)
+	var conditions []map[string]any
+	if conditionsStr != "" {
+		_ = json.Unmarshal([]byte(conditionsStr), &conditions)
+	}
+
+	if len(conditions) == 0 {
+		field, _ := config["field"].(string)
+		op, _ := config["operator"].(string)
+		val, _ := config["value"].(string)
+		if field != "" {
+			conditions = append(conditions, map[string]any{
+				"field":    field,
+				"operator": op,
+				"value":    val,
+			})
+		}
+	}
+	return conditions
+}
+
+// isJSONNativeMap reports whether every value in m, recursively, is already
+// the type a JSON decode would have produced. For such a map, marshalling and
+// unmarshalling it is the identity, which is what lets SetValByPath skip it.
+func isJSONNativeMap(m map[string]any) bool {
+	for _, v := range m {
+		if !isJSONNativeValue(v) {
+			return false
+		}
+	}
+	return true
+}
+
+func isJSONNativeValue(v any) bool {
+	switch t := v.(type) {
+	case nil, string, bool:
+		return true
+	case float64:
+		// NaN and +/-Inf make json.Marshal fail, which turns the whole write
+		// into a no-op. The fast path must not quietly start succeeding.
+		return !math.IsNaN(t) && !math.IsInf(t, 0)
+	case map[string]any:
+		return isJSONNativeMap(t)
+	case []any:
+		for _, e := range t {
+			if !isJSONNativeValue(e) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// setByWalk writes val at path by walking the map, and reports whether it
+// could. False means the path uses syntax it does not implement, or leads
+// somewhere it will not go — ask sjson instead.
+//
+// It deliberately refuses anything but plain object-field writes: an array
+// index, an sjson append (`-1`), a metacharacter, or an intermediate segment
+// occupied by something that is not an object. Those are rare and sjson
+// already gets them right.
+func setByWalk(data map[string]any, path string, val any) bool {
+	if strings.ContainsAny(path, gjsonPathMeta) {
+		return false
+	}
+
+	segs := strings.Split(path, ".")
+	for _, s := range segs {
+		if s == "" || isIndexLikeSegment(s) {
+			return false
+		}
+	}
+
+	// sjson writes val into the JSON and the result is decoded back out, so
+	// what lands in the map is val's JSON form, not val.
+	norm, ok := normalizeForWrite(val)
+	if !ok {
+		return false
+	}
+
+	// Probe before mutating: a path that turns out to be unwalkable halfway
+	// down must not leave intermediate objects behind for the round trip to
+	// then disagree with.
+	cur := data
+	for _, s := range segs[:len(segs)-1] {
+		next, present := cur[s]
+		if !present {
+			break // everything below here will be created
+		}
+		m, isMap := next.(map[string]any)
+		if !isMap {
+			return false // sjson would replace it; let sjson do that
+		}
+		cur = m
+	}
+
+	cur = data
+	for _, s := range segs[:len(segs)-1] {
+		m, isMap := cur[s].(map[string]any)
+		if !isMap {
+			m = make(map[string]any)
+			cur[s] = m
+		}
+		cur = m
+	}
+	cur[segs[len(segs)-1]] = norm
+	return true
+}
+
+// isIndexLikeSegment reports whether a path segment addresses an array rather
+// than an object field — a bare index, or sjson's `-1` append.
+func isIndexLikeSegment(s string) bool {
+	if s == "-1" {
+		return true
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// normalizeForWrite returns val as sjson-plus-decode would have left it, and
+// reports whether it is a type the fast path has been proved equivalent for.
+//
+// It is an allowlist rather than a mirror of sjson's type switch, because the
+// two encoders do not agree everywhere: sjson writes a []byte as the literal
+// string where json.Marshal writes base64, which
+// TestSetValByPathMatchesJSONRoundTrip caught. Anything not listed here goes to
+// sjson, which is the only thing that definitionally matches sjson.
+func normalizeForWrite(val any) (any, bool) {
+	switch val.(type) {
+	case nil, string, bool,
+		float32, float64,
+		int, int8, int16, int32, int64,
+		uint, uint16, uint32, uint64,
+		map[string]any, []any:
+		return normalizeToJSONShape(val)
+	}
+	return nil, false
+}

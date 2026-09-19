@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,19 +30,67 @@ import (
 // system propagates it, and why W3C traceparent is a header rather than a
 // process-local value.
 
-// recordSpans installs an SDK tracer provider that records into memory and
-// restores the previous one afterwards. The engine's tracer is package-level
-// and resolved through the global provider, so this has to be set globally.
+// spanRelay forwards spans to whichever recorder the running test installed.
+//
+// otel's global tracer takes its delegate exactly once per process. The
+// engine's tracer is package-level (`var tracer = otel.Tracer(...)` in
+// engine.go), so it is created at init, before any test runs: the first
+// SetTracerProvider binds it and every later one is ignored *for that tracer*.
+//
+// This helper used to build a TracerProvider per test, which therefore worked
+// for the first test to call it and silently recorded nothing for every test
+// after — reported as "no source.receive span was recorded; spans seen: []",
+// which reads like a product defect in trace propagation rather than a broken
+// fixture. Reproduce the old behaviour with `-count=2` on a single test.
+//
+// So one provider is installed once per process and the recorder behind it is
+// swapped instead.
+type spanRelay struct {
+	mu  sync.Mutex
+	cur *tracetest.SpanRecorder
+}
+
+func (r *spanRelay) set(rec *tracetest.SpanRecorder) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cur = rec
+}
+
+func (r *spanRelay) current() *tracetest.SpanRecorder {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cur
+}
+
+func (r *spanRelay) OnStart(parent context.Context, s sdktrace.ReadWriteSpan) {
+	if c := r.current(); c != nil {
+		c.OnStart(parent, s)
+	}
+}
+
+func (r *spanRelay) OnEnd(s sdktrace.ReadOnlySpan) {
+	if c := r.current(); c != nil {
+		c.OnEnd(s)
+	}
+}
+
+func (r *spanRelay) Shutdown(context.Context) error   { return nil }
+func (r *spanRelay) ForceFlush(context.Context) error { return nil }
+
+var (
+	testSpanRelay = &spanRelay{}
+	testSpanOnce  sync.Once
+)
+
+// recordSpans records the spans produced while the calling test runs.
 func recordSpans(t *testing.T) *tracetest.SpanRecorder {
 	t.Helper()
-	rec := tracetest.NewSpanRecorder()
-	prev := otel.GetTracerProvider()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
-	otel.SetTracerProvider(tp)
-	t.Cleanup(func() {
-		_ = tp.Shutdown(context.Background())
-		otel.SetTracerProvider(prev)
+	testSpanOnce.Do(func() {
+		otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(testSpanRelay)))
 	})
+	rec := tracetest.NewSpanRecorder()
+	testSpanRelay.set(rec)
+	t.Cleanup(func() { testSpanRelay.set(nil) })
 	return rec
 }
 

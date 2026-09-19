@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"slices"
+
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/factory"
 	"github.com/gsoultan/hermod/internal/notification"
@@ -327,11 +329,18 @@ func TestPathSafeImplementation(t *testing.T) {
 }
 
 type mockNotificationProvider struct {
-	sent bool
+	mu       sync.Mutex
+	sent     bool
+	titles   []string
+	messages []string
 }
 
 func (p *mockNotificationProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.sent = true
+	p.titles = append(p.titles, title)
+	p.messages = append(p.messages, message)
 	return nil
 }
 
@@ -353,78 +362,124 @@ func (s *mockAlertingStorage) UpdateWorkflow(ctx context.Context, wf storage.Wor
 	return nil
 }
 
-func TestAlertingOnStatusChange(t *testing.T) {
-	ms := &mockAlertingStorage{
-		workflow: storage.Workflow{ID: "wf-1", Name: "Test Workflow", Status: "running"},
-	}
-	r := &Registry{
-		storage: ms,
-	}
-
+// mockNotificationProvider records every notification so a test can assert how
+// many were sent, not merely that one was.
+func newAlertingRegistry(t *testing.T, wf storage.Workflow) (*Registry, *mockNotificationProvider) {
+	t.Helper()
+	ms := &mockAlertingStorage{workflow: wf}
+	r := &Registry{storage: ms}
 	provider := &mockNotificationProvider{}
 	ns := notification.NewService(ms)
 	ns.AddProvider(provider)
 	r.notificationService = ns
+	return r, provider
+}
 
-	// Simulate status change to error
-	update := telemetry.StatusUpdate{
+func TestAlertingOnStatusChange(t *testing.T) {
+	r, provider := newAlertingRegistry(t, storage.Workflow{
+		ID: "wf-1", Name: "Test Workflow", Status: "running",
+	})
+
+	var latch atomic.Bool
+	r.notifyOnStatusChange(t.Context(), "wf-1", telemetry.StatusUpdate{
 		EngineStatus: "error:something_failed",
-	}
+	}, &latch)
 
-	engStatusChange := func(update telemetry.StatusUpdate) {
-		dbCtx := t.Context()
-		if workflow, err := r.storage.GetWorkflow(dbCtx, "wf-1"); err == nil {
-			prevStatus := workflow.Status
-			workflow.Status = update.EngineStatus
-			_ = r.storage.UpdateWorkflow(dbCtx, workflow)
-
-			if strings.Contains(strings.ToLower(update.EngineStatus), "error") &&
-				!strings.Contains(strings.ToLower(prevStatus), "error") &&
-				r.notificationService != nil {
-				r.notificationService.Notify(dbCtx, "Workflow Error", "failed", workflow)
-			}
-		}
-	}
-
-	engStatusChange(update)
-
-	if !provider.sent {
-		t.Errorf("Expected notification to be sent on error status change")
+	if len(provider.titles) != 1 || provider.titles[0] != "Workflow Error" {
+		t.Errorf("titles = %v, want exactly [Workflow Error]", provider.titles)
 	}
 }
 
+func TestAlertingOnCircuitBreakerOpen(t *testing.T) {
+	r, provider := newAlertingRegistry(t, storage.Workflow{
+		ID: "wf-1", Name: "Test Workflow", Status: "running",
+	})
+
+	var latch atomic.Bool
+	r.notifyOnStatusChange(t.Context(), "wf-1", telemetry.StatusUpdate{
+		EngineStatus: "circuit_breaker_open",
+	}, &latch)
+
+	if !slices.Contains(provider.titles, "Circuit Breaker Alert") {
+		t.Errorf("titles = %v, want a Circuit Breaker Alert", provider.titles)
+	}
+}
+
+// This used to be a closure in the test body that reimplemented the registry's
+// logic and asserted on itself, so it passed while the real callback never
+// evaluated the threshold at all.
 func TestDLQThresholdAlerting(t *testing.T) {
-	ms := &mockAlertingStorage{
-		workflow: storage.Workflow{
-			ID:           "wf-dlq",
-			Name:         "DLQ Test",
-			Status:       "running",
-			DLQThreshold: 10,
-		},
+	r, provider := newAlertingRegistry(t, storage.Workflow{
+		ID: "wf-dlq", Name: "DLQ Test", Status: "running", DLQThreshold: 10,
+	})
+
+	var latch atomic.Bool
+	r.notifyOnStatusChange(t.Context(), "wf-dlq", telemetry.StatusUpdate{DeadLetterCount: 10}, &latch)
+
+	if len(provider.titles) != 1 || provider.titles[0] != "DLQ Threshold Exceeded" {
+		t.Fatalf("titles = %v, want exactly [DLQ Threshold Exceeded]", provider.titles)
 	}
-	r := &Registry{
-		storage: ms,
+	if !strings.Contains(provider.messages[0], "dead-lettered 10 messages") {
+		t.Errorf("message = %q, want it to say how many were dead-lettered", provider.messages[0])
+	}
+}
+
+// The count only ever climbs, so every status change after the crossing would
+// re-send the same alert. One engine run, one alert.
+func TestDLQThresholdAlertsOnlyOnce(t *testing.T) {
+	r, provider := newAlertingRegistry(t, storage.Workflow{
+		ID: "wf-dlq", Name: "DLQ Test", Status: "running", DLQThreshold: 10,
+	})
+
+	var latch atomic.Bool
+	for _, count := range []uint64{10, 11, 25, 900} {
+		r.notifyOnStatusChange(t.Context(), "wf-dlq", telemetry.StatusUpdate{DeadLetterCount: count}, &latch)
 	}
 
-	provider := &mockNotificationProvider{}
-	ns := notification.NewService(ms)
-	ns.AddProvider(provider)
-	r.notificationService = ns
-
-	// Simulation function (replicates Registry's SetOnStatusChange logic)
-	onStatusChange := func(update telemetry.StatusUpdate) {
-		dbCtx := t.Context()
-		if workflow, err := r.storage.GetWorkflow(dbCtx, "wf-dlq"); err == nil && workflow.DLQThreshold > 0 {
-			if update.DeadLetterCount >= uint64(workflow.DLQThreshold) {
-				r.notificationService.Notify(dbCtx, "DLQ Threshold Exceeded", "dlq alert", workflow)
-			}
-		}
+	if got := len(provider.titles); got != 1 {
+		t.Errorf("sent %d notifications for one threshold crossing (%v); want 1", got, provider.titles)
 	}
+}
 
-	onStatusChange(telemetry.StatusUpdate{DeadLetterCount: 10})
+func TestDLQThresholdSilentBelowTheLine(t *testing.T) {
+	r, provider := newAlertingRegistry(t, storage.Workflow{
+		ID: "wf-dlq", Name: "DLQ Test", Status: "running", DLQThreshold: 10,
+	})
 
-	if !provider.sent {
-		t.Errorf("Expected notification to be sent on DLQ threshold exceed")
+	var latch atomic.Bool
+	r.notifyOnStatusChange(t.Context(), "wf-dlq", telemetry.StatusUpdate{DeadLetterCount: 9}, &latch)
+
+	if len(provider.titles) != 0 {
+		t.Errorf("alerted below the threshold: %v", provider.titles)
+	}
+}
+
+// A threshold of 0 is "disabled" in the editor, and must stay disabled however
+// many messages are parked.
+func TestDLQThresholdZeroIsDisabled(t *testing.T) {
+	r, provider := newAlertingRegistry(t, storage.Workflow{
+		ID: "wf-dlq", Name: "DLQ Test", Status: "running", DLQThreshold: 0,
+	})
+
+	var latch atomic.Bool
+	r.notifyOnStatusChange(t.Context(), "wf-dlq", telemetry.StatusUpdate{DeadLetterCount: 5000}, &latch)
+
+	if len(provider.titles) != 0 {
+		t.Errorf("threshold disabled but alerted anyway: %v", provider.titles)
+	}
+}
+
+// A healthy update must not go near storage or the notification service.
+func TestNoAlertOnHealthyStatus(t *testing.T) {
+	r, provider := newAlertingRegistry(t, storage.Workflow{
+		ID: "wf-1", Name: "Test Workflow", Status: "running", DLQThreshold: 10,
+	})
+
+	var latch atomic.Bool
+	r.notifyOnStatusChange(t.Context(), "wf-1", telemetry.StatusUpdate{EngineStatus: "running"}, &latch)
+
+	if len(provider.titles) != 0 {
+		t.Errorf("alerted on a healthy status: %v", provider.titles)
 	}
 }
 

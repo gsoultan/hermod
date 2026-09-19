@@ -21,23 +21,53 @@ var (
 )
 
 // TryFixJSON attempts to fix common JSON issues like trailing commas to make unmarshaling more lenient.
+//
+// It works on the bytes rather than on a string copy of them. The first thing
+// this does is decide whether the payload even looks like JSON, and it used to
+// copy the whole body into a string to find out — which for a text, CSV or
+// binary body is the answer "no" at the cost of a full copy, on every message.
 func TryFixJSON(data []byte) []byte {
-	str := string(data)
-	trimmed := strings.TrimSpace(str)
+	trimmed := bytes.TrimSpace(data)
 
 	// If it ends with a period, trim it (common in issue descriptions)
-	trimmed = strings.TrimSuffix(trimmed, ".")
-	trimmed = strings.TrimSpace(trimmed)
+	trimmed = bytes.TrimSuffix(trimmed, []byte("."))
+	trimmed = bytes.TrimSpace(trimmed)
 
-	if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
+	if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') {
 		return nil
 	}
 
 	// Remove trailing commas before closing braces/brackets using regex for robustness
-	fixed := trailingCommaBraceRegex.ReplaceAllString(trimmed, "$1")
-	fixed = trailingCommaBracketRegex.ReplaceAllString(fixed, "$1")
+	fixed := trailingCommaBraceRegex.ReplaceAll(trimmed, []byte("$1"))
+	fixed = trailingCommaBracketRegex.ReplaceAll(fixed, []byte("$1"))
 
-	return []byte(fixed)
+	return fixed
+}
+
+// canBeJSONObject reports whether payload could possibly unmarshal into a
+// map[string]any, judged from its first meaningful byte.
+//
+// Only an object literal and null can. Everything else — an array, a scalar, a
+// quoted string, a CSV line, a protobuf frame — cannot, and letting
+// json.Unmarshal establish that costs a scan of the whole body plus a wrapped
+// syntax error, twice, before TryFixJSON copies the body to reach the same
+// conclusion a third time.
+//
+// null is the case that makes this a positive test rather than a check for
+// '{': it decodes into a nil map *without* an error, so treating it as a
+// non-object would change what a null payload decodes to.
+func canBeJSONObject(payload []byte) bool {
+	for _, c := range payload {
+		switch c {
+		case ' ', '\t', '\n', '\r':
+			continue
+		case '{', 'n':
+			return true
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // SanitizeValue converts special types (like UUIDs) to JSON-friendly strings.
@@ -157,30 +187,69 @@ func (m *DefaultMessage) Payload() []byte {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	// Re-check after acquiring write lock
-	if len(m.payload) > 0 {
-		return bytes.Clone(m.payload)
-	}
-
-	// If payload is not set, try to marshal data
-	if len(m.data) > 0 {
-		if m.operation != "" {
-			if a, ok := m.data["after"]; ok {
-				m.payload, _ = json.Marshal(a)
-				return bytes.Clone(m.payload)
-			}
-		}
-		m.payload, _ = json.Marshal(m.data)
-		return bytes.Clone(m.payload)
-	}
+	m.ensurePayloadLocked()
 	return bytes.Clone(m.payload)
+}
+
+// PayloadLen reports len(Payload()) without copying the payload.
+//
+// The engine asks for a payload's size far more often than for the payload:
+// batch-by-bytes accounting sums it for every message and the per-write debug
+// log reports it. Going through Payload() for that cloned the bytes and threw
+// the copy away — together 2.8 GB of the 4.9 GB a 150k-message benchmark
+// allocated, to produce two integers.
+//
+// It materialises the data map exactly as Payload() does, so the two never
+// disagree about a message whose payload has not been marshalled yet;
+// TestPayloadLenMatchesPayload holds them together.
+func (m *DefaultMessage) PayloadLen() int {
+	m.mu.RLock()
+	if len(m.payload) > 0 {
+		defer m.mu.RUnlock()
+		return len(m.payload)
+	}
+	m.mu.RUnlock()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensurePayloadLocked()
+	return len(m.payload)
+}
+
+// ensurePayloadLocked marshals the data map into m.payload when no payload has
+// been produced yet. Callers must hold the write lock.
+func (m *DefaultMessage) ensurePayloadLocked() {
+	if len(m.payload) > 0 || len(m.data) == 0 {
+		return
+	}
+	if m.operation != "" {
+		if a, ok := m.data["after"]; ok {
+			m.payload, _ = json.Marshal(a)
+			return
+		}
+	}
+	m.payload, _ = json.Marshal(m.data)
 }
 
 func (m *DefaultMessage) Metadata() map[string]string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return maps.Clone(m.metadata)
+}
+
+// MetadataValue reads one metadata entry without copying the map.
+//
+// Metadata() has to clone — handing out the live map would race with a
+// concurrent SetMetadata — so reading a single key through it copies every
+// other entry to throw them away. The trace propagator does exactly that
+// twice per sink write (traceparent, then tracestate), and it is not alone.
+// This does the lookup under the same read lock, so it is as safe and costs
+// nothing.
+func (m *DefaultMessage) MetadataValue(key string) (string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	v, ok := m.metadata[key]
+	return v, ok
 }
 
 func (m *DefaultMessage) MetadataRef() map[string]string {
@@ -248,15 +317,17 @@ func decodePayloadFields(payload []byte) map[string]any {
 		return nil
 	}
 
-	var obj map[string]any
-	if err := json.Unmarshal(payload, &obj); err == nil {
-		return obj
-	}
-	// Tolerate the usual hand-written JSON slips (trailing commas) before
-	// concluding this is not an object.
-	if fixed := TryFixJSON(payload); fixed != nil {
-		if err := json.Unmarshal(fixed, &obj); err == nil {
+	if canBeJSONObject(payload) {
+		var obj map[string]any
+		if err := json.Unmarshal(payload, &obj); err == nil {
 			return obj
+		}
+		// Tolerate the usual hand-written JSON slips (trailing commas) before
+		// concluding this is not an object.
+		if fixed := TryFixJSON(payload); fixed != nil {
+			if err := json.Unmarshal(fixed, &obj); err == nil {
+				return obj
+			}
 		}
 	}
 

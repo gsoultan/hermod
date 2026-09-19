@@ -104,6 +104,12 @@ find a claim that outruns the code, fix the claim.
   across rows), renaming onto a taken path ate a row, and ranging the Go map
   gave a different apply order per message. Blur fires *before* the click that
   caused it, so a pending edit cannot be flushed there.
+- [The workflow Reliability Policy](reliability_policy.md) — dry-run means read
+  normally, write nowhere (the DLQ included) and acknowledge nothing, with a
+  resumed message the one exception; the DLQ threshold is edge-triggered from
+  the engine because dead-lettering changes no status; `hasConfigChanged` is the
+  only path a setting reaches a running engine, and `DrainDLQ` swaps the source
+  under the read loop.
 - [Fan-out, and the two foreaches](fanout_traversal_and_two_foreaches.md) — the
   traversal carried one message per node, so a foreach node delivered its first
   item and dropped the rest (and with a `collect` downstream, delivered nothing
@@ -111,6 +117,15 @@ find a claim that outruns the code, fix the claim.
   cost was O(N²): 5.64 GB for a 4000-line order, now 8.41 MB. Also: two different nodes are called foreach, `transType` cannot tell
   them apart, and the settings modal's hand-written node-type list left nine node
   types with no editor at all.
+- [Reading one field cost a whole row](field_access_cost.md) — `GetValByPath`
+  marshalled the entire data map to JSON per field access, so a 6-placeholder
+  sink mapping on a 128-column row cost 106us and 1763 allocations; the JSON
+  round trip is also what normalises int -> float64, so the fast path needs a
+  parity oracle.
+- [What the engine allocates per message](engine_allocation_profile.md) — 69
+  allocations per message with no transformations at all; a `Debug` line's
+  arguments and a `batchBytes` sum nothing read were 57% of it, and how to
+  profile it (`pprof -list`, not `-top`).
 - [`data_conversion` holds a list of rows](data_conversion_row_list.md) — one node
   now retypes several fields, each to its own target type, with `On Error` a
   node default any row may override. The list is authoritative by *presence*,
