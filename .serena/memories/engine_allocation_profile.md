@@ -50,8 +50,16 @@ level, an unset config), not the producer.
 
 ## Result
 
-+27% throughput, -42% bytes, -21% allocations (geomean, benchstat n=6,
-p=0.002) — before any transformation is involved. See
+Final, measured end to end through a real `source -> condition -> mapping ->
+sink` workflow (`BenchmarkWorkflowThroughput`, benchstat n=7, p=0.001):
+**+19.8% throughput, -56.5% bytes, -48.5% allocations** (geomean over 8-, 32-
+and 128-column rows).
+
+On the engine benchmark alone — no workflow, so no evaluator — **+17.4% /
+-46.0% / -27.7%**. Throughput has 5-18% run-to-run variance on a laptop and the
+geomean has read anywhere from +17% to +27% across sessions; the allocation
+figures are deterministic (+/-0-1%) and are what to hold a regression against.
+See
 [`field_access_cost.md`](field_access_cost.md) for the transformation path,
 which was far worse.
 
@@ -73,13 +81,56 @@ too, so a stream carrying the same malformed pattern pays once.
 > Same shape as [`retention_sweep_and_trace_growth.md`](retention_sweep_and_trace_growth.md)
 > — a parse failure that silently disables something.
 
-## Not fixed, ranked
+## Also fixed
 
-1. **OTel span per sink write** (`writer.go`, `tracer.Start`): ~7.7 allocs per
-   message through `global.(*tracer).newSpan` even with **no** TracerProvider
-   installed — 15% of remaining allocation count.
-2. **`recordTraceStep` spawns an unbounded goroutine + a 5s
-   `context.WithTimeout` per node per message** (`pkg/engine/telemetry_methods.go:88`).
-   Harmless at the default `TraceSampleRate: 0`, a memory incident at 1.0.
-   `internal/engine/registry` already has the right shape for this: a
-   `backgroundTasks` semaphore that drops under pressure.
+- **OTel span attributes on the write path.** `trace.WithAttributes(...)` was
+  evaluated before `Start`, so three attribute values and a slice were built
+  per message for a span nobody records when no TracerProvider is installed —
+  the default. Now set under `span.IsRecording()`. Equivalent **only because
+  the sampler does not read attributes**: `internal/observability` builds the
+  provider with `WithBatcher` + `WithResource` alone, so it gets the default
+  `ParentBased(AlwaysSample)`. An attribute-consulting sampler would need them
+  back on `Start`; `TestSinkWriteSpanStillCarriesItsAttributes` is what notices.
+- **`tracing.messageCarrier.Get` cloned all metadata to read one header**, and
+  the propagator asks twice per write (traceparent, tracestate). `Metadata()`
+  clones for a reason — handing out the live map races with `SetMetadata` — so
+  the fix is `MetadataValue(key)`, a single lookup under the same read lock,
+  reached through an optional interface. Same fix in `recordTraceStep`'s
+  lineage read.
+- **`recordTraceStep` is slot-bounded** (`maxConcurrentTraceRecords`, 256) and
+  drops what it cannot place, counted by `TraceStepsDroppedCount()`. The
+  5-second `context.WithTimeout` moved *inside* the goroutine so a dropped step
+  never arms a timer.
+
+## Still not fixed, ranked
+
+1. **`SetValByPath`** (`pkg/infra/evaluator/evaluator.go`): 44us / 694 allocs
+   for one write into a 128-column row — the untouched write-side twin of
+   `GetValByPath`. It round-trips the whole map, which **re-normalises every
+   untouched field as a side effect**; that may be load-bearing somewhere, so
+   it needs its own parity oracle before being touched.
+2. **The condition node re-parses its config on every message**
+   (`evaluator.ParseConditions` -> `json.Unmarshal` per message when the node
+   stores a `conditions` JSON string). Unmeasured. Wants a prepared form, the
+   way `MappingTransformer.Prepare` caches `_parsed_mapping`.
+3. **75% of engine CPU is scheduler wait, not work** — `runtime.usleep` 35% +
+   `pthread_cond_wait` 27%, `runtime.lock2` 35.6% cumulative. The traversal
+   spawns a goroutine per node per message
+   (`internal/engine/registry/traversal/traversal.go:147,503`). Whether a
+   single-successor node can run inline is the open question; it touches the
+   fan-out ownership contract, so it is not a small change.
+4. **The message pool retains bucket arrays.** `Reset()` uses `clear(m.data)`,
+   which keeps the allocated buckets, so one 10,000-field message pins that
+   capacity for the pool's lifetime. Bounded by GC's victim cache, so a
+   footprint hazard on mixed workloads rather than a true leak.
+
+## Fixture trap
+
+`recordSpans` (`pkg/engine/trace_propagation_test.go`) built a TracerProvider
+per test. **otel's global tracer takes its delegate exactly once per process**,
+and the engine's tracer is package-level, so the first test to call the helper
+bound it and every later one silently recorded nothing — reported as "no
+source.receive span was recorded; spans seen: []", which reads like a defect in
+trace propagation rather than a broken fixture. Reproduce the old behaviour
+with `-count=2` on a single test. Now one provider is installed once per
+process and the recorder behind it is swapped.
