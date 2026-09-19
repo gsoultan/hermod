@@ -144,6 +144,33 @@ column named explicitly but absent from the schema fails at construction, while
 the operator is still looking at the form, rather than silently dropping every
 operation.
 
+### Three S3 sinks that could not be configured from the editor
+
+Found while wiring the above, all the same defect: a gate keyed to a name nothing
+writes.
+
+`S3SinkConfig` writes `s3_region`, `s3_bucket`, `s3_key` — the keys the S3
+*source* reads. Both the `s3` and `s3-parquet` sink factories read `region`,
+`bucket`, `key_prefix`, `access_key`, `secret_key` and `endpoint`, so an S3 sink
+configured from the editor was built with every field empty, and SinkWizard's
+Next button could never enable. The form now writes the keys the sink factory
+reads.
+
+The `s3-parquet` sink also had nowhere at all to put the parquet schema it cannot
+write a single row without, and its requirements entry was keyed `s3parquet`
+while every sink of that type is `s3-parquet` — so the gate that would have
+caught the mismatch never ran. It now has its own form, and the entry is keyed by
+the type sinks actually have.
+
+The elasticsearch sink was gated on a `url` key neither its form nor its factory
+has; both use `addresses`.
+
+`sinkConfigCoverage` promised a check comparing the keys each form writes against
+the keys its type is gated on, and described it in a comment, but no such check
+existed — which is how all of the above survived. It exists now, along with one
+that every requirements entry is keyed by a type some sink can actually have.
+
+
 ### Fixed — the workflow's Reliability Policy mostly did not do what it said
 
 Four settings sit under Reliability Policy in the editor. The dead-letter sink
@@ -210,32 +237,6 @@ Finally, the editor's "Dry-run (Full Execute)" menu item sent `dry_run: true` to
 a simulation that never writes to a sink regardless. It did exactly what "Run
 Simulation" does and promised an execution that never happened, so it is gone.
 Running the real pipeline without writing is Dry-Run Mode, in Settings.
-
-### Three S3 sinks that could not be configured from the editor
-
-Found while wiring the above, all the same defect: a gate keyed to a name nothing
-writes.
-
-`S3SinkConfig` writes `s3_region`, `s3_bucket`, `s3_key` — the keys the S3
-*source* reads. Both the `s3` and `s3-parquet` sink factories read `region`,
-`bucket`, `key_prefix`, `access_key`, `secret_key` and `endpoint`, so an S3 sink
-configured from the editor was built with every field empty, and SinkWizard's
-Next button could never enable. The form now writes the keys the sink factory
-reads.
-
-The `s3-parquet` sink also had nowhere at all to put the parquet schema it cannot
-write a single row without, and its requirements entry was keyed `s3parquet`
-while every sink of that type is `s3-parquet` — so the gate that would have
-caught the mismatch never ran. It now has its own form, and the entry is keyed by
-the type sinks actually have.
-
-The elasticsearch sink was gated on a `url` key neither its form nor its factory
-has; both use `addresses`.
-
-`sinkConfigCoverage` promised a check comparing the keys each form writes against
-the keys its type is gated on, and described it in a comment, but no such check
-existed — which is how all of the above survived. It exists now, along with one
-that every requirements entry is keyed by a type some sink can actually have.
 
 
 ### Fixed — a Foreach (Fan-out) node fanned out into nothing
