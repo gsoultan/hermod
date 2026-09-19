@@ -7,6 +7,38 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### The MySQL sink wrote one statement per message
+
+`WriteBatch` opened a transaction and then executed one statement per message,
+so a 2,000-row batch was 2,000 round trips. An insert-only batch into a single
+table now goes as multi-row `INSERT ... VALUES (...),(...)`.
+
+Against MariaDB 11.4 in a local container: **8.1x at 100 rows, 27.5x at 500,
+46.9x at 2,000** (5,289 -> 42,579, 7,364 -> 202,567 and 6,571 -> 307,933
+rows/s). The old path plateaus around 6,000 rows/s whatever the batch size
+because it is round-trip bound rather than CPU bound — and that is measured on
+localhost, so over a real network the gap is larger, not smaller.
+
+`classifyBatch` is conservative by construction, mirroring the Postgres sink's:
+the bulk path is taken only where per-row ordering cannot be observed, and
+anything it cannot establish falls back to the ordered path. It declines a
+batch under 50 rows, without mappings, using soft delete, with an operation
+mode other than auto/insert, routed per message, or containing anything that is
+not an insert.
+
+One condition has no Postgres equivalent. `upsertMapped` drops an identity
+column whose value is empty, *per message*, so two messages in one batch can
+contribute different column lists — and emitting those as a single multi-row
+INSERT would shift values into the wrong columns, with no error. The shape is
+established from the first row and the batch is refused if any later row
+disagrees.
+
+Guarded by a differential against a real server: the same batch written both
+ways must produce identical table contents, including last-wins on a key
+repeated within one batch, and including a batch large enough to cross a chunk
+boundary.
+
+
 ### A healthy pipeline wrote one database log row per message
 
 `DatabaseLogger` had no level filter at all. Moving the per-write success line

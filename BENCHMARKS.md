@@ -360,13 +360,66 @@ That matrix earns its keep: it caught **sjson and `json.Marshal` disagreeing on
 the write fast path handles only value types it has been proved equivalent for
 and hands the rest to sjson.
 
+## MySQL sink: multi-row INSERT
+
+Measured 2026-09-19 against MariaDB 11.4 in a local container, 3 columns per
+row, `BenchmarkMySQLWriteBatch` (integration-tagged).
+
+`WriteBatch` opened one transaction and then executed **one statement per
+message**. An insert-only batch into a single table now goes as multi-row
+`INSERT ... VALUES (...),(...)`, turning N round trips into one per chunk.
+
+| Batch | Ordered (one statement per message) | Multi-row | |
+|---|---|---|---|
+| 100 rows | 5,289 rows/s | 42,579 rows/s | 8.1x |
+| 500 rows | 7,364 rows/s | 202,567 rows/s | 27.5x |
+| 2,000 rows | 6,571 rows/s | 307,933 rows/s | **46.9x** |
+
+The ordered path plateaus around 6,000 rows/s whatever the batch size, because
+it is round-trip bound, not CPU bound. **This is a local container** — over a
+real network, where a round trip is milliseconds rather than microseconds, the
+gap is larger, not smaller.
+
+### What it refuses, and why
+
+`classifyBatch` is conservative by construction, mirroring the Postgres sink's:
+the bulk path is taken only when every condition for safety is positively
+established, and anything unknown falls through to the ordered path. Losing
+per-row ordering to gain throughput would trade away the guarantee that makes
+Hermod useful for CDC.
+
+It declines a batch that: is under 50 rows; has no column mappings; uses soft
+delete; has an operation mode other than auto/insert; routes per message rather
+than to one table; contains anything that is not an insert; or contains a
+message routed to a different table. `TestClassifyBatch` covers 15 cases.
+
+One condition has no Postgres equivalent and is the subtle one.
+`upsertMapped` drops an identity column whose value is empty — **per message**
+— so two messages in the same batch can contribute different column lists.
+Emitting those as one multi-row INSERT would shift values into the wrong
+columns, silently. `buildBulkRows` establishes the shape from the first row and
+refuses the batch if any later row disagrees.
+
+### Guarded by
+
+- `TestBulkMatchesOrderedPath` — differential against a real server: the same
+  batch written both ways must produce identical table contents, including
+  last-wins on keys repeated within one batch.
+- `TestBulkChunkingMatchesOrderedPath` — with the placeholder cap lowered so a
+  modest batch actually crosses a chunk boundary.
+- `TestBatchWithAnUpdateStillWritesCorrectly` — the fallback is not a failure
+  mode; a refused batch must still be written correctly by the ordered path.
+
+MSSQL (`mssql.CopyIn`) and Snowflake (`PUT` + `COPY INTO`) are still row-by-row
+and are the next two.
+
 ## Not yet measured
 
 Named explicitly so nothing here is mistaken for full coverage:
 
-- **MySQL / MSSQL / Snowflake sinks.** Only Postgres has the bulk path so far. MySQL
-  (`LOAD DATA LOCAL INFILE`), MSSQL (`mssql.CopyIn`) and Snowflake (`PUT` + `COPY INTO`) are still
-  row-by-row. Snowflake is the most costly of these — row-by-row into a warehouse is pathological.
+- **MSSQL / Snowflake sinks.** MySQL now has a multi-row INSERT path (above) and ClickHouse has
+  `PrepareBatch`. MSSQL (`mssql.CopyIn`) and Snowflake (`PUT` + `COPY INTO`) are still row-by-row.
+  Snowflake is the most costly of these — row-by-row into a warehouse is pathological.
 - **Bulk path over a real network**, where the round-trip saving should be far larger than measured
   here on localhost.
 - **Traversal cost per DAG node** — how the goroutine-per-node model scales with DAG width/depth.
