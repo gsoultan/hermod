@@ -358,13 +358,27 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 	// out of ctx; without it every write is the root of its own trace.
 	ctx = tracing.Extract(ctx, msg)
 
-	// Trace single write
+	// Trace single write.
+	//
+	// The attributes are set after the span rather than passed to Start, so
+	// they are not built for a span nobody records — which, with no
+	// TracerProvider installed, is every span. Building them eagerly cost
+	// three attribute values, a slice and the option wrapper per message.
+	//
+	// This is equivalent only because the sampler does not read attributes:
+	// internal/observability builds the provider with WithBatcher and
+	// WithResource alone, so it gets the default ParentBased(AlwaysSample).
+	// An attribute-consulting sampler would need them back on Start —
+	// TestSinkWriteSpanStillCarriesItsAttributes is what would catch that.
 	var span trace.Span
-	ctx, span = tracer.Start(ctx, "sink.write", trace.WithAttributes(
-		attribute.String("workflow_id", e.workflowID),
-		attribute.String("sink_id", sinkID),
-		attribute.String("message_id", msg.ID()),
-	))
+	ctx, span = tracer.Start(ctx, "sink.write")
+	if span.IsRecording() {
+		span.SetAttributes(
+			attribute.String("workflow_id", e.workflowID),
+			attribute.String("sink_id", sinkID),
+			attribute.String("message_id", msg.ID()),
+		)
+	}
 	defer span.End()
 
 	if e.isFailing() {
@@ -381,7 +395,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 			"sink_id", sinkID,
 			"action", "write",
 			"message_id", msg.ID(),
-			"payload_len", len(msg.Payload()),
+			"payload_len", payloadLen(msg),
 		)
 		return errDryRun
 	}
@@ -494,13 +508,20 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		// sustained rate that is tens of thousands of lines a second, which
 		// costs real money to store and buries every line worth reading.
 		// Failures, retries, reconnections and drops keep their levels.
-		e.logger.Debug("Message written to sink",
-			"workflow_id", e.workflowID,
-			"sink_id", sinkID,
-			"action", "write",
-			"message_id", msg.ID(),
-			"payload_len", len(msg.Payload()),
-		)
+		//
+		// Guarded, because the level does not stop Go evaluating the arguments:
+		// payloadLen marshals a data-map message to JSON, and at the default
+		// Info level that whole marshal was produced and discarded for every
+		// message written.
+		if debugEnabled(e.logger) {
+			e.logger.Debug("Message written to sink",
+				"workflow_id", e.workflowID,
+				"sink_id", sinkID,
+				"action", "write",
+				"message_id", msg.ID(),
+				"payload_len", payloadLen(msg),
+			)
+		}
 		lastErr = nil
 		break
 	}
@@ -1136,8 +1157,14 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 					msg := pm.msg
 					if msg != nil {
 						batch = append(batch, pm)
-						if payload := msg.Payload(); payload != nil {
-							batchBytes += len(payload)
+						// Only when something reads it. Summing payload sizes
+						// through Payload() copied every message's bytes to
+						// add up an integer that nothing consumed unless
+						// batch-by-bytes was configured — which it is not by
+						// default. It was the single largest allocation site
+						// in the engine: 1.86 GB out of 4.9 GB.
+						if cfg.BatchBytes > 0 {
+							batchBytes += payloadLen(msg)
 						}
 						if len(batch) >= batchSize || (cfg.BatchBytes > 0 && batchBytes >= cfg.BatchBytes) {
 							flush()
@@ -1346,4 +1373,40 @@ func (w *sinkWriter) pickShard(msg hermod.Message) chan *pendingMessage {
 	idx := int(h.Sum32() % uint32(w.shardCount))
 	fnvPool.Put(h)
 	return w.shards[idx]
+}
+
+// payloadSizer is implemented by messages that can report their payload size
+// without handing over a copy of it.
+type payloadSizer interface {
+	PayloadLen() int
+}
+
+// payloadLen returns len(msg.Payload()) without copying the payload when the
+// message supports it. It is an optional interface rather than a method on
+// hermod.Message so that out-of-tree Message implementations keep compiling.
+func payloadLen(msg hermod.Message) int {
+	if s, ok := msg.(payloadSizer); ok {
+		return s.PayloadLen()
+	}
+	return len(msg.Payload())
+}
+
+// debugLeveler is implemented by loggers that can say whether Debug output is
+// wanted before one is built.
+type debugLeveler interface {
+	DebugEnabled() bool
+}
+
+// debugEnabled reports whether it is worth building a Debug line for lg.
+//
+// A logger that cannot answer is assumed to want the line: dropping output
+// because we could not ask is a worse failure than the work this avoids.
+func debugEnabled(lg hermod.Logger) bool {
+	if lg == nil {
+		return false
+	}
+	if d, ok := lg.(debugLeveler); ok {
+		return d.DebugEnabled()
+	}
+	return true
 }

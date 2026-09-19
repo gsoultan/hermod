@@ -71,7 +71,12 @@ type Engine struct {
 
 	// In-flight message tracking for draining
 	inFlightSem chan struct{}
-	inFlightWg  sync.WaitGroup
+
+	// traceSlots bounds the goroutines recording trace steps. Created on
+	// first use so an Engine built without NewEngine still gets one.
+	traceSlots     chan struct{}
+	traceSlotsOnce sync.Once
+	inFlightWg     sync.WaitGroup
 
 	// Adaptive Throughput
 	lastPollAdjust time.Time
