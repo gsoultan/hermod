@@ -4,6 +4,7 @@ import (
 	"context"
 	"hash/fnv"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/gsoultan/hermod"
@@ -62,8 +63,9 @@ func (e *Engine) recordTraceStep(ctx context.Context, msg hermod.Message, nodeID
 		}
 	}
 
-	// Lineage Tracking
-	lineage := msg.Metadata()["_hermod_lineage"]
+	// Lineage Tracking. Read the one key rather than cloning the whole
+	// metadata map to index it once.
+	lineage := metadataValue(msg, "_hermod_lineage")
 	if lineage == "" {
 		lineage = nodeID
 	} else {
@@ -83,15 +85,80 @@ func (e *Engine) recordTraceStep(ctx context.Context, msg hermod.Message, nodeID
 		step.Error = err.Error()
 	}
 
-	// Use a background context for recording to ensure it completes even if the
-	// request context is cancelled (e.g. message finished processing).
-	recordCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// One goroutine and one five-second timer, per node, per message, with
+	// nothing bounding either. That is free at the default TraceSampleRate of
+	// 0 because WillTrace returned above — but tracing gets switched on
+	// exactly when a workflow is busy and someone is trying to understand it,
+	// and a five-node graph at 50k msgs/s is 250k goroutines and 250k timers
+	// outstanding against a recorder writing to PostgreSQL.
+	//
+	// So the recorder gets a fixed number of slots and a step that cannot get
+	// one is dropped. Trace fidelity is the right thing to lose here: the
+	// alternative is the process. internal/engine/registry made the same call
+	// for its own trace recording, with the same shape.
+	if !e.acquireTraceSlot() {
+		traceStepsDropped.Add(1)
+		return
+	}
+
 	msg.Retain()
 	go func() {
-		defer cancel()
+		defer e.releaseTraceSlot()
 		defer msg.Release()
+		// Detached from the caller's context so recording still completes when
+		// the message finishes processing, but bounded so a wedged recorder
+		// cannot hold a slot for ever. Armed here rather than above so a
+		// dropped step never creates a timer at all.
+		recordCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		e.traceRecorder.RecordStep(recordCtx, e.workflowID, msg.ID(), step)
 	}()
+}
+
+// maxConcurrentTraceRecords is how many trace steps may be in flight at once.
+//
+// Sized for a recorder that keeps up: steps are handed over in microseconds
+// and a healthy recorder never fills this. It only binds when the recorder has
+// stalled, which is the case it exists for.
+const maxConcurrentTraceRecords = 256
+
+// traceStepsDropped counts steps discarded because every slot was busy. A
+// non-zero value means traces have holes and the recorder is the bottleneck —
+// it is a capacity signal, not a bug in the pipeline being traced.
+var traceStepsDropped atomic.Int64
+
+// TraceStepsDroppedCount reports how many trace steps were discarded because
+// the recorder could not keep up.
+func TraceStepsDroppedCount() int64 { return traceStepsDropped.Load() }
+
+// ResetTraceStepsDroppedCount zeroes the counter, for tests.
+func ResetTraceStepsDroppedCount() { traceStepsDropped.Store(0) }
+
+func (e *Engine) acquireTraceSlot() bool {
+	e.traceSlotsOnce.Do(func() {
+		e.traceSlots = make(chan struct{}, maxConcurrentTraceRecords)
+	})
+	select {
+	case e.traceSlots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (e *Engine) releaseTraceSlot() { <-e.traceSlots }
+
+// metadataValue reads one metadata entry without copying the map when the
+// message supports it.
+func metadataValue(msg hermod.Message, key string) string {
+	type reader interface {
+		MetadataValue(key string) (string, bool)
+	}
+	if r, ok := msg.(reader); ok {
+		v, _ := r.MetadataValue(key)
+		return v
+	}
+	return msg.Metadata()[key]
 }
 
 func (e *Engine) UpdateNodeMetric(nodeID string, count uint64) {

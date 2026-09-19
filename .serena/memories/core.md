@@ -117,6 +117,15 @@ find a claim that outruns the code, fix the claim.
   cost was O(N²): 5.64 GB for a 4000-line order, now 8.41 MB. Also: two different nodes are called foreach, `transType` cannot tell
   them apart, and the settings modal's hand-written node-type list left nine node
   types with no editor at all.
+- [Reading one field cost a whole row](field_access_cost.md) — `GetValByPath`
+  marshalled the entire data map to JSON per field access, so a 6-placeholder
+  sink mapping on a 128-column row cost 106us and 1763 allocations; the JSON
+  round trip is also what normalises int -> float64, so the fast path needs a
+  parity oracle.
+- [What the engine allocates per message](engine_allocation_profile.md) — 69
+  allocations per message with no transformations at all; a `Debug` line's
+  arguments and a `batchBytes` sum nothing read were 57% of it, and how to
+  profile it (`pprof -list`, not `-top`).
 - [`data_conversion` holds a list of rows](data_conversion_row_list.md) — one node
   now retypes several fields, each to its own target type, with `On Error` a
   node default any row may override. The list is authoritative by *presence*,

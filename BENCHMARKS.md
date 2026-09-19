@@ -23,6 +23,12 @@ go test ./pkg/engine -bench=. -benchtime=1x -run='^$' -timeout=600s
 # Message pooling and payload microbenchmarks
 go test ./pkg/comm/message -bench=. -benchmem -run='^$'
 
+# End-to-end workflow throughput (source -> condition -> mapping -> sink)
+go test ./internal/engine/registry -bench=BenchmarkWorkflowThroughput -benchtime=1x -run='^$' -benchmem
+
+# Field-access microbenchmarks (every transformation, condition and mapping)
+go test ./pkg/infra/evaluator -bench=. -benchmem -run='^$'
+
 # Sink integration benchmarks (require real infrastructure)
 HERMOD_INTEGRATION=1 POSTGRES_DSN='postgres://...' go test ./pkg/comm/sink/postgres -bench=. -run='^$'
 ```
@@ -153,6 +159,90 @@ Guarded by:
   take the fast path, and must still produce the re-inserted row.
 - `TestClassifyBatch` — 9 cases covering each disqualifying condition.
 
+## Workflow throughput
+
+Measured 2026-09-19 on the host above, `BenchmarkWorkflowThroughput`
+(`internal/engine/registry/workflow_bench_test.go`). 20,000 messages per
+iteration through a real `source -> condition -> mapping -> sink` graph.
+
+**This is the number to quote for a pipeline.** `## Engine throughput` above
+measures the engine with no workflow at all — in-memory source straight to
+in-memory sink — so it never touches the evaluator, and the evaluator is where a
+real pipeline spends its time. The two differ by roughly 2x for that reason.
+
+Row width is the axis that matters, because reading a field used to cost O(row).
+
+| Columns | Throughput | B/op | allocs/op |
+|---|---|---|---|
+| 8 | 87,300 msgs/s | 172.2 MiB | 3.240 M |
+| 32 | 75,140 msgs/s | 204.7 MiB | 5.178 M |
+| 128 | 42,270 msgs/s | 340.6 MiB | 12.86 M |
+
+### Against the 2026-09-18 baseline
+
+benchstat, n=7 each side, all p=0.001. Baseline is commit `b0703d7`.
+
+| | Throughput | Bytes allocated | Allocations |
+|---|---|---|---|
+| 8 columns | +25.8% | −52.8% | −45.6% |
+| 32 columns | +15.8% | −55.5% | −48.5% |
+| 128 columns | +18.0% | −60.7% | −51.3% |
+| **geomean** | **+19.8%** | **−56.5%** | **−48.5%** |
+
+The same change measured on the engine benchmark (no workflow, so no evaluator):
+**+17.4% throughput, −46.0% bytes, −27.7% allocations**, geomean over the three
+payload sizes. At a 16 KB payload the engine's garbage per message went from
+92.7 KB — 5.7x the payload — to 38.7 KB.
+
+Throughput has run-to-run variance of 5–18% on a laptop and the geomean has been
+observed between +17% and +27% across sessions; the allocation figures are
+deterministic (±0–1%) and are the ones to hold a regression against.
+
+### Where it went
+
+Profile with `-list`, not `-top`: the top view blamed `bytes.Clone` and
+`encoding/json`, which is true and useless.
+
+```bash
+go test ./pkg/engine -bench='BenchmarkEngineThroughput$' -benchtime=1x -run='^$' \
+  -memprofile=/tmp/mem.prof -o /tmp/engine.test
+go tool pprof -sample_index=alloc_space -list='Engine..writeToSink$' /tmp/engine.test /tmp/mem.prof
+```
+
+| Site | Was | Cause |
+|---|---|---|
+| `evaluator.GetValByPath` | O(row) per field read | marshalled the whole row to JSON, then gjson-parsed one field back out |
+| `writer.go` batch loop | 1.86 GB / 38% | cloned every payload to sum `batchBytes`, which nothing reads unless `BatchBytes > 0` — not the default |
+| `writer.go` write-success log | 0.94 GB / 19% | the `payload_len` argument of a **`Debug`** line, at the default `Info` level |
+| `message.TryFixJSON` | 0.83 GB / 16% | `string(data)` — a full copy of the body — to look at its first character |
+| `tracing.messageCarrier.Get` | 2 map clones/message | cloned all metadata to read one propagation header |
+| `writer.go` span attributes | ~7.7 allocs/message | built eagerly for a span nobody records when no TracerProvider is installed |
+
+## Field access
+
+Measured 2026-09-19, `pkg/infra/evaluator/path_bench_test.go`. Every
+transformation, router condition and sink column mapping goes through these.
+
+| Benchmark | Before | After |
+|---|---|---|
+| one field read, 8-column row | 1,035 ns / 24 allocs | 29 ns / 1 alloc |
+| one field read, 32-column row | 3,925 ns / 78 allocs | 33 ns / 1 alloc |
+| one field read, 128-column row | 17,890 ns / 294 allocs | 32 ns / 1 alloc |
+| 6-placeholder template, 8-column | 6,706 ns / 143 allocs | 490 ns / 9 allocs |
+| 6-placeholder template, 128-column | 106,110 ns / 1,763 allocs | 576 ns / 9 allocs |
+| 2-condition filter, 32-column | 8,215 ns / 158 allocs | 250 ns / 5 allocs |
+| regex condition | 1,931 ns / 69 allocs | 294 ns / 4 allocs |
+
+Reading one field is now flat in row width, where it used to be linear — so a
+sink with N mapped columns over a row of W fields went from O(N x W) to O(N).
+
+The JSON round trip was not pure overhead: it is what normalises `int` to
+`float64` and `[]byte` to a base64 string, and everything downstream is written
+against that shape. `TestGetValByPathMatchesJSONRoundTrip` keeps the old
+implementation verbatim as an oracle and diffs the two over a matrix of rows x
+paths; the fast path deliberately falls back to gjson for anything it cannot
+reproduce exactly.
+
 ## Not yet measured
 
 Named explicitly so nothing here is mistaken for full coverage:
@@ -163,6 +253,9 @@ Named explicitly so nothing here is mistaken for full coverage:
 - **Bulk path over a real network**, where the round-trip saving should be far larger than measured
   here on localhost.
 - **Traversal cost per DAG node** — how the goroutine-per-node model scales with DAG width/depth.
+  `BenchmarkWorkflowThroughput` measures a fixed 4-node graph, so it prices the model but does
+  not vary width or depth. 75% of engine CPU sits in scheduler wait (`runtime.usleep` +
+  `pthread_cond_wait`), which is where that measurement should start.
 - **CDC end-to-end lag** from Postgres commit to sink write.
 - **Memory**: the "<80 MB idle RSS" target in `README.md` has no benchmark behind it.
 - **UI**: bundle size and canvas frame time on large DAGs.

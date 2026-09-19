@@ -7,6 +7,89 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+Reading one field no longer costs a whole row.
+
+`evaluator.GetValByPath` — the function under every transformation, router
+condition and sink column mapping — marshalled the **entire** data map to JSON
+and parsed it back with gjson to extract one field. Reading a field was
+therefore O(row), and a sink with N mapped columns was O(N x row): 17.9us and
+294 allocations for one field of a 128-column row, 106us and 1,763 allocations
+to resolve a six-placeholder template. Twelve sinks resolve their column
+mappings this way, at 44 call sites.
+
+It now walks the map and normalises only the leaf, which is flat in row width:
+32ns and one allocation, whatever the row. The round trip was not pure overhead
+— it is what turns an `int` into a `float64` and a `[]byte` into a base64
+string, and everything downstream is written against that shape — so the fast
+path is held against the old implementation, kept verbatim as an oracle, over a
+matrix of rows x paths, and falls back to gjson for anything it cannot
+reproduce exactly.
+
+Four more of the same shape, each a cheap number computed the expensive way and
+then discarded, all found by allocation profile rather than by reading:
+
+- The batching loop cloned every message's payload to add its length to
+  `batchBytes` — a total nothing reads unless `batch_bytes` is configured, which
+  is not the default. 1.86 GB of the 4.9 GB a 150k-message benchmark allocated.
+- The per-write success log is at `Debug` and the default level is `Info`, but Go
+  evaluates a call's arguments regardless, and one of them measured the payload —
+  which for a message carrying a data map means marshalling it to JSON. 0.94 GB,
+  produced and thrown away. Guarded by a level check now; `Payload()` also gained
+  a `PayloadLen()` that reports the size without copying the bytes.
+- A payload that cannot be a JSON object — a CSV line, a text body, a protobuf
+  frame, which is every message from a file or queue source — took three decode
+  attempts to establish that, one of which copied the whole body into a string to
+  look at its first character. 0.83 GB.
+- The trace propagator cloned the message's whole metadata map to read one
+  header, twice per write.
+- A regex router condition called `regexp.Compile` once per message: 1,931ns and
+  69 allocations against 294ns and 4 with the pattern cached. The cache is
+  bounded and evicts, because a condition value containing `{{ }}` is resolved
+  against the message's own data first — so the pattern can be attacker-derived.
+
+End to end through a real `source -> condition -> mapping -> sink` workflow:
+**+19.8% throughput, −56.5% bytes allocated, −48.5% allocations** (geomean over
+8-, 32- and 128-column rows, benchstat n=7, p=0.001). Numbers and method in
+`BENCHMARKS.md`, which gains a workflow-level benchmark — the existing engine
+benchmark runs no workflow at all, so it never touched the evaluator and could
+not see any of this.
+
+### A condition whose regex does not compile no longer drops every message in silence
+
+`EvaluateConditions` starts `match` at false and swallowed the compile error, so
+a pattern that does not compile is not a condition that matches nothing — it is
+one that rejects *everything*, for ever, with no error and no log. A typo in a
+router filter was indistinguishable from "nothing matched" while the workflow
+stayed green and delivered none of its traffic. Same shape as the `7d` retention
+parse that silently switched off the trace purge.
+
+It is now caught in three places: the editor's validation flags it as an error
+before the workflow is saved, the node fails loudly at run time so the engine's
+normal failure path dead-letters the message, and the condition parser is shared
+between the two so they cannot drift. A pattern containing a template token is
+left alone — it is resolved per message, so there is nothing to judge up front.
+
+### Trace recording can no longer take the process with it
+
+Recording a trace step spawned a goroutine and armed a five-second timer, per
+node, per message, with nothing bounding either. That costs nothing at the
+default `trace_sample_rate` of 0 — but tracing gets switched on precisely when a
+workflow is busy, and a five-node graph at 50k msgs/s is 250k goroutines and
+250k timers outstanding against a recorder writing to PostgreSQL. Recording now
+has a fixed number of slots and drops a step it cannot place, counted by
+`TraceStepsDroppedCount()`. `internal/engine/registry` already made this call for
+its own trace recording; the engine now matches it.
+
+### Fixed: span recording in tests only worked for the first test that asked
+
+`recordSpans` built a `TracerProvider` per test. otel's global tracer takes its
+delegate exactly once per process and the engine's tracer is package-level, so
+the first test to call the helper bound it and every later one silently recorded
+nothing — surfacing as "no source.receive span was recorded; spans seen: []",
+which reads like a defect in trace propagation rather than a broken fixture.
+Reproducible on the old helper with `-count=2` on a single test.
+
+
 A parquet file can now drive insert, update and delete, in both directions.
 
 Parquet was write-only and operation-blind. There was no parquet source at all —
