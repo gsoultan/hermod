@@ -147,15 +147,64 @@ been. Inlining a downstream node would also hold the current node's
 `AcquireNode` slot for the whole walk below it, which is the deadlock
 `forkFanout`'s comment already warns about.
 
+## Reading an allocation profile without fooling yourself
+
+Three separate times a top-of-profile entry turned out not to be a production
+cost. Check these before acting on any figure:
+
+1. **Is the benchmark exercising the thing?** "75% of CPU in `runtime.usleep`"
+   came from `BenchmarkEngineThroughput`, which **runs no workflow**, and was
+   used to blame the traversal. It never ran the traversal.
+2. **Is it idle or contended?** Compare `Total samples` against `Duration`.
+   1.46s of samples over 401ms at 363% is ~3.6 of 15 cores busy — those
+   `usleep`/`pthread_cond_wait` samples are idle threads, not contention.
+3. **Is it the harness?** `fmt.Sprintf` was 16% of the workflow profile and
+   **100% of it was the benchmark's own source fixture** formatting column
+   names per message. Fixed, the per-message budget fell from 158 to 101 at 32
+   columns with no production change at all.
+4. **Is it amortised startup?** `GetStatus` under `notifyStatusChange` was 7.8%
+   — engine start and stop, which the benchmark pays once per iteration and
+   divides across 20,000 messages. Zero per-message cost in production.
+
+`pprof -list='<func>'`, not `-top`. The top view names the allocator
+(`bytes.Clone`, `encoding/json`, `reflect.unsafe_New`), which is true and
+almost never the useful answer.
+
+## The CI allocation gate
+
+`TestEngineAllocationBudget` and `TestWorkflowAllocationBudget` budget
+allocations per message and fail past +25%; CI runs them in their own step.
+Allocations, not time: counts held within 0-2% across sessions while throughput
+swung 5-56% with machine load.
+
+Both are **mutation-tested** — a logger that claims Debug is on fails them at
+every size. A gate that cannot fail is decoration. Note the mutation test
+itself nearly passed for a bad reason: `sed` missed because gofmt had aligned
+the target line with extra spaces, so the mutation never applied. Verify the
+mutation landed before believing the gate caught it.
+
+`TestEveryShortGuardedTestIsRunSomewhere` read only the *first* `-run`
+expression in `ci.yml`, so a second step running short-guarded tests would have
+been reported as running nowhere. It reads all of them now.
+
 ## Still not fixed, ranked
 
-1. **The condition node's *triple* form still allocates per message.**
-   `ParseConditions` caches the `conditions` JSON list, but the single
-   field/operator/value form builds a fresh slice and map every call. ~2 allocs,
-   unavoidable while the result is copied out, but it is the most common config
-   shape.
-2. **`fmt.Sprintf` in `EvaluateConditions`** to stringify the field value and
-   the comparison value before comparing (`evaluator.go`). 43k allocations in a
-   20k-message run.
-3. **`context.WithValue` per sink write** (196k) and the OTel span object itself
-   (218k), which survive even with attributes deferred.
+1. **OTel span object + `context.WithValue` per sink write and per node** —
+   ~480k of 2.24M allocations at 32 columns (21%). The attributes are gone; the
+   span itself and putting it in the context remain. Skipping span creation
+   needs a reliable "is any real provider installed" test, and getting that
+   wrong breaks tracing silently.
+2. **`maps.clone`, ~11%** — `Data()` and `Metadata()` clone by contract,
+   because handing out the live map races with a concurrent write.
+   `MetadataValue(key)` is the pattern that fixed it for single-key reads;
+   `DataValue(key)` would do the same for the rest.
+3. **`ParseConditions` triple form, ~4%** — the single field/operator/value
+   shape builds a slice and a map per message. Deliberately left: avoiding it
+   means handing callers a cached slice they could mutate, and one workflow's
+   filter silently rewriting another's is worse than the allocation.
+4. **`SetEngineStatusUnless` returns true on *set*, not on *change***
+   (`pkg/engine/telemetry/status.go`), so `checkHealth` calls
+   `notifyStatusChange` on every 1s tick even when nothing moved — and the
+   registry's callback writes workflow, source and sink status rows to storage.
+   Not a per-message cost, but a steady pointless write. Same shape the
+   reliability commit warned about for dead-lettering.
