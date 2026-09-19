@@ -43,6 +43,7 @@ GET /api/schemas/{name}
 GET /api/schemas/{name}/history
 GET /api/settings
 GET /api/sinks
+GET /api/sinks/capabilities/dlq-recovery
 GET /api/sinks/capabilities/two-phase
 GET /api/sinks/{id}
 GET /api/sinks/{id}/workflows

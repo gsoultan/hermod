@@ -167,6 +167,18 @@ var fnvPool = sync.Pool{
 	},
 }
 
+// errDryRun reports that a write was skipped because the workflow is in
+// dry-run mode. It is deliberately not a failure — the sink was never called,
+// so there is nothing to retry, nothing to dead-letter and no evidence about
+// the sink's health — but it is not a delivery either, so the caller must not
+// acknowledge the message to the source.
+var errDryRun = errors.New("dry-run: message not written")
+
+// isDryRunSkip reports whether err is the dry-run sentinel. The sentinel
+// never leaves this package — every method that can return it is unexported —
+// so this stays unexported with it.
+func isDryRunSkip(err error) bool { return errors.Is(err, errDryRun) }
+
 func (e *Engine) prepareDLQMessage(m hermod.Message, sinkID string, errStr string) {
 	if m == nil {
 		return
@@ -178,8 +190,27 @@ func (e *Engine) prepareDLQMessage(m hermod.Message, sinkID string, errStr strin
 		m.SetMetadata("_hermod_last_error", errStr)
 	}
 	m.SetMetadata("_hermod_failed_at", time.Now().Format(time.RFC3339))
-	e.statusTracker.IncDeadLetter()
+	e.recordDeadLetter(sinkID)
+}
+
+// recordDeadLetter counts one parked message and reports the alert threshold
+// the moment it is crossed.
+//
+// Every path that parks a message has to come through here. Dead-lettering
+// changes no status by itself, so the registry's OnStatusChange callback —
+// where the threshold alert lives — was never invoked by the very thing it
+// watches: a workflow parking every message it received kept reporting
+// "running" and never alerted.
+func (e *Engine) recordDeadLetter(sinkID string) {
+	count := e.statusTracker.IncDeadLetter()
 	telemetry.DeadLetterCount.WithLabelValues(e.workflowID, sinkID).Inc()
+
+	// The crossing, once. Firing for every message past the line would have
+	// the registry write workflow, source and sink status rows to storage per
+	// dead-lettered message, which turns an alert into an outage.
+	if t := e.config.DLQThreshold; t > 0 && count == uint64(t) {
+		e.notifyStatusChange()
+	}
 }
 
 // DeadLetterNodeFailure sends a message that a workflow node could not process
@@ -198,6 +229,41 @@ func (e *Engine) DeadLetterNodeFailure(ctx context.Context, nodeID string, msg h
 		return false
 	}
 
+	// A dry run writes nowhere, so nothing was preserved. Reporting false is
+	// what stops the caller acknowledging a message it did not park — the
+	// message stays on the source and comes back on the next read.
+	if e.config.DryRun {
+		e.logger.Info("[DRY-RUN] Node failure would be dead-lettered",
+			"workflow_id", e.workflowID, "node_id", nodeID, "message_id", msg.ID())
+		return false
+	}
+
+	return e.deadLetterNodeFailure(ctx, nodeID, msg, cause)
+}
+
+// DeadLetterOrphanedMessage parks a failed message that has no source left
+// holding it, and reports whether that worked.
+//
+// It ignores dry-run, which every other write path honours. The reason the
+// others can decline is that declining preserves the message: nothing is
+// acknowledged, so it stays on the source and the next run sees it again. A
+// resumed message has no source — the suspended row is deleted as soon as the
+// resume returns — so declining here would not preserve it, it would destroy
+// it. Losing data is the one outcome dry-run exists to prevent, so this is the
+// one place a dry run writes.
+func (e *Engine) DeadLetterOrphanedMessage(ctx context.Context, nodeID string, msg hermod.Message, cause error) bool {
+	if e.deadLetterSink == nil || msg == nil {
+		return false
+	}
+	if e.config.DryRun {
+		e.logger.Warn("[DRY-RUN] Parking a resumed message in the dead-letter sink: it has no "+
+			"source to return to, so declining the write would lose it",
+			"workflow_id", e.workflowID, "node_id", nodeID, "message_id", msg.ID())
+	}
+	return e.deadLetterNodeFailure(ctx, nodeID, msg, cause)
+}
+
+func (e *Engine) deadLetterNodeFailure(ctx context.Context, nodeID string, msg hermod.Message, cause error) bool {
 	errStr := ""
 	if cause != nil {
 		errStr = cause.Error()
@@ -236,6 +302,16 @@ func (e *Engine) DeadLetterNodeFailure(ctx context.Context, nodeID string, msg h
 func (e *Engine) writeToDLQ(ctx context.Context, sinkID string, msgs ...hermod.Message) error {
 	if e.deadLetterSink == nil || len(msgs) == 0 {
 		return nil
+	}
+
+	// The dead-letter sink is a real destination like any other, so a dry run
+	// must not write to it. Returning the sentinel rather than nil matters:
+	// the engine's no-target branch acknowledges only when a park succeeded,
+	// and nothing was parked here.
+	if e.config.DryRun {
+		e.logger.Info("[DRY-RUN] Message would be written to the dead-letter sink",
+			"workflow_id", e.workflowID, "sink_id", sinkID, "count", len(msgs))
+		return errDryRun
 	}
 
 	// If the DLQ sink supports batching, use it
@@ -282,17 +358,46 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 	// out of ctx; without it every write is the root of its own trace.
 	ctx = tracing.Extract(ctx, msg)
 
-	// Trace single write
+	// Trace single write.
+	//
+	// The attributes are set after the span rather than passed to Start, so
+	// they are not built for a span nobody records — which, with no
+	// TracerProvider installed, is every span. Building them eagerly cost
+	// three attribute values, a slice and the option wrapper per message.
+	//
+	// This is equivalent only because the sampler does not read attributes:
+	// internal/observability builds the provider with WithBatcher and
+	// WithResource alone, so it gets the default ParentBased(AlwaysSample).
+	// An attribute-consulting sampler would need them back on Start —
+	// TestSinkWriteSpanStillCarriesItsAttributes is what would catch that.
 	var span trace.Span
-	ctx, span = tracer.Start(ctx, "sink.write", trace.WithAttributes(
-		attribute.String("workflow_id", e.workflowID),
-		attribute.String("sink_id", sinkID),
-		attribute.String("message_id", msg.ID()),
-	))
+	ctx, span = tracer.Start(ctx, "sink.write")
+	if span.IsRecording() {
+		span.SetAttributes(
+			attribute.String("workflow_id", e.workflowID),
+			attribute.String("sink_id", sinkID),
+			attribute.String("message_id", msg.ID()),
+		)
+	}
 	defer span.End()
 
 	if e.isFailing() {
 		return errors.New("simulated engine failure")
+	}
+
+	// Dry-run is checked before every other branch in this function. It used to
+	// sit below the safe-mode and failed-validation diverts, both of which write
+	// to the dead-letter sink, so a "dry" run performed real writes against a
+	// real destination. A dry run writes nowhere, the DLQ included.
+	if e.config.DryRun {
+		e.logger.Info("[DRY-RUN] Message would be written to sink",
+			"workflow_id", e.workflowID,
+			"sink_id", sinkID,
+			"action", "write",
+			"message_id", msg.ID(),
+			"payload_len", payloadLen(msg),
+		)
+		return errDryRun
 	}
 
 	if e.IsSafeMode() && e.deadLetterSink != nil {
@@ -313,17 +418,6 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 			}
 			return fmt.Errorf("validation error: %w", err)
 		}
-	}
-
-	if e.config.DryRun {
-		e.logger.Info("[DRY-RUN] Message would be written to sink",
-			"workflow_id", e.workflowID,
-			"sink_id", sinkID,
-			"action", "write",
-			"message_id", msg.ID(),
-			"payload_len", len(msg.Payload()),
-		)
-		return nil
 	}
 	// Retry mechanism for Sink Write
 	var lastErr error
@@ -414,13 +508,20 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 		// sustained rate that is tens of thousands of lines a second, which
 		// costs real money to store and buries every line worth reading.
 		// Failures, retries, reconnections and drops keep their levels.
-		e.logger.Debug("Message written to sink",
-			"workflow_id", e.workflowID,
-			"sink_id", sinkID,
-			"action", "write",
-			"message_id", msg.ID(),
-			"payload_len", len(msg.Payload()),
-		)
+		//
+		// Guarded, because the level does not stop Go evaluating the arguments:
+		// payloadLen marshals a data-map message to JSON, and at the default
+		// Info level that whole marshal was produced and discarded for every
+		// message written.
+		if debugEnabled(e.logger) {
+			e.logger.Debug("Message written to sink",
+				"workflow_id", e.workflowID,
+				"sink_id", sinkID,
+				"action", "write",
+				"message_id", msg.ID(),
+				"payload_len", payloadLen(msg),
+			)
+		}
 		lastErr = nil
 		break
 	}
@@ -470,6 +571,18 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 		))
 	defer span.End()
 
+	// Same ordering rule as writeToSink: dry-run is decided before any branch
+	// that could divert a message to the dead-letter sink.
+	if e.config.DryRun {
+		e.logger.Info("[DRY-RUN] Batch would be written to sink",
+			"workflow_id", e.workflowID,
+			"sink_id", sinkID,
+			"action", "write_batch",
+			"batch_size", len(msgs),
+		)
+		return errDryRun
+	}
+
 	// Pre-write validation
 	if vs, ok := snk.(hermod.ValidatingSink); ok {
 		validMsgs := make([]hermod.Message, 0, len(msgs))
@@ -511,16 +624,6 @@ func (e *Engine) writeBatchToSink(ctx context.Context, snk hermod.BatchSink, msg
 
 	if len(msgs) == 1 {
 		return e.writeToSink(ctx, snk, msgs[0], sinkID, i)
-	}
-
-	if e.config.DryRun {
-		e.logger.Info("[DRY-RUN] Batch would be written to sink",
-			"workflow_id", e.workflowID,
-			"sink_id", sinkID,
-			"action", "write_batch",
-			"batch_size", len(msgs),
-		)
-		return nil
 	}
 
 	// Retry mechanism for Sink WriteBatch
@@ -987,9 +1090,14 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 			}
 		}
 
-		if err != nil || transientFailure {
+		switch {
+		case isDryRunSkip(err):
+			// The sink was never called, so this run is evidence of nothing.
+			// Recording it either way would have a dry run trip the circuit
+			// breaker, or reset one that had legitimately opened.
+		case err != nil || transientFailure:
 			w.recordFailure()
-		} else {
+		default:
 			w.recordSuccess()
 		}
 
@@ -1049,8 +1157,14 @@ func (w *sinkWriter) runOn(ctx context.Context, input <-chan *pendingMessage) {
 					msg := pm.msg
 					if msg != nil {
 						batch = append(batch, pm)
-						if payload := msg.Payload(); payload != nil {
-							batchBytes += len(payload)
+						// Only when something reads it. Summing payload sizes
+						// through Payload() copied every message's bytes to
+						// add up an integer that nothing consumed unless
+						// batch-by-bytes was configured — which it is not by
+						// default. It was the single largest allocation site
+						// in the engine: 1.86 GB out of 4.9 GB.
+						if cfg.BatchBytes > 0 {
+							batchBytes += payloadLen(msg)
 						}
 						if len(batch) >= batchSize || (cfg.BatchBytes > 0 && batchBytes >= cfg.BatchBytes) {
 							flush()
@@ -1259,4 +1373,40 @@ func (w *sinkWriter) pickShard(msg hermod.Message) chan *pendingMessage {
 	idx := int(h.Sum32() % uint32(w.shardCount))
 	fnvPool.Put(h)
 	return w.shards[idx]
+}
+
+// payloadSizer is implemented by messages that can report their payload size
+// without handing over a copy of it.
+type payloadSizer interface {
+	PayloadLen() int
+}
+
+// payloadLen returns len(msg.Payload()) without copying the payload when the
+// message supports it. It is an optional interface rather than a method on
+// hermod.Message so that out-of-tree Message implementations keep compiling.
+func payloadLen(msg hermod.Message) int {
+	if s, ok := msg.(payloadSizer); ok {
+		return s.PayloadLen()
+	}
+	return len(msg.Payload())
+}
+
+// debugLeveler is implemented by loggers that can say whether Debug output is
+// wanted before one is built.
+type debugLeveler interface {
+	DebugEnabled() bool
+}
+
+// debugEnabled reports whether it is worth building a Debug line for lg.
+//
+// A logger that cannot answer is assumed to want the line: dropping output
+// because we could not ask is a worse failure than the work this avoids.
+func debugEnabled(lg hermod.Logger) bool {
+	if lg == nil {
+		return false
+	}
+	if d, ok := lg.(debugLeveler); ok {
+		return d.DebugEnabled()
+	}
+	return true
 }

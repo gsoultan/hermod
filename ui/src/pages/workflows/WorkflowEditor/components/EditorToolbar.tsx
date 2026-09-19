@@ -9,7 +9,7 @@ interface EditorToolbarProps {
   id: string;
   isNew: boolean;
   onSave: () => void;
-  onTest: (dryRun?: boolean) => void;
+  onTest: () => void;
   onConfigureTest: () => void;
   onToggle: () => void;
   onRebuild: () => void;
@@ -173,7 +173,7 @@ export function EditorToolbar({
                 color="blue" 
                 size="sm" 
                 leftSection={<IconPlayerPlay size="1rem" />} 
-                onClick={() => onTest(false)}
+                onClick={() => onTest()}
                 loading={isTesting}
                 style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
               >
@@ -192,11 +192,16 @@ export function EditorToolbar({
                   </ActionIcon>
                 </Menu.Target>
                 <Menu.Dropdown>
-                  <Menu.Item leftSection={<IconPlayerPlay size="1rem" />} onClick={() => onTest(false)}>
+                  {/* There was a second item here, "Dry-run (Full Execute)",
+                      which sent dry_run: true to /api/workflows/test. That
+                      handler decodes only `workflow` and `message`, and the
+                      simulation never writes to a sink in the first place, so
+                      the two items did exactly the same thing and one of them
+                      promised an execution that never happened. Running the
+                      real pipeline without writing is the workflow's Dry-Run
+                      Mode setting, in the Settings tab. */}
+                  <Menu.Item leftSection={<IconPlayerPlay size="1rem" />} onClick={() => onTest()}>
                     Run Simulation (Auto)
-                  </Menu.Item>
-                  <Menu.Item leftSection={<IconPlayerPlay size="1rem" />} color="orange" onClick={() => onTest(true)}>
-                    Dry-run (Full Execute)
                   </Menu.Item>
                   <Menu.Item leftSection={<IconSettings size="1rem" />} onClick={() => onConfigureTest()}>
                     Configure & Run...

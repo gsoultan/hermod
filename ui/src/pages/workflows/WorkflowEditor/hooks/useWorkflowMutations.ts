@@ -24,8 +24,8 @@ export function useWorkflowMutations(
     updateNodeConfig, setSettingsOpened, setSelectedNode
   } = useWorkflowStore();
 
-  const testMutation = useMutation<any, Error, { input: any, dryRun?: boolean }>({
-    mutationFn: async ({ input, dryRun }) => {
+  const testMutation = useMutation<any, Error, { input: any }>({
+    mutationFn: async ({ input }) => {
       const s = useWorkflowStore.getState();
       let msg = input;
       if (!msg) {
@@ -69,7 +69,6 @@ export function useWorkflowMutations(
             })),
           },
           message: msg,
-          dry_run: dryRun
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -217,7 +216,7 @@ export function useWorkflowMutations(
     },
   });
 
-  const handleTest = useCallback((overrideInput?: any, dryRun: boolean = false) => {
+  const handleTest = useCallback((overrideInput?: any) => {
     let input = overrideInput;
     const s = useWorkflowStore.getState();
     const { nodes, selectedNode } = s;
@@ -244,7 +243,7 @@ export function useWorkflowMutations(
     }
 
     if (input) {
-      testMutation.mutate({ input, dryRun });
+      testMutation.mutate({ input });
     } else {
       setTestModalOpened(true);
     }
@@ -342,7 +341,7 @@ export function useWorkflowMutations(
       }
     }
 
-    handleTest(input, true);
+    handleTest(input);
   }, [sourcesData, handleTest, captureSample]);
 
   const handleSave = useCallback(() => {

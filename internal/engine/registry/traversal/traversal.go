@@ -243,9 +243,17 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 	}
 
 	if err != nil && t.Eng != nil {
-		if t.Eng.DeadLetterNodeFailure(ctx, currNode.ID, currMsg, err) {
+		switch {
+		case t.Eng.DeadLetterNodeFailure(ctx, currNode.ID, currMsg, err):
 			t.DeadLettered.Store(true)
-		} else {
+		case t.Eng.IsDryRun():
+			// A dry run parks nothing, but it also acknowledges nothing, so the
+			// message stays on the source and will be redelivered. Saying it was
+			// lost here would be the opposite of what happened.
+			t.Registry.BroadcastLog(t.WorkflowID, "WARN", fmt.Sprintf(
+				"[DRY-RUN] Node %s failed; the message is left on the source rather than dead-lettered: %v",
+				currNode.ID, err), currMsg.ID())
+		default:
 			t.Registry.BroadcastLog(t.WorkflowID, "ERROR", fmt.Sprintf(
 				"Node %s failed and there is no dead-letter sink, so the message is lost: %v",
 				currNode.ID, err), currMsg.ID())

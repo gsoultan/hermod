@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gsoultan/hermod"
@@ -666,6 +667,11 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 	if r.store() != nil {
 		dbLogger = NewDatabaseLogger(context.Background(), r, id, r.logger)
 		eng.SetLogger(dbLogger)
+		// dlqAlerted latches the DLQ threshold notification for the lifetime of
+		// this engine. Once the count is over the line it stays over it, so
+		// without the latch every later status change — a sink flapping, a
+		// source reconnecting — would send the same alert again.
+		var dlqAlerted atomic.Bool
 		eng.SetOnStatusChange(func(update telemetry.StatusUpdate) {
 			// Ensure every broadcast carries the workflow ID so real-time UI
 			// consumers can reliably associate the update with this workflow.
@@ -684,32 +690,7 @@ func (r *Registry) setupWorkflowCallbacks(eng *pkgengine.Engine, id string, wf s
 				_ = r.store().UpdateSinkStatus(dbCtx, sinkID, status)
 			}
 
-			// Immediate state changes (Errors, Circuit Breaker) trigger notifications
-			isError := strings.Contains(strings.ToLower(update.EngineStatus), "error") ||
-				strings.Contains(strings.ToLower(update.EngineStatus), "circuit_breaker_open") ||
-				update.DeadLetterCount >= uint64(wf.DLQThreshold) && wf.DLQThreshold > 0
-
-			if isError && r.notificationService != nil {
-				// We still fetch the workflow for the latest metadata (name) to
-				// ensure notifications are accurate.
-				if workflow, err := r.store().GetWorkflow(dbCtx, id); err == nil {
-					if strings.Contains(strings.ToLower(update.EngineStatus), "error") {
-						r.notificationService.Notify(dbCtx, "Workflow Error",
-							fmt.Sprintf("Workflow '%s' (ID: %s) entered error state: %s",
-								workflow.Name, workflow.ID, update.EngineStatus), workflow)
-					}
-					if strings.Contains(strings.ToLower(update.EngineStatus), "circuit_breaker_open") {
-						r.notificationService.Notify(dbCtx, "Circuit Breaker Alert",
-							fmt.Sprintf("Circuit breaker opened for a sink in workflow '%s' (ID: %s)",
-								workflow.Name, workflow.ID), workflow)
-					}
-					if workflow.DLQThreshold > 0 && update.DeadLetterCount >= uint64(workflow.DLQThreshold) {
-						r.notificationService.Notify(dbCtx, "DLQ Threshold Exceeded",
-							fmt.Sprintf("Workflow '%s' (ID: %s) has %d messages in DLQ, exceeding threshold of %d",
-								workflow.Name, workflow.ID, update.DeadLetterCount, workflow.DLQThreshold), workflow)
-					}
-				}
-			}
+			r.notifyOnStatusChange(dbCtx, id, update, &dlqAlerted)
 
 			r.BroadcastStatus(update)
 		})
@@ -888,6 +869,65 @@ func (r *Registry) StopAll() {
 func (r *Registry) StopEngine(ctx context.Context, id string) error {
 	r.onManualStop(id)
 	return r.stopEngine(ctx, id, true)
+}
+
+// notifyOnStatusChange turns an engine status update into operator
+// notifications. It is the body of the callback the registry installs on every
+// engine (see setupWorkflowCallbacks) and is called from nowhere else — a test that
+// exercises alerting has to come through here, because the two tests that used
+// to cover this re-implemented the logic in the test body and so could not
+// fail when the real path broke.
+//
+// dlqAlerted latches the dead-letter alert for the lifetime of one engine.
+// Once the count is past the threshold it stays past it, so without the latch
+// every later status change — a sink flapping, a source reconnecting — would
+// send the same alert again.
+func (r *Registry) notifyOnStatusChange(ctx context.Context, id string, update telemetry.StatusUpdate, dlqAlerted *atomic.Bool) {
+	if r.notificationService == nil {
+		return
+	}
+
+	status := strings.ToLower(update.EngineStatus)
+	isEngineError := strings.Contains(status, "error")
+	isBreakerOpen := strings.Contains(status, "circuit_breaker_open")
+
+	// The DLQ arm used to gate on the workflow as it was when this engine
+	// started, while the branch below re-read the threshold from storage, so an
+	// edited threshold could open a gate the inner check then closed, or vice
+	// versa. The engine owns the comparison now: it holds the live threshold
+	// and reports a status change on the message that crosses it, so any
+	// non-zero count here is worth looking at.
+	if !isEngineError && !isBreakerOpen && update.DeadLetterCount == 0 {
+		return
+	}
+
+	// Re-read for the latest metadata (name, threshold) so the notification is
+	// accurate rather than describing the workflow as it was at start-up.
+	workflow, err := r.store().GetWorkflow(ctx, id)
+	if err != nil {
+		return
+	}
+
+	if isEngineError {
+		r.notificationService.Notify(ctx, "Workflow Error",
+			fmt.Sprintf("Workflow '%s' (ID: %s) entered error state: %s",
+				workflow.Name, workflow.ID, update.EngineStatus), workflow)
+	}
+	if isBreakerOpen {
+		r.notificationService.Notify(ctx, "Circuit Breaker Alert",
+			fmt.Sprintf("Circuit breaker opened for a sink in workflow '%s' (ID: %s)",
+				workflow.Name, workflow.ID), workflow)
+	}
+	if workflow.DLQThreshold > 0 &&
+		update.DeadLetterCount >= uint64(workflow.DLQThreshold) &&
+		dlqAlerted.CompareAndSwap(false, true) {
+		// "since it started", not "in the DLQ": the count is the engine's own,
+		// reset on every restart, and the queue itself may hold far more from
+		// previous runs.
+		r.notificationService.Notify(ctx, "DLQ Threshold Exceeded",
+			fmt.Sprintf("Workflow '%s' (ID: %s) has dead-lettered %d messages since it started, exceeding the threshold of %d",
+				workflow.Name, workflow.ID, update.DeadLetterCount, workflow.DLQThreshold), workflow)
+	}
 }
 
 func (r *Registry) DrainWorkflowDLQ(ctx context.Context, id string) error {
@@ -1174,7 +1214,7 @@ func replayTargets(wf storage.Workflow, adj map[string][]string, nodeID, branch 
 // paths build their own sinks and can run with the workflow stopped) there is no
 // dead-letter sink either, and the loss is at least stated rather than silent.
 func (r *Registry) replayLost(workflowID string, node *storage.WorkflowNode, eng *pkgengine.Engine, msg hermod.Message, cause error) {
-	if eng != nil && eng.DeadLetterNodeFailure(context.Background(), node.ID, msg, cause) {
+	if eng != nil && eng.DeadLetterOrphanedMessage(context.Background(), node.ID, msg, cause) {
 		return
 	}
 	r.broadcastLog(workflowID, "error", fmt.Sprintf(
