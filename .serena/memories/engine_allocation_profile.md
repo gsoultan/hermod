@@ -102,35 +102,60 @@ too, so a stream carrying the same malformed pattern pays once.
   5-second `context.WithTimeout` moved *inside* the goroutine so a dropped step
   never arms a timer.
 
+## Second pass: the logger had no level
+
+`DatabaseLogger` (`internal/engine/registry/logger.go`) had **no level filter at
+all** — only sampling, off by default. So moving the per-write success line from
+`Info` to `Debug` silenced zerolog and changed nothing there: a healthy pipeline
+still wrote **one row to the `logs` table per message**.
+
+And because it could not report a level, the engine's `debugEnabled()` guard —
+which defaults to "yes, log", deliberately, since dropping output because you
+could not ask is worse — let the payload measurement run, marshalling every
+message's data map to JSON. At 32 columns: 754k allocations for the marshal plus
+295k for the log entry, ~30% of everything the workflow allocated. **One bug,
+two hats.** It now honours `HERMOD_LOG_LEVEL` and implements `DebugEnabled()`.
+
+Also fixed: `ParseConditions` re-unmarshalled its JSON per message (1126ns / 24
+allocs -> 117ns / 5, cached per config, bounded, result copied out); and a
+pooled message kept whatever it grew to — `clear()` keeps a map's buckets,
+`[:0]` keeps a buffer's capacity, so one 8 MB payload pinned that for the life
+of the process (`maxPooledBufferBytes` 1 MiB, `maxPooledMapEntries` 512).
+
+Cumulative end-to-end: **+30% throughput, -69% bytes, -69% allocations** over
+the b0703d7 baseline (geomean; +71% / -75% at 128 columns).
+
+## The profile reading that was wrong
+
+I blamed the traversal's goroutine-per-node model for "75% of CPU in
+`runtime.usleep` + `pthread_cond_wait`". Wrong twice:
+
+1. That profile was **`pkg/engine`'s BenchmarkEngineThroughput, which runs no
+   workflow** — it never exercised the traversal at all. Profile the thing you
+   are about to change.
+2. In the *workflow* profile those symbols are mostly **idle threads**, not
+   contention. 1.46s of samples over 401ms of wall time at 363% is ~3.6 of 15
+   cores busy. High `usleep`/`cond_wait` on a mostly-idle machine means *not
+   CPU-bound*, not *contended*. Check `samples / duration` before reading
+   scheduler symbols as overhead.
+
+Measured properly, `resolveEdge` is 0.68% of CPU flat and the whole traversal
+~2%. A workflow's cost is allocation, not scheduling. The goroutine-per-node
+model was left alone: it owns the fan-out ownership contract
+([[fanout_traversal_and_two_foreaches]]) and is where the expensive bugs have
+been. Inlining a downstream node would also hold the current node's
+`AcquireNode` slot for the whole walk below it, which is the deadlock
+`forkFanout`'s comment already warns about.
+
 ## Still not fixed, ranked
 
-1. **`SetValByPath`** (`pkg/infra/evaluator/evaluator.go`): 44us / 694 allocs
-   for one write into a 128-column row — the untouched write-side twin of
-   `GetValByPath`. It round-trips the whole map, which **re-normalises every
-   untouched field as a side effect**; that may be load-bearing somewhere, so
-   it needs its own parity oracle before being touched.
-2. **The condition node re-parses its config on every message**
-   (`evaluator.ParseConditions` -> `json.Unmarshal` per message when the node
-   stores a `conditions` JSON string). Unmeasured. Wants a prepared form, the
-   way `MappingTransformer.Prepare` caches `_parsed_mapping`.
-3. **75% of engine CPU is scheduler wait, not work** — `runtime.usleep` 35% +
-   `pthread_cond_wait` 27%, `runtime.lock2` 35.6% cumulative. The traversal
-   spawns a goroutine per node per message
-   (`internal/engine/registry/traversal/traversal.go:147,503`). Whether a
-   single-successor node can run inline is the open question; it touches the
-   fan-out ownership contract, so it is not a small change.
-4. **The message pool retains bucket arrays.** `Reset()` uses `clear(m.data)`,
-   which keeps the allocated buckets, so one 10,000-field message pins that
-   capacity for the pool's lifetime. Bounded by GC's victim cache, so a
-   footprint hazard on mixed workloads rather than a true leak.
-
-## Fixture trap
-
-`recordSpans` (`pkg/engine/trace_propagation_test.go`) built a TracerProvider
-per test. **otel's global tracer takes its delegate exactly once per process**,
-and the engine's tracer is package-level, so the first test to call the helper
-bound it and every later one silently recorded nothing — reported as "no
-source.receive span was recorded; spans seen: []", which reads like a defect in
-trace propagation rather than a broken fixture. Reproduce the old behaviour
-with `-count=2` on a single test. Now one provider is installed once per
-process and the recorder behind it is swapped.
+1. **The condition node's *triple* form still allocates per message.**
+   `ParseConditions` caches the `conditions` JSON list, but the single
+   field/operator/value form builds a fresh slice and map every call. ~2 allocs,
+   unavoidable while the result is copied out, but it is the most common config
+   shape.
+2. **`fmt.Sprintf` in `EvaluateConditions`** to stringify the field value and
+   the comparison value before comparing (`evaluator.go`). 43k allocations in a
+   20k-message run.
+3. **`context.WithValue` per sink write** (196k) and the OTel span object itself
+   (218k), which survive even with attributes deferred.
