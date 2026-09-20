@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gsoultan/hermod/pkg/infra/ackwatermark"
 	"github.com/gsoultan/hermod/pkg/infra/httpclient"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -125,6 +126,53 @@ type GenericFileSource struct {
 	activeFile    *fileRef
 	csvReader     *CSVSource // reuse existing csv reader for per-row mode
 	parquetReader *parquetRows
+
+	// The watermark that may be persisted, and the accounting behind it.
+	//
+	// lastMTime above runs ahead: it is what stops ensureQueue listing the same
+	// files again, so it has to advance as soon as a file is dequeued. Storing
+	// it was the bug — one CSV file is thousands of rows, so a file recorded as
+	// consumed when it was dequeued loses its remainder on any interrupted run,
+	// and because the watermark is a timestamp it loses every file sharing that
+	// timestamp too.
+	//
+	// The unit acknowledged here is the *file*, not the row: a streaming reader
+	// cannot know a row is the last until it asks for one more, so there is no
+	// row to hang the file's watermark on. Files enter the tracker in dequeue
+	// order, which is modification-time order, and a file is acknowledged once
+	// it has been fully read and every row it produced has been acknowledged.
+	//
+	// lastName pairs with lastMTime. Two files can share a modification time,
+	// and then the name is the only thing that orders them.
+	lastName  string
+	acked     ackwatermark.Tracker
+	openFile  map[string]*fileProgress // file key -> rows outstanding
+	fileSeq   int64
+	activeKey string
+}
+
+// metaFileAckKey carries the file a row came from, on the row itself.
+//
+// A message ID cannot do this job. With key_field set — the normal parquet
+// configuration — a row's ID is the key column's value, so two exports of the
+// same table hand out the same IDs and a map from ID to file reassigns the
+// older file's rows to the newer one. The older file then never completes and,
+// because the mark only advances across an acknowledged prefix, the watermark
+// freezes for good.
+const metaFileAckKey = "_hermod_file_ack"
+
+// maxOpenFiles bounds the accounting. It is only ever reached if
+// acknowledgements stop arriving — a dry run acknowledges nothing by design —
+// and the effect of reaching it is that further files are not tracked, so the
+// watermark stops advancing. That is the safe direction: data is redelivered,
+// never skipped.
+const maxOpenFiles = 1024
+
+// fileProgress counts a single dequeued file's rows towards completion.
+type fileProgress struct {
+	emitted   int
+	acked     int
+	exhausted bool
 }
 
 // operationField is the column the CDC operation is read from when the
@@ -172,8 +220,10 @@ func (s *GenericFileSource) GetState() map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st := map[string]string{}
-	if !s.lastMTime.IsZero() {
-		st["last_mtime_unix"] = strconv.FormatInt(s.lastMTime.Unix(), 10)
+	// The acknowledged mark, not lastMTime. lastMTime runs ahead so the same
+	// files are not listed again; storing it is what lost a file's remainder.
+	if m := s.acked.Mark(); m != "" {
+		st["last_mtime_unix"] = m
 	}
 	return st
 }
@@ -182,10 +232,12 @@ func (s *GenericFileSource) SetState(state map[string]string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if ts, ok := state["last_mtime_unix"]; ok && ts != "" {
-		var sec int64
-		_, _ = fmt.Sscanf(ts, "%d", &sec)
-		if sec > 0 {
-			s.lastMTime = time.Unix(sec, 0)
+		if mt, name, valid := parseFileCursor(ts); valid {
+			s.lastMTime, s.lastName = mt, name
+			// The mark starts where the scan resumes, so it never goes back.
+			// Stored verbatim: an older build's value has to survive a restart
+			// that does not read a single file.
+			s.acked.SetMark(ts)
 		}
 	}
 }
@@ -288,8 +340,6 @@ func (s *GenericFileSource) Close() error {
 	return nil
 }
 
-func (s *GenericFileSource) Ack(ctx context.Context, msg hermod.Message) error { return nil }
-
 // Read implements hermod.Source. It returns a message when available.
 func (s *GenericFileSource) Read(ctx context.Context) (hermod.Message, error) {
 	// If we are in CSV per-row mode and have an active reader, drain it first
@@ -299,12 +349,13 @@ func (s *GenericFileSource) Read(ctx context.Context) (hermod.Message, error) {
 			return nil, err
 		}
 		if msg != nil {
-			return msg, nil
+			return s.trackRow(msg), nil
 		}
 		// finished current file
 		_ = s.csvReader.Close()
 		s.csvReader = nil
 		s.activeFile = nil
+		s.finishFile(s.activeKey)
 	}
 
 	// Same for parquet: drain the rows of the file already open before taking
@@ -315,11 +366,12 @@ func (s *GenericFileSource) Read(ctx context.Context) (hermod.Message, error) {
 			return nil, err
 		}
 		if msg != nil {
-			return msg, nil
+			return s.trackRow(msg), nil
 		}
 		_ = s.parquetReader.Close()
 		s.parquetReader = nil
 		s.activeFile = nil
+		s.finishFile(s.activeKey)
 	}
 
 	for {
@@ -354,7 +406,20 @@ func (s *GenericFileSource) Read(ctx context.Context) (hermod.Message, error) {
 			csvSrc := s.csvReaderFor(ctx, ref)
 			s.csvReader = csvSrc
 			s.activeFile = ref
-			return s.csvReader.Read(ctx)
+			s.beginFile(ref)
+			msg, err := s.csvReader.Read(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if msg == nil {
+				// An empty file: no rows to wait on, so it is complete now.
+				_ = s.csvReader.Close()
+				s.csvReader = nil
+				s.activeFile = nil
+				s.finishFile(s.activeKey)
+				continue
+			}
+			return s.trackRow(msg), nil
 		case FormatParquet:
 			rows, err := s.parquetRowsFor(ctx, ref)
 			if err != nil {
@@ -362,6 +427,7 @@ func (s *GenericFileSource) Read(ctx context.Context) (hermod.Message, error) {
 			}
 			s.parquetReader = rows
 			s.activeFile = ref
+			s.beginFile(ref)
 			msg, err := rows.next()
 			if err != nil {
 				return nil, err
@@ -372,9 +438,10 @@ func (s *GenericFileSource) Read(ctx context.Context) (hermod.Message, error) {
 				_ = rows.Close()
 				s.parquetReader = nil
 				s.activeFile = nil
+				s.finishFile(s.activeKey)
 				continue
 			}
-			return msg, nil
+			return s.trackRow(msg), nil
 		default: // raw
 			b, meta, err := s.readFileBytes(ctx, ref)
 			if err != nil {
@@ -397,6 +464,11 @@ func (s *GenericFileSource) Read(ctx context.Context) (hermod.Message, error) {
 				// Store raw bytes as payload
 				msg.SetAfter(b)
 			}
+			// One message per file, so the file is fully read the moment it is
+			// emitted; it still waits on that message being acknowledged.
+			key := s.beginFile(ref)
+			s.trackRow(msg)
+			s.finishFile(key)
 			return msg, nil
 		}
 	}
@@ -497,14 +569,23 @@ func (s *GenericFileSource) ensureQueue(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		// Filter by mtime strictly greater than watermark
+		// Keep what sits after the watermark, which is a (mtime, name) pair
+		// rather than an instant.
 		var items []fileRef
 		for _, f := range files {
-			if f.ModTime.After(s.lastMTime) {
+			if afterWatermark(f, s.lastMTime, s.lastName) {
 				items = append(items, f)
 			}
 		}
-		sort.Slice(items, func(i, j int) bool { return items[i].ModTime.Before(items[j].ModTime) })
+		// The same total order the watermark encodes. Sorting by time alone
+		// leaves files sharing a second in an order the filesystem chose, so
+		// the prefix the watermark names is not the prefix that was read.
+		sort.Slice(items, func(i, j int) bool {
+			if !items[i].ModTime.Equal(items[j].ModTime) {
+				return items[i].ModTime.Before(items[j].ModTime)
+			}
+			return items[i].Name < items[j].Name
+		})
 		s.queue = items
 		s.initScanned = true
 	}
@@ -520,8 +601,8 @@ func (s *GenericFileSource) pop() *fileRef {
 	ref := s.queue[0]
 	s.queue = s.queue[1:]
 	// advance watermark
-	if ref.ModTime.After(s.lastMTime) {
-		s.lastMTime = ref.ModTime
+	if afterWatermark(ref, s.lastMTime, s.lastName) {
+		s.lastMTime, s.lastName = ref.ModTime, ref.Name
 	}
 	return &ref
 }
@@ -982,4 +1063,150 @@ func detectContentType(name string, b []byte) string {
 		return http.DetectContentType(b[:512])
 	}
 	return http.DetectContentType(b)
+}
+
+// fileCursor encodes where a file sits in the scan order: its modification
+// time, and its name to break the ties a timestamp cannot.
+//
+// A timestamp alone is not a position. Files dropped as a batch share a second,
+// and on a filesystem with one-second mtime granularity they share the value
+// exactly — so a watermark of "after this instant" skips every sibling of the
+// file it was taken from, silently and permanently.
+func fileCursor(ref *fileRef) string {
+	return strconv.FormatInt(ref.ModTime.UnixNano(), 10) + "|" + ref.Name
+}
+
+// parseFileCursor reads a stored cursor back.
+//
+// The legacy form is a plain Unix second and no name. It sorts before
+// everything in that second, so state written by an older build resumes by
+// redelivering that second rather than skipping it — the safe direction, and
+// the only one available, since the name it should have carried was never
+// stored.
+func parseFileCursor(v string) (time.Time, string, bool) {
+	if v == "" {
+		return time.Time{}, "", false
+	}
+	if i := strings.IndexByte(v, '|'); i >= 0 {
+		nanos, err := strconv.ParseInt(v[:i], 10, 64)
+		if err != nil {
+			return time.Time{}, "", false
+		}
+		return time.Unix(0, nanos), v[i+1:], true
+	}
+	sec, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || sec <= 0 {
+		return time.Time{}, "", false
+	}
+	return time.Unix(sec, 0), "", true
+}
+
+// afterWatermark reports whether a file sits strictly after the position the
+// scan resumed from, under the same ordering the queue is sorted by.
+func afterWatermark(f fileRef, mt time.Time, name string) bool {
+	if f.ModTime.After(mt) {
+		return true
+	}
+	return f.ModTime.Equal(mt) && f.Name > name
+}
+
+// beginFile registers a dequeued file with the watermark tracker and returns
+// its key.
+//
+// The cursor is the file's modification time, which is what lastMTime means,
+// and files enter in dequeue order — which ensureQueue has already sorted by
+// modification time. That ordering is what stops a later file completing first
+// from moving the watermark past an earlier one still in flight: the tracker
+// only advances across an acknowledged prefix.
+func (s *GenericFileSource) beginFile(ref *fileRef) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.openFile) >= maxOpenFiles {
+		s.activeKey = ""
+		return ""
+	}
+	s.fileSeq++
+	key := strconv.FormatInt(s.fileSeq, 10)
+	if s.openFile == nil {
+		s.openFile = make(map[string]*fileProgress)
+	}
+	s.openFile[key] = &fileProgress{}
+	s.acked.Emitted(key, fileCursor(ref))
+	s.activeKey = key
+	return key
+}
+
+// trackRow records that a message came from the file currently being read.
+func (s *GenericFileSource) trackRow(msg hermod.Message) hermod.Message {
+	if msg == nil {
+		return nil
+	}
+	s.mu.Lock()
+	key := s.activeKey
+	p := s.openFile[key]
+	if p == nil {
+		s.mu.Unlock()
+		return msg
+	}
+	p.emitted++
+	s.mu.Unlock()
+
+	msg.SetMetadata(metaFileAckKey, key)
+	return msg
+}
+
+// finishFile records that a file has been read to the end. The watermark moves
+// only once every row it produced has also been acknowledged — which may
+// already be true, if the pipeline kept up while it was being read.
+func (s *GenericFileSource) finishFile(key string) {
+	s.mu.Lock()
+	p := s.openFile[key]
+	if p == nil {
+		s.mu.Unlock()
+		return
+	}
+	p.exhausted = true
+	done := p.acked >= p.emitted
+	if done {
+		delete(s.openFile, key)
+	}
+	s.mu.Unlock()
+
+	if done {
+		s.acked.Ack(key)
+	}
+}
+
+// Ack marks a row delivered, and its file complete once the last of its rows
+// has been.
+func (s *GenericFileSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg == nil {
+		return nil
+	}
+	key, _ := hermod.MetadataValue(msg, metaFileAckKey)
+	if key == "" {
+		// Never tracked, or already acknowledged: the tag is cleared below so a
+		// redelivered acknowledgement cannot count twice and complete a file
+		// that still has rows in flight.
+		return nil
+	}
+	msg.SetMetadata(metaFileAckKey, "")
+
+	s.mu.Lock()
+	p := s.openFile[key]
+	if p == nil {
+		s.mu.Unlock()
+		return nil
+	}
+	p.acked++
+	done := p.exhausted && p.acked >= p.emitted
+	if done {
+		delete(s.openFile, key)
+	}
+	s.mu.Unlock()
+
+	if done {
+		s.acked.Ack(key)
+	}
+	return nil
 }
