@@ -1191,6 +1191,24 @@ Delivery is **at-least-once**: a message is acknowledged to its source only afte
 succeeds, so a crash or an abrupt stop replays whatever was not acknowledged. Duplicates are
 therefore possible and expected.
 
+That guarantee has a second half which is easy to miss, because it lives in the source rather
+than in the engine: **a source must not record its position until the messages at that position
+have been acknowledged.** A polling connector that fetches a page of a hundred items and writes
+down the newest one's cursor immediately has already said all hundred were consumed — so a crash
+after the first item loses the other ninety-nine, whatever the engine does about acknowledgement.
+Nothing fetches that window again.
+
+Eleven polling connectors did exactly that until 1.8.0. Ten now advance their stored cursor only
+behind acknowledged messages (`pkg/infra/ackwatermark`), and a contract test fails the build if a
+source gains a stored cursor without an `Ack` that acts on it.
+
+**One exception remains.** The `file` source advances its modification-time watermark when a file
+is dequeued, before any of that file's rows are delivered, and one file can yield thousands of rows
+in CSV per-row mode. An interrupted run can therefore skip the remainder of that file and any file
+sharing its timestamp. It is tracked on an exemption list beside the contract test, with the reason;
+it needs end-of-file signalling across all four backends, which is why it was not fixed with the
+others.
+
 What makes that **exactly-once as observed at the destination** is the sink's upsert. Every SQL sink
 writes with `ON CONFLICT` / `ON DUPLICATE KEY` / `MERGE`, keyed on the message id, so a redelivered
 message overwrites its own row rather than adding one.
@@ -1551,6 +1569,14 @@ Engine flags and settings:
     Hermod now clamps the effective batch size to `max_inflight` and logs a warning naming both
     values; raise `max_inflight` if you want the larger batch to take effect. See
     [BENCHMARKS.md](BENCHMARKS.md).
+- `HERMOD_LOG_LEVEL` (default: `info`)
+  - Set to `debug` to keep DEBUG lines. **This is a storage knob, not only a verbosity one.**
+    A successful sink write logs at DEBUG, and that is the single most frequent event the
+    platform produces — at DEBUG the database logger persists one `logs` row per message, and
+    the engine also measures each message's payload to report its size, which for a message
+    carrying a data map means marshalling it to JSON.
+  - Leave it unset in production. Turn it on for one workflow while debugging, not as a default.
+  - `HERMOD_DB_LOG_SAMPLE_RATE` thins what reaches the log table when you do need DEBUG on.
 - `engine.drain_timeout` (default: 10s)
   - Logs a warning if sink writers take longer than this to drain on shutdown. Set `0` to wait indefinitely.
 - `prioritize_dlq` (per‑workflow)
