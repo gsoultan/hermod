@@ -7,6 +7,40 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-09-20
+
+A release about cursors and copies: work recorded as done before it was, and
+work built for a reader that was never there.
+
+Twelve polling connectors wrote down their position the moment they *fetched* a
+page rather than when its messages were *delivered*. A page of a hundred items
+counted as consumed before any of it had left the source, so a crash after the
+first item lost the other ninety-nine — permanently, because nothing fetches
+that window again. Ten are fixed. The Google Sheets source had said so out
+loud for some time: its `Ack` carried the comment "Watermark is already updated
+in Read for simplicity in this polling implementation."
+
+The rest is allocation. A span object and a context to hold it, per message and
+per node, with no TracerProvider installed and nothing to record them. A copy
+of a message's entire metadata map to read one key from it, on the write path,
+twice per message. And a panic below a node leaked every message that node had
+produced, because the release was the last statement in the function rather
+than a deferred one, and recovery skips exactly that.
+
+### Upgrading
+
+**Ten sources may redeliver once.** For slack, discord, twitter, instagram,
+linkedin, tiktok, facebook, firebase, googlesheets and mainframe, the stored
+cursor now means *acknowledged* rather than *fetched*. On the first start after
+upgrading, a source resumes from the last acknowledged position, which may sit
+behind where the previous version left the cursor — so some already-delivered
+items can arrive a second time.
+
+That is at-least-once behaving as documented, and sink-side idempotency is what
+absorbs it. It happens once, on the first poll after the upgrade. Nothing is
+lost either way; this is the direction the old behaviour could not fail in.
+
+
 ### Ten polling sources said a page was consumed the moment it was fetched
 
 The sweep that fixed ten SQL and CDC sources to advance their stored cursor on
