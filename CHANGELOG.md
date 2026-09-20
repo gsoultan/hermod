@@ -7,6 +7,30 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-09-20
+
+Hermod can read and write a Kafka topic that an existing Confluent estate can
+also read, and it decodes Avro with a decoder written here rather than an
+archived one.
+
+### Upgrading
+
+**Nothing to do.** The whole feature is opt-in behind `format: schema_registry`
+on a Kafka source or sink. A source or sink without it behaves exactly as it did
+in 1.8.1 — same serialisation, same JSON-then-raw-bytes reading. No stored state
+changes format, no migration runs, and no existing workflow needs editing.
+
+One behaviour worth knowing before you opt in: once a source *is* configured for
+a registry, an unframed record becomes an **error rather than a fallback**. That
+is deliberate — the old behaviour would hand undecoded Avro to a sink looking
+like a legitimate payload — but it means pointing the setting at a plain-JSON
+topic fails loudly instead of quietly.
+
+**The registry format is Beta, not GA.** Every registry in its tests is an
+`httptest` stub, and a stub cannot disagree with you about subject naming,
+compatibility checks or Confluent Cloud's authentication. Validate against your
+own registry before putting data of record through it.
+
 ### Hermod can write a Kafka topic that a Confluent consumer can read
 
 Hermod had a schema registry and could not talk to *the* schema registry. Those
