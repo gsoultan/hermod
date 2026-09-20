@@ -12,6 +12,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/infra/ackwatermark"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 )
 
@@ -35,6 +36,9 @@ type Source struct {
 	logger  hermod.Logger
 	db      *sql.DB
 	lastPos int64
+	// acked is the cursor that may be persisted. lastPos above advances
+	// as records are read, which is ahead of what has been delivered.
+	acked ackwatermark.Tracker
 }
 
 func NewSource(config Config, logger hermod.Logger) *Source {
@@ -121,6 +125,9 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 						msg.SetData("dataset", s.config.DatasetName)
 						msg.SetData("record", line)
 						msg.SetMetadata("source", "mainframe_vsam")
+						// lastPos has already moved past this record, and that is
+						// the position that becomes safe once it is acknowledged.
+						s.acked.Emitted(msg.ID(), strconv.FormatInt(s.lastPos, 10))
 						return msg, nil
 					}
 				}
@@ -149,16 +156,21 @@ func (s *Source) Read(ctx context.Context) (hermod.Message, error) {
 }
 
 func (s *Source) GetState() map[string]string {
-	return map[string]string{"last_pos": strconv.FormatInt(s.lastPos, 10)}
+	return map[string]string{"last_pos": s.acked.Mark()}
 }
 
 func (s *Source) SetState(state map[string]string) {
 	if pos, ok := state["last_pos"]; ok {
 		fmt.Sscanf(pos, "%d", &s.lastPos)
+		// The mark starts where the read resumes, so it never goes back.
+		s.acked.SetMark(pos)
 	}
 }
 
 func (s *Source) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg != nil {
+		s.acked.Ack(msg.ID())
+	}
 	return nil
 }
 

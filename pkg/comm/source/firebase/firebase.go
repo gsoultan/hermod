@@ -11,6 +11,7 @@ import (
 	firebase "firebase.google.com/go/v4"
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/infra/ackwatermark"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
@@ -22,9 +23,13 @@ type FirebaseSource struct {
 	timestampField  string
 	pollInterval    time.Duration
 	lastTimestamp   time.Time
-	logger          hermod.Logger
-	app             *firebase.App
-	client          *firestore.Client
+	// acked is the cursor that may be persisted. lastTimestamp above
+	// advances as documents are read, which is ahead of what has been
+	// delivered; storing that lost every document read but not written.
+	acked  ackwatermark.Tracker
+	logger hermod.Logger
+	app    *firebase.App
+	client *firestore.Client
 }
 
 func NewFirebaseSource(projectID, collection, credentialsJSON, timestampField string, pollInterval time.Duration) *FirebaseSource {
@@ -112,6 +117,10 @@ func (s *FirebaseSource) Read(ctx context.Context) (hermod.Message, error) {
 		payload, _ := json.Marshal(data)
 		msg := message.AcquireMessage()
 		msg.SetID(doc.Ref.ID)
+		// One document per read, so its own timestamp is the cursor it
+		// represents — recorded here so the stored cursor can only pass this
+		// document once it has been acknowledged.
+		s.acked.Emitted(doc.Ref.ID, s.lastTimestamp.Format(time.RFC3339Nano))
 		msg.SetOperation(hermod.OpUpdate)
 		msg.SetTable(s.collection)
 		msg.SetAfter(payload)
@@ -124,6 +133,9 @@ func (s *FirebaseSource) Read(ctx context.Context) (hermod.Message, error) {
 }
 
 func (s *FirebaseSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg != nil {
+		s.acked.Ack(msg.ID())
+	}
 	return nil
 }
 
@@ -149,12 +161,26 @@ func (s *FirebaseSource) Close() error {
 
 func (s *FirebaseSource) GetState() map[string]string {
 	return map[string]string{
-		"last_timestamp": s.lastTimestamp.Format(time.RFC3339Nano),
+		"last_timestamp": s.ackedMark(),
 	}
 }
 
 func (s *FirebaseSource) SetState(state map[string]string) {
 	if val, ok := state["last_timestamp"]; ok {
 		s.lastTimestamp, _ = time.Parse(time.RFC3339Nano, val)
+		// The mark starts where the query resumes, so it never goes back.
+		s.acked.SetMark(val)
 	}
+}
+
+// ackedMark is the stored cursor: the timestamp of the newest document that,
+// along with every document before it, has been acknowledged.
+//
+// An empty mark means nothing has been acknowledged yet, and is rendered as
+// the zero time so the stored value keeps the same shape it always had.
+func (s *FirebaseSource) ackedMark() string {
+	if m := s.acked.Mark(); m != "" {
+		return m
+	}
+	return time.Time{}.Format(time.RFC3339Nano)
 }
