@@ -2,8 +2,10 @@ package avrodecode
 
 import (
 	"math"
+	"math/big"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/hamba/avro/v2"
 )
@@ -266,13 +268,25 @@ func FuzzDecodeNeverPanics(f *testing.F) {
 		{"name":"meta","type":{"type":"map","values":"long"}},
 		{"name":"e","type":{"type":"enum","name":"E","symbols":["A","B"]}},
 		{"name":"fx","type":{"type":"fixed","name":"F","size":3}},
-		{"name":"opt","type":["null","string"]}]}`)
+		{"name":"opt","type":["null","string"]},
+		{"name":"ts","type":{"type":"long","logicalType":"timestamp-micros"}},
+		{"name":"dt","type":{"type":"int","logicalType":"date"}},
+		{"name":"tod","type":{"type":"int","logicalType":"time-millis"}},
+		{"name":"dec","type":{"type":"bytes","logicalType":"decimal","precision":10,"scale":2}},
+		{"name":"dur","type":{"type":"fixed","name":"Dur","size":12,"logicalType":"duration"}},
+		{"name":"uid","type":{"type":"string","logicalType":"uuid"}}]}`)
 
 	if seed, err := avro.Marshal(schema, map[string]any{
 		"id": int64(1), "name": "ada", "tags": []any{"x"},
 		"meta": map[string]any{"a": int64(1)}, "e": "A",
 		"fx":  [3]byte{1, 2, 3},
 		"opt": map[string]any{"string": "s"},
+		"ts":  time.Unix(1704067200, 0).UTC(),
+		"dt":  time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		"tod": 3 * time.Second,
+		"dec": big.NewRat(12345, 100),
+		"dur": avro.LogicalDuration{Months: 1, Days: 2, Milliseconds: 3},
+		"uid": "9f1b7c62-5f2e-4a1a-8a3f-7c9d0e1b2a34",
 	}); err == nil {
 		f.Add(seed)
 	}

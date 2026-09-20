@@ -88,6 +88,38 @@ Protobuf stays refused at construction in both directions. Its framing carries a
 message-index array after the schema id that Hermod does not write, and an
 Avro-shaped frame would produce bytes every Protobuf consumer misreads.
 
+### Logical types decode to their meaning
+
+All ten Avro logical types are interpreted rather than passed through as the
+primitive underneath. The failure this prevents is quiet: a `timestamp-micros`
+arrives as an `int64` of microseconds, lands in a bigint column, and nothing
+looks wrong until someone reads a date.
+
+`date` becomes a `time.Time` at midnight UTC; `timestamp-millis`/`-micros` a
+`time.Time` in UTC; `local-timestamp-*` the same wall clock, unshifted, because
+shifting a zoneless value by any offset changes what the record says. `uuid`
+stays a string.
+
+Three choices are deliberate rather than convenient. **`decimal` decodes to an
+exact string** — the scale is part of the value, `1.10` and `1.1` are different
+to a `NUMERIC` column, and a float or a `big.Rat` loses that. **`time-millis`
+is a `time.Duration`**, not a `time.Time`: it is a time of day, and giving it a
+date would invent information. **`duration` is not a `time.Duration`** — a
+month is not a fixed length of time, so months, days and milliseconds stay
+separate.
+
+An unrecognised logical type falls through to the primitive, because the
+annotation is advisory and refusing a record over one would break a topic that
+is otherwise readable. A recognised one on the wrong primitive also falls
+through: reinterpreting a string as an epoch turns valid bytes into a garbage
+date, which is worse than leaving it alone.
+
+`decimal` needed a bound the others did not. `big.Int.String` is superlinear in
+digit count, so an unscaled value limited only by `MaxBytes` — 16 MiB — is CPU
+exhaustion built from entirely valid bytes. The schema's declared `precision`
+is the bound, being operator-supplied and a statement of how large the value
+can be. The fuzz corpus now seeds all of these; 4.5M executions clean.
+
 ### The decode guard only covered one package
 
 `pkg/infra/schema` has held two AST-walking guards that fail the build if an

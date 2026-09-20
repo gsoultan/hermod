@@ -220,7 +220,7 @@ func (d *decoder) value(s avro.Schema, depth int) (any, error) {
 		return nil, nil
 
 	case *avro.PrimitiveSchema:
-		return d.primitive(t)
+		return d.primitiveLogical(t)
 
 	case *avro.RecordSchema:
 		return d.record(t, depth+1)
@@ -243,6 +243,27 @@ func (d *decoder) value(s avro.Schema, depth int) (any, error) {
 	default:
 		return nil, fmt.Errorf("%w: unsupported schema type %q", ErrMalformed, s.Type())
 	}
+}
+
+// primitiveLogical decodes a primitive and then reinterprets it if a logical
+// type annotates it.
+//
+// The raw bytes are kept for `decimal`, whose value is the unscaled integer
+// they spell rather than the string or []byte the primitive decode produced.
+func (d *decoder) primitiveLogical(s *avro.PrimitiveSchema) (any, error) {
+	v, err := d.primitive(s)
+	if err != nil {
+		return nil, err
+	}
+	ls := s.Logical()
+	if ls == nil {
+		return v, nil
+	}
+	var raw []byte
+	if b, ok := v.([]byte); ok {
+		raw = b
+	}
+	return d.applyLogical(ls, v, raw)
 }
 
 func (d *decoder) primitive(s *avro.PrimitiveSchema) (any, error) {
@@ -562,5 +583,9 @@ func (d *decoder) fixed(s *avro.FixedSchema) (any, error) {
 	}
 	out := make([]byte, len(b))
 	copy(out, b)
+
+	if ls := s.Logical(); ls != nil {
+		return d.applyLogical(ls, out, out)
+	}
 	return out, nil
 }

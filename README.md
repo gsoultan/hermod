@@ -1040,6 +1040,49 @@ other two glob their own directory and so did not cover a second importer —
 measured, not assumed: with a live `avro.Unmarshal` planted in the new formatter
 package, both older guards passed.
 
+### Logical types
+
+The ten Avro logical types decode to their Go meaning rather than the primitive
+underneath. Without this a `timestamp-micros` arrives as an `int64` of
+microseconds, lands in a bigint column, and nobody notices until someone reads
+a date.
+
+| Logical type | Underlying | Decodes to |
+| :--- | :--- | :--- |
+| `date` | `int` | `time.Time`, midnight UTC |
+| `time-millis` / `time-micros` | `int` / `long` | `time.Duration` since midnight |
+| `timestamp-millis` / `timestamp-micros` | `long` | `time.Time` in UTC |
+| `local-timestamp-millis` / `local-timestamp-micros` | `long` | `time.Time`, same wall clock, unshifted |
+| `uuid` | `string` | `string`, unchanged |
+| `decimal` | `bytes` / `fixed` | exact decimal `string` |
+| `duration` | `fixed(12)` | `avrodecode.Duration{Months, Days, Milliseconds}` |
+
+Three of those choices are deliberate and worth stating:
+
+**`decimal` is a string, not a float or a `big.Rat`.** The scale is part of the
+value — `1.10` and `1.1` are different to a `NUMERIC` column — and only the
+string keeps it. It is also what SQL drivers accept for `NUMERIC` without a
+lossy conversion.
+
+**`time-millis` is a `Duration`, not a `time.Time`.** It is a time of day, not
+an instant; giving it a date would invent information the record does not have.
+
+**`duration` is not a `time.Duration`.** A month is not a fixed length of time,
+so the three components stay separate rather than being collapsed against a
+calendar the record does not carry.
+
+A logical type Hermod does not recognise falls through to the underlying
+primitive rather than failing — the annotation is advisory, and refusing a
+record over one would break a topic that is otherwise readable. A *recognised*
+logical type on the wrong primitive also falls through, because reinterpreting
+a string as an epoch turns valid bytes into a garbage date.
+
+`decimal` carries one bound the others do not need. `big.Int.String` is
+superlinear in digit count, so an unscaled value limited only by `MaxBytes`
+(16 MiB) is CPU exhaustion made entirely of valid bytes. The schema's own
+`precision` is the bound: it is operator-supplied and states how large the
+value can be.
+
 ### Protobuf is refused
 
 | | Supported |
