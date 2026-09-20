@@ -34,14 +34,6 @@ var exempt = map[string]string{
 	"googleanalytics": "lastFetch records when the source last polled, not what it consumed: " +
 		"it gates the poll interval and appears in the message id, and nothing filters the " +
 		"API query by it. Advancing it on read loses nothing.",
-
-	"file": "genuinely the same bug, and not fixed yet. pop() advances lastMTime when a file " +
-		"is dequeued, before any of its rows are delivered, and one file can yield thousands " +
-		"of rows in CSV per-row mode — so a crash mid-file loses the remainder of that file " +
-		"and every file sharing its mtime. The fix is the page-token shape: every row carries " +
-		"an empty cursor except the last row of a fully drained file, which carries the file's " +
-		"mtime. It needs the reader to signal end-of-file across all four backends, which is " +
-		"why it is not a mechanical change like the others.",
 }
 
 // bodyIsTrivial reports whether fn does nothing but return nil.
@@ -64,18 +56,54 @@ func methodName(fn *ast.FuncDecl) string {
 	return fn.Name.Name
 }
 
-// inspectSource reports whether a source package stores a cursor (it has a
-// GetState) and whether its Ack does nothing.
+// receiverType names the type a method hangs off, with any pointer stripped.
+//
+// The check is per type, not per package. A package can hold more than one
+// source — pkg/comm/source/file has GenericFileSource, which stores a
+// watermark, alongside CSVSource, which stores nothing and quite correctly has
+// a no-op Ack. Aggregating the two reads as one offender that does not exist,
+// and the only ways out of that are an exemption for a source that is not
+// broken, or looking at the right unit.
+func receiverType(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return ""
+	}
+	expr := fn.Recv.List[0].Type
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
+	}
+	// A generic receiver is Name[T]; the type is under the index.
+	switch e := expr.(type) {
+	case *ast.IndexExpr:
+		expr = e.X
+	case *ast.IndexListExpr:
+		expr = e.X
+	}
+	if id, ok := expr.(*ast.Ident); ok {
+		return id.Name
+	}
+	return ""
+}
+
+// sourceKind is what the check needs to know about one receiver type.
+type sourceKind struct {
+	storesCursor bool
+	trivialAck   bool
+}
+
+// offendingTypes names the types in a package that persist a cursor and never
+// act on an acknowledgement.
 //
 // Files are parsed one at a time rather than through parser.ParseDir, which is
 // deprecated for not understanding build tags.
-func inspectSource(t *testing.T, pkgPath string) (storesCursor, trivialAck bool) {
+func offendingTypes(t *testing.T, pkgPath string) []string {
 	t.Helper()
 
 	entries, err := os.ReadDir(pkgPath)
 	if err != nil {
 		t.Fatalf("reading %s: %v", pkgPath, err)
 	}
+	kinds := map[string]*sourceKind{}
 	fset := token.NewFileSet()
 	for _, e := range entries {
 		name := e.Name()
@@ -91,17 +119,34 @@ func inspectSource(t *testing.T, pkgPath string) (storesCursor, trivialAck bool)
 			if !ok {
 				continue
 			}
+			recv := receiverType(fn)
+			if recv == "" {
+				continue
+			}
+			k := kinds[recv]
+			if k == nil {
+				k = &sourceKind{}
+				kinds[recv] = k
+			}
 			switch methodName(fn) {
 			case "GetState":
-				storesCursor = true
+				k.storesCursor = true
 			case "Ack":
 				if bodyIsTrivial(fn) {
-					trivialAck = true
+					k.trivialAck = true
 				}
 			}
 		}
 	}
-	return storesCursor, trivialAck
+
+	var out []string
+	for name, k := range kinds {
+		if k.storesCursor && k.trivialAck {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func TestASourceThatStoresACursorAdvancesItOnAck(t *testing.T) {
@@ -115,14 +160,14 @@ func TestASourceThatStoresACursorAdvancesItOnAck(t *testing.T) {
 		if !e.IsDir() {
 			continue
 		}
-		storesCursor, trivialAck := inspectSource(t, filepath.Join(sourceDir, e.Name()))
-
-		if storesCursor && trivialAck {
-			if _, ok := exempt[e.Name()]; ok {
-				continue
-			}
-			offenders = append(offenders, e.Name())
+		bad := offendingTypes(t, filepath.Join(sourceDir, e.Name()))
+		if len(bad) == 0 {
+			continue
 		}
+		if _, ok := exempt[e.Name()]; ok {
+			continue
+		}
+		offenders = append(offenders, e.Name()+" ("+strings.Join(bad, ", ")+")")
 	}
 
 	sort.Strings(offenders)
@@ -152,8 +197,7 @@ proving it looks like.`, strings.Join(offenders, "\n\t"))
 // fixed, the entry has to go.
 func TestNoExemptionIsStale(t *testing.T) {
 	for name := range exempt {
-		storesCursor, trivialAck := inspectSource(t, filepath.Join(sourceDir, name))
-		if !storesCursor || !trivialAck {
+		if len(offendingTypes(t, filepath.Join(sourceDir, name))) == 0 {
 			t.Errorf("%q is on the exemption list but no longer trips the check; remove the entry", name)
 		}
 	}

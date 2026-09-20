@@ -7,6 +7,36 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed
+
+- **The `file` source recorded a file as consumed when it was dequeued.** It was the last source
+  with the watermark-on-read bug, and the one left out of the 1.8.0 sweep because the fix is not
+  mechanical: a file yields many rows, and a streaming reader cannot know a row is the last until
+  it asks for one more. The unit acknowledged is therefore the file. A file is complete once it
+  has been read to the end *and* every row it produced has been acknowledged; until then the
+  stored watermark does not move past it. One CSV file is thousands of rows, so the old behaviour
+  skipped the remainder of a file on any interrupted run — silently, with no error anywhere.
+
+- **A row cannot be identified by its message ID, so the accounting is carried on the row.** With
+  `key_field` set — the normal parquet configuration — a row's ID is the key column's value, so
+  two exports of the same table hand out the same IDs. Keying the accounting on the ID reassigns
+  the older file's rows to the newer one, the older file never completes, and the watermark
+  freezes for good. Each row now carries the file it came from in `_hermod_file_ack`.
+
+- **A timestamp is not a position: resuming skipped every file sharing a modification time.** The
+  scan kept files strictly newer than the watermark, so once one file of a batch was acknowledged
+  its siblings were filtered out on the next start. A batch drop lands files in the same second,
+  and a filesystem with one-second mtime granularity makes that the same value exactly. The
+  watermark is now a `(modification time, name)` pair, and the queue is sorted by the same total
+  order so the prefix the watermark names is the prefix that was read. State written by an older
+  build is still read: a bare Unix second orders before everything in that second, so it
+  redelivers rather than skips.
+
+- **The acknowledgement contract gate looked at packages, not types.** `pkg/comm/source/file`
+  holds `GenericFileSource`, which stores a watermark, alongside `CSVSource`, which stores nothing
+  and correctly has a no-op `Ack`. Aggregating them reported an offender that did not exist. The
+  gate now examines each receiver type, so the exemption list is down to its one genuine entry.
+
 ## [1.8.0] — 2026-09-20
 
 A release about cursors and copies: work recorded as done before it was, and
