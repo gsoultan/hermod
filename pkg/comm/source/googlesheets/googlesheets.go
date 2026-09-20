@@ -9,6 +9,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/infra/ackwatermark"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 )
@@ -19,8 +20,11 @@ type GoogleSheetsSource struct {
 	credentialsJSON string
 	pollInterval    time.Duration
 	lastRow         int
-	logger          hermod.Logger
-	svc             *sheets.Service
+	// acked is the cursor that may be persisted. lastRow above advances
+	// as rows are read, which is ahead of what has been delivered.
+	acked  ackwatermark.Tracker
+	logger hermod.Logger
+	svc    *sheets.Service
 }
 
 func NewGoogleSheetsSource(spreadsheetID, readRange, credentialsJSON string, pollInterval time.Duration) *GoogleSheetsSource {
@@ -89,6 +93,9 @@ func (s *GoogleSheetsSource) Read(ctx context.Context) (hermod.Message, error) {
 			msg.SetMetadata("source", "googlesheets")
 			msg.SetMetadata("spreadsheet_id", s.spreadsheetID)
 			msg.SetMetadata("row_index", strconv.Itoa(rowIndex))
+			// Once this row is acknowledged, every row up to and including
+			// it is done — which is exactly what lastRow means.
+			s.acked.Emitted(msg.ID(), strconv.Itoa(rowIndex+1))
 
 			return msg, nil
 		}
@@ -103,7 +110,12 @@ func (s *GoogleSheetsSource) Read(ctx context.Context) (hermod.Message, error) {
 }
 
 func (s *GoogleSheetsSource) Ack(ctx context.Context, msg hermod.Message) error {
-	// Watermark is already updated in Read for simplicity in this polling implementation
+	// It used to say the watermark was "already updated in Read for
+	// simplicity". That is the bug, written down: a row recorded as consumed
+	// when it was read is lost if the process stops before it is written.
+	if msg != nil {
+		s.acked.Ack(msg.ID())
+	}
 	return nil
 }
 
@@ -121,12 +133,14 @@ func (s *GoogleSheetsSource) Close() error {
 
 func (s *GoogleSheetsSource) GetState() map[string]string {
 	return map[string]string{
-		"last_row": strconv.Itoa(s.lastRow),
+		"last_row": s.acked.Mark(),
 	}
 }
 
 func (s *GoogleSheetsSource) SetState(state map[string]string) {
 	if val, ok := state["last_row"]; ok {
 		fmt.Sscanf(val, "%d", &s.lastRow)
+		// The mark starts where the read resumes, so it never goes back.
+		s.acked.SetMark(val)
 	}
 }
