@@ -11,13 +11,18 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/infra/ackwatermark"
 )
 
 // TikTokSource implements the hermod.Source interface for polling TikTok videos.
 type TikTokSource struct {
-	accessToken  string
-	interval     time.Duration
-	cursor       int64
+	accessToken string
+	interval    time.Duration
+	cursor      int64
+	// acked is the cursor that may be persisted. cursor above is the
+	// page token the API returned for the *whole* page, so it only
+	// becomes safe once every item in that page is acknowledged.
+	acked        ackwatermark.Tracker
 	client       *http.Client
 	items        []map[string]any
 	currentIndex int
@@ -52,8 +57,10 @@ func (s *TikTokSource) Read(ctx context.Context) (hermod.Message, error) {
 	if s.currentIndex < len(s.items) {
 		item := s.items[s.currentIndex]
 		s.currentIndex++
+		last := s.currentIndex == len(s.items)
+		token := strconv.FormatInt(s.cursor, 10)
 		s.mu.Unlock()
-		return s.messageFromData(item), nil
+		return s.emit(item, last, token), nil
 	}
 
 	if !s.lastPoll.IsZero() {
@@ -125,9 +132,26 @@ func (s *TikTokSource) Read(ctx context.Context) (hermod.Message, error) {
 
 	item := s.items[0]
 	s.currentIndex = 1
+	last := len(s.items) == 1
+	token := strconv.FormatInt(s.cursor, 10)
 	s.mu.Unlock()
 
-	return s.messageFromData(item), nil
+	return s.emit(item, last, token), nil
+}
+
+// emit builds the message and records what it means for the stored cursor.
+//
+// Only the page's final item carries the page token. TikTok's cursor addresses
+// a page, not an item, so storing it after the first acknowledgement of a page
+// would say the whole page was consumed and lose the rest of it.
+func (s *TikTokSource) emit(data map[string]any, last bool, token string) hermod.Message {
+	msg := s.messageFromData(data)
+	cursor := ""
+	if last {
+		cursor = token
+	}
+	s.acked.Emitted(msg.ID(), cursor)
+	return msg
 }
 
 func (s *TikTokSource) messageFromData(data map[string]any) hermod.Message {
@@ -152,6 +176,9 @@ func (s *TikTokSource) messageFromData(data map[string]any) hermod.Message {
 
 // Ack acknowledges a message.
 func (s *TikTokSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg != nil {
+		s.acked.Ack(msg.ID())
+	}
 	return nil
 }
 
@@ -179,7 +206,7 @@ func (s *TikTokSource) GetState() map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return map[string]string{
-		"cursor": strconv.FormatInt(s.cursor, 10),
+		"cursor": s.acked.Mark(),
 	}
 }
 
@@ -189,6 +216,8 @@ func (s *TikTokSource) SetState(state map[string]string) {
 	defer s.mu.Unlock()
 	if cursor, ok := state["cursor"]; ok {
 		fmt.Sscanf(cursor, "%d", &s.cursor)
+		// The mark starts where the fetch resumes, so it never goes back.
+		s.acked.SetMark(cursor)
 	}
 }
 

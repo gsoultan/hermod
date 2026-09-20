@@ -9,14 +9,19 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/infra/ackwatermark"
 )
 
 // LinkedInSource implements the hermod.Source interface for polling LinkedIn UGC posts.
 type LinkedInSource struct {
-	accessToken  string
-	personURN    string
-	interval     time.Duration
-	sinceID      string
+	accessToken string
+	personURN   string
+	interval    time.Duration
+	sinceID     string
+	// acked is the cursor that may be persisted. sinceID above runs
+	// ahead to fetch the next page, and persisting that is what lost the
+	// rest of a page on every restart mid-page.
+	acked        ackwatermark.Tracker
 	client       *http.Client
 	items        []map[string]any
 	currentIndex int
@@ -120,6 +125,9 @@ func (s *LinkedInSource) messageFromData(data map[string]any) hermod.Message {
 	msg := message.AcquireMessage()
 	if id, ok := data["id"].(string); ok {
 		msg.SetID(id)
+		// The item's own position in the feed: the cursor this message
+		// represents, recorded so the mark can only pass it once it is acked.
+		s.acked.Emitted(id, id)
 	}
 	msg.SetOperation(hermod.OpCreate)
 	msg.SetMetadata("source", "linkedin")
@@ -145,6 +153,9 @@ func (s *LinkedInSource) messageFromData(data map[string]any) hermod.Message {
 
 // Ack acknowledges a message.
 func (s *LinkedInSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg != nil {
+		s.acked.Ack(msg.ID())
+	}
 	return nil
 }
 
@@ -169,7 +180,7 @@ func (s *LinkedInSource) Ping(ctx context.Context) error {
 // GetState returns the current state of the source.
 func (s *LinkedInSource) GetState() map[string]string {
 	return map[string]string{
-		"since_id": s.sinceID,
+		"since_id": s.acked.Mark(),
 	}
 }
 
@@ -177,6 +188,8 @@ func (s *LinkedInSource) GetState() map[string]string {
 func (s *LinkedInSource) SetState(state map[string]string) {
 	if id, ok := state["since_id"]; ok {
 		s.sinceID = id
+		// The mark starts where the fetch resumes, so it never goes back.
+		s.acked.SetMark(id)
 	}
 }
 

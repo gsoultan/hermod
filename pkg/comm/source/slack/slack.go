@@ -11,6 +11,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/infra/ackwatermark"
 )
 
 // SlackSource implements the hermod.Source interface for polling Slack messages.
@@ -19,12 +20,16 @@ type SlackSource struct {
 	channelID     string
 	interval      time.Duration
 	lastTimestamp string
-	client        *http.Client
-	items         []map[string]any
-	currentIndex  int
-	lastPoll      time.Time
-	baseURL       string
-	mu            sync.Mutex
+	// acked is the cursor that may be persisted. lastTimestamp above runs
+	// ahead to fetch the next page, and persisting that is what lost the rest
+	// of a page on every restart mid-page.
+	acked        ackwatermark.Tracker
+	client       *http.Client
+	items        []map[string]any
+	currentIndex int
+	lastPoll     time.Time
+	baseURL      string
+	mu           sync.Mutex
 }
 
 // NewSlackSource creates a new SlackSource.
@@ -126,8 +131,12 @@ func (s *SlackSource) Read(ctx context.Context) (hermod.Message, error) {
 }
 
 func (s *SlackSource) messageFromData(data map[string]any) hermod.Message {
+	ts, _ := data["ts"].(string)
 	msg := message.AcquireMessage()
-	msg.SetID(data["ts"].(string))
+	msg.SetID(ts)
+	// A Slack message's ts is both its identity and its position in the
+	// channel, so it is the cursor this item represents.
+	s.acked.Emitted(ts, ts)
 	msg.SetOperation(hermod.OpCreate)
 	msg.SetMetadata("source", "slack")
 	msg.SetMetadata("channel_id", s.channelID)
@@ -149,6 +158,9 @@ func (s *SlackSource) messageFromData(data map[string]any) hermod.Message {
 
 // Ack acknowledges a message.
 func (s *SlackSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg != nil {
+		s.acked.Ack(msg.ID())
+	}
 	return nil
 }
 
@@ -179,8 +191,11 @@ func (s *SlackSource) Ping(ctx context.Context) error {
 func (s *SlackSource) GetState() map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// The acknowledged mark, not lastTimestamp. lastTimestamp is where the
+	// next fetch starts and is deliberately ahead of what has been delivered;
+	// storing it is what made a crash mid-page lose the rest.
 	return map[string]string{
-		"last_timestamp": s.lastTimestamp,
+		"last_timestamp": s.acked.Mark(),
 	}
 }
 
@@ -189,7 +204,10 @@ func (s *SlackSource) SetState(state map[string]string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if ts, ok := state["last_timestamp"]; ok {
+		// Both: the fetch resumes from the acknowledged point, and the mark
+		// starts there so it never goes backwards.
 		s.lastTimestamp = ts
+		s.acked.SetMark(ts)
 	}
 }
 
