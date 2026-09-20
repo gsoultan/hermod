@@ -44,18 +44,42 @@ contract test (`ack_watermark_contract_test.go`, "GetState plus a no-op Ack")
 found **four more** the grep's field-name guessing missed: `file`,
 `googleanalytics`, `googlesheets`, `mainframe`. Ask the AST, not a field name.
 
-### The two exceptions
+### The one exception
 
 - `googleanalytics` — **false positive**. `lastFetch` records when the source
   last polled, not what it consumed: it gates the poll interval and nothing
   filters the query by it.
-- `file` — **the same bug, still open**. `pop()` advances `lastMTime` when a
-  file is dequeued, before any of its rows are delivered, and one file can
-  yield thousands of rows in CSV per-row mode. Needs the reader to signal
-  end-of-file across all four backends, so it is not mechanical like the rest.
 
-Both are on an exemption list next to the check, and `TestNoExemptionIsStale`
-fails if one stops applying.
+It is on an exemption list next to the check, and `TestNoExemptionIsStale`
+fails if it stops applying.
+
+### `file`, the one that needed a different shape
+
+Fixed after the others. The claim that it "needs end-of-file signalling across
+all four backends" was **wrong**: end-of-file is already signalled in two
+backend-independent places, where the reader returns `nil`. Backends only list
+files and fetch bytes; row iteration sits above them.
+
+The real problem was *what unit gets acknowledged*. A file yields many rows and
+a streaming reader cannot know a row is the last until it asks for one more, so
+there is no row to hang the file's watermark on. The unit is the **file**:
+complete once read to the end *and* every row it produced is acknowledged.
+
+Two further defects fell out of it:
+
+- **A message ID cannot identify a row across files.** With `key_field` set —
+  the normal parquet config — a row's ID is the key column's value, so two
+  exports of the same table hand out the same IDs; a `map[id]file` reassigns
+  the older file's rows to the newer one and the watermark freezes for good.
+  Rows carry their file in the `_hermod_file_ack` metadata key instead.
+- **A timestamp is not a position.** `ModTime.After(lastMTime)` skipped every
+  file sharing the acknowledged file's second. The watermark is now a
+  `(modification time, name)` pair and the queue is sorted by the same total
+  order. A bare Unix second from older state orders before everything in that
+  second, so it redelivers rather than skips.
+
+The contract gate itself was per-package, which read `CSVSource`'s correctly
+trivial `Ack` as `GenericFileSource`'s bug. It is now per receiver type.
 
 ## The fix, and why it was not applied everywhere
 

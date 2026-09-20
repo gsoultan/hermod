@@ -1198,16 +1198,22 @@ down the newest one's cursor immediately has already said all hundred were consu
 after the first item loses the other ninety-nine, whatever the engine does about acknowledgement.
 Nothing fetches that window again.
 
-Eleven polling connectors did exactly that until 1.8.0. Ten now advance their stored cursor only
-behind acknowledged messages (`pkg/infra/ackwatermark`), and a contract test fails the build if a
-source gains a stored cursor without an `Ack` that acts on it.
+Eleven polling connectors did exactly that until 1.8.0. All eleven now advance their stored cursor
+only behind acknowledged messages (`pkg/infra/ackwatermark`), and a contract test fails the build if
+a source gains a stored cursor without an `Ack` that acts on it.
 
-**One exception remains.** The `file` source advances its modification-time watermark when a file
-is dequeued, before any of that file's rows are delivered, and one file can yield thousands of rows
-in CSV per-row mode. An interrupted run can therefore skip the remainder of that file and any file
-sharing its timestamp. It is tracked on an exemption list beside the contract test, with the reason;
-it needs end-of-file signalling across all four backends, which is why it was not fixed with the
-others.
+The `file` source is the one that could not take the same shape, because a file is not an item. It
+yields many rows, and a streaming reader cannot know a row is the last until it asks for one more —
+so there is no row to hang the file's watermark on. The unit acknowledged there is the **file**: it
+counts as consumed once it has been read to the end *and* every row it produced has been
+acknowledged. Files enter the watermark in modification-time order, so a later file finishing first
+cannot move the mark past an earlier one still in flight.
+
+Its watermark is a `(modification time, name)` pair rather than a timestamp, because files dropped
+as a batch share a second — and on a filesystem with one-second mtime granularity they share it
+exactly, so "strictly newer than the last one acknowledged" would skip every sibling. State written by an
+earlier build is still read: a bare Unix second orders before everything in that second, so it
+redelivers rather than skips.
 
 What makes that **exactly-once as observed at the destination** is the sink's upsert. Every SQL sink
 writes with `ON CONFLICT` / `ON DUPLICATE KEY` / `MERGE`, keyed on the message id, so a redelivered
