@@ -350,12 +350,21 @@ func (t *WorkflowTraversal) runNode(ctx context.Context, node *storage.WorkflowN
 	start := time.Now()
 	msgs, branch, err := t.Registry.RunWorkflowNode(t.WorkflowID, node, msg)
 
+	// Stamped when the node finished, not when it started. The step's payload is
+	// the node's output, and a `pipeline` node's own steps record under their
+	// transType at timestamps in between — so a start-stamped parent sorted
+	// ahead of its own children carrying their result, and the viewer, which
+	// rebuilds each "before" from the previous "after", showed the first child
+	// dropping a field it had not yet produced. One instant for every fan-out
+	// sibling: they did all finish together.
+	done := time.Now()
+
 	if len(msgs) > 0 {
 		for _, m := range msgs {
-			t.Eng.RecordTraceStep(ctx, m, node.ID, start, nil, err)
+			t.Eng.RecordCompletedTraceStep(ctx, m, node.ID, start, done, nil, err)
 		}
 	} else {
-		t.Eng.RecordTraceStep(ctx, msg, node.ID, start, nil, err)
+		t.Eng.RecordCompletedTraceStep(ctx, msg, node.ID, start, done, nil, err)
 	}
 
 	return msgs, branch, err
