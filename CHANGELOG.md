@@ -7,35 +7,95 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
-### Fixed
+## [1.8.1] — 2026-09-20
 
-- **The `file` source recorded a file as consumed when it was dequeued.** It was the last source
-  with the watermark-on-read bug, and the one left out of the 1.8.0 sweep because the fix is not
-  mechanical: a file yields many rows, and a streaming reader cannot know a row is the last until
-  it asks for one more. The unit acknowledged is therefore the file. A file is complete once it
-  has been read to the end *and* every row it produced has been acknowledged; until then the
-  stored watermark does not move past it. One CSV file is thousands of rows, so the old behaviour
-  skipped the remainder of a file on any interrupted run — silently, with no error anywhere.
+The cursor 1.8.0 could not close, and the two defects hiding behind it.
 
-- **A row cannot be identified by its message ID, so the accounting is carried on the row.** With
-  `key_field` set — the normal parquet configuration — a row's ID is the key column's value, so
-  two exports of the same table hand out the same IDs. Keying the accounting on the ID reassigns
-  the older file's rows to the newer one, the older file never completes, and the watermark
-  freezes for good. Each row now carries the file it came from in `_hermod_file_ack`.
+Ten of the eleven polling connectors that recorded a position before the
+messages at that position were acknowledged were fixed in 1.8.0. The `file`
+source was left on an exemption list with a reason attached, and the reason was
+wrong: it said the fix needed end-of-file signalling across all four backends.
+It did not. End of file is already signalled in two backend-independent places,
+where the reader returns `nil`; the backends only list files and fetch bytes,
+and row iteration sits above them.
 
-- **A timestamp is not a position: resuming skipped every file sharing a modification time.** The
-  scan kept files strictly newer than the watermark, so once one file of a batch was acknowledged
-  its siblings were filtered out on the next start. A batch drop lands files in the same second,
-  and a filesystem with one-second mtime granularity makes that the same value exactly. The
-  watermark is now a `(modification time, name)` pair, and the queue is sorted by the same total
-  order so the prefix the watermark names is the prefix that was read. State written by an older
-  build is still read: a bare Unix second orders before everything in that second, so it
-  redelivers rather than skips.
+The real question was which unit gets acknowledged, and a file is not an item.
+It yields many rows, and a streaming reader cannot know a row is the last until
+it asks for one more — so there is no row to hang the file's watermark on.
 
-- **The acknowledgement contract gate looked at packages, not types.** `pkg/comm/source/file`
-  holds `GenericFileSource`, which stores a watermark, alongside `CSVSource`, which stores nothing
-  and correctly has a no-op `Ack`. Aggregating them reported an offender that did not exist. The
-  gate now examines each receiver type, so the exemption list is down to its one genuine entry.
+### Upgrading
+
+**The `file` source may redeliver once.** Its stored watermark now means
+*acknowledged* rather than *dequeued*, so the first start after upgrading
+resumes from the last fully acknowledged file, which may sit behind where the
+previous version left it. Some already-delivered rows can arrive a second time.
+That is at-least-once behaving as documented, and sink-side idempotency is what
+absorbs it.
+
+**Stored state written by 1.8.0 or earlier still reads.** The watermark's format
+changes from a bare Unix second to a `(modification time, name)` pair. An older
+value has no name, which orders before everything in that second — so it
+redelivers that second rather than skipping it. No migration, no manual step.
+
+### The `file` source recorded a file as consumed when it was dequeued
+
+`pop()` advanced `lastMTime` to a file's modification time the moment the file
+came off the queue, before a single one of its rows had been delivered, and
+`GetState` persisted that. One CSV file is thousands of rows in per-row mode, so
+an interrupted run skipped the remainder of that file — and, because the
+watermark is a timestamp rather than a position, every other file sharing its
+modification time as well. Nothing errored.
+
+The unit acknowledged is now the file. It is complete once it has been read to
+the end *and* every row it produced has been acknowledged; until then the stored
+watermark does not move past it. Files enter the watermark in dequeue order,
+which is modification-time order, so the acknowledged-prefix rule in
+`pkg/infra/ackwatermark` stops a later file that finished first from stepping
+over an earlier one still in flight.
+
+### A row cannot be identified by its message ID
+
+The obvious way to count a file's outstanding rows is a map from message ID to
+file. It does not work here. With `key_field` set — the normal parquet
+configuration — a row's ID is the key column's value, so two daily exports of
+the same table hand out identical IDs. The map reassigns the older file's rows
+to the newer one, the older file can never reach "every row acknowledged", and
+because the mark only advances across an acknowledged prefix the watermark
+freezes for good: the source re-reads from the same point forever.
+
+Each row now carries its file in a `_hermod_file_ack` metadata entry, read back
+through the single-key accessor so it costs no allocation, and cleared on
+acknowledgement so a redelivered ack cannot count twice.
+
+This is invisible to a CSV test — CSV row IDs are `basename-<UnixNano>`, which
+really are unique. Five passing tests preceded the parquet one that caught it.
+
+### A timestamp is not a position
+
+The scan kept files whose modification time was strictly after the watermark. So
+once one file of a batch was acknowledged, its siblings were filtered out on the
+next start. Files dropped as a batch land in the same second, and on a
+filesystem with one-second mtime granularity they share the value exactly — the
+ordinary case for a directory written all at once, not an edge of it.
+
+The watermark is now a `(modification time, name)` pair, and the queue is sorted
+by that same total order. Sorting by time alone also left files sharing a second
+in whatever order the filesystem returned them, which meant the prefix the
+watermark named was not necessarily the prefix that had been read.
+
+### The contract gate looked at packages, not types
+
+`ack_watermark_contract_test.go` decided a source was an offender if anything in
+its package had a `GetState` and anything in its package had a no-op `Ack`.
+`pkg/comm/source/file` holds `GenericFileSource`, which stores a watermark,
+alongside `CSVSource`, which stores nothing and is quite right to have a no-op
+`Ack`. Aggregating the two reported an offender that did not exist — and the
+only ways out of that are an exemption for a source that is not broken, or
+looking at the right unit.
+
+It now examines each receiver type, including generic ones. The exemption list
+is down to its one genuine entry, `googleanalytics`, whose `lastFetch` records
+when the source last polled rather than what it consumed.
 
 ## [1.8.0] — 2026-09-20
 
