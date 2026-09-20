@@ -7,6 +7,22 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Fixed
+
+- **A pipeline node no longer appears to delete the field it just added.** A
+  node's trace step carries the node's output but was stamped with the moment
+  the node *started*. For most nodes those are the same moment. For a `pipeline`
+  transformation they are not: each step inside the pipeline records its own
+  trace step under its transformation type, at a timestamp in between — so the
+  node sorted ahead of its own steps while holding their finished payload. The
+  message trace rebuilds each step's "before" from the previous step's "after",
+  so the first step in the pipeline was shown as having been handed a field it
+  had not computed yet, and its own "after", which correctly lacked that field,
+  read as a deletion. Node steps are now stamped when the node finishes;
+  duration still spans the whole node. No stored trace changes, and no data was
+  ever affected — sinks always received the right values. Traces recorded before
+  this release keep the old ordering.
+
 ## [1.9.0] — 2026-09-20
 
 Hermod can read and write a Kafka topic that an existing Confluent estate can

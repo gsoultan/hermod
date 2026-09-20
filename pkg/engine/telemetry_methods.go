@@ -49,7 +49,31 @@ func (e *Engine) RecordTraceStepSnapshot(ctx context.Context, msg hermod.Message
 	e.recordTraceStep(ctx, msg, nodeID, start, before, after, err)
 }
 
+// RecordCompletedTraceStep records a step whose payload is the *result* of the
+// work, stamped with the moment that work finished rather than the moment it
+// began. Duration still spans the whole of it.
+//
+// This is for a caller whose work records trace steps of its own. A node step
+// carries the node's output, but a `pipeline` node's steps each record again
+// under their transType at their own, later timestamps — so a start-stamped
+// parent sorted ahead of its own children while holding what they produced.
+// Because GetMessageTrace rebuilds each "before" from the previous step's
+// "after", the first child was then shown as having been handed a field it had
+// not computed yet, and its own "after" read as having deleted it.
+//
+// The same disagreement in the router is what RecordTraceStepSnapshot fixes,
+// from the other side: the router is not a transformation, so it moves its
+// payload back to its timestamp. A node *is* one, so it moves its timestamp
+// forward to its payload.
+func (e *Engine) RecordCompletedTraceStep(ctx context.Context, msg hermod.Message, nodeID string, start, done time.Time, before map[string]any, err error) {
+	e.recordTraceStepAt(ctx, msg, nodeID, start, done, before, nil, err)
+}
+
 func (e *Engine) recordTraceStep(ctx context.Context, msg hermod.Message, nodeID string, start time.Time, before, after map[string]any, err error) {
+	e.recordTraceStepAt(ctx, msg, nodeID, start, start, before, after, err)
+}
+
+func (e *Engine) recordTraceStepAt(ctx context.Context, msg hermod.Message, nodeID string, start, at time.Time, before, after map[string]any, err error) {
 	if !e.WillTrace(msg) {
 		return
 	}
@@ -75,7 +99,7 @@ func (e *Engine) recordTraceStep(ctx context.Context, msg hermod.Message, nodeID
 
 	step := hermod.TraceStep{
 		NodeID:    nodeID,
-		Timestamp: start,
+		Timestamp: at,
 		Duration:  time.Since(start),
 		Before:    before,
 		After:     after,
