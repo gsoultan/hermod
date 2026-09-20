@@ -1450,7 +1450,7 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 
 	// Try to use the new Transformer Registry
 	if t, ok := transformer.Get(transType); ok {
-		workflowID := modifiedMsg.Metadata()["_hermod_workflow_id"]
+		workflowID, _ := hermod.MetadataValue(modifiedMsg, "_hermod_workflow_id")
 		tracingEnabled := workflowID != "" && r.shouldTrace(workflowID, modifiedMsg)
 
 		var beforeData map[string]any

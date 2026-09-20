@@ -591,7 +591,7 @@ func (r *Registry) setupWorkflowRouter(
 		// always skipped, leaving the message trace empty of node detail.
 		msg.SetMetadata("_hermod_workflow_id", id)
 
-		sourceNodeID := msg.Metadata()["_source_node_id"]
+		sourceNodeID, _ := hermod.MetadataValue(msg, "_source_node_id")
 		if sourceNodeID == "" && len(sourceNodes) > 0 {
 			sourceNodeID = sourceNodes[0].ID
 		}

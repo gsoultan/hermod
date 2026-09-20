@@ -410,16 +410,26 @@ refuses the batch if any later row disagrees.
 - `TestBatchWithAnUpdateStillWritesCorrectly` — the fallback is not a failure
   mode; a refused batch must still be written correctly by the ordered path.
 
-MSSQL (`mssql.CopyIn`) and Snowflake (`PUT` + `COPY INTO`) are still row-by-row
-and are the next two.
+Snowflake is the one still writing row by row — see below.
 
 ## Not yet measured
 
 Named explicitly so nothing here is mistaken for full coverage:
 
-- **MSSQL / Snowflake sinks.** MySQL now has a multi-row INSERT path (above) and ClickHouse has
-  `PrepareBatch`. MSSQL (`mssql.CopyIn`) and Snowflake (`PUT` + `COPY INTO`) are still row-by-row.
-  Snowflake is the most costly of these — row-by-row into a warehouse is pathological.
+- **The Snowflake sink writes row by row.** `WriteBatch` loops the batch and calls `upsertMapped`
+  per message, so a 2,000-row batch is 2,000 round trips into a warehouse, which is the
+  pathological case. It is **not implemented here deliberately**: there is no Snowflake in CI, no
+  `SNOWFLAKE_DSN` convention and no integration test, so a bulk path could not be verified against
+  a real server by anyone. The MySQL differential is why that matters — it caught sjson and
+  `json.Marshal` disagreeing about `[]byte`, which no amount of reading the code would have found.
+  Blocked on a test instance, not on the design.
+
+  **Corrected 2026-09-20.** This entry previously said MSSQL was row-by-row too, citing
+  `mssql.CopyIn`. It is not: `executeBatch` groups the batch by table and operation, chunks it to
+  the 2100-parameter limit, and emits **one `MERGE INTO ... USING (VALUES ...)` per chunk**. That
+  is already the right shape and needs no work. The claim came from grepping for bulk-copy APIs,
+  which cannot see a multi-row MERGE — a reminder that "does this sink batch?" is answered by
+  reading what it emits, not by looking for a library call.
 - **Bulk path over a real network**, where the round-trip saving should be far larger than measured
   here on localhost.
 - **Traversal cost per DAG node** — how the goroutine-per-node model scales with DAG width/depth.
