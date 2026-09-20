@@ -31,12 +31,30 @@ cd "$REPO_ROOT"
 #   be decoded, and all are unfixed upstream (v2.31.0 is the latest release;
 #   only a third-party fork carries the patch).
 #
-#   Hermod never decodes Avro. Its entire use of the library is
-#   pkg/infra/schema/validators.go: avro.Parse on a schema string and
-#   avro.Marshal to *encode* a map for validation. There is no reader, no
-#   decoder and no stream. TestSchemaPackageNeverDecodesAvro in
-#   pkg/infra/schema fails the build if a decode path is ever introduced, so
-#   this exemption cannot silently stop being true.
+#   Hermod never calls hamba's decoder. It uses the library for two things
+#   only, in three packages, and neither is the affected path:
+#
+#     avro.Parse   — compiling a schema, in pkg/infra/schema (validation),
+#                    pkg/infra/schemaregistry (resolving a registry schema) and
+#                    pkg/infra/avrodecode (walking the schema AST).
+#     avro.Marshal — *encoding* a map, in pkg/infra/schema and
+#                    pkg/comm/formatter/schemaregistry.
+#
+#   Hermod does decode Avro, as of the Confluent Schema Registry work: reading a
+#   framed topic requires it. That decoding is pkg/infra/avrodecode, written
+#   here precisely because hamba's is unfixable — the module is archived. It
+#   reads from a fully-buffered byte slice rather than a stream, so there is no
+#   deferred reader error state for a loop to ignore, and it bounds value size,
+#   cumulative collection size, nesting depth and total values per record. Its
+#   abuse cases are pkg/infra/avrodecode/decode_abuse_test.go, including the
+#   advisory's own math.MaxInt64-block-count case under a wall-clock budget, and
+#   it is fuzzed.
+#
+#   Three tests fail the build if a call into hamba's decoder is ever
+#   introduced: TestSchemaPackageNeverDecodesAvro and TestNoUntrustedAvroDecoding
+#   in pkg/infra/schema (that package only), and TestNoPackageDecodesAvro at the
+#   repo root, which walks the whole module. The root one exists because the
+#   other two glob their own directory and so did not cover a second importer.
 #
 declare -a EXEMPT=(
   "GO-2026-5046"

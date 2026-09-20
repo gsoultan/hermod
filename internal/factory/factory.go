@@ -19,6 +19,7 @@ import (
 	"github.com/gsoultan/hermod/internal/config"
 	"github.com/gsoultan/hermod/pkg/comm/eventstore"
 	jsonfmt "github.com/gsoultan/hermod/pkg/comm/formatter/json"
+	srformat "github.com/gsoultan/hermod/pkg/comm/formatter/schemaregistry"
 	"github.com/gsoultan/hermod/pkg/comm/sink"
 	sinkcassandra "github.com/gsoultan/hermod/pkg/comm/sink/cassandra"
 	sinkclickhouse "github.com/gsoultan/hermod/pkg/comm/sink/clickhouse"
@@ -107,6 +108,7 @@ import (
 	"github.com/gsoultan/hermod/pkg/comm/source/yugabyte"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
 	"github.com/gsoultan/hermod/pkg/infra/compression"
+	srclient "github.com/gsoultan/hermod/pkg/infra/schemaregistry"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 )
 
@@ -419,7 +421,15 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 		src = sourcesqlite.NewSQLiteSource(connString, tables, useCDC)
 	case "kafka":
 		brokers := strings.Split(cfg.Config["brokers"], ",")
-		src = sourcekafka.NewKafkaSource(brokers, cfg.Config["topic"], cfg.Config["group_id"], cfg.Config["username"], cfg.Config["password"])
+		ks := sourcekafka.NewKafkaSource(brokers, cfg.Config["topic"], cfg.Config["group_id"], cfg.Config["username"], cfg.Config["password"])
+		dec, err := buildRecordDecoder(cfg.Config)
+		if err != nil {
+			return nil, err
+		}
+		if dec != nil {
+			ks.SetDecoder(dec)
+		}
+		src = ks
 	case "eventstore":
 		driver := cfg.Config["driver"]
 		dsn := cfg.Config["dsn"]
@@ -740,21 +750,120 @@ func CreateSinkForPreview(cfg SinkConfig) (hermod.Sink, error) {
 	return createSinkBase(cfg)
 }
 
+// buildFormatter selects a sink's serialiser from its stored config.
+//
+// A nil formatter is a valid result and means "publish the raw payload bytes",
+// which is what a sink with no format set has always done. Only an explicitly
+// named format that cannot be built is an error.
+func buildFormatter(cfg hermod.StringMap) (hermod.Formatter, error) {
+	switch cfg["format"] {
+	case "payload":
+		f := jsonfmt.NewJSONFormatter()
+		f.SetMode(jsonfmt.ModePayload)
+		return f, nil
+
+	case "cdc", "json":
+		return jsonfmt.NewJSONFormatter(), nil
+
+	case "schema_registry":
+		return buildSchemaRegistryFormatter(cfg)
+	}
+
+	// No format, or one this build does not know: raw payload bytes, as before.
+	return nil, nil
+}
+
+// buildRecordDecoder builds a Confluent-framed record decoder from a source's
+// stored config, or nil when the source is not configured for one.
+//
+// nil is the important case: every Kafka source that predates this reads JSON
+// or raw bytes, and attaching a decoder to one would turn its first record into
+// an error. Only an explicit format=schema_registry opts in.
+func buildRecordDecoder(cfg hermod.StringMap) (*srclient.Decoder, error) {
+	if cfg["format"] != "schema_registry" {
+		return nil, nil
+	}
+
+	url := strings.TrimSpace(cfg["schema_registry_url"])
+	if url == "" {
+		return nil, errors.New("source format=schema_registry: schema_registry_url is required")
+	}
+
+	client, err := srclient.NewClient(srclient.Config{
+		BaseURL:  url,
+		Username: cfg["schema_registry_username"],
+		Password: cfg["schema_registry_password"],
+	})
+	if err != nil {
+		return nil, fmt.Errorf("source format=schema_registry: %w", err)
+	}
+
+	var opts []srclient.DecoderOption
+	if n, err := strconv.Atoi(strings.TrimSpace(cfg["schema_registry_max_collection"])); err == nil && n > 0 {
+		opts = append(opts, srclient.WithMaxCollection(n))
+	}
+	if n, err := strconv.Atoi(strings.TrimSpace(cfg["schema_registry_max_bytes"])); err == nil && n > 0 {
+		opts = append(opts, srclient.WithMaxBytes(n))
+	}
+
+	return srclient.NewDecoder(client, opts...), nil
+}
+
+// buildSchemaRegistryFormatter builds the Confluent-framing formatter.
+//
+// Everything is validated here rather than on the first message: a sink that
+// starts and then fails every record reads as a broken destination, where a
+// refusal at build time names the typo.
+func buildSchemaRegistryFormatter(cfg hermod.StringMap) (hermod.Formatter, error) {
+	url := strings.TrimSpace(cfg["schema_registry_url"])
+	if url == "" {
+		return nil, errors.New("sink format=schema_registry: schema_registry_url is required")
+	}
+	subject := strings.TrimSpace(cfg["schema_registry_subject"])
+	if subject == "" {
+		return nil, errors.New("sink format=schema_registry: schema_registry_subject is required " +
+			"(Confluent's default naming makes this \"<topic>-value\")")
+	}
+	schema := strings.TrimSpace(cfg["schema_registry_schema"])
+	if schema == "" {
+		return nil, errors.New("sink format=schema_registry: schema_registry_schema is required")
+	}
+
+	client, err := srclient.NewClient(srclient.Config{
+		BaseURL:  url,
+		Username: cfg["schema_registry_username"],
+		Password: cfg["schema_registry_password"],
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sink format=schema_registry: %w", err)
+	}
+
+	typ := srformat.Avro
+	if t := strings.TrimSpace(cfg["schema_registry_type"]); t != "" {
+		typ = srformat.Type(strings.ToUpper(t))
+	}
+
+	f, err := srformat.New(srformat.Config{
+		Client:  client,
+		Subject: subject,
+		Schema:  schema,
+		Type:    typ,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sink format=schema_registry: %w", err)
+	}
+	return f, nil
+}
+
 func createSinkBase(cfg SinkConfig) (hermod.Sink, error) {
 	// Substitute environment variables in config
 	for k, v := range cfg.Config {
 		cfg.Config[k] = config.SubstituteEnvVars(v)
 	}
 
-	var fmttr hermod.Formatter
-	format := cfg.Config["format"]
-	switch format {
-	case "payload":
-		f := jsonfmt.NewJSONFormatter()
-		f.SetMode(jsonfmt.ModePayload)
-		fmttr = f
-	case "cdc", "json":
-		fmttr = jsonfmt.NewJSONFormatter()
+	fmttr, err := buildFormatter(cfg.Config)
+	if err != nil {
+		return nil, err
 	}
 
 	switch cfg.Type {

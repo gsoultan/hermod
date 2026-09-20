@@ -1,4 +1,4 @@
-import { TextInput, Checkbox } from '@mantine/core';
+import { TextInput, Checkbox, Select, Textarea, Alert } from '@mantine/core';
 import { FormRow } from '@/components/common/FormRow';
 
 interface QueueSinkConfigProps {
@@ -245,6 +245,78 @@ export function QueueSinkConfig({ type, config, updateConfig }: QueueSinkConfigP
             <TextInput label="Username (SASL)" placeholder="Optional" value={config.username || ''} onChange={(e) => updateConfig('username', e.target.value)} />
             <TextInput label="Password (SASL)" type="password" placeholder="Optional" value={config.password || ''} onChange={(e) => updateConfig('password', e.target.value)} />
           </FormRow>
+
+          <Select
+            label="Message Format"
+            description="How records are serialised onto the topic"
+            data={[
+              { value: 'json', label: 'JSON' },
+              { value: 'cdc', label: 'CDC envelope' },
+              { value: 'payload', label: 'Raw payload' },
+              { value: 'schema_registry', label: 'Confluent Schema Registry (framed)' },
+            ]}
+            value={config.format || 'json'}
+            onChange={(v) => updateConfig('format', v || 'json')}
+            mt="xs"
+          />
+
+          {config.format === 'schema_registry' && (
+            <>
+              <Alert color="blue" mt="xs">
+                Records are written with the five-byte Confluent header, so existing
+                Confluent consumers can read this topic. Protobuf is not offered: its
+                framing needs a message-index array Hermod does not write yet.
+              </Alert>
+              <TextInput
+                label="Schema Registry URL"
+                placeholder="https://psrc-xxxxx.region.aws.confluent.cloud"
+                value={config.schema_registry_url || ''}
+                onChange={(e) => updateConfig('schema_registry_url', e.target.value)}
+                required
+              />
+              <TextInput
+                label="Subject"
+                description="Confluent's default naming is <topic>-value"
+                placeholder="hermod-topic-value"
+                value={config.schema_registry_subject || ''}
+                onChange={(e) => updateConfig('schema_registry_subject', e.target.value)}
+                required
+              />
+              <Select
+                label="Schema Type"
+                data={[
+                  { value: 'AVRO', label: 'Avro' },
+                  { value: 'JSON', label: 'JSON Schema' },
+                ]}
+                value={config.schema_registry_type || 'AVRO'}
+                onChange={(v) => updateConfig('schema_registry_type', v || 'AVRO')}
+              />
+              <Textarea
+                label="Schema"
+                placeholder='{"type":"record","name":"User","fields":[...]}'
+                autosize
+                minRows={4}
+                value={config.schema_registry_schema || ''}
+                onChange={(e) => updateConfig('schema_registry_schema', e.target.value)}
+                required
+              />
+              <FormRow>
+                <TextInput
+                  label="Registry Username (API key)"
+                  placeholder="Optional"
+                  value={config.schema_registry_username || ''}
+                  onChange={(e) => updateConfig('schema_registry_username', e.target.value)}
+                />
+                <TextInput
+                  label="Registry Password (API secret)"
+                  type="password"
+                  placeholder="Optional"
+                  value={config.schema_registry_password || ''}
+                  onChange={(e) => updateConfig('schema_registry_password', e.target.value)}
+                />
+              </FormRow>
+            </>
+          )}
         </>
       );
     case 'pulsar':

@@ -7,6 +7,135 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Hermod can write a Kafka topic that a Confluent consumer can read
+
+Hermod had a schema registry and could not talk to *the* schema registry. Those
+are different things, and the gap was an adoption blocker rather than a missing
+nicety: a Kafka estate running Confluent Schema Registry frames every record
+with five bytes — a zero magic byte, then the schema's registry id as a
+big-endian `uint32` — and a consumer that does not find them reads the record as
+corrupt. A topic Hermod produced could not be read by ksqlDB, Kafka Connect or
+any Confluent client, and Hermod could not be pointed at an existing Avro topic.
+
+`pkg/infra/schemaregistry` speaks the registry's REST API and wire format.
+`pkg/comm/formatter/schemaregistry` is a `hermod.Formatter`, which is the seam
+the Kafka sink already exposes — so framing happens at serialisation, where it
+belongs, rather than in a transformation whose output a sink configured with
+`format: json` would re-serialise and destroy.
+
+The schema registers once and its id is cached. Registration is idempotent at
+the registry, so an eviction or a restart costs a round trip rather than a
+duplicate subject version.
+
+It is reachable from a stored workflow, not only from Go: a sink with
+`format: schema_registry` builds it, and every key is validated when the
+workflow is built rather than on the first message. The Kafka sink form carries
+the fields; the source-side keys are API and bundle only for now.
+
+Two bounds that are not optional, because the inputs are not trusted. The
+schema-id cache is keyed by a value that **arrives on the wire**, so a hostile
+producer chooses it: it is capped and evicts. The eviction is deliberately
+*unordered* rather than LRU, for the reason `pkg/infra/evaluator` gives for the
+same decision — an LRU lets whoever controls the key stream decide what stays
+resident. Registry responses are size-capped too; the registry is a remote
+Hermod does not control.
+
+### Reading one, with a decoder written here rather than taken
+
+Consuming is wired too: `format: schema_registry` on a **Kafka source** unframes
+the record, resolves its schema id against the registry, and decodes the Avro
+body. Once a decoder is configured an unframed record is an **error, not a
+fallback** — the previous behaviour, try JSON and otherwise keep the raw bytes,
+would hand undecoded Avro to a sink looking like a legitimate payload.
+
+Decoding needs an Avro decoder, and `github.com/hamba/avro/v2` has three unfixed
+denial-of-service advisories in exactly that path (GO-2026-5046/5047/5048,
+CVE-2026-46385): the array and map decoders loop over an attacker-controlled
+block count without re-checking the reader's error state, so a record declaring
+up to `math.MaxInt64` elements followed by a truncated body pins a CPU core
+until the process is killed. The module is **archived upstream** — every version
+through v2.31.0 is affected and no fix is coming.
+
+So `pkg/infra/avrodecode` is Hermod's own. Only the decoder is reimplemented;
+hamba still parses schemas and still encodes, and neither is the affected path.
+No new dependency was taken.
+
+It avoids the bug structurally rather than by patching it. The decoder reads
+from a byte slice already fully in memory — a Kafka record, not a stream — so
+there is no deferred reader error state for a loop body to ignore, and running
+out of bytes fails at the read. Then: no allocation is ever sized from a
+declared count; collection sizes are bounded *cumulatively across blocks*, so
+splitting a large collection into small ones evades nothing; nesting is
+depth-limited so recursion ends on a bound rather than the goroutine stack; and
+value size and total values per record are bounded.
+
+The zero-width case is the one that defeats the obvious defence, and is called
+out because it would otherwise look handled: a count cannot exceed the bytes
+remaining *unless the item type is `null`*, which encodes to nothing. An array
+of `null` is arithmetically consistent with an empty body at any count. Only the
+absolute bound stops it.
+
+The abuse cases are their own file. They include the advisory's own
+`math.MaxInt64` block count under a wall-clock budget — "returns an error
+eventually" is what the vulnerable implementation also does — truncation at
+every byte offset of a valid record, out-of-range union and enum indices, a
+`math.MinInt64` block count that has no positive magnitude to negate to, and a
+200,000-level nesting bomb. Correctness is differential against hamba's
+*encoder*, which is not implicated. The decoder is fuzzed: 11 million
+executions, no panic, no hang.
+
+Protobuf stays refused at construction in both directions. Its framing carries a
+message-index array after the schema id that Hermod does not write, and an
+Avro-shaped frame would produce bytes every Protobuf consumer misreads.
+
+### Logical types decode to their meaning
+
+All ten Avro logical types are interpreted rather than passed through as the
+primitive underneath. The failure this prevents is quiet: a `timestamp-micros`
+arrives as an `int64` of microseconds, lands in a bigint column, and nothing
+looks wrong until someone reads a date.
+
+`date` becomes a `time.Time` at midnight UTC; `timestamp-millis`/`-micros` a
+`time.Time` in UTC; `local-timestamp-*` the same wall clock, unshifted, because
+shifting a zoneless value by any offset changes what the record says. `uuid`
+stays a string.
+
+Three choices are deliberate rather than convenient. **`decimal` decodes to an
+exact string** — the scale is part of the value, `1.10` and `1.1` are different
+to a `NUMERIC` column, and a float or a `big.Rat` loses that. **`time-millis`
+is a `time.Duration`**, not a `time.Time`: it is a time of day, and giving it a
+date would invent information. **`duration` is not a `time.Duration`** — a
+month is not a fixed length of time, so months, days and milliseconds stay
+separate.
+
+An unrecognised logical type falls through to the primitive, because the
+annotation is advisory and refusing a record over one would break a topic that
+is otherwise readable. A recognised one on the wrong primitive also falls
+through: reinterpreting a string as an epoch turns valid bytes into a garbage
+date, which is worse than leaving it alone.
+
+`decimal` needed a bound the others did not. `big.Int.String` is superlinear in
+digit count, so an unscaled value limited only by `MaxBytes` — 16 MiB — is CPU
+exhaustion built from entirely valid bytes. The schema's declared `precision`
+is the bound, being operator-supplied and a statement of how large the value
+can be. The fuzz corpus now seeds all of these; 4.5M executions clean.
+
+### The decode guard only covered one package
+
+`pkg/infra/schema` has held two AST-walking guards that fail the build if an
+Avro decode call appears, so the govulncheck exemption cannot silently stop
+being true. Both glob `*.go` **in their own directory**, which was sufficient
+while that package was the only importer of the library.
+
+Adding a second importer ended that. Verified rather than assumed: with a live
+`avro.Unmarshal` planted in the new formatter, both existing guards pass.
+
+`TestNoPackageDecodesAvro` now walks the whole module, and was watched failing
+on that same planted call before being kept. It also fails if the `hamba/avro`
+import disappears entirely — otherwise the guard would quietly stop testing
+anything and the exemptions in `scripts/govulncheck.sh` would become dead config
+nobody notices.
+
 ## [1.8.1] — 2026-09-20
 
 The cursor 1.8.0 could not close, and the two defects hiding behind it.

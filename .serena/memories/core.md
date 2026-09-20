@@ -54,6 +54,11 @@ find a claim that outruns the code, fix the claim.
 - [Retention sweeps and trace growth](retention_sweep_and_trace_growth.md) —
   `time.ParseDuration` cannot read the UI's default `7d`, so the trace purge
   silently never ran and PostgreSQL grew 50 GB in hours.
+- [Avro: hamba's decoder is forbidden](avro_decode_is_forbidden.md) — the
+  archived `hamba/avro` has three unfixed decoder DoS advisories, so Hermod
+  decodes with its own bounded `pkg/infra/avrodecode`; hamba still parses and
+  encodes. Three guards ban its decoder, and the two older ones covered one
+  package only. Note the zero-width `null` trap.
 - [The metis connectors](metis_connectors.md) — a BPMN engine source and sink;
   why a 5xx is an *unknown* outcome here but a refusal in panmail, the
   time-plus-ties cursor, and the unpushed SDK the `go.mod` replace depends on.
