@@ -148,7 +148,7 @@ func (m *multiSource) Read(ctx context.Context) (hermod.Message, error) {
 						// Attributes deferred: tracing.Inject below depends
 						// on the span context, not on them, so a non-recording
 						// span still stamps the message exactly as before.
-						readCtx, span := tracer.Start(ctx, "source.receive")
+						readCtx, span := tracing.StartSpan(ctx, tracer, "source.receive")
 						if span.IsRecording() {
 							span.SetAttributes(
 								attribute.String("workflow_id", m.workflowID),
@@ -213,7 +213,7 @@ func (m *multiSource) Read(ctx context.Context) (hermod.Message, error) {
 }
 
 func (m *multiSource) Ack(ctx context.Context, msg hermod.Message) error {
-	nodeID := msg.Metadata()["_source_node_id"]
+	nodeID, _ := hermod.MetadataValue(msg, "_source_node_id")
 	for _, s := range m.sources {
 		if s.nodeID == nodeID {
 			return s.source.Ack(ctx, msg)
@@ -445,7 +445,7 @@ func (r *Registry) RunWorkflowNode(workflowID string, node *storage.WorkflowNode
 	// attribute values, a slice and the option wrapper on the hottest path
 	// there is. The sampler does not read attributes (see the note at
 	// writeToSink), so the two are equivalent.
-	ctx, span := tracer.Start(ctx, "RunWorkflowNode")
+	ctx, span := tracing.StartSpan(ctx, tracer, "RunWorkflowNode")
 	if span.IsRecording() {
 		span.SetAttributes(
 			attribute.String("workflow_id", workflowID),

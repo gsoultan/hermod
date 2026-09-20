@@ -7,6 +7,66 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A panic below a node leaked every message it had produced
+
+`processNode` recovers from panics in everything below it, deliberately, so one
+bad node cannot take the worker with it. But the release of the messages the
+node returned was the **last statement in the function**, not a deferred one —
+so the recovery skipped it, and every message in that slice kept a reference it
+would never get back: never returned to the pool, holding its payload for the
+life of the process.
+
+It is worst exactly where it hurts most. A fan-out returns one message per
+array item, so a panic under a 4,000-item fan-out leaked 4,000 messages at
+once. The release is deferred now, and runs whether the function returns or
+panics.
+
+Found while auditing the recovery paths rather than from a report, and the test
+that proves it turned up a second thing worth knowing: `processNode`'s recover
+handler reports the panic through `Registry.BroadcastLog`, so a registry that
+panics *in* `BroadcastLog` panics again inside the deferred handler, where
+nothing recovers it. The panic path is only as robust as the registry it
+reports through.
+
+### Spans and metadata reads that cost more than what they carried
+
+Two per-message costs, both the same shape as the rest of the 1.7.0 work —
+building something for a consumer that was not there.
+
+**A span was allocated for every message and every node even with no
+TracerProvider installed**, which is the default. otel has no way to ask "is
+one installed", but it hands back the same default object until someone
+replaces it, so identity answers the question: `tracing.Installed()` compares
+the global provider against the one captured at package initialisation.
+`tracing.StartSpan` returns the context untouched when nothing is installed,
+and the span it hands back is the noop one already in the context — `End`,
+`SetAttributes`, `RecordError` and `SetStatus` are all safe on it, so no caller
+needs a branch.
+
+The capture depends on nothing installing a provider from an `init()`. Nothing
+in Hermod does, and `TestGateDetectsAnInstalledProvider` fails loudly if that
+changes.
+
+**Reading one metadata entry cloned the whole map.** `Metadata()` copies under
+the read lock, and it must — handing out the live map would race with a
+concurrent `SetMetadata` — but almost every caller wants one key
+(`_outbox_id`, `_source_node_id`, `traceparent`, the delivery markers) and paid
+for a copy of every other entry to get it: 11% of everything a workflow
+allocated. `hermod.MetadataValue` does the lookup under the same lock. It lives
+beside the interface because three packages had each grown a private copy of it
+and a fourth was about to.
+
+Per message through a real workflow, against the 1.7.0 baseline: **27.6
+allocations in the engine alone** (was 50), and **60.6, 72.4 and 120.4 at 8, 32
+and 128 columns** (were 116, 158 and 326).
+
+The allocation budgets now refuse to run when a TracerProvider is installed in
+the same test binary. Span creation is gated on one being present, so a
+provider installed by an earlier test would quietly measure a configuration
+production never runs in — the kind of order-dependence that makes a gate worse
+than no gate.
+
+
 ## [1.7.0] — 2026-09-20
 
 Two themes, and they turn out to be the same one.

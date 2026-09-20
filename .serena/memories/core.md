@@ -117,6 +117,10 @@ find a claim that outruns the code, fix the claim.
   cost was O(N²): 5.64 GB for a 4000-line order, now 8.41 MB. Also: two different nodes are called foreach, `transType` cannot tell
   them apart, and the settings modal's hand-written node-type list left nine node
   types with no editor at all.
+- [Watermark-on-read is still live in nine API sources](watermark_on_read_api_sources.md)
+  — discord, facebook, firebase, http, instagram, linkedin, slack, tiktok and
+  twitter all have a no-op `Ack` and persist a cursor that `Read` advanced, so
+  a crash mid-page loses the rest of the page. At-most-once, silently.
 - [Reading one field cost a whole row](field_access_cost.md) — `GetValByPath`
   marshalled the entire data map to JSON per field access, so a 6-placeholder
   sink mapping on a 128-column row cost 106us and 1763 allocations; the JSON

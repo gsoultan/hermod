@@ -19,6 +19,8 @@ package registry
 import (
 	"runtime"
 	"testing"
+
+	"github.com/gsoultan/hermod/pkg/infra/tracing"
 )
 
 // budgetHeadroom is how far over the recorded figure a run may go before this
@@ -42,9 +44,9 @@ type allocBudget struct {
 // noise inflating every figure, and the per-message tracing spans stopped
 // building attributes for a span nobody records.
 var workflowAllocBudgets = []allocBudget{
-	{cols: 8, perMessage: 89},
-	{cols: 32, perMessage: 101},
-	{cols: 128, perMessage: 149},
+	{cols: 8, perMessage: 61},
+	{cols: 32, perMessage: 73},
+	{cols: 128, perMessage: 121},
 }
 
 func TestWorkflowAllocationBudget(t *testing.T) {
@@ -53,6 +55,16 @@ func TestWorkflowAllocationBudget(t *testing.T) {
 	}
 
 	const messages = 20_000
+
+	// A TracerProvider installed by an earlier test in this binary would make
+	// this figure meaningless: span creation is gated on there being one, so
+	// the measurement would include spans a production default never builds.
+	// Loud rather than silent, because test order is not something this file
+	// controls.
+	if tracing.Installed() {
+		t.Skip("a TracerProvider is installed in this process, so the per-message figure would " +
+			"include spans the default configuration never creates; run this test on its own")
+	}
 
 	for _, b := range workflowAllocBudgets {
 		t.Run(columnsName(b.cols), func(t *testing.T) {

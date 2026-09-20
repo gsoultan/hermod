@@ -65,7 +65,7 @@ func (e *Engine) recordTraceStep(ctx context.Context, msg hermod.Message, nodeID
 
 	// Lineage Tracking. Read the one key rather than cloning the whole
 	// metadata map to index it once.
-	lineage := metadataValue(msg, "_hermod_lineage")
+	lineage, _ := hermod.MetadataValue(msg, "_hermod_lineage")
 	if lineage == "" {
 		lineage = nodeID
 	} else {
@@ -147,19 +147,6 @@ func (e *Engine) acquireTraceSlot() bool {
 }
 
 func (e *Engine) releaseTraceSlot() { <-e.traceSlots }
-
-// metadataValue reads one metadata entry without copying the map when the
-// message supports it.
-func metadataValue(msg hermod.Message, key string) string {
-	type reader interface {
-		MetadataValue(key string) (string, bool)
-	}
-	if r, ok := msg.(reader); ok {
-		v, _ := r.MetadataValue(key)
-		return v
-	}
-	return msg.Metadata()[key]
-}
 
 func (e *Engine) UpdateNodeMetric(nodeID string, count uint64) {
 	e.statusTracker.UpdateNodeMetric(nodeID, count)

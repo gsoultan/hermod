@@ -371,7 +371,7 @@ func (e *Engine) writeToSink(ctx context.Context, snk hermod.Sink, msg hermod.Me
 	// An attribute-consulting sampler would need them back on Start —
 	// TestSinkWriteSpanStillCarriesItsAttributes is what would catch that.
 	var span trace.Span
-	ctx, span = tracer.Start(ctx, "sink.write")
+	ctx, span = tracing.StartSpan(ctx, tracer, "sink.write")
 	if span.IsRecording() {
 		span.SetAttributes(
 			attribute.String("workflow_id", e.workflowID),

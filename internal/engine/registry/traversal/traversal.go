@@ -237,6 +237,18 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 
 	msgs, branch, err := t.runNode(ctx, currNode, currMsg)
 
+	// Deferred, not trailing. This function recovers from panics in everything
+	// below — which is deliberate, so one bad node cannot take the worker with
+	// it — and a trailing release is exactly what that recovery skips. Every
+	// message runNode produced would keep a reference it never gets back:
+	// never pooled, holding its payload for the life of the process, and worst
+	// under a fan-out, where one panic leaks one message per array item.
+	defer func() {
+		for _, m := range msgs {
+			m.Release()
+		}
+	}()
+
 	// A node that failed must not take the message with it.
 	//
 	// The dead-letter sink caught validation failures and sink write failures.
@@ -309,13 +321,10 @@ func (t *WorkflowTraversal) processNode(ctx context.Context, currID string) {
 		t.RoutedMu.Unlock()
 	}
 
+	// The messages are released by the deferred loop above, whether this
+	// returns or panics. They have either been routed or handed to
+	// resolveEdge, which retains what it keeps.
 	t.handleResults(ctx, currNode, msgs, branch, err)
-
-	// Release messages returned from runNode as we've either routed them
-	// or they were passed to resolveEdge (which retains them).
-	for _, m := range msgs {
-		m.Release()
-	}
 }
 
 func (t *WorkflowTraversal) runNode(ctx context.Context, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {

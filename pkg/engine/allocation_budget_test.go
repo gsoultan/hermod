@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/gsoultan/hermod/pkg/engine/config"
+	"github.com/gsoultan/hermod/pkg/infra/tracing"
 )
 
 // engineBudgetHeadroom is how far over the recorded figure a run may go before
@@ -35,9 +36,9 @@ type engineAllocBudget struct {
 // with benchLogger reporting DebugEnabled() == false, which is what every
 // logger the engine actually runs with reports by default.
 var engineAllocBudgets = []engineAllocBudget{
-	{payloadBytes: 64, perMessage: 36},
-	{payloadBytes: 1024, perMessage: 36},
-	{payloadBytes: 16384, perMessage: 37},
+	{payloadBytes: 64, perMessage: 28},
+	{payloadBytes: 1024, perMessage: 28},
+	{payloadBytes: 16384, perMessage: 29},
 }
 
 func TestEngineAllocationBudget(t *testing.T) {
@@ -46,6 +47,16 @@ func TestEngineAllocationBudget(t *testing.T) {
 	}
 
 	const messages = 50_000
+
+	// A TracerProvider installed by an earlier test in this binary would make
+	// this figure meaningless: span creation is gated on there being one, so
+	// the measurement would include spans a production default never builds.
+	// Loud rather than silent, because test order is not something this file
+	// controls.
+	if tracing.Installed() {
+		t.Skip("a TracerProvider is installed in this process, so the per-message figure would " +
+			"include spans the default configuration never creates; run this test on its own")
+	}
 
 	for _, budget := range engineAllocBudgets {
 		t.Run("payload="+strconv.Itoa(budget.payloadBytes)+"B", func(t *testing.T) {
