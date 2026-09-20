@@ -823,6 +823,18 @@ failed instances first and asks each one. That costs a request per failed
 instance per poll, and it only sees instances still inside the configured scan
 window.
 
+**The Confluent Schema Registry format is Beta, even though Kafka is GA.** The
+tier is set per *data path*, and `format: schema_registry` is a different one
+from the Kafka connector carrying it. It has unit coverage of the wire format,
+the client, both bounded caches, the formatter and the decoder, plus an abuse
+suite and a fuzzer for the Avro decode — but every registry in those tests is an
+`httptest` stub. Nothing here has been run against a real Confluent Schema
+Registry, and a stub cannot disagree with you about subject naming, compatibility
+checks, the `application/vnd.schemaregistry.v1+json` handling of a real server,
+or Confluent Cloud's authentication. Validate it against your own registry before
+putting data of record through it. Moving it to GA means adding that evidence,
+not editing this paragraph.
+
 **Kafka is GA for its data path but at-least-once only**, and that ceiling is not
 a coverage gap. There is no transactional producer — `segmentio/kafka-go` exposes
 the wire primitives but nothing on its `Writer` — and Kafka cannot join a
