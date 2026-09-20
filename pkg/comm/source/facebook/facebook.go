@@ -10,14 +10,19 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/infra/ackwatermark"
 )
 
 // FacebookSource implements the hermod.Source interface for polling Facebook Page feed.
 type FacebookSource struct {
-	accessToken  string
-	pageID       string
-	interval     time.Duration
-	since        string // Unix timestamp
+	accessToken string
+	pageID      string
+	interval    time.Duration
+	since       string
+	// acked is the cursor that may be persisted. since above is taken
+	// from the newest item of a page, so it only becomes safe once every
+	// item in that page has been acknowledged.
+	acked        ackwatermark.Tracker // Unix timestamp
 	client       *http.Client
 	items        []map[string]any
 	currentIndex int
@@ -51,7 +56,7 @@ func (s *FacebookSource) Read(ctx context.Context) (hermod.Message, error) {
 	if s.currentIndex < len(s.items) {
 		item := s.items[s.currentIndex]
 		s.currentIndex++
-		return s.messageFromData(item), nil
+		return s.emit(item, s.currentIndex == len(s.items)), nil
 	}
 
 	if !s.lastPoll.IsZero() {
@@ -182,7 +187,22 @@ func (s *FacebookSource) processItems(ctx context.Context, data []map[string]any
 
 	item := s.items[0]
 	s.currentIndex = 1
-	return s.messageFromData(item), nil
+	return s.emit(item, len(s.items) == 1), nil
+}
+
+// emit builds the message and records what it means for the stored cursor.
+//
+// Only the page's final item carries the page's watermark. `since` is taken
+// from the newest item of the page, so storing it after the first
+// acknowledgement would say the whole page was consumed and lose the rest.
+func (s *FacebookSource) emit(data map[string]any, last bool) hermod.Message {
+	msg := s.messageFromData(data)
+	cursor := ""
+	if last {
+		cursor = s.since
+	}
+	s.acked.Emitted(msg.ID(), cursor)
+	return msg
 }
 
 func (s *FacebookSource) messageFromData(data map[string]any) hermod.Message {
@@ -212,6 +232,9 @@ func (s *FacebookSource) messageFromData(data map[string]any) hermod.Message {
 
 // Ack acknowledges a message.
 func (s *FacebookSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg != nil {
+		s.acked.Ack(msg.ID())
+	}
 	return nil
 }
 
@@ -236,7 +259,7 @@ func (s *FacebookSource) Ping(ctx context.Context) error {
 // GetState returns the current state of the source.
 func (s *FacebookSource) GetState() map[string]string {
 	return map[string]string{
-		"since": s.since,
+		"since": s.acked.Mark(),
 	}
 }
 
@@ -244,6 +267,8 @@ func (s *FacebookSource) GetState() map[string]string {
 func (s *FacebookSource) SetState(state map[string]string) {
 	if since, ok := state["since"]; ok {
 		s.since = since
+		// The mark starts where the fetch resumes, so it never goes back.
+		s.acked.SetMark(since)
 	}
 }
 

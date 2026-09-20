@@ -12,14 +12,19 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/infra/ackwatermark"
 )
 
 // TwitterSource implements the hermod.Source interface for polling Twitter (X) tweets.
 type TwitterSource struct {
-	token        string
-	query        string
-	interval     time.Duration
-	sinceID      string
+	token    string
+	query    string
+	interval time.Duration
+	sinceID  string
+	// acked is the cursor that may be persisted. sinceID above runs
+	// ahead to fetch the next page, and persisting that is what lost the
+	// rest of a page on every restart mid-page.
+	acked        ackwatermark.Tracker
 	client       *http.Client
 	items        []map[string]any
 	currentIndex int
@@ -159,7 +164,12 @@ func (s *TwitterSource) Read(ctx context.Context) (hermod.Message, error) {
 
 func (s *TwitterSource) messageFromData(data map[string]any) hermod.Message {
 	msg := message.AcquireMessage()
-	msg.SetID(data["id"].(string))
+	id, _ := data["id"].(string)
+	msg.SetID(id)
+	// A tweet id is both its identity and its position in the timeline, so it
+	// is the cursor this item represents. Recorded here so the mark can only
+	// pass it once it has been acknowledged.
+	s.acked.Emitted(id, id)
 	msg.SetOperation(hermod.OpCreate)
 	msg.SetMetadata("source", "twitter")
 	msg.SetMetadata("query", s.query)
@@ -178,6 +188,9 @@ func (s *TwitterSource) messageFromData(data map[string]any) hermod.Message {
 
 // Ack acknowledges a message.
 func (s *TwitterSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg != nil {
+		s.acked.Ack(msg.ID())
+	}
 	return nil
 }
 
@@ -204,7 +217,7 @@ func (s *TwitterSource) GetState() map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return map[string]string{
-		"since_id": s.sinceID,
+		"since_id": s.acked.Mark(),
 	}
 }
 
@@ -214,6 +227,8 @@ func (s *TwitterSource) SetState(state map[string]string) {
 	defer s.mu.Unlock()
 	if id, ok := state["since_id"]; ok {
 		s.sinceID = id
+		// The mark starts where the fetch resumes, so it never goes back.
+		s.acked.SetMark(id)
 	}
 }
 

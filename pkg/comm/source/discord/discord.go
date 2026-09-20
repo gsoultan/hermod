@@ -11,6 +11,7 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
+	"github.com/gsoultan/hermod/pkg/infra/ackwatermark"
 )
 
 // DiscordSource implements the hermod.Source interface for polling Discord messages.
@@ -19,12 +20,16 @@ type DiscordSource struct {
 	channelID     string
 	interval      time.Duration
 	lastMessageID string
-	client        *http.Client
-	items         []map[string]any
-	currentIndex  int
-	lastPoll      time.Time
-	baseURL       string
-	mu            sync.Mutex
+	// acked is the cursor that may be persisted. lastMessageID above runs
+	// ahead to fetch the next page, and persisting that is what lost the
+	// rest of a page on every restart mid-page.
+	acked        ackwatermark.Tracker
+	client       *http.Client
+	items        []map[string]any
+	currentIndex int
+	lastPoll     time.Time
+	baseURL      string
+	mu           sync.Mutex
 }
 
 // NewDiscordSource creates a new DiscordSource.
@@ -120,7 +125,12 @@ func (s *DiscordSource) Read(ctx context.Context) (hermod.Message, error) {
 
 func (s *DiscordSource) messageFromData(data map[string]any) hermod.Message {
 	msg := message.AcquireMessage()
-	msg.SetID(data["id"].(string))
+	id, _ := data["id"].(string)
+	msg.SetID(id)
+	// A Discord message id is both its identity and its position in the
+	// channel, so it is the cursor this item represents. Recorded here so the
+	// mark can only pass it once it has been acknowledged.
+	s.acked.Emitted(id, id)
 	msg.SetOperation(hermod.OpCreate)
 	msg.SetMetadata("source", "discord")
 	msg.SetMetadata("channel_id", s.channelID)
@@ -143,6 +153,9 @@ func (s *DiscordSource) messageFromData(data map[string]any) hermod.Message {
 
 // Ack acknowledges a message.
 func (s *DiscordSource) Ack(ctx context.Context, msg hermod.Message) error {
+	if msg != nil {
+		s.acked.Ack(msg.ID())
+	}
 	return nil
 }
 
@@ -169,7 +182,7 @@ func (s *DiscordSource) GetState() map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return map[string]string{
-		"last_message_id": s.lastMessageID,
+		"last_message_id": s.acked.Mark(),
 	}
 }
 
@@ -179,6 +192,8 @@ func (s *DiscordSource) SetState(state map[string]string) {
 	defer s.mu.Unlock()
 	if id, ok := state["last_message_id"]; ok {
 		s.lastMessageID = id
+		// The mark starts where the fetch resumes, so it never goes back.
+		s.acked.SetMark(id)
 	}
 }
 

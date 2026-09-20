@@ -7,6 +7,53 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Ten polling sources said a page was consumed the moment it was fetched
+
+The sweep that fixed ten SQL and CDC sources to advance their stored cursor on
+acknowledgement never reached the polling connectors. Twelve of them recorded
+the cursor inside `Read`: a page of a hundred items was written down as
+consumed before any of it had been delivered, so a crash after the first item
+lost the other ninety-nine. Nothing fetches that window again. **At-most-once,
+in connectors documented as at-least-once, with no error anywhere.**
+
+Slack is the worked example: `Read` set `lastTimestamp` to the newest message
+of the page it had just fetched, `GetState` persisted that, and `Ack` was
+`return nil`. The Google Sheets source said so out loud — its `Ack` carried the
+comment *"Watermark is already updated in Read for simplicity in this polling
+implementation"*.
+
+Ten are fixed: **slack, discord, twitter, instagram, linkedin, tiktok,
+facebook, firebase, googlesheets and mainframe**. Each now records what it
+emits and moves the stored cursor only behind messages that have been
+acknowledged.
+
+`pkg/infra/ackwatermark` is the shared mechanism. It holds emitted items in
+order and advances across the acknowledged *prefix* only — not to the highest
+acknowledged value, because acknowledgements arrive out of order when sinks run
+in parallel and the highest would step over an item still in flight. An item
+may also carry no cursor of its own, which is what a page-token API needs:
+TikTok's cursor and Facebook's `since` address a page rather than an item, so
+every item but the last carries nothing and the token is stored only once the
+whole page is done.
+
+Two sources are on a documented exemption list rather than fixed:
+
+- **googleanalytics** is a false positive. `lastFetch` records when the source
+  last polled, not what it consumed — it gates the poll interval and nothing
+  filters the query by it.
+- **file** is the same bug and is *not* fixed. `pop()` advances `lastMTime`
+  when a file is dequeued, before any of its rows are delivered, and one file
+  can yield thousands of rows in CSV per-row mode. The fix needs the reader to
+  signal end-of-file across all four backends, so it is not the mechanical
+  change the others were.
+
+A contract test fails the build if a source gains a `GetState` and a no-op
+`Ack`, and a second one fails if an exemption stops applying — an exemption
+that no longer holds hides a regression in the one place nobody looks. The gate
+earned itself immediately: a hand-written grep had found eight of these, and
+the gate found four more.
+
+
 ### A panic below a node leaked every message it had produced
 
 `processNode` recovers from panics in everything below it, deliberately, so one
