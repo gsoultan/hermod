@@ -244,6 +244,37 @@ refuses to render if the relationship is wrong.
 
 ---
 
+## The logs table at DEBUG
+
+`HERMOD_LOG_LEVEL=debug` is a storage decision as much as a verbosity one. A
+successful sink write logs at DEBUG, and that is the single most frequent event
+the platform produces — one `logs` row per message, written synchronously by
+the engine goroutine that emitted it. A pipeline doing 10k msgs/s writes 10k
+rows a second, saying that nothing unusual happened.
+
+It also costs throughput beyond the write: the line reports the message's
+payload size, and for a message carrying a data map that means marshalling it
+to JSON before the level is even consulted.
+
+Check what is accumulating:
+
+```sql
+SELECT level, count(*), pg_size_pretty(sum(pg_column_size(data))) AS data_bytes
+FROM logs
+WHERE timestamp > now() - interval '1 hour'
+GROUP BY level ORDER BY 2 DESC;
+```
+
+A large `DEBUG` count on a healthy workflow means the level is on where it
+should not be. Turn it off, or thin it with `HERMOD_DB_LOG_SAMPLE_RATE`, which
+samples DEBUG and INFO before they reach the buffer.
+
+Workflow logs are purged on the workflow's `retention_days` (default 30), and
+logs with no workflow on a fixed 30 days — so the table is bounded, but thirty
+days of one row per message is not a bound worth relying on.
+
+---
+
 ## Postgres CDC
 
 ### WAL retention — the one that fills disks
