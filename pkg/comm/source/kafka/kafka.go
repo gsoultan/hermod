@@ -23,7 +23,10 @@ type KafkaSource struct {
 	topic     string
 	username  string
 	password  string
-	mu        sync.Mutex
+	// decoder, when set, reads Confluent-framed records. Nil means the
+	// historical behaviour: try JSON, fall back to raw bytes.
+	decoder recordDecoder
+	mu      sync.Mutex
 }
 
 func NewKafkaSource(brokers []string, topic, groupID string, username, password string) *KafkaSource {
@@ -64,6 +67,70 @@ func NewKafkaSource(brokers []string, topic, groupID string, username, password 
 	}
 }
 
+// recordDecoder reads a Confluent-framed record. It is an interface so the
+// source does not depend on the registry client's construction.
+type recordDecoder interface {
+	Decode(ctx context.Context, data []byte) (map[string]any, error)
+}
+
+// SetDecoder makes the source read Confluent-framed records — the five-byte
+// registry header plus an Avro body — instead of guessing at JSON.
+//
+// Once set, an unframed record is an error rather than something to fall back
+// on. A topic that is not what the operator configured should say so, not
+// quietly deliver bytes that will be wrong further downstream.
+func (s *KafkaSource) SetDecoder(d recordDecoder) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.decoder = d
+}
+
+// buildMessage turns one record's bytes into a message.
+//
+// It is separate from Read so the decode path can be tested without a broker;
+// Read supplies nothing but the bytes and the coordinates.
+func (s *KafkaSource) buildMessage(
+	ctx context.Context, value []byte, topic string, partition int, offset int64,
+) (*message.DefaultMessage, error) {
+	s.mu.Lock()
+	dec := s.decoder
+	s.mu.Unlock()
+
+	msg := message.AcquireMessage()
+	msg.SetPayload(value)
+
+	switch {
+	case dec != nil:
+		// Configured for a registry topic: a record that does not decode is a
+		// poison message, not something to deliver half-built.
+		data, err := dec.Decode(ctx, value)
+		if err != nil {
+			msg.Release()
+			return nil, fmt.Errorf("kafka source: topic %s partition %d offset %d: %w",
+				topic, partition, offset, err)
+		}
+		for k, v := range data {
+			msg.SetData(k, v)
+		}
+
+	default:
+		// Try to unmarshal JSON into Data() for dynamic structure
+		var jsonData map[string]any
+		if err := json.Unmarshal(value, &jsonData); err == nil {
+			for k, v := range jsonData {
+				msg.SetData(k, v)
+			}
+		} else {
+			msg.SetAfter(value) // Fallback for non-JSON
+		}
+	}
+
+	msg.SetMetadata("kafka_topic", topic)
+	msg.SetMetadata("kafka_partition", strconv.Itoa(partition))
+	msg.SetMetadata("kafka_offset", strconv.FormatInt(offset, 10))
+	return msg, nil
+}
+
 func (s *KafkaSource) Read(ctx context.Context) (hermod.Message, error) {
 	s.mu.Lock()
 	reader := s.reader
@@ -74,23 +141,11 @@ func (s *KafkaSource) Read(ctx context.Context) (hermod.Message, error) {
 		return nil, fmt.Errorf("failed to fetch message from kafka: %w", err)
 	}
 
-	msg := message.AcquireMessage()
-	msg.SetID(string(m.Key))
-	msg.SetPayload(m.Value)
-
-	// Try to unmarshal JSON into Data() for dynamic structure
-	var jsonData map[string]any
-	if err := json.Unmarshal(m.Value, &jsonData); err == nil {
-		for k, v := range jsonData {
-			msg.SetData(k, v)
-		}
-	} else {
-		msg.SetAfter(m.Value) // Fallback for non-JSON
+	msg, err := s.buildMessage(ctx, m.Value, m.Topic, m.Partition, m.Offset)
+	if err != nil {
+		return nil, err
 	}
-
-	msg.SetMetadata("kafka_topic", m.Topic)
-	msg.SetMetadata("kafka_partition", strconv.Itoa(m.Partition))
-	msg.SetMetadata("kafka_offset", strconv.FormatInt(m.Offset, 10))
+	msg.SetID(string(m.Key))
 
 	return msg, nil
 }
