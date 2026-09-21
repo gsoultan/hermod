@@ -170,9 +170,51 @@ heal on roll-forward. Reasoning in full at `knownSchemaFingerprint`.
   timestamp, so the PK silently drops one, and the win is SQLite-only
   (PostgreSQL has no clustered index).
 
-## Still open after this
+## Per-workflow retention (2026-09-21)
 
-- `PurgeMessageTraces` still has no `workflow_id` predicate (see above). Unchanged.
+The long-standing "still open" item above is fixed. `PurgeMessageTraces` takes a
+`storage.TraceRetention` — a cutoff **per workflow**, the set of workflows that
+exist, and whether that set is known complete — and runs **once per sweep**
+instead of once per workflow.
+
+Three live bugs, not one:
+
+- The shortest window in the deployment decided what every workflow kept.
+- On PostgreSQL it was **irreversible**: retention drops whole day partitions,
+  and a partition holds every workflow's rows for that day, so a `7d` workflow
+  `DROP TABLE`d a `365d` workflow's traces. Partitions are now dropped only
+  below `PartitionFloor()` — the oldest moment no *live* workflow still needs.
+  One workflow that keeps everything therefore blocks partition dropping for the
+  whole deployment, which is correct and worth not "optimising" later.
+- It ran N full-table deletes per hour for N workflows.
+
+`idx_trace_ts(timestamp)` matched the unscoped delete; it is replaced by
+`idx_trace_wf_ts(workflow_id, timestamp)`. Measured cost of the wider key: 6.6
+B/step (+1.6%).
+
+**Traces of deleted workflows.** `DeleteWorkflow` deletes one row, so every
+workflow ever deleted left unreachable rows forever. Now the Registry deletes
+them — `Registry.DeleteWorkflowTraces`, called from both the single and batch
+delete handlers. **Not** a cascade inside `sqlStorage.DeleteWorkflow`:
+`SetLogStorage` may point traces at a different database from the one holding
+workflows (`infra.go` passes either `newLogStore` or `newStore`), so a cascade
+in the workflow store deletes from the wrong place and silently leaves the rows.
+Only the Registry knows both.
+
+**The trap in the orphan sweep.** It needs "every workflow that exists", and
+`purgeRetention` reads a *paged* list. On a deployment with more workflows than
+one page, everything past the first page looks deleted and has its traces swept.
+Hence `TraceRetention.LiveIsComplete`, set from `len(workflows) == total` and
+never inferred from the map being non-empty — an empty `Live` legitimately means
+"no workflows exist". When false the orphan step is skipped and logged; the rest
+still runs.
+
+Orphan candidates come from `message_traces` (one row per message), not from
+`message_trace_steps` (one per node per message). A trace written before the
+parent table existed has no row there and stays invisible to the sweep — the
+same backlog the CHANGELOG's backfill note covers.
+
+## Still open after this
 - **MongoDB and Pebble still store the payload twice, uncompressed.**
   `hermod.TraceStep` has no bson tags, so Mongo's `$push` persists `Before` *and*
   `After`; Pebble JSON-marshals the whole `MessageTrace`. Both are the shape SQL

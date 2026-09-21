@@ -213,3 +213,104 @@ func TestNarrowTraceSteps_DropsLegacyColumnsOnPostgres(t *testing.T) {
 		t.Errorf("RecordTraceStep after narrowing: %v", err)
 	}
 }
+
+// The assembly the sibling test skips: PurgeMessageTraces itself has to reach
+// the partition drop, and has to refuse it when a live workflow still wants the
+// day.
+//
+// Dropping a partition takes every workflow's rows for that day at once, which
+// is the one reclaim in this system that no retention setting undoes. The
+// sibling test calls dropTracePartitionsBefore directly, so on its own it would
+// still pass if the sweep stopped calling it — or if the sweep called it with
+// one workflow's cutoff, which is the bug that let a 7d window destroy a 365d
+// workflow's traces irreversibly.
+func TestPurgeMessageTracesDropsPartitionsOnlyBelowTheFloor_OnPostgres(t *testing.T) {
+	dsn := os.Getenv("POSTGRES_DSN")
+	if os.Getenv("HERMOD_INTEGRATION") != "1" || dsn == "" {
+		t.Skip("integration: set HERMOD_INTEGRATION=1 and POSTGRES_DSN to enable")
+	}
+
+	ctx := t.Context()
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("opening %s: %v", dsn, err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	st := NewSQLStorage(db, "pgx")
+	if err := st.Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	s := st.(*sqlStorage)
+	if !s.traceStepsIsPartitioned(ctx) {
+		t.Skip("message_trace_steps is not partitioned here")
+	}
+
+	now := time.Now().UTC()
+	makeDay := func(daysAgo int) string {
+		day := now.AddDate(0, 0, -daysAgo).Truncate(24 * time.Hour)
+		name := tracePartitionName(day)
+		if _, err := db.ExecContext(ctx,
+			"CREATE TABLE IF NOT EXISTS "+name+" PARTITION OF message_trace_steps FOR VALUES FROM ('"+
+				day.Format("2006-01-02 15:04:05")+"') TO ('"+
+				day.AddDate(0, 0, 1).Format("2006-01-02 15:04:05")+"')"); err != nil {
+			t.Fatalf("creating partition %s: %v", name, err)
+		}
+		return name
+	}
+	exists := func(name string) bool {
+		var ok bool
+		if err := db.QueryRowContext(ctx,
+			"SELECT EXISTS (SELECT 1 FROM pg_class WHERE relname = $1)", name).Scan(&ok); err != nil {
+			t.Fatalf("checking %s: %v", name, err)
+		}
+		return ok
+	}
+
+	// A live workflow that keeps everything blocks the drop for the whole
+	// deployment, because the day it would reclaim holds that workflow's rows
+	// too.
+	blocked := makeDay(40)
+	if err := s.PurgeMessageTraces(ctx, storage.TraceRetention{
+		Keep:           map[string]time.Time{"wf-short": now.AddDate(0, 0, -7)},
+		Live:           map[string]struct{}{"wf-short": {}, "wf-keeps-everything": {}},
+		LiveIsComplete: true,
+	}); err != nil {
+		t.Fatalf("PurgeMessageTraces: %v", err)
+	}
+	if !exists(blocked) {
+		t.Errorf("%s was dropped while a live workflow still keeps everything; that "+
+			"workflow's traces are gone and no retention setting brings them back", blocked)
+	}
+
+	// With every live workflow windowed, the floor is the most conservative of
+	// them and whole days below it go.
+	if err := s.PurgeMessageTraces(ctx, storage.TraceRetention{
+		Keep: map[string]time.Time{
+			"wf-short": now.AddDate(0, 0, -7),
+			"wf-long":  now.AddDate(0, 0, -30),
+		},
+		Live:           map[string]struct{}{"wf-short": {}, "wf-long": {}},
+		LiveIsComplete: true,
+	}); err != nil {
+		t.Fatalf("PurgeMessageTraces: %v", err)
+	}
+	if exists(blocked) {
+		t.Errorf("%s survived a sweep whose floor (30 days) is past it; retention has "+
+			"fallen back to a range delete on the table that reached 50 GB", blocked)
+	}
+
+	// And a day the floor falls inside is left for the range delete to trim.
+	inside := makeDay(20)
+	if err := s.PurgeMessageTraces(ctx, storage.TraceRetention{
+		Keep:           map[string]time.Time{"wf-long": now.AddDate(0, 0, -20)},
+		Live:           map[string]struct{}{"wf-long": {}},
+		LiveIsComplete: true,
+	}); err != nil {
+		t.Fatalf("PurgeMessageTraces: %v", err)
+	}
+	if !exists(inside) {
+		t.Errorf("%s was dropped though the cutoff falls inside it, discarding traces "+
+			"the retention window still covers", inside)
+	}
+}

@@ -122,11 +122,16 @@ const (
 	QueryGetSetting = "GetSetting"
 
 	// Audit Logs
-	QueryCreateAuditLog     = "CreateAuditLog"
-	QueryListAuditLogs      = "ListAuditLogs"
-	QueryCountAuditLogs     = "CountAuditLogs"
-	QueryPurgeAuditLogs     = "PurgeAuditLogs"
-	QueryPurgeMessageTraces = "PurgeMessageTraces"
+	QueryCreateAuditLog             = "CreateAuditLog"
+	QueryListAuditLogs              = "ListAuditLogs"
+	QueryCountAuditLogs             = "CountAuditLogs"
+	QueryPurgeAuditLogs             = "PurgeAuditLogs"
+	QueryPurgeMessageTraces         = "PurgeMessageTraces"
+	QueryPurgeWorkflowTraceSteps    = "PurgeWorkflowTraceSteps"
+	QueryPurgeWorkflowTraceParents  = "PurgeWorkflowTraceParents"
+	QueryDeleteWorkflowTraceSteps   = "DeleteWorkflowTraceSteps"
+	QueryDeleteWorkflowTraceParents = "DeleteWorkflowTraceParents"
+	QueryDistinctTraceWorkflows     = "DistinctTraceWorkflows"
 
 	// Webhook Requests
 	QueryCreateWebhookRequest  = "CreateWebhookRequest"
@@ -572,11 +577,30 @@ var commonQueries = map[string]string{
 
 	QueryGetSetting: "SELECT value FROM settings WHERE key = ?",
 
-	QueryCreateAuditLog:     "INSERT INTO audit_logs (id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryListAuditLogs:      "SELECT id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip FROM audit_logs",
-	QueryCountAuditLogs:     "SELECT COUNT(*) FROM audit_logs",
-	QueryPurgeAuditLogs:     "DELETE FROM audit_logs WHERE timestamp < ?",
-	QueryPurgeMessageTraces: "DELETE FROM message_trace_steps WHERE timestamp < ?",
+	QueryCreateAuditLog: "INSERT INTO audit_logs (id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryListAuditLogs:  "SELECT id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip FROM audit_logs",
+	QueryCountAuditLogs: "SELECT COUNT(*) FROM audit_logs",
+	QueryPurgeAuditLogs: "DELETE FROM audit_logs WHERE timestamp < ?",
+	// Scoped to one workflow, always. The unscoped form this replaces was
+	// called from inside a loop over workflows, each passing its own cutoff, so
+	// the shortest window in the deployment decided what every workflow kept.
+	//
+	// workflow_id leads idx_trace_wf_ts, so this is a range scan over one
+	// workflow's rows rather than the sequential scan of the whole table that
+	// the unscoped delete had to do once per workflow per hour.
+	QueryPurgeWorkflowTraceSteps:   "DELETE FROM message_trace_steps WHERE workflow_id = ? AND timestamp < ?",
+	QueryPurgeWorkflowTraceParents: "DELETE FROM message_traces WHERE workflow_id = ? AND started_at < ?",
+
+	// Everything for one workflow, regardless of age: what a deleted workflow
+	// leaves behind, which nothing else ever reclaims.
+	QueryDeleteWorkflowTraceSteps:   "DELETE FROM message_trace_steps WHERE workflow_id = ?",
+	QueryDeleteWorkflowTraceParents: "DELETE FROM message_traces WHERE workflow_id = ?",
+
+	// Which workflows still have traces here. Read from the parent table rather
+	// than from the steps: it holds one row per message instead of one per node
+	// per message, and (workflow_id, message_id) is its primary key, so the
+	// distinct scan is over the smaller of the two by roughly the step count.
+	QueryDistinctTraceWorkflows: "SELECT DISTINCT workflow_id FROM message_traces",
 
 	QueryCreateWebhookRequest:  "INSERT INTO webhook_requests (id, timestamp, path, method, headers, body) VALUES (?, ?, ?, ?, ?, ?)",
 	QueryListWebhookRequests:   "SELECT id, timestamp, path, method, headers, body FROM webhook_requests",
