@@ -1782,14 +1782,33 @@ func (s *mongoStorage) RecordTraceStep(ctx context.Context, workflowID, messageI
 	coll := s.db.Collection("message_traces")
 	filter := bson.M{"workflow_id": workflowID, "message_id": messageID}
 
+	// The step names its payload; the payload goes in a map keyed by content.
+	//
+	// This used to push the whole hermod.TraceStep, which carries Before *and*
+	// After — the payload chain stored twice, and again undeduped for every
+	// step that did not change the message. Two thirds of payload bytes in a
+	// realistic trace are byte-identical to another step of the same message,
+	// and a document has a 16 MB ceiling to spend them against.
+	//
+	// Dedup needs no bookkeeping here: the same content produces the same key,
+	// so a repeated payload is a repeated $set of the same field.
+	stored, key, blob := storage.PackTraceStep(step)
+
+	set := bson.M{}
+	if key != "" {
+		set["payloads."+key] = blob
+	}
 	update := bson.M{
-		"$push": bson.M{"steps": step},
+		"$push": bson.M{"steps": stored},
 		"$setOnInsert": bson.M{
 			"id":          uuid.New().String(),
 			"workflow_id": workflowID,
 			"message_id":  messageID,
 			"created_at":  time.Now(),
 		},
+	}
+	if len(set) > 0 {
+		update["$set"] = set
 	}
 	opts := options.UpdateOne().SetUpsert(true)
 	_, err := coll.UpdateOne(ctx, filter, update, opts)
@@ -1811,12 +1830,18 @@ func (s *mongoStorage) CreateMessageTrace(ctx context.Context, tr storage.Messag
 func (s *mongoStorage) GetMessageTrace(ctx context.Context, workflowID, messageID string) (storage.MessageTrace, error) {
 	coll := s.db.Collection("message_traces")
 	filter := bson.M{"workflow_id": workflowID, "message_id": messageID}
-	var tr storage.MessageTrace
-	err := coll.FindOne(ctx, filter).Decode(&tr)
+	var doc storage.StoredTrace
+	err := coll.FindOne(ctx, filter).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return storage.MessageTrace{}, storage.ErrNotFound
 	}
-	return tr, err
+	if err != nil {
+		return storage.MessageTrace{}, err
+	}
+	// Resolves payload keys and rebuilds each step's Before from the one
+	// before it. Documents written before dedup keep their maps inline and
+	// are read by the same call, so an upgrade needs no backfill.
+	return doc.UnpackTrace(), nil
 }
 
 func (s *mongoStorage) ListMessageTraces(ctx context.Context, workflowID string, f storage.TraceFilter) ([]storage.MessageTrace, error) {
