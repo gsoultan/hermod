@@ -62,6 +62,12 @@ find a claim that outruns the code, fix the claim.
 - [The metis connectors](metis_connectors.md) — a BPMN engine source and sink;
   why a 5xx is an *unknown* outcome here but a refusal in panmail, the
   time-plus-ties cursor, and the unpushed SDK the `go.mod` replace depends on.
+- [The metis external-task source](metis_external_task_source.md) — Hermod runs
+  a BPMN step: fetch-and-lock is `Read`, completing the task is `Ack`, and not
+  acknowledging is the redelivery.
+- [An acknowledgement is not always a success](ack_is_not_always_a_success.md) —
+  the engine acks messages it *parked*, not just ones it delivered. Read
+  `_hermod_failed_at`; `_hermod_dead_lettered` misses the sink-outage case.
 - [How the editor captures a source sample](editor_sample_capture_path.md) — an
   empty "Available Fields" list is an upstream sample problem; Test Connection is
   what fires sampling, `SamplePanel` is dead code, and a failed sample is only a
