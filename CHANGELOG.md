@@ -7,6 +7,19 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.9.1] — 2026-09-21
+
+A message trace of a `pipeline` node now reads in the order the work happened.
+
+### Upgrading
+
+**Nothing to do.** No configuration changes, no migration runs, and no stored
+trace is rewritten. Traces recorded before this release keep the ordering they
+were written with; traces recorded after it get the corrected one.
+
+**No data was ever affected by this.** Sinks received the right values before
+the fix and receive the same values after it. What changed is how a trace reads.
+
 ### Fixed
 
 - **A pipeline node no longer appears to delete the field it just added.** A
@@ -19,9 +32,13 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
   so the first step in the pipeline was shown as having been handed a field it
   had not computed yet, and its own "after", which correctly lacked that field,
   read as a deletion. Node steps are now stamped when the node finishes;
-  duration still spans the whole node. No stored trace changes, and no data was
-  ever affected — sinks always received the right values. Traces recorded before
-  this release keep the old ordering.
+  duration still spans the whole node.
+
+  The symptom reads as a data bug — "this node is returning stale data" — and
+  sends you looking through transformers and caches for something that is not
+  there. A single transformation cannot show it; it takes a pipeline, because a
+  single transformation produces one sub-step with the same payload as its
+  parent.
 
 ## [1.9.0] — 2026-09-20
 
