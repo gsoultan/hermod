@@ -38,4 +38,42 @@ describe('transformation guide', () => {
     expect(g.title).toBe('future thing');
     expect(g.what).toBe('');
   });
+
+  // Two different nodes answer to "foreach": the `foreach` node type splits the
+  // message into one per item, while a `transformation` with transType
+  // foreach/fanout keeps one message and materialises the expanded array on it.
+  // `transType` cannot tell them apart -- TransformationForm computes it as
+  // `data.transType || node.type`, so both come out "foreach" -- which is why
+  // the badge over the editor described the same thing for both. The node's own
+  // type is the discriminator, the same one ForeachConfig already takes.
+  describe('the two foreaches', () => {
+    it('does not describe them identically', () => {
+      const node = guideFor('foreach', 'foreach');
+      const transformation = guideFor('foreach', 'transformation');
+
+      expect(node.title).not.toBe(transformation.title);
+      expect(node.what).not.toBe(transformation.what);
+    });
+
+    it('says the fan-out node emits one record per item', () => {
+      expect(guideFor('foreach', 'foreach').what).toMatch(/one record per item/i);
+    });
+
+    it('never claims the transformation emits one record per item', () => {
+      // `fanout` is a live transType: the Go transformer registers it as an
+      // alias, TRANSFORM_CONFIGS keys on it, and an imported bundle can carry
+      // it. Its guide entry claimed a fan-out the transformer does not do.
+      for (const key of ['foreach', 'fanout']) {
+        const g = guideFor(key, 'transformation');
+        expect(g.what, `${key}: "${g.what}"`).not.toMatch(/one record per item/i);
+        expect(g.what, `${key}: "${g.what}"`).toMatch(/same record/i);
+      }
+    });
+
+    it('falls back to the transformation reading when no node type is given', () => {
+      // guideFor is called from surfaces that have no node in hand. The safe
+      // default is the one that does not promise a fan-out.
+      expect(guideFor('foreach').what).toBe(guideFor('foreach', 'transformation').what);
+    });
+  });
 });

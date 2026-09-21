@@ -67,11 +67,42 @@ Consequences to keep in mind:
 | Palette | Node | Code | Behaviour |
 | --- | --- | --- | --- |
 | Logic & Flow → "Foreach (Fan-out)" | `type: foreach` | `internal/engine/registry/nodes/control/foreach.go` | splits into N messages, each with `_item`, `_index` and `_fanout_*` metadata |
-| Common Transformations → "Foreach / Fanout" | `type: transformation`, `transType: foreach\|fanout` | `pkg/comm/transformer/logic/foreach.go` | one message out, expanded array under `resultField` (default `_fanout`) |
+| Common Transformations → "Expand List (Foreach)" | `type: transformation`, `transType: foreach\|fanout` | `pkg/comm/transformer/logic/foreach.go` | one message out, expanded array under `resultField` (default `_fanout`) |
 
 `transType` cannot tell them apart: `TransformationForm` computes it as
 `data.transType || node.type`, and both come out `"foreach"`. The discriminator
 is the node's own `type`, now passed to config components as the `nodeType` prop.
+
+`fanout` is **only ever a transformer alias** — `transformer.Register("fanout", …)`.
+There is no `RegisterNodeExecutor("fanout")`, so a `fanout` key always means
+"expand onto the same record", never the split. (`workflow_validation.go`'s
+`case "foreach", "fanout"` is defensive, not evidence of a second node type.)
+
+### The copy told users the opposite
+
+The `nodeType` discriminator reached `ForeachConfig` but nothing else, so the
+two stayed indistinguishable everywhere a user looks *before* opening the
+editor body:
+
+- `guideFor(transType)` took no node type, so the badge and sentence over both
+  editors read "For each item / …works through it item by item." There is now a
+  `NODE_TYPE_GUIDES` map checked first, mirroring `resolveConfigComponent`'s
+  node-type-wins ordering; the node reads "Fan out", the transformation "Expand
+  list". Omitting `nodeType` resolves to the transformation — the reading that
+  does not promise a fan-out.
+- The `fanout` guide entry said "emits one record per item". The transformer it
+  keys to does not emit anything extra. It was the node's behaviour written
+  under the transformation's key.
+- The palette labelled the transformation "Foreach / Fanout" and described it as
+  "Iterate array items and fan out". `paletteSearch.normalise` strips hyphens,
+  so typing "fanout" returned both entries under near-identical names, and the
+  one that did *not* fan out was the one that said it did.
+
+Guards: `ui/src/__tests__/foreachPaletteCopy.test.ts` (only the entry that fans
+out may say "fan-out"; "fanout" search must not reach the transformation) and
+the `the two foreaches` block in `transformationGuide.test.ts`. The node label
+"Foreach (Fan-out)" is pinned by `ui/__tests__/foreach_node_config_e2e.spec.ts`
+— rename the transformation, not the node.
 
 ## The editor traps
 
