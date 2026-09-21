@@ -30,7 +30,7 @@ func (e *Engine) WillTrace(msg hermod.Message) bool {
 }
 
 func (e *Engine) RecordTraceStep(ctx context.Context, msg hermod.Message, nodeID string, start time.Time, before map[string]any, err error) {
-	e.recordTraceStep(ctx, msg, nodeID, start, before, nil, err)
+	e.recordTraceStep(msg, nodeID, start, before, nil, err)
 }
 
 // RecordTraceStepSnapshot records a step whose payload was captured earlier,
@@ -46,7 +46,7 @@ func (e *Engine) RecordTraceStep(ctx context.Context, msg hermod.Message, nodeID
 // Pass the snapshot taken before the work started and the halves agree. Guard
 // the capture with WillTrace so an untraced workflow pays nothing.
 func (e *Engine) RecordTraceStepSnapshot(ctx context.Context, msg hermod.Message, nodeID string, start time.Time, before, after map[string]any, err error) {
-	e.recordTraceStep(ctx, msg, nodeID, start, before, after, err)
+	e.recordTraceStep(msg, nodeID, start, before, after, err)
 }
 
 // RecordCompletedTraceStep records a step whose payload is the *result* of the
@@ -66,25 +66,30 @@ func (e *Engine) RecordTraceStepSnapshot(ctx context.Context, msg hermod.Message
 // payload back to its timestamp. A node *is* one, so it moves its timestamp
 // forward to its payload.
 func (e *Engine) RecordCompletedTraceStep(ctx context.Context, msg hermod.Message, nodeID string, start, done time.Time, before map[string]any, err error) {
-	e.recordTraceStepAt(ctx, msg, nodeID, start, done, before, nil, err)
+	e.recordTraceStepAt(msg, nodeID, start, done, before, nil, err)
 }
 
-func (e *Engine) recordTraceStep(ctx context.Context, msg hermod.Message, nodeID string, start time.Time, before, after map[string]any, err error) {
-	e.recordTraceStepAt(ctx, msg, nodeID, start, start, before, after, err)
+func (e *Engine) recordTraceStep(msg hermod.Message, nodeID string, start time.Time, before, after map[string]any, err error) {
+	e.recordTraceStepAt(msg, nodeID, start, start, before, after, err)
 }
 
-func (e *Engine) recordTraceStepAt(ctx context.Context, msg hermod.Message, nodeID string, start, at time.Time, before, after map[string]any, err error) {
+func (e *Engine) recordTraceStepAt(msg hermod.Message, nodeID string, start, at time.Time, before, after map[string]any, err error) {
 	if !e.WillTrace(msg) {
 		return
 	}
 
+	// The payload comes from the message, never from a cache.
+	//
+	// This used to prefer a snapshot stashed in the context under
+	// hermod.LastTraceSnapshotKey. It never fired: both producers of that key
+	// live in the registry and neither context reaches here, measured at zero
+	// hits across the repo's short suite. It could not have been made safe
+	// either, because it had no way to tell whether the cached payload belonged
+	// to this message or this moment — the one thing a trace step must get
+	// right. A caller that genuinely has the payload already passes it as
+	// `after` via RecordTraceStepSnapshot, which is explicit about whose it is.
 	if after == nil {
-		// Optimization: use cached snapshot from context if available, otherwise ToMap()
-		if last, ok := ctx.Value(hermod.LastTraceSnapshotKey).(*map[string]any); ok && *last != nil {
-			after = *last
-		} else {
-			after = msg.ToMap()
-		}
+		after = msg.ToMap()
 	}
 
 	// Lineage Tracking. Read the one key rather than cloning the whole

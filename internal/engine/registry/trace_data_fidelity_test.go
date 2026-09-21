@@ -17,15 +17,19 @@ import (
 // ---------------------------------------------------------------------------
 // A message trace is only worth opening if it is a record of *this* message.
 //
-// Three places in the trace machinery hand a step a payload it did not capture
+// Two places in the trace machinery hand a step a payload it did not capture
 // itself, and each one is somewhere message N's data can be filed under message
 // N+1:
 //
-//   - the router snapshot taken before the traversal (pkg/engine/runner.go:868),
-//   - the ctx-cached LastTraceSnapshotKey that recordTraceStep prefers over
-//     msg.ToMap() (pkg/engine/telemetry_methods.go:59),
-//   - the shared pipeline pointer doApplyTransformation reads at registry.go:1459
-//     and writes at registry.go:1485.
+//   - the router snapshot taken before the traversal, in pkg/engine/runner.go,
+//   - the shared pipeline pointer under hermod.LastTraceSnapshotKey that
+//     doApplyTransformation reads for its `before` and writes after each step.
+//
+// There was a third — the engine's recorder preferred a snapshot cached in the
+// context over the message's own ToMap(). It was removed rather than fixed: it
+// never fired, and it had no way to tell whether the cached payload belonged to
+// the message in hand. TestATraceStepRecordsItsOwnMessageNotACachedContextSnapshot
+// in pkg/engine keeps it gone.
 //
 // The failure mode is silent. The trace still renders, the steps are still in
 // order, the payload is still valid JSON — it is just not about the message
