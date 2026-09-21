@@ -15,8 +15,25 @@ export function SwitchConfig({ config, updateNodeConfig, nodeId, availableFields
     [availableFields]
   );
 
-  const cases = Array.isArray(config.cases) ? config.cases : [];
-  
+  // `cases` arrives in either shape: this editor saves a plain array, while
+  // the engine's tests, workflow bundles and anything built through the API
+  // carry the JSON string form. MiscNodes.tsx and transformationUtils.ts both
+  // already read either one; reading only the array here meant a
+  // string-shaped workflow showed no cases, and the first edit saved that
+  // emptiness over the user's configuration.
+  const cases = useMemo(() => {
+    if (Array.isArray(config.cases)) return config.cases;
+    if (typeof config.cases === 'string' && config.cases.trim()) {
+      try {
+        const parsed = JSON.parse(config.cases);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }, [config.cases]);
+
   const updateCase = (index: number, val: any) => {
     const newCases = [...cases];
     newCases[index] = { ...newCases[index], ...val };

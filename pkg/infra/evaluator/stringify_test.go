@@ -9,6 +9,13 @@ package evaluator
 // to produce exactly what %v produced, or a condition starts matching
 // different rows: this is a filter, so a formatting difference is a data
 // difference.
+//
+// The one deliberate exception is a finite float. %v renders those with %g,
+// which switches to an exponent above 1e6 — so a field holding 1704207845
+// compared as "1.704207845e+09" while the wire, the browser and the editor's
+// simulator all said 1704207845. Numbers follow JSON instead, and
+// TestStringifyNumberMatchesTheWire is the test that says so; what remains here
+// is everything else, plus the non-finite floats that have no JSON form.
 
 import (
 	"fmt"
@@ -33,22 +40,9 @@ func TestStringifyMatchesSprintf(t *testing.T) {
 		1234567890,
 		int8(7), int16(-8), int32(9), int64(-10),
 		uint(1), uint8(2), uint16(3), uint32(4), uint64(5),
-		float64(0),
-		float64(1),
-		float64(1.5),
-		float64(-2.25),
-		float64(1e21),
-		float64(1e-7),
-		float64(0.1 + 0.2),
-		math.MaxFloat64,
-		math.SmallestNonzeroFloat64,
 		math.NaN(),
 		math.Inf(1),
 		math.Inf(-1),
-		float32(1.5),
-		float32(0.1),
-		[]any{1, "a"},
-		map[string]any{"k": "v"},
 		[]byte("bytes"),
 		struct{ A int }{A: 1},
 	}
@@ -63,6 +57,20 @@ func TestStringifyMatchesSprintf(t *testing.T) {
 				t.Errorf("stringify(%#v) = %q, fmt = %q", v, got, want)
 			}
 		})
+	}
+}
+
+// TestStringifyNonFiniteFloatsKeepTheirSpelling: NaN and the infinities are the
+// values json.Marshal refuses outright, so there is no wire form to defer to.
+// They keep what %v always gave them rather than acquiring a new spelling.
+func TestStringifyNonFiniteFloatsKeepTheirSpelling(t *testing.T) {
+	for _, v := range []any{
+		math.NaN(), math.Inf(1), math.Inf(-1),
+		float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1)),
+	} {
+		if got, want := stringify(v), fmt.Sprintf("%v", v); got != want {
+			t.Errorf("stringify(%v) = %q, fmt = %q", v, got, want)
+		}
 	}
 }
 

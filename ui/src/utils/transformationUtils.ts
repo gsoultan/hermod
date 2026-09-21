@@ -284,17 +284,103 @@ export interface Condition {
   value: any;
 }
 
+// matchesCondition is the client-side twin of the engine's EvaluateConditions
+// (pkg/infra/evaluator/evaluator.go). The Test button, the filter preview and
+// the switch preview all run it, so when the two disagree the preview lies —
+// the user tunes a condition until the editor says it matches, then ships
+// something that does not. matchesConditionParity.test.ts transcribes the Go
+// table; change one side and it fails.
+
+// The aliases stored configs and the API use. The dropdowns only ever write the
+// symbols, but a workflow built through the API can carry either, and the
+// engine accepts both — so a config using `gt` previewed as a flat "no match"
+// while running correctly.
+const CONDITION_OPERATOR_ALIASES: Record<string, string> = {
+  eq: '=', neq: '!=', gt: '>', gte: '>=', lt: '<', lte: '<=',
+};
+
+// Go's ToFloat64 converts a number or a numeric string and nothing else.
+// `Number()` is far more willing: it turns null, '', false and [] all into 0,
+// which made an absent field compare greater than -1 here and not in the
+// engine.
+const conditionNumber = (v: any): number | null => {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v !== 'string') return null;
+  const s = v.trim();
+  if (s === '') return null;
+  const n = Number(s);
+  return Number.isNaN(n) ? null : n;
+};
+
+// Go's stringify. A number renders the way JSON renders it, which is what
+// String() already does; null and undefined render as empty. A composite
+// renders as JSON with its keys sorted, because Go sorts map keys when it
+// marshals — without the sort the two sides disagree on any object with more
+// than one key.
+const conditionText = (v: any): string => {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v !== 'object') return String(v);
+
+  const sortKeys = (x: any): any => {
+    if (Array.isArray(x)) return x.map(sortKeys);
+    if (x && typeof x === 'object') {
+      const out: Record<string, any> = {};
+      for (const k of Object.keys(x).sort()) out[k] = sortKeys(x[k]);
+      return out;
+    }
+    return x;
+  };
+  try {
+    return JSON.stringify(sortKeys(v)) ?? String(v);
+  } catch {
+    return String(v);
+  }
+};
+
+// RFC1123 is the one format in the engine's ToTime list whose lexicographic
+// order is not its chronological order — it leads with the weekday name, so
+// "Fri, ..." sorts before "Mon, ...". The ISO-ish formats need no help: they
+// are zero-padded and big-endian, so comparing their text already orders them
+// correctly, the way the engine's time comparison does.
+const RFC1123_SHAPE = /^[A-Z][a-z]{2}, \d{2} [A-Z][a-z]{2} \d{4} /;
+const rfc1123Millis = (v: any): number | null => {
+  if (typeof v !== 'string' || !RFC1123_SHAPE.test(v.trim())) return null;
+  const t = Date.parse(v.trim());
+  return Number.isNaN(t) ? null : t;
+};
+
+// Two spellings of one number are one number. The engine checks exact text
+// first and only then compares numerically, and only when the *field* is a
+// number — so a string identifier keeps string equality and "007" does not
+// start equalling "7".
+const conditionNumbersEqual = (fieldVal: any, val: any): boolean => {
+  if (typeof fieldVal !== 'number') return false;
+  const v2 = conditionNumber(val);
+  return v2 !== null && fieldVal === v2;
+};
+
 export const matchesCondition = (payload: any, cond: Condition): boolean => {
   const fieldVal = getValByPath(payload, cond.field);
-  const op = cond.operator || '=';
+  const rawOp = cond.operator || '=';
+  const op = CONDITION_OPERATOR_ALIASES[rawOp] ?? rawOp;
   // Resolve value templates (e.g., {{.after.id}} or {{upper(source.name)}})
   const rawVal = cond.value as any;
   const val = typeof rawVal === 'string' && rawVal.includes('{{') ? resolveTemplateStr(rawVal, payload) : rawVal;
 
-  if (['>', '>=', '<', '<='].includes(op)) {
-    const v1 = Number(fieldVal);
-    const v2 = Number(val);
-    if (!isNaN(v1) && !isNaN(v2)) {
+  const s1 = conditionText(fieldVal);
+  const s2 = conditionText(val);
+
+  if (op === '>' || op === '>=' || op === '<' || op === '<=') {
+    let v1 = conditionNumber(fieldVal);
+    let v2 = conditionNumber(val);
+    if (v1 === null || v2 === null) {
+      // Not numbers. Dates next, then fall through to the text comparison the
+      // engine also falls through to.
+      v1 = rfc1123Millis(fieldVal);
+      v2 = rfc1123Millis(val);
+    }
+    if (v1 !== null && v2 !== null) {
       switch (op) {
         case '>': return v1 > v2;
         case '>=': return v1 >= v2;
@@ -302,25 +388,25 @@ export const matchesCondition = (payload: any, cond: Condition): boolean => {
         case '<=': return v1 <= v2;
       }
     }
+    switch (op) {
+      case '>': return s1 > s2;
+      case '>=': return s1 >= s2;
+      case '<': return s1 < s2;
+      case '<=': return s1 <= s2;
+    }
   }
 
-  const s1 = String(fieldVal ?? '');
-  const s2 = String(val ?? '');
-
   switch (op) {
-    case '=': return s1 === s2;
-    case '!=': return s1 !== s2;
+    case '=': return s1 === s2 || conditionNumbersEqual(fieldVal, val);
+    case '!=': return !(s1 === s2 || conditionNumbersEqual(fieldVal, val));
     case 'contains': return s1.includes(s2);
+    case 'not_contains': return !s1.includes(s2);
     case 'regex': {
       try { return new RegExp(s2).test(s1); } catch { return false; }
     }
     case 'not_regex': {
       try { return !new RegExp(s2).test(s1); } catch { return false; }
     }
-    case '>': return s1 > s2;
-    case '>=': return s1 >= s2;
-    case '<': return s1 < s2;
-    case '<=': return s1 <= s2;
     default: return false;
   }
 };

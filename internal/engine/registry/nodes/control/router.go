@@ -2,11 +2,11 @@ package control
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 )
 
 func init() {
@@ -18,9 +18,7 @@ type RouterNode struct{}
 
 // Execute evaluates rules and returns the label of the first matching rule.
 func (n *RouterNode) Execute(ctx context.Context, nctx interfaces.NodeContext, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
-	rulesStr, _ := node.Config["rules"].(string)
-	var rules []map[string]any
-	_ = json.Unmarshal([]byte(rulesStr), &rules)
+	rules := evaluator.ParseObjectList(node.Config["rules"])
 
 	for _, rule := range rules {
 		label, _ := rule["label"].(string)
@@ -36,14 +34,7 @@ func (n *RouterNode) Execute(ctx context.Context, nctx interfaces.NodeContext, w
 }
 
 func (n *RouterNode) parseRuleConditions(rule map[string]any) []map[string]any {
-	var ruleConditions []map[string]any
-	if condsRaw, ok := rule["conditions"].([]any); ok {
-		for _, cr := range condsRaw {
-			if condMap, ok := cr.(map[string]any); ok {
-				ruleConditions = append(ruleConditions, condMap)
-			}
-		}
-	}
+	ruleConditions := evaluator.ParseObjectList(rule["conditions"])
 
 	if len(ruleConditions) == 0 {
 		field, _ := rule["field"].(string)

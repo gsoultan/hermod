@@ -100,3 +100,80 @@ func TestParseConditionsDoesNotReparsePerCall(t *testing.T) {
 		t.Errorf("ParseConditions allocates %v times per call on a cached config; the JSON is being re-parsed every message", allocs)
 	}
 }
+
+// TestParseConditionsAcceptsTheArrayTheEditorSaves pins the shape a UI-built
+// node actually carries.
+//
+// ConditionConfig.tsx passes FilterEditor's Condition[] straight to
+// updateNodeConfig, which merges it into node.data without stringifying, so
+// `conditions` reaches the engine as []any -- not the JSON string
+// FilterDataConfig.tsx writes. Reading only the string form yielded an empty
+// list, and an empty list is not an error to EvaluateConditions: it returns
+// true. Every condition node built in the editor took its "true" branch on
+// every message, whatever the user had configured.
+func TestParseConditionsAcceptsTheArrayTheEditorSaves(t *testing.T) {
+	want := []map[string]any{
+		{"field": "status", "operator": "eq", "value": "active"},
+		{"field": "amount", "operator": "gt", "value": "100"},
+	}
+
+	for _, tc := range []struct {
+		name string
+		raw  any
+	}{
+		{"[]any of map, as JSONB decodes it", []any{
+			map[string]any{"field": "status", "operator": "eq", "value": "active"},
+			map[string]any{"field": "amount", "operator": "gt", "value": "100"},
+		}},
+		{"[]map[string]any, as a Go caller builds it", []map[string]any{
+			{"field": "status", "operator": "eq", "value": "active"},
+			{"field": "amount", "operator": "gt", "value": "100"},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ParseConditions(map[string]any{"conditions": tc.raw})
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("ParseConditions = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
+// TestParseObjectListIgnoresUnusableShapes: a config value that is neither a
+// JSON string nor a list of objects yields no entries rather than a partial
+// list, so a caller cannot half-apply a malformed config.
+func TestParseObjectListIgnoresUnusableShapes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  any
+	}{
+		{"nil", nil},
+		{"empty string", ""},
+		{"unparseable string", "not json"},
+		{"number", 42},
+		{"map, not a list", map[string]any{"field": "status"}},
+		{"list of scalars", []any{"status", "amount"}},
+		{"empty list", []any{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ParseObjectList(tc.raw); got != nil {
+				t.Fatalf("ParseObjectList(%#v) = %#v, want nil", tc.raw, got)
+			}
+		})
+	}
+}
+
+// TestParseObjectListArrayResultIsNotShared holds the array path to the same
+// rule the string path already has: a caller must not be able to mutate what
+// another caller reads.
+func TestParseObjectListArrayResultIsNotShared(t *testing.T) {
+	src := []map[string]any{{"field": "status", "operator": "eq", "value": "active"}}
+
+	first := ParseObjectList(src)
+	first[0] = map[string]any{"field": "mutated"}
+
+	second := ParseObjectList(src)
+	if second[0]["field"] != "status" {
+		t.Errorf("second parse saw field %q; an earlier caller's slice write reached it", second[0]["field"])
+	}
+}

@@ -24,6 +24,72 @@ genuinely holds the payload already passes it explicitly through
 
 No behaviour change: every trace records exactly what it recorded before.
 
+### A switch or condition node ignored the cases the editor showed
+
+A `switch` built in the workflow editor sent every message down `default`, and a
+`condition` built there sent every message down `true` — whatever the user had
+configured, and with nothing logged.
+
+The two halves of the config disagreed about its shape. `RouterEditor.tsx` and
+`FilterDataConfig.tsx` `JSON.stringify` their list before saving;
+`SwitchConfig.tsx` and `ConditionConfig.tsx` hand the array over as-is, and
+`updateNodeConfig` merges its argument straight into `node.data`, so the array
+survives to the engine as `[]any`. The engine read only the string form, so the
+type assertion failed and produced an empty list — and an empty list is not an
+error to anything downstream. It means "no case matched" to `switch` and "nothing
+to check" to `EvaluateConditions`, which returns true. A configuration the user
+could see on screen was silently not there.
+
+`evaluator.ParseObjectList` now reads either shape, and `switch`, `router` and
+`condition` all go through it, so the editors no longer have to agree.
+`SwitchConfig.tsx` reads both shapes too: it only understood the array, so a
+workflow created through the API or restored from a bundle rendered with no
+cases, and the next edit would have saved that emptiness back over the user's
+configuration.
+
+Existing workflows are picked up as they are — nothing needs re-saving.
+
+### A condition compared a number as text the user never saw
+
+Every read path normalises a field to what a JSON round trip produces, on
+purpose — every transformation and mapping downstream is written against that
+shape. The API then hands the browser that same number, and the sample panel
+shows the user what `JSON.parse` gives back. But a condition formatted it with
+`%v`, which is `%g`, which switches to an exponent above 1e6.
+
+So a field holding `1704207845` was compared as `"1.704207845e+09"` while the
+wire, the browser and the editor's own preview all said `1704207845`. Any id,
+timestamp or amount wide enough to matter silently failed `=`, `!=`, `contains`
+and `regex` — and nothing under a million drifted, so test data looked fine.
+`>` and `<` were unaffected, which is why a switch could order rows correctly
+and still never match one. Numbers now render exactly as JSON renders them.
+
+Three more type gaps closed with it:
+
+- **`=` on a number is numeric.** `>` compared a numeric field as a number
+  while `=` compared it as text, so a field holding `100` was greater than
+  `99.99` and simultaneously not equal to `100.00`. Exact text equality is
+  still checked first, so nothing that matched before stops matching; the
+  numeric path only adds a match between two spellings of one number, and only
+  when the field itself is numeric — a string identifier keeps string
+  equality, and `"007"` does not start equalling `"7"`.
+- **An array or object field is searched as JSON.** `%v` spelled a decoded
+  object `map[a:1 b:2]`, Go syntax that appears nowhere else in the product, so
+  a `contains` against a jsonb column could not be written at all. Keys are
+  sorted, so the rendering is stable across messages.
+- **The editor's preview agrees with the engine.** `matchesCondition` is the
+  client-side twin that the Test button and the switch preview run, and it had
+  drifted: `not_contains` was not implemented and returned a flat `false`, the
+  `eq`/`neq`/`gt`/`gte`/`lt`/`lte` aliases were not either, `Number()` turned
+  an absent field into `0` so it compared greater than `-1`, and an RFC1123
+  date sorted by weekday name. The Go table and the TypeScript table are now
+  transcriptions of each other.
+
+A `[]byte` field still compares as base64, which is what a JSON round trip
+makes of it and what the sample panel shows; that one is pinned by a test
+rather than changed, because changing it would put the engine and the preview
+back into disagreement.
+
 ## [1.9.1] — 2026-09-21
 
 A message trace of a `pipeline` node now reads in the order the work happened.
