@@ -65,6 +65,121 @@ palette, the source form and the wizard gate, with a reachability test that
 builds the source from stored configuration and drives a real completion through
 the factory.
 
+### Trace retention is finally per workflow
+
+`trace_retention` is a per-workflow setting. The purge enforcing it was not.
+`purgeRetention` looped over workflows and handed each one's cutoff to
+`DELETE FROM message_trace_steps WHERE timestamp < ?` — a statement with no
+workflow predicate. Three consequences, all of them live:
+
+- **The shortest window in the deployment decided what every workflow kept.** A
+  workflow set to `7d` deleted the traces of one set to `365d`.
+- **On PostgreSQL it was irreversible.** Retention drops whole day partitions,
+  and a partition holds every workflow's rows for that day. A `7d` workflow
+  dropped a `365d` workflow's traces by `DROP TABLE`, which no retention setting
+  and no `VACUUM` undoes.
+- **It ran once per workflow per hour.** A thousand workflows meant a thousand
+  full-table range deletes an hour, each leaving dead tuples behind.
+
+`PurgeMessageTraces` now takes a `storage.TraceRetention` — a cutoff per
+workflow, the set of workflows that exist, and whether that set is known to be
+complete — and runs once per sweep. Each delete carries its own
+`workflow_id`, so a window only ever decides its own workflow's traces. Whole
+day partitions are dropped only below the floor no live workflow still needs,
+so one workflow that keeps everything correctly blocks partition dropping for
+the deployment rather than having its history reclaimed on someone else's
+behalf.
+
+`idx_trace_ts(timestamp)` matched the unscoped delete and is replaced by
+`idx_trace_wf_ts(workflow_id, timestamp)`, which matches the scoped one. The
+sweep becomes a range scan over one workflow's expired rows instead of a
+sequential scan of the whole table; the wider key costs 6.6 bytes per step
+(+1.6%).
+
+#### Traces of deleted workflows are reclaimed at last
+
+`DeleteWorkflow` deletes one row. A trace is only reachable through its
+workflow, and no retention window is attached to a workflow that is gone — so
+every workflow ever deleted left an unbounded pile of unreachable rows in the
+largest table Hermod owns, and nothing ever removed them.
+
+Deleting a workflow now deletes its traces, from both the single and the batch
+delete path. This is driven by the Registry rather than cascaded inside
+`DeleteWorkflow`, because `SetLogStorage` may point traces at a different
+database from the one holding workflows; a cascade in the workflow store would
+delete from the wrong place and silently leave the real rows behind. It is best
+effort — a failure costs space until the next sweep rather than failing the
+delete the operator asked for.
+
+The hourly sweep also clears orphans, which is what reclaims the existing
+backlog. It does that **only when it can prove it enumerated every workflow**:
+it reads a paged list, and on a deployment with more workflows than one page
+everything past the first page would otherwise look deleted and have its traces
+swept. When the list is short the sweep says so in the log and skips that step;
+everything else still runs.
+
+A workflow whose window is unset, `0` or unparseable still keeps everything,
+exactly as before. There is no safe default — a short one deletes traces nobody
+asked to lose, and none at all restores the growth bug — so the only honest
+move remains to keep the data and log why.
+
+### A message trace now stores each payload once, compressed
+
+`message_trace_steps` is the largest table Hermod owns — a row per node per
+message — and it was storing the same bytes over and over. Most nodes do not
+change the message: `workflow_start`, the source ingest step, the validator and
+the router each record it verbatim, and a transformation node records its output
+twice, once under its node id from the traversal and once under its type from
+`doApplyTransformation`. Measured across a realistic nine-step workflow, **66.6%
+of every payload byte in the table was byte-identical to another step of the
+same message**. None of it was compressed either: a trace payload is well under
+PostgreSQL's ~2 KB TOAST threshold, so it sat in the heap as raw JSON (measured:
+0.01 MB of TOAST against a 127.84 MB heap).
+
+Two new nullable columns fix both. `after_hash` identifies a payload by content
+within one message, and `after_blob` holds it zstd-compressed. The first step to
+carry a given payload stores the bytes; the rest store the hash alone, and
+`GetMessageTrace` resolves them against the rows it is already reading — no
+join, no second query. This is the same move as dropping `before_data`, one
+level further: that took the table from two copies of the payload chain to one,
+this takes it from one copy per step to one copy per distinct payload.
+
+Measured on 20,000 traces of nine steps each, with realistic incompressible CDC
+payloads:
+
+|                                  | before    | after    |          |
+| -------------------------------- | --------- | -------- | -------- |
+| SQLite, whole database           | 171.33 MB | 80.20 MB | **2.14x** |
+| bytes per step                   | 998.1     | 467.2    |          |
+| PostgreSQL 18, the table itself  | 135.20 MB | 59.45 MB | **2.27x** |
+| bytes per step                   | 787.6     | 346.3    |          |
+| payload bytes on disk            | 94.85 MB  | 20.45 MB | **4.64x** |
+
+Dedup is worth more here than compression is (2.05x against 1.42x on
+PostgreSQL), which is the opposite of the usual intuition and the reason both
+were measured rather than assumed.
+
+#### Upgrading
+
+Nothing to do. `autoMigrate` adds the two columns on start-up — both nullable,
+so it is a catalogue change and not a rewrite of the largest table in the
+database — and rows written before the upgrade keep their JSON in `after_data`,
+which the reader still resolves. There is no backfill.
+
+Rolling *back* is the direction to know about. The previous release reads
+`after_data`, which is NULL on rows this one wrote, so it shows blank payloads
+for traces recorded in the meantime; they reappear when the newer binary
+returns. `currentSchemaVersion` was deliberately not bumped for this, because
+refusing start-up would cost more than a gap in a diagnostic view — the
+reasoning is recorded in full at `knownSchemaFingerprint`. Tracing is off by
+default (`trace_sample_rate` 0), so the gap only exists where it was switched
+on.
+
+`HERMOD_TRACE_COMPRESSION=off` stores readable JSON instead, for an operator who
+would rather keep the column legible in `psql` than have the space back. The
+codec travels in the value rather than being read from configuration, so a
+database written under one setting stays readable under the other.
+
 ### A trace step can no longer inherit a payload from its context
 
 The engine's trace recorder preferred a payload cached in the context under

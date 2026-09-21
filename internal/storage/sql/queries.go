@@ -122,11 +122,16 @@ const (
 	QueryGetSetting = "GetSetting"
 
 	// Audit Logs
-	QueryCreateAuditLog     = "CreateAuditLog"
-	QueryListAuditLogs      = "ListAuditLogs"
-	QueryCountAuditLogs     = "CountAuditLogs"
-	QueryPurgeAuditLogs     = "PurgeAuditLogs"
-	QueryPurgeMessageTraces = "PurgeMessageTraces"
+	QueryCreateAuditLog             = "CreateAuditLog"
+	QueryListAuditLogs              = "ListAuditLogs"
+	QueryCountAuditLogs             = "CountAuditLogs"
+	QueryPurgeAuditLogs             = "PurgeAuditLogs"
+	QueryPurgeMessageTraces         = "PurgeMessageTraces"
+	QueryPurgeWorkflowTraceSteps    = "PurgeWorkflowTraceSteps"
+	QueryPurgeWorkflowTraceParents  = "PurgeWorkflowTraceParents"
+	QueryDeleteWorkflowTraceSteps   = "DeleteWorkflowTraceSteps"
+	QueryDeleteWorkflowTraceParents = "DeleteWorkflowTraceParents"
+	QueryDistinctTraceWorkflows     = "DistinctTraceWorkflows"
 
 	// Webhook Requests
 	QueryCreateWebhookRequest  = "CreateWebhookRequest"
@@ -372,6 +377,8 @@ var commonQueries = map[string]string{
 			timestamp TIMESTAMP NOT NULL,
 			duration_ms INTEGER,
 			after_data TEXT,
+			after_hash BLOB,
+			after_blob BLOB,
 			error TEXT
 		)`,
 
@@ -570,11 +577,30 @@ var commonQueries = map[string]string{
 
 	QueryGetSetting: "SELECT value FROM settings WHERE key = ?",
 
-	QueryCreateAuditLog:     "INSERT INTO audit_logs (id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryListAuditLogs:      "SELECT id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip FROM audit_logs",
-	QueryCountAuditLogs:     "SELECT COUNT(*) FROM audit_logs",
-	QueryPurgeAuditLogs:     "DELETE FROM audit_logs WHERE timestamp < ?",
-	QueryPurgeMessageTraces: "DELETE FROM message_trace_steps WHERE timestamp < ?",
+	QueryCreateAuditLog: "INSERT INTO audit_logs (id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryListAuditLogs:  "SELECT id, timestamp, user_id, username, action, entity_type, entity_id, payload, ip FROM audit_logs",
+	QueryCountAuditLogs: "SELECT COUNT(*) FROM audit_logs",
+	QueryPurgeAuditLogs: "DELETE FROM audit_logs WHERE timestamp < ?",
+	// Scoped to one workflow, always. The unscoped form this replaces was
+	// called from inside a loop over workflows, each passing its own cutoff, so
+	// the shortest window in the deployment decided what every workflow kept.
+	//
+	// workflow_id leads idx_trace_wf_ts, so this is a range scan over one
+	// workflow's rows rather than the sequential scan of the whole table that
+	// the unscoped delete had to do once per workflow per hour.
+	QueryPurgeWorkflowTraceSteps:   "DELETE FROM message_trace_steps WHERE workflow_id = ? AND timestamp < ?",
+	QueryPurgeWorkflowTraceParents: "DELETE FROM message_traces WHERE workflow_id = ? AND started_at < ?",
+
+	// Everything for one workflow, regardless of age: what a deleted workflow
+	// leaves behind, which nothing else ever reclaims.
+	QueryDeleteWorkflowTraceSteps:   "DELETE FROM message_trace_steps WHERE workflow_id = ?",
+	QueryDeleteWorkflowTraceParents: "DELETE FROM message_traces WHERE workflow_id = ?",
+
+	// Which workflows still have traces here. Read from the parent table rather
+	// than from the steps: it holds one row per message instead of one per node
+	// per message, and (workflow_id, message_id) is its primary key, so the
+	// distinct scan is over the smaller of the two by roughly the step count.
+	QueryDistinctTraceWorkflows: "SELECT DISTINCT workflow_id FROM message_traces",
 
 	QueryCreateWebhookRequest:  "INSERT INTO webhook_requests (id, timestamp, path, method, headers, body) VALUES (?, ?, ?, ?, ?, ?)",
 	QueryListWebhookRequests:   "SELECT id, timestamp, path, method, headers, body FROM webhook_requests",
@@ -595,11 +621,11 @@ var commonQueries = map[string]string{
 	QueryGetLatestSchema: "SELECT id, name, version, type, content, created_at FROM schemas WHERE name = ? ORDER BY version DESC LIMIT 1",
 	QueryCreateSchema:    "INSERT INTO schemas (id, name, version, type, content, created_at) VALUES (?, ?, ?, ?, ?, ?)",
 
-	QueryRecordTraceStep: "INSERT INTO message_trace_steps (message_id, workflow_id, node_id, timestamp, duration_ms, after_data, error) VALUES (?, ?, ?, ?, ?, ?, ?)",
+	QueryRecordTraceStep: "INSERT INTO message_trace_steps (message_id, workflow_id, node_id, timestamp, duration_ms, after_hash, after_blob, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 	// Used only where the id column survives because the database predates the
 	// narrowing and could not be altered (SQLite cannot drop a primary key).
 	// It is NOT NULL there, so omitting it would fail every trace write.
-	QueryRecordTraceStepLegacyID: "INSERT INTO message_trace_steps (id, message_id, workflow_id, node_id, timestamp, duration_ms, after_data, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryRecordTraceStepLegacyID: "INSERT INTO message_trace_steps (id, message_id, workflow_id, node_id, timestamp, duration_ms, after_hash, after_blob, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 
 	QueryUpsertMessageTrace: "INSERT INTO message_traces (workflow_id, message_id, started_at, last_step_at, duration_ms, step_count, error_count) VALUES (?, ?, ?, ?, ?, 1, ?) ON CONFLICT(workflow_id, message_id) DO UPDATE SET last_step_at = excluded.last_step_at, duration_ms = message_traces.duration_ms + excluded.duration_ms, step_count = message_traces.step_count + 1, error_count = message_traces.error_count + excluded.error_count",
 
@@ -609,7 +635,7 @@ var commonQueries = map[string]string{
 	QueryListMessageTracesOffset: "SELECT message_id, started_at, duration_ms, step_count, error_count FROM message_traces WHERE workflow_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?",
 
 	QueryPurgeMessageTraceParents: "DELETE FROM message_traces WHERE started_at < ?",
-	QueryGetMessageTrace:          "SELECT node_id, timestamp, duration_ms, after_data, error FROM message_trace_steps WHERE workflow_id = ? AND message_id = ? ORDER BY timestamp ASC",
+	QueryGetMessageTrace:          "SELECT node_id, timestamp, duration_ms, after_data, after_hash, after_blob, error FROM message_trace_steps WHERE workflow_id = ? AND message_id = ? ORDER BY timestamp ASC",
 
 	QueryCreateWorkflowVersion: "INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, config, created_at, created_by, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 	QueryListWorkflowVersions:  "SELECT id, workflow_id, version, created_at, created_by, message FROM workflow_versions WHERE workflow_id = ? ORDER BY version DESC",

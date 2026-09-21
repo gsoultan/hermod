@@ -29,13 +29,20 @@ type sqlStorage struct {
 	// cannot drop a primary key). It is NOT NULL there, so the insert has to
 	// keep supplying one. Set once during Init and read-only afterwards.
 	traceStepsKeepsLegacyID bool
+
+	// traceDedup remembers which trace payloads already have their bytes in
+	// message_trace_steps, so the steps that follow store a reference. See
+	// trace_payload.go for why it is a cache rather than an index, and why
+	// being wrong about it only ever costs space.
+	traceDedup *traceDedupCache
 }
 
 func NewSQLStorage(db *sql.DB, driver string) storage.Storage {
 	return &sqlStorage{
-		db:      db,
-		driver:  driver,
-		queries: newQueryRegistry(driver),
+		db:         db,
+		driver:     driver,
+		queries:    newQueryRegistry(driver),
+		traceDedup: newTraceDedupCache(traceDedupCacheSize),
 	}
 }
 
@@ -360,7 +367,13 @@ func (s *sqlStorage) Init(ctx context.Context) error {
 	// the largest table Hermod owns — it stores before_data and after_data, the
 	// whole payload twice per node per message. audit_logs has idx_audit_ts for
 	// the same reason.
-	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_trace_ts ON message_trace_steps(timestamp)"))
+	// The sweep filters (workflow_id, timestamp) now that a window only ever
+	// decides its own workflow's traces, so that is what it gets. The old
+	// idx_trace_ts(timestamp) matched the unscoped delete that replaced, and
+	// is dropped rather than left to be maintained on every insert for a query
+	// nothing issues any more.
+	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_trace_wf_ts ON message_trace_steps(workflow_id, timestamp)"))
+	_, _ = s.db.ExecContext(ctx, s.prepareQuery("DROP INDEX IF EXISTS idx_trace_ts"))
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_workflow_versions_id ON workflow_versions(workflow_id, version)"))
 	_, _ = s.db.ExecContext(ctx, s.prepareQuery("CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox(status, created_at)"))
 
@@ -2324,7 +2337,7 @@ func (s *sqlStorage) PurgeAuditLogs(ctx context.Context, before time.Time) error
 	return s.execWithRetry(ctx, exec)
 }
 
-func (s *sqlStorage) PurgeMessageTraces(ctx context.Context, before time.Time) error {
+func (s *sqlStorage) PurgeMessageTraces(ctx context.Context, retention storage.TraceRetention) error {
 	// Keep the window stocked while we are here. This is the only hourly hook
 	// the storage layer gets, and a partition that does not exist by the time
 	// its day arrives sends rows to DEFAULT.
@@ -2334,25 +2347,114 @@ func (s *sqlStorage) PurgeMessageTraces(ctx context.Context, before time.Time) e
 
 	// Whole expired days go by DROP TABLE: a catalogue change and an unlink,
 	// rather than a range delete that rewrites every row into WAL and leaves
-	// the space behind until VACUUM FULL. The delete below still runs, and on
-	// a partitioned table it only has to trim the day the cutoff falls inside
-	// plus anything that landed in DEFAULT.
-	if _, err := s.dropTracePartitionsBefore(ctx, before); err != nil {
-		return err
+	// the space behind until VACUUM FULL.
+	//
+	// But only below the floor no live workflow still needs. A partition holds
+	// every workflow's rows for that day, so dropping one on a single
+	// workflow's cutoff destroys other workflows' traces — and unlike the
+	// range delete, no amount of retention setting brings them back. When no
+	// floor exists (a workflow keeps everything, or the caller could not
+	// enumerate workflows) nothing is dropped and the deletes below still run.
+	if floor, ok := retention.PartitionFloor(); ok {
+		if _, err := s.dropTracePartitionsBefore(ctx, floor); err != nil {
+			return err
+		}
 	}
 
-	exec := func() error {
+	for workflowID, cutoff := range retention.Keep {
+		if err := s.purgeWorkflowTraces(ctx, workflowID, cutoff); err != nil {
+			return err
+		}
+	}
+
+	return s.purgeOrphanTraces(ctx, retention)
+}
+
+// purgeWorkflowTraces trims one workflow to its own window.
+func (s *sqlStorage) purgeWorkflowTraces(ctx context.Context, workflowID string, cutoff time.Time) error {
+	return s.execWithRetry(ctx, func() error {
 		// Steps first, then the parent rows that index them. In the other
 		// order a crash between the two would leave the list advertising
 		// traces whose steps are already gone, which reads as data loss
 		// rather than as retention.
-		if _, err := s.exec(ctx, s.queries.get(QueryPurgeMessageTraces), before); err != nil {
+		if _, err := s.exec(ctx, s.queries.get(QueryPurgeWorkflowTraceSteps), workflowID, cutoff); err != nil {
 			return err
 		}
-		_, err := s.exec(ctx, s.queries.get(QueryPurgeMessageTraceParents), before)
+		_, err := s.exec(ctx, s.queries.get(QueryPurgeWorkflowTraceParents), workflowID, cutoff)
+		return err
+	})
+}
+
+// purgeOrphanTraces reclaims the traces of workflows that no longer exist.
+//
+// Nothing else does. DeleteWorkflow removes one row, so before this every
+// workflow ever deleted left its traces behind for good — unreachable, because
+// the viewer reaches a trace through its workflow, and unbounded, because no
+// retention window is attached to a workflow that is gone.
+//
+// Deliberately silent unless the caller can prove it enumerated every
+// workflow. It reads a paged list, and on a deployment with more workflows
+// than one page, everything past the first page would look deleted.
+func (s *sqlStorage) purgeOrphanTraces(ctx context.Context, retention storage.TraceRetention) error {
+	if !retention.LiveIsComplete {
+		return nil
+	}
+	present, err := s.traceWorkflowIDs(ctx)
+	if err != nil {
 		return err
 	}
-	return s.execWithRetry(ctx, exec)
+	gone, ok := retention.Orphans(present)
+	if !ok {
+		return nil
+	}
+	for _, workflowID := range gone {
+		if err := s.DeleteWorkflowMessageTraces(ctx, workflowID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// traceWorkflowIDs lists the workflows that still have traces stored.
+//
+// From message_traces, not message_trace_steps: one row per message rather
+// than one per node per message. The cost is that a trace written before the
+// parent table existed has no row here and so is invisible to the orphan
+// sweep — the same backlog the CHANGELOG's backfill note covers, and not worth
+// scanning the largest table in the database hourly to catch.
+func (s *sqlStorage) traceWorkflowIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.query(ctx, s.queries.get(QueryDistinctTraceWorkflows))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// DeleteWorkflowMessageTraces removes everything stored for one workflow.
+//
+// Called when a workflow is deleted, and by the orphan sweep for one that was
+// deleted before this existed. Not part of DeleteWorkflow: traces live in the
+// log store, which SetLogStorage may point at a different database from the
+// one holding workflows, so the cascade has to be driven from a caller that
+// knows both.
+func (s *sqlStorage) DeleteWorkflowMessageTraces(ctx context.Context, workflowID string) error {
+	return s.execWithRetry(ctx, func() error {
+		if _, err := s.exec(ctx, s.queries.get(QueryDeleteWorkflowTraceSteps), workflowID); err != nil {
+			return err
+		}
+		_, err := s.exec(ctx, s.queries.get(QueryDeleteWorkflowTraceParents), workflowID)
+		return err
+	})
 }
 
 func (s *sqlStorage) CreateWebhookRequest(ctx context.Context, req storage.WebhookRequest) error {
@@ -2749,6 +2851,22 @@ func (s *sqlStorage) RecordTraceStep(ctx context.Context, workflowID, messageID 
 	// both put the whole payload chain in the table twice.
 	afterBytes := capTracePayload(safeMarshal(step.After))
 
+	// And only one copy of it per message. Most steps of a trace carry a
+	// payload some other step of the same message already carries — 66.6% of
+	// payload bytes, measured — so a step whose content is already stored
+	// records the hash alone and GetMessageTrace resolves it against the rows
+	// it is already reading. Nothing is stored twice and nothing is joined.
+	//
+	// The cache decides, and it is allowed to be wrong in one direction only:
+	// a miss stores another copy, a hit must never invent a reference. See
+	// trace_payload.go.
+	afterHash := tracePayloadHash(afterBytes)
+	carrier := !s.traceDedup.alreadyStored(workflowID, messageID, afterHash)
+	var afterBlob []byte
+	if carrier {
+		afterBlob = encodeTracePayload(afterBytes)
+	}
+
 	errCount := 0
 	if step.Error != "" {
 		errCount = 1
@@ -2760,12 +2878,12 @@ func (s *sqlStorage) RecordTraceStep(ctx context.Context, workflowID, messageID 
 			// needs a value; nothing reads it.
 			if _, err := s.exec(ctx, s.queries.get(QueryRecordTraceStepLegacyID),
 				uuid.New().String(), messageID, workflowID, step.NodeID, step.Timestamp,
-				step.Duration.Milliseconds(), string(afterBytes), step.Error); err != nil {
+				step.Duration.Milliseconds(), afterHash, afterBlob, step.Error); err != nil {
 				return err
 			}
 		} else if _, err := s.exec(ctx, s.queries.get(QueryRecordTraceStep),
 			messageID, workflowID, step.NodeID, step.Timestamp,
-			step.Duration.Milliseconds(), string(afterBytes), step.Error); err != nil {
+			step.Duration.Milliseconds(), afterHash, afterBlob, step.Error); err != nil {
 			return err
 		}
 
@@ -2777,7 +2895,15 @@ func (s *sqlStorage) RecordTraceStep(ctx context.Context, workflowID, messageID 
 			step.Duration.Milliseconds(), errCount)
 		return err
 	}
-	return s.execWithRetry(ctx, exec)
+	if err := s.execWithRetry(ctx, exec); err != nil {
+		return err
+	}
+	// Only now. Recording the payload as stored before the insert lands would
+	// let the next step reference bytes that never arrived.
+	if carrier {
+		s.traceDedup.markStored(workflowID, messageID, afterHash)
+	}
+	return nil
 }
 
 func (s *sqlStorage) GetMessageTrace(ctx context.Context, workflowID, messageID string) (storage.MessageTrace, error) {
@@ -2788,19 +2914,62 @@ func (s *sqlStorage) GetMessageTrace(ctx context.Context, workflowID, messageID 
 	defer func() { _ = rows.Close() }()
 
 	tr := storage.MessageTrace{MessageID: messageID, WorkflowID: workflowID}
+
+	// Two passes, because a step's payload may live on any other step of the
+	// same message and this query returns all of them. The first pass decodes
+	// every row that carries bytes and indexes it by content hash; the second
+	// hands that payload to the steps that only recorded the hash.
+	//
+	// No join and no second query: the rows needed to resolve a reference are
+	// the rows already being read.
+	refs := make([]string, 0, 16)
+	carriers := make(map[string]map[string]any, 8)
 	for rows.Next() {
 		var step hermod.TraceStep
 		var afterStr, errorStr sql.NullString
+		var afterHash, afterBlob []byte
 		var durationMs sql.NullInt64
-		if err := rows.Scan(&step.NodeID, &step.Timestamp, &durationMs, &afterStr, &errorStr); err != nil {
+		if err := rows.Scan(&step.NodeID, &step.Timestamp, &durationMs,
+			&afterStr, &afterHash, &afterBlob, &errorStr); err != nil {
 			return storage.MessageTrace{}, err
 		}
 		if durationMs.Valid {
 			step.Duration = time.Duration(durationMs.Int64) * time.Millisecond
 		}
 		step.Error = errorStr.String
-		if afterStr.Valid && afterStr.String != "" {
+
+		key := string(afterHash)
+		switch {
+		case len(afterBlob) > 0:
+			if raw, err := decodeTracePayload(afterBlob); err == nil && len(raw) > 0 {
+				_ = json.Unmarshal(raw, &step.After)
+			}
+		case afterStr.Valid && afterStr.String != "":
+			// Written before payload dedup: the JSON is in the row itself.
+			// Readable without a backfill, which is what keeps an upgrade from
+			// having to rewrite the largest table in the database.
 			_ = json.Unmarshal([]byte(afterStr.String), &step.After)
+		}
+		if key != "" && step.After != nil {
+			carriers[key] = step.After
+		}
+
+		refs = append(refs, key)
+		tr.Steps = append(tr.Steps, step)
+	}
+	if err := rows.Err(); err != nil {
+		return storage.MessageTrace{}, err
+	}
+
+	for i := range tr.Steps {
+		// A reference whose carrier is gone stays nil. The retention sweep
+		// cuts on timestamp and a message spans a few milliseconds, so a cutoff
+		// can land inside one and take the carrier while leaving a later step.
+		// Absent is the honest answer; inheriting the neighbour's payload would
+		// show one node's data under another node's name, which is the single
+		// thing a trace viewer must never do.
+		if tr.Steps[i].After == nil && refs[i] != "" {
+			tr.Steps[i].After = carriers[refs[i]]
 		}
 
 		// Before is not stored: what entered this node is what left the one
@@ -2808,13 +2977,9 @@ func (s *sqlStorage) GetMessageTrace(ctx context.Context, workflowID, messageID 
 		// while the table holds one copy of the payload instead of two. The
 		// first step has no predecessor, so its Before stays nil — which is
 		// honest, where the old column held the source's own input.
-		if n := len(tr.Steps); n > 0 {
-			step.Before = tr.Steps[n-1].After
+		if i > 0 {
+			tr.Steps[i].Before = tr.Steps[i-1].After
 		}
-		tr.Steps = append(tr.Steps, step)
-	}
-	if err := rows.Err(); err != nil {
-		return storage.MessageTrace{}, err
 	}
 
 	if len(tr.Steps) == 0 {
