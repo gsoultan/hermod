@@ -458,7 +458,7 @@ func (s *pebbleStorage) ListMessageTraces(ctx context.Context, workflowID string
 	return traces, nil
 }
 
-func (s *pebbleStorage) PurgeMessageTraces(ctx context.Context, before time.Time) error {
+func (s *pebbleStorage) PurgeMessageTraces(ctx context.Context, retention storage.TraceRetention) error {
 	iter, err := s.db.NewIter(&pebble.IterOptions{
 		LowerBound: []byte("t:"),
 		UpperBound: []byte("u:"),
@@ -474,10 +474,44 @@ func (s *pebbleStorage) PurgeMessageTraces(ctx context.Context, before time.Time
 		if err := json.Unmarshal(iter.Value(), &trace); err != nil {
 			continue
 		}
-		if trace.CreatedAt.Before(before) {
+		// Per workflow: a cutoff only ever decides its own workflow's
+		// traces. A workflow with no window keeps everything.
+		if cutoff, ok := retention.Keep[trace.WorkflowID]; ok &&
+			trace.CreatedAt.Before(cutoff) {
 			if err := batch.Delete(iter.Key(), pebble.Sync); err != nil {
 				return err
 			}
+			continue
+		}
+		// Traces of a workflow that no longer exists are unreachable and
+		// nothing else reclaims them — but only act when the caller could
+		// see every workflow.
+		if retention.LiveIsComplete {
+			if _, alive := retention.Live[trace.WorkflowID]; !alive {
+				if err := batch.Delete(iter.Key(), pebble.Sync); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return batch.Commit(pebble.Sync)
+}
+
+func (s *pebbleStorage) DeleteWorkflowMessageTraces(ctx context.Context, workflowID string) error {
+	prefix := []byte("t:" + workflowID + ":")
+	iter, err := s.db.NewIter(&pebble.IterOptions{
+		LowerBound: prefix,
+		UpperBound: append(append([]byte{}, prefix...), 0xff),
+	})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+
+	batch := s.db.NewBatch()
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := batch.Delete(iter.Key(), pebble.Sync); err != nil {
+			return err
 		}
 	}
 	return batch.Commit(pebble.Sync)

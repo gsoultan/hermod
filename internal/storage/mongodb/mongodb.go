@@ -1391,11 +1391,45 @@ func (s *mongoStorage) PurgeAuditLogs(ctx context.Context, before time.Time) err
 	return err
 }
 
-func (s *mongoStorage) PurgeMessageTraces(ctx context.Context, before time.Time) error {
-	coll := s.db.Collection("trace_steps")
-	_, err := coll.DeleteMany(ctx, bson.M{"timestamp": bson.M{"$lt": before}})
+func (s *mongoStorage) PurgeMessageTraces(ctx context.Context, retention storage.TraceRetention) error {
+	coll := s.db.Collection("message_traces")
+	// Per workflow, so one workflow's window never decides another's traces.
+	for workflowID, cutoff := range retention.Keep {
+		if _, err := coll.DeleteMany(ctx, bson.M{
+			"workflow_id": workflowID,
+			"created_at":  bson.M{"$lt": cutoff},
+		}); err != nil {
+			return err
+		}
+	}
+
+	// Traces of workflows that no longer exist, but only when the caller can
+	// prove it saw every workflow — see storage.TraceRetention.LiveIsComplete.
+	if !retention.LiveIsComplete {
+		return nil
+	}
+	var present []string
+	if err := coll.Distinct(ctx, "workflow_id", bson.M{}).Decode(&present); err != nil {
+		return err
+	}
+	gone, ok := retention.Orphans(present)
+	if !ok {
+		return nil
+	}
+	for _, workflowID := range gone {
+		if err := s.DeleteWorkflowMessageTraces(ctx, workflowID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *mongoStorage) DeleteWorkflowMessageTraces(ctx context.Context, workflowID string) error {
+	_, err := s.db.Collection("message_traces").DeleteMany(ctx, bson.M{"workflow_id": workflowID})
 	return err
 }
+
+
 
 func (s *mongoStorage) CreateWebhookRequest(ctx context.Context, req storage.WebhookRequest) error {
 	if req.ID == "" {
