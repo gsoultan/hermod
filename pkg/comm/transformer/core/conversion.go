@@ -490,10 +490,94 @@ func (t *DataConversionTransformer) toBool(val any) (any, error) {
 	return evaluator.ToBool(val), nil // Evaluator's ToBool is quite robust
 }
 
-func (t *DataConversionTransformer) toDate(val any, format string) (any, error) {
-	s := fmt.Sprintf("%v", val)
-	if format == "" {
-		format = time.RFC3339
+// dateLayouts are the shapes a timestamp arrives in, most specific first. Every
+// one of them opens with a YYYY-MM-DD date, and that is what makes sweeping
+// them safe to do unasked: none of these can read "03/01/2026" as either the
+// 3rd of January or the 1st of March, so text that would have to be guessed at
+// is still refused rather than converted into a plausible wrong date.
+var dateLayouts = []string{
+	time.RFC3339Nano,                          // 2026-09-22T07:26:07.173529602Z07:00
+	"2006-01-02T15:04:05.999999999",           // the same with no zone
+	"2006-01-02 15:04:05.999999999Z07:00",     // PostgreSQL timestamptz
+	"2006-01-02 15:04:05.999999999Z07",        // PostgreSQL's short offset, +07
+	"2006-01-02 15:04:05.999999999 -0700 MST", // Go's own time.Time.String()
+	"2006-01-02 15:04:05.999999999",           // PostgreSQL timestamp, MySQL DATETIME
+	"2006-01-02",                              // a date column
+}
+
+// looksLikeISODate screens text before the layout sweep, so a value that is not
+// a timestamp costs one length check instead of a *time.ParseError per layout.
+// A pipeline running errorBehavior "null" over a column that never parses pays
+// that on every message, not just on an exceptional one.
+func looksLikeISODate(s string) bool {
+	const isoDate = len("2006-01-02")
+	// The longest layout above renders to 39 characters.
+	if len(s) < isoDate || len(s) > 40 {
+		return false
 	}
-	return time.Parse(format, s)
+	if s[4] != '-' || s[7] != '-' {
+		return false
+	}
+	for _, i := range [...]int{0, 1, 2, 3, 5, 6, 8, 9} {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// toDate reads a value as a time.
+//
+// The configured layout is a hint, not the only shape accepted. It used to be
+// the only one, and the editor's Date Format field placeholds "2006-01-02", so
+// a date-only layout over a timestamp column is the configuration an operator
+// most easily lands on -- and it failed every message with
+// `parsing time "2026-09-22T07:26:07.173529602Z": extra text: "T07:26:07.173529602Z"`
+// over a value that was never ambiguous. The layout is still tried first, so a
+// node that converts today converts identically, to the same instant and zone.
+//
+// What it will not do is truncate to the layout's precision. A deadline at
+// 07:26 silently becoming midnight is a worse outcome than the error this
+// replaces, and rendering is the sink's job: a date column truncates on write,
+// and a template's .Format chooses its own shape.
+func (t *DataConversionTransformer) toDate(val any, format string) (any, error) {
+	// A query, sample or polling path hands a timestamp column over as a
+	// time.Time -- and so does the evaluator's fast path. Rendering that with
+	// %v produced Go's String() form, which no configured layout describes, so
+	// the one shape needing no conversion at all was the one that failed.
+	switch v := val.(type) {
+	case time.Time:
+		return v, nil
+	case *time.Time:
+		if v == nil {
+			return nil, errors.New("cannot read a date from a nil value")
+		}
+		return *v, nil
+	}
+
+	// scalarToString rather than %v: a driver hands text over as []byte, which
+	// %v renders as the decimal bytes.
+	s := strings.TrimSpace(scalarToString(val))
+	if s == "" {
+		return nil, errors.New("cannot read a date from an empty value")
+	}
+
+	if format != "" {
+		if parsed, err := time.Parse(format, s); err == nil {
+			return parsed, nil
+		}
+	}
+
+	if looksLikeISODate(s) {
+		for _, layout := range dateLayouts {
+			if parsed, err := time.Parse(layout, s); err == nil {
+				return parsed, nil
+			}
+		}
+	}
+
+	if format != "" {
+		return nil, fmt.Errorf("cannot read %q as a date: it does not match the configured layout %q, and is not an ISO-8601 date or timestamp", s, format)
+	}
+	return nil, fmt.Errorf("cannot read %q as a date: it is not an ISO-8601 date or timestamp", s)
 }

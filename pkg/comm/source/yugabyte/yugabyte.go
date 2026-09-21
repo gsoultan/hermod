@@ -177,10 +177,7 @@ func (y *YugabyteSource) Read(ctx context.Context) (hermod.Message, error) {
 				record := make(map[string]any)
 				var currentID any
 				for i, field := range fields {
-					val := values[i]
-					if b, ok := val.([]byte); ok {
-						val = string(b)
-					}
+					val := sqlutil.DecodePGXValue(values[i])
 					record[field.Name] = val
 					if field.Name == y.idField {
 						currentID = val
@@ -268,11 +265,7 @@ func (y *YugabyteSource) snapshotTable(ctx context.Context, table string) error 
 		record := make(map[string]any)
 		for i, field := range fields {
 			val := values[i]
-			if b, ok := val.([]byte); ok {
-				record[field.Name] = string(b)
-			} else {
-				record[field.Name] = val
-			}
+			record[field.Name] = sqlutil.DecodePGXValue(val)
 		}
 
 		afterJSON, _ := json.Marshal(message.SanitizeMap(record))
@@ -468,11 +461,7 @@ func (y *YugabyteSource) Sample(ctx context.Context, table string) (hermod.Messa
 	record := make(map[string]any)
 	for i, field := range fields {
 		val := values[i]
-		if b, ok := val.([]byte); ok {
-			record[field.Name] = string(b)
-		} else {
-			record[field.Name] = val
-		}
+		record[field.Name] = sqlutil.DecodePGXValue(val)
 	}
 
 	afterJSON, _ := json.Marshal(message.SanitizeMap(record))

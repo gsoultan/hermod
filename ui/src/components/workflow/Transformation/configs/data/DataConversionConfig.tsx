@@ -146,10 +146,10 @@ export function DataConversionConfig({ config, updateNodeConfig, nodeId, fieldPa
               {targetType === 'date' && (
                 <TextInput
                   label="Date Format"
-                  placeholder="2006-01-02"
+                  placeholder="Jan 2, 2006"
                   value={row.format || ''}
                   onChange={(e) => updateRow(i, { format: e.currentTarget.value })}
-                  description="Go date format (e.g. 2006-01-02)"
+                  description="Optional. ISO-8601 values are read without one — 2026-09-22, 2026-09-22T07:26:07.173Z, 2026-09-22 07:26:07+07. Give a Go layout only for a value in another shape; the time of day is kept either way."
                 />
               )}
 

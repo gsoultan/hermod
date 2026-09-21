@@ -66,9 +66,10 @@ func ColumnTypeNames(rows *sql.Rows) []string {
 
 // RecordFromValues builds one row map from a scanned row.
 //
-// Driver []byte becomes a string, as it always has, except where typeNames says
-// the column is JSON -- there it becomes the value the JSON describes, matching
-// what pgx already produces for PostgreSQL jsonb on its own paths.
+// Driver []byte becomes a string, as it always has, except where typeNames
+// says the column is JSON or a PostgreSQL array -- there it becomes the value
+// the literal describes, matching what pgx already produces for those columns
+// on its own paths.
 //
 // typeNames may be nil or shorter than names.
 func RecordFromValues(names, typeNames []string, values []any) map[string]any {
@@ -77,9 +78,77 @@ func RecordFromValues(names, typeNames []string, values []any) map[string]any {
 		if i >= len(values) {
 			break
 		}
-		record[name] = DecodeValue(values[i], i < len(typeNames) && IsJSONColumnType(typeNames[i]))
+		typeName := ""
+		if i < len(typeNames) {
+			typeName = typeNames[i]
+		}
+		record[name] = DecodeColumn(values[i], typeName)
 	}
 	return record
+}
+
+// DecodeColumn is the per-value rule, decided from the database's own name for
+// the column's type.
+//
+// This is the entry point for any caller that has the driver's type metadata.
+// DecodeValue remains for the one that does not: the MySQL binlog reader knows
+// only a go-mysql column enum, never a type name.
+//
+// Deliberately narrow, and for the same reason in both branches: only a column
+// the database itself calls JSON or an array is reshaped. Deciding from content
+// would reshape every string that happens to look like one.
+//
+// numeric becomes a json.Number, not a float64. The pgx-native path carries it
+// exactly -- measured on PostgreSQL 18.4, a numeric(40,20) holding
+// 1.00000000000000000001 marshals from pgtype.Numeric at full precision -- so
+// converting to float64 would have flattened it to 1 and propagated a loss
+// rather than closed a gap. json.Number keeps every digit and serialises as the
+// bare number the native path produces, which is what makes the two agree.
+//
+// Non-finite numerics stay text: PostgreSQL accepts NaN, Infinity and
+// -Infinity, and DecodeNumericText refuses all three because json.Number does
+// not validate and one such cell would fail the whole message's marshalling.
+func DecodeColumn(v any, typeName string) any {
+	if IsPGArrayTypeName(typeName) {
+		var raw []byte
+		switch b := v.(type) {
+		case []byte:
+			raw = b
+		case string:
+			// The carrier that matters. pgx's database/sql driver routes only
+			// json, jsonb, bytea and xml through a []byte scan plan; an array
+			// falls to its default string case, so a []byte-only branch here
+			// would never fire at runtime however green its tests were.
+			raw = []byte(b)
+		default:
+			return v
+		}
+		if decoded, ok := DecodePGArray(raw, typeName); ok {
+			return decoded
+		}
+		return string(raw)
+	}
+	if IsNumericColumnType(typeName) {
+		// Same carrier note as the array branch: pgx hands numeric over as a
+		// string, MySQL's driver as []byte. A value the driver already typed
+		// (SQLite stores the declared type verbatim, so a column declared
+		// NUMERIC can arrive as a float64) falls through untouched -- it was
+		// never text and has no precision left to preserve.
+		var text string
+		switch n := v.(type) {
+		case string:
+			text = n
+		case []byte:
+			text = string(n)
+		default:
+			return v
+		}
+		if num, ok := DecodeNumericText(text); ok {
+			return num
+		}
+		return text
+	}
+	return DecodeValue(v, IsJSONColumnType(typeName))
 }
 
 // DecodeValue is the per-value rule RecordFromValues applies, exposed for the
