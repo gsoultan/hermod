@@ -758,6 +758,14 @@ func ToFloat64(val any) (float64, bool) {
 		return float64(v), true
 	case int64:
 		return float64(v), true
+	case json.Number:
+		// An exact decimal column (sqlutil.DecodeColumn) arrives as one of
+		// these. json.Number is a *named* string type, so it matches no
+		// `case string` in Go -- without this branch a numeric column compared
+		// to a threshold read as 0, and every such condition silently changed
+		// its answer.
+		f, err := strconv.ParseFloat(strings.TrimSpace(string(v)), 64)
+		return f, err == nil
 	case string:
 		// Align with UI simulator: be lenient about surrounding whitespace
 		s := strings.TrimSpace(v)
@@ -779,17 +787,30 @@ func ToInt64(val any) (int64, bool) {
 		return int64(v), true
 	case float32:
 		return int64(v), true
+	case json.Number:
+		// ParseInt first, and that ordering is the point: it is what carries an
+		// identifier past float64's exact range through intact. Going via
+		// ParseFloat would read 9007199254740993 back as ...992, which is the
+		// rounding this type exists to avoid.
+		return parseInt64Text(string(v))
 	case string:
 		// Align with UI simulator: be lenient about surrounding whitespace
-		s := strings.TrimSpace(v)
-		i, err := strconv.ParseInt(s, 10, 64)
-		if err != nil {
-			f, err := strconv.ParseFloat(s, 64)
-			return int64(f), err == nil
-		}
-		return i, true
+		return parseInt64Text(v)
 	}
 	return 0, false
+}
+
+// parseInt64Text reads an integer, falling back to a float for text like
+// "1200.50" that ParseInt cannot take. Shared so the json.Number and string
+// branches of ToInt64 cannot drift apart.
+func parseInt64Text(s string) (int64, bool) {
+	s = strings.TrimSpace(s)
+	i, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		f, err := strconv.ParseFloat(s, 64)
+		return int64(f), err == nil
+	}
+	return i, true
 }
 
 func ToBool(val any) bool {
@@ -843,6 +864,13 @@ func ToTime(val any) (time.Time, bool) {
 		return time.Unix(int64(v), 0), true
 	case float64:
 		return time.Unix(int64(v), 0), true
+	case json.Number:
+		// A decimal column carrying a unix timestamp. Routed through ToInt64
+		// so it reads the same as the int64 branch above rather than going via
+		// a float64 and rounding on the way.
+		if i, ok := ToInt64(v); ok {
+			return time.Unix(i, 0), true
+		}
 	}
 	return time.Time{}, false
 }

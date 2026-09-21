@@ -26,22 +26,34 @@ import (
 //   - the generic path: database/sql plus sqlutil.ScanRows. This is what
 //     db_lookup, batch_sql and the editor's SQL builder do.
 //
-// They disagreed on five types. json, jsonb and arrays were fixed on the
-// generic side, because a string holding a document has no fields to reach
-// into. time, interval and macaddr are fixed on the native side, because a
-// pgtype struct and a base64 blob are not shapes anyone writes a workflow
-// against.
+// They disagreed on six types, and the fixes went three different ways.
 //
-// Two are expected to differ and are listed as such, so that the exclusion is a
+// json, jsonb and arrays were fixed on the generic side, because a string
+// holding a document has no fields to reach into. time, interval and macaddr
+// were fixed on the native side, because a pgtype struct and a base64 blob are
+// not shapes anyone writes a workflow against.
+//
+// numeric took a third answer, and it is the most interesting one here: neither
+// existing shape was right. The generic side's text could not be compared as a
+// number, and the native side's JSON number could not be reached from the
+// generic path without going through a float64 -- which corrupts what native
+// carries exactly, since numeric(40,20) 1.00000000000000000001 becomes 1. It is
+// now a json.Number on the generic side: a type that was in neither path
+// before, keeping every digit and serialising as the bare number native already
+// produced. See sqlutil.DecodeNumericText.
+//
+// One is expected to differ and is listed as such, so that the exclusion is a
 // decision with a reason rather than a gap:
 //
-//   - numeric: the native path carries it as a JSON number at full precision,
-//     the generic path as text. Converting the generic side to float64 would
-//     corrupt what native carries exactly -- numeric(40,20) 1.00000000000000000001
-//     becomes 1 -- so the divergence is the lesser harm until numeric is
-//     carried exactly on both sides.
 //   - inet: "10.0.0.1/32" against "10.0.0.1". Both are correct and usable and
 //     the native form is strictly more informative.
+//
+// One divergence is NOT covered here and is not a shape problem: pgtype
+// marshals both numeric infinities to 0 on the native path, where the generic
+// path correctly reports "Infinity". That is silent corruption of a value
+// rather than two renderings of the same one, so it wants fixing on the native
+// side rather than excluding here. The fixture deliberately holds a finite
+// numeric so this test measures shape agreement and nothing else.
 //
 // Measured against PostgreSQL 18.4. Run with:
 //
@@ -142,8 +154,7 @@ func TestBothReadPathsAgreeOnColumnShape(t *testing.T) {
 	// still *do* differ rather than merely skipping them: a stale exclusion is
 	// how a list like this stops describing the code.
 	knownDifferent := map[string]string{
-		"c_inet":    "native keeps the prefix length; both forms are correct",
-		"c_numeric": "native carries it as an exact JSON number, generic as text",
+		"c_inet": "native keeps the prefix length; both forms are correct",
 	}
 
 	for name, reason := range knownDifferent {

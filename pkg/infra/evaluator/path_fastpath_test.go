@@ -64,6 +64,20 @@ func parityRows() map[string]map[string]any {
 			"numstr":       "0123",
 			"nested":       map[string]any{"0": "zero-as-key"},
 		},
+		// An exact decimal column arrives as a json.Number, which is a named
+		// string type: it matches no `case string`, and json.Marshal writes it
+		// as a bare number while json.Unmarshal reads that back as a float64.
+		// So the walk and the round trip have a real chance of disagreeing
+		// here, which is exactly what this corpus is for.
+		"jsonnumber": {
+			"plain":     json.Number("42"),
+			"scaled":    json.Number("1200.50"),
+			"exact":     json.Number("1.00000000000000000001"),
+			"negative":  json.Number("-0.125"),
+			"exponent":  json.Number("1e3"),
+			"huge":      json.Number("1e400"),
+			"innermost": map[string]any{"amount": json.Number("9007199254740993")},
+		},
 		"typed": {
 			"strct":  customStringer{A: 1, B: "b"},
 			"pstrct": &customStringer{A: 2, B: "c"},
@@ -83,6 +97,8 @@ func parityPaths() []string {
 		"arr.4", "arr.4.k", "arr.9", "empty", "empty.x", "earr", "earr.0",
 		"bytes", "dotted.key", "with space", "unicode_ключ", "numstr",
 		"nested.0", "strct", "strct.a", "pstrct.b", "nilptr", "strs",
+		"plain", "scaled", "exact", "negative", "exponent", "huge",
+		"innermost", "innermost.amount",
 		"strs.1", "ints.0", "mss.k", "s.x", "i.0",
 	}
 }

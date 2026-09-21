@@ -98,12 +98,16 @@ func RecordFromValues(names, typeNames []string, values []any) map[string]any {
 // the database itself calls JSON or an array is reshaped. Deciding from content
 // would reshape every string that happens to look like one.
 //
-// numeric is knowingly left as text. Converting it to a float64 would corrupt
-// values that the pgx-native path carries exactly -- measured on PostgreSQL
-// 18.4, a numeric(40,20) holding 1.00000000000000000001 marshals from
-// pgtype.Numeric at full precision, while a float64 flattens it to 1 -- so the
-// conversion would propagate a loss rather than close a gap. evaluator.ToFloat64
-// already parses a numeric string, so comparisons work on it as text.
+// numeric becomes a json.Number, not a float64. The pgx-native path carries it
+// exactly -- measured on PostgreSQL 18.4, a numeric(40,20) holding
+// 1.00000000000000000001 marshals from pgtype.Numeric at full precision -- so
+// converting to float64 would have flattened it to 1 and propagated a loss
+// rather than closed a gap. json.Number keeps every digit and serialises as the
+// bare number the native path produces, which is what makes the two agree.
+//
+// Non-finite numerics stay text: PostgreSQL accepts NaN, Infinity and
+// -Infinity, and DecodeNumericText refuses all three because json.Number does
+// not validate and one such cell would fail the whole message's marshalling.
 func DecodeColumn(v any, typeName string) any {
 	if IsPGArrayTypeName(typeName) {
 		var raw []byte
@@ -123,6 +127,26 @@ func DecodeColumn(v any, typeName string) any {
 			return decoded
 		}
 		return string(raw)
+	}
+	if IsNumericColumnType(typeName) {
+		// Same carrier note as the array branch: pgx hands numeric over as a
+		// string, MySQL's driver as []byte. A value the driver already typed
+		// (SQLite stores the declared type verbatim, so a column declared
+		// NUMERIC can arrive as a float64) falls through untouched -- it was
+		// never text and has no precision left to preserve.
+		var text string
+		switch n := v.(type) {
+		case string:
+			text = n
+		case []byte:
+			text = string(n)
+		default:
+			return v
+		}
+		if num, ok := DecodeNumericText(text); ok {
+			return num
+		}
+		return text
 	}
 	return DecodeValue(v, IsJSONColumnType(typeName))
 }

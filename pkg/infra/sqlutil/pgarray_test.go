@@ -85,13 +85,16 @@ func TestDecodeColumnLeavesEverythingElseAlone(t *testing.T) {
 		in       any
 		want     any
 	}{
-		// numeric is deliberately untouched. Converting it to a float64 would
-		// corrupt values that pgx-native carries exactly: measured,
-		// numeric(40,20) 1.00000000000000000001 marshals from pgtype.Numeric
-		// at full precision, while float64 flattens it to 1. ToFloat64 already
-		// parses a numeric string, so comparisons work on it today.
-		{"numeric stays text", "NUMERIC", "1200.50", "1200.50"},
+		// numeric is no longer text -- it became a json.Number so that the two
+		// read paths agree on the shape pgx-native already produced, without
+		// the precision loss a float64 would have caused. Its own cases live
+		// in numeric_test.go; what belongs here is the boundary, which is that
+		// a non-finite numeric is still refused and still arrives as text.
+		{"a non-finite numeric stays text", "NUMERIC", "Infinity", "Infinity"},
 		{"text is text", "TEXT", "{not,an,array}", "{not,an,array}"},
+		// A text column holding decimal-looking digits must not be reshaped:
+		// the rule is the database's own type name, never the content.
+		{"decimal-looking text is not a number", "TEXT", "1200.50", "1200.50"},
 		{"a brace-looking text column is not parsed", "VARCHAR", "{a,b}", "{a,b}"},
 		{"time stays text", "TIME", "08:30:00", "08:30:00"},
 
