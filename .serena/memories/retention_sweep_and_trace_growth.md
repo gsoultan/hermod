@@ -3,6 +3,10 @@
 `message_trace_steps` is the fastest-growing table Hermod owns: the whole message
 payload, per node, per message. Nothing bounds it except `Registry.purgeRetention`.
 
+> **Superseded 2026-09-21 for the payload columns.** `after_data` is no longer
+> written either: see "One payload per message" below. The note below is still
+> the right history.
+>
 > **Corrected 2026-09-17.** This used to say the table stores `before_data` *and*
 > `after_data` — the payload twice. It no longer does. There is no `before_data`
 > column (`QueryInitMessageTraceStepsTable` in `internal/storage/sql/queries.go`);
@@ -90,3 +94,87 @@ Tracing is off unless `trace_sample_rate > 0`
 (`registry_workflow.go` overwrites the engine default) — but
 `pkg/engine/config/config.go` defaults `TraceSampleRate: 1.0`, so any engine path
 that skips that override traces 100% of messages.
+
+## One payload per message (2026-09-21)
+
+The redesign above took the table from two copies of the payload chain to one.
+This takes it from one copy *per step* to one copy per distinct payload, and
+compresses it.
+
+**Why there was anything left to win.** Most nodes do not change the message.
+`workflow_start`, the source ingest step, the validator and the router each
+record it verbatim, and a transformation node records its output twice — once
+under `node.ID` from the traversal, once under its `transType` from
+`doApplyTransformation`. Measured across a realistic nine-step workflow, **66.6%
+of every payload byte in the table was byte-identical to another step of the
+same message**. And nothing compressed it: a trace payload is well under
+PostgreSQL's ~2 KB TOAST threshold, so it sat in the heap as raw JSON —
+**measured 0.01 MB of TOAST against a 127.84 MB heap**. Do not assume TOAST is
+handling this; it is not, and that is the whole reason compression was worth
+adding.
+
+**The shape.** Two nullable columns, so `autoMigrate` adds them as a catalogue
+change rather than rewriting the largest table in the database:
+`after_hash BLOB` (128-bit content hash, scoped to one message) and
+`after_blob BLOB` (zstd, with a leading codec byte). The first step carrying a
+payload stores the bytes; the rest store the hash alone and `GetMessageTrace`
+resolves them in a second pass over the rows it already read — no join, no
+second query. `after_data` survives read-only, so pre-upgrade rows need no
+backfill.
+
+**Measured**, 20k traces x 9 steps, realistic incompressible CDC payloads:
+
+| | before | after |
+|---|---|---|
+| SQLite, whole database | 171.33 MB | **80.20 MB** (2.14x) |
+| bytes per step | 998.1 | 467.2 |
+| PostgreSQL 18, the table | 135.20 MB | **59.45 MB** (2.27x) |
+| bytes per step | 787.6 | 346.3 |
+| payload bytes on disk | 94.85 MB | **20.45 MB** (4.64x) |
+
+**Dedup beat compression** — 2.05x against 1.42x alone on PostgreSQL. That is
+the opposite of the usual intuition and the reason both were measured. The
+measuring harness is `TestMessageTraceStepsFootprint`, which is now a gate: it
+asserts carriers == distinct payloads, that nothing writes `after_data`, a 3x
+compression floor and a 700 B/step ceiling.
+
+**Two design points worth not re-litigating.**
+
+- The dedup bookkeeping is a bounded in-process cache, consulted
+  *pessimistically*: an entry is added only after an insert succeeded, and a
+  miss stores another copy. A cold start, a second replica, an eviction or a
+  race between two steps of one message therefore costs a duplicate payload,
+  never a reference with nothing behind it. Getting that direction wrong turns a
+  full table into a blank trace viewer.
+- The hash is 128-bit, not 64. The bytes hashed are the message's own data,
+  which is whatever an upstream database or an HTTP caller supplied, and a
+  64-bit content address over input someone else chooses is a 2^32 search away
+  from showing one node's payload under another node's name.
+
+`currentSchemaVersion` was **not** bumped: an older binary still reads and
+writes, it just sees blank payloads for traces the newer one recorded, which
+heal on roll-forward. Reasoning in full at `knownSchemaFingerprint`.
+
+## What was measured and deliberately not changed
+
+- **An INTEGER micros `timestamp`** saves ~8 MB per 180k steps on SQLite (the
+  driver stores `time.Time` as 36-byte text). Rejected: PostgreSQL RANGE
+  partitioning is declared on that column, and `QueryPurgeMessageTraces` binds a
+  `time.Time` against it — a silent type mismatch there stops the purge, which
+  is the 50 GB bug at the top of this file.
+- **Dropping `idx_trace_ts`** saves 2.91 MB per 180k steps. Rejected: it is what
+  keeps the purge off a sequential scan, and it was added for that reason.
+- **A `WITHOUT ROWID` clustered PK on (workflow_id, message_id, timestamp)** was
+  the single biggest remaining win on SQLite — 60.26 MB -> 43.96 MB, because it
+  folds `idx_trace_msg` into the table. Rejected: two steps can share a
+  timestamp, so the PK silently drops one, and the win is SQLite-only
+  (PostgreSQL has no clustered index).
+
+## Still open after this
+
+- `PurgeMessageTraces` still has no `workflow_id` predicate (see above). Unchanged.
+- **MongoDB and Pebble still store the payload twice, uncompressed.**
+  `hermod.TraceStep` has no bson tags, so Mongo's `$push` persists `Before` *and*
+  `After`; Pebble JSON-marshals the whole `MessageTrace`. Both are the shape SQL
+  left behind in 2026-09-17, plus no dedup. Mongo additionally pushes every step
+  into one document, so a long trace can reach the 16 MB BSON limit.

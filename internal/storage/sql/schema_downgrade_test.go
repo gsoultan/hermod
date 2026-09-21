@@ -30,7 +30,34 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding created_at to workflows, sources, sinks, users, vhosts,
+// Last moved by: adding after_hash and after_blob to message_trace_steps, so a
+// payload is stored once per message and compressed instead of once per step in
+// plain JSON. currentSchemaVersion was left alone deliberately, and this one is
+// closer to the line than the others below, so the reasoning is worth spelling
+// out.
+//
+// The previous release names its columns in both directions. Its
+// RecordTraceStep inserts a fixed list that does not mention the two new
+// columns, both of which are nullable, so it keeps writing after_data and this
+// release reads that path unchanged — there is no backfill and no rewrite of
+// the largest table in the database. Its GetMessageTrace selects a fixed list
+// that does not mention them either, so it still runs.
+//
+// What it does not do is see the payloads this release wrote: they are in
+// after_blob, and the old binary reads after_data, which is NULL on those rows.
+// So a rollback shows blank payloads for the traces the newer binary recorded,
+// and they come back when it returns — the same shape as the dashboard_history
+// note below, a gap in a diagnostic view that heals on roll-forward, not a
+// misread of live data. Nothing else reads this table, no foreign key points at
+// it, and tracing is off by default (TraceSampleRate 0), so the gap only exists
+// where someone deliberately turned it on.
+//
+// That is not the direction the version exists to block. The bump to 2 below
+// was for a release that would *fail* every trace read and write; refusing
+// start-up is right for that and wrong for this, because it would refuse
+// exactly the rollback it is meant to make safe.
+//
+// The note before that: adding created_at to workflows, sources, sinks, users, vhosts,
 // workers and plugins — the key each of those lists sorts and pages on.
 // currentSchemaVersion was left alone deliberately. The previous release names
 // its columns in both directions on all seven tables — every Create inserts a
@@ -59,7 +86,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "a46bd655faa179742992fe9cff12c2021982b35bad89a927723e23fe638f3562"
+const knownSchemaFingerprint = "3311dcff267f2991b7bd6e57eee794b9cf43c3fd51cee172c0b688f4c0af3931"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {
