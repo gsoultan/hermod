@@ -384,12 +384,12 @@ func (s *pebbleStorage) PurgeAuditLogs(ctx context.Context, before time.Time) er
 func (s *pebbleStorage) RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error {
 	key := fmt.Sprintf("t:%s:%s", workflowID, messageID)
 	val, closer, err := s.db.Get([]byte(key))
-	var trace storage.MessageTrace
+	var trace storage.StoredTrace
 	if err == nil {
-		defer closer.Close()
+		defer func() { _ = closer.Close() }()
 		_ = json.Unmarshal(val, &trace)
 	} else if errors.Is(err, pebble.ErrNotFound) {
-		trace = storage.MessageTrace{
+		trace = storage.StoredTrace{
 			WorkflowID: workflowID,
 			MessageID:  messageID,
 			CreatedAt:  time.Now(),
@@ -398,8 +398,27 @@ func (s *pebbleStorage) RecordTraceStep(ctx context.Context, workflowID, message
 		return err
 	}
 
-	trace.Steps = append(trace.Steps, step)
-	data, _ := json.Marshal(trace)
+	// The step names its payload; the payload is filed once per distinct
+	// content. This used to append the whole hermod.TraceStep, which carries
+	// Before as well as After — the payload chain twice, and undeduped.
+	//
+	// It matters more here than anywhere else: this is a read-modify-write of
+	// the entire trace on every step, so the document is rewritten once per
+	// node. Halving it and deduping the rest shrinks every one of those
+	// rewrites, not just the last.
+	stored, payloadKey, blob := storage.PackTraceStep(step)
+	trace.Steps = append(trace.Steps, stored)
+	if payloadKey != "" {
+		if trace.Payloads == nil {
+			trace.Payloads = make(map[string][]byte, 4)
+		}
+		trace.Payloads[payloadKey] = blob
+	}
+
+	data, err := json.Marshal(trace)
+	if err != nil {
+		return err
+	}
 	return s.db.Set([]byte(key), data, pebble.Sync)
 }
 
@@ -412,12 +431,12 @@ func (s *pebbleStorage) GetMessageTrace(ctx context.Context, workflowID, message
 		}
 		return storage.MessageTrace{}, err
 	}
-	defer closer.Close()
-	var trace storage.MessageTrace
+	defer func() { _ = closer.Close() }()
+	var trace storage.StoredTrace
 	if err := json.Unmarshal(val, &trace); err != nil {
 		return storage.MessageTrace{}, err
 	}
-	return trace, nil
+	return trace.UnpackTrace(), nil
 }
 
 func (s *pebbleStorage) ListMessageTraces(ctx context.Context, workflowID string, f storage.TraceFilter) ([]storage.MessageTrace, error) {
@@ -431,14 +450,24 @@ func (s *pebbleStorage) ListMessageTraces(ctx context.Context, workflowID string
 	if err != nil {
 		return nil, err
 	}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	for iter.First(); iter.Valid(); iter.Next() {
-		var trace storage.MessageTrace
-		if err := json.Unmarshal(iter.Value(), &trace); err != nil {
+		var doc storage.StoredTrace
+		if err := json.Unmarshal(iter.Value(), &doc); err != nil {
 			continue
 		}
-		traces = append(traces, trace)
+		// Summary only. The list shows when a trace started and how big it is;
+		// decompressing every payload of every trace to answer that would be
+		// the sequential scan the SQL backends added a parent table to avoid.
+		traces = append(traces, storage.MessageTrace{
+			ID:         doc.ID,
+			WorkflowID: doc.WorkflowID,
+			MessageID:  doc.MessageID,
+			CreatedAt:  doc.CreatedAt,
+			StepCount:  len(doc.Steps),
+			ErrorCount: doc.ErrorCount(),
+		})
 	}
 	// Sort by CreatedAt desc before applying paging so the order is stable.
 	sort.Slice(traces, func(i, j int) bool {
@@ -470,7 +499,7 @@ func (s *pebbleStorage) PurgeMessageTraces(ctx context.Context, retention storag
 
 	batch := s.db.NewBatch()
 	for iter.First(); iter.Valid(); iter.Next() {
-		var trace storage.MessageTrace
+		var trace storage.StoredTrace
 		if err := json.Unmarshal(iter.Value(), &trace); err != nil {
 			continue
 		}
