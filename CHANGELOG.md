@@ -277,6 +277,39 @@ full reader. It cannot rescue a value that was already a `float64` when it
 reached Hermod — a message decoded from JSON lost those digits before any of
 this ran.
 
+### A date conversion refused a timestamp because the layout was narrower
+
+`data_conversion`'s Date Format was the only shape a value was allowed to have.
+The editor placeholds that field with `2006-01-02`, so a date-only layout over a
+column holding `2026-09-22T07:26:07.173529602Z` is the configuration an operator
+lands on first — and it failed the whole message with `extra text:
+"T07:26:07.173529602Z"` over a value nothing about which was ambiguous.
+
+The configured layout is now a hint. It is still tried first, so a node that
+converts today converts to exactly the same instant and zone; when it does not
+match, the value is read against the ISO-8601 shapes a source actually produces:
+RFC3339 with or without a fraction or a zone, PostgreSQL's `timestamptz` and
+`timestamp` text (including its short `+07` offset), Go's own `time.Time`
+rendering, and a bare date. Every one of those layouts opens with a `YYYY-MM-DD`
+date, and text that does not is refused rather than swept — `03/01/2026` has no
+reading this can guess at, so it still fails under the operator's own layout
+instead of converting to a plausible wrong date.
+
+- **The instant is kept, never truncated to the layout.** A deadline at 07:26
+  silently becoming midnight is worse than the error this replaces. Rendering
+  belongs to the sink: a `date` column truncates on write, and a template's
+  `.Format` picks its own shape.
+- **A `time.Time` converts.** The shape needing no conversion at all was the one
+  that failed: a driver's `time.Time` was rendered with `%v`, which produces
+  Go's `String()` form, which no configured layout describes. Text handed over
+  as `[]byte` fared worse — `%v` renders it as decimal bytes. Both are read
+  directly now, so a row from a query path and the same row from CDC land on one
+  instant.
+- **A value that is not a date says so.** `cannot read "hello" as a date: it
+  does not match the configured layout "2006-01-02", and is not an ISO-8601 date
+  or timestamp` — naming both things that were tried, where `time.Parse`'s own
+  message named the layout only by example.
+
 ## [1.9.1] — 2026-09-21
 
 A message trace of a `pipeline` node now reads in the order the work happened.
