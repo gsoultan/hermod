@@ -70,6 +70,15 @@ find a claim that outruns the code, fix the claim.
   — `configComponents[type] || 'database'` silently rendered the database form
   for twelve sink types, making two of them unconfigurable; and why the panmail
   sink keeps its idempotency claim when a send's outcome is unknown.
+- [A config list reaches the engine in two shapes](node_config_list_shape_drift.md)
+  — `updateNodeConfig` does not serialise, so `SwitchConfig`/`ConditionConfig`
+  save a raw array where `RouterEditor`/`FilterDataConfig` save a JSON string;
+  reading only the string form left an empty list, which `switch` reads as
+  "default" and `EvaluateConditions` reads as `true`.
+- [What a condition actually compares](condition_value_shapes.md) — fields are
+  JSON-normalised first (`[]byte` becomes base64), and `stringify` renders a
+  number the way JSON does rather than `%v`, which spelled 1704207845 as
+  "1.704207845e+09"; the TS twin `matchesCondition` must be changed in lockstep.
 - [panmail: templated routing fields](panmail_templated_routing_fields.md) — why
   templating `base_url`/`api_key` turns the SDK client into a per-message
   resource and its cache into a map keyed by row data, the mandatory

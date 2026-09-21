@@ -100,3 +100,49 @@ func TestSwitch_Execute_Default(t *testing.T) {
 		t.Errorf("expected branch default, got %q", branch)
 	}
 }
+
+// TestSwitch_Execute_CasesSavedAsArray pins the shape the editor actually
+// saves. SwitchConfig.tsx writes `cases` straight into node.data as a JSON
+// array -- it never stringifies the way RouterEditor.tsx does -- so every
+// workflow built in the UI reaches the engine with []any under "cases".
+// Reading only the string form made the type assertion fail, leaving an empty
+// case list, and a switch with perfectly good numeric cases fell through to
+// "default" on every message.
+func TestSwitch_Execute_CasesSavedAsArray(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		amount any
+		want   string
+	}{
+		{"greater-than wins", 150, "high"},
+		{"equals wins", 100, "exact"},
+		{"no case matches", 10, "default"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			n := &SwitchNode{}
+			node := &storage.WorkflowNode{
+				Config: map[string]any{
+					"field": "amount",
+					// Exactly what a UI-built workflow round trips through
+					// JSONB: a slice of maps, not a string.
+					"cases": []any{
+						map[string]any{"label": "high", "operator": ">", "value": "100"},
+						map[string]any{"label": "exact", "operator": "=", "value": "100"},
+					},
+				},
+			}
+
+			m := msgpkg.AcquireMessage()
+			defer msgpkg.ReleaseMessage(m)
+			m.SetData("amount", tc.amount)
+
+			_, branch, err := n.Execute(context.Background(), &switchStubCtx{}, "wf1", node, m)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if branch != tc.want {
+				t.Errorf("amount %v: expected branch %q, got %q", tc.amount, tc.want, branch)
+			}
+		})
+	}
+}

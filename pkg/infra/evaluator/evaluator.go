@@ -908,9 +908,9 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 
 		switch op {
 		case "=", "eq":
-			match = fieldVal == valStr
+			match = fieldVal == valStr || numericallyEqual(fieldValRaw, valResolved)
 		case "!=", "neq":
-			match = fieldVal != valStr
+			match = fieldVal != valStr && !numericallyEqual(fieldValRaw, valResolved)
 		case ">", "gt", ">=", "gte", "<", "lt", "<=", "lte":
 			t1, isT1 := ToTime(fieldValRaw)
 			t2, isT2 := ToTime(valResolved)
@@ -1183,15 +1183,7 @@ func ValidateConditions(conditions []map[string]any) error {
 // one the first time the shape changed — the way the wizard's requirement list
 // and the sink form map both have.
 func ParseConditions(config map[string]any) []map[string]any {
-	conditionsStr, _ := config["conditions"].(string)
-	var conditions []map[string]any
-	if conditionsStr != "" {
-		// Parsed once per distinct config rather than once per message.
-		// ConditionNode.Execute calls this before evaluating anything, so the
-		// same bytes were unmarshalled for the life of the workflow to produce
-		// the same answer every time: 24 allocations a message.
-		conditions = cloneConditions(parseConditionList(conditionsStr))
-	}
+	conditions := ParseObjectList(config["conditions"])
 
 	if len(conditions) == 0 {
 		field, _ := config["field"].(string)
@@ -1206,6 +1198,50 @@ func ParseConditions(config map[string]any) []map[string]any {
 		}
 	}
 	return conditions
+}
+
+// ParseObjectList reads a list of objects out of a node config value, whatever
+// shape the editor happened to save it in.
+//
+// The editors disagree, and the disagreement is invisible until a message runs
+// through: RouterEditor.tsx and FilterDataConfig.tsx JSON.stringify their list
+// before calling updateNodeConfig, while SwitchConfig.tsx and ConditionConfig.tsx
+// hand it over as a plain array. updateNodeConfig merges its argument straight
+// into node.data, so the array shape survives all the way to the engine as
+// []any. Reading only the string form made the type assertion fail and produced
+// an empty list, and an empty list is not an error anywhere downstream -- it is
+// "no cases matched" (switch falls to default) and "no conditions to check"
+// (EvaluateConditions returns true). Both nodes ignored a configuration the user
+// could see on screen, and neither logged anything.
+//
+// Accepting both shapes here is what keeps the two editors from having to agree.
+func ParseObjectList(raw any) []map[string]any {
+	switch v := raw.(type) {
+	case string:
+		if v == "" {
+			return nil
+		}
+		// Parsed once per distinct config rather than once per message. Nodes
+		// call this before evaluating anything, so the same bytes were
+		// unmarshalled for the life of the workflow to produce the same answer
+		// every time: 24 allocations a message.
+		return cloneConditions(parseConditionList(v))
+	case []map[string]any:
+		return cloneConditions(v)
+	case []any:
+		// What a JSONB round trip leaves behind for an array the editor saved.
+		out := make([]map[string]any, 0, len(v))
+		for _, e := range v {
+			if m, ok := e.(map[string]any); ok {
+				out = append(out, m)
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+	return nil
 }
 
 // isJSONNativeMap reports whether every value in m, recursively, is already
@@ -1394,8 +1430,8 @@ func cloneConditions(src []map[string]any) []map[string]any {
 	return out
 }
 
-// stringify renders v the way fmt.Sprintf("%v", v) does, without the
-// reflection for the types a decoded message actually holds.
+// stringify renders v as the text a condition compares, without the reflection
+// for the types a decoded message actually holds.
 //
 // EvaluateConditions formats both sides of every condition before it knows
 // which operator it is applying, so a numeric comparison paid for two strings
@@ -1403,10 +1439,21 @@ func cloneConditions(src []map[string]any) []map[string]any {
 // what a JSON-decoded row contains (string, bool, float64) plus the integer
 // kinds a Go-built message can carry.
 //
-// It must agree with %v exactly. A condition is a filter, so a formatting
-// difference is a data difference: TestStringifyMatchesSprintf holds the two
-// together over the awkward cases (NaN, infinities, exponent thresholds,
-// float32 widening).
+// A number is rendered the way JSON renders it, not the way %v does, and the
+// difference is not cosmetic. GetValByPath deliberately normalises every field
+// to what a JSON round trip produces; the API then hands the browser that same
+// number, and the sample panel shows the user what JSON.parse gives back. The
+// text a condition matches has to be the text the user was shown. Under %v it
+// was not: %v is %g, which switches to an exponent above 1e6, so a field
+// holding 1704207845 compared as "1.704207845e+09" while the wire, the browser
+// and the editor's own simulator all said 1704207845. Every id, timestamp and
+// amount wide enough to matter failed `=`, `contains` and `regex` — and
+// nothing under a million did, so test data looked fine.
+//
+// Outside the numbers it still agrees with %v exactly, including for the
+// non-finite floats that have no JSON form at all. A condition is a filter, so
+// a formatting difference is a data difference: TestStringifyMatchesSprintf and
+// TestStringifyNumberMatchesTheWire hold both halves.
 func stringify(v any) string {
 	switch t := v.(type) {
 	case nil:
@@ -1416,14 +1463,92 @@ func stringify(v any) string {
 	case bool:
 		return strconv.FormatBool(t)
 	case float64:
-		// %v for a float is %g with the shortest representation that round
-		// trips, which is exactly what a precision of -1 asks for. NaN and the
-		// infinities format as "NaN", "+Inf" and "-Inf" through both.
-		return strconv.FormatFloat(t, 'g', -1, 64)
+		return formatJSONFloat(t, 64)
+	case float32:
+		return formatJSONFloat(float64(t), 32)
 	case int:
 		return strconv.Itoa(t)
 	case int64:
 		return strconv.FormatInt(t, 10)
+	case []any:
+		return marshalForCondition(t)
+	case map[string]any:
+		return marshalForCondition(t)
 	}
 	return fmt.Sprintf("%v", v)
+}
+
+// marshalForCondition renders a composite field as the JSON the user was
+// shown.
+//
+// %v spells a decoded object `map[a:1 b:2]` and an array `[1 2]` — Go syntax
+// that appears nowhere else in the product. A `contains` against a jsonb
+// column, which is how you filter one without a path, could therefore never be
+// written: the text being searched was in a notation the sample panel never
+// displays. JSON is what the field already is, what the API sends, and what the
+// editor's simulator compares, and Go sorts map keys when it marshals, so the
+// rendering is stable across messages.
+func marshalForCondition(v any) string {
+	// NaN and the infinities make Marshal fail, and a condition still has to
+	// answer, so the old spelling remains the fallback.
+	if b, err := json.Marshal(v); err == nil {
+		return string(b)
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+// formatJSONFloat renders f exactly as encoding/json would, which is also what
+// JavaScript's Number#toString produces — the two agree by construction, and
+// that agreement is the point: it is what puts the engine and the editor's
+// client-side simulator on the same string.
+//
+// NaN and the infinities have no JSON representation (json.Marshal fails on
+// them), so they keep the %v spelling they have always had rather than
+// acquiring a new one here.
+func formatJSONFloat(f float64, bits int) string {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return strconv.FormatFloat(f, 'g', -1, bits)
+	}
+
+	// The thresholds are encoding/json's, and ECMAScript's before it: fixed
+	// notation over the range a reader would recognise, an exponent only
+	// outside it.
+	abs := math.Abs(f)
+	format := byte('f')
+	if abs != 0 && (abs < 1e-6 || abs >= 1e21) {
+		format = 'e'
+	}
+
+	b := strconv.AppendFloat(make([]byte, 0, 24), f, format, -1, bits)
+	if format == 'e' {
+		// encoding/json trims the exponent's leading zero: e-09 becomes e-9.
+		if n := len(b); n >= 4 && b[n-4] == 'e' && b[n-3] == '-' && b[n-2] == '0' {
+			b[n-2] = b[n-1]
+			b = b[:n-1]
+		}
+	}
+	return string(b)
+}
+
+// numericallyEqual reports whether a numeric field and a configured value are
+// the same number written differently.
+//
+// `>` has always compared a numeric field as a number while `=` compared it as
+// text, so one case list ran under two type regimes: a money field holding 100
+// was greater than "99.99" and simultaneously not equal to "100.00". This
+// closes that, narrowly. Exact text equality is still checked first, so nothing
+// that matched before stops matching — this can only add a match between two
+// spellings of one number. And it only applies when the *field* is genuinely
+// numeric, so a string identifier keeps string semantics and "007" does not
+// start equalling "7".
+//
+// The comparison is at float64 resolution, which is the resolution the field
+// already has: GetValByPath normalised it through JSON long before this.
+func numericallyEqual(fieldRaw, val any) bool {
+	if !isNumeric(fieldRaw) {
+		return false
+	}
+	v1, ok1 := ToFloat64(fieldRaw)
+	v2, ok2 := ToFloat64(val)
+	return ok1 && ok2 && v1 == v2
 }
