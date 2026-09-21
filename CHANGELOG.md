@@ -197,6 +197,49 @@ as a document.
 it had and no error, so a caller could not tell "the table has two matching
 rows" from "the connection dropped after two". It now returns the error.
 
+PostgreSQL arrays had the same split, and it is the one that reads as missing
+data. `int[]` and `text[]` fall to the same `default: var d string` case in
+pgx's `database/sql` driver, so an array reached the pipeline as its text
+literal — the string `{C-001,gift}` rather than a list. Once it is a string
+every path into it resolves to nothing: a `whereClause` of
+`cust_code = {{.tags.0}}` binds nil, the query matches no row, and the miss
+policy passes the message through unchanged. The preview panel renders that as
+"nothing at this path" and Advanced & Test as "Not Found" — one bug wearing two
+labels, since both post to `/api/transformations/test`.
+
+The parsing is pgx's own rather than a split on `,`. A PostgreSQL array literal
+quotes elements containing commas, braces or quotes, escapes quotes inside
+them, and distinguishes an unquoted `NULL` element from the quoted
+four-character string `"NULL"`. A hand parser gets those wrong quietly, which
+is the failure mode being removed, not a smaller version of it. Multidimensional
+arrays flatten — `{{1,2},{3,4}}` becomes `[1,2,3,4]` — because that is what the
+pgx-native path already does; it is pinned by a test so the dimensionality loss
+is a known shared property rather than something discovered later on one path.
+
+**`numeric` is deliberately left as text.** Converting it to a float64 would
+propagate a loss rather than close a gap: measured on PostgreSQL 18.4, a
+`numeric(40,20)` holding `1.00000000000000000001` marshals from `pgtype.Numeric`
+at full precision on the native path, while a float64 flattens it to `1`, and a
+38-digit integral value becomes `12345678901234568000000000000000000000`.
+`evaluator.ToFloat64` already parses a numeric string, so comparisons work on it
+as text today. The exact alternative — carrying it as a `json.Number`, which
+renders identically to the native path — needs the evaluator's coercion helpers
+to learn that type, so it belongs in its own change rather than inside this one.
+
+A `db_lookup` aimed at a `batch_sql` source also built its statement in the
+wrong dialect. `batch_sql` is a wrapper — queries plus a cron, delegating its
+connection to another source — so `src.Type` is never the name of the database
+the statement runs against. The hand-written switch had no case for it, so
+placeholders fell through to `?` and PostgreSQL answered
+`syntax error at or near "LIMIT" (SQLSTATE 42601)`, which reads as the
+operator's SQL being wrong. `GetOrOpenDB` resolved the delegate correctly all
+along; only the dialect did not. Identifier quoting was wrong the same way, and
+would have been visibly wrong for a MySQL delegate. The dialect now comes from
+`CanonicalDriver`, the one table that already knew every mapping — including
+`yugabyte`, which was missing from that switch too, though `Placeholder` and
+`QuoteIdent` both happened to know it independently, so it was a latent
+inconsistency rather than a live bug.
+
 ## [1.9.1] — 2026-09-21
 
 A message trace of a `pipeline` node now reads in the order the work happened.

@@ -359,6 +359,45 @@ func (t *DBLookupTransformer) lookupMongoDB(ctx context.Context, src storage.Sou
 	return finalResult, nil
 }
 
+// lookupDialect is the SQL dialect the statement must be built in.
+//
+// It is not always src.Type. A batch_sql source is a wrapper -- it holds
+// queries and a cron and delegates its connection to another source -- so the
+// dialect belongs to the delegate, not to the wrapper. GetOrOpenDB already
+// resolves that delegate when it opens the pool, but the statement builder read
+// src.Type directly and fell through to "?" placeholders against PostgreSQL:
+//
+//	failed to execute lookup query: ERROR: syntax error at or near "LIMIT" (SQLSTATE 42601)
+//
+// which reads as the operator's SQL being wrong rather than as Hermod building
+// it in the wrong dialect. The node's own picker excludes batch_sql, so this is
+// reachable only through the API or an imported workflow -- the engine accepted
+// a configuration the editor refuses, and then blamed the operator for it.
+//
+// yugabyte was missing from the same hand-written switch, for the same reason:
+// it is PostgreSQL-compatible and needs $1. CanonicalDriver is the one table
+// that already knows every mapping, including the ones nobody remembered here.
+//
+// The registry is taken as any and type-asserted rather than widened into the
+// parameter: a caller that cannot resolve a delegate keeps exactly the
+// behaviour it had.
+func lookupDialect(ctx context.Context, registry any, src storage.Source) string {
+	sourceType := src.Type
+	if sourceType == "batch_sql" {
+		if r, ok := registry.(interface {
+			GetSourceConfig(ctx context.Context, id string) (storage.Source, error)
+		}); ok {
+			if delegate, err := r.GetSourceConfig(ctx, src.Config["source_id"]); err == nil && delegate.Type != "" {
+				sourceType = delegate.Type
+			}
+		}
+	}
+	if driver, ok := sqlutil.CanonicalDriver(sourceType); ok {
+		return driver
+	}
+	return sourceType
+}
+
 func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface {
 	GetOrOpenDB(src storage.Source) (*sql.DB, error)
 }, src storage.Source, table, keyColumn string, keyVal any, whereClause, valueColumn, defaultValue string, data map[string]any) (any, error) {
@@ -366,18 +405,7 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database for lookup: %w", err)
 	}
-	// Map to driver for quoting/placeholder
-	driver := src.Type
-	switch src.Type {
-	case "postgres":
-		driver = "pgx"
-	case "mysql", "mariadb":
-		driver = "mysql"
-	case "sqlite":
-		driver = "sqlite"
-	case "mssql":
-		driver = "mssql"
-	}
+	driver := lookupDialect(ctx, registry, src)
 
 	// Quote table and columns safely
 	quotedTable, err := sqlutil.QuoteIdent(driver, table)
@@ -709,18 +737,7 @@ func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registr
 		return nil, fmt.Errorf("failed to get database for lookup: %w", err)
 	}
 
-	// Map to driver for placeholder style
-	driver := src.Type
-	switch src.Type {
-	case "postgres":
-		driver = "pgx"
-	case "mysql", "mariadb":
-		driver = "mysql"
-	case "sqlite":
-		driver = "sqlite"
-	case "mssql":
-		driver = "mssql"
-	}
+	driver := lookupDialect(ctx, registry, src)
 
 	b := core.ParameterizeTemplateEx(driver, queryTemplate, data)
 	if b.Err != nil {

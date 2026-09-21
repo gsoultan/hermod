@@ -227,7 +227,7 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 				// as the driver's raw bytes. Decoding it is what gives the
 				// document fields for a field picker, a sink mapping and a
 				// trace to reach into.
-				val := sqlutil.DecodeValue(values[i], i < len(typeNames) && sqlutil.IsJSONColumnType(typeNames[i]))
+				val := sqlutil.DecodeColumn(values[i], columnTypeAt(typeNames, i))
 				msg.SetData(colName, val)
 
 				// The watermark this row represents travels on the message,
@@ -505,8 +505,18 @@ func (s *BatchSQLSource) Sample(ctx context.Context, table string) (hermod.Messa
 	// every downstream node, so an undecoded json/jsonb column here offers no
 	// sub-paths to pick and the document looks like one opaque string.
 	for i, colName := range cols {
-		msg.SetData(colName, sqlutil.DecodeValue(values[i], i < len(typeNames) && sqlutil.IsJSONColumnType(typeNames[i])))
+		msg.SetData(colName, sqlutil.DecodeColumn(values[i], columnTypeAt(typeNames, i)))
 	}
 
 	return msg, nil
+}
+
+// columnTypeAt is the driver's own name for column i, or "" when the driver
+// would not say. ColumnTypeNames returns nil in that case, and a shorter slice
+// must not panic a read loop.
+func columnTypeAt(typeNames []string, i int) string {
+	if i < len(typeNames) {
+		return typeNames[i]
+	}
+	return ""
 }

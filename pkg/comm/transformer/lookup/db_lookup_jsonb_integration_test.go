@@ -238,3 +238,137 @@ func digCity(meta map[string]any) any {
 	}
 	return addr["city"]
 }
+
+// A PostgreSQL array through the same node. This is the shape a user reported
+// as "real data shows null / no data found": once an array is the string
+// "{C-001,gift}", every path into it resolves to nothing, the whereClause binds
+// nil, the query matches no row, and the miss policy passes the message
+// through unchanged. Nothing errors, because nothing failed.
+//
+//	POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/hermod_test_source?sslmode=disable' \
+//	  go test -tags=integration -run TestDBLookupArray ./pkg/comm/transformer/lookup/
+func TestDBLookupArrayColumnArrivesAsAList(t *testing.T) {
+	dsn := os.Getenv("POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("POSTGRES_DSN not set")
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := t.Context()
+	if _, err := db.ExecContext(ctx, `CREATE SCHEMA IF NOT EXISTS lookup_it`); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS lookup_it.customers`); err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE lookup_it.customers (
+		id int PRIMARY KEY, cust_code text, name text,
+		tags text[], scores int[], nasty text[], holes int[]
+	)`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), `DROP TABLE IF EXISTS lookup_it.customers`)
+	})
+
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO lookup_it.customers VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		1, "C-001", "Ada Lovelace",
+		`{C-001,gift}`, `{10,20}`,
+		`{"a,b","he said \"hi\"","{brace}","NULL"}`, `{1,NULL,3}`,
+	); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	newRegistry := func() *cachingFakeRegistry {
+		return &cachingFakeRegistry{
+			db:     db,
+			source: storage.Source{ID: "src1", Type: "postgres", Config: hermod.StringMap{"use_cdc": "false"}},
+			cache:  map[string]any{},
+		}
+	}
+	tr := &DBLookupTransformer{}
+
+	out, err := tr.Transform(
+		context.WithValue(ctx, hermod.RegistryKey, newRegistry()),
+		func() hermod.Message {
+			m := message.AcquireMessage()
+			t.Cleanup(m.Release)
+			m.SetData("Id", 1)
+			return m
+		}(),
+		map[string]any{
+			"sourceId": "src1", "table": "lookup_it.customers",
+			"keyColumn": "id", "keyField": "Id",
+			"valueColumn": "*", "targetField": "customer",
+		})
+	if err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+
+	row, ok := out.Data()["customer"].(map[string]any)
+	if !ok {
+		t.Fatalf("customer = %#v, want a row", out.Data()["customer"])
+	}
+
+	tags, ok := row["tags"].([]any)
+	if !ok {
+		t.Fatalf("customer.tags = %#v (%T), want a list -- as a string, every path "+
+			"into it resolves to nothing and the lookup that uses it silently misses", row["tags"], row["tags"])
+	}
+	if len(tags) != 2 || tags[0] != "C-001" {
+		t.Errorf("customer.tags = %#v, want [C-001 gift]", tags)
+	}
+	if scores, ok := row["scores"].([]any); !ok || len(scores) != 2 {
+		t.Errorf("customer.scores = %#v, want a 2-element list", row["scores"])
+	}
+
+	// The two literals that decide whether the parser is right rather than
+	// merely plausible: an embedded comma, an escaped quote and a brace inside
+	// quoted elements, a *quoted* NULL that is the four-character string, and
+	// an unquoted NULL that is a real null.
+	nasty, ok := row["nasty"].([]any)
+	if !ok || len(nasty) != 4 {
+		t.Fatalf("customer.nasty = %#v, want 4 elements", row["nasty"])
+	}
+	for i, want := range []any{"a,b", `he said "hi"`, "{brace}", "NULL"} {
+		if nasty[i] != want {
+			t.Errorf("customer.nasty[%d] = %#v, want %#v", i, nasty[i], want)
+		}
+	}
+	holes, ok := row["holes"].([]any)
+	if !ok || len(holes) != 3 {
+		t.Fatalf("customer.holes = %#v, want 3 elements", row["holes"])
+	}
+	if holes[1] != nil {
+		t.Errorf("customer.holes[1] = %#v, want a real null", holes[1])
+	}
+
+	// And the failure the user actually reported: a lookup keyed on an element
+	// of the array. With tags as a string this bound nil and produced nothing.
+	out2, err := tr.Transform(
+		context.WithValue(ctx, hermod.RegistryKey, newRegistry()),
+		func() hermod.Message {
+			m := message.AcquireMessage()
+			t.Cleanup(m.Release)
+			m.SetData("tags", []any{"C-001", "gift"})
+			return m
+		}(),
+		map[string]any{
+			"sourceId": "src1", "table": "lookup_it.customers",
+			"whereClause": "cust_code = {{.tags.0}}",
+			"valueColumn": "name", "targetField": "found",
+		})
+	if err != nil {
+		t.Fatalf("Transform(whereClause): %v", err)
+	}
+	if got := out2.Data()["found"]; got != "Ada Lovelace" {
+		t.Errorf("found = %#v, want %q -- this is the miss that renders as "+
+			"\"nothing at this path\" in the preview panel", got, "Ada Lovelace")
+	}
+}
