@@ -506,7 +506,7 @@ func (s *pebbleStorage) DeleteWorkflowMessageTraces(ctx context.Context, workflo
 	if err != nil {
 		return err
 	}
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	batch := s.db.NewBatch()
 	for iter.First(); iter.Valid(); iter.Next() {

@@ -1429,8 +1429,6 @@ func (s *mongoStorage) DeleteWorkflowMessageTraces(ctx context.Context, workflow
 	return err
 }
 
-
-
 func (s *mongoStorage) CreateWebhookRequest(ctx context.Context, req storage.WebhookRequest) error {
 	if req.ID == "" {
 		req.ID = uuid.NewString()

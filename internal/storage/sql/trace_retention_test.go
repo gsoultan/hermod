@@ -78,13 +78,13 @@ func TestMessageTraceStepsIndexesTheColumnsThePurgeFilters(t *testing.T) {
 
 // indexColumns pulls the column list out of a CREATE INDEX statement.
 func indexColumns(ddl string) ([]string, bool) {
-	open := strings.LastIndex(ddl, "(")
-	close := strings.LastIndex(ddl, ")")
-	if open == -1 || close <= open {
+	start := strings.LastIndex(ddl, "(")
+	end := strings.LastIndex(ddl, ")")
+	if start == -1 || end <= start {
 		return nil, false
 	}
 	var cols []string
-	for _, c := range strings.Split(ddl[open+1:close], ",") {
+	for _, c := range strings.Split(ddl[start+1:end], ",") {
 		f := strings.Fields(strings.TrimSpace(strings.ToLower(c)))
 		if len(f) > 0 {
 			cols = append(cols, strings.Trim(f[0], `"`+"`"))
