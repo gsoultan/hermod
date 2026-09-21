@@ -495,6 +495,84 @@ func NormalizeVHost(vhost string) string {
 	return vhost
 }
 
+// TraceRetention describes one sweep of the message trace tables.
+//
+// A cutoff *per workflow*, where this used to be a single time.Time. Retention
+// is a per-workflow setting, but the purge it drove was
+// `DELETE FROM message_trace_steps WHERE timestamp < ?` with no workflow
+// predicate, called from inside a loop over workflows. So the shortest window
+// in the deployment decided what every workflow kept: one set to 7d deleted
+// the traces of one set to 365d, and on PostgreSQL it dropped whole day
+// partitions out from under it, which no VACUUM undoes. That same full-table
+// delete also ran once per workflow per hour.
+type TraceRetention struct {
+	// Keep maps a workflow id to the oldest trace step it keeps.
+	//
+	// A workflow with no entry here keeps everything it has. Either no window
+	// is configured or the configured one could not be parsed, and neither is
+	// a licence to delete: an operator-supplied window has no safe default,
+	// because a short one deletes traces nobody asked to lose and none at all
+	// restores the growth bug this mechanism exists to prevent.
+	Keep map[string]time.Time
+
+	// Live is every workflow that exists, including those absent from Keep.
+	//
+	// Traces of a workflow that is not here are unreachable — the viewer
+	// reaches a trace through its workflow, and ListMessageTraces takes a
+	// workflow id — so they are swept regardless of age. Nothing else removes
+	// them: DeleteWorkflow deletes one row.
+	Live map[string]struct{}
+
+	// LiveIsComplete reports whether Live really is every workflow there is.
+	//
+	// Not inferred from Live being non-empty, and not a detail. The caller
+	// reads workflows through a paged list; on a deployment with more
+	// workflows than it asked for, every workflow past the first page would
+	// look like a deleted one and have its traces swept. When this is false
+	// the orphan sweep is skipped and everything else still runs.
+	LiveIsComplete bool
+}
+
+// PartitionFloor is the oldest moment no live workflow needs any more, and
+// whether one exists at all.
+//
+// Only whole days below this may be reclaimed by dropping a partition, because
+// a drop takes every workflow's rows for that day at once. A single live
+// workflow that keeps everything therefore blocks partition dropping for the
+// whole deployment — correctly: the alternative is destroying its traces to
+// save space on someone else's.
+func (r TraceRetention) PartitionFloor() (time.Time, bool) {
+	if !r.LiveIsComplete {
+		return time.Time{}, false
+	}
+	var floor time.Time
+	for id := range r.Live {
+		cutoff, ok := r.Keep[id]
+		if !ok {
+			return time.Time{}, false
+		}
+		if floor.IsZero() || cutoff.Before(floor) {
+			floor = cutoff
+		}
+	}
+	return floor, !floor.IsZero()
+}
+
+// Orphans returns the workflow ids in present that no longer exist, and
+// whether the caller is entitled to act on the answer.
+func (r TraceRetention) Orphans(present []string) ([]string, bool) {
+	if !r.LiveIsComplete {
+		return nil, false
+	}
+	var gone []string
+	for _, id := range present {
+		if _, alive := r.Live[id]; !alive {
+			gone = append(gone, id)
+		}
+	}
+	return gone, true
+}
+
 type Storage interface {
 	// Init performs storage initialization/migrations and is safe to call multiple times.
 	Init(ctx context.Context) error
@@ -578,7 +656,8 @@ type Storage interface {
 	ListAuditLogs(ctx context.Context, filter AuditFilter) ([]AuditLog, int, error)
 	CreateAuditLog(ctx context.Context, log AuditLog) error
 	PurgeAuditLogs(ctx context.Context, before time.Time) error
-	PurgeMessageTraces(ctx context.Context, before time.Time) error
+	PurgeMessageTraces(ctx context.Context, retention TraceRetention) error
+	DeleteWorkflowMessageTraces(ctx context.Context, workflowID string) error
 
 	ListWebhookRequests(ctx context.Context, filter WebhookRequestFilter) ([]WebhookRequest, int, error)
 	CreateWebhookRequest(ctx context.Context, req WebhookRequest) error

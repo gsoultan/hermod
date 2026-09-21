@@ -7,6 +7,64 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Trace retention is finally per workflow
+
+`trace_retention` is a per-workflow setting. The purge enforcing it was not.
+`purgeRetention` looped over workflows and handed each one's cutoff to
+`DELETE FROM message_trace_steps WHERE timestamp < ?` — a statement with no
+workflow predicate. Three consequences, all of them live:
+
+- **The shortest window in the deployment decided what every workflow kept.** A
+  workflow set to `7d` deleted the traces of one set to `365d`.
+- **On PostgreSQL it was irreversible.** Retention drops whole day partitions,
+  and a partition holds every workflow's rows for that day. A `7d` workflow
+  dropped a `365d` workflow's traces by `DROP TABLE`, which no retention setting
+  and no `VACUUM` undoes.
+- **It ran once per workflow per hour.** A thousand workflows meant a thousand
+  full-table range deletes an hour, each leaving dead tuples behind.
+
+`PurgeMessageTraces` now takes a `storage.TraceRetention` — a cutoff per
+workflow, the set of workflows that exist, and whether that set is known to be
+complete — and runs once per sweep. Each delete carries its own
+`workflow_id`, so a window only ever decides its own workflow's traces. Whole
+day partitions are dropped only below the floor no live workflow still needs,
+so one workflow that keeps everything correctly blocks partition dropping for
+the deployment rather than having its history reclaimed on someone else's
+behalf.
+
+`idx_trace_ts(timestamp)` matched the unscoped delete and is replaced by
+`idx_trace_wf_ts(workflow_id, timestamp)`, which matches the scoped one. The
+sweep becomes a range scan over one workflow's expired rows instead of a
+sequential scan of the whole table; the wider key costs 6.6 bytes per step
+(+1.6%).
+
+#### Traces of deleted workflows are reclaimed at last
+
+`DeleteWorkflow` deletes one row. A trace is only reachable through its
+workflow, and no retention window is attached to a workflow that is gone — so
+every workflow ever deleted left an unbounded pile of unreachable rows in the
+largest table Hermod owns, and nothing ever removed them.
+
+Deleting a workflow now deletes its traces, from both the single and the batch
+delete path. This is driven by the Registry rather than cascaded inside
+`DeleteWorkflow`, because `SetLogStorage` may point traces at a different
+database from the one holding workflows; a cascade in the workflow store would
+delete from the wrong place and silently leave the real rows behind. It is best
+effort — a failure costs space until the next sweep rather than failing the
+delete the operator asked for.
+
+The hourly sweep also clears orphans, which is what reclaims the existing
+backlog. It does that **only when it can prove it enumerated every workflow**:
+it reads a paged list, and on a deployment with more workflows than one page
+everything past the first page would otherwise look deleted and have its traces
+swept. When the list is short the sweep says so in the log and skips that step;
+everything else still runs.
+
+A workflow whose window is unset, `0` or unparseable still keeps everything,
+exactly as before. There is no safe default — a short one deletes traces nobody
+asked to lose, and none at all restores the growth bug — so the only honest
+move remains to keep the data and log why.
+
 ### A message trace now stores each payload once, compressed
 
 `message_trace_steps` is the largest table Hermod owns — a row per node per

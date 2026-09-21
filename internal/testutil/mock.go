@@ -133,7 +133,11 @@ func (m *BaseMockStorage) ListAuditLogs(ctx context.Context, filter storage.Audi
 }
 func (m *BaseMockStorage) CreateAuditLog(ctx context.Context, log storage.AuditLog) error { return nil }
 func (m *BaseMockStorage) PurgeAuditLogs(ctx context.Context, before time.Time) error     { return nil }
-func (m *BaseMockStorage) PurgeMessageTraces(ctx context.Context, before time.Time) error {
+func (m *BaseMockStorage) DeleteWorkflowMessageTraces(ctx context.Context, workflowID string) error {
+	return nil
+}
+
+func (m *BaseMockStorage) PurgeMessageTraces(ctx context.Context, retention storage.TraceRetention) error {
 	return nil
 }
 

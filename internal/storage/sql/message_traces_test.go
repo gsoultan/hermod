@@ -206,7 +206,11 @@ func TestPurgeMessageTraces_RemovesTheParentRowsToo(t *testing.T) {
 	s, _ := newTraceStorage(t)
 	recordSteps(t, s, "wf-1", "msg-1", "source", "sink")
 
-	if err := s.PurgeMessageTraces(t.Context(), time.Now().UTC().Add(time.Hour)); err != nil {
+	if err := s.PurgeMessageTraces(t.Context(), storage.TraceRetention{
+		Keep:           map[string]time.Time{"wf-1": time.Now().UTC().Add(time.Hour)},
+		Live:           map[string]struct{}{"wf-1": {}},
+		LiveIsComplete: true,
+	}); err != nil {
 		t.Fatalf("PurgeMessageTraces: %v", err)
 	}
 

@@ -457,12 +457,30 @@ func (r *Registry) purgeRetention() {
 		r.logger.Error("Registry: purging dashboard history failed", "error", err)
 	}
 
-	workflows, _, err := store.ListWorkflows(ctx, storage.CommonFilter{Limit: 1000})
+	workflows, total, err := store.ListWorkflows(ctx, storage.CommonFilter{Limit: workflowPageForRetention})
 	if err != nil {
 		return
 	}
 
+	// One sweep of the trace tables, built from every workflow's own window,
+	// rather than one full-table delete per workflow per hour driven by
+	// whichever cutoff the loop happened to be holding.
+	traces := storage.TraceRetention{
+		Keep: make(map[string]time.Time, len(workflows)),
+		Live: make(map[string]struct{}, len(workflows)),
+		// Only as much as this page. A deployment with more workflows than one
+		// page must not have everything past the first page mistaken for
+		// deleted workflows and swept.
+		LiveIsComplete: len(workflows) == total,
+	}
+	if !traces.LiveIsComplete {
+		r.logger.Warn("Registry: more workflows than one retention page, so traces of "+
+			"deleted workflows are not reclaimed this sweep",
+			"listed", len(workflows), "total", total)
+	}
+
 	for _, wf := range workflows {
+		traces.Live[wf.ID] = struct{}{}
 		// parseDuration, not time.ParseDuration: these windows are written by
 		// the workflow editor, which defaults the field to "7d", and Go's
 		// parser has no "d" unit. Using it here meant the parse failed on the
@@ -477,16 +495,16 @@ func (r *Registry) purgeRetention() {
 		// short one would delete traces nobody asked to lose, and defaulting
 		// to none restores exactly this bug — so the only honest move is to
 		// keep the data and say why.
+		//
+		// A workflow whose window is unset, zero or unparseable gets no entry
+		// in Keep and therefore keeps everything, which is what it did before.
 		if wf.TraceRetention != "" && wf.TraceRetention != "0" {
 			if duration, err := parseDuration(wf.TraceRetention); err != nil {
 				r.logger.Error("Registry: trace retention is not a duration, so traces "+
 					"are never purged and message_trace_steps grows without bound",
 					"workflow_id", wf.ID, "trace_retention", wf.TraceRetention, "error", err)
-			} else if logStore != nil {
-				if err := logStore.PurgeMessageTraces(ctx, time.Now().Add(-duration)); err != nil {
-					r.logger.Error("Registry: purging message traces failed",
-						"workflow_id", wf.ID, "error", err)
-				}
+			} else {
+				traces.Keep[wf.ID] = time.Now().Add(-duration)
 			}
 		}
 
@@ -521,12 +539,56 @@ func (r *Registry) purgeRetention() {
 		}
 	}
 
+	// One sweep, after the whole policy is known. Trace retention is the only
+	// one of these that cannot be applied a workflow at a time: the delete has
+	// to carry a workflow predicate, and on PostgreSQL a day partition holds
+	// every workflow's rows at once, so what may be dropped depends on the most
+	// conservative window in the deployment rather than on this iteration's.
+	if logStore != nil {
+		if err := logStore.PurgeMessageTraces(ctx, traces); err != nil {
+			r.logger.Error("Registry: purging message traces failed", "error", err)
+		}
+	}
+
 	// Global purge for logs without workflow (system logs)
 	if logStore != nil {
 		_ = logStore.DeleteLogs(ctx, storage.LogFilter{
 			Until:           time.Now().AddDate(0, 0, -30),
 			WithoutWorkflow: true,
 		})
+	}
+}
+
+// workflowPageForRetention is how many workflows one sweep reads.
+//
+// It also decides whether the sweep may reclaim the traces of deleted
+// workflows: that needs the complete set, and this is how the sweep knows
+// whether it has one.
+const workflowPageForRetention = 1000
+
+// DeleteWorkflowTraces removes the traces of a workflow that has been deleted.
+//
+// Here rather than in storage.DeleteWorkflow because traces live in the log
+// store, and SetLogStorage may point that at a different database from the one
+// holding workflows — a cascade inside the workflow store would delete from the
+// wrong place and silently leave the real rows behind. The Registry is the
+// object that knows both.
+//
+// Best effort by design: the hourly sweep reclaims anything this misses, so a
+// failure here costs space until the next tick rather than failing the delete
+// the operator actually asked for.
+func (r *Registry) DeleteWorkflowTraces(ctx context.Context, workflowID string) {
+	store := r.GetLogStorage()
+	if store == nil {
+		store = r.GetStorage()
+	}
+	if store == nil {
+		return
+	}
+	if err := store.DeleteWorkflowMessageTraces(ctx, workflowID); err != nil {
+		r.logger.Error("Registry: could not delete the traces of a deleted workflow; "+
+			"the hourly retention sweep will reclaim them",
+			"workflow_id", workflowID, "error", err)
 	}
 }
 

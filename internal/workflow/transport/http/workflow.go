@@ -159,7 +159,10 @@ func (h *WorkflowHandler) BatchDeleteWorkflows(w http.ResponseWriter, r *http.Re
 			results[id] = "Error: " + err.Error()
 		} else {
 			_ = h.Registry.StopEngine(r.Context(), id)
-			// See DeleteWorkflow: Prometheus keeps a series forever once seen.
+			// See DeleteWorkflow for both of these: traces are only reachable
+			// through their workflow, and Prometheus keeps a series forever
+			// once seen.
+			h.Registry.DeleteWorkflowTraces(r.Context(), id)
 			telemetry.ForgetWorkflow(id)
 			results[id] = "OK"
 			h.RecordAuditLog(r, "INFO", "Batch deleted workflow "+id, "DELETE", id, "", "", nil)
@@ -792,6 +795,11 @@ func (h *WorkflowHandler) DeleteWorkflow(w http.ResponseWriter, r *http.Request)
 	// until a worker sync happened to notice the row was gone.
 	if h.Registry != nil {
 		_ = h.Registry.StopEngine(r.Context(), id)
+		// Traces outlive their workflow otherwise. DeleteWorkflow removes one
+		// row, and a trace is only reachable through its workflow, so every
+		// workflow ever deleted left an unbounded pile of unreachable rows in
+		// the largest table Hermod owns.
+		h.Registry.DeleteWorkflowTraces(r.Context(), id)
 	}
 	// Prometheus never reclaims a series on its own, so a deleted workflow's
 	// metrics would otherwise be exported for the life of the process.
