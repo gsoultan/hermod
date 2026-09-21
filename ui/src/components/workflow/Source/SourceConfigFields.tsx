@@ -10,6 +10,7 @@ import { MainframeSourceConfig } from './MainframeSourceConfig';
 import { BatchSQLSourceConfig } from './BatchSQLSourceConfig';
 import { OtherSourceConfig } from './OtherSourceConfig';
 import { MetisSourceConfig } from './MetisSourceConfig';
+import { MetisTaskSourceConfig } from './MetisTaskSourceConfig';
 import { ExcelSourceConfig } from './ExcelSourceConfig';
 import type { FC } from 'react';
 import type { Source } from '@/types';
@@ -141,6 +142,10 @@ export const SourceConfigFields: FC<SourceConfigFieldsProps> = ({
   // of them.
   if (source.type === 'metis') {
     return <MetisSourceConfig config={source.config} updateConfig={updateConfig} />;
+  }
+
+  if (source.type === 'metis_task') {
+    return <MetisTaskSourceConfig config={source.config} updateConfig={updateConfig} />;
   }
 
   if (source.type === 'sap') {
