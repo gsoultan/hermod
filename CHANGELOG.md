@@ -7,6 +7,44 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-09-22
+
+Hermod can run a step of a BPMN process. Trace retention stops deleting other
+workflows' history. A `switch` or `condition` node finally uses the cases the
+editor has been showing you.
+
+### Upgrading
+
+**Two catalogue changes happen on start-up; neither rewrites a table.**
+`autoMigrate` adds `after_hash` and `after_blob` to `message_trace_steps`, both
+nullable. The trace sweep's index is replaced at the same time:
+`idx_trace_ts(timestamp)` is dropped in favour of
+`idx_trace_wf_ts(workflow_id, timestamp)`, which is what the now-scoped delete
+matches. There is no backfill.
+
+**Routing can change, and that is the fix.** A `switch` or `condition` node
+could reach the engine as a list it read as empty — and an empty list is not an
+error to anything downstream. It means "no case matched" to `switch`, and
+"nothing to check" to a condition, which then returns true. Those nodes now
+evaluate the cases you can see on screen, so a workflow that has been quietly
+taking its default branch, or passing every message through a filter, will start
+doing what its configuration says. Nothing needs re-saving.
+
+**Trace storage can grow where tracing is on.** Retention is enforced per
+workflow now, instead of letting the shortest window in the deployment decide
+for every workflow, so one set to `365d` keeps 365 days where it may previously
+have been purged on a `7d` workflow's behalf. Tracing is off by default
+(`trace_sample_rate` 0), so this only applies where it was switched on. In
+exchange, traces belonging to deleted workflows are reclaimed — nothing
+reclaimed them before, on any release.
+
+**Rolling back has one visible cost**, set out in full under *A message trace
+now stores each payload once, compressed*: the previous release reads
+`after_data`, which is NULL on rows this one wrote, so traces recorded in the
+meantime show blank payloads until the newer binary returns. `HERMOD_TRACE_COMPRESSION=off`
+stores readable JSON instead, and a database written under one setting stays
+readable under the other.
+
 ### The palette and the guide said a list transformation fans out
 
 Two different nodes answer to "foreach" and `transType` cannot tell them apart.
