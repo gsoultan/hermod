@@ -37,7 +37,8 @@ type RegistryStorage interface {
 	RecordTraceStep(ctx context.Context, workflowID, messageID string, step hermod.TraceStep) error
 	PurgeLogs(ctx context.Context, before time.Time) error
 	PurgeAuditLogs(ctx context.Context, before time.Time) error
-	PurgeMessageTraces(ctx context.Context, before time.Time) error
+	PurgeMessageTraces(ctx context.Context, retention storage.TraceRetention) error
+	DeleteWorkflowMessageTraces(ctx context.Context, workflowID string) error
 
 	CreateApproval(ctx context.Context, app storage.Approval) error
 	GetApproval(ctx context.Context, id string) (storage.Approval, error)

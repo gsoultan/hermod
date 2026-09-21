@@ -135,7 +135,13 @@ func (a *apiStorage) ListAuditLogs(ctx context.Context, filter storage.AuditFilt
 }
 func (a *apiStorage) CreateAuditLog(ctx context.Context, log storage.AuditLog) error { return nil }
 func (a *apiStorage) PurgeAuditLogs(ctx context.Context, before time.Time) error     { return nil }
-func (a *apiStorage) PurgeMessageTraces(ctx context.Context, before time.Time) error { return nil }
+func (a *apiStorage) PurgeMessageTraces(ctx context.Context, retention storage.TraceRetention) error {
+	return nil
+}
+
+func (a *apiStorage) DeleteWorkflowMessageTraces(ctx context.Context, workflowID string) error {
+	return nil
+}
 
 // --- Webhook requests ---
 
