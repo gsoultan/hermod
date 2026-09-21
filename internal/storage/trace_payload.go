@@ -1,4 +1,4 @@
-package sql
+package storage
 
 // How a trace step's payload is stored: one copy per distinct payload per
 // message, compressed.
@@ -34,6 +34,7 @@ package sql
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"strings"
 	"sync"
@@ -59,13 +60,13 @@ const (
 	// same reason.
 	traceDecodeMaxBytes = 64 << 20
 
-	// traceDedupCacheSize is how many (workflow, message, payload) facts are
+	// TraceDedupCacheSize is how many (workflow, message, payload) facts are
 	// remembered at once. A message's steps are recorded within milliseconds of
 	// each other, so the useful lifetime of an entry is short and a few
 	// thousand slots cover far more concurrency than the trace recorder's own
 	// slot limit allows. The bound is not optional: the key contains a message
 	// id, which is whatever the source supplied.
-	traceDedupCacheSize = 8192
+	TraceDedupCacheSize = 8192
 )
 
 var (
@@ -102,13 +103,13 @@ func traceCompressionEnabled() bool {
 // input someone else chooses is a 2^32 search away from showing one node's
 // payload under another node's name — and a trace viewer that can be made to
 // lie about which node produced what is worse than a slightly larger table.
-func tracePayloadHash(raw []byte) []byte {
+func TracePayloadHash(raw []byte) []byte {
 	sum := sha256.Sum256(raw)
 	return sum[:16]
 }
 
 // encodeTracePayload turns marshalled JSON into the bytes stored in after_blob.
-func encodeTracePayload(raw []byte) []byte {
+func EncodeTracePayload(raw []byte) []byte {
 	if enc, _ := traceCodec(); enc != nil && traceCompressionEnabled() {
 		// Compressing into a buffer that already holds the codec byte keeps
 		// this to one allocation.
@@ -123,7 +124,7 @@ func encodeTracePayload(raw []byte) []byte {
 }
 
 // decodeTracePayload recovers the JSON behind a stored after_blob value.
-func decodeTracePayload(blob []byte) ([]byte, error) {
+func DecodeTracePayload(blob []byte) ([]byte, error) {
 	if len(blob) == 0 {
 		return nil, nil
 	}
@@ -153,18 +154,18 @@ func decodeTracePayload(blob []byte) ([]byte, error) {
 // steps of the same message all cost a duplicate copy of a payload — never a
 // reference with nothing behind it. Getting that direction the wrong way round
 // would turn a full table into a blank trace viewer.
-type traceDedupCache struct {
+type TraceDedupCache struct {
 	mu   sync.Mutex
 	seen map[string]struct{}
 	ring []string
 	next int
 }
 
-func newTraceDedupCache(capacity int) *traceDedupCache {
+func NewTraceDedupCache(capacity int) *TraceDedupCache {
 	if capacity <= 0 {
-		capacity = traceDedupCacheSize
+		capacity = TraceDedupCacheSize
 	}
-	return &traceDedupCache{
+	return &TraceDedupCache{
 		seen: make(map[string]struct{}, capacity),
 		ring: make([]string, capacity),
 	}
@@ -189,7 +190,7 @@ func traceDedupKey(workflowID, messageID string, hash []byte) string {
 	return b.String()
 }
 
-func (c *traceDedupCache) alreadyStored(workflowID, messageID string, hash []byte) bool {
+func (c *TraceDedupCache) AlreadyStored(workflowID, messageID string, hash []byte) bool {
 	key := traceDedupKey(workflowID, messageID, hash)
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -197,7 +198,7 @@ func (c *traceDedupCache) alreadyStored(workflowID, messageID string, hash []byt
 	return ok
 }
 
-func (c *traceDedupCache) markStored(workflowID, messageID string, hash []byte) {
+func (c *TraceDedupCache) MarkStored(workflowID, messageID string, hash []byte) {
 	key := traceDedupKey(workflowID, messageID, hash)
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -214,8 +215,19 @@ func (c *traceDedupCache) markStored(workflowID, messageID string, hash []byte) 
 	c.seen[key] = struct{}{}
 }
 
-func (c *traceDedupCache) len() int {
+func (c *TraceDedupCache) Len() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.seen)
+}
+
+// TracePayloadKey is TracePayloadHash rendered as hex.
+//
+// The document stores keep their payloads in a map, and a map key has to be a
+// string there: a BSON field name, or a JSON object key. Keying that map by
+// content is what makes dedup inherent for those backends rather than something
+// a cache has to get right — writing the same payload twice writes the same key
+// twice, which is a no-op.
+func TracePayloadKey(raw []byte) string {
+	return hex.EncodeToString(TracePayloadHash(raw))
 }

@@ -34,7 +34,7 @@ type sqlStorage struct {
 	// message_trace_steps, so the steps that follow store a reference. See
 	// trace_payload.go for why it is a cache rather than an index, and why
 	// being wrong about it only ever costs space.
-	traceDedup *traceDedupCache
+	traceDedup *storage.TraceDedupCache
 }
 
 func NewSQLStorage(db *sql.DB, driver string) storage.Storage {
@@ -42,7 +42,7 @@ func NewSQLStorage(db *sql.DB, driver string) storage.Storage {
 		db:         db,
 		driver:     driver,
 		queries:    newQueryRegistry(driver),
-		traceDedup: newTraceDedupCache(traceDedupCacheSize),
+		traceDedup: storage.NewTraceDedupCache(storage.TraceDedupCacheSize),
 	}
 }
 
@@ -2860,11 +2860,11 @@ func (s *sqlStorage) RecordTraceStep(ctx context.Context, workflowID, messageID 
 	// The cache decides, and it is allowed to be wrong in one direction only:
 	// a miss stores another copy, a hit must never invent a reference. See
 	// trace_payload.go.
-	afterHash := tracePayloadHash(afterBytes)
-	carrier := !s.traceDedup.alreadyStored(workflowID, messageID, afterHash)
+	afterHash := storage.TracePayloadHash(afterBytes)
+	carrier := !s.traceDedup.AlreadyStored(workflowID, messageID, afterHash)
 	var afterBlob []byte
 	if carrier {
-		afterBlob = encodeTracePayload(afterBytes)
+		afterBlob = storage.EncodeTracePayload(afterBytes)
 	}
 
 	errCount := 0
@@ -2901,7 +2901,7 @@ func (s *sqlStorage) RecordTraceStep(ctx context.Context, workflowID, messageID 
 	// Only now. Recording the payload as stored before the insert lands would
 	// let the next step reference bytes that never arrived.
 	if carrier {
-		s.traceDedup.markStored(workflowID, messageID, afterHash)
+		s.traceDedup.MarkStored(workflowID, messageID, afterHash)
 	}
 	return nil
 }
@@ -2941,7 +2941,7 @@ func (s *sqlStorage) GetMessageTrace(ctx context.Context, workflowID, messageID 
 		key := string(afterHash)
 		switch {
 		case len(afterBlob) > 0:
-			if raw, err := decodeTracePayload(afterBlob); err == nil && len(raw) > 0 {
+			if raw, err := storage.DecodeTracePayload(afterBlob); err == nil && len(raw) > 0 {
 				_ = json.Unmarshal(raw, &step.After)
 			}
 		case afterStr.Valid && afterStr.String != "":

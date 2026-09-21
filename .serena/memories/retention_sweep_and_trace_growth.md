@@ -220,3 +220,16 @@ same backlog the CHANGELOG's backfill note covers.
   `After`; Pebble JSON-marshals the whole `MessageTrace`. Both are the shape SQL
   left behind in 2026-09-17, plus no dedup. Mongo additionally pushes every step
   into one document, so a long trace can reach the 16 MB BSON limit.
+- ~~MongoDB and Pebble store the payload twice~~ — **fixed 2026-09-21.** Both now
+  use `storage.StoredTrace`: payloads in a map keyed by content, steps naming a
+  key, `Before` reconstructed on read. Measured against the old shape on a
+  nine-step trace: Mongo 5996 -> 1786 B (3.36x, live server), Pebble
+  6096 -> 2121 B (2.87x). Dedup is *inherent* there — one document, one map, so
+  a repeated payload is a repeated key — which is why they need none of the
+  carrier/cache machinery SQL does.
+
+- **Pebble's `RecordTraceStep` is a read-modify-write of the whole trace**, so an
+  N-step trace rewrites the document N times: O(N^2) bytes into the LSM. Shrinking
+  the document (above) shrank the constant, not the complexity. Fixing it properly
+  means a key per step (`t:<wf>:<msg>:<seq>`), which also touches
+  `ListMessageTraces` and `PurgeMessageTraces`. Not done.

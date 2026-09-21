@@ -7,6 +7,50 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### MongoDB and Pebble store a trace payload once too
+
+The SQL backends stopped storing a trace payload once per step; these two had
+not. Both were still keeping the shape SQL left behind in September 2026 —
+`hermod.TraceStep` carries `Before` *and* `After`, and both were persisted, so
+the payload chain went to disk twice — and neither deduplicated or compressed
+anything. Two thirds of payload bytes in a realistic trace are byte-identical
+to another step of the same message.
+
+A trace is one document in both, so the fix is shaped differently from the SQL
+one and is simpler: payloads live in a map keyed by content, and a step records
+the key. **Dedup is inherent** — writing the same payload twice writes the same
+map key twice, which is a no-op. There is no carrier row to elect, no cache to
+consult and no race to lose, which is exactly the machinery the SQL backends
+need because their steps are separate rows.
+
+`Before` is reconstructed on read from the previous step's `After`, as it
+already was in SQL.
+
+Measured on a nine-step workflow with a realistic order row, against what the
+previous shape would have written:
+
+| | before | after | |
+|---|---|---|---|
+| MongoDB document (live server) | 5996 B | 1786 B | **3.36x** |
+| Pebble value | 6096 B | 2121 B | **2.87x** |
+
+It matters more in Pebble than the numbers suggest: `RecordTraceStep` there is
+a read-modify-write of the *entire* trace, so the document is rewritten once
+per node. Shrinking it shrinks every one of those rewrites, not just the last.
+
+For MongoDB it also buys headroom against the 16 MB BSON ceiling a single
+document has to live within — a long trace was three times closer to it than it
+needed to be.
+
+Documents and values written before this keep their maps inline and are read by
+the same call, so there is no backfill and nothing to run on upgrade. As with
+the SQL change, a payload key with nothing behind it reads as an absent payload
+rather than inheriting its neighbour's.
+
+The payload codec and the dedup cache moved from `internal/storage/sql` to
+`internal/storage` so all three backends share one implementation rather than
+three.
+
 ### Trace retention is finally per workflow
 
 `trace_retention` is a per-workflow setting. The purge enforcing it was not.
