@@ -7,6 +7,64 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Hermod can run a step of a BPMN process: the metis external-task source
+
+Hermod already reached a [Metis](https://github.com/gsoultan/metis) engine two
+ways — a sink that starts, correlates or signals a process, and a source that
+polls its history. Both are one-way. Neither lets a process hand Hermod a piece
+of work and wait for the answer.
+
+The new `metis_task` source does. A service task marked with a topic is
+published by the engine as work rather than called out to; this source locks it,
+hands it to the pipeline as a message whose data is the step's variables, and
+completes the task when the message is acknowledged — sending back whatever the
+pipeline produced as the step's output variables. The process resumes at its
+next node with them in scope. The engine publishes rather than calls, so a
+worker behind any firewall that can reach the server can serve a step.
+
+It maps onto Hermod's existing contract rather than adding to it. Acknowledging
+means "completed"; a task the pipeline could not finish is simply never
+acknowledged, so its lock lapses and the engine hands it to the next worker.
+Redelivery belongs to the engine, which is why this source persists nothing and
+is deliberately not `Stateful`.
+
+**An acknowledgement is not always a success, and that is the part worth
+reading.** Hermod also acknowledges a message it could not deliver but did
+preserve: a node that failed, or a sink that refused, parks the message in the
+dead-letter sink and then acknowledges, so the source stops replaying something
+already kept. For a replication slot that is exactly right. Taken at face value
+here it would complete the BPMN task, and the process would advance to its next
+step — approving the payment, shipping the order — on work that is in fact in a
+dead-letter queue. A parked message therefore fails the task instead, carrying
+the reason the pipeline recorded, and an operator gets an incident.
+
+The marker it reads is `_hermod_failed_at`. The engine stamps that on every
+park, from either route into the dead-letter sink; `_hermod_dead_lettered` is
+set on top of it only when a *node* failed. A first version of this guard read
+`_hermod_dead_lettered` and `_hermod_validation_failed`, which passed its tests
+and missed the case the guard exists for — a sink outage, where the message is
+parked and acknowledged with no other sign it never arrived. An engine-level
+test now pins which markers reach an `Ack`, so the next change to that path
+fails here rather than in somebody's process.
+
+Two more decisions are each covered by a test that fails when the decision is
+inverted:
+
+- **Acknowledging past the lock is refused, not attempted.** Past that instant
+  the task may be held by another worker, and completing it would let two
+  workers finish one step. The engine refuses it too, inside its transaction;
+  the check here skips the doomed round trip and says which knob to turn —
+  raise `lock_duration`, or lower `max_tasks`.
+- **An unset `worker_id` is generated per source, not defaulted to a constant.**
+  The engine authorises a completion by that id alone, so two pipelines sharing
+  one can finish each other's tasks.
+
+`variable_fields` narrows what goes back into the instance; leave it empty and
+every field returns, including whatever the step was given. Reachable from the
+palette, the source form and the wizard gate, with a reachability test that
+builds the source from stored configuration and drives a real completion through
+the factory.
+
 ### A trace step can no longer inherit a payload from its context
 
 The engine's trace recorder preferred a payload cached in the context under
@@ -89,6 +147,135 @@ A `[]byte` field still compares as base64, which is what a JSON round trip
 makes of it and what the sample panel shows; that one is pinned by a test
 rather than changed, because changing it would put the engine and the preview
 back into disagreement.
+
+A `jsonb` column fetched by a `db_lookup` reached the pipeline as a string that
+happened to contain JSON, so the document did not show up: the editor's preview
+panel rendered one opaque line, **Flatten Result** produced nothing, a field
+path into the document resolved to nil, and the message trace recorded the
+whole thing escaped onto a single line. Nothing failed, so nothing said so.
+
+The node was never the problem — the driver was. `db_lookup` reads through
+`database/sql`, and pgx's `database/sql` driver hands a `jsonb` column over as
+raw `[]byte`; the generic scan then rendered every `[]byte` as a string. The
+same column fetched through pgx natively — `PostgresSource.ExecuteSQL`, and the
+source's snapshot and polling paths — arrives as a map. One document, two
+shapes, decided by which path fetched it, and only the string half was
+unreachable. The editor's own SQL builder showed both: a query with no bound
+arguments went through the source and displayed an object, and adding a `{{ }}`
+token moved it onto the generic path and turned the same column into a string.
+
+`sqlutil.ScanRows` now routes values through `RecordFromValues`, the rule the
+MySQL and MariaDB sources have used since JSON columns were first decoded, so
+the decision is made once and in one place. It stays deliberately narrow: only
+a column the driver *itself* names `json` or `jsonb` is decoded. A text column
+holding a JSON document is still text — deciding from content instead would
+reshape every string that happens to parse. A driver that will not name its
+columns is treated as having no JSON ones, so it cannot change a pipeline's
+shape. This reaches `db_lookup` in both key-column and query-template mode, the
+editor's SQL builder, and `ExecuteSQL` on the MySQL and SQLite sources, whose
+preview had drifted from their own already-fixed data paths.
+
+`batch_sql` needed the same fix applied by hand. It is the one database source
+that does not read through its own driver's codecs -- it borrows a `*sql.DB`
+from whatever source it delegates to and scans generically -- and it has two
+such loops, which failed differently: `Sample` feeds the editor's Available
+Fields, so the document offered no sub-paths to pick from, and the run loop
+feeds the pipeline, so a sink mapping into the document resolved to nothing at
+runtime. Its watermark is deliberately left on the undecoded value: the cursor
+is compared against the column by the next query, and a decoded document
+formats as `map[addr:map[city:London]]`, which would never match again.
+
+Two consequences worth knowing. On SQLite there is no JSON type, but the
+declared type is stored verbatim and reported, so a column declared `JSON` is
+now decoded while a `TEXT` column holding the same bytes is not; that is pinned
+by a test rather than left to chance. And sinks are unaffected in the other
+direction — the PostgreSQL sink marshals a map back to JSON text for a
+`json`/`jsonb` target column, so a lookup result written back out still lands
+as a document.
+
+`ScanRows` also ended a result set that failed mid-stream by returning the rows
+it had and no error, so a caller could not tell "the table has two matching
+rows" from "the connection dropped after two". It now returns the error.
+
+PostgreSQL arrays had the same split, and it is the one that reads as missing
+data. `int[]` and `text[]` fall to the same `default: var d string` case in
+pgx's `database/sql` driver, so an array reached the pipeline as its text
+literal — the string `{C-001,gift}` rather than a list. Once it is a string
+every path into it resolves to nothing: a `whereClause` of
+`cust_code = {{.tags.0}}` binds nil, the query matches no row, and the miss
+policy passes the message through unchanged. The preview panel renders that as
+"nothing at this path" and Advanced & Test as "Not Found" — one bug wearing two
+labels, since both post to `/api/transformations/test`.
+
+The parsing is pgx's own rather than a split on `,`. A PostgreSQL array literal
+quotes elements containing commas, braces or quotes, escapes quotes inside
+them, and distinguishes an unquoted `NULL` element from the quoted
+four-character string `"NULL"`. A hand parser gets those wrong quietly, which
+is the failure mode being removed, not a smaller version of it. Multidimensional
+arrays flatten — `{{1,2},{3,4}}` becomes `[1,2,3,4]` — because that is what the
+pgx-native path already does; it is pinned by a test so the dimensionality loss
+is a known shared property rather than something discovered later on one path.
+
+**`numeric` is deliberately left as text.** Converting it to a float64 would
+propagate a loss rather than close a gap: measured on PostgreSQL 18.4, a
+`numeric(40,20)` holding `1.00000000000000000001` marshals from `pgtype.Numeric`
+at full precision on the native path, while a float64 flattens it to `1`, and a
+38-digit integral value becomes `12345678901234568000000000000000000000`.
+`evaluator.ToFloat64` already parses a numeric string, so comparisons work on it
+as text today. The exact alternative — carrying it as a `json.Number`, which
+renders identically to the native path — needs the evaluator's coercion helpers
+to learn that type, so it belongs in its own change rather than inside this one.
+
+A `db_lookup` aimed at a `batch_sql` source also built its statement in the
+wrong dialect. `batch_sql` is a wrapper — queries plus a cron, delegating its
+connection to another source — so `src.Type` is never the name of the database
+the statement runs against. The hand-written switch had no case for it, so
+placeholders fell through to `?` and PostgreSQL answered
+`syntax error at or near "LIMIT" (SQLSTATE 42601)`, which reads as the
+operator's SQL being wrong. `GetOrOpenDB` resolved the delegate correctly all
+along; only the dialect did not. Identifier quoting was wrong the same way, and
+would have been visibly wrong for a MySQL delegate. The dialect now comes from
+`CanonicalDriver`, the one table that already knew every mapping — including
+`yugabyte`, which was missing from that switch too, though `Placeholder` and
+`QuoteIdent` both happened to know it independently, so it was a latent
+inconsistency rather than a live bug.
+
+Three more column types crossed the same gap, and this time the *native* side
+was the wrong one. `time` and `interval` reached messages as the pgx structs
+that carry them — `{"Microseconds":30600000000,"Valid":true}` — and `macaddr`
+as base64, because `net.HardwareAddr` is a *named* `[]byte` type and the
+`val.([]byte)` assertion those read loops used never matched it. None of the
+three is a shape an operator can write a field path against or a sink can write
+out, so they converge on the generic path's text rather than the other way
+round.
+
+The rendering is PostgreSQL's own, verified against the server rather than
+recalled, because pgx's text encoder is close but not the same: it writes a
+whole-second time as `08:30:00.000000` where the server says `08:30:00`, and
+fourteen months as `14 mon` where the server says `1 year 2 mons`. The formatter
+reproduces the server, including the rule that looks like a bug — PostgreSQL
+pluralises on `n != 1` rather than on `|n| != 1`, so minus one year is
+`-1 years`. All sixteen cases are pinned against real output.
+
+A new integration test asserts the two read paths agree column by column across
+eighteen types rather than one at a time, and requires the two deliberate
+exclusions — `numeric` and `inet` — to *still* differ, so a stale exclusion
+cannot quietly stop describing the code.
+
+**A `db_lookup` key could silently return the wrong row.** The key is read out
+of the message and bound as a SQL parameter, through the accessor that
+normalises values to the shape a JSON round trip produces — which is right for
+every other reader and wrong for this one. A `float64` carries 53 bits of
+mantissa, so a `bigint` key of 9007199254740993 bound as 9007199254740992.
+Measured against PostgreSQL 18.4: where no row has the rounded value the lookup
+misses silently, and where one does — `2^53` and `2^53+1` share a float64 — it
+returns *that* row instead. Snowflake-style and other 64-bit identifiers are
+squarely above 2^53. `GetMsgRawValByPath` reads the value the message actually
+holds for this one consumer; the normalisation everything else depends on is
+untouched, and a path the direct walk cannot answer still falls through to the
+full reader. It cannot rescue a value that was already a `float64` when it
+reached Hermod — a message decoded from JSON lost those digits before any of
+this ran.
 
 ## [1.9.1] — 2026-09-21
 

@@ -1369,11 +1369,7 @@ func (p *PostgresSource) poll(ctx context.Context) error {
 		record := make(map[string]any, len(fields))
 		for i, field := range fields {
 			val := values[i]
-			if b, ok := val.([]byte); ok {
-				record[field.Name] = string(b)
-			} else {
-				record[field.Name] = val
-			}
+			record[field.Name] = sqlutil.DecodePGXValue(val)
 
 			// Track watermark: if column name is 'id' or matches a configured id_field
 			if strings.ToLower(field.Name) == "id" {
@@ -2571,11 +2567,7 @@ func (p *PostgresSource) Sample(ctx context.Context, table string) (hermod.Messa
 	record := make(map[string]any)
 	for i, field := range fields {
 		val := values[i]
-		if b, ok := val.([]byte); ok {
-			record[field.Name] = string(b)
-		} else {
-			record[field.Name] = val
-		}
+		record[field.Name] = sqlutil.DecodePGXValue(val)
 	}
 
 	afterJSON, _ := json.Marshal(message.SanitizeMap(record))
@@ -2826,11 +2818,7 @@ func (p *PostgresSource) ExecuteSQL(ctx context.Context, query string) ([]map[st
 		record := make(map[string]any, len(fields))
 		for i, field := range fields {
 			val := values[i]
-			if b, ok := val.([]byte); ok {
-				record[field.Name] = string(b)
-			} else {
-				record[field.Name] = val
-			}
+			record[field.Name] = sqlutil.DecodePGXValue(val)
 		}
 		results = append(results, record)
 	}
