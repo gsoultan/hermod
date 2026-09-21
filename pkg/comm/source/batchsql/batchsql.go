@@ -202,6 +202,9 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 			rows.Close()
 			continue
 		}
+		// Read once, outside the row loop: the description is the same for
+		// every row, and ColumnTypes allocates per call.
+		typeNames := sqlutil.ColumnTypeNames(rows)
 
 		for rows.Next() {
 			values := make([]any, len(cols))
@@ -219,10 +222,12 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 			msg.SetOperation(hermod.OpSnapshot)
 
 			for i, colName := range cols {
-				val := values[i]
-				if b, ok := val.([]byte); ok {
-					val = string(b)
-				}
+				// batch_sql borrows a *sql.DB from the source it delegates to
+				// and scans generically, so a json/jsonb column reaches here
+				// as the driver's raw bytes. Decoding it is what gives the
+				// document fields for a field picker, a sink mapping and a
+				// trace to reach into.
+				val := sqlutil.DecodeValue(values[i], i < len(typeNames) && sqlutil.IsJSONColumnType(typeNames[i]))
 				msg.SetData(colName, val)
 
 				// The watermark this row represents travels on the message,
@@ -231,8 +236,14 @@ func (s *BatchSQLSource) runBatch(ctx context.Context) {
 				// persistence contract, and a cursor that advanced here was
 				// already past rows still in flight — a crash before the
 				// sinks wrote them erased them from the resume.
+				//
+				// It is deliberately built from the *undecoded* value. The
+				// cursor is compared against the column by the next query, so
+				// it has to keep the column's own text: a decoded document
+				// formats as "map[addr:map[city:London]]" and would never
+				// match again.
 				if s.config.IncrementalColumn != "" && colName == s.config.IncrementalColumn {
-					msg.SetMetadata(watermarkKey, fmt.Sprintf("%v", val))
+					msg.SetMetadata(watermarkKey, fmt.Sprintf("%v", sqlutil.DecodeValue(values[i], false)))
 				}
 			}
 
@@ -466,6 +477,7 @@ func (s *BatchSQLSource) Sample(ctx context.Context, table string) (hermod.Messa
 	if err != nil {
 		return nil, err
 	}
+	typeNames := sqlutil.ColumnTypeNames(rows)
 
 	values := make([]any, len(cols))
 	valuePtrs := make([]any, len(cols))
@@ -489,12 +501,11 @@ func (s *BatchSQLSource) Sample(ctx context.Context, table string) (hermod.Messa
 	msg.SetOperation(hermod.OpSnapshot)
 	msg.SetMetadata("sample", "true")
 
+	// This sample is what the workflow editor turns into Available Fields for
+	// every downstream node, so an undecoded json/jsonb column here offers no
+	// sub-paths to pick and the document looks like one opaque string.
 	for i, colName := range cols {
-		val := values[i]
-		if b, ok := val.([]byte); ok {
-			val = string(b)
-		}
-		msg.SetData(colName, val)
+		msg.SetData(colName, sqlutil.DecodeValue(values[i], i < len(typeNames) && sqlutil.IsJSONColumnType(typeNames[i])))
 	}
 
 	return msg, nil
