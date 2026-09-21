@@ -448,6 +448,22 @@ const gjsonPathMeta = `*?#|@\[]()!<>=~`
 // gjson" — either the path uses syntax this does not implement, or a value
 // along the way has a shape whose JSON form cannot be reproduced here.
 func lookupByWalk(data map[string]any, path string) (any, bool) {
+	v, ok := walkPath(data, path)
+	if !ok {
+		return nil, false
+	}
+	return normalizeToJSONShape(v)
+}
+
+// walkPath resolves a plain dotted path against the map and returns the value
+// the map actually holds, without normalising it.
+//
+// The bool means what lookupByWalk's does: false is "ask gjson". A true with a
+// nil value means the path is definitively absent.
+//
+// Split out for the one consumer that must not be normalised -- a value about
+// to be bound as a SQL parameter. See GetMsgRawValByPath.
+func walkPath(data map[string]any, path string) (any, bool) {
 	if strings.ContainsAny(path, gjsonPathMeta) {
 		return nil, false
 	}
@@ -481,7 +497,7 @@ func lookupByWalk(data map[string]any, path string) (any, bool) {
 		}
 
 		if !hasMore {
-			return normalizeToJSONShape(cur)
+			return cur, true
 		}
 		rest = more
 	}
@@ -516,6 +532,38 @@ func normalizeToJSONShape(v any) (any, bool) {
 		return nil, false
 	}
 	return gjson.ParseBytes(b).Value(), true
+}
+
+// GetMsgRawValByPath resolves a path to the value the message actually holds,
+// skipping the JSON normalisation GetMsgValByPath applies.
+//
+// That normalisation is deliberate and pinned: an int becomes a float64 and a
+// []byte becomes base64, because every transformation, condition and mapping
+// downstream is written against the JSON round trip's shape.
+//
+// It is wrong for exactly one consumer: a value about to be bound as a SQL
+// parameter. float64 carries 53 bits of mantissa, so a bigint key above 2^53
+// reaches the driver already rounded -- 9007199254740993 binds as
+// 9007199254740992 -- and the query matches no row. Measured against PostgreSQL
+// 18.4 via pgx: zero rows, no error, straight into db_lookup's miss policy, so
+// it reads as "the field is null" rather than as a lost key. Snowflake-style
+// and other 64-bit identifiers are squarely above 2^53.
+//
+// Only paths the direct walk can answer skip normalisation. Anything else --
+// the virtual fields, the before-image, the raw-payload fallbacks -- falls
+// through to GetMsgValByPath, so this can resolve nothing the full reader
+// could not.
+//
+// This cannot rescue a value that was already a float64 when it reached
+// Hermod: a message decoded from JSON lost the digits before any of this ran.
+func GetMsgRawValByPath(msg hermod.Message, path string) any {
+	if path == "" || msg == nil {
+		return nil
+	}
+	if v, ok := walkPath(msg.DataRef(), strings.TrimPrefix(path, "$.")); ok && v != nil {
+		return v
+	}
+	return GetMsgValByPath(msg, path)
 }
 
 func GetMsgValByPath(msg hermod.Message, path string) any {

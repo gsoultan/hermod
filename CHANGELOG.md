@@ -240,6 +240,43 @@ would have been visibly wrong for a MySQL delegate. The dialect now comes from
 `QuoteIdent` both happened to know it independently, so it was a latent
 inconsistency rather than a live bug.
 
+Three more column types crossed the same gap, and this time the *native* side
+was the wrong one. `time` and `interval` reached messages as the pgx structs
+that carry them — `{"Microseconds":30600000000,"Valid":true}` — and `macaddr`
+as base64, because `net.HardwareAddr` is a *named* `[]byte` type and the
+`val.([]byte)` assertion those read loops used never matched it. None of the
+three is a shape an operator can write a field path against or a sink can write
+out, so they converge on the generic path's text rather than the other way
+round.
+
+The rendering is PostgreSQL's own, verified against the server rather than
+recalled, because pgx's text encoder is close but not the same: it writes a
+whole-second time as `08:30:00.000000` where the server says `08:30:00`, and
+fourteen months as `14 mon` where the server says `1 year 2 mons`. The formatter
+reproduces the server, including the rule that looks like a bug — PostgreSQL
+pluralises on `n != 1` rather than on `|n| != 1`, so minus one year is
+`-1 years`. All sixteen cases are pinned against real output.
+
+A new integration test asserts the two read paths agree column by column across
+eighteen types rather than one at a time, and requires the two deliberate
+exclusions — `numeric` and `inet` — to *still* differ, so a stale exclusion
+cannot quietly stop describing the code.
+
+**A `db_lookup` key could silently return the wrong row.** The key is read out
+of the message and bound as a SQL parameter, through the accessor that
+normalises values to the shape a JSON round trip produces — which is right for
+every other reader and wrong for this one. A `float64` carries 53 bits of
+mantissa, so a `bigint` key of 9007199254740993 bound as 9007199254740992.
+Measured against PostgreSQL 18.4: where no row has the rounded value the lookup
+misses silently, and where one does — `2^53` and `2^53+1` share a float64 — it
+returns *that* row instead. Snowflake-style and other 64-bit identifiers are
+squarely above 2^53. `GetMsgRawValByPath` reads the value the message actually
+holds for this one consumer; the normalisation everything else depends on is
+untouched, and a path the direct walk cannot answer still falls through to the
+full reader. It cannot rescue a value that was already a `float64` when it
+reached Hermod — a message decoded from JSON lost those digits before any of
+this ran.
+
 ## [1.9.1] — 2026-09-21
 
 A message trace of a `pipeline` node now reads in the order the work happened.

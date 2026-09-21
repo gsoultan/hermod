@@ -372,3 +372,86 @@ func TestDBLookupArrayColumnArrivesAsAList(t *testing.T) {
 			"\"nothing at this path\" in the preview panel", got, "Ada Lovelace")
 	}
 }
+
+// A bigint key above 2^53, against a real PostgreSQL. The key is read out of
+// the message and bound as a SQL parameter; read through the normalising
+// accessor it arrives as a float64, which cannot hold 9007199254740993, so the
+// driver binds 9007199254740992, the query matches no row, and db_lookup's miss
+// policy passes the message through. No error anywhere -- the same "the field
+// is null / no data found" symptom a stringified array produces.
+//
+//	POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/hermod_test_source?sslmode=disable' \
+//	  go test -tags=integration -run TestDBLookupBigint ./pkg/comm/transformer/lookup/
+func TestDBLookupBigintKeyAbovePow53(t *testing.T) {
+	dsn := os.Getenv("POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("POSTGRES_DSN not set")
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := t.Context()
+	if _, err := db.ExecContext(ctx, `CREATE SCHEMA IF NOT EXISTS lookup_it`); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS lookup_it.big_keys`); err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`CREATE TABLE lookup_it.big_keys (id bigint PRIMARY KEY, code text)`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), `DROP TABLE IF EXISTS lookup_it.big_keys`)
+	})
+
+	// 2^53 and 2^53+1 are distinct integers that share one float64. Seeding
+	// both proves the lookup resolves the right row rather than merely finding
+	// a row at all.
+	const (
+		atPow53    = int64(9007199254740992)
+		abovePow53 = int64(9007199254740993)
+	)
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO lookup_it.big_keys VALUES ($1,$2), ($3,$4), ($5,$6)`,
+		int64(2), "SMALL", atPow53, "AT", abovePow53, "ABOVE"); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	tr := &DBLookupTransformer{}
+	lookup := func(id int64) any {
+		msg := message.AcquireMessage()
+		t.Cleanup(msg.Release)
+		msg.SetData("Id", id)
+
+		reg := &cachingFakeRegistry{
+			db:     db,
+			source: storage.Source{ID: "src1", Type: "postgres", Config: hermod.StringMap{"use_cdc": "false"}},
+			cache:  map[string]any{},
+		}
+		out, err := tr.Transform(context.WithValue(ctx, hermod.RegistryKey, reg), msg, map[string]any{
+			"sourceId": "src1", "table": "lookup_it.big_keys",
+			"keyColumn": "id", "keyField": "Id",
+			"valueColumn": "code", "targetField": "found",
+		})
+		if err != nil {
+			t.Fatalf("Transform(%d): %v", id, err)
+		}
+		return out.Data()["found"]
+	}
+
+	if got := lookup(2); got != "SMALL" {
+		t.Errorf("id 2 -> %#v, want %q", got, "SMALL")
+	}
+	if got := lookup(atPow53); got != "AT" {
+		t.Errorf("id %d -> %#v, want %q", atPow53, got, "AT")
+	}
+	if got := lookup(abovePow53); got != "ABOVE" {
+		t.Errorf("id %d -> %#v, want %q -- a float64 key binds %d instead and matches no row",
+			abovePow53, got, "ABOVE", atPow53)
+	}
+}

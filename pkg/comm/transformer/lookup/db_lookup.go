@@ -104,7 +104,10 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 			fmt.Errorf("db_lookup: incomplete config (sourceId=%q, targetField=%q)", sourceID, targetField))
 	}
 
-	keyVal := evaluator.GetMsgValByPath(msg, keyField)
+	// Raw, not normalised: this value is bound as a SQL parameter, and the
+	// JSON shape every other reader wants rounds a bigint above 2^53 to the
+	// nearest float64. The query then matches no row and reports no error.
+	keyVal := evaluator.GetMsgRawValByPath(msg, keyField)
 
 	if keyVal == nil && queryTemplate == "" && whereClause == "" {
 		return msg, applyMissPolicy(msg, onMiss, targetField, defaultValue,
