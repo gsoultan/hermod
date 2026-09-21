@@ -181,6 +181,12 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
 
   const transType = selectedNode?.data?.transType || selectedNode?.type || '';
 
+  // The node's own type, not just transType: a `foreach` node and a
+  // `transformation` with transType foreach both compute transType "foreach"
+  // above, and the two do opposite things to the message count. Same
+  // discriminator ForeachConfig takes as its `nodeType` prop.
+  const guide = guideFor(transType, selectedNode?.type);
+
   const { run: runPreviewRequest } = previewMutation;
 
   const runPreview = useCallback(async () => {
@@ -508,18 +514,18 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                 </MantineTooltip>
                 {/* The human name, not the raw registry key: "History tracking
                     (SCD)" orients; "SCD" is a password. */}
-                <Badge variant="light" color="blue" size="lg">{guideFor(transType).title}</Badge>
+                <Badge variant="light" color="blue" size="lg">{guide.title}</Badge>
               </Group>
             </Group>
 
             {/* What this node does and what to do first, where the eyes
                 already are — the answer used to live only behind the help
                 icon's modal. */}
-            {guideFor(transType).what && (
+            {guide.what && (
               <Text size="sm" c="dimmed">
-                {guideFor(transType).what}{' '}
+                {guide.what}{' '}
                 <Text span size="sm" fw={500} c="var(--mantine-color-text)">
-                  {guideFor(transType).firstStep}
+                  {guide.firstStep}
                 </Text>
               </Text>
             )}
