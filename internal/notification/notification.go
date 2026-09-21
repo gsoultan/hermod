@@ -5,14 +5,33 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gsoultan/gsmail"
 	"github.com/gsoultan/gsmail/smtp"
+	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
 )
+
+// httpClient is the one client every webhook-style channel sends on.
+//
+// These calls used http.DefaultClient — which has no timeout — on a context
+// that carries no deadline, and Notify ran them inline on whichever engine
+// goroutine raised the status change. A destination that accepted the
+// connection and then said nothing therefore blocked the pipeline, and the
+// blocking was worst during an incident, when the alerts fire.
+var httpClient = &http.Client{Timeout: 15 * time.Second}
+
+// telegramAPIBase is the Telegram Bot API root. Only tests write it; the send
+// path had the host baked into a format string, which left no way to exercise
+// it without talking to Telegram.
+var telegramAPIBase = "https://api.telegram.org"
+
+// notifyTimeout bounds one fan-out across every configured provider.
+const notifyTimeout = 30 * time.Second
 
 type NotificationSettings struct {
 	SMTPHost     string `json:"smtp_host"`
@@ -80,10 +99,31 @@ type Provider interface {
 	SetStorage(s storage.Storage)
 }
 
+// Severity levels for an alert. They exist because not every notification is a
+// fault: a workflow an operator stopped, or a worker draining during a deploy,
+// is routine. UINotificationProvider wrote every alert at ERROR, so adding
+// lifecycle notifications would have filed routine events as errors in the log
+// table and in the UI's error view.
+const (
+	LevelInfo  = "INFO"
+	LevelWarn  = "WARN"
+	LevelError = "ERROR"
+)
+
+// LeveledProvider is the optional interface for a provider that records a
+// severity. Providers that push to a human (Telegram, Slack, email) do not need
+// one — the title carries the meaning there — so the interface stays optional
+// rather than widening Provider for a single implementation.
+type LeveledProvider interface {
+	SendLeveled(ctx context.Context, level, title, message string, wf storage.Workflow) error
+}
+
 type Service struct {
 	providers []Provider
 	storage   storage.Storage
 	lastSent  map[string]time.Time
+	logger    hermod.Logger
+	wg        sync.WaitGroup
 	mu        sync.RWMutex
 }
 
@@ -98,6 +138,47 @@ func (s *Service) AddProvider(p Provider) {
 	s.providers = append(s.providers, p)
 }
 
+// SetLogger routes provider failures to the process log.
+//
+// They went to fmt.Printf, so a rejected Telegram token or a webhook returning
+// 500 appeared on stdout and nowhere else: not in the structured log, not in
+// the log table, not in the UI. The one thing an operator needs to know about
+// an alerting channel is that it has stopped working.
+func (s *Service) SetLogger(l hermod.Logger) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.logger = l
+}
+
+// Wait blocks until every dispatched notification has finished. It exists for
+// shutdown and for tests; the send path itself never waits.
+func (s *Service) Wait() {
+	s.wg.Wait()
+}
+
+// WaitFor blocks until in-flight notifications finish or d elapses, and reports
+// whether they finished.
+//
+// Shutdown needs this. The fan-out runs on its own goroutine, so the alert
+// saying a worker is going down was raced by the process exiting — dispatched,
+// never sent. Waiting without a bound is the opposite mistake: an unreachable
+// channel would hold the shutdown open for the full send timeout.
+func (s *Service) WaitFor(d time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
 func (s *Service) SetStorage(s2 storage.Storage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -107,7 +188,14 @@ func (s *Service) SetStorage(s2 storage.Storage) {
 	}
 }
 
+// Notify raises an alert at ERROR. Most alerts are faults; the ones that are
+// not go through NotifyLevel.
 func (s *Service) Notify(ctx context.Context, title, message string, wf storage.Workflow) {
+	s.NotifyLevel(ctx, LevelError, title, message, wf)
+}
+
+// NotifyLevel raises an alert at an explicit severity.
+func (s *Service) NotifyLevel(ctx context.Context, level, title, message string, wf storage.Workflow) {
 	s.mu.Lock()
 	key := wf.ID + ":" + title
 	if last, ok := s.lastSent[key]; ok {
@@ -117,14 +205,41 @@ func (s *Service) Notify(ctx context.Context, title, message string, wf storage.
 		}
 	}
 	s.lastSent[key] = time.Now()
+	providers := s.providers
+	logger := s.logger
 	s.mu.Unlock()
 
-	for _, p := range s.providers {
-		err := p.Send(ctx, title, message, wf)
-		if err != nil {
-			fmt.Printf("Failed to send notification via %s: %v\n", p.Type(), err)
+	// Detached from the caller's context, not derived from it. Notify runs on
+	// the engine's status-change callback, and the contexts reaching it are
+	// cancelled by the very events worth alerting on — an engine that stops
+	// cancels its context before the "stopped" alert can leave the process.
+	// The deadline below is what bounds the work instead.
+	sendCtx := context.WithoutCancel(ctx)
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		ctx, cancel := context.WithTimeout(sendCtx, notifyTimeout)
+		defer cancel()
+
+		for _, p := range providers {
+			var err error
+			if lp, ok := p.(LeveledProvider); ok {
+				err = lp.SendLeveled(ctx, level, title, message, wf)
+			} else {
+				err = p.Send(ctx, title, message, wf)
+			}
+			if err != nil {
+				if logger != nil {
+					logger.Error("Notification channel failed",
+						"channel", p.Type(),
+						"workflow_id", wf.ID,
+						"title", title,
+						"error", err.Error())
+				}
+			}
 		}
-	}
+	}()
 }
 
 type UINotificationProvider struct {
@@ -136,9 +251,18 @@ func NewUINotificationProvider(s storage.Storage) *UINotificationProvider {
 }
 
 func (p *UINotificationProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
+	return p.SendLeveled(ctx, LevelError, title, message, wf)
+}
+
+// SendLeveled records the alert in the log table at the severity it was raised
+// with, so a routine stop does not read as a failure.
+func (p *UINotificationProvider) SendLeveled(ctx context.Context, level, title, message string, wf storage.Workflow) error {
+	if level == "" {
+		level = LevelError
+	}
 	log := storage.Log{
 		Timestamp:  time.Now(),
-		Level:      "ERROR",
+		Level:      level,
 		Message:    message,
 		Action:     "NOTIFICATION",
 		WorkflowID: wf.ID,
@@ -234,16 +358,27 @@ func (ns NotificationSettings) SendTelegram(ctx context.Context, title, message 
 		return nil
 	}
 
-	text := fmt.Sprintf("*%s*\n%s\nWorkflow: %s", title, message, wf.Name)
+	// HTML, not Markdown, and every interpolated value escaped.
+	//
+	// The body carries a raw Go error string, and those are full of Markdown's
+	// active characters: pq names tables like user_events, drivers quote
+	// identifiers, workflow names are whatever an operator typed. Telegram
+	// rejects a message whose entities do not balance with 400 "can't parse
+	// entities", so the alert was dropped by exactly the errors most worth
+	// sending. HTML has three metacharacters and they are all escapable, so
+	// * and _ arrive as themselves.
+	text := fmt.Sprintf("<b>%s</b>\n%s\nWorkflow: %s",
+		html.EscapeString(title), html.EscapeString(message), html.EscapeString(wf.Name))
 	if ns.BaseURL != "" {
-		text += fmt.Sprintf("\n[View Details](%s/workflows/%s)", ns.BaseURL, wf.ID)
+		text += fmt.Sprintf("\n<a href=\"%s/workflows/%s\">View Details</a>",
+			html.EscapeString(ns.BaseURL), html.EscapeString(wf.ID))
 	}
 
-	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", ns.TelegramToken)
+	apiURL := fmt.Sprintf("%s/bot%s/sendMessage", telegramAPIBase, ns.TelegramToken)
 	body, _ := json.Marshal(map[string]string{
 		"chat_id":    ns.TelegramChatID,
 		"text":       text,
-		"parse_mode": "Markdown",
+		"parse_mode": "HTML",
 	})
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(body))
@@ -252,7 +387,7 @@ func (ns NotificationSettings) SendTelegram(ctx context.Context, title, message 
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -327,7 +462,7 @@ func (ns NotificationSettings) SendSlack(ctx context.Context, title, message str
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -401,7 +536,7 @@ func (ns NotificationSettings) SendDiscord(ctx context.Context, title, message s
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -469,7 +604,7 @@ func (ns NotificationSettings) SendGenericWebhook(ctx context.Context, title, me
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
