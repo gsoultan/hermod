@@ -7,6 +7,23 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A trace step can no longer inherit a payload from its context
+
+The engine's trace recorder preferred a payload cached in the context under
+`LastTraceSnapshotKey` over the message's own, as an optimisation. It never
+fired — both producers of that key are in the registry and neither context
+reaches the engine, measured at zero hits across the repo's test suite — so this
+removes nothing that ran.
+
+It was removed rather than wired up because it could not be made safe. The
+branch had no way to tell whether the cached payload belonged to the message in
+hand, or to the moment being recorded; it would have filed one step's data under
+another silently, which is the one thing a trace must not do. A caller that
+genuinely holds the payload already passes it explicitly through
+`RecordTraceStepSnapshot`.
+
+No behaviour change: every trace records exactly what it recorded before.
+
 ## [1.9.1] — 2026-09-21
 
 A message trace of a `pipeline` node now reads in the order the work happened.
