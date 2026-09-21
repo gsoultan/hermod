@@ -545,6 +545,32 @@ func createSourceBase(cfg SourceConfig) (hermod.Source, error) {
 			ScanPages:      scanPages,
 			Timeout:        metisTimeout,
 		})
+	case "metis_task":
+		metisTimeout, _ := time.ParseDuration(cfg.Config["timeout"])
+		maxTasks, _ := strconv.Atoi(cfg.Config["max_tasks"])
+		lockDuration, _ := time.ParseDuration(cfg.Config["lock_duration"])
+		var outputFields []string
+		if raw := strings.TrimSpace(cfg.Config["variable_fields"]); raw != "" {
+			for part := range strings.SplitSeq(raw, ",") {
+				if trimmed := strings.TrimSpace(part); trimmed != "" {
+					outputFields = append(outputFields, trimmed)
+				}
+			}
+		}
+		src, err = sourcemetis.NewExternalTask(sourcemetis.ExternalTaskConfig{
+			BaseURL:        cfg.Config["base_url"],
+			Token:          cfg.Config["token"],
+			Username:       cfg.Config["username"],
+			Password:       cfg.Config["password"],
+			OrganizationID: cfg.Config["organization_id"],
+			Topic:          cfg.Config["topic"],
+			WorkerID:       cfg.Config["worker_id"],
+			MaxTasks:       maxTasks,
+			LockDuration:   lockDuration,
+			PollInterval:   pollInterval,
+			VariableFields: outputFields,
+			Timeout:        metisTimeout,
+		})
 	case "discord":
 		src = sourcediscord.NewDiscordSource(
 			cfg.Config["token"],

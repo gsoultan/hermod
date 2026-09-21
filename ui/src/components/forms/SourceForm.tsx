@@ -22,7 +22,7 @@ async function fetchList(url: string): Promise<{ data: any[]; total: number }> {
 }
 const ADMIN_ROLE = 'Administrator' as const;
 
-const SOURCE_TYPES = [
+export const SOURCE_TYPES = [
   { value: 'postgres', label: 'PostgreSQL' , group: 'Databases' },
   { value: 'mysql', label: 'MySQL' , group: 'Databases' },
   { value: 'mariadb', label: 'MariaDB' , group: 'Databases' },
@@ -54,6 +54,7 @@ const SOURCE_TYPES = [
   { value: 'mainframe', label: 'Mainframe' , group: 'Enterprise' },
   { value: 'webhook', label: 'Webhook' , group: 'APIs & Triggers' },
   { value: 'metis', label: 'Metis (BPMN Workflow)' , group: 'APIs & Triggers' },
+  { value: 'metis_task', label: 'Metis External Task (BPMN step)' , group: 'APIs & Triggers' },
   { value: 'form', label: 'Form Submission' , group: 'APIs & Triggers' },
   { value: 'cron', label: 'Cron / Schedule' , group: 'APIs & Triggers' },
   { value: 'file', label: 'File / FTP / S3' , group: 'Files & Storage' },

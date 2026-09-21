@@ -767,7 +767,7 @@ which is why they were untested; anything new in that shape should provide it to
 
 Substantial and unit-tested, but unproven against live infrastructure in CI:
 
-**Sources** — MSSQL, gRPC, WebSocket, HTTP, BatchSQL, Excel, Metis.
+**Sources** — MSSQL, gRPC, WebSocket, HTTP, BatchSQL, Excel, Metis, Metis External Task.
 **Sinks** — Snowflake, HTTP, WebSocket, Failover, Panmail, Metis.
 
 The MSSQL **source** is genuinely a CDC source — it reads `CHANGETABLE` and emits
@@ -800,6 +800,17 @@ transaction is what begins the business process that answers it. The **source**
 polls a project for process instances, human tasks or incidents, which is how
 process history reaches a warehouse.
 
+The **external-task source** is the third, and it runs in the opposite
+direction from the other two: rather than watching the engine or driving it, it
+*is* a step of the process. A service task marked with a topic is published by
+the engine as work instead of being called out to, and this source locks that
+work, hands it to the pipeline as a message whose data is the step's variables,
+and completes the task when the message is acknowledged — sending back whatever
+the pipeline produced as the step's output. The process then carries on to its
+next node with that in scope. Because the engine publishes rather than calls,
+nothing needs a route back in: a worker behind any firewall that can reach the
+server can serve a step.
+
 Both are unit-tested against an in-process engine speaking the real wire
 contract; no engine is reachable from CI, which is what keeps them out of GA.
 Two decisions are each covered by a test that fails when the decision is
@@ -816,6 +827,26 @@ inverted:
   this repository has fixed in ten other polling sources. Reading moves a
   separate in-process position, which stops a running poll re-reading what it
   just handed out and is deliberately not persisted.
+- The external-task source **distinguishes an acknowledgement from a success**.
+  Hermod acknowledges a message it could not deliver but did preserve — a node
+  that failed, or a sink that refused, parks it in the dead-letter sink and then
+  acknowledges so the source stops replaying it. Taken at face value that would
+  complete the BPMN task, and the process would advance to its next step —
+  approving the payment, shipping the order — on work that is sitting in a
+  dead-letter queue. So a parked message fails the task instead, with the reason
+  the pipeline recorded, and an operator gets an incident. The marker it reads
+  is `_hermod_failed_at`, which the engine stamps on *every* park; the more
+  obvious `_hermod_dead_lettered` is only set when a node failed, and a guard
+  reading that one alone misses the sink-outage case entirely.
+
+The external-task source has two properties to size before you rely on it. Its
+**lock is the budget**: a task is locked when it is fetched, so a batch larger
+than the pipeline can clear inside the lock duration ends in expired locks, and
+acknowledging past the lock is refused rather than attempted — past that instant
+another worker may hold the task. And because redelivery is the engine's job
+rather than a persisted cursor's, **a task may be run twice**: one whose
+pipeline succeeded but whose completion did not reach the engine is handed out
+again, so the sinks downstream want to be idempotent.
 
 The incidents stream has a limitation worth knowing before you rely on it: the
 engine lists incidents per instance rather than per project, so the source finds
