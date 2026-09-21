@@ -412,6 +412,15 @@ func TestSourceConformance(t *testing.T) {
 			PollInterval: time.Millisecond,
 		})
 	})
+	sourceOrSkip(t, "metis_task", func() (hermod.Source, error) {
+		return srcmetis.NewExternalTask(srcmetis.ExternalTaskConfig{
+			BaseURL:      deadURL,
+			Token:        "tok",
+			Topic:        "reverse-charge",
+			WorkerID:     "conformance",
+			PollInterval: time.Millisecond,
+		})
+	})
 	conformance.RunSourceSuite(t, "postgres", func() hermod.Source {
 		return srcpostgres.NewPostgresSource("postgres://u:p@"+deadAddr+"/d", "slot", "pub", tables, true, "", poll)
 	})

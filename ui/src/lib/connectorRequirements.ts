@@ -64,10 +64,27 @@ const hostPort = (port: string): RequiredField[] => [
  * than widening the call, and authenticate with either a token or a password.
  * `aliases` is what makes those two one requirement rather than two.
  */
-const metisConnection: RequiredField[] = [
+const metisEngine: RequiredField[] = [
   { key: 'base_url', label: 'Engine URL', example: 'https://bpm.example.com' },
-  { key: 'project_id', label: 'Project ID', example: '0f8b1c2d-…' },
   { key: 'token', aliases: ['username'], label: 'Token or username', example: 'hermod-service' },
+];
+
+const metisConnection: RequiredField[] = [
+  metisEngine[0],
+  { key: 'project_id', label: 'Project ID', example: '0f8b1c2d-…' },
+  metisEngine[1],
+];
+
+/**
+ * The external-task source subscribes to a topic, not a project: fetch-and-lock
+ * takes the topic and scopes the rest by the organization the token belongs to.
+ * Reusing `metisConnection` here would demand a project the connector has no
+ * field for, and disable Next on a configuration that works.
+ */
+const metisTaskConnection: RequiredField[] = [
+  metisEngine[0],
+  { key: 'topic', label: 'Topic', example: 'reverse-charge' },
+  metisEngine[1],
 ];
 
 const SOURCE_REQUIREMENTS: Record<string, RequiredField[]> = {
@@ -88,6 +105,7 @@ const SOURCE_REQUIREMENTS: Record<string, RequiredField[]> = {
   ],
   kafka: [{ key: 'brokers', label: 'Brokers', example: 'broker1:9092, broker2:9092' }],
   metis: metisConnection,
+  metis_task: metisTaskConnection,
   nats: [{ key: 'url', label: 'Server URL', example: 'nats://nats.example.com:4222' }],
   rabbitmq: [
     { key: 'host', aliases: URL_KEYS, label: 'Host', example: 'rabbit.example.com' },

@@ -144,6 +144,7 @@ export const NODE_CATEGORIES = [
       { type: 'source', refId: 'new', label: 'Firebase', subType: 'firebase', icon: IconDatabase, color: 'cyan', description: 'Poll Firestore collections' },
       { type: 'source', refId: 'new', label: 'HTTP Polling', subType: 'http', icon: IconCloud, color: 'cyan', description: 'Poll REST/OData APIs' },
       { type: 'source', refId: 'new', label: 'Metis (BPMN)', subType: 'metis', icon: IconSitemap, color: 'cyan', description: 'Read process instances, tasks or incidents' },
+      { type: 'source', refId: 'new', label: 'Metis External Task', subType: 'metis_task', icon: IconSitemap, color: 'cyan', description: 'Run a BPMN service task and complete it with the result' },
       { type: 'source', refId: 'new', label: 'GraphQL', subType: 'graphql', icon: IconWorld, color: 'cyan', description: 'Receive GraphQL queries/mutations' },
       { type: 'source', refId: 'new', label: 'gRPC', subType: 'grpc', icon: IconTerminal2, color: 'cyan', description: 'Receive gRPC Publish calls' },
       { type: 'source', refId: 'new', label: 'WebSocket (Server)', subType: 'webhook', icon: IconBroadcast, color: 'cyan', description: 'Accept WS frames at /api/ws/in/{path}' },
