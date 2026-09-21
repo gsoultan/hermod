@@ -7,6 +7,26 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### The palette and the guide said a list transformation fans out
+
+Two different nodes answer to "foreach" and `transType` cannot tell them apart.
+`TransformationForm` computes it as `data.transType || node.type`, so the
+`foreach` **node type** and a `transformation` whose transType is `foreach` both
+arrive at the guide as the same string. They do opposite things to the message
+count: the node splits one message into one per item, while the transformation
+expands a list onto the same record and stays a single record.
+
+The guide was keyed on `transType` alone, so both were described as a fan-out
+that "emits one record per item" — true of one, wrong for the other, and the
+wrong one is the node most people reach for first. A pipeline built on that
+description expects downstream nodes to run per item; they run once.
+
+Guides are now keyed by the node's own `type` as well, checked first, and the
+transformation is described as what it does: **Expand list**. The palette labels
+match. `fanout` stays a live alias — the Go transformer registers it,
+`TRANSFORM_CONFIGS` keys on it, and an imported bundle can carry it — so it gets
+the corrected wording rather than being retired.
+
 ### Hermod can run a step of a BPMN process: the metis external-task source
 
 Hermod already reached a [Metis](https://github.com/gsoultan/metis) engine two

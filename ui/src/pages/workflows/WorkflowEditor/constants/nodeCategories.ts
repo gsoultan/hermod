@@ -15,7 +15,7 @@ export const NODE_CATEGORIES = [
     items: [
       { type: 'transformation', refId: 'new', label: 'Mapping', subType: 'mapping', icon: IconFilter, color: 'violet', description: 'Map fields and reshape payloads' },
       { type: 'transformation', refId: 'new', label: 'Set Fields', subType: 'set', icon: IconVariable, color: 'violet', description: 'Add or override fields' },
-      { type: 'transformation', refId: 'new', label: 'Foreach / Fanout', subType: 'foreach', icon: IconCircles, color: 'violet', description: 'Iterate array items and fan out' },
+      { type: 'transformation', refId: 'new', label: 'Expand List (Foreach)', subType: 'foreach', icon: IconCircles, color: 'violet', description: 'Expand a list onto the same record' },
       { type: 'transformation', refId: 'new', label: 'Filter', subType: 'filter_data', icon: IconEye, color: 'violet', description: 'Keep or drop records by condition' },
       { type: 'transformation', refId: 'new', label: 'Join / Enrich', subType: 'join', icon: IconGitMerge, color: 'violet', description: 'Join with data from state store' },
       { type: 'transformation', refId: 'new', label: 'Data Quality Scorer', subType: 'dq_scorer', icon: IconChecklist, color: 'orange', description: 'Score data completeness and quality' },
@@ -36,7 +36,7 @@ export const NODE_CATEGORIES = [
       { type: 'condition', refId: 'new', label: 'Condition (If)', subType: 'condition', icon: IconArrowsSplit, color: 'indigo', description: 'Branch flow by boolean rule' },
       { type: 'router', refId: 'new', label: 'Content Router', subType: 'router', icon: IconArrowsSplit, color: 'indigo', description: 'Route by pattern-based rules' },
       { type: 'switch', refId: 'new', label: 'Switch', subType: 'switch', icon: IconGitBranch, color: 'orange', description: 'Route by multi-case expression' },
-      { type: 'foreach', refId: 'new', label: 'Foreach (Fan-out)', subType: 'foreach', icon: IconCircles, color: 'indigo', description: 'Split one message into multiple parallel paths' },
+      { type: 'foreach', refId: 'new', label: 'Foreach (Fan-out)', subType: 'foreach', icon: IconCircles, color: 'indigo', description: 'Split into one message per item; downstream runs for each' },
       { type: 'merge', refId: 'new', label: 'Merge', subType: 'merge', icon: IconGitMerge, color: 'cyan', description: 'Join multiple paths' },
       { type: 'wait', refId: 'new', label: 'Wait (Pause)', subType: 'wait', icon: IconHistory, color: 'indigo', description: 'Pause execution for a specific duration (supports long-running)' },
       { type: 'transformation', refId: 'new', label: 'Aggregate', subType: 'aggregate', icon: IconDatabase, color: 'pink', description: 'Group and summarize records' },

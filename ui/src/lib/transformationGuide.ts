@@ -94,15 +94,20 @@ const GUIDES: Record<string, TransformationGuide> = {
     what: 'Counts, sums or averages records over a time window.',
     firstStep: 'Pick the operation and the field to aggregate.',
   },
+  // Both keys below are the *transformation*, which keeps one record. The
+  // node that actually emits one record per item is in NODE_TYPE_GUIDES.
+  // `fanout` is a live alias -- the Go transformer registers it, TRANSFORM_CONFIGS
+  // keys on it, and an imported bundle can carry it -- and it used to claim a
+  // fan-out this transformer does not do.
   foreach: {
-    title: 'For each item',
-    what: 'Takes a list inside the record and works through it item by item.',
-    firstStep: 'Point Array Path at the list field.',
+    title: 'Expand list',
+    what: 'Expands a list onto the same record, which stays a single record; downstream nodes still run once.',
+    firstStep: 'Point Array Path at the list field; the expanded list lands under Result Field.',
   },
   fanout: {
-    title: 'Fan out',
-    what: 'Takes a list inside the record and emits one record per item.',
-    firstStep: 'Point Array Path at the list field.',
+    title: 'Expand list',
+    what: 'Expands a list onto the same record, which stays a single record; downstream nodes still run once.',
+    firstStep: 'Point Array Path at the list field; the expanded list lands under Result Field.',
   },
   lua: {
     title: 'Lua script',
@@ -227,10 +232,36 @@ const GUIDES: Record<string, TransformationGuide> = {
 };
 
 /**
+ * Guides keyed by the node's own `type`, checked before `transType`.
+ *
+ * Two different nodes answer to "foreach" and `transType` cannot tell them
+ * apart: TransformationForm computes it as `data.transType || node.type`, so
+ * the `foreach` node type and a `transformation` with transType foreach both
+ * arrive here as "foreach". They are not the same thing -- one splits the
+ * message, the other expands an array onto it -- and describing both with the
+ * GUIDES.foreach entry put the wrong sentence over half of them.
+ *
+ * Node type wins over transType, matching `resolveConfigComponent`'s ordering
+ * and the `nodeType` prop ForeachConfig already takes for the same reason.
+ */
+const NODE_TYPE_GUIDES: Record<string, TransformationGuide> = {
+  foreach: {
+    title: 'Fan out',
+    what: 'Splits the record into one record per item in the list, and everything downstream runs again for each one.',
+    firstStep: 'Point Array Path at the list field; each record gets `_item` and `_index`.',
+  },
+};
+
+/**
  * The guide for a type, with a fallback that stays honest for types this map
  * does not know yet: the raw name, no invented description.
+ *
+ * `nodeType` is optional because several callers have only a transType in hand.
+ * Omitting it reads a shared key as the transformation, which is the safe
+ * default: it is the one that does not promise a fan-out.
  */
-export function guideFor(transType: string): TransformationGuide {
+export function guideFor(transType: string, nodeType?: string): TransformationGuide {
+  if (nodeType && NODE_TYPE_GUIDES[nodeType]) return NODE_TYPE_GUIDES[nodeType];
   return (
     GUIDES[transType] ?? {
       title: transType ? transType.replace(/_/g, ' ') : 'Transformation',
