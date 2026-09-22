@@ -688,16 +688,15 @@ var driverOverrides = map[string]map[string]string{
 		QueryUpdateNodeState:    "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE state = VALUES(state)",
 		QuerySaveSetting:        "INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)",
 	},
-	"mariadb": {
-		QueryUpsertMessageTrace: "INSERT INTO message_traces (workflow_id, message_id, started_at, last_step_at, duration_ms, step_count, error_count) VALUES (?, ?, ?, ?, ?, 1, ?) ON DUPLICATE KEY UPDATE last_step_at = VALUES(last_step_at), duration_ms = duration_ms + VALUES(duration_ms), step_count = step_count + 1, error_count = error_count + VALUES(error_count)",
-		QueryUpdateNodeState:    "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE state = VALUES(state)",
-		QuerySaveSetting:        "INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)",
-	},
 	"pgx": {
 		QueryUpdateNodeState: "INSERT INTO workflow_node_states (workflow_id, node_id, state) VALUES ($1, $2, $3) ON CONFLICT(workflow_id, node_id) DO UPDATE SET state = excluded.state",
 		QuerySaveSetting:     "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
 	},
 	"sqlserver": {
+		// SQL Server has no upsert, so this is a MERGE like the two below it.
+		// Without it this key fell through to the SQLite spelling and every
+		// attempt to persist a node's state was rejected as bad syntax.
+		QueryUpdateNodeState:    "MERGE workflow_node_states WITH (HOLDLOCK) AS t USING (SELECT @p1 AS workflow_id, @p2 AS node_id, @p3 AS state) AS s ON t.workflow_id = s.workflow_id AND t.node_id = s.node_id WHEN MATCHED THEN UPDATE SET state = s.state WHEN NOT MATCHED THEN INSERT (workflow_id, node_id, state) VALUES (s.workflow_id, s.node_id, s.state);",
 		QueryUpsertMessageTrace: "MERGE message_traces WITH (HOLDLOCK) AS t USING (SELECT @p1 AS workflow_id, @p2 AS message_id, @p3 AS started_at, @p4 AS last_step_at, @p5 AS duration_ms, @p6 AS error_count) AS s ON t.workflow_id = s.workflow_id AND t.message_id = s.message_id WHEN MATCHED THEN UPDATE SET last_step_at = s.last_step_at, duration_ms = t.duration_ms + s.duration_ms, step_count = t.step_count + 1, error_count = t.error_count + s.error_count WHEN NOT MATCHED THEN INSERT (workflow_id, message_id, started_at, last_step_at, duration_ms, step_count, error_count) VALUES (s.workflow_id, s.message_id, s.started_at, s.last_step_at, s.duration_ms, 1, s.error_count);",
 		QuerySaveSetting:        "MERGE settings WITH (HOLDLOCK) AS t USING (SELECT @p1 AS [key], @p2 AS value) AS s ON t.[key] = s.[key] WHEN MATCHED THEN UPDATE SET value = s.value WHEN NOT MATCHED THEN INSERT([key], value) VALUES(s.[key], s.value);",
 	},
