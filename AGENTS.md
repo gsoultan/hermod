@@ -180,6 +180,34 @@ configuration from the one above.
 
 ---
 
+## 🌿 Pull Request Bases (Open Against `main`)
+
+- **Open every PR against `main`** — never against another PR's branch.
+- Every PR here squash-merges, so a branch's content reaches `main` as a *new* commit. A
+  stacked PR therefore races its own base: if the base lands first, the base branch is
+  orphaned and the stacked PR merges **into that orphan**. GitHub reports it `MERGED`, it
+  leaves the open-PR list, and its content is **not in `main`**. Ancestry cannot tell you,
+  because a squash leaves no parent to follow.
+- This has happened **four times** — #101, #148, #150, #160 — each caught and re-landed by
+  hand as #102, #154, #152, #161. One left a `concurrent map read and map write` crash live
+  in `main` in the meantime. Every one of them looked shipped.
+- Two PRs off `main` that share no code are safer than a stack even when the second
+  logically follows the first: a CHANGELOG conflict on whichever merges second is a far
+  cheaper problem than a silently unshipped fix.
+- If a stack is genuinely unavoidable — the change cannot compile without the other — label
+  the PR `stacked` and **retarget it at `main` when it is opened for review**, not at merge
+  time. A note in the PR body saying "retarget if the base merges first" does nothing: it is
+  addressed to a human who will not read it at the moment it matters.
+- Enforced by `scripts/check_pr_base.sh` in the **PR base** workflow; its refusals are
+  covered by `scripts/check_pr_base_test.sh`. **After any stacked PR merges, verify where it
+  landed** before believing it shipped:
+  ```bash
+  git fetch origin && git log --oneline -1 origin/main
+  git show origin/main:<a/file/it/touched> | grep -c '<a symbol it added>'
+  ```
+
+---
+
 ## ✍️ Commit Attribution (No AI Co-Authors)
 
 **No AI tool is credited as an author or contributor on this repository.** The engineer who ran the

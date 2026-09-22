@@ -291,6 +291,13 @@ jobs:
       - name: Dev script cleanup
         run: ./scripts/dev_cleanup_test.sh
 
+      # The pr-base workflow only ever exercises one path per run — whichever the
+      # pull request under review happens to be. This covers the rest of them, so
+      # the refusal that matters (a base whose own PR has already merged) is known
+      # to work before it is needed rather than the first time it fires.
+      - name: PR base check
+        run: ./scripts/check_pr_base_test.sh
+
   ui-verify:
     name: Verify (UI)
     runs-on: ubuntu-latest
