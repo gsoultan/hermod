@@ -7,6 +7,30 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### An unsupported metadata store failed with an error about a missing import
+
+Configuring a database Hermod does not keep its catalogue in produced:
+
+```
+failed to open database: sql: unknown driver "" (forgotten import?)
+```
+
+which names neither the setting that is wrong nor the value in it, and blames a
+missing import that is not missing. The type simply fell off the end of the
+switch that maps a configured type onto a driver, and the empty string went to
+`sql.Open`.
+
+`mssql` is what made this reachable rather than theoretical. The two places that
+map a type onto a driver disagree about it: the settings API accepts it and
+returns the `sqlserver` driver, while start-up does not accept it at all — so
+the same configuration is a working one through the API and an obscure crash
+from a config file. Hermod documents MSSQL as a source and as a sink, never as
+the metadata store, and the database picker offers only SQLite, PostgreSQL and
+MySQL, so start-up now refuses it by name and says what may be used instead.
+Resolving the disagreement the other way — supporting SQL Server as a metadata
+store — is a product decision, not a bug fix, and is deliberately not taken
+here.
+
 ### A stateful transformation forgot everything on SQL Server
 
 `workflow_node_states` is where a stateful transformation checkpoints what it
