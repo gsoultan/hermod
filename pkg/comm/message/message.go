@@ -463,11 +463,35 @@ func deepCopyValue(v any) any {
 		return out
 	case []byte:
 		return append([]byte(nil), t...)
+	case json.RawMessage:
+		// Needed alongside []byte, not covered by it: RawMessage is a named type
+		// and a type switch case on []byte does not match one. This is the shape
+		// a CDC envelope arrives in, and SetBefore/SetPayload write back into
+		// the message's own slice with append(b[:0], ...) — so without a copy
+		// here the next write rewrites bytes a snapshot still points at.
+		return json.RawMessage(append([]byte(nil), t...))
 	default:
 		return v
 	}
 }
 
+// ToMap returns a snapshot of the message that shares no mutable state with it.
+//
+// Independence is the contract, not a detail. Every caller either marshals the
+// result or hands it to another goroutine — a trace step recorded against
+// PostgreSQL, a live-viewer frame fanned out to SSE subscribers — while the
+// pipeline keeps transforming the message it came from.
+//
+// This used to copy the top level only, so each nested map[string]any in the
+// snapshot was the same map the live message holds. SetData with a dotted key
+// walks into that nested map and assigns in place, which put a write inside a
+// map json.Marshal was already iterating on the trace goroutine. Concurrent map
+// access is a runtime fatal error rather than a panic, so the recover() guarding
+// that marshal could not contain it: the engine exited 2 mid-trace.
+//
+// The deep copy is paid by callers who are about to serialise this anyway, which
+// costs strictly more than copying it. Data() and DataRef() are unchanged — they
+// are the hot read path and they do not cross a goroutine boundary.
 func (m *DefaultMessage) ToMap() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -476,12 +500,17 @@ func (m *DefaultMessage) ToMap() map[string]any {
 
 	// 1. If not a CDC event, merge data fields into root
 	if m.operation == "" {
-		maps.Copy(res, m.data)
+		for k, v := range m.data {
+			res[k] = deepCopyValue(v)
+		}
 
 		// 2. If data is empty but payload is not, decode the payload into the
 		// root. A payload that is not a JSON object lands under
 		// NonObjectPayloadKey instead of being dropped: this used to ignore the
 		// unmarshal error, silently discarding every string and scalar body.
+		//
+		// No copy needed: the decode allocates a fresh map every call and the
+		// message does not keep it.
 		if len(m.data) == 0 && len(m.payload) > 0 {
 			maps.Copy(res, decodePayloadFields(m.payload))
 		}
@@ -498,15 +527,18 @@ func (m *DefaultMessage) ToMap() map[string]any {
 		res["schema"] = m.schema
 	}
 
-	// CDC specific fields
+	// CDC specific fields. Copied for the same reason the data fields are: the
+	// envelope is a json.RawMessage over m.before or m.payload, and both of those
+	// are written into in place. MarshalJSON shares jsonRawOrWrapped but needs
+	// no copy — its value never leaves the call that holds the lock.
 	if m.operation != "" {
 		res["operation"] = m.operation
 		if len(m.before) > 0 {
-			res["before"] = jsonRawOrWrapped(m.before)
+			res["before"] = deepCopyValue(jsonRawOrWrapped(m.before))
 		}
 		after := m.afterImageLocked()
 		if len(after) > 0 {
-			res["after"] = jsonRawOrWrapped(after)
+			res["after"] = deepCopyValue(jsonRawOrWrapped(after))
 		}
 	}
 

@@ -1,9 +1,11 @@
 package message
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/hermod"
 )
 
 func BenchmarkSanitizeValue(b *testing.B) {
@@ -111,4 +113,56 @@ func BenchmarkMessageClone(b *testing.B) {
 			c.Release()
 		}
 	})
+}
+
+// BenchmarkMessageToMap covers the snapshot path taken per message per node
+// whenever tracing or the live viewer is on. ToMap deep-copies so the snapshot
+// can outlive the caller safely; the JSON encode every caller then performs is
+// the cost this has to stay small against, so it is measured alongside.
+func BenchmarkMessageToMap(b *testing.B) {
+	shapes := []struct {
+		name string
+		prep func(m *DefaultMessage)
+	}{
+		{"flat scalars", func(m *DefaultMessage) {
+			m.SetData("id", 1)
+			m.SetData("name", "value")
+			m.SetData("active", true)
+		}},
+		{"nested document", func(m *DefaultMessage) {
+			m.SetData("id", 2)
+			m.SetData("doc", map[string]any{
+				"status": "open",
+				"labels": []any{"a", "b", "c"},
+				"nested": map[string]any{"k": "v"},
+			})
+		}},
+		{"cdc envelope", func(m *DefaultMessage) {
+			m.SetOperation(hermod.OpUpdate)
+			m.SetTable("orders")
+			m.SetBefore([]byte(`{"id":"1","amount":"10.50"}`))
+			m.SetAfter([]byte(`{"id":"1","amount":"11.50"}`))
+		}},
+	}
+
+	for _, s := range shapes {
+		m := AcquireMessage()
+		s.prep(m)
+		m.SetMetadata("_hermod_workflow_id", "wf-1")
+		_ = m.DataRef()
+
+		b.Run(s.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				_ = m.ToMap()
+			}
+		})
+		b.Run(s.name+"/then encode", func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				_, _ = json.Marshal(m.ToMap())
+			}
+		})
+		ReleaseMessage(m)
+	}
 }
