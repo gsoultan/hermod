@@ -7,6 +7,39 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A stateful transformation forgot everything on SQL Server
+
+`workflow_node_states` is where a stateful transformation checkpoints what it
+has accumulated, and where the engine reads it back when the workflow starts.
+On SQL Server every write to it was rejected.
+
+The statement had a spelling for MySQL and one for PostgreSQL and none for SQL
+Server, so it fell through to the SQLite default — `INSERT ... ON CONFLICT ...
+DO UPDATE SET state = excluded.state` — and SQL Server, which has no upsert at
+all, answered:
+
+```
+mssql: Incorrect syntax near the keyword 'ON'.
+```
+
+The read side is an ordinary SELECT and kept working, so it returned nothing and
+reported no error. A workflow came back from a restart with empty state and
+looked exactly like one that had never accumulated any. The statement is a MERGE
+now, like the two neighbouring upserts that already had one.
+
+Nothing in the suite could have found this. Every test in the storage package
+runs on SQLite, where the common query is the correct one by construction, and
+the only place CI starts a live SQL Server is a sink test that never touches
+node state — so the statement was well-formed Go, a valid string, and refused by
+the only thing that could judge it. Two guards close that off: one fails the
+build when a query written in SQLite-only syntax has no override for a dialect
+that cannot parse it, and one drives the statement against a real SQL Server in
+the integration job.
+
+The `mariadb` override set went with it. Both places that choose a driver map
+mariadb onto `mysql`, so nothing ever selected those three entries: they
+duplicated the MySQL ones exactly and read like coverage that was not there.
+
 ## [1.11.0] — 2026-09-22
 
 Workspace quotas are enforced for the first time — on PostgreSQL they had never
