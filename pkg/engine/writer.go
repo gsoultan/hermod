@@ -1351,12 +1351,14 @@ func (w *sinkWriter) pickShard(msg hermod.Message) chan *pendingMessage {
 	// random shard so unkeyed traffic still spreads.
 	var key string
 	if w.shardKeyMeta != "" && msg != nil {
-		// MetadataRef, not Metadata: the latter clones the map, and this runs
-		// once per message per sink.
-		if md := msg.MetadataRef(); md != nil {
-			if v, ok := md[w.shardKeyMeta]; ok && v != "" {
-				key = v
-			}
+		// MetadataValue, not Metadata: the latter clones the map, and this runs
+		// once per message per sink. Not MetadataRef either — this function runs
+		// in the per-sink enqueue goroutines runner.go fans out with swg.Go, so
+		// the message is held by one goroutine per target while the sinks'
+		// workers write delivery markers onto it. Indexing the live map here
+		// raced those writes.
+		if v, ok := hermod.MetadataValue(msg, w.shardKeyMeta); ok && v != "" {
+			key = v
 		}
 	}
 	if key == "" {
