@@ -100,8 +100,15 @@ const (
 	// Workspaces
 	QueryListWorkspaces  = "ListWorkspaces"
 	QueryCreateWorkspace = "CreateWorkspace"
+	QueryUpdateWorkspace = "UpdateWorkspace"
 	QueryDeleteWorkspace = "DeleteWorkspace"
 	QueryGetWorkspace    = "GetWorkspace"
+
+	// Clearing membership is three statements because workspace_id lives on
+	// three tables; there is no FK to cascade from.
+	QueryClearWorkflowWorkspace = "ClearWorkflowWorkspace"
+	QueryClearSourceWorkspace   = "ClearSourceWorkspace"
+	QueryClearSinkWorkspace     = "ClearSinkWorkspace"
 
 	// Workers
 	QueryListWorkers     = "ListWorkers"
@@ -559,7 +566,12 @@ var commonQueries = map[string]string{
 
 	QueryListWorkspaces:  "SELECT id, name, description, max_workflows, max_cpu, max_memory, max_throughput, created_at FROM workspaces ORDER BY name ASC",
 	QueryCreateWorkspace: "INSERT INTO workspaces (id, name, description, max_workflows, max_cpu, max_memory, max_throughput, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryUpdateWorkspace: "UPDATE workspaces SET name = ?, description = ?, max_workflows = ?, max_cpu = ?, max_memory = ?, max_throughput = ? WHERE id = ?",
 	QueryDeleteWorkspace: "DELETE FROM workspaces WHERE id = ?",
+
+	QueryClearWorkflowWorkspace: "UPDATE workflows SET workspace_id = '' WHERE workspace_id = ?",
+	QueryClearSourceWorkspace:   "UPDATE sources SET workspace_id = '' WHERE workspace_id = ?",
+	QueryClearSinkWorkspace:     "UPDATE sinks SET workspace_id = '' WHERE workspace_id = ?",
 	QueryGetWorkspace:    "SELECT id, name, description, max_workflows, max_cpu, max_memory, max_throughput, created_at FROM workspaces WHERE id = ?",
 
 	QueryListWorkers:     "SELECT id, name, host, port, description, token, last_seen, cpu_usage, memory_usage, created_at FROM workers",

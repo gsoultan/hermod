@@ -162,6 +162,11 @@ func (s *sqlStorage) recordSchemaState(ctx context.Context) error {
 }
 
 func (s *sqlStorage) saveSetting(ctx context.Context, key, value string) error {
-	_, err := s.db.ExecContext(ctx, s.queries.get(QuerySaveSetting), key, value)
+	// Through s.exec so the placeholders are prepared for the driver. This
+	// happens to work today only because every dialect overrides
+	// QuerySaveSetting; a dialect that ever falls back to the `?` default would
+	// fail here the way GetWorkspace did on PostgreSQL. preparePlaceholders
+	// only rewrites `?`, so it is a no-op on the overrides.
+	_, err := s.exec(ctx, s.queries.get(QuerySaveSetting), key, value)
 	return err
 }

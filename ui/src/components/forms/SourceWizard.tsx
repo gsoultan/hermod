@@ -12,6 +12,7 @@ interface SourceWizardProps {
   embedded: boolean;
   availableVHostsList: string[];
   workers: any[];
+  workspaces?: any[];
   sourceTypes: any[];
   testMutation: any;
   submitMutation: any;
@@ -41,6 +42,7 @@ export function SourceWizard({
   embedded,
   availableVHostsList,
   workers,
+  workspaces,
   sourceTypes,
   testMutation,
   submitMutation,
@@ -115,6 +117,7 @@ export function SourceWizard({
                 embedded={embedded}
                 availableVHostsList={availableVHostsList}
                 workers={workers}
+                workspaces={workspaces}
                 sourceTypes={sourceTypes}
                 setShowSetup={setShowSetup}
               />

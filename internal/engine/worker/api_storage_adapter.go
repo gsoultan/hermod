@@ -97,6 +97,10 @@ func (a *apiStorage) CreateWorkspace(ctx context.Context, ws storage.Workspace) 
 func (a *apiStorage) GetWorkspace(ctx context.Context, id string) (storage.Workspace, error) {
 	return storage.Workspace{}, storage.ErrNotFound
 }
+func (a *apiStorage) UpdateWorkspace(ctx context.Context, ws storage.Workspace) error { return nil }
+func (a *apiStorage) ClearWorkspaceAssignments(ctx context.Context, workspaceID string) (int, error) {
+	return 0, nil
+}
 func (a *apiStorage) DeleteWorkspace(ctx context.Context, id string) error          { return nil }
 func (a *apiStorage) CreateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }
 func (a *apiStorage) UpdateWorkflow(ctx context.Context, wf storage.Workflow) error { return nil }

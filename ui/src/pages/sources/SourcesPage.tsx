@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, Modal, List, ThemeIcon, TextInput, Pagination } from '@mantine/core';
+import { Title, Table, Button, Group, ActionIcon, Paper, Text, Box, Stack, Badge, Modal, List, ThemeIcon, TextInput, Pagination, Select } from '@mantine/core';
 import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/api';
 import { useLiveStatuses } from '@/hooks/useLiveStatuses';
@@ -9,7 +9,8 @@ import { useVHost } from '@/context/VHostContext';
 import { useNavigate } from '@tanstack/react-router';
 import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import type { Source, Workflow, Worker } from '@/types';
-import { IconActivity, IconAlertCircle, IconDatabaseImport, IconEdit, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
+import { IconActivity, IconAlertCircle, IconDatabaseImport, IconEdit, IconFolder, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react';
+import { WorkspaceBadge, useWorkspaces, useWorkspaceFilterOptions } from '@/components/common/WorkspaceSelect';
 const API_BASE = '/api';
 
 export function SourcesPage() {
@@ -26,6 +27,9 @@ export function SourcesPage() {
   const [debouncedSearch] = useDebouncedValue(search, 300);
   const [activePage, setPage] = useState(1);
   const itemsPerPage = 30;
+  const [selectedWorkspace, setSelectedWorkspace] = useState<string>('all');
+  const workspaces = useWorkspaces();
+  const workspaceOptions = useWorkspaceFilterOptions();
 
   // Bounded, batched, and self-healing. See useLiveStatuses: this was an inline
   // effect duplicated here and on the sibling page, with an unbounded map, a
@@ -33,13 +37,14 @@ export function SourcesPage() {
   const { statuses: liveStatuses, connected: liveConnected } = useLiveStatuses();
 
   const { data: sourcesResponse } = useQuery({
-    queryKey: ['sources', activePage, debouncedSearch, selectedVHost],
+    queryKey: ['sources', activePage, debouncedSearch, selectedVHost, selectedWorkspace],
         // Hold the previous page/search on screen while the next one loads,
         // instead of dropping to undefined and blanking the table.
         placeholderData: keepPreviousData,
     queryFn: async () => {
       const vhostParam = selectedVHost !== 'all' ? `&vhost=${selectedVHost}` : '';
-      const res = await apiFetch(`${API_BASE}/sources?page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(debouncedSearch)}${vhostParam}`);
+      const wsParam = selectedWorkspace !== 'all' ? `&workspace_id=${selectedWorkspace}` : '';
+      const res = await apiFetch(`${API_BASE}/sources?page=${activePage}&limit=${itemsPerPage}&search=${encodeURIComponent(debouncedSearch)}${vhostParam}${wsParam}`);
       if (!res.ok) throw new Error('Failed to fetch sources');
       return res.json();
     },
@@ -144,6 +149,20 @@ export function SourcesPage() {
               }}
               radius="md"
             />
+            <Select
+              label="Workspace"
+              aria-label="Filter by workspace"
+              data={workspaceOptions}
+              value={selectedWorkspace}
+              onChange={(val) => {
+                setSelectedWorkspace(val || 'all');
+                setPage(1);
+              }}
+              leftSection={<IconFolder size="1rem" stroke={1.5} />}
+              radius="md"
+              allowDeselect={false}
+              maw={260}
+            />
           </Stack>
         </Paper>
 
@@ -155,6 +174,7 @@ export function SourcesPage() {
               <Table.Th>Name</Table.Th>
               <Table.Th>Type</Table.Th>
               <Table.Th>VHost</Table.Th>
+              <Table.Th>Workspace</Table.Th>
               <Table.Th>Status</Table.Th>
               <Table.Th>Worker</Table.Th>
               <Table.Th style={{ textAlign: 'right' }}>Actions</Table.Th>
@@ -170,6 +190,7 @@ export function SourcesPage() {
                   </Text>
                 </Table.Td>
                 <Table.Td>{src.vhost || '-'}</Table.Td>
+                <Table.Td><WorkspaceBadge id={src.workspace_id} workspaces={workspaces} /></Table.Td>
                 <Table.Td>
                   {(() => {
                     const liveStatus = getSourceLiveStatus(src.id);

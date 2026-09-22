@@ -40,6 +40,9 @@ export function useSourceForm({
       type: initialData?.type || 'postgres', 
       vhost: (embedded ? vhost : (initialData?.vhost || vhost)) || '', 
       worker_id: (embedded ? workerID : (initialData?.worker_id || workerID)) || '',
+      // Declared rather than set ad hoc, so the field survives a round trip
+      // through the form and reaches the request body on save.
+      workspace_id: initialData?.workspace_id || '',
       active: initialData?.active ?? true,
       config: { 
         connection_string: '',

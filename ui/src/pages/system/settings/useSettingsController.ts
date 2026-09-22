@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUnsavedChanges, isDirty } from '@/hooks/useUnsavedChanges';
 import { apiFetch } from '@/api';
 import { notifications } from '@mantine/notifications';
 import { useDisclosure } from '@mantine/hooks';
+import { useConfirm } from '@/components/common/ConfirmProvider';
+import type { Workspace } from '@/types';
 
 
 /**
@@ -16,6 +18,7 @@ import { useDisclosure } from '@mantine/hooks';
 
 export function useSettingsController() {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [dbType, setDbType] = useState<string | null>('sqlite')
   const [dbConn, setDbConn] = useState('')
   const [logDbType, setLogDbType] = useState<string | null>(null)
@@ -61,13 +64,28 @@ export function useSettingsController() {
   const [s3UseSSL, setS3UseSSL] = useState(true)
 
   // Workspace Management State
-  const [wsModalOpened, { open: openWSModal, close: closeWSModal }] = useDisclosure(false)
+  const [wsModalOpened, { open: rawOpenWSModal, close: closeWSModal }] = useDisclosure(false)
   const [newWSName, setNewWSName] = useState('')
   const [newWSDesc, setNewWSDesc] = useState('')
   const [maxWorkflows, setMaxWorkflows] = useState(0)
   const [maxCPU, setMaxCPU] = useState(0)
   const [maxMemory, setMaxMemory] = useState(0)
   const [maxThroughput, setMaxThroughput] = useState(0)
+  // null means the modal is creating; a workspace means it is editing that one.
+  // The same four quota fields back both, so there is one form rather than two
+  // that can drift apart.
+  const [editingWS, setEditingWS] = useState<Workspace | null>(null)
+
+  const openWSModal = useCallback((ws?: Workspace) => {
+    setEditingWS(ws ?? null)
+    setNewWSName(ws?.name ?? '')
+    setNewWSDesc(ws?.description ?? '')
+    setMaxWorkflows(ws?.max_workflows ?? 0)
+    setMaxCPU(ws?.max_cpu ?? 0)
+    setMaxMemory(ws?.max_memory ?? 0)
+    setMaxThroughput(ws?.max_throughput ?? 0)
+    rawOpenWSModal()
+  }, [rawOpenWSModal])
 
   // Notification Settings State
   const [notifSettings, setNotifSettings] = useState({
@@ -90,11 +108,13 @@ export function useSettingsController() {
   // Settings holds dozens of independent fields across six tabs with no single
   // save, so leaving the page used to discard everything silently. Snapshot the
   // whole form and compare it with the last saved state to know when that has
-  // actually happened. Transient UI-only fields (message, new workspace inputs)
-  // are excluded so they never trigger a false warning.
+  // actually happened. Transient UI-only fields (message, the workspace modal's
+  // inputs) are excluded so they never trigger a false warning — the four quota
+  // fields used to be in here, which meant opening the workspace modal marked
+  // the whole Settings page dirty.
   const formSnapshot = useMemo(
-    () => ({ dbType, dbConn, logDbType, logDbConn, secretType, vaultAddr, vaultToken, vaultMount, baoAddr, baoToken, baoMount, awsRegion, azureUrl, envPrefix, cryptoKey, stateType, statePath, stateAddr, statePass, stateDB, statePrefix, otlpEndpoint, otlpServiceName, otlpInsecure, fileStorageType, localDir, maxWorkflows, maxCPU, maxMemory, maxThroughput, notifSettings }),
-    [dbType, dbConn, logDbType, logDbConn, secretType, vaultAddr, vaultToken, vaultMount, baoAddr, baoToken, baoMount, awsRegion, azureUrl, envPrefix, cryptoKey, stateType, statePath, stateAddr, statePass, stateDB, statePrefix, otlpEndpoint, otlpServiceName, otlpInsecure, fileStorageType, localDir, maxWorkflows, maxCPU, maxMemory, maxThroughput, notifSettings],
+    () => ({ dbType, dbConn, logDbType, logDbConn, secretType, vaultAddr, vaultToken, vaultMount, baoAddr, baoToken, baoMount, awsRegion, azureUrl, envPrefix, cryptoKey, stateType, statePath, stateAddr, statePass, stateDB, statePrefix, otlpEndpoint, otlpServiceName, otlpInsecure, fileStorageType, localDir, notifSettings }),
+    [dbType, dbConn, logDbType, logDbConn, secretType, vaultAddr, vaultToken, vaultMount, baoAddr, baoToken, baoMount, awsRegion, azureUrl, envPrefix, cryptoKey, stateType, statePath, stateAddr, statePass, stateDB, statePrefix, otlpEndpoint, otlpServiceName, otlpInsecure, fileStorageType, localDir, notifSettings],
   );
   // Latest snapshot for the save handlers' onSuccess callbacks, which run after
   // commit — so assigning in an effect is current by the time they read it.
@@ -127,12 +147,16 @@ export function useSettingsController() {
     }
   })
 
+  // One mutation for both modes. Editing used to be impossible: the four quota
+  // numbers were set blind at creation, never displayed again, and correcting
+  // one meant deleting the workspace — which un-assigns every member.
   const createWSMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiFetch('/api/workspaces', {
-        method: 'POST',
-        body: JSON.stringify({ 
-          name: newWSName, 
+      const editing = editingWS !== null
+      const res = await apiFetch(editing ? `/api/workspaces/${editingWS.id}` : '/api/workspaces', {
+        method: editing ? 'PUT' : 'POST',
+        body: JSON.stringify({
+          name: newWSName,
           description: newWSDesc,
           max_workflows: maxWorkflows,
           max_cpu: maxCPU,
@@ -141,14 +165,23 @@ export function useSettingsController() {
         }),
         silent: true,
       })
-      if (!res.ok) throw new Error('Failed to create workspace')
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error || `Failed to ${editing ? 'update' : 'create'} workspace`)
+      }
       return res.json()
     },
-    onSuccess: () => {
-      setSavedSnapshot(JSON.stringify(formSnapshotRef.current));
+    onSuccess: (_data, _vars, _ctx) => {
+      const edited = editingWS !== null
       queryClient.invalidateQueries({ queryKey: ['workspaces'] })
-      notifications.show({ id: 'ws-created', title: 'Success', message: 'Workspace created', color: 'green' })
+      notifications.show({
+        id: edited ? 'ws-updated' : 'ws-created',
+        title: 'Success',
+        message: edited ? 'Workspace updated' : 'Workspace created',
+        color: 'green',
+      })
       closeWSModal()
+      setEditingWS(null)
       setNewWSName('')
       setNewWSDesc('')
       setMaxWorkflows(0)
@@ -167,14 +200,57 @@ export function useSettingsController() {
       if (!res.ok) throw new Error('Failed to delete workspace')
     },
     onSuccess: () => {
-      setSavedSnapshot(JSON.stringify(formSnapshotRef.current));
+      // Members are un-assigned server-side, so every list that renders a
+      // workspace badge is now stale.
       queryClient.invalidateQueries({ queryKey: ['workspaces'] })
+      queryClient.invalidateQueries({ queryKey: ['workflows'] })
+      queryClient.invalidateQueries({ queryKey: ['sources'] })
+      queryClient.invalidateQueries({ queryKey: ['sinks'] })
       notifications.show({ id: 'ws-deleted', title: 'Success', message: 'Workspace deleted', color: 'green' })
     },
     onError: (err: any) => {
       notifications.show({ id: 'ws-delete-error', title: 'Error', message: err.message, color: 'red' })
     }
   })
+
+  // Deleting a workspace un-assigns everything inside it, and the Governance
+  // table does not show what that is. Count the members first so the dialog can
+  // say how much is about to move, rather than the bare trash icon that used to
+  // delete on a single click with no confirmation at all.
+  const requestDeleteWorkspace = useCallback(async (ws: Workspace) => {
+    const countOf = async (resource: string) => {
+      try {
+        const res = await apiFetch(
+          `/api/${resource}?workspace_id=${encodeURIComponent(ws.id)}&limit=1`,
+          { silent: true },
+        )
+        if (!res.ok) return 0
+        const body = await res.json()
+        return Number(body?.total ?? 0) || 0
+      } catch {
+        return 0
+      }
+    }
+    const [workflows, sources, sinks] = await Promise.all([
+      countOf('workflows'), countOf('sources'), countOf('sinks'),
+    ])
+    const members = workflows + sources + sinks
+
+    const consequence = members === 0
+      ? 'The workspace is empty. This cannot be undone.'
+      : `${workflows} workflow(s), ${sources} source(s) and ${sinks} sink(s) will be moved out of it ` +
+        'and left unassigned. They are not deleted. This cannot be undone.'
+
+    if (await confirm({
+      title: `Delete workspace "${ws.name}"`,
+      message: `Permanently delete the workspace "${ws.name}"?`,
+      consequence,
+      confirmLabel: 'Delete workspace',
+      danger: true,
+    })) {
+      deleteWSMutation.mutate(ws.id)
+    }
+  }, [confirm, deleteWSMutation])
 
   const { data: fileStorageConfig } = useQuery({
     queryKey: ['file-storage-config'],
@@ -585,7 +661,7 @@ export function useSettingsController() {
 
 
   return {
-    awsRegion, azureUrl, baoAddr, baoMount, baoToken, closeWSModal, createWSMutation, cryptoKey, dbConn, dbType, deleteWSMutation, envPrefix, fileInputRef, fileStorageConfig, fileStorageType, formSnapshot, formSnapshotRef, handleExport, handleGenerateSDK, handleImport, handleSave, handleSaveOtlp, handleSaveSecrets, handleSaveStateStore, hasUnsavedChanges, localDir, logDbConn, logDbType, maxCPU, maxMemory, maxThroughput, maxWorkflows, message, newWSDesc, newWSName, notifSettings, openWSModal, otlpEndpoint, otlpInsecure, otlpServiceName, queryClient, s3AccessKey, s3Bucket, s3Endpoint, s3Region, s3SecretKey, s3UseSSL, saveCryptoMutation, saveMutation, saveNotifMutation, saveOtlpMutation, saveSecretsMutation, saveStateStoreMutation, saveStorageMutation, savedSnapshot, secretType, setAwsRegion, setAzureUrl, setBaoAddr, setBaoMount, setBaoToken, setCryptoKey, setDbConn, setDbType, setEnvPrefix, setFileStorageType, setLocalDir, setLogDbConn, setLogDbType, setMaxCPU, setMaxMemory, setMaxThroughput, setMaxWorkflows, setMessage, setNewWSDesc, setNewWSName, setNotifSettings, setOtlpEndpoint, setOtlpInsecure, setOtlpServiceName, setS3AccessKey, setS3Bucket, setS3Endpoint, setS3Region, setS3SecretKey, setS3UseSSL, setSecretType, setStateAddr, setStateDB, setStatePass, setStatePath, setStatePrefix, setStateType, setVaultAddr, setVaultMount, setVaultToken, stateAddr, stateDB, statePass, statePath, statePrefix, stateType, testNotifMutation, vaultAddr, vaultMount, vaultToken, workspaces, wsModalOpened,
+    awsRegion, azureUrl, baoAddr, baoMount, baoToken, closeWSModal, createWSMutation, cryptoKey, dbConn, dbType, deleteWSMutation, editingWS, requestDeleteWorkspace, envPrefix, fileInputRef, fileStorageConfig, fileStorageType, formSnapshot, formSnapshotRef, handleExport, handleGenerateSDK, handleImport, handleSave, handleSaveOtlp, handleSaveSecrets, handleSaveStateStore, hasUnsavedChanges, localDir, logDbConn, logDbType, maxCPU, maxMemory, maxThroughput, maxWorkflows, message, newWSDesc, newWSName, notifSettings, openWSModal, otlpEndpoint, otlpInsecure, otlpServiceName, queryClient, s3AccessKey, s3Bucket, s3Endpoint, s3Region, s3SecretKey, s3UseSSL, saveCryptoMutation, saveMutation, saveNotifMutation, saveOtlpMutation, saveSecretsMutation, saveStateStoreMutation, saveStorageMutation, savedSnapshot, secretType, setAwsRegion, setAzureUrl, setBaoAddr, setBaoMount, setBaoToken, setCryptoKey, setDbConn, setDbType, setEnvPrefix, setFileStorageType, setLocalDir, setLogDbConn, setLogDbType, setMaxCPU, setMaxMemory, setMaxThroughput, setMaxWorkflows, setMessage, setNewWSDesc, setNewWSName, setNotifSettings, setOtlpEndpoint, setOtlpInsecure, setOtlpServiceName, setS3AccessKey, setS3Bucket, setS3Endpoint, setS3Region, setS3SecretKey, setS3UseSSL, setSecretType, setStateAddr, setStateDB, setStatePass, setStatePath, setStatePrefix, setStateType, setVaultAddr, setVaultMount, setVaultToken, stateAddr, stateDB, statePass, statePath, statePrefix, stateType, testNotifMutation, vaultAddr, vaultMount, vaultToken, workspaces, wsModalOpened,
   };
 }
 

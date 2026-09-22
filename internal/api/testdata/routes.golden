@@ -158,6 +158,7 @@ POST /api/workers/{id}/start
 POST /api/workflows
 POST /api/workflows/batch/delete
 POST /api/workflows/batch/toggle
+POST /api/workflows/batch/workspace
 POST /api/workflows/import
 POST /api/workflows/test
 POST /api/workflows/{id}/drain
@@ -182,3 +183,4 @@ PUT /api/users/{id}/password
 PUT /api/vhosts/{id}
 PUT /api/workers/{id}
 PUT /api/workflows/{id}
+PUT /api/workspaces/{id}

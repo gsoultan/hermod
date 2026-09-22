@@ -2,15 +2,17 @@ import { toGroupedSelectData } from '@/utils/selectData';
 import { useState } from 'react';
 import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
 import { TextInput, Group, Select, Button, Stack, Fieldset, SimpleGrid } from '@mantine/core';
-import type { Worker, Source } from '@/types';
+import type { Worker, Source, Workspace } from '@/types';
 import type { FC } from 'react';
 import { IconInfoCircle } from '@tabler/icons-react';
+import { WorkspaceSelect } from '@/components/common/WorkspaceSelect';
 interface SourceBasicsProps {
   source: Source;
   handleSourceChange: (updates: Partial<Source>) => void;
   embedded?: boolean;
   availableVHostsList: string[];
   workers: Worker[];
+  workspaces?: Workspace[];
   sourceTypes: { value: string; label: string; group?: string }[];
   setShowSetup: (show: boolean) => void;
 }
@@ -21,6 +23,7 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
   embedded, 
   availableVHostsList, 
   workers, 
+  workspaces,
   sourceTypes,
   setShowSetup
 }) => {
@@ -60,15 +63,20 @@ export const SourceBasics: FC<SourceBasicsProps> = ({
               description="Project or environment namespace"
               mih={80}
             />
-            <Select 
-              label="Worker (Optional)" 
-              placeholder="Assign to a specific worker" 
+            <Select
+              label="Worker (Optional)"
+              placeholder="Assign to a specific worker"
               data={Array.isArray(workers) ? workers.map((w: Worker) => ({ value: w.id, label: w.name || w.id })) : []}
               value={source.worker_id}
               onChange={(val) => handleSourceChange({ worker_id: val || '' })}
               clearable
               description="Dedicated processing instance"
               mih={80}
+            />
+            <WorkspaceSelect
+              value={source.workspace_id}
+              workspaces={workspaces}
+              onChange={(workspace_id) => handleSourceChange({ workspace_id })}
             />
           </SimpleGrid>
         )}

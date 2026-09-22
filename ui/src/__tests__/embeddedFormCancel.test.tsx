@@ -42,6 +42,8 @@ describe('embedded Source/Sink form Cancel', () => {
       http.get('/api/vhosts', () => HttpResponse.json({ data: [], total: 0 })),
       http.get('/api/workers', () => HttpResponse.json({ data: [], total: 0 })),
       http.get('/api/sources', () => HttpResponse.json({ data: [], total: 0 })),
+      // A bare array, not {data,total} — that is what /api/workspaces answers.
+      http.get('/api/workspaces', () => HttpResponse.json([])),
       http.get('/api/sinks', () => HttpResponse.json({ data: [], total: 0 })),
       http.get('/api/workflows', () => HttpResponse.json({ data: [], total: 0 })),
     )

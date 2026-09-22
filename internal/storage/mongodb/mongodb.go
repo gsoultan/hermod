@@ -855,6 +855,14 @@ func (s *mongoStorage) ListWorkflows(ctx context.Context, filter storage.CommonF
 	if filter.WorkspaceID != "" {
 		query["workspace_id"] = filter.WorkspaceID
 	}
+	// Un-assignment is written as "", but documents predating the field have
+	// no key at all.
+	if filter.WithoutWorkspace {
+		query["$or"] = []bson.M{
+			{"workspace_id": ""},
+			{"workspace_id": bson.M{"$exists": false}},
+		}
+	}
 
 	total, err := coll.CountDocuments(ctx, query)
 	if err != nil {
@@ -919,9 +927,53 @@ func (s *mongoStorage) CreateWorkspace(ctx context.Context, ws storage.Workspace
 	return err
 }
 
+// UpdateWorkspace rewrites the mutable fields. id and created_at are left
+// alone: a rename must not orphan the members keyed on the id.
+func (s *mongoStorage) UpdateWorkspace(ctx context.Context, ws storage.Workspace) error {
+	res, err := s.db.Collection("workspaces").UpdateOne(ctx,
+		bson.M{"id": ws.ID},
+		bson.M{"$set": bson.M{
+			"name":           ws.Name,
+			"description":    ws.Description,
+			"max_workflows":  ws.MaxWorkflows,
+			"max_cpu":        ws.MaxCPU,
+			"max_memory":     ws.MaxMemory,
+			"max_throughput": ws.MaxThroughput,
+		}},
+	)
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return storage.ErrNotFound
+	}
+	return nil
+}
+
 func (s *mongoStorage) DeleteWorkspace(ctx context.Context, id string) error {
 	_, err := s.db.Collection("workspaces").DeleteOne(ctx, bson.M{"id": id})
 	return err
+}
+
+// ClearWorkspaceAssignments un-assigns the workspace's members across the three
+// collections that carry workspace_id. See the interface comment for why a
+// delete without this leaves unreachable references behind.
+func (s *mongoStorage) ClearWorkspaceAssignments(ctx context.Context, workspaceID string) (int, error) {
+	if workspaceID == "" {
+		return 0, nil
+	}
+	total := 0
+	for _, coll := range []string{"workflows", "sources", "sinks"} {
+		res, err := s.db.Collection(coll).UpdateMany(ctx,
+			bson.M{"workspace_id": workspaceID},
+			bson.M{"$set": bson.M{"workspace_id": ""}},
+		)
+		if err != nil {
+			return total, err
+		}
+		total += int(res.ModifiedCount)
+	}
+	return total, nil
 }
 
 func (s *mongoStorage) GetWorkspace(ctx context.Context, id string) (storage.Workspace, error) {
