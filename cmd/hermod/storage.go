@@ -96,6 +96,23 @@ func initNoSQLStorage(dbType, dbConn string) (storage.Storage, error) {
 
 func initSQLStorage(dbType, dbConn string) (storage.Storage, error) {
 	driver, conn := getSQLDriverAndConn(dbType, dbConn)
+	if driver == "" {
+		// sql.Open("") answers `unknown driver "" (forgotten import?)`, which
+		// names neither the setting that is wrong nor the value in it, and
+		// blames a missing import that is not missing. Refuse by name, the way
+		// a pebble metadata store is refused.
+		//
+		// mssql is the value that makes this reachable: InitSQLStorage
+		// (internal/infra/transport/http/infra.go:701) maps it onto the
+		// sqlserver driver, so the same configuration works through the
+		// settings API and dies here. Hermod documents MSSQL as a source and a
+		// sink, and its database picker offers only the three below, so this
+		// path is the one that matches what is actually claimed — but the two
+		// disagreeing is worth knowing about.
+		return nil, fmt.Errorf("unsupported database type %q for the metadata store: "+
+			"Hermod keeps its catalogue in sqlite, postgres, mysql (or mariadb), or mongodb. "+
+			"MSSQL is supported as a source and as a sink, not as the metadata store", dbType)
+	}
 	db, err := sql.Open(driver, conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
