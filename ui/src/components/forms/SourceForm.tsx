@@ -148,17 +148,28 @@ export function SourceForm({
   // round-trips (the source itself, then these) with the route's full-viewport
   // spinner covering the nav the whole time. useSuspenseQueries issues them
   // together and suspends once.
-  const [vhostsResponse, workersResponse, sourcesResponse] = useSuspenseQueries({
+  const [vhostsResponse, workersResponse, sourcesResponse, workspacesResponse] = useSuspenseQueries({
     queries: [
       { queryKey: ['vhosts'], queryFn: () => fetchList(`${API_BASE}/vhosts`) },
       { queryKey: ['workers'], queryFn: () => fetchList(`${API_BASE}/workers`) },
       { queryKey: ['sources'], queryFn: () => fetchList(`${API_BASE}/sources`) },
+      // Joins the same batch rather than suspending separately, for the reason
+      // above. /api/workspaces answers a bare array, not {data,total}.
+      {
+        queryKey: ['workspaces'],
+        queryFn: async () => {
+          const res = await apiFetch(`${API_BASE}/workspaces`);
+          if (!res.ok) return [];
+          return res.json();
+        },
+      },
     ],
   });
 
   const vhosts = vhostsResponse.data?.data || [];
   const workers = workersResponse.data?.data || [];
   const allSources = sourcesResponse.data?.data || [];
+  const workspaces = Array.isArray(workspacesResponse.data) ? workspacesResponse.data : [];
 
   const availableVHostsList: string[] = role === ADMIN_ROLE
     ? vhosts.map((v: VHost) => v.name)
@@ -209,6 +220,7 @@ export function SourceForm({
         isEditing={isEditing}
         embedded={embedded}
         availableVHostsList={availableVHostsList}
+        workspaces={workspaces}
         workers={workers}
         sourceTypes={SOURCE_TYPES}
         testMutation={testMutation}

@@ -661,6 +661,10 @@ func (s *sqlStorage) ListSources(ctx context.Context, filter storage.CommonFilte
 		where = append(where, "workspace_id = ?")
 		args = append(args, filter.WorkspaceID)
 	}
+	// Un-assignment is written as '', but rows predating the column are NULL.
+	if filter.WithoutWorkspace {
+		where = append(where, "(workspace_id IS NULL OR workspace_id = '')")
+	}
 
 	if filter.WorkerID != "" {
 		where = append(where, "worker_id = ?")
@@ -881,6 +885,10 @@ func (s *sqlStorage) ListSinks(ctx context.Context, filter storage.CommonFilter)
 	if filter.WorkspaceID != "" {
 		where = append(where, "workspace_id = ?")
 		args = append(args, filter.WorkspaceID)
+	}
+	// Un-assignment is written as '', but rows predating the column are NULL.
+	if filter.WithoutWorkspace {
+		where = append(where, "(workspace_id IS NULL OR workspace_id = '')")
 	}
 
 	if filter.WorkerID != "" {
@@ -1314,6 +1322,23 @@ func (s *sqlStorage) CreateWorkspace(ctx context.Context, ws storage.Workspace) 
 	return s.execWithRetry(ctx, exec)
 }
 
+// UpdateWorkspace rewrites the mutable columns. id and created_at are not
+// among them: a rename must not orphan the members keyed on the id, and
+// created_at is the row's birth, not its last touch.
+func (s *sqlStorage) UpdateWorkspace(ctx context.Context, ws storage.Workspace) error {
+	// UPDATE ... WHERE id = ? on a missing row is a silent no-op, which would
+	// answer 200 for a workspace that does not exist.
+	if _, err := s.GetWorkspace(ctx, ws.ID); err != nil {
+		return err
+	}
+	exec := func() error {
+		_, e := s.exec(ctx, s.queries.get(QueryUpdateWorkspace),
+			ws.Name, ws.Description, ws.MaxWorkflows, ws.MaxCPU, ws.MaxMemory, ws.MaxThroughput, ws.ID)
+		return e
+	}
+	return s.execWithRetry(ctx, exec)
+}
+
 func (s *sqlStorage) DeleteWorkspace(ctx context.Context, id string) error {
 	exec := func() error {
 		_, e := s.exec(ctx, s.queries.get(QueryDeleteWorkspace), id)
@@ -1322,8 +1347,52 @@ func (s *sqlStorage) DeleteWorkspace(ctx context.Context, id string) error {
 	return s.execWithRetry(ctx, exec)
 }
 
+// ClearWorkspaceAssignments un-assigns the workspace's members. It is not run
+// inside a transaction on purpose: each statement is idempotent, and a partial
+// sweep leaves fewer orphans than not sweeping at all. The count is advisory
+// (it feeds the audit log), so a driver that cannot report RowsAffected
+// contributes zero rather than failing the delete.
+func (s *sqlStorage) ClearWorkspaceAssignments(ctx context.Context, workspaceID string) (int, error) {
+	if workspaceID == "" {
+		return 0, nil
+	}
+	total := 0
+	for _, q := range []string{
+		QueryClearWorkflowWorkspace,
+		QueryClearSourceWorkspace,
+		QueryClearSinkWorkspace,
+	} {
+		query := s.queries.get(q)
+		// affected is reset per attempt, not accumulated across them: a busy
+		// retry re-runs the same statement and would otherwise count twice.
+		affected := 0
+		exec := func() error {
+			affected = 0
+			res, e := s.exec(ctx, query, workspaceID)
+			if e != nil {
+				return e
+			}
+			if n, e2 := res.RowsAffected(); e2 == nil {
+				affected = int(n)
+			}
+			return nil
+		}
+		if err := s.execWithRetry(ctx, exec); err != nil {
+			return total, err
+		}
+		total += affected
+	}
+	return total, nil
+}
+
 func (s *sqlStorage) GetWorkspace(ctx context.Context, id string) (storage.Workspace, error) {
-	row := s.db.QueryRowContext(ctx, s.queries.get(QueryGetWorkspace), id)
+	// Through queryRow, not db.QueryRowContext: the query is written with `?`
+	// placeholders and only prepareQuery rewrites them to `$1` for pgx. Calling
+	// the driver directly made this the one read that always failed on
+	// PostgreSQL with "syntax error at end of input", and because every caller
+	// treated a GetWorkspace error as "no quota to apply", the workspace quotas
+	// silently did not exist on any PostgreSQL deployment.
+	row := s.queryRow(ctx, s.queries.get(QueryGetWorkspace), id)
 	var ws storage.Workspace
 	var desc sql.NullString
 	err := row.Scan(&ws.ID, &ws.Name, &desc, &ws.MaxWorkflows, &ws.MaxCPU, &ws.MaxMemory, &ws.MaxThroughput, &ws.CreatedAt)
@@ -1469,6 +1538,9 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 		query += " AND workspace_id = ?"
 		args = append(args, filter.WorkspaceID)
 	}
+	if filter.WithoutWorkspace {
+		query += " AND (workspace_id IS NULL OR workspace_id = '')"
+	}
 	if filter.WorkerID != "" {
 		query += " AND worker_id = ?"
 		args = append(args, filter.WorkerID)
@@ -1495,6 +1567,9 @@ func (s *sqlStorage) ListWorkflows(ctx context.Context, filter storage.CommonFil
 	if filter.WorkspaceID != "" {
 		countQuery += " AND workspace_id = ?"
 		countArgs = append(countArgs, filter.WorkspaceID)
+	}
+	if filter.WithoutWorkspace {
+		countQuery += " AND (workspace_id IS NULL OR workspace_id = '')"
 	}
 	if filter.WorkerID != "" {
 		countQuery += " AND worker_id = ?"
@@ -2275,7 +2350,10 @@ func (s *sqlStorage) UpdateNodeState(ctx context.Context, workflowID, nodeID str
 
 	query := s.queries.get(QueryUpdateNodeState)
 
-	_, err = s.db.ExecContext(ctx, query, workflowID, nodeID, string(stateJSON))
+	// See saveSetting: through s.exec so the placeholders match the driver.
+	// sqlserver has no QueryUpdateNodeState override, so it was reaching the
+	// database with `?`.
+	_, err = s.exec(ctx, query, workflowID, nodeID, string(stateJSON))
 	return err
 }
 

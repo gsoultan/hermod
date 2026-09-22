@@ -2,6 +2,8 @@ import { toGroupedSelectData } from '@/utils/selectData';
 import { useState } from 'react';
 import { validateName, validateType, validateVHost } from '@/hooks/useEntityBasicsForm';
 import { Select, Stack, TextInput, Switch } from '@mantine/core';
+import { WorkspaceSelect } from '@/components/common/WorkspaceSelect';
+import type { Workspace } from '@/types';
 
 interface SinkBasicsProps {
   embedded?: boolean;
@@ -11,6 +13,9 @@ interface SinkBasicsProps {
   onChangeVHost: (value: string) => void;
   workerId: string;
   onChangeWorkerId: (value: string) => void;
+  workspaceId?: string;
+  onChangeWorkspaceId?: (value: string) => void;
+  workspaces?: Workspace[];
   type: string;
   onChangeType: (value: string) => void;
   sequential?: boolean;
@@ -28,6 +33,9 @@ export function SinkBasics({
   onChangeVHost,
   workerId,
   onChangeWorkerId,
+  workspaceId,
+  onChangeWorkspaceId,
+  workspaces,
   type,
   onChangeType,
   sequential,
@@ -89,6 +97,10 @@ export function SinkBasics({
           onChange={(val) => onChangeWorkerId(val || '')}
           clearable
         />
+      )}
+
+      {!embedded && onChangeWorkspaceId && (
+        <WorkspaceSelect value={workspaceId} workspaces={workspaces} onChange={onChangeWorkspaceId} />
       )}
 
       {!embedded ? (

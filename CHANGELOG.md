@@ -7,6 +7,99 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A workspace quota was never enforced, and on PostgreSQL never could be
+
+Workspaces cap how many workflows they hold and how much CPU, memory and
+throughput those may request. The `max_workflows` cap was checked in exactly one
+place — `CreateWorkflow` — and the only path the UI offered for putting an
+existing workflow into a workspace was `PUT /api/workflows/{id}`, the request the
+editor's Save button sends. That path never consulted it. A workspace created
+with `max_workflows: 1` accepted three workflows, each answering `200`.
+
+Underneath that, the check could not have worked on PostgreSQL anyway.
+`GetWorkspace` called `s.db.QueryRowContext` directly instead of going through
+`s.queryRow`, so it skipped `prepareQuery` and shipped the statement's `?`
+placeholders to pgx unrewritten:
+
+```
+ERROR: syntax error at end of input (SQLSTATE 42601)
+```
+
+Every caller then treated a `GetWorkspace` error as "no quota to apply", so the
+failure was silent and the quotas simply did not exist on a PostgreSQL
+deployment. Nothing reported it because this package's tests run on SQLite,
+where `?` *is* the native placeholder — the statement passes every unit test and
+cannot execute in production. `saveSetting` and `UpdateNodeState` were written
+the same way and were only safe by accident of a per-dialect override;
+`sqlserver` has none for `UpdateNodeState`. All three go through the wrappers
+now, and a guard test fails the build on any new bind-parameter query that
+reaches `s.db` directly.
+
+Admission is now decided in one place, charged only when a workflow's workspace
+actually *changes* — so a workflow already inside a full workspace stays
+editable, and leaving one is never refused. It also fails closed: a storage error
+no longer admits the workflow unchecked. A refusal is `403` and a failure to
+reach a decision is `500`, because collapsing the two tells an operator their
+workspace is full when the database is merely down. Resource quotas are charged
+on this path too — moving an already-running workflow into a workspace used to
+enter the CPU/memory/throughput pool without ever passing the check
+`ToggleWorkflow` applies at start.
+
+### Deleting a workspace left everything in it pointing at an id that was gone
+
+`DELETE /api/workspaces/{id}` dropped one row. Nothing cleared `workspace_id` on
+the workflows, sources and sinks that referenced it — there is no foreign key to
+cascade from — so each member kept a dangling reference. The workflow list
+rendered the raw UUID where a name belongs, no workspace filter matched them
+because the filter only lists live workspaces, and their quota checks quietly
+stopped applying, since `GetWorkspace` now errored and every caller read that as
+"no quota configured".
+
+Deleting a workspace un-assigns its members first and records the count in the
+audit log. They are moved out, not deleted. The trash icon in Settings →
+Governance also asks first, naming how much is about to move; it used to delete
+on a single click with no confirmation at all.
+
+### A workspace could not be edited, and its limits were never shown again
+
+The four quota numbers were set once, blind, in the create modal and then
+displayed nowhere — the Governance table listed name, description and created
+date. There was no `PUT /api/workspaces/{id}`, so correcting a wrong limit meant
+deleting the workspace and making a new one, which un-assigned every member.
+
+Workspaces are editable now, and the table shows all four limits with `∞` where
+a limit is zero, which is what zero has always meant to the API. Creating one
+also answers with the row that was stored: the handler used to echo the decoded
+request body while each storage backend minted the id internally, so every
+caller got `"id": ""` back and could not reference the workspace it had just
+made.
+
+### Moving a workflow into a workspace is now on the page that shows the column
+
+The workflow list has always had a Workspace column and no way to set it. The
+only route in was the editor's Workflow Panel — a drawer that starts closed —
+then its Settings tab, then the Data Governance section: five steps, on a
+different page from the one that shows you the answer.
+
+The list's existing Batch Actions menu gained **Move to Workspace…**, backed by
+`POST /api/workflows/batch/workspace`. Admission is charged per workflow rather
+than once for the batch, so three workflows into a workspace with room for two
+admit two and the third is reported rather than silently dropped. Clearing the
+workspace is the same action with nothing selected, and is never refused.
+
+### Sources and sinks had a workspace column that nothing could fill
+
+Both carry `workspace_id` in the schema, both index it, and the storage layer has
+always filtered on it. No form ever set it, and `ParseCommonFilter` never read
+the query parameter — so the column, the index and the filter were all dead
+weight, and only workflows could belong to a workspace.
+
+Both editors now offer the field, both lists show it and can filter by it, and
+`workspace_id=none` is the unassigned view — the one you need to find what is
+still unorganised. A workspace remains an organisational and quota grouping, not
+an access boundary: a workflow may still reference a source or sink from another
+workspace.
+
 ### A sharded sink could crash the engine on a message it was fanning out
 
 Four code paths read a message's metadata map by reference and indexed it with no
