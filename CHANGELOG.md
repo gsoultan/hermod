@@ -7,6 +7,44 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Tracing a workflow could kill the engine
+
+Turning tracing on could take the process down with
+
+```
+fatal error: concurrent map iteration and map write
+```
+
+— an uncaught crash in `encoding/json`, reached from the trace recorder, which
+systemd restarted the service from.
+
+`ToMap` is how a message is snapshotted, and every caller either serialises the
+result or hands it to another goroutine: a trace step written to PostgreSQL
+under a five-second timeout, a live-viewer frame fanned out to SSE subscribers.
+It copied only the top level, so each nested object in the snapshot was the same
+map the live message holds. A transformation with a dotted `targetField` —
+`customer.name` — walks into that nested map and assigns in place, so the write
+landed inside a map `json.Marshal` was already iterating on the trace goroutine.
+
+Concurrent map access is a runtime fatal error, not a panic, so the `recover()`
+guarding that marshal in `internal/storage/sql` could never have contained it.
+The wider the trace sample rate, the likelier the crash — the feature you reach
+for when a workflow is misbehaving was the one that stopped it.
+
+The same shallow copy affected CDC messages through their bytes rather than
+their maps. A snapshot exposed the before/after images as a `json.RawMessage`
+over the message's own slice, and `SetBefore`/`SetPayload` write back into those
+slices in place, so a later write rewrote bytes an earlier snapshot still
+pointed at. A trace step or a live-viewer frame could show content captured
+after its own timestamp.
+
+`ToMap` now returns a snapshot that shares no mutable state with the message it
+came from. Messages of flat scalars — the common case — are unaffected, costing
+the same time and the same allocations as before; a nested document costs about
+290ns and 750B more by the time it has been encoded, which is what every caller
+does with it next. `Data()` and `DataRef()` are deliberately unchanged: they are
+the hot read path and they do not cross a goroutine boundary.
+
 ### Four of the five ways a workflow fails sent no notification
 
 Of the engine states a failing workflow actually reaches, only one — an
