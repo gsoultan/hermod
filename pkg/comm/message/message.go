@@ -274,6 +274,31 @@ func (m *DefaultMessage) Data() map[string]any {
 	return maps.Clone(m.data)
 }
 
+// DataRef returns the live data map. The lock is released before it does, so a
+// caller reading or writing the result holds nothing.
+//
+// That is safe today only because of who calls it, and the reasoning is not
+// visible from any one call site — so it is written down here. Three rules, and
+// every caller satisfies one:
+//
+//   - Mutate only a private copy. foreach walks and deletes through the DataRef
+//     of a Clone, and the PII scan — which recursively ranges the map, the exact
+//     operation the runtime makes fatal — is handed a Clone on its own goroutine.
+//     Clone deep-copies the data map, which is what makes both sound.
+//   - One consumer per object. The traversal clones when a node has more than one
+//     target, so two processNode goroutines never share a message.
+//   - Writes happen only where ownership is exclusive. A message is taken by
+//     exactly one worker goroutine, and when it is later fanned out to N sinks —
+//     the same object, one goroutine each — every holder is a reader. Sinks
+//     mutate only messages they construct themselves, which
+//     TestSinksDoNotMutateMessagesTheyAreGiven enforces rather than trusts.
+//
+// Break any of those and this races SetData, which the runtime reports as
+// `fatal error: concurrent map read and map write` and no recover() can contain.
+// Prefer Data() unless the clone is measurably too expensive; ToMap() if the
+// value outlives the caller's stack. And do not let this comment age the way
+// OrderingKey's ownership argument did — it was true when written and false a
+// caller later.
 func (m *DefaultMessage) DataRef() map[string]any {
 	m.mu.RLock()
 	if len(m.data) > 0 || len(m.payload) == 0 {
