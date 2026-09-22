@@ -7,6 +7,43 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-09-22
+
+Workspace quotas are enforced for the first time — on PostgreSQL they had never
+run at all. Two ways to crash the engine on a message it was fanning out are
+closed. The failures that actually stop a workflow now raise an alert.
+
+### Upgrading
+
+**Workspace quotas begin refusing, and some workspaces are already over.**
+`max_workflows` was only ever checked when a workflow was *created*, so the
+editor's Save button — the one path the UI offered for putting an existing
+workflow into a workspace — filled workspaces past their limit. On PostgreSQL
+the check could not run at all, because the query reached the driver with its
+placeholders unrewritten and every caller read that failure as "no quota to
+apply". Both are fixed, which means a workspace that has been quietly over its
+limit will start refusing the next admission.
+
+Nothing is evicted: existing members stay, and a workflow already inside a full
+workspace remains editable. Only *entering* a workspace is charged. If you have
+quotas configured, compare each workspace's `max_workflows` against
+`GET /api/workflows?workspace_id=<id>` before taking this release, so the first
+refusal is not a surprise.
+
+**Old dangling references are not backfilled.** Deleting a workspace used to
+drop one row and leave every workflow, source and sink that referenced it
+holding an id that no longer resolved — shown as a raw UUID in the Workspace
+column, matched by no filter. Deletes clean up after themselves now, but this
+release does not repair references left by earlier ones. To find them, compare
+the `workspace_id` values in `/api/workflows`, `/api/sources` and `/api/sinks`
+against the ids in `/api/workspaces`; clearing one is a save with the field
+emptied, or `workspace_id=none` in the list filter to see what is unassigned.
+
+**No schema change.** There is no migration, no new column and no backfill in
+this release. Rollback is correspondingly cheap: `PUT /api/workspaces/{id}` and
+`POST /api/workflows/batch/workspace` simply stop existing, and every
+`workspace_id` this version writes is the same shape 1.10.0 already reads.
+
 ### A workspace quota was never enforced, and on PostgreSQL never could be
 
 Workspaces cap how many workflows they hold and how much CPU, memory and
