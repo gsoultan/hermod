@@ -1,0 +1,43 @@
+name: PR base
+
+# Deliberately a workflow of its own rather than a job in ci.yml, for the trigger
+# list. ci.yml takes the default pull_request types — opened, synchronize,
+# reopened — and none of those fire when a pull request is *retargeted*. `edited`
+# is that event, and retargeting is the thing being checked, so missing it would
+# leave the check passing on a PR that had since been pointed at a branch.
+#
+# labeled/unlabeled are here so that adding the `stacked` label re-runs this and
+# turns it green without needing an empty push.
+on:
+  pull_request:
+    types: [opened, reopened, edited, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-base-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  base-is-default-branch:
+    name: PR base
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Only the script is needed, and it must be the version on the PR so a
+          # change to the check is reviewed by the check itself.
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check the base branch
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          # Only read for the base branch's own PR state, on the `stacked` path.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/check_pr_base.sh
