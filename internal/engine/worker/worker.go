@@ -80,6 +80,15 @@ func (w *Worker) SetWorkerConfig(workerID, totalWorkers int, workerGUID string, 
 	w.totalWorkers = totalWorkers
 	w.workerGUID = workerGUID
 	w.workerToken = workerToken
+	// So a worker-level alert can name which worker it came from. A deployment
+	// runs several and "a worker is shutting down" is not actionable without it.
+	if w.registry != nil {
+		name := workerGUID
+		if name == "" {
+			name = fmt.Sprintf("worker-%d", workerID)
+		}
+		w.registry.SetWorkerID(name)
+	}
 }
 
 // SetStorage updates the worker's storage backend.

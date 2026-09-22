@@ -146,6 +146,13 @@ func (r *Registry) superviseStall(id string, wf storage.Workflow, reason string)
 				"restarts_in_window", used,
 				"window", stallRestartWindow.String(),
 				"hint", "the sink is probably still unreachable; fix it, then stop and start the workflow to restore supervision")
+			// The terminal state, and until now log-only. Supervision has
+			// stopped: the workflow will not recover without someone acting,
+			// and nothing else in the system will say so again.
+			r.notify(context.Background(), "Workflow Recovery Exhausted",
+				fmt.Sprintf("Workflow '%s' (ID: %s) stalled %d times in %s and automatic recovery has given up (reason: %s). "+
+					"It will not restart on its own — fix the underlying fault, then stop and start it to restore supervision.",
+					wf.Name, id, used, stallRestartWindow, reason), wf)
 			return
 		}
 		r.logger.Warn("Workflow stalled again while the last automatic restart was still settling; leaving it alone for now",
@@ -172,6 +179,9 @@ func (r *Registry) superviseStall(id string, wf storage.Workflow, reason string)
 			"attempt", used,
 			"error", err,
 			"hint", "the workflow is stopped; fix the underlying fault and start it again")
+		r.notify(context.Background(), "Workflow Restart Failed",
+			fmt.Sprintf("Workflow '%s' (ID: %s) stalled (reason: %s) and the automatic restart failed: %v. The workflow is stopped.",
+				wf.Name, id, reason, err), wf)
 		return
 	}
 

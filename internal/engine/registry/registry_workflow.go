@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -835,6 +836,15 @@ func (r *Registry) runWorkflowEngine(eng *pkgengine.Engine, ctx context.Context,
 // --- Workflow Lifecycle ---
 
 func (r *Registry) StopAll() {
+	// Before the engines go, while the count still means something. StopAll is
+	// the shutdown path for the signal handler, the worker's own drain and the
+	// edge binary alike, so it is the one place that sees every way a worker
+	// goes down.
+	r.mu.RLock()
+	running := len(r.engines)
+	r.mu.RUnlock()
+	r.NotifyWorkerShutdown(context.Background(), running)
+
 	r.mu.Lock()
 	ids := make([]string, 0, len(r.engines))
 	for id := range r.engines {
@@ -855,7 +865,21 @@ func (r *Registry) StopAll() {
 		})
 	}
 	wg.Wait()
+
+	// The shutdown alert is dispatched asynchronously, and the process exits
+	// straight after StopAll returns. Without this flush the one notification
+	// that says a worker went down loses the race every time. Bounded so an
+	// unreachable channel cannot hold a rolling deploy open.
+	if r.notificationService != nil {
+		if !r.notificationService.WaitFor(shutdownNotifyFlush) {
+			r.logger.Warn("Shutdown notifications did not finish before the flush deadline",
+				"deadline", shutdownNotifyFlush.String())
+		}
+	}
 }
+
+// shutdownNotifyFlush bounds how long StopAll waits for alerts to leave.
+const shutdownNotifyFlush = 5 * time.Second
 
 // StopEngine stops a workflow on an operator's instruction. Unlike
 // StopEngineWithoutUpdate — which the supervisor and the worker's own
@@ -863,15 +887,40 @@ func (r *Registry) StopAll() {
 // automatic-restart budget starts fresh the next time it runs.
 func (r *Registry) StopEngine(ctx context.Context, id string) error {
 	r.onManualStop(id)
-	return r.stopEngine(ctx, id, true)
+	err := r.stopEngine(ctx, id, true)
+	// Only the operator-initiated path alerts. StopEngineWithoutUpdate — the
+	// supervisor's rebuild and the worker's lease reconciliation — stops
+	// engines constantly as a normal part of running, and alerting there would
+	// report a healthy failover as an outage.
+	if err == nil {
+		r.notifyWorkflowStopped(ctx, id)
+	}
+	return err
+}
+
+// classifySinkStatuses splits a status update's per-sink map into the sinks
+// whose breaker is open and the sinks that are unreachable.
+//
+// Both lists are sorted so the notification text is stable: the map's iteration
+// order is random, and an alert whose wording changes every five minutes reads
+// as a new incident each time it is re-sent.
+func classifySinkStatuses(statuses map[string]string) (breakerOpen, unreachable []string) {
+	for id, st := range statuses {
+		switch s := strings.ToLower(st); {
+		case strings.Contains(s, "circuit_breaker_open"):
+			breakerOpen = append(breakerOpen, id)
+		case strings.Contains(s, "reconnecting"):
+			unreachable = append(unreachable, id)
+		}
+	}
+	slices.Sort(breakerOpen)
+	slices.Sort(unreachable)
+	return breakerOpen, unreachable
 }
 
 // notifyOnStatusChange turns an engine status update into operator
 // notifications. It is the body of the callback the registry installs on every
-// engine (see setupWorkflowCallbacks) and is called from nowhere else — a test that
-// exercises alerting has to come through here, because the two tests that used
-// to cover this re-implemented the logic in the test body and so could not
-// fail when the real path broke.
+// engine (see setupWorkflowCallbacks) and is called from nowhere else.
 //
 // dlqAlerted latches the dead-letter alert for the lifetime of one engine.
 // Once the count is past the threshold it stays past it, so without the latch
@@ -884,7 +933,24 @@ func (r *Registry) notifyOnStatusChange(ctx context.Context, id string, update t
 
 	status := strings.ToLower(update.EngineStatus)
 	isEngineError := strings.Contains(status, "error")
-	isBreakerOpen := strings.Contains(status, "circuit_breaker_open")
+	isStalled := strings.Contains(status, "stalled")
+
+	// The breaker and an unreachable sink are reported per sink, not on the
+	// engine, so both have to be read out of SinkStatuses.
+	//
+	// isBreakerOpen used to test EngineStatus for "circuit_breaker_open", which
+	// the engine never writes there: writer.go's recordFailure calls
+	// setSinkStatus, and the only writers of the engine's own status are
+	// setStatus and SetEngineStatusUnless, neither of which passes that string.
+	// The alert was therefore unreachable, and its test passed because it
+	// hand-built a status update the engine cannot produce.
+	breakerSinks, unreachableSinks := classifySinkStatuses(update.SinkStatuses)
+
+	// A sink can also be reported unreachable on the engine's status alone,
+	// which is what checkHealth writes on the first failing ping.
+	if len(unreachableSinks) == 0 && strings.HasPrefix(status, "reconnecting:sink:") {
+		unreachableSinks = []string{strings.TrimPrefix(update.EngineStatus, "reconnecting:sink:")}
+	}
 
 	// The DLQ arm used to gate on the workflow as it was when this engine
 	// started, while the branch below re-read the threshold from storage, so an
@@ -892,7 +958,9 @@ func (r *Registry) notifyOnStatusChange(ctx context.Context, id string, update t
 	// versa. The engine owns the comparison now: it holds the live threshold
 	// and reports a status change on the message that crosses it, so any
 	// non-zero count here is worth looking at.
-	if !isEngineError && !isBreakerOpen && update.DeadLetterCount == 0 {
+	if !isEngineError && !isStalled &&
+		len(breakerSinks) == 0 && len(unreachableSinks) == 0 &&
+		update.DeadLetterCount == 0 {
 		return
 	}
 
@@ -908,9 +976,24 @@ func (r *Registry) notifyOnStatusChange(ctx context.Context, id string, update t
 			fmt.Sprintf("Workflow '%s' (ID: %s) entered error state: %s",
 				workflow.Name, workflow.ID, update.EngineStatus), workflow)
 	}
-	if isBreakerOpen {
+	if len(breakerSinks) > 0 {
 		r.notificationService.Notify(ctx, "Circuit Breaker Alert",
-			fmt.Sprintf("Circuit breaker opened for a sink in workflow '%s' (ID: %s)",
+			fmt.Sprintf("Circuit breaker opened for sink(s) %s in workflow '%s' (ID: %s); writes to them are being refused",
+				strings.Join(breakerSinks, ", "), workflow.Name, workflow.ID), workflow)
+	}
+	// Naming the sink is the point: "reconnecting" on its own sends an operator
+	// to the UI to find out which destination is down.
+	if len(unreachableSinks) > 0 {
+		r.notificationService.Notify(ctx, "Sink Unreachable",
+			fmt.Sprintf("Sink(s) %s in workflow '%s' (ID: %s) failed their health check; the workflow keeps running and retries, it does not stop",
+				strings.Join(unreachableSinks, ", "), workflow.Name, workflow.ID), workflow)
+	}
+	// A stalled engine still reports itself up and its sinks reachable: the
+	// watchdog sets this when nothing completes while work is outstanding, which
+	// is what a wedged sink looks like when it still answers Ping.
+	if isStalled {
+		r.notificationService.Notify(ctx, "Workflow Stalled",
+			fmt.Sprintf("Workflow '%s' (ID: %s) has stopped making progress while work is outstanding; automatic restart will be attempted",
 				workflow.Name, workflow.ID), workflow)
 	}
 	if workflow.DLQThreshold > 0 &&

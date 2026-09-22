@@ -135,13 +135,17 @@ type Registry struct {
 	startTime time.Time
 
 	notificationService *notification.Service
-	nodeStates          map[string]any
-	nodeStatesMu        sync.Mutex
-	lookupCache         map[string]lookupCacheEntry
-	lookupCacheMu       sync.RWMutex
-	dbPool              map[string]pooledDB
-	dbPoolMu            sync.RWMutex
-	logger              hermod.Logger
+	// workerID names this worker in worker-level alerts; see SetWorkerID.
+	workerID string
+	// workerShutdownAlerted latches the one-per-process shutdown alert.
+	workerShutdownAlerted atomic.Bool
+	nodeStates            map[string]any
+	nodeStatesMu          sync.Mutex
+	lookupCache           map[string]lookupCacheEntry
+	lookupCacheMu         sync.RWMutex
+	dbPool                map[string]pooledDB
+	dbPoolMu              sync.RWMutex
+	logger                hermod.Logger
 	// supervisor tracks automatic restart attempts for stalled workflows.
 	supervisor *supervisorState
 	// rebuildWorkflow overrides how a stalled workflow is rebuilt. Nil in
@@ -258,6 +262,10 @@ func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
 		ns.AddProvider(notification.NewSlackNotificationProvider(s))
 		ns.AddProvider(notification.NewDiscordNotificationProvider(s))
 		ns.AddProvider(notification.NewGenericWebhookProvider(s))
+		// Without this a failing channel reported itself to stdout and nowhere
+		// else, so a rejected Telegram token looked exactly like no alerts
+		// being due.
+		ns.SetLogger(telemetry.NewDefaultLogger())
 	}
 
 	var logStore storage.Storage

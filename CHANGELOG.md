@@ -7,6 +7,60 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Four of the five ways a workflow fails sent no notification
+
+Of the engine states a failing workflow actually reaches, only one — an
+`EngineStatus` containing `"error"` — produced a notification. The rest were
+unreachable predicates.
+
+The circuit-breaker alert tested `EngineStatus` for `circuit_breaker_open`,
+which the engine never writes there. `recordFailure` in `pkg/engine/writer.go`
+calls `setSinkStatus`, so an open breaker lands in the per-sink `SinkStatuses`
+map; the only writers of the engine's own status are `setStatus` and
+`SetEngineStatusUnless`, and none of their call sites passes that string. The
+alert matched nothing in production, and its test passed because it hand-built
+a status update the engine cannot emit.
+
+A sink failing its health check leaves `reconnecting:sink:<id>`, and the stall
+watchdog leaves `stalled`. Neither contains `"error"`, so the two most common
+ways a workflow stops delivering were silent — including the case where a sink
+is simply down and the workflow keeps retrying against it.
+
+The supervisor's terminal state — *"automatic recovery is exhausted; manual
+intervention required"* — and a failed automatic restart were written to the log
+and nowhere else. That is the point at which a workflow will not come back
+without someone acting on it.
+
+A worker shutting down, and an operator stopping a workflow, reported nothing at
+all.
+
+All of these notify now. `notifyOnStatusChange` reads the per-sink map and names
+the sink whose breaker opened or whose health check failed; the worker alert
+fires once per process rather than once per workflow it happened to be running;
+a *successful* automatic restart stays quiet, so a transient stall does not page
+anyone. Alerts also carry a severity: `UINotificationProvider` wrote every alert
+at `ERROR`, which would have filed a routine stop as a failure in the log table
+and the UI's error view. Lifecycle events log at `INFO`, faults stay `ERROR`.
+
+### Telegram dropped the alerts most worth sending
+
+The Telegram channel posted `parse_mode=Markdown` with nothing escaped, and the
+body carries raw Go error text. Those are full of Markdown's active characters —
+`pq` names tables like `user_events`, drivers quote identifiers, workflow names
+are whatever an operator typed. Telegram rejects a message whose entities do not
+balance with `400 can't parse entities`, so the alert was discarded by exactly
+the errors worth reading. Messages are HTML now with every interpolated value
+escaped, which leaves `*` and `_` inert.
+
+The webhook-style channels sent on `http.DefaultClient` — no timeout — on a
+context with no deadline, inline on whichever engine goroutine raised the status
+change, so a destination that accepted the connection and then went quiet
+blocked the pipeline. They now use a bounded client and run off that goroutine
+on a context detached from the caller's, and `StopAll` flushes before returning
+so the shutdown alert is not raced by the process exiting. A provider failure
+went to `fmt.Printf`; it goes to the logger, so a rejected token is visible
+instead of looking like no alerts being due.
+
 ## [1.10.0] — 2026-09-22
 
 Hermod can run a step of a BPMN process. Trace retention stops deleting other

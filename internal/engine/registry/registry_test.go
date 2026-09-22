@@ -333,6 +333,22 @@ type mockNotificationProvider struct {
 	sent     bool
 	titles   []string
 	messages []string
+	levels   []string
+}
+
+// SendLeveled records the severity the alert was raised at, so a test can
+// assert that a routine lifecycle event is not filed as an error.
+func (p *mockNotificationProvider) SendLeveled(ctx context.Context, level, title, message string, wf storage.Workflow) error {
+	p.mu.Lock()
+	p.levels = append(p.levels, level)
+	p.mu.Unlock()
+	return p.Send(ctx, title, message, wf)
+}
+
+func (p *mockNotificationProvider) sentLevels() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.levels...)
 }
 
 func (p *mockNotificationProvider) Send(ctx context.Context, title, message string, wf storage.Workflow) error {
@@ -347,6 +363,14 @@ func (p *mockNotificationProvider) Send(ctx context.Context, title, message stri
 func (p *mockNotificationProvider) SetStorage(s storage.Storage) {}
 
 func (p *mockNotificationProvider) Type() string { return "mock" }
+
+// snapshot copies what has arrived so far under the lock. The fan-out runs on
+// its own goroutine now, so reading the slices directly is a race.
+func (p *mockNotificationProvider) snapshot() (titles, messages []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.titles...), append([]string(nil), p.messages...)
+}
 
 type mockAlertingStorage struct {
 	storage.Storage
@@ -367,12 +391,20 @@ func (s *mockAlertingStorage) UpdateWorkflow(ctx context.Context, wf storage.Wor
 func newAlertingRegistry(t *testing.T, wf storage.Workflow) (*Registry, *mockNotificationProvider) {
 	t.Helper()
 	ms := &mockAlertingStorage{workflow: wf}
-	r := &Registry{storage: ms}
+	r := &Registry{storage: ms, logger: telemetry.NewDefaultLogger()}
 	provider := &mockNotificationProvider{}
 	ns := notification.NewService(ms)
 	ns.AddProvider(provider)
 	r.notificationService = ns
 	return r, provider
+}
+
+// settled waits for the notification fan-out to finish and returns what was
+// delivered. Notify dispatches asynchronously so a slow channel cannot block
+// the engine goroutine that raised the alert.
+func settled(r *Registry, p *mockNotificationProvider) ([]string, []string) {
+	r.notificationService.Wait()
+	return p.snapshot()
 }
 
 func TestAlertingOnStatusChange(t *testing.T) {
@@ -385,11 +417,19 @@ func TestAlertingOnStatusChange(t *testing.T) {
 		EngineStatus: "error:something_failed",
 	}, &latch)
 
-	if len(provider.titles) != 1 || provider.titles[0] != "Workflow Error" {
-		t.Errorf("titles = %v, want exactly [Workflow Error]", provider.titles)
+	titles, _ := settled(r, provider)
+	if len(titles) != 1 || titles[0] != "Workflow Error" {
+		t.Errorf("titles = %v, want exactly [Workflow Error]", titles)
 	}
 }
 
+// The breaker lives in SinkStatuses, never in EngineStatus.
+//
+// This test used to hand-build EngineStatus: "circuit_breaker_open" — a shape
+// the engine cannot emit. writer.go's recordFailure calls setSinkStatus, which
+// writes the per-sink map; SetEngineStatus is reached only from setStatus, and
+// none of its fifteen call sites passes that string. So the alert matched
+// nothing in production while the test went green.
 func TestAlertingOnCircuitBreakerOpen(t *testing.T) {
 	r, provider := newAlertingRegistry(t, storage.Workflow{
 		ID: "wf-1", Name: "Test Workflow", Status: "running",
@@ -397,11 +437,59 @@ func TestAlertingOnCircuitBreakerOpen(t *testing.T) {
 
 	var latch atomic.Bool
 	r.notifyOnStatusChange(t.Context(), "wf-1", telemetry.StatusUpdate{
-		EngineStatus: "circuit_breaker_open",
+		EngineStatus: "running",
+		SinkStatuses: map[string]string{
+			"sink-a": "error:circuit_breaker_open",
+			"sink-b": "running",
+		},
 	}, &latch)
 
-	if !slices.Contains(provider.titles, "Circuit Breaker Alert") {
-		t.Errorf("titles = %v, want a Circuit Breaker Alert", provider.titles)
+	titles, messages := settled(r, provider)
+	if !slices.Contains(titles, "Circuit Breaker Alert") {
+		t.Fatalf("titles = %v, want a Circuit Breaker Alert", titles)
+	}
+	// Which sink, so the alert is actionable without opening the UI.
+	if !strings.Contains(messages[0], "sink-a") {
+		t.Errorf("message = %q, want it to name the sink whose breaker opened", messages[0])
+	}
+	if strings.Contains(messages[0], "sink-b") {
+		t.Errorf("message = %q, named a healthy sink", messages[0])
+	}
+}
+
+// A sink that fails its health check leaves the engine "reconnecting:sink:<id>"
+// and every sink "reconnecting" — no "error" substring anywhere, so this was
+// silent. It is the most common way a workflow stops delivering.
+func TestAlertingOnSinkUnreachable(t *testing.T) {
+	r, provider := newAlertingRegistry(t, storage.Workflow{
+		ID: "wf-1", Name: "Test Workflow", Status: "running",
+	})
+
+	var latch atomic.Bool
+	r.notifyOnStatusChange(t.Context(), "wf-1", telemetry.StatusUpdate{
+		EngineStatus: "reconnecting:sink:sink-a",
+		SinkStatuses: map[string]string{"sink-a": "reconnecting"},
+	}, &latch)
+
+	titles, _ := settled(r, provider)
+	if !slices.Contains(titles, "Sink Unreachable") {
+		t.Errorf("titles = %v, want a Sink Unreachable alert", titles)
+	}
+}
+
+// The stall watchdog sets "stalled" when nothing completes while work is
+// outstanding — a wedged sink that still answers Ping. Also silent before.
+func TestAlertingOnStalled(t *testing.T) {
+	r, provider := newAlertingRegistry(t, storage.Workflow{
+		ID: "wf-1", Name: "Test Workflow", Status: "running",
+	})
+
+	var latch atomic.Bool
+	r.notifyOnStatusChange(t.Context(), "wf-1", telemetry.StatusUpdate{EngineStatus: "stalled"}, &latch)
+
+	titles, _ := settled(r, provider)
+	if !slices.Contains(titles, "Workflow Stalled") {
+		t.Errorf("titles = %v, want a Workflow Stalled alert", titles)
 	}
 }
 
@@ -416,11 +504,12 @@ func TestDLQThresholdAlerting(t *testing.T) {
 	var latch atomic.Bool
 	r.notifyOnStatusChange(t.Context(), "wf-dlq", telemetry.StatusUpdate{DeadLetterCount: 10}, &latch)
 
-	if len(provider.titles) != 1 || provider.titles[0] != "DLQ Threshold Exceeded" {
-		t.Fatalf("titles = %v, want exactly [DLQ Threshold Exceeded]", provider.titles)
+	titles, messages := settled(r, provider)
+	if len(titles) != 1 || titles[0] != "DLQ Threshold Exceeded" {
+		t.Fatalf("titles = %v, want exactly [DLQ Threshold Exceeded]", titles)
 	}
-	if !strings.Contains(provider.messages[0], "dead-lettered 10 messages") {
-		t.Errorf("message = %q, want it to say how many were dead-lettered", provider.messages[0])
+	if !strings.Contains(messages[0], "dead-lettered 10 messages") {
+		t.Errorf("message = %q, want it to say how many were dead-lettered", messages[0])
 	}
 }
 
@@ -436,8 +525,9 @@ func TestDLQThresholdAlertsOnlyOnce(t *testing.T) {
 		r.notifyOnStatusChange(t.Context(), "wf-dlq", telemetry.StatusUpdate{DeadLetterCount: count}, &latch)
 	}
 
-	if got := len(provider.titles); got != 1 {
-		t.Errorf("sent %d notifications for one threshold crossing (%v); want 1", got, provider.titles)
+	titles, _ := settled(r, provider)
+	if got := len(titles); got != 1 {
+		t.Errorf("sent %d notifications for one threshold crossing (%v); want 1", got, titles)
 	}
 }
 
@@ -449,8 +539,8 @@ func TestDLQThresholdSilentBelowTheLine(t *testing.T) {
 	var latch atomic.Bool
 	r.notifyOnStatusChange(t.Context(), "wf-dlq", telemetry.StatusUpdate{DeadLetterCount: 9}, &latch)
 
-	if len(provider.titles) != 0 {
-		t.Errorf("alerted below the threshold: %v", provider.titles)
+	if titles, _ := settled(r, provider); len(titles) != 0 {
+		t.Errorf("alerted below the threshold: %v", titles)
 	}
 }
 
@@ -464,8 +554,8 @@ func TestDLQThresholdZeroIsDisabled(t *testing.T) {
 	var latch atomic.Bool
 	r.notifyOnStatusChange(t.Context(), "wf-dlq", telemetry.StatusUpdate{DeadLetterCount: 5000}, &latch)
 
-	if len(provider.titles) != 0 {
-		t.Errorf("threshold disabled but alerted anyway: %v", provider.titles)
+	if titles, _ := settled(r, provider); len(titles) != 0 {
+		t.Errorf("threshold disabled but alerted anyway: %v", titles)
 	}
 }
 
@@ -478,8 +568,8 @@ func TestNoAlertOnHealthyStatus(t *testing.T) {
 	var latch atomic.Bool
 	r.notifyOnStatusChange(t.Context(), "wf-1", telemetry.StatusUpdate{EngineStatus: "running"}, &latch)
 
-	if len(provider.titles) != 0 {
-		t.Errorf("alerted on a healthy status: %v", provider.titles)
+	if titles, _ := settled(r, provider); len(titles) != 0 {
+		t.Errorf("alerted on a healthy status: %v", titles)
 	}
 }
 
