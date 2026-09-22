@@ -37,6 +37,10 @@ export default function WorkflowsPage() {
   const [selectedIDs, setSelectedIDs] = useState<string[]>([]);
   const [importOpened, { open: openImport, close: closeImport }] = useDisclosure(false);
   const [templatesOpened, { open: openTemplates, close: closeTemplates }] = useDisclosure(false);
+  const [moveOpened, { open: openMoveModal, close: closeMoveModal }] = useDisclosure(false);
+  // null is a real choice here — "No workspace" is how a workflow leaves one —
+  // so it cannot share the empty string with "nothing picked yet".
+  const [moveTarget, setMoveTarget] = useState<string | null>(null);
 
   const { data: workspacesResponse } = useQuery<Workspace[]>({
     queryKey: ['workspaces'],
@@ -80,6 +84,9 @@ export default function WorkflowsPage() {
 
   const workspaceOptions = [
     { value: 'all', label: 'All Workspaces' },
+    // The view you need to find what is still unorganised; the API reads
+    // "none" as unassigned rather than as a workspace with that id.
+    { value: 'none', label: 'No workspace' },
     ...workspaces.map((ws: Workspace) => ({ value: ws.id, label: ws.name }))
   ];
 
@@ -214,6 +221,49 @@ export default function WorkflowsPage() {
     }
   });
 
+  // Assigning a workspace had no home on this page even though the table has
+  // always had a Workspace column: the only route in was the editor's settings
+  // drawer, five clicks deep behind a panel that starts closed.
+  //
+  // The endpoint reports per-id results rather than one status, because a batch
+  // can be partly admitted — a workspace with two free slots takes two of three.
+  const batchWorkspaceMutation = useMutation({
+    mutationFn: async ({ ids, workspaceID }: { ids: string[]; workspaceID: string }) => {
+      const res = await apiFetch(`${API_BASE}/workflows/batch/workspace`, {
+        method: 'POST',
+        body: JSON.stringify({ ids, workspace_id: workspaceID }),
+        silent: true,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || 'Failed to move workflows');
+      }
+      return res.json() as Promise<Record<string, string>>;
+    },
+    onSuccess: (results) => {
+      queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      setSelectedIDs([]);
+      closeMoveModal();
+
+      const failures = Object.entries(results || {}).filter(([, r]) => r.startsWith('Error:'));
+      if (failures.length === 0) {
+        notifications.show({ title: 'Moved', message: 'Workflows moved', color: 'green' });
+        return;
+      }
+      // A quota rejection is the expected failure here, and swallowing it would
+      // leave the user looking at a "success" toast beside unmoved rows.
+      notifications.show({
+        title: `${failures.length} of ${Object.keys(results).length} could not be moved`,
+        message: failures[0][1].replace(/^Error:\s*/, ''),
+        color: 'orange',
+        autoClose: 8000,
+      });
+    },
+    onError: (err: any) => {
+      notifications.show({ title: 'Move failed', message: err.message, color: 'red' });
+    }
+  });
+
   const toggleMutation = useMutation({
     mutationFn: async ({ id }: { id: string; active: boolean }) => {
        await apiFetch(`${API_BASE}/workflows/${id}/toggle`, {
@@ -261,8 +311,25 @@ export default function WorkflowsPage() {
                     Stop Selected
                   </Menu.Item>
                   <Menu.Divider />
-                  <Menu.Item 
-                    color="red" 
+                  <Menu.Label>Organization</Menu.Label>
+                  <Menu.Item
+                    leftSection={<IconFolder size="1rem" />}
+                    onClick={() => {
+                      // Seed with the current workspace when the selection
+                      // agrees on one, so reassigning a group does not start
+                      // from blank and read as "none".
+                      const current = new Set(
+                        selectedIDs.map((id) => workflows.find((w: Workflow) => w.id === id)?.workspace_id || '')
+                      );
+                      setMoveTarget(current.size === 1 ? ([...current][0] || null) : null);
+                      openMoveModal();
+                    }}
+                  >
+                    Move to Workspace…
+                  </Menu.Item>
+                  <Menu.Divider />
+                  <Menu.Item
+                    color="red"
                     leftSection={<IconTrash size="1rem" />}
                     onClick={async () => {
                       if (await confirm({ title: `Delete ${selectedIDs.length} workflows`, message: `Permanently delete ${selectedIDs.length} selected workflow(s)?`, consequence: 'Running workflows are stopped. This cannot be undone.', confirmLabel: 'Delete all', danger: true })) {
@@ -287,9 +354,50 @@ export default function WorkflowsPage() {
           </Group>
         </Group>
 
+        <Modal
+          opened={moveOpened}
+          onClose={closeMoveModal}
+          title={`Move ${selectedIDs.length} workflow(s) to a workspace`}
+        >
+          <Stack>
+            <Select
+              label="Workspace"
+              // Clearing the field is the "take it out of every workspace"
+              // action, so it is spelled out rather than left as an empty row.
+              placeholder="Select a workspace"
+              data={[
+                { value: '', label: 'No workspace' },
+                ...workspaces.map((ws: Workspace) => ({ value: ws.id, label: ws.name })),
+              ]}
+              value={moveTarget ?? ''}
+              onChange={(val) => setMoveTarget(val)}
+              allowDeselect={false}
+              leftSection={<IconFolder size="0.9rem" />}
+            />
+            {workspaces.length === 0 && (
+              <Text size="xs" c="dimmed">
+                No workspaces exist yet. Create one in Settings &rarr; Governance.
+              </Text>
+            )}
+            <Text size="xs" c="dimmed">
+              A workspace with a workflow limit only admits as many as it has room for;
+              any that do not fit are reported and left where they are.
+            </Text>
+            <Group justify="flex-end" mt="md">
+              <Button variant="outline" color="gray" onClick={closeMoveModal}>Cancel</Button>
+              <Button
+                loading={batchWorkspaceMutation.isPending}
+                onClick={() => batchWorkspaceMutation.mutate({ ids: selectedIDs, workspaceID: moveTarget ?? '' })}
+              >
+                Move
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
+
         <Modal opened={templatesOpened} onClose={closeTemplates} title="Workflow Sample Library" size="xl">
           <Suspense fallback={<Text size="sm">Loading templates…</Text>}>
-            <TemplatesModal 
+            <TemplatesModal
               onUseTemplate={(data) => {
                 templateImportMutation.mutate(JSON.stringify(data))
                 closeTemplates()

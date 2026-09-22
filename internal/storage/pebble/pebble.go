@@ -635,6 +635,12 @@ func (s *pebbleStorage) ListWorkspaces(ctx context.Context) ([]storage.Workspace
 func (s *pebbleStorage) CreateWorkspace(ctx context.Context, ws storage.Workspace) error {
 	return errors.New("not implemented")
 }
+func (s *pebbleStorage) UpdateWorkspace(ctx context.Context, ws storage.Workspace) error {
+	return errors.New("not implemented")
+}
+func (s *pebbleStorage) ClearWorkspaceAssignments(ctx context.Context, workspaceID string) (int, error) {
+	return 0, errors.New("not implemented")
+}
 func (s *pebbleStorage) GetWorkspace(ctx context.Context, id string) (storage.Workspace, error) {
 	return storage.Workspace{}, errors.New("not implemented")
 }

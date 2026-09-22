@@ -75,11 +75,13 @@ func (h *WorkflowHandler) RegisterWorkflowRoutes(mux *http.ServeMux) {
 	// Workspaces
 	mux.HandleFunc("GET /api/workspaces", h.ListWorkspaces)
 	mux.Handle("POST /api/workspaces", h.EditorOnly(http.HandlerFunc(h.CreateWorkspace)))
+	mux.Handle("PUT /api/workspaces/{id}", h.EditorOnly(http.HandlerFunc(h.UpdateWorkspace)))
 	mux.Handle("DELETE /api/workspaces/{id}", h.EditorOnly(http.HandlerFunc(h.DeleteWorkspace)))
 
 	// Batch Operations
 	mux.Handle("POST /api/workflows/batch/toggle", h.EditorOnly(http.HandlerFunc(h.BatchToggleWorkflows)))
 	mux.Handle("POST /api/workflows/batch/delete", h.EditorOnly(http.HandlerFunc(h.BatchDeleteWorkflows)))
+	mux.Handle("POST /api/workflows/batch/workspace", h.EditorOnly(http.HandlerFunc(h.BatchAssignWorkspace)))
 }
 
 func (h *WorkflowHandler) BatchToggleWorkflows(w http.ResponseWriter, r *http.Request) {
@@ -193,21 +195,248 @@ func (h *WorkflowHandler) CreateWorkspace(w http.ResponseWriter, r *http.Request
 		h.JsonError(w, "Workspace name is required", http.StatusBadRequest)
 		return
 	}
+	// Mint the identity here rather than leaving it to the backend, the way
+	// CreateWorkflow does. Each storage backend used to generate its own id
+	// internally, so the row the caller got back said `"id": ""` and nothing
+	// that created a workspace could then reference it.
+	if ws.ID == "" {
+		ws.ID = uuid.New().String()
+	}
+	if ws.CreatedAt.IsZero() {
+		ws.CreatedAt = time.Now()
+	}
 	if err := h.Storage.CreateWorkspace(r.Context(), ws); err != nil {
 		h.JsonError(w, "Failed to create workspace: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	h.RecordAuditLog(r, "INFO", "Created workspace "+ws.Name, "CREATE", ws.ID, "", "", ws)
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(ws)
+}
+
+// UpdateWorkspace rewrites a workspace's name, description and quotas.
+// Without it the four quota numbers were write-once — set blind in the create
+// modal, never displayed again — and correcting one meant deleting the
+// workspace, which took its members' assignments with it.
+func (h *WorkflowHandler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var ws storage.Workspace
+	if err := json.NewDecoder(r.Body).Decode(&ws); err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// The path owns the identity; a body that disagrees must not move members.
+	ws.ID = id
+	if ws.Name == "" {
+		h.JsonError(w, "Workspace name is required", http.StatusBadRequest)
+		return
+	}
+	if err := h.Storage.UpdateWorkspace(r.Context(), ws); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			h.JsonError(w, "Workspace not found", http.StatusNotFound)
+			return
+		}
+		h.JsonError(w, "Failed to update workspace: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.RecordAuditLog(r, "INFO", "Updated workspace "+ws.Name, "UPDATE", ws.ID, "", "", ws)
+	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(ws)
 }
 
 func (h *WorkflowHandler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+
+	// Un-assign the members *before* dropping the row. Deleting first would
+	// leave workflows, sources and sinks pointing at an id that no longer
+	// resolves: the list renders a raw UUID, no workspace filter matches them,
+	// and their quota checks silently stop applying.
+	cleared, err := h.Storage.ClearWorkspaceAssignments(r.Context(), id)
+	if err != nil {
+		h.JsonError(w, "Failed to clear workspace members: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	if err := h.Storage.DeleteWorkspace(r.Context(), id); err != nil {
 		h.JsonError(w, "Failed to delete workspace: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	h.RecordAuditLog(r, "INFO",
+		fmt.Sprintf("Deleted workspace %s, un-assigning %d member(s)", id, cleared),
+		"DELETE", id, "", "", nil)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// quotaRefusal is an admission decision the caller reports as 403. Anything
+// else checkWorkspaceAdmission returns is a failure to *reach* a decision,
+// which is a 500 — the two must not collapse into one status, or a database
+// blip reads to the user as "your workspace is full".
+type quotaRefusal struct{ reason string }
+
+func (e quotaRefusal) Error() string { return e.reason }
+
+func refuse(format string, args ...any) error {
+	return quotaRefusal{reason: fmt.Sprintf(format, args...)}
+}
+
+// writeAdmissionError maps an admission outcome onto a status code.
+func (h *WorkflowHandler) writeAdmissionError(w http.ResponseWriter, err error) {
+	var refusal quotaRefusal
+	if errors.As(err, &refusal) {
+		h.JsonError(w, refusal.reason, http.StatusForbidden)
+		return
+	}
+	h.JsonError(w, "Failed to check workspace quota: "+err.Error(), http.StatusInternalServerError)
+}
+
+// checkWorkspaceAdmission answers whether wf may occupy its target workspace.
+//
+// It is the one place the max_workflows quota is decided, because the quota
+// used to live only in CreateWorkflow: PUT /api/workflows/{id} — the request
+// the editor's Save button sends, and the only path the UI offered for putting
+// a workflow in a workspace — never consulted it, so a max_workflows=1
+// workspace happily accepted three.
+//
+// prev is the workflow's current workspace. Admission is only charged when the
+// workspace actually changes, so a workflow already inside a full workspace
+// stays editable; leaving a workspace (target == "") is never refused.
+//
+// It fails closed. An earlier version swallowed storage errors so a blip could
+// not block a save, which meant any failure to read the workspace or its
+// members admitted the workflow without a check — a quota that stops being
+// enforced under load is not a quota.
+func (h *WorkflowHandler) checkWorkspaceAdmission(ctx context.Context, wf storage.Workflow, prev string) error {
+	target := wf.WorkspaceID
+	if target == "" || target == prev {
+		return nil
+	}
+
+	ws, err := h.Storage.GetWorkspace(ctx, target)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return refuse("workspace %s does not exist", target)
+		}
+		return fmt.Errorf("reading workspace %s: %w", target, err)
+	}
+
+	members, _, err := h.Storage.ListWorkflows(ctx, storage.CommonFilter{WorkspaceID: target})
+	if err != nil {
+		return fmt.Errorf("listing members of workspace %s: %w", target, err)
+	}
+
+	if ws.MaxWorkflows > 0 {
+		count := 0
+		for _, m := range members {
+			if m.ID != wf.ID { // an update re-counts itself otherwise
+				count++
+			}
+		}
+		if count >= ws.MaxWorkflows {
+			return refuse("workspace quota exceeded: maximum %d workflows allowed in %q",
+				ws.MaxWorkflows, ws.Name)
+		}
+	}
+
+	return checkWorkspaceResourceQuota(ws, wf, members)
+}
+
+// checkWorkspaceResourceQuota charges CPU, memory and throughput against the
+// workspace's *running* workflows, which is why ToggleWorkflow applies the same
+// limits at start. Moving an already-active workflow in enters that pool
+// without ever passing through Toggle, so the check belongs here too.
+func checkWorkspaceResourceQuota(ws storage.Workspace, wf storage.Workflow, members []storage.Workflow) error {
+	if !wf.Active {
+		return nil
+	}
+	var cpu, mem float64
+	var throughput int
+	for _, m := range members {
+		if m.Active && m.ID != wf.ID {
+			cpu += m.CPURequest
+			mem += m.MemoryRequest
+			throughput += m.ThroughputRequest
+		}
+	}
+	if ws.MaxCPU > 0 && cpu+wf.CPURequest > ws.MaxCPU {
+		return refuse("workspace CPU quota exceeded: %g requested, %g available",
+			wf.CPURequest, ws.MaxCPU-cpu)
+	}
+	if ws.MaxMemory > 0 && mem+wf.MemoryRequest > ws.MaxMemory {
+		return refuse("workspace memory quota exceeded: %g requested, %g available",
+			wf.MemoryRequest, ws.MaxMemory-mem)
+	}
+	if ws.MaxThroughput > 0 && throughput+wf.ThroughputRequest > ws.MaxThroughput {
+		return refuse("workspace throughput quota exceeded: %d requested, %d available",
+			wf.ThroughputRequest, ws.MaxThroughput-throughput)
+	}
+	return nil
+}
+
+// assignOneWorkspace moves a single workflow and reports the outcome as the
+// string the batch response carries for that id.
+//
+// Admission is charged per workflow rather than once for the batch: each
+// admitted workflow consumes a slot, so three workflows into a workspace with
+// room for two must admit two and refuse the third.
+func (h *WorkflowHandler) assignOneWorkspace(ctx context.Context, id, workspaceID string) string {
+	wf, err := h.Storage.GetWorkflow(ctx, id)
+	if err != nil {
+		return "Error: " + err.Error()
+	}
+	if wf.WorkspaceID == workspaceID {
+		return "No change"
+	}
+
+	prev := wf.WorkspaceID
+	wf.WorkspaceID = workspaceID
+	if err := h.checkWorkspaceAdmission(ctx, wf, prev); err != nil {
+		return "Error: " + err.Error()
+	}
+	if err := h.Storage.UpdateWorkflow(ctx, wf); err != nil {
+		return "Error: " + err.Error()
+	}
+	return "OK"
+}
+
+// BatchAssignWorkspace moves the selected workflows into a workspace, or out of
+// one when workspace_id is empty. This is the action the Workflows list was
+// missing: it already showed a Workspace column and offered no way to set it,
+// so the only route in was five clicks deep in the editor's settings drawer.
+func (h *WorkflowHandler) BatchAssignWorkspace(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs         []string `json:"ids"`
+		WorkspaceID string   `json:"workspace_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.JsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Reject an unknown target once rather than per id, so a typo does not
+	// report itself as N separate quota failures.
+	if req.WorkspaceID != "" {
+		if _, err := h.Storage.GetWorkspace(r.Context(), req.WorkspaceID); err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				h.JsonError(w, "Workspace not found", http.StatusNotFound)
+				return
+			}
+			h.JsonError(w, "Failed to read workspace: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	results := make(map[string]string, len(req.IDs))
+	for _, id := range req.IDs {
+		results[id] = h.assignOneWorkspace(r.Context(), id, req.WorkspaceID)
+	}
+
+	h.RecordAuditLog(r, "INFO",
+		fmt.Sprintf("Batch assigned %d workflow(s) to workspace %q", len(req.IDs), req.WorkspaceID),
+		"UPDATE", "", "", "", results)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(results)
 }
 
 func (h *WorkflowHandler) HandleAICopilot(w http.ResponseWriter, r *http.Request) {
@@ -618,7 +847,6 @@ func (h *WorkflowHandler) UpdateWorkflowStats(w http.ResponseWriter, r *http.Req
 
 func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	filter := h.ParseCommonFilter(r)
-	filter.WorkspaceID = r.URL.Query().Get("workspace_id")
 	role, vhosts := h.GetRoleAndVHosts(r)
 
 	if filter.VHost != "" && role != storage.RoleAdministrator {
@@ -687,18 +915,11 @@ func (h *WorkflowHandler) CreateWorkflow(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Quota Enforcement: Check MaxWorkflows
-	if wf.WorkspaceID != "" {
-		ws, err := h.Storage.GetWorkspace(r.Context(), wf.WorkspaceID)
-		if err == nil && ws.MaxWorkflows > 0 {
-			workflows, _, err := h.Storage.ListWorkflows(r.Context(), storage.CommonFilter{
-				WorkspaceID: wf.WorkspaceID,
-			})
-			if err == nil && len(workflows) >= ws.MaxWorkflows {
-				h.JsonError(w, fmt.Sprintf("Workspace quota exceeded: Maximum %d workflows allowed", ws.MaxWorkflows), http.StatusForbidden)
-				return
-			}
-		}
+	// A brand-new workflow has no previous workspace, so every non-empty
+	// target is an admission.
+	if err := h.checkWorkspaceAdmission(r.Context(), wf, ""); err != nil {
+		h.writeAdmissionError(w, err)
+		return
 	}
 
 	if err := h.validateWorkflow(r.Context(), wf); err != nil {
@@ -730,6 +951,19 @@ func (h *WorkflowHandler) UpdateWorkflow(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	wf.ID = id
+
+	// The stored row is the only source of truth for which workspace this
+	// workflow is leaving, and admission is charged on the change rather than
+	// on every save — otherwise a workflow inside a full workspace could never
+	// be edited again.
+	prevWorkspaceID := ""
+	if existing, err := h.Storage.GetWorkflow(r.Context(), id); err == nil {
+		prevWorkspaceID = existing.WorkspaceID
+	}
+	if err := h.checkWorkspaceAdmission(r.Context(), wf, prevWorkspaceID); err != nil {
+		h.writeAdmissionError(w, err)
+		return
+	}
 
 	// Get current version count to determine next version
 	versions, _ := h.Storage.ListWorkflowVersions(r.Context(), id)

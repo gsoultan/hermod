@@ -244,6 +244,22 @@ export function SinkForm({
   });
   const workers = workersResponse?.data ?? [];
 
+  // Fetched here, not in the leaf: SinkWizard renders under a bare
+  // MantineProvider in tests, and a useQuery inside SinkBasics would make every
+  // one of them need a QueryClient. Same ['workspaces'] key as everywhere else,
+  // so this shares one cache entry with the rest of the app.
+  const { data: workspacesResponse } = useQuery({
+    queryKey: ['workspaces'],
+    queryFn: async () => {
+      const res = await apiFetch('/api/workspaces');
+      // Optional field: an unavailable list must not fail the whole form.
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+  const workspaces = Array.isArray(workspacesResponse) ? workspacesResponse : [];
+
   return (
     <Stack gap="md">
       {hasActiveReferencingWorkflow && (
@@ -288,6 +304,7 @@ export function SinkForm({
         embedded={embedded}
         availableVHostsList={availableVHostsList}
         workers={workers}
+        workspaces={workspaces}
         sinkTypes={SINK_TYPES}
         testMutation={testMutation}
         submitMutation={submitMutation}

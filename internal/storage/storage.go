@@ -30,6 +30,10 @@ type CommonFilter struct {
 	Search      string
 	VHost       string
 	WorkspaceID string
+	// WithoutWorkspace limits matches to rows with no workspace — the view you
+	// need to find what is left to organise. Mirrors LogFilter.WithoutWorkflow.
+	// It takes precedence over WorkspaceID, which is never set at the same time.
+	WithoutWorkspace bool
 	// Since and Until bound time-based queries (e.g., logs). Zero value means not set.
 	Since time.Time `json:"since" omitzero:"true"`
 	Until time.Time `json:"until" omitzero:"true"`
@@ -622,8 +626,15 @@ type Storage interface {
 	ListWorkflows(ctx context.Context, filter CommonFilter) ([]Workflow, int, error)
 	ListWorkspaces(ctx context.Context) ([]Workspace, error)
 	CreateWorkspace(ctx context.Context, ws Workspace) error
+	UpdateWorkspace(ctx context.Context, ws Workspace) error
 	GetWorkspace(ctx context.Context, id string) (Workspace, error)
 	DeleteWorkspace(ctx context.Context, id string) error
+	// ClearWorkspaceAssignments removes every workflow, source and sink from
+	// the given workspace and reports how many rows it touched. Deleting a
+	// workspace without this leaves members pointing at an id that no longer
+	// resolves: the list renders a raw UUID, no filter matches them, and the
+	// quota checks stop applying because GetWorkspace errors and they bail.
+	ClearWorkspaceAssignments(ctx context.Context, workspaceID string) (int, error)
 	CreateWorkflow(ctx context.Context, wf Workflow) error
 	UpdateWorkflow(ctx context.Context, wf Workflow) error
 	UpdateWorkflowStatus(ctx context.Context, id string, status string) error

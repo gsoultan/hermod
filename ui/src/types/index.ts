@@ -8,6 +8,9 @@ export interface Source {
   active?: boolean;
   status?: string;
   worker_id?: string;
+  // storage.Source has always carried this and the API has always round-tripped
+  // it; the type omitted it, so no form could set it.
+  workspace_id?: string;
 }
 
 export interface Sink {
@@ -19,6 +22,8 @@ export interface Sink {
   active?: boolean;
   status?: string;
   worker_id?: string;
+  // See Source.workspace_id.
+  workspace_id?: string;
 }
 
 export interface Workflow {
@@ -75,6 +80,13 @@ export interface Workspace {
   name: string;
   description?: string;
   vhost?: string;
+  // The four quotas the API has always returned (storage.Workspace) but this
+  // type omitted, so nothing in the UI could read them back after creation.
+  // 0 means unlimited, which is also what an absent field means.
+  max_workflows?: number;
+  max_cpu?: number;
+  max_memory?: number;
+  max_throughput?: number;
   created_at?: string;
 }
 

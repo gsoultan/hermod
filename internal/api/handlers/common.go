@@ -190,6 +190,17 @@ func (h *Handler) ParseCommonFilter(r *http.Request) storage.CommonFilter {
 		Limit:  100,
 		Search: r.URL.Query().Get("search"),
 		VHost:  r.URL.Query().Get("vhost"),
+		// workspace_id is parsed here rather than per-handler so sources and
+		// sinks get it too. Both carry the column and both index it, but only
+		// the workflow list ever read the parameter, so the other two could
+		// never be filtered by workspace.
+		WorkspaceID: r.URL.Query().Get("workspace_id"),
+	}
+
+	// "none" is the unassigned view, not a workspace whose id is "none".
+	if f.WorkspaceID == "none" {
+		f.WorkspaceID = ""
+		f.WithoutWorkspace = true
 	}
 
 	if p, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && p > 0 {

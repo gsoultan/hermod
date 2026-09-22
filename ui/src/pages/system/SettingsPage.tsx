@@ -17,7 +17,7 @@ import { DeveloperTab } from './settings/DeveloperTab';
  */
 export function SettingsPage() {
   const ctx = useSettingsController();
-  const { closeWSModal, createWSMutation, maxCPU, maxMemory, maxThroughput, maxWorkflows, newWSDesc, newWSName, setMaxCPU, setMaxMemory, setMaxThroughput, setMaxWorkflows, setNewWSDesc, setNewWSName, wsModalOpened } = ctx;
+  const { closeWSModal, createWSMutation, editingWS, maxCPU, maxMemory, maxThroughput, maxWorkflows, newWSDesc, newWSName, setMaxCPU, setMaxMemory, setMaxThroughput, setMaxWorkflows, setNewWSDesc, setNewWSName, wsModalOpened } = ctx;
 
   return (
     <Box pb="xl">
@@ -61,7 +61,7 @@ export function SettingsPage() {
 
       </Tabs>
 
-      <Modal opened={wsModalOpened} onClose={closeWSModal} title="Create New Workspace">
+      <Modal opened={wsModalOpened} onClose={closeWSModal} title={editingWS ? `Edit Workspace "${editingWS.name}"` : "Create New Workspace"}>
         <Stack>
           <TextInput
             label="Workspace Name"
@@ -110,7 +110,7 @@ export function SettingsPage() {
           </SimpleGrid>
           <Group justify="flex-end" mt="md">
             <Button variant="outline" color="gray" onClick={closeWSModal}>Cancel</Button>
-            <Button onClick={() => createWSMutation.mutate()} loading={createWSMutation.isPending}>Create Workspace</Button>
+            <Button onClick={() => createWSMutation.mutate()} loading={createWSMutation.isPending} disabled={!newWSName.trim()}>{editingWS ? 'Save Changes' : 'Create Workspace'}</Button>
           </Group>
         </Stack>
       </Modal>

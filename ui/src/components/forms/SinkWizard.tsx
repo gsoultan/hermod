@@ -13,6 +13,7 @@ interface SinkWizardProps {
   embedded: boolean;
   availableVHostsList: string[];
   workers: any[];
+  workspaces?: any[];
   sinkTypes: any[];
   testMutation: any;
   submitMutation: any;
@@ -34,6 +35,7 @@ export function SinkWizard({
   embedded,
   availableVHostsList,
   workers,
+  workspaces,
   sinkTypes,
   testMutation,
   submitMutation,
@@ -106,12 +108,15 @@ export function SinkWizard({
                 onChangeVHost={(val) => handleSinkChange('vhost', val)}
                 workerId={sink.worker_id}
                 onChangeWorkerId={(val) => handleSinkChange('worker_id', val)}
+                workspaceId={sink.workspace_id}
+                onChangeWorkspaceId={(val) => handleSinkChange('workspace_id', val)}
                 type={sink.type}
                 onChangeType={(val) => handleSinkChange('type', val)}
                 sequential={sink.sequential}
                 onChangeSequential={(val) => handleSinkChange('sequential', val)}
                 vhostOptions={availableVHostsList}
                 workerOptions={workers.map(w => ({ value: w.id, label: w.name || w.id }))}
+                workspaces={workspaces}
                 sinkTypes={sinkTypes}
               />
             </Stack>
