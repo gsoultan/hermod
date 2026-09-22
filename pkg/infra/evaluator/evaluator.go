@@ -650,10 +650,12 @@ func GetMsgValByPath(msg hermod.Message, path string) any {
 	}
 	if strings.HasPrefix(lower, "meta.") || strings.HasPrefix(lower, "metadata.") {
 		key := path[strings.Index(path, ".")+1:]
-		if md := msg.MetadataRef(); md != nil {
-			if v, ok := md[key]; ok {
-				return v
-			}
+		// MetadataValue, not MetadataRef: a transformation resolving a meta.
+		// path runs while the message may be held by other goroutines, and
+		// indexing the live map raced SetMetadata. This is still a single-key
+		// read with no clone.
+		if v, ok := hermod.MetadataValue(msg, key); ok {
+			return v
 		}
 	}
 

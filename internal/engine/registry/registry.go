@@ -1661,7 +1661,7 @@ func (r *Registry) recordPIIDiscoveries(msg hermod.Message, config map[string]an
 	}
 
 	if len(foundTypes) > 0 {
-		workflowID := msg.MetadataRef()["_hermod_workflow_id"]
+		workflowID, _ := hermod.MetadataValue(msg, "_hermod_workflow_id")
 		if workflowID == "" {
 			return
 		}
