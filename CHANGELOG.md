@@ -7,6 +7,39 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A sharded sink could crash the engine on a message it was fanning out
+
+Four code paths read a message's metadata map by reference and indexed it with no
+lock held, while every write to that map goes through the locked `SetMetadata`.
+An unlocked read against a locked write is a race, and the runtime makes a racing
+map read fatal:
+
+```
+fatal error: concurrent map read and map write
+```
+
+`OrderingKey` documented the unlocked read as safe on the ground that the caller
+owns the message — taken off the buffer, not yet handed to a worker. That was
+true of the dispatch path it was written for, and stopped being true when
+`sinkWriter.pickShard` became a second caller. `pickShard` runs inside the
+per-sink enqueue goroutines the runner fans out with `swg.Go`: one goroutine per
+target, all holding the same message, while the sinks' workers write delivery
+markers (`_hermod_failed_sink`, `_hermod_failed_at`) and trace lineage
+(`_hermod_lineage`) back onto it. Sharding is enough to reach it — no
+`shardKeyMeta` needs to be configured, because `OrderingKey` is the fallback
+`pickShard` always takes.
+
+The other three were the same shape: a transformation resolving a `meta.` or
+`metadata.` path, and the PII discovery recorder reading a workflow ID.
+
+All four now read through `MetadataValue`, which takes the read lock and — the
+reason the reference read was reached for in the first place — still does not
+clone the map. There is no cost left to trade against correctness, so a
+module-wide guard test now fails on any new call site.
+
+This is the same defect class as the tracing crash below, on the other map a
+message carries.
+
 ### Tracing a workflow could kill the engine
 
 Turning tracing on could take the process down with
