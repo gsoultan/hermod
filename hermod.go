@@ -383,21 +383,25 @@ const MetaOrderingKey = "_hermod_order_key"
 
 // OrderingKey returns the message's ordering key, or "" when it has none.
 //
-// It reads the metadata by reference rather than through Metadata(), which
-// clones the map: this runs once per message on the dispatch path, and cloning
-// there cost about a third of the engine's throughput (165k -> 108k msgs/s
-// measured) for a single map lookup. The read is safe because the caller owns
-// the message at that point — it has been taken off the buffer and not yet
-// handed to a worker.
+// It must not clone the metadata map to read one entry. This runs once per
+// message on the dispatch path, and cloning there cost about a third of the
+// engine's throughput (165k -> 108k msgs/s measured) for a single map lookup.
+//
+// It used to avoid the clone by indexing MetadataRef's live map with no lock
+// held, on the ground that the caller owns the message — taken off the buffer,
+// not yet handed to a worker. That held for the dispatch path it was written for
+// and not for the caller it later acquired: sinkWriter.pickShard calls this from
+// the per-sink enqueue goroutines runner.go fans out with swg.Go, one per target
+// and all holding the same message, while the sinks' workers write delivery
+// markers and trace lineage back onto it through the locked SetMetadata. An
+// unlocked read against a locked write is a race, and the runtime makes a racing
+// map read fatal.
+//
+// MetadataValue takes the read lock and still does not clone, so there is no
+// longer a cost to trade against correctness here.
 func OrderingKey(msg Message) string {
-	if msg == nil {
-		return ""
-	}
-	md := msg.MetadataRef()
-	if md == nil {
-		return ""
-	}
-	return md[MetaOrderingKey]
+	v, _ := MetadataValue(msg, MetaOrderingKey)
+	return v
 }
 
 // BuildOrderingKey composes an ordering key from a table and its key values.
