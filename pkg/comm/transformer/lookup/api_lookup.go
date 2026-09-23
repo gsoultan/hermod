@@ -63,7 +63,7 @@ func configInt(config map[string]any, key string) int {
 // silently sent the request anyway — to a real endpoint, with the Authorization
 // header the operator wrote sitting unparsed in the config — and reported it
 // nowhere.
-func resolveHeaderTemplates(headersStr string, data map[string]any) (map[string]string, error) {
+func resolveHeaderTemplates(headersStr string, msg hermod.Message) (map[string]string, error) {
 	if headersStr == "" {
 		return nil, nil
 	}
@@ -74,7 +74,7 @@ func resolveHeaderTemplates(headersStr string, data map[string]any) (map[string]
 	out := make(map[string]string, len(headers))
 	for k, v := range headers {
 		if vs, ok := v.(string); ok {
-			out[k] = evaluator.ResolveTemplate(vs, data)
+			out[k] = evaluator.ResolveTemplateMsg(vs, msg)
 			continue
 		}
 		out[k] = fmt.Sprintf("%v", v)
@@ -85,7 +85,7 @@ func resolveHeaderTemplates(headersStr string, data map[string]any) (map[string]
 // applyQueryParams renders the configured query-param JSON onto the URL. Same
 // reasoning as resolveHeaderTemplates: a typo used to mean the request went out
 // unfiltered, which is a different query against a real API, not a no-op.
-func applyQueryParams(resolvedURL, queryParamsStr string, data map[string]any) (string, error) {
+func applyQueryParams(resolvedURL, queryParamsStr string, msg hermod.Message) (string, error) {
 	if queryParamsStr == "" {
 		return resolvedURL, nil
 	}
@@ -101,7 +101,7 @@ func applyQueryParams(resolvedURL, queryParamsStr string, data map[string]any) (
 	for k, v := range qParams {
 		vStr := fmt.Sprintf("%v", v)
 		if vs, ok := v.(string); ok {
-			vStr = evaluator.ResolveTemplate(vs, data)
+			vStr = evaluator.ResolveTemplateMsg(vs, msg)
 		}
 		q.Set(k, vStr)
 	}
@@ -245,15 +245,20 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 		return msg, fmt.Errorf("api_lookup: %w", err)
 	}
 
-	data := msg.Data()
-	resolvedURL, err := applyQueryParams(evaluator.ResolveTemplate(rawURL, data), queryParamsStr, data)
+	// Every template on this node resolves through the message, not through
+	// msg.Data(). The data map cannot answer an envelope path -- for a CDC
+	// message it *is* the after-image -- so {{.after.x}} used to render as the
+	// empty string in the url, the body, a header and the credential alike, and
+	// the request went out with the hole in it. See
+	// TestAPILookupBodyResolvesCDCEnvelopePaths.
+	resolvedURL, err := applyQueryParams(evaluator.ResolveTemplateMsg(rawURL, msg), queryParamsStr, msg)
 	if err != nil {
 		return msg, err
 	}
 
 	resolvedBody := ""
 	if bodyTemp != "" {
-		resolvedBody = evaluator.ResolveTemplate(bodyTemp, data)
+		resolvedBody = evaluator.ResolveTemplateMsg(bodyTemp, msg)
 	}
 
 	// Resolve the headers and the credential up front rather than inside the
@@ -261,16 +266,16 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 	// response and both have to reach the cache key; resolving them here is
 	// what makes that possible, and it also stops the loop re-parsing the same
 	// JSON on every attempt.
-	resolvedHeaders, err := resolveHeaderTemplates(headersStr, data)
+	resolvedHeaders, err := resolveHeaderTemplates(headersStr, msg)
 	if err != nil {
 		return msg, err
 	}
 	credential := ""
 	switch authType {
 	case "basic":
-		credential = evaluator.ResolveTemplate(username, data) + "\x00" + evaluator.ResolveTemplate(password, data)
+		credential = evaluator.ResolveTemplateMsg(username, msg) + "\x00" + evaluator.ResolveTemplateMsg(password, msg)
 	case "bearer":
-		credential = evaluator.ResolveTemplate(token, data)
+		credential = evaluator.ResolveTemplateMsg(token, msg)
 	}
 
 	cacheKey := apiLookupCacheKey(method, resolvedURL, resolvedBody, responsePath, authType, credential, resolvedHeaders)
