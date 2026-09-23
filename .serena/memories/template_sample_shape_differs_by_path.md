@@ -127,6 +127,61 @@ agree perfectly and enrich nothing — the original bug. The table carries an
 produce it; without that, breaking the JSON-text descent passed the parity check.
 Mutation-tested: removing the descent must fail `JSON text` and `[]byte of JSON`.
 
+## Where the JSON-text descent actually belongs
+
+It first went into `MessageResolver`, which fixed SQL templates and nothing
+else — so one Hermod read one column two ways: `{{.payload.id}}` resolved in a
+`db_lookup` query and stayed empty in the condition, the sink mapping and the
+email template beside it. That is the same defect as the original, one layer in.
+
+`GetValByPath` is the right place, and it is one place:
+`GetMsgValByPath` consults it first, and every map-form template resolves
+through `resolveTemplatePath` into it. Fixing there reaches conditions, routers,
+filters, `mask`/`encrypt`, `foreach`, `join` and every sink mapping at once.
+`MessageResolver`'s own copy was then deleted rather than left as a second
+implementation.
+
+Three things that are easy to get wrong:
+
+1. **It goes below the gjson round trip, not above it.** `GetValByPath` has a
+   fast walk and a marshal-and-gjson authority, and
+   `TestGetValByPathMatchesJSONRoundTrip` holds them equal. The descent is a
+   third step after both, so neither changes and the contract survives.
+2. **The prefix must be read raw.** The walk normalises a `[]byte` to base64 so
+   it stays identical to the round trip — and base64 is not a document to
+   descend into. The very normalisation that keeps the two readers honest hides
+   the bytes from this one, so the descent walks the map directly first.
+3. **`GetMsgValByPath` needs it at its own tail too**, after the before/after
+   fallbacks; the envelope route reads through `msg.Payload()` with gjson, which
+   will not open a JSON string on its own.
+
+The TypeScript twin already did all of this
+(`ui/src/utils/transformationUtils.ts`, `getValByPath` parses a string mid-path),
+so this brought Go level rather than the reverse. `jsonTextColumnPaths.test.ts`
+pins that side, including through `matchesCondition` — note its operator table is
+`eq/neq/gt/gte/lt/lte`, so a test written with `equals` fails for the wrong
+reason.
+
+## `whereClause`, and why the key had to move with it
+
+`whereClause` stayed map-only when `queryTemplate` was widened, because
+`bindingDigest` renders that same clause to build the cache key. Widening the
+clause alone lets two messages differing only in `after.x` share one entry — the
+first row served to both, for the life of the engine.
+
+`clauseResolver` is the fix: a `{value, render}` pair, message-backed from
+`Transform` and map-backed from `lookupSQLBatch` (a batcher serves many
+messages and has none; a templated clause is excluded from batching anyway).
+Both the single-token branch and the interpolated branch read through it, and so
+does the digest.
+
+The stronger half is structural: `lookupCacheKey` no longer takes `data` at all,
+so rendering the clause a second way there is not expressible. A mutation that
+desyncs `messageClause.render` does fail
+`TestCacheKeyVariesWithATemplatedWhereClauseOnAnEnvelopePath` — the second
+message comes back with the first one's row, which is what the failure looks
+like in production.
+
 ## The parity oracle
 
 `TestTheBuilderBindsWhatTheEngineBinds` (`internal/discovery/service`) is the
@@ -148,6 +203,8 @@ there rather than in production. Reach for this shape whenever two layers hold
   so a `jsonb` column decoded to an object by [[jsonb_shape_differs_by_path]]
   needs no stringify. A trailing `;` and quoted `AS "Alias"` names round-trip
   intact; the aliases become the lookup result's map keys.
+- `whereClause` is no longer map-only — see the section above. The bullet that
+  said "query mode is the supported place for an envelope path" is retired.
 - An unresolved token is still bound as NULL. `db_lookup` now **warns** naming
   the token (through an optional `Logger()` on the registry already in the
   context — this package has no logging of its own and the fakes must not have

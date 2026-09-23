@@ -122,20 +122,24 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 		return msg, fmt.Errorf("db_lookup: %w", err)
 	}
 
-	// Snapshot the message once. Every query path below resolves its templates
-	// against this same map, and so does the cache key, so the key cannot
-	// describe a different query from the one that runs.
-	data := msg.Data()
-
-	// The queryTemplate resolves through the message, not through that map.
-	// The map is the after-image, so a literal walk of it cannot answer
-	// `after.x`, `operation` or `meta.k` -- paths every other template in
-	// Hermod accepts, including this node's own keyField above. The
-	// editor's SQL builder resolves against a sample that still carries the
-	// envelope, so the same text returned rows there and bound NULL here.
+	// Every template below -- queryTemplate, whereClause, and the cache key
+	// derived from both -- resolves through these two and nothing else, so the
+	// key cannot describe a different query from the one that runs.
+	//
+	// They read the message rather than a snapshot of its data map. The map is
+	// the after-image, so a literal walk of it cannot answer `after.x`,
+	// `operation` or `meta.k` -- paths every other template in Hermod accepts,
+	// including this node's own keyField above. The editor's SQL builder
+	// resolves against a sample that still carries the envelope, so the same
+	// text returned rows there and bound NULL here.
+	//
+	// It also drops a maps.Clone per message: the snapshot this replaced was
+	// taken solely to give every path one map to agree on, and one resolver
+	// does that without copying the row.
 	resolve := sqlutil.Resolver(evaluator.MessageResolver(msg))
+	clause := messageClause(msg)
 
-	cacheKey := lookupCacheKey(sourceID, table, keyColumn, valueColumn, keyVal, whereClause, queryTemplate, mode, data, resolve)
+	cacheKey := lookupCacheKey(sourceID, table, keyColumn, valueColumn, keyVal, whereClause, queryTemplate, mode, resolve, clause)
 	if cached, found := registry.GetLookupCache(cacheKey); found {
 		applyLookupResult(msg, targetField, flattenInto, cached)
 		return msg, nil
@@ -193,7 +197,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	} else {
 		if src.Type == "mongodb" {
 			// queryTemplate not supported for Mongo; use whereClause
-			resultVal, err = t.lookupMongoDB(ctx, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, data)
+			resultVal, err = t.lookupMongoDB(ctx, src, table, keyColumn, keyVal, whereClause, valueColumn, clause)
 		} else {
 			// If mode is explicit, follow it. Otherwise fallback to queryTemplate presence.
 			useTemplate := false
@@ -208,7 +212,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 			if useTemplate {
 				resultVal, err = t.lookupSQLWithTemplate(ctx, registry, src, queryTemplate, valueColumn, resolve)
 			} else {
-				resultVal, err = t.lookupSQL(ctx, registry, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, data)
+				resultVal, err = t.lookupSQL(ctx, registry, src, table, keyColumn, keyVal, whereClause, valueColumn, clause)
 			}
 		}
 	}
@@ -251,22 +255,59 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 // produce the same key, so two lookups keyed on the same id in different types
 // serve each other's rows.
 func lookupCacheKey(sourceID, table, keyColumn, valueColumn string, keyVal any,
-	whereClause, queryTemplate, mode string, data map[string]any, resolve sqlutil.Resolver,
+	whereClause, queryTemplate, mode string, resolve sqlutil.Resolver, clause clauseResolver,
 ) string {
 	key := hermod.LookupCacheKeyPrefix(sourceID) + fmt.Sprintf("%s:%s:%s:%T:%v:%s:%s:%s",
 		table, keyColumn, valueColumn, keyVal, keyVal, whereClause, queryTemplate, mode)
 
-	binding := bindingDigest(whereClause, queryTemplate, data, resolve)
+	binding := bindingDigest(whereClause, queryTemplate, resolve, clause)
 	if binding == "" {
 		return key
 	}
 	return key + ":" + binding
 }
 
+// clauseResolver is how a whereClause's {{ }} tokens are read.
+//
+// Two readers, because the clause has two token shapes and they must not drift:
+// a clause that is exactly one token binds the value with its Go type intact,
+// and a clause that interpolates tokens into text renders them. bindingDigest
+// uses render as well, so the cache key and the statement cannot resolve the
+// same clause differently -- widening one without the other is what would let
+// two messages differing only in `after.x` share a single cache entry.
+//
+// It is a pair of functions rather than a message because the batching path
+// genuinely has no message: a batcher serves many. That path builds a map-backed
+// resolver, which is exactly the behaviour it had, and a templated whereClause
+// is excluded from batching anyway.
+type clauseResolver struct {
+	value  func(path string) any
+	render func(tpl string) string
+}
+
+// messageClause reads a clause against one message, the same way queryTemplate
+// and keyField are read.
+func messageClause(msg hermod.Message) clauseResolver {
+	resolve := evaluator.MessageResolver(msg)
+	return clauseResolver{
+		value:  resolve,
+		render: func(tpl string) string { return evaluator.ResolveTemplateMsg(tpl, msg) },
+	}
+}
+
+// mapClause reads a clause against a bare data map, for the caller that has no
+// message.
+func mapClause(data map[string]any) clauseResolver {
+	return clauseResolver{
+		value:  func(path string) any { return evaluator.GetValByPath(data, path) },
+		render: func(tpl string) string { return evaluator.ResolveTemplate(tpl, data) },
+	}
+}
+
 // bindingDigest hashes the per-message values a lookup's templates resolve to,
 // returning "" when neither clause is templated -- which keeps the key, and the
 // cost, exactly what it was for a plain table lookup.
-func bindingDigest(whereClause, queryTemplate string, data map[string]any, resolve sqlutil.Resolver) string {
+func bindingDigest(whereClause, queryTemplate string, resolve sqlutil.Resolver, clause clauseResolver) string {
 	hasQuery := strings.Contains(queryTemplate, "{{")
 	hasWhere := strings.Contains(whereClause, "{{")
 	if !hasQuery && !hasWhere {
@@ -286,7 +327,7 @@ func bindingDigest(whereClause, queryTemplate string, data map[string]any, resol
 		// its own per-fragment template handling, so there is no argument list
 		// to reuse. Rendering the whole clause is the faithful stand-in: it is
 		// a pure function of (clause, data), which is all a key needs.
-		_, _ = fmt.Fprintf(h, "w\x00%s\x00", evaluator.ResolveTemplate(whereClause, data))
+		_, _ = fmt.Fprintf(h, "w\x00%s\x00", clause.render(whereClause))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -320,7 +361,7 @@ func applyLookupResult(msg hermod.Message, targetField, flattenInto string, valu
 	}
 }
 
-func (t *DBLookupTransformer) lookupMongoDB(ctx context.Context, src storage.Source, table, keyColumn string, keyVal any, whereClause, valueColumn, defaultValue string, data map[string]any) (any, error) {
+func (t *DBLookupTransformer) lookupMongoDB(ctx context.Context, src storage.Source, table, keyColumn string, keyVal any, whereClause, valueColumn string, clause clauseResolver) (any, error) {
 	uri := src.Config["uri"]
 	if uri == "" {
 		host := src.Config["host"]
@@ -348,7 +389,7 @@ func (t *DBLookupTransformer) lookupMongoDB(ctx context.Context, src storage.Sou
 	coll := client.Database(dbName).Collection(collName)
 	filter := bson.M{keyColumn: keyVal}
 	if whereClause != "" {
-		err = json.Unmarshal([]byte(evaluator.ResolveTemplate(whereClause, data)), &filter)
+		err = json.Unmarshal([]byte(clause.render(whereClause)), &filter)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse mongo whereClause: %w", err)
 		}
@@ -411,7 +452,7 @@ func lookupDialect(ctx context.Context, registry any, src storage.Source) string
 
 func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface {
 	GetOrOpenDB(src storage.Source) (*sql.DB, error)
-}, src storage.Source, table, keyColumn string, keyVal any, whereClause, valueColumn, defaultValue string, data map[string]any) (any, error) {
+}, src storage.Source, table, keyColumn string, keyVal any, whereClause, valueColumn string, clause clauseResolver) (any, error) {
 	db, err := registry.GetOrOpenDB(src)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database for lookup: %w", err)
@@ -466,25 +507,17 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 			if strings.HasPrefix(rhs, "{{") && strings.HasSuffix(rhs, "}}") && strings.Count(rhs, "{{") == 1 {
 				// Single token template: preserve original type and handle nil correctly for SQL
 				//
-				// This resolves against the data map, not through the message,
-				// so unlike queryTemplate it cannot answer `after.x`,
-				// `operation` or `meta.k`. That is deliberate, and it is not a
-				// one-line fix: bindingDigest renders this same clause with
-				// evaluator.ResolveTemplate to build the cache key, and
-				// ResolveTemplate takes a map (it also resolves env and
-				// function expressions, so a message-aware variant is not a
-				// thin wrapper). Widening only the line below would leave the
-				// key blind to the value the query now binds -- two messages
-				// differing only in `after.x` would share one cache entry and
-				// the first row would be served to both. Widen both together
-				// or neither. Query mode is the supported place for an
-				// envelope path today.
+				// Read through clause.value, so the same paths queryTemplate
+				// answers work here: after./before., the virtual fields, meta.,
+				// and a column holding JSON text. bindingDigest renders this
+				// clause through the same resolver, which is what keeps the
+				// cache key describing the query that actually runs.
 				token := strings.TrimSpace(rhs[2 : len(rhs)-2])
 				token = strings.TrimPrefix(token, ".")
-				val = evaluator.GetValByPath(data, token)
+				val = clause.value(token)
 			} else if strings.Contains(rhs, "{{") {
 				// Evaluate template into a value string and trim any surrounding quotes
-				s := evaluator.ResolveTemplate(rhs, data)
+				s := clause.render(rhs)
 				if strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'") && len(s) >= 2 {
 					s = strings.Trim(s, "'")
 				} else if strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") && len(s) >= 2 {
@@ -703,7 +736,7 @@ func (t *DBLookupTransformer) lookupSQLBatch(ctx context.Context, registry inter
 		batchValueColumn += "," + keyColumn
 	}
 
-	res, err := t.lookupSQL(ctx, registry, src, table, keyColumn, keys, whereClause, batchValueColumn, defaultValue, data)
+	res, err := t.lookupSQL(ctx, registry, src, table, keyColumn, keys, whereClause, batchValueColumn, mapClause(data))
 	if err != nil {
 		return nil, err
 	}

@@ -18,8 +18,11 @@ import { login, apiRequest } from './support/auth';
  * name across tests — the second one fails while seeding, with a constraint
  * error that reads like a product bug.
  */
+const seededSuffixes: string[] = [];
+
 function names(tag: string) {
   const suffix = `${tag}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  seededSuffixes.push(suffix);
   return {
     WF_NAME: `E2E export ${suffix}`,
     MAIN_SOURCE: `E2E main ${suffix}`,
@@ -64,6 +67,44 @@ async function seed(page: Page, n: Names) {
   });
   return { mainID, lookupID, sinkID, wfID };
 }
+
+/**
+ * Every fixture here is named with a per-test suffix, and nothing removed them:
+ * each run left behind three workflows plus their sources and sinks. That is
+ * not only untidy. `a workflow can be deleted` in workflow_surface_e2e waits 20
+ * seconds for a deleted row to leave the workflows list, and that wait starts
+ * timing out once the list has grown — measured here at 18 rows, having passed
+ * at 12. It reads as a flaky delete, and the row is in fact already gone from
+ * the database. CI never saw it because every CI run starts from an empty
+ * database; anyone running the suite repeatedly does.
+ *
+ * Deleting by suffix rather than by remembered id also removes what the import
+ * created — the ` copy` workflow and its copied source and sink have ids this
+ * spec never held.
+ *
+ * Workflows go first: a source cannot be deleted while a workflow still names
+ * it.
+ */
+test.afterEach(async ({ page }) => {
+  for (const suffix of seededSuffixes.splice(0)) {
+    for (const kind of ['workflows', 'sources', 'sinks']) {
+      const list = await apiRequest(page, `/api/${kind}?limit=200&search=${encodeURIComponent(suffix)}`);
+      if (list.status !== 200) continue; // a test that failed before login has nothing to clean
+      let items: any[] = [];
+      try {
+        const body = JSON.parse(list.body);
+        items = Array.isArray(body) ? body : (body.data ?? []);
+      } catch {
+        continue;
+      }
+      for (const item of items) {
+        if (typeof item?.name === 'string' && item.name.includes(suffix)) {
+          await apiRequest(page, `/api/${kind}/${item.id}`, { method: 'DELETE' });
+        }
+      }
+    }
+  }
+});
 
 test('a workflow exports with every source it references, and the wizard imports it with edits', async ({ page }) => {
   await login(page);
