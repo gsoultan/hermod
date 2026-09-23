@@ -566,6 +566,25 @@ func GetMsgRawValByPath(msg hermod.Message, path string) any {
 	return GetMsgValByPath(msg, path)
 }
 
+// MessageResolver is GetMsgRawValByPath bound to one message, in the shape a
+// SQL template's path resolver takes (sqlutil.Resolver). It is what makes a
+// {{ }} token in db_lookup, execute_sql and the editor's SQL builder resolve
+// the same paths as a condition or a sink mapping: the data map first, then the
+// CDC envelope (after., before.), the virtual fields and meta..
+//
+// Note the asymmetry it inherits, which is deliberate. A path the data map can
+// answer keeps its Go type, because a bigint above 2^53 resolved through JSON
+// comes back as float64 and then matches no row while reporting no error. A
+// path only the envelope can answer goes through gjson and is therefore
+// JSON-normalised -- those bytes are already JSON and there is no typed value
+// left to preserve.
+//
+// The return type is the bare func rather than sqlutil.Resolver so that the
+// evaluator does not import sqlutil; the two are assignable.
+func MessageResolver(msg hermod.Message) func(path string) any {
+	return func(path string) any { return GetMsgRawValByPath(msg, path) }
+}
+
 func GetMsgValByPath(msg hermod.Message, path string) any {
 	if path == "" || msg == nil {
 		return nil

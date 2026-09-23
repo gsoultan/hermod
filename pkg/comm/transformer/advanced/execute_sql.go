@@ -11,6 +11,8 @@ import (
 
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
+	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 )
 
 func init() {
@@ -66,7 +68,13 @@ func (t *ExecuteSQLTransformer) Transform(ctx context.Context, msg hermod.Messag
 		return msg, fmt.Errorf("failed to get database for execute_sql: %w", err)
 	}
 
-	b := core.ParameterizeTemplateEx(driver, queryTemplate, msg.Data())
+	// Resolved through the message, not through its data map. The map is the
+	// after-image of a CDC message, so a literal walk of it cannot answer
+	// `after.x`, `operation` or `meta.k` -- paths every other template in
+	// Hermod accepts. Here the cost of missing one is a write that binds NULL
+	// and changes nothing, forever, which is exactly what the note below is
+	// about.
+	b := sqlutil.ParameterizeTemplateWith(driver, queryTemplate, sqlutil.Resolver(evaluator.MessageResolver(msg)))
 	if b.Err != nil {
 		return msg, b.Err
 	}

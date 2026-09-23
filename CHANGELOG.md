@@ -7,6 +7,47 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A SQL template could not read the paths every other template accepts
+
+A `{{ }}` token in a SQL template — `db_lookup` in query mode, `execute_sql`,
+and the editor's SQL Query Builder — resolved by walking the message's data map
+literally. Every other template in Hermod resolves through the evaluator, which
+also answers the CDC envelope (`after.`, `before.`), the virtual fields
+(`operation`, `table`, `schema`) and `meta.`. A CDC message's data map *is* its
+after-image, so `{{.after.payload}}` had nothing to walk and was bound as NULL.
+
+The builder disagreed, which is what made it hard to see. It resolved the same
+text against the editor's sample, which is `ToMap()`-shaped and still carries
+the envelope — so a query returned rows there and enriched nothing in the
+pipeline. Nothing reported it: an unresolved token is deliberately bound as
+NULL, a join on NULL matches no rows, and `db_lookup`'s default `onMiss` is
+passthrough, so the target field was simply absent.
+
+SQL templates now resolve through the message. `{{.after.payload}}`,
+`{{.before.x}}`, `{{.operation}}` and `{{.meta.k}}` work in all three places,
+and the builder agrees with the engine by construction: it builds the message
+the engine would have built from the sample and resolves against that, sharing
+one function with the preview endpoint rather than imitating it. A bare path
+still keeps its Go type, so a bigint above 2^53 is unaffected — that remains
+the spelling to use for a key.
+
+Two things found on the way. `ToMap()` writes the envelope as raw JSON while
+the function that reads a sample back understood only a decoded object, so an
+in-process round trip dropped every row column silently; it happened to work
+over HTTP, which decodes to an object first. And the builder merged a synthetic
+`after.id` into every sample, so a row with its own `id` had two candidates and
+Go's map iteration order picked one — the seed is now used only when there is
+no sample at all.
+
+`db_lookup` also warns, naming the token, when a path resolves to nothing and is
+bound as NULL; `execute_sql` already offered `onUnresolved: fail` for callers
+that want it to be an error. The builder's "Matched"/"Missing" badge now tracks
+the value a token resolves to rather than its presence in the field list, which
+is a different question and was answering "Matched" for tokens the pipeline
+bound as NULL. A `whereClause` is unchanged and still map-only: its cache-key
+digest renders the same clause through a map-taking resolver, so widening one
+without the other would make two messages share a cache entry.
+
 ### The dashboard and the workers page now say how big the machines are
 
 Both screens could report utilisation and nothing else. The workers page drew

@@ -127,7 +127,15 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 	// describe a different query from the one that runs.
 	data := msg.Data()
 
-	cacheKey := lookupCacheKey(sourceID, table, keyColumn, valueColumn, keyVal, whereClause, queryTemplate, mode, data)
+	// The queryTemplate resolves through the message, not through that map.
+	// The map is the after-image, so a literal walk of it cannot answer
+	// `after.x`, `operation` or `meta.k` -- paths every other template in
+	// Hermod accepts, including this node's own keyField above. The
+	// editor's SQL builder resolves against a sample that still carries the
+	// envelope, so the same text returned rows there and bound NULL here.
+	resolve := sqlutil.Resolver(evaluator.MessageResolver(msg))
+
+	cacheKey := lookupCacheKey(sourceID, table, keyColumn, valueColumn, keyVal, whereClause, queryTemplate, mode, data, resolve)
 	if cached, found := registry.GetLookupCache(cacheKey); found {
 		applyLookupResult(msg, targetField, flattenInto, cached)
 		return msg, nil
@@ -198,7 +206,7 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 			}
 
 			if useTemplate {
-				resultVal, err = t.lookupSQLWithTemplate(ctx, registry, src, queryTemplate, valueColumn, data)
+				resultVal, err = t.lookupSQLWithTemplate(ctx, registry, src, queryTemplate, valueColumn, resolve)
 			} else {
 				resultVal, err = t.lookupSQL(ctx, registry, src, table, keyColumn, keyVal, whereClause, valueColumn, defaultValue, data)
 			}
@@ -243,12 +251,12 @@ func (t *DBLookupTransformer) Transform(ctx context.Context, msg hermod.Message,
 // produce the same key, so two lookups keyed on the same id in different types
 // serve each other's rows.
 func lookupCacheKey(sourceID, table, keyColumn, valueColumn string, keyVal any,
-	whereClause, queryTemplate, mode string, data map[string]any,
+	whereClause, queryTemplate, mode string, data map[string]any, resolve sqlutil.Resolver,
 ) string {
 	key := hermod.LookupCacheKeyPrefix(sourceID) + fmt.Sprintf("%s:%s:%s:%T:%v:%s:%s:%s",
 		table, keyColumn, valueColumn, keyVal, keyVal, whereClause, queryTemplate, mode)
 
-	binding := bindingDigest(whereClause, queryTemplate, data)
+	binding := bindingDigest(whereClause, queryTemplate, data, resolve)
 	if binding == "" {
 		return key
 	}
@@ -258,7 +266,7 @@ func lookupCacheKey(sourceID, table, keyColumn, valueColumn string, keyVal any,
 // bindingDigest hashes the per-message values a lookup's templates resolve to,
 // returning "" when neither clause is templated -- which keeps the key, and the
 // cost, exactly what it was for a plain table lookup.
-func bindingDigest(whereClause, queryTemplate string, data map[string]any) string {
+func bindingDigest(whereClause, queryTemplate string, data map[string]any, resolve sqlutil.Resolver) string {
 	hasQuery := strings.Contains(queryTemplate, "{{")
 	hasWhere := strings.Contains(whereClause, "{{")
 	if !hasQuery && !hasWhere {
@@ -269,7 +277,7 @@ func bindingDigest(whereClause, queryTemplate string, data map[string]any) strin
 	if hasQuery {
 		// The same walk that binds the arguments, so the digest and the
 		// statement can never disagree about what the template depends on.
-		for i, arg := range sqlutil.TemplateArgs(queryTemplate, data) {
+		for i, arg := range sqlutil.TemplateArgsWith(queryTemplate, resolve) {
 			_, _ = fmt.Fprintf(h, "q%d\x00%T\x00%v\x00", i, arg, arg)
 		}
 	}
@@ -457,6 +465,20 @@ func (t *DBLookupTransformer) lookupSQL(ctx context.Context, registry interface 
 			var val any
 			if strings.HasPrefix(rhs, "{{") && strings.HasSuffix(rhs, "}}") && strings.Count(rhs, "{{") == 1 {
 				// Single token template: preserve original type and handle nil correctly for SQL
+				//
+				// This resolves against the data map, not through the message,
+				// so unlike queryTemplate it cannot answer `after.x`,
+				// `operation` or `meta.k`. That is deliberate, and it is not a
+				// one-line fix: bindingDigest renders this same clause with
+				// evaluator.ResolveTemplate to build the cache key, and
+				// ResolveTemplate takes a map (it also resolves env and
+				// function expressions, so a message-aware variant is not a
+				// thin wrapper). Widening only the line below would leave the
+				// key blind to the value the query now binds -- two messages
+				// differing only in `after.x` would share one cache entry and
+				// the first row would be served to both. Widen both together
+				// or neither. Query mode is the supported place for an
+				// envelope path today.
 				token := strings.TrimSpace(rhs[2 : len(rhs)-2])
 				token = strings.TrimPrefix(token, ".")
 				val = evaluator.GetValByPath(data, token)
@@ -734,7 +756,7 @@ func (t *DBLookupTransformer) lookupSQLBatch(ctx context.Context, registry inter
 // lookupSQLWithTemplate executes a full custom SELECT template while safely parameterizing any {{ ... }} tokens.
 func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registry interface {
 	GetOrOpenDB(src storage.Source) (*sql.DB, error)
-}, src storage.Source, queryTemplate string, valueColumn string, data map[string]any) (any, error) {
+}, src storage.Source, queryTemplate string, valueColumn string, resolve sqlutil.Resolver) (any, error) {
 	db, err := registry.GetOrOpenDB(src)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database for lookup: %w", err)
@@ -742,10 +764,20 @@ func (t *DBLookupTransformer) lookupSQLWithTemplate(ctx context.Context, registr
 
 	driver := lookupDialect(ctx, registry, src)
 
-	b := core.ParameterizeTemplateEx(driver, queryTemplate, data)
+	b := sqlutil.ParameterizeTemplateWith(driver, queryTemplate, resolve)
 	if b.Err != nil {
 		return nil, b.Err
 	}
+
+	// A path that resolved to nothing is still bound, as NULL: an optional
+	// message field is a legitimate empty, and refusing the query would make
+	// every such workflow fail. But a typo is indistinguishable from it, and
+	// then the query matches nothing, lookupSQLWithTemplate returns (nil, nil),
+	// and the default onMiss passes the message through unenriched -- no error,
+	// no log, nothing downstream able to tell. Naming the token is the
+	// breadcrumb that was missing. execute_sql offers `onUnresolved: fail` for
+	// callers that want this to be fatal instead.
+	warnUnresolvedPaths(ctx, b.Unresolved)
 	sqlText, args := b.SQL, b.Args
 	if strings.TrimSpace(sqlText) == "" {
 		return nil, errors.New("empty queryTemplate after processing")
@@ -860,4 +892,29 @@ func buildLookupQuery(driver, selectList, quotedTable string, whereParts []strin
 		}
 	}
 	return fmt.Sprintf("SELECT %s FROM %s WHERE %s", selectList, quotedTable, whereJoined)
+}
+
+// warnUnresolvedPaths names the template tokens that bound NULL because nothing
+// on the message answered them.
+//
+// The logger is reached through an optional interface on the registry already in
+// the context, rather than through a new parameter or a package-level one: this
+// package had no logging at all, and every existing test fake would have had to
+// grow a method it does not care about. A registry without a logger is silent,
+// which is what the fakes and any embedder get.
+func warnUnresolvedPaths(ctx context.Context, paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	provider, ok := ctx.Value(hermod.RegistryKey).(interface{ Logger() hermod.Logger })
+	if !ok {
+		return
+	}
+	logger := provider.Logger()
+	if logger == nil {
+		return
+	}
+	nodeID, _ := ctx.Value(hermod.NodeIDKey).(string)
+	logger.Warn("db_lookup: template path(s) resolved to nothing on this message and were bound as NULL",
+		"paths", strings.Join(paths, ", "), "node_id", nodeID)
 }
