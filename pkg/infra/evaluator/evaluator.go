@@ -1,6 +1,7 @@
 package evaluator
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -564,6 +565,115 @@ func GetMsgRawValByPath(msg hermod.Message, path string) any {
 		return v
 	}
 	return GetMsgValByPath(msg, path)
+}
+
+// MessageResolver is GetMsgRawValByPath bound to one message, in the shape a
+// SQL template's path resolver takes (sqlutil.Resolver). It is what makes a
+// {{ }} token in db_lookup, execute_sql and the editor's SQL builder resolve
+// the same paths as a condition or a sink mapping: the data map first, then the
+// CDC envelope (after., before.), the virtual fields and meta..
+//
+// Note the asymmetry it inherits, which is deliberate. A path the data map can
+// answer keeps its Go type, because a bigint above 2^53 resolved through JSON
+// comes back as float64 and then matches no row while reporting no error. A
+// path only the envelope can answer goes through gjson and is therefore
+// JSON-normalised -- those bytes are already JSON and there is no typed value
+// left to preserve.
+//
+// The return type is the bare func rather than sqlutil.Resolver so that the
+// evaluator does not import sqlutil; the two are assignable.
+func MessageResolver(msg hermod.Message) func(path string) any {
+	return func(path string) any {
+		if v := GetMsgRawValByPath(msg, path); v != nil {
+			return v
+		}
+		return resolveThroughJSONText(msg, path)
+	}
+}
+
+// resolveThroughJSONText retries a path that resolved to nothing by reading an
+// intermediate value that is JSON *text* as the document it holds.
+//
+// A column carrying JSON reaches the engine in two shapes. pgx decodes a jsonb
+// column to an object, and so does every sample that has been through JSON on
+// its way to the editor -- but a text/varchar column holding JSON, MariaDB's
+// JSON (an alias for LONGTEXT the driver reports as TEXT), and a body that
+// arrived as a string all stay text. The editor therefore offered
+// `payload.registrationId` and the running pipeline had one opaque string to
+// walk, so the query the operator watched succeed enriched nothing.
+//
+// Three rules keep this from becoming a different bug:
+//
+//   - It runs only after the ordinary walk found nothing, so a real column
+//     always wins and no working configuration changes shape or cost.
+//   - It descends only when path segments remain. A path that *ends* at the
+//     text binds the text, because `{{.payload}}` asks for the column and
+//     handing back a parsed document instead would be a silent retype.
+//   - The text must actually parse as a JSON object or array. A note that
+//     happens to start with "{" stays unresolved rather than half-read.
+//
+// The longest prefix is tried first so the nearest enclosing document wins,
+// which matters when JSON is nested inside JSON.
+//
+// gjson's `@fromstr` modifier expresses the same idea by hand and still works;
+// this makes the common spelling resolve without it, which is what the
+// editor's own getValByPath (ui/src/utils/transformationUtils.ts) has always
+// done for its preview. The two were the odd pair out.
+func resolveThroughJSONText(msg hermod.Message, path string) any {
+	parts := strings.Split(strings.TrimPrefix(path, "$."), ".")
+	for i := len(parts) - 1; i >= 1; i-- {
+		raw, ok := asJSONDocument(resolveEnclosing(msg, parts[:i]))
+		if !ok {
+			continue
+		}
+		if v := getValueFromRaw(raw, strings.Join(parts[i:], ".")); v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+// resolveEnclosing reads the value a candidate prefix names, preferring the
+// spelling that keeps the value's Go type.
+//
+// `after.x` and `x` name the same thing whenever the data map has no literal
+// "after" column -- the map *is* the after-image. They are not equally good
+// here: the envelope route answers by marshalling the data map and reading the
+// result with gjson, and marshalling renders a []byte as base64, so a column
+// holding JSON bytes came back as text that is not JSON. Trying the bare
+// spelling first keeps such a value intact; the envelope route still answers
+// everything it always did.
+func resolveEnclosing(msg hermod.Message, parts []string) any {
+	if len(parts) > 1 && strings.EqualFold(parts[0], "after") {
+		if v := GetMsgRawValByPath(msg, strings.Join(parts[1:], ".")); v != nil {
+			return v
+		}
+	}
+	return GetMsgRawValByPath(msg, strings.Join(parts, "."))
+}
+
+// asJSONDocument reports whether v is text holding a JSON object or array, and
+// returns those bytes.
+func asJSONDocument(v any) ([]byte, bool) {
+	var raw []byte
+	switch t := v.(type) {
+	case string:
+		raw = []byte(t)
+	case json.RawMessage:
+		raw = t
+	case []byte:
+		raw = t
+	default:
+		return nil, false
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') {
+		return nil, false
+	}
+	if !json.Valid(trimmed) {
+		return nil, false
+	}
+	return trimmed, true
 }
 
 func GetMsgValByPath(msg hermod.Message, path string) any {
