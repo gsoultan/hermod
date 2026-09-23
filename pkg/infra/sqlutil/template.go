@@ -44,6 +44,59 @@ func ParameterizeTemplate(driver, tpl string, data map[string]any) (string, []an
 	return b.SQL, b.Args
 }
 
+// Resolver answers what one token's path resolves to.
+//
+// It exists because a SQL template used to be strictly weaker than every other
+// template in Hermod. Tokens here resolved through GetFromMapPath, a literal
+// walk of the data map, while a condition, a sink mapping or a db_lookup
+// keyField resolved through evaluator.GetMsgValByPath, which also answers the
+// CDC envelope (after., before.), the virtual fields (operation, table, schema)
+// and meta.. The data map of a CDC message *is* its after-image, so `after.x`
+// had nothing to walk and bound NULL -- while the editor's SQL builder, whose
+// sample still carries the envelope, ran the same text and returned rows.
+//
+// The rule is supplied by the caller rather than imported, because sqlutil sits
+// deliberately below the transformer packages so that sources and sinks can use
+// it; importing the evaluator here would invert that.
+type Resolver func(path string) any
+
+// MapResolver resolves paths as a dotted walk of a plain map -- the behaviour
+// every map-taking entry point below still has. It is the right rule for a
+// caller that genuinely has no message: batch_sql binds from a `parameters`
+// object on the source config, where an envelope path would mean nothing.
+func MapResolver(data map[string]any) Resolver {
+	return func(path string) any { return GetFromMapPath(data, path) }
+}
+
+// ParameterizeTemplateWith is ParameterizeTemplateEx with the path resolution
+// rule supplied by the caller. Every entry point above reaches the statement
+// through here, so this is where the list rule lives.
+//
+// A token whose value is a slice and which sits directly in an `IN (...)` list
+// expands to one placeholder per element. Binding a slice to a single
+// placeholder is not a list -- it is an encoding error on every driver
+// ("unsupported type []interface {}, a slice of interface" through
+// database/sql, "cannot find encode plan" through pgx) -- so `id IN ({{.ids}})`
+// had no working form before this.
+//
+// The expansion is deliberately confined to IN lists. `= ANY({{.ids}})` is the
+// native Postgres array form and already works by binding the slice whole;
+// expanding it would produce `= ANY($1, $2)`, a syntax error.
+func ParameterizeTemplateWith(driver, tpl string, resolve Resolver) TemplateBinding {
+	p := templateParser{driver: driver, resolve: resolve, nextIdx: 1}
+	return p.parse(tpl)
+}
+
+// TemplateArgsWith is TemplateArgs with the path resolution rule supplied by
+// the caller.
+//
+// Anything deriving a cache key from a template has to use the same rule the
+// statement is built with, or the key can describe a different query from the
+// one that runs.
+func TemplateArgsWith(tpl string, resolve Resolver) []any {
+	return ParameterizeTemplateWith("", tpl, resolve).Args
+}
+
 // parenCtx records what introduced an open parenthesis, so a token inside it
 // can tell whether it sits in an IN list.
 type parenCtx struct {
@@ -56,21 +109,11 @@ type parenCtx struct {
 	sawWord bool
 }
 
-// ParameterizeTemplateEx is ParameterizeTemplate with the full binding result.
-//
-// A token whose value is a slice and which sits directly in an `IN (...)` list
-// expands to one placeholder per element. Binding a slice to a single
-// placeholder is not a list -- it is an encoding error on every driver
-// ("unsupported type []interface {}, a slice of interface" through
-// database/sql, "cannot find encode plan" through pgx) -- so `id IN ({{.ids}})`
-// had no working form before this.
-//
-// The expansion is deliberately confined to IN lists. `= ANY({{.ids}})` is the
-// native Postgres array form and already works by binding the slice whole;
-// expanding it would produce `= ANY($1, $2)`, a syntax error.
+// ParameterizeTemplateEx is ParameterizeTemplate with the full binding result,
+// resolving paths as a walk of data. See ParameterizeTemplateWith for how a
+// list token is expanded.
 func ParameterizeTemplateEx(driver, tpl string, data map[string]any) TemplateBinding {
-	p := templateParser{driver: driver, data: data, nextIdx: 1}
-	return p.parse(tpl)
+	return ParameterizeTemplateWith(driver, tpl, MapResolver(data))
 }
 
 // TemplateArgs returns the values a template's {{ ... }} tokens bind to, in
@@ -95,7 +138,7 @@ func TemplateArgs(tpl string, data map[string]any) []any {
 // list.
 type templateParser struct {
 	driver     string
-	data       map[string]any
+	resolve    Resolver
 	out        strings.Builder
 	args       []any
 	unresolved []string
@@ -147,9 +190,9 @@ func tokenEnd(tpl string, i int) (int, bool) {
 	return 0, false
 }
 
-// resolve turns a token's contents into a value: a quoted literal as written,
-// anything else as a path into data.
-func (p *templateParser) resolve(token string) any {
+// resolveToken turns a token's contents into a value: a quoted literal as
+// written, anything else as a path handed to the resolver.
+func (p *templateParser) resolveToken(token string) any {
 	switch {
 	case strings.HasPrefix(token, "'") && strings.HasSuffix(token, "'"):
 		return strings.Trim(token, "'")
@@ -158,7 +201,7 @@ func (p *templateParser) resolve(token string) any {
 	}
 	// allow optional source. prefix or leading dot
 	path := strings.TrimPrefix(strings.TrimPrefix(token, "source."), ".")
-	val := GetFromMapPath(p.data, path)
+	val := p.resolve(path)
 	if val == nil {
 		p.unresolved = append(p.unresolved, path)
 	}
@@ -166,7 +209,7 @@ func (p *templateParser) resolve(token string) any {
 }
 
 func (p *templateParser) bind(token string) error {
-	val := p.resolve(token)
+	val := p.resolveToken(token)
 	if arr, ok := AsSlice(val); ok && p.inValueList() {
 		if len(arr) > MaxListExpansion {
 			return fmt.Errorf(

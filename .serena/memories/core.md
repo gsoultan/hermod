@@ -159,6 +159,12 @@ find a claim that outruns the code, fix the claim.
   node default any row may override. The list is authoritative by *presence*,
   not length (an empty list converts nothing), and writes are staged so a failing
   row cannot hand a half-converted message to a sink on `onError: continue`.
+- [A SQL template resolves paths like every other template now](template_sample_shape_differs_by_path.md)
+  — `{{ }}` tokens walked the data map while everything else in Hermod used the
+  evaluator, so `after.x` returned rows in the editor's SQL builder and bound
+  NULL in the node that ran the same text. Fixed with a resolver seam; the
+  builder now agrees with the engine *by construction*, and the round-trip
+  parity oracle is the shape to copy.
 
 ### Gates
 

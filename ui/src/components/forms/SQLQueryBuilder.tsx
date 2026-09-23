@@ -521,8 +521,15 @@ export function SQLQueryBuilder({ type, sourceType, config, onSelectResult, init
                   <Box p="xs" style={{ background: 'light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8))', borderRadius: rem(4) }}>
                     <Stack gap={4}>
                       {queryVariables.map(v => {
-                        const exists = availableFields.some(f => f.path === v);
+                        // Badged on the value the token resolves to, not on
+                        // its presence in availableFields. Those are different
+                        // questions: availableFields is built by recursing the
+                        // sample, so it listed `after.payload` -- which the
+                        // pipeline bound as NULL -- as Matched, and the one
+                        // warning that could have caught that pointed the wrong
+                        // way.
                         const val = sampleMessage ? getValByPath(sampleMessage, v) : undefined;
+                        const exists = val !== undefined && val !== null;
                         const displayVal = val !== undefined ? (typeof val === 'object' ? JSON.stringify(val) : String(val)) : 'N/A';
                         
                         return (

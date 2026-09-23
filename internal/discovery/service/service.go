@@ -6,15 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"runtime/debug"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/factory"
-	"github.com/gsoultan/hermod/pkg/comm/transformer/core"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 	"golang.org/x/sync/singleflight"
 )
@@ -474,30 +471,21 @@ func (s *DiscoveryService) ExecuteSQL(ctx context.Context, cfg factory.SourceCon
 		Sample map[string]any
 	}{cfg, query, userSample})
 	val, err := s.discoveryDo(ctx, key, func(ctx context.Context) (any, error) {
-		// Start with default fallback
-		sampleData := map[string]any{
-			"after": map[string]any{"id": uuid.NewString()},
-		}
-
-		// Use user-provided sample data if available
-		if len(userSample) > 0 {
-			maps.Copy(sampleData, userSample)
-		} else {
-			// Fallback to table sampling
+		// ToMap is the shape the editor holds and posts back, so the sampled
+		// fallback produces that shape too rather than a second one. Both are
+		// then resolved through the message the engine would have built from
+		// them -- see bindSample.
+		sampleData := userSample
+		if len(sampleData) == 0 {
 			if msg, err := s.sampleTable(ctx, cfg, ""); err == nil && msg != nil {
-				data := msg.Data()
-				if len(data) > 0 {
-					maps.Copy(sampleData, data)
-				}
-				if len(data) == 0 {
-					if after := msg.After(); len(after) > 0 {
-						var afterData map[string]any
-						if err := json.Unmarshal(after, &afterData); err == nil {
-							sampleData["after"] = afterData
-						}
-					}
-				}
+				sampleData = msg.ToMap()
 			}
+		}
+		// Seeded only when there is nothing at all. Merging the seed into a real
+		// sample used to put a synthetic after.id beside the row's own id, and
+		// which of the two a query saw depended on Go's map iteration order.
+		if len(sampleData) == 0 {
+			sampleData = defaultSample()
 		}
 
 		driver := cfg.Type
@@ -509,7 +497,7 @@ func (s *DiscoveryService) ExecuteSQL(ctx context.Context, cfg factory.SourceCon
 			}
 		}
 
-		parameterizedQuery, args := core.ParameterizeTemplate(driver, query, sampleData)
+		parameterizedQuery, args := bindSample(driver, query, sampleData)
 
 		if len(args) == 0 {
 			src, err := s.openSource(ctx, cfg)
@@ -554,22 +542,17 @@ func (s *DiscoveryService) ExecuteSinkSQL(ctx context.Context, cfg factory.SinkC
 		Sample map[string]any
 	}{cfg, query, userSample})
 	val, err := s.discoveryDo(ctx, key, func(ctx context.Context) (any, error) {
-		sampleData := map[string]any{
-			"after": map[string]any{"id": uuid.NewString()},
-		}
-
-		if len(userSample) > 0 {
-			maps.Copy(sampleData, userSample)
-		} else {
+		sampleData := userSample
+		if len(sampleData) == 0 {
 			if msg, err := s.SampleSinkTable(ctx, cfg, ""); err == nil && msg != nil {
-				data := msg.Data()
-				if len(data) > 0 {
-					maps.Copy(sampleData, data)
-				}
+				sampleData = msg.ToMap()
 			}
 		}
+		if len(sampleData) == 0 {
+			sampleData = defaultSample()
+		}
 
-		parameterizedQuery, args := core.ParameterizeTemplate(cfg.Type, query, sampleData)
+		parameterizedQuery, args := bindSample(cfg.Type, query, sampleData)
 
 		if len(args) == 0 {
 			snk, err := s.openSink(ctx, cfg)

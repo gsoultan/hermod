@@ -10,6 +10,7 @@ import (
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod/pkg/infra/evaluator"
 	"github.com/gsoultan/hermod/pkg/infra/sqlutil"
 	_ "modernc.org/sqlite"
 )
@@ -166,7 +167,7 @@ func TestDBLookup_QueryTemplate_INListWithArray(t *testing.T) {
 
 	data := map[string]any{"ids": []any{"u1", "u2"}}
 	got, err := tr.lookupSQLWithTemplate(t.Context(), reg, src,
-		"SELECT value FROM test WHERE id IN ({{.ids}}) ORDER BY id", "value", data)
+		"SELECT value FROM test WHERE id IN ({{.ids}}) ORDER BY id", "value", sqlutil.MapResolver(data))
 	if err != nil {
 		t.Fatalf("lookupSQLWithTemplate: %v", err)
 	}
@@ -206,7 +207,7 @@ func TestDBLookup_ArrayFromDataConversionFeedsINList(t *testing.T) {
 
 	tr := &DBLookupTransformer{}
 	got, err := tr.lookupSQLWithTemplate(t.Context(), reg, src,
-		"SELECT value FROM test WHERE id IN ({{.ids}}) ORDER BY id", "value", msg.Data())
+		"SELECT value FROM test WHERE id IN ({{.ids}}) ORDER BY id", "value", evaluator.MessageResolver(msg))
 	if err != nil {
 		t.Fatalf("lookupSQLWithTemplate: %v", err)
 	}
@@ -238,7 +239,7 @@ func TestDBLookup_ArrayWithElementTypeIntFeedsINList(t *testing.T) {
 
 	tr := &DBLookupTransformer{}
 	got, err := tr.lookupSQLWithTemplate(t.Context(), reg, src,
-		"SELECT value FROM test WHERE n IN ({{.ns}}) ORDER BY n", "value", msg.Data())
+		"SELECT value FROM test WHERE n IN ({{.ns}}) ORDER BY n", "value", evaluator.MessageResolver(msg))
 	if err != nil {
 		t.Fatalf("lookupSQLWithTemplate: %v", err)
 	}
@@ -260,7 +261,7 @@ func TestDBLookup_QueryTemplate_OversizedListIsRejected(t *testing.T) {
 		huge[i] = i
 	}
 	_, err := tr.lookupSQLWithTemplate(t.Context(), reg, src,
-		"SELECT value FROM test WHERE id IN ({{.ids}})", "value", map[string]any{"ids": huge})
+		"SELECT value FROM test WHERE id IN ({{.ids}})", "value", sqlutil.MapResolver(map[string]any{"ids": huge}))
 	if err == nil {
 		t.Fatal("want an error for an oversized list")
 	}
