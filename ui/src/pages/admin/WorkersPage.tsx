@@ -1,6 +1,6 @@
 import { IconAlertTriangle, IconEdit, IconInfoCircle, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconServer, IconTerminal2, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react'
-import { Title, Table, Button, Group, Paper, Text, Box, Stack, Badge, TextInput, Pagination, ActionIcon, RingProgress, Tooltip, Center, Alert, Modal, Code, CopyButton } from '@mantine/core'
+import { Title, Table, Button, Group, Paper, Text, Box, Stack, Badge, TextInput, Pagination, ActionIcon, Tooltip, Alert, Modal, Code, CopyButton } from '@mantine/core'
 import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
 import { useNavigate } from '@tanstack/react-router'
@@ -8,6 +8,8 @@ import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import type { Worker } from '@/types'
 import { useConfirm } from '@/components/common/ConfirmProvider';
+import { ResourceGauge } from '@/components/common/ResourceGauge';
+import { NO_READING, formatCapacity, usageFraction } from '@/utils/metricFormat';
 export function WorkersPage() {
   const confirm = useConfirm();
   const queryClient = useQueryClient()
@@ -138,56 +140,33 @@ export function WorkersPage() {
         </Table.Td>
         <Table.Td>
           {online ? (
-            <Group gap="xs">
-              <Tooltip label={`CPU Usage: ${Math.round((worker.cpu_usage || 0) * 100)}%`}>
-                {/* 54px, not 40. The percentage sits inside the ring, and at
-                    40px it only fit by overriding the font down to 8px — below
-                    the 11px floor the layout audit enforces, and unreadable on
-                    a laptop screen. Widening the ring keeps the number visible
-                    at the theme's own xs size instead of deleting it. */}
-                <RingProgress
-                  size={54}
-                  thickness={5}
-                  roundCaps
-                  sections={[{ value: (worker.cpu_usage || 0) * 100, color: (worker.cpu_usage || 0) > 0.8 ? 'red' : 'blue' }]}
-                  label={
-                    <Center>
-                      <Text size="xs" fw={700}>
-                        {Math.round((worker.cpu_usage || 0) * 100)}%
-                      </Text>
-                    </Center>
-                  }
-                />
-              </Tooltip>
-              <Text size="xs" c="dimmed">CPU</Text>
-            </Group>
+            <ResourceGauge
+              fraction={worker.cpu_usage ?? null}
+              caption={worker.cpu_cores ? `${worker.cpu_cores} core${worker.cpu_cores === 1 ? '' : 's'}` : NO_READING}
+              tooltip="CPU"
+            />
           ) : '-'}
         </Table.Td>
         <Table.Td>
           {online ? (
-            <Group gap="xs">
-              <Tooltip label={`Memory Usage: ${Math.round((worker.memory_usage || 0) * 100)}%`}>
-                {/* 54px, not 40. The percentage sits inside the ring, and at
-                    40px it only fit by overriding the font down to 8px — below
-                    the 11px floor the layout audit enforces, and unreadable on
-                    a laptop screen. Widening the ring keeps the number visible
-                    at the theme's own xs size instead of deleting it. */}
-                <RingProgress
-                  size={54}
-                  thickness={5}
-                  roundCaps
-                  sections={[{ value: (worker.memory_usage || 0) * 100, color: (worker.memory_usage || 0) > 0.8 ? 'orange' : 'teal' }]}
-                  label={
-                    <Center>
-                      <Text size="xs" fw={700}>
-                        {Math.round((worker.memory_usage || 0) * 100)}%
-                      </Text>
-                    </Center>
-                  }
-                />
-              </Tooltip>
-              <Text size="xs" c="dimmed">Mem</Text>
-            </Group>
+            <ResourceGauge
+              fraction={
+                usageFraction(worker.memory_used_bytes ?? 0, worker.memory_total_bytes ?? 0)
+                ?? worker.memory_usage
+                ?? null
+              }
+              caption={formatCapacity(worker.memory_used_bytes ?? 0, worker.memory_total_bytes ?? 0)}
+              tooltip="Memory"
+            />
+          ) : '-'}
+        </Table.Td>
+        <Table.Td>
+          {online ? (
+            <ResourceGauge
+              fraction={usageFraction(worker.storage_used_bytes ?? 0, worker.storage_total_bytes ?? 0)}
+              caption={formatCapacity(worker.storage_used_bytes ?? 0, worker.storage_total_bytes ?? 0)}
+              tooltip="Storage (data directory)"
+            />
           ) : '-'}
         </Table.Td>
         <Table.Td>
@@ -277,7 +256,7 @@ export function WorkersPage() {
         </Paper>
 
         <Paper radius="md" style={{ border: '1px solid var(--mantine-color-gray-1)', overflow: 'hidden' }}>
-          <Table.ScrollContainer minWidth={1000}>
+          <Table.ScrollContainer minWidth={1400}>
             <Table verticalSpacing="md" horizontalSpacing="xl">
             <Table.Thead>
               <Table.Tr>
@@ -285,6 +264,7 @@ export function WorkersPage() {
                 <Table.Th>Status</Table.Th>
                 <Table.Th>CPU</Table.Th>
                 <Table.Th>Memory</Table.Th>
+                <Table.Th>Storage</Table.Th>
                 <Table.Th>Address</Table.Th>
                 <Table.Th>Description</Table.Th>
                 <Table.Th style={{ textAlign: 'right' }}>Actions</Table.Th>
@@ -294,7 +274,7 @@ export function WorkersPage() {
               {rows}
               {workers.length === 0 && (
                 <Table.Tr>
-                  <Table.Td colSpan={5} py="xl">
+                  <Table.Td colSpan={8} py="xl">
                     <Text c="dimmed" ta="center">{search ? 'No workers match your search' : 'No workers registered yet'}</Text>
                   </Table.Td>
                 </Table.Tr>

@@ -30,7 +30,25 @@ import (
 // is computed from the DDL itself, so changing the schema fails this test and
 // forces the question to be asked out loud.
 //
-// Last moved by: adding after_hash and after_blob to message_trace_steps, so a
+// Last moved by: adding cpu_cores, memory_total_bytes, memory_used_bytes,
+// storage_total_bytes and storage_used_bytes to workers, so the dashboard and
+// the workers page can say how big a machine is and not only how busy it is.
+// currentSchemaVersion was left alone deliberately.
+//
+// All five are nullable, and the previous release names its columns in both
+// directions on this table: ListWorkers and GetWorker select a fixed list that
+// does not mention them, CreateWorker inserts a fixed list that does not
+// mention them, and UpdateWorkerHeartbeat sets a fixed list that does not
+// mention them. So a rollback keeps registering workers and keeps updating
+// last_seen, cpu_usage and memory_usage — the worker still shows online with
+// live utilisation — and simply stops refreshing the capacity columns, which
+// hold whatever this release last wrote. Cores and installed memory do not
+// change on a machine that is still the same machine, so that reading is stale
+// only if a host is resized mid-rollback, and it heals on roll-forward. No code
+// path requires these columns to be populated: zero reads as "did not say"
+// everywhere, by design.
+//
+// The note before that: adding after_hash and after_blob to message_trace_steps, so a
 // payload is stored once per message and compressed instead of once per step in
 // plain JSON. currentSchemaVersion was left alone deliberately, and this one is
 // closer to the line than the others below, so the reasoning is worth spelling
@@ -86,7 +104,7 @@ import (
 // unpopulated — a gap in a chart that fills itself in when the newer binary
 // returns — so bumping the version would buy nothing and cost a refused
 // start-up during exactly the rollback it was supposed to make safe.
-const knownSchemaFingerprint = "3311dcff267f2991b7bd6e57eee794b9cf43c3fd51cee172c0b688f4c0af3931"
+const knownSchemaFingerprint = "2aa5526a00ff89cdb6d8c3817e336915c7809bb927f30091b313171a3e0633bc"
 
 func TestSchemaVersionIsReconsideredWhenTheSchemaChanges(t *testing.T) {
 	if got := SchemaFingerprint(); got != knownSchemaFingerprint {

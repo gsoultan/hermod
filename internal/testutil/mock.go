@@ -116,7 +116,7 @@ func (m *BaseMockStorage) ListWorkers(ctx context.Context, filter storage.Common
 }
 func (m *BaseMockStorage) CreateWorker(ctx context.Context, worker storage.Worker) error { return nil }
 func (m *BaseMockStorage) UpdateWorker(ctx context.Context, worker storage.Worker) error { return nil }
-func (m *BaseMockStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error {
+func (m *BaseMockStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, res storage.WorkerResources) error {
 	return nil
 }
 func (m *BaseMockStorage) DeleteWorker(ctx context.Context, id string) error { return nil }

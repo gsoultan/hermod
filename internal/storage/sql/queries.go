@@ -267,6 +267,11 @@ var commonQueries = map[string]string{
 			last_seen TIMESTAMP,
 			cpu_usage REAL,
 			memory_usage REAL,
+			cpu_cores INTEGER,
+			memory_total_bytes BIGINT,
+			memory_used_bytes BIGINT,
+			storage_total_bytes BIGINT,
+			storage_used_bytes BIGINT,
 			created_at TIMESTAMP
 		)`,
 	QueryInitLogsTable: `CREATE TABLE IF NOT EXISTS logs (
@@ -572,15 +577,15 @@ var commonQueries = map[string]string{
 	QueryClearWorkflowWorkspace: "UPDATE workflows SET workspace_id = '' WHERE workspace_id = ?",
 	QueryClearSourceWorkspace:   "UPDATE sources SET workspace_id = '' WHERE workspace_id = ?",
 	QueryClearSinkWorkspace:     "UPDATE sinks SET workspace_id = '' WHERE workspace_id = ?",
-	QueryGetWorkspace:    "SELECT id, name, description, max_workflows, max_cpu, max_memory, max_throughput, created_at FROM workspaces WHERE id = ?",
+	QueryGetWorkspace:           "SELECT id, name, description, max_workflows, max_cpu, max_memory, max_throughput, created_at FROM workspaces WHERE id = ?",
 
-	QueryListWorkers:     "SELECT id, name, host, port, description, token, last_seen, cpu_usage, memory_usage, created_at FROM workers",
+	QueryListWorkers:     "SELECT id, name, host, port, description, token, last_seen, " + workerResourceColumns + ", created_at FROM workers",
 	QueryCountWorkers:    "SELECT COUNT(*) FROM workers",
-	QueryCreateWorker:    "INSERT INTO workers (id, name, host, port, description, token, last_seen, cpu_usage, memory_usage, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-	QueryUpdateWorker:    "UPDATE workers SET name = ?, host = ?, port = ?, description = ?, token = ?, last_seen = ?, cpu_usage = ?, memory_usage = ? WHERE id = ?",
-	QueryUpdateHeartbeat: "UPDATE workers SET last_seen = ?, cpu_usage = ?, memory_usage = ? WHERE id = ?",
+	QueryCreateWorker:    "INSERT INTO workers (id, name, host, port, description, token, last_seen, " + workerResourceColumns + ", created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+	QueryUpdateWorker:    "UPDATE workers SET name = ?, host = ?, port = ?, description = ?, token = ?, last_seen = ?, cpu_usage = ?, memory_usage = ?, cpu_cores = ?, memory_total_bytes = ?, memory_used_bytes = ?, storage_total_bytes = ?, storage_used_bytes = ? WHERE id = ?",
+	QueryUpdateHeartbeat: "UPDATE workers SET last_seen = ?, cpu_usage = ?, memory_usage = ?, cpu_cores = ?, memory_total_bytes = ?, memory_used_bytes = ?, storage_total_bytes = ?, storage_used_bytes = ? WHERE id = ?",
 	QueryDeleteWorker:    "DELETE FROM workers WHERE id = ?",
-	QueryGetWorker:       "SELECT id, name, host, port, description, token, last_seen, cpu_usage, memory_usage, created_at FROM workers WHERE id = ?",
+	QueryGetWorker:       "SELECT id, name, host, port, description, token, last_seen, " + workerResourceColumns + ", created_at FROM workers WHERE id = ?",
 
 	QueryListLogs:   "SELECT id, timestamp, level, message, action, source_id, sink_id, workflow_id, user_id, username, data FROM logs",
 	QueryCountLogs:  "SELECT COUNT(*) FROM logs",

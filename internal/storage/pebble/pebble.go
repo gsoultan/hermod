@@ -683,7 +683,7 @@ func (s *pebbleStorage) CreateWorker(ctx context.Context, worker storage.Worker)
 func (s *pebbleStorage) UpdateWorker(ctx context.Context, worker storage.Worker) error {
 	return errors.New("not implemented")
 }
-func (s *pebbleStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error {
+func (s *pebbleStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, res storage.WorkerResources) error {
 	return errors.New("not implemented")
 }
 func (s *pebbleStorage) DeleteWorker(ctx context.Context, id string) error {

@@ -22,7 +22,7 @@ type WorkerStorage interface {
 	ListWorkers(ctx context.Context, filter storage.CommonFilter) ([]storage.Worker, int, error)
 	UpdateSource(ctx context.Context, src storage.Source) error
 	UpdateSink(ctx context.Context, snk storage.Sink) error
-	UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error
+	UpdateWorkerHeartbeat(ctx context.Context, id string, res storage.WorkerResources) error
 	DeleteWorker(ctx context.Context, id string) error
 	CreateLog(ctx context.Context, log storage.Log) error
 	AcquireWorkflowLease(ctx context.Context, workflowID, ownerID string, ttlSeconds int) (bool, error)

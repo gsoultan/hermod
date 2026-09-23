@@ -311,12 +311,11 @@ func (c *WorkerAPIClient) UpdateSink(ctx context.Context, snk storage.Sink) erro
 	return nil
 }
 
-func (c *WorkerAPIClient) UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error {
-	payload := map[string]float64{
-		"cpu_usage":    cpu,
-		"memory_usage": mem,
-	}
-	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/api/workers/%s/heartbeat", id), payload)
+func (c *WorkerAPIClient) UpdateWorkerHeartbeat(ctx context.Context, id string, res storage.WorkerResources) error {
+	// The struct rather than a hand-built map: its JSON tags are the wire
+	// contract the platform decodes, so a field added to one side cannot be
+	// left off the other.
+	resp, err := c.doRequest(ctx, "POST", fmt.Sprintf("/api/workers/%s/heartbeat", id), res)
 	if err != nil {
 		return err
 	}

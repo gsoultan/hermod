@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCount, formatLatency, formatPercent, formatUptime } from '@/utils/metricFormat';
+import { formatBytes, formatCapacity, formatCount, formatLatency, formatPercent, formatUptime, usageFraction } from '@/utils/metricFormat';
 
 // These all render straight into a stat card, and every one of them is fed by
 // a number that arrives over the network. A dashboard that prints "NaN%" or
@@ -77,5 +77,58 @@ describe('formatUptime', () => {
   it('survives values that are not finite numbers', () => {
     expect(formatUptime(Number.NaN)).toBe('—');
     expect(formatUptime(-1)).toBe('—');
+  });
+});
+
+describe('formatBytes', () => {
+  it('picks the unit that keeps the number readable', () => {
+    expect(formatBytes(512 * 1024 ** 2)).toBe('512 MB');
+    expect(formatBytes(32 * 1024 ** 3)).toBe('32 GB');
+    expect(formatBytes(1.5 * 1024 ** 4)).toBe('1.5 TB');
+  });
+
+  it('keeps one decimal only where it changes the answer', () => {
+    expect(formatBytes(16.5 * 1024 ** 3)).toBe('16.5 GB');
+    expect(formatBytes(1024 ** 3)).toBe('1 GB');
+  });
+
+  /*
+   * Zero here is "the worker did not report a size", not "a machine with no
+   * memory" — the backend leaves these columns null for a worker on a release
+   * that predates capacity reporting. Rendering "0 GB" would invent a fact.
+   */
+  it('treats a missing or impossible size as no reading', () => {
+    expect(formatBytes(0)).toBe('—');
+    expect(formatBytes(-1)).toBe('—');
+    expect(formatBytes(Number.NaN)).toBe('—');
+    expect(formatBytes(undefined as unknown as number)).toBe('—');
+  });
+});
+
+describe('formatCapacity', () => {
+  it('shows used against total in one shared unit', () => {
+    expect(formatCapacity(16 * 1024 ** 3, 32 * 1024 ** 3)).toBe('16 / 32 GB');
+    expect(formatCapacity(500 * 1024 ** 3, 2 * 1024 ** 4)).toBe('0.5 / 2 TB');
+  });
+
+  it('has nothing to say without a total', () => {
+    expect(formatCapacity(16 * 1024 ** 3, 0)).toBe('—');
+    expect(formatCapacity(Number.NaN, 32 * 1024 ** 3)).toBe('—');
+  });
+});
+
+describe('usageFraction', () => {
+  it('is the used share of the total', () => {
+    expect(usageFraction(16 * 1024 ** 3, 32 * 1024 ** 3)).toBe(0.5);
+  });
+
+  /*
+   * A zero total must not become a NaN width on a progress ring, and must not
+   * become 0 either — 0 draws an empty ring, which reads as "measured, and
+   * empty" rather than "not measured".
+   */
+  it('returns null when there is nothing to divide by', () => {
+    expect(usageFraction(16, 0)).toBeNull();
+    expect(usageFraction(Number.NaN, 32)).toBeNull();
   });
 });

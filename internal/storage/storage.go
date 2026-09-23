@@ -194,20 +194,109 @@ type Workspace struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
+// WorkerResources is what one worker reports about the machine it runs on:
+// how much of it there is, and how much of it is gone.
+//
+// Capacity and utilisation travel together deliberately. A usage fraction on
+// its own does not say how much work a worker can still take — 80% of two cores
+// and 80% of sixty-four are the same number and not the same machine — and
+// until this struct existed the platform stored only the fractions. The
+// scheduler in internal/engine/worker/sharding.go picks between workers on
+// exactly this basis, and the workers page and dashboard report it.
+//
+// Sizes are bytes because bytes are what the operating system reports;
+// converting to gigabytes is a presentation decision and belongs in the one
+// place that presents it. They are signed int64 rather than uint64 because BSON
+// has no unsigned 64-bit type and the SQL drivers reject one outright — the
+// same reason dashboardSampleDoc gives — and no host has eight exabytes of RAM.
+//
+// Every field is optional and zero means "not reported", not "none". A worker
+// running a release from before capacity reporting existed sends nothing here,
+// and a cluster total that treated its silence as a machine with no CPU would
+// read worse the more old workers were still running. Readers must skip a
+// worker whose capacity is zero rather than average it in.
+type WorkerResources struct {
+	// CPUUsage and MemoryUsage are fractions in 0..1, not percentages. They
+	// predate the rest of this struct and keep their column and JSON names.
+	CPUUsage    float64 `json:"cpu_usage,omitempty" bson:"cpu_usage,omitempty"`
+	MemoryUsage float64 `json:"memory_usage,omitempty" bson:"memory_usage,omitempty"`
+
+	// CPUCores is the number of logical CPUs visible to the worker process.
+	CPUCores int `json:"cpu_cores,omitempty" bson:"cpu_cores,omitempty"`
+
+	// MemoryTotalBytes and MemoryUsedBytes describe physical memory.
+	MemoryTotalBytes int64 `json:"memory_total_bytes,omitempty" bson:"memory_total_bytes,omitempty"`
+	MemoryUsedBytes  int64 `json:"memory_used_bytes,omitempty" bson:"memory_used_bytes,omitempty"`
+
+	// StorageTotalBytes and StorageUsedBytes describe the filesystem holding
+	// the worker's data directory — where SQLite metadata, WAL files and trace
+	// payloads are written — rather than every disk on the box. That is the one
+	// a full disk stops Hermod on, and the one an operator can act on.
+	StorageTotalBytes int64 `json:"storage_total_bytes,omitempty" bson:"storage_total_bytes,omitempty"`
+	StorageUsedBytes  int64 `json:"storage_used_bytes,omitempty" bson:"storage_used_bytes,omitempty"`
+}
+
+// ReportsCapacity says whether this worker told us how big it is.
+//
+// Aggregates use it to skip the workers that did not, so an old worker abstains
+// from the cluster totals instead of voting zero into them.
+func (r WorkerResources) ReportsCapacity() bool {
+	return r.CPUCores > 0 || r.MemoryTotalBytes > 0 || r.StorageTotalBytes > 0
+}
+
+// Capacity is this reading with the load fractions dropped: what the machine
+// is, without a claim about how busy it is.
+//
+// Registration reports capacity only, and deliberately. The two fractions are
+// scheduler inputs — calculateWeight scores peers on them and admission control
+// sheds load on them — and a worker's own view of itself comes from its local
+// reading, which is empty until the first health check. Persisting a real load
+// figure at registration therefore makes every worker see itself as idle and
+// its peers as loaded, and each one grabs everything it can. Capacity has no
+// such reader: nothing schedules on cores or bytes, and the dashboard wants
+// them immediately.
+func (r WorkerResources) Capacity() WorkerResources {
+	r.CPUUsage, r.MemoryUsage = 0, 0
+	return r
+}
+
+// StorageUsage is the used share of the data filesystem, 0..1.
+//
+// Derived rather than stored: CPUUsage and MemoryUsage are persisted because
+// they existed before the byte counts did and the scheduler reads them, but a
+// third fraction alongside the two numbers it is computed from would be the
+// same figure under two names.
+func (r WorkerResources) StorageUsage() float64 {
+	if r.StorageTotalBytes <= 0 {
+		return 0
+	}
+	return float64(r.StorageUsedBytes) / float64(r.StorageTotalBytes)
+}
+
 type Worker struct {
 	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Host        string     `json:"host"`
-	Port        int        `json:"port"`
-	Description string     `json:"description"`
-	Token       string     `json:"token"`
-	LastSeen    *time.Time `json:"last_seen" omitzero:"true"`
-	CPUUsage    float64    `json:"cpu_usage,omitempty"`
-	MemoryUsage float64    `json:"memory_usage,omitempty"`
+	Name        string     `json:"name" bson:"name"`
+	Host        string     `json:"host" bson:"host"`
+	Port        int        `json:"port" bson:"port"`
+	Description string     `json:"description" bson:"description"`
+	Token       string     `json:"token" bson:"token"`
+	LastSeen    *time.Time `json:"last_seen" omitzero:"true" bson:"last_seen"`
+
+	// Resources are inlined rather than nested so the JSON and BSON shapes are
+	// unchanged for the two fields that were already here.
+	//
+	// The bson tags on the fields above are load-bearing and were missing. The
+	// driver's default is the lowercased Go name, so this struct decoded
+	// "lastseen", "cpuusage" and "memoryusage" while UpdateWorkerHeartbeat wrote
+	// "last_seen", "cpu_usage" and "memory_usage" — meaning that on the MongoDB
+	// backend every worker read back with a nil LastSeen and no usage at all,
+	// which the UI renders as permanently Offline.
+	WorkerResources `bson:",inline"`
+
 	// Draining is a transient flag (never persisted) used to signal a running
 	// worker that the platform has requested a graceful shutdown. It is set on
 	// API responses by the platform when an administrator triggers a shutdown.
-	Draining bool `json:"draining,omitempty"`
+	Draining bool `json:"draining,omitempty" bson:"-"`
 	// CreatedAt is the sort key the worker list pages on. Storage stamps it when a
 	// caller leaves it zero and never rewrites it on update. See Workflow.CreatedAt.
 	CreatedAt time.Time `json:"created_at" bson:"created_at"`
@@ -450,6 +539,30 @@ type DashboardStats struct {
 	Backpressure        float64 `json:"backpressure"`   // Worst sink buffer fill, 0..1
 	CircuitBreakersOpen int     `json:"circuit_breakers_open"`
 
+	// Cluster capacity and utilisation, over exactly the workers ActiveWorkers
+	// counts — those that reported a heartbeat inside the last two minutes. A
+	// worker that stopped reporting has already been excluded from the count,
+	// and counting its cores and disk would describe machines that are no
+	// longer there.
+	//
+	// Totalled rather than averaged, because the question is "how much machine
+	// is behind this platform, and how much of it is gone". An average hides a
+	// node that is full next to one that is idle, and the full one is the
+	// reason anybody opened the page.
+	//
+	// Workers that report no capacity contribute nothing rather than dragging a
+	// total down — see WorkerResources. And one worker per host is assumed:
+	// two workers on one machine would count that machine's memory and disk
+	// twice. Hermod's topology is a worker per node, and the alternative,
+	// deduplicating on a self-reported hostname, is wrong in exactly the
+	// container case it would exist to handle.
+	CPUCores          int     `json:"cpu_cores"`
+	CPUUsage          float64 `json:"cpu_usage"` // 0..1, weighted by each worker's core count
+	MemoryTotalBytes  int64   `json:"memory_total_bytes"`
+	MemoryUsedBytes   int64   `json:"memory_used_bytes"`
+	StorageTotalBytes int64   `json:"storage_total_bytes"`
+	StorageUsedBytes  int64   `json:"storage_used_bytes"`
+
 	// A pending-approvals count is deliberately absent. The approvals table
 	// has no vhost column and ListApprovals filters only on workflow and
 	// status, so the only count available here is the global one — and vhost
@@ -654,7 +767,7 @@ type Storage interface {
 	ListWorkers(ctx context.Context, filter CommonFilter) ([]Worker, int, error)
 	CreateWorker(ctx context.Context, worker Worker) error
 	UpdateWorker(ctx context.Context, worker Worker) error
-	UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error
+	UpdateWorkerHeartbeat(ctx context.Context, id string, res WorkerResources) error
 	DeleteWorker(ctx context.Context, id string) error
 	GetWorker(ctx context.Context, id string) (Worker, error)
 

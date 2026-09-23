@@ -106,15 +106,13 @@ func (w *Worker) onlineThreshold() time.Duration {
 // known resource usage, used when the persisted heartbeat is missing or stale.
 func (w *Worker) selfWorkerEntry(now time.Time) storage.Worker {
 	seen := now
-	cpu, mem := w.GetMetrics()
 	return storage.Worker{
-		ID:          w.workerGUID,
-		Name:        w.workerName,
-		Host:        w.workerHost,
-		Port:        w.workerPort,
-		CPUUsage:    cpu,
-		MemoryUsage: mem,
-		LastSeen:    &seen,
+		ID:              w.workerGUID,
+		Name:            w.workerName,
+		Host:            w.workerHost,
+		Port:            w.workerPort,
+		WorkerResources: w.Resources(),
+		LastSeen:        &seen,
 	}
 }
 

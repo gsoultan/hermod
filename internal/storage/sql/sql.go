@@ -2008,11 +2008,12 @@ func (s *sqlStorage) ListWorkers(ctx context.Context, filter storage.CommonFilte
 		var w storage.Worker
 		var token sql.NullString
 		var lastSeen sql.NullTime
-		var cpu, mem sql.NullFloat64
+		var res workerResourceScan
 		// NULL for any row written before the column existed and not yet
 		// reached by the Init backfill.
 		var createdAt sql.NullTime
-		if err := rows.Scan(&w.ID, &w.Name, &w.Host, &w.Port, &w.Description, &token, &lastSeen, &cpu, &mem, &createdAt); err != nil {
+		if err := rows.Scan(append([]any{&w.ID, &w.Name, &w.Host, &w.Port, &w.Description, &token, &lastSeen},
+			append(res.dest(), &createdAt)...)...); err != nil {
 			return nil, 0, err
 		}
 		if token.Valid {
@@ -2021,12 +2022,7 @@ func (s *sqlStorage) ListWorkers(ctx context.Context, filter storage.CommonFilte
 		if lastSeen.Valid {
 			w.LastSeen = &lastSeen.Time
 		}
-		if cpu.Valid {
-			w.CPUUsage = cpu.Float64
-		}
-		if mem.Valid {
-			w.MemoryUsage = mem.Float64
-		}
+		w.WorkerResources = res.resources()
 		if createdAt.Valid {
 			w.CreatedAt = createdAt.Time
 		}
@@ -2048,19 +2044,25 @@ func (s *sqlStorage) CreateWorker(ctx context.Context, worker storage.Worker) er
 	if worker.CreatedAt.IsZero() {
 		worker.CreatedAt = time.Now()
 	}
-	_, err := s.exec(ctx, s.queries.get(QueryCreateWorker),
-		worker.ID, worker.Name, worker.Host, worker.Port, worker.Description, worker.Token, worker.LastSeen, worker.CPUUsage, worker.MemoryUsage, worker.CreatedAt)
+	args := []any{worker.ID, worker.Name, worker.Host, worker.Port, worker.Description, worker.Token, worker.LastSeen}
+	args = append(args, workerResourceArgs(worker.WorkerResources)...)
+	args = append(args, worker.CreatedAt)
+	_, err := s.exec(ctx, s.queries.get(QueryCreateWorker), args...)
 	return err
 }
 
 func (s *sqlStorage) UpdateWorker(ctx context.Context, worker storage.Worker) error {
-	_, err := s.exec(ctx, s.queries.get(QueryUpdateWorker),
-		worker.Name, worker.Host, worker.Port, worker.Description, worker.Token, worker.LastSeen, worker.CPUUsage, worker.MemoryUsage, worker.ID)
+	args := []any{worker.Name, worker.Host, worker.Port, worker.Description, worker.Token, worker.LastSeen}
+	args = append(args, workerResourceArgs(worker.WorkerResources)...)
+	args = append(args, worker.ID)
+	_, err := s.exec(ctx, s.queries.get(QueryUpdateWorker), args...)
 	return err
 }
 
-func (s *sqlStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error {
-	_, err := s.exec(ctx, s.queries.get(QueryUpdateHeartbeat), time.Now(), cpu, mem, id)
+func (s *sqlStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, res storage.WorkerResources) error {
+	args := append([]any{time.Now()}, workerResourceArgs(res)...)
+	args = append(args, id)
+	_, err := s.exec(ctx, s.queries.get(QueryUpdateHeartbeat), args...)
 	return err
 }
 
@@ -2073,12 +2075,13 @@ func (s *sqlStorage) GetWorker(ctx context.Context, id string) (storage.Worker, 
 	var w storage.Worker
 	var token sql.NullString
 	var lastSeen sql.NullTime
-	var cpu, mem sql.NullFloat64
+	var res workerResourceScan
 	// NULL for any row written before the column existed and not yet
 	// reached by the Init backfill.
 	var createdAt sql.NullTime
 	err := s.queryRow(ctx, s.queries.get(QueryGetWorker), id).
-		Scan(&w.ID, &w.Name, &w.Host, &w.Port, &w.Description, &token, &lastSeen, &cpu, &mem, &createdAt)
+		Scan(append([]any{&w.ID, &w.Name, &w.Host, &w.Port, &w.Description, &token, &lastSeen},
+			append(res.dest(), &createdAt)...)...)
 	if err == sql.ErrNoRows {
 		return storage.Worker{}, storage.ErrNotFound
 	}
@@ -2091,12 +2094,7 @@ func (s *sqlStorage) GetWorker(ctx context.Context, id string) (storage.Worker, 
 	if lastSeen.Valid {
 		w.LastSeen = &lastSeen.Time
 	}
-	if cpu.Valid {
-		w.CPUUsage = cpu.Float64
-	}
-	if mem.Valid {
-		w.MemoryUsage = mem.Float64
-	}
+	w.WorkerResources = res.resources()
 	if createdAt.Valid {
 		w.CreatedAt = createdAt.Time
 	}
@@ -3654,10 +3652,8 @@ func (s *sqlStorage) GetDashboardStats(ctx context.Context, vhost string) (stora
 	}
 	stats.ActiveSinks = int(activeSnk.Int64)
 
-	// Active Workers (TTL 2m)
-	activeThreshold := time.Now().Add(-2 * time.Minute)
-	err = s.queryRow(ctx, "SELECT COUNT(*) FROM workers WHERE last_seen > ?", activeThreshold).Scan(&stats.ActiveWorkers)
-	if err != nil {
+	// Active workers, and the machines behind them.
+	if err := s.readClusterResources(ctx, &stats); err != nil {
 		return stats, err
 	}
 

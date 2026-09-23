@@ -118,15 +118,16 @@ func (h *WorkerHandler) UpdateWorker(w http.ResponseWriter, r *http.Request) {
 
 func (h *WorkerHandler) UpdateWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	var req struct {
-		CPUUsage    float64 `json:"cpu_usage"`
-		MemoryUsage float64 `json:"memory_usage"`
-	}
+	// storage.WorkerResources is decoded whole rather than a field list
+	// repeated here. A worker on an older release sends only cpu_usage and
+	// memory_usage; the rest stay zero, which reads as "did not say" and keeps
+	// it out of the cluster capacity totals rather than voting zeros into them.
+	var req storage.WorkerResources
 	if r.Method == http.MethodPost && r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 	}
 
-	if err := h.Storage.UpdateWorkerHeartbeat(r.Context(), id, req.CPUUsage, req.MemoryUsage); err != nil {
+	if err := h.Storage.UpdateWorkerHeartbeat(r.Context(), id, req); err != nil {
 		h.JsonError(w, "failed to update heartbeat", http.StatusInternalServerError)
 		return
 	}
