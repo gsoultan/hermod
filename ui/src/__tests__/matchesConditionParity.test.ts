@@ -1,5 +1,52 @@
+/// <reference types="node" />
+// node builtins are referenced here rather than added to tsconfig.app.json's
+// `types`: that array is what keeps application code from reaching for fs, and
+// widening it for one test file would spend that guarantee.
+
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { matchesCondition } from '@/utils/transformationUtils'
+
+// The cases are not written here. They are read from the file the Go test
+// reads, so adding one is a single edit and a change on either side fails on
+// the other.
+//
+// Read with fs rather than imported: ui/tsconfig.app.json includes only `src`,
+// so an import from outside it would sit outside the typecheck. Reaching for
+// the path explicitly also makes the dependency visible -- this file is not
+// self-contained on purpose.
+//
+// Walking up from cwd rather than from import.meta.url, which vitest does not
+// hand over as a file: URL, and rather than assuming a cwd, so this works from
+// the repository root and from ui/ alike.
+const FIXTURE_REL = 'pkg/infra/evaluator/testdata/condition_cases.json'
+
+function findFixture(): string {
+  let dir = process.cwd()
+  for (let i = 0; i < 6; i++) {
+    const candidate = resolve(dir, FIXTURE_REL)
+    if (existsSync(candidate)) return candidate
+    dir = resolve(dir, '..')
+  }
+  throw new Error(
+    `could not find ${FIXTURE_REL} walking up from ${process.cwd()}. ` +
+      'It is the shared condition contract, read by the Go test too; if it moved, both readers move.',
+  )
+}
+
+type OperatorCase = { operator: string; field: unknown; value: unknown }
+type NumericCase = { name: string; field: unknown; value: string; equal: boolean }
+type WideCase = { operator: string; value: string; expected: boolean }
+
+const fixture: {
+  operators: { matching: OperatorCase[]; notMatching: OperatorCase[] }
+  numericEquality: { cases: NumericCase[] }
+  wideInteger: { field: unknown; cases: WideCase[] }
+} = JSON.parse(readFileSync(findFixture(), 'utf8'))
+
+const check = (field: unknown, operator: string, value: unknown) =>
+  matchesCondition({ f: field }, { field: 'f', operator, value } as never)
 
 // matchesCondition is the editor's client-side twin of the engine's
 // EvaluateConditions: the Test button, the switch preview and the filter
@@ -10,75 +57,48 @@ import { matchesCondition } from '@/utils/transformationUtils'
 // These cases are the Go table in pkg/infra/evaluator/condition_number_shape_test.go,
 // transcribed. Change one side and this fails.
 describe('matchesCondition agrees with the Go evaluator', () => {
+  // Guards the fixture itself. An emptied file would let every case below pass
+  // by having nothing to run, which is the quietest way for a shared contract
+  // to stop being one. Mirrors TestTheConditionFixtureIsNotEmpty.
+  it('the shared fixture actually has cases', () => {
+    expect(fixture.operators.matching.length).toBeGreaterThanOrEqual(16)
+    expect(fixture.operators.notMatching.length).toBeGreaterThan(0)
+    expect(fixture.numericEquality.cases.length).toBeGreaterThanOrEqual(13)
+    expect(fixture.wideInteger.cases.length).toBeGreaterThan(0)
+  })
+
   describe('every operator the editor offers is implemented', () => {
-    const cases: [string, any, any, boolean][] = [
-      ['=', 'abc', 'abc', true],
-      ['!=', 'abc', 'zzz', true],
-      ['>', 10, 5, true],
-      ['>=', 10, 5, true],
-      ['<', 5, 10, true],
-      ['<=', 5, 10, true],
-      ['contains', 'abc', 'b', true],
-      ['not_contains', 'abc', 'zzz', true],
-      ['regex', 'abc', '^a', true],
-      ['not_regex', 'abc', 'zzz', true],
-      // Aliases: stored configs and the API use these spellings.
-      ['eq', 'abc', 'abc', true],
-      ['neq', 'abc', 'zzz', true],
-      ['gt', 10, 5, true],
-      ['gte', 10, 5, true],
-      ['lt', 5, 10, true],
-      ['lte', 5, 10, true],
-    ]
+    it.each(fixture.operators.matching.map((c) => [c.operator, c.field, c.value] as const))(
+      '%s matches',
+      (operator, field, value) => {
+        expect(check(field, operator, value)).toBe(true)
+      },
+    )
 
-    it.each(cases)('%s matches', (operator, field, value, expected) => {
-      expect(matchesCondition({ f: field }, { field: 'f', operator, value })).toBe(expected)
-    })
-
-    it.each([
-      ['not_contains', 'abc', 'b'],
-      ['not_regex', 'abc', '^a'],
-      ['neq', 'abc', 'abc'],
-    ] as [string, any, any][])('%s is a real negation, not a constant false', (operator, field, value) => {
-      expect(matchesCondition({ f: field }, { field: 'f', operator, value })).toBe(false)
-    })
+    it.each(fixture.operators.notMatching.map((c) => [c.operator, c.field, c.value] as const))(
+      '%s is a real negation, not a constant true',
+      (operator, field, value) => {
+        expect(check(field, operator, value)).toBe(false)
+      },
+    )
   })
 
   describe('a number equals its other spellings', () => {
-    it.each([
-      [100, '100.00', true],
-      [100.5, '100.50', true],
-      [100, '0100', true],
-      [100, '+100', true],
-      [100, '1e2', true],
-      [100, '100', true],
-      [100, '101', false],
-      [100, 'abc', false],
-      // A string field keeps string equality, so an id does not lose its zeros.
-      ['007', '7', false],
-      ['007', '007', true],
-      ['100.0', '100.00', false],
-      [true, '1', false],
-      [0, '', false],
-    ] as [any, string, boolean][])('%s = %s -> %s', (field, value, expected) => {
-      expect(matchesCondition({ f: field }, { field: 'f', operator: '=', value })).toBe(expected)
-      expect(matchesCondition({ f: field }, { field: 'f', operator: '!=', value })).toBe(!expected)
-    })
+    it.each(fixture.numericEquality.cases.map((c) => [c.name, c.field, c.value, c.equal] as const))(
+      '%s',
+      (_name, field, value, equal) => {
+        expect(check(field, '=', value)).toBe(equal)
+        // != must be the exact negation, or a config can satisfy both.
+        expect(check(field, '!=', value)).toBe(!equal)
+      },
+    )
   })
 
   describe('a wide integer compares as the digits the user was shown', () => {
-    const id = 1704207845
-    it.each([
-      ['=', '1704207845', true],
-      ['=', '1704207846', false],
-      ['contains', '042078', true],
-      ['contains', 'e+09', false],
-      ['regex', '^1704', true],
-      ['regex', '^\\d+$', true],
-      ['>', '1704207844', true],
-      ['<', '1704207846', true],
-    ] as [string, string, boolean][])('%s %s -> %s', (operator, value, expected) => {
-      expect(matchesCondition({ id }, { field: 'id', operator, value })).toBe(expected)
+    it.each(
+      fixture.wideInteger.cases.map((c) => [c.operator, c.value, c.expected] as const),
+    )('%s %s -> %s', (operator, value, expected) => {
+      expect(check(fixture.wideInteger.field, operator, value)).toBe(expected)
     })
   })
 
