@@ -52,6 +52,33 @@ target field."
    real message from the sample and resolves through the evaluator, so the
    builder and the engine agree **by construction** rather than by imitation.
 
+## The JSON-text column, the last divergence
+
+A column holding JSON *text* rather than a decoded object was the remaining way
+the two could disagree, and it survives the resolver fix on its own. pgx decodes
+`jsonb` to an object and so does every sample that has been through JSON to the
+editor, but a `text`/`varchar` column holding JSON, MariaDB's `JSON` (a
+`LONGTEXT` alias the driver reports as `TEXT`, unfixable at the decode layer --
+see [[jsonb_shape_differs_by_path]]) and a string body all stay text. So
+`{{.payload.registrationId}}` resolved in the editor and walked one opaque
+string in the pipeline.
+
+`evaluator.resolveThroughJSONText` descends into JSON text when path segments
+remain. Three rules stop it becoming a different bug:
+
+- it runs **only after** the ordinary walk found nothing, so a real column always
+  wins and no working configuration changes shape or cost;
+- it descends only when segments remain -- a path that *ends* at the text binds
+  the text, because `{{.payload}}` asks for the column and handing back a parsed
+  document would be a silent retype;
+- the text must parse as an object or array, so a note starting with `{` stays
+  unresolved rather than half-read.
+
+`resolveEnclosing` prefers the bare spelling over the `after.`-prefixed one when
+reading the enclosing value: the envelope route answers by marshalling the data
+map and reading it with gjson, and marshalling renders a `[]byte` as base64, so
+a column of JSON bytes came back as text that is not JSON.
+
 ## Two things found on the way
 
 - **`ToMap()` → `PopulateFromMap` was not a round trip.** `ToMap` writes the

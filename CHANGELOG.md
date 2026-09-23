@@ -39,6 +39,20 @@ over HTTP, which decodes to an object first. And the builder merged a synthetic
 Go's map iteration order picked one — the seed is now used only when there is
 no sample at all.
 
+A column holding JSON *text* rather than a decoded object was the last way the
+two could disagree. pgx decodes a `jsonb` column to an object, and so does every
+sample on its way through JSON to the editor — but a `text`/`varchar` column
+holding JSON, MariaDB's `JSON` (an alias for `LONGTEXT` the driver reports as
+`TEXT`), and a body that arrived as a string all stay text, so the editor
+offered `payload.registrationId` while the running pipeline had one opaque
+string to walk. A template path now descends into JSON text when segments
+remain. It runs only after the ordinary walk finds nothing, so a real column
+still wins; a path that *ends* at the text still binds the text, because
+`{{.payload}}` asks for the column; and text that does not parse as an object or
+array stays unresolved rather than half-read. gjson's `@fromstr` still works and
+is no longer needed for the common spelling — which is what the editor's own
+`getValByPath` has always done for its preview.
+
 `db_lookup` also warns, naming the token, when a path resolves to nothing and is
 bound as NULL; `execute_sql` already offered `onUnresolved: fail` for callers
 that want it to be an error. The builder's "Matched"/"Missing" badge now tracks

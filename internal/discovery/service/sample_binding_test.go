@@ -85,3 +85,40 @@ func TestBindSampleWithNoSampleStillBinds(t *testing.T) {
 		t.Errorf("args = %#v, want a seeded id rather than NULL", args)
 	}
 }
+
+// A column holding JSON text rather than a decoded object was the last way the
+// builder and the engine could disagree on the same message: the editor's
+// sample has always been through JSON, so `payload` is an object there, while a
+// source handing the same column over as text left the pipeline with one opaque
+// string to walk. Both sides resolve through the message now, so both descend.
+func TestTheBuilderAndEngineAgreeOnAJSONTextColumn(t *testing.T) {
+	const raw = `{"registrationId":"reg-1","stageId":"stg-6"}`
+
+	for _, tc := range []struct {
+		name    string
+		payload any
+	}{
+		{"decoded object", map[string]any{"registrationId": "reg-1", "stageId": "stg-6"}},
+		{"JSON text", raw},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engineMsg := message.AcquireMessage()
+			defer message.ReleaseMessage(engineMsg)
+			engineMsg.SetOperation(hermod.Operation("insert"))
+			engineMsg.SetTable("registration_trackings")
+			engineMsg.SetData("payload", tc.payload)
+
+			const q = `SELECT {{.after.payload.registrationId}}, {{.after.payload.stageId}}`
+
+			_, builderArgs := bindSample("pgx", q, engineMsg.ToMap())
+			engineArgs := sqlutil.TemplateArgsWith(q, sqlutil.Resolver(evaluator.MessageResolver(engineMsg)))
+
+			if !reflect.DeepEqual(builderArgs, engineArgs) {
+				t.Errorf("builder binds %#v, engine binds %#v", builderArgs, engineArgs)
+			}
+			if len(engineArgs) != 2 || engineArgs[0] != "reg-1" || engineArgs[1] != "stg-6" {
+				t.Errorf("args = %#v, want [reg-1 stg-6]", engineArgs)
+			}
+		})
+	}
+}
