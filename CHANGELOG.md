@@ -4328,6 +4328,19 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.12.0]: https://github.com/gsoultan/hermod/releases/tag/v1.12.0
+[1.11.0]: https://github.com/gsoultan/hermod/releases/tag/v1.11.0
+[1.10.0]: https://github.com/gsoultan/hermod/releases/tag/v1.10.0
+[1.9.1]: https://github.com/gsoultan/hermod/releases/tag/v1.9.1
+[1.9.0]: https://github.com/gsoultan/hermod/releases/tag/v1.9.0
+[1.8.1]: https://github.com/gsoultan/hermod/releases/tag/v1.8.1
+[1.8.0]: https://github.com/gsoultan/hermod/releases/tag/v1.8.0
+[1.7.0]: https://github.com/gsoultan/hermod/releases/tag/v1.7.0
+[1.6.0]: https://github.com/gsoultan/hermod/releases/tag/v1.6.0
+[1.5.0]: https://github.com/gsoultan/hermod/releases/tag/v1.5.0
+[1.4.0]: https://github.com/gsoultan/hermod/releases/tag/v1.4.0
+[1.3.0]: https://github.com/gsoultan/hermod/releases/tag/v1.3.0
+[1.2.0]: https://github.com/gsoultan/hermod/releases/tag/v1.2.0
 [1.1.0]: https://github.com/gsoultan/hermod/releases/tag/v1.1.0
 [1.0.0]: https://github.com/gsoultan/hermod/releases/tag/v1.0.0
 [1.0.0-rc.2]: https://github.com/gsoultan/hermod/releases/tag/v1.0.0-rc.2
