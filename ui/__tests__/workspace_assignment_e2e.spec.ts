@@ -17,6 +17,11 @@ import { acceptConfirm } from './support/confirm';
 
 const unique = () => `e2e-ws-${Date.now().toString(36)}`;
 
+/** Seeded fixtures, removed after each test so this spec leaves no litter of its own. */
+const createdWorkflows: string[] = [];
+const createdSources: string[] = [];
+const createdSinks: string[] = [];
+
 /** The API as the logged-in browser session; the cookie travels with it. */
 async function api(page: Page, method: string, path: string, body?: unknown) {
   return page.evaluate(
@@ -36,9 +41,67 @@ async function api(page: Page, method: string, path: string, body?: unknown) {
 }
 
 test.describe('workspace assignment', () => {
+  test.afterEach(async ({ page }) => {
+    // Workflows first: a source cannot be deleted while a workflow names it.
+    for (const id of createdWorkflows.splice(0)) {
+      await api(page, 'DELETE', `/api/workflows/${id}`);
+    }
+    for (const id of createdSources.splice(0)) {
+      await api(page, 'DELETE', `/api/sources/${id}`);
+    }
+    for (const id of createdSinks.splice(0)) {
+      await api(page, 'DELETE', `/api/sinks/${id}`);
+    }
+  });
+
   test('create a workspace, move a workflow into it from the list, then edit and delete it', async ({ page }) => {
     await login(page);
     const name = unique();
+
+    // Two workflows, seeded here rather than taken from whatever the list
+    // happens to hold. This used to read `.first()` and then pick "some other
+    // id" for the quota check, which worked only because
+    // workflow_export_import_e2e leaked its fixtures -- three workflows per
+    // run, never cleaned up. With that leak closed the list is empty and there
+    // is nothing to move, so the dependency was on another spec's litter.
+    // The test needs exactly two: one to move in, one the full workspace must
+    // refuse.
+    const movedName = `${name}-a`;
+    const secondName = `${name}-b`;
+    const seeded: string[] = [];
+    for (const wfName of [movedName, secondName]) {
+      // A workflow with no nodes is refused ("must contain at least one source
+      // and one sink"), so each one gets a source and a sink of its own --
+      // sources.name and sinks.name are NOT NULL UNIQUE, so they cannot be
+      // shared. Neither is ever connected to anything: this test is about the
+      // workspace quota, not about running a pipeline.
+      const create = async (path: string, body: unknown) => {
+        const res = await api(page, 'POST', path, body);
+        expect(res.status, `seeding ${path} for ${wfName} failed: ${JSON.stringify(res.body)}`).toBeLessThan(300);
+        return res.body.id as string;
+      };
+      const sourceID = await create('/api/sources', {
+        name: `${wfName}-src`, type: 'postgres', vhost: 'default', active: false,
+        config: { host: 'seed.invalid', port: '5432', database: 'd', username: 'u', db_password: 'p', use_cdc: 'false' },
+      });
+      const sinkID = await create('/api/sinks', {
+        name: `${wfName}-snk`, type: 'postgres', vhost: 'default', active: false,
+        config: { host: 'seed.invalid', port: '5432', database: 'd', username: 'u', db_password: 'p', table: 't' },
+      });
+      createdSources.push(sourceID);
+      createdSinks.push(sinkID);
+
+      const wfID = await create('/api/workflows', {
+        name: wfName, vhost: 'default', active: false,
+        nodes: [
+          { id: 'n1', type: 'source', ref_id: sourceID, x: 0, y: 0 },
+          { id: 'n2', type: 'sink', ref_id: sinkID, x: 200, y: 0 },
+        ],
+        edges: [{ id: 'e1', source_id: 'n1', target_id: 'n2' }],
+      });
+      seeded.push(wfID);
+      createdWorkflows.push(wfID);
+    }
 
     // --- Create, through Settings → Governance -------------------------------
     await page.goto('/settings');
@@ -57,11 +120,10 @@ test.describe('workspace assignment', () => {
 
     // --- Move a workflow in, from the list -----------------------------------
     await page.goto('/workflows');
-    const firstRow = page.locator('table tbody tr').first();
-    await expect(firstRow).toBeVisible({ timeout: 15000 });
-    const movedName = (await firstRow.locator('td').nth(1).innerText()).trim();
+    const movingRow = page.locator('tr').filter({ hasText: movedName }).first();
+    await expect(movingRow).toBeVisible({ timeout: 15000 });
 
-    await firstRow.getByRole('checkbox').check();
+    await movingRow.getByRole('checkbox').check();
     await page.getByRole('button', { name: /Batch Actions/ }).click();
     await page.getByRole('menuitem', { name: /Move to Workspace/ }).click();
 
@@ -76,13 +138,11 @@ test.describe('workspace assignment', () => {
     // --- The quota is enforced on that path ----------------------------------
     // A second workflow into a max_workflows=1 workspace must be refused. This
     // is what PUT /api/workflows/{id} used to wave through.
-    const wfs = await api(page, 'GET', '/api/workflows?limit=5');
-    const ids: string[] = (wfs.body?.data || []).map((w: any) => w.id);
     const wss = await api(page, 'GET', '/api/workspaces');
     const ws = (wss.body || []).find((w: any) => w.name === name);
     expect(ws, 'the workspace we just created should be listed').toBeTruthy();
 
-    const second = ids.find((id) => id !== ids[0]);
+    const second = seeded[1];
     const before = await api(page, 'GET', `/api/workflows/${second}`);
     const refused = await api(page, 'PUT', `/api/workflows/${second}`, {
       ...before.body,
@@ -113,7 +173,7 @@ test.describe('workspace assignment', () => {
     await expect(page.locator('tr', { hasText: name })).toHaveCount(0, { timeout: 10000 });
 
     // Both members come back unassigned rather than holding a dead id.
-    for (const id of [ids[0], second]) {
+    for (const id of seeded) {
       const after = await api(page, 'GET', `/api/workflows/${id}`);
       expect(after.body.workspace_id || '', `workflow ${id} still references the deleted workspace`).toBe('');
     }

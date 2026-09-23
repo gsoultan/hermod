@@ -430,7 +430,28 @@ func GetValByPath(data map[string]any, path string) any {
 
 	res := gjson.GetBytes(jsonData, path)
 	if !res.Exists() {
-		return nil
+		// Last resort, after both the walk and the round trip: an intermediate
+		// value may be a column holding JSON *text* rather than a decoded
+		// object. pgx decodes jsonb, but a text/varchar column holding JSON,
+		// MariaDB's JSON (a LONGTEXT alias the driver reports as TEXT) and a
+		// body that arrived as a string all stay text -- so `payload.id`
+		// resolved in the editor, which has been through JSON, and walked one
+		// opaque string in the pipeline.
+		//
+		// It sits here, below both, so the fast path and the round trip still
+		// answer every path they answered before and still agree with each
+		// other: TestGetValByPathMatchesJSONRoundTrip compares those two, and
+		// this changes neither.
+		return descendJSONText(path, func(parts []string) any {
+			// The raw value first. GetValByPath normalises a []byte to base64
+			// so it stays identical to the JSON round trip above, and base64 is
+			// not a document to descend into -- the normalisation that keeps
+			// the two readers honest is what hides the bytes from this one.
+			if v, ok := walkPath(data, strings.Join(parts, ".")); ok && v != nil {
+				return v
+			}
+			return GetValByPath(data, strings.Join(parts, "."))
+		})
 	}
 
 	return res.Value()
@@ -583,12 +604,10 @@ func GetMsgRawValByPath(msg hermod.Message, path string) any {
 // The return type is the bare func rather than sqlutil.Resolver so that the
 // evaluator does not import sqlutil; the two are assignable.
 func MessageResolver(msg hermod.Message) func(path string) any {
-	return func(path string) any {
-		if v := GetMsgRawValByPath(msg, path); v != nil {
-			return v
-		}
-		return resolveThroughJSONText(msg, path)
-	}
+	// No JSON-text fallback here: GetMsgValByPath carries it now, so every
+	// reader of a message gets it rather than this one. Re-adding it here would
+	// be the second implementation that started this whole class of bug.
+	return func(path string) any { return GetMsgRawValByPath(msg, path) }
 }
 
 // resolveThroughJSONText retries a path that resolved to nothing by reading an
@@ -620,9 +639,26 @@ func MessageResolver(msg hermod.Message) func(path string) any {
 // editor's own getValByPath (ui/src/utils/transformationUtils.ts) has always
 // done for its preview. The two were the odd pair out.
 func resolveThroughJSONText(msg hermod.Message, path string) any {
+	return descendJSONText(path, func(parts []string) any {
+		return resolveEnclosing(msg, parts)
+	})
+}
+
+// descendJSONText is the one implementation of "read an intermediate value as
+// the JSON document it holds", shared by the map form and the message form.
+//
+// Two copies would be the bug this file already carries scars from: the same
+// column answered one way through a SQL template and another through the
+// condition beside it, precisely because two readers had drifted. enclosing
+// resolves a candidate prefix however the caller resolves anything else, so the
+// two cannot disagree about what a prefix means.
+//
+// The longest prefix is tried first, so the nearest enclosing document wins when
+// JSON is nested inside JSON.
+func descendJSONText(path string, enclosing func(parts []string) any) any {
 	parts := strings.Split(strings.TrimPrefix(path, "$."), ".")
 	for i := len(parts) - 1; i >= 1; i-- {
-		raw, ok := asJSONDocument(resolveEnclosing(msg, parts[:i]))
+		raw, ok := asJSONDocument(enclosing(parts[:i]))
 		if !ok {
 			continue
 		}
@@ -798,7 +834,15 @@ func GetMsgValByPath(msg hermod.Message, path string) any {
 	if v := getValueFromRaw(msg.Payload(), path); v != nil {
 		return v
 	}
-	return getValueFromRaw(msg.Before(), path)
+	if v := getValueFromRaw(msg.Before(), path); v != nil {
+		return v
+	}
+
+	// Last resort: an intermediate value may be a column holding JSON text
+	// rather than a decoded object. This lives here rather than in one caller
+	// so that a condition, a sink mapping, a router and a SQL template all read
+	// such a column the same way -- they disagreed when only the template knew.
+	return resolveThroughJSONText(msg, path)
 }
 
 func getValueFromRaw(raw []byte, path string) any {
