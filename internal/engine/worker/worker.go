@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"fmt"
-	"math"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -43,11 +42,16 @@ type Worker struct {
 	workerCache     []storage.Worker
 	workerCacheTime time.Time
 	workerCacheTTL  time.Duration
-	currentCPU      atomic.Uint64
-	currentMem      atomic.Uint64
-	draining        atomic.Bool
-	healthChecking  atomic.Bool
-	shutdownFunc    context.CancelFunc
+	// currentResources is the last reading of the machine this worker runs on.
+	//
+	// One pointer rather than a float per field: the reading is taken as a unit
+	// by checkHealth and read as a unit by selfWorkerEntry, and a set of
+	// independent atomics can be observed half-updated — a new core count
+	// beside an old memory total, describing a machine that does not exist.
+	currentResources atomic.Pointer[storage.WorkerResources]
+	draining         atomic.Bool
+	healthChecking   atomic.Bool
+	shutdownFunc     context.CancelFunc
 }
 
 // NewWorker creates a new worker.
@@ -205,17 +209,45 @@ func (w *Worker) pollShutdownRequest(ctx context.Context) bool {
 	return false
 }
 
-// SetMetrics updates the worker's current resource usage metrics.
+// SetResources records a complete reading of the machine.
+func (w *Worker) SetResources(res storage.WorkerResources) {
+	w.currentResources.Store(&res)
+}
+
+// Resources returns the last complete reading, or the zero value if none has
+// been taken yet — which reads as "has not said", the same as an old worker.
+func (w *Worker) Resources() storage.WorkerResources {
+	if res := w.currentResources.Load(); res != nil {
+		return *res
+	}
+	return storage.WorkerResources{}
+}
+
+// SetMetrics updates only the two usage fractions, leaving the capacity beside
+// them alone.
+//
+// This is the narrow entry point admission control and its tests use. The
+// compare-and-swap loop is what keeps it from clobbering a capacity reading
+// taken concurrently by checkHealth: a plain load-modify-store would, and the
+// window is exactly the health check that runs on its own goroutine.
 func (w *Worker) SetMetrics(cpu, mem float64) {
-	w.currentCPU.Store(math.Float64bits(cpu))
-	w.currentMem.Store(math.Float64bits(mem))
+	for {
+		old := w.currentResources.Load()
+		next := storage.WorkerResources{}
+		if old != nil {
+			next = *old
+		}
+		next.CPUUsage, next.MemoryUsage = cpu, mem
+		if w.currentResources.CompareAndSwap(old, &next) {
+			return
+		}
+	}
 }
 
 // GetMetrics returns the worker's current resource usage metrics.
 func (w *Worker) GetMetrics() (cpu, mem float64) {
-	cpu = math.Float64frombits(w.currentCPU.Load())
-	mem = math.Float64frombits(w.currentMem.Load())
-	return
+	res := w.Resources()
+	return res.CPUUsage, res.MemoryUsage
 }
 
 // Start starts the worker loop. It is hardened so that an unexpected panic in
@@ -372,14 +404,28 @@ func (w *Worker) SelfRegister(ctx context.Context) error {
 		name = w.workerGUID
 	}
 	now := time.Now()
+	// Take a reading here as well as in checkHealth so the row describes a real
+	// machine from the moment it appears. Without it a worker is listed with no
+	// cores and no disk until its first health check, which is the window an
+	// operator is most likely to be looking at the page.
+	//
+	// Capacity only, and not published to the local view with SetResources.
+	// Both halves of that matter, and both are about the scheduler: see
+	// storage.WorkerResources.Capacity for why a load figure persisted here
+	// makes every worker grab everything, and note that this reading is taken
+	// during process start-up, when CPU is at its spikiest and least
+	// representative. The health check loop takes the first load reading that
+	// counts, as it did before.
+	res := currentHostResources().Capacity()
 	return w.storage.CreateWorker(ctx, storage.Worker{
-		ID:          w.workerGUID,
-		Name:        name,
-		Host:        w.workerHost,
-		Port:        w.workerPort,
-		Description: w.workerDescription,
-		Token:       w.workerToken,
-		LastSeen:    &now,
+		ID:              w.workerGUID,
+		Name:            name,
+		Host:            w.workerHost,
+		Port:            w.workerPort,
+		Description:     w.workerDescription,
+		Token:           w.workerToken,
+		WorkerResources: res,
+		LastSeen:        &now,
 	})
 }
 

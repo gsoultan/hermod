@@ -1,12 +1,74 @@
 import { IconActivity, IconCheck, IconCpu, IconNetwork, IconServer, IconAlertTriangle } from '@tabler/icons-react';
-import { Title, Text, Stack, Paper, Group, Badge, SimpleGrid, RingProgress, ThemeIcon, Table, ScrollArea, Loader, Center } from '@mantine/core'
+import { Title, Text, Stack, Paper, Group, Badge, SimpleGrid, ThemeIcon, Table, ScrollArea, Loader, Center } from '@mantine/core'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/api'
 import { formatTime } from '@/utils/dateUtils'
 import { EmptyState } from '@/components/common/EmptyState';
+import { ResourceGauge } from '@/components/common/ResourceGauge';
+import { NO_READING, formatCapacity, formatPercent, usageFraction } from '@/utils/metricFormat';
+
+/**
+ * One row of the mesh, as the API sends it.
+ *
+ * Workers carry the same resource fields the workers list and the dashboard
+ * use. Mesh clusters are remote endpoints this platform does not measure, so
+ * they carry none of them — which is why every one is optional here and why
+ * the page has to tell an absent reading from a zero. It did not: the row
+ * rendered `node.memory.toFixed(1)` and threw on the first cluster registered.
+ */
+interface MeshNode {
+  id: string
+  name?: string
+  status: string
+  type?: string
+  region?: string
+  endpoint?: string
+  workflows?: number
+  last_seen?: string
+  cpu_usage?: number
+  memory_usage?: number
+  cpu_cores?: number
+  memory_total_bytes?: number
+  memory_used_bytes?: number
+  storage_total_bytes?: number
+  storage_used_bytes?: number
+}
+
+/**
+ * Whether a node's readings describe the present.
+ *
+ * Capacity survives going offline — the machine has the cores it had — but
+ * utilisation does not: it is whatever the node last said, and a filled ring
+ * beside an OFFLINE badge reads as live. The fleet totals drop the node
+ * entirely, matching the dashboard, which counts only workers seen inside the
+ * last two minutes.
+ */
+function isReporting(node: MeshNode): boolean {
+  return node.status !== 'offline'
+}
+
+/**
+ * The busy share of every core in the fleet, or null if nothing reported one.
+ *
+ * Weighted by core count, over the reporting nodes that have cores. The
+ * previous figure was a plain mean of `cpu` over every row — including mesh
+ * clusters, which report nothing — so the fleet looked idler the more clusters
+ * were registered, and a busy two-core box counted the same as an idle
+ * thirty-core one.
+ */
+function fleetCPU(nodes: MeshNode[]): number | null {
+  let cores = 0
+  let busy = 0
+  for (const node of nodes) {
+    if (!isReporting(node) || !node.cpu_cores || node.cpu_cores <= 0) continue
+    cores += node.cpu_cores
+    busy += node.cpu_cores * (node.cpu_usage ?? 0)
+  }
+  return cores > 0 ? busy / cores : null
+}
 
 export default function GlobalHealthPage() {
-  const { data: health, isLoading, error } = useQuery<any[]>({
+  const { data: health, isLoading, error } = useQuery<MeshNode[]>({
     queryKey: ['mesh-health'],
     queryFn: async () => {
       const res = await apiFetch('/api/infra/mesh-health')
@@ -18,9 +80,11 @@ export default function GlobalHealthPage() {
   if (isLoading) return <Center h="100vh"><Loader size="xl" /></Center>
   if (error) return <Center h="100vh"><Text color="red">Failed to load mesh health</Text></Center>
 
-  const onlineWorkers = health?.filter(w => w.status === 'online').length || 0;
-  const totalWorkflows = health?.reduce((acc, w) => acc + w.workflows, 0) || 0;
-  const avgCPU = (health?.reduce((acc, w) => acc + w.cpu, 0) || 0) / (health?.length || 1) * 100;
+  const nodes = health ?? [];
+  const onlineWorkers = nodes.filter(w => w.status === 'online').length;
+  const totalWorkflows = nodes.reduce((acc, w) => acc + (w.workflows ?? 0), 0);
+  const cpu = fleetCPU(nodes);
+  const totalCores = nodes.filter(isReporting).reduce((acc, w) => acc + (w.cpu_cores ?? 0), 0);
 
   return (
     <Stack gap="lg">
@@ -48,8 +112,11 @@ export default function GlobalHealthPage() {
         <Paper withBorder p="md" radius="md">
           <Group justify="space-between">
             <div>
-              <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }}>Avg CPU Load</Text>
-              <Text size="xl" fw={800}>{avgCPU.toFixed(1)}%</Text>
+              <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase' }}>Fleet CPU</Text>
+              <Text size="xl" fw={800}>{cpu === null ? NO_READING : formatPercent(cpu)}</Text>
+              <Text size="xs" c="dimmed">
+                {totalCores > 0 ? `of ${totalCores} core${totalCores === 1 ? '' : 's'}` : 'No node reported a core count'}
+              </Text>
             </div>
             <ThemeIcon color="orange" variant="light" size="xl" radius="md">
               <IconCpu size="1.4rem" />
@@ -85,7 +152,7 @@ export default function GlobalHealthPage() {
 
       <Paper withBorder radius="md">
         <ScrollArea h={500}>
-          <Table.ScrollContainer minWidth={700}>
+          <Table.ScrollContainer minWidth={1100}>
             <Table verticalSpacing="md" horizontalSpacing="lg">
             <Table.Thead>
               <Table.Tr>
@@ -94,13 +161,14 @@ export default function GlobalHealthPage() {
                 <Table.Th>Workload</Table.Th>
                 <Table.Th>CPU</Table.Th>
                 <Table.Th>Memory</Table.Th>
+                <Table.Th>Storage</Table.Th>
                 <Table.Th>Last Seen</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {!isLoading && (health?.length ?? 0) === 0 && (
                 <Table.Tr>
-                  <Table.Td colSpan={6}>
+                  <Table.Td colSpan={7}>
                     <EmptyState
                       compact
                       icon={<IconServer size={22} />}
@@ -144,22 +212,44 @@ export default function GlobalHealthPage() {
                   <Table.Td>
                     <Group gap="xs">
                       <IconActivity size={14} color="var(--mantine-color-blue-6)" />
-                      <Text size="sm">{node.workflows} workflows</Text>
+                      <Text size="sm">{node.workflows ?? 0} workflows</Text>
                     </Group>
                   </Table.Td>
+                  {/* The same gauge the workers list uses, so a machine reads
+                      the same way on both screens. A mesh cluster reports none
+                      of this and renders as no reading rather than as an idle
+                      machine — the previous row threw outright on one, because
+                      `node.memory.toFixed` is undefined when the field is. */}
                   <Table.Td>
-                    <Group gap="xs">
-                      <RingProgress
-                        size={35}
-                        thickness={4}
-                        roundCaps
-                        sections={[{ value: node.cpu * 100, color: node.cpu > 0.8 ? 'red' : 'blue' }]}
-                      />
-                      <Text size="sm">{(node.cpu * 100).toFixed(0)}%</Text>
-                    </Group>
+                    <ResourceGauge
+                      fraction={isReporting(node) ? node.cpu_usage ?? null : null}
+                      caption={node.cpu_cores ? `${node.cpu_cores} core${node.cpu_cores === 1 ? '' : 's'}` : NO_READING}
+                      tooltip="CPU"
+                    />
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm">{node.memory.toFixed(1)} MB</Text>
+                    <ResourceGauge
+                      fraction={
+                        isReporting(node)
+                          ? usageFraction(node.memory_used_bytes ?? 0, node.memory_total_bytes ?? 0)
+                            ?? node.memory_usage
+                            ?? null
+                          : null
+                      }
+                      caption={formatCapacity(node.memory_used_bytes ?? 0, node.memory_total_bytes ?? 0)}
+                      tooltip="Memory"
+                    />
+                  </Table.Td>
+                  <Table.Td>
+                    <ResourceGauge
+                      fraction={
+                        isReporting(node)
+                          ? usageFraction(node.storage_used_bytes ?? 0, node.storage_total_bytes ?? 0)
+                          : null
+                      }
+                      caption={formatCapacity(node.storage_used_bytes ?? 0, node.storage_total_bytes ?? 0)}
+                      tooltip="Storage (data directory)"
+                    />
                   </Table.Td>
                   <Table.Td>
                     <Text size="xs" c="dimmed">{formatTime(node.last_seen)}</Text>

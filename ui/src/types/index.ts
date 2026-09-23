@@ -49,8 +49,21 @@ export interface Worker {
   status: string;
   vhost?: string;
   last_seen?: string;
+  /**
+   * What the worker's machine is, and how much of it is gone.
+   *
+   * All optional, and zero means "did not say" rather than "none": a worker on
+   * a release from before capacity reporting leaves every one of these unset,
+   * and the columns are nullable in the database. Render an absent reading as
+   * NO_READING, never as 0 — see usageFraction in @/utils/metricFormat.
+   */
   cpu_usage?: number;
   memory_usage?: number;
+  cpu_cores?: number;
+  memory_total_bytes?: number;
+  memory_used_bytes?: number;
+  storage_total_bytes?: number;
+  storage_used_bytes?: number;
   draining?: boolean;
 }
 

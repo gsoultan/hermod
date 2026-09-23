@@ -7,6 +7,66 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### The dashboard and the workers page now say how big the machines are
+
+Both screens could report utilisation and nothing else. The workers page drew
+two rings — CPU and memory, as percentages — and the dashboard reported a count
+of online workers. "80% CPU" is the same reading on a two-core box and a
+sixty-four-core one, and neither screen mentioned disk at all, so a worker about
+to fill the filesystem its metadata database lives on looked exactly like one
+with a terabyte spare.
+
+Workers now report capacity alongside utilisation: logical cores, total and used
+memory, and the total and used size of the filesystem holding the data directory
+(`HERMOD_CONFIG_DIR`, or `~/.hermod`). That disk and not every disk on the box —
+it is the one a full volume stops Hermod on.
+
+- **Workers page** — CPU, Memory and Storage columns, each a ring over the
+  capacity it is a share of: "8 cores", "16 / 32 GB", "125 / 500 GB". Storage is
+  new; the other two gained the size underneath. The rings gained a third
+  pressure band at 90%, because the gap between a disk at 82% and one at 98% is
+  the difference between next week's problem and tonight's.
+- **Dashboard** — a Cluster resources row: cores, memory and storage totalled
+  over the workers counted in "active". Totals rather than averages, since an
+  average hides a node that is full beside one that is idle. The CPU share is
+  weighted by core count, so a busy two-core box next to an idle thirty-core one
+  reads as 6% rather than 50%.
+
+Nothing invents a reading it does not have. A worker running an older release
+reports no capacity, and both screens render that as an em-dash rather than a
+zero — a cluster of machines with no CPU and no disk is a claim, and "we did not
+measure" is the truth. Those workers are also left out of the cluster totals
+entirely rather than averaged in as idle ones.
+
+Five nullable columns are added to `workers` by the usual start-up migration.
+An older release rolled back onto the database keeps registering workers and
+keeps updating `last_seen`, CPU and memory; it simply stops refreshing the
+capacity columns, which resume on roll-forward.
+
+- **Mesh Health** — the third screen that describes a worker, and the one that
+  described it worst. It carried a `memory` field holding a fraction in 0..1 and
+  rendered it as `{node.memory.toFixed(1)} MB`, so a worker using 78% of its
+  memory appeared as **"0.8 MB"**. It now shows the same CPU, Memory and Storage
+  gauges as the workers page. Registering a mesh cluster used to throw the page
+  away outright — a cluster carries no resource fields, and `undefined.toFixed`
+  is a TypeError — which is now a no-reading row. "Avg CPU Load" was a plain
+  mean over every row including those clusters, so the fleet looked idler the
+  more of them were registered; it is now a core-weighted "Fleet CPU" over the
+  reporting nodes only. An offline node keeps its capacity, which is still true,
+  and loses its utilisation ring, which is not.
+
+  `/api/infra/mesh-health` therefore replaces its `cpu` and `memory` fields with
+  the same `cpu_usage`, `memory_usage`, `cpu_cores`, `memory_total_bytes`,
+  `memory_used_bytes`, `storage_total_bytes` and `storage_used_bytes` the rest
+  of the API uses. The UI is the only known consumer; keeping the old names as
+  aliases would ship one figure twice under two spellings, one of which has
+  already been read wrong.
+
+Also fixed on the way through: on the MongoDB backend, `storage.Worker` decoded
+`lastseen`, `cpuusage` and `memoryusage` while the writes used `last_seen`,
+`cpu_usage` and `memory_usage`. Every worker read back with no heartbeat and no
+usage, which the UI renders as permanently offline.
+
 ### An unsupported metadata store failed with an error about a missing import
 
 Configuring a database Hermod does not keep its catalogue in produced:
