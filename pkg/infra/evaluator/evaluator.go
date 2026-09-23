@@ -996,6 +996,48 @@ func ToTime(val any) (time.Time, bool) {
 // loop that occurs when a resolved value itself contains a self-referential
 // {{ ... }} token (e.g. data field "a" whose value is literally "{{a}}").
 func ResolveTemplate(temp string, data map[string]any) string {
+	return scanTemplate(temp, func(path string) string {
+		return resolveTemplatePath(path, data)
+	})
+}
+
+// ResolveTemplateMsg is ResolveTemplate bound to a message rather than to a
+// bare map, and it is what a template on a message-scoped node wants.
+//
+// The map form walks data literally, via GetValByPath. A CDC message's data map
+// *is* its after-image, so {{.after.user_id}} has nothing to walk there and
+// resolves to the empty string -- the request, statement or header still goes
+// out, with "" where the id belonged, and the endpoint's 4xx is what gets
+// reported. MessageResolver answers the data map first and then the CDC
+// envelope (after., before.), the virtual fields (operation, table, schema) and
+// meta., which is what every condition and sink mapping already resolves.
+//
+// An expression token -- fn(...) -- is evaluated against the real message here
+// instead of a mock built from its data map, so source.* and the virtual fields
+// are reachable from an expression too.
+func ResolveTemplateMsg(temp string, msg hermod.Message) string {
+	if msg == nil {
+		return ResolveTemplate(temp, nil)
+	}
+	// Bound once, not per token: a body template holding a dozen tokens
+	// otherwise allocates a closure for each one.
+	resolve := MessageResolver(msg)
+	return scanTemplate(temp, func(path string) string {
+		switch {
+		case strings.HasPrefix(path, "env."):
+			// Environment variable access is disabled for security reasons
+			return ""
+		case strings.Contains(path, "(") && strings.HasSuffix(path, ")"):
+			return stringify(NewEvaluator().ParseAndEvaluate(msg, path))
+		default:
+			return stringify(resolve(strings.TrimPrefix(path, ".")))
+		}
+	})
+}
+
+// scanTemplate is the single forward pass both resolvers share; resolve turns
+// one token's inner text into the string written in its place.
+func scanTemplate(temp string, resolve func(path string) string) string {
 	var out strings.Builder
 	i := 0
 	for i < len(temp) {
@@ -1015,7 +1057,7 @@ func ResolveTemplate(temp string, data map[string]any) string {
 		}
 		end := start + 2 + closeRel
 		path := strings.TrimSpace(temp[start+2 : end])
-		out.WriteString(resolveTemplatePath(path, data))
+		out.WriteString(resolve(path))
 
 		// Advance past the closing "}}" so the substituted value is not
 		// processed again, guaranteeing termination.
@@ -1045,13 +1087,12 @@ func resolveTemplatePath(path string, data map[string]any) string {
 		val = GetValByPath(data, strings.TrimPrefix(path, "."))
 	}
 
-	if val == nil {
-		return ""
-	}
-	if s, ok := val.(string); ok {
-		return s
-	}
-	return fmt.Sprintf("%v", val)
+	// stringify, not %v: the two resolvers have to write the same text for the
+	// same value, and %v renders a float above 1e6 in exponent form -- so an id
+	// or timestamp substituted into a URL or a JSON body went out as
+	// "1.704207845e+09" where the wire, the browser and the sample panel all
+	// said 1704207845. See stringify's comment for the full case.
+	return stringify(val)
 }
 
 func EvaluateField(msg hermod.Message, field string) any {
