@@ -1488,12 +1488,22 @@ func (h *InfraHandler) GetMeshHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The resources are the same struct the workers list and the dashboard
+	// carry, inlined so all three describe a machine in one vocabulary.
+	//
+	// It replaces a `cpu` and a `memory` field that both held fractions. The
+	// page rendered the second as `{node.memory.toFixed(1)} MB`, so a worker
+	// using 78% of its memory read as "0.8 MB" — a fraction with a unit bolted
+	// on. Nothing outside this repository is a known consumer, and keeping the
+	// old names as aliases would mean shipping the same figure twice under two
+	// spellings, one of which has already been read wrong once.
 	type ClusterHealth struct {
-		ID         string    `json:"id"`
-		Name       string    `json:"name"`
-		Status     string    `json:"status"`
-		CPU        float64   `json:"cpu"`
-		Memory     float64   `json:"memory"`
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Status string `json:"status"`
+
+		storage.WorkerResources
+
 		LastSeen   time.Time `json:"last_seen"`
 		Workflows  int       `json:"workflows"`
 		ErrorCount int       `json:"error_count"`
@@ -1527,14 +1537,13 @@ func (h *InfraHandler) GetMeshHealth(w http.ResponseWriter, r *http.Request) {
 		}
 
 		health = append(health, ClusterHealth{
-			ID:        wrk.ID,
-			Name:      wrk.Name,
-			Status:    status,
-			CPU:       wrk.CPUUsage,
-			Memory:    wrk.MemoryUsage,
-			LastSeen:  lastSeen,
-			Workflows: workflowCounts[wrk.ID],
-			Type:      "worker",
+			ID:              wrk.ID,
+			Name:            wrk.Name,
+			Status:          status,
+			WorkerResources: wrk.WorkerResources,
+			LastSeen:        lastSeen,
+			Workflows:       workflowCounts[wrk.ID],
+			Type:            "worker",
 		})
 	}
 

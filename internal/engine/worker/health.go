@@ -2,14 +2,11 @@ package worker
 
 import (
 	"context"
-	"runtime"
 	"sync"
 	"time"
 
 	"github.com/gsoultan/hermod/internal/factory"
 	"github.com/gsoultan/hermod/internal/storage"
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/mem"
 )
 
 func (w *Worker) checkHealth(ctx context.Context) {
@@ -23,9 +20,9 @@ func (w *Worker) checkHealth(ctx context.Context) {
 	}
 	w.lastHealthCheck = time.Now()
 	if w.workerGUID != "" {
-		cpuUsage, memUsage := w.getMetrics()
-		w.SetMetrics(cpuUsage, memUsage)
-		_ = w.storage.UpdateWorkerHeartbeat(ctx, w.workerGUID, cpuUsage, memUsage)
+		res := currentHostResources()
+		w.SetResources(res)
+		_ = w.storage.UpdateWorkerHeartbeat(ctx, w.workerGUID, res)
 	}
 	w.checkResourcesHealth(ctx)
 }
@@ -37,19 +34,6 @@ func (w *Worker) checkHealth(ctx context.Context) {
 func (w *Worker) heartbeatInterval() time.Duration {
 	secs := min(30, max(5, w.leaseTTLSeconds))
 	return time.Duration(secs) * time.Second
-}
-
-func (w *Worker) getMetrics() (float64, float64) {
-	v, _ := mem.VirtualMemory()
-	memUsage := v.UsedPercent / 100.0
-	c, _ := cpu.Percent(100*time.Millisecond, false)
-	cpuUsage := 0.0
-	if len(c) > 0 {
-		cpuUsage = c[0] / 100.0
-	} else {
-		cpuUsage = float64(runtime.NumGoroutine()) / (float64(runtime.NumCPU()) * 100.0)
-	}
-	return min(1.0, cpuUsage), min(1.0, memUsage)
 }
 
 // maxConcurrentHealthChecks bounds how many resource health probes run in

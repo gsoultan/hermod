@@ -31,6 +31,8 @@ import {
 } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { apiFetch } from '@/api';
+import { StatCard } from '@/components/system/StatCard';
+import { ClusterResourceCards } from '@/components/system/ClusterResourceCards';
 import { useNavigate } from '@tanstack/react-router';
 import { formatDateTime } from '@/utils/dateUtils';
 import { DataLineageModal } from '@/components/modals/DataLineageModal';
@@ -103,52 +105,6 @@ function ThroughputChart({ data }: { data: number[] }) {
         <circle cx={latest.x} cy={latest.y} r="8" fill="var(--mantine-color-indigo-6)" fillOpacity="0.2" />
       </svg>
     </Box>
-  );
-}
-
-interface StatCardProps {
-  title: string;
-  value: string | number;
-  icon: React.ElementType;
-  color: string;
-  description?: string;
-}
-
-/**
- * A single metric.
- *
- * There is deliberately no trend badge. The previous version rendered a
- * hardcoded "+5%" whenever throughput was above zero — a number with no source
- * behind it, on the one screen whose entire job is to be believed.
- */
-function StatCard({ title, value, icon: Icon, color, description }: StatCardProps) {
-  return (
-    <Paper
-      withBorder
-      p="md"
-      radius="md"
-      h="100%"
-      style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
-    >
-      <Group justify="space-between" wrap="nowrap">
-        <div>
-          <Text size="xs" c="dimmed" fw={700} style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            {title}
-          </Text>
-          <Text size="xl" fw={800} mt={4}>
-            {value}
-          </Text>
-        </div>
-        <ThemeIcon color={color} variant="light" size="xl" radius="md">
-          <Icon size="1.4rem" />
-        </ThemeIcon>
-      </Group>
-      {description && (
-        <Text size="xs" c="dimmed" mt="md">
-          {description}
-        </Text>
-      )}
-    </Paper>
   );
 }
 
@@ -393,6 +349,12 @@ export function DashboardPage() {
         <Grid gap="md">
           <Grid.Col span={12}>{pipelineCards}</Grid.Col>
           <Grid.Col span={12}>{healthCards}</Grid.Col>
+          {/* What the platform is running on. Third row, not first: the
+              pipeline is what the reader came for, and the machines under it
+              are the next question rather than the opening one. */}
+          <Grid.Col span={12}>
+            <ClusterResourceCards stats={stats} />
+          </Grid.Col>
 
           <Grid.Col span={{ base: 12, lg: 8 }}>
             <Paper withBorder p="md" radius="md" h="100%" style={{ display: 'flex', flexDirection: 'column' }}>

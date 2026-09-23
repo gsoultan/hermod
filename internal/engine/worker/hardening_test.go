@@ -117,7 +117,7 @@ func (s *hardeningStorage) DeleteWorker(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *hardeningStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error {
+func (s *hardeningStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, res storage.WorkerResources) error {
 	s.heartbeats.Add(1)
 	if err := s.down(); err != nil {
 		return err
@@ -129,7 +129,7 @@ func (s *hardeningStorage) UpdateWorkerHeartbeat(ctx context.Context, id string,
 		return nil
 	}
 	now := time.Now()
-	w.LastSeen, w.CPUUsage, w.MemoryUsage = &now, cpu, mem
+	w.LastSeen, w.WorkerResources = &now, res
 	s.workers[id] = w
 	return nil
 }

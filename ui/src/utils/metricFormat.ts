@@ -76,3 +76,71 @@ export function formatUptime(seconds: number): string {
   if (minutes > 0) return `${minutes}m ${secs}s`;
   return `${secs}s`;
 }
+
+/**
+ * Byte units, largest first, so the first one a value clears is the one used.
+ *
+ * Binary (1024) rather than decimal (1000): these numbers come from the
+ * operating system, which reports a 32 GiB machine as 34,359,738,368 bytes.
+ * Dividing by 1000 would render that as "34.4 GB" next to a sticker that says
+ * 32, and the reader would be right to distrust the number rather than the
+ * unit.
+ */
+const BYTE_UNITS: ReadonlyArray<[string, number]> = [
+  ['TB', 1024 ** 4],
+  ['GB', 1024 ** 3],
+  ['MB', 1024 ** 2],
+  ['KB', 1024],
+];
+
+/** Drops a trailing ".0" so whole numbers read as whole numbers. */
+function trim(value: number): string {
+  return value.toFixed(1).replace(/\.0$/, '');
+}
+
+/**
+ * Renders a size in bytes.
+ *
+ * Zero is no reading rather than "0 B". A worker running a release from before
+ * capacity reporting leaves these columns null, and the API sends zero; showing
+ * a machine with no memory would be inventing a fact about it. The same is true
+ * of a negative value, which can only be a bug upstream.
+ */
+export function formatBytes(bytes: number): string {
+  if (!isReadable(bytes) || bytes <= 0) return NO_READING;
+
+  for (const [unit, size] of BYTE_UNITS) {
+    if (bytes >= size) return `${trim(bytes / size)} ${unit}`;
+  }
+  return `${Math.round(bytes)} B`;
+}
+
+/**
+ * Renders used against total — "16 / 32 GB".
+ *
+ * One unit for both sides, chosen from the total, because the pair only reads
+ * as a fraction if the two halves are comparable at a glance: "512000 MB / 2 TB"
+ * makes the reader do arithmetic to find out whether that is a full disk.
+ *
+ * A missing total is no reading: without it the used figure has no meaning
+ * here, and a bare "16 GB used" in a column headed "Memory" would be read as
+ * the machine's size.
+ */
+export function formatCapacity(used: number, total: number): string {
+  if (!isReadable(used) || !isReadable(total) || total <= 0 || used < 0) return NO_READING;
+
+  const [unit, size] = BYTE_UNITS.find(([, s]) => total >= s) ?? ['B', 1];
+  return `${trim(used / size)} / ${trim(total / size)} ${unit}`;
+}
+
+/**
+ * The used share of a total, 0..1, or null when there is nothing to divide by.
+ *
+ * Null rather than 0 on purpose. These feed progress rings, and a ring drawn at
+ * 0% says "measured, and empty" — the opposite of "not measured". The caller
+ * has to decide what an absent reading looks like, which is the point.
+ */
+export function usageFraction(used: number, total: number): number | null {
+  if (!isReadable(used) || !isReadable(total) || total <= 0 || used < 0) return null;
+  return Math.min(1, used / total);
+}

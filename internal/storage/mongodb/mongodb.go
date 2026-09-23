@@ -1176,6 +1176,12 @@ func (s *mongoStorage) CreateWorker(ctx context.Context, worker storage.Worker) 
 		"last_seen":    worker.LastSeen,
 		"cpu_usage":    worker.CPUUsage,
 		"memory_usage": worker.MemoryUsage,
+
+		"cpu_cores":           worker.CPUCores,
+		"memory_total_bytes":  worker.MemoryTotalBytes,
+		"memory_used_bytes":   worker.MemoryUsedBytes,
+		"storage_total_bytes": worker.StorageTotalBytes,
+		"storage_used_bytes":  worker.StorageUsedBytes,
 	})
 	return err
 }
@@ -1191,16 +1197,28 @@ func (s *mongoStorage) UpdateWorker(ctx context.Context, worker storage.Worker) 
 		"last_seen":    worker.LastSeen,
 		"cpu_usage":    worker.CPUUsage,
 		"memory_usage": worker.MemoryUsage,
+
+		"cpu_cores":           worker.CPUCores,
+		"memory_total_bytes":  worker.MemoryTotalBytes,
+		"memory_used_bytes":   worker.MemoryUsedBytes,
+		"storage_total_bytes": worker.StorageTotalBytes,
+		"storage_used_bytes":  worker.StorageUsedBytes,
 	}})
 	return err
 }
 
-func (s *mongoStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, cpu, mem float64) error {
+func (s *mongoStorage) UpdateWorkerHeartbeat(ctx context.Context, id string, res storage.WorkerResources) error {
 	coll := s.db.Collection("workers")
 	_, err := coll.UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": bson.M{
 		"last_seen":    time.Now(),
-		"cpu_usage":    cpu,
-		"memory_usage": mem,
+		"cpu_usage":    res.CPUUsage,
+		"memory_usage": res.MemoryUsage,
+
+		"cpu_cores":           res.CPUCores,
+		"memory_total_bytes":  res.MemoryTotalBytes,
+		"memory_used_bytes":   res.MemoryUsedBytes,
+		"storage_total_bytes": res.StorageTotalBytes,
+		"storage_used_bytes":  res.StorageUsedBytes,
 	}})
 	return err
 }
@@ -2161,12 +2179,71 @@ func (s *mongoStorage) GetDashboardStats(ctx context.Context, vhost string) (sto
 	count, _ = snkColl.CountDocuments(ctx, activeSnkFilter)
 	stats.ActiveSinks = int(count)
 
-	// Workers Stats
+	// Workers, and the machines behind them. Same window for both: capacity
+	// belonging to a worker that has stopped reporting describes a machine that
+	// may no longer be there. See DashboardStats for why these are totals.
 	activeThreshold := time.Now().Add(-2 * time.Minute)
-	count, _ = workerColl.CountDocuments(ctx, bson.M{"last_seen": bson.M{"$gt": activeThreshold}})
+	onlineWorkers := bson.M{"last_seen": bson.M{"$gt": activeThreshold}}
+	count, _ = workerColl.CountDocuments(ctx, onlineWorkers)
 	stats.ActiveWorkers = int(count)
+	if err := s.readClusterResources(ctx, workerColl, onlineWorkers, &stats); err != nil {
+		return stats, err
+	}
 
 	return stats, nil
+}
+
+// readClusterResources totals the capacity of the online workers.
+//
+// The CPU fraction is weighted by each worker's core count, and workers that
+// report no cores contribute to neither side of it — the same rule the SQL
+// backend applies, and for the same reason: a worker on a release from before
+// capacity reporting is silent, not idle, and averaging its zero in would make
+// the cluster look emptier the more old workers were running.
+func (s *mongoStorage) readClusterResources(ctx context.Context, coll *mongo.Collection, match bson.M, stats *storage.DashboardStats) error {
+	cursor, err := coll.Aggregate(ctx, []bson.M{
+		{"$match": match},
+		{"$group": bson.M{
+			"_id":        nil,
+			"cores":      bson.M{"$sum": bson.M{"$ifNull": []any{"$cpu_cores", 0}}},
+			"busyCores":  bson.M{"$sum": bson.M{"$multiply": []any{bson.M{"$ifNull": []any{"$cpu_usage", 0}}, bson.M{"$ifNull": []any{"$cpu_cores", 0}}}}},
+			"memTotal":   bson.M{"$sum": bson.M{"$ifNull": []any{"$memory_total_bytes", 0}}},
+			"memUsed":    bson.M{"$sum": bson.M{"$ifNull": []any{"$memory_used_bytes", 0}}},
+			"storeTotal": bson.M{"$sum": bson.M{"$ifNull": []any{"$storage_total_bytes", 0}}},
+			"storeUsed":  bson.M{"$sum": bson.M{"$ifNull": []any{"$storage_used_bytes", 0}}},
+		}},
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = cursor.Close(ctx) }()
+
+	// No online workers means no group, which is an empty cursor rather than a
+	// row of zeros — leaving stats at its zero value, which is the right answer.
+	if !cursor.Next(ctx) {
+		return cursor.Err()
+	}
+	var agg struct {
+		Cores      int64   `bson:"cores"`
+		BusyCores  float64 `bson:"busyCores"`
+		MemTotal   int64   `bson:"memTotal"`
+		MemUsed    int64   `bson:"memUsed"`
+		StoreTotal int64   `bson:"storeTotal"`
+		StoreUsed  int64   `bson:"storeUsed"`
+	}
+	if err := cursor.Decode(&agg); err != nil {
+		return err
+	}
+
+	stats.CPUCores = int(agg.Cores)
+	stats.MemoryTotalBytes = agg.MemTotal
+	stats.MemoryUsedBytes = agg.MemUsed
+	stats.StorageTotalBytes = agg.StoreTotal
+	stats.StorageUsedBytes = agg.StoreUsed
+	if agg.Cores > 0 {
+		stats.CPUUsage = agg.BusyCores / float64(agg.Cores)
+	}
+	return nil
 }
 
 // dashboardSampleDoc is the stored shape of a history point.

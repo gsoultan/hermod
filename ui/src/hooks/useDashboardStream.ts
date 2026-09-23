@@ -19,6 +19,17 @@ export interface DashboardStats {
   avg_latency_ms: number;
   backpressure: number;
   circuit_breakers_open: number;
+
+  /**
+   * The machines behind the platform, totalled over the workers counted in
+   * active_workers. Zero means no online worker reported a size.
+   */
+  cpu_cores: number;
+  cpu_usage: number;
+  memory_total_bytes: number;
+  memory_used_bytes: number;
+  storage_total_bytes: number;
+  storage_used_bytes: number;
 }
 
 export interface DashboardSample {
@@ -52,6 +63,12 @@ export const EMPTY_STATS: DashboardStats = {
   avg_latency_ms: 0,
   backpressure: 0,
   circuit_breakers_open: 0,
+  cpu_cores: 0,
+  cpu_usage: 0,
+  memory_total_bytes: 0,
+  memory_used_bytes: 0,
+  storage_total_bytes: 0,
+  storage_used_bytes: 0,
 };
 
 /**
