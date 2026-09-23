@@ -66,120 +66,12 @@ func TestStringifyNumberMatchesTheWire(t *testing.T) {
 	}
 }
 
-// TestConditionMatchesAWideInteger drives the whole operator surface over a
-// field wide enough to have been reformatted, because `=` was not the only
-// casualty: contains and regex read the same string.
-func TestConditionMatchesAWideInteger(t *testing.T) {
-	const id = 1704207845
+// The wide-integer table moved to testdata/condition_cases.json, so the
+// editor runs the same cases -- see condition_fixture_test.go.
 
-	for _, tc := range []struct {
-		op    string
-		value string
-		want  bool
-	}{
-		{"=", "1704207845", true},
-		{"=", "1704207846", false},
-		{"!=", "1704207845", false},
-		{"!=", "1704207846", true},
-		{"contains", "042078", true},
-		{"contains", "e+09", false},
-		{"not_contains", "042078", false},
-		{"regex", "^1704", true},
-		{"regex", `^\d+$`, true},
-		{"not_regex", "^1704", false},
-		{">", "1704207844", true},
-		{"<", "1704207846", true},
-	} {
-		t.Run(tc.op+"/"+tc.value, func(t *testing.T) {
-			got := EvaluateConditions(numberMsg("id", float64(id)),
-				[]map[string]any{{"field": "id", "operator": tc.op, "value": tc.value}})
-			if got != tc.want {
-				t.Errorf("id %d %s %q = %v, want %v", id, tc.op, tc.value, got, tc.want)
-			}
-		})
-	}
-}
+// The numeric-equality table moved to testdata/condition_cases.json.
 
-// TestEqualityOnANumberIsNumeric: `>` compared a numeric field as a number
-// while `=` compared it as text, so one case list ran under two type regimes.
-// A user typing a money amount as 100.00 got "not equal" from a field holding
-// 100.5's neighbour 100.0 -- the same number, written the way money is written.
-//
-// The rule is narrow on purpose: exact text equality still wins first, so no
-// comparison that matched before stops matching, and the numeric path is only
-// taken when the *field* is genuinely a number. A string field keeps string
-// semantics, so an identifier like "007" does not start equalling "7".
-func TestEqualityOnANumberIsNumeric(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		field any
-		value string
-		eq    bool
-	}{
-		{"same number, trailing zero", 100.0, "100.00", true},
-		{"same number, decimal zero", 100.5, "100.50", true},
-		{"same number, leading zero", 100.0, "0100", true},
-		{"same number, plus sign", 100.0, "+100", true},
-		{"same number, exponent", 100.0, "1e2", true},
-		{"same text", 100.0, "100", true},
-		{"different number", 100.0, "101", false},
-		{"not a number", 100.0, "abc", false},
-		{"string field keeps string equality", "007", "7", false},
-		{"string field exact still matches", "007", "007", true},
-		{"string field numeric text", "100.0", "100.00", false},
-		{"bool field is not a number", true, "1", false},
-		{"empty value is not zero", 0.0, "", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			eq := EvaluateConditions(numberMsg("f", tc.field),
-				[]map[string]any{{"field": "f", "operator": "=", "value": tc.value}})
-			if eq != tc.eq {
-				t.Errorf("%#v = %q gave %v, want %v", tc.field, tc.value, eq, tc.eq)
-			}
-
-			// != must be the exact negation, or a config can satisfy both.
-			ne := EvaluateConditions(numberMsg("f", tc.field),
-				[]map[string]any{{"field": "f", "operator": "!=", "value": tc.value}})
-			if ne == eq {
-				t.Errorf("%#v: = and != both returned %v for %q", tc.field, eq, tc.value)
-			}
-		})
-	}
-}
-
-// TestConditionOperatorsAreAllReachable: every operator the editor offers must
-// be understood here, or a user picks one from the dropdown and gets a silent
-// false. The list is FilterEditor.tsx's and SwitchConfig.tsx's, plus the
-// aliases stored configs use.
-func TestConditionOperatorsAreAllReachable(t *testing.T) {
-	offered := []string{
-		"=", "!=", ">", ">=", "<", "<=",
-		"contains", "not_contains", "regex", "not_regex",
-		"eq", "neq", "gt", "gte", "lt", "lte",
-	}
-
-	for _, op := range offered {
-		t.Run(op, func(t *testing.T) {
-			// Pick a field and value that make the operator true, so a
-			// blanket `return false` cannot pass.
-			field, value := any("abc"), "abc"
-			switch op {
-			case "!=", "neq", "not_contains", "not_regex":
-				value = "zzz"
-			case ">", "gt", ">=", "gte":
-				field, value = 10.0, "5"
-			case "<", "lt", "<=", "lte":
-				field, value = 5.0, "10"
-			case "regex":
-				value = "^a"
-			}
-			if !EvaluateConditions(numberMsg("f", field),
-				[]map[string]any{{"field": "f", "operator": op, "value": value}}) {
-				t.Errorf("operator %q did not match %#v against %q; it is offered in the editor", op, field, value)
-			}
-		})
-	}
-}
+// The operator table moved to testdata/condition_cases.json.
 
 // A []byte field reaches a condition as base64, because that is what a JSON
 // round trip makes of it and what the API hands the browser. This is not a bug

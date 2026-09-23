@@ -1,0 +1,149 @@
+{
+  "_comment": [
+    "The condition contract, read by BOTH sides:",
+    "  pkg/infra/evaluator/condition_number_shape_test.go  (EvaluateConditions)",
+    "  ui/src/__tests__/matchesConditionParity.test.ts     (matchesCondition)",
+    "",
+    "It lives in one file because the previous arrangement was two hand-kept",
+    "tables, one 'transcribed' from the other. That catches a TypeScript",
+    "regression against a frozen snapshot of Go; it does not catch the Go side",
+    "changing, because nothing makes the transcription fail when the original",
+    "moves. Adding an operator in Go left the editor asserting the old truth,",
+    "green, while the twins had actually drifted.",
+    "",
+    "JSON is the right medium and not an accident: every read path normalises a",
+    "field through a JSON round trip, so the values here arrive at both",
+    "implementations the way a real message's would.",
+    "",
+    "Adding a case is one edit and both languages run it."
+  ],
+
+  "operators": {
+    "_comment": [
+      "Every operator the editor offers, each with a field and value that make",
+      "it TRUE -- so a blanket `return false` cannot pass -- plus negations that",
+      "must be FALSE, so a blanket `return true` cannot either.",
+      "The second group are aliases: stored configs and the API use them."
+    ],
+    "matching": [
+      { "operator": "=",            "field": "abc", "value": "abc" },
+      { "operator": "!=",           "field": "abc", "value": "zzz" },
+      { "operator": ">",            "field": 10,    "value": "5"   },
+      { "operator": ">=",           "field": 10,    "value": "5"   },
+      { "operator": "<",            "field": 5,     "value": "10"  },
+      { "operator": "<=",           "field": 5,     "value": "10"  },
+      { "operator": "contains",     "field": "abc", "value": "b"   },
+      { "operator": "not_contains", "field": "abc", "value": "zzz" },
+      { "operator": "regex",        "field": "abc", "value": "^a"  },
+      { "operator": "not_regex",    "field": "abc", "value": "zzz" },
+      { "operator": "eq",           "field": "abc", "value": "abc" },
+      { "operator": "neq",          "field": "abc", "value": "zzz" },
+      { "operator": "gt",           "field": 10,    "value": "5"   },
+      { "operator": "gte",          "field": 10,    "value": "5"   },
+      { "operator": "lt",           "field": 5,     "value": "10"  },
+      { "operator": "lte",          "field": 5,     "value": "10"  }
+    ],
+    "notMatching": [
+      { "operator": "not_contains", "field": "abc", "value": "b"   },
+      { "operator": "not_regex",    "field": "abc", "value": "^a"  },
+      { "operator": "neq",          "field": "abc", "value": "abc" }
+    ]
+  },
+
+  "numericEquality": {
+    "_comment": [
+      "`=` on a number is numeric, so the spelling of the value does not matter;",
+      "on a string it stays string equality, so an id does not lose its zeros.",
+      "`!=` must be the exact negation of each, or a config can satisfy both."
+    ],
+    "cases": [
+      { "name": "same number, trailing zero",        "field": 100,     "value": "100.00", "equal": true  },
+      { "name": "same number, decimal zero",         "field": 100.5,   "value": "100.50", "equal": true  },
+      { "name": "same number, leading zero",         "field": 100,     "value": "0100",   "equal": true  },
+      { "name": "same number, plus sign",            "field": 100,     "value": "+100",   "equal": true  },
+      { "name": "same number, exponent",             "field": 100,     "value": "1e2",    "equal": true  },
+      { "name": "same text",                         "field": 100,     "value": "100",    "equal": true  },
+      { "name": "different number",                  "field": 100,     "value": "101",    "equal": false },
+      { "name": "not a number",                      "field": 100,     "value": "abc",    "equal": false },
+      { "name": "string field keeps string equality","field": "007",   "value": "7",      "equal": false },
+      { "name": "string field exact still matches",  "field": "007",   "value": "007",    "equal": true  },
+      { "name": "string field numeric text",         "field": "100.0", "value": "100.00", "equal": false },
+      { "name": "bool field is not a number",        "field": true,    "value": "1",      "equal": false },
+      { "name": "empty value is not zero",           "field": 0,       "value": "",       "equal": false }
+    ]
+  },
+
+  "wideInteger": {
+    "_comment": [
+      "A number normalises to float64 on every read path, and the string a",
+      "condition compares against has to be the string the user was shown.",
+      "Rendering it with Go's %v put 1704207845 on screen as 1.704207845e+09",
+      "while the wire, the browser and the editor's simulator all said the",
+      "digits. Nothing below 1e6 drifted, so ids and timestamps broke and the",
+      "test data did not."
+    ],
+    "field": 1704207845,
+    "cases": [
+      {
+            "operator": "=",
+            "value": "1704207845",
+            "expected": true
+      },
+      {
+            "operator": "=",
+            "value": "1704207846",
+            "expected": false
+      },
+      {
+            "operator": "!=",
+            "value": "1704207845",
+            "expected": false
+      },
+      {
+            "operator": "!=",
+            "value": "1704207846",
+            "expected": true
+      },
+      {
+            "operator": "contains",
+            "value": "042078",
+            "expected": true
+      },
+      {
+            "operator": "contains",
+            "value": "e+09",
+            "expected": false
+      },
+      {
+            "operator": "not_contains",
+            "value": "042078",
+            "expected": false
+      },
+      {
+            "operator": "regex",
+            "value": "^1704",
+            "expected": true
+      },
+      {
+            "operator": "regex",
+            "value": "^\\d+$",
+            "expected": true
+      },
+      {
+            "operator": "not_regex",
+            "value": "^1704",
+            "expected": false
+      },
+      {
+            "operator": ">",
+            "value": "1704207844",
+            "expected": true
+      },
+      {
+            "operator": "<",
+            "value": "1704207846",
+            "expected": true
+      }
+]
+  }
+}
