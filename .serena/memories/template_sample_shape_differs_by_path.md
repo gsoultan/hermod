@@ -93,6 +93,40 @@ a column of JSON bytes came back as text that is not JSON.
   `id` had two candidates and Go's map iteration order picked one. The seed is
   now used only when there is no sample at all.
 
+## Which column shapes the editor and the engine can agree on
+
+The JSON-text case was found by accident. `TestColumnShapeParityBetweenTheBuilderAndTheEngine`
+(`internal/discovery/service`) enumerates the shapes instead, and pins both
+halves: which agree, and which *cannot* agree and why. It ratchets both ways —
+a shape that stops agreeing is a regression, and one that starts agreeing means
+the table is out of date.
+
+The rule it makes visible:
+
+- **An envelope path (`{{.after.col}}`) always agrees**, for every shape. Both
+  sides reach it through JSON, so both get the same normalised value.
+- **A bare path (`{{.col}}`) agrees only for types JSON carries losslessly.**
+  The engine keeps the driver's Go type; the editor's sample has been through
+  JSON and cannot know what it was. `int64` (any, not just above 2^53),
+  `time.Time`, `[]byte` and `json.RawMessage` all differ, and a nested `int`
+  inside an object comes back `float64`.
+
+That is the concrete reason a key column must be spelled `{{.col}}` and never
+`{{.after.col}}` — and also why the builder can never fully predict a typed
+bind. It is a limitation of the sample travelling as JSON, not a defect to fix.
+
+One shape the *engine* resolves and the editor cannot: a `[]byte` holding JSON.
+JSON renders it as base64, so the sample has no document to descend into.
+Decoding base64 on suspicion would be content sniffing — the same move
+[[jsonb_shape_differs_by_path]] refuses for MariaDB's LONGTEXT. Left as is, and
+recorded in the table.
+
+**Agreement is only half a guarantee.** Two sides that both resolve to nothing
+agree perfectly and enrich nothing — the original bug. The table carries an
+`engineDeep` expectation so a shape that *should* produce a value is asserted to
+produce it; without that, breaking the JSON-text descent passed the parity check.
+Mutation-tested: removing the descent must fail `JSON text` and `[]byte of JSON`.
+
 ## The parity oracle
 
 `TestTheBuilderBindsWhatTheEngineBinds` (`internal/discovery/service`) is the
