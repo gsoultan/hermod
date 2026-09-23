@@ -73,7 +73,7 @@ func TestDBLookup_KeyColumn_ExpandsAnySliceKind(t *testing.T) {
 		{"[]float64 from JSON", []any{float64(1), float64(2)}, "n", []string{"one", "two"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := tr.lookupSQL(t.Context(), reg, src, "test", tc.col, tc.keys, "", "value", "", nil)
+			got, err := tr.lookupSQL(t.Context(), reg, src, "test", tc.col, tc.keys, "", "value", mapClause(nil))
 			if err != nil {
 				t.Fatalf("lookupSQL: %v", err)
 			}
@@ -98,7 +98,7 @@ func TestDBLookup_KeyColumn_ByteSliceStaysScalar(t *testing.T) {
 	tr := &DBLookupTransformer{}
 	reg := fakeRegistry{db: db}
 
-	got, err := tr.lookupSQL(t.Context(), reg, src, "blobs", "k", []byte("raw"), "", "value", "", nil)
+	got, err := tr.lookupSQL(t.Context(), reg, src, "blobs", "k", []byte("raw"), "", "value", mapClause(nil))
 	if err != nil {
 		t.Fatalf("lookupSQL: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestDBLookup_WhereClause_ExpandsSliceToINList(t *testing.T) {
 	reg := fakeRegistry{db: db}
 
 	data := map[string]any{"ids": []any{"u1", "u3"}}
-	got, err := tr.lookupSQL(t.Context(), reg, src, "test", "", nil, "id = {{.ids}}", "value", "", data)
+	got, err := tr.lookupSQL(t.Context(), reg, src, "test", "", nil, "id = {{.ids}}", "value", mapClause(data))
 	if err != nil {
 		t.Fatalf("lookupSQL: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestDBLookup_WhereClause_EmptySliceMatchesNothing(t *testing.T) {
 	reg := fakeRegistry{db: db}
 
 	data := map[string]any{"ids": []any{}}
-	got, err := tr.lookupSQL(t.Context(), reg, src, "test", "", nil, "id = {{.ids}}", "value", "", data)
+	got, err := tr.lookupSQL(t.Context(), reg, src, "test", "", nil, "id = {{.ids}}", "value", mapClause(data))
 	if err != nil {
 		t.Fatalf("lookupSQL: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestDBLookup_WhereClause_ScalarStillUsesEquality(t *testing.T) {
 	reg := fakeRegistry{db: db}
 
 	data := map[string]any{"id": "u2"}
-	got, err := tr.lookupSQL(t.Context(), reg, src, "test", "", nil, "id = {{.id}}", "value", "", data)
+	got, err := tr.lookupSQL(t.Context(), reg, src, "test", "", nil, "id = {{.id}}", "value", mapClause(data))
 	if err != nil {
 		t.Fatalf("lookupSQL: %v", err)
 	}

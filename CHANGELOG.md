@@ -7,6 +7,37 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Conditions, mappings and `whereClause` now read a column the way a SQL template does
+
+Fixing SQL templates left the fix stranded in one node. A column holding JSON
+*text* rather than a decoded object — a `text`/`varchar` column holding JSON,
+MariaDB's `JSON` (a `LONGTEXT` alias), a body that arrived as a string —
+resolved for `{{.payload.id}}` inside a `db_lookup` query and stayed empty in
+the condition, the router, the sink mapping and the email template beside it.
+One Hermod, one column, two answers.
+
+The descent now lives in `GetValByPath`, which is the single function
+`GetMsgValByPath` consults first and every map-form template resolves through.
+Conditions, routers, filters, `mask`/`encrypt`, `foreach`, `join` and every sink
+mapping follow from that one change, and the copy that had been added to the SQL
+resolver was removed rather than left as a second implementation. It sits below
+both the fast walk and the gjson round trip those two are held equal by, so
+neither changes.
+
+`whereClause` in `db_lookup` was the other half left behind. It could not read
+`after.`, the virtual fields or `meta.` while `queryTemplate` in the same node
+could, and it was deliberately left alone the first time: `bindingDigest`
+renders that same clause to build the cache key, so widening the clause without
+the key lets two messages differing only in `after.x` share one cache entry —
+the first row served to both, for the life of the engine. Both now read through
+one `clauseResolver`, and `lookupCacheKey` no longer receives the data map at
+all, so rendering the clause a second way there is not expressible rather than
+merely discouraged.
+
+The TypeScript side already parsed a JSON string mid-path, so this brought Go
+level with its twin rather than the other way round; both sides are now pinned
+by tests.
+
 ### A SQL template could not read the paths every other template accepts
 
 A `{{ }}` token in a SQL template — `db_lookup` in query mode, `execute_sql`,
