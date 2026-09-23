@@ -7,6 +7,54 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-09-23
+
+Templates read a message the same way everywhere. A `{{ }}` path naming the CDC
+envelope, a virtual field or a column holding JSON text used to resolve in one
+node and bind `NULL` in the next, and the editor's SQL builder disagreed with
+the pipeline about the same query — a `db_lookup` that returned rows on screen
+and enriched nothing when it ran. Workers now report how big their machines are
+rather than only how busy. Two SQL Server failures are closed, one of them a
+start-up that named neither the setting nor the value.
+
+### Upgrading
+
+**An unsupported metadata store now refuses to start, by name.** Hermod keeps
+its catalogue in SQLite, PostgreSQL or MySQL. Anything else used to fall off the
+end of a switch and reach `sql.Open` with an empty driver, failing with
+`unknown driver "" (forgotten import?)` — a message naming neither the setting
+that was wrong nor the value in it. `mssql` is the reachable case, because the
+settings API accepted it while start-up did not. If an instance is configured
+that way it started before and will now refuse, with a message saying what may
+be used instead. That is the same configuration failing either way; only the
+report changed.
+
+**Templates that quietly resolved to nothing now resolve.** A path naming the
+CDC envelope (`after.`, `before.`), a virtual field (`operation`, `table`,
+`schema`), `meta.`, or a column holding JSON text bound `NULL` — or rendered as
+`''` — in `db_lookup`, `execute_sql`, `api_lookup`, conditions, routers,
+filters and sink mappings. Those now bind the value. This is the fix, but it is
+a behaviour change: a lookup that appeared to do nothing may start enriching, a
+`whereClause` that matched no row may start matching, and any workflow built
+around the broken reading will produce different results. Worth a look at
+anything whose templates use those paths before rolling out.
+
+**A worker that has not been upgraded reports zero capacity.** Capacity is sent
+at registration, so in a mixed-version fleet an older worker shows zero cores,
+memory and disk until it restarts on the new build. Zero means "did not say",
+not "has none" — the dashboard and the workers page render it as unknown rather
+than as a full disk.
+
+### An `api_lookup` sent its request with the field left empty
+
+`api_lookup` resolved its URL, query parameters, headers and body against the
+message's data map. That map *is* a CDC message's after-image, so a template
+naming the envelope — `{{.after.id}}`, the spelling the editor offers — had
+nothing to walk and rendered as the empty string. The request still went out,
+with `''` where the id belonged, and what got reported was the endpoint's 4xx
+rather than the value that never arrived. All four now resolve through the
+message, so they answer the same paths every other template does.
+
 ### Conditions, mappings and `whereClause` now read a column the way a SQL template does
 
 Fixing SQL templates left the fix stranded in one node. A column holding JSON
