@@ -818,33 +818,47 @@ jobs:
             sleep 1
           done
 
-      # MinIO by hand rather than as a service, for the same reason the replica
-      # set below is: its entrypoint needs a `server` argument and a service
-      # container has no way to pass one. Started on 9500 so it cannot collide
-      # with ClickHouse's native port.
+      # MinIO built from its pinned source and run as a process, not pulled as
+      # an image. Started on 9500 so it cannot collide with ClickHouse's
+      # native port.
       #
-      # From quay.io, not Docker Hub: docker.io/minio/minio stopped serving
-      # anonymous pulls and now answers every request with "pull access denied
-      # ... repository does not exist or may require 'docker login'". Nothing
-      # in this repository changed — the job went red on main between the runs
-      # of 11 and 12 September. quay.io/minio/minio is MinIO's own second
-      # registry and still serves the same images anonymously.
+      # MinIO no longer publishes images for its community edition, and every
+      # copy this job could pull has closed in turn. docker.io/minio/minio
+      # stopped serving anonymous pulls between the runs of 11 and 12
+      # September, so the job moved to quay.io/minio/minio; that followed on
+      # 24 September. The registry still issues an anonymous token, then
+      # refuses the manifest with 401 "access to the requested resource is not
+      # authorized". Chainguard's and Bitnami's MinIO images are gone as well,
+      # and what remains are mirrors that can close the same way. Source is
+      # what MinIO still distributes, and Go is already on this runner, so the
+      # object store now depends on nothing but the module proxy.
       #
-      # Pinned, because an unpinned tag from a third-party registry is what
-      # made this a surprise rather than a decision. Moving it is a deliberate
-      # edit; the S3 API these tests use has been stable for years, so there is
-      # nothing to chase.
+      # The same release the image was pinned to: the tag resolves to commit
+      # 07c3a429bfed. Cached under that version, so the ~90s build happens once
+      # and not on every run. Moving it is still a deliberate edit, and the S3
+      # API these tests use has been stable for years.
+      - name: Cache the MinIO build
+        id: minio-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/minio
+          key: minio-RELEASE.2025-09-07T16-13-09Z-${{ runner.os }}-${{ runner.arch }}
+      - name: Build MinIO
+        if: steps.minio-cache.outputs.cache-hit != 'true'
+        run: GOBIN="$HOME/.local/minio" go install github.com/minio/minio@RELEASE.2025-09-07T16-13-09Z
       - name: Start MinIO for the S3 sink
         run: |
-          docker run -d --name minio -p 9500:9000 \
-            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+          mkdir -p "$RUNNER_TEMP/minio-data"
+          MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin \
+            nohup "$HOME/.local/minio/minio" server "$RUNNER_TEMP/minio-data" \
+              --address 127.0.0.1:9500 --console-address 127.0.0.1:9501 \
+              > "$RUNNER_TEMP/minio.log" 2>&1 &
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:9500/minio/health/live >/dev/null 2>&1; then
               echo "minio ready after ${i}s"; break
             fi
             if [ "$i" = 60 ]; then
-              echo "minio never became ready"; docker logs minio; exit 1
+              echo "minio never became ready"; cat "$RUNNER_TEMP/minio.log"; exit 1
             fi
             sleep 1
           done
