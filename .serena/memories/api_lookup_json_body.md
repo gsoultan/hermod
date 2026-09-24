@@ -35,10 +35,19 @@ The operator's session API refused every call with a bare
 #171 had already fixed the tokens resolving to empty. Its test's mock recorded
 only the body, so the header that actually failed was never asserted.
 
-## Not covered
+## The rest of the codebase, audited 2026-09-24
 
-Other nodes that template a JSON body as text, such as HTTP/webhook sinks, have
-not been audited. Grep for `ResolveTemplateMsg(` on a body.
+No other node has either defect:
+- **Bodies built as text:** the sinks that post JSON build it with
+  `json.Marshal`, and the `text/template` users (smtp, fcm, metis, panmail,
+  googlesheets, elasticsearch, ftp, eventstore) render plain strings only.
+- **A request body with no `Content-Type`:** api_lookup was the only one.
+  Facebook and Instagram send their parameters in the query string with no
+  body.
+
+The check was a scan of every `http.NewRequest` with a non-nil body, over the
+lines up to its `.Do(`, across sinks, transformers, sources and `internal/`.
+Re-run it for a new connector, or make it a guard test if it recurs.
 
 Related: [[template_sample_shape_differs_by_path]], [[lookup_cache_fast_path]]
 (the cache key digests the *resolved* body, so it follows this rule unchanged).
