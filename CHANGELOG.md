@@ -7,6 +7,14 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### An exported workflow carried rows sampled from its sources
+
+The export already dropped a source record's stored sample. It did not drop the
+same data held in node config: `lastSample` and a test result's payload, both
+rows out of a real database. So the data went into the bundle, to wherever the
+file was sent. Both keys are now left out of the export; the stored workflow
+keeps them.
+
 ## [1.12.0] — 2026-09-23
 
 Templates read a message the same way everywhere. A `{{ }}` path naming the CDC

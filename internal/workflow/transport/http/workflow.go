@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -1613,7 +1614,36 @@ func stripWorkflowRuntime(wf storage.Workflow) storage.Workflow {
 	wf.TotalProcessed = 0
 	wf.TotalErrors = 0
 	wf.TotalLag = 0
+	wf.Nodes = stripCapturedSamples(wf.Nodes)
 	return wf
+}
+
+// capturedSampleKeys are node config keys holding data the editor captured
+// from a live source: `lastSample` is the row Test Connection sampled, and
+// `testResult` a simulated message. They are rows out of someone's database,
+// not configuration, so they stay behind for the same reason
+// stripSourceRuntime drops a source's own sample.
+var capturedSampleKeys = []string{"lastSample", "testResult"}
+
+// stripCapturedSamples returns nodes without captured sample data, copying
+// any config it changes rather than editing the map it was handed.
+func stripCapturedSamples(nodes []storage.WorkflowNode) []storage.WorkflowNode {
+	out := make([]storage.WorkflowNode, len(nodes))
+	for i, node := range nodes {
+		out[i] = node
+		captured := slices.ContainsFunc(capturedSampleKeys, func(key string) bool {
+			_, ok := node.Config[key]
+			return ok
+		})
+		if !captured {
+			continue
+		}
+		out[i].Config = maps.Clone(node.Config)
+		for _, key := range capturedSampleKeys {
+			delete(out[i].Config, key)
+		}
+	}
+	return out
 }
 
 // exportFilenamePattern keeps a workflow name usable inside a
