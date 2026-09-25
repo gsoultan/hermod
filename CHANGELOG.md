@@ -7,6 +7,20 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A simulated router sent the message down every route
+
+The editor's Test run followed a node's chosen branch only for condition and
+switch nodes. A router's choice was ignored, so the simulation sent the sample
+along every route. Every node after the router showed output the engine would
+never produce for that message.
+
+The simulation now decides which edges a node's output takes by the same rule
+the engine uses, a single function the two share rather than two copies. A node
+that names a branch sends the message along the edges labelled for it and along
+unlabelled ones. That also settles a rarer case: a switch case with no label
+that matched sent the message only along unlabelled edges in the simulation,
+and along every edge in the engine. Both now send it along every edge.
+
 ### Refreshing Available Fields now reaches every node after it
 
 One click on the refresh icon beside AVAILABLE FIELDS now updates that node's
