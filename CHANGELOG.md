@@ -7,6 +7,22 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### The dead-letter edges are drawn, and Data Pulse flows the right way
+
+A workflow with a dead-letter sink is meant to show where failed messages go.
+Each sink should have a dashed orange edge to the dead-letter sink, and with
+Prioritize DLQ on, a dashed blue recovery edge should lead back to the source.
+Neither was ever drawn. Both start at a sink, a sink has no outgoing handle,
+and the canvas draws no edge it cannot attach to one. They now attach to hidden
+anchors that nothing can be dragged from or connected to, and they appear as
+intended, labelled DLQ and RECOVERY. The failure edges drop from the bottom of a
+sink into the top of the dead-letter sink. The recovery edge arcs from its side
+back up into the source.
+
+Data Pulse, the animation on every edge, ran backwards, from target to source.
+It now runs from source to target, and each loop restarts without a visible
+jump.
+
 ### A simulated router sent the message down every route
 
 The editor's Test run followed a node's chosen branch only for condition and
