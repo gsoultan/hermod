@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Stepper, Button, Group, Stack, TextInput, Card, Text, Divider, Alert, Fieldset, Tooltip } from '@mantine/core';
-import { IconCheck, IconDatabase, IconActivity, IconInfoCircle, IconDeviceFloppy } from '@tabler/icons-react';
+import { Stepper, Button, Group, Stack, TextInput, Card, Text, Divider, Alert, Fieldset, Tooltip, ActionIcon } from '@mantine/core';
+import { IconCheck, IconDatabase, IconActivity, IconInfoCircle, IconDeviceFloppy, IconRefresh } from '@tabler/icons-react';
 import { SinkBasics } from '../workflow/Sink/SinkBasics';
 import { RetryPolicyFields } from '../workflow/Sink/RetryPolicyFields';
 import { Suspense } from 'react';
@@ -27,6 +27,9 @@ interface SinkWizardProps {
   incomingPayload?: any;
   availableFields?: any[];
   upstreamSource?: any;
+  /** Present inside the workflow editor, where the fields come from upstream. */
+  onRefreshFields?: () => void;
+  isRefreshing?: boolean;
 }
 
 export function SinkWizard({
@@ -47,7 +50,9 @@ export function SinkWizard({
   configComponents,
   incomingPayload,
   availableFields,
-  upstreamSource
+  upstreamSource,
+  onRefreshFields,
+  isRefreshing
 }: SinkWizardProps) {
   const [active, setActive] = useState(0);
 
@@ -86,8 +91,33 @@ export function SinkWizard({
   // on this line.
   const SelectedConfig = configComponents[sink.type] || configComponents['database'];
 
+  const fieldCount = availableFields?.length ?? 0;
+
   return (
     <Stack gap="xl">
+      {/* Every other node refreshes its fields beside the list it shows; a sink
+          reads the same fields in its mapping and had no way to. Above the
+          stepper so it is there on every step, not only the one that maps. */}
+      {onRefreshFields && (
+        <Group justify="space-between" data-testid="sink-upstream-fields">
+          <Text size="sm" c="dimmed">
+            {fieldCount === 0
+              ? 'No fields from upstream yet'
+              : `${fieldCount} ${fieldCount === 1 ? 'field arrives' : 'fields arrive'} from upstream`}
+          </Text>
+          <Tooltip label="Refresh sample data and fields">
+            <ActionIcon
+              aria-label="Refresh sample data and fields"
+              variant="subtle"
+              color="blue"
+              onClick={onRefreshFields}
+              loading={isRefreshing}
+            >
+              <IconRefresh size="1rem" />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
+      )}
       <Stepper active={active} onStepClick={setActive} allowNextStepsSelect={false}>
         <Stepper.Step 
           label="Basics" 

@@ -71,7 +71,9 @@ find a claim that outruns the code, fix the claim.
 - [How the editor captures a source sample](editor_sample_capture_path.md) — an
   empty "Available Fields" list is an upstream sample problem; Test Connection is
   what fires sampling, `SamplePanel` is dead code, and a failed sample is only a
-  toast.
+  toast. One refresh now carries a new sample through every node's fields and
+  Live Preview. It sends a `partial` run with per-source-node `messages`; the
+  toolbar Test stays strict on purpose.
 - [Sink form fall-through, and the panmail sink](sink_form_fallthrough_and_panmail.md)
   — `configComponents[type] || 'database'` silently rendered the database form
   for twelve sink types, making two of them unconfigurable; and why the panmail

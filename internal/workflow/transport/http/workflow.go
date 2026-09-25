@@ -9,12 +9,15 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/api/handlers"
+	"github.com/gsoultan/hermod/internal/engine/registry"
 	"github.com/gsoultan/hermod/internal/governance"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/message"
@@ -1164,18 +1167,51 @@ func (h *WorkflowHandler) RebuildWorkflow(w http.ResponseWriter, r *http.Request
 func (h *WorkflowHandler) TestWorkflow(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Workflow storage.Workflow `json:"workflow"`
-		Message  map[string]any   `json:"message"`
+		// Message seeds every source node that Messages does not name.
+		Message map[string]any `json:"message"`
+		// Messages seeds source nodes, by node ID, with their own sample, so each
+		// branch of a multi-source workflow is previewed from its own data.
+		Messages map[string]map[string]any `json:"messages"`
+		// Partial previews a workflow that is still being built: it is checked as
+		// a graph, not for whether it could run (see Registry.SimulateWorkflow).
+		Partial bool `json:"partial"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.JsonError(w, "Failed to decode request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	msg := message.AcquireMessage()
-	defer message.ReleaseMessage(msg)
-	message.PopulateFromMap(msg, req.Message)
+	var acquired []*message.DefaultMessage
+	defer func() {
+		for _, m := range acquired {
+			message.ReleaseMessage(m)
+		}
+	}()
+	populate := func(body map[string]any) *message.DefaultMessage {
+		m := message.AcquireMessage()
+		acquired = append(acquired, m)
+		message.PopulateFromMap(m, body)
+		return m
+	}
 
-	steps, err := h.Registry.TestWorkflow(r.Context(), req.Workflow, msg)
+	in := registry.SimulationInput{Partial: req.Partial}
+	// A request naming per-source samples and no shared message leaves a source
+	// without a sample unseeded, rather than seeding it with an empty message.
+	if req.Message != nil || len(req.Messages) == 0 {
+		in.Message = populate(req.Message)
+	}
+	if len(req.Messages) > 0 {
+		in.PerSource = make(map[string]hermod.Message)
+		// Only source nodes of this workflow are seeded, so the work done here is
+		// bounded by the graph, not by however many keys the request carried.
+		for _, node := range req.Workflow.Nodes {
+			if body, ok := req.Messages[node.ID]; ok && node.Type == "source" {
+				in.PerSource[node.ID] = populate(body)
+			}
+		}
+	}
+
+	steps, err := h.Registry.SimulateWorkflow(r.Context(), req.Workflow, in)
 	if err != nil {
 		h.JsonError(w, "Failed to test workflow: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1613,7 +1649,36 @@ func stripWorkflowRuntime(wf storage.Workflow) storage.Workflow {
 	wf.TotalProcessed = 0
 	wf.TotalErrors = 0
 	wf.TotalLag = 0
+	wf.Nodes = stripCapturedSamples(wf.Nodes)
 	return wf
+}
+
+// capturedSampleKeys are node config keys holding data the editor captured
+// from a live source: `lastSample` is the row Test Connection sampled, and
+// `testResult` a simulated message. They are rows out of someone's database,
+// not configuration, so they stay behind for the same reason
+// stripSourceRuntime drops a source's own sample.
+var capturedSampleKeys = []string{"lastSample", "testResult"}
+
+// stripCapturedSamples returns nodes without captured sample data, copying
+// any config it changes rather than editing the map it was handed.
+func stripCapturedSamples(nodes []storage.WorkflowNode) []storage.WorkflowNode {
+	out := make([]storage.WorkflowNode, len(nodes))
+	for i, node := range nodes {
+		out[i] = node
+		captured := slices.ContainsFunc(capturedSampleKeys, func(key string) bool {
+			_, ok := node.Config[key]
+			return ok
+		})
+		if !captured {
+			continue
+		}
+		out[i].Config = maps.Clone(node.Config)
+		for _, key := range capturedSampleKeys {
+			delete(out[i].Config, key)
+		}
+	}
+	return out
 }
 
 // exportFilenamePattern keeps a workflow name usable inside a
