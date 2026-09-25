@@ -31,11 +31,16 @@ type DataConversionTransformer struct{}
 type conversionRow struct {
 	field         string
 	targetType    string // "int", "float", "bool", "string", "date", "uuid", "array", "json"
-	format        string // used for date
+	format        string // date: the layout a value is read with; ISO-8601 needs none
+	outputFormat  string // date: the layout the value is written with; empty keeps a time.Time
 	separator     string // used for array <-> string, default ","
 	elementType   string // used for array: coerce each element
 	targetField   string // defaults to field
 	errorBehavior string // "fail", "null", "keep"; empty inherits the node's
+
+	// configErr is a fault in the row itself, found once when the config is
+	// parsed rather than on every message.
+	configErr error
 }
 
 // parseConversions reads the node's row list, falling back to the single-field
@@ -65,6 +70,7 @@ func parseConversions(config map[string]any) []conversionRow {
 				field:         rowString(m, "field"),
 				targetType:    rowString(m, "targetType"),
 				format:        rowString(m, "format"),
+				outputFormat:  rowString(m, "outputFormat"),
 				separator:     rowString(m, "separator"),
 				elementType:   rowString(m, "elementType"),
 				targetField:   rowString(m, "targetField"),
@@ -75,6 +81,7 @@ func parseConversions(config map[string]any) []conversionRow {
 				// a row only carries its own when it disagrees.
 				row.errorBehavior = nodeBehavior
 			}
+			row.configErr = checkOutputFormat(row)
 			rows = append(rows, row)
 		}
 		return rows
@@ -147,6 +154,11 @@ func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Me
 			// nobody has filled in yet is not a reason to fail every message.
 			continue
 		}
+		if row.configErr != nil {
+			// A fault in the node rather than in this value, so errorBehavior
+			// does not apply: "null" would turn a typo into a column of nulls.
+			return msg, fmt.Errorf("field %q: %w", row.field, row.configErr)
+		}
 
 		valRaw := evaluator.EvaluateField(msg, row.field)
 
@@ -174,7 +186,7 @@ func (t *DataConversionTransformer) Transform(ctx context.Context, msg hermod.Me
 			case "array", "list":
 				converted, err = t.toArray(valRaw, row.separator, row.elementType)
 			default:
-				converted, err = t.convertScalar(valRaw, row.targetType, row.format, row.separator)
+				converted, err = t.convertScalar(valRaw, row)
 				if err != nil && errors.Is(err, errUnsupportedTargetType) {
 					// An unknown target type is a configuration fault, not a
 					// value fault, so it is not subject to errorBehavior.
@@ -224,8 +236,11 @@ var errUnsupportedTargetType = errors.New("unsupported target type")
 
 // convertScalar converts a single value. It is shared by the node's own
 // targetType and by the per-element coercion an "array" conversion applies.
-func (t *DataConversionTransformer) convertScalar(val any, targetType, format, separator string) (any, error) {
-	switch strings.ToLower(targetType) {
+func (t *DataConversionTransformer) convertScalar(val any, row conversionRow) (any, error) {
+	if isDateTarget(row.targetType) {
+		return t.convertDate(val, row.format, row.outputFormat)
+	}
+	switch strings.ToLower(row.targetType) {
 	case "int", "integer":
 		return t.toInt(val)
 	case "float", "decimal", "double":
@@ -233,16 +248,76 @@ func (t *DataConversionTransformer) convertScalar(val any, targetType, format, s
 	case "bool", "boolean":
 		return t.toBool(val)
 	case "string":
-		return t.toString(val, separator), nil
+		return t.toString(val, row.separator), nil
 	case "uuid":
 		return t.toUUID(val)
-	case "date", "datetime", "time":
-		return t.toDate(val, format)
 	case "json", "jsonb":
 		return t.toJSON(val)
 	default:
-		return nil, fmt.Errorf("%w: %s", errUnsupportedTargetType, targetType)
+		return nil, fmt.Errorf("%w: %s", errUnsupportedTargetType, row.targetType)
 	}
+}
+
+func isDateTarget(targetType string) bool {
+	switch strings.ToLower(targetType) {
+	case "date", "datetime", "time":
+		return true
+	}
+	return false
+}
+
+// convertDate reads a value as a time and, when the row names an output format,
+// writes it as text in that layout.
+//
+// With no output format the row hands over a time.Time, which is what a date or
+// timestamp column binds; anything that serialises the message renders it as
+// RFC3339. That was the only behaviour until the output format existed, and the
+// row's one format field -- which only ever described how to *read* -- was
+// labelled "Date Format". Setting it to "02 January 2006" returned
+// 2026-09-18T04:30:57.333046Z unchanged, because the layout did not match the
+// value, the ISO sweep read it instead, and nothing was ever written with it.
+//
+// The text is rendered in the value's own zone: an offset in the value is kept,
+// never converted to UTC or to the server's zone.
+func (t *DataConversionTransformer) convertDate(val any, format, outputFormat string) (any, error) {
+	parsed, err := t.toDate(val, format)
+	if err != nil {
+		return nil, err
+	}
+	if outputFormat == "" {
+		return parsed, nil
+	}
+	return parsed.Format(outputFormat), nil
+}
+
+// layoutProbeA and layoutProbeB differ in every element a Go layout can print
+// -- year, month, day, day of year, weekday, hour, half of day, minute, second,
+// fraction, zone name and offset -- so a layout that renders both to the same
+// text prints none of them.
+var (
+	layoutProbeA = time.Date(2001, 2, 3, 4, 5, 6, 100000000, time.UTC)
+	layoutProbeB = time.Date(2012, 11, 25, 17, 48, 59, 900000000, time.FixedZone("WIB", 7*60*60))
+)
+
+// checkOutputFormat refuses an output format that prints no part of a date.
+//
+// Go reads a layout by example rather than by letter codes, so the "DD MMMM
+// YYYY" or "dd/MM/yyyy" that every other date library would accept holds no
+// element Go recognises. time.Format never fails; it prints such a layout back
+// verbatim, and every message would reach the sink carrying the same literal
+// text in place of its date.
+//
+// Only a date row writes with its output format. The editor keeps a row's keys
+// when its target type changes, so another row may still carry one it ignores.
+func checkOutputFormat(row conversionRow) error {
+	if row.outputFormat == "" || !isDateTarget(row.targetType) {
+		return nil
+	}
+	if layoutProbeA.Format(row.outputFormat) == layoutProbeB.Format(row.outputFormat) {
+		return fmt.Errorf("output format %q prints no part of a date: Go layouts write each part "+
+			"with the reference date Mon Jan 2 15:04:05 MST 2006, so day/month/year is 02/01/2006", row.outputFormat)
+	}
+	return nil
 }
 
 // toJSON renders a value as JSON text, which is what a json or jsonb column
@@ -360,7 +435,7 @@ func (t *DataConversionTransformer) toArray(val any, separator, elementType stri
 	}
 	out := make([]any, len(raw))
 	for i, el := range raw {
-		conv, err := t.convertScalar(el, elementType, "", separator)
+		conv, err := t.convertScalar(el, conversionRow{targetType: elementType, separator: separator})
 		if err != nil {
 			return nil, fmt.Errorf("element %d (%v): %w", i, el, err)
 		}
@@ -538,9 +613,9 @@ func looksLikeISODate(s string) bool {
 //
 // What it will not do is truncate to the layout's precision. A deadline at
 // 07:26 silently becoming midnight is a worse outcome than the error this
-// replaces, and rendering is the sink's job: a date column truncates on write,
-// and a template's .Format chooses its own shape.
-func (t *DataConversionTransformer) toDate(val any, format string) (any, error) {
+// replaces. Reading is not rendering: a date column truncates on write, and a
+// row that wants text says so with an output format (see convertDate).
+func (t *DataConversionTransformer) toDate(val any, format string) (time.Time, error) {
 	// A query, sample or polling path hands a timestamp column over as a
 	// time.Time -- and so does the evaluator's fast path. Rendering that with
 	// %v produced Go's String() form, which no configured layout describes, so
@@ -550,7 +625,7 @@ func (t *DataConversionTransformer) toDate(val any, format string) (any, error) 
 		return v, nil
 	case *time.Time:
 		if v == nil {
-			return nil, errors.New("cannot read a date from a nil value")
+			return time.Time{}, errors.New("cannot read a date from a nil value")
 		}
 		return *v, nil
 	}
@@ -559,7 +634,7 @@ func (t *DataConversionTransformer) toDate(val any, format string) (any, error) 
 	// %v renders as the decimal bytes.
 	s := strings.TrimSpace(scalarToString(val))
 	if s == "" {
-		return nil, errors.New("cannot read a date from an empty value")
+		return time.Time{}, errors.New("cannot read a date from an empty value")
 	}
 
 	if format != "" {
@@ -577,7 +652,7 @@ func (t *DataConversionTransformer) toDate(val any, format string) (any, error) 
 	}
 
 	if format != "" {
-		return nil, fmt.Errorf("cannot read %q as a date: it does not match the configured layout %q, and is not an ISO-8601 date or timestamp", s, format)
+		return time.Time{}, fmt.Errorf("cannot read %q as a date: it does not match the configured layout %q, and is not an ISO-8601 date or timestamp", s, format)
 	}
-	return nil, fmt.Errorf("cannot read %q as a date: it is not an ISO-8601 date or timestamp", s)
+	return time.Time{}, fmt.Errorf("cannot read %q as a date: it is not an ISO-8601 date or timestamp", s)
 }

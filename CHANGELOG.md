@@ -7,6 +7,36 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A date conversion's format changed nothing
+
+A Data Conversion row converting to Date had one "Date Format" field, and it
+only told the node how to *read* the value. Setting it to "02 January 2006" to
+get "18 September 2026" changed nothing: the layout did not match
+2026-09-18T04:30:57.333046Z, so the node read the timestamp as ISO 8601 instead
+and wrote it back out unchanged.
+
+A date row now has two formats:
+
+- **Output format** is how the date is written. "Keep as a date/time value", the
+  default and what every existing row does, hands the sink a timestamp for a
+  date or timestamp column. Any other choice writes text, such as
+  "18 September 2026", in the value's own time zone.
+- **Input format** is how the value is read. ISO 8601 needs none; pick one for
+  values like 18/09/2026.
+
+Both are chosen from a list that shows each format as the text it produces,
+instead of being typed as a Go layout. A layout the list does not have is still
+available as a custom layout. The editor flags the two mistakes Go accepts
+without complaint and offers the corrected layout: a real year where Go's
+reference year belongs ("02 January 2026" prints "18 September 18186"), and
+letter codes like DD/MM/YYYY, which Go prints as they are. The engine refuses an
+output format that prints no part of a date, whatever On Error says, rather than
+write the same text into every row.
+
+Stored rows convert exactly as before: `format` is still the layout a value is
+read with. A row that set it expecting the output to change needs an Output
+format chosen.
+
 ### A resumed message skipped edges without a label
 
 A message coming back from a wait or approval node is routed by a different
