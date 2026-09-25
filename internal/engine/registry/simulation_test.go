@@ -490,3 +490,90 @@ func TestSimulationTellsADroppedMessageFromOneThatNeverArrived(t *testing.T) {
 		t.Errorf("an unreached node stopped reporting filtered: %+v", after)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Routing.
+//
+// A routing node names the branch a message takes, and the simulation has to
+// follow that the way the engine does. It honoured the branch only for
+// condition and switch nodes, so a simulated router sent the sample down every
+// route, and every node after it showed output the engine would never produce.
+// ---------------------------------------------------------------------------
+
+// routedWorkflow is a source feeding one routing node, with a lane per branch.
+// Each lane's edge names its branch the way the editor does: the handle the
+// edge leaves from, copied into its label.
+func routedWorkflow(router storage.WorkflowNode, branches ...string) storage.Workflow {
+	wf := storage.Workflow{
+		ID: "sim-routed-" + router.Type, Name: "routed",
+		Nodes: []storage.WorkflowNode{{ID: "src", Type: "source", RefID: "src-1"}, router},
+		Edges: []storage.WorkflowEdge{{ID: "e-in", SourceID: "src", TargetID: router.ID}},
+	}
+	for _, b := range branches {
+		lane := "lane-" + b
+		wf.Nodes = append(wf.Nodes, storage.WorkflowNode{ID: lane, Type: "transformation", Config: map[string]any{
+			"transType": "set", "column.lane": "'" + b + "'",
+		}})
+		wf.Edges = append(wf.Edges, storage.WorkflowEdge{
+			ID: "e-" + b, SourceID: router.ID, TargetID: lane, SourceHandle: b, Config: map[string]any{"label": b},
+		})
+	}
+	return wf
+}
+
+func TestSimulationTakesOnlyTheBranchARoutingNodeChose(t *testing.T) {
+	regionRouter := storage.WorkflowNode{ID: "route", Type: "router", Config: map[string]any{"rules": []any{
+		map[string]any{"label": "eu", "field": "region", "operator": "=", "value": "EU"},
+		map[string]any{"label": "us", "field": "region", "operator": "=", "value": "US"},
+	}}}
+	regionSwitch := storage.WorkflowNode{ID: "route", Type: "switch", Config: map[string]any{
+		"field": "region",
+		"cases": []any{
+			map[string]any{"label": "eu", "value": "EU"},
+			map[string]any{"label": "us", "value": "US"},
+		},
+	}}
+	isUS := storage.WorkflowNode{ID: "route", Type: "condition", Config: map[string]any{
+		"field": "region", "operator": "=", "value": "US",
+	}}
+
+	cases := []struct {
+		name     string
+		node     storage.WorkflowNode
+		branches []string
+		sample   string
+		want     string
+	}{
+		{"router", regionRouter, []string{"eu", "us", "default"}, `{"region":"US"}`, "us"},
+		{"router with no rule matching", regionRouter, []string{"eu", "us", "default"}, `{"region":"APAC"}`, "default"},
+		{"switch", regionSwitch, []string{"eu", "us", "default"}, `{"region":"US"}`, "us"},
+		{"condition", isUS, []string{"true", "false"}, `{"region":"US"}`, "true"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := newSimRegistry(t)
+			in := SimulationInput{Message: sampleMessage(t, tc.sample), Partial: true}
+
+			steps, err := reg.SimulateWorkflow(t.Context(), routedWorkflow(tc.node, tc.branches...), in)
+			if err != nil {
+				t.Fatalf("SimulateWorkflow: %v", err)
+			}
+
+			// What the editor's canvas draws: the routing node names only the
+			// edge to the branch it chose.
+			if got, want := stepOf(t, steps, "route").TakenEdges, []string{"e-" + tc.want}; !slices.Equal(got, want) {
+				t.Errorf("the routing node reports taken edges %v, want %v", got, want)
+			}
+			for _, b := range tc.branches {
+				got := payloadOf(steps, "lane-"+b)
+				switch {
+				case b == tc.want && got == nil:
+					t.Errorf("the %q branch was chosen, but its lane received nothing. Steps: %+v", b, steps)
+				case b != tc.want && got != nil:
+					t.Errorf("the %q branch was not chosen, but its lane received %v; the engine would never "+
+						"send the message there", b, got)
+				}
+			}
+		})
+	}
+}

@@ -1570,7 +1570,7 @@ func (s *simulation) visit(id string) {
 		return
 	}
 	out, branch := s.run(id, node)
-	s.forward(id, node, out, branch)
+	s.forward(id, out, branch)
 }
 
 // run executes a node on the message waiting for it and records its step. It
@@ -1630,12 +1630,11 @@ func (s *simulation) recordOutput(id string, node *storage.WorkflowNode, out her
 // forward passes a node's output along each edge on the branch it took, and
 // queues a target once every edge into it has been walked — taken or not, so
 // a join is not left waiting for a branch that was never going to arrive.
-func (s *simulation) forward(id string, node *storage.WorkflowNode, out hermod.Message, branch string) {
-	routes := node.Type == "condition" || node.Type == "switch"
+// Which edges the branch takes is the live traversal's own rule, not a copy.
+func (s *simulation) forward(id string, out hermod.Message, branch string) {
 	for _, edge := range s.outEdges[id] {
 		target := edge.TargetID
-		label := edgeLabel(edge)
-		taken := !routes || label == "" || label == branch
+		taken := traversal.TakesEdge(branch, edgeLabel(edge))
 		s.received[target]++
 		if taken && out != nil {
 			s.deliver(target, out)

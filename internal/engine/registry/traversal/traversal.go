@@ -370,6 +370,19 @@ func (t *WorkflowTraversal) runNode(ctx context.Context, node *storage.WorkflowN
 	return msgs, branch, err
 }
 
+// TakesEdge reports whether a node's output travels along an edge. A node that
+// names a branch sends it only along the edges labelled for that branch and
+// along unlabelled ones; a node that names none sends it along every edge.
+//
+// This traversal walks a live message by it and the editor's simulation walks a
+// sample by it, so a preview cannot route differently from the workflow it
+// previews. The simulation used to keep its own copy, which honoured a branch
+// only for condition and switch nodes: a simulated router sent the sample down
+// every route.
+func TakesEdge(branch, label string) bool {
+	return branch == "" || label == "" || label == branch
+}
+
 func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.WorkflowNode, msgs []hermod.Message, branch string, err error) {
 	if err != nil {
 		t.Registry.BroadcastLog(t.WorkflowID, "ERROR", fmt.Sprintf("Node %s failed: %v", node.ID, err), "")
@@ -393,14 +406,7 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 
 	targets := t.Adj[node.ID]
 	for _, targetID := range targets {
-		taken := true
-		if branch != "" {
-			if label := t.EdgeLabels[node.ID+":"+targetID]; label != "" && label != branch {
-				taken = false
-			}
-		}
-
-		if taken {
+		if TakesEdge(branch, t.EdgeLabels[node.ID+":"+targetID]) {
 			for _, msg := range msgs {
 				// Clone the message if it's going to multiple targets to avoid data races
 				// when nodes modify the message concurrently.

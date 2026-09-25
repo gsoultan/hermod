@@ -28,19 +28,23 @@ replaced it, while the toast kept saying "Active paths are highlighted". Nobody
 noticed partly because Data Pulse is on by default and already draws every edge
 as the same animated dash — a path has to override that styling to be visible.
 
-## Known divergence: the simulation routes fewer node types than the engine
+## One routing rule, shared with the engine
 
-`simulation.forward` (registry_workflow.go) filters edges by branch only for
-`condition` and `switch`. The live traversal (`traversal.go`, `handleResults`)
-filters for *any* node that returns a non-empty branch. `router` returns a rule
-label or `"default"`, so the live engine takes one branch while a simulation
-sends the message down every edge — and the canvas faithfully draws all of them.
-Not fixed as of this note; fixing it changes what nodes after a router receive in
-the field lists too.
+Which edges a node's output takes is `traversal.TakesEdge(branch, label)`: a node
+that names a branch sends it along the edges labelled for it and along unlabelled
+ones; a node that names none sends it along every edge. The live traversal
+(`handleResults`) and `simulation.forward` both call it.
+
+They used to keep a copy each, and the simulation's honoured a branch only for
+`condition` and `switch`. `router` names one too (a rule label or `"default"`),
+so a simulated router sent the sample down every edge and the canvas drew all of
+them (#181). A third copy still lives in `replayTargets`, the resume path, and
+differs: with a forced branch it does not take unlabelled edges.
 
 ## Testing it
 
-- Go: `TestSimulationReportsOnlyTheBranchAConditionTook` and friends in
+- Go: `TestSimulationReportsOnlyTheBranchAConditionTook`,
+  `TestSimulationTakesOnlyTheBranchARoutingNodeChose` and friends in
   `internal/engine/registry/simulation_test.go`; the wire names are pinned through
   the handler in `TestSimulationEndpointReportsThePathTheMessageTook`.
 - The HTTP transport tests did not link node executors or the `advanced`

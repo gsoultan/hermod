@@ -118,3 +118,31 @@ func TestWorkflowTraversal_ConditionalJoinReached(t *testing.T) {
 		t.Errorf("Join node J should have fired even if one branch was skipped")
 	}
 }
+
+// TakesEdge is the one rule for which edges a node's output travels along. The
+// live traversal walks a message with it and the editor's simulation walks a
+// sample with it, so a preview cannot route differently from the workflow it
+// previews.
+func TestTakesEdge(t *testing.T) {
+	cases := []struct {
+		branch, label string
+		want          bool
+	}{
+		// A node that names no branch sends its output along every edge.
+		{"", "", true},
+		{"", "eu", true},
+		// A node that names one sends it along the edges labelled for it...
+		{"us", "us", true},
+		{"default", "default", true},
+		// ...and along unlabelled ones,
+		{"us", "", true},
+		// but not along an edge labelled for another branch.
+		{"us", "eu", false},
+		{"default", "eu", false},
+	}
+	for _, tc := range cases {
+		if got := traversal.TakesEdge(tc.branch, tc.label); got != tc.want {
+			t.Errorf("TakesEdge(branch %q, label %q) = %v, want %v", tc.branch, tc.label, got, tc.want)
+		}
+	}
+}
