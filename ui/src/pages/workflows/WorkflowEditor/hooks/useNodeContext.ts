@@ -3,6 +3,7 @@ import { type Node, type Edge } from '@xyflow/react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { useShallow } from 'zustand/react/shallow';
 import { getAllFieldsWithTypes, deepMergeSim, preparePayload, getValByPath, type FieldInfo } from '@/utils/transformationUtils';
+import { ownPayloadOf } from '../sampleCapture';
 
 export function useNodeContext(selectedNode: Node | null, testResults: any[] | null, sources: any[], sinks: any[]) {
   const { nodes, edges, nodeSamples } = useWorkflowStore(useShallow(state => ({
@@ -19,15 +20,24 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
 
     if (!selectedNode) return JSON.stringify({ incomingPayload, availableFields, sinkSchema, upstreamSource });
 
+    // See ownPayloadOf for the order and why `lastSample` comes last.
+    const ownPayload = (node: Node) => ownPayloadOf(node, sources, nodeSamples);
+
+    // What the last preview says a node emitted. A node can have two entries —
+    // an error and a "filtered" one when it fails — so take the one carrying a
+    // payload rather than the first.
+    const simulatedOutput = (nodeId: string): any | null =>
+      (testResults?.find((r: any) => r.node_id === nodeId && r.payload) as any)?.payload ?? null;
+
     // 1. Try to get payload from testResults (if simulation was run)
     if (testResults) {
       const incomingEdges = edges.filter((e: Edge) => e.target === selectedNode?.id);
       if (incomingEdges.length > 0) {
         const mergedPayload: Record<string, any> = {};
         incomingEdges.forEach((edge: Edge) => {
-          const result = testResults!.find(r => r.node_id === edge.source);
-          if (result && (result as any).payload) {
-            deepMergeSim(mergedPayload, (result as any).payload);
+          const output = simulatedOutput(edge.source);
+          if (output) {
+            deepMergeSim(mergedPayload, output);
           }
         });
         if (Object.keys(mergedPayload).length > 0) {
@@ -43,27 +53,10 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
       const mergedNearest: Record<string, any> = {};
 
       if (incomingEdges.length === 0) {
-        const localTestPayload = (selectedNode.data?.testResult as any)?.payload;
-        if (localTestPayload) {
-          incomingPayload = preparePayload(localTestPayload);
+        const own = ownPayload(selectedNode);
+        if (own) {
+          incomingPayload = preparePayload(own);
           availableFields = getAllFieldsWithTypes(incomingPayload);
-        } else if (selectedNode.data?.lastSample) {
-          incomingPayload = preparePayload(selectedNode.data.lastSample);
-          availableFields = getAllFieldsWithTypes(incomingPayload);
-        } else if (nodeSamples?.[selectedNode.id]) {
-          // Live sample captured from a running workflow (e.g. RabbitMQ source).
-          incomingPayload = preparePayload(nodeSamples[selectedNode.id]);
-          availableFields = getAllFieldsWithTypes(incomingPayload);
-        } else if (selectedNode.type === 'source') {
-          const sourceData = sources?.find((s: any) => s.id === selectedNode.data?.ref_id);
-          const rawSample = sourceData?.sample;
-          if (rawSample) {
-            try {
-              const sample = typeof rawSample === 'string' ? JSON.parse(rawSample) : rawSample;
-              incomingPayload = preparePayload(sample);
-              availableFields = getAllFieldsWithTypes(incomingPayload);
-            } catch {}
-          }
         }
       } else {
         const visited = new Set<string>();
@@ -73,25 +66,15 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
           const node = nodes.find(n => n.id === nodeId);
           if (!node) return null;
 
-          const localTestPayload = (node.data?.testResult as any)?.payload;
-          if (localTestPayload) return preparePayload(localTestPayload);
-          const localLastSample = node.data?.lastSample;
-          if (localLastSample) return preparePayload(localLastSample);
-          const liveSample = nodeSamples?.[nodeId];
-          if (liveSample) return preparePayload(liveSample);
-
-          if (node.type === 'source') {
-            const sourceData = sources?.find((s: any) => s.id === node.data?.ref_id);
-            const rawSample = sourceData?.sample;
-            if (rawSample) {
-              try {
-                const sample = typeof rawSample === 'string' ? JSON.parse(rawSample) : rawSample;
-                return preparePayload(sample);
-              } catch {
-                return null;
-              }
-            }
-          }
+          // An upstream node's preview output before anything it holds itself:
+          // when the node right before this one failed or filtered the sample,
+          // the walk continues from the nearest output the preview did produce,
+          // instead of dropping back to the source and losing every change the
+          // nodes in between made.
+          const simulated = simulatedOutput(nodeId);
+          if (simulated) return preparePayload(simulated);
+          const own = ownPayload(node);
+          if (own) return preparePayload(own);
 
           const inc = edges.filter((e: Edge) => e.target === nodeId);
           for (const e of inc) {

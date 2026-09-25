@@ -134,7 +134,7 @@ function EditorInner() {
 
   const {
     testMutation, saveMutation, toggleMutation, rebuildMutation,
-    handleTest, captureSample, handleRefreshFields, handleSave, handleInlineSave
+    handleTest, captureSample, handleRefreshFields, isRefreshing, handleSave, handleInlineSave
   } = useWorkflowMutations(id, isNew, sources?.data, setSaveConfirmOpened);
 
   const {
@@ -300,7 +300,7 @@ function EditorInner() {
               sources={sources?.data || []}
               sinks={sinks?.data || []}
               onRefreshFields={handleRefreshFields}
-              isRefreshing={testMutation.isPending}
+              isRefreshing={isRefreshing || testMutation.isPending}
             />
 
             {/* Live Log Panel */}
@@ -361,7 +361,7 @@ function EditorInner() {
           handleInlineSave={handleInlineSave}
           handleTest={handleTest}
           handleRefreshFields={handleRefreshFields}
-          isRefreshing={testMutation.isPending}
+          isRefreshing={isRefreshing || testMutation.isPending}
           vhost={vhost}
           workerID={workerID}
           availableFields={availableFields}
