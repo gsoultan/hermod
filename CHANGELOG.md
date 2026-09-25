@@ -7,6 +7,43 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.13.0] — 2026-09-25
+
+Routing is decided one way everywhere. A message that matched a router rule or
+switch case with no name went down every route in the running engine, a message
+resumed after a wait or approval skipped edges a live message takes, and the
+editor's test run ignored a router's choice. A test run now draws the path it
+took on the canvas. Refreshing Available Fields carries a new sample through
+every node after it, and a workflow with two sources is previewed with each
+source's own data. A date conversion writes its date in a format picked from a
+list, the dead-letter edges are drawn, and an `api_lookup` with a JSON body is
+sent as JSON.
+
+### Upgrading
+
+**Two routing fixes change where messages go.** A message that matches a router
+rule or switch case whose name was cleared now takes only the edge from that
+rule's own handle (`rule_1`, `case_1`), not every edge out of the node. A
+message resumed after a wait or approval now also follows unlabelled edges, as
+live traffic does, so at an approval an unlabelled edge carries both decisions;
+label it to route only one. Edges drawn in the editor always carry a label, so
+the second change reaches workflows created or imported through the API.
+
+**An `api_lookup` with a JSON body sends a different request.** It now carries
+`Content-Type: application/json` unless the node's headers set one, and a
+quoted token that resolves to an object or array is sent as that value rather
+than as text. An endpoint that accepted the old request may treat the new one
+differently.
+
+**A date row's old Date Format is now its Input format.** It only ever described
+how a value is read, so upgrading changes no output. A row that set it
+expecting the written date to change still writes a timestamp until an Output
+format is chosen.
+
+**An exported workflow no longer carries sampled rows.** `lastSample` and test
+result payloads are left out of the bundle; the stored workflow keeps them, so
+an imported copy arrives without them.
+
 ### A date conversion's format changed nothing
 
 A Data Conversion row converting to Date had one "Date Format" field, and it
@@ -4522,6 +4559,7 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.13.0]: https://github.com/gsoultan/hermod/releases/tag/v1.13.0
 [1.12.0]: https://github.com/gsoultan/hermod/releases/tag/v1.12.0
 [1.11.0]: https://github.com/gsoultan/hermod/releases/tag/v1.11.0
 [1.10.0]: https://github.com/gsoultan/hermod/releases/tag/v1.10.0
