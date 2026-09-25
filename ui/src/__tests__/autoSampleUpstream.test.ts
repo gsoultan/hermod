@@ -5,6 +5,7 @@ import {
   resolveSampleSource,
   sampleTableFor,
   shouldAutoSample,
+  simulationInputs,
 } from '@/pages/workflows/WorkflowEditor/sampleCapture'
 
 /**
@@ -169,5 +170,56 @@ describe('shouldAutoSample', () => {
 
   it('handles a missing source', () => {
     expect(shouldAutoSample(null)).toBe(false)
+  })
+})
+
+/**
+ * A refresh re-runs the whole workflow so every node can read what the node
+ * before it emits. The simulation used to take one message and hand it to
+ * every source node, so on a two-source workflow a refresh on one branch put
+ * its columns on the other. Each source node is now seeded with its own
+ * payload, keyed by node id, the way the backend looks them up.
+ */
+describe('simulationInputs', () => {
+  const orders = JSON.stringify({ operation: 'snapshot', after: { order_id: 7 } })
+  const customers = JSON.stringify({ operation: 'snapshot', after: { email: 'ada@example.com' } })
+
+  it('seeds each source node with its own source\'s sample', () => {
+    const nodes = [src('n-orders', 'orders'), src('n-customers', 'customers'), tr('n-tr')]
+    const sources = [
+      { id: 'orders', type: 'postgres', sample: orders },
+      { id: 'customers', type: 'postgres', sample: customers },
+    ]
+
+    expect(simulationInputs(nodes, sources, {})).toEqual({
+      'n-orders': JSON.parse(orders),
+      'n-customers': JSON.parse(customers),
+    })
+  })
+
+  it('uses the sample just captured for every node reading that source', () => {
+    const nodes = [src('n-1', 'orders'), src('n-2', 'orders'), src('n-3', 'customers')]
+    const sources = [
+      { id: 'orders', type: 'postgres', sample: orders },
+      { id: 'customers', type: 'postgres', sample: customers },
+    ]
+    const fresh = { operation: 'snapshot', after: { order_id: 8, added: true } }
+
+    const got = simulationInputs(nodes, sources, {}, { sourceId: 'orders', sample: fresh })
+
+    expect(got['n-1']).toEqual(fresh)
+    expect(got['n-2']).toEqual(fresh)
+    expect(got['n-3']).toEqual(JSON.parse(customers))
+  })
+
+  it('falls back to lastSample, and leaves out a source with nothing at all', () => {
+    const withCopy = { id: 'n-copy', type: 'source', data: { ref_id: 'unsampled', lastSample: { kept: 1 } } } as unknown as Node
+    const nodes = [withCopy, src('n-empty', 'never-sampled')]
+    const sources = [
+      { id: 'unsampled', type: 'postgres', sample: '' },
+      { id: 'never-sampled', type: 'postgres', sample: '' },
+    ]
+
+    expect(simulationInputs(nodes, sources, {})).toEqual({ 'n-copy': { kept: 1 } })
   })
 })

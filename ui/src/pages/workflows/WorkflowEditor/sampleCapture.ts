@@ -80,6 +80,71 @@ export function resolveSampleSource(
 }
 
 /**
+ * ownPayloadOf returns the payload a node holds itself, freshest first: a test
+ * result, what the running engine last emitted, the sample stored on the
+ * source record, and only then `lastSample`.
+ *
+ * `lastSample` is a copy. Test Connection writes it into the source node, and
+ * saving the workflow persists it with the node's config, so it outlives the
+ * table it describes — while the refresh icon and the automatic capture write
+ * only the stored sample. Checked first, it shadowed every later sample, so a
+ * refresh changed nothing on any node downstream. It stays as the last resort
+ * for a source that has nothing stored.
+ *
+ * The field list and the simulation's seeds both read this, so what a node
+ * offers before a preview runs and what the preview then runs on are the same
+ * data.
+ */
+export function ownPayloadOf(
+  node: Node,
+  sources: any[] | undefined,
+  nodeSamples: Record<string, any> | undefined
+): any | null {
+  const tested = (node.data?.testResult as any)?.payload;
+  if (tested) return tested;
+  const live = nodeSamples?.[node.id];
+  if (live) return live;
+  if (node.type === 'source') {
+    const rawSample = sources?.find((s: any) => s.id === (node.data as any)?.ref_id)?.sample;
+    if (rawSample) {
+      try {
+        return typeof rawSample === 'string' ? JSON.parse(rawSample) : rawSample;
+      } catch {}
+    }
+  }
+  return (node.data as any)?.lastSample || null;
+}
+
+/**
+ * simulationInputs seeds each source node with its own payload, keyed by node
+ * id — the key POST /api/workflows/test looks `messages` up by.
+ *
+ * The simulation used to take one message and hand it to every source node,
+ * so on a two-source workflow a refresh on one branch put its columns on the
+ * other. `fresh` is the sample a refresh just captured; every node reading that
+ * source gets it. A source node with nothing to send is left out, and the
+ * backend leaves its branch unreached rather than giving it someone else's
+ * sample.
+ */
+export function simulationInputs(
+  nodes: Node[],
+  sources: any[] | undefined,
+  nodeSamples: Record<string, any> | undefined,
+  fresh?: { sourceId: string; sample: any }
+): Record<string, any> {
+  const inputs: Record<string, any> = {};
+  for (const node of nodes) {
+    if (node.type !== 'source') continue;
+    const payload =
+      fresh && (node.data as any)?.ref_id === fresh.sourceId
+        ? fresh.sample
+        : ownPayloadOf(node, sources, nodeSamples);
+    if (payload && typeof payload === 'object') inputs[node.id] = payload;
+  }
+  return inputs;
+}
+
+/**
  * sampleTableFor picks the table a source should be previewed from.
  *
  * The empty string is meaningful: it tells the backend to preview what the

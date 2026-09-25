@@ -1392,212 +1392,278 @@ func (r *Registry) ResumeApproval(ctx context.Context, app storage.Approval, bra
 
 // --- Test Workflow ---
 
+// SimulationInput is what a simulation feeds its source nodes.
+type SimulationInput struct {
+	// Message seeds every source node PerSource does not name. Nil leaves such
+	// a source unseeded, and everything downstream of it unreached.
+	Message hermod.Message
+	// PerSource seeds source nodes, by node ID, with their own sample.
+	PerSource map[string]hermod.Message
+	// Partial previews a workflow that is still being built; see
+	// SimulateWorkflow.
+	Partial bool
+}
+
+// seedFor is the message a source node starts with: its own sample when it has
+// one, the shared message otherwise. Seeding every source with one message is
+// what put a refreshed branch's columns on every other branch.
+func (in SimulationInput) seedFor(sourceNodeID string) hermod.Message {
+	if m := in.PerSource[sourceNodeID]; m != nil {
+		return m
+	}
+	return in.Message
+}
+
+// TestWorkflow runs msg through a workflow the engine could start, seeding
+// every source node with it. It is what the editor's Test button calls.
 func (r *Registry) TestWorkflow(ctx context.Context, wf storage.Workflow, msg hermod.Message) ([]WorkflowStepResult, error) {
-	if err := r.ValidateWorkflow(ctx, wf); err != nil {
+	return r.SimulateWorkflow(ctx, wf, SimulationInput{Message: msg})
+}
+
+// SimulateWorkflow runs sample messages through a workflow without starting an
+// engine, and reports what every node emitted.
+//
+// Partial previews a workflow that is still being built. It keeps the checks
+// that make the workflow a graph — a source, no cycle, no edge to nowhere — and
+// drops the ones about whether it could run: a reachable sink, configured
+// references, the dead-letter settings. None of those change what a node emits,
+// and a workflow is missing its sink exactly while its nodes are being set up,
+// which is when the editor needs the preview.
+func (r *Registry) SimulateWorkflow(ctx context.Context, wf storage.Workflow, in SimulationInput) ([]WorkflowStepResult, error) {
+	if err := r.validateForSimulation(ctx, wf, in.Partial); err != nil {
 		return nil, err
 	}
-
-	msgToMap := func(m hermod.Message) map[string]any {
-		if m == nil {
-			return nil
-		}
-		return m.ToMap()
-	}
-
-	// Build node map for O(1) lookups
 	r.prepareWorkflowNodes(ctx, wf.Nodes)
-	nodeMap := make(map[string]*storage.WorkflowNode)
+
+	sim := newSimulation(r, wf)
+	defer sim.releaseAll()
+	if err := sim.seed(in); err != nil {
+		return nil, err
+	}
+	for len(sim.queue) > 0 {
+		id := sim.queue[0]
+		sim.queue = sim.queue[1:]
+		sim.visit(id)
+	}
+	return sim.steps, nil
+}
+
+func (r *Registry) validateForSimulation(ctx context.Context, wf storage.Workflow, partial bool) error {
+	if !partial {
+		return r.ValidateWorkflow(ctx, wf)
+	}
+	_, err := r.checkWorkflowGraph(wf)
+	return err
+}
+
+// simulation is one SimulateWorkflow run: the graph, the message waiting at
+// each node, and the steps reported so far.
+type simulation struct {
+	r          *Registry
+	wfID       string
+	nodes      map[string]*storage.WorkflowNode
+	sources    []*storage.WorkflowNode
+	adj        map[string][]string
+	inDegree   map[string]int
+	edgeLabels map[string]string
+	waiting    map[string]hermod.Message
+	received   map[string]int
+	visited    map[string]bool
+	queue      []string
+	steps      []WorkflowStepResult
+	// owned is every message the run created, released when it ends.
+	owned []hermod.Message
+}
+
+func newSimulation(r *Registry, wf storage.Workflow) *simulation {
+	s := &simulation{
+		r:          r,
+		wfID:       wf.ID,
+		nodes:      make(map[string]*storage.WorkflowNode, len(wf.Nodes)),
+		adj:        make(map[string][]string),
+		inDegree:   make(map[string]int),
+		edgeLabels: make(map[string]string),
+		waiting:    make(map[string]hermod.Message),
+		received:   make(map[string]int),
+		visited:    make(map[string]bool),
+		owned:      make([]hermod.Message, 0, len(wf.Nodes)*2),
+	}
 	for i := range wf.Nodes {
-		nodeMap[wf.Nodes[i].ID] = &wf.Nodes[i]
+		s.nodes[wf.Nodes[i].ID] = &wf.Nodes[i]
+		if wf.Nodes[i].Type == "source" {
+			s.sources = append(s.sources, &wf.Nodes[i])
+		}
 	}
-
-	var steps []WorkflowStepResult
-	adj := make(map[string][]string)
-	inDegree := make(map[string]int)
 	for _, edge := range wf.Edges {
-		adj[edge.SourceID] = append(adj[edge.SourceID], edge.TargetID)
-		inDegree[edge.TargetID]++
-	}
-
-	// Map edges to labels for easy lookup
-	edgeLabels := make(map[string]string)
-	for _, edge := range wf.Edges {
-		label := edge.SourceHandle
-		if l, ok := edge.Config["label"].(string); ok && l != "" {
-			label = l
-		}
-		if label != "" {
-			edgeLabels[edge.SourceID+":"+edge.TargetID] = label
+		s.adj[edge.SourceID] = append(s.adj[edge.SourceID], edge.TargetID)
+		s.inDegree[edge.TargetID]++
+		if label := edgeLabel(edge); label != "" {
+			s.edgeLabels[edge.SourceID+":"+edge.TargetID] = label
 		}
 	}
+	return s
+}
 
-	// Find Source nodes
-	var sourceNodes []*storage.WorkflowNode
-	for i, node := range wf.Nodes {
-		if node.Type == "source" {
-			sourceNodes = append(sourceNodes, &wf.Nodes[i])
+// edgeLabel is the branch an edge carries: its configured label, else its
+// source handle.
+func edgeLabel(edge storage.WorkflowEdge) string {
+	if l, ok := edge.Config["label"].(string); ok && l != "" {
+		return l
+	}
+	return edge.SourceHandle
+}
+
+// own records a message the run created so it is released when the run ends.
+func (s *simulation) own(m hermod.Message) hermod.Message {
+	s.owned = append(s.owned, m)
+	return m
+}
+
+func (s *simulation) releaseAll() {
+	released := make(map[hermod.Message]bool, len(s.owned))
+	for _, m := range s.owned {
+		if m != nil && !released[m] {
+			m.Release()
+			released[m] = true
 		}
 	}
+}
 
-	if len(sourceNodes) == 0 {
-		return nil, errors.New("no source node found")
+// seed hands each source node its starting message, reports it as that
+// node's step, and queues every source.
+func (s *simulation) seed(in SimulationInput) error {
+	if len(s.sources) == 0 {
+		return errors.New("no source node found")
 	}
-
-	toRelease := make([]hermod.Message, 0, len(wf.Nodes)*2)
-	released := make(map[hermod.Message]bool)
-	defer func() {
-		for _, m := range toRelease {
-			if m != nil && !released[m] {
-				m.Release()
-				released[m] = true
-			}
+	for _, sn := range s.sources {
+		s.queue = append(s.queue, sn.ID)
+		seed := in.seedFor(sn.ID)
+		if seed == nil {
+			// Nothing of its own to send: its branch stays unreached rather than
+			// being handed another source's sample.
+			continue
 		}
-	}()
-
-	currentMessages := make(map[string]hermod.Message)
-	for _, sn := range sourceNodes {
-		c := msg.Clone()
-		currentMessages[sn.ID] = c
-		toRelease = append(toRelease, c)
-	}
-
-	receivedCount := make(map[string]int)
-
-	for _, sn := range sourceNodes {
-		r.broadcastLiveMessageFromHermod(wf.ID, sn.ID, msg, false, "")
-		steps = append(steps, WorkflowStepResult{
+		s.waiting[sn.ID] = s.own(seed.Clone())
+		s.r.broadcastLiveMessageFromHermod(s.wfID, sn.ID, seed, false, "")
+		s.steps = append(s.steps, WorkflowStepResult{
 			NodeID:   sn.ID,
 			NodeType: "source",
-			Payload:  msgToMap(msg),
-			Metadata: msg.Metadata(),
+			Payload:  seed.ToMap(),
+			Metadata: seed.Metadata(),
 		})
 	}
+	return nil
+}
 
-	visited := make(map[string]bool)
-	queue := []string{}
-	for _, sn := range sourceNodes {
-		queue = append(queue, sn.ID)
+// visit runs a node once every edge into it has been walked, and passes what
+// it emitted along its own edges.
+func (s *simulation) visit(id string) {
+	if s.visited[id] {
+		return
+	}
+	s.visited[id] = true
+
+	node := s.nodes[id]
+	if node == nil {
+		// Defensive: a queued node id may reference a node that no longer
+		// exists (e.g. a dangling edge left over after a node was deleted
+		// in the editor). Skip it instead of dereferencing a nil node,
+		// which would panic and abort the request. Mirrors the guard used
+		// by the live engine in discoverWorkflowSinks/resumeFromNode.
+		return
+	}
+	out, branch := s.run(id, node)
+	s.forward(id, node, out, branch)
+}
+
+// run executes a node on the message waiting for it and records its step. It
+// returns what the node emitted, nil when it emitted nothing, and the branch
+// it took. A source's step was recorded when it was seeded.
+func (s *simulation) run(id string, node *storage.WorkflowNode) (hermod.Message, string) {
+	in := s.waiting[id]
+	if node.Type == "source" {
+		return in, ""
+	}
+	if in == nil {
+		// Node reached only through branches that were not taken: it has no
+		// input message, so it is skipped. Its outgoing edges are still
+		// traversed to keep downstream join counters consistent.
+		s.steps = append(s.steps, WorkflowStepResult{NodeID: id, NodeType: node.Type, Filtered: true})
+		return nil, ""
 	}
 
-	for len(queue) > 0 {
-		currID := queue[0]
-		queue = queue[1:]
-
-		if visited[currID] {
-			continue
-		}
-		visited[currID] = true
-
-		currMsg := currentMessages[currID]
-
-		// Run current node if it's not the source (already handled)
-		currNode := nodeMap[currID]
-		if currNode == nil {
-			// Defensive: a queued node id may reference a node that no longer
-			// exists (e.g. a dangling edge left over after a node was deleted
-			// in the editor). Skip it instead of dereferencing a nil node,
-			// which would panic and abort the request. Mirrors the guard used
-			// by the live engine in discoverWorkflowSinks/resumeFromNode.
-			continue
-		}
-		var currBranch string
-		var msgs []hermod.Message
-		if currNode.Type != "source" && currMsg == nil {
-			// Node reached only through branches that were not taken: it has no
-			// input message, so it is skipped. Its outgoing edges are still
-			// traversed below to keep downstream join counters consistent.
-			steps = append(steps, WorkflowStepResult{
-				NodeID:   currID,
-				NodeType: currNode.Type,
-				Filtered: true,
-			})
-		} else if currNode.Type != "source" {
-			var err error
-			msgs, currBranch, err = r.RunWorkflowNode(wf.ID, currNode, currMsg)
-			for _, m := range msgs {
-				if m != currMsg {
-					toRelease = append(toRelease, m)
-				}
-			}
-			if err != nil {
-				steps = append(steps, WorkflowStepResult{
-					NodeID:   currID,
-					NodeType: currNode.Type,
-					Error:    err.Error(),
-				})
-			}
-
-			if len(msgs) == 0 {
-				steps = append(steps, WorkflowStepResult{
-					NodeID:   currID,
-					NodeType: currNode.Type,
-					Filtered: true,
-					Branch:   currBranch,
-				})
-				currMsg = nil // Ensure we don't pass filtered message downstream
-			} else {
-				// Update step with output
-				currMsg = msgs[0] // Use first message for test result visualization
-				found := false
-				for i := range steps {
-					if steps[i].NodeID == currID {
-						steps[i].Payload = msgToMap(currMsg)
-						steps[i].Metadata = currMsg.Metadata()
-						steps[i].Branch = currBranch
-						found = true
-						break
-					}
-				}
-				if !found {
-					steps = append(steps, WorkflowStepResult{
-						NodeID:   currID,
-						NodeType: currNode.Type,
-						Payload:  msgToMap(currMsg),
-						Metadata: currMsg.Metadata(),
-						Branch:   currBranch,
-					})
-				}
-			}
-		}
-
-		for _, targetID := range adj[currID] {
-			edgeLabel := edgeLabels[currID+":"+targetID]
-
-			match := true
-			if currNode.Type == "condition" || currNode.Type == "switch" {
-				if edgeLabel != "" && edgeLabel != currBranch {
-					match = false
-				}
-			}
-
-			receivedCount[targetID]++
-
-			if match && currMsg != nil {
-				strategy := ""
-				targetNode := nodeMap[targetID]
-				if targetNode != nil {
-					strategy, _ = targetNode.Config["strategy"].(string)
-				}
-				if currentMessages[targetID] == nil {
-					c := currMsg.Clone()
-					currentMessages[targetID] = c
-					toRelease = append(toRelease, c)
-				} else {
-					// Merge
-					r.mergeData(currentMessages[targetID].DataRef(), currMsg.Data(), strategy)
-					if dm, ok := currentMessages[targetID].(interface{ ClearCachedPayload() }); ok {
-						dm.ClearCachedPayload()
-					}
-				}
-			}
-
-			if receivedCount[targetID] == inDegree[targetID] {
-				queue = append(queue, targetID)
-			}
+	msgs, branch, err := s.r.RunWorkflowNode(s.wfID, node, in)
+	for _, m := range msgs {
+		if m != in {
+			s.own(m)
 		}
 	}
+	if err != nil {
+		s.steps = append(s.steps, WorkflowStepResult{NodeID: id, NodeType: node.Type, Error: err.Error()})
+	}
+	if len(msgs) == 0 {
+		s.steps = append(s.steps, WorkflowStepResult{NodeID: id, NodeType: node.Type, Filtered: true, Branch: branch})
+		return nil, branch
+	}
+	// The first message stands for the node in the result.
+	s.recordOutput(id, node, msgs[0], branch)
+	return msgs[0], branch
+}
 
-	return steps, nil
+// recordOutput puts a node's output on its step: the error step it already
+// has, when it failed and still emitted, or a new one.
+func (s *simulation) recordOutput(id string, node *storage.WorkflowNode, out hermod.Message, branch string) {
+	for i := range s.steps {
+		if s.steps[i].NodeID == id {
+			s.steps[i].Payload = out.ToMap()
+			s.steps[i].Metadata = out.Metadata()
+			s.steps[i].Branch = branch
+			return
+		}
+	}
+	s.steps = append(s.steps, WorkflowStepResult{
+		NodeID:   id,
+		NodeType: node.Type,
+		Payload:  out.ToMap(),
+		Metadata: out.Metadata(),
+		Branch:   branch,
+	})
+}
+
+// forward passes a node's output along each edge on the branch it took, and
+// queues a target once every edge into it has been walked — taken or not, so
+// a join is not left waiting for a branch that was never going to arrive.
+func (s *simulation) forward(id string, node *storage.WorkflowNode, out hermod.Message, branch string) {
+	routes := node.Type == "condition" || node.Type == "switch"
+	for _, target := range s.adj[id] {
+		label := s.edgeLabels[id+":"+target]
+		taken := !routes || label == "" || label == branch
+		s.received[target]++
+		if taken && out != nil {
+			s.deliver(target, out)
+		}
+		if s.received[target] == s.inDegree[target] {
+			s.queue = append(s.queue, target)
+		}
+	}
+}
+
+// deliver hands target a copy of msg, merging it into the message already
+// waiting there when target joins several branches.
+func (s *simulation) deliver(target string, msg hermod.Message) {
+	waiting := s.waiting[target]
+	if waiting == nil {
+		s.waiting[target] = s.own(msg.Clone())
+		return
+	}
+	strategy := ""
+	if node := s.nodes[target]; node != nil {
+		strategy, _ = node.Config["strategy"].(string)
+	}
+	s.r.mergeData(waiting.DataRef(), msg.Data(), strategy)
+	if dm, ok := waiting.(interface{ ClearCachedPayload() }); ok {
+		dm.ClearCachedPayload()
+	}
 }
 
 func (r *Registry) prepareWorkflowNodes(ctx context.Context, nodes []storage.WorkflowNode) {

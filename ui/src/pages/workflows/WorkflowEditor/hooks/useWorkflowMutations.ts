@@ -1,13 +1,90 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { notifications } from '@mantine/notifications';
 import { apiFetch } from '@/api';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import type { Source, Sink } from '@/types';
-import { resolveSampleSource, sampleTableFor } from '../sampleCapture';
+import { resolveSampleSource, sampleTableFor, simulationInputs } from '../sampleCapture';
 
 const API_BASE = '/api';
+
+// The Test Input modal's untouched placeholder. Running it is never what the
+// operator meant, so it does not count as an input.
+const DEFAULT_TEST_INPUT = '{\n  "payload": "test"\n}';
+
+/**
+ * What one simulation run is fed. `input` goes to every source node. `inputs`
+ * seeds source nodes, by node id, with their own sample; a source it does not
+ * name gets `input`, or nothing. `partial` previews a workflow that is still
+ * being built, and `quiet` leaves reporting the outcome to the caller.
+ */
+type SimulationVars = {
+  input?: any;
+  inputs?: Record<string, any>;
+  partial?: boolean;
+  quiet?: boolean;
+};
+
+type RefreshOutcome = { color: string; title: string; message: string; autoClose: number };
+
+/**
+ * What the refresh notification says once the run has settled. It is the one
+ * place the operator hears about the refresh, so it has to say where the new
+ * sample stopped: a source that could not be sampled, or a node that failed on
+ * the new data — everything after that node can only show what reached it.
+ */
+function refreshOutcome(o: {
+  sourceName?: string;
+  /** A fresh sample was fetched; false when the node had no source to ask. */
+  sampled: boolean;
+  captureError: string | null;
+  branchSeeded: boolean;
+  failures: string[];
+}): RefreshOutcome {
+  if (o.captureError && !o.branchSeeded) {
+    return {
+      color: 'orange',
+      title: 'Could not refresh fields',
+      message: `Could not fetch a sample from ${o.sourceName}: ${o.captureError}`,
+      autoClose: 8000,
+    };
+  }
+  const notes: string[] = [];
+  if (o.captureError) {
+    notes.push(`Could not fetch a new sample from ${o.sourceName} (${o.captureError}), so its nodes show the last one.`);
+  }
+  if (o.failures.length > 0) {
+    notes.push(`Failed on the new data — ${o.failures.join('; ')}. Nodes after it show what reached it.`);
+  }
+  if (notes.length > 0) {
+    return {
+      color: 'orange',
+      title: o.captureError ? 'Fields refreshed from the last sample' : 'Fields refreshed, but a node failed',
+      message: notes.join(' '),
+      autoClose: 8000,
+    };
+  }
+  return {
+    color: 'green',
+    title: 'Fields refreshed',
+    message: o.sampled
+      ? 'Every node downstream now reads the new sample.'
+      : 'Re-ran the workflow on the samples it already had.',
+    autoClose: 2500,
+  };
+}
+
+/** Each node that reported an error in a run, as "label: error". */
+function previewFailures(steps: any[] | undefined, nodes: { id: string; data?: any }[]): string[] {
+  const failed = new Map<string, string>();
+  for (const step of steps ?? []) {
+    if (!step?.error || failed.has(step.node_id)) continue;
+    const label = nodes.find((n) => n.id === step.node_id)?.data?.label || step.node_id;
+    failed.set(step.node_id, `${label}: ${step.error}`);
+  }
+  return [...failed.values()];
+}
 
 export function useWorkflowMutations(
   id: string, 
@@ -24,11 +101,17 @@ export function useWorkflowMutations(
     updateNodeConfig, setSettingsOpened, setSelectedNode
   } = useWorkflowStore();
 
-  const testMutation = useMutation<any, Error, { input: any }>({
-    mutationFn: async ({ input }) => {
+  const [refreshing, setRefreshing] = useState(false);
+
+  const testMutation = useMutation<any, Error, SimulationVars | undefined>({
+    // The Configure Test modal's Run Simulation calls mutate() with no
+    // variables, and destructuring them here threw before any request was
+    // sent — so that button never ran anything.
+    mutationFn: async (vars) => {
+      const { input, inputs, partial, quiet } = vars ?? {};
       const s = useWorkflowStore.getState();
       let msg = input;
-      if (!msg) {
+      if (!msg && !inputs) {
         try {
           msg = JSON.parse(s.testInput);
         } catch {
@@ -39,6 +122,7 @@ export function useWorkflowMutations(
       const res = await apiFetch(`${API_BASE}/workflows/test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        silent: quiet,
         body: JSON.stringify({
           workflow: { 
             name: s.name, 
@@ -69,20 +153,25 @@ export function useWorkflowMutations(
             })),
           },
           message: msg,
+          messages: inputs,
+          partial,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data, vars) => {
       setTestResults(data);
       setTestModalOpened(false);
+      if (vars?.quiet) return;
       notifications.show({ title: 'Test Complete', message: 'The flow has been simulated. Active paths are highlighted.', color: 'blue' });
     },
-    onError: (err) => {
+    onError: (err, vars) => {
+      if (vars?.quiet) return;
       notifications.show({ title: 'Test Failed', message: err.message, color: 'red' });
     }
   });
+  const { mutate: runSimulation, mutateAsync: runSimulationAsync } = testMutation;
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -217,37 +306,30 @@ export function useWorkflowMutations(
   });
 
   const handleTest = useCallback((overrideInput?: any) => {
-    let input = overrideInput;
-    const s = useWorkflowStore.getState();
-    const { nodes, selectedNode } = s;
-    
-    if (!input && selectedNode?.type === 'source') {
-      const sourceData = sourcesData?.find((s: any) => s.id === selectedNode?.data.ref_id);
-      if (sourceData?.sample) {
-        try { input = JSON.parse(sourceData.sample); } catch {}
-      }
-    }
-    
-    if (!input) {
-      const firstSource = nodes.find(n => n.type === 'source');
-      if (firstSource) {
-        const sourceData = sourcesData?.find((s: any) => s.id === firstSource.data.ref_id);
-        if (sourceData?.sample) {
-          try { input = JSON.parse(sourceData.sample); } catch {}
-        }
-      }
-    }
-    
-    if (!input && testInput && testInput !== '{\n  "payload": "test"\n}') {
-      try { input = JSON.parse(testInput); } catch {}
+    if (overrideInput) {
+      runSimulation({ input: overrideInput });
+      return;
     }
 
-    if (input) {
-      testMutation.mutate({ input });
-    } else {
-      setTestModalOpened(true);
+    // Each source node with its own sample. This used to take the selected
+    // source's sample, else the first source in the workflow, and give it to
+    // every source — so a two-source workflow was simulated with one branch's
+    // data on both.
+    const { nodes, nodeSamples } = useWorkflowStore.getState();
+    const inputs = simulationInputs(nodes, sourcesData, nodeSamples);
+    if (Object.keys(inputs).length > 0) {
+      runSimulation({ inputs });
+      return;
     }
-  }, [sourcesData, testInput, testMutation, setTestModalOpened]);
+
+    if (testInput && testInput !== DEFAULT_TEST_INPUT) {
+      try {
+        runSimulation({ input: JSON.parse(testInput) });
+        return;
+      } catch {}
+    }
+    setTestModalOpened(true);
+  }, [sourcesData, testInput, runSimulation, setTestModalOpened]);
 
   // Fetch a source's sample and store it, so AVAILABLE FIELDS has something to
   // read. Shared by the refresh icon and by the automatic capture that runs
@@ -296,8 +378,12 @@ export function useWorkflowMutations(
     return sampleMsg;
   }, [queryClient]);
 
+  // Refresh fetches a fresh sample for the source feeding the selected node,
+  // then runs the whole workflow on it. Every node reads what the node before
+  // it emitted in that run, and each node's Live Preview re-runs whenever the
+  // payload it reads changes — so one click carries the new sample through the
+  // field list and the preview of every node downstream, one after another.
   const handleRefreshFields = useCallback(async () => {
-    let input = null;
     const { nodes, edges, selectedNode } = useWorkflowStore.getState();
 
     // The source on the selected node's own branch. This used to be
@@ -307,42 +393,89 @@ export function useWorkflowMutations(
     const sourceData = selectedNode
       ? resolveSampleSource(selectedNode.id, nodes, edges, sourcesData)
       : null;
+    const sourceName = sourceData?.name || sourceData?.id;
+    const id = 'refresh-fields';
 
-    if (sourceData) {
-      try {
-        notifications.show({
-          id: 'refresh-fields',
-          title: 'Refreshing Fields',
-          message: `Fetching fresh sample from ${sourceData.name || sourceData.id}...`,
-          loading: true,
-          autoClose: false,
-          withCloseButton: false
-        });
+    setRefreshing(true);
+    notifications.show({
+      id,
+      title: 'Refreshing fields',
+      message: sourceData
+        ? `Fetching a fresh sample from ${sourceName}…`
+        : 'Running the workflow on the samples it already has…',
+      loading: true,
+      autoClose: false,
+      withCloseButton: false,
+    });
 
-        input = await captureSample(sourceData);
+    const report = (color: string, title: string, message: string, autoClose: number) =>
+      notifications.update({ id, color, title, message, loading: false, autoClose, withCloseButton: true });
 
-        notifications.update({
-          id: 'refresh-fields',
-          title: 'Refresh Complete',
-          message: 'Fresh sample fetched and saved.',
-          color: 'green',
-          loading: false,
-          autoClose: 2000
-        });
-      } catch {
-        notifications.update({
-          id: 'refresh-fields',
-          title: 'Refresh Partial',
-          message: 'Could not fetch fresh sample from source. Re-simulating with existing data.',
-          color: 'orange',
-          loading: false,
-          autoClose: 3000
-        });
+    try {
+      // Captured quietly: a failure is reported in this one notification, with
+      // its reason, rather than as a second toast.
+      let fresh: { sourceId: string; sample: any } | undefined;
+      let captureError: string | null = null;
+      if (sourceData) {
+        try {
+          fresh = { sourceId: sourceData.id, sample: await captureSample(sourceData, { silent: true }) };
+        } catch (e: any) {
+          captureError = e?.message || 'the source did not answer';
+        }
       }
-    }
 
-    handleTest(input);
-  }, [sourcesData, handleTest, captureSample]);
+      const { nodes: current, nodeSamples } = useWorkflowStore.getState();
+      const inputs = simulationInputs(current, sourcesData, nodeSamples, fresh);
+
+      // Every field list reads the last simulation before anything else, and a
+      // new sample means that simulation ran on an input that no longer exists.
+      // Dropped, each node falls back to the sample just stored if the run below
+      // fails; kept, the old results pinned every node to the old fields.
+      if (fresh) setTestResults(null);
+
+      if (Object.keys(inputs).length === 0) {
+        report(
+          'orange',
+          'No sample to preview',
+          captureError
+            ? `Could not fetch a sample from ${sourceName}: ${captureError}`
+            : 'No source in this workflow has a sample yet. Open the source and run Test Connection.',
+          6000,
+        );
+        return;
+      }
+
+      // Whether the refreshed source's own branch has anything to run on: a
+      // stored sample or lastSample when the fetch failed, the new one when not.
+      const branchSeeded = !sourceData || current.some(
+        (n) => n.type === 'source' && (n.data as any)?.ref_id === sourceData.id && inputs[n.id] !== undefined
+      );
+
+      try {
+        // Partial: a workflow is missing its sink exactly while its nodes are
+        // being set up, and the Test button's rule — refuse anything that could
+        // not run — would stop the new sample at the first node.
+        const steps = await runSimulationAsync({ inputs, partial: true, quiet: true });
+        const outcome = refreshOutcome({
+          sourceName,
+          sampled: fresh !== undefined,
+          captureError,
+          branchSeeded,
+          failures: previewFailures(steps, current),
+        });
+        report(outcome.color, outcome.title, outcome.message, outcome.autoClose);
+      } catch (e: any) {
+        report(
+          'orange',
+          fresh ? 'Sample refreshed, but the workflow preview failed' : 'The workflow preview failed',
+          e?.message || 'The preview did not run.',
+          8000,
+        );
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }, [sourcesData, captureSample, runSimulationAsync, setTestResults]);
 
   const handleSave = useCallback(() => {
     if (!isNew && active) {
@@ -384,6 +517,7 @@ export function useWorkflowMutations(
     handleTest,
     captureSample,
     handleRefreshFields,
+    isRefreshing: refreshing,
     handleSave,
     handleInlineSave
   };

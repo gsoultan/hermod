@@ -191,7 +191,9 @@ export function SinkForm({
     workerID,
     availableFields,
     incomingPayload,
-    upstreamSource
+    upstreamSource,
+    onRefreshFields,
+    isRefreshing
 }: SinkFormProps) {
   const navigate = useNavigate();
   const role = getSessionRole();
@@ -322,6 +324,8 @@ export function SinkForm({
         availableFields={availableFields}
         incomingPayload={incomingPayload}
         upstreamSource={upstreamSource}
+        onRefreshFields={onRefreshFields}
+        isRefreshing={isRefreshing}
       />
     </Stack>
   );

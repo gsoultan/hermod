@@ -1,8 +1,14 @@
 package http
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gsoultan/hermod/internal/api/handlers"
+	"github.com/gsoultan/hermod/internal/engine/registry"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/core"
 )
 
@@ -126,5 +132,97 @@ func TestPreview_ADataColumnNamedTableOutranksTheVirtualField(t *testing.T) {
 	if after["moved_to"] != "window" {
 		t.Errorf("moved_to = %#v, want %q -- the transformation read the message's table name instead "+
 			"of the data column (after: %#v)", after["moved_to"], "window", after)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The workflow preview: POST /api/workflows/test.
+//
+// Refreshing AVAILABLE FIELDS re-runs this so every node can read what the
+// node before it emits. It could not do that for a workflow that has no sink
+// yet, and on a workflow with two sources it fed one sample to both, so a
+// refresh on one branch put its columns on the other.
+// ---------------------------------------------------------------------------
+
+func postSimulation(t *testing.T, body map[string]any) (int, []map[string]any, string) {
+	t.Helper()
+	store := newSQLiteStore(t, "simulate")
+	h := &WorkflowHandler{Handler: &handlers.Handler{Storage: store, Registry: registry.NewRegistry(store)}}
+
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/workflows/test", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.TestWorkflow(rec, req)
+
+	var steps []map[string]any
+	if rec.Code == http.StatusOK {
+		if err := json.Unmarshal(rec.Body.Bytes(), &steps); err != nil {
+			t.Fatalf("decode steps %q: %v", rec.Body.String(), err)
+		}
+	}
+	return rec.Code, steps, rec.Body.String()
+}
+
+func stepPayload(steps []map[string]any, nodeID string) map[string]any {
+	for _, s := range steps {
+		if s["node_id"] == nodeID {
+			if p, ok := s["payload"].(map[string]any); ok {
+				return p
+			}
+		}
+	}
+	return nil
+}
+
+func TestSimulationEndpointPreviewsEachBranchFromItsOwnSample(t *testing.T) {
+	workflow := map[string]any{
+		"name": "two branches, no sink yet",
+		"nodes": []map[string]any{
+			{"id": "src-a", "type": "source", "ref_id": "orders"},
+			{"id": "src-b", "type": "source", "ref_id": "customers"},
+			{"id": "ta", "type": "transformation", "config": map[string]any{"transType": "set", "column.branch": "'a'"}},
+			{"id": "tb", "type": "transformation", "config": map[string]any{"transType": "set", "column.branch": "'b'"}},
+		},
+		"edges": []map[string]any{
+			{"id": "ea", "source_id": "src-a", "target_id": "ta"},
+			{"id": "eb", "source_id": "src-b", "target_id": "tb"},
+		},
+	}
+
+	code, steps, body := postSimulation(t, map[string]any{
+		"workflow": workflow,
+		"messages": map[string]any{
+			"src-a": map[string]any{"only_in_a": "A"},
+			"src-b": map[string]any{"only_in_b": "B"},
+		},
+		"partial": true,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("a partial preview of a workflow with no sink yet returned %d: %s", code, body)
+	}
+	for node, want := range map[string]struct{ has, lacks string }{
+		"ta": {"only_in_a", "only_in_b"},
+		"tb": {"only_in_b", "only_in_a"},
+	} {
+		got := stepPayload(steps, node)
+		if _, ok := got[want.has]; !ok {
+			t.Errorf("node %s lacks %q, a column its own source sent. Payload: %v", node, want.has, got)
+		}
+		if _, ok := got[want.lacks]; ok {
+			t.Errorf("node %s shows %q, a column from the other branch. Payload: %v", node, want.lacks, got)
+		}
+	}
+
+	// The Test button does not ask for a partial preview, and that workflow
+	// still cannot run, so it is still refused.
+	if code, _, _ := postSimulation(t, map[string]any{
+		"workflow": workflow,
+		"message":  map[string]any{"k": "v"},
+	}); code == http.StatusOK {
+		t.Error("the Test button's request succeeded for a workflow the engine will not start")
 	}
 }
