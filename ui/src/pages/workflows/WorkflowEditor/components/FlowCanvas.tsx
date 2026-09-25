@@ -14,6 +14,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useStyledFlow } from '../hooks/useStyledFlow';
 import { ConnectionLine } from './ConnectionLine';
 import { LiveEdge } from './LiveEdge';
+import { SimulationOverlay } from '../simulation/SimulationOverlay';
 import { useMantineColorScheme } from '@mantine/core';
 
 // Node types are better imported or defined where they are used
@@ -132,6 +133,7 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
       fitViewOptions={{ padding: 0.2 }}
     >
       <Background color={isDark ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'} gap={20} />
+      <SimulationOverlay />
       {/* Lifted clear of the collapsed Live Logs bar (40px), which now floats
           over the canvas instead of sitting below it. */}
       <Controls style={{ bottom: 52 }} />

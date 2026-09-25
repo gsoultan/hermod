@@ -386,7 +386,8 @@ jobs:
             ui/__tests__/stream_auth_e2e.spec.ts \
             ui/__tests__/perf_guards_e2e.spec.ts \
             ui/__tests__/batch_sql_available_fields_e2e.spec.ts \
-            ui/__tests__/available_fields_auto_sample_e2e.spec.ts
+            ui/__tests__/available_fields_auto_sample_e2e.spec.ts \
+            ui/__tests__/simulation_path_e2e.spec.ts
       - name: Stop Hermod
         if: always()
         run: ./scripts/dev.sh --stop

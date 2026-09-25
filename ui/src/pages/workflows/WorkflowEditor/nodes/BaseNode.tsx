@@ -3,6 +3,8 @@ import { Handle, Position, type Node as FlowNode, type Edge as FlowEdge } from '
 import { Box, Text, useMantineColorScheme, ActionIcon, Tooltip, Paper, Group, Stack, ThemeIcon, rem, Badge } from '@mantine/core';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
+import { nodeSimulationResult } from '@/pages/workflows/WorkflowEditor/simulation/simulationPath';
+import { SIMULATION_STATUS_STYLE, SimulationStatusBadge } from '@/pages/workflows/WorkflowEditor/simulation/SimulationStatusBadge';
 import { IconEye, IconPlus, IconTrash } from '@tabler/icons-react';
 export const WorkflowContext = createContext<{
   onPlusClick: (nodeId: string, handleId: string | null) => void;
@@ -106,6 +108,9 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
       sourceStatus: state.sourceStatus,
       sinkStatus: state.sinkStatuses[data.ref_id],
       workflowDeadLetterCount: state.workflowDeadLetterCount,
+      // The same object until the next run, so a telemetry frame does not
+      // re-render the node on its account.
+      simulation: nodeSimulationResult(state.testResults, id),
     }))
   );
 
@@ -114,11 +119,17 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
   const sample = live.sample ?? data.sample;
   const cbStatus = live.cbStatus ?? data.cbStatus;
   const bufferFill = live.bufferFill ?? data.bufferFill;
-  const { sourceStatus, sinkStatus, workflowDeadLetterCount } = live;
+  const { sourceStatus, sinkStatus, workflowDeadLetterCount, simulation } = live;
 
   const nodeStatus = type === 'Source' ? sourceStatus : (type === 'Sink' ? sinkStatus : null);
 
   const healthColor = errorCount > 0 ? (errorCount / (metric + errorCount) > 0.1 ? 'red' : 'orange') : color;
+  // While a simulation is shown, the ring says what it did here. A node the
+  // message never reached fades back, so the ones it did reach read as a path;
+  // hovering or selecting it brings it forward again.
+  const simulationColor = simulation ? SIMULATION_STATUS_STYLE[simulation.status].color : null;
+  const reached = simulation && simulation.status !== 'skipped';
+  const faded = simulation?.status === 'skipped' && !hovered && !selected;
   const borderStyle = data.isDLQ ? 'dashed' : 'solid';
   const borderWidth = errorCount > 0 ? '3px' : '2px';
   
@@ -144,7 +155,12 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
       style={{
         background: isDark ? 'rgba(37, 38, 43, 0.8)' : 'rgba(255, 255, 255, 0.8)',
         backdropFilter: 'blur(8px)',
-        border: `${borderWidth} ${borderStyle} var(--mantine-color-${cbOpen ? 'red' : (selected ? 'blue' : healthColor)}-6)`,
+        border: `${borderWidth} ${borderStyle} var(--mantine-color-${cbOpen ? 'red' : (selected ? 'blue' : (simulationColor ?? healthColor))}-6)`,
+        boxShadow: reached ? `0 0 0 4px var(--mantine-color-${simulationColor}-light), var(--paper-shadow)` : undefined,
+        // Greyed rather than faded hard: its label has to stay readable, since
+        // the node is still one the operator may want to open.
+        opacity: faded ? 0.65 : 1,
+        filter: faded ? 'grayscale(1)' : undefined,
         minWidth: '200px',
         overflow: 'visible',
         transition: 'all 0.2s ease',
@@ -347,29 +363,10 @@ export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected
 
       {children}
 
-      {data.testResult && (
-        <Box 
-          style={{ 
-            position: 'absolute', 
-            top: -10, 
-            right: -10,
-            background: data.testResult.status === 'COMPLETED' ? 'var(--mantine-color-green-6)' : 
-                       data.testResult.status === 'ERROR' ? 'var(--mantine-color-red-6)' : 'var(--mantine-color-gray-6)',
-            borderRadius: '50%',
-            width: 20,
-            height: 20,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            fontSize: 'var(--mantine-font-size-xs)',
-            fontWeight: 'bold',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-          }}
-        >
-          {data.testResult.status === 'COMPLETED' ? '✓' : '!'}
-        </Box>
-      )}
+      {/* This corner used to read data.testResult, which nothing has set since
+          the refactor that dropped the simulation's canvas styling -- so a run
+          changed nothing here while the toast said the path was highlighted. */}
+      {simulation && <SimulationStatusBadge result={simulation} />}
     </Paper>
   );
 };

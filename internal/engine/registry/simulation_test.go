@@ -2,6 +2,7 @@ package registry
 
 import (
 	"database/sql"
+	"slices"
 	"testing"
 
 	"github.com/gsoultan/hermod"
@@ -358,5 +359,134 @@ func TestSimulationLeavesASourceWithoutASampleUnseeded(t *testing.T) {
 	}
 	if _, ok := payloadOf(steps, "ta")["shared"]; ok {
 		t.Errorf("the default message overrode the sample named for src-a. Steps: %+v", steps)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The path the message took.
+//
+// The editor draws a simulation on the canvas: the edges the message travelled
+// along light up, and every node says what happened to the message there. The
+// step list carried neither. There was nothing to light, and a node the message
+// never reached was reported exactly like one that dropped it -- `filtered`,
+// nothing else -- so "this filter dropped it" and "nothing got here" looked the
+// same.
+// ---------------------------------------------------------------------------
+
+// stepOf is the step reported for a node: the first one, which is the one that
+// carries its output when it had any.
+func stepOf(t *testing.T, steps []WorkflowStepResult, nodeID string) WorkflowStepResult {
+	t.Helper()
+	for _, s := range steps {
+		if s.NodeID == nodeID {
+			return s
+		}
+	}
+	t.Fatalf("no step for node %q. Steps: %+v", nodeID, steps)
+	return WorkflowStepResult{}
+}
+
+func TestSimulationReportsTheEdgesItsOutputTravelled(t *testing.T) {
+	reg := newSimRegistry(t)
+
+	steps, err := reg.TestWorkflow(t.Context(), simWorkflow(), sampleMessage(t, `{"name":"John Doe"}`))
+	if err != nil {
+		t.Fatalf("TestWorkflow: %v", err)
+	}
+
+	for node, want := range map[string][]string{"src": {"e1"}, "t1": {"e2"}, "t2": {"e3"}, "snk": nil} {
+		if got := stepOf(t, steps, node).TakenEdges; !slices.Equal(got, want) {
+			t.Errorf("node %s reports taken edges %v, want %v", node, got, want)
+		}
+	}
+}
+
+// conditionWorkflow sends gold customers one way and everyone else the other.
+// Each branch is named on its edge the way the editor names it: the handle the
+// edge leaves from, copied into the edge's label.
+func conditionWorkflow() storage.Workflow {
+	return storage.Workflow{
+		ID: "sim-condition", Name: "condition",
+		Nodes: []storage.WorkflowNode{
+			{ID: "src", Type: "source", RefID: "src-1"},
+			{ID: "is-gold", Type: "condition", Config: map[string]any{"field": "tier", "operator": "=", "value": "gold"}},
+			{ID: "gold", Type: "transformation", Config: map[string]any{"transType": "set", "column.lane": "'gold'"}},
+			{ID: "other", Type: "transformation", Config: map[string]any{"transType": "set", "column.lane": "'other'"}},
+			{ID: "after-other", Type: "transformation", Config: map[string]any{"transType": "set", "column.seen": "'yes'"}},
+		},
+		Edges: []storage.WorkflowEdge{
+			{ID: "e-in", SourceID: "src", TargetID: "is-gold"},
+			{ID: "e-true", SourceID: "is-gold", TargetID: "gold", SourceHandle: "true", Config: map[string]any{"label": "true"}},
+			{ID: "e-false", SourceID: "is-gold", TargetID: "other", SourceHandle: "false", Config: map[string]any{"label": "false"}},
+			{ID: "e-after", SourceID: "other", TargetID: "after-other"},
+		},
+	}
+}
+
+func TestSimulationReportsOnlyTheBranchAConditionTook(t *testing.T) {
+	reg := newSimRegistry(t)
+	in := SimulationInput{Message: sampleMessage(t, `{"tier":"gold"}`), Partial: true}
+
+	steps, err := reg.SimulateWorkflow(t.Context(), conditionWorkflow(), in)
+	if err != nil {
+		t.Fatalf("SimulateWorkflow: %v", err)
+	}
+
+	if got := stepOf(t, steps, "is-gold").TakenEdges; !slices.Equal(got, []string{"e-true"}) {
+		t.Errorf("the condition reports taken edges %v, want only the branch it took [e-true]", got)
+	}
+	if s := stepOf(t, steps, "gold"); s.Skipped || s.Payload == nil {
+		t.Errorf("the node on the branch taken is reported as not reached: %+v", s)
+	}
+	// Everything past the branch not taken, not just the node right after it.
+	for _, node := range []string{"other", "after-other"} {
+		s := stepOf(t, steps, node)
+		if !s.Skipped {
+			t.Errorf("node %s is on the branch not taken but is not reported skipped: %+v", node, s)
+		}
+		if len(s.TakenEdges) > 0 {
+			t.Errorf("node %s was never reached but reports taken edges %v", node, s.TakenEdges)
+		}
+	}
+}
+
+func TestSimulationTellsADroppedMessageFromOneThatNeverArrived(t *testing.T) {
+	reg := newSimRegistry(t)
+	wf := storage.Workflow{
+		ID: "sim-filter", Name: "filter",
+		Nodes: []storage.WorkflowNode{
+			{ID: "src", Type: "source", RefID: "src-1"},
+			{ID: "keep-silver", Type: "transformation", Config: map[string]any{
+				"transType": "filter_data", "field": "tier", "operator": "=", "value": "silver",
+			}},
+			{ID: "after", Type: "transformation", Config: map[string]any{"transType": "set", "column.seen": "'yes'"}},
+		},
+		Edges: []storage.WorkflowEdge{
+			{ID: "e1", SourceID: "src", TargetID: "keep-silver"},
+			{ID: "e2", SourceID: "keep-silver", TargetID: "after"},
+		},
+	}
+	in := SimulationInput{Message: sampleMessage(t, `{"tier":"gold"}`), Partial: true}
+
+	steps, err := reg.SimulateWorkflow(t.Context(), wf, in)
+	if err != nil {
+		t.Fatalf("SimulateWorkflow: %v", err)
+	}
+
+	filter := stepOf(t, steps, "keep-silver")
+	if !filter.Filtered || filter.Skipped {
+		t.Errorf("the filter was reached and dropped the message; want filtered and not skipped, got %+v", filter)
+	}
+	if len(filter.TakenEdges) > 0 {
+		t.Errorf("the filter emitted nothing but reports taken edges %v", filter.TakenEdges)
+	}
+	after := stepOf(t, steps, "after")
+	if !after.Skipped {
+		t.Errorf("nothing reached the node after the filter, but it is not reported skipped: %+v", after)
+	}
+	// Readers that only know `filtered` keep reading an unreached node the way
+	// they always have.
+	if !after.Filtered {
+		t.Errorf("an unreached node stopped reporting filtered: %+v", after)
 	}
 }
