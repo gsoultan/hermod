@@ -83,7 +83,7 @@ func TestToDate_Shapes(t *testing.T) {
 	tr := &DataConversionTransformer{}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := tr.toDate(tc.val, tc.format)
+			got, err := tr.toDate(tc.val, tc.format, nil)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("toDate(%#v, %q) = %#v, want an error", tc.val, tc.format, got)
@@ -376,5 +376,157 @@ func TestDataConversion_Date_EditorFormatsDoWhatTheyShow(t *testing.T) {
 		if parsed, ok := got.(time.Time); !ok || !parsed.Equal(want) {
 			t.Errorf("input format %q reads %q as %#v, want %s", layout, example, got, want)
 		}
+	}
+}
+
+// A date is written in the value's own zone unless the row names one, and
+// Hermod's operators are rarely in UTC: 2026-09-18T20:00:00Z is already the
+// 19th in Jakarta, so a date-only output format written in UTC is a day early
+// there for seven hours of every day.
+func TestDataConversion_Date_TimeZone_WritesTheDateInThatZone(t *testing.T) {
+	cases := []struct {
+		name string
+		val  any
+		zone string
+		want string
+	}{
+		{"UTC text", "2026-09-18T20:00:00Z", "Asia/Jakarta", "19 September 2026 03:00"},
+		{"text with its own offset", "2026-09-18 23:30:00+07", "America/New_York", "18 September 2026 12:30"},
+		{"a driver's time.Time", time.Date(2026, 9, 18, 20, 0, 0, 0, time.UTC), "Asia/Jakarta", "19 September 2026 03:00"},
+		{"UTC named as a zone", "2026-09-18 23:30:00+07", "UTC", "18 September 2026 16:30"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := convertMulti(t, map[string]any{"d": tc.val}, map[string]any{
+				"conversions": []any{map[string]any{
+					"field": "d", "targetType": "date", "outputFormat": "02 January 2006 15:04", "timeZone": tc.zone,
+				}},
+			})
+			if err != nil {
+				t.Fatalf("convert: %v", err)
+			}
+			if got["d"] != tc.want {
+				t.Errorf("d = %#v, want %q", got["d"], tc.want)
+			}
+		})
+	}
+}
+
+// A value that carries no zone -- MySQL DATETIME text, a day-first date, a bare
+// date -- is that zone's wall clock. Reading it as UTC and then converting would
+// move every such value by the zone's offset, which is the bug the option exists
+// to prevent turned the other way round.
+func TestDataConversion_Date_TimeZone_ReadsAZonelessValueInThatZone(t *testing.T) {
+	cases := []struct {
+		name   string
+		val    string
+		format string
+		want   string
+	}{
+		{"timestamp text with no zone", "2026-09-18 20:00:00", "", "2026-09-18 20:00 +07:00"},
+		{"a day-first layout", "18/09/2026 20:00", "02/01/2006 15:04", "2026-09-18 20:00 +07:00"},
+		{"a bare date", "2026-09-18", "", "2026-09-18 00:00 +07:00"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := convertMulti(t, map[string]any{"d": tc.val}, map[string]any{
+				"conversions": []any{map[string]any{
+					"field": "d", "targetType": "date", "format": tc.format,
+					"outputFormat": "2006-01-02 15:04 Z07:00", "timeZone": "Asia/Jakarta",
+				}},
+			})
+			if err != nil {
+				t.Fatalf("convert: %v", err)
+			}
+			if got["d"] != tc.want {
+				t.Errorf("d = %#v, want %q", got["d"], tc.want)
+			}
+		})
+	}
+}
+
+// With no output format the row still hands over a time.Time: the same instant,
+// now in the zone, so a serialised message carries the zone's offset and a date
+// column binds the zone's date.
+func TestDataConversion_Date_TimeZone_KeepsTheInstantWithoutAnOutputFormat(t *testing.T) {
+	got, err := convertMulti(t, map[string]any{"d": "2026-09-18T20:00:00Z"}, map[string]any{
+		"conversions": []any{map[string]any{"field": "d", "targetType": "date", "timeZone": "Asia/Jakarta"}},
+	})
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	ts, ok := got["d"].(time.Time)
+	if !ok {
+		t.Fatalf("d = %#v, want a time.Time", got["d"])
+	}
+	if want := time.Date(2026, 9, 18, 20, 0, 0, 0, time.UTC); !ts.Equal(want) {
+		t.Errorf("d = %s, want the instant %s", ts.Format(time.RFC3339), want.Format(time.RFC3339))
+	}
+	if got := ts.Format(time.RFC3339); got != "2026-09-19T03:00:00+07:00" {
+		t.Errorf("d renders as %s, want 2026-09-19T03:00:00+07:00", got)
+	}
+}
+
+// A zone that does not load fails the node whatever On Error says, as an output
+// format that prints no date does: "null" would turn a typo into a column of
+// nulls. "Local" loads, but names whatever zone the server happens to run in,
+// so the same workflow would write different dates on different machines.
+func TestDataConversion_Date_UnknownTimeZoneFailsTheNode(t *testing.T) {
+	for _, zone := range []string{"Asia/Jakart", "WIB", "Local"} {
+		t.Run(zone, func(t *testing.T) {
+			_, err := convertMulti(t, map[string]any{"d": "2026-09-18T20:00:00Z"}, map[string]any{
+				"errorBehavior": "null",
+				"conversions": []any{map[string]any{
+					"field": "d", "targetType": "date", "outputFormat": "2006-01-02", "timeZone": zone,
+				}},
+			})
+			if err == nil {
+				t.Fatalf("time zone %q was accepted", zone)
+			}
+			for _, want := range []string{`"d"`, zone} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q does not mention %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+// The editor keeps a row's keys when its target type changes; only a date row
+// reads its zone.
+func TestDataConversion_TimeZoneIsIgnoredOffADateRow(t *testing.T) {
+	got, err := convertMulti(t, map[string]any{"qty": "7"}, map[string]any{
+		"conversions": []any{map[string]any{"field": "qty", "targetType": "int", "timeZone": "Asia/Jakart"}},
+	})
+	if err != nil {
+		t.Fatalf("an int row failed on a date setting it does not use: %v", err)
+	}
+	if got["qty"] != int64(7) {
+		t.Errorf("qty = %#v, want int64(7)", got["qty"])
+	}
+}
+
+func TestDataConversion_Date_TimeZone_PreparedAndUnpreparedAgree(t *testing.T) {
+	cfg := map[string]any{
+		"conversions": []any{map[string]any{
+			"field": "d", "targetType": "date", "outputFormat": "02 January 2006 15:04", "timeZone": "Asia/Jakarta",
+		}},
+	}
+	in := map[string]any{"d": "2026-09-18T20:00:00Z"}
+
+	unprepared, err := convertMulti(t, in, cfg)
+	if err != nil {
+		t.Fatalf("unprepared: %v", err)
+	}
+	preparedCfg, err := (&DataConversionTransformer{}).Prepare(cfg)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	prepared, err := convertMulti(t, in, preparedCfg)
+	if err != nil {
+		t.Fatalf("prepared: %v", err)
+	}
+	if prepared["d"] != "19 September 2026 03:00" || unprepared["d"] != prepared["d"] {
+		t.Errorf("prepared = %#v, unprepared = %#v, want both \"19 September 2026 03:00\"", prepared["d"], unprepared["d"])
 	}
 }
