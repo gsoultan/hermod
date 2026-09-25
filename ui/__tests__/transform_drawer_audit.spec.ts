@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { mkdirSync } from 'fs';
 import { E2E_USER, E2E_PASS } from './support/auth';
+import { paletteItem } from './support/palette';
 
 const SHOTS = 'audit-shots';
 
@@ -50,7 +51,7 @@ test('node config drawers size to their content', async ({ page }) => {
   await page.screenshot({ path: `${SHOTS}/panel-open.png` });
 
   // A source has to exist before the Transformations tab unlocks.
-  await page.getByText('PostgreSQL', { exact: true }).first().click();
+  await paletteItem(page, 'Sources', 'PostgreSQL').click();
   await page.waitForTimeout(1500);
 
   const source = await drawerGeometry(page);
@@ -65,7 +66,7 @@ test('node config drawers size to their content', async ({ page }) => {
   await page.waitForTimeout(1000);
   await page.screenshot({ path: `${SHOTS}/palette-transformations.png` });
 
-  await page.getByText('Mapping', { exact: true }).first().click();
+  await paletteItem(page, 'Transformations', 'Mapping').click();
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `${SHOTS}/editor-with-nodes.png` });
 
