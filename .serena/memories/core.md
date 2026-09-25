@@ -175,9 +175,9 @@ find a claim that outruns the code, fix the claim.
 - [What a test run reports, and what the canvas draws](simulation_path_contract.md)
   — the canvas highlights the path from `taken_edges` and `skipped` on each step,
   never by re-deriving branch routing in TypeScript; an unreached node still says
-  `filtered`. The simulation routes only condition/switch by branch while the
-  live traversal routes every node that names one, so a simulated router sends
-  the message down all of its edges.
+  `filtered`. Which edges a branch takes is one function,
+  `traversal.TakesEdge`, shared by the engine and the simulation; the copy the
+  simulation used to keep is how a simulated router came to take every route.
 
 ### Gates
 
