@@ -161,6 +161,8 @@ find a claim that outruns the code, fix the claim.
   node default any row may override. The list is authoritative by *presence*,
   not length (an empty list converts nothing), and writes are staged so a failing
   row cannot hand a half-converted message to a sink on `onError: continue`.
+  A date row reads with `format` and writes with `outputFormat`; the one
+  "Date Format" it used to have only ever read, so a chosen format changed nothing.
 - [api_lookup request bodies are resolved inside the JSON](api_lookup_json_body.md) —
   a whole-token string that resolves to an object or array is sent as itself
   (jsonb), everything else is escaped, and literals are kept byte for byte;

@@ -1,5 +1,7 @@
 import { ActionIcon, Autocomplete, Box, Button, Group, Select, Stack, Text, TextInput } from '@mantine/core';
 import { IconPlus, IconTrash } from '@tabler/icons-react';
+import { DateFormatPicker } from './dateFormat/DateFormatPicker';
+import { INPUT_DATE_FORMATS, OUTPUT_DATE_FORMATS } from './dateFormat/dateFormatOptions';
 
 interface DataConversionConfigProps {
   config: any;
@@ -11,7 +13,10 @@ interface DataConversionConfigProps {
 interface ConversionRow {
   field?: string;
   targetType?: string;
+  /** Date rows: the Go layout a value is read with. Empty reads ISO 8601. */
   format?: string;
+  /** Date rows: the Go layout the value is written with. Empty keeps a date/time value. */
+  outputFormat?: string;
   separator?: string;
   elementType?: string;
   targetField?: string;
@@ -52,6 +57,19 @@ const ERROR_BEHAVIORS = [
 // A row with no behaviour of its own inherits the node's, so the control needs
 // a value for "inherit" that is not one of the three behaviours.
 const INHERIT = 'inherit';
+
+// What the date pickers show for an empty layout, which is what a row stores
+// for either. No listed format can equal them: each is written with 2006.
+const KEEP_DATE_VALUE = {
+  value: 'keep',
+  label: 'Keep as a date/time value',
+  hint: 'For date and timestamp columns',
+};
+const AUTO_DETECT = {
+  value: 'auto',
+  label: 'Auto-detect (ISO 8601)',
+  hint: '2026-09-18T16:30:57Z',
+};
 
 // The keys the node used before it held a list of rows. The row list is
 // authoritative once it exists -- parseConversions keys off the list being
@@ -144,13 +162,36 @@ export function DataConversionConfig({ config, updateNodeConfig, nodeId, fieldPa
               </Group>
 
               {targetType === 'date' && (
-                <TextInput
-                  label="Date Format"
-                  placeholder="Jan 2, 2006"
-                  value={row.format || ''}
-                  onChange={(e) => updateRow(i, { format: e.currentTarget.value })}
-                  description="Optional. ISO-8601 values are read without one — 2026-09-22, 2026-09-22T07:26:07.173Z, 2026-09-22 07:26:07+07. Give a Go layout only for a value in another shape; the time of day is kept either way."
-                />
+                <>
+                  {/* Two formats, because reading and writing are different
+                      questions. The row used to have one "Date Format", which
+                      only ever described how a value is read, so a format
+                      chosen to change the output changed nothing. */}
+                  <DateFormatPicker
+                    label="Output format"
+                    description="How the date is written. Keep it a date/time value for a date or timestamp column, or pick a format to write it as text, in the value's own time zone."
+                    none={KEEP_DATE_VALUE}
+                    formats={OUTPUT_DATE_FORMATS}
+                    customLabel="Custom output layout"
+                    value={row.outputFormat || ''}
+                    onChange={(outputFormat) => updateRow(i, { outputFormat })}
+                  />
+                  <DateFormatPicker
+                    label="Input format"
+                    description="How the value is read. ISO 8601 dates and timestamps (2026-09-18, 2026-09-18T16:30:57Z, 2026-09-18 16:30:57+07) need none; pick one for values in another shape. The time of day is kept either way."
+                    none={AUTO_DETECT}
+                    formats={INPUT_DATE_FORMATS}
+                    customLabel="Custom input layout"
+                    value={row.format || ''}
+                    onChange={(format) => updateRow(i, { format })}
+                  />
+                  {row.format && !row.outputFormat && (
+                    <Text size="xs" c="dimmed">
+                      The input format only changes how values are read; the result is still a date/time
+                      value. Choose an output format to write the date as text.
+                    </Text>
+                  )}
+                </>
               )}
 
               {targetType === 'jsonb' && (
