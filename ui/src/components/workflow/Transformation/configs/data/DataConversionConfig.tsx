@@ -1,6 +1,7 @@
 import { ActionIcon, Autocomplete, Box, Button, Group, Select, Stack, Text, TextInput } from '@mantine/core';
 import { IconPlus, IconTrash } from '@tabler/icons-react';
 import { DateFormatPicker } from './dateFormat/DateFormatPicker';
+import { TimeZonePicker } from './dateFormat/TimeZonePicker';
 import { INPUT_DATE_FORMATS, OUTPUT_DATE_FORMATS } from './dateFormat/dateFormatOptions';
 
 interface DataConversionConfigProps {
@@ -17,6 +18,8 @@ interface ConversionRow {
   format?: string;
   /** Date rows: the Go layout the value is written with. Empty keeps a date/time value. */
   outputFormat?: string;
+  /** Date rows: the IANA zone dates are written in. Empty keeps each value's own zone. */
+  timeZone?: string;
   separator?: string;
   elementType?: string;
   targetField?: string;
@@ -169,7 +172,7 @@ export function DataConversionConfig({ config, updateNodeConfig, nodeId, fieldPa
                       chosen to change the output changed nothing. */}
                   <DateFormatPicker
                     label="Output format"
-                    description="How the date is written. Keep it a date/time value for a date or timestamp column, or pick a format to write it as text, in the value's own time zone."
+                    description="How the date is written. Keep it a date/time value for a date or timestamp column, or pick a format to write it as text."
                     none={KEEP_DATE_VALUE}
                     formats={OUTPUT_DATE_FORMATS}
                     customLabel="Custom output layout"
@@ -184,6 +187,10 @@ export function DataConversionConfig({ config, updateNodeConfig, nodeId, fieldPa
                     customLabel="Custom input layout"
                     value={row.format || ''}
                     onChange={(format) => updateRow(i, { format })}
+                  />
+                  <TimeZonePicker
+                    value={row.timeZone || ''}
+                    onChange={(timeZone) => updateRow(i, { timeZone })}
                   />
                   {row.format && !row.outputFormat && (
                     <Text size="xs" c="dimmed">

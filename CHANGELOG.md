@@ -7,6 +7,23 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A date can be written in a named time zone
+
+A Data Conversion row converting to Date wrote its date in whatever zone the
+value carried, which is usually UTC. For an operator in Jakarta,
+2026-09-18T20:00:00Z is already the 19th, so a date-only output format was a
+day early there for seven hours of every day.
+
+A date row now has a **Time zone**, searched from the zones the browser knows.
+Dates are written in it, and a value with no zone of its own, such as MySQL
+`DATETIME` text or `18/09/2026 20:00`, is read as that zone's local time rather
+than as UTC. Without an output format the row still hands over a date/time
+value: the same instant, now carrying the zone's offset. A value that a database
+driver has already turned into a UTC time is converted as UTC, because by then
+nothing says the column had no zone. Rows without a zone behave exactly as
+before. A zone name that does not exist, or `Local` (whatever zone the server
+runs in), fails the node instead of writing dates in the wrong zone.
+
 ## [1.13.0] — 2026-09-25
 
 Routing is decided one way everywhere. A message that matched a router rule or

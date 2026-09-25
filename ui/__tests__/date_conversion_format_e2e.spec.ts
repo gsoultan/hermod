@@ -112,5 +112,16 @@ test('a date is written in the output format picked from the list', async ({ pag
   await expect(row.getByRole('textbox', { name: 'Custom input layout' })).toHaveCount(0);
   await expect(preview).toContainText('"created_at": "18 September 2026"', { timeout: 20000 });
 
+  // The date is the zone's date. 04:30 UTC on the 18th is still the 17th in Los
+  // Angeles, so the same row writes the day before once the zone is chosen.
+  const zone = row.getByRole('combobox', { name: 'Time zone' });
+  await expect(zone).toHaveValue("Keep each value's own zone");
+  await zone.click();
+  await zone.fill('Los_Angeles');
+  await page.getByRole('option', { name: 'America/Los_Angeles' }).click();
+  await expect(zone).toHaveValue('America/Los_Angeles');
+  await expect(preview, 'the engine did not write the date in the chosen zone')
+    .toContainText('"created_at": "17 September 2026"', { timeout: 20000 });
+
   await page.screenshot({ path: testInfo.outputPath('date-conversion-format.png'), animations: 'disabled' });
 });
