@@ -64,7 +64,32 @@ export const TargetHandle = ({ position, color, style }: any) => {
   );
 };
 
-export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected }: { 
+/**
+ * An invisible attachment point for an edge the editor draws itself, such as
+ * the dead-letter edges. React Flow draws no edge it cannot attach to a handle
+ * of the right type, and a sink has no source handle, so without this those
+ * edges were never drawn. Nothing can be dragged from or connected to it.
+ */
+export const AnchorHandle = ({ type, position, id }: { type: 'source' | 'target'; position: Position; id: string }) => (
+  <Handle
+    type={type}
+    position={position}
+    id={id}
+    isConnectable={false}
+    style={{
+      opacity: 0,
+      pointerEvents: 'none',
+      width: 1,
+      height: 1,
+      minWidth: 0,
+      minHeight: 0,
+      border: 'none',
+      background: 'transparent',
+    }}
+  />
+);
+
+export const BaseNode = ({ id, type, color, icon: Icon, children, data, selected }: {
   id: string, 
   type: string, 
   color: string, 

@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { 
   ReactFlow, 
+  BezierEdge,
   Background, 
   Controls, 
   MiniMap,
@@ -11,7 +12,7 @@ import {
 } from '@xyflow/react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { useShallow } from 'zustand/react/shallow';
-import { useStyledFlow } from '../hooks/useStyledFlow';
+import { RELIABILITY_EDGE, useStyledFlow } from '../hooks/useStyledFlow';
 import { ConnectionLine } from './ConnectionLine';
 import { LiveEdge } from './LiveEdge';
 import { SimulationOverlay } from '../simulation/SimulationOverlay';
@@ -69,6 +70,8 @@ export function FlowCanvas({ onNodeClick, onEdgeClick, onDrop, onDragOver }: Flo
   const edgeTypes = useMemo(() => ({
     default: LiveEdge,
     live: LiveEdge,
+    // React Flow's own edge, which draws an edge with the style it carries.
+    [RELIABILITY_EDGE]: BezierEdge,
   }), []);
   
   const { nodes, edges, onNodesChange, onEdgesChange, setEdges, active } = useWorkflowStore(useShallow(state => ({

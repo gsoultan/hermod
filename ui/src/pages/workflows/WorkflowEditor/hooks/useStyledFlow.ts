@@ -3,6 +3,22 @@ import { MarkerType } from '@xyflow/react';
 import { useShallow } from 'zustand/react/shallow';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 
+/**
+ * The edge type the dead-letter and recovery edges are drawn with. They used to
+ * have none, so they fell to the default type, LiveEdge, which draws every edge
+ * its own way and ignored their dashed orange and blue style.
+ */
+export const RELIABILITY_EDGE = 'reliability';
+
+// Coloured by the theme rather than React Flow's fixed white, so the label reads
+// in dark mode as well as light.
+const reliabilityLabel = (color: 'orange' | 'blue') => ({
+  labelStyle: { fill: `var(--mantine-color-${color}-6)`, fontWeight: 700, fontSize: 10 },
+  labelBgStyle: { fill: 'var(--mantine-color-body)' },
+  labelBgPadding: [4, 2] as [number, number],
+  labelBgBorderRadius: 4,
+});
+
 export function useStyledFlow() {
   const {
     active,
@@ -56,8 +72,16 @@ export function useStyledFlow() {
         if (sink.id !== dlqNodeId) {
           reliabilityEdges.push({
             id: `reliability_${sink.id}_${dlqNodeId}`,
+            // Drawn by an edge type that honours `style`; see RELIABILITY_EDGE.
+            type: RELIABILITY_EDGE,
             source: sink.id,
+            // The sink's hidden anchor: a sink has no source handle of its own,
+            // and React Flow draws no edge it cannot attach to one.
+            sourceHandle: 'dlq',
             target: dlqNodeId,
+            targetHandle: 'dlq-in',
+            label: 'DLQ',
+            ...reliabilityLabel('orange'),
             animated: false,
             style: {
               strokeDasharray: '6 6',
@@ -81,8 +105,14 @@ export function useStyledFlow() {
       if (prioritizeDLQ && sourceId) {
         reliabilityEdges.push({
           id: `recovery_${dlqNodeId}_${sourceId}`,
+          type: RELIABILITY_EDGE,
           source: dlqNodeId,
+          sourceHandle: 'recovery-out',
           target: sourceId,
+          // A source has no target handle of its own either.
+          targetHandle: 'recovery',
+          label: 'RECOVERY',
+          ...reliabilityLabel('blue'),
           animated: active,
           style: {
             strokeDasharray: '6 6',

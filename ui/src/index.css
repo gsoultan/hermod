@@ -105,8 +105,15 @@
  * Emitted per-edge from LiveEdge until now, so a canvas with 30 edges carried 30
  * identical <style> elements, each reinserted on every edge re-render.
  */
+/*
+ * Data Pulse. The offset has to fall for the dashes to travel from source to
+ * target: a larger offset starts the dash pattern further along, which slides
+ * the dashes back toward the start of the path. This rose to 1000, so every
+ * pulse ran backwards. 1008 is a whole number of periods of both the pulse
+ * dash (8 6) and the breakpoint dash (2 6), so the loop restarts without a jump.
+ */
 @keyframes dash {
-  to { stroke-dashoffset: 1000; }
+  to { stroke-dashoffset: -1008; }
 }
 
 /*

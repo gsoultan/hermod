@@ -1,6 +1,6 @@
 import { Position } from '@xyflow/react';
 import { Button, Stack } from '@mantine/core';
-import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
+import { AnchorHandle, BaseNode, PlusHandle, TargetHandle } from './BaseNode';
 import { useWorkflowStore, type WorkflowState } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useParams } from '@tanstack/react-router';
@@ -28,6 +28,8 @@ const SourceNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Source" color="blue" icon={getIcon()} data={data} selected={selected}>
       <PlusHandle type="source" position={Position.Right} nodeId={id} color="blue" />
+      {/* Where the dead-letter recovery edge comes back in, from below. */}
+      <AnchorHandle type="target" position={Position.Bottom} id="recovery" />
     </BaseNode>
   );
 };
@@ -88,6 +90,12 @@ const SinkNodeImpl = ({ id, data, selected }: any) => {
   return (
     <BaseNode id={id} type="Sink" color="green" icon={getIcon()} data={data} selected={selected}>
       <TargetHandle position={Position.Left} color="green" />
+      {/* The dead-letter edges drop from a sink's bottom into the top of the
+          dead-letter sink, which sends its recovery edge out of its left side:
+          drawn for the usual layout, with the dead-letter sink below the flow. */}
+      <AnchorHandle type="source" position={Position.Bottom} id="dlq" />
+      <AnchorHandle type="target" position={Position.Top} id="dlq-in" />
+      <AnchorHandle type="source" position={Position.Left} id="recovery-out" />
       {data.isDLQ && (
         <Stack gap="xs" mt="xs">
           <Button 
