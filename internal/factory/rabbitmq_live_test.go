@@ -72,7 +72,9 @@ func TestRabbitMQQueue_LivePing(t *testing.T) {
 	}
 	defer src.Close()
 
-	pinger, ok := src.(interface{ Ping(ctx context.Context) error })
+	pinger, ok := src.(interface {
+		Ping(ctx context.Context) error
+	})
 	if !ok {
 		t.Fatal("source does not expose Ping — Test Connection could not work")
 	}
