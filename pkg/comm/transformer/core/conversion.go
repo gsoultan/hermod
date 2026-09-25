@@ -9,6 +9,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	// The zone database, embedded, so a row's time zone resolves wherever the
+	// binary runs, a host with no /usr/share/zoneinfo included. The SMTP sink
+	// embeds it too; this package does not rely on that sink being linked.
+	_ "time/tzdata"
 
 	"github.com/google/uuid"
 
@@ -33,10 +37,16 @@ type conversionRow struct {
 	targetType    string // "int", "float", "bool", "string", "date", "uuid", "array", "json"
 	format        string // date: the layout a value is read with; ISO-8601 needs none
 	outputFormat  string // date: the layout the value is written with; empty keeps a time.Time
+	timeZone      string // date: IANA zone a zoneless value is read in and every value is written in
 	separator     string // used for array <-> string, default ","
 	elementType   string // used for array: coerce each element
 	targetField   string // defaults to field
 	errorBehavior string // "fail", "null", "keep"; empty inherits the node's
+
+	// location is timeZone, loaded once when the config is parsed:
+	// time.LoadLocation reads the zone database on every call. Nil keeps each
+	// value in its own zone.
+	location *time.Location
 
 	// configErr is a fault in the row itself, found once when the config is
 	// parsed rather than on every message.
@@ -71,6 +81,7 @@ func parseConversions(config map[string]any) []conversionRow {
 				targetType:    rowString(m, "targetType"),
 				format:        rowString(m, "format"),
 				outputFormat:  rowString(m, "outputFormat"),
+				timeZone:      rowString(m, "timeZone"),
 				separator:     rowString(m, "separator"),
 				elementType:   rowString(m, "elementType"),
 				targetField:   rowString(m, "targetField"),
@@ -81,7 +92,14 @@ func parseConversions(config map[string]any) []conversionRow {
 				// a row only carries its own when it disagrees.
 				row.errorBehavior = nodeBehavior
 			}
-			row.configErr = checkOutputFormat(row)
+			// Only a date row reads these. The editor keeps a row's keys when its
+			// target type changes, so another row may still carry them unused.
+			if isDateTarget(row.targetType) {
+				row.configErr = checkOutputFormat(row.outputFormat)
+				if row.configErr == nil {
+					row.location, row.configErr = loadTimeZone(row.timeZone)
+				}
+			}
 			rows = append(rows, row)
 		}
 		return rows
@@ -238,7 +256,7 @@ var errUnsupportedTargetType = errors.New("unsupported target type")
 // targetType and by the per-element coercion an "array" conversion applies.
 func (t *DataConversionTransformer) convertScalar(val any, row conversionRow) (any, error) {
 	if isDateTarget(row.targetType) {
-		return t.convertDate(val, row.format, row.outputFormat)
+		return t.convertDate(val, row)
 	}
 	switch strings.ToLower(row.targetType) {
 	case "int", "integer":
@@ -277,17 +295,22 @@ func isDateTarget(targetType string) bool {
 // 2026-09-18T04:30:57.333046Z unchanged, because the layout did not match the
 // value, the ISO sweep read it instead, and nothing was ever written with it.
 //
-// The text is rendered in the value's own zone: an offset in the value is kept,
-// never converted to UTC or to the server's zone.
-func (t *DataConversionTransformer) convertDate(val any, format, outputFormat string) (any, error) {
-	parsed, err := t.toDate(val, format)
+// Without a time zone the value is written in its own zone -- an offset in it is
+// kept, never converted to UTC or to the server's zone. With one, the instant is
+// written in that zone: 2026-09-18T20:00:00Z is the 19th in Asia/Jakarta, which
+// a date-only format written in UTC gets wrong for seven hours of every day.
+func (t *DataConversionTransformer) convertDate(val any, row conversionRow) (any, error) {
+	parsed, err := t.toDate(val, row.format, row.location)
 	if err != nil {
 		return nil, err
 	}
-	if outputFormat == "" {
+	if row.location != nil {
+		parsed = parsed.In(row.location)
+	}
+	if row.outputFormat == "" {
 		return parsed, nil
 	}
-	return parsed.Format(outputFormat), nil
+	return parsed.Format(row.outputFormat), nil
 }
 
 // layoutProbeA and layoutProbeB differ in every element a Go layout can print
@@ -306,18 +329,36 @@ var (
 // element Go recognises. time.Format never fails; it prints such a layout back
 // verbatim, and every message would reach the sink carrying the same literal
 // text in place of its date.
-//
-// Only a date row writes with its output format. The editor keeps a row's keys
-// when its target type changes, so another row may still carry one it ignores.
-func checkOutputFormat(row conversionRow) error {
-	if row.outputFormat == "" || !isDateTarget(row.targetType) {
+func checkOutputFormat(layout string) error {
+	if layout == "" {
 		return nil
 	}
-	if layoutProbeA.Format(row.outputFormat) == layoutProbeB.Format(row.outputFormat) {
+	if layoutProbeA.Format(layout) == layoutProbeB.Format(layout) {
 		return fmt.Errorf("output format %q prints no part of a date: Go layouts write each part "+
-			"with the reference date Mon Jan 2 15:04:05 MST 2006, so day/month/year is 02/01/2006", row.outputFormat)
+			"with the reference date Mon Jan 2 15:04:05 MST 2006, so day/month/year is 02/01/2006", layout)
 	}
 	return nil
+}
+
+// loadTimeZone resolves a row's time zone. Empty means none: each value stays in
+// its own zone, as every row stored before the option existed does.
+//
+// "Local" is refused although it loads. It names whatever zone the server runs
+// in, so one workflow would write different dates on different machines --
+// and a container's Local is usually UTC, which is the mistake the option is
+// there to fix.
+func loadTimeZone(name string) (*time.Location, error) {
+	if name == "" {
+		return nil, nil
+	}
+	if name == "Local" {
+		return nil, errors.New(`time zone "Local" is whatever zone the server runs in; name the zone instead, e.g. "Asia/Jakarta" or "UTC"`)
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, fmt.Errorf("time zone %q is not an IANA zone name such as \"Asia/Jakarta\" or \"UTC\": %w", name, err)
+	}
+	return loc, nil
 }
 
 // toJSON renders a value as JSON text, which is what a json or jsonb column
@@ -615,7 +656,12 @@ func looksLikeISODate(s string) bool {
 // 07:26 silently becoming midnight is a worse outcome than the error this
 // replaces. Reading is not rendering: a date column truncates on write, and a
 // row that wants text says so with an output format (see convertDate).
-func (t *DataConversionTransformer) toDate(val any, format string) (time.Time, error) {
+//
+// A value with no zone of its own is read in loc when one is given -- a MySQL
+// DATETIME or a day-first date is that zone's wall clock, and reading it as UTC
+// first would move it by the zone's offset. A nil loc keeps time.Parse exactly
+// as it was, UTC included.
+func (t *DataConversionTransformer) toDate(val any, format string, loc *time.Location) (time.Time, error) {
 	// A query, sample or polling path hands a timestamp column over as a
 	// time.Time -- and so does the evaluator's fast path. Rendering that with
 	// %v produced Go's String() form, which no configured layout describes, so
@@ -637,15 +683,20 @@ func (t *DataConversionTransformer) toDate(val any, format string) (time.Time, e
 		return time.Time{}, errors.New("cannot read a date from an empty value")
 	}
 
+	parse := time.Parse
+	if loc != nil {
+		parse = func(layout, value string) (time.Time, error) { return time.ParseInLocation(layout, value, loc) }
+	}
+
 	if format != "" {
-		if parsed, err := time.Parse(format, s); err == nil {
+		if parsed, err := parse(format, s); err == nil {
 			return parsed, nil
 		}
 	}
 
 	if looksLikeISODate(s) {
 		for _, layout := range dateLayouts {
-			if parsed, err := time.Parse(layout, s); err == nil {
+			if parsed, err := parse(layout, s); err == nil {
 				return parsed, nil
 			}
 		}

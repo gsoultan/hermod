@@ -63,10 +63,17 @@ the ISO sweep read the value, and nothing ever wrote with it. Never reinterpret
 `format` as the output — stored rows read non-ISO text with it
 (`flow_dateconv_integration_test.go` reads `16-09-2026 08:30`).
 
-- **Text is rendered in the value's own zone** — no `.In()`. There is no zone
-  option yet; a UTC timestamp written date-only for a +07 business is a day early
-  for seven hours of every day. The SMTP sink's `dateInZone` is the precedent if
-  one is added.
+- **`timeZone` names the zone a date is written in**, and the zone a value with no
+  zone of its own is read in (`time.ParseInLocation`): reading zone-less text as
+  UTC and then converting would shift it by the offset, the bug turned round.
+  Empty keeps each value's own zone and plain `time.Parse`, exactly as before.
+  `Local` is refused because it is whatever zone the server runs in.
+  `time.LoadLocation` reads the zone database on every call, so it runs once in
+  `parseConversions`, and the package imports `time/tzdata` for hosts with no
+  zoneinfo. The editor lists `Intl.supportedValuesOf('timeZone')` plus UTC (which
+  browsers omit); all 418 names in Node 24's list load in Go. The one thing it
+  cannot fix: a driver that hands a zone-less `DATETIME` over as a UTC
+  `time.Time` is converted as UTC, because nothing says otherwise by then.
 - **An output layout that prints no part of a date is a config fault**, refused
   whatever `errorBehavior` says (else `null` turns a typo into a column of nulls).
   `checkOutputFormat` formats two probe instants that differ in every element Go

@@ -144,6 +144,29 @@ func TestDataConversionWritesADateInTheChosenFormat(t *testing.T) {
 	}
 }
 
+// TestDataConversionWritesADateInTheChosenZone starts from the node config as
+// the editor stores it, so `timeZone` is the key name on the wire.
+func TestDataConversionWritesADateInTheChosenZone(t *testing.T) {
+	reg := newSimRegistry(t)
+
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(`{
+		"transType": "data_conversion",
+		"conversions": [
+			{"field": "created_at", "targetType": "date", "outputFormat": "02 January 2006", "timeZone": "Asia/Jakarta"}
+		]
+	}`), &cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// 20:00 UTC on the 18th is 03:00 on the 19th in Jakarta.
+	got := transform(t, reg, map[string]any{"created_at": "2026-09-18T20:00:00Z"}, cfg)
+
+	if got["created_at"] != "19 September 2026" {
+		t.Errorf("created_at = %#v, want \"19 September 2026\"", got["created_at"])
+	}
+}
+
 // TestMaskRedactsAnEmail is the PII control. A mask that silently does nothing
 // is the worst outcome here: the pipeline reports success and the unmasked
 // value lands in the destination.

@@ -181,6 +181,65 @@ describe('data_conversion date formats', () => {
     expect(row().getByText(/only changes how values are read/i)).toBeInTheDocument()
   })
 
+  // A date written as text is written in the value's own zone unless the row
+  // names one, and 2026-09-18T20:00:00Z is already the 19th in Jakarta. The key
+  // written is the one parseConversions reads: `timeZone`.
+  describe('time zone', () => {
+    const zoneInput = () => row().getByRole('combobox', { name: /time zone/i })
+
+    it("defaults to each value's own zone", () => {
+      renderRow({})
+      expect(zoneInput()).toHaveValue("Keep each value's own zone")
+    })
+
+    it('writes the zone picked, found by typing part of its name', async () => {
+      const user = userEvent.setup()
+      const onWrite = renderRow({})
+      await user.click(zoneInput())
+      // The box shows the current choice; searching starts from an empty box.
+      await user.clear(zoneInput())
+      await user.type(zoneInput(), 'Jakarta')
+      const dropdown = document.getElementById(zoneInput().getAttribute('aria-controls') || '') as HTMLElement
+      await user.click(within(dropdown).getByText('Asia/Jakarta', { exact: true }).closest('[role="option"]') as HTMLElement)
+      expect(written(onWrite).timeZone).toBe('Asia/Jakarta')
+      expect(zoneInput()).toHaveValue('Asia/Jakarta')
+    })
+
+    it("writes nothing for each value's own zone", async () => {
+      const user = userEvent.setup()
+      const onWrite = renderRow({ timeZone: 'Asia/Jakarta' })
+      await user.click(zoneInput())
+      await user.clear(zoneInput())
+      const dropdown = document.getElementById(zoneInput().getAttribute('aria-controls') || '') as HTMLElement
+      await user.click(within(dropdown).getByText("Keep each value's own zone", { exact: true }).closest('[role="option"]') as HTMLElement)
+      expect(written(onWrite).timeZone).toBe('')
+    })
+
+    it('offers UTC, which the browser does not list as a zone', async () => {
+      const user = userEvent.setup()
+      renderRow({})
+      await user.click(zoneInput())
+      // The box shows the current choice; searching starts from an empty box.
+      await user.clear(zoneInput())
+      await user.type(zoneInput(), 'UTC')
+      const dropdown = document.getElementById(zoneInput().getAttribute('aria-controls') || '') as HTMLElement
+      expect(within(dropdown).getByText('UTC', { exact: true })).toBeInTheDocument()
+    })
+
+    // Stored config outlives the browser that wrote it: a zone typed through the
+    // API, or saved from a browser whose list spells it differently, must still
+    // open as itself rather than as the default.
+    it('shows a stored zone the list does not have', () => {
+      renderRow({ timeZone: 'Asia/Kolkata' })
+      expect(zoneInput()).toHaveValue('Asia/Kolkata')
+    })
+
+    it('is offered only on a date row', () => {
+      renderRow({ targetType: 'int', timeZone: 'Asia/Jakarta' })
+      expect(row().queryByRole('combobox', { name: /time zone/i })).not.toBeInTheDocument()
+    })
+  })
+
   it('offers date formats only on a date row', () => {
     renderRow({ targetType: 'float', outputFormat: '2006-01-02', format: '02/01/2006' })
     expect(row().queryByRole('combobox', { name: /output format/i })).not.toBeInTheDocument()
