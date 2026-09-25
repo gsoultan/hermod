@@ -94,6 +94,7 @@ export function APILookupConfig({ config, updateNodeConfig, nodeId, testLookup, 
             <JsonInput
               label="Request Body (JSON)"
               placeholder='{"id": "{{user_id}}", "query": "..."}'
+              description='Quote every {{ }}. A field holding an object or array (jsonb) is sent as JSON, not as text, and text is escaped. Sent as application/json unless you set one in the headers.'
               value={config.body || ''}
               onChange={(val: string) => updateNodeConfig(nodeId, { body: val })}
               formatOnBlur

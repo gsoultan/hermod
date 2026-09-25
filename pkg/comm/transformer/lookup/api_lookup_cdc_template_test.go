@@ -193,3 +193,139 @@ func TestAPILookupPlainDataPathsStillResolve(t *testing.T) {
 		t.Errorf("calls = %d, want 1", calls())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// With the tokens bound, the reported body still failed, and the request it
+// sent showed why. It went out with no Content-Type at all, so an endpoint that
+// requires application/json -- most JSON APIs -- refused it; and a template was
+// pasted in as raw text, so a jsonb field in quotes arrived as its JSON text
+// inside a string (`"profile": "{"name":"Ada"}"`, not JSON at all) and any
+// value holding a quote broke the body the same way. The refusal came back as
+// "api lookup returned status 400" and nothing else.
+// ---------------------------------------------------------------------------
+
+// sentRequest is what an endpoint was handed.
+type sentRequest struct {
+	body        string
+	contentType string
+}
+
+// recordingServer answers with status and reply, and records every request.
+func recordingServer(t *testing.T, status int, reply string) (string, func() sentRequest) {
+	t.Helper()
+	var got sentRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		got = sentRequest{body: string(b), contentType: r.Header.Get("Content-Type")}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, reply)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, func() sentRequest { return got }
+}
+
+// jsonbSample is a CDC row with a jsonb column and a value holding a quote.
+func jsonbSample() map[string]any {
+	return map[string]any{
+		"operation": "snapshot",
+		"table":     "memberships",
+		"after": map[string]any{
+			"user_id":     "019a43e3-0000-7000-8000-000000000001",
+			"entity_type": `region "north"`,
+			"profile":     map[string]any{"name": "Ada", "roles": []any{"owner", "admin"}},
+		},
+	}
+}
+
+func apiLookupRow(t *testing.T, row map[string]any, cfg map[string]any) error {
+	t.Helper()
+	tr, reg := newAPIFixture()
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	message.PopulateFromMap(msg, row)
+	ctx := context.WithValue(t.Context(), hermod.RegistryKey, reg)
+	_, err := tr.Transform(ctx, msg, cfg)
+	return err
+}
+
+func TestAPILookupSendsAJSONBodyAsJSON(t *testing.T) {
+	url, sent := recordingServer(t, http.StatusCreated, `{"id":"sess-1"}`)
+
+	if err := apiLookupRow(t, jsonbSample(), map[string]any{
+		"method": "POST", "url": url, "targetField": "session", "ttl": "0",
+		"body": `{"profile": "{{.after.profile}}", "entity": "{{.after.entity_type}}"}`,
+	}); err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+
+	got := sent()
+	if got.contentType != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json: a JSON body without it is refused by "+
+			"an endpoint that checks", got.contentType)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(got.body), &body); err != nil {
+		t.Fatalf("the endpoint was sent something that is not JSON (%v): %s", err, got.body)
+	}
+	profile, ok := body["profile"].(map[string]any)
+	if !ok {
+		t.Fatalf("profile arrived as %T %#v, want the jsonb object itself", body["profile"], body["profile"])
+	}
+	if profile["name"] != "Ada" {
+		t.Errorf("profile = %#v", profile)
+	}
+	if body["entity"] != `region "north"` {
+		t.Errorf("entity = %#v, want %q", body["entity"], `region "north"`)
+	}
+}
+
+// The operator's own Content-Type is the one that goes out.
+func TestAPILookupKeepsAConfiguredContentType(t *testing.T) {
+	url, sent := recordingServer(t, http.StatusOK, `{"id":"sess-1"}`)
+
+	if err := apiLookupRow(t, jsonbSample(), map[string]any{
+		"method": "POST", "url": url, "targetField": "session", "ttl": "0",
+		"headers": `{"content-type":"application/vnd.api+json"}`,
+		"body":    `{"user": "{{.after.user_id}}"}`,
+	}); err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if got := sent().contentType; got != "application/vnd.api+json" {
+		t.Errorf("Content-Type = %q, want the configured one", got)
+	}
+}
+
+// A GET has no body, and nothing to describe.
+func TestAPILookupSendsNoContentTypeWithoutABody(t *testing.T) {
+	url, sent := recordingServer(t, http.StatusOK, `{"id":"sess-1"}`)
+
+	if err := apiLookupRow(t, jsonbSample(), map[string]any{
+		"method": "GET", "url": url + "/users/{{.after.user_id}}", "targetField": "session", "ttl": "0",
+	}); err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+	if got := sent().contentType; got != "" {
+		t.Errorf("Content-Type = %q on a request with no body", got)
+	}
+}
+
+// A refusal has to say what the endpoint objected to, or the operator is left
+// with a status code and a body they cannot see.
+func TestAPILookupErrorCarriesWhatTheEndpointSaid(t *testing.T) {
+	url, _ := recordingServer(t, http.StatusUnprocessableEntity,
+		`{"error":"scope.entity_id must be a uuid"}`)
+
+	err := apiLookupRow(t, jsonbSample(), map[string]any{
+		"method": "POST", "url": url, "targetField": "session", "ttl": "0", "onMiss": "fail",
+		"body": `{"user": "{{.after.user_id}}"}`,
+	})
+	if err == nil {
+		t.Fatal("a 422 was not reported as a failure")
+	}
+	for _, want := range []string{"422", "scope.entity_id must be a uuid"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not carry %q", err, want)
+		}
+	}
+}

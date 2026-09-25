@@ -67,6 +67,24 @@ rows out of a real database. So the data went into the bundle, to wherever the
 file was sent. Both keys are now left out of the export; the stored workflow
 keeps them.
 
+### An api_lookup with a JSON body was refused, and a jsonb field went out as broken text
+
+The body went out with no `Content-Type`, so an endpoint that requires
+`application/json` (most JSON APIs) refused the call, and the error said only
+`api lookup returned status 415`. Each `{{ }}` was also pasted into the body as
+raw text. A jsonb field in quotes, `"{{.after.profile}}"`, arrived as its JSON
+text inside a string, which is not valid JSON, and any value holding a quote
+broke the body the same way.
+
+A JSON body is now resolved inside the JSON. A string that is one whole token
+and resolves to an object or an array is sent as that object or array; every
+other resolved value is written as an escaped JSON string, so a scalar in quotes
+keeps the type it had. The layout, key order and number literals of the body
+are kept exactly as written. The request carries `Content-Type:
+application/json` unless the node's headers set one. A refusal's error now
+includes up to 256 characters of what the endpoint replied. A body that is not
+valid JSON before its tokens are filled in is resolved as text, as before.
+
 ## [1.12.0] — 2026-09-23
 
 Templates read a message the same way everywhere. A `{{ }}` path naming the CDC

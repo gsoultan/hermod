@@ -7,6 +7,7 @@ import (
 	"maps"
 	"math"
 	"os"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -1063,20 +1064,197 @@ func ResolveTemplateMsg(temp string, msg hermod.Message) string {
 	if msg == nil {
 		return ResolveTemplate(temp, nil)
 	}
-	// Bound once, not per token: a body template holding a dozen tokens
-	// otherwise allocates a closure for each one.
+	token := messageTokens(msg)
+	return scanTemplate(temp, func(path string) string { return stringify(token(path)) })
+}
+
+// messageTokens returns what one token's inner text stands for in msg, typed:
+// an object stays an object until something decides how to write it. It is
+// bound once rather than per token, because a body template holding a dozen
+// tokens otherwise allocates a resolver for each one.
+func messageTokens(msg hermod.Message) func(path string) any {
+	if msg == nil {
+		return func(path string) any { return resolveTemplatePath(path, nil) }
+	}
 	resolve := MessageResolver(msg)
-	return scanTemplate(temp, func(path string) string {
+	return func(path string) any {
 		switch {
 		case strings.HasPrefix(path, "env."):
 			// Environment variable access is disabled for security reasons
-			return ""
+			return nil
 		case strings.Contains(path, "(") && strings.HasSuffix(path, ")"):
-			return stringify(NewEvaluator().ParseAndEvaluate(msg, path))
+			return NewEvaluator().ParseAndEvaluate(msg, path)
 		default:
-			return stringify(resolve(strings.TrimPrefix(path, ".")))
+			return resolve(strings.TrimPrefix(path, "."))
 		}
-	})
+	}
+}
+
+// ResolveJSONTemplateMsg resolves the tokens in a JSON template inside the
+// JSON, and reports false when temp is not JSON to begin with -- the caller
+// then has ResolveTemplateMsg, which works on any text.
+//
+// ResolveTemplateMsg writes each token's value as raw text, and in a JSON body
+// that broke in two ways. A jsonb field in quotes, "{{.after.profile}}", went
+// out as its JSON text pasted inside a string -- `"profile": "{"name":"Ada"}"`,
+// which is not JSON at all -- and any value holding a quote, a backslash or a
+// newline did the same. Here only string tokens are touched:
+//
+//   - a string that is exactly one token and resolves to an object or an array
+//     is replaced by that object or array, which is what a jsonb column is;
+//   - any other string holding a token is resolved as text and written back as
+//     a JSON string, escaped;
+//   - an object key holding a token resolves as text too, and stays a key.
+//
+// A scalar in quotes stays a string, as it always was, so a body that worked
+// before sends the same types now. Everything outside the resolved strings --
+// layout, key order, number literals -- is copied byte for byte, so a large
+// number is never re-encoded through a float. Resolution is one forward pass,
+// like scanTemplate: a resolved value is never scanned for tokens again.
+func ResolveJSONTemplateMsg(temp string, msg hermod.Message) (string, bool) {
+	if !json.Valid([]byte(temp)) {
+		return "", false
+	}
+	if !strings.Contains(temp, "{{") {
+		return temp, true
+	}
+
+	token := messageTokens(msg)
+	dec := json.NewDecoder(strings.NewReader(temp))
+	dec.UseNumber()
+	var keys jsonKeys
+	var out strings.Builder
+	last := 0
+	for {
+		before := int(dec.InputOffset())
+		tok, err := dec.Token()
+		if err != nil {
+			// io.EOF: temp is valid JSON, so the only way the tokens run out is
+			// at its end.
+			break
+		}
+		isKey := keys.isKey(tok)
+		s, ok := tok.(string)
+		if !ok || !strings.Contains(s, "{{") {
+			continue
+		}
+		end := int(dec.InputOffset())
+		start := before + strings.IndexByte(temp[before:end], '"')
+		out.WriteString(temp[last:start])
+		out.WriteString(resolveJSONString(s, isKey, token))
+		last = end
+	}
+	out.WriteString(temp[last:])
+	return out.String(), true
+}
+
+// resolveJSONString resolves one templated string token and returns the JSON
+// text written in its place.
+func resolveJSONString(s string, isKey bool, token func(path string) any) string {
+	if path, whole := wholeToken(s); whole && !isKey {
+		v := token(path)
+		if isComposite(v) {
+			if text, err := jsonText(v); err == nil {
+				return text
+			}
+		}
+		return jsonString(stringify(v))
+	}
+	return jsonString(scanTemplate(s, func(path string) string { return stringify(token(path)) }))
+}
+
+// wholeToken reports whether s is exactly one {{ ... }} token, and its path.
+func wholeToken(s string) (string, bool) {
+	if len(s) < 4 || !strings.HasPrefix(s, "{{") || !strings.HasSuffix(s, "}}") {
+		return "", false
+	}
+	inner := s[2 : len(s)-2]
+	if strings.Contains(inner, "{{") || strings.Contains(inner, "}}") {
+		return "", false
+	}
+	return strings.TrimSpace(inner), true
+}
+
+// isComposite reports whether v is an object or an array: something a JSON
+// body can carry as itself rather than as text.
+func isComposite(v any) bool {
+	switch v.(type) {
+	case nil, string, []byte, json.Number:
+		return false
+	case map[string]any, []any:
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Map:
+		return true
+	case reflect.Slice, reflect.Array:
+		return rv.Type().Elem().Kind() != reflect.Uint8
+	}
+	return false
+}
+
+// jsonText renders v as JSON without escaping <, > and &: a request body is not
+// HTML, and an endpoint comparing a value it was sent should see the value.
+func jsonText(v any) (string, error) {
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(b.String(), "\n"), nil
+}
+
+// jsonString renders s as a JSON string literal.
+func jsonString(s string) string {
+	text, err := jsonText(s)
+	if err != nil {
+		// A string always marshals; this keeps the output JSON regardless.
+		return `""`
+	}
+	return text
+}
+
+// jsonKeys follows a json.Decoder's position well enough to tell an object key
+// from a value -- Token returns both as plain strings.
+type jsonKeys struct {
+	frames []jsonFrame
+}
+
+type jsonFrame struct {
+	object  bool
+	wantKey bool
+}
+
+// isKey reports whether tok is an object key, and moves past it.
+func (k *jsonKeys) isKey(tok json.Token) bool {
+	if d, ok := tok.(json.Delim); ok {
+		switch d {
+		case '{':
+			k.frames = append(k.frames, jsonFrame{object: true, wantKey: true})
+		case '[':
+			k.frames = append(k.frames, jsonFrame{})
+		default:
+			k.frames = k.frames[:len(k.frames)-1]
+			k.valueDone()
+		}
+		return false
+	}
+	if n := len(k.frames); n > 0 && k.frames[n-1].object && k.frames[n-1].wantKey {
+		k.frames[n-1].wantKey = false
+		return true
+	}
+	k.valueDone()
+	return false
+}
+
+// valueDone records that a value just ended, so an enclosing object expects a
+// key next.
+func (k *jsonKeys) valueDone() {
+	if n := len(k.frames); n > 0 && k.frames[n-1].object {
+		k.frames[n-1].wantKey = true
+	}
 }
 
 // scanTemplate is the single forward pass both resolvers share; resolve turns
