@@ -152,3 +152,97 @@ func TestResumeWithNoEngineDoesNotPanic(t *testing.T) {
 	r.resumeFromNode("wf-resume", "W", m, nil, wf, nodeMap, adj,
 		[]hermod.Sink{refusingSink{}}, sinkNodeToIndex, "")
 }
+
+// ---------------------------------------------------------------------------
+// A resumed message is routed by replayTargets, not by the traversal, and
+// replayTargets kept its own copy of the routing rule. With a branch named, it
+// took only the edges labelled for that branch, where the live traversal also
+// takes unlabelled ones (traversal.TakesEdge). So a resumed message could skip
+// a node a live message reaches, and an approval node with an unlabelled edge
+// delivered nothing at all after a decision.
+// ---------------------------------------------------------------------------
+
+// routedResume is a workflow whose resumed message meets `router` first, with
+// one recording sink per edge out of it. An edge given an empty label here is
+// unlabelled: no handle, no label, as a workflow built through the API has.
+func routedResume(router storage.WorkflowNode, labels ...string) (storage.Workflow, map[string]*storage.WorkflowNode, map[string][]string, []hermod.Sink, map[string]int, []*parkingSink) {
+	wf := storage.Workflow{ID: "wf-resume-route", Nodes: []storage.WorkflowNode{router}}
+	adj := map[string][]string{}
+	sinkNodeToIndex := map[string]int{}
+	var sinks []hermod.Sink
+	var recorded []*parkingSink
+	for i, label := range labels {
+		id := router.ID + "-out-" + string(rune('a'+i))
+		wf.Nodes = append(wf.Nodes, storage.WorkflowNode{ID: id, Type: "sink"})
+		edge := storage.WorkflowEdge{SourceID: router.ID, TargetID: id}
+		if label != "" {
+			edge.SourceHandle = label
+			edge.Config = map[string]any{"label": label}
+		}
+		wf.Edges = append(wf.Edges, edge)
+		adj[router.ID] = append(adj[router.ID], id)
+		sinkNodeToIndex[id] = i
+		dest := &parkingSink{}
+		sinks = append(sinks, dest)
+		recorded = append(recorded, dest)
+	}
+	nodeMap := map[string]*storage.WorkflowNode{}
+	for i := range wf.Nodes {
+		nodeMap[wf.Nodes[i].ID] = &wf.Nodes[i]
+	}
+	return wf, nodeMap, adj, sinks, sinkNodeToIndex, recorded
+}
+
+func TestAResumedMessageIsRoutedByTheEnginesRule(t *testing.T) {
+	// A wait node resumes into a condition: the live traversal sends a gold
+	// customer down the "true" edge and the unlabelled one, not the "false" one.
+	wait := storage.WorkflowNode{ID: "W", Type: "wait"}
+	isGold := storage.WorkflowNode{ID: "C", Type: "condition", Config: map[string]any{
+		"field": "tier", "operator": "=", "value": "gold",
+	}}
+	wf, nodeMap, adj, sinks, sinkNodeToIndex, recorded := routedResume(isGold, "true", "", "false")
+	wf.Nodes = append(wf.Nodes, wait)
+	nodeMap["W"] = &wf.Nodes[len(wf.Nodes)-1]
+	wf.Edges = append(wf.Edges, storage.WorkflowEdge{SourceID: "W", TargetID: "C"})
+	adj["W"] = []string{"C"}
+
+	m := message.AcquireMessage()
+	defer m.Release()
+	m.SetID("resumed-routed")
+	m.SetData("tier", "gold")
+
+	(&Registry{}).resumeFromNode("wf-resume-route", "W", m, nil, wf, nodeMap, adj, sinks, sinkNodeToIndex, "")
+
+	for i, want := range []int{1, 1, 0} {
+		if got := recorded[i].count(); got != want {
+			t.Errorf("sink behind the %s edge got the resumed message %d time(s), want %d",
+				[]string{`"true"`, "unlabelled", `"false"`}[i], got, want)
+		}
+	}
+}
+
+// An approval's decision is a branch forced on the resume. Edges labelled for
+// the other decision stay dark; an unlabelled edge follows every branch, as it
+// does everywhere else in the engine -- label it to route only one decision.
+func TestAnApprovalDecisionTakesItsEdgeAndUnlabelledOnes(t *testing.T) {
+	approval := storage.WorkflowNode{ID: "A", Type: "approval"}
+	for _, decision := range []string{"approved", "rejected"} {
+		t.Run(decision, func(t *testing.T) {
+			wf, nodeMap, adj, sinks, sinkNodeToIndex, recorded := routedResume(approval, "approved", "rejected", "")
+
+			m := message.AcquireMessage()
+			defer m.Release()
+			m.SetID("decided-" + decision)
+
+			(&Registry{}).resumeFromNode("wf-resume-route", "A", m, nil, wf, nodeMap, adj, sinks, sinkNodeToIndex, decision)
+
+			want := map[string][]int{"approved": {1, 0, 1}, "rejected": {0, 1, 1}}[decision]
+			for i, w := range want {
+				if got := recorded[i].count(); got != w {
+					t.Errorf("sink behind the %s edge got the %s message %d time(s), want %d",
+						[]string{`"approved"`, `"rejected"`, "unlabelled"}[i], decision, got, w)
+				}
+			}
+		})
+	}
+}
