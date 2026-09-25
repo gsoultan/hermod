@@ -192,6 +192,25 @@ func apiLookupCacheKey(method, resolvedURL, resolvedBody, responsePath, authType
 	return fmt.Sprintf("api:%s:%s:%s", method, resolvedURL, hex.EncodeToString(h.Sum(nil)))
 }
 
+// maxResponseExcerpt bounds how much of a refusal's body reaches an error.
+const maxResponseExcerpt = 256
+
+// responseExcerpt is what an endpoint said when it refused a request, as one
+// line a log can hold, prefixed ": " -- or nothing when it said nothing.
+// Without it a refusal was a status code alone, and the reason the endpoint
+// gave, usually the field it rejected, was thrown away.
+func responseExcerpt(r io.Reader) string {
+	b, _ := io.ReadAll(io.LimitReader(r, maxResponseExcerpt+1))
+	text := strings.Join(strings.Fields(string(b)), " ")
+	if text == "" {
+		return ""
+	}
+	if len(text) > maxResponseExcerpt {
+		text = strings.ToValidUTF8(text[:maxResponseExcerpt], "") + "…"
+	}
+	return ": " + text
+}
+
 func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
@@ -256,9 +275,20 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 		return msg, err
 	}
 
+	// A JSON body is resolved inside the JSON, so a jsonb field goes out as the
+	// object it is and a value holding a quote is escaped; pasted in as text,
+	// both made a body that was not JSON. A body that is not JSON until its
+	// tokens are filled in -- an unquoted {{.after.profile}} -- keeps the text
+	// form it always had.
 	resolvedBody := ""
+	bodyIsJSON := false
 	if bodyTemp != "" {
-		resolvedBody = evaluator.ResolveTemplateMsg(bodyTemp, msg)
+		if body, ok := evaluator.ResolveJSONTemplateMsg(bodyTemp, msg); ok {
+			resolvedBody, bodyIsJSON = body, true
+		} else {
+			resolvedBody = evaluator.ResolveTemplateMsg(bodyTemp, msg)
+			bodyIsJSON = json.Valid([]byte(resolvedBody))
+		}
 	}
 
 	// Resolve the headers and the credential up front rather than inside the
@@ -326,6 +356,12 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 			for k, v := range resolvedHeaders {
 				req.Header.Set(k, v)
 			}
+			// A JSON body went out with no Content-Type at all, and an endpoint
+			// that requires application/json -- most JSON APIs -- refused it. The
+			// operator's own header, in any case, still wins.
+			if bodyIsJSON && req.Header.Get("Content-Type") == "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
 
 			// Auth, from the credential resolved once above so the request and
 			// the cache key cannot disagree about who is asking.
@@ -345,9 +381,10 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 			}
 
 			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				said := responseExcerpt(resp.Body)
 				resp.Body.Close()
 				cancel()
-				lastErr = fmt.Errorf("api lookup returned status %d", resp.StatusCode)
+				lastErr = fmt.Errorf("api lookup returned status %d%s", resp.StatusCode, said)
 				if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 					continue // Retryable
 				}

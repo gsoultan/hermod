@@ -1,9 +1,13 @@
 package evaluator
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gsoultan/hermod/pkg/comm/message"
 )
 
 func TestGetMsgValByPath(t *testing.T) {
@@ -355,5 +359,130 @@ func TestEvaluateConditions_NilMessage(t *testing.T) {
 	// missing field also resolves to "", so the equality holds.
 	if !EvaluateConditions(nil, conds) {
 		t.Errorf("expected nil-message condition to evaluate true without panicking")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// A JSON request body is JSON, not text with holes in it.
+//
+// ResolveTemplateMsg writes each token's value as raw text. In a JSON body that
+// broke in two ways an api_lookup operator hit: a jsonb field in quotes,
+// "{{.after.profile}}", went out as its JSON text pasted inside a string --
+// `"profile": "{"name":"Ada"}"`, which is not JSON at all -- and any value
+// holding a quote did the same. ResolveJSONTemplateMsg resolves inside the JSON
+// instead: a string that is one whole token and resolves to an object or array
+// becomes that object or array, every other resolved string is escaped, and
+// everything the operator wrote around the tokens is kept byte for byte.
+// ---------------------------------------------------------------------------
+
+func jsonTemplateMessage() *message.DefaultMessage {
+	msg := message.AcquireMessage()
+	message.PopulateFromMap(msg, map[string]any{
+		"operation": "snapshot",
+		"table":     "memberships",
+		"after": map[string]any{
+			"user_id":     "019a43e3-0000-7000-8000-000000000001",
+			"entity_type": `region "north"`,
+			"count":       42,
+			"profile":     map[string]any{"name": "Ada", "roles": []any{"owner", "admin"}},
+			"looks_like":  "{{.after.user_id}}",
+		},
+	})
+	return msg
+}
+
+func TestResolveJSONTemplateMsg(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "a jsonb field in quotes is sent as the object it is",
+			body: `{"profile": "{{.after.profile}}"}`,
+			want: `{"profile": {"name":"Ada","roles":["owner","admin"]}}`,
+		},
+		{
+			name: "a value holding a quote is escaped",
+			body: `{"entity": "{{.after.entity_type}}"}`,
+			want: `{"entity": "region \"north\""}`,
+		},
+		{
+			name: "a scalar in quotes stays the string it always was",
+			body: `{"count": "{{.after.count}}"}`,
+			want: `{"count": "42"}`,
+		},
+		{
+			name: "a token inside other text is text, escaped",
+			body: `{"label": "type={{.after.entity_type}}!"}`,
+			want: `{"label": "type=region \"north\"!"}`,
+		},
+		{
+			name: "number literals are not re-encoded",
+			body: `{"duration": 604800000000000, "big": 9007199254740993, "f": 1.50}`,
+			want: `{"duration": 604800000000000, "big": 9007199254740993, "f": 1.50}`,
+		},
+		{
+			name: "layout and key order are the operator's",
+			body: "{\n  \"z\": \"{{.after.user_id}}\",\n  \"a\": [ \"{{.after.count}}\" ]\n}",
+			want: "{\n  \"z\": \"019a43e3-0000-7000-8000-000000000001\",\n  \"a\": [ \"42\" ]\n}",
+		},
+		{
+			name: "a missing field is the empty string, as before",
+			body: `{"nope": "{{.after.nope}}"}`,
+			want: `{"nope": ""}`,
+		},
+		{
+			name: "the environment stays out of reach",
+			body: `{"home": "{{env.HOME}}"}`,
+			want: `{"home": ""}`,
+		},
+		{
+			name: "a templated key resolves as a key",
+			body: `{"{{.after.user_id}}": true}`,
+			want: `{"019a43e3-0000-7000-8000-000000000001": true}`,
+		},
+		{
+			name: "a value that looks like a token is not resolved again",
+			body: `{"x": "{{.after.looks_like}}"}`,
+			want: `{"x": "{{.after.user_id}}"}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := jsonTemplateMessage()
+			defer msg.Release()
+
+			got, ok := ResolveJSONTemplateMsg(tc.body, msg)
+			if !ok {
+				t.Fatalf("a valid JSON body was not resolved as JSON: %s", tc.body)
+			}
+			if got != tc.want {
+				t.Errorf("resolved body\n got: %s\nwant: %s", got, tc.want)
+			}
+			if !json.Valid([]byte(got)) {
+				t.Errorf("resolved body is not valid JSON: %s", got)
+			}
+		})
+	}
+}
+
+// A body that is not JSON before resolution is left to ResolveTemplateMsg, so
+// an unquoted token -- valid JSON only once it is filled in -- keeps working.
+func TestResolveJSONTemplateMsgLeavesNonJSONBodies(t *testing.T) {
+	msg := jsonTemplateMessage()
+	defer msg.Release()
+
+	for _, body := range []string{
+		`{"profile": {{.after.profile}}}`,
+		`user={{.after.user_id}}&type=x`,
+		`{"a": 1} trailing`,
+	} {
+		if got, ok := ResolveJSONTemplateMsg(body, msg); ok {
+			t.Errorf("%q was treated as JSON and resolved to %q", body, got)
+		}
+	}
+	if got := ResolveTemplateMsg(`{"profile": {{.after.profile}}}`, msg); !strings.Contains(got, `"name":"Ada"`) {
+		t.Errorf("the raw form stopped rendering an unquoted object: %s", got)
 	}
 }

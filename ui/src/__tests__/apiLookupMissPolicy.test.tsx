@@ -69,3 +69,22 @@ describe('api_lookup miss policy and cache TTL', () => {
     expect(ttl).toHaveTextContent(/0/)
   })
 })
+
+// The request body's rules changed with the fix for a jsonb field arriving as
+// a JSON string, and the place an operator decides how to write a token is the
+// body field itself -- so that is where they are stated.
+describe('APILookupConfig request body', () => {
+  it('says how a token is sent and what the body is labelled', async () => {
+    const user = userEvent.setup()
+    render(
+      <MantineProvider>
+        <APILookupConfig config={{ method: 'POST', url: 'https://x' }} updateNodeConfig={() => {}} nodeId="n1" />
+      </MantineProvider>
+    )
+
+    await user.click(screen.getByRole('tab', { name: /body\/headers/i }))
+
+    expect(screen.getByText(/an object or array \(jsonb\) is sent as JSON/i)).toBeInTheDocument()
+    expect(screen.getByText(/application\/json unless you set one/i)).toBeInTheDocument()
+  })
+})
