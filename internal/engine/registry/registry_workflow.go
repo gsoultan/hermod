@@ -1459,34 +1459,34 @@ func (r *Registry) validateForSimulation(ctx context.Context, wf storage.Workflo
 // simulation is one SimulateWorkflow run: the graph, the message waiting at
 // each node, and the steps reported so far.
 type simulation struct {
-	r          *Registry
-	wfID       string
-	nodes      map[string]*storage.WorkflowNode
-	sources    []*storage.WorkflowNode
-	adj        map[string][]string
-	inDegree   map[string]int
-	edgeLabels map[string]string
-	waiting    map[string]hermod.Message
-	received   map[string]int
-	visited    map[string]bool
-	queue      []string
-	steps      []WorkflowStepResult
+	r       *Registry
+	wfID    string
+	nodes   map[string]*storage.WorkflowNode
+	sources []*storage.WorkflowNode
+	// outEdges is every node's outgoing edges. It is kept per edge rather than
+	// per target so a step can name the edges its output took.
+	outEdges map[string][]storage.WorkflowEdge
+	inDegree map[string]int
+	waiting  map[string]hermod.Message
+	received map[string]int
+	visited  map[string]bool
+	queue    []string
+	steps    []WorkflowStepResult
 	// owned is every message the run created, released when it ends.
 	owned []hermod.Message
 }
 
 func newSimulation(r *Registry, wf storage.Workflow) *simulation {
 	s := &simulation{
-		r:          r,
-		wfID:       wf.ID,
-		nodes:      make(map[string]*storage.WorkflowNode, len(wf.Nodes)),
-		adj:        make(map[string][]string),
-		inDegree:   make(map[string]int),
-		edgeLabels: make(map[string]string),
-		waiting:    make(map[string]hermod.Message),
-		received:   make(map[string]int),
-		visited:    make(map[string]bool),
-		owned:      make([]hermod.Message, 0, len(wf.Nodes)*2),
+		r:        r,
+		wfID:     wf.ID,
+		nodes:    make(map[string]*storage.WorkflowNode, len(wf.Nodes)),
+		outEdges: make(map[string][]storage.WorkflowEdge),
+		inDegree: make(map[string]int),
+		waiting:  make(map[string]hermod.Message),
+		received: make(map[string]int),
+		visited:  make(map[string]bool),
+		owned:    make([]hermod.Message, 0, len(wf.Nodes)*2),
 	}
 	for i := range wf.Nodes {
 		s.nodes[wf.Nodes[i].ID] = &wf.Nodes[i]
@@ -1495,11 +1495,8 @@ func newSimulation(r *Registry, wf storage.Workflow) *simulation {
 		}
 	}
 	for _, edge := range wf.Edges {
-		s.adj[edge.SourceID] = append(s.adj[edge.SourceID], edge.TargetID)
+		s.outEdges[edge.SourceID] = append(s.outEdges[edge.SourceID], edge)
 		s.inDegree[edge.TargetID]++
-		if label := edgeLabel(edge); label != "" {
-			s.edgeLabels[edge.SourceID+":"+edge.TargetID] = label
-		}
 	}
 	return s
 }
@@ -1588,7 +1585,7 @@ func (s *simulation) run(id string, node *storage.WorkflowNode) (hermod.Message,
 		// Node reached only through branches that were not taken: it has no
 		// input message, so it is skipped. Its outgoing edges are still
 		// traversed to keep downstream join counters consistent.
-		s.steps = append(s.steps, WorkflowStepResult{NodeID: id, NodeType: node.Type, Filtered: true})
+		s.steps = append(s.steps, WorkflowStepResult{NodeID: id, NodeType: node.Type, Filtered: true, Skipped: true})
 		return nil, ""
 	}
 
@@ -1635,15 +1632,28 @@ func (s *simulation) recordOutput(id string, node *storage.WorkflowNode, out her
 // a join is not left waiting for a branch that was never going to arrive.
 func (s *simulation) forward(id string, node *storage.WorkflowNode, out hermod.Message, branch string) {
 	routes := node.Type == "condition" || node.Type == "switch"
-	for _, target := range s.adj[id] {
-		label := s.edgeLabels[id+":"+target]
+	for _, edge := range s.outEdges[id] {
+		target := edge.TargetID
+		label := edgeLabel(edge)
 		taken := !routes || label == "" || label == branch
 		s.received[target]++
 		if taken && out != nil {
 			s.deliver(target, out)
+			s.recordTaken(id, edge.ID)
 		}
 		if s.received[target] == s.inDegree[target] {
 			s.queue = append(s.queue, target)
+		}
+	}
+}
+
+// recordTaken adds an edge the node's output travelled along to the node's
+// step — the same step recordOutput wrote its output to.
+func (s *simulation) recordTaken(id, edgeID string) {
+	for i := range s.steps {
+		if s.steps[i].NodeID == id {
+			s.steps[i].TakenEdges = append(s.steps[i].TakenEdges, edgeID)
+			return
 		}
 	}
 }

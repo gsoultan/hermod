@@ -9,6 +9,12 @@ import (
 
 	"github.com/gsoultan/hermod/internal/api/handlers"
 	"github.com/gsoultan/hermod/internal/engine/registry"
+	// Node types and transformers the way cmd/hermod links them. Without them a
+	// condition passes every message through unrouted, and a transformation node
+	// is a pass-through too, so a test could not tell a node that ran from one
+	// that did nothing.
+	_ "github.com/gsoultan/hermod/internal/engine/registry/nodes"
+	_ "github.com/gsoultan/hermod/pkg/comm/transformer/advanced"
 	_ "github.com/gsoultan/hermod/pkg/comm/transformer/core"
 )
 
@@ -224,5 +230,61 @@ func TestSimulationEndpointPreviewsEachBranchFromItsOwnSample(t *testing.T) {
 		"message":  map[string]any{"k": "v"},
 	}); code == http.StatusOK {
 		t.Error("the Test button's request succeeded for a workflow the engine will not start")
+	}
+}
+
+// The editor highlights the path a simulated message took from two fields on
+// each step: `taken_edges`, the edges the node's output travelled along, and
+// `skipped`, set on a node nothing reached. The request is shaped the way the
+// editor sends it -- a branch edge carries its handle in `source_handle` and a
+// copy of it in `config.label` -- so a rename on either side of the wire breaks
+// this test rather than the canvas.
+func TestSimulationEndpointReportsThePathTheMessageTook(t *testing.T) {
+	workflow := map[string]any{
+		"name": "gold customers one way, everyone else the other",
+		"nodes": []map[string]any{
+			{"id": "src", "type": "source", "ref_id": "orders"},
+			{"id": "is-gold", "type": "condition", "config": map[string]any{"field": "tier", "operator": "=", "value": "gold"}},
+			{"id": "gold", "type": "transformation", "config": map[string]any{"transType": "set", "column.lane": "'gold'"}},
+			{"id": "other", "type": "transformation", "config": map[string]any{"transType": "set", "column.lane": "'other'"}},
+		},
+		"edges": []map[string]any{
+			{"id": "e-in", "source_id": "src", "target_id": "is-gold", "config": map[string]any{"label": ""}},
+			{"id": "e-true", "source_id": "is-gold", "target_id": "gold", "source_handle": "true", "config": map[string]any{"label": "true"}},
+			{"id": "e-false", "source_id": "is-gold", "target_id": "other", "source_handle": "false", "config": map[string]any{"label": "false"}},
+		},
+	}
+
+	code, steps, body := postSimulation(t, map[string]any{
+		"workflow": workflow,
+		"messages": map[string]any{"src": map[string]any{"tier": "gold"}},
+		"partial":  true,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("simulation returned %d: %s", code, body)
+	}
+
+	takenBy := map[string][]any{}
+	skipped := map[string]bool{}
+	for _, s := range steps {
+		id, _ := s["node_id"].(string)
+		if edges, ok := s["taken_edges"].([]any); ok {
+			takenBy[id] = append(takenBy[id], edges...)
+		}
+		if v, _ := s["skipped"].(bool); v {
+			skipped[id] = true
+		}
+	}
+
+	for node, want := range map[string]string{"src": "e-in", "is-gold": "e-true"} {
+		if got := takenBy[node]; len(got) != 1 || got[0] != want {
+			t.Errorf("node %s reports taken_edges %v, want [%s]. Response: %s", node, got, want, body)
+		}
+	}
+	if !skipped["other"] {
+		t.Errorf("the node on the branch not taken is not reported skipped. Response: %s", body)
+	}
+	if skipped["gold"] {
+		t.Errorf("the node on the branch taken is reported skipped. Response: %s", body)
 	}
 }
