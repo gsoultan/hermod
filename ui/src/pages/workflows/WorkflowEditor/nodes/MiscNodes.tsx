@@ -3,6 +3,7 @@ import {
   Text, Badge, Group, ThemeIcon, Paper, useMantineColorScheme, ActionIcon 
 } from '@mantine/core';
 import { BaseNode, PlusHandle, TargetHandle } from './BaseNode';
+import { branchHandleId } from './branchHandleId';
 import { useState, memo } from 'react';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
 import { IconArrowsSplit, IconChecklist, IconClock, IconCloud, IconCode, IconCopy, IconDatabase, IconEye, IconFilter, IconGitBranch, IconGitMerge, IconList, IconLock, IconLockOpen, IconNote, IconPlaylist, IconSearch, IconShieldLock, IconTerminal2, IconTrash, IconVariable } from '@tabler/icons-react';
@@ -94,7 +95,7 @@ const SwitchNodeImpl = ({ id, data, selected }: any) => {
           key={idx}
           type="source" 
           position={Position.Right} 
-          id={c.label || `case_${idx}`}
+          id={branchHandleId('switch', c.label, idx)}
           nodeId={id} 
           color="orange"
           style={{ top: 30 + (idx * 25) }}
@@ -134,7 +135,7 @@ const RouterNodeImpl = ({ id, data, selected }: any) => {
           key={idx}
           type="source" 
           position={Position.Right} 
-          id={rule.label || `rule_${idx}`}
+          id={branchHandleId('router', rule.label, idx)}
           nodeId={id} 
           color="indigo"
           style={{ top: 30 + (idx * 25) }}
