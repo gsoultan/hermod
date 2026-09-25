@@ -118,6 +118,32 @@ func TestDataConversionWritesTheConvertedType(t *testing.T) {
 	}
 }
 
+// TestDataConversionWritesADateInTheChosenFormat starts from the node config as
+// the editor stores it -- JSON text -- rather than from a Go literal, so the key
+// names are the ones on the wire. A date row used to have one format, which only
+// described how to read the value, and a timestamp came back out as RFC3339
+// whatever that format said.
+func TestDataConversionWritesADateInTheChosenFormat(t *testing.T) {
+	reg := newSimRegistry(t)
+
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(`{
+		"transType": "data_conversion",
+		"errorBehavior": "fail",
+		"conversions": [
+			{"field": "created_at", "targetType": "date", "outputFormat": "02 January 2006", "targetField": "created_on"}
+		]
+	}`), &cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	got := transform(t, reg, map[string]any{"created_at": "2026-09-18T04:30:57.333046Z"}, cfg)
+
+	if got["created_on"] != "18 September 2026" {
+		t.Errorf("created_on = %#v, want \"18 September 2026\"", got["created_on"])
+	}
+}
+
 // TestMaskRedactsAnEmail is the PII control. A mask that silently does nothing
 // is the worst outcome here: the pipeline reports success and the unmasked
 // value lands in the destination.

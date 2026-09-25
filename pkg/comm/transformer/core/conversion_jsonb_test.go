@@ -119,7 +119,7 @@ func TestDataConversion_ToJSONB_GoTypes(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := tr.convertScalar(tc.in, "jsonb", "", "")
+			got, err := tr.convertScalar(tc.in, conversionRow{targetType: "jsonb"})
 			if err != nil {
 				t.Fatalf("convertScalar: %v", err)
 			}
@@ -129,7 +129,7 @@ func TestDataConversion_ToJSONB_GoTypes(t *testing.T) {
 		})
 	}
 
-	if _, err := tr.convertScalar([]byte(`[1,`), "jsonb", "", ""); err == nil {
+	if _, err := tr.convertScalar([]byte(`[1,`), conversionRow{targetType: "jsonb"}); err == nil {
 		t.Error("want an error for malformed JSON bytes, got nil")
 	}
 }
