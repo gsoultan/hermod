@@ -536,6 +536,19 @@ func TestSimulationTakesOnlyTheBranchARoutingNodeChose(t *testing.T) {
 	isUS := storage.WorkflowNode{ID: "route", Type: "condition", Config: map[string]any{
 		"field": "region", "operator": "=", "value": "US",
 	}}
+	// A rule or case whose label was cleared. The editor draws its handle as
+	// rule_1 / case_1, so that is the label on the edge leaving it.
+	unnamedRouter := storage.WorkflowNode{ID: "route", Type: "router", Config: map[string]any{"rules": []any{
+		map[string]any{"label": "eu", "field": "region", "operator": "=", "value": "EU"},
+		map[string]any{"label": "", "field": "region", "operator": "=", "value": "US"},
+	}}}
+	unnamedSwitch := storage.WorkflowNode{ID: "route", Type: "switch", Config: map[string]any{
+		"field": "region",
+		"cases": []any{
+			map[string]any{"label": "eu", "value": "EU"},
+			map[string]any{"label": "", "value": "US"},
+		},
+	}}
 
 	cases := []struct {
 		name     string
@@ -548,6 +561,8 @@ func TestSimulationTakesOnlyTheBranchARoutingNodeChose(t *testing.T) {
 		{"router with no rule matching", regionRouter, []string{"eu", "us", "default"}, `{"region":"APAC"}`, "default"},
 		{"switch", regionSwitch, []string{"eu", "us", "default"}, `{"region":"US"}`, "us"},
 		{"condition", isUS, []string{"true", "false"}, `{"region":"US"}`, "true"},
+		{"router matching an unnamed rule", unnamedRouter, []string{"eu", "rule_1", "default"}, `{"region":"US"}`, "rule_1"},
+		{"switch matching an unnamed case", unnamedSwitch, []string{"eu", "case_1", "default"}, `{"region":"US"}`, "case_1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

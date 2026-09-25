@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "The branch a router rule or switch case routes to, read by BOTH sides:",
+    "  internal/engine/registry/nodes/control/branch_name_test.go  (routeBranch)",
+    "  ui/src/__tests__/branchHandleIdParity.test.ts              (branchHandleId)",
+    "",
+    "A rule or case with a label routes to that label. One without a label gets",
+    "the id the editor gives its handle, and an edge drawn from that handle",
+    "carries that id as its label -- so the engine must return the same id, or",
+    "no edge matches. It used to return the empty label, and an empty branch",
+    "means 'every edge' (traversal.TakesEdge): a message matching an unnamed",
+    "rule was sent down every route out of the node.",
+    "",
+    "index is the rule's or case's position in the node's list, counting from 0."
+  ],
+  "cases": [
+    { "node": "router", "label": "eu",   "index": 0, "want": "eu" },
+    { "node": "router", "label": "",     "index": 0, "want": "rule_0" },
+    { "node": "router", "label": "",     "index": 3, "want": "rule_3" },
+    { "node": "switch", "label": "gold", "index": 1, "want": "gold" },
+    { "node": "switch", "label": "",     "index": 0, "want": "case_0" },
+    { "node": "switch", "label": "",     "index": 2, "want": "case_2" }
+  ]
+}

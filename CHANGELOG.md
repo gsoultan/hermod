@@ -22,6 +22,20 @@ One consequence at an approval: an unlabelled edge now carries both decisions,
 because an unlabelled edge follows every branch everywhere else in the engine.
 Give the edge a label to route only one decision.
 
+### A router rule or switch case with no name sent messages down every route
+
+A message that matched a router rule or switch case whose name had been cleared
+went along every edge out of the node: to every other rule's branch and to
+`default` as well. This happened in the running engine, not only in the
+editor's preview.
+
+The engine returned an empty branch for the unnamed rule, and an empty branch
+means "every edge". The editor, meanwhile, draws that rule's handle as `rule_1`
+(or `case_1` for a switch), and that is the label on the edge leaving it. The
+engine now names an unnamed rule or case the same way, so the message takes
+only the edge from its own handle. Rules and cases with names route exactly as
+before.
+
 ### A simulated router sent the message down every route
 
 The editor's Test run followed a node's chosen branch only for condition and
