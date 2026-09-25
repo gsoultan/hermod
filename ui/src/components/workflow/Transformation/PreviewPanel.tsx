@@ -181,7 +181,7 @@ export function PreviewPanel({ title = 'Preview', loading, error, result, origin
   };
 
   return (
-    <Card withBorder shadow="sm" radius="md" p="md" h="100%" style={{ display: 'flex', flexDirection: 'column' }}>
+    <Card withBorder shadow="sm" radius="md" p="md" h="100%" style={{ display: 'flex', flexDirection: 'column' }} data-testid="live-preview">
       <Stack h="100%" gap="xs">
         <Group justify="space-between" align="center">
           <Group gap="xs">

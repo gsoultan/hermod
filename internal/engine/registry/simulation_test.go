@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
 	sqlstorage "github.com/gsoultan/hermod/internal/storage/sql"
 	"github.com/gsoultan/hermod/pkg/comm/message"
@@ -175,5 +176,187 @@ func TestSimulationRejectsAnInvalidWorkflow(t *testing.T) {
 	if _, err := reg.TestWorkflow(t.Context(), wf, msg); err == nil {
 		t.Error("simulating a workflow with a dangling edge succeeded; the editor would " +
 			"report a pipeline as tested that the engine will not start")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Previewing a workflow while it is being built.
+//
+// Refreshing AVAILABLE FIELDS in the editor re-runs the simulation so each node
+// can read what the node before it emits. Two things kept that from reaching
+// the next node:
+//
+//   - validation refused any graph with no reachable sink. Saving that same
+//     workflow only warns, so this is the state of every workflow still being
+//     put together — the moment the preview is needed most;
+//   - every source node was seeded with the same message, so on a workflow with
+//     two sources, refreshing one branch filled the other branch's nodes with
+//     columns they will never see.
+// ---------------------------------------------------------------------------
+
+// sinklessWorkflow is simWorkflow before its sink has been added.
+func sinklessWorkflow() storage.Workflow {
+	wf := simWorkflow()
+	wf.Nodes = wf.Nodes[:3]
+	wf.Edges = wf.Edges[:2]
+	return wf
+}
+
+// twoSourceWorkflow is two independent branches, each tagged by its own node,
+// with no sink yet.
+func twoSourceWorkflow() storage.Workflow {
+	return storage.Workflow{
+		ID: "sim-two", Name: "two sources",
+		Nodes: []storage.WorkflowNode{
+			{ID: "src-a", Type: "source", RefID: "src-1"},
+			{ID: "src-b", Type: "source", RefID: "src-1"},
+			{ID: "ta", Type: "transformation", Config: map[string]any{"transType": "set", "column.branch": "'a'"}},
+			{ID: "tb", Type: "transformation", Config: map[string]any{"transType": "set", "column.branch": "'b'"}},
+		},
+		Edges: []storage.WorkflowEdge{
+			{ID: "ea", SourceID: "src-a", TargetID: "ta"},
+			{ID: "eb", SourceID: "src-b", TargetID: "tb"},
+		},
+	}
+}
+
+func sampleMessage(t *testing.T, after string) *message.DefaultMessage {
+	t.Helper()
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	msg.SetAfter([]byte(after))
+	return msg
+}
+
+// payloadOf is the output the simulation reports for a node, the thing the
+// editor reads for the node after it.
+func payloadOf(steps []WorkflowStepResult, nodeID string) map[string]any {
+	for _, s := range steps {
+		if s.NodeID == nodeID && s.Payload != nil {
+			return s.Payload
+		}
+	}
+	return nil
+}
+
+func TestSimulationPreviewsAWorkflowThatHasNoSinkYet(t *testing.T) {
+	reg := newSimRegistry(t)
+	msg := sampleMessage(t, `{"name":"John Doe"}`)
+
+	// The Test button keeps refusing it: the engine would not start this
+	// workflow, and a passing test must not suggest otherwise.
+	if _, err := reg.TestWorkflow(t.Context(), sinklessWorkflow(), msg); err == nil {
+		t.Fatal("TestWorkflow accepted a workflow with no sink; the Test button would " +
+			"report as tested a workflow the engine refuses to start")
+	}
+
+	steps, err := reg.SimulateWorkflow(t.Context(), sinklessWorkflow(), SimulationInput{Message: msg, Partial: true})
+	if err != nil {
+		t.Fatalf("a partial preview of a workflow with no sink yet was refused: %v", err)
+	}
+	got := payloadOf(steps, "t2")
+	if got == nil {
+		t.Fatalf("the last node has no output; the node after it would have nothing to "+
+			"show. Steps: %+v", steps)
+	}
+	for field, want := range map[string]string{"name": "John Doe", "country": "USA", "status": "URGENT"} {
+		if s, _ := got[field].(string); s != want {
+			t.Errorf("field %q previewed as %v, want %q. Payload: %v", field, got[field], want, got)
+		}
+	}
+}
+
+// A partial preview relaxes what a workflow needs in order to *run*, not what
+// it needs in order to be a graph.
+func TestPartialSimulationStillRejectsABrokenGraph(t *testing.T) {
+	cases := map[string]func(wf *storage.Workflow){
+		"an edge to a node that does not exist": func(wf *storage.Workflow) {
+			wf.Edges = append(wf.Edges, storage.WorkflowEdge{ID: "bad", SourceID: "t2", TargetID: "does-not-exist"})
+		},
+		"a cycle": func(wf *storage.Workflow) {
+			wf.Edges = append(wf.Edges, storage.WorkflowEdge{ID: "back", SourceID: "t2", TargetID: "t1"})
+		},
+		"no source at all": func(wf *storage.Workflow) {
+			wf.Nodes = wf.Nodes[1:]
+			wf.Edges = wf.Edges[1:]
+		},
+	}
+	for name, breakIt := range cases {
+		t.Run(name, func(t *testing.T) {
+			reg := newSimRegistry(t)
+			wf := sinklessWorkflow()
+			breakIt(&wf)
+			in := SimulationInput{Message: sampleMessage(t, `{"k":"v"}`), Partial: true}
+			if _, err := reg.SimulateWorkflow(t.Context(), wf, in); err == nil {
+				t.Errorf("a partial preview accepted a workflow with %s", name)
+			}
+		})
+	}
+}
+
+func TestSimulationSeedsEachSourceWithItsOwnSample(t *testing.T) {
+	reg := newSimRegistry(t)
+	in := SimulationInput{
+		PerSource: map[string]hermod.Message{
+			"src-a": sampleMessage(t, `{"only_in_a":"A"}`),
+			"src-b": sampleMessage(t, `{"only_in_b":"B"}`),
+		},
+		Partial: true,
+	}
+
+	steps, err := reg.SimulateWorkflow(t.Context(), twoSourceWorkflow(), in)
+	if err != nil {
+		t.Fatalf("SimulateWorkflow: %v", err)
+	}
+
+	for node, want := range map[string]struct{ has, lacks string }{
+		"src-a": {"only_in_a", "only_in_b"},
+		"ta":    {"only_in_a", "only_in_b"},
+		"src-b": {"only_in_b", "only_in_a"},
+		"tb":    {"only_in_b", "only_in_a"},
+	} {
+		got := payloadOf(steps, node)
+		if _, ok := got[want.has]; !ok {
+			t.Errorf("node %s lacks %q, a column its own source sent. Payload: %v", node, want.has, got)
+		}
+		if _, ok := got[want.lacks]; ok {
+			t.Errorf("node %s shows %q, a column from the other branch's source. Payload: %v", node, want.lacks, got)
+		}
+	}
+}
+
+// With only one branch's sample to hand, the other branch is left unreached
+// rather than filled with a sample that is not its own.
+func TestSimulationLeavesASourceWithoutASampleUnseeded(t *testing.T) {
+	reg := newSimRegistry(t)
+	in := SimulationInput{
+		PerSource: map[string]hermod.Message{"src-a": sampleMessage(t, `{"only_in_a":"A"}`)},
+		Partial:   true,
+	}
+
+	steps, err := reg.SimulateWorkflow(t.Context(), twoSourceWorkflow(), in)
+	if err != nil {
+		t.Fatalf("SimulateWorkflow: %v", err)
+	}
+	if _, ok := payloadOf(steps, "ta")["only_in_a"]; !ok {
+		t.Errorf("the seeded branch lost its own sample. Steps: %+v", steps)
+	}
+	for _, node := range []string{"src-b", "tb"} {
+		if got := payloadOf(steps, node); got != nil {
+			t.Errorf("node %s on the unseeded branch was given %v", node, got)
+		}
+	}
+
+	// A default message still reaches every source the map does not name.
+	in.Message = sampleMessage(t, `{"shared":"S"}`)
+	steps, err = reg.SimulateWorkflow(t.Context(), twoSourceWorkflow(), in)
+	if err != nil {
+		t.Fatalf("SimulateWorkflow with a default: %v", err)
+	}
+	if _, ok := payloadOf(steps, "tb")["shared"]; !ok {
+		t.Errorf("the default message did not reach the unnamed source. Steps: %+v", steps)
+	}
+	if _, ok := payloadOf(steps, "ta")["shared"]; ok {
+		t.Errorf("the default message overrode the sample named for src-a. Steps: %+v", steps)
 	}
 }

@@ -1853,151 +1853,196 @@ func (r *Registry) getNodeName(node storage.WorkflowNode) string {
 	return node.ID
 }
 
+// checkWorkflowGraph is what makes a workflow a graph the engine can walk: at
+// least one source, no cycle reachable from one, and no edge naming a node that
+// does not exist. It reports whether a sink is reachable rather than requiring
+// one, because a partial simulation previews a workflow that has no sink yet.
+func (r *Registry) checkWorkflowGraph(wf storage.Workflow) (hasSink bool, err error) {
+	walk := newGraphWalk(r, wf)
+	if len(walk.sources) == 0 {
+		return false, errors.New("workflow must have at least one source node")
+	}
+	for _, sn := range walk.sources {
+		if err := walk.visit(sn.ID); err != nil {
+			return false, err
+		}
+	}
+	if err := walk.checkEdges(wf.Edges); err != nil {
+		return false, err
+	}
+	return walk.hasSink, nil
+}
+
+// graphWalk is a depth-first walk from the sources that finds cycles and
+// notes whether a sink is reachable.
+type graphWalk struct {
+	r       *Registry
+	nodes   map[string]*storage.WorkflowNode
+	sources []*storage.WorkflowNode
+	adj     map[string][]string
+	state   map[string]int // 0: unvisited, 1: visiting, 2: visited
+	hasSink bool
+}
+
+func newGraphWalk(r *Registry, wf storage.Workflow) *graphWalk {
+	g := &graphWalk{
+		r:     r,
+		nodes: make(map[string]*storage.WorkflowNode, len(wf.Nodes)),
+		adj:   make(map[string][]string),
+		state: make(map[string]int),
+	}
+	for i := range wf.Nodes {
+		g.nodes[wf.Nodes[i].ID] = &wf.Nodes[i]
+		if wf.Nodes[i].Type == "source" {
+			g.sources = append(g.sources, &wf.Nodes[i])
+		}
+	}
+	for _, edge := range wf.Edges {
+		g.adj[edge.SourceID] = append(g.adj[edge.SourceID], edge.TargetID)
+	}
+	return g
+}
+
+func (g *graphWalk) visit(id string) error {
+	g.state[id] = 1
+	for _, next := range g.adj[id] {
+		switch g.state[next] {
+		case 1:
+			return g.cycleAt(next)
+		case 0:
+			if err := g.visit(next); err != nil {
+				return err
+			}
+		}
+	}
+	g.state[id] = 2
+	if node := g.nodes[id]; node != nil && node.Type == "sink" {
+		g.hasSink = true
+	}
+	return nil
+}
+
+func (g *graphWalk) cycleAt(id string) error {
+	if node := g.nodes[id]; node != nil {
+		return fmt.Errorf("cycle detected at node %s", g.r.getNodeName(*node))
+	}
+	return fmt.Errorf("cycle detected at node %s", id)
+}
+
+// checkEdges refuses an edge naming a node the workflow does not have.
+func (g *graphWalk) checkEdges(edges []storage.WorkflowEdge) error {
+	for _, edge := range edges {
+		if g.nodes[edge.SourceID] == nil {
+			return fmt.Errorf("edge %s refers to missing source node %s", edge.ID, edge.SourceID)
+		}
+		if g.nodes[edge.TargetID] == nil {
+			return fmt.Errorf("edge %s refers to missing target node %s", edge.ID, edge.TargetID)
+		}
+	}
+	return nil
+}
+
 func (r *Registry) ValidateWorkflow(ctx context.Context, wf storage.Workflow) error {
 	// 1. Check if all nodes are configured and exist
-	for _, node := range wf.Nodes {
-		switch node.Type {
-		case "source":
-			if node.RefID == "" || node.RefID == "new" {
-				return fmt.Errorf("source node %s is not configured", r.getNodeName(node))
-			}
-			if s := r.store(); s != nil {
-				if _, err := r.GetSourceConfig(ctx, node.RefID); err != nil {
-					return fmt.Errorf("source node %s refers to missing source %s: %w", r.getNodeName(node), node.RefID, err)
-				}
-			}
-		case "sink":
-			if node.RefID == "" || node.RefID == "new" {
-				return fmt.Errorf("sink node %s is not configured", r.getNodeName(node))
-			}
-			if s := r.store(); s != nil {
-				if _, err := r.GetSinkConfig(ctx, node.RefID); err != nil {
-					return fmt.Errorf("sink node %s refers to missing sink %s: %w", r.getNodeName(node), node.RefID, err)
-				}
-			}
-		}
+	if err := r.checkNodeRefs(ctx, wf.Nodes); err != nil {
+		return err
 	}
 
-	// 2. At least one source
-	nodeMap := make(map[string]*storage.WorkflowNode)
-	for i := range wf.Nodes {
-		nodeMap[wf.Nodes[i].ID] = &wf.Nodes[i]
+	// 2-5. The graph itself: a source, no cycle, no edge to nowhere.
+	hasSink, err := r.checkWorkflowGraph(wf)
+	if err != nil {
+		return err
 	}
-
-	var sourceNodes []*storage.WorkflowNode
-	for i, node := range wf.Nodes {
-		if node.Type == "source" {
-			sourceNodes = append(sourceNodes, &wf.Nodes[i])
-		}
-	}
-	if len(sourceNodes) == 0 {
-		return errors.New("workflow must have at least one source node")
-	}
-
-	// 3. Reachability and cycle detection
-	adj := make(map[string][]string)
-	for _, edge := range wf.Edges {
-		adj[edge.SourceID] = append(adj[edge.SourceID], edge.TargetID)
-	}
-
-	visited := make(map[string]int) // 0: unvisited, 1: visiting, 2: visited
-	var hasSink bool
-
-	var check func(string) error
-	check = func(id string) error {
-		visited[id] = 1
-		for _, nextID := range adj[id] {
-			if visited[nextID] == 1 {
-				node := nodeMap[nextID]
-				if node != nil {
-					return fmt.Errorf("cycle detected at node %s", r.getNodeName(*node))
-				}
-				return fmt.Errorf("cycle detected at node %s", nextID)
-			}
-			if visited[nextID] == 0 {
-				if err := check(nextID); err != nil {
-					return err
-				}
-			}
-		}
-		visited[id] = 2
-
-		node := nodeMap[id]
-		if node != nil && node.Type == "sink" {
-			hasSink = true
-		}
-		return nil
-	}
-
-	for _, sn := range sourceNodes {
-		if err := check(sn.ID); err != nil {
-			return err
-		}
-	}
-
 	if !hasSink {
 		return errors.New("no sink node reachable from any source")
 	}
 
-	// 4. Check for disconnected nodes (optional, but good for production)
-	for _, node := range wf.Nodes {
-		if visited[node.ID] == 0 {
-			// return fmt.Errorf("node %s is unreachable from source", node.ID)
-			// Warning instead? Or error? Let's just log it for now.
-		}
-	}
-
-	// 5. Edge integrity
-	for _, edge := range wf.Edges {
-		if nodeMap[edge.SourceID] == nil {
-			return fmt.Errorf("edge %s refers to missing source node %s", edge.ID, edge.SourceID)
-		}
-		if nodeMap[edge.TargetID] == nil {
-			return fmt.Errorf("edge %s refers to missing target node %s", edge.ID, edge.TargetID)
-		}
-	}
-
 	// 6. DLQ Prioritization requirements
-	if wf.PrioritizeDLQ {
-		if wf.DeadLetterSinkID == "" {
-			return errors.New("PrioritizeDLQ is enabled but no Dead Letter Sink is configured")
-		}
-		if s := r.store(); s != nil {
-			dlqSink, err := r.GetSinkConfig(ctx, wf.DeadLetterSinkID)
-			if err != nil {
-				return fmt.Errorf("dead letter sink %s not found: %w", wf.DeadLetterSinkID, err)
-			}
-			// Verify that the DLQ sink type is also a valid source type.
-			// CreateSource will return an error if the type is not supported as a source.
-			// We use a dummy config for validation.
-			testSrc, err := r.createSourceInternal(context.Background(), factory.SourceConfig{
-				Type:   dlqSink.Type,
-				Config: dlqSink.Config,
-			})
-			if err != nil {
-				return fmt.Errorf("dead letter sink %s (type %s) cannot be used as a source for PrioritizeDLQ: %w", wf.DeadLetterSinkID, dlqSink.Type, err)
-			}
-			if testSrc != nil {
-				testSrc.Close()
-			}
-		}
+	return r.checkDLQPrioritization(ctx, wf)
+}
 
-		// Check for idempotency on sinks
-		if s := r.store(); s != nil {
-			for _, node := range wf.Nodes {
-				if node.Type == "sink" {
-					snk, err := r.GetSinkConfig(ctx, node.RefID)
-					if err == nil {
-						if snk.Config["enable_idempotency"] != "true" {
-							r.logger.Warn("Workflow has PrioritizeDLQ enabled but sink does not have idempotency enabled; enable idempotency to avoid side effects during re-processing", "workflow_id", wf.ID, "sink_id", snk.ID)
-						}
-					}
-				}
-			}
+// checkNodeRefs requires every source and sink node to name a record that
+// exists.
+func (r *Registry) checkNodeRefs(ctx context.Context, nodes []storage.WorkflowNode) error {
+	for _, node := range nodes {
+		var err error
+		switch node.Type {
+		case "source":
+			err = r.checkNodeRef(node, "source", func(id string) error {
+				_, err := r.GetSourceConfig(ctx, id)
+				return err
+			})
+		case "sink":
+			err = r.checkNodeRef(node, "sink", func(id string) error {
+				_, err := r.GetSinkConfig(ctx, id)
+				return err
+			})
+		}
+		if err != nil {
+			return err
 		}
 	}
-
 	return nil
+}
+
+func (r *Registry) checkNodeRef(node storage.WorkflowNode, kind string, lookup func(id string) error) error {
+	if node.RefID == "" || node.RefID == "new" {
+		return fmt.Errorf("%s node %s is not configured", kind, r.getNodeName(node))
+	}
+	if r.store() == nil {
+		return nil
+	}
+	if err := lookup(node.RefID); err != nil {
+		return fmt.Errorf("%s node %s refers to missing %s %s: %w", kind, r.getNodeName(node), kind, node.RefID, err)
+	}
+	return nil
+}
+
+// checkDLQPrioritization requires a workflow that reads its dead-letter queue
+// first to have one, of a type Hermod can also read from.
+func (r *Registry) checkDLQPrioritization(ctx context.Context, wf storage.Workflow) error {
+	if !wf.PrioritizeDLQ {
+		return nil
+	}
+	if wf.DeadLetterSinkID == "" {
+		return errors.New("PrioritizeDLQ is enabled but no Dead Letter Sink is configured")
+	}
+	if r.store() == nil {
+		return nil
+	}
+	dlqSink, err := r.GetSinkConfig(ctx, wf.DeadLetterSinkID)
+	if err != nil {
+		return fmt.Errorf("dead letter sink %s not found: %w", wf.DeadLetterSinkID, err)
+	}
+	// Verify that the DLQ sink type is also a valid source type.
+	// CreateSource will return an error if the type is not supported as a source.
+	// We use a dummy config for validation.
+	testSrc, err := r.createSourceInternal(context.Background(), factory.SourceConfig{
+		Type:   dlqSink.Type,
+		Config: dlqSink.Config,
+	})
+	if err != nil {
+		return fmt.Errorf("dead letter sink %s (type %s) cannot be used as a source for PrioritizeDLQ: %w", wf.DeadLetterSinkID, dlqSink.Type, err)
+	}
+	if testSrc != nil {
+		_ = testSrc.Close()
+	}
+	r.warnSinksWithoutIdempotency(ctx, wf)
+	return nil
+}
+
+// warnSinksWithoutIdempotency logs each sink that would see re-processed
+// messages twice.
+func (r *Registry) warnSinksWithoutIdempotency(ctx context.Context, wf storage.Workflow) {
+	for _, node := range wf.Nodes {
+		if node.Type != "sink" {
+			continue
+		}
+		snk, err := r.GetSinkConfig(ctx, node.RefID)
+		if err == nil && snk.Config["enable_idempotency"] != "true" {
+			r.logger.Warn("Workflow has PrioritizeDLQ enabled but sink does not have idempotency enabled; enable idempotency to avoid side effects during re-processing", "workflow_id", wf.ID, "sink_id", snk.ID)
+		}
+	}
 }
 
 func (r *Registry) GetPIIStats() map[string]*PIIStats {

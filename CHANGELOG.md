@@ -7,6 +7,58 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Refreshing Available Fields now reaches every node after it
+
+One click on the refresh icon beside AVAILABLE FIELDS now updates that node's
+fields and Live Preview, then the next node's fields and Live Preview, and so on
+down the branch. The refresh stores a fresh sample and runs the whole workflow
+on it. Each node reads what the node before it emitted in that run, and its Live
+Preview re-runs because its input changed. Several things stopped the new
+sample on the way:
+
+- **The run was refused on a workflow with no sink yet.** That is every workflow
+  while its nodes are being set up. The refresh now asks for a partial preview,
+  which still rejects a broken graph (no source, a cycle, an edge to nowhere)
+  but not an unfinished one. The Test button still refuses anything the engine
+  could not start.
+- **A saved copy outranked the new sample.** Test Connection writes the sample
+  into the source node as `lastSample`, and saving the workflow keeps it, so it
+  outlived the table it described. The sample stored on the source record now
+  comes first, and `lastSample` is used only when nothing is stored.
+- **Old test results pinned every node.** A refresh that captures a new sample
+  now discards results that ran against the old one.
+- **One failed node sent everything after it back to the source.** A node now
+  reads the nearest output the run produced, so the nodes after a failure keep
+  whatever the nodes before it added.
+
+The refresh reports in one notification. It says where the new sample stopped:
+a source that could not be sampled, or the node that failed on the new data.
+Before, a run that was refused showed two red toasts, even though the refresh
+itself had worked.
+
+### A workflow with two sources was previewed with one source's data
+
+The workflow test fed one message to every source node. So refreshing fields
+on one branch, or pressing Test, showed that branch's columns on every other
+branch. When the sample fetch failed, the run fell back to the first source in
+the workflow, not the branch being refreshed. Each source node is now seeded
+with its own sample. `POST /api/workflows/test` accepts `messages`, a sample
+per source node id, and `partial`; a request that uses neither behaves exactly
+as before.
+
+### Run Simulation in the Configure Test modal ran nothing
+
+The button called the test with no arguments, and the request builder read a
+field from that missing argument, so it failed before any request was sent. It
+now runs the modal's input message.
+
+### A sink had no way to refresh the fields it maps
+
+Every other node refreshes its fields beside the list it shows. The sink form
+already took the refresh handler but never rendered a control for it. Inside
+the workflow editor it now shows how many fields arrive from upstream, with the
+same refresh control.
+
 ### An exported workflow carried rows sampled from its sources
 
 The export already dropped a source record's stored sample. It did not drop the
