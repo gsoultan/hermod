@@ -3,8 +3,10 @@ package http
 import (
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -204,5 +206,75 @@ func TestExportImportRoundTripAcrossInstances(t *testing.T) {
 	}
 	if got.Config["db_password"] != "s3cret-orders" {
 		t.Errorf("re-import lost the credential: db_password = %q", got.Config["db_password"])
+	}
+}
+
+// A source node keeps the row Test Connection sampled, as `lastSample`, in its
+// own config: real data out of the source's database, persisted with the
+// workflow. The export already drops a source record's sample
+// (stripSourceRuntime), but the same row sitting in a node config went out in
+// the bundle to wherever the file was sent.
+func TestExportLeavesSampledRowsBehind(t *testing.T) {
+	ctx := t.Context()
+	store := newSQLiteStore(t, "samples")
+	const row = "ada@example.com"
+
+	if err := store.CreateSource(ctx, storage.Source{
+		ID: "src-customers", Name: "customers", Type: "webhook", VHost: "default",
+		Config: hermod.StringMap{"path": "/customers"},
+		Sample: `{"email":"` + row + `"}`,
+	}); err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	if err := store.CreateWorkflow(ctx, storage.Workflow{
+		ID: "wf-samples", Name: "samples", VHost: "default",
+		Nodes: []storage.WorkflowNode{
+			{ID: "n-src", Type: "source", RefID: "src-customers", Config: map[string]any{
+				"label":      "Customers",
+				"lastSample": map[string]any{"email": row},
+			}},
+			{ID: "n-tr", Type: "transformation", Config: map[string]any{
+				"transType":  "set",
+				"testResult": map[string]any{"payload": map[string]any{"email": row}},
+			}},
+		},
+		Edges: []storage.WorkflowEdge{{ID: "e1", SourceID: "n-src", TargetID: "n-tr"}},
+	}); err != nil {
+		t.Fatalf("seed workflow: %v", err)
+	}
+
+	req := httptest.NewRequestWithContext(ctx, "GET", "/api/workflows/wf-samples/export", nil)
+	rr := httptest.NewRecorder()
+	handlerFor(store).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("export: HTTP %d, body %s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), row) {
+		t.Errorf("the export bundle carries a row sampled from the source: %s", rr.Body.String())
+	}
+
+	// Only the captured data goes; the rest of each node's config is the export.
+	var bundle storage.WorkflowExportBundle
+	if err := json.Unmarshal(rr.Body.Bytes(), &bundle); err != nil {
+		t.Fatalf("decode bundle: %v", err)
+	}
+	configs := map[string]map[string]any{}
+	for _, n := range bundle.Workflow.Nodes {
+		configs[n.ID] = n.Config
+	}
+	if configs["n-src"]["label"] != "Customers" || configs["n-tr"]["transType"] != "set" {
+		t.Errorf("the export dropped node configuration along with the samples: %v", configs)
+	}
+
+	// Stripping is for the export only: the stored workflow keeps what the
+	// editor reads.
+	stored, err := store.GetWorkflow(ctx, "wf-samples")
+	if err != nil {
+		t.Fatalf("re-read workflow: %v", err)
+	}
+	for _, n := range stored.Nodes {
+		if n.ID == "n-src" && n.Config["lastSample"] == nil {
+			t.Error("exporting the workflow deleted lastSample from the stored copy")
+		}
 	}
 }
