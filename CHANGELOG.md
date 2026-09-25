@@ -7,6 +7,21 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A resumed message skipped edges without a label
+
+A message coming back from a wait or approval node is routed by a different
+path from live traffic, and that path kept its own copy of the routing rule.
+Once a branch was named, it followed only the edges labelled for that branch.
+The running engine also follows unlabelled ones. So after a resume, a condition,
+switch or router could skip a node a live message reaches. An approval node
+whose edges have no labels delivered nothing after either decision.
+
+Resumed messages now follow the engine's rule. Edges drawn in the editor always
+carry a label, so this changes workflows created or imported through the API.
+One consequence at an approval: an unlabelled edge now carries both decisions,
+because an unlabelled edge follows every branch everywhere else in the engine.
+Give the edge a label to route only one decision.
+
 ### A simulated router sent the message down every route
 
 The editor's Test run followed a node's chosen branch only for condition and

@@ -1266,17 +1266,19 @@ func (r *Registry) replayWriteToSink(workflowID string, node *storage.WorkflowNo
 
 // replayTargets returns the nodes a replayed message flows to from nodeID,
 // honouring a forced branch label when the node chose one.
+//
+// Which edges a branch takes is the live traversal's rule, traversal.TakesEdge,
+// not a copy of it. The copy this used to keep skipped unlabelled edges once a
+// branch was named, so a resumed message could miss a node a live message
+// reaches, and an approval with an unlabelled edge delivered nothing after its
+// decision.
 func replayTargets(wf storage.Workflow, adj map[string][]string, nodeID, branch string) []string {
 	if branch == "" {
 		return adj[nodeID]
 	}
 	var targets []string
 	for _, edge := range wf.Edges {
-		label := edge.SourceHandle
-		if l, ok := edge.Config["label"].(string); ok && l != "" {
-			label = l
-		}
-		if edge.SourceID == nodeID && label == branch {
+		if edge.SourceID == nodeID && traversal.TakesEdge(branch, edgeLabel(edge)) {
 			targets = append(targets, edge.TargetID)
 		}
 	}
