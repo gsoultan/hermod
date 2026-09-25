@@ -2,6 +2,8 @@ import { memo, useMemo, useState } from 'react';
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from '@xyflow/react';
 import { HoverCard, Code, Stack, Text, ActionIcon, Tooltip, Badge } from '@mantine/core';
 import { useWorkflowStore } from '@/pages/workflows/WorkflowEditor/store/useWorkflowStore';
+import { edgeSimulationState } from '@/pages/workflows/WorkflowEditor/simulation/simulationPath';
+import { TAKEN_EDGE_MARKER_ID } from '@/pages/workflows/WorkflowEditor/simulation/SimulationOverlay';
 import { IconTrash, IconPlayerPause, IconPlayerPlay } from '@tabler/icons-react';
 function formatPreview(val: any): string {
   try {
@@ -27,6 +29,12 @@ export const LiveEdge = memo((props: EdgeProps) => {
   const edgeThroughput = useWorkflowStore(s => s.edgeThroughput);
   const nodeSamples = useWorkflowStore(s => s.nodeSamples);
   const setEdges = useWorkflowStore(s => s.setEdges);
+  // Whether the last simulation's message travelled this edge. While one is
+  // shown it decides how the edge is drawn: Data Pulse is on by default and
+  // draws every edge as the same animated dash, so a path drawn any other way
+  // would not stand out from the edges it did not take.
+  const simulation = useWorkflowStore(s => edgeSimulationState(s.testResults, id));
+  const taken = simulation === 'taken';
   const hasBreakpoint = !!(data as any)?.breakpoint;
 
   // Use per-edge throughput if available, else fall back to source node throughput
@@ -61,6 +69,27 @@ export const LiveEdge = memo((props: EdgeProps) => {
     return selected ? 'var(--mantine-color-blue-7)' : 'var(--mantine-color-blue-6)';
   }, [hasBreakpoint, selected, pulseEnabled, throughput]);
 
+  const pathStyle = simulation
+    ? {
+        stroke: taken ? 'var(--mantine-color-green-6)' : 'var(--mantine-color-gray-5)',
+        strokeWidth: (taken ? 3.5 : 1.5) + (selected ? 1.5 : 0),
+        strokeDasharray: taken ? '10 6' : 'none',
+        animation: taken ? 'simulation-flow 0.8s linear infinite' : undefined,
+        opacity: taken ? 1 : 0.35,
+      }
+    : {
+        stroke: strokeColor,
+        strokeWidth: selected ? strokeWidth + 1.5 : strokeWidth,
+        strokeDasharray: hasBreakpoint ? '2 6' : (pulseEnabled ? '8 6' : 'none'),
+        animation: dashAnim ? `${dashAnim}` : undefined,
+      };
+
+  const dotColor = hasBreakpoint
+    ? (selected ? 'var(--mantine-color-orange-7)' : 'var(--mantine-color-orange-5)')
+    : taken
+      ? 'var(--mantine-color-green-6)'
+      : (selected ? 'var(--mantine-color-blue-7)' : 'var(--mantine-color-blue-5)');
+
   return (
     <>
       {/* The dash keyframes and edge-path transition are global and live in
@@ -70,12 +99,10 @@ export const LiveEdge = memo((props: EdgeProps) => {
       <BaseEdge
         id={id}
         path={edgePath}
-        markerEnd={markerEnd}
+        markerEnd={taken ? `url(#${TAKEN_EDGE_MARKER_ID})` : markerEnd}
+        data-simulation={simulation}
         style={{
-          stroke: strokeColor,
-          strokeWidth: selected ? strokeWidth + 1.5 : strokeWidth,
-          strokeDasharray: hasBreakpoint ? '2 6' : (pulseEnabled ? '8 6' : 'none'),
-          animation: dashAnim ? `${dashAnim}` : undefined,
+          ...pathStyle,
           cursor: 'pointer',
           strokeLinecap: 'round',
           strokeLinejoin: 'round'
@@ -96,15 +123,13 @@ export const LiveEdge = memo((props: EdgeProps) => {
         >
           <HoverCard withArrow shadow="md" position="top" offset={6} withinPortal>
             <HoverCard.Target>
-              <div style={{ 
-                width: 12, 
-                height: 12, 
-                borderRadius: 999, 
-                background: hasBreakpoint
-                  ? (selected ? 'var(--mantine-color-orange-7)' : 'var(--mantine-color-orange-5)')
-                  : (selected ? 'var(--mantine-color-blue-7)' : 'var(--mantine-color-blue-5)'), 
-                cursor: 'help', 
-                opacity: 0.8,
+              <div style={{
+                width: 12,
+                height: 12,
+                borderRadius: 999,
+                background: dotColor,
+                cursor: 'help',
+                opacity: simulation === 'untaken' ? 0.35 : 0.8,
                 border: selected ? '2px solid white' : 'none',
                 boxShadow: '0 0 4px rgba(0,0,0,0.2)'
               }} />

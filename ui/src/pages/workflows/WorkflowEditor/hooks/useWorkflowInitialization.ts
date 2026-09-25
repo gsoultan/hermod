@@ -102,6 +102,10 @@ export function useWorkflowInitialization(id: string, selectedVHost: string) {
       }));
       newValues.edges = initialEdges;
       newValues.historyOpened = false;
+      // A simulation describes the workflow it ran on. The store outlives this
+      // page, so without this the next workflow opened was drawn with the last
+      // one's result.
+      newValues.testResults = null;
 
       useWorkflowStore.setState(newValues);
     }
