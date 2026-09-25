@@ -22,13 +22,13 @@ func (n *SwitchNode) Execute(ctx context.Context, nctx interfaces.NodeContext, w
 
 	field, _ := node.Config["field"].(string)
 
-	for _, c := range cases {
+	for i, c := range cases {
 		label, _ := c["label"].(string)
 		conditions := n.parseCaseConditions(c)
 
 		if len(conditions) > 0 {
 			if nctx.EvaluateConditions(msg, conditions) {
-				return []hermod.Message{msg}, label, nil
+				return []hermod.Message{msg}, routeBranch("switch", label, i), nil
 			}
 		} else {
 			operator, ok := c["operator"].(string)
@@ -45,7 +45,7 @@ func (n *SwitchNode) Execute(ctx context.Context, nctx interfaces.NodeContext, w
 				"value":    value,
 			}
 			if nctx.EvaluateConditions(msg, []map[string]any{caseCond}) {
-				return []hermod.Message{msg}, label, nil
+				return []hermod.Message{msg}, routeBranch("switch", label, i), nil
 			}
 		}
 	}
