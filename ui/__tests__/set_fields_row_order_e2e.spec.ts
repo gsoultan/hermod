@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { E2E_USER, E2E_PASS } from './support/auth';
+import { paletteItem } from './support/palette';
 
 /**
  * The set-fields row order, driven through the real editor.
@@ -42,14 +43,14 @@ test('typing in a set field leaves it where it is', async ({ page }) => {
   await expect(page.getByText('Workflow Panel')).toBeVisible();
 
   // A source has to exist before the Transformations tab unlocks.
-  await page.getByText('PostgreSQL', { exact: true }).first().click();
+  await paletteItem(page, 'Sources', 'PostgreSQL').click();
   await page.waitForTimeout(1500);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(800);
 
   await page.getByRole('tab', { name: 'Transformations' }).click();
   await page.waitForTimeout(1000);
-  await page.getByText('Set Fields', { exact: true }).first().click();
+  await paletteItem(page, 'Transformations', 'Set Fields').click();
   await page.waitForTimeout(1500);
 
   const addField = page.getByRole('button', { name: /add new field mapping/i });

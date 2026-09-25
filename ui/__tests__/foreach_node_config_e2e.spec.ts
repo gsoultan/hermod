@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { E2E_USER, E2E_PASS } from './support/auth';
+import { paletteItem } from './support/palette';
 
 /**
  * A Foreach (Fan-out) node, configured the way a user configures one.
@@ -38,14 +39,14 @@ test('a foreach node can be given its array path from the palette', async ({ pag
   await expect(page.getByText('Workflow Panel')).toBeVisible();
 
   // The Transformations tab stays disabled until the canvas has a source.
-  await page.getByText('PostgreSQL', { exact: true }).first().click();
+  await paletteItem(page, 'Sources', 'PostgreSQL').click();
   await page.waitForTimeout(1500);
   await page.keyboard.press('Escape');
   await page.waitForTimeout(800);
 
   await page.getByRole('tab', { name: 'Transformations' }).click();
   await page.waitForTimeout(1000);
-  await page.getByText('Foreach (Fan-out)', { exact: true }).first().click();
+  await paletteItem(page, 'Transformations', 'Foreach (Fan-out)').click();
   await page.waitForTimeout(1500);
 
   const arrayPath = page.getByRole('textbox', { name: /array path/i });
