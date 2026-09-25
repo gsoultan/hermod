@@ -1482,7 +1482,15 @@ type WorkflowStepResult struct {
 	Metadata map[string]string `json:"metadata,omitempty"`
 	Error    string            `json:"error,omitempty"`
 	Filtered bool              `json:"filtered,omitempty"`
-	Branch   string            `json:"branch,omitempty"`
+	// Skipped marks a node no message reached: every edge into it was on a
+	// branch that was not taken. Filtered is set as well, which is how such a
+	// node was reported before Skipped existed; Skipped is what tells it apart
+	// from a node that was reached and emitted nothing.
+	Skipped bool   `json:"skipped,omitempty"`
+	Branch  string `json:"branch,omitempty"`
+	// TakenEdges are the IDs of the edges this node's output travelled along:
+	// the path the editor highlights. Empty for a node that emitted nothing.
+	TakenEdges []string `json:"taken_edges,omitempty"`
 }
 
 func (r *Registry) applyTransformation(ctx context.Context, modifiedMsg hermod.Message, transType string, config map[string]any) (hermod.Message, error) {

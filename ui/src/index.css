@@ -109,6 +109,16 @@
   to { stroke-dashoffset: 1000; }
 }
 
+/*
+ * The path a simulated message took. The offset falls by one period of the
+ * edge's 10 6 dash, so the dashes travel from source to target and the loop has
+ * no seam.
+ */
+@keyframes simulation-flow {
+  from { stroke-dashoffset: 16; }
+  to { stroke-dashoffset: 0; }
+}
+
 .react-flow__edge-path {
   transition: stroke-width 0.2s, stroke 0.2s;
 }

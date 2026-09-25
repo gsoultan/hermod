@@ -21,6 +21,33 @@ unlabelled ones. That also settles a rarer case: a switch case with no label
 that matched sent the message only along unlabelled edges in the simulation,
 and along every edge in the engine. Both now send it along every edge.
 
+### A test run shows the path the message took
+
+Running a simulation from the editor used to leave the canvas unchanged, even
+though the notification said "Active paths are highlighted". The code that
+highlighted them was removed in an earlier refactor and never replaced. Data
+Pulse, which is on by default, already drew every edge as the same animated
+blue dash, so nothing stood out.
+
+The canvas now shows the run:
+
+- **The path is drawn.** Edges the message travelled along are green and
+  animated from source to target, with green arrowheads. Edges it did not take
+  fade back. On a condition, switch or router, only the branch it chose lights up.
+- **Every node says what happened there.** A green ring and ✓ mean the node
+  passed the message on. Yellow means it was reached but emitted nothing, for
+  example a filter that dropped it. Red means it failed; hover the badge for
+  the error. Grey means nothing reached it, and the node is greyed out.
+- **One summary on the canvas.** A bar at the top counts each outcome, lists the
+  nodes that failed and why, and clears the run.
+
+To know which edges the message took, the canvas needed the engine to say so.
+`POST /api/workflows/test` now reports two more fields on each step:
+`taken_edges`, the IDs of the edges that node's output travelled along, and
+`skipped`, set on a node nothing reached. Before, an unreached node was
+reported only as `filtered`, the same as a node that dropped the message. It
+still reports `filtered`, so existing readers see no change.
+
 ### Refreshing Available Fields now reaches every node after it
 
 One click on the refresh icon beside AVAILABLE FIELDS now updates that node's
