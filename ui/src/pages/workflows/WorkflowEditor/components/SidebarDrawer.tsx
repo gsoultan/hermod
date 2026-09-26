@@ -363,7 +363,11 @@ export function SidebarDrawer({
                     </Paper>
                   )}
 
-                  {filterCategories(nodeCategories, paletteSearch).map((cat) => (
+                  {/* Its own group only, like the Sources and Sinks tabs and like
+                      countMatches. Without the filter this tab listed a second copy
+                      of every source and sink, and a search for one here printed
+                      "Nothing here matches" above the entries it had counted absent. */}
+                  {filterCategories(nodeCategories.filter((cat) => cat.group === 'transformations'), paletteSearch).map((cat) => (
                     <Paper key={categoryKey(cat)} withBorder p="xs" radius="md" bg="var(--mantine-color-body)">
                       <Text size="xs" fw={800} c="dimmed" mb="xs" px="xs" style={{ textTransform: 'uppercase', letterSpacing: '0.5px' }}>{cat.title}</Text>
                       <Stack gap={2}>

@@ -7,6 +7,16 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### The palette's Transformations tab listed every source and sink too
+
+The workflow panel's Transformations tab showed each source and sink category
+again below the transformations: a second DATABASES section of sources, then
+the sinks. The Sources and Sinks tabs each listed only their own. Searching for
+a source from Transformations printed "Nothing here matches" directly above the
+entries it had just counted as absent. The tab now lists transformations only,
+as the other two tabs do, and a search for anything else points to the tab that
+has it.
+
 ## [1.14.0] — 2026-09-26
 
 A date conversion can write its date in a named time zone. A UTC timestamp
