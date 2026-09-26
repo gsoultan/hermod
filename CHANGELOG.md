@@ -7,6 +7,19 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.14.0] — 2026-09-26
+
+A date conversion can write its date in a named time zone. A UTC timestamp
+written as a date used to land on UTC's day, which for an operator in Jakarta
+is a day early for seven hours of every day; a date row's Time zone now writes
+it on the operator's own day, and reads a value that carries no zone as that
+zone's local time rather than as UTC.
+
+### Upgrading
+
+Nothing to do. The time zone is set per date row, and a row without one
+converts exactly as it did in 1.13.0.
+
 ### A date can be written in a named time zone
 
 A Data Conversion row converting to Date wrote its date in whatever zone the
@@ -4576,6 +4589,7 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.14.0]: https://github.com/gsoultan/hermod/releases/tag/v1.14.0
 [1.13.0]: https://github.com/gsoultan/hermod/releases/tag/v1.13.0
 [1.12.0]: https://github.com/gsoultan/hermod/releases/tag/v1.12.0
 [1.11.0]: https://github.com/gsoultan/hermod/releases/tag/v1.11.0
