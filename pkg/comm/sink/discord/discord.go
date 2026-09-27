@@ -77,15 +77,16 @@ func (s *DiscordSink) sendWebhook(ctx context.Context, content string) error {
 		"content": content,
 	})
 
+	// The webhook URL is the credential, so neither error may quote it.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.webhookURL, bytes.NewBuffer(body))
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := httpclient.DataClient.Do(req)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	defer resp.Body.Close()
 
@@ -142,11 +143,11 @@ func (s *DiscordSink) Ping(ctx context.Context) error {
 	if s.webhookURL != "" {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.webhookURL, nil)
 		if err != nil {
-			return err
+			return httpclient.RedactURLError(err)
 		}
 		resp, err := httpclient.DataClient.Do(req)
 		if err != nil {
-			return err
+			return httpclient.RedactURLError(err)
 		}
 		defer resp.Body.Close()
 		// Webhook GET usually returns 200 with some metadata

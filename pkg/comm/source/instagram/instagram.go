@@ -10,6 +10,7 @@ import (
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/pkg/comm/message"
 	"github.com/gsoultan/hermod/pkg/infra/ackwatermark"
+	"github.com/gsoultan/hermod/pkg/infra/httpclient"
 )
 
 // InstagramSource implements the hermod.Source interface for polling Instagram media.
@@ -80,11 +81,11 @@ func (s *InstagramSource) Read(ctx context.Context) (hermod.Message, error) {
 		apiURL = fmt.Sprintf("%s/%s/media?access_token=%s&fields=id&limit=5", s.baseURL, s.igUserID, s.accessToken)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 		if err != nil {
-			return nil, err
+			return nil, httpclient.RedactURLError(err)
 		}
 		resp, err := s.client.Do(req)
 		if err != nil {
-			return nil, err
+			return nil, httpclient.RedactURLError(err)
 		}
 		defer resp.Body.Close()
 		var mediaResult struct {
@@ -119,11 +120,11 @@ func (s *InstagramSource) Read(ctx context.Context) (hermod.Message, error) {
 		apiURL = fmt.Sprintf("%s/%s/insights?access_token=%s&metric=impressions,reach,profile_views&period=day", s.baseURL, s.igUserID, s.accessToken)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 		if err != nil {
-			return nil, err
+			return nil, httpclient.RedactURLError(err)
 		}
 		resp, err := s.client.Do(req)
 		if err != nil {
-			return nil, err
+			return nil, httpclient.RedactURLError(err)
 		}
 		defer resp.Body.Close()
 		var insightResult struct {
@@ -140,12 +141,12 @@ func (s *InstagramSource) Read(ctx context.Context) (hermod.Message, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, httpclient.RedactURLError(err)
 	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, httpclient.RedactURLError(err)
 	}
 	defer resp.Body.Close()
 
@@ -236,11 +237,11 @@ func (s *InstagramSource) Ping(ctx context.Context) error {
 	apiURL := fmt.Sprintf("%s/%s?access_token=%s&fields=id,username", s.baseURL, s.igUserID, s.accessToken)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
