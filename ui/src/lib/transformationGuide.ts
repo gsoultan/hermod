@@ -169,10 +169,12 @@ const GUIDES: Record<string, TransformationGuide> = {
     what: 'Tracks how records change over time, keeping old versions.',
     firstStep: 'Pick the key field that identifies a record.',
   },
+  // The *transformation*, Join / Enrich. The `join` node type is the Stateful
+  // Join, which has its own entry in NODE_TYPE_GUIDES.
   join: {
-    title: 'Join fields',
-    what: 'Combines several fields into one.',
-    firstStep: 'Pick the fields and the separator.',
+    title: 'Join / enrich',
+    what: 'Saves each record under a key, or copies the fields of a saved record onto records with the same key.',
+    firstStep: 'Pick Store or Lookup as the Join Mode, then set the Join Key.',
   },
   collect: {
     title: 'Collect',
@@ -241,6 +243,11 @@ const GUIDES: Record<string, TransformationGuide> = {
  * message, the other expands an array onto it -- and describing both with the
  * GUIDES.foreach entry put the wrong sentence over half of them.
  *
+ * "join" is the same shape: the `join` node type is the Stateful Join, and a
+ * `transformation` with transType join is Join / Enrich. Both showed
+ * GUIDES.join, which described combining fields with a separator -- something
+ * neither does, over two editors with no separator to set.
+ *
  * Node type wins over transType, matching `resolveConfigComponent`'s ordering
  * and the `nodeType` prop ForeachConfig already takes for the same reason.
  */
@@ -249,6 +256,11 @@ const NODE_TYPE_GUIDES: Record<string, TransformationGuide> = {
     title: 'Fan out',
     what: 'Splits the record into one record per item in the list, and everything downstream runs again for each one.',
     firstStep: 'Point Array Path at the list field; each record gets `_item` and `_index`.',
+  },
+  join: {
+    title: 'Stateful join',
+    what: 'Holds records until the expected number with the same key have arrived, then merges them into one record.',
+    firstStep: 'Set the Correlation Key Path and the Expected Source Count.',
   },
 };
 

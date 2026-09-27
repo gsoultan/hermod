@@ -76,4 +76,41 @@ describe('transformation guide', () => {
       expect(guideFor('foreach').what).toBe(guideFor('foreach', 'transformation').what);
     });
   });
+
+  // Two different nodes answer to "join" as well, and both showed GUIDES.join:
+  // "Combines several fields into one. Pick the fields and the separator." --
+  // a third thing that neither does. The `join` node type is the Stateful Join,
+  // which holds records until enough with the same key have arrived and merges
+  // them into one. A `transformation` with transType join is Join / Enrich,
+  // which saves a record under a key or copies a saved record's fields onto a
+  // later one. Neither editor has a separator.
+  describe('the two joins', () => {
+    it('does not describe them identically', () => {
+      const node = guideFor('join', 'join');
+      const transformation = guideFor('join', 'transformation');
+
+      expect(node.title).not.toBe(transformation.title);
+      expect(node.what).not.toBe(transformation.what);
+    });
+
+    it('says the Stateful Join merges records that share a key', () => {
+      expect(guideFor('join', 'join').what).toMatch(/same key/i);
+      expect(guideFor('join', 'join').what).toMatch(/merges/i);
+    });
+
+    it('says Join / Enrich copies fields from a saved record', () => {
+      expect(guideFor('join', 'transformation').what).toMatch(/saved record/i);
+    });
+
+    it('never asks for a separator, which neither editor has', () => {
+      for (const nodeType of ['join', 'transformation']) {
+        const g = guideFor('join', nodeType);
+        expect(`${g.what} ${g.firstStep}`, nodeType).not.toMatch(/separator/i);
+      }
+    });
+
+    it('falls back to the transformation reading when no node type is given', () => {
+      expect(guideFor('join').what).toBe(guideFor('join', 'transformation').what);
+    });
+  });
 });
