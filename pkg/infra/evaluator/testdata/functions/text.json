@@ -1,0 +1,49 @@
+{
+  "_comment": [
+    "How the text functions render a value. Every file in this directory is",
+    "read by pkg/infra/evaluator/function_fixture_test.go; each case is a whole",
+    "expression evaluated against `source`.",
+    "",
+    "A value is written the way the sample panel and a condition show it: a",
+    "number as its digits -- Go's %v spells 1704207845 as 1.704207845e+09 from a",
+    "million up -- an object or a list as JSON rather than map[a:1] or [a b],",
+    "and a missing field as empty text rather than <nil>. So a missing field",
+    "equals '', as it does in a condition."
+  ],
+  "source": {
+    "order_id": 1704207845,
+    "small": 42,
+    "zero": 0,
+    "flag": false,
+    "price": 12345678.5,
+    "obj": { "b": 2, "a": 1 },
+    "list": ["a", "b"],
+    "name": "Ada"
+  },
+  "cases": [
+    { "name": "concat: a number of a million or more is its digits", "expr": "concat('ORD-', source.order_id)", "want": "ORD-1704207845" },
+    { "name": "concat: a small number", "expr": "concat('ORD-', source.small)", "want": "ORD-42" },
+    { "name": "concat: a decimal keeps its point", "expr": "concat('$', source.price)", "want": "$12345678.5" },
+    { "name": "concat: zero is 0, not empty", "expr": "concat('n=', source.zero)", "want": "n=0" },
+    { "name": "concat: false is false", "expr": "concat('f=', source.flag)", "want": "f=false" },
+    { "name": "concat: an object is its JSON", "expr": "concat('o=', source.obj)", "want": "o={\"a\":1,\"b\":2}" },
+    { "name": "concat: a list is its JSON", "expr": "concat('l=', source.list)", "want": "l=[\"a\",\"b\"]" },
+    { "name": "concat: a missing field adds nothing", "expr": "concat(source.name, source.nope, '!')", "want": "Ada!" },
+
+    { "name": "tostring: a number of a million or more is its digits", "expr": "tostring(source.order_id)", "want": "1704207845" },
+    { "name": "tostring: a decimal keeps its point", "expr": "tostring(source.price)", "want": "12345678.5" },
+    { "name": "tostring: a missing field is empty", "expr": "tostring(source.nope)", "want": "" },
+
+    { "name": "lower: a missing field is empty, not <nil>", "expr": "lower(source.nope)", "want": "" },
+    { "name": "upper: false is FALSE", "expr": "upper(source.flag)", "want": "FALSE" },
+    { "name": "trim: zero is 0, not empty", "expr": "trim(source.zero)", "want": "0" },
+    { "name": "replace: in a number's digits", "expr": "replace(source.order_id, '0', '-')", "want": "17-42-7845" },
+    { "name": "substring: of a number's digits", "expr": "substring(source.order_id, 0, 4)", "want": "1704" },
+
+    { "name": "contains: in a number's digits", "expr": "contains(source.order_id, '0420')", "want": true },
+    { "name": "contains: a missing field contains nothing", "expr": "contains(source.nope, 'nil')", "want": false },
+    { "name": "eq: a number equals its digits", "expr": "eq(source.order_id, '1704207845')", "want": true },
+    { "name": "eq: a missing field equals empty text, as in a condition", "expr": "eq(source.nope, '')", "want": true },
+    { "name": "eq: an object compares as its JSON", "expr": "eq(source.obj, '{\"a\":1,\"b\":2}')", "want": true }
+  ]
+}

@@ -7,15 +7,16 @@ import (
 	"testing"
 )
 
-// Every file in testdata/functions is one expression function's contract, read
-// here and by ui/src/__tests__/functionParity.test.ts, for the reason
-// condition_fixture_test.go gives: the editor evaluates expressions itself, and
-// two tables kept by hand catch only one side drifting from the other. A case
-// is a whole expression evaluated against the file's `source`, so the argument
-// parser on each side runs too.
+// Every file in testdata/functions is one expression function's contract. A
+// case is a whole expression evaluated against the file's `source`, so the
+// argument parser runs too, not just the function. One file per function
+// family, so changes to different functions never edit the same file.
 //
-// One file per function family, so changes to different functions never edit
-// the same file.
+// This is the only evaluator the product runs. Every editor preview -- a
+// Formulas field, a condition, a workflow Test -- is answered by the server.
+// ui/src/utils/transformationUtils.ts still carries an older TypeScript
+// evaluator (callFunction, matchesCondition), but nothing in the UI calls it
+// and the bundler drops it, so there is no second implementation to match.
 
 const functionFixtureGlob = "testdata/functions/*.json"
 

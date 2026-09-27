@@ -26,6 +26,42 @@ it does reaches the live store. Without a configured state store Join / Enrich
 cannot work, in a preview or a running workflow; it now says so, and where to
 set one: Settings → Platform → Global State Store.
 
+### `hash()` and `abs()` return a value
+
+The Formulas function library offered `hash(s, [algo])` and the help listed
+`abs(n)`, but the engine implemented neither, so both returned null — in the
+preview and in every record.
+`hash(value)` is now the lowercase hex SHA-256 of the value's text, and
+`hash(value, "md5")` its MD5 — for matching a system that already stores one;
+any other algorithm, or a missing value, gives null. A hash is a fingerprint,
+not anonymisation: an unsalted hash of an email is reversed by hashing guesses.
+`abs(n)` drops the sign, reading text that holds a number as that number and
+anything else as 0, as `add` already does.
+
+### Text functions write a number as its digits
+
+`concat`, `tostring`, `lower`, `upper`, `trim`, `replace`, `substring`,
+`contains`, `eq` and `date_format` rendered their inputs with Go's `%v`, which
+writes any number of a million or more in exponent form: `concat("ORD-",
+source.order_id)` gave `ORD-1.704207845e+09`, `substring(source.order_id, 0, 4)`
+gave `1.70`, and `eq(source.order_id, "1704207845")` was false. They now write a
+value the way the sample panel and conditions show it: a number as its digits,
+an object or a list as JSON rather than `map[a:1]` or `[a b]`, and a missing
+field as empty text rather than `<nil>`. So `eq(source.missing, "")` is now
+true, as the matching condition already was, and a Set field that used to hold
+`<nil>` is now empty.
+
+### The two join nodes described something neither does
+
+The header over both join editors said "Combines several fields into one. Pick
+the fields and the separator." Neither node combines fields, and neither editor
+has a list of fields or a separator to set. Stateful Join now says it holds
+records until the expected number with the same key have arrived, then merges
+them into one; Join / Enrich says it saves each record under a key, or copies a
+saved record's fields onto records with the same key. Each first step names a
+control its editor shows. To combine fields into one string, use `concat()` in
+a Set node.
+
 ### A formula can split text
 
 A Set or Formulas node can now split text: `split(source.full_name, " ")` is
@@ -37,8 +73,7 @@ part trimmed, a comma when no separator is given, and a value that is already
 a list used as it is. A number splits as the digits it is shown as. An index
 past either end gives null rather than an error, so
 `coalesce(split(source.full_name, " ", 2), "n/a")` supplies a default. The
-function library and the help list it, and the editor's previews give the same
-answers as the engine.
+function library and the help list it.
 
 ## [1.14.1] — 2026-09-27
 

@@ -2,6 +2,9 @@ package evaluator
 
 import (
 	"bytes"
+	"crypto/md5" //nolint:gosec // G501: hash() offers md5 as a fingerprint for matching systems that already store it, not for security
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -153,31 +156,31 @@ func (e *Evaluator) parseArgs(argsStr string) []string {
 
 func (e *Evaluator) CallFunction(name string, args []any) any {
 	switch strings.ToLower(name) {
+	// The text functions render a value with stringify, the way the sample
+	// panel and a condition show it. %v spells any number from a million up in
+	// exponent form (1704207845 is 1.704207845e+09), an object as map[a:1] and
+	// a missing field as <nil> -- and every value arrives here as a float64,
+	// because every read path normalises through JSON.
 	case "lower":
 		if len(args) > 0 {
-			return strings.ToLower(fmt.Sprintf("%v", args[0]))
+			return strings.ToLower(stringify(args[0]))
 		}
 	case "upper":
 		if len(args) > 0 {
-			return strings.ToUpper(fmt.Sprintf("%v", args[0]))
+			return strings.ToUpper(stringify(args[0]))
 		}
 	case "trim":
 		if len(args) > 0 {
-			return strings.TrimSpace(fmt.Sprintf("%v", args[0]))
+			return strings.TrimSpace(stringify(args[0]))
 		}
 	case "replace":
 		if len(args) >= 3 {
-			s := fmt.Sprintf("%v", args[0])
-			oldVal := fmt.Sprintf("%v", args[1])
-			newVal := fmt.Sprintf("%v", args[2])
-			return strings.ReplaceAll(s, oldVal, newVal)
+			return strings.ReplaceAll(stringify(args[0]), stringify(args[1]), stringify(args[2]))
 		}
 	case "concat":
 		var sb strings.Builder
 		for _, arg := range args {
-			if arg != nil {
-				fmt.Fprintf(&sb, "%v", arg)
-			}
+			sb.WriteString(stringify(arg))
 		}
 		return sb.String()
 	case "split":
@@ -202,7 +205,7 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		return splitPart(parts, args[2])
 	case "substring":
 		if len(args) >= 2 {
-			s := fmt.Sprintf("%v", args[0])
+			s := stringify(args[0])
 			start, _ := strconv.Atoi(fmt.Sprintf("%v", args[1]))
 			end := len(s)
 			if len(args) >= 3 {
@@ -224,12 +227,12 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		}
 	case "date_format":
 		if len(args) >= 2 {
-			dateStr := fmt.Sprintf("%v", args[0])
-			toFormat := fmt.Sprintf("%v", args[1])
+			dateStr := stringify(args[0])
+			toFormat := stringify(args[1])
 			var t time.Time
 			var err error
 			if len(args) >= 3 {
-				fromFormat := fmt.Sprintf("%v", args[2])
+				fromFormat := stringify(args[2])
 				t, err = time.Parse(fromFormat, dateStr)
 			} else {
 				formats := []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02", time.RFC1123, time.RFC1123Z}
@@ -310,6 +313,23 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 			}
 			return v1 / v2
 		}
+	case "abs":
+		if len(args) >= 1 {
+			// Not a number reads as 0, as it does in add, sub and mul.
+			v, _ := ToFloat64(args[0])
+			return math.Abs(v)
+		}
+	case "hash":
+		if len(args) == 0 || args[0] == nil {
+			return nil
+		}
+		algo := "sha256"
+		if len(args) > 1 {
+			if a := strings.ToLower(strings.TrimSpace(stringify(args[1]))); a != "" {
+				algo = a
+			}
+		}
+		return digest(stringify(args[0]), algo)
 	case "round":
 		if len(args) >= 1 {
 			v, _ := ToFloat64(args[0])
@@ -342,7 +362,7 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		}
 	case "eq":
 		if len(args) >= 2 {
-			return fmt.Sprintf("%v", args[0]) == fmt.Sprintf("%v", args[1])
+			return stringify(args[0]) == stringify(args[1])
 		}
 	case "gt":
 		if len(args) >= 2 {
@@ -364,7 +384,7 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		}
 	case "contains":
 		if len(args) >= 2 {
-			return strings.Contains(fmt.Sprintf("%v", args[0]), fmt.Sprintf("%v", args[1]))
+			return strings.Contains(stringify(args[0]), stringify(args[1]))
 		}
 	case "toint":
 		if len(args) > 0 {
@@ -382,10 +402,7 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		}
 	case "tostring":
 		if len(args) > 0 {
-			if args[0] == nil {
-				return ""
-			}
-			return fmt.Sprintf("%v", args[0])
+			return stringify(args[0])
 		}
 	case "tobool":
 		if len(args) > 0 {
@@ -417,6 +434,25 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 			}
 			return nil
 		}
+	}
+	return nil
+}
+
+// digest is hash()'s fingerprint of text: the lowercase hex digest of its UTF-8
+// bytes, SHA-256 unless md5 is asked for. An algorithm it does not offer is nil
+// rather than a silent SHA-256, which would let a typo quietly produce a
+// fingerprint nothing else will ever match.
+//
+// It is a fingerprint, not anonymisation: an unsalted hash of an email or a
+// phone number is reversed by hashing guesses.
+func digest(s, algo string) any {
+	switch algo {
+	case "sha256":
+		sum := sha256.Sum256([]byte(s))
+		return hex.EncodeToString(sum[:])
+	case "md5":
+		sum := md5.Sum([]byte(s)) //nolint:gosec // G401: a fingerprint for matching, see the import
+		return hex.EncodeToString(sum[:])
 	}
 	return nil
 }

@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "abs, as the engine runs it. Every file in this directory is read by",
+    "pkg/infra/evaluator/function_fixture_test.go; each case is a whole",
+    "expression evaluated against `source`.",
+    "",
+    "abs(n) is n without its sign. Text holding a number is read as that number;",
+    "anything else -- other text, a missing field -- is 0, as it already is in",
+    "add, sub and mul."
+  ],
+  "source": {
+    "delta": -12.5,
+    "count": 7,
+    "text": "-4",
+    "word": "abc"
+  },
+  "cases": [
+    { "name": "a negative literal", "expr": "abs(-3)", "want": 3 },
+    { "name": "a negative decimal field", "expr": "abs(source.delta)", "want": 12.5 },
+    { "name": "a positive field is unchanged", "expr": "abs(source.count)", "want": 7 },
+    { "name": "text holding a number", "expr": "abs(source.text)", "want": 4 },
+    { "name": "text that is not a number is 0, as in add", "expr": "abs(source.word)", "want": 0 },
+    { "name": "a missing field is 0, as in add", "expr": "abs(source.nope)", "want": 0 },
+    { "name": "no arguments is null", "expr": "abs()", "want": null }
+  ]
+}
