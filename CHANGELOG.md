@@ -19,6 +19,20 @@ not anonymisation: an unsalted hash of an email is reversed by hashing guesses.
 `abs(n)` drops the sign, reading text that holds a number as that number and
 anything else as 0, as `add` already does.
 
+### A formula can split text
+
+A Set or Formulas node can now split text: `split(source.full_name, " ")` is
+the list of parts, `split(source.full_name, " ", 0)` is the first of them, and
+`-1` is the last. Splitting a name into first and last name used to take two
+nodes — a Data Conversion to Array, then a Set node to pick each part — and now
+takes one field each. The text is cut exactly as Data Conversion cuts it: each
+part trimmed, a comma when no separator is given, and a value that is already
+a list used as it is. A number splits as the digits it is shown as. An index
+past either end gives null rather than an error, so
+`coalesce(split(source.full_name, " ", 2), "n/a")` supplies a default. The
+function library and the help list it, and the editor's previews give the same
+answers as the engine.
+
 ## [1.14.1] — 2026-09-27
 
 The workflow panel's Transformations tab lists transformations only, instead of a
