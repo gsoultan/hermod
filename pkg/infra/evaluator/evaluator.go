@@ -2,6 +2,9 @@ package evaluator
 
 import (
 	"bytes"
+	"crypto/md5" //nolint:gosec // G501: hash() offers md5 as a fingerprint for matching systems that already store it, not for security
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -290,6 +293,23 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 			}
 			return v1 / v2
 		}
+	case "abs":
+		if len(args) >= 1 {
+			// Not a number reads as 0, as it does in add, sub and mul.
+			v, _ := ToFloat64(args[0])
+			return math.Abs(v)
+		}
+	case "hash":
+		if len(args) == 0 || args[0] == nil {
+			return nil
+		}
+		algo := "sha256"
+		if len(args) > 1 {
+			if a := strings.ToLower(strings.TrimSpace(stringify(args[1]))); a != "" {
+				algo = a
+			}
+		}
+		return digest(stringify(args[0]), algo)
 	case "round":
 		if len(args) >= 1 {
 			v, _ := ToFloat64(args[0])
@@ -397,6 +417,25 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 			}
 			return nil
 		}
+	}
+	return nil
+}
+
+// digest is hash()'s fingerprint of text: the lowercase hex digest of its UTF-8
+// bytes, SHA-256 unless md5 is asked for. An algorithm it does not offer is nil
+// rather than a silent SHA-256, which would let a typo quietly produce a
+// fingerprint nothing else will ever match.
+//
+// It is a fingerprint, not anonymisation: an unsalted hash of an email or a
+// phone number is reversed by hashing guesses.
+func digest(s, algo string) any {
+	switch algo {
+	case "sha256":
+		sum := sha256.Sum256([]byte(s))
+		return hex.EncodeToString(sum[:])
+	case "md5":
+		sum := md5.Sum([]byte(s)) //nolint:gosec // G401: a fingerprint for matching, see the import
+		return hex.EncodeToString(sum[:])
 	}
 	return nil
 }

@@ -1,0 +1,80 @@
+package evaluator
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// Every file in testdata/functions is one expression function's contract. A
+// case is a whole expression evaluated against the file's `source`, so the
+// argument parser runs too, not just the function. One file per function
+// family, so changes to different functions never edit the same file.
+//
+// This is the only evaluator the product runs. Every editor preview -- a
+// Formulas field, a condition, a workflow Test -- is answered by the server.
+// ui/src/utils/transformationUtils.ts still carries an older TypeScript
+// evaluator (callFunction, matchesCondition), but nothing in the UI calls it
+// and the bundler drops it, so there is no second implementation to match.
+
+const functionFixtureGlob = "testdata/functions/*.json"
+
+type functionCase struct {
+	Name string `json:"name"`
+	Expr string `json:"expr"`
+	Want any    `json:"want"`
+}
+
+type functionFixture struct {
+	Source map[string]any `json:"source"`
+	Cases  []functionCase `json:"cases"`
+}
+
+func fixtureJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal %#v: %v", v, err)
+	}
+	return string(b)
+}
+
+func TestFunctionsFromTheSharedFixtures(t *testing.T) {
+	paths, err := filepath.Glob(functionFixtureGlob)
+	if err != nil {
+		t.Fatalf("glob %s: %v", functionFixtureGlob, err)
+	}
+	if len(paths) == 0 {
+		t.Fatalf("no fixtures match %s", functionFixtureGlob)
+	}
+
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			var f functionFixture
+			if err := json.Unmarshal(raw, &f); err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			// An emptied file would pass by having nothing to run.
+			if len(f.Cases) == 0 {
+				t.Fatal("no cases")
+			}
+
+			msg := &mockMessage{data: f.Source}
+			for _, c := range f.Cases {
+				t.Run(c.Name, func(t *testing.T) {
+					// Compared as JSON, so an empty list and null stay apart and
+					// a number compares as a number whatever Go type holds it.
+					got := NewEvaluator().ParseAndEvaluate(msg, c.Expr)
+					if g, w := fixtureJSON(t, got), fixtureJSON(t, c.Want); g != w {
+						t.Errorf("%s\n got %s\nwant %s", c.Expr, g, w)
+					}
+				})
+			}
+		})
+	}
+}
