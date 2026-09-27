@@ -7,6 +7,25 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.15.1] — 2026-09-28
+
+A connector or alert channel that authenticates through its request URL —
+Telegram, Facebook, Instagram and TikTok, and Slack or Discord webhooks — no
+longer publishes its token when a request fails before an answer comes back.
+The error used to quote the whole URL, and from there it reached the log table,
+the workflow's status and the "Workflow Error" alert sent to every notification
+channel.
+
+### Upgrading
+
+**Rotate any credential that may already have leaked.** The fix keeps new
+errors clean, but it cannot reach errors already stored in the log table, shown
+as a workflow status, or sent as alerts. If a Telegram, Facebook, Instagram,
+TikTok, Slack or Discord connector — or a Telegram, Slack, Discord or webhook
+alert channel — has failed a request since it was configured, revoke its token
+or replace its webhook, as the entry below describes. Nothing needs
+reconfiguring.
+
 ### A failed request no longer publishes a connector's token
 
 Several connectors authenticate through the request URL: the Telegram sink puts
@@ -4733,6 +4752,7 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.15.1]: https://github.com/gsoultan/hermod/releases/tag/v1.15.1
 [1.15.0]: https://github.com/gsoultan/hermod/releases/tag/v1.15.0
 [1.14.1]: https://github.com/gsoultan/hermod/releases/tag/v1.14.1
 [1.14.0]: https://github.com/gsoultan/hermod/releases/tag/v1.14.0
