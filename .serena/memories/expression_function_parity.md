@@ -33,16 +33,3 @@ floats because `int(±Inf)` is implementation-defined in Go.
 One deliberate difference from Data Conversion: JSON-array *text* is split as
 written, not parsed. A jsonb list is reachable as `source.tags.0` on both CDC
 paths already, so a string function has no need to guess.
-
-## Drift found while adding it (2026-09-27, not fixed)
-
-Measured through `/api/transformations/test` on a live build:
-
-- `concat('ORD-', source.order_id)` with 1704207845 gave `"ORD-1.704207845e+09"`,
-  and `tostring()` gave `"1.704207845e+09"`. `concat`, `tostring`, `lower`,
-  `upper`, `trim`, `replace`, `substring`, `eq` and `contains` all format with
-  `%v`, which switches to an exponent at 1e6 for the float64 every read path
-  produces. `stringify` is the fix; the fixture is where to pin it.
-- `hash()` and `abs()` returned null. The function library
-  (`EXPRESSION_FUNCTIONS` in `TransformationForm.tsx`) and `HelpContent.tsx`
-  offer them, and the TS twin implements them, but `CallFunction` does not.

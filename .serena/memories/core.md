@@ -90,9 +90,7 @@ find a claim that outruns the code, fix the claim.
 - [Expression functions: two evaluators, one fixture](expression_function_parity.md)
   — `CallFunction` and the editor's `callFunction` both run every file in
   `testdata/functions/`; `split` shares `SplitText` with Data
-  Conversion's Array target. Also records the `%v` drift in `concat`/`tostring`
-  (exponent form from 1e6) and `hash()`/`abs()`, which the library offers and
-  the engine does not implement.
+  Conversion's Array target.
 - [panmail: templated routing fields](panmail_templated_routing_fields.md) — why
   templating `base_url`/`api_key` turns the SDK client into a per-message
   resource and its cache into a map keyed by row data, the mandatory
