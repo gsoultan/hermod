@@ -429,11 +429,18 @@ func (s *statefulSource) StreamSilenceThreshold() time.Duration {
 // --- Workflow Node Execution ---
 
 func (r *Registry) RunWorkflowNode(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+	return r.runWorkflowNode(context.Background(), workflowID, node, msg)
+}
+
+// runWorkflowNode is RunWorkflowNode on a root context the caller chooses. A
+// running workflow uses context.Background(); a simulation adds its overlay on
+// the state store to it (see previewStateContext), which is the only difference.
+func (r *Registry) runWorkflowNode(root context.Context, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	if msg == nil {
 		return nil, "", nil
 	}
 
-	ctx := context.WithValue(context.Background(), hermod.RegistryKey, r)
+	ctx := context.WithValue(root, hermod.RegistryKey, r)
 	// Background is a fresh root, so without this every node was its own
 	// trace and a message passing through five nodes produced five unrelated
 	// traces. The link comes off the message because the node runs on a

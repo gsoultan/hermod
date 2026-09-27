@@ -1438,6 +1438,9 @@ func (r *Registry) SimulateWorkflow(ctx context.Context, wf storage.Workflow, in
 	r.prepareWorkflowNodes(ctx, wf.Nodes)
 
 	sim := newSimulation(r, wf)
+	// Every node of one run shares one overlay, so a Join / Enrich that stores
+	// a record can be looked up further down the same Test.
+	sim.root = r.previewStateContext(context.Background())
 	defer sim.releaseAll()
 	if err := sim.seed(in); err != nil {
 		return nil, err
@@ -1461,8 +1464,11 @@ func (r *Registry) validateForSimulation(ctx context.Context, wf storage.Workflo
 // simulation is one SimulateWorkflow run: the graph, the message waiting at
 // each node, and the steps reported so far.
 type simulation struct {
-	r       *Registry
-	wfID    string
+	r    *Registry
+	wfID string
+	// root is the context every node runs on: context.Background(), plus the
+	// preview's overlay on the state store when a store is configured.
+	root    context.Context
 	nodes   map[string]*storage.WorkflowNode
 	sources []*storage.WorkflowNode
 	// outEdges is every node's outgoing edges. It is kept per edge rather than
@@ -1482,6 +1488,7 @@ func newSimulation(r *Registry, wf storage.Workflow) *simulation {
 	s := &simulation{
 		r:        r,
 		wfID:     wf.ID,
+		root:     context.Background(),
 		nodes:    make(map[string]*storage.WorkflowNode, len(wf.Nodes)),
 		outEdges: make(map[string][]storage.WorkflowEdge),
 		inDegree: make(map[string]int),
@@ -1591,7 +1598,7 @@ func (s *simulation) run(id string, node *storage.WorkflowNode) (hermod.Message,
 		return nil, ""
 	}
 
-	msgs, branch, err := s.r.RunWorkflowNode(s.wfID, node, in)
+	msgs, branch, err := s.r.runWorkflowNode(s.root, s.wfID, node, in)
 	for _, m := range msgs {
 		if m != in {
 			s.own(m)
