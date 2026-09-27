@@ -1,0 +1,57 @@
+{
+  "_comment": [
+    "split, as both evaluators must run it. Every file in this directory is read",
+    "by pkg/infra/evaluator/function_fixture_test.go (CallFunction) and by",
+    "ui/src/__tests__/functionParity.test.ts (the editor's callFunction); each",
+    "case is a whole expression evaluated against `source`.",
+    "",
+    "split(value, sep) is the list of parts; split(value, sep, index) is one of",
+    "them. Parts are trimmed, an omitted or empty sep is a comma, and text with",
+    "nothing in it has no parts -- the list Data Conversion's Array target makes",
+    "from the same text. A value that is already a list is used as it is, and",
+    "a number splits as the digits it is shown as, never as 1.704207845e+09.",
+    "A negative index counts from the end. An index that is not a whole number,",
+    "or is past either end, is null, so coalesce can supply a default."
+  ],
+  "source": {
+    "full_name": "Ada King Lovelace",
+    "csv": "a, b ,c",
+    "tags": ["x", "y"],
+    "empty": "",
+    "one": "1",
+    "big": 1704207845,
+    "amount": 12345678.5
+  },
+  "cases": [
+    { "name": "list: splits on the separator and trims each part", "expr": "split(source.csv, ',')", "want": ["a", "b", "c"] },
+    { "name": "list: an omitted separator is a comma", "expr": "split(source.csv)", "want": ["a", "b", "c"] },
+    { "name": "list: an empty separator is a comma", "expr": "split(source.csv, '')", "want": ["a", "b", "c"] },
+    { "name": "list: a separator longer than one character", "expr": "split('a::b', '::')", "want": ["a", "b"] },
+    { "name": "list: a separator that is not there leaves one part", "expr": "split(source.full_name, '|')", "want": ["Ada King Lovelace"] },
+    { "name": "list: empty parts between separators are kept", "expr": "split('a,,b', ',')", "want": ["a", "", "b"] },
+    { "name": "list: text with nothing in it has no parts", "expr": "split(source.empty, ',')", "want": [] },
+    { "name": "list: a list is already split", "expr": "split(source.tags, ',')", "want": ["x", "y"] },
+
+    { "name": "part: counted from zero", "expr": "split(source.full_name, ' ', 1)", "want": "King" },
+    { "name": "part: the function library's example", "expr": "split(source.full_name, \" \", 0)", "want": "Ada" },
+    { "name": "part: a negative index counts from the end", "expr": "split(source.full_name, ' ', -1)", "want": "Lovelace" },
+    { "name": "part: past the end is null", "expr": "split(source.full_name, ' ', 3)", "want": null },
+    { "name": "part: past the start is null", "expr": "split(source.full_name, ' ', -4)", "want": null },
+    { "name": "part: an index that is not a whole number is null", "expr": "split(source.full_name, ' ', 1.5)", "want": null },
+    { "name": "part: an index that is not a number is null", "expr": "split(source.full_name, ' ', 'first')", "want": null },
+    { "name": "part: an index read from a field holding digits", "expr": "split(source.full_name, ' ', source.one)", "want": "King" },
+    { "name": "part: an empty index is not zero", "expr": "split(source.full_name, ' ', source.empty)", "want": null },
+    { "name": "part: of a list", "expr": "split(source.tags, ',', -1)", "want": "y" },
+    { "name": "part: of text with nothing in it is null", "expr": "split(source.empty, ',', 0)", "want": null },
+
+    { "name": "value: no arguments is null", "expr": "split()", "want": null },
+    { "name": "value: a missing field is null, not the text <nil>", "expr": "split(source.nope, ',')", "want": null },
+    { "name": "value: a missing field has no part", "expr": "split(source.nope, ',', 0)", "want": null },
+    { "name": "value: a number splits as the digits it is shown as", "expr": "split(source.big, '0')", "want": ["17", "42", "7845"] },
+    { "name": "value: a decimal splits at its point", "expr": "split(source.amount, '.', 1)", "want": "5" },
+
+    { "name": "nested: a part feeds another function", "expr": "upper(split(source.full_name, ' ', 0))", "want": "ADA" },
+    { "name": "nested: coalesce supplies a default for a missing part", "expr": "coalesce(split(source.full_name, ' ', 5), 'n/a')", "want": "n/a" },
+    { "name": "nested: concat puts parts back together", "expr": "concat(split(source.full_name, ' ', -1), ', ', split(source.full_name, ' ', 0))", "want": "Lovelace, Ada" }
+  ]
+}
