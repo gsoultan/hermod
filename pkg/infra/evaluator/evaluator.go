@@ -156,31 +156,31 @@ func (e *Evaluator) parseArgs(argsStr string) []string {
 
 func (e *Evaluator) CallFunction(name string, args []any) any {
 	switch strings.ToLower(name) {
+	// The text functions render a value with stringify, the way the sample
+	// panel and a condition show it. %v spells any number from a million up in
+	// exponent form (1704207845 is 1.704207845e+09), an object as map[a:1] and
+	// a missing field as <nil> -- and every value arrives here as a float64,
+	// because every read path normalises through JSON.
 	case "lower":
 		if len(args) > 0 {
-			return strings.ToLower(fmt.Sprintf("%v", args[0]))
+			return strings.ToLower(stringify(args[0]))
 		}
 	case "upper":
 		if len(args) > 0 {
-			return strings.ToUpper(fmt.Sprintf("%v", args[0]))
+			return strings.ToUpper(stringify(args[0]))
 		}
 	case "trim":
 		if len(args) > 0 {
-			return strings.TrimSpace(fmt.Sprintf("%v", args[0]))
+			return strings.TrimSpace(stringify(args[0]))
 		}
 	case "replace":
 		if len(args) >= 3 {
-			s := fmt.Sprintf("%v", args[0])
-			oldVal := fmt.Sprintf("%v", args[1])
-			newVal := fmt.Sprintf("%v", args[2])
-			return strings.ReplaceAll(s, oldVal, newVal)
+			return strings.ReplaceAll(stringify(args[0]), stringify(args[1]), stringify(args[2]))
 		}
 	case "concat":
 		var sb strings.Builder
 		for _, arg := range args {
-			if arg != nil {
-				fmt.Fprintf(&sb, "%v", arg)
-			}
+			sb.WriteString(stringify(arg))
 		}
 		return sb.String()
 	case "split":
@@ -205,7 +205,7 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		return splitPart(parts, args[2])
 	case "substring":
 		if len(args) >= 2 {
-			s := fmt.Sprintf("%v", args[0])
+			s := stringify(args[0])
 			start, _ := strconv.Atoi(fmt.Sprintf("%v", args[1]))
 			end := len(s)
 			if len(args) >= 3 {
@@ -227,12 +227,12 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		}
 	case "date_format":
 		if len(args) >= 2 {
-			dateStr := fmt.Sprintf("%v", args[0])
-			toFormat := fmt.Sprintf("%v", args[1])
+			dateStr := stringify(args[0])
+			toFormat := stringify(args[1])
 			var t time.Time
 			var err error
 			if len(args) >= 3 {
-				fromFormat := fmt.Sprintf("%v", args[2])
+				fromFormat := stringify(args[2])
 				t, err = time.Parse(fromFormat, dateStr)
 			} else {
 				formats := []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02", time.RFC1123, time.RFC1123Z}
@@ -362,7 +362,7 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		}
 	case "eq":
 		if len(args) >= 2 {
-			return fmt.Sprintf("%v", args[0]) == fmt.Sprintf("%v", args[1])
+			return stringify(args[0]) == stringify(args[1])
 		}
 	case "gt":
 		if len(args) >= 2 {
@@ -384,7 +384,7 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		}
 	case "contains":
 		if len(args) >= 2 {
-			return strings.Contains(fmt.Sprintf("%v", args[0]), fmt.Sprintf("%v", args[1]))
+			return strings.Contains(stringify(args[0]), stringify(args[1]))
 		}
 	case "toint":
 		if len(args) > 0 {
@@ -402,10 +402,7 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		}
 	case "tostring":
 		if len(args) > 0 {
-			if args[0] == nil {
-				return ""
-			}
-			return fmt.Sprintf("%v", args[0])
+			return stringify(args[0])
 		}
 	case "tobool":
 		if len(args) > 0 {
