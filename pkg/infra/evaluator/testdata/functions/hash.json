@@ -1,0 +1,35 @@
+{
+  "_comment": [
+    "hash, as the engine runs it. Every file in this directory is read by",
+    "pkg/infra/evaluator/function_fixture_test.go; each case is a whole",
+    "expression evaluated against `source`.",
+    "",
+    "hash(value, [algo]) is the lowercase hex digest of value's text as UTF-8:",
+    "SHA-256 unless md5 is asked for. The expected digests were computed with",
+    "the system's shasum and md5, not with the code under test. A missing",
+    "value has no hash, and an algorithm it does not offer is null rather than",
+    "a silent SHA-256. It is a fingerprint, not anonymisation: an unsalted hash",
+    "of an email is reversed by hashing guesses."
+  ],
+  "source": {
+    "email": "a@example.com",
+    "big": 1704207845,
+    "accented": "é",
+    "empty": ""
+  },
+  "cases": [
+    { "name": "sha256 is the default", "expr": "hash('abc')", "want": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
+    { "name": "sha256 by name", "expr": "hash('abc', 'sha256')", "want": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
+    { "name": "md5", "expr": "hash('abc', 'md5')", "want": "900150983cd24fb0d6963f7d28e17f72" },
+    { "name": "the algorithm's name ignores case", "expr": "hash('abc', 'MD5')", "want": "900150983cd24fb0d6963f7d28e17f72" },
+    { "name": "an empty algorithm is the default", "expr": "hash('abc', '')", "want": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
+    { "name": "the function library's example", "expr": "hash(source.email, \"md5\")", "want": "b418773a2c51fb9777a1648346fa7394" },
+    { "name": "a field", "expr": "hash(source.email)", "want": "08168cd80dfd534ab0f10af10f1303fe00af2d43ab5c1432360d137f8197e17a" },
+    { "name": "a number hashes as its digits", "expr": "hash(source.big)", "want": "e879484debcaa9a0d4b2e4849d85f0467498b49ffc8ac48f1eee154a1ba790d4" },
+    { "name": "text is hashed as UTF-8", "expr": "hash(source.accented)", "want": "4a99557e4033c3539de2eb65472017cad5f9557f7a0625a09f1c3f6e2ba69c4c" },
+    { "name": "empty text has a hash", "expr": "hash(source.empty)", "want": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+    { "name": "a missing field has none", "expr": "hash(source.nope)", "want": null },
+    { "name": "an algorithm it does not offer is null, not a silent sha256", "expr": "hash('abc', 'sha1')", "want": null },
+    { "name": "no arguments is null", "expr": "hash()", "want": null }
+  ]
+}
