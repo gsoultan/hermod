@@ -7,6 +7,38 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.15.0] — 2026-09-27
+
+A formula can split text: `split(source.full_name, " ", 0)` is the first word
+of a name, in one field where it used to take two nodes. This release also
+fixes four ways a workflow wrote wrong data or none: text functions wrote a
+number of a million or more in exponent form, `hash()` and `abs()` returned
+null, a new Join / Enrich node passed every record through untouched, and a
+preview could write into the state store that running workflows read. Both join
+nodes now describe what they actually do.
+
+### Upgrading
+
+Nothing to configure, but four fixes change what an existing workflow can
+write. Each replaces output that was wrong; check any workflow that came to
+depend on it.
+
+- **A Join / Enrich node whose mode was never changed now looks records up.**
+  The editor showed Lookup, but the node passed every record through. It now
+  adds `joined_` fields wherever a stored record matches. It needs a state
+  store, under Settings → Platform → Global State Store; without one it fails
+  and says so.
+- **Text functions write a value the way the sample panel shows it.** `concat`,
+  `tostring`, `lower`, `upper`, `trim`, `replace`, `substring`, `contains`,
+  `eq` and `date_format` now write a number of a million or more as its digits
+  rather than in exponent form, an object or a list as JSON, and a missing
+  field as empty text rather than `<nil>`. So `eq(source.missing, "")` is now
+  true, as the matching condition already was.
+- **`hash()` and `abs()` return values** where they returned null.
+- **Previews and workflow Tests no longer write to the state store.** They read
+  it, so a lookup preview shows what running workflows have stored, but
+  anything a preview stores or counts stays with the preview.
+
 ### Join / Enrich looks up by default, and a preview never touches live state
 
 A new Join / Enrich node shows Lookup as its Join Mode but saved no mode until
@@ -4678,6 +4710,7 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.15.0]: https://github.com/gsoultan/hermod/releases/tag/v1.15.0
 [1.14.1]: https://github.com/gsoultan/hermod/releases/tag/v1.14.1
 [1.14.0]: https://github.com/gsoultan/hermod/releases/tag/v1.14.0
 [1.13.0]: https://github.com/gsoultan/hermod/releases/tag/v1.13.0
