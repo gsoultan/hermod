@@ -18,8 +18,8 @@ vi.mock('@tanstack/react-router', () => ({
   Link: (props: any) => <button {...props} />,
 }))
 
-// split's contract is the file both evaluators run (functionParity.test.ts and
-// function_fixture_test.go). The library's example is one of its cases.
+// split's contract is the fixture the engine's test runs
+// (function_fixture_test.go). The library's example is one of its cases.
 const FIXTURE_REL = 'pkg/infra/evaluator/testdata/functions/split.json'
 
 function findFixture(): string {
@@ -61,7 +61,7 @@ describe('split in the editor', () => {
     server.use(http.post('/api/transformations/test', () => HttpResponse.json({ ok: true })))
   })
 
-  it('is offered by the function library, with an example both evaluators run', async () => {
+  it('is offered by the function library, with an example the engine test runs', async () => {
     renderFormulas()
 
     const offered = await screen.findByRole('button', { name: /^insert split\(/i }, { timeout: 5000 })
