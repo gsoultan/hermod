@@ -204,10 +204,56 @@ func TestSQLiteStateStoreContract(t *testing.T) {
 	})
 }
 
-// A preview's scratch store is read by the same transformers as the real ones,
-// so it keeps the same promises -- a missing key above all.
-func TestScratchStoreContract(t *testing.T) {
-	RunStoreContract(t, "scratch", func(t *testing.T) hermod.StateStore {
-		return NewScratchStore()
+// A preview's overlay is read by the same transformers as the real stores, so
+// it keeps the same promises -- a missing key above all.
+func TestOverlayStoreContract(t *testing.T) {
+	RunStoreContract(t, "overlay", func(t *testing.T) hermod.StateStore {
+		t.Helper()
+		base, err := NewSQLiteStateStore(filepath.Join(t.TempDir(), "state.db"))
+		if err != nil {
+			t.Fatalf("open base store: %v", err)
+		}
+		return NewOverlay(base)
 	})
+}
+
+// The overlay's whole point: it shows the base, and never changes it.
+func TestOverlayNeverWritesItsBase(t *testing.T) {
+	ctx := t.Context()
+	base, err := NewSQLiteStateStore(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("open base store: %v", err)
+	}
+	if err := base.Set(ctx, "k", []byte("live")); err != nil {
+		t.Fatalf("seed base: %v", err)
+	}
+	o := NewOverlay(base)
+
+	read := func(s hermod.StateStore) string {
+		t.Helper()
+		v, err := s.Get(ctx, "k")
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		if v == nil {
+			return "<missing>"
+		}
+		return string(v)
+	}
+
+	if got := read(o); got != "live" {
+		t.Errorf("overlay read %q, want the base's \"live\"", got)
+	}
+	if err := o.Set(ctx, "k", []byte("preview")); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if got, base := read(o), read(base); got != "preview" || base != "live" {
+		t.Errorf("after an overlay write: overlay %q, base %q; want \"preview\" and \"live\"", got, base)
+	}
+	if err := o.Delete(ctx, "k"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if got, base := read(o), read(base); got != "<missing>" || base != "live" {
+		t.Errorf("after an overlay delete: overlay %q, base %q; want <missing> and \"live\"", got, base)
+	}
 }

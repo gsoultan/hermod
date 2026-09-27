@@ -1438,8 +1438,8 @@ func (r *Registry) SimulateWorkflow(ctx context.Context, wf storage.Workflow, in
 	r.prepareWorkflowNodes(ctx, wf.Nodes)
 
 	sim := newSimulation(r, wf)
-	// Every node of one run shares one scratch store, so a Join / Enrich that
-	// stores a record can be looked up further down the same Test.
+	// Every node of one run shares one overlay, so a Join / Enrich that stores
+	// a record can be looked up further down the same Test.
 	sim.root = r.previewStateContext(context.Background())
 	defer sim.releaseAll()
 	if err := sim.seed(in); err != nil {
@@ -1467,7 +1467,7 @@ type simulation struct {
 	r    *Registry
 	wfID string
 	// root is the context every node runs on: context.Background(), plus the
-	// preview's scratch state store when a store is configured.
+	// preview's overlay on the state store when a store is configured.
 	root    context.Context
 	nodes   map[string]*storage.WorkflowNode
 	sources []*storage.WorkflowNode

@@ -433,8 +433,8 @@ func (r *Registry) RunWorkflowNode(workflowID string, node *storage.WorkflowNode
 }
 
 // runWorkflowNode is RunWorkflowNode on a root context the caller chooses. A
-// running workflow uses context.Background(); a simulation adds its scratch
-// state store to it (see previewStateContext), which is the only difference.
+// running workflow uses context.Background(); a simulation adds its overlay on
+// the state store to it (see previewStateContext), which is the only difference.
 func (r *Registry) runWorkflowNode(root context.Context, workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
 	if msg == nil {
 		return nil, "", nil

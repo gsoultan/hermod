@@ -697,6 +697,32 @@ func TestPreviewLookupSeesWhatTheSameRunStored(t *testing.T) {
 	}
 }
 
+// A preview reads the live store: a lookup shows what the running workflows
+// have stored, which is the answer the operator is checking the node for. It
+// only ever writes to a layer of its own.
+func TestPreviewLookupReadsWhatTheLiveStoreHolds(t *testing.T) {
+	reg := NewRegistry(nil)
+	live := newRecordingStore()
+	live.m["join:default:c1"] = []byte(`{"city":"Jakarta","id":"c1"}`)
+	reg.SetStateStore(live)
+
+	order := message.AcquireMessage()
+	t.Cleanup(order.Release)
+	order.SetData("id", "c1")
+	order.SetData("total", 10)
+
+	res, err := reg.TestTransformationPipeline(t.Context(),
+		[]storage.Transformation{{Type: "join", Config: map[string]any{"key": "id"}}}, order)
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	defer releaseAll(res)
+
+	if got := res[0].Data()["joined_city"]; got != "Jakarta" {
+		t.Errorf("joined_city = %#v, want \"Jakarta\" from the live store", got)
+	}
+}
+
 // With no store configured, the running node cannot work, so the preview must
 // not pretend it can -- and the error has to say what to do about it.
 func TestPreviewWithNoStateStoreFailsLikeTheRunningNode(t *testing.T) {

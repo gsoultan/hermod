@@ -79,18 +79,21 @@ func (r *Registry) IsWorkflowNode(nodeType string) bool {
 
 // previewStateContext gives a preview the state store it runs against.
 //
-// With a store configured, that is a scratch store: empty when the preview
-// starts and gone when it ends. A preview used to be handed the live store, so
-// previewing a Join / Enrich in store mode -- or an aggregate, row_count or
-// sampling node -- wrote into the state that running workflows read.
+// With a store configured, that is an overlay on it: reads fall through to the
+// live store, so a lookup previews what running workflows have stored, and
+// every write stays in the overlay, which lives for this one preview. A preview
+// used to be handed the live store itself, so previewing a Join / Enrich in
+// store mode -- or an aggregate, row_count or sampling node -- wrote into the
+// state that running workflows read.
 //
 // With none configured, it is none, exactly what a running node gets. A node
 // that cannot work without a store then fails the preview with the error it
-// fails the workflow with, instead of a scratch store letting the preview
-// succeed where the workflow cannot.
+// fails the workflow with, instead of a stand-in letting the preview succeed
+// where the workflow cannot.
 func (r *Registry) previewStateContext(ctx context.Context) context.Context {
-	if r.StateStore() == nil {
+	live := r.StateStore()
+	if live == nil {
 		return ctx
 	}
-	return context.WithValue(ctx, hermod.StateStoreKey, state.NewScratchStore())
+	return context.WithValue(ctx, hermod.StateStoreKey, state.NewOverlay(live))
 }

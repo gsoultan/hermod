@@ -19,9 +19,10 @@ records up, adding `joined_` fields wherever a stored record matches.
 A node's preview and a workflow Test were handed the live state store, so
 previewing a Join / Enrich in store mode wrote a record into the state running
 workflows read — and aggregate, row_count and sampling nodes, which keep
-counters in the same store, were handed it too. A preview now gets a scratch
-store of its own: a store and a later lookup still work within one preview, and
-nothing reaches the live store. Without a configured state store Join / Enrich
+counters in the same store, were handed it too. A preview now reads the live
+store but keeps every write to itself: a lookup shows what running workflows
+have stored, a store and a later lookup work within one preview, and nothing
+it does reaches the live store. Without a configured state store Join / Enrich
 cannot work, in a preview or a running workflow; it now says so, and where to
 set one: Settings → Platform → Global State Store.
 
