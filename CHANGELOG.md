@@ -7,6 +7,19 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Text functions write a number as its digits
+
+`concat`, `tostring`, `lower`, `upper`, `trim`, `replace`, `substring`,
+`contains`, `eq` and `date_format` rendered their inputs with Go's `%v`, which
+writes any number of a million or more in exponent form: `concat("ORD-",
+source.order_id)` gave `ORD-1.704207845e+09`, `substring(source.order_id, 0, 4)`
+gave `1.70`, and `eq(source.order_id, "1704207845")` was false. They now write a
+value the way the sample panel and conditions show it: a number as its digits,
+an object or a list as JSON rather than `map[a:1]` or `[a b]`, and a missing
+field as empty text rather than `<nil>`. So `eq(source.missing, "")` is now
+true, as the matching condition already was, and a Set field that used to hold
+`<nil>` is now empty. The editor's previews render the same way.
+
 ## [1.14.1] — 2026-09-27
 
 The workflow panel's Transformations tab lists transformations only, instead of a
