@@ -69,12 +69,12 @@ func (s *InstagramSink) Write(ctx context.Context, msg hermod.Message) error {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL+"?"+params.Encode(), nil)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 
 	resp, err := httpclient.DataClient.Do(req)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	defer resp.Body.Close()
 
@@ -108,11 +108,11 @@ func (s *InstagramSink) Write(ctx context.Context, msg hermod.Message) error {
 
 	req, err = http.NewRequestWithContext(ctx, http.MethodPost, publishURL+"?"+params.Encode(), nil)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	resp, err = httpclient.DataClient.Do(req)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	defer resp.Body.Close()
 
@@ -149,12 +149,12 @@ func (s *InstagramSink) Ping(ctx context.Context) error {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL+"?"+params.Encode(), nil)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 
 	resp, err := httpclient.DataClient.Do(req)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	defer resp.Body.Close()
 

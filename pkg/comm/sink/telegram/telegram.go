@@ -17,6 +17,7 @@ type TelegramSink struct {
 	token     string
 	chatID    string
 	formatter hermod.Formatter
+	baseURL   string
 }
 
 // NewTelegramSink creates a new TelegramSink.
@@ -25,6 +26,7 @@ func NewTelegramSink(token, chatID string, formatter hermod.Formatter) *Telegram
 		token:     token,
 		chatID:    chatID,
 		formatter: formatter,
+		baseURL:   "https://api.telegram.org",
 	}
 }
 
@@ -47,7 +49,7 @@ func (s *TelegramSink) Write(ctx context.Context, msg hermod.Message) error {
 	}
 
 	text := string(data)
-	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", s.token)
+	apiURL := fmt.Sprintf("%s/bot%s/sendMessage", s.baseURL, s.token)
 	body, _ := json.Marshal(map[string]string{
 		"chat_id":    s.chatID,
 		"text":       text,
@@ -56,13 +58,13 @@ func (s *TelegramSink) Write(ctx context.Context, msg hermod.Message) error {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(body))
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := httpclient.DataClient.Do(req)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	defer resp.Body.Close()
 
@@ -94,14 +96,14 @@ func (s *TelegramSink) WriteBatch(ctx context.Context, msgs []hermod.Message) er
 
 // Ping checks the connection to Telegram API.
 func (s *TelegramSink) Ping(ctx context.Context) error {
-	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/getMe", s.token)
+	apiURL := fmt.Sprintf("%s/bot%s/getMe", s.baseURL, s.token)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	resp, err := httpclient.DataClient.Do(req)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	defer resp.Body.Close()
 
@@ -114,4 +116,15 @@ func (s *TelegramSink) Ping(ctx context.Context) error {
 // Close closes the Telegram sink.
 func (s *TelegramSink) Close() error {
 	return nil
+}
+
+// SetBaseURL overrides the Bot API root this sink talks to.
+//
+// The host was baked into a format string, so the sink could not be exercised
+// without dialling Telegram — and the conformance suite did exactly that, with
+// a dummy token, on every run. An empty string leaves the default in place.
+func (s *TelegramSink) SetBaseURL(u string) {
+	if u != "" {
+		s.baseURL = u
+	}
 }

@@ -242,9 +242,6 @@ func TestSinkConformance(t *testing.T) {
 	conformance.RunSinkSuite(t, "kafka", func() hermod.Sink {
 		return sinkkafka.NewKafkaSink([]string{deadAddr}, "t", "", "", fmtr())
 	})
-	conformance.RunSinkSuite(t, "telegram", func() hermod.Sink {
-		return sinktelegram.NewTelegramSink("token", "chat", fmtr())
-	})
 	conformance.RunSinkSuite(t, "slack", func() hermod.Sink {
 		return sinkslack.NewSlackSink(deadURL, "", "", fmtr())
 	})
@@ -367,6 +364,7 @@ func TestSinkConformance(t *testing.T) {
 		"linkedin":  func() hermod.Sink { return sinklinkedin.NewLinkedInSink("tok", "urn:li:person:x", fmtr()) },
 		"tiktok":    func() hermod.Sink { return sinktiktok.NewTikTokSink("tok", fmtr()) },
 		"twitter":   func() hermod.Sink { return sinktwitter.NewTwitterSink("tok", fmtr()) },
+		"telegram":  func() hermod.Sink { return sinktelegram.NewTelegramSink("tok", "chat", fmtr()) },
 		"pinecone": func() hermod.Sink {
 			return sinkpinecone.NewSink(sinkpinecone.Config{APIKey: "k", Environment: "dev", IndexName: "i"})
 		},

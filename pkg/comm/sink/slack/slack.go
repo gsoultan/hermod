@@ -72,15 +72,16 @@ func (s *SlackSink) sendWebhook(ctx context.Context, text string) error {
 		"text": text,
 	})
 
+	// The webhook URL is the credential, so neither error may quote it.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.webhookURL, bytes.NewBuffer(body))
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := httpclient.DataClient.Do(req)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	defer resp.Body.Close()
 
@@ -146,11 +147,11 @@ func (s *SlackSink) Ping(ctx context.Context) error {
 	if s.webhookURL != "" {
 		req, err := http.NewRequestWithContext(ctx, http.MethodHead, s.webhookURL, nil)
 		if err != nil {
-			return err
+			return httpclient.RedactURLError(err)
 		}
 		resp, err := httpclient.DataClient.Do(req)
 		if err != nil {
-			return err
+			return httpclient.RedactURLError(err)
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode >= 400 && resp.StatusCode != http.StatusMethodNotAllowed {

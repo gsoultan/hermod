@@ -735,10 +735,18 @@ context handling, and the stub is only the seam that lets it be built. Excluding
 them left six connectors with no coverage at all in order to avoid a theoretical
 weakness in coverage they did not have.
 
-Connectors that address a fixed vendor host — Slack, Discord, Twitter/X, LinkedIn,
-Facebook, Instagram, TikTok, Pinecone — expose `SetBaseURL` so they can be pointed
-at a test server. Without that seam they dialled the live internet on construction,
-which is why they were untested; anything new in that shape should provide it too.
+Connectors that address a fixed vendor host — Slack, Discord, Telegram, Twitter/X,
+LinkedIn, Facebook, Instagram, TikTok, Pinecone — expose `SetBaseURL` so they can be
+pointed at a test server. Without that seam they dialled the live internet on
+construction, which is why they were untested; anything new in that shape should
+provide it too.
+
+A connector whose request URL carries a credential — Telegram's bot token in the
+path, the Graph API's `access_token` in the query, a webhook URL that is itself the
+secret — passes every request error through `httpclient.RedactURLError`. net/http
+quotes the full URL in a failed request's error, and that error becomes the
+workflow's status and the alert sent to every notification channel.
+`TestConnectorErrorsDoNotCarryCredentials` holds every social connector to it.
 
 ### GA
 
