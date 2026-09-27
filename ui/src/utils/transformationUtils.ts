@@ -217,16 +217,13 @@ const toBool = (val: any): boolean => {
 
 const callFunction = (name: string, args: any[]): any => {
   switch (name.toLowerCase()) {
-    // The text functions render a value as Go's stringify does (conditionText
-    // is its twin): a number as its digits, 0 and false as themselves rather
-    // than '', an object or list as JSON, and a missing field as ''.
-    case 'lower': return conditionText(args[0]).toLowerCase();
-    case 'upper': return conditionText(args[0]).toUpperCase();
-    case 'trim': return conditionText(args[0]).trim();
-    case 'replace': return conditionText(args[0]).split(conditionText(args[1])).join(conditionText(args[2]));
-    case 'concat': return args.map(conditionText).join('');
+    case 'lower': return String(args[0] || '').toLowerCase();
+    case 'upper': return String(args[0] || '').toUpperCase();
+    case 'trim': return String(args[0] || '').trim();
+    case 'replace': return String(args[0] || '').split(String(args[1] || '')).join(String(args[2] || ''));
+    case 'concat': return args.join('');
     case 'substring': {
-      const s = conditionText(args[0]);
+      const s = String(args[0] || '');
       const start = Number(args[1]) || 0;
       const end = args[2] !== undefined ? Number(args[2]) : s.length;
       return s.substring(start, end);
@@ -259,7 +256,7 @@ const callFunction = (name: string, args: any[]): any => {
     case 'or': return args.some(a => toBool(a));
     case 'not': return !toBool(args[0]);
     case 'if': return toBool(args[0]) ? args[1] : args[2];
-    case 'eq': return conditionText(args[0]) === conditionText(args[1]);
+    case 'eq': return String(args[0]) === String(args[1]);
     case 'gt': {
       const v1 = Number(args[0]);
       const v2 = Number(args[1]);
@@ -272,10 +269,10 @@ const callFunction = (name: string, args: any[]): any => {
       if (!isNaN(v1) && !isNaN(v2)) return v1 < v2;
       return String(args[0]) < String(args[1]);
     }
-    case 'contains': return conditionText(args[0]).includes(conditionText(args[1]));
+    case 'contains': return String(args[0] || '').includes(String(args[1] || ''));
     case 'toint': return Math.floor(Number(args[0]) || 0);
     case 'tofloat': return Number(args[0]) || 0;
-    case 'tostring': return conditionText(args[0]);
+    case 'tostring': return String(args[0]);
     case 'tobool': return toBool(args[0]);
     default: return null;
   }

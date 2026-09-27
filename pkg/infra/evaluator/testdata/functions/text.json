@@ -1,9 +1,8 @@
 {
   "_comment": [
-    "How the text functions render a value, as both evaluators must. Every file",
-    "in this directory is read by pkg/infra/evaluator/function_fixture_test.go",
-    "(CallFunction) and by ui/src/__tests__/functionParity.test.ts (the editor's",
-    "callFunction); each case is a whole expression evaluated against `source`.",
+    "How the text functions render a value. Every file in this directory is",
+    "read by pkg/infra/evaluator/function_fixture_test.go; each case is a whole",
+    "expression evaluated against `source`.",
     "",
     "A value is written the way the sample panel and a condition show it: a",
     "number as its digits -- Go's %v spells 1704207845 as 1.704207845e+09 from a",

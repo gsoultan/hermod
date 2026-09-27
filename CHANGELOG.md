@@ -18,7 +18,7 @@ value the way the sample panel and conditions show it: a number as its digits,
 an object or a list as JSON rather than `map[a:1]` or `[a b]`, and a missing
 field as empty text rather than `<nil>`. So `eq(source.missing, "")` is now
 true, as the matching condition already was, and a Set field that used to hold
-`<nil>` is now empty. The editor's previews render the same way.
+`<nil>` is now empty.
 
 ## [1.14.1] — 2026-09-27
 
