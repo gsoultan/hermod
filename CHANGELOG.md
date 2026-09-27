@@ -7,6 +7,17 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.14.1] — 2026-09-27
+
+The workflow panel's Transformations tab lists transformations only, instead of a
+second copy of every source and sink below them.
+
+### Upgrading
+
+**Nothing to do.** The change is in the editor alone: no configuration, stored
+workflow or engine behaviour is touched, and every source and sink is still in
+its own tab.
+
 ### The palette's Transformations tab listed every source and sink too
 
 The workflow panel's Transformations tab showed each source and sink category
@@ -4599,6 +4610,7 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.14.1]: https://github.com/gsoultan/hermod/releases/tag/v1.14.1
 [1.14.0]: https://github.com/gsoultan/hermod/releases/tag/v1.14.0
 [1.13.0]: https://github.com/gsoultan/hermod/releases/tag/v1.13.0
 [1.12.0]: https://github.com/gsoultan/hermod/releases/tag/v1.12.0
