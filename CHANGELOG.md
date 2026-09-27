@@ -7,6 +7,18 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### `hash()` and `abs()` return a value
+
+The Formulas function library offered `hash(s, [algo])` and the help listed
+`abs(n)`, but the engine implemented neither, so both returned null — in the
+preview and in every record.
+`hash(value)` is now the lowercase hex SHA-256 of the value's text, and
+`hash(value, "md5")` its MD5 — for matching a system that already stores one;
+any other algorithm, or a missing value, gives null. A hash is a fingerprint,
+not anonymisation: an unsalted hash of an email is reversed by hashing guesses.
+`abs(n)` drops the sign, reading text that holds a number as that number and
+anything else as 0, as `add` already does.
+
 ### Text functions write a number as its digits
 
 `concat`, `tostring`, `lower`, `upper`, `trim`, `replace`, `substring`,
