@@ -1433,7 +1433,7 @@ func (r *Registry) TestTransformationPipeline(ctx context.Context, transformatio
 	// Optimization: Pass a shared snapshot pointer in context to avoid redundant ToMap() calls
 	// during the pipeline traversal. doApplyTransformation will update this pointer.
 	var lastSnapshot map[string]any
-	pipelineCtx := context.WithValue(ctx, hermod.LastTraceSnapshotKey, &lastSnapshot)
+	pipelineCtx := context.WithValue(r.previewStateContext(ctx), hermod.LastTraceSnapshotKey, &lastSnapshot)
 
 	for i, t := range transformations {
 		if currentInput == nil {
@@ -1545,7 +1545,9 @@ func (r *Registry) doApplyTransformation(ctx context.Context, modifiedMsg hermod
 
 		// Pass Registry to transformer if it needs it (like for storage or lookup)
 		tctx := context.WithValue(ctx, hermod.RegistryKey, r)
-		if r.stateStore != nil {
+		// A store already on the context wins: a preview puts a scratch store
+		// there so that nothing it runs can touch the live one.
+		if _, scoped := ctx.Value(hermod.StateStoreKey).(hermod.StateStore); !scoped && r.stateStore != nil {
 			tctx = context.WithValue(tctx, hermod.StateStoreKey, r.stateStore)
 		}
 		res, err := t.Transform(tctx, modifiedMsg, config)

@@ -203,3 +203,11 @@ func TestSQLiteStateStoreContract(t *testing.T) {
 		return s
 	})
 }
+
+// A preview's scratch store is read by the same transformers as the real ones,
+// so it keeps the same promises -- a missing key above all.
+func TestScratchStoreContract(t *testing.T) {
+	RunStoreContract(t, "scratch", func(t *testing.T) hermod.StateStore {
+		return NewScratchStore()
+	})
+}

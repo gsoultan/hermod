@@ -7,6 +7,24 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### Join / Enrich looks up by default, and a preview never touches live state
+
+A new Join / Enrich node shows Lookup as its Join Mode but saved no mode until
+someone changed it, and the engine read an empty mode as neither store nor
+lookup: the node passed every record through, with no error. An empty mode is
+now lookup, as shown, and a mode that is neither is an error.
+**Upgrading:** a Join / Enrich node whose mode was never changed starts looking
+records up, adding `joined_` fields wherever a stored record matches.
+
+A node's preview and a workflow Test were handed the live state store, so
+previewing a Join / Enrich in store mode wrote a record into the state running
+workflows read — and aggregate, row_count and sampling nodes, which keep
+counters in the same store, were handed it too. A preview now gets a scratch
+store of its own: a store and a later lookup still work within one preview, and
+nothing reaches the live store. Without a configured state store Join / Enrich
+cannot work, in a preview or a running workflow; it now says so, and where to
+set one: Settings → Platform → Global State Store.
+
 ### A formula can split text
 
 A Set or Formulas node can now split text: `split(source.full_name, " ")` is

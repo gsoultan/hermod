@@ -8,6 +8,7 @@ import (
 	"github.com/gsoultan/hermod/internal/engine/registry/interfaces"
 	"github.com/gsoultan/hermod/internal/storage"
 	"github.com/gsoultan/hermod/pkg/comm/transformer"
+	"github.com/gsoultan/hermod/pkg/infra/state"
 )
 
 // PreviewBranch runs a routing node against a sample message and reports the
@@ -74,4 +75,22 @@ func (r *Registry) CanTransform(transType string) bool {
 func (r *Registry) IsWorkflowNode(nodeType string) bool {
 	_, ok := interfaces.GetNodeExecutor(nodeType)
 	return ok
+}
+
+// previewStateContext gives a preview the state store it runs against.
+//
+// With a store configured, that is a scratch store: empty when the preview
+// starts and gone when it ends. A preview used to be handed the live store, so
+// previewing a Join / Enrich in store mode -- or an aggregate, row_count or
+// sampling node -- wrote into the state that running workflows read.
+//
+// With none configured, it is none, exactly what a running node gets. A node
+// that cannot work without a store then fails the preview with the error it
+// fails the workflow with, instead of a scratch store letting the preview
+// succeed where the workflow cannot.
+func (r *Registry) previewStateContext(ctx context.Context) context.Context {
+	if r.StateStore() == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, hermod.StateStoreKey, state.NewScratchStore())
 }
