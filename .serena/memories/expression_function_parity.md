@@ -1,23 +1,28 @@
-# Expression functions: two evaluators, one fixture
+# Expression functions: one evaluator, one fixture directory
 
 The expression language -- `set`/`advanced` columns, and `{{ func(...) }}` tokens
-in templates -- is evaluated twice: by Go's `Evaluator.CallFunction`
-(`pkg/infra/evaluator/evaluator.go`) and by the editor's TS twin `callFunction`
-(`ui/src/utils/transformationUtils.ts`).
+in templates -- is evaluated by Go's `Evaluator.CallFunction`
+(`pkg/infra/evaluator/evaluator.go`), and only there. Every editor preview is
+answered by the server: a Formulas field through `/api/transformations/test`, a
+condition or switch through `PreviewBranch`, a workflow Test through
+`SimulateWorkflow`.
 
-The TS twin is reached through `matchesCondition` → `resolveTemplateStr` →
-`parseAndEvaluate`: a condition value holding `{{ ... }}` is resolved in the
-browser for the Test button and the filter and switch previews. Formula previews
-do **not** use it -- a Formulas node previews through `/api/transformations/test`,
-which is the engine. `simulateTransformation` has no callers.
+`ui/src/utils/transformationUtils.ts` still holds an older TypeScript evaluator
+-- `callFunction`, `parseAndEvaluate`, `matchesCondition`,
+`simulateTransformation` -- and its comments say the Test button runs it. Nothing
+in the UI imports any of them, and a production build was byte-for-byte the same
+with them changed (measured 2026-09-27), so the bundler drops them. Do not keep
+it in lockstep with Go: that advice in
+[condition_value_shapes](condition_value_shapes.md) predates this, and following
+it cost real parity work -- and very nearly a new npm dependency -- before a
+build showed the code was dead. Grep for callers before trusting a comment that
+names them.
 
-Every file in `pkg/infra/evaluator/testdata/functions/` is read by both
-`function_fixture_test.go` and `ui/src/__tests__/functionParity.test.ts`, the
-arrangement [condition_value_shapes](condition_value_shapes.md) describes for
-`condition_cases.json`. A file is `{source, cases}`; a case is a whole expression
-against `source`, so each side's argument parser runs too. Both readers glob the
+Every file in `pkg/infra/evaluator/testdata/functions/` is read by
+`function_fixture_test.go`. A file is `{source, cases}`; a case is a whole
+expression against `source`, so the parser runs too. The reader globs the
 directory, so another function family is one new file and no reader change --
-which is also why two PRs adding different families never touch the same file.
+which is also why PRs adding different families never touch the same file.
 
 ## split
 
