@@ -7,6 +7,29 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A failed request no longer publishes a connector's token
+
+Several connectors authenticate through the request URL: the Telegram sink puts
+its bot token in the path, the Facebook and Instagram sinks and sources and the
+TikTok source put an `access_token` in the query, and a Slack or Discord webhook
+URL is the credential itself — as it is for the Telegram, Slack, Discord and
+webhook alert channels. When such a request failed before an answer came back —
+a DNS failure, a network outage, a token pasted with its trailing newline — the
+error quoted that URL in full. The error then went to the log table, became the
+workflow's status, and was sent in the "Workflow Error" alert to every
+notification channel; a failed alert also reached Settings → Test. The URL in
+those errors is now cut to its host, `Post "https://api.telegram.org/[redacted]":
+dial tcp: ...`, which still says which service could not be reached. The
+Facebook sink also carried the post's text in its URL, so row data no longer
+reaches those errors either, and the TikTok source no longer sends its token in
+the URL at all — the `Authorization` header it already sent is what TikTok
+reads.
+
+If any of those connectors or channels has failed a request since it was
+configured, treat its credential as exposed and rotate it: revoke the bot token
+with @BotFather, regenerate the Facebook or Instagram access token, and replace
+the Slack or Discord webhook. The fix does not reach errors already stored.
+
 ## [1.15.0] — 2026-09-27
 
 A formula can split text: `split(source.full_name, " ", 0)` is the first word

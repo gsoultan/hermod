@@ -14,6 +14,7 @@ import (
 	"github.com/gsoultan/gsmail/smtp"
 	"github.com/gsoultan/hermod"
 	"github.com/gsoultan/hermod/internal/storage"
+	"github.com/gsoultan/hermod/pkg/infra/httpclient"
 )
 
 // httpClient is the one client every webhook-style channel sends on.
@@ -383,13 +384,13 @@ func (ns NotificationSettings) SendTelegram(ctx context.Context, title, message 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(body))
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	defer resp.Body.Close()
 
@@ -458,13 +459,13 @@ func (ns NotificationSettings) SendSlack(ctx context.Context, title, message str
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ns.SlackWebhook, bytes.NewBuffer(body))
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	defer resp.Body.Close()
 
@@ -532,13 +533,13 @@ func (ns NotificationSettings) SendDiscord(ctx context.Context, title, message s
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ns.DiscordWebhook, bytes.NewBuffer(body))
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	defer resp.Body.Close()
 
@@ -600,13 +601,13 @@ func (ns NotificationSettings) SendGenericWebhook(ctx context.Context, title, me
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ns.WebhookURL, bytes.NewBuffer(body))
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return httpclient.RedactURLError(err)
 	}
 	defer resp.Body.Close()
 

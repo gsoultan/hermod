@@ -81,17 +81,21 @@ func (s *TikTokSource) Read(ctx context.Context) (hermod.Message, error) {
 	s.currentIndex = 0
 	s.mu.Unlock()
 
+	// The token travels in the Authorization header below, which is how
+	// TikTok's v2 API authenticates. It was also appended to these URLs as
+	// ?access_token=, which added nothing but places for it to be recorded:
+	// every failed request's error text and every proxy's access log.
 	var apiURL string
 	switch s.mode {
 	case "comments":
 		// Mock/Generic endpoint for comments
-		apiURL = fmt.Sprintf("%s/video/comments/list/?access_token=%s", s.baseURL, s.accessToken)
+		apiURL = s.baseURL + "/video/comments/list/"
 	case "statistics":
 		// Mock/Generic endpoint for user statistics
-		apiURL = fmt.Sprintf("%s/user/stats/?access_token=%s", s.baseURL, s.accessToken)
+		apiURL = s.baseURL + "/user/stats/"
 	default:
 		// Default: video list
-		apiURL = fmt.Sprintf("%s/video/list/?access_token=%s", s.baseURL, s.accessToken)
+		apiURL = s.baseURL + "/video/list/"
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, nil)
