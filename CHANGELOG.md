@@ -20,6 +20,17 @@ field as empty text rather than `<nil>`. So `eq(source.missing, "")` is now
 true, as the matching condition already was, and a Set field that used to hold
 `<nil>` is now empty.
 
+### The two join nodes described something neither does
+
+The header over both join editors said "Combines several fields into one. Pick
+the fields and the separator." Neither node combines fields, and neither editor
+has a list of fields or a separator to set. Stateful Join now says it holds
+records until the expected number with the same key have arrived, then merges
+them into one; Join / Enrich says it saves each record under a key, or copies a
+saved record's fields onto records with the same key. Each first step names a
+control its editor shows. To combine fields into one string, use `concat()` in
+a Set node.
+
 ### A formula can split text
 
 A Set or Formulas node can now split text: `split(source.full_name, " ")` is
