@@ -451,7 +451,7 @@ func (t *DataConversionTransformer) toArray(val any, separator, elementType stri
 				raw = parsed
 				break
 			}
-			raw = splitAndTrim(v, separator)
+			raw = evaluator.SplitText(v, separator)
 		case strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}"):
 			// A JSON object is one value, not a list of its fields.
 			var obj map[string]any
@@ -459,9 +459,9 @@ func (t *DataConversionTransformer) toArray(val any, separator, elementType stri
 				raw = []any{obj}
 				break
 			}
-			raw = splitAndTrim(v, separator)
+			raw = evaluator.SplitText(v, separator)
 		default:
-			raw = splitAndTrim(v, separator)
+			raw = evaluator.SplitText(v, separator)
 		}
 	default:
 		if arr, ok := AsSlice(val); ok {
@@ -483,15 +483,6 @@ func (t *DataConversionTransformer) toArray(val any, separator, elementType stri
 		out[i] = conv
 	}
 	return out, nil
-}
-
-func splitAndTrim(s, separator string) []any {
-	parts := strings.Split(s, separator)
-	out := make([]any, len(parts))
-	for i, p := range parts {
-		out[i] = strings.TrimSpace(p)
-	}
-	return out
 }
 
 // toString renders a value as text. A list joins on separator instead of

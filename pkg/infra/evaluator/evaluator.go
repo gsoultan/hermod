@@ -180,6 +180,26 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 			}
 		}
 		return sb.String()
+	case "split":
+		if len(args) == 0 || args[0] == nil {
+			return nil
+		}
+		var sep string
+		if len(args) > 1 {
+			sep = stringify(args[1])
+		}
+		// A list has already been split: a jsonb array, or a Data Conversion
+		// to Array upstream.
+		parts, ok := args[0].([]any)
+		if !ok {
+			// stringify, not %v: a number splits as the digits it is shown
+			// as, where %v spells 1704207845 as 1.704207845e+09.
+			parts = SplitText(stringify(args[0]), sep)
+		}
+		if len(args) < 3 {
+			return parts
+		}
+		return splitPart(parts, args[2])
 	case "substring":
 		if len(args) >= 2 {
 			s := fmt.Sprintf("%v", args[0])
@@ -399,6 +419,48 @@ func (e *Evaluator) CallFunction(name string, args []any) any {
 		}
 	}
 	return nil
+}
+
+// SplitText cuts text into parts at each sep and trims the whitespace around
+// every part. An empty sep is a comma, and text with nothing in it has no
+// parts rather than one empty one.
+//
+// It is the one definition of splitting text into a list: the split function
+// uses it, and so does Data Conversion's Array target, so the function and the
+// node cannot cut the same text differently.
+func SplitText(s, sep string) []any {
+	if strings.TrimSpace(s) == "" {
+		return []any{}
+	}
+	if sep == "" {
+		sep = ","
+	}
+	parts := strings.Split(s, sep)
+	out := make([]any, len(parts))
+	for i, p := range parts {
+		out[i] = strings.TrimSpace(p)
+	}
+	return out
+}
+
+// splitPart reads split's third argument: a whole-number index into parts,
+// counting from the end when negative. Anything else -- a fraction, NaN, text
+// that is not a number, an index past either end -- is nil rather than a
+// guess, so coalesce can supply a default. The bounds are checked before the
+// conversion to int because converting an infinite float to int is
+// implementation-defined in Go.
+func splitPart(parts []any, index any) any {
+	f, ok := ToFloat64(index)
+	if !ok || f != math.Trunc(f) {
+		return nil
+	}
+	if f < 0 {
+		f += float64(len(parts))
+	}
+	if f < 0 || f >= float64(len(parts)) {
+		return nil
+	}
+	return parts[int(f)]
 }
 
 // Path helpers
