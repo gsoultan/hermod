@@ -18,8 +18,7 @@ part trimmed, a comma when no separator is given, and a value that is already
 a list used as it is. A number splits as the digits it is shown as. An index
 past either end gives null rather than an error, so
 `coalesce(split(source.full_name, " ", 2), "n/a")` supplies a default. The
-function library and the help list it, and the editor's previews give the same
-answers as the engine.
+function library and the help list it.
 
 ## [1.14.1] — 2026-09-27
 

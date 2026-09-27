@@ -87,10 +87,11 @@ find a claim that outruns the code, fix the claim.
   JSON-normalised first (`[]byte` becomes base64), and `stringify` renders a
   number the way JSON does rather than `%v`, which spelled 1704207845 as
   "1.704207845e+09"; the TS twin `matchesCondition` must be changed in lockstep.
-- [Expression functions: two evaluators, one fixture](expression_function_parity.md)
-  — `CallFunction` and the editor's `callFunction` both run every file in
-  `testdata/functions/`; `split` shares `SplitText` with Data
-  Conversion's Array target.
+- [Expression functions: one evaluator](expression_function_parity.md) —
+  `CallFunction` is the only evaluator the product runs; every preview is
+  answered by the server, and the TypeScript one in `transformationUtils.ts` is
+  dead code. `testdata/functions/` is its contract; `split` shares `SplitText`
+  with Data Conversion's Array target.
 - [panmail: templated routing fields](panmail_templated_routing_fields.md) — why
   templating `base_url`/`api_key` turns the SDK client into a per-message
   resource and its cache into a map keyed by row data, the mandatory

@@ -222,16 +222,6 @@ const callFunction = (name: string, args: any[]): any => {
     case 'trim': return String(args[0] || '').trim();
     case 'replace': return String(args[0] || '').split(String(args[1] || '')).join(String(args[2] || ''));
     case 'concat': return args.join('');
-    case 'split': {
-      // The engine's split, case for case: both sides run
-      // pkg/infra/evaluator/testdata/functions/split.json.
-      const value = args[0];
-      if (value === null || value === undefined) return null;
-      // A list has already been split: a jsonb array, or a Data Conversion to
-      // Array upstream.
-      const parts = Array.isArray(value) ? value : splitText(conditionText(value), conditionText(args[1]));
-      return args.length < 3 ? parts : splitPart(parts, args[2]);
-    }
     case 'substring': {
       const s = String(args[0] || '');
       const start = Number(args[1]) || 0;
@@ -346,23 +336,6 @@ const conditionText = (v: any): string => {
   } catch {
     return String(v);
   }
-};
-
-// Go's SplitText: parts trimmed, an empty separator read as a comma, and text
-// with nothing in it has no parts rather than one empty one.
-const splitText = (s: string, sep: string): string[] => {
-  if (s.trim() === '') return [];
-  return s.split(sep || ',').map((part) => part.trim());
-};
-
-// Go's splitPart: a whole-number index, negative counting from the end.
-// Anything else, or an index past either end, is null -- never undefined, and
-// never the 0 that Number('') would make of an empty field.
-const splitPart = (parts: any[], index: any): any => {
-  let i = conditionNumber(index);
-  if (i === null || !Number.isInteger(i)) return null;
-  if (i < 0) i += parts.length;
-  return i >= 0 && i < parts.length ? parts[i] : null;
 };
 
 // RFC1123 is the one format in the engine's ToTime list whose lexicographic

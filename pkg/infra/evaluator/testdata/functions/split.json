@@ -1,9 +1,8 @@
 {
   "_comment": [
-    "split, as both evaluators must run it. Every file in this directory is read",
-    "by pkg/infra/evaluator/function_fixture_test.go (CallFunction) and by",
-    "ui/src/__tests__/functionParity.test.ts (the editor's callFunction); each",
-    "case is a whole expression evaluated against `source`.",
+    "split, as the engine runs it. Every file in this directory is read by",
+    "pkg/infra/evaluator/function_fixture_test.go; each case is a whole",
+    "expression evaluated against `source`.",
     "",
     "split(value, sep) is the list of parts; split(value, sep, index) is one of",
     "them. Parts are trimmed, an omitted or empty sep is a comma, and text with",
