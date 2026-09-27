@@ -37,6 +37,7 @@ const EXPRESSION_FUNCTIONS = [
   { name: 'upper(str)', desc: 'Uppercase a string', example: 'upper(source.name)' },
   { name: 'trim(str)', desc: 'Trim whitespace', example: 'trim(source.name)' },
   { name: 'concat(a, b, ...)', desc: 'Join strings', example: 'concat(source.first, " ", source.last)' },
+  { name: 'split(s, sep, [index])', desc: 'Split text; index picks a part, -1 the last', example: 'split(source.full_name, " ", 0)' },
   { name: 'substring(s, start, [end])', desc: 'Extract part of string', example: 'substring(source.id, 0, 8)' },
   { name: 'replace(s, old, new)', desc: 'Replace substring', example: 'replace(source.email, "@", "[at]")' },
   { name: 'coalesce(a, b, ...)', desc: 'First non-empty value', example: 'coalesce(source.nickname, source.name)' },

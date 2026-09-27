@@ -18,6 +18,7 @@ export default function HelpContent() {
           <List size="sm">
             <List.Item><Code>lower</Code>, <Code>upper</Code>, <Code>trim</Code></List.Item>
             <List.Item><Code>concat(a, b, ...)</Code></List.Item>
+            <List.Item><Code>split(s, sep, [index])</Code></List.Item>
             <List.Item><Code>substring(s, start, [end])</Code></List.Item>
             <List.Item><Code>coalesce(a, b, ...)</Code></List.Item>
           </List>
