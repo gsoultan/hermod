@@ -1,8 +1,12 @@
 package registry
 
 import (
+	"context"
 	"database/sql"
+	"maps"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gsoultan/hermod"
@@ -590,5 +594,191 @@ func TestSimulationTakesOnlyTheBranchARoutingNodeChose(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Previews and the state store.
+//
+// A Join / Enrich node keeps its records in the configured state store, and so
+// do the counters of aggregate, row_count and sampling. doApplyTransformation
+// handed that store to every transformation it ran -- the single-node preview
+// and the workflow Test included -- so previewing a node in store mode wrote a
+// record into the state a running workflow reads. With no store configured,
+// the preview failed with "state store not available", which is true but does
+// not say that one can be configured, or where.
+
+// recordingStore stands in for the configured, live state store.
+type recordingStore struct {
+	mu sync.Mutex
+	m  map[string][]byte
+}
+
+func newRecordingStore() *recordingStore { return &recordingStore{m: map[string][]byte{}} }
+
+func (s *recordingStore) Get(_ context.Context, k string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.m[k], nil
+}
+
+func (s *recordingStore) Set(_ context.Context, k string, v []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.m[k] = v
+	return nil
+}
+
+func (s *recordingStore) Delete(_ context.Context, k string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.m, k)
+	return nil
+}
+
+func (s *recordingStore) keys() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Sorted(maps.Keys(s.m))
+}
+
+func joinStep(mode string) storage.Transformation {
+	return storage.Transformation{Type: "join", Config: map[string]any{"mode": mode, "key": "id"}}
+}
+
+func customer(t *testing.T) hermod.Message {
+	t.Helper()
+	msg := message.AcquireMessage()
+	t.Cleanup(msg.Release)
+	msg.SetData("id", "c1")
+	msg.SetData("city", "Jakarta")
+	return msg
+}
+
+func releaseAll(msgs []hermod.Message) {
+	for _, m := range msgs {
+		if m != nil {
+			m.Release()
+		}
+	}
+}
+
+func TestPreviewNeverWritesTheLiveStateStore(t *testing.T) {
+	reg := NewRegistry(nil)
+	live := newRecordingStore()
+	reg.SetStateStore(live)
+
+	res, err := reg.TestTransformationPipeline(t.Context(), []storage.Transformation{joinStep("store")}, customer(t))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	releaseAll(res)
+
+	if keys := live.keys(); len(keys) != 0 {
+		t.Errorf("previewing a store-mode Join / Enrich wrote %v into the live state store", keys)
+	}
+}
+
+// The preview still works as a join: what a run stores, a later step of the
+// same run can look up.
+func TestPreviewLookupSeesWhatTheSameRunStored(t *testing.T) {
+	reg := NewRegistry(nil)
+	reg.SetStateStore(newRecordingStore())
+
+	res, err := reg.TestTransformationPipeline(t.Context(),
+		[]storage.Transformation{joinStep("store"), joinStep("lookup")}, customer(t))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	defer releaseAll(res)
+
+	if got := res[len(res)-1].Data()["joined_city"]; got != "Jakarta" {
+		t.Errorf("joined_city = %#v, want \"Jakarta\" from the step before it", got)
+	}
+}
+
+// A preview reads the live store: a lookup shows what the running workflows
+// have stored, which is the answer the operator is checking the node for. It
+// only ever writes to a layer of its own.
+func TestPreviewLookupReadsWhatTheLiveStoreHolds(t *testing.T) {
+	reg := NewRegistry(nil)
+	live := newRecordingStore()
+	live.m["join:default:c1"] = []byte(`{"city":"Jakarta","id":"c1"}`)
+	reg.SetStateStore(live)
+
+	order := message.AcquireMessage()
+	t.Cleanup(order.Release)
+	order.SetData("id", "c1")
+	order.SetData("total", 10)
+
+	res, err := reg.TestTransformationPipeline(t.Context(),
+		[]storage.Transformation{{Type: "join", Config: map[string]any{"key": "id"}}}, order)
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	defer releaseAll(res)
+
+	if got := res[0].Data()["joined_city"]; got != "Jakarta" {
+		t.Errorf("joined_city = %#v, want \"Jakarta\" from the live store", got)
+	}
+}
+
+// With no store configured, the running node cannot work, so the preview must
+// not pretend it can -- and the error has to say what to do about it.
+func TestPreviewWithNoStateStoreFailsLikeTheRunningNode(t *testing.T) {
+	reg := NewRegistry(nil)
+
+	res, err := reg.TestTransformationPipeline(t.Context(), []storage.Transformation{joinStep("lookup")}, customer(t))
+	releaseAll(res)
+	if err == nil || !strings.Contains(err.Error(), "Global State Store") {
+		t.Errorf("err = %v, want the running node's error, naming Global State Store", err)
+	}
+}
+
+func TestARunningWorkflowStillUsesTheLiveStateStore(t *testing.T) {
+	reg := NewRegistry(nil)
+	live := newRecordingStore()
+	reg.SetStateStore(live)
+
+	out, err := reg.ApplyTransformation(t.Context(), customer(t), "join", joinStep("store").Config)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	_ = out
+
+	if keys := live.keys(); !slices.Equal(keys, []string{"join:default:c1"}) {
+		t.Errorf("live store holds %v after a running join stored c1, want [join:default:c1]", keys)
+	}
+}
+
+func TestSimulationNeverWritesTheLiveStateStore(t *testing.T) {
+	reg := newSimRegistry(t)
+	live := newRecordingStore()
+	reg.SetStateStore(live)
+
+	wf := storage.Workflow{
+		ID: "wf-join-preview",
+		Nodes: []storage.WorkflowNode{
+			{ID: "src", Type: "source", RefID: "src-1"},
+			{ID: "j", Type: "transformation", Config: map[string]any{"transType": "join", "mode": "store", "key": "id"}},
+			{ID: "snk", Type: "sink", RefID: "snk-1"},
+		},
+		Edges: []storage.WorkflowEdge{
+			{ID: "e1", SourceID: "src", TargetID: "j"},
+			{ID: "e2", SourceID: "j", TargetID: "snk"},
+		},
+	}
+	steps, err := reg.SimulateWorkflow(t.Context(), wf,
+		SimulationInput{Message: sampleMessage(t, `{"id":"c1","city":"Jakarta"}`), Partial: true})
+	if err != nil {
+		t.Fatalf("simulate: %v", err)
+	}
+	for _, s := range steps {
+		if s.Error != "" {
+			t.Fatalf("step %s failed: %s", s.NodeID, s.Error)
+		}
+	}
+	if keys := live.keys(); len(keys) != 0 {
+		t.Errorf("a workflow Test wrote %v into the live state store", keys)
 	}
 }

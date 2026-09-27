@@ -23,7 +23,19 @@ func (t *JoinTransformer) Transform(ctx context.Context, msg hermod.Message, con
 		return nil, nil
 	}
 
-	mode, _ := config["mode"].(string) // "store" or "lookup"
+	// No mode is lookup. The editor shows a new node with Lookup selected but
+	// saves no mode until the user changes it, and an empty mode used to match
+	// neither case below -- so the node passed every record through, silently,
+	// while its editor said it was looking them up. Any other mode is a typo in
+	// the config, which is reported rather than treated the same way.
+	mode, _ := config["mode"].(string)
+	switch mode {
+	case "":
+		mode = "lookup"
+	case "store", "lookup":
+	default:
+		return msg, fmt.Errorf(`join: mode %q is neither "store" nor "lookup"`, mode)
+	}
 	key, _ := config["key"].(string)
 	namespace, _ := config["namespace"].(string)
 	fields, _ := config["fields"].([]any) // optional: specific fields to join
@@ -44,7 +56,8 @@ func (t *JoinTransformer) Transform(ctx context.Context, msg hermod.Message, con
 	}
 
 	if store == nil {
-		return msg, errors.New("state store not available for join")
+		return msg, errors.New("join: no state store is configured, and Join / Enrich keeps its " +
+			"records in one; set one up under Settings → Platform → Global State Store")
 	}
 
 	stateKey := fmt.Sprintf("join:%s:%s", namespace, joinKey)
