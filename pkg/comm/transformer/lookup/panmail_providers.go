@@ -66,6 +66,86 @@ func panmailProvidersCacheKey(baseURL, apiKey, name string, kind sdk.ProviderTyp
 	return "panmail_providers:" + hex.EncodeToString(h.Sum(nil))
 }
 
+// panmailProvidersRequest is a node's config, resolved for one message.
+type panmailProvidersRequest struct {
+	baseURL, apiKey, name, targetField, timeout string
+	kind                                        sdk.ProviderType
+	ttl                                         lookupTTL
+}
+
+func resolvePanmailProvidersRequest(config map[string]any, msg hermod.Message) (panmailProvidersRequest, error) {
+	// The gateway and the key decide where a tenant credential is sent, so row
+	// data must not be able to choose either. They resolve against no data:
+	// {{env.X}} and {{secret("X")}} work, {{.field}} renders empty.
+	req := panmailProvidersRequest{
+		baseURL:     strings.TrimSpace(evaluator.ResolveTemplate(core.GetConfigString(config, "baseUrl"), nil)),
+		apiKey:      strings.TrimSpace(evaluator.ResolveTemplate(core.GetConfigString(config, "apiKey"), nil)),
+		targetField: core.GetConfigString(config, "targetField"),
+		timeout:     core.GetConfigString(config, "timeout"),
+		// A name filter is only a search, so it may come from the row.
+		name: evaluator.ResolveTemplateMsg(core.GetConfigString(config, "name"), msg),
+	}
+	if req.baseURL == "" || req.apiKey == "" {
+		return req, errors.New("a gateway url and an api key are required")
+	}
+	if req.targetField == "" {
+		req.targetField = defaultPanmailProvidersField
+	}
+
+	if s := strings.ToLower(strings.TrimSpace(core.GetConfigString(config, "providerType"))); s != "" {
+		k, known := panmailProviderTypes[s]
+		if !known {
+			return req, fmt.Errorf("unknown provider type %q", s)
+		}
+		req.kind = k
+	}
+
+	ttl, err := resolveLookupTTL(core.GetConfigString(config, "ttl"), defaultPanmailProvidersTTL)
+	if err != nil {
+		return req, err
+	}
+	req.ttl = ttl
+	return req, nil
+}
+
+// fetch lists the providers and shapes them for the message. Connection
+// settings are never copied: the SDK does not surface them.
+func (req panmailProvidersRequest) fetch(ctx context.Context) ([]map[string]any, error) {
+	opts := []sdk.Option{}
+	if req.timeout != "" {
+		d, err := time.ParseDuration(req.timeout)
+		if err != nil {
+			return nil, fmt.Errorf("timeout %q is not a duration (e.g. %q)", req.timeout, "10s")
+		}
+		opts = append(opts, sdk.WithTimeout(d))
+	}
+	// sdk.New refuses a url without a scheme, credentials in the url, and plain
+	// http away from loopback. Its errors name the url, never the key.
+	client, err := sdk.New(req.baseURL, req.apiKey, opts...)
+	if err != nil {
+		return nil, err
+	}
+	providers, err := client.ListProviders(ctx, sdk.ProviderFilter{Name: req.name, Type: req.kind})
+	if err != nil {
+		return nil, err
+	}
+
+	list := make([]map[string]any, 0, len(providers))
+	for _, p := range providers {
+		domains := p.AllowedDomains
+		if domains == nil {
+			domains = []string{}
+		}
+		list = append(list, map[string]any{
+			"id":             p.ID,
+			"name":           p.Name,
+			"type":           shortProviderType(p.Type),
+			"allowedDomains": domains,
+		})
+	}
+	return list, nil
+}
+
 func (t *PanmailProvidersTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
@@ -79,87 +159,27 @@ func (t *PanmailProvidersTransformer) Transform(ctx context.Context, msg hermod.
 		return msg, errors.New("registry not found in context")
 	}
 
-	// The gateway and the key decide where a tenant credential is sent, so row
-	// data must not be able to choose either. They resolve against no data:
-	// {{env.X}} and {{secret("X")}} work, {{.field}} renders empty.
-	baseURL := strings.TrimSpace(evaluator.ResolveTemplate(core.GetConfigString(config, "baseUrl"), nil))
-	apiKey := strings.TrimSpace(evaluator.ResolveTemplate(core.GetConfigString(config, "apiKey"), nil))
-	if baseURL == "" || apiKey == "" {
-		return msg, errors.New("panmail_providers: a gateway url and an api key are required")
-	}
-
-	targetField := core.GetConfigString(config, "targetField")
-	if targetField == "" {
-		targetField = defaultPanmailProvidersField
-	}
-
-	var kind sdk.ProviderType
-	if s := strings.ToLower(strings.TrimSpace(core.GetConfigString(config, "providerType"))); s != "" {
-		k, known := panmailProviderTypes[s]
-		if !known {
-			return msg, fmt.Errorf("panmail_providers: unknown provider type %q", s)
-		}
-		kind = k
-	}
-
-	// A name filter is only a search, so it may come from the row.
-	name := evaluator.ResolveTemplateMsg(core.GetConfigString(config, "name"), msg)
-
-	ttl, err := resolveLookupTTL(core.GetConfigString(config, "ttl"), defaultPanmailProvidersTTL)
+	req, err := resolvePanmailProvidersRequest(config, msg)
 	if err != nil {
 		return msg, fmt.Errorf("panmail_providers: %w", err)
 	}
 
-	cacheKey := panmailProvidersCacheKey(baseURL, apiKey, name, kind)
-	if ttl.cache {
+	cacheKey := panmailProvidersCacheKey(req.baseURL, req.apiKey, req.name, req.kind)
+	if req.ttl.cache {
 		if cached, found := registry.GetLookupCache(cacheKey); found {
-			msg.SetData(targetField, cached)
+			msg.SetData(req.targetField, cached)
 			return msg, nil
 		}
 	}
 
-	res, err, _ := t.sf.Do(cacheKey, func() (any, error) {
-		opts := []sdk.Option{}
-		if s := core.GetConfigString(config, "timeout"); s != "" {
-			d, err := time.ParseDuration(s)
-			if err != nil {
-				return nil, fmt.Errorf("timeout %q is not a duration (e.g. %q)", s, "10s")
-			}
-			opts = append(opts, sdk.WithTimeout(d))
-		}
-		// sdk.New refuses a url without a scheme, credentials in the url, and
-		// plain http away from loopback. The errors name the url, never the key.
-		client, err := sdk.New(baseURL, apiKey, opts...)
-		if err != nil {
-			return nil, err
-		}
-		providers, err := client.ListProviders(ctx, sdk.ProviderFilter{Name: name, Type: kind})
-		if err != nil {
-			return nil, err
-		}
-
-		list := make([]map[string]any, 0, len(providers))
-		for _, p := range providers {
-			domains := p.AllowedDomains
-			if domains == nil {
-				domains = []string{}
-			}
-			list = append(list, map[string]any{
-				"id":             p.ID,
-				"name":           p.Name,
-				"type":           shortProviderType(p.Type),
-				"allowedDomains": domains,
-			})
-		}
-		return list, nil
-	})
+	res, err, _ := t.sf.Do(cacheKey, func() (any, error) { return req.fetch(ctx) })
 	if err != nil {
 		return msg, fmt.Errorf("panmail_providers: %w", err)
 	}
 
-	if ttl.cache {
-		registry.SetLookupCache(cacheKey, res, ttl.duration)
+	if req.ttl.cache {
+		registry.SetLookupCache(cacheKey, res, req.ttl.duration)
 	}
-	msg.SetData(targetField, res)
+	msg.SetData(req.targetField, res)
 	return msg, nil
 }
