@@ -149,7 +149,7 @@ function EditorInner() {
 
   useWorkflowHotkeys(handleSave, handleTest);
 
-  const { incomingPayload, availableFields, sinkSchema, upstreamSource } = useNodeContext(
+  const { incomingPayload, availableFields, sinkSchema, upstreamSource, inputSkipped } = useNodeContext(
     selectedNode,
     testResults,
     sources?.data || [],
@@ -366,6 +366,7 @@ function EditorInner() {
           workerID={workerID}
           availableFields={availableFields}
           incomingPayload={incomingPayload}
+          inputSkipped={inputSkipped}
           sinks={sinks?.data || []}
           upstreamSource={upstreamSource}
           setSettingsOpened={setSettingsOpened}

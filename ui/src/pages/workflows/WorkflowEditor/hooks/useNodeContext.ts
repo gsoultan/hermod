@@ -17,8 +17,14 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
     let availableFields: FieldInfo[] = [];
     let sinkSchema = null;
     let upstreamSource = null;
+    // How many nodes before this one have no output for incomingPayload -- not
+    // run yet, or failed or dropped the sample. The walk below found the input
+    // that many nodes further up, so none of their changes are in what this node
+    // is tested and previewed on. A running workflow does apply them, which is
+    // how a Test can pass on data the pipeline never sends.
+    let inputSkipped = 0;
 
-    if (!selectedNode) return JSON.stringify({ incomingPayload, availableFields, sinkSchema, upstreamSource });
+    if (!selectedNode) return JSON.stringify({ incomingPayload, availableFields, sinkSchema, upstreamSource, inputSkipped });
 
     // See ownPayloadOf for the order and why `lastSample` comes last.
     const ownPayload = (node: Node) => ownPayloadOf(node, sources, nodeSamples);
@@ -60,7 +66,9 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
         }
       } else {
         const visited = new Set<string>();
-        const findNearestPayload = (nodeId: string): any | null => {
+        // depth is how many nodes the walk has passed: 0 at the node right
+        // before this one, whose output is exactly what this node receives.
+        const findNearestPayload = (nodeId: string, depth: number): { payload: any; skipped: number } | null => {
           if (visited.has(nodeId)) return null;
           visited.add(nodeId);
           const node = nodes.find(n => n.id === nodeId);
@@ -72,22 +80,23 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
           // instead of dropping back to the source and losing every change the
           // nodes in between made.
           const simulated = simulatedOutput(nodeId);
-          if (simulated) return preparePayload(simulated);
+          if (simulated) return { payload: preparePayload(simulated), skipped: depth };
           const own = ownPayload(node);
-          if (own) return preparePayload(own);
+          if (own) return { payload: preparePayload(own), skipped: depth };
 
           const inc = edges.filter((e: Edge) => e.target === nodeId);
           for (const e of inc) {
-            const found = findNearestPayload(e.source);
+            const found = findNearestPayload(e.source, depth + 1);
             if (found) return found;
           }
           return null;
         };
 
         for (const edge of incomingEdges) {
-          const payload = findNearestPayload(edge.source);
-          if (payload) {
-            deepMergeSim(mergedNearest, payload);
+          const found = findNearestPayload(edge.source, 0);
+          if (found) {
+            deepMergeSim(mergedNearest, found.payload);
+            inputSkipped = Math.max(inputSkipped, found.skipped);
           }
         }
 
@@ -253,7 +262,7 @@ export function useNodeContext(selectedNode: Node | null, testResults: any[] | n
       immediateIncoming.forEach(e => collectInferredFields(e.source));
     }
 
-    return JSON.stringify({ incomingPayload, availableFields, sinkSchema, upstreamSource });
+    return JSON.stringify({ incomingPayload, availableFields, sinkSchema, upstreamSource, inputSkipped });
   }, [selectedNode?.id, edges, nodes, testResults, sources, sinks, nodeSamples]);
 
   return useMemo(() => JSON.parse(contextDataRaw), [contextDataRaw]);

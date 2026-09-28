@@ -132,7 +132,7 @@ const GUIDES: Record<string, TransformationGuide> = {
   api_lookup: {
     title: 'API lookup',
     what: 'Enriches each record with data fetched from an HTTP API.',
-    firstStep: 'Enter the URL; use {field} to insert record values.',
+    firstStep: 'Enter the URL. Put record values in as {{.after.column}}, or pick one with the { } button.',
   },
   execute_sql: {
     title: 'Run SQL',

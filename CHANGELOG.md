@@ -11,7 +11,7 @@ A node that writes a field the way the editor names it — `after.<column>` — 
 longer wipes the rest of the row for every node after it. An `api_lookup` behind
 such a node sent its body with every `{{.after.x}}` empty, so Refresh and Run
 Simulation were refused while Test API Call passed. A refused `api_lookup` now
-names the tokens it sent empty.
+names the tokens it sent empty, and its form is rebuilt for editing a request.
 
 ### Upgrading
 
@@ -25,6 +25,9 @@ the write nests as before.
 
 On a version without this fix, name the field without the prefix
 (`scheduled_at`, not `after.scheduled_at`) in the node that writes it.
+
+The `api_lookup` form stores headers, query params and the body exactly as it
+did, so saved workflows need no change.
 
 ### Writing to `after.<column>` wiped the rest of the row
 
@@ -54,6 +57,32 @@ these tokens had no value and were sent empty: {{.after.user_id}}, {{.after.enti
 
 Only the tokens are named, never their values. The check runs after a refusal,
 not before each request.
+
+### The `api_lookup` form edits a request the way an HTTP client does
+
+Headers, query params and the body shared one tab of small raw-JSON boxes in a
+narrow column, and Test API Call sat on a different tab. Now:
+
+- Method and URL share one line, and Test API Call stays under them on every tab.
+- **Params** and **Headers** are name/value rows, with the JSON one click away.
+  JSON the rows cannot show without changing the request opens as JSON, as
+  written. Each tab shows how many entries it holds.
+- The **Body** is a large monospace editor. **Insert field** puts a `{{ }}`
+  token at the cursor, quoted only outside a string. **Format** re-indents
+  without rounding a 64-bit id, and **Expand** opens a full-size editor.
+- A body on a GET is shown with a warning, because it is still sent. It used to
+  be hidden.
+- The last test result stays on screen, error text in full. A refused request
+  raises one toast, not two.
+- The form's hint said to insert values with `{field}`, which no template
+  resolves. It now says `{{.after.column}}`.
+
+### The editor says when a node's input skipped the nodes before it
+
+When no run has happened yet, a node's input is the nearest payload up the
+graph, usually the source sample. Test and the Live Preview then work on data
+the nodes in between never touched. The editor now says how many nodes were
+skipped, and **Run it on the sample** runs them.
 
 ## [1.15.2] — 2026-09-28
 
