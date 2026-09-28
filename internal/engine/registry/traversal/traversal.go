@@ -384,8 +384,16 @@ func TakesEdge(branch, label string) bool {
 }
 
 func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.WorkflowNode, msgs []hermod.Message, branch string, err error) {
+	// A node that failed sends nothing downstream — processNode has already
+	// dead-lettered its message — so every out-edge is pruned. Returning without
+	// walking them left them open, and a join downstream waited for an edge that
+	// was never going to arrive while the message another branch brought it went
+	// unwritten. A failed branch counts as finished, as an empty one does below.
 	if err != nil {
 		t.Registry.BroadcastLog(t.WorkflowID, "ERROR", fmt.Sprintf("Node %s failed: %v", node.ID, err), "")
+		for _, targetID := range t.Adj[node.ID] {
+			t.pruneBranch(ctx, targetID)
+		}
 		return
 	}
 

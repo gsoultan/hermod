@@ -163,6 +163,14 @@ was never written. That branch now counts as done, and the join fires with
 what arrived, as Run Simulation already showed. A join none of whose branches
 delivered anything still writes nothing.
 
+### A join fires when one of its branches fails
+
+When a node on one branch into a join failed, that branch was never counted as
+done either, so the join never fired and the message the other branch brought
+it was never written. A failed branch now counts as done: the join fires with
+what arrived, and the message the failed node was holding still goes to the
+dead-letter sink as before.
+
 ## [1.15.2] — 2026-09-28
 
 A freshly set-up install sends its alerts. After first-run setup, Hermod sent
