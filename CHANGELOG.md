@@ -7,16 +7,23 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
-Branches that meet again deliver every message. A running workflow whose
-condition sent one branch through a node and the other straight to the same
-sink could lose every message on the straight branch, depending on the order
-its edges were drawn.
+Branches that meet again deliver every message, and a condition can compare a
+row with its own before-image. A running workflow whose condition sent one
+branch through a node and the other straight to the same sink could lose every
+message on the straight branch, depending on the order its edges were drawn. A
+`{{.before.status}}` or `{{.after.status}}` in a condition's value rendered as
+empty text, so `=` was false for every row.
 
 ### Upgrading
 
 Nothing to do. The messages a rejoining branch lost were never acknowledged as
 delivered: with a dead-letter sink they are parked there, and without one they
 stayed on the source and were logged as "Messages delivered nowhere".
+
+A condition, filter, switch case or router rule whose value holds a `{{ }}`
+token for anything but one of the row's own columns — `{{.after.x}}`,
+`{{.before.x}}`, `{{.operation}}`, `{{.table}}`, `{{.meta.x}}` — now compares
+against that value instead of empty text, so its answer can change.
 
 ### Branches that meet again lost messages on one of them
 
@@ -31,6 +38,17 @@ its true one. The same held for a switch or router whose routes meet again.
 
 The editor's simulation walks the graph its own way and showed both branches
 delivering, so a preview could not reveal it.
+
+### A condition's value resolves `after.`, `before.`, the envelope and `meta.`
+
+Clicking a field in a condition value's picker inserts a token such as
+`{{.after.status}}`, and comparing a row with its before-image is written
+`{{.before.status}}`. The field beside the value resolved through the message;
+the value resolved only the row's own columns, so those tokens — and
+`{{.operation}}`, `{{.table}}` and `{{.meta.x}}` — rendered as empty text, and
+`=` was false for every row whatever it held. A token now reads a path exactly
+the way the condition's field does, including the text a number, a timestamp or
+a byte column is compared as.
 
 ## [1.15.2] — 2026-09-28
 

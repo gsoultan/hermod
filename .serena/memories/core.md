@@ -86,7 +86,9 @@ find a claim that outruns the code, fix the claim.
 - [What a condition actually compares](condition_value_shapes.md) — fields are
   JSON-normalised first (`[]byte` becomes base64), and `stringify` renders a
   number the way JSON does rather than `%v`, which spelled 1704207845 as
-  "1.704207845e+09"; the TS twin `matchesCondition` must be changed in lockstep.
+  "1.704207845e+09". A `{{ }}` in the value reads like the field (it used to
+  render `after.`/`before.`/`meta.` as `""`); the traps that still read as
+  "always false"; and an empty list is `true`. The TS twin is dead code.
 - [Expression functions: one evaluator](expression_function_parity.md) —
   `CallFunction` is the only evaluator the product runs; every preview is
   answered by the server, and the TypeScript one in `transformationUtils.ts` is
@@ -191,6 +193,12 @@ find a claim that outruns the code, fix the claim.
   webhook URL, rode every network error into the workflow status and the alert
   fanned out to every channel. `httpclient.RedactURLError` at the call site;
   the social connectors' audit findings (2026-09-27) are listed there too.
+- [Branches that meet again](branch_rejoin_join_barrier.md) — the join
+  barrier pruned a node whose last in-edge was a prune even with a message
+  waiting in it, so a condition's straight-to-sink branch lost every message
+  when its edge was drawn first; the simulation walks the graph differently and
+  could not show it. `Fired` is not delivery, and a mock that skips `Retain()`
+  corrupts the message pool for *other* tests.
 
 ### Gates
 

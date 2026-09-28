@@ -41,17 +41,45 @@ Exact text equality is checked first, then `numericallyEqual` — only when the
 number (`100` = `"100.00"`), never remove one, and a string field keeps string
 equality so `"007"` ≠ `"7"`.
 
-## The TypeScript twin must agree
+## Tokens in the value read like the field
 
-`matchesCondition` in `ui/src/utils/transformationUtils.ts` is what the Test
-button, the filter preview and the switch preview run. It had drifted:
-`not_contains` unimplemented (flat `false`), no `eq`/`neq`/`gt`/`gte`/`lt`/`lte`
-aliases, `Number()` turning null/`''`/`false`/`[]` into `0`, and RFC1123 dates
-sorting by weekday.
+A value holding `{{ }}` is resolved by `resolveConditionValue`, which reads
+each token with `EvaluateField` — the reader the field uses — and renders it
+with `stringify`. It used `ResolveTemplate`, which walks the bare data map; a
+CDC message's data map *is* its after-image, so `{{.after.x}}` (what the value's
+own picker inserts), `{{.before.x}}`, `{{.operation}}`, `{{.table}}` and
+`{{.meta.x}}` all rendered `""`, and `=` was false for every row.
 
-`pkg/infra/evaluator/condition_number_shape_test.go` and
-`ui/src/__tests__/matchesConditionParity.test.ts` are transcriptions of each
-other. **Change one side and change both**, or the preview starts lying — which
-is worse than no preview, because the user tunes against it.
+Do not "fix" it with `ResolveTemplateMsg`: that keeps Go types for SQL binding,
+so a `[]byte` renders `[97 98 99]` and a `time.Time` in Go's layout while the
+field reads base64 and RFC 3339. `TestConditionValueTokenRendersEveryTypeLikeTheField`
+fails on exactly that swap.
+
+## Traps that still read as "always false"
+
+None of these is an error; each compares text that can never match:
+
+- a quoted literal, `'active'` — the Set node quotes literals, a condition
+  compares the quotes too;
+- a bare name inside a function, `lower(status)` — it is the literal `status`;
+  write `lower(source.status)` (the placeholder says so);
+- an operator the switch does not know (`==`, `equals`, missing) — `match`
+  stays false, and the editor *displays* `=` for a missing one
+  (`cond.operator || '='`);
+- a row with a blank Field — it compares `""`;
+- a leading or trailing space in the Field.
+
+And the opposite: **no conditions at all is `true`** (`len == 0` guard), so an
+empty If node sends everything down TRUE with nothing logged. Filter relies on
+that; switch and router never hand the evaluator an empty list.
+
+## There is no TypeScript twin to keep in step
+
+`matchesCondition` in `ui/src/utils/transformationUtils.ts` and
+`simulateTransformation`, its only caller, have no importers outside tests
+(checked 2026-09-28). Every preview — Test, Run Simulation, the filter and
+switch previews — is answered by the server, so `EvaluateConditions` is the only
+evaluator that matters. An older version of this memory said to change both in
+lockstep; that cost a session of parity work on dead code.
 
 See also [a config list reaches the engine in two shapes](node_config_list_shape_drift.md).

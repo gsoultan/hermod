@@ -1415,6 +1415,27 @@ func resolveTemplatePath(path string, data map[string]any) string {
 	return stringify(val)
 }
 
+// resolveConditionValue renders the {{ }} tokens in a condition's value with
+// the reader the condition's field uses.
+//
+// Both sides of a condition are compared as text, so both have to be read the
+// same way. The value went through ResolveTemplate, which walks the bare data
+// map, and a CDC message's data map *is* its after-image: {{.after.status}} —
+// what the value's own field picker inserts — {{.before.status}},
+// {{.operation}} and {{.meta.x}} all rendered "", so `=` was false for every
+// row whatever it held. ResolveTemplateMsg reaches the envelope too, but it
+// keeps Go types for SQL binding, so a []byte or a time.Time would render
+// differently from the field it is compared with.
+func resolveConditionValue(temp string, msg hermod.Message) string {
+	return scanTemplate(temp, func(path string) string {
+		if strings.HasPrefix(path, "env.") {
+			// Environment variable access is disabled for security reasons
+			return ""
+		}
+		return stringify(EvaluateField(msg, strings.TrimPrefix(path, ".")))
+	})
+}
+
 func EvaluateField(msg hermod.Message, field string) any {
 	if (strings.Contains(field, "(") && strings.HasSuffix(field, ")")) || strings.HasPrefix(field, "source.") {
 		e := NewEvaluator()
@@ -1444,11 +1465,7 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 		valResolved := val
 		if vs, ok := val.(string); ok {
 			if strings.Contains(vs, "{{") && strings.Contains(vs, "}}") {
-				var data map[string]any
-				if msg != nil {
-					data = msg.Data()
-				}
-				valResolved = ResolveTemplate(vs, data)
+				valResolved = resolveConditionValue(vs, msg)
 			} else {
 				valResolved = vs
 			}
