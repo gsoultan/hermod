@@ -96,6 +96,9 @@ func nodeConfigIssues(wf storage.Workflow) (issues []ValidationIssue, hasSource,
 					NodeID:         n.ID,
 				})
 			}
+			if nodeType == "condition" {
+				issues = append(issues, undecidableConditionIssues(n)...)
+			}
 		case "filter":
 			condition, _ := n.Config["condition"].(string)
 			if strings.TrimSpace(condition) == "" {
@@ -109,6 +112,53 @@ func nodeConfigIssues(wf storage.Workflow) (issues []ValidationIssue, hasSource,
 		}
 	}
 	return issues, hasSource, hasSink
+}
+
+// undecidableConditionIssues reports a condition node that gives every message
+// the same answer without anyone having chosen it.
+//
+// EvaluateConditions reads an empty list as true, compares a row with no field
+// as "", and matches nothing for an operator it does not know. So an If node
+// with no conditions sent every message down TRUE, and one with an unknown
+// operator sent every message down FALSE, with nothing logged either way.
+//
+// They are errors here and not in the engine on purpose. The registry's own
+// validation, which a workflow passes when Hermod restarts it, does not run
+// these, so a workflow that already runs keeps running; it cannot be saved or
+// started again as it is. A switch reads its own field and cases, not this
+// list, so it is not checked here.
+func undecidableConditionIssues(n storage.WorkflowNode) (issues []ValidationIssue) {
+	conditions := evaluator.ParseConditions(n.Config)
+	if len(conditions) == 0 {
+		return []ValidationIssue{{
+			Severity:       "error",
+			Message:        fmt.Sprintf("Condition node '%s' has no conditions, so every message takes its TRUE branch.", n.ID),
+			Recommendation: "Add a condition to this node. If every message should go the same way, remove the node and connect its input to that branch instead.",
+			NodeID:         n.ID,
+		}}
+	}
+	for i, cond := range conditions {
+		field, _ := cond["field"].(string)
+		op, _ := cond["operator"].(string)
+		var problem string
+		switch {
+		case strings.TrimSpace(field) == "":
+			problem = "has no field, so it compares an empty value and gives every message the same answer"
+		case op == "":
+			problem = "has no operator, so it matches no message and every message takes the FALSE branch"
+		case !evaluator.IsConditionOperator(op):
+			problem = fmt.Sprintf("uses the operator %q, which Hermod does not recognise, so it matches no message and every message takes the FALSE branch", op)
+		default:
+			continue
+		}
+		issues = append(issues, ValidationIssue{
+			Severity:       "error",
+			Message:        fmt.Sprintf("Condition node '%s': condition %d %s.", n.ID, i+1, problem),
+			Recommendation: "Choose the field this condition tests and one of =, !=, >, >=, <, <=, contains, not contains, regex or not regex — or remove the condition.",
+			NodeID:         n.ID,
+		})
+	}
+	return issues
 }
 
 // edgeIssues reports connections whose endpoints are not in the workflow.

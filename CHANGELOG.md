@@ -13,6 +13,15 @@ such a node sent its body with every `{{.after.x}}` empty, so Refresh and Run
 Simulation were refused while Test API Call passed. A refused `api_lookup` now
 names the tokens it sent empty, and its form is rebuilt for editing a request.
 
+Branches that meet again deliver every message, and a condition can compare a
+row with its own before-image. A running workflow whose condition sent one
+branch through a node and the other straight to the same sink could lose every
+message on the straight branch, depending on the order its edges were drawn. A
+`{{.before.status}}` or `{{.after.status}}` in a condition's value rendered as
+empty text, so `=` was false for every row. An If node that gives every message
+the same answer — no conditions, a condition with no field, or an operator
+Hermod does not know — is now refused when its workflow is saved or started.
+
 ### Upgrading
 
 **A write to `after.<column>` on a CDC message lands in the row.** It used to
@@ -28,6 +37,23 @@ On a version without this fix, name the field without the prefix
 
 The `api_lookup` form stores headers, query params and the body exactly as it
 did, so saved workflows need no change.
+
+**An If node that cannot decide is refused on save and start.** A condition node
+with no conditions sent every message down TRUE; one with a condition that has
+no field, or an operator such as `==` or `equals`, gave every message the same
+answer. None of it was reported. Saving or starting such a workflow from the
+editor now fails, naming the node and what to fix. A workflow that already runs
+one keeps running, including when Hermod restarts, until it is saved or started
+again.
+
+The messages a rejoining branch lost were never acknowledged as delivered: with
+a dead-letter sink they are parked there, and without one they stayed on the
+source and were logged as "Messages delivered nowhere".
+
+A condition, filter, switch case or router rule whose value holds a `{{ }}`
+token for anything but one of the row's own columns — `{{.after.x}}`,
+`{{.before.x}}`, `{{.operation}}`, `{{.table}}`, `{{.meta.x}}` — now compares
+against that value instead of empty text, so its answer can change.
 
 ### Writing to `after.<column>` wiped the rest of the row
 
@@ -83,6 +109,43 @@ When no run has happened yet, a node's input is the nearest payload up the
 graph, usually the source sample. Test and the Live Preview then work on data
 the nodes in between never touched. The editor now says how many nodes were
 skipped, and **Run it on the sample** runs them.
+
+### Branches that meet again lost messages on one of them
+
+The usual way to tag the rows that match and pass the rest through is to draw a
+condition's true branch through a node and its false branch straight to the
+same sink. The sink waits for both edges, and a running workflow resolves the
+branch a message did not take by pruning it. When the pruned edge was the last
+to arrive, the sink was pruned too, with the message from the other branch
+already waiting in it. Which edge arrives last follows the order the edges were
+drawn, so one workflow could lose every message on its false branch and none on
+its true one. The same held for a switch or router whose routes meet again.
+
+The editor's simulation walks the graph its own way and showed both branches
+delivering, so a preview could not reveal it.
+
+### A condition's value resolves `after.`, `before.`, the envelope and `meta.`
+
+Clicking a field in a condition value's picker inserts a token such as
+`{{.after.status}}`, and comparing a row with its before-image is written
+`{{.before.status}}`. The field beside the value resolved through the message;
+the value resolved only the row's own columns, so those tokens — and
+`{{.operation}}`, `{{.table}}` and `{{.meta.x}}` — rendered as empty text, and
+`=` was false for every row whatever it held. A token now reads a path exactly
+the way the condition's field does, including the text a number, a timestamp or
+a byte column is compared as.
+
+### An If node that cannot decide is refused
+
+An empty condition list is true to the evaluator, which is right for a Filter —
+no rule keeps everything — and wrong for an If node, which then sends every
+message down TRUE and never uses its FALSE branch. A condition with no field
+compares an empty value, and an operator the evaluator does not know matches
+nothing. Each of these used to save, run and stay silent. They are now errors
+when the workflow is saved or started, alongside the existing check for a regex
+that does not compile, and the If node's editor says what an empty list does:
+every message takes the TRUE branch. The engine itself is unchanged, so nothing
+already running changes its routing.
 
 ## [1.15.2] — 2026-09-28
 
