@@ -25,7 +25,7 @@ describe('api_lookup miss policy and cache TTL', () => {
         />
       </MantineProvider>
     )
-    await user.click(screen.getByRole('tab', { name: /auth\/retry/i }))
+    await user.click(screen.getByRole('tab', { name: /^settings/i }))
     return user
   }
 
@@ -82,7 +82,7 @@ describe('APILookupConfig request body', () => {
       </MantineProvider>
     )
 
-    await user.click(screen.getByRole('tab', { name: /body\/headers/i }))
+    await user.click(screen.getByRole('tab', { name: /^body/i }))
 
     expect(screen.getByText(/an object or array \(jsonb\) is sent as JSON/i)).toBeInTheDocument()
     expect(screen.getByText(/application\/json unless you set one/i)).toBeInTheDocument()

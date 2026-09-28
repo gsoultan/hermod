@@ -211,6 +211,37 @@ func responseExcerpt(r io.Reader) string {
 	return ": " + text
 }
 
+// requestTemplates is every template a request is built from, in the order it is
+// built: url, query params, headers, body, then the credential authType uses.
+func requestTemplates(config map[string]any) []string {
+	temps := []string{
+		core.GetConfigString(config, "url"),
+		core.GetConfigString(config, "queryParams"),
+		core.GetConfigString(config, "headers"),
+		core.GetConfigString(config, "body"),
+	}
+	switch core.GetConfigString(config, "authType") {
+	case "basic":
+		temps = append(temps, core.GetConfigString(config, "username"), core.GetConfigString(config, "password"))
+	case "bearer":
+		temps = append(temps, core.GetConfigString(config, "token"))
+	}
+	return temps
+}
+
+// emptyTokensNote names the tokens a refused request went out without: an
+// endpoint can only describe what it received, so a uuid field sent as "" comes
+// back as "invalid request body", and which {{ }} found no value is the one fact
+// its refusal cannot carry. The tokens are named, never their values -- row data
+// does not belong in an error that is logged and traced.
+func emptyTokensNote(msg hermod.Message, templates ...string) string {
+	empty := evaluator.EmptyTokens(msg, templates...)
+	if len(empty) == 0 {
+		return ""
+	}
+	return "; these tokens had no value and were sent empty: " + strings.Join(empty, ", ")
+}
+
 func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message, config map[string]any) (hermod.Message, error) {
 	if msg == nil {
 		return nil, nil
@@ -334,6 +365,11 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 
 		var respData any
 		var lastErr error
+		// Built only once the endpoint has refused, and once across retries: it
+		// resolves every token again. Plain locals rather than a sync.OnceValue,
+		// which would allocate on every request, refused or not.
+		var refusalNote string
+		refusalNoted := false
 
 		for i := 0; i <= maxRetries; i++ {
 			if i > 0 {
@@ -384,7 +420,10 @@ func (t *APILookupTransformer) Transform(ctx context.Context, msg hermod.Message
 				said := responseExcerpt(resp.Body)
 				resp.Body.Close()
 				cancel()
-				lastErr = fmt.Errorf("api lookup returned status %d%s", resp.StatusCode, said)
+				if !refusalNoted {
+					refusalNote, refusalNoted = emptyTokensNote(msg, requestTemplates(config)...), true
+				}
+				lastErr = fmt.Errorf("api lookup returned status %d%s%s", resp.StatusCode, said, refusalNote)
 				if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 					continue // Retryable
 				}

@@ -73,6 +73,8 @@ export interface TransformConfigProps {
   addField?: (...args: any[]) => void
   onAddFromSource?: (...args: any[]) => void
   testLookup?: () => void
+  /** What the last testLookup said, kept on screen by editors that show it. */
+  lastTest?: { ok: boolean; message: string } | null
   /** The resolved `transType`, for editors that serve more than one. */
   transType?: string
   /**

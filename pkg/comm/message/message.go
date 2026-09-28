@@ -862,6 +862,7 @@ func (m *DefaultMessage) SetData(key string, value any) {
 	// targetField of "$.customer_name" silently buried the value under a
 	// literal "$" key — present in the payload, absent everywhere anyone looked.
 	key = strings.TrimPrefix(key, "$.")
+	key = m.afterImageKeyLocked(key)
 
 	if strings.Contains(key, ".") {
 		parts := strings.Split(key, ".")
@@ -913,4 +914,33 @@ func (m *DefaultMessage) SetData(key string, value any) {
 	}
 	// Clear payload bytes as they are now stale
 	m.payload = m.payload[:0]
+}
+
+// afterImagePrefix is how the editor, and every reader, names a column of a CDC
+// message's after-image.
+const afterImagePrefix = "after."
+
+// afterImageKeyLocked maps a write to `after.<path>` onto <path> when the data
+// map is the after-image, which it is for every CDC message. Callers must hold
+// m.mu, with the payload already hydrated.
+//
+// The read side has always resolved `after.x` to the column x (see
+// evaluator.resolveEnclosing). Walked as a dotted path, the write created a
+// literal "after" key instead, and from then on that one-field map was what
+// serialised as the after-image and what `after.*` resolved against: every node
+// after the write lost the rest of the row. The editor offers each sampled field
+// as `after.<column>`, so a data_conversion on `after.scheduled_at` was enough to
+// send an api_lookup body downstream out with "" for every other token.
+//
+// A row with a real column of that name keeps it, the same way the read side
+// lets a real column win; a message without an operation has no after-image.
+func (m *DefaultMessage) afterImageKeyLocked(key string) string {
+	if m.operation == "" || len(key) <= len(afterImagePrefix) ||
+		!strings.EqualFold(key[:len(afterImagePrefix)], afterImagePrefix) {
+		return key
+	}
+	if _, column := m.data[key[:len(afterImagePrefix)-1]]; column {
+		return key
+	}
+	return key[len(afterImagePrefix):]
 }

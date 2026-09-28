@@ -26,7 +26,7 @@ export function NodeConfigDrawer({
   testResults = null, sources = [], sinks = [],
   onRefreshFields, isRefreshing
 }: NodeConfigDrawerProps) {
-  const { incomingPayload, availableFields, sinkSchema, upstreamSource } = useNodeContext(
+  const { incomingPayload, availableFields, sinkSchema, upstreamSource, inputSkipped } = useNodeContext(
     selectedNode, 
     testResults, 
     sources, 
@@ -154,6 +154,7 @@ export function NodeConfigDrawer({
             sinkSchema={sinkSchema}
             onRefreshFields={onRefreshFields}
             isRefreshing={isRefreshing}
+            inputSkipped={inputSkipped}
           />
         )}
       </ScrollArea>

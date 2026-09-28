@@ -27,6 +27,8 @@ const HelpContent = lazy(() => import('../workflow/Transformation/HelpContent'))
 import { IconCode, IconDatabase, IconFunction, IconHelpCircle, IconInfoCircle, IconList, IconPlus, IconRefresh, IconSearch, IconSettings, IconVariable } from '@tabler/icons-react';
 import { preparePayload, getValByPath } from '@/utils/transformationUtils';
 import { guideFor } from '@/lib/transformationGuide';
+import { UpstreamNotRunNotice } from '@/components/common/UpstreamNotRunNotice';
+import type { APILookupTestOutcome } from '../workflow/Transformation/configs/enrichment/APILookupConfig';
 
 // How long to wait after the last edit before previewing. Short enough to feel
 // live, long enough that a burst of keystrokes costs one request.
@@ -120,10 +122,22 @@ interface TransformationFormProps {
   sinkSchema?: any;
   onRefreshFields?: () => void;
   isRefreshing?: boolean;
+  /**
+   * How many nodes before this one have no output for incomingPayload (see
+   * useNodeContext). Non-zero means Test and the Live Preview work on data the
+   * running workflow would have changed first.
+   */
+  inputSkipped?: number;
 }
 
-export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimulation: _onRunSimulation, availableFields = [], incomingPayload, sources = [], sinkSchema, onRefreshFields, isRefreshing }: TransformationFormProps) {
+export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimulation: _onRunSimulation, availableFields = [], incomingPayload, sources = [], sinkSchema, onRefreshFields, isRefreshing, inputSkipped = 0 }: TransformationFormProps) {
   const [testing, setTesting] = useState(false);
+  // The last Test API Call's outcome, which the editor keeps on screen: a toast
+  // is gone before a refusal's reason can be read.
+  const [lastTest, setLastTest] = useState<APILookupTestOutcome | null>(null);
+  useEffect(() => {
+    setLastTest(null);
+  }, [selectedNode?.id]);
   const { fields: targetSchema, loading: loadingTarget, refetch: refetchTarget } = useTargetSchema({ sinkSchema });
 
   const fieldPaths = useMemo(() => 
@@ -306,6 +320,9 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       const res = await apiFetch('/api/transformations/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // Reported below, once. apiFetch's own toast made a refused request
+        // show two.
+        silent: true,
         body: JSON.stringify({
           transformation: {
             type: transType,
@@ -316,6 +333,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
       });
       const data = await res.json();
       if (data.error) {
+        setLastTest({ ok: false, message: data.error });
         notifications.show({ title: 'Test Failed', message: data.error, color: 'orange' });
       } else if (typeof data.branch === 'string') {
         // Routing nodes — switch, condition, router — do not change the
@@ -330,14 +348,17 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
         const result = preparePayload(data);
         const targetField = selectedNode.data.targetField || selectedNode.data.target_field;
         const val = getValByPath(result, targetField);
-        
-        notifications.show({ 
-          title: 'Test Success', 
-          message: `Result for "${targetField}": ${val === undefined ? 'Not Found' : JSON.stringify(val)}`, 
-          color: 'green' 
+        const message = `Result for "${targetField}": ${val === undefined ? 'Not Found' : JSON.stringify(val, null, 2)}`;
+
+        setLastTest({ ok: true, message });
+        notifications.show({
+          title: 'Test Success',
+          message: `Result for "${targetField}": ${val === undefined ? 'Not Found' : JSON.stringify(val)}`,
+          color: 'green'
         });
       }
     } catch (e: any) {
+      setLastTest({ ok: false, message: e.message });
       notifications.show({ title: 'Error', message: e.message, color: 'red' });
     } finally {
       setTesting(false);
@@ -388,6 +409,7 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
             addField={addField}
             onAddFromSource={addFromSource}
             testLookup={testLookup}
+            lastTest={lastTest}
             transType={transType}
             nodeType={selectedNode.type}
           />
@@ -539,6 +561,10 @@ export function TransformationForm({ selectedNode, updateNodeConfig, onRunSimula
                   from your source — then every change previews as you type.
                 </Text>
               </Alert>
+            )}
+
+            {incomingPayload && (
+              <UpstreamNotRunNotice skipped={inputSkipped} onRun={onRefreshFields} running={isRefreshing} />
             )}
 
             <Divider />
