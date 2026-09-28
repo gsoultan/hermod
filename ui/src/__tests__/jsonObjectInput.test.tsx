@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { MantineProvider } from '@mantine/core'
@@ -92,6 +92,92 @@ describe('JsonObjectInput', () => {
 
     await waitFor(() => expect(screen.getByText(/must be a json object/i)).toBeInTheDocument())
     expect(screen.getByTestId('upstream')).toHaveTextContent('{}')
+  })
+
+  it('accepts an array when the caller allows one', async () => {
+    const onCommit = vi.fn()
+    function Arrays() {
+      const [value, setValue] = useState<Record<string, unknown> | unknown[]>([])
+      return (
+        <JsonObjectInput
+          label="Value (JSON)"
+          allowArray
+          value={value}
+          onChange={(next) => { setValue(next); onCommit(next) }}
+        />
+      )
+    }
+    const user = userEvent.setup()
+    ui(<Arrays />)
+
+    const box = screen.getByLabelText('Value (JSON)')
+    await user.clear(box)
+    await user.type(box, '[["source.a", 2]')
+
+    await waitFor(() => expect(onCommit).toHaveBeenLastCalledWith(['source.a', 2]))
+    expect(screen.queryByText(/must be a json/i)).toBeNull()
+  })
+
+  /**
+   * The panel it sits in is a third of the drawer. It grows with its content
+   * now, but a long `source.after...` path still wraps -- the toolbar gives
+   * the draft a tidy layout and the same document a wider editor.
+   */
+  describe('with its toolbar', () => {
+    function Tooled({ initial = {}, onCommit }: { initial?: Record<string, unknown>; onCommit?: (v: any) => void }) {
+      const [value, setValue] = useState<Record<string, unknown>>(initial)
+      return (
+        <JsonObjectInput
+          label="Fields (JSON)"
+          toolbar
+          value={value}
+          onChange={(next: Record<string, unknown>) => { setValue(next); onCommit?.(next) }}
+        />
+      )
+    }
+
+    it('lays the draft out when Format is pressed', async () => {
+      const user = userEvent.setup()
+      ui(<Tooled />)
+
+      const box = screen.getByLabelText('Fields (JSON)')
+      await user.clear(box)
+      await user.type(box, '{{"column.a":{{"b":[[1,2]}}')
+      await user.click(screen.getByRole('button', { name: /^format$/i }))
+
+      expect(box).toHaveValue('{\n  "column.a": {\n    "b": [\n      1,\n      2\n    ]\n  }\n}')
+    })
+
+    it('does not offer to format text that is not JSON yet', async () => {
+      const user = userEvent.setup()
+      ui(<Tooled />)
+
+      const box = screen.getByLabelText('Fields (JSON)')
+      await user.clear(box)
+      await user.type(box, '{{"column.a": ')
+
+      expect(screen.getByRole('button', { name: /^format$/i })).toBeDisabled()
+    })
+
+    it('edits the same document in a larger editor', async () => {
+      const onCommit = vi.fn()
+      const user = userEvent.setup()
+      ui(<Tooled initial={{ 'column.a': 'source.a' }} onCommit={onCommit} />)
+
+      await user.click(screen.getByRole('button', { name: /expand json editor/i }))
+      const dialog = await screen.findByRole('dialog', { name: 'Fields (JSON)' })
+      const big = within(dialog).getByRole('textbox', { name: 'Fields (JSON)' })
+      expect(JSON.parse((big as HTMLTextAreaElement).value)).toEqual({ 'column.a': 'source.a' })
+
+      fireEvent.change(big, { target: { value: '{"column.b": "source.b"}' } })
+      expect(onCommit).toHaveBeenLastCalledWith({ 'column.b': 'source.b' })
+
+      await user.click(within(dialog).getByRole('button', { name: 'Done' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(JSON.parse((screen.getByLabelText('Fields (JSON)') as HTMLTextAreaElement).value)).toEqual({
+        'column.b': 'source.b',
+      })
+    })
   })
 
   it('adopts a change that came from elsewhere', async () => {

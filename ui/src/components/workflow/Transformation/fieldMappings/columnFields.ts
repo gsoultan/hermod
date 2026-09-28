@@ -69,6 +69,42 @@ export function removeColumnField(config: Config | undefined, fullKey: string): 
   return Object.fromEntries(Object.entries(config ?? {}).filter(([k]) => k !== fullKey))
 }
 
+/** A column value that is a JSON document, an object or an array, not an expression. */
+export type JsonColumnValue = Record<string, unknown> | unknown[]
+
+export function isJsonColumnValue(value: unknown): value is JsonColumnValue {
+  return value !== null && typeof value === 'object'
+}
+
+/**
+ * The value a row holds once it is switched to JSON. Text that already is a
+ * JSON object or array becomes that document. Any other expression is kept
+ * inside the new object rather than dropped, so a mis-click loses nothing --
+ * and it shows how a JSON value holds a `source.` path.
+ */
+export function toJsonColumnValue(value: unknown): JsonColumnValue {
+  if (isJsonColumnValue(value)) return value
+  const text = value == null ? '' : String(value)
+  if (text.trim() === '') return {}
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (isJsonColumnValue(parsed)) return parsed
+  } catch {
+    // Not JSON: an expression, kept below.
+  }
+  return { value: text }
+}
+
+/**
+ * The text a row shows as an expression: a JSON value compact, anything else as
+ * it is stored. `String(value || '')` showed a stored 0 or false as an empty
+ * box, and the next keystroke replaced it.
+ */
+export function toExpressionText(value: unknown): string {
+  if (isJsonColumnValue(value)) return JSON.stringify(value)
+  return value == null ? '' : String(value)
+}
+
 /**
  * The name "Add Field" gives a new row.
  *

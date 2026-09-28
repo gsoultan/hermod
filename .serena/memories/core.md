@@ -134,6 +134,13 @@ find a claim that outruns the code, fix the claim.
   across rows), renaming onto a taken path ate a row, and ranging the Go map
   gave a different apply order per message. Blur fires *before* the click that
   caused it, so a pending edit cannot be flushed there.
+- [What a `set` / `advanced` value means](set_node_values.md) — a string is an
+  expression, a string holding `{{` a template, an object or array a JSON
+  document whose text is read only when it starts with `source.` or holds `{{`
+  (`"007"` must stay text). The node used to hand its configured object to the
+  message by reference, so a later node's write leaked into the next message.
+  Open: the `env()`/`secret()` functions read the server environment from any
+  expression.
 - [What a worker reports about its machine](worker_resource_reporting.md) — capacity at
   registration, load only from the health check; zero means "did not say"
 - [The workflow Reliability Policy](reliability_policy.md) — dry-run means read
