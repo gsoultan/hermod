@@ -1166,6 +1166,31 @@ func ResolveTemplateMsg(temp string, msg hermod.Message) string {
 	return scanTemplate(temp, func(path string) string { return stringify(token(path)) })
 }
 
+// EmptyTokens lists the {{ }} tokens in temps that resolve to nothing, or to "",
+// against msg: the holes a request built from them went out with. Each is
+// listed once, as the resolver reads it, in the order met.
+//
+// An endpoint refusing such a request can only describe what it received -- a
+// uuid field holding "" is "invalid request body" -- so the token that found no
+// value is the one fact the refusal cannot carry. This resolves every token a
+// second time, so it belongs on the path that explains a failure, not in front
+// of every request.
+func EmptyTokens(msg hermod.Message, temps ...string) []string {
+	token := messageTokens(msg)
+	var empty []string
+	listed := make(map[string]bool)
+	for _, temp := range temps {
+		scanTemplate(temp, func(path string) string {
+			if !listed[path] && stringify(token(path)) == "" {
+				listed[path] = true
+				empty = append(empty, "{{"+path+"}}")
+			}
+			return ""
+		})
+	}
+	return empty
+}
+
 // messageTokens returns what one token's inner text stands for in msg, typed:
 // an object stays an object until something decides how to write it. It is
 // bound once rather than per token, because a body template holding a dozen

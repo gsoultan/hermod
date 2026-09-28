@@ -7,6 +7,12 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+A node that writes a field the way the editor names it — `after.<column>` — no
+longer wipes the rest of the row for every node after it. An `api_lookup` behind
+such a node sent its body with every `{{.after.x}}` empty, so Refresh and Run
+Simulation were refused while Test API Call passed. A refused `api_lookup` now
+names the tokens it sent empty, and its form is rebuilt for editing a request.
+
 Branches that meet again deliver every message, and a condition can compare a
 row with its own before-image. A running workflow whose condition sent one
 branch through a node and the other straight to the same sink could lose every
@@ -17,6 +23,20 @@ the same answer — no conditions, a condition with no field, or an operator
 Hermod does not know — is now refused when its workflow is saved or started.
 
 ### Upgrading
+
+**A write to `after.<column>` on a CDC message lands in the row.** It used to
+create a nested `after` object holding only the written field, and that object
+became the message's after-image: what a sink received as the row, and what
+every later `{{.after.x}}` read. The row now keeps all its columns, with the
+written one changed. Nothing is known to depend on the nested object. On a
+message without an operation, and on a row with a real column named `after`,
+the write nests as before.
+
+On a version without this fix, name the field without the prefix
+(`scheduled_at`, not `after.scheduled_at`) in the node that writes it.
+
+The `api_lookup` form stores headers, query params and the body exactly as it
+did, so saved workflows need no change.
 
 **An If node that cannot decide is refused on save and start.** A condition node
 with no conditions sent every message down TRUE; one with a condition that has
@@ -34,6 +54,61 @@ A condition, filter, switch case or router rule whose value holds a `{{ }}`
 token for anything but one of the row's own columns — `{{.after.x}}`,
 `{{.before.x}}`, `{{.operation}}`, `{{.table}}`, `{{.meta.x}}` — now compares
 against that value instead of empty text, so its answer can change.
+
+### Writing to `after.<column>` wiped the rest of the row
+
+A CDC message's data map is its after-image, and every reader resolves
+`after.x` to the column `x`. The write side walked the same path as a nested
+key instead, so a `data_conversion` on `after.scheduled_at` or a `set` on
+`column.after.channel` left an `after` object with one field in it — and from
+then on that object was the row. The next node's `{{.after.user_id}}` rendered
+as `""`. The operator's session API decodes that field as a UUID, so it refused
+the body as `invalid request body`.
+
+Test API Call did not see it. With no run to read from, it tested on the
+source sample and skipped the node that broke the row. Refresh and Run
+Simulation run every node, as a running workflow does. That workflow would have
+been refused the same way on every message.
+
+### A refused `api_lookup` names the tokens it sent empty
+
+A refusal used to report only what the endpoint said. The endpoint could only
+describe the body it received, and `invalid request body` does not say which
+field was empty. The error now ends with the tokens that had no value:
+
+```
+api lookup returned status 400: {"code":"invalid_argument","message":"invalid request body"};
+these tokens had no value and were sent empty: {{.after.user_id}}, {{.after.entity_id}}
+```
+
+Only the tokens are named, never their values. The check runs after a refusal,
+not before each request.
+
+### The `api_lookup` form edits a request the way an HTTP client does
+
+Headers, query params and the body shared one tab of small raw-JSON boxes in a
+narrow column, and Test API Call sat on a different tab. Now:
+
+- Method and URL share one line, and Test API Call stays under them on every tab.
+- **Params** and **Headers** are name/value rows, with the JSON one click away.
+  JSON the rows cannot show without changing the request opens as JSON, as
+  written. Each tab shows how many entries it holds.
+- The **Body** is a large monospace editor. **Insert field** puts a `{{ }}`
+  token at the cursor, quoted only outside a string. **Format** re-indents
+  without rounding a 64-bit id, and **Expand** opens a full-size editor.
+- A body on a GET is shown with a warning, because it is still sent. It used to
+  be hidden.
+- The last test result stays on screen, error text in full. A refused request
+  raises one toast, not two.
+- The form's hint said to insert values with `{field}`, which no template
+  resolves. It now says `{{.after.column}}`.
+
+### The editor says when a node's input skipped the nodes before it
+
+When no run has happened yet, a node's input is the nearest payload up the
+graph, usually the source sample. Test and the Live Preview then work on data
+the nodes in between never touched. The editor now says how many nodes were
+skipped, and **Run it on the sample** runs them.
 
 ### Branches that meet again lost messages on one of them
 

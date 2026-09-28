@@ -113,4 +113,13 @@ describe('transformation guide', () => {
       expect(guideFor('join').what).toBe(guideFor('join', 'transformation').what);
     });
   });
+
+  // The api_lookup guide said "use {field}". A template only resolves {{ }}
+  // (evaluator.scanTemplate), so a URL written as the guide said went out with
+  // the literal text "{field}" in it.
+  it('teaches the token syntax api_lookup actually resolves', () => {
+    const g = guideFor('api_lookup');
+    expect(g.firstStep).toContain('{{');
+    expect(g.firstStep).not.toMatch(/(^|[^{]){field}/);
+  });
 });
