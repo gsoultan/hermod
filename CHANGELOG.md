@@ -7,6 +7,16 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A fresh install sends alerts without a restart
+
+After first-run setup, Hermod sent no alert anywhere — not to the email,
+Telegram, Slack, Discord or webhook channels configured in Settings, and not to
+its own notification log — until the process restarted. A first run starts the
+engine before it has a database, and the alert channels were created only when
+the database was there from the start; setup attaching it later did not create
+them. They now exist from the start and work from the moment setup finishes.
+An install that has restarted since its setup was never affected.
+
 ## [1.15.1] — 2026-09-28
 
 A connector or alert channel that authenticates through its request URL —

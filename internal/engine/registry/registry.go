@@ -254,19 +254,24 @@ func (r *Registry) GetSourceFactoryConfig(ctx context.Context, id string) (facto
 }
 
 func NewRegistry(s storage.Storage, ls ...storage.Storage) *Registry {
+	// The channels are registered even when there is no database yet. A first
+	// run builds the registry with nil storage and FinalizeInitialSetup attaches
+	// the database later with SetStorage, which hands it to the channels that
+	// exist; registering them only when storage was given here meant none
+	// existed, and a freshly set-up install sent no alert anywhere until it
+	// restarted. Until storage arrives the service drops alerts, since there are
+	// no settings to read and nowhere to record them.
 	ns := notification.NewService(s)
-	if s != nil {
-		ns.AddProvider(notification.NewUINotificationProvider(s))
-		ns.AddProvider(notification.NewEmailNotificationProvider(s))
-		ns.AddProvider(notification.NewTelegramNotificationProvider(s))
-		ns.AddProvider(notification.NewSlackNotificationProvider(s))
-		ns.AddProvider(notification.NewDiscordNotificationProvider(s))
-		ns.AddProvider(notification.NewGenericWebhookProvider(s))
-		// Without this a failing channel reported itself to stdout and nowhere
-		// else, so a rejected Telegram token looked exactly like no alerts
-		// being due.
-		ns.SetLogger(telemetry.NewDefaultLogger())
-	}
+	ns.AddProvider(notification.NewUINotificationProvider(s))
+	ns.AddProvider(notification.NewEmailNotificationProvider(s))
+	ns.AddProvider(notification.NewTelegramNotificationProvider(s))
+	ns.AddProvider(notification.NewSlackNotificationProvider(s))
+	ns.AddProvider(notification.NewDiscordNotificationProvider(s))
+	ns.AddProvider(notification.NewGenericWebhookProvider(s))
+	// Without this a failing channel reported itself to stdout and nowhere
+	// else, so a rejected Telegram token looked exactly like no alerts being
+	// due.
+	ns.SetLogger(telemetry.NewDefaultLogger())
 
 	var logStore storage.Storage
 	if len(ls) > 0 {
