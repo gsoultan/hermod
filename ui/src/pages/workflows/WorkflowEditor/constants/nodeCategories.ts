@@ -50,6 +50,7 @@ export const NODE_CATEGORIES = [
     items: [
       { type: 'transformation', refId: 'new', label: 'DB Lookup', subType: 'db_lookup', icon: IconSearch, color: 'teal', description: 'Enrich data from a database' },
       { type: 'transformation', refId: 'new', label: 'API Lookup', subType: 'api_lookup', icon: IconCloud, color: 'teal', description: 'Fetch and merge from HTTP APIs' },
+      { type: 'transformation', refId: 'new', label: 'Panmail Providers', subType: 'panmail_providers', icon: IconMail, color: 'teal', description: 'List a panmail tenant\'s email providers' },
       { type: 'transformation', refId: 'new', label: 'AI Enrichment', subType: 'ai_enrichment', icon: IconSettingsAutomation, color: 'teal', description: 'Enrich data using LLMs (OpenAI, Ollama)' },
       { type: 'transformation', refId: 'new', label: 'AI Mapper', subType: 'ai_mapper', icon: IconSettingsAutomation, color: 'teal', description: 'Map unstructured data to schema using AI' },
       { type: 'transformation', refId: 'new', label: 'Pipeline', subType: 'pipeline', icon: IconPlaylist, color: 'teal', description: 'Compose multiple steps' },
