@@ -147,6 +147,13 @@ that does not compile, and the If node's editor says what an empty list does:
 every message takes the TRUE branch. The engine itself is unchanged, so nothing
 already running changes its routing.
 
+### Opening an If or Filter saved through the API no longer crashes the editor
+
+A workflow created through the API can store a node's `conditions` as a JSON
+string. The engine runs it, but opening an If or Filter node handed the string
+to the conditions editor and took the whole editor down. The string is now read
+as the list it holds, and a value that is not a list shows no conditions.
+
 ## [1.15.2] — 2026-09-28
 
 A freshly set-up install sends its alerts. After first-run setup, Hermod sent
