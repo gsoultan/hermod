@@ -24,6 +24,7 @@ import { SQLConfig } from './enrichment/SQLConfig'
 import { FuzzyLookupConfig } from './enrichment/FuzzyLookupConfig'
 import { TermExtractionConfig } from './enrichment/TermExtractionConfig'
 import { APILookupConfig } from './enrichment/APILookupConfig'
+import { PanmailProvidersConfig } from './enrichment/PanmailProvidersConfig'
 import { AIConfig } from './enrichment/AIConfig'
 
 // logic
@@ -132,6 +133,7 @@ export const TRANSFORM_CONFIGS: Record<string, ConfigComponent> = {
   fuzzy_lookup: FuzzyLookupConfig,
   term_extraction: TermExtractionConfig,
   api_lookup: APILookupConfig,
+  panmail_providers: PanmailProvidersConfig,
   ai_enrichment: AIConfig,
   ai_mapper: AIConfig,
 
