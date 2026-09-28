@@ -7,6 +7,24 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.16.1] — 2026-09-28
+
+A Set Fields value written as a JSON object reads the `source.` paths and
+`{{ }}` tokens inside it, where it used to send the path text itself. The Set
+Fields and Advanced panels edit a mapping as rows or as JSON, with room for
+long paths and object values.
+
+### Upgrading
+
+**A Set Fields or Advanced value can change what it writes.** Text inside an
+object or array value that starts with `source.` or holds a `{{ }}` token is
+now read instead of written as it stands, and a `{{ }}` token in any value now
+resolves. A mapping that meant that text literally writes the value it names
+instead. Every other value is written as before.
+
+Hermod now pins panmail-sdk to its `v0.1.0-rc.3` tag instead of the untagged
+commit 1.16.0 used. The Go code is the same, so nothing changes.
+
 ### A Set Fields value that is a JSON object reads its `source.` paths
 
 `column.after.QueryParams` set to
@@ -5025,6 +5043,7 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.16.1]: https://github.com/gsoultan/hermod/releases/tag/v1.16.1
 [1.16.0]: https://github.com/gsoultan/hermod/releases/tag/v1.16.0
 [1.15.2]: https://github.com/gsoultan/hermod/releases/tag/v1.15.2
 [1.15.1]: https://github.com/gsoultan/hermod/releases/tag/v1.15.1
