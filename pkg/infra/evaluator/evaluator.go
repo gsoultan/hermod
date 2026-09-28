@@ -1440,6 +1440,27 @@ func resolveTemplatePath(path string, data map[string]any) string {
 	return stringify(val)
 }
 
+// resolveConditionValue renders the {{ }} tokens in a condition's value with
+// the reader the condition's field uses.
+//
+// Both sides of a condition are compared as text, so both have to be read the
+// same way. The value went through ResolveTemplate, which walks the bare data
+// map, and a CDC message's data map *is* its after-image: {{.after.status}} —
+// what the value's own field picker inserts — {{.before.status}},
+// {{.operation}} and {{.meta.x}} all rendered "", so `=` was false for every
+// row whatever it held. ResolveTemplateMsg reaches the envelope too, but it
+// keeps Go types for SQL binding, so a []byte or a time.Time would render
+// differently from the field it is compared with.
+func resolveConditionValue(temp string, msg hermod.Message) string {
+	return scanTemplate(temp, func(path string) string {
+		if strings.HasPrefix(path, "env.") {
+			// Environment variable access is disabled for security reasons
+			return ""
+		}
+		return stringify(EvaluateField(msg, strings.TrimPrefix(path, ".")))
+	})
+}
+
 func EvaluateField(msg hermod.Message, field string) any {
 	if (strings.Contains(field, "(") && strings.HasSuffix(field, ")")) || strings.HasPrefix(field, "source.") {
 		e := NewEvaluator()
@@ -1469,11 +1490,7 @@ func EvaluateConditions(msg hermod.Message, conditions []map[string]any) bool {
 		valResolved := val
 		if vs, ok := val.(string); ok {
 			if strings.Contains(vs, "{{") && strings.Contains(vs, "}}") {
-				var data map[string]any
-				if msg != nil {
-					data = msg.Data()
-				}
-				valResolved = ResolveTemplate(vs, data)
+				valResolved = resolveConditionValue(vs, msg)
 			} else {
 				valResolved = vs
 			}
@@ -1713,6 +1730,21 @@ func compilePattern(expr string) (*regexp.Regexp, error) {
 	compiledPatterns.m[expr] = compiledPattern{re: re, err: err}
 	return re, err
 }
+
+// conditionOperators is every operator EvaluateConditions applies. Any other
+// spelling reaches no case there and leaves `match` false, so a condition using
+// it fails every message; TestConditionOperatorsAreTheOnesEvaluated holds the
+// two together.
+var conditionOperators = map[string]bool{
+	"=": true, "eq": true, "!=": true, "neq": true,
+	">": true, "gt": true, ">=": true, "gte": true,
+	"<": true, "lt": true, "<=": true, "lte": true,
+	"contains": true, "not_contains": true,
+	"regex": true, "not_regex": true,
+}
+
+// IsConditionOperator reports whether EvaluateConditions applies op.
+func IsConditionOperator(op string) bool { return conditionOperators[op] }
 
 // ValidateConditions reports the first condition whose regex cannot compile.
 //

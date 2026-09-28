@@ -454,6 +454,49 @@ func TestSimulationReportsOnlyTheBranchAConditionTook(t *testing.T) {
 	}
 }
 
+// An If node with no conditions is refused when its workflow is saved or started
+// from the editor (undecidableConditionIssues). A workflow already running one
+// is left alone on purpose: the registry's own validation, which an active
+// workflow passes when Hermod restarts it, still accepts the node, and the node
+// still sends every message down TRUE instead of failing it.
+func TestAnEmptyConditionStillRunsTheWayItDid(t *testing.T) {
+	reg := newSimRegistry(t)
+	wf := storage.Workflow{
+		ID: "sim-empty-condition", Name: "empty condition",
+		Nodes: []storage.WorkflowNode{
+			{ID: "src", Type: "source", RefID: "src-1"},
+			{ID: "if", Type: "condition", Config: map[string]any{
+				"label": "Condition (If)", "type": "condition", "conditions": []any{},
+			}},
+			{ID: "yes", Type: "transformation", Config: map[string]any{"transType": "set", "column.lane": "'yes'"}},
+			{ID: "no", Type: "transformation", Config: map[string]any{"transType": "set", "column.lane": "'no'"}},
+			{ID: "snk", Type: "sink", RefID: "snk-1"},
+		},
+		Edges: []storage.WorkflowEdge{
+			{ID: "e-in", SourceID: "src", TargetID: "if"},
+			{ID: "e-true", SourceID: "if", TargetID: "yes", SourceHandle: "true"},
+			{ID: "e-false", SourceID: "if", TargetID: "no", SourceHandle: "false"},
+			{ID: "e-yes", SourceID: "yes", TargetID: "snk"},
+			{ID: "e-no", SourceID: "no", TargetID: "snk"},
+		},
+	}
+
+	if err := reg.ValidateWorkflow(t.Context(), wf); err != nil {
+		t.Fatalf("the registry refused a workflow with an empty condition, so it would stop on restart: %v", err)
+	}
+
+	steps, err := reg.SimulateWorkflow(t.Context(), wf, SimulationInput{Message: sampleMessage(t, `{"tier":"silver"}`)})
+	if err != nil {
+		t.Fatalf("SimulateWorkflow: %v", err)
+	}
+	if s := stepOf(t, steps, "if"); s.Error != "" || s.Branch != "true" {
+		t.Errorf("an empty condition took branch %q with error %q; running workflows rely on TRUE", s.Branch, s.Error)
+	}
+	if payloadOf(steps, "no") != nil {
+		t.Errorf("the FALSE branch was reached by an empty condition")
+	}
+}
+
 func TestSimulationTellsADroppedMessageFromOneThatNeverArrived(t *testing.T) {
 	reg := newSimRegistry(t)
 	wf := storage.Workflow{
