@@ -1,6 +1,7 @@
 import { Stack, Alert, Text, rem } from '@mantine/core';
 import { IconInfoCircle } from '@tabler/icons-react';
 import { Suspense, lazy } from 'react';
+import { parseConditions } from '../../parseConditions';
 
 const FilterEditor = lazy(() =>
   import('../../FilterEditor').then((m) => ({ default: m.FilterEditor }))
@@ -35,7 +36,7 @@ export function ConditionConfig({
       </Alert>
       <Suspense fallback={<Text size="xs" p="md">Loading conditions editor...</Text>}>
         <FilterEditor
-          conditions={config.conditions || []}
+          conditions={parseConditions(config.conditions)}
           availableFields={availableFields}
           onChange={(val: any) => updateNodeConfig(nodeId, { conditions: val })}
         />
