@@ -7,6 +7,19 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+## [1.15.2] — 2026-09-28
+
+A freshly set-up install sends its alerts. After first-run setup, Hermod sent
+none — not to the email, Telegram, Slack, Discord or webhook channels
+configured in Settings, and not to its own notification log — until the
+process restarted.
+
+### Upgrading
+
+Nothing to do. Upgrading restarts Hermod, which was already enough to bring
+alerts back on an existing install; the fix is for new installs, which now
+alert from the moment setup finishes.
+
 ### A fresh install sends alerts without a restart
 
 After first-run setup, Hermod sent no alert anywhere — not to the email,
@@ -4762,6 +4775,7 @@ Stated here rather than discovered later. All three are also in `README.md` or
   were left alone rather than changed mechanically. Treat a restart as
   potentially lossy for these. They are Experimental in `README.md`.
 
+[1.15.2]: https://github.com/gsoultan/hermod/releases/tag/v1.15.2
 [1.15.1]: https://github.com/gsoultan/hermod/releases/tag/v1.15.1
 [1.15.0]: https://github.com/gsoultan/hermod/releases/tag/v1.15.0
 [1.14.1]: https://github.com/gsoultan/hermod/releases/tag/v1.14.1
