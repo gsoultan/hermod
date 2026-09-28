@@ -147,6 +147,15 @@ that does not compile, and the If node's editor says what an empty list does:
 every message takes the TRUE branch. The engine itself is unchanged, so nothing
 already running changes its routing.
 
+### A join fires when one of its branches filters the message out
+
+A join waits for every branch into it. When a node on one branch emitted
+nothing, such as a filter dropping the message, that branch was never counted
+as done, so the join never fired and the message the other branch brought it
+was never written. That branch now counts as done, and the join fires with
+what arrived, as Run Simulation already showed. A join none of whose branches
+delivered anything still writes nothing.
+
 ## [1.15.2] — 2026-09-28
 
 A freshly set-up install sends its alerts. After first-run setup, Hermod sent
