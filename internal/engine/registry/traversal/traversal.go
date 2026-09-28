@@ -404,9 +404,15 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 		msgs = msgs[:1]
 	}
 
+	// A node that emitted nothing — a filter that dropped the message — sends
+	// nothing along any edge, taken or not, so every edge is pruned. Delivering
+	// one message per output resolved none of them, and a join downstream waited
+	// for an edge that was never going to arrive while the message another branch
+	// brought it went unwritten. The editor's simulation counts such an edge as
+	// walked (simulation.forward); this is the same rule.
 	targets := t.Adj[node.ID]
 	for _, targetID := range targets {
-		if TakesEdge(branch, t.EdgeLabels[node.ID+":"+targetID]) {
+		if len(msgs) > 0 && TakesEdge(branch, t.EdgeLabels[node.ID+":"+targetID]) {
 			for _, msg := range msgs {
 				// Clone the message if it's going to multiple targets to avoid data races
 				// when nodes modify the message concurrently.
