@@ -7,6 +7,39 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+A node that writes a field the way the editor names it — `after.<column>` — no
+longer wipes the rest of the row for every node after it. An `api_lookup` behind
+such a node sent its body with every `{{.after.x}}` empty, so Refresh and Run
+Simulation were refused while Test API Call passed.
+
+### Upgrading
+
+**A write to `after.<column>` on a CDC message lands in the row.** It used to
+create a nested `after` object holding only the written field, and that object
+became the message's after-image: what a sink received as the row, and what
+every later `{{.after.x}}` read. The row now keeps all its columns, with the
+written one changed. Nothing is known to depend on the nested object. On a
+message without an operation, and on a row with a real column named `after`,
+the write nests as before.
+
+On a version without this fix, name the field without the prefix
+(`scheduled_at`, not `after.scheduled_at`) in the node that writes it.
+
+### Writing to `after.<column>` wiped the rest of the row
+
+A CDC message's data map is its after-image, and every reader resolves
+`after.x` to the column `x`. The write side walked the same path as a nested
+key instead, so a `data_conversion` on `after.scheduled_at` or a `set` on
+`column.after.channel` left an `after` object with one field in it — and from
+then on that object was the row. The next node's `{{.after.user_id}}` rendered
+as `""`. The operator's session API decodes that field as a UUID, so it refused
+the body as `invalid request body`.
+
+Test API Call did not see it. With no run to read from, it tested on the
+source sample and skipped the node that broke the row. Refresh and Run
+Simulation run every node, as a running workflow does. That workflow would have
+been refused the same way on every message.
+
 ## [1.15.2] — 2026-09-28
 
 A freshly set-up install sends its alerts. After first-run setup, Hermod sent
