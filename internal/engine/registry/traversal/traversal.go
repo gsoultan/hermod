@@ -495,11 +495,24 @@ func (t *WorkflowTraversal) pruneBranch(ctx context.Context, targetID string) {
 	idx := t.NodeIndex[targetID]
 	newCount := atomic.AddInt32(&t.ResolvedCount[idx], 1)
 	if newCount >= t.ReceivedCount[idx] {
-		// If the node hasn't fired yet, and it was reached only by pruned branches,
-		// we must continue pruning its successors.
 		if atomic.CompareAndSwapInt32(&t.Fired[idx], 0, 1) {
-			targets := t.Adj[targetID]
-			for _, nextID := range targets {
+			// Being the last edge in does not make a node unreached. A condition
+			// whose false branch runs straight to the sink its true branch also
+			// reaches, drawn in that order, delivers to the sink first and prunes
+			// the true branch after — so the prune arrives last at a node that
+			// already holds the message. Pruning it there dropped the message, and
+			// the engine could only report it as delivered nowhere. resolveEdge
+			// stores the message before it counts the edge, so a delivery that
+			// happened is visible here.
+			t.MsgMu.Lock()
+			delivered := t.CurrentMessages[idx] != nil
+			t.MsgMu.Unlock()
+			if delivered {
+				t.Wg.Go(func() { t.processNode(ctx, targetID) })
+				return
+			}
+			// Reached only by pruned branches: prune what it feeds, too.
+			for _, nextID := range t.Adj[targetID] {
 				t.pruneBranch(ctx, nextID)
 			}
 		}
