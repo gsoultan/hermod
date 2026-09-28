@@ -154,6 +154,15 @@ string. The engine runs it, but opening an If or Filter node handed the string
 to the conditions editor and took the whole editor down. The string is now read
 as the list it holds, and a value that is not a list shows no conditions.
 
+### A join fires when one of its branches filters the message out
+
+A join waits for every branch into it. When a node on one branch emitted
+nothing, such as a filter dropping the message, that branch was never counted
+as done, so the join never fired and the message the other branch brought it
+was never written. That branch now counts as done, and the join fires with
+what arrived, as Run Simulation already showed. A join none of whose branches
+delivered anything still writes nothing.
+
 ## [1.15.2] — 2026-09-28
 
 A freshly set-up install sends its alerts. After first-run setup, Hermod sent
