@@ -2,6 +2,11 @@ package registry
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
@@ -11,6 +16,7 @@ import (
 
 	"github.com/gsoultan/hermod/internal/notification"
 	"github.com/gsoultan/hermod/internal/storage"
+	sqlstorage "github.com/gsoultan/hermod/internal/storage/sql"
 	"github.com/gsoultan/hermod/pkg/engine/telemetry"
 )
 
@@ -207,4 +213,114 @@ func TestLifecycleAlertsUseInfoSeverity(t *testing.T) {
 			t.Errorf("levels = %v, want [ERROR]", got)
 		}
 	})
+}
+
+// A fresh install builds its registry before it has a database: main.go passes
+// nil storage on a first run, and FinalizeInitialSetup attaches the database
+// afterwards with SetStorage. The alert channels were registered only when
+// NewRegistry was handed storage, and SetStorage updates the channels that
+// exist -- none -- so a freshly set-up Hermod alerted nowhere, not its
+// configured channels and not its own UI, until the process restarted.
+// Measured live on v1.15.0: a workflow went to Error, its status said so, and
+// no alert arrived.
+
+// alertChannel is a webhook alert channel that records what it is sent.
+func alertChannel(t *testing.T) (*httptest.Server, <-chan string) {
+	t.Helper()
+	received := make(chan string, 8)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		received <- string(body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, received
+}
+
+// setUpStore is the database first-run setup hands the registry: real SQLite,
+// holding the alert channels an operator configured.
+func setUpStore(t *testing.T, webhookURL string) storage.Storage {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:fresh_"+t.Name()+"?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store := sqlstorage.NewSQLStorage(db, "sqlite")
+	if err := store.Init(t.Context()); err != nil {
+		t.Fatalf("init store: %v", err)
+	}
+	settings, err := json.Marshal(notification.NotificationSettings{WebhookURL: webhookURL})
+	if err != nil {
+		t.Fatalf("marshal settings: %v", err)
+	}
+	if err := store.SaveSetting(t.Context(), "notification_settings", string(settings)); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	return store
+}
+
+func delivered(t *testing.T, reg *Registry, received <-chan string) []string {
+	t.Helper()
+	if !reg.notificationService.WaitFor(5 * time.Second) {
+		t.Fatal("alerts were still being sent after 5s")
+	}
+	var bodies []string
+	for {
+		select {
+		case b := <-received:
+			bodies = append(bodies, b)
+		default:
+			return bodies
+		}
+	}
+}
+
+func TestAFreshInstallAlertsWithoutARestart(t *testing.T) {
+	channel, received := alertChannel(t)
+
+	reg := NewRegistry(nil) // a first run: no database yet
+	store := setUpStore(t, channel.URL)
+	reg.SetStorage(store) // what FinalizeInitialSetup does
+
+	wf := storage.Workflow{ID: "wf-fresh", Name: "orders"}
+	reg.notificationService.Notify(t.Context(), "Workflow Error", "orders entered error state: sink unreachable", wf)
+
+	bodies := delivered(t, reg, received)
+	if len(bodies) == 0 || !strings.Contains(bodies[0], "sink unreachable") {
+		t.Errorf("the webhook channel received %q; a freshly set-up install must alert without a restart", bodies)
+	}
+
+	logs, _, err := store.ListLogs(t.Context(), storage.LogFilter{
+		CommonFilter: storage.CommonFilter{Limit: 10}, WorkflowID: "wf-fresh", Action: "NOTIFICATION",
+	})
+	if err != nil {
+		t.Fatalf("list logs: %v", err)
+	}
+	if len(logs) == 0 {
+		t.Error("no NOTIFICATION log: the alert never reached the UI either")
+	}
+}
+
+// With the channels in place before a database exists, an alert raised in that
+// window has nothing to read settings from and nowhere to record itself. It must
+// be dropped -- not dereference the missing database -- and must not count
+// against the five-minute repeat window, or the first real alert after setup
+// would be swallowed as a duplicate.
+func TestAnAlertBeforeSetupNeitherPanicsNorSilencesTheNextOne(t *testing.T) {
+	channel, received := alertChannel(t)
+	reg := NewRegistry(nil)
+	wf := storage.Workflow{ID: "wf-fresh", Name: "orders"}
+
+	reg.notificationService.Notify(t.Context(), "Workflow Error", "raised before setup", wf)
+	if got := delivered(t, reg, received); len(got) != 0 {
+		t.Fatalf("an alert with no database delivered %q", got)
+	}
+
+	reg.SetStorage(setUpStore(t, channel.URL))
+	reg.notificationService.Notify(t.Context(), "Workflow Error", "raised after setup", wf)
+
+	bodies := delivered(t, reg, received)
+	if len(bodies) != 1 || !strings.Contains(bodies[0], "raised after setup") {
+		t.Errorf("after setup the channel received %q, want the one alert raised after setup", bodies)
+	}
 }

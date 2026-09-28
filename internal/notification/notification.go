@@ -198,6 +198,14 @@ func (s *Service) Notify(ctx context.Context, title, message string, wf storage.
 // NotifyLevel raises an alert at an explicit severity.
 func (s *Service) NotifyLevel(ctx context.Context, level, title, message string, wf storage.Workflow) {
 	s.mu.Lock()
+	// No database yet -- a first run before setup finishes. There are no
+	// channel settings to read and nowhere to record the alert, and every
+	// provider would dereference the missing storage. Checked before the repeat
+	// window below, so a dropped alert does not silence the first real one.
+	if s.storage == nil {
+		s.mu.Unlock()
+		return
+	}
 	key := wf.ID + ":" + title
 	if last, ok := s.lastSent[key]; ok {
 		if time.Since(last) < 5*time.Minute {
