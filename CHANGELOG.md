@@ -7,6 +7,31 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+Branches that meet again deliver every message. A running workflow whose
+condition sent one branch through a node and the other straight to the same
+sink could lose every message on the straight branch, depending on the order
+its edges were drawn.
+
+### Upgrading
+
+Nothing to do. The messages a rejoining branch lost were never acknowledged as
+delivered: with a dead-letter sink they are parked there, and without one they
+stayed on the source and were logged as "Messages delivered nowhere".
+
+### Branches that meet again lost messages on one of them
+
+The usual way to tag the rows that match and pass the rest through is to draw a
+condition's true branch through a node and its false branch straight to the
+same sink. The sink waits for both edges, and a running workflow resolves the
+branch a message did not take by pruning it. When the pruned edge was the last
+to arrive, the sink was pruned too, with the message from the other branch
+already waiting in it. Which edge arrives last follows the order the edges were
+drawn, so one workflow could lose every message on its false branch and none on
+its true one. The same held for a switch or router whose routes meet again.
+
+The editor's simulation walks the graph its own way and showed both branches
+delivering, so a preview could not reveal it.
+
 ## [1.15.2] — 2026-09-28
 
 A freshly set-up install sends its alerts. After first-run setup, Hermod sent
