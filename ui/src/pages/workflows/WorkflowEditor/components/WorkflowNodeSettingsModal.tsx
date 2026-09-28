@@ -20,6 +20,8 @@ interface WorkflowNodeSettingsModalProps {
   workerID: string;
   availableFields: any[];
   incomingPayload: any;
+  /** Nodes before this one with no output for incomingPayload; see useNodeContext. */
+  inputSkipped?: number;
   sinks: Sink[];
   upstreamSource: any;
   setSettingsOpened: (opened: boolean) => void;
@@ -31,7 +33,7 @@ interface WorkflowNodeSettingsModalProps {
 export function WorkflowNodeSettingsModal({
   opened, onClose, selectedNode, selectedNodeData,
   handleInlineSave, handleTest, handleRefreshFields, isRefreshing,
-  vhost, workerID, availableFields, incomingPayload, sinks, upstreamSource,
+  vhost, workerID, availableFields, incomingPayload, inputSkipped, sinks, upstreamSource,
   setSettingsOpened, updateNodeConfig, deleteNode, sinkSchema
 }: WorkflowNodeSettingsModalProps) {
   return (
@@ -109,6 +111,7 @@ export function WorkflowNodeSettingsModal({
                   sinkSchema={sinkSchema}
                   onRefreshFields={handleRefreshFields}
                   isRefreshing={isRefreshing}
+                  inputSkipped={inputSkipped}
                 />
                 <Group justify="flex-end" mt="md">
                    <Button variant="light" onClick={() => {

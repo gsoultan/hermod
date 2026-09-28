@@ -174,6 +174,10 @@ find a claim that outruns the code, fix the claim.
   (jsonb), everything else is escaped, and literals are kept byte for byte;
   `Content-Type: application/json` is added by default, and a refusal carries
   the reply.
+- [A write to `after.<column>` lands in the row](after_image_writes.md) — it used
+  to make a one-field `after` object that became the after-image, so every
+  `{{.after.x}}` downstream went out `""`. A refused `api_lookup` now names its
+  empty tokens, and the editor counts the nodes a Test's input skipped.
 - [A SQL template resolves paths like every other template now](template_sample_shape_differs_by_path.md)
   — `{{ }}` tokens walked the data map while everything else in Hermod used the
   evaluator, so `after.x` returned rows in the editor's SQL builder and bound
