@@ -404,9 +404,15 @@ func (t *WorkflowTraversal) handleResults(ctx context.Context, node *storage.Wor
 		msgs = msgs[:1]
 	}
 
+	// A node that emitted nothing — a filter that dropped the message — sends
+	// nothing along any edge, taken or not, so every edge is pruned. Delivering
+	// one message per output resolved none of them, and a join downstream waited
+	// for an edge that was never going to arrive while the message another branch
+	// brought it went unwritten. The editor's simulation counts such an edge as
+	// walked (simulation.forward); this is the same rule.
 	targets := t.Adj[node.ID]
 	for _, targetID := range targets {
-		if TakesEdge(branch, t.EdgeLabels[node.ID+":"+targetID]) {
+		if len(msgs) > 0 && TakesEdge(branch, t.EdgeLabels[node.ID+":"+targetID]) {
 			for _, msg := range msgs {
 				// Clone the message if it's going to multiple targets to avoid data races
 				// when nodes modify the message concurrently.
@@ -495,18 +501,25 @@ func (t *WorkflowTraversal) pruneBranch(ctx context.Context, targetID string) {
 	idx := t.NodeIndex[targetID]
 	newCount := atomic.AddInt32(&t.ResolvedCount[idx], 1)
 	if newCount >= t.ReceivedCount[idx] {
-		// If the node hasn't fired yet, and it was reached only by pruned branches,
-		// we must continue pruning its successors.
-		if atomic.CompareAndSwapInt32(&t.Fired[idx], 0, 1) {
-			targets := t.Adj[targetID]
-			for _, nextID := range targets {
-				t.pruneBranch(ctx, nextID)
-			}
+		if !atomic.CompareAndSwapInt32(&t.Fired[idx], 0, 1) {
+			return
 		}
-	} else {
-		// Even if not yet fully resolved, we should check if there's any other path
-		// that could still reach it. The current logic handles this by incrementing
-		// ResolvedCount.
+		// The prune can be the last edge to resolve on a node another edge has
+		// already delivered to: a join whose other branch arrived first. That node
+		// was not reached only by pruned branches, and pruning it discarded the
+		// message waiting for it. resolveEdge stores the message before it counts
+		// the edge, so one delivered before this count is visible here.
+		t.MsgMu.Lock()
+		delivered := t.CurrentMessages[idx] != nil
+		t.MsgMu.Unlock()
+		if delivered {
+			t.Wg.Go(func() { t.processNode(ctx, targetID) })
+			return
+		}
+		// Reached only by pruned branches, so its successors are pruned too.
+		for _, nextID := range t.Adj[targetID] {
+			t.pruneBranch(ctx, nextID)
+		}
 	}
 }
 

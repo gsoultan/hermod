@@ -84,6 +84,16 @@ graph, usually the source sample. Test and the Live Preview then work on data
 the nodes in between never touched. The editor now says how many nodes were
 skipped, and **Run it on the sample** runs them.
 
+### A join fires when one of its branches filters the message out
+
+A join waits for every branch into it. When a node on one branch emitted
+nothing, such as a filter dropping the message, that branch was never counted
+as done, so the join never fired and the message the other branch brought it
+was never written. The same loss happened when a switch's untaken branch was
+the last to reach a join the taken branch had already delivered to. Both now
+count as done, and the join fires with what arrived, as Run Simulation already
+showed. A join none of whose branches delivered anything still writes nothing.
+
 ## [1.15.2] — 2026-09-28
 
 A freshly set-up install sends its alerts. After first-run setup, Hermod sent
