@@ -134,6 +134,11 @@ const GUIDES: Record<string, TransformationGuide> = {
     what: 'Enriches each record with data fetched from an HTTP API.',
     firstStep: 'Enter the URL. Put record values in as {{.after.column}}, or pick one with the { } button.',
   },
+  panmail_providers: {
+    title: 'Panmail providers',
+    what: 'Adds the list of email providers configured in a panmail gateway, with each one\'s id, name, type and allowed domains.',
+    firstStep: 'Enter the gateway URL and an API key with the providers:read scope.',
+  },
   execute_sql: {
     title: 'Run SQL',
     what: 'Runs a SQL statement for each record.',

@@ -163,6 +163,24 @@ was never written. That branch now counts as done, and the join fires with
 what arrived, as Run Simulation already showed. A join none of whose branches
 delivered anything still writes nothing.
 
+### Added — a `panmail_providers` transformation lists a panmail tenant's providers
+
+A new **Panmail Providers** node (Advanced Transformations) writes the email
+providers of a [panmail](https://github.com/gsoultan/panmail) tenant into the
+message — `id`, `name`, `type` and `allowedDomains` for each — using
+panmail-sdk's `ListProviders`. It is how a workflow finds the provider id a
+panmail sink sends with, without copying it off the Email Providers page.
+
+It needs the gateway URL and an API key with the `providers:read` scope. Those
+two resolve `{{env.X}}` and `{{secret("X")}}` but never row data, so a record
+cannot choose where the key is sent. The name filter may use row data. The list
+is cached for five minutes by default (`ttl`, `0` turns it off), keyed on a
+digest that never holds the key in the clear. Connection settings the gateway
+returns are not copied into the message.
+
+panmail-sdk moves to the `main` commit that added `ListProviders`, as no tag
+carries it yet.
+
 ## [1.15.2] — 2026-09-28
 
 A freshly set-up install sends its alerts. After first-run setup, Hermod sent

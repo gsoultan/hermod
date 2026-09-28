@@ -9,6 +9,7 @@ const REGISTRY_KEYS = [
   'mask_emails', 'advanced', 'pipeline', 'validator', 'validate', 'char_map',
   'data_conversion', 'sampling', 'unpivot', 'pivot', 'scd', 'lookup',
   'db_lookup', 'execute_sql', 'fuzzy_lookup', 'term_extraction', 'api_lookup',
+  'panmail_providers',
   'ai_enrichment', 'ai_mapper', 'condition', 'switch', 'router', 'wait',
   'join', 'foreach', 'fanout', 'collect', 'circuit_breaker', 'approval',
   'stateful', 'log', 'multicast',
