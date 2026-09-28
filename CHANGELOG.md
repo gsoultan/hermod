@@ -10,7 +10,8 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 A node that writes a field the way the editor names it — `after.<column>` — no
 longer wipes the rest of the row for every node after it. An `api_lookup` behind
 such a node sent its body with every `{{.after.x}}` empty, so Refresh and Run
-Simulation were refused while Test API Call passed.
+Simulation were refused while Test API Call passed. A refused `api_lookup` now
+names the tokens it sent empty.
 
 ### Upgrading
 
@@ -39,6 +40,20 @@ Test API Call did not see it. With no run to read from, it tested on the
 source sample and skipped the node that broke the row. Refresh and Run
 Simulation run every node, as a running workflow does. That workflow would have
 been refused the same way on every message.
+
+### A refused `api_lookup` names the tokens it sent empty
+
+A refusal used to report only what the endpoint said. The endpoint could only
+describe the body it received, and `invalid request body` does not say which
+field was empty. The error now ends with the tokens that had no value:
+
+```
+api lookup returned status 400: {"code":"invalid_argument","message":"invalid request body"};
+these tokens had no value and were sent empty: {{.after.user_id}}, {{.after.entity_id}}
+```
+
+Only the tokens are named, never their values. The check runs after a refusal,
+not before each request.
 
 ## [1.15.2] — 2026-09-28
 
