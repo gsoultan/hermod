@@ -87,8 +87,9 @@ find a claim that outruns the code, fix the claim.
   JSON-normalised first (`[]byte` becomes base64), and `stringify` renders a
   number the way JSON does rather than `%v`, which spelled 1704207845 as
   "1.704207845e+09". A `{{ }}` in the value reads like the field (it used to
-  render `after.`/`before.`/`meta.` as `""`); the traps that still read as
-  "always false"; and an empty list is `true`. The TS twin is dead code.
+  render `after.`/`before.`/`meta.` as `""`); an If node with no conditions, a
+  blank field or an unknown operator is refused on save and start, not in the
+  engine; the traps that still read as "always false". The TS twin is dead code.
 - [Expression functions: one evaluator](expression_function_parity.md) —
   `CallFunction` is the only evaluator the product runs; every preview is
   answered by the server, and the TypeScript one in `transformationUtils.ts` is

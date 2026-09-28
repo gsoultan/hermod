@@ -63,15 +63,27 @@ None of these is an error; each compares text that can never match:
   compares the quotes too;
 - a bare name inside a function, `lower(status)` — it is the literal `status`;
   write `lower(source.status)` (the placeholder says so);
-- an operator the switch does not know (`==`, `equals`, missing) — `match`
-  stays false, and the editor *displays* `=` for a missing one
-  (`cond.operator || '='`);
-- a row with a blank Field — it compares `""`;
-- a leading or trailing space in the Field.
+- a leading or trailing space in the Field, or `Status` for `status`.
 
-And the opposite: **no conditions at all is `true`** (`len == 0` guard), so an
-empty If node sends everything down TRUE with nothing logged. Filter relies on
-that; switch and router never hand the evaluator an empty list.
+## What save and start refuse (an If node only)
+
+`undecidableConditionIssues` (`internal/workflow/transport/http/workflow_validation.go`)
+makes these errors for a `condition` node, so Create, Update and Toggle refuse
+the workflow:
+
+- **no conditions** — the evaluator reads an empty list as `true`, so every
+  message took TRUE (right for a Filter, which keeps everything; switch and
+  router never hand it an empty list);
+- a row with a **blank field** — it compares `""`, the same answer every time;
+- an **operator the evaluator does not apply** (`==`, `equals`, none) — no case
+  matches. The list is `evaluator.IsConditionOperator`, held to
+  `EvaluateConditions` by `TestConditionOperatorsAreTheOnesEvaluated`. The
+  editor *displays* `=` for a missing operator (`cond.operator || '='`).
+
+Deliberately not in the engine or `Registry.ValidateWorkflow`: an active
+workflow restarts through the registry, so one that already runs such a node
+keeps running (`TestAnEmptyConditionStillRunsTheWayItDid`). Not applied to a
+switch — its config parsed as conditions is a row with a field and no operator.
 
 ## There is no TypeScript twin to keep in step
 

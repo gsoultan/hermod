@@ -26,9 +26,16 @@ interface FilterEditorProps {
   conditions: Condition[];
   availableFields: any[];
   onChange: (next: Condition[]) => void;
+  /** What an empty list means for the node using the editor. */
+  emptyText?: string;
 }
 
-export function FilterEditor({ conditions = [], availableFields = [], onChange }: FilterEditorProps) {
+export function FilterEditor({
+  conditions = [],
+  availableFields = [],
+  onChange,
+  emptyText = 'No filters defined. All messages will pass.',
+}: FilterEditorProps) {
   const fieldPaths = useMemo(() => 
     (availableFields || []).map(f => typeof f === 'string' ? f : f.path),
     [availableFields]
@@ -72,7 +79,7 @@ export function FilterEditor({ conditions = [], availableFields = [], onChange }
           style={{ borderStyle: 'dashed', textAlign: 'center' }}
         >
           <Text size="xs" c="dimmed">
-            No filters defined. All messages will pass.
+            {emptyText}
           </Text>
         </Paper>
       ) : (

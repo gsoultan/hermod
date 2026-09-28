@@ -12,13 +12,23 @@ row with its own before-image. A running workflow whose condition sent one
 branch through a node and the other straight to the same sink could lose every
 message on the straight branch, depending on the order its edges were drawn. A
 `{{.before.status}}` or `{{.after.status}}` in a condition's value rendered as
-empty text, so `=` was false for every row.
+empty text, so `=` was false for every row. An If node that gives every message
+the same answer — no conditions, a condition with no field, or an operator
+Hermod does not know — is now refused when its workflow is saved or started.
 
 ### Upgrading
 
-Nothing to do. The messages a rejoining branch lost were never acknowledged as
-delivered: with a dead-letter sink they are parked there, and without one they
-stayed on the source and were logged as "Messages delivered nowhere".
+**An If node that cannot decide is refused on save and start.** A condition node
+with no conditions sent every message down TRUE; one with a condition that has
+no field, or an operator such as `==` or `equals`, gave every message the same
+answer. None of it was reported. Saving or starting such a workflow from the
+editor now fails, naming the node and what to fix. A workflow that already runs
+one keeps running, including when Hermod restarts, until it is saved or started
+again.
+
+The messages a rejoining branch lost were never acknowledged as delivered: with
+a dead-letter sink they are parked there, and without one they stayed on the
+source and were logged as "Messages delivered nowhere".
 
 A condition, filter, switch case or router rule whose value holds a `{{ }}`
 token for anything but one of the row's own columns — `{{.after.x}}`,
@@ -49,6 +59,18 @@ the value resolved only the row's own columns, so those tokens — and
 `=` was false for every row whatever it held. A token now reads a path exactly
 the way the condition's field does, including the text a number, a timestamp or
 a byte column is compared as.
+
+### An If node that cannot decide is refused
+
+An empty condition list is true to the evaluator, which is right for a Filter —
+no rule keeps everything — and wrong for an If node, which then sends every
+message down TRUE and never uses its FALSE branch. A condition with no field
+compares an empty value, and an operator the evaluator does not know matches
+nothing. Each of these used to save, run and stay silent. They are now errors
+when the workflow is saved or started, alongside the existing check for a regex
+that does not compile, and the If node's editor says what an empty list does:
+every message takes the TRUE branch. The engine itself is unchanged, so nothing
+already running changes its routing.
 
 ## [1.15.2] — 2026-09-28
 

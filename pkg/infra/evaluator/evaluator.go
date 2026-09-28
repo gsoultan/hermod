@@ -1706,6 +1706,21 @@ func compilePattern(expr string) (*regexp.Regexp, error) {
 	return re, err
 }
 
+// conditionOperators is every operator EvaluateConditions applies. Any other
+// spelling reaches no case there and leaves `match` false, so a condition using
+// it fails every message; TestConditionOperatorsAreTheOnesEvaluated holds the
+// two together.
+var conditionOperators = map[string]bool{
+	"=": true, "eq": true, "!=": true, "neq": true,
+	">": true, "gt": true, ">=": true, "gte": true,
+	"<": true, "lt": true, "<=": true, "lte": true,
+	"contains": true, "not_contains": true,
+	"regex": true, "not_regex": true,
+}
+
+// IsConditionOperator reports whether EvaluateConditions applies op.
+func IsConditionOperator(op string) bool { return conditionOperators[op] }
+
 // ValidateConditions reports the first condition whose regex cannot compile.
 //
 // It exists because a pattern that does not compile is not a condition that
