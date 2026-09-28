@@ -42,6 +42,12 @@ func (m *mockRegistry) RunWorkflowNode(workflowID string, node *storage.Workflow
 	if m.RunWorkflowNodeFn != nil {
 		return m.RunWorkflowNodeFn(workflowID, node, msg)
 	}
+	// Returning the input: the caller releases it, so hand it a reference, the
+	// way Registry.runWorkflowNode does. Without it every node released the
+	// message once more than it held, the message went back to the pool while
+	// still in use, and whichever test acquired it next failed instead — the
+	// fan-out tests, one run in three.
+	msg.Retain()
 	return []hermod.Message{msg}, "", nil
 }
 func (m *mockRegistry) IsDebuggerAttached(workflowID string) bool                             { return false }
@@ -64,6 +70,9 @@ func TestWorkflowTraversal_ConditionalJoinReached(t *testing.T) {
 
 	reg := &mockRegistry{
 		RunWorkflowNodeFn: func(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error) {
+			// Both paths below return the input: the caller releases it, so hand
+			// it a reference.
+			msg.Retain()
 			if node.Type == "switch" {
 				if e, ok := interfaces.GetNodeExecutor("switch"); ok {
 					return e.Execute(context.Background(), nil, workflowID, node, msg)
