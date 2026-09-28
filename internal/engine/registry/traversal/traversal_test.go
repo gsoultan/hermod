@@ -20,6 +20,10 @@ type mockRegistry struct {
 	RunWorkflowNodeFn func(workflowID string, node *storage.WorkflowNode, msg hermod.Message) ([]hermod.Message, string, error)
 	Logs              []string
 
+	// Nodes on parallel branches log from their own goroutines — two that fail
+	// together both report it.
+	logsMu sync.Mutex
+
 	breakerMu       sync.Mutex
 	BreakerFailures []string
 }
@@ -53,6 +57,8 @@ func (m *mockRegistry) RunWorkflowNode(workflowID string, node *storage.Workflow
 func (m *mockRegistry) IsDebuggerAttached(workflowID string) bool                             { return false }
 func (m *mockRegistry) PauseForDebugger(workflowID string, nodeID string, msg hermod.Message) {}
 func (m *mockRegistry) BroadcastLog(workflowID, level, msg, details string) {
+	m.logsMu.Lock()
+	defer m.logsMu.Unlock()
 	m.Logs = append(m.Logs, msg)
 }
 func (m *mockRegistry) Logger() hermod.Logger { return m.LogSvc }
