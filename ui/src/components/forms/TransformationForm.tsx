@@ -6,7 +6,7 @@ import { apiFetch } from '@/api';
 import { usePreviewTransformation } from '../../pages/workflows/WorkflowEditor/hooks/usePreviewTransformation';
 import { useTargetSchema } from '../../pages/workflows/WorkflowEditor/hooks/useTargetSchema';
 import { resolveConfigComponent } from '../workflow/Transformation/configs/registry';
-import { nextColumnFieldName } from '../workflow/Transformation/columnFields';
+import { nextColumnFieldName } from '../workflow/Transformation/fieldMappings/columnFields';
 // Lazy-load heavy UI components to reduce initial bundle size (Junie compliance)
 const PreviewPanel = lazy(() =>
   import('../workflow/Transformation/PreviewPanel').then((m) => ({ default: m.PreviewPanel }))

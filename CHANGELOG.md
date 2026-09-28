@@ -7,6 +7,49 @@ This file starts at 1.0.0. Everything published before it was withdrawn — see
 
 ## [Unreleased]
 
+### A Set Fields value that is a JSON object reads its `source.` paths
+
+`column.after.QueryParams` set to
+`{"session": "source.after.session.sessions.0.access_token"}` wrote the object
+through exactly as configured, so the path text went out where the token
+belonged, and a request built from it sent that text as the session. Only a
+value that was a single string was ever evaluated. Inside an object or an array,
+text that starts with `source.` or holds a `{{ }}` token is now read; every other
+value is kept as written, so `"007"` stays `"007"` rather than becoming the
+number 7 the way a row's own expression would.
+
+`{{ }}` tokens resolve in every Set Fields and Advanced value:
+`{{source.after.token}}`, `{{.after.token}}`, and text such as
+`Bearer {{source.after.token}}`. The panel said to use `{{.field}}`, but no value
+resolved it. A token that is the whole value keeps its type, so an object stays
+an object. `{{env.X}}` reads nothing, as in every other template, and a value
+read from the message is never read again as a token or an expression.
+
+The node also stopped handing its configured object to the message. A later
+node writing into that object — `column.after.QueryParams.page` — wrote into
+this node's config, so every following message carried the previous message's
+value, and two messages in flight wrote the same map.
+
+### The Set Fields panel edits a mapping as rows or as JSON, with room for both
+
+The raw-JSON box was two lines tall — `minRows` does nothing on a textarea that
+is not autosized — and each row cut its path and value to about a dozen
+characters, showing an object value as `[object Object]` and replacing it with
+that text on the next keystroke. The panel now shows one editor at a time,
+switched with **Visual | JSON**:
+
+- A row gives its target path and its value the full width, and wraps its
+  controls below the path in a narrow drawer. A value is an **Expression** or
+  **JSON**; switching keeps it.
+- The JSON view grows with its content, offers **Format**, and opens in a larger
+  editor.
+- A stored `0` or `false` shows as itself instead of an empty box.
+- The syntax guide says what the engine reads. The "Quick add from source"
+  badges, which listed the first five fields, are gone: **+** beside a field in
+  Available Fields does the same for any field.
+
+The Advanced node uses the same panel.
+
 ## [1.16.0] — 2026-09-28
 
 A workflow can list a panmail tenant's email providers. The new **Panmail

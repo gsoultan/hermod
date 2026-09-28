@@ -35,12 +35,84 @@ func NewEvaluator() *Evaluator {
 
 // ... existing helpers ...
 
+// EvaluateAdvancedExpression evaluates one `set` or `advanced` column value.
+//
+// A string is an expression -- source.x, a literal, a function call -- unless
+// it holds a {{ }} token, which makes it a template. An object or an array is
+// a JSON document, and only a value that asks to be read is read inside it;
+// see evaluateDocument.
+//
+// Only a string used to be evaluated. Anything else was returned as it was
+// configured, so `{"session": "source.after.token"}` reached the message with
+// the path text where the token belonged -- and it reached it by reference, so
+// a later node writing into that object wrote into this node's config, and the
+// next message through here carried the previous message's value.
 func (e *Evaluator) EvaluateAdvancedExpression(msg hermod.Message, expr any) any {
-	valStr, ok := expr.(string)
-	if !ok {
-		return expr
+	switch v := expr.(type) {
+	case string:
+		if strings.Contains(v, "{{") {
+			return resolveValueTemplate(msg, v)
+		}
+		return e.ParseAndEvaluate(msg, v)
+	case map[string]any, []any:
+		return e.evaluateDocument(msg, v)
 	}
-	return e.ParseAndEvaluate(msg, valStr)
+	return expr
+}
+
+// evaluateDocument returns a copy of a JSON object or array value with its
+// references resolved: a string starting with `source.` is read as a path, and
+// a string holding a {{ }} token is resolved as a template.
+//
+// Every other string stays the text it is. A JSON document already says which
+// of its values are numbers and which are text, so "007" has to stay "007",
+// where the expression reading of a column's own value would make it 7 -- and
+// "Paris (France)" would be called as a function named Paris, which answers
+// nil. A function call is written as a token: "{{lower(source.name)}}".
+//
+// The copy is not optional. The configured document belongs to the node and
+// is shared by every message through it.
+func (e *Evaluator) evaluateDocument(msg hermod.Message, v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, x := range t {
+			out[k] = e.evaluateDocument(msg, x)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, x := range t {
+			out[i] = e.evaluateDocument(msg, x)
+		}
+		return out
+	case string:
+		switch {
+		case strings.Contains(t, "{{"):
+			return resolveValueTemplate(msg, t)
+		case strings.HasPrefix(strings.TrimSpace(t), "source."):
+			return e.ParseAndEvaluate(msg, t)
+		}
+	}
+	return v
+}
+
+// resolveValueTemplate resolves the {{ }} tokens in a column value, reading
+// each one the way the value's own `source.x` reads: {{source.a}}, {{.a}},
+// {{a}} and source.a are the same value, and {{.after.a}} reaches the CDC
+// envelope.
+//
+// A value that is exactly one token takes that token's value as it is -- an
+// object stays an object and a number a number, as a whole token does in a
+// JSON request body. Anything else is text with each token written in.
+//
+// One forward pass, as in every template: a resolved value is written as data
+// and never read again, as a token or as an expression.
+func resolveValueTemplate(msg hermod.Message, temp string) any {
+	if path, whole := wholeToken(strings.TrimSpace(temp)); whole {
+		return fieldToken(msg, path)
+	}
+	return scanTemplate(temp, func(path string) string { return stringify(fieldToken(msg, path)) })
 }
 
 func (e *Evaluator) ParseAndEvaluate(msg hermod.Message, expr string) any {
@@ -1452,13 +1524,17 @@ func resolveTemplatePath(path string, data map[string]any) string {
 // keeps Go types for SQL binding, so a []byte or a time.Time would render
 // differently from the field it is compared with.
 func resolveConditionValue(temp string, msg hermod.Message) string {
-	return scanTemplate(temp, func(path string) string {
-		if strings.HasPrefix(path, "env.") {
-			// Environment variable access is disabled for security reasons
-			return ""
-		}
-		return stringify(EvaluateField(msg, strings.TrimPrefix(path, ".")))
-	})
+	return scanTemplate(temp, func(path string) string { return stringify(fieldToken(msg, path)) })
+}
+
+// fieldToken reads one {{ }} token's inner text as a field, a `source.` path or
+// a function call -- EvaluateField, after the leading dot a template writes.
+func fieldToken(msg hermod.Message, path string) any {
+	if strings.HasPrefix(path, "env.") {
+		// Environment variable access is disabled for security reasons
+		return nil
+	}
+	return EvaluateField(msg, strings.TrimPrefix(path, "."))
 }
 
 func EvaluateField(msg hermod.Message, field string) any {

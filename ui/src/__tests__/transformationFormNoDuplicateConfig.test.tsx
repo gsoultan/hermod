@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { VHostProvider } from '@/context/VHostContext'
@@ -67,9 +67,17 @@ describe('transformation config renders once per type', () => {
   // for a single control.
   const isControl = (el: HTMLElement) => el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
 
+  // set and advanced show their field rows or their raw JSON, one at a time;
+  // the JSON editor is the one behind the switch.
+  const behindViewSwitch = new Set(['set', 'advanced'])
+
   for (const [type, label, extra] of cases) {
     it(`${type}: one "${label.source}" control`, async () => {
       renderType(type, extra)
+      if (behindViewSwitch.has(type)) {
+        const view = await screen.findByRole('radiogroup', { name: /editor view/i }, { timeout: 5000 })
+        fireEvent.click(within(view).getByRole('radio', { name: 'JSON' }))
+      }
       const labelled = await screen.findAllByLabelText(label, undefined, { timeout: 5000 })
       const controls = labelled.filter(isControl)
       expect(controls, `${type} renders its ${label.source} control ${controls.length} times`).toHaveLength(1)

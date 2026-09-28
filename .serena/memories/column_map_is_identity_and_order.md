@@ -16,7 +16,7 @@ each character sent its row to the bottom — and rows are keyed by position, so
 the caret was left in whichever row moved up into it. Typing `_id` into the first
 of three rows produced `alpha_`, `betai`, `gammad`.
 
-Fix: `renameColumnField` (`ui/src/components/workflow/Transformation/columnFields.ts`)
+Fix: `renameColumnField` (`ui/src/components/workflow/Transformation/fieldMappings/columnFields.ts`)
 rebuilds the whole object, substituting the key **in place**. Rows must stay keyed
 by index, not by `fullKey` — the key changes every keystroke and React would
 unmount the input being typed into.

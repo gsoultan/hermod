@@ -2,12 +2,12 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import { useEffect, useState } from 'react'
-import { SetFieldEditor } from '@/components/workflow/Transformation/SetFieldEditor'
+import { SetFieldEditor } from '@/components/workflow/Transformation/fieldMappings/SetFieldEditor'
 import {
   listColumnFields,
   nextColumnFieldName,
   renameColumnField,
-} from '@/components/workflow/Transformation/columnFields'
+} from '@/components/workflow/Transformation/fieldMappings/columnFields'
 
 /**
  * A `set` (or `advanced`) node stores its field mappings as flat `column.<path>`
@@ -49,7 +49,6 @@ function Harness({
         updateNodeConfig={updateNodeConfig}
         availableFields={[]}
         transType="set"
-        onAddFromSource={() => {}}
         addField={() => {}}
       />
     </MantineProvider>
